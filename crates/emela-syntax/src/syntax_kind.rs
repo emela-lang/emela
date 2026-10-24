@@ -372,6 +372,9 @@ pub enum SyntaxKind {
     WITH_EXPR,
     /// An item of `with` that plugs a provider into a label. `AuditLog by HandlerA`
     WITH_BY,
+    /// A handler with the arguments of its init, as an item of `with` or `layer` or the right
+    /// of `by`. `WorkerKv(binding: "KV")`. Without arguments, the item is a bare PATH.
+    SUPPLY,
     /// `find(id) escape { NotFound(_) -> guest() }`
     ESCAPE_EXPR,
     /// `fn(n) { n + 1 }`

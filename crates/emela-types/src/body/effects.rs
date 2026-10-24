@@ -72,6 +72,21 @@ impl BodyInfer<'_> {
                             .add_subset_of(SetKind::Effects, row, declared, Origin::Body(def));
                     }
                 }
+                // The arguments of a layer's items cannot have effects (`[effect.layer]`).
+                Some(Item::Layer(item)) => {
+                    for (member, m) in item.members.iter().enumerate() {
+                        for arg in m.args.iter().flat_map(|a| &a.args) {
+                            let row = self.expr_effects(arg.value);
+                            let origin = Origin::LayerArg {
+                                layer: def,
+                                member,
+                                arg: arg.value,
+                            };
+                            self.ctx
+                                .add_subset_of(SetKind::Effects, row, Row::empty(), origin);
+                        }
+                    }
+                }
                 // A const's value cannot have effects (spec 5.6).
                 Some(Item::Const(item)) => {
                     let row = self.expr_effects(item.value);
@@ -201,8 +216,20 @@ impl BodyInfer<'_> {
     /// an effect also provides the effect's labels declared `default`, unless the same `with`
     /// gives them a provider; those are removed from the body's R only, not from the other
     /// providers' dependencies (issue #255).
+    ///
+    /// The arguments of init are evaluated outside the `with`, so their R is added as is: the
+    /// items of the same `with` do not provide it. The R of the arguments of a handler a later
+    /// item overrides is not added, since they are not evaluated (`[effect.with]`).
     fn with_effects(&mut self, expr: ExprId, items: &[WithItem], body: ExprId) -> Row {
         let program = self.program;
+        let arg_rows: Vec<Vec<Row>> = items
+            .iter()
+            .map(|item| {
+                layer::item_args(item)
+                    .map(|arg| self.expr_effects(arg))
+                    .collect()
+            })
+            .collect();
         let body_row = self.expr_effects(body);
         layer::check_with_items(program, self.sigs, self.ty_table, items, &mut self.diags);
         let entries = layer::with_entries(program, self.sigs, self.ty_table, items);
@@ -237,12 +264,23 @@ impl BodyInfer<'_> {
                 .collect();
             row.extend(&self.subtract(deps, &others));
         }
+        let initialized: Vec<bool> = (0..items.len())
+            .map(|i| layer::item_initialized(&entries, i))
+            .collect();
+        for (rows, &init) in arg_rows.iter().zip(&initialized) {
+            if init {
+                for r in rows {
+                    row.extend(r);
+                }
+            }
+        }
         self.withs.push(PendingWith {
             expr,
             body,
             entries,
             deps,
             defaults,
+            initialized,
         });
         row
     }
@@ -279,6 +317,7 @@ impl BodyInfer<'_> {
                 entries,
                 deps,
                 defaults,
+                initialized,
             } = w;
             let deps: Vec<Row> = deps.iter().map(|d| self.ctx.resolve_row(d)).collect();
             let order = match layer::init_order(&entries, &deps) {
@@ -310,10 +349,17 @@ impl BodyInfer<'_> {
                 .map(|&i| WithBind {
                     effect: entries[i].effect.clone(),
                     supplier: entries[i].supplier.clone(),
+                    args: entries[i].args,
                 })
                 .collect();
-            self.with_handlers
-                .insert(expr, WithInfo { binds, defaults });
+            self.with_handlers.insert(
+                expr,
+                WithInfo {
+                    binds,
+                    defaults,
+                    initialized,
+                },
+            );
         }
     }
 

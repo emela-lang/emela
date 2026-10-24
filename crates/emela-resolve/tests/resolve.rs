@@ -786,3 +786,58 @@ fn with_body() -> Int { 1 }
 "##,
     )]));
 }
+
+/// `[effect.handler]`: the parameters of init are in scope in its body only. The arguments of
+/// `with`, `layer` and the right of `by` are resolved where the item is written.
+#[test]
+fn handler_init_arguments() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"pub effect Kv {
+  fn get(key: String) -> String
+}
+
+effect AuditKv of Kv
+
+const NAME: String = "KV"
+
+handler WorkerKv(binding: String): Kv {
+  init(binding: String, retries: Int) { WorkerKv(binding:) }
+  fn get(key) { self.binding }
+}
+
+layer AppLive {
+  WorkerKv(binding: NAME, retries: 3)
+}
+
+fn main() {
+  name = "KV"
+  with WorkerKv(binding: name, retries: 1) { (use Kv).get("a") }
+  with AppLive, AuditKv by WorkerKv(name, 2) { (use AuditKv).get("a") }
+}
+"##,
+    )]));
+}
+
+/// `H(...)` at a `with` is a call of init, not a construction of the handler value, so it is not
+/// a record update (E0222). The parameters of init are not seen outside it.
+#[test]
+fn handler_init_argument_errors() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"pub effect Kv {
+  fn get(key: String) -> String
+}
+
+handler WorkerKv(binding: String): Kv {
+  init(binding: String) { WorkerKv(binding:) }
+  fn get(key) { binding }
+}
+
+fn main(base: Int) {
+  with WorkerKv(binding: "a", ..base) { (use Kv).get("a") }
+  with WorkerKv(binding: missing) { (use Kv).get("a") }
+}
+"##,
+    )]));
+}

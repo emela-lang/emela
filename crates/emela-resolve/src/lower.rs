@@ -54,10 +54,16 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         ast::Item::Handler(h) => lower.handler_item(pending.def, pending.ctor, h),
         ast::Item::Layer(l) => {
             let members = l
-                .handlers()
-                .map(|p| {
+                .members()
+                .filter_map(|s| {
+                    let p = s.path()?;
                     let res = lower.resolve_type_ns(&p, Expected::HandlerOrLayer);
-                    (res, lower.span(p.syntax().text_range()))
+                    let args = lower.supply_args(&s, res);
+                    Some(LayerMember {
+                        res,
+                        span: lower.span(p.syntax().text_range()),
+                        args,
+                    })
                 })
                 .collect();
             Item::Layer(LayerItem { members })
@@ -576,8 +582,18 @@ impl Lower<'_, '_> {
             None => Res::Err,
         };
         let effect_args = self.type_arg_list(h.effect_type_args());
-        // `init` runs on entering `with` and builds the handler value; there is no `self` yet.
-        let init = h.init().map(|b| self.block(&b));
+        // `init` runs on entering `with` and builds the handler value; there is no `self` yet. Its
+        // parameters are in scope in its body only.
+        let (init_params, init) = match h.init() {
+            Some(b) => {
+                self.push_scope();
+                let params = self.params(h.init_params(), LocalKind::Param);
+                let body = self.block(&b);
+                self.pop_scope();
+                (params, Some(body))
+            }
+            None => (Vec::new(), None),
+        };
         let release = h.release().map(|b| {
             self.push_scope();
             let local = self.implicit_self(def);
@@ -624,6 +640,7 @@ impl Lower<'_, '_> {
             fields,
             ctor,
             init,
+            init_params,
             release,
             ops,
         })
@@ -1287,29 +1304,42 @@ impl Lower<'_, '_> {
                     .children()
                     .filter_map(|c| {
                         if c.kind() == WITH_BY {
-                            let mut paths = c.children().filter_map(ast::Path::cast);
-                            let label = paths.next()?;
-                            let res = self.resolve_type_ns(&label, Expected::Label);
-                            let by = paths.next().map(|p| {
+                            let mut supplies = c.children().filter_map(ast::Supply::cast);
+                            let label = supplies.next()?;
+                            let res = match label.path() {
+                                Some(p) => self.resolve_type_ns(&p, Expected::Label),
+                                None => Res::Err,
+                            };
+                            let args = self.supply_args(&label, res);
+                            let mut by_init_args = None;
+                            let by = supplies.next().and_then(|s| {
+                                let p = s.path()?;
                                 let res = self.resolve_type_ns(&p, Expected::HandlerOrEffect);
-                                (res, self.span(p.syntax().text_range()))
+                                by_init_args = self.supply_args(&s, res);
+                                Some((res, self.span(p.syntax().text_range())))
                             });
                             let by_args = self
                                 .type_arg_list(c.children().find(|n| n.kind() == TYPE_ARG_LIST));
                             return Some(WithItem {
                                 res,
                                 span: self.span(c.text_range()),
+                                args,
                                 by: Some(by.unwrap_or((Res::Err, self.span(c.text_range())))),
                                 by_args,
+                                by_init_args,
                             });
                         }
-                        let p = ast::Path::cast(c)?;
+                        let s = ast::Supply::cast(c)?;
+                        let p = s.path()?;
                         let res = self.resolve_type_ns(&p, Expected::WithItem);
+                        let args = self.supply_args(&s, res);
                         Some(WithItem {
                             res,
                             span: self.span(p.syntax().text_range()),
+                            args,
                             by: None,
                             by_args: Vec::new(),
+                            by_init_args: None,
                         })
                     })
                     .collect();
@@ -1568,53 +1598,84 @@ impl Lower<'_, '_> {
 
     fn call(&mut self, node: &SyntaxNode) -> ExprKind {
         let callee = self.child_expr(node, 0);
-        let mut args = Vec::new();
-        let mut spread = None;
-        if let Some(list) = node.children().find(|c| c.kind() == ARG_LIST) {
-            for arg in list.children() {
-                if arg.kind() == SPREAD_ARG {
-                    // A `..` without an expression is already reported by the syntax checks.
-                    if let Some(e) = arg.children().find(|c| is_expr(c.kind())) {
-                        spread = Some(self.expr(&e));
-                    }
-                    continue;
-                }
-                if arg.kind() == NAMED_ARG {
-                    let Some(token) = child_token(&arg, LOWER_NAME) else {
-                        continue;
-                    };
-                    let (name, range) = token_name(&token);
-                    let label = Label {
-                        name: name.clone(),
-                        span: self.span(range),
-                    };
-                    // `NotFound(id:)` is short for `id: id`.
-                    let (value, punned) = match arg.children().find(|c| is_expr(c.kind())) {
-                        Some(e) => (self.expr(&e), false),
-                        None => {
-                            let res = self.value(&name, range, LOWER_NAME);
-                            (self.alloc_expr(ExprKind::Path(res), range), true)
-                        }
-                    };
-                    args.push(Arg {
-                        label: Some(label),
-                        value,
-                        punned,
-                    });
-                } else if is_expr(arg.kind()) {
-                    let value = self.expr(&arg);
-                    args.push(Arg {
-                        label: None,
-                        value,
-                        punned: false,
-                    });
-                }
-            }
-        }
+        let (args, spread) = match node.children().find(|c| c.kind() == ARG_LIST) {
+            Some(list) => self.arg_list(&list),
+            None => (Vec::new(), None),
+        };
         match spread {
             Some(base) => self.update(callee, args, base),
             None => ExprKind::Call { callee, args },
         }
+    }
+
+    /// The arguments in an ARG_LIST, and the expression after a trailing `..`.
+    fn arg_list(&mut self, list: &SyntaxNode) -> (Vec<Arg>, Option<ExprId>) {
+        let mut args = Vec::new();
+        let mut spread = None;
+        for arg in list.children() {
+            if arg.kind() == SPREAD_ARG {
+                // A `..` without an expression is already reported by the syntax checks.
+                if let Some(e) = arg.children().find(|c| is_expr(c.kind())) {
+                    spread = Some(self.expr(&e));
+                }
+                continue;
+            }
+            if arg.kind() == NAMED_ARG {
+                let Some(token) = child_token(&arg, LOWER_NAME) else {
+                    continue;
+                };
+                let (name, range) = token_name(&token);
+                let label = Label {
+                    name: name.clone(),
+                    span: self.span(range),
+                };
+                // `NotFound(id:)` is short for `id: id`.
+                let (value, punned) = match arg.children().find(|c| is_expr(c.kind())) {
+                    Some(e) => (self.expr(&e), false),
+                    None => {
+                        let res = self.value(&name, range, LOWER_NAME);
+                        (self.alloc_expr(ExprKind::Path(res), range), true)
+                    }
+                };
+                args.push(Arg {
+                    label: Some(label),
+                    value,
+                    punned,
+                });
+            } else if is_expr(arg.kind()) {
+                let value = self.expr(&arg);
+                args.push(Arg {
+                    label: None,
+                    value,
+                    punned: false,
+                });
+            }
+        }
+        (args, spread)
+    }
+
+    /// The arguments of init written on an item of `with` or `layer` (`WorkerKv(binding: "KV")`,
+    /// `[effect.handler]`). `res` is what the item names. They are a call of init, not a
+    /// construction of the handler value, so a trailing `..` (a record update, spec 5.3) is
+    /// E0222.
+    fn supply_args(&mut self, supply: &ast::Supply, res: Res) -> Option<SupplyArgs> {
+        let list = supply.arg_list()?;
+        let (args, spread) = self.arg_list(&list);
+        if let Some(base) = spread {
+            let range = self.r.program.exprs[base].span.range;
+            let (name, found) = match res {
+                Res::Def(def) => {
+                    let data = &self.r.program.defs[def];
+                    (Some(data.name.clone()), data.kind.describe())
+                }
+                _ => (None, "expression"),
+            };
+            self.error(range, DiagnosticKind::InvalidUpdateTarget { name, found });
+        }
+        Some(SupplyArgs {
+            args,
+            span: self.span(list.text_range()),
+        })
     }
 
     /// A record update `C(f: e, ..base)` (spec 5.3). `C` must have a single constructor (a type,

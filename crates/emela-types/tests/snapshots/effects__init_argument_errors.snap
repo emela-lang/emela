@@ -1,0 +1,66 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Kv {\n  fn get(key: String) -> String\n}\n\neffect AuditKv of Kv\n\nhandler RemoteKv(url: String): Kv {\n  init(url: String, retries: Int) { RemoteKv(url:) }\n  fn get(key) { self.url }\n}\n\nhandler FakeKv: Kv {\n  fn get(key) { \"\" }\n}\n\nhandler Untyped(url: String): Kv {\n  init(url) { Untyped(url:) }\n  fn get(key) { self.url }\n}\n\nlayer AppLive {\n  FakeKv\n}\n\nlayer Missing {\n  RemoteKv\n}\n\nfn f() {\n  with RemoteKv { (use Kv).get(\"a\") }\n  with AuditKv by RemoteKv { (use AuditKv).get(\"a\") }\n  with FakeKv() { (use Kv).get(\"a\") }\n  with FakeKv(1) { (use Kv).get(\"a\") }\n  with AppLive(1) { (use Kv).get(\"a\") }\n  with AuditKv(1) by FakeKv { (use AuditKv).get(\"a\") }\n  with RemoteKv(\"a\") { (use Kv).get(\"a\") }\n  with RemoteKv(\"a\", 1, 2) { (use Kv).get(\"a\") }\n  with RemoteKv(url: \"a\", tries: 1) { (use Kv).get(\"a\") }\n  with RemoteKv(\"a\", url: \"b\") { (use Kv).get(\"a\") }\n  with RemoteKv(url: 1, retries: 1), FakeKv { (use Kv).get(\"a\") }\n}\n\"#)"
+---
+f: fn() -> String
+handler RemoteKv: use {}
+handler FakeKv: use {}
+handler Untyped: use {}
+`url` MissingInitParamType { handler: "Untyped", param: "url" }
+`RemoteKv` MissingInitArgs { handler: "RemoteKv", params: ["url", "retries"] }
+`RemoteKv` MissingInitArgs { handler: "RemoteKv", params: ["url", "retries"] }
+`RemoteKv` MissingInitArgs { handler: "RemoteKv", params: ["url", "retries"] }
+`()` UnexpectedInitArgs { name: "FakeKv", kind: "handler" }
+`(1)` UnexpectedInitArgs { name: "FakeKv", kind: "handler" }
+`(1)` UnexpectedInitArgs { name: "AppLive", kind: "layer" }
+`(1)` UnexpectedInitArgs { name: "AuditKv", kind: "label" }
+`("a")` WrongArgCount { callee: Some("RemoteKv"), expected: 2, found: 1 }
+`("a", 1, 2)` WrongArgCount { callee: Some("RemoteKv"), expected: 2, found: 3 }
+`tries` UnknownLabel { callee: "RemoteKv", label: "tries" }
+`url` DuplicateArg { label: "url" }
+`1` mismatch: expected `String`, found `Int`
+--- R
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+{ (use AuditKv).get("a") }: AuditKv
+(use AuditKv).get("a"): AuditKv
+(use AuditKv).get: AuditKv
+use AuditKv: AuditKv
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+{ (use AuditKv).get("a") }: AuditKv
+(use AuditKv).get("a"): AuditKv
+(use AuditKv).get: AuditKv
+use AuditKv: AuditKv
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv

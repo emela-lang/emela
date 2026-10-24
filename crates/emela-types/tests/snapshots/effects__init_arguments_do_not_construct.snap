@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Kv {\n  fn get(key: String) -> String\n}\n\nhandler RemoteKv(url: String): Kv {\n  init(url: String) { RemoteKv(url:) }\n  fn get(key) { self.url }\n}\n\nfn ok() {\n  with RemoteKv(url: \"a\") { (use Kv).get(\"a\") }\n}\n\nfn bad() {\n  RemoteKv(url: \"a\")\n}\n\"#)"
+---
+ok: fn() -> String
+bad: fn() -> RemoteKv
+handler RemoteKv: use {}
+`RemoteKv` HandlerCtorOutsideInit { handler: "RemoteKv" }
+--- R
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv

@@ -92,6 +92,8 @@ pub enum DiagnosticKind {
     OpaqueField { ty: Ty, field: SmolStr },
     /// A top-level fn parameter without a type (E0316, spec 6.1).
     MissingParamType { param: SmolStr },
+    /// A parameter of a handler's init without a type (E0316, `[effect.handler]`).
+    MissingInitParamType { handler: SmolStr, param: SmolStr },
     /// E0303, spec 6.5. `missing` holds examples of missing values (`Rect(_, _)`).
     NonExhaustiveMatch { missing: Vec<SmolStr> },
     /// A binding pattern that can fail (E0317, spec 6.3). `missing` holds examples of values that
@@ -106,6 +108,8 @@ pub enum DiagnosticKind {
     UnhandledErrors {
         errors: Vec<SmolStr>,
         declared: bool,
+        /// In the arguments of a layer item, which MUST be pure (`[effect.layer]`).
+        layer_arg: Option<LayerArg>,
     },
     /// A non-error value passed to `fail`, or a single-error type parameter instantiated with a
     /// non-error type (E0319, spec 7.2).
@@ -166,6 +170,16 @@ pub enum DiagnosticKind {
     HandlerCtorOutsideInit { handler: SmolStr },
     /// A handler with fields but no `init` (E0419, spec 8.4).
     MissingInit { handler: SmolStr },
+    /// A handler whose init takes parameters, written without arguments (E0434,
+    /// `[effect.handler]`). `params` are the parameters' names.
+    MissingInitArgs {
+        handler: SmolStr,
+        params: Vec<SmolStr>,
+    },
+    /// Arguments written for something that takes none (E0435, `[effect.handler]`): a handler
+    /// whose init takes no parameters (`with H()` included), a layer, or a label. `kind` names
+    /// what it is (`handler`, `layer`, `label`).
+    UnexpectedInitArgs { name: SmolStr, kind: &'static str },
     /// E0420, spec 8.4. `errors` lists the errors the release can raise.
     ReleaseFails {
         handler: SmolStr,
@@ -323,6 +337,16 @@ pub enum EffectContext {
     Main,
     /// A test function, whose R must be empty (spec 13.3).
     Test { name: SmolStr },
+    /// The arguments of a layer item, which MUST be pure (`[effect.layer]`).
+    LayerArg(LayerArg),
+}
+
+/// An item of a layer with arguments (`WorkerKv(binding: "KV")` in `layer AppLive`), where E and
+/// R MUST be empty (`[effect.layer]`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LayerArg {
+    pub layer: SmolStr,
+    pub handler: SmolStr,
 }
 
 impl DiagnosticKind {

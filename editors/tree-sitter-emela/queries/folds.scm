@@ -1,0 +1,16 @@
+[
+  (function_declaration)
+  (type_declaration)
+  (enum_declaration)
+  (error_declaration)
+  (effect_declaration)
+  (handler_declaration)
+  (layer_declaration)
+  (trait_declaration)
+  (impl_declaration)
+  (block)
+  (match_arms)
+  (arguments)
+  (list_expression)
+  (string)
+] @fold

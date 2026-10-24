@@ -40,6 +40,9 @@ pretty = "0.12"
 # WASM バイナリの直接出力．検査は wasmparser で行う．
 wasm-encoder = "0.261"
 wasmparser = "0.261"
+# WASI 0.3 の component 化: WIT の解決と core module の wrapping．
+wit-parser = "0.261"
+wit-component = "0.261"
 # オフセット ↔ 行・列の変換（CLI 表示と LSP の位置で共有）．
 line-index = "0.1"
 # 端末向けの診断表示．

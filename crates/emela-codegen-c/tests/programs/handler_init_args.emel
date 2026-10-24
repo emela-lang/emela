@@ -1,0 +1,95 @@
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Count {
+  fn next() -> Int
+}
+
+effect Audit of Log
+
+error Bad
+
+# The init of a handler takes parameters (`[effect.handler]`).
+handler Tagged(tag: String): Log {
+  init(tag: String, times: Int) {
+    print("open #{tag} #{times}")
+    Tagged(tag:)
+  }
+
+  release {
+    print("close #{self.tag}")
+  }
+
+  fn log(msg) { print("#{self.tag}: #{msg}") }
+}
+
+handler Counter(start: Int): Count {
+  init(start: Int) {
+    (use Log).log("counter from #{start}")
+    Counter(start:)
+  }
+
+  fn next() { self.start + 1 }
+}
+
+handler Quiet: Log {
+  fn log(msg) { () }
+}
+
+fn note(s: String) -> String {
+  print("arg #{s}")
+  s
+}
+
+fn number(s: String, n: Int) -> Int {
+  print("arg #{s}")
+  n
+}
+
+fn bad(s: String) -> Int fails Bad {
+  print("arg #{s} fails")
+  fail Bad
+}
+
+fn base() -> Int { 40 }
+
+# Pure arguments in a layer (`[effect.layer]`).
+layer AppLive {
+  Tagged(tag: "app", times: base() + 1)
+  Counter(start: base())
+}
+
+fn main() {
+  # Arguments are evaluated in the order the items are written, before any init runs, while
+  # the inits run in the order of the dependencies (`[dyn.with]`).
+  with Counter(start: number("one", 3)), Tagged(times: 2, tag: note("two")) {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  with AppLive {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  # A handler listed after the layer overrides it, with its own arguments.
+  with AppLive, Tagged(tag: note("local"), times: 3) {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  # The arguments of an overridden handler are not evaluated (`[effect.with]`).
+  with Tagged(tag: note("skipped"), times: 4), Quiet {
+    (use Log).log("quiet")
+  }
+  # `L by H(...)` (`[effect.label]`).
+  with Audit by Tagged(tag: "audit", times: 5) {
+    (use Audit).log("audited")
+  }
+  # A failing argument ends the `with` before any init runs: nothing is released.
+  r = with Tagged(tag: note("first"), times: 6), Counter(start: bad("second")) {
+    (use Log).log("unreachable")
+  } escape {
+    Bad -> print("failed with Bad")
+  }
+  r
+}

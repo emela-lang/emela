@@ -51,6 +51,9 @@ static void e0_main(void) {
       if (v3) {
         em_drop(v2);
         v4 = e3_DEFAULT();
+        if (em_defect != NULL) {
+          return;
+        }
         v5 = v4;
         goto s6_end;
       } else {

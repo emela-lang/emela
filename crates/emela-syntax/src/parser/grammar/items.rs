@@ -1,6 +1,6 @@
 //! Declarations (spec 17.3).
 
-use super::expressions::{block, expr};
+use super::expressions::{block, expr, supply};
 use super::param_list;
 use super::types::{effect_type_args, effects_and_errors, path, ret_type, type_};
 use crate::SyntaxKind::*;
@@ -561,7 +561,7 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
 /// `"handler" type_name [ "(" [ fields ] ")" ] ":" type_ref [ "[" type { "," type } "]" ]
 /// "{" { handler_item NL } "}"`
 ///
-/// `handler_item = "init" block | "release" block
+/// `handler_item = "init" [ "(" [ params ] ")" ] block | "release" block
 ///               | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block`
 fn handler_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(HANDLER_KW);
@@ -589,7 +589,7 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
         p.error(DiagnosticCode::ExpectedToken, "expected `:`");
     }
     item_list(p, |p, m| {
-        let kind = if p.at_contextual_kw("init") && p.nth(1) == L_BRACE {
+        let kind = if p.at_contextual_kw("init") && matches!(p.nth(1), L_BRACE | L_PAREN) {
             HANDLER_INIT
         } else if p.at_contextual_kw("release") && p.nth(1) == L_BRACE {
             HANDLER_RELEASE
@@ -601,13 +601,16 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
             return;
         };
         p.bump();
+        if p.at(L_PAREN) {
+            param_list(p);
+        }
         block(p);
         m.complete(p, kind);
     });
     m.complete(p, HANDLER_DECL);
 }
 
-/// `"layer" type_name "{" type_ref { sep type_ref } "}"`
+/// `"layer" type_name "{" supply { sep supply } "}"`
 fn layer_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(LAYER_KW);
     decl_name(p, TYPE_NAME);
@@ -616,7 +619,7 @@ fn layer_decl(p: &mut Parser<'_>, m: Marker) {
         separated_items(p, "handlers", |p, m| {
             m.abandon(p);
             if p.at(TYPE_NAME) {
-                path(p);
+                supply(p);
             } else {
                 p.err_recover(
                     DiagnosticCode::ExpectedToken,
