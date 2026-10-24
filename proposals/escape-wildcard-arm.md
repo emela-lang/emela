@@ -2,7 +2,7 @@
 title: A wildcard arm for escape
 authors: [Alliana]
 status: draft
-pr:
+pr: 420
 issue:
 decided:
 touches: [error.escape, type.rules, module.resolution, diag.list]
