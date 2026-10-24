@@ -12,75 +12,73 @@ related: []
 
 # Exported functions and entries
 
-## 要約
+## Summary
 
-ホストが Emela の関数を呼ぶ口を `@export` で宣言できるようにする．`@external` の逆向きで，本体のある fn に付け，ターゲットごとにホストに見せる名前を書く．引数と返り値は境界型だけ．
+`@export` declares a function that the host calls. It is the reverse of `@external`: it is written on a fn with a body and gives, for each target, the name the host sees. Its parameters and return value are boundary types.
 
-最初の引数に関数を取る `@export` fn は入口アダプタ（entry adapter）になり，それ自体は export されない．エントリのモジュールの fn に `@entry(入口アダプタ)` を付けると，その fn を最初の引数として入口アダプタに渡す export が生まれる．日常の水準の入口（HTTP サービスなど）は，土台の水準で書いた入口アダプタを `@entry` で指して作る．
+An `@export` fn whose first parameter is a function is an entry adapter, and is not exported by itself. Writing `@entry(adapter)` on a fn of the entry module creates an export that passes that fn to the entry adapter as its first argument. Entries at the everyday level (HTTP services and others) are made by pointing `@entry` at an entry adapter written at the foundation level.
 
-## 動機
+## Motivation
 
-- 今の入口は `main`（コマンド）と `@test`（テスト）だけ．Workers の `fetch` と `scheduled`，`wasi:http` の `handle`，組み込みの割り込みハンドラのように，ホストが呼ぶ入口を増やしたい
-- JS ではエントリの pub fn が暗黙に export される（`[target.js.module]`）が，ホストが求める名前（default export の `fetch` など）を選べない．C と WASM には `main` 以外の口が無い
-- 入口の多くは境界型より豊かな型（`Std.Http.Request` など）を使いたい．境界型との変換をアプリを書く人に書かせると，ホストの名前と境界型が日常の水準に出てくる（`[intro.layers]` の「設計の欠陥」）．`x/platform-cloudflare` は今この形
-- 変換をコンパイラに入口の種類ごとに組み込むと，入口を増やすたびにコンパイラを変えることになる．変換は Emela で書き，コンパイラは「入口アダプタに関数を渡して export を作る」ことだけを知る形にしたい
-- 入口を effect（ホストが操作を呼び，プログラムが handler で答える）で表す案もあるが，日常の水準で handler を書かせることになる
+- The only entries today are `main` (a command) and `@test` (a test). We want more entries that the host calls: `fetch` and `scheduled` of Workers, `handle` of `wasi:http`, interrupt handlers on embedded systems.
+- On JS, the pub fns of the entry are exported implicitly (`[target.js.module]`), but the program cannot choose the name the host expects (`fetch` of the default export, for example). C and WASM have no way in other than `main`.
+- Most entries want types richer than boundary types (`Std.Http.Request` and others). If the person writing the application converts to and from boundary types, host names and boundary types appear at the everyday level, which `[intro.layers]` calls a design flaw. `x/platform-cloudflare` is written that way today.
+- Building the conversion into the compiler for each kind of entry would mean changing the compiler for every new kind. The conversion should be written in Emela, and the compiler should only know how to make an export by passing a fn to an entry adapter.
+- Entries could be expressed as effects (the host calls operations, and the program answers with a handler), but that makes people write handlers at the everyday level.
 
-## 提案
+## Proposal
 
 ### `@export`
 
 ```emel
-# C: 割り込みハンドラ
+# C: an interrupt handler
 @export(c, "TIM2_IRQHandler")
 pub fn on_tick() -> () { ... }
 
-# JS: 名前付きの export と，default export の property
+# JS: a named export, and a property of the default export
 @export(js, "add")
 @export(js, "default", "add")
 pub fn add(a: Int, b: Int) -> Int { a + b }
 ```
 
-- 本体のある top level の fn に付ける．引数の形は `@external` と同じ（`(target, "name")` か `(target, "interface", "name")`）
-- 引数と返り値は境界型（`[ext.boundary]`）だけ．E は空，R は Async を除いて空
-- ホストからの1回の呼び出しが1回の起動になる
-- 置けるのはエントリのモジュールだけ（入口アダプタは除く．下）
-- JS: `(js, "name")` は `main.mjs` の名前付きの export，`(js, "default", "name")` は default export の object の property．3引数の形は `@external(js, "file", "name")` と同じく，真ん中が入れ物，最後が名前．JS で真ん中に書けるのは `"default"` だけ．JS の export の名前には `.` を含む任意の文字列が使えるので，`"default.fetch"` のように1つの文字列で書く形は取らない．suspend しうる fn は Promise を返す関数として export される（`@external` の suspend fn が Promise を返す JS の関数であることの逆向き）．defect は Promise の reject（suspend しない fn では例外）になる
-- C: 外部リンケージを持つ関数として `main.c` に出す．プロトタイプは `[ext.boundary]` の表で決まる．R に Async があれば compile error（C で suspend する export の形は決めていない）
-- C: 起動が走っている最中に同じスレッドから export を呼ぶと defect．Emela から呼んだ C の関数の中からの呼び返しも，割り込みハンドラやシグナルハンドラからの呼び出しもこれに当たる．ランタイムは確保や fiber の切り替えの途中に割り込まれると壊れるため．ランタイムが「起動中」の印を持ち，export の入口で確かめる
-- C: 別のスレッドからの呼び出しは規定しない（並列の実行は `[open.list]` #13 で未決）
-- C: `main` が動いていない所から呼ばれたら，最初の呼び出しでランタイムを初期化する．初期化の関数はホストに見せない
-- 割り込みは，C の割り込みハンドラで印を立てるか待ち行列に積み，Emela 側がそれを `@external` で読む．JS で「コールバックからは Deferred で fiber に知らせる」としているのと同じ形
-- WASM: ユーザーの `@export(wasm, ...)` は未対応で，`@external(wasm, ...)` と同じ扱いの error（#56 と一緒に決める）
+- Written on a top-level fn with a body. Its arguments have the same forms as for `@external`: `(target, "name")` or `(target, "interface", "name")`.
+- The parameters and the return value are boundary types (`[ext.boundary]`). E is empty, and R is empty except for Async.
+- Each call by the host is one launch.
+- Allowed only in the entry module (except for entry adapters, below).
+- JS: `(js, "name")` is a named export of `main.mjs`, and `(js, "default", "name")` is a property of the default export, an object. As in `@external(js, "file", "name")`, the middle argument is the container and the last is the name. On JS the middle argument can only be `"default"`. A single string such as `"default.fetch"` is not used, because a JS export name can be any string, including one with `.`. A fn that may suspend is exported as a function that returns a Promise (the reverse of an `@external` suspend fn being a JS function that returns a Promise). A defect rejects the Promise (or throws, for a fn that does not suspend).
+- C: emitted in `main.c` as a function with external linkage. Its prototype is given by the table of `[ext.boundary]`. Async in R is a compile error (the form of an export that suspends in C is not decided).
+- C: calling an export from the same thread while a launch is running is a defect. This includes a call back from a C function that Emela called, and a call from an interrupt or signal handler. The runtime breaks if it is interrupted in the middle of an allocation or a fiber switch. The runtime keeps a mark that a launch is running and checks it on entry to the export.
+- C: a call from another thread is unspecified (parallel execution is still open, `[open.list]` #13).
+- C: when an export is called while `main` is not running, the first call initializes the runtime. No initialization function is exposed to the host.
+- An interrupt is handled by setting a flag or pushing to a queue in a C interrupt handler, which Emela reads with `@external`. This is the same form as on JS, where a callback signals a fiber with a Deferred.
+- WASM: an `@export(wasm, ...)` written by a user is not supported yet, and is an error like `@external(wasm, ...)` (to be decided together with #56).
 
-### 入口アダプタと `@entry`
+### Entry adapters and `@entry`
 
 ```emel
-# 土台の水準（std や Pome）
+# Foundation level (std or a Pome)
 @export(js, "default", "fetch")
 @export(wasm, "wasi:http/handler@0.3.0", "handle")
 pub fn serve[E](app: fn(Request) -> Response fails E use { Async }, incoming: Incoming) -> Outgoing use { Async } {
   ...
 }
 
-# 日常の水準（エントリのモジュール）
+# Everyday level (the entry module)
 @entry(Http.serve)
 pub fn app(request: Request) -> Response { ... }
 ```
 
-- 最初の引数の型が関数型の `@export` fn を入口アダプタ（entry adapter）と呼ぶ．入口アダプタはそれ自体は export されず，どのモジュールにも置ける．依存先の Pome の入口アダプタを `@entry` で指すには，その Pome を `[external] allow` に書く（`@external` と同じ扱い）．最初の引数は境界型でなくてよく，残りの引数と返り値は境界型
-- `@entry(path)` はエントリのモジュールの top level の fn に付ける．path は入口アダプタを指す（`Http.serve`，`Cloudflare.Worker.scheduled`）
-- `@entry(T)` が付いた fn `f` について，T の `@export` ごとに，`fn(rest...) -> R { T(f, rest...) }` を同じ名前で export したものとして扱う．`f` は T の最初の引数に渡せる型でなければならない
-- `f` 自体は普通の fn のまま．テストから直接呼べる
-- 同じターゲットで同じホストの名前に export が2つ以上あれば compile error
+- An `@export` fn whose first parameter has a function type is called an entry adapter. An entry adapter is not exported by itself and can be in any module. To point `@entry` at an entry adapter of a dependency, that Pome is listed in `[external] allow` (as for `@external`). The first parameter need not be a boundary type; the other parameters and the return value are boundary types.
+- `@entry(path)` is written on a top-level fn of the entry module. The path names an entry adapter (`Http.serve`, `Cloudflare.Worker.scheduled`).
+- For a fn `f` with `@entry(T)`, for each `@export` of `T`, the program behaves as if `fn(rest...) -> R { T(f, rest...) }` were exported under that name. `f` MUST be accepted as the first argument of `T`.
+- `f` itself stays an ordinary fn, and tests can call it directly.
+- Two or more exports with the same host name for the same target are a compile error.
 
 ## Specification changes
 
 ### `[glossary.terms]`
 
-Add a row:
-
-> | entry adapter | 入口アダプタ |
+Add the term "entry adapter", with the Japanese term used in discussions. The row is added to `spec/glossary.md` directly when the specification changes are applied, because an adopted proposal is in English.
 
 ### `[kw.annotation]`
 
@@ -115,7 +113,7 @@ qualified    = type_name { "." type_name } "." lower_name ;
 > - The parameters and the return value of an `@export` fn are boundary types (12.4) (E0434). Its E MUST be empty and its R MUST be empty except for Async (E0402).
 > - An `@export` fn that is not an entry adapter is allowed only in the entry module (E0435).
 > - Two exports with the same name for the same target, from `@export` or `@entry`, are a compile error (E0436).
-> - How each target exposes the fn is in `[target.js.export]`, `[target.c.export]` and `[target.wasm.external]`.
+> - How each target exposes the fn is in `[target.js.module]`, `[target.c.export]` and `[target.wasm.external]`.
 
 ### `[ext.entry]` (new)
 
@@ -131,13 +129,13 @@ qualified    = type_name { "." type_name } "." lower_name ;
 Replace the items "The `pub` fns of the entry module and `main` are exported ...", "A `pub` fn with type parameters is exported ...", "A module that exports at least one suspending fn also exports `$start` ..." and "How to call an exported fn whose R has effects other than Async is unspecified" with:
 
 > - Only the fns with `@export(js, ...)`, and the exports made by `@entry`, are exports of `main.mjs` for the host. A `pub` fn without `@export` is not exported for the host; `pub` means only that other modules can see it (`[module.pub]`).
-> - `main.mjs` also has exports that the runtime's launcher and `serve.mjs` use (`main`, `$start`). Their names and forms are not specified for other uses.
+> - `main.mjs` also has exports that the runtime's launcher and other files the compiler writes use (`main`, `$start`). Their names and forms are not specified for other uses.
 > - An `@export(js, "name")` exposes the fn as the named export `name` of `main.mjs`. `@export(js, "default", "name")` makes it the property `name` of the default export of `main.mjs`, an object. On the `js` target, the middle argument of the three-argument form MUST be `"default"` (E0146).
 > - An exported fn that may suspend is a function that returns a Promise. The Promise resolves to the return value, and rejects with the defect if the launch ends with a defect or an interruption. A fn that does not suspend returns its value and throws on a defect.
 
 ### `[target.js.start]`
 
-Replace "When the host calls an exported suspending fn, it returns a generator" with "When the launcher calls a suspending `main`, it returns a generator". The section describes how the runtime's launcher and `serve.mjs` start `main`; an `@export` fn returns a Promise instead (`[target.js.module]`).
+Replace "When the host calls an exported suspending fn, it returns a generator" with "When the launcher calls a suspending `main`, it returns a generator". The section describes how the runtime's launcher starts `main`; an `@export` fn returns a Promise instead (`[target.js.module]`).
 
 ### `[cmd.build]`
 
@@ -179,53 +177,50 @@ E0402: add "an `@export` fn" to the list of contexts.
 
 E0327: mark as unused ("(Unused, because only `@export` fns are exported, and they take only boundary types)"), as E0428 is.
 
-## 診断
+## Diagnostics
 
-- [ ] E0146: `@export` の引数の形
-- [ ] E0434: 境界型でない引数か返り値
-- [ ] E0435: エントリのモジュールの外の `@export`
-- [ ] E0436: 同じ名前の export が2つ
-- [ ] E0437: `@entry` の引数が入口アダプタでない
-- [ ] E0438: fn が入口アダプタの最初の引数に合わない
-- [ ] E0439: C で suspend しうる export
-- [ ] E0402: `@export` fn の R
-- [ ] ユーザーの `@export(wasm, ...)`（コード無し）
+- [ ] E0146: malformed arguments of `@export`
+- [ ] E0434: a parameter or return value that is not a boundary type
+- [ ] E0435: `@export` outside the entry module
+- [ ] E0436: two exports with the same name
+- [ ] E0437: the argument of `@entry` is not an entry adapter
+- [ ] E0438: the fn does not fit the first parameter of the entry adapter
+- [ ] E0439: an export that may suspend on C
+- [ ] E0402: the R of an `@export` fn
+- [ ] `@export(wasm, ...)` written by a user (no code)
 
-## 互換性
+## Compatibility
 
-JS の暗黙の export（エントリの pub fn をすべて export すること）をやめる．JS からエントリの pub fn を呼んでいたコードは壊れる．`@export(js, "name")` を付ければ直る．ただし引数と返り値が境界型でなければ，境界型で包む fn を書く必要がある．
+The implicit export on JS (exporting every pub fn of the entry) is removed. JS code that calls a pub fn of the entry breaks. Adding `@export(js, "name")` fixes it; if the parameters or the return value are not boundary types, a fn that wraps it with boundary types is needed.
 
-`x/platform-cloudflare` の `pub fn fetch` と `worker/entry.mjs` はこの形に頼っているが，`@entry(Http.serve)`（下書き http-service）に移るので書き直す．
+`pub fn fetch` and `worker/entry.mjs` of `x/platform-cloudflare` depend on the implicit export. They move to `@entry(Http.serve)` (proposal http-service) and are rewritten.
 
-E0327（制約付きの型引数を持つ fn の export）は使われなくなる．`@export` は境界型だけを取るので，型引数を持つ fn は E0434 になる．
+E0327 (exporting a fn with a bounded type parameter) is no longer used. `@export` takes only boundary types, so a fn with type parameters is E0434.
 
-## 実装
+## Implementation
 
-- emela-syntax: `@export`，`@entry`，`qualified` の引数
-- emela-types: 境界型，E と R，入口アダプタと `@entry` の照合
-- emela-codegen-js: 名前付き export と default export の object，suspend する export を Promise にする包み
-- emela-codegen-c: 外部リンケージの関数
-- emela-codegen-wasm: std の入口アダプタだけを扱う（http-service）
+- emela-syntax: `@export`, `@entry`, and the `qualified` argument
+- emela-types: boundary types, E and R, matching `@entry` against the entry adapter
+- emela-codegen-js: named exports and the default export object, and the wrapper that turns an export that suspends into a Promise
+- emela-codegen-c: functions with external linkage, the running mark, and lazy initialization of the runtime
+- emela-codegen-wasm: only the entry adapters of std (proposal http-service)
 
-## 採らなかった案
+## Alternatives
 
-- Emela で割り込みハンドラそのものを書けるようにする: 割り込みがメモリの確保や fiber の切り替えの途中に入るとランタイムが壊れる．確保も suspend もしない部分言語を別に定める必要があり，この下書きの範囲を超える
-- C の出力を，`main` を持たないライブラリ（`.a` や `.o`）にする形: 別の下書きで扱う
+- Keeping the implicit export on JS: there would be two ways to call an export (a generator driven by `$start`, and a Promise), and JS code would have to know which one each export uses. Values in their internal representation (List, records) would be visible to JS, so changing the representation would break JS code. `pub` would also mean "visible to the host" in the entry only. The rule that the R of an exported fn is only Async (a local draft, exported-fn-effects) is part of the rules of `@export`, so that draft is no longer needed.
+- Writing interrupt handlers themselves in Emela: an interrupt in the middle of an allocation or a fiber switch breaks the runtime. It would need a separate sublanguage that neither allocates nor suspends, which is beyond this proposal.
+- A C output that is a library without `main` (`.a` or `.o`): left to a separate proposal.
+- Marking each entry by a name (`handle`): every new kind of entry reserves another name, and the form tends to allow only one entry of a kind per program.
+- Choosing the kind by the parameter types of `main` (`main(request: Request)`): only one entry per program. `fetch` and `scheduled` of Workers could not sit side by side.
+- Entries as values (`pub const FETCH = Http.service(app)`, with `@entry` on a type): what is exported is not a fn, so it needs a mechanism separate from `@export`.
+- Using the path of the entry adapter as the attribute name (`@Http.serve`): users would be able to define attributes, giving up the rule of `[kw.annotation]` that only attributes built into the compiler exist.
+- Entries as effects (the host calls operations and the program answers with a handler): people would write handlers and `resume` at the everyday level.
 
-- JS の暗黙の export を残す: export の作法が2通り（ジェネレータと `$start`，Promise）になり，JS 側が export ごとに覚えることになる．内部表現の値（List や record）をそのまま JS に見せることになり，表現を変えると JS 側が壊れる．`pub` が「エントリだけはホストにも見える」を兼ねる．export する fn の R を Async だけにする規則（下書き exported-fn-effects）は `@export` の規則に入るので，その下書きは要らなくなる
+## Prior art
 
-- 入口ごとに名前で示す（`handle`）: 入口の種類が増えるたびに予約される名前が増える．1つのプログラムに同じ種類を置けない形にもなりやすい
-- `main` の引数の型で種類を決める（`main(request: Request)`）: 入口が1つしか置けない．Workers の `fetch` と `scheduled` のように並べられない
-- 入口を値にする（`pub const FETCH = Http.service(app)` と，`@entry` を付けた型）: export するのが fn でないので，`@export` とは別の仕組みが要る
-- 属性の名前を入口アダプタのパスにする（`@Http.serve`）: ユーザーが属性を定義できることになり，`[kw.annotation]` の「属性はコンパイラに組み込まれたものだけ」を手放す
-- 入口を effect で表す（ホストが操作を呼び，プログラムが handler で答える）: 日常の水準で handler と `resume` を書かせることになる
+- `@external` (12.1). `@export` is its reverse.
+- `@test`, an attribute known to the compiler that marks an entry.
 
-## 先行する設計
+## Open questions
 
-- `@external`（12.1）．`@export` はその逆向き
-- `@test`．コンパイラが知る属性で入口を示す形
-
-## 未決
-
-
-## 決定
+## Decision
