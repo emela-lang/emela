@@ -108,6 +108,25 @@ impl<'m> Builder<'m> {
                 ins.call(f);
                 self.assign(cx, ins, dst, Repr::Ref);
             }
+            FloatToString => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("float_to_string");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FloatParse => self.option_call(cx, ins, dst, args, "float_parse"),
+            FloatFloor | FloatCeil | FloatRound | FloatTruncate => {
+                self.operand(cx, ins, &args[0]);
+                let name = match op {
+                    FloatFloor => "float_floor",
+                    FloatCeil => "float_ceil",
+                    FloatRound => "float_round",
+                    _ => "float_truncate",
+                };
+                let f = self.rt(name);
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::I32);
+            }
             Int64ToString => {
                 self.operand(cx, ins, &args[0]);
                 let f = self.rt("int64_to_string");

@@ -351,3 +351,201 @@ fn all_scratch_buffers_are_stepped_in_one_program() {
          [\"a\", \"b\", \"c\"]\n[65, 66]\n\"hi\"\n"
     );
 }
+
+#[test]
+fn floats_show_like_js() {
+    // The shortest round-trip digits, `.0` on a finite integral value, `-0.0` as `0.0`,
+    // exponents, the infinities and NaN (spec 10.6). The values and the expected text are the
+    // same as the JS target's.
+    let Some(out) = stderr(
+        "floats",
+        r#"
+fn main() {
+  dbg(1.5)
+  dbg(1.0)
+  dbg(-0.0)
+  dbg(0.1)
+  dbg(0.1 + 0.2)
+  dbg(1.0 / 3.0)
+  dbg(1.0e21)
+  dbg(1.0e20)
+  dbg(1.5e-7)
+  dbg(0.000001)
+  dbg(123456789.125)
+  dbg(1.7976931348623157e308)
+  dbg(5.0e-324)
+  dbg(1.0e-7)
+  dbg(123.0e-20)
+  dbg(5.641232424577593e-278)
+  dbg(5.641232424577592e-278)
+  dbg(3.6893488147419103e+19)
+  dbg(3.68934881474191e+19)
+  dbg(4.3039187809582457e-283)
+  dbg(4.303918780958246e-283)
+  dbg(2.0 / 0.0)
+  dbg(-2.0 / 0.0)
+  dbg(0.0 / 0.0)
+  dbg(5.5 % 2.0)
+  dbg(-5.5 % 2.0)
+  dbg("v=#{1.5} #{2.0} #{-0.0}")
+  dbg(inspect(1.5))
+  assert Float.floor(2.5) == 2
+  assert 1.0 < 2.0
+  assert !(0.0 / 0.0 == 0.0 / 0.0)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "1.5\n1.0\n0.0\n0.1\n0.30000000000000004\n0.3333333333333333\n1e+21\n\
+         100000000000000000000.0\n1.5e-7\n0.000001\n123456789.125\n\
+         1.7976931348623157e+308\n5e-324\n1e-7\n1.23e-18\n\
+         5.641232424577593e-278\n5.641232424577592e-278\n\
+         36893488147419103000.0\n36893488147419100000.0\n\
+         4.3039187809582457e-283\n4.303918780958246e-283\n\
+         Infinity\n-Infinity\nNaN\n\
+         1.5\n-1.5\n\"v=1.5 2.0 0.0\"\n\"1.5\"\n"
+    );
+}
+
+#[test]
+fn float_rounding_to_int() {
+    // Ties away from zero, -0.0 to 0, and the ends of the Int range (spec 16.1).
+    let Some(out) = stderr(
+        "float-round",
+        r#"
+fn main() {
+  dbg(Float.floor(2.5))
+  dbg(Float.ceil(2.5))
+  dbg(Float.round(2.5))
+  dbg(Float.round(-2.5))
+  dbg(Float.round(0.5))
+  dbg(Float.round(-0.5))
+  dbg(Float.round(0.49999999999999994))
+  dbg(Float.truncate(-2.7))
+  dbg(Float.floor(-1.5))
+  dbg(Float.ceil(-1.5))
+  dbg(Float.floor(-0.0))
+  dbg(Float.ceil(-0.0))
+  dbg(Float.round(-0.0))
+  dbg(Float.truncate(-0.0))
+  dbg(Float.floor(2147483647.9))
+  dbg(Float.truncate(-2147483648.9))
+  dbg(Float.round(2147483646.6))
+  dbg(Float.ceil(-2147483647.6))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "2\n3\n3\n-3\n1\n-1\n0\n-2\n-2\n-1\n0\n0\n0\n0\n2147483647\n-2147483648\n2147483647\n\
+         -2147483647\n"
+    );
+}
+
+#[test]
+fn float_parse_matches_js() {
+    // `Float.parse` (spec 15.3): the forms `to_string` writes, an optional sign, `Infinity`
+    // and `NaN`; anything else is `None`.
+    let Some(out) = stderr(
+        "float-parse",
+        r#"
+fn f(s: String) -> String {
+  Float.to_string(Float.parse(s)) escape { ParseError(input:) -> "bad #{input}" }
+}
+
+fn main() {
+  dbg(f("1.5"))
+  dbg(f("-0.25"))
+  dbg(f("3"))
+  dbg(f("1e+21"))
+  dbg(f("1.0e20"))
+  dbg(f("Infinity"))
+  dbg(f("-Infinity"))
+  dbg(f("NaN"))
+  dbg(f("+3"))
+  dbg(f("-0"))
+  dbg(f("-0.0"))
+  dbg(f("0.1"))
+  dbg(f("2.2250738585072011e-308"))
+  dbg(f("5e-324"))
+  dbg(f("1e400"))
+  dbg(f("1e-400"))
+  dbg(f(""))
+  dbg(f("1."))
+  dbg(f(".5"))
+  dbg(f("1e"))
+  dbg(f("inf"))
+  dbg(f(" 1"))
+  dbg(f("0x10"))
+  dbg(f("+NaN"))
+  dbg(Float.parse("1.5"))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "\"1.5\"\n\"-0.25\"\n\"3.0\"\n\"1e+21\"\n\"100000000000000000000.0\"\n\"Infinity\"\n\
+         \"-Infinity\"\n\"NaN\"\n\"3.0\"\n\"0.0\"\n\"0.0\"\n\"0.1\"\n\
+         \"2.225073858507201e-308\"\n\"5e-324\"\n\"Infinity\"\n\"0.0\"\n\"bad \"\n\"bad 1.\"\n\
+         \"bad .5\"\n\"bad 1e\"\n\"bad inf\"\n\"bad  1\"\n\"bad 0x10\"\n\"bad +NaN\"\n\
+         1.5\n"
+    );
+}
+
+#[test]
+fn float_parse_keeps_the_dropped_digits() {
+    // `1 + 2^-53` is a midpoint; with `1e-1000` appended the input is above it, even though the
+    // first 800 significant digits are the midpoint itself (the sticky bit decides the tie).
+    let midpoint = "1.00000000000000011102230246251565404236316680908203125";
+    let input = format!("{midpoint}{}1", "0".repeat(946));
+    let src = format!("fn main() {{\n  dbg(Float.to_string(Float.parse(\"{input}\")))\n}}\n");
+    let Some(out) = stderr("float-long-midpoint", &src) else {
+        return;
+    };
+    assert_eq!(out, "\"1.0000000000000002\"\n");
+}
+
+#[test]
+fn float_to_int_out_of_range_is_a_defect() {
+    let cases = [
+        ("Float.floor(0.0 / 0.0)", "NaN"),
+        ("Float.ceil(1.0 / 0.0)", "Infinity"),
+        ("Float.truncate(-1.0 / 0.0)", "-Infinity"),
+        ("Float.truncate(2147483648.0)", "2147483648.0"),
+        ("Float.round(2147483647.5)", "2147483647.5"),
+        ("Float.floor(-2147483648.5)", "-2147483648.5"),
+        ("Float.ceil(2147483647.1)", "2147483647.1"),
+    ];
+    for (i, (call, shown)) in cases.into_iter().enumerate() {
+        let src = format!("fn main() {{\n  dbg({call})\n}}\n");
+        let Some(run) = run(&format!("float-defect-{i}"), &src) else {
+            return;
+        };
+        assert_eq!(run.code, 101, "{call}");
+        assert_eq!(
+            run.stderr,
+            format!("defect: cannot convert {shown} to Int\n"),
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn a_failed_assert_shows_floats() {
+    // `assert` shows both sides through Show (spec 10.6), so a Float is shown like `dbg` does.
+    let Some(run) = run("float-assert", "fn main() {\n  assert 1.5 == 2.5\n}\n") else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: assertion failed: 1.5 == 2.5\n  left: 1.5\n right: 2.5\n"
+    );
+}

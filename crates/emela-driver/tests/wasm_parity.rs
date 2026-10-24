@@ -421,6 +421,71 @@ fn main() {
 "#,
     ),
     (
+        "floats",
+        r#"
+fn parse(s: String) -> String {
+  Float.to_string(Float.parse(s)) escape { ParseError(input:) -> "bad #{input}" }
+}
+
+fn main() {
+  dbg(1.5)
+  dbg(1.0)
+  dbg(-0.0)
+  dbg(0.1)
+  dbg(0.1 + 0.2)
+  dbg(1.0 / 3.0)
+  dbg(1.0e21)
+  dbg(1.0e20)
+  dbg(1.5e-7)
+  dbg(0.000001)
+  dbg(123456789.125)
+  dbg(1.7976931348623157e308)
+  dbg(5.0e-324)
+  dbg(2.0 / 0.0)
+  dbg(-2.0 / 0.0)
+  dbg(0.0 / 0.0)
+  dbg(5.5 % 2.0)
+  dbg(-5.5 % 2.0)
+  dbg(Float.floor(-1.5))
+  dbg(Float.ceil(-1.5))
+  dbg(Float.round(2.5))
+  dbg(Float.round(-2.5))
+  dbg(Float.truncate(-2.7))
+  dbg(Float.floor(2147483647.9))
+  dbg(Float.truncate(-2147483648.9))
+  dbg(Float.from_int(-2147483647 - 1))
+  dbg(1.0 < 2.0)
+  dbg(2.0 <= 1.0)
+  dbg(0.0 / 0.0 == 0.0 / 0.0)
+  dbg(parse("1.25"))
+  dbg(parse("1e3"))
+  dbg(parse("-0.0"))
+  dbg(parse("Infinity"))
+  dbg(parse("-Infinity"))
+  dbg(parse("NaN"))
+  dbg(parse("2.2250738585072011e-308"))
+  dbg(parse("1."))
+  dbg(parse(" 1"))
+  dbg(5.641232424577593e-278)
+  dbg(5.641232424577592e-278)
+  dbg(3.6893488147419103e+19)
+  dbg(3.68934881474191e+19)
+  dbg(4.3039187809582457e-283)
+  dbg(4.303918780958246e-283)
+  dbg(Float.parse(Float.to_string(5.641232424577593e-278)) == 5.641232424577593e-278)
+  dbg(Float.parse(Float.to_string(5.641232424577592e-278)) == 5.641232424577592e-278)
+  dbg(Float.parse(Float.to_string(3.6893488147419103e+19)) == 3.6893488147419103e+19)
+  dbg(Float.parse(Float.to_string(3.68934881474191e+19)) == 3.68934881474191e+19)
+  dbg(Float.parse(Float.to_string(4.3039187809582457e-283)) == 4.3039187809582457e-283)
+  dbg(Float.parse(Float.to_string(4.303918780958246e-283)) == 4.303918780958246e-283)
+}
+"#,
+    ),
+    (
+        "float_defect",
+        "fn main() {\n  dbg(Float.floor(0.0 / 0.0))\n}\n",
+    ),
+    (
         "derived",
         r##"
 type Name(value: String)
@@ -455,14 +520,11 @@ fn main() {
 
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops
 /// them (the WASM target's "not supported yet", which has no diagnostic code any more).
-const NOT_ON_WASM: &[(&str, &str, &str)] = &[
-    ("float", "fn main() { dbg(1.5) }\n", "`Float` operation"),
-    (
-        "fibers",
-        "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
-        "fibers are not supported on target `wasm`",
-    ),
-];
+const NOT_ON_WASM: &[(&str, &str, &str)] = &[(
+    "fibers",
+    "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
+    "fibers are not supported on target `wasm`",
+)];
 
 /// The Unicode version of the Node used for the JS target (`process.versions.unicode`).
 fn node_unicode() -> Option<&'static str> {
@@ -597,6 +659,83 @@ fn programs_agree_on_js_and_wasm() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// Long decimal inputs whose kept prefix is exactly a rounding midpoint. They exercise the
+/// sticky bit of `Float.parse`: a digit far past the prefix (`1e-1000` or `1e-400` away from the
+/// midpoint) decides whether the result rounds up or down.
+#[test]
+fn float_binade_boundaries_agree() {
+    if !have_wasmtime() {
+        return;
+    }
+    // The midpoint between `1.0` and the next value (`1 + 2^-53`) plus `1e-1000`; rounds up.
+    let upper_midpoint_of_one = "1.00000000000000011102230246251565404236316680908203125";
+    let long = format!("{upper_midpoint_of_one}{}1", "0".repeat(946));
+    // The midpoint between `2.0` and the value below it (`2 - 2^-53`), where the spacing halves,
+    // plus `1e-1000` (rounds up to `2.0`) and minus `1e-1000` (rounds down).
+    let lower_midpoint_of_two = "1.99999999999999988897769753748434595763683319091796875";
+    let below_two_plus = format!("{lower_midpoint_of_two}{}1", "0".repeat(946));
+    let below_two_minus = format!(
+        "{}4{}",
+        &lower_midpoint_of_two[..lower_midpoint_of_two.len() - 1],
+        "9".repeat(947)
+    );
+    // The midpoint between `2^-940` and the value below it, where the spacing halves, plus
+    // `1e-400` (rounds up to `2^-940`) and minus `1e-400` (rounds down).
+    const MID940_PLUS: &str = r"0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001075979695239561483777072477772896074635094516691117125448020546603240539387726582021595911969458952933221273331410415223859788488456668170033636639775606559493555975440516565180825997389970088147382452531623758360409886551424296132080794234440609781551703426704888919440901549501484952854207838836112069648714903885585980785165990775218294313779769805151898192120053077589252739633927572002277949120432807835019821447557965909832461958333493648264294970458816923955734617685882095528156293361305439246899064220934909907703441303124831591674683726509538299025575645771392094967790955333135406408333968888240519732039940574591070524969407112047698885885932798007197708548519921034625212996616028249263763427734375";
+    let mid940_minus = MID940_PLUS.replacen("1410415223859788", "1410413223859788", 1);
+    let src = format!(
+        r#"
+fn main() {{
+  dbg(Float.to_string(Float.parse("{long}")))
+  dbg(Float.to_string(Float.parse("{below_two_plus}")))
+  dbg(Float.to_string(Float.parse("{below_two_minus}")))
+  dbg(Float.to_string(Float.parse("{MID940_PLUS}")))
+  dbg(Float.to_string(Float.parse("{mid940_minus}")))
+  dbg(Float.parse(Float.to_string(5.641232424577593e-278)) == 5.641232424577593e-278)
+  dbg(Float.parse(Float.to_string(3.6893488147419103e+19)) == 3.6893488147419103e+19)
+}}
+"#
+    );
+    let js = match run_on("float-boundaries", &src, Target::Js) {
+        Ok(out) => out,
+        Err(analysis) => panic!("JS did not build:\n{}", messages(&analysis).join("\n")),
+    };
+    let wasm = match run_on("float-boundaries", &src, Target::Wasm) {
+        Ok(out) => out,
+        Err(analysis) => panic!("WASM did not build:\n{}", messages(&analysis).join("\n")),
+    };
+    assert_eq!(js, wasm);
+}
+
+/// Inputs whose exponent has more than six digits and is offset by as many digits in the
+/// significand. The exponent must not stop accumulating before it outgrows any digit count.
+#[test]
+fn float_long_exponents_agree() {
+    if !have_wasmtime() {
+        return;
+    }
+    let zeros = "0".repeat(1_000_000);
+    let src = format!(
+        r#"
+fn main() {{
+  dbg(Float.to_string(Float.parse("1{zeros}e-1000000")))
+  dbg(Float.to_string(Float.parse("0.{zeros}1e1000001")))
+  dbg(Float.to_string(Float.parse("1e99999999999999999999")))
+  dbg(Float.to_string(Float.parse("1e-99999999999999999999")))
+}}
+"#
+    );
+    let js = match run_on("float-long-exponents", &src, Target::Js) {
+        Ok(out) => out,
+        Err(analysis) => panic!("JS did not build:\n{}", messages(&analysis).join("\n")),
+    };
+    let wasm = match run_on("float-long-exponents", &src, Target::Wasm) {
+        Ok(out) => out,
+        Err(analysis) => panic!("WASM did not build:\n{}", messages(&analysis).join("\n")),
+    };
+    assert_eq!(js, wasm);
 }
 
 #[test]

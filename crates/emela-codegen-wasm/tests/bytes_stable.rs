@@ -1,10 +1,12 @@
 //! Pins the emitted bytes of fixed programs.
 //!
 //! Splitting the emitter and the runtime into modules must not change the output. Every runtime
-//! function is emitted whether a program calls it or not, so any program pins their bodies; the
-//! programs here are chosen to also reach the emitter's lowerings: closures, strings, lists, enums,
-//! options, wasm externals, Int and Int64 arithmetic, shifts, the Float remainder and the test
-//! entry. A change in the length or the hash of the module means the lowering changed.
+//! function but the Float ones is emitted whether a program calls it or not, so any program pins
+//! their bodies; the programs here are chosen to also reach the emitter's lowerings: closures,
+//! strings, lists, enums, options, wasm externals, Int and Int64 arithmetic, shifts, the Float
+//! remainder and the test entry. The Float runtime is only registered for a program that uses a
+//! Float builtin, so `floats` pins it and the programs without one keep the bytes they had before
+//! it existed. A change in the length or the hash of the module means the lowering changed.
 //!
 //! The bytes depend on everything before the emitter too (the Prelude, the Core IR passes), so a
 //! change there can also fail this test. When the output changes on purpose, check that the
@@ -78,6 +80,21 @@ fn main() {
 "#,
         17893,
         0x4caf_7d15_14f0_da96,
+    ),
+    (
+        "floats",
+        r#"
+fn main() {
+  dbg(1.5)
+  dbg(0.1 + 0.2)
+  dbg(1.0e21)
+  dbg(0.0 / 0.0)
+  dbg(Float.floor(-1.5))
+  dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
+}
+"#,
+        16969,
+        0x7b9c_d735_03f7_f04d,
     ),
     (
         "externals_and_options",
