@@ -1,5 +1,5 @@
 ---
-title: emela test の出力を，人が読む端末とエージェントで分ける
+title: Separate the output of emela test for people at a terminal and for coding agents
 authors: [Alliana]
 status: draft
 pr: 412
@@ -10,15 +10,15 @@ requires: []
 related: []
 ---
 
-# emela test の出力を，人が読む端末とエージェントで分ける
+# Separate the output of emela test for people at a terminal and for coding agents
 
 ## Summary
 
-`emela test` の結果の表示を reporter として3つに分ける．端末で人が読むための `pretty`，今の行指向の形式を保つ `plain`，コーディングエージェントが読むための `agent`．`--reporter` で選べ，省略時は環境から決める．`pretty` の見た目は仕様で決めず，実装に任せる．
+`emela test` displays its results with one of three reporters: `pretty` for a person reading a terminal, `plain` that keeps the current line format, and `agent` for a coding agent. `--reporter` selects one; when it is omitted, the environment decides. The layout of `pretty` is left to the implementation, not the specification.
 
 ## Motivation
 
-今の出力（`[cmd.test.output]`）は1つの形式しかなく，人にもエージェントにも合っていない．
+The current output (`[cmd.test.output]`) has a single format, and it suits neither people nor agents.
 
 ```
 running 3 tests
@@ -45,45 +45,45 @@ failures:
 test result: FAILED. 1 passed; 2 failed; 0 filtered out
 ```
 
-端末で人が読むとき:
+For a person reading a terminal:
 
-- 色がない．`ok` と `FAILED` が同じ見た目で並び，失敗を目で探すことになる．
-- `left` と `right` が長い文字列や大きな値のとき，どこが違うかが分からない．
-- テストがファイルごとにまとまらず，名前の前置き（`Util.`）でしか見分けられない．
-- 所要時間が出ないので，遅いテストに気づけない．
+- There is no color. `ok` and `FAILED` look the same, and failures have to be found by eye.
+- When `left` and `right` are long strings or large values, it is hard to see where they differ.
+- Tests are not grouped by file; they can be told apart only by the prefix of their names (`Util.`).
+- No elapsed time is shown, so slow tests go unnoticed.
 
-エージェントが読むとき:
+For a coding agent:
 
-- 通ったテスト1件につき1行が出る．テストが数百件あると，失敗1件を知るために数百行がコンテキストに入る．
-- 失敗の名前が2回出る（詳細の見出しと，末尾の `failures:` の一覧）．
-- 通ったテストが標準出力に書いたものも，そのまま流れてくる．
+- Every passed test prints a line. With hundreds of tests, hundreds of lines enter the context to report one failure.
+- The name of a failure appears twice (in the heading of its details and in the list `failures:` at the end).
+- What passed tests write to standard output is passed through as is.
 
-`emela test` を呼ぶのは人とエージェントの両方で，求めるものが逆向きである．人には情報を足し，エージェントには削る．1つの形式でこれを両立できない．
+Both people and agents run `emela test`, and they want opposite things: people want more information, agents want less. A single format cannot serve both.
 
-失敗の場所（パスと行と桁）が出ない問題は，どの reporter にも共通なので別の提案（`test-failure-location`，#413）で扱う．
+The missing location of a failure (the path, the line and the column) concerns every reporter, so it is a separate proposal (`test-failure-location`, #413).
 
 ## Proposal
 
-### reporter
+### Reporters
 
-`emela test` は結果を reporter のどれか1つで表示する．
+`emela test` displays its results with one reporter.
 
-| reporter | 読み手 | 仕様で決めること |
+| Reporter | Reader | What the specification fixes |
 |---|---|---|
-| `pretty` | 端末の人 | 色を使う条件と，失敗をすべて詳細つきで出すことだけ．見た目は実装に任せる |
-| `plain` | ログ，CI，出力を比べるテスト | 今の形式．同じ入力から同じ出力 |
-| `agent` | コーディングエージェント | 形式．失敗だけを出し，通ったテストの行もその標準出力も出さない |
+| `pretty` | A person at a terminal | Only when color is used, and that every failure is shown with its details. The layout is left to the implementation |
+| `plain` | Logs, CI, tests that compare the output | The current format. The same input gives the same output |
+| `agent` | A coding agent | The format. Only failures are printed; neither the lines of passed tests nor their standard output are printed |
 
-選び方は，上から順に最初に当てはまるもの．
+The reporter is the first of the following that applies.
 
-1. `--reporter <pretty|plain|agent>` が与えられれば，それ．
-2. コーディングエージェントの中で動いていれば，`agent`．環境変数 `AI_AGENT` が空でなければ，エージェントの中とする．実装は，ほかにエージェントが設定する環境変数を見てもよい（MAY）．
-3. 標準出力が端末なら，`pretty`．
-4. それ以外は `plain`．
+1. The one given by `--reporter <pretty|plain|agent>`.
+2. `agent`, if the command runs inside a coding agent. It does when the environment variable `AI_AGENT` is not empty. An implementation MAY also look at other environment variables that agents set.
+3. `pretty`, if standard output is a terminal.
+4. `plain` otherwise.
 
-### `pretty` の例
+### An example of `pretty`
 
-見た目は仕様で決めない．次は一例である．
+The layout is not specified. The following is one example.
 
 ```
  src/main.emel
@@ -106,19 +106,19 @@ defect: assertion failed: "abc" == "abd"
  Duration  12ms
 ```
 
-- テストをファイルごとにまとめ，通ったものに `✓`（緑），失敗に `×`（赤）をつける．
-- 比較の assert の両辺の表示が違うところを示す．
-- 最後に件数と所要時間をまとめて出す．
+- Tests are grouped by file; passed tests are marked `✓` (green) and failed tests `×` (red).
+- For a comparison assert, where the displays of the two sides differ is marked.
+- The counts and the elapsed time are summarized at the end.
 
-### `agent` の形式
+### The format of `agent`
 
-すべて通ったとき，まとめの1行だけ．テストが走ったことをエージェントが確かめられるよう，この1行は出す．
+When every test passed, only the summary line is printed. It is printed so that the agent can confirm that the tests ran.
 
 ```
 test result: ok. 3 passed; 0 failed; 0 filtered out
 ```
 
-失敗があるとき．
+When there are failures:
 
 ```
 FAIL adds_wrong
@@ -134,12 +134,12 @@ defect: assertion failed: "abc" == "abd"
 test result: FAILED. 1 passed; 2 failed; 0 filtered out
 ```
 
-- まとめの行は `plain` の最後の行と同じ形にする．今の形式を前提にした読み方（`test result:` の行を探すなど）がそのまま通る．
-- 先頭の `running N tests` も，通ったテストの行も出さない．
-- 失敗したテストが標準出力に書いたものは，その失敗の詳細の後に切り詰めずに出す．通ったテストが書いたものは出さない．行数で切ると肝心のところが消えることがあり，切り詰めの規則も仕様に要る．
-- 色，記号，所要時間は出さない．
-- 失敗の名前は1回だけ出す．
-- `test-failure-location` が採択されれば，`FAIL <name>` の後に場所が続く（`FAIL adds_wrong src/main.emel:13:3`）．
+- The summary line has the same form as the last line of `plain`. Readers that rely on the current format (for example, looking for the line `test result:`) keep working.
+- Neither the leading `running N tests` nor the lines of passed tests are printed.
+- What a failed test wrote to standard output is printed in full after the details of its failure. What passed tests wrote is not printed. Truncating by line count can cut off the part that matters, and it would need truncation rules in the specification.
+- No color, mark or elapsed time is printed.
+- The name of a failure is printed once.
+- If `test-failure-location` is accepted, the location follows `FAIL <name>` (`FAIL adds_wrong src/main.emel:13:3`).
 
 ## Specification changes
 
@@ -168,13 +168,13 @@ test result: FAILED. 1 passed; 2 failed; 0 filtered out
 
 ### `[cmd.test.output]`
 
-今の節を `plain` の定義にする．冒頭の文を次に置き換え，以降の内容はそのまま残す．
+Make the current section the definition of `plain`. Replace its opening sentence with the following, and keep the rest.
 
 ```md
 The `plain` reporter (`[cmd.test.reporter]`) prints the results to standard output in the following form.
 ```
 
-節の末尾に `pretty` と `agent` を足す．
+Add `pretty` and `agent` at the end of the section.
 
 ````md
 ### pretty
@@ -217,7 +217,7 @@ test result: FAILED. 1 passed; 1 failed; 0 filtered out
 
 ### `[test.command]`
 
-「Results go to standard output: ...」の項目を次に置き換える．
+Replace the item "Results go to standard output: ..." with the following.
 
 ```md
 - Results go to standard output, in the form of the selected reporter (`[cmd.test.reporter]`).
@@ -225,53 +225,53 @@ test result: FAILED. 1 passed; 1 failed; 0 filtered out
 
 ## Diagnostics
 
-なし．`--reporter` に知らない名前を与えたときは，`--target` に知らない値を与えたときと同じくコマンドライン引数の誤りとし，診断コードは振らない．
+None. An unknown name given to `--reporter` is an error in the command-line arguments, as is an unknown value given to `--target`, and has no diagnostic code.
 
 ## Compatibility
 
-- 言語の意味は変わらない．
-- 端末で `emela test` を実行したときの見た目が変わる．パイプやファイルに出したとき（CI，`emela test | tee`）は `plain` のままで，今と同じ形式．
-- `AI_AGENT` が設定された環境やエージェントの中で実行すると `agent` になり，通ったテストの行と `running N tests` が出なくなる．まとめの行は `plain` と同じなので，`test result:` の行を読むやり方はそのまま通る．`--reporter plain` で今の形式に戻せる．
+- The meaning of the language does not change.
+- Running `emela test` at a terminal looks different. Output to a pipe or a file (CI, `emela test | tee`) stays `plain`, in the current format.
+- Running in an environment where `AI_AGENT` is set, or inside an agent, selects `agent`: the lines of passed tests and `running N tests` are no longer printed. The summary line is the same as in `plain`, so reading the line `test result:` keeps working. `--reporter plain` restores the current format.
 
 ## Implementation
 
-- `crates/emela-driver/src/testing/report.rs` に reporter を足す．今の関数群は `plain` になる．
-- テストは1つずつ順に実行され，ドライバはプログラムの標準出力を1行ずつ読んで結果の行と見分けている（`crates/emela-driver/src/testing.rs` の `run_tests`）．次の結果の行が来るまでの行を実行中のテストに属するものとして持っておけば，`agent` はテストごとの標準出力を出し分けられる．ランタイムは変えなくてよい．標準エラーは今 inherit しているので，テストごとには分けられない．
-- `pretty` の所要時間は，ドライバが結果の行の届いた時刻の差で測れる．ランタイムは変えなくてよい．
-- 標準出力が端末かは `std::io::IsTerminal`．標準エラーの色の判定は `crates/emela-cli/src/main.rs` にある．
-- `AI_AGENT` 以外に見る環境変数は，実装の中で一覧にする（`CLAUDECODE`，`GEMINI_CLI`，`CODEX_SANDBOX`，`CURSOR_AGENT` など）．
+- Add the reporters to `crates/emela-driver/src/testing/report.rs`. The current functions become `plain`.
+- Tests run one at a time, and the driver reads the program's standard output line by line and tells result lines apart (`run_tests` in `crates/emela-driver/src/testing.rs`). If the driver keeps the lines before the next result line as belonging to the running test, `agent` can print each test's standard output separately. The runtimes need no change. Standard error is currently inherited, so it cannot be split per test.
+- The driver can measure the elapsed time for `pretty` as the difference between the arrival times of result lines. The runtimes need no change.
+- Whether standard output is a terminal is given by `std::io::IsTerminal`. The decision on color for standard error is in `crates/emela-cli/src/main.rs`.
+- The environment variables looked at besides `AI_AGENT` are listed in the implementation (`CLAUDECODE`, `GEMINI_CLI`, `CODEX_SANDBOX`, `CURSOR_AGENT`, and so on).
 
 ## Alternatives
 
-### 形式は1つのまま，色だけ足す
+### Keep one format and only add color
 
-`plain` に色を足すだけなら変更は小さい．ただ，エージェント向けに行を減らす問題は残る．通ったテストの行は，端末の人には進み具合として役に立つが，エージェントには要らない．同じ形式で両方は満たせない．
+Adding color to `plain` is a small change, but it leaves the problem of reducing lines for agents. The lines of passed tests show progress to a person at a terminal, but an agent does not need them. One format cannot satisfy both.
 
-### エージェントの判定をせず，`--reporter agent` を明示させる
+### Do not detect agents; require `--reporter agent`
 
-仕様が環境変数に依存しない．一方，エージェントはふつう `emela test` を素で呼ぶので，明示を求めると使われない．AGENTS.md などに `--reporter agent` を書いてもらう運用になる．
+The specification would not depend on environment variables. But agents usually run plain `emela test`, so a flag they must pass would go unused. Projects would have to write `--reporter agent` into AGENTS.md or similar files.
 
-### 製品ごとの環境変数の一覧を仕様に書く
+### List the environment variables of each product in the specification
 
-どの環境で `agent` になるかが仕様から読める．一方，エージェントの製品が増えるたびに仕様を変えることになる．仕様には製品に依らない `AI_AGENT` だけを書き，ほかは実装に任せる．
+The specification would tell in which environments `agent` is selected. But the specification would change every time a new agent product appears. The specification names only `AI_AGENT`, which does not depend on a product, and leaves the rest to the implementation.
 
-### `pretty` の見た目を仕様で決める
+### Specify the layout of `pretty`
 
-見た目を直すたびに proposal が要る．人が読む表示は改善を続けるもので，出力を比べる用途には `plain` と `agent` がある．
+Every change to the layout would need a proposal. Output for people is something to keep improving, and `plain` and `agent` serve the uses that compare the output.
 
-### 機械可読の形式（JSON）を足し，エージェントにはそれを読ませる
+### Add a machine-readable format (JSON) and have agents read it
 
-JSON は構造を持つが，同じ情報を表すのに文字数が多く，エージェントは結局それを文字として読む．エージェントに要るのは「どれが，なぜ失敗したか」で，`agent` の形式はそれを最短で書く．JSON はエディタ連携などの用途で，別の提案にする．
+JSON has structure, but it takes more characters to say the same thing, and an agent reads it as text in the end. What an agent needs is which tests failed and why, and the `agent` format states that in the fewest characters. JSON serves other uses such as editor integration, and is left to a separate proposal.
 
-### 環境変数 `EMELA_TEST_REPORTER` で選ぶ
+### Select the reporter with an environment variable `EMELA_TEST_REPORTER`
 
-`--reporter` と両方あると優先順位の規則が増える．今はフラグだけにする．
+Having it besides `--reporter` adds precedence rules. For now there is only the flag.
 
 ## Prior art
 
-- reporter を差し替えられるテストランナー（Vitest の `default`，`verbose`，`dot`，`minimal`，`json` など）．Vitest は reporter を指定しないとき，AI コーディングエージェントの中で動いていると判定すると `minimal`（別名 `agent`）を使う．`minimal` は失敗とその誤りだけを出し，通ったテストのコンソール出力とまとめを出さない．判定は `std-env` の環境変数の一覧による（`AI_AGENT`，`CLAUDECODE`，`GEMINI_CLI`，`CODEX_SANDBOX`，`CURSOR_AGENT` など）．
-- `NO_COLOR` の慣習．
-- 出力先が端末かどうかで形式を変える CLI（端末なら色と整形，パイプなら素の行）．
+- Test runners with interchangeable reporters (Vitest's `default`, `verbose`, `dot`, `minimal`, `json`, and others). When no reporter is given and Vitest detects that it runs inside an AI coding agent, it uses `minimal` (also named `agent`). `minimal` prints only failures and their errors, and prints neither the console output of passed tests nor the summary. The detection uses the list of environment variables in `std-env` (`AI_AGENT`, `CLAUDECODE`, `GEMINI_CLI`, `CODEX_SANDBOX`, `CURSOR_AGENT`, and others).
+- The `NO_COLOR` convention.
+- CLIs that change their format by whether the output goes to a terminal (color and layout at a terminal, plain lines to a pipe).
 
 ## Open questions
 
