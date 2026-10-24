@@ -1,0 +1,253 @@
+==================
+Precedence
+==================
+fn f() {
+  x = a |> g || b && c == d + e * -h(1).k
+  y = !ok
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (binding
+        (identifier)
+        (binary_expression
+          (identifier)
+          (binary_expression
+            (identifier)
+            (binary_expression
+              (identifier)
+              (binary_expression
+                (identifier)
+                (binary_expression
+                  (identifier)
+                  (binary_expression
+                    (identifier)
+                    (unary_expression
+                      (field_expression
+                        (call_expression
+                          (identifier)
+                          (arguments
+                            (integer)))
+                        (identifier))))))))))
+      (binding
+        (identifier)
+        (unary_expression
+          (identifier))))))
+
+==================
+Calls, named arguments and record update
+==================
+fn f() {
+  todo = Todo(id: 1, title:, done: False)
+  finished = Todo(done: True, ..todo)
+  List.map(xs, fn((a, b): (Int, Int)) { a + b })
+  Http.Client.get(url)
+  (use Clock).sleep(1000)
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (binding
+        (identifier)
+        (call_expression
+          (type_identifier)
+          (arguments
+            (named_argument
+              (identifier)
+              (integer))
+            (named_argument
+              (identifier))
+            (named_argument
+              (identifier)
+              (type_identifier)))))
+      (binding
+        (identifier)
+        (call_expression
+          (type_identifier)
+          (arguments
+            (named_argument
+              (identifier)
+              (type_identifier))
+            (spread
+              (identifier)))))
+      (call_expression
+        (field_expression
+          (type_identifier)
+          (identifier))
+        (arguments
+          (identifier)
+          (lambda
+            (lambda_parameters
+              (lambda_parameter
+                (tuple_pattern
+                  (identifier)
+                  (identifier))
+                (tuple_type
+                  (type_reference
+                    (type_identifier))
+                  (type_reference
+                    (type_identifier)))))
+            (block
+              (binary_expression
+                (identifier)
+                (identifier))))))
+      (call_expression
+        (field_expression
+          (field_expression
+            (type_identifier)
+            (type_identifier))
+          (identifier))
+        (arguments
+          (identifier)))
+      (call_expression
+        (field_expression
+          (parenthesized_expression
+            (use_expression
+              (type_reference
+                (type_identifier))))
+          (identifier))
+        (arguments
+          (integer))))))
+
+==================
+Bindings and patterns
+==================
+fn f() {
+  (a, b) = pair
+  [x, ..rest] = xs
+  User(name:, ..) = user
+  n: Int = 1
+  v = value match {
+    -1 -> "minus"
+    "s" -> "string"
+    MAX -> "const"
+    Some(Pair(first: f, second:)) -> "nested"
+    Http.Status.Ok -> "path"
+    () -> "unit"
+    (_, 0) -> "tuple"
+  }
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (binding
+        (tuple_expression
+          (identifier)
+          (identifier))
+        (identifier))
+      (binding
+        (list_expression
+          (identifier)
+          (spread
+            (identifier)))
+        (identifier))
+      (binding
+        (call_expression
+          (type_identifier)
+          (arguments
+            (named_argument
+              (identifier))
+            (spread)))
+        (identifier))
+      (binding
+        (identifier)
+        (type_reference
+          (type_identifier))
+        (integer))
+      (binding
+        (identifier)
+        (match_expression
+          (identifier)
+          (match_arms
+            (match_arm
+              (negative_literal
+                (integer))
+              (string
+                (string_content)))
+            (match_arm
+              (string
+                (string_content))
+              (string
+                (string_content)))
+            (match_arm
+              (constant_identifier)
+              (string
+                (string_content)))
+            (match_arm
+              (variant_pattern
+                (type_reference
+                  (type_identifier))
+                (variant_pattern
+                  (type_reference
+                    (type_identifier))
+                  (field_pattern
+                    (identifier)
+                    (identifier))
+                  (field_pattern
+                    (identifier))))
+              (string
+                (string_content)))
+            (match_arm
+              (type_reference
+                (type_identifier)
+                (type_identifier)
+                (type_identifier))
+              (string
+                (string_content)))
+            (match_arm
+              (unit_pattern)
+              (string
+                (string_content)))
+            (match_arm
+              (tuple_pattern
+                (wildcard)
+                (integer))
+              (string
+                (string_content)))))))))
+
+==================
+Lists, tuples and unit
+==================
+fn f() {
+  [1, 2, ..rest]
+  (1, "a")
+  ()
+  {
+    a
+  }
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (list_expression
+        (integer)
+        (integer)
+        (spread
+          (identifier)))
+      (tuple_expression
+        (integer)
+        (string
+          (string_content)))
+      (unit)
+      (block
+        (identifier)))))

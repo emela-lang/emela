@@ -42,5 +42,12 @@ unlet s:pome
 let b:undo_ftplugin = "setlocal commentstring< comments< formatoptions< expandtab< shiftwidth<"
       \ . " softtabstop< tabstop< suffixesadd< include< includeexpr< path<"
 
+" In Neovim, highlight through the tree-sitter parser when it is installed (see README.md).
+" Without it, or with `g:emela_treesitter` set to 0, syntax/emela.vim highlights as before.
+if has('nvim') && get(g:, 'emela_treesitter', 1)
+  lua pcall(vim.treesitter.start)
+  let b:undo_ftplugin .= " | lua pcall(vim.treesitter.stop)"
+endif
+
 let &cpo = s:cpo_save
 unlet s:cpo_save

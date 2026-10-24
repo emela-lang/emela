@@ -1,0 +1,31 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "emela",
+      "camelcase": "Emela",
+      "title": "Emela",
+      "scope": "source.emela",
+      "file-types": ["emel"],
+      "highlights": "queries/highlights.scm",
+      "locals": "queries/locals.scm",
+      "injection-regex": "^emela$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "Apache-2.0",
+    "description": "Emela grammar for tree-sitter",
+    "links": {
+      "repository": "https://github.com/emela-lang/emela"
+    }
+  },
+  "bindings": {
+    "c": false,
+    "go": false,
+    "node": false,
+    "python": false,
+    "rust": false,
+    "swift": false
+  }
+}

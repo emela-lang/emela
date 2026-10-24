@@ -24,6 +24,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       spec: ${{ steps.filter.outputs.spec }}
+      grammar: ${{ steps.filter.outputs.grammar }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,6 +45,7 @@ jobs:
             *)
               echo "code=true" >> "$GITHUB_OUTPUT"
               echo "spec=true" >> "$GITHUB_OUTPUT"
+              echo "grammar=true" >> "$GITHUB_OUTPUT"
               exit 0
               ;;
           esac
@@ -60,6 +62,12 @@ jobs:
             echo "spec=true" >> "$GITHUB_OUTPUT"
           else
             echo "spec=false" >> "$GITHUB_OUTPUT"
+          fi
+          # The tree-sitter grammar, its editor queries, and the Emela files it must parse.
+          if echo "$changed" | grep -qE '^editors/(tree-sitter-emela|zed|nvim)/|\.emel$'; then
+            echo "grammar=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "grammar=false" >> "$GITHUB_OUTPUT"
           fi
 
   lint:
@@ -179,6 +187,22 @@ jobs:
         run: |
           if [ ! -f scripts/spec.py ]; then exit 0; fi
           python3 scripts/spec.py check
+
+  # Not part of `ci-ok`: the grammar is an editor aid, so a change to the syntax is not held back
+  # until the grammar follows it. A failure here shows the drift on the pull request.
+  tree-sitter:
+    needs: changes
+    if: needs.changes.outputs.grammar == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pushes run every job, including before the grammar is in the branch.
+      - name: Check the tree-sitter grammar
+        run: |
+          if [ ! -f editors/tree-sitter-emela/scripts/check.sh ]; then exit 0; fi
+          # The version that generated src/; a different one writes a different parser.c.
+          npm install --global tree-sitter-cli@0.26.11
+          editors/tree-sitter-emela/scripts/check.sh
 
   # Merging a pull request that adds a proposal adopts it, and only the language's author adopts a
   # proposal (proposals/README.md, "Decision"). A pull request cannot be approved by its own author,

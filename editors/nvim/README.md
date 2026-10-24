@@ -1,7 +1,8 @@
 # Emela for Vim and Neovim
 
 Syntax highlighting and filetype settings for Emela 0.20 (`.emel` files). Plain Vim script, so
-the same files work in Vim 9 and Neovim. No Tree-sitter.
+the same files work in Vim 9 and Neovim. In Neovim, the tree-sitter parser in
+`editors/tree-sitter-emela` can take over the highlighting (see [Tree-sitter](#tree-sitter-neovim)).
 
 - `ftdetect/emela.vim`: `*.emel` is the `emela` filetype
 - `syntax/emela.vim`: highlighting
@@ -9,6 +10,7 @@ the same files work in Vim 9 and Neovim. No Tree-sitter.
   a module path (`Http.Client` opens `src/http/client.emel`)
 - `plugin/emela.vim`: in Neovim, underlines capability values reported by the language server
   (see below)
+- `queries/emela/`: the tree-sitter queries, a link to `editors/tree-sitter-emela/queries`
 
 ## Install
 
@@ -45,6 +47,74 @@ vim.opt.runtimepath:prepend(vim.fn.expand("~/src/emela/editors/nvim"))
 
 Neovim enables filetype plugins and syntax by default. Vim's `packadd` also works if you link
 this directory into `~/.vim/pack/emela/start/`.
+
+## Tree-sitter (Neovim)
+
+`ftplugin/emela.vim` starts tree-sitter highlighting (`vim.treesitter.start()`) when Neovim finds
+a parser named `emela`, and syntax/emela.vim stays off for that buffer. Without the parser,
+nothing changes. To keep the Vim syntax even with the parser installed:
+
+```lua
+vim.g.emela_treesitter = 0
+```
+
+The queries come with this directory (`queries/emela/`). Only the parser has to be built. It needs
+a C compiler and, for nvim-treesitter, the [tree-sitter CLI](https://github.com/tree-sitter/tree-sitter/tree/master/crates/cli).
+
+### With nvim-treesitter (main branch)
+
+Register the parser, then run `:TSInstall emela`:
+
+```lua
+vim.api.nvim_create_autocmd("User", {
+  pattern = "TSUpdate",
+  callback = function()
+    require("nvim-treesitter.parsers").emela = {
+      install_info = {
+        url = "https://github.com/emela-lang/emela",
+        location = "editors/tree-sitter-emela",
+        queries = "editors/tree-sitter-emela/queries",
+      },
+    }
+  end,
+})
+```
+
+For a local checkout, replace `url` with `path = "~/src/emela"`; `:TSUpdate emela` then rebuilds
+from your working tree. nvim-treesitter also installs the queries, so this works without the
+runtimepath plugin above.
+
+### By hand
+
+Build the parser into a `parser/` directory on `runtimepath`:
+
+```sh
+tree-sitter build -o ~/.local/share/nvim/site/parser/emela.so editors/tree-sitter-emela
+```
+
+### Folds and indentation
+
+The queries also provide folds, indentation (nvim-treesitter's `indentexpr`) and text objects
+(nvim-treesitter-textobjects). Neovim does not turn on the first two by itself:
+
+```lua
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "emela",
+  callback = function()
+    vim.wo.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+    vim.wo.foldmethod = "expr"
+    vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+  end,
+})
+```
+
+### Captures
+
+The highlight captures follow nvim-treesitter (`@keyword.function`, `@type.definition`,
+`@constructor`, `@module`, `@variable.member` and so on), so a color scheme that supports
+nvim-treesitter colors Emela without changes. A type name in an expression is `@constructor`
+(`None`, `NotFound(id:)`) unless it is on the left of `.`, where it is `@module` (`List.map`).
+`True` and `False` are `@boolean`.
 
 ## Highlight groups
 
@@ -131,6 +201,7 @@ color scheme clears it.
 ```sh
 editors/nvim/test/run.sh          # Neovim
 editors/nvim/test/run.sh vim      # Vim
+editors/nvim/test/run.sh treesitter   # Neovim with the tree-sitter parser
 EMELA_SPEC=path/to/emela-0.20-spec.md editors/nvim/test/run.sh   # also the spec's examples
 ```
 
@@ -138,3 +209,7 @@ The script opens `test/fixture.emel` and checks the syntax group at chosen posit
 checks that nothing in `examples/` and `crates/emela-fmt/test_data/` is highlighted as an error.
 It also checks the links of the declaration keywords and, in Neovim, the capability underline.
 The semantic tokens themselves are tested in `crates/emela-lsp/tests/server.rs`.
+
+`treesitter` builds the parser with the tree-sitter CLI into a temporary directory, checks the
+capture at chosen positions of `test/fixture.emel`, and checks that every Emela file the compiler
+accepts parses without errors.
