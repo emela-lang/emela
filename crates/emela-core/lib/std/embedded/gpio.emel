@@ -1,0 +1,30 @@
+# The Emela interface for GPIO.
+# The selected board definition maps logical pin IDs to physical pins.
+# The board manages interrupt service routines and their connections.
+
+## A logical pin ID defined by the board and resolved by the embedded implementation.
+pub type GpioPin(id: Int)
+pub enum PinState { Low, High }
+pub enum Pull { NoPull, Up, Down }
+pub enum GpioMode {
+  Input
+  OutputPushPull
+  OutputOpenDrain
+  Analog
+}
+pub enum Edge { Rising, Falling, Both }
+pub type GpioEvent(pin: GpioPin, level: PinState)
+
+pub effect Gpio {
+  fn configure(
+    pin: GpioPin,
+    mode: GpioMode,
+    pull: Pull
+  ) -> ()
+  fn read(pin: GpioPin) -> PinState
+  fn write(pin: GpioPin, state: PinState) -> ()
+  fn toggle(pin: GpioPin) -> ()
+  ## Enables the interrupt source. Board code owns ISR handling; this does not register Emela callbacks.
+  fn enable_interrupt(pin: GpioPin, edge: Edge) -> ()
+  fn disable_interrupt(pin: GpioPin) -> ()
+}

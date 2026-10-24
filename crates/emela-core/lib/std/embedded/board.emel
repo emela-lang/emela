@@ -1,0 +1,176 @@
+# Board handlers for the embedded C backend.
+# The compiler supplies the bridge for the private external symbols below.
+# Applications select these handlers; board code implements the generated C interface.
+
+import Std.Clock.{Clock}
+import Std.Console.{Console}
+import Std.Instant.{Instant}
+import Std.Embedded.Peripheral.{PeripheralError}
+import Std.Embedded.Gpio.{Gpio, GpioPin, PinState, Pull, GpioMode, Edge}
+import Std.Embedded.Uart.{Uart, UartId, UartConfig}
+import Std.Embedded.I2c.{I2c, I2cId, I2cConfig, MemoryAddressSize}
+import Std.Embedded.Spi.{Spi, SpiId, SpiConfig}
+
+@external(c, "__emela_peripheral_gpio_configure")
+fn gpio_configure(pin: GpioPin, mode: GpioMode, pull: Pull) -> ()
+
+@external(c, "__emela_peripheral_gpio_read")
+fn gpio_read(pin: GpioPin) -> PinState
+
+@external(c, "__emela_peripheral_gpio_write")
+fn gpio_write(pin: GpioPin, state: PinState) -> ()
+
+@external(c, "__emela_peripheral_gpio_toggle")
+fn gpio_toggle(pin: GpioPin) -> ()
+
+@external(c, "__emela_peripheral_gpio_enable_interrupt")
+fn gpio_enable_interrupt(pin: GpioPin, edge: Edge) -> ()
+
+@external(c, "__emela_peripheral_gpio_disable_interrupt")
+fn gpio_disable_interrupt(pin: GpioPin) -> ()
+
+## GPIO operations on the selected board. Pin IDs are logical board IDs.
+pub handler BoardGpio: Gpio {
+  fn configure(pin, mode, pull) { gpio_configure(pin, mode, pull) }
+  fn read(pin) { gpio_read(pin) }
+  fn write(pin, state) { gpio_write(pin, state) }
+  fn toggle(pin) { gpio_toggle(pin) }
+  fn enable_interrupt(pin, edge) { gpio_enable_interrupt(pin, edge) }
+  fn disable_interrupt(pin) { gpio_disable_interrupt(pin) }
+}
+
+@external(c, "__emela_peripheral_uart_configure")
+fn uart_configure(id: UartId, config: UartConfig) -> (Int, ())
+
+@external(c, "__emela_peripheral_uart_transmit")
+fn uart_transmit(id: UartId, data: List[Int], timeout_ms: Int64) -> (Int, ())
+
+@external(c, "__emela_peripheral_uart_receive")
+fn uart_receive(id: UartId, size: Int, timeout_ms: Int64) -> (Int, List[Int])
+
+## Synchronous UART operations on the selected board.
+pub handler BoardUart: Uart {
+  fn configure(id, config) { checked(uart_configure(id, config)) }
+  fn transmit(id, data, timeout_ms) { checked(uart_transmit(id, data, timeout_ms)) }
+  fn receive(id, size, timeout_ms) { checked(uart_receive(id, size, timeout_ms)) }
+}
+
+@external(c, "__emela_peripheral_i2c_configure")
+fn i2c_configure(id: I2cId, config: I2cConfig) -> (Int, ())
+
+@external(c, "__emela_peripheral_i2c_master_transmit")
+fn i2c_master_transmit(
+  id: I2cId,
+  address: Int,
+  data: List[Int],
+  timeout_ms: Int64
+) -> (Int, ())
+
+@external(c, "__emela_peripheral_i2c_master_receive")
+fn i2c_master_receive(
+  id: I2cId,
+  address: Int,
+  size: Int,
+  timeout_ms: Int64
+) -> (Int, List[Int])
+
+@external(c, "__emela_peripheral_i2c_memory_write")
+fn i2c_memory_write(
+  id: I2cId,
+  address: Int,
+  memory_address: Int,
+  address_size: MemoryAddressSize,
+  data: List[Int],
+  timeout_ms: Int64
+) -> (Int, ())
+
+@external(c, "__emela_peripheral_i2c_memory_read")
+fn i2c_memory_read(
+  id: I2cId,
+  address: Int,
+  memory_address: Int,
+  address_size: MemoryAddressSize,
+  size: Int,
+  timeout_ms: Int64
+) -> (Int, List[Int])
+
+@external(c, "__emela_peripheral_i2c_is_device_ready")
+fn i2c_is_device_ready(
+  id: I2cId,
+  address: Int,
+  trials: Int,
+  timeout_ms: Int64
+) -> (Int, Bool)
+
+## Synchronous I2C master operations on the selected board.
+pub handler BoardI2c: I2c {
+  fn configure(id, config) { checked(i2c_configure(id, config)) }
+  fn master_transmit(id, address, data, timeout_ms) {
+    checked(i2c_master_transmit(id, address, data, timeout_ms))
+  }
+  fn master_receive(id, address, size, timeout_ms) {
+    checked(i2c_master_receive(id, address, size, timeout_ms))
+  }
+  fn memory_write(id, address, memory_address, address_size, data, timeout_ms) {
+    checked(i2c_memory_write(id, address, memory_address, address_size, data, timeout_ms))
+  }
+  fn memory_read(id, address, memory_address, address_size, size, timeout_ms) {
+    checked(i2c_memory_read(id, address, memory_address, address_size, size, timeout_ms))
+  }
+  fn is_device_ready(id, address, trials, timeout_ms) {
+    checked(i2c_is_device_ready(id, address, trials, timeout_ms))
+  }
+}
+
+@external(c, "__emela_peripheral_spi_configure")
+fn spi_configure(id: SpiId, config: SpiConfig) -> (Int, ())
+
+@external(c, "__emela_peripheral_spi_transmit")
+fn spi_transmit(id: SpiId, data: List[Int], timeout_ms: Int64) -> (Int, ())
+
+@external(c, "__emela_peripheral_spi_receive")
+fn spi_receive(id: SpiId, size: Int, timeout_ms: Int64) -> (Int, List[Int])
+
+@external(c, "__emela_peripheral_spi_transfer")
+fn spi_transfer(id: SpiId, data: List[Int], timeout_ms: Int64) -> (Int, List[Int])
+
+## Synchronous SPI operations on the selected board. Use GPIO for chip select.
+pub handler BoardSpi: Spi {
+  fn configure(id, config) { checked(spi_configure(id, config)) }
+  fn transmit(id, data, timeout_ms) { checked(spi_transmit(id, data, timeout_ms)) }
+  fn receive(id, size, timeout_ms) { checked(spi_receive(id, size, timeout_ms)) }
+  fn transfer(id, data, timeout_ms) { checked(spi_transfer(id, data, timeout_ms)) }
+}
+
+# The bridge returns status zero on success. Preserve the board's error code on failure.
+fn checked[A](outcome: (Int, A)) -> A fails PeripheralError {
+  (code, value) = outcome
+  if code == 0 { value } else { fail PeripheralError(code) }
+}
+
+@external(c, "__emela_peripheral_clock_sleep")
+suspend fn clock_sleep(ms: Int) -> ()
+
+@external(c, "__emela_peripheral_clock_now")
+fn clock_now() -> Int64
+
+## The selected board's clock. Sleep completion is delivered by the embedded task API.
+pub handler BoardClock: Clock {
+  suspend fn sleep(ms, resume) {
+    clock_sleep(if ms < 0 { 0 } else { ms })
+    resume(())
+  }
+  fn now() { Instant.from_unix_milliseconds(clock_now()) }
+}
+
+@external(c, "__emela_peripheral_console_print_line")
+fn console_print_line(text: String) -> () use {}
+
+@external(c, "__emela_peripheral_console_print_error_line")
+fn console_print_error_line(text: String) -> () use {}
+
+## The selected board's console. Board code adds the line terminator.
+pub handler BoardConsole: Console {
+  fn print_line(text) { console_print_line(text) }
+  fn print_error_line(text) { console_print_error_line(text) }
+}

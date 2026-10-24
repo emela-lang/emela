@@ -26,6 +26,8 @@ mod error_runtime;
 mod external;
 #[path = "owned.rs"]
 mod owned;
+#[path = "peripheral.rs"]
+mod peripheral;
 #[path = "suspend.rs"]
 mod suspend;
 #[path = "task_values.rs"]
@@ -36,6 +38,12 @@ const SOURCE_FILE: &str = "emela_embedded.c";
 const BOARD_HEADER_FILE: &str = "emela_board.h";
 
 pub(crate) fn emit(flow: &emela_lir::Module, options: &Options) -> Result<Output, Vec<Error>> {
+    if options.peripheral_buffer_capacity() == 0 {
+        return Err(vec![Error {
+            kind: ErrorKind::InvalidOptions,
+            message: "peripheral_buffer_capacity must be positive (uint16_t words)".into(),
+        }]);
+    }
     if !(1..=512).contains(&options.string_capacity()) {
         return Err(vec![Error {
             kind: ErrorKind::InvalidOptions,
@@ -96,6 +104,7 @@ pub(crate) fn emit(flow: &emela_lir::Module, options: &Options) -> Result<Output
         }
     }
     let external_bindings = external::resolve(flow, &emitted_functions, &mut layouts, options)?;
+    let peripheral_headers = peripheral::headers(flow, &emitted_functions)?;
     let derived_plan = derive_runtime::Plan::new(flow, &emitted_functions, &layouts)?;
     task_values::validate_types(flow, &emitted_functions, &layouts)?;
     validate_function_value_types(&layouts, &emitted_functions, flow)?;
@@ -284,6 +293,7 @@ pub(crate) fn emit(flow: &emela_lir::Module, options: &Options) -> Result<Output
         header.line(include_str!("runtime/scheduler.h"));
     }
     if has_tasks {
+        header.line("#define EMELA_HAS_TASK_RUNTIME 1");
         header.line(include_str!("runtime/task.h"));
         if !task_value_types.is_empty() || suspend::has_failing_tasks(flow, &emitted_functions) {
             header.line(include_str!("runtime/task_context.h"));
@@ -487,6 +497,9 @@ pub(crate) fn emit(flow: &emela_lir::Module, options: &Options) -> Result<Output
     source.line(&format!("#include \"{BOARD_HEADER_FILE}\""));
     source.line("#include <math.h>");
     source.line("#include <stddef.h>");
+    for file in &peripheral_headers {
+        source.line(&format!("#include \"{}\"", file.path));
+    }
     source.blank();
     emit_unused_attribute(&mut source);
 
@@ -852,6 +865,16 @@ pub(crate) fn emit(flow: &emela_lir::Module, options: &Options) -> Result<Output
                 derive_runtime::emit_adapter(&layouts, function, &names[&id], &mut source);
                 continue;
             }
+            if peripheral::emit_adapter(
+                flow,
+                &layouts,
+                function,
+                &names[&id],
+                options.peripheral_buffer_capacity(),
+                &mut source,
+            )? {
+                continue;
+            }
             external::emit_adapter(
                 &layouts,
                 function,
@@ -1128,7 +1151,10 @@ pub(crate) fn emit(flow: &emela_lir::Module, options: &Options) -> Result<Output
                 path: SOURCE_FILE.to_owned(),
                 contents: source.finish(),
             },
-        ],
+        ]
+        .into_iter()
+        .chain(peripheral_headers)
+        .collect(),
     })
 }
 

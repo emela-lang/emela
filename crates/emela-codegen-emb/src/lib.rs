@@ -64,6 +64,7 @@ impl ExternalAdapter {
 #[non_exhaustive]
 pub struct Options {
     string_capacity: u16,
+    peripheral_buffer_capacity: u16,
     heap_bytes: u32,
     const_diagnostic_bytes: u16,
     fiber_capacity: u16,
@@ -82,6 +83,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             string_capacity: 256,
+            peripheral_buffer_capacity: 256,
             heap_bytes: 0,
             const_diagnostic_bytes: 1024,
             fiber_capacity: 8,
@@ -99,6 +101,18 @@ impl Default for Options {
 }
 
 impl Options {
+    /// Sets the maximum number of uint16_t words in a synchronous peripheral transfer.
+    /// Zero is invalid. The default is 256 words; buffers are allocated on the C call stack.
+    pub fn with_peripheral_buffer_capacity(mut self, words: u16) -> Self {
+        self.peripheral_buffer_capacity = words;
+        self
+    }
+
+    /// Returns the configured transfer capacity in uint16_t words.
+    pub fn peripheral_buffer_capacity(&self) -> u16 {
+        self.peripheral_buffer_capacity
+    }
+
     /// Sets the maximum size in bytes for a dynamically generated String buffer.
     ///
     /// Values from 1 through 512 are accepted. The generated code reports a String capacity

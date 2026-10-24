@@ -1,0 +1,4 @@
+# Shared types for embedded peripherals.
+
+## A runtime HAL error. The board implementation defines the meaning of `code`.
+pub error PeripheralError(code: Int)

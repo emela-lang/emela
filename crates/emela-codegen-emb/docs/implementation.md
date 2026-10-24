@@ -6,7 +6,7 @@
 
 中心となるAPIは `compile_flow(&emela_lir::Module, &Options)` である。入力は `Stage::Flow` の構造体であり、dump文字列を解析しない。型・制御・失敗辺を検証し、closure変換、値レイアウト、所有権、suspend継続、必要なruntime生成をこのcrateで行う。`emela_lir::to_heap` およびその後のHeap IRパスは呼ばない。
 
-型やvariantの定義は [LIR](../../emela-lir/src/ir.rs)、[Coreのbuiltin](../../emela-core/src/intrinsics.rs) を参照する。このPRはCore・syntax・LIRの定義や処理を変更しない。通常のホスト向けC backendのABIも変更しない。
+型やvariantの定義は [LIR](../../emela-lir/src/ir.rs)、[Coreのbuiltin](../../emela-core/src/intrinsics.rs) を参照する。標準moduleはCoreの同梱ソースへ登録するが、Core IR・syntax・LIRの定義やlowering処理は変更しない。通常のホスト向けC backendのABIも変更しない。
 
 | API | 入力・役割 | 現在の境界 |
 | --- | --- | --- |
@@ -53,6 +53,7 @@
 | `Options` の設定方法 | 既定値 | 意味 |
 | --- | --- | --- |
 | `with_heap_bytes` | 0 byte | heapを使用する入力には正の容量が必要。0ではheapが必要な経路を診断する。 |
+| `with_peripheral_buffer_capacity` | 256 word | 標準UART/I²C/SPI bridgeの1方向の転送buffer。1〜65,535 wordで、1 wordはuint16_t。C stack上の配列を使う。 |
 | `with_string_capacity` | 256 byte | 動的String生成の上限。設定範囲は1〜512 byte。 |
 | `with_const_diagnostic_bytes` | 1024 byte | runtime constの保存するdefect message領域。必要な場合だけ出力し、heapからは確保しない。 |
 | `with_fiber_capacity` | 8 | 実行中または完了後に未解放のFiber handle数。 |
@@ -90,7 +91,7 @@ suspendは固定pool上の継続と協調schedulerで実装する。Scope/Fork/J
 
 ## 4. 外部C・ISR・ボードとの境界
 
-生成ファイルは `emela_embedded.h`、`emela_board.h`、`emela_embedded.c` の3つ。必要なhookとtask ABIだけをheaderに宣言する。C側の宣言は生成headerを正とし、ホスト向けC backendの型定義やABIを流用しない。
+基本の生成ファイルは `emela_embedded.h`、`emela_board.h`、`emela_embedded.c` の3つ。標準handlerを使う場合は、到達する機能に応じてGPIO/UART/I²C/SPI/Clock/ConsoleのC headerと共通 `emela_peripheral.h` も出力する。必要なhookとtask ABIだけをheaderに宣言する。C側の宣言は生成headerを正とし、ホスト向けC backendの型定義やABIを流用しない。
 
 | 境界 | 契約 |
 | --- | --- |
@@ -114,7 +115,7 @@ suspendは固定pool上の継続と協調schedulerで実装する。Scope/Fork/J
 
 ISRとして公開するEmela関数は `with_isr_entry` で指定する。到達先にheap値・参照管理・再帰・suspend・runtime const初期化・動的call・Hold/Unholdがある場合は拒否する。外部C symbolは `with_isr_safe_external` で明示し、非scalar adapter等の追加制約も満たす必要がある。この検査は外部関数の実装や実行時間を証明しない。ISRのstack総量は算出しない。
 
-CLIのtarget/board選択、TOML設定、標準 `Std.Embedded` effect、BSP、linker/startup、ツールチェーン取得、build/flash、Renode/QEMUの起動とボードexampleは後続PRの範囲である。このPRのRust exampleはbackendやhost C検証のprobeであり、ボード開発用CLIではない。GPIO/UART等の実装は、このライブラリでは外部C契約を満たす利用側が用意する。
+標準 `Std.Embedded` effect・共有handlerとC bridgeは[共通インターフェース](embedded-interfaces.md)と[ABI契約](embedded-peripherals.md)で提供する。これらの標準bindingでは汎用adapterの明示mappingは不要である。CLIのtarget/board選択、TOML設定、BSP、linker/startup、ツールチェーン取得、build/flash、Renode/QEMUの起動とボードexampleは後続PRの範囲である。このPRのRust exampleはbackendやhost C検証のprobeであり、ボード開発用CLIではない。GPIO/UART等の実装は、このライブラリでは外部C契約を満たす利用側が用意する。
 
 ## 5. APIの最小利用例とhostでの確認
 

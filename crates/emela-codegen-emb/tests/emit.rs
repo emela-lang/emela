@@ -12,6 +12,7 @@ mod cell;
 mod completion_types;
 mod const_runtime;
 mod deferred;
+mod embedded_peripherals;
 mod external_scalar;
 mod fiber;
 #[path = "../examples/support/gc_anchor.rs"]

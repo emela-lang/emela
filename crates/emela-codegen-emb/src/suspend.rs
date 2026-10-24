@@ -163,6 +163,9 @@ pub(super) fn external_symbol(
     function: &Function,
     options: &Options,
 ) -> Result<String, Vec<Error>> {
+    if let Some(symbol) = peripheral::task_symbol(function) {
+        return Ok(symbol.into());
+    }
     let binding = function
         .external
         .as_ref()

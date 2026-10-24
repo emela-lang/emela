@@ -1,0 +1,88 @@
+import Std.Embedded.Gpio
+import Std.Embedded.Uart
+import Std.Embedded.I2c
+import Std.Embedded.Spi
+import Std.Embedded.Peripheral.{PeripheralError}
+import Std.Embedded.Board.{BoardGpio, BoardUart, BoardI2c, BoardSpi, BoardClock, BoardConsole}
+import Std.Clock.{Clock}
+import Std.Console.{Console}
+import Std.Instant.{Instant}
+
+pub fn all() -> Int {
+  with BoardGpio, BoardUart, BoardI2c, BoardSpi, BoardClock, BoardConsole {
+    gpio = use Gpio.Gpio
+    pin = Gpio.GpioPin(5)
+    gpio.configure(pin, Gpio.OutputPushPull, Gpio.NoPull)
+    gpio.write(pin, Gpio.High)
+    gpio.toggle(pin)
+    gpio.enable_interrupt(pin, Gpio.Both)
+    gpio.disable_interrupt(pin)
+    high = gpio.read(pin) match {
+      Gpio.High -> True
+      Gpio.Low -> False
+    }
+    uart = use Uart.Uart
+    uart.configure(Uart.Uart2, Uart.UartConfig(115200, Uart.Bits8, Uart.One, Uart.NoParity, Uart.Transmit, Uart.NoFlowControl, Uart.By16))
+    uart.transmit(Uart.Uart2, [0, 255, 65535], Int64.from_int(9))
+    urx = uart.receive(Uart.Uart2, 2, Int64.from_int(9))
+    i2c = use I2c.I2c
+    i2c.configure(I2c.I2c1, I2c.I2cConfig(100000, I2c.SevenBit, I2c.Standard))
+    i2c.master_transmit(I2c.I2c1, 64, [0, 255, 65535], Int64.from_int(9))
+    irx = i2c.master_receive(I2c.I2c1, 64, 2, Int64.from_int(9))
+    i2c.memory_write(I2c.I2c1, 64, 7, I2c.Bits16, irx, Int64.from_int(9))
+    memory = i2c.memory_read(I2c.I2c1, 64, 7, I2c.Bits16, 2, Int64.from_int(9))
+    ready = i2c.is_device_ready(I2c.I2c1, 64, 3, Int64.from_int(9))
+    spi = use Spi.Spi
+    spi.configure(Spi.Spi1, Spi.SpiConfig(Spi.Master, Spi.TwoLine, Spi.Bits16, Spi.IdleLow, Spi.FirstEdge, Spi.Div16, Spi.MostSignificantFirst))
+    spi.transmit(Spi.Spi1, [0, 255, 65535], Int64.from_int(9))
+    srx = spi.receive(Spi.Spi1, 2, Int64.from_int(9))
+    transferred = spi.transfer(Spi.Spi1, srx, Int64.from_int(9))
+    now = Instant.to_unix_milliseconds((use Clock).now())
+    (use Console).print_line("ok")
+    (use Console).print_error_line("error")
+    if high && ready && urx == [10, 11] && irx == [20, 21] && memory == [30, 31] && srx == [40, 41] && transferred == [50, 51] && now == Int64.from_int(123456) { 73 } else { -1000 }
+  } escape { PeripheralError(code) -> code }
+}
+
+pub fn bounded(kind: Int, arg: Int) -> Int {
+  with BoardUart, BoardI2c, BoardSpi {
+    data = if arg == 0 { [-1] } else if arg == 1 { [65536] } else if arg == 2 { [0, 65535] } else if arg == 3 { [1, 2, 3, 4, 5] } else { [] }
+    if kind == 0 {
+      (use Uart.Uart).transmit(Uart.Uart2, data, Int64.from_int(9))
+      0
+    } else if kind == 1 {
+      (use I2c.I2c).master_transmit(I2c.I2c1, 64, data, Int64.from_int(9))
+      0
+    } else if kind == 2 {
+      (use I2c.I2c).memory_write(I2c.I2c1, 64, 7, I2c.Bits16, data, Int64.from_int(9))
+      0
+    } else if kind == 3 {
+      (use Spi.Spi).transmit(Spi.Spi1, data, Int64.from_int(9))
+      0
+    } else if kind == 4 {
+      List.length((use Spi.Spi).transfer(Spi.Spi1, data, Int64.from_int(9)))
+    } else if kind == 5 {
+      List.length((use Uart.Uart).receive(Uart.Uart2, arg, Int64.from_int(9)))
+    } else if kind == 6 {
+      List.length((use I2c.I2c).master_receive(I2c.I2c1, 64, arg, Int64.from_int(9)))
+    } else if kind == 7 {
+      List.length((use I2c.I2c).memory_read(I2c.I2c1, 64, 7, I2c.Bits16, arg, Int64.from_int(9)))
+    } else {
+      List.length((use Spi.Spi).receive(Spi.Spi1, arg, Int64.from_int(9)))
+    }
+  } escape { PeripheralError(code) -> code }
+}
+
+pub fn sleep(ms: Int) -> Int use Async {
+  with BoardClock {
+    (use Clock).sleep(ms)
+    77
+  }
+}
+
+pub fn logs(text: String) -> () {
+  with BoardConsole {
+    (use Console).print_line(text)
+    (use Console).print_error_line(text)
+  }
+}
