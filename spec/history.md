@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-25 (Requests of HTTP services on WASM)
+
+- `[lib.http-service]`, `[target.wasm.output]`: The headers that belong to the connection (`connection`, `keep-alive`, `proxy-authenticate`, `proxy-authorization`, `proxy-connection`, `transfer-encoding`, `upgrade`, `host`, `http2-settings`) are left out of a received request on every target, because hosts of `wasi:http` do not hand them over. On WASM a request without an authority has an empty authority, so `url` is `http:///<path-with-query>` under `wasmtime serve`. Decided while implementing the proposal `http-service` (#428).
+
 ## 2026-10-25 (What the hosts of HTTP services allow)
 
 - `[lib.http-service]`: Headers of a response with different names are sent in an unspecified order, and values with the same name may be joined, because the Headers of the JS Fetch API keep no order between names. A response with a status outside 200 to 599, a body on 204, 205 or 304, or an invalid header becomes status 500 with one line `invalid response: <reason>` on standard error. On JS the `url` of a received request is normalized by the URL Standard, and may differ from WASM. A launch that ends with an interruption gives the host an error instead of status 500, because `Fiber.attempt` does not catch the interruption of the current fiber. Decided while implementing the proposal `http-service` (#428).
