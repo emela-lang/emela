@@ -88,6 +88,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | external function | 外部関数 |
 | host | ホスト |
 | boundary type | 境界を越えられる型 |
+| entry adapter | 入口アダプタ |
 | single-file mode | 単独ファイル |
 | source root, test root | ソースのルート、テストのルート |
 | root name | ルート名 |

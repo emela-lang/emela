@@ -194,6 +194,7 @@ targets = ["js"]
 ```
 
 - `@external` in a Pome in the dependency graph can be used only when that Pome is in the `allow` list (a list of source paths) in the `[external]` of the Pome being built. No version is written. Transitive dependencies also cannot use it unless written in `allow`. `@external` in a dependency that is not allowed is a compile error (E0233).
+- `@export` counts as `@external` for `[external] allow`. An `@entry` that names an entry adapter of a Pome that is not allowed is E0233.
 - E0233 is reported only on the first `@external` of each module of a Pome that is not allowed. This is because allowing the Pome makes all `@external` in that module usable at once.
 - Like `[replace]`, `[external]` takes effect only when building that Pome and is ignored when the Pome is depended on. This ensures that dependencies that run host code always appear as a list in the app's `Pome.toml`.
 - A source path in `allow` that is not in the dependency graph produces a warning (W0204).
