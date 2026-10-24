@@ -125,6 +125,7 @@ pub fn try_lower_with(
                         (format!("suspending export {name}"), span)
                     }
                     LowerError::WasmExport { name, span } => (format!("wasm export {name}"), span),
+                    LowerError::HttpServiceOnC { span } => ("HTTP service on c".to_owned(), span),
                 };
                 let Some(span) = span else {
                     return format!("<no span> {what}");
