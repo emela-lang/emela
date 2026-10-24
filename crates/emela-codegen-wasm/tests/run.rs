@@ -335,6 +335,265 @@ fn the_scratch_area_does_not_overlap_the_static_data() {
 }
 
 #[test]
+fn constants_are_evaluated_once_and_remembered() {
+    // `SHOWN` prints from its body: the second reference of `NEXT` must not evaluate it again
+    // (spec 5.6). `GREETING` depends on `NAMES`, so the dependency is evaluated first.
+    let Some(out) = stderr(
+        "const-once",
+        r#"
+const LIMIT = 3 * 7
+const NAMES = ["a", "b", "c"]
+const GREETING = "hello #{List.length(NAMES)}"
+const SHOWN = dbg(LIMIT)
+const NEXT = SHOWN + 1
+
+fn main() {
+  dbg(GREETING)
+  dbg(NAMES)
+  dbg(NEXT)
+  dbg(GREETING)
+  dbg(NEXT)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "\"hello 3\"\n[\"a\", \"b\", \"c\"]\n21\n22\n\"hello 3\"\n22\n"
+    );
+}
+
+#[test]
+fn a_const_that_refers_to_itself_is_a_defect() {
+    let Some(run) = run(
+        "const-self",
+        "const A: Int = if True { A } else { 0 }\nfn main() { dbg(A) }\n",
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: const A refers to itself while being evaluated\n"
+    );
+}
+
+#[test]
+fn a_const_that_fails_wraps_its_defect() {
+    let Some(run) = run(
+        "const-broken",
+        r#"
+const LIMIT = 3 * 7
+const BROKEN = 2 / (LIMIT - 21)
+
+fn main() {
+  dbg(BROKEN)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: while evaluating const BROKEN: division by zero\n"
+    );
+}
+
+#[test]
+fn nested_const_defects_get_each_name() {
+    let Some(run) = run(
+        "const-nested",
+        r#"
+const OUTER = INNER + 1
+const INNER = 1 / zero()
+
+fn zero() -> Int { 0 }
+
+fn main() {
+  dbg(OUTER)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: while evaluating const OUTER: while evaluating const INNER: division by zero\n"
+    );
+}
+
+#[test]
+fn a_failing_release_does_not_wrap_a_self_reference() {
+    // The self-reference defect is the first one, and the release fails while it unwinds. It must
+    // keep no name and must not be remembered (spec 5.6), even though the release appends a note
+    // to it.
+    let Some(run) = run(
+        "const-self-release",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler PoolH: Pool {
+  init { PoolH }
+  release { panic("release failed") }
+  fn get() { 0 }
+}
+
+const SELF: Int = with PoolH { if True { SELF } else { 0 } }
+
+fn main() {
+  dbg(SELF)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: const SELF refers to itself while being evaluated\n\
+         note: the release of handler PoolH also failed: release failed\n"
+    );
+}
+
+// Notes added by fiber failures (`note: another fiber also failed: …`, 11.2) are not tested here:
+// fibers are not supported on target `wasm` yet (see `check::unsupported`), so only the defect
+// notes of 14.4 are reachable.
+
+#[test]
+fn a_release_defect_becomes_a_note_of_the_first_defect() {
+    let Some(run) = run(
+        "release-note",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler Outer: Pool {
+  init { Outer }
+  release {
+    dbg("release outer")
+    panic("outer release failed")
+  }
+  fn get() { 0 }
+}
+
+handler Inner: Pool {
+  init { Inner }
+  release { dbg("release inner") }
+  fn get() { 1 }
+}
+
+fn work(xs: List[Int]) -> Int {
+  zero = (use Pool).get()
+  total = List.fold(xs, 0, fn(a, x) { a + x })
+  dbg("total #{total}")
+  total / zero
+}
+
+fn main() {
+  with Outer {
+    with Inner {
+      dbg("inner #{(use Pool).get()}")
+    }
+    work([1, 2, 3])
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "\"inner 1\"\n\"release inner\"\n\"total 6\"\n\"release outer\"\n\
+         defect: division by zero\n\
+         note: the release of handler Outer also failed: outer release failed\n"
+    );
+}
+
+#[test]
+fn a_released_handler_is_a_defect_when_used() {
+    let Some(run) = run(
+        "released-handler",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler PoolH: Pool {
+  init { PoolH }
+  release { () }
+  fn get() { 1 }
+}
+
+handler Spare: Pool {
+  init { Spare }
+  release { () }
+  fn get() { 2 }
+}
+
+fn main() {
+  f = with PoolH {
+    p = use Pool
+    fn() { p.get() }
+  }
+  with Spare { dbg(f()) }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(run.stderr, "defect: handler PoolH was used after release\n");
+}
+
+#[test]
+fn notes_keep_the_order_the_defects_happened() {
+    let Some(run) = run(
+        "release-notes",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler ResA: Pool {
+  init { ResA }
+  release { panic("a failed") }
+  fn get() { 0 }
+}
+
+handler ResB: Pool {
+  init { ResB }
+  release { panic("b failed") }
+  fn get() { 1 }
+}
+
+fn main() {
+  with ResA {
+    with ResB {
+      panic("body")
+    }
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: body\n\
+         note: the release of handler ResB also failed: b failed\n\
+         note: the release of handler ResA also failed: a failed\n"
+    );
+}
+
+#[test]
 fn all_scratch_buffers_are_stepped_in_one_program() {
     // 1 つのプログラムでスクラッチの全バッファ（WASI の iovec / 書き込みバイト数，
     // 整数の桁，改行，Int64 の桁，JSON escape，1 コードポイントの UTF-8）を触りつつ，

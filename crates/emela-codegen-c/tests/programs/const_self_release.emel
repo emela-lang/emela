@@ -1,0 +1,20 @@
+effect Pool {
+  fn get() -> Int
+}
+
+handler PoolH: Pool {
+  init { PoolH }
+  release { panic("release failed") }
+  fn get() { 0 }
+}
+
+fn probe() -> Bool {
+  dbg("probe")
+  True
+}
+
+const SELF: Int = with PoolH { if probe() { SELF } else { 0 } }
+
+fn main() {
+  dbg(SELF)
+}

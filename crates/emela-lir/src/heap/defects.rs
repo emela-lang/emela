@@ -252,7 +252,9 @@ fn analyse(m: &Module) -> Vec<bool> {
             flags[i] = true;
             continue;
         };
-        let mut raises = f.suspends;
+        // A const's wrapper may raise a defect even when its body has none: a self-reference, or
+        // a defect remembered from the first reference (spec 5.6). Every caller needs a landing.
+        let mut raises = f.suspends || f.constant;
         visit(f, body, &mut |stmt, term| match stmt {
             Some(Stmt::Let { value, .. }) => match value {
                 Value::Call {

@@ -12,7 +12,7 @@
  * Every heap object starts with a 16-byte header:
  *
  *     offset 0: uint32_t rc     reference count; 0 marks static data, which is never counted
- *     offset 4: uint32_t aux    unused (padding)
+ *     offset 4: uint32_t aux    1 on a const's self-reference defect, 0 otherwise
  *     offset 8: em_desc *desc   what the object is: its kind, constructor tag, slot count and
  *                               which slots hold references
  *

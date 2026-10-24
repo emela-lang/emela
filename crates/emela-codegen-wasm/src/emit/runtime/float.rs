@@ -76,6 +76,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "float_pow10" => vec![(1, ValType::I32), (2, ValType::F64)],
         "float_bounds" => vec![(3, ValType::I64), (7, ValType::I32)],
         "float_some" => i32s(1),
+        "float_to_int" => i32s(3),
         "float_round" => vec![(2, ValType::F64)],
         "float_to_string" => vec![(3, ValType::I64), (25, ValType::I32)],
         "float_parse" => vec![(6, ValType::I64), (19, ValType::I32), (1, ValType::F64)],
@@ -821,6 +822,9 @@ fn some(b: &mut Builder, ins: &mut InstructionSink) {
 /// The range check and the conversion (`[target.number]`): NaN and anything outside Int is a
 /// defect.
 fn to_int(b: &mut Builder, ins: &mut InstructionSink) {
+    const SHOWN: u32 = 2;
+    const HEAD: u32 = 3;
+    const MSG: u32 = 4;
     ins.local_get(1);
     ins.f64_const(f64::from(i32::MIN).into());
     ins.f64_ge();
@@ -832,13 +836,24 @@ fn to_int(b: &mut Builder, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     let prefix = b.string_literal(b"cannot convert ");
     let suffix = b.string_literal(b" to Int");
-    ins.i32_const(prefix as i32);
     ins.local_get(0);
     ins.call(rt(b, "float_to_string"));
+    ins.local_set(SHOWN);
+    ins.i32_const(prefix as i32);
+    ins.local_get(SHOWN);
     ins.call(rt(b, "str_append"));
+    ins.local_set(HEAD);
+    ins.local_get(HEAD);
     ins.i32_const(suffix as i32);
     ins.call(rt(b, "str_append"));
+    ins.local_set(MSG);
+    // `raise` and `str_append` borrow their arguments.
+    ins.local_get(MSG);
     ins.call(rt(b, "raise"));
+    for l in [SHOWN, HEAD, MSG] {
+        ins.local_get(l);
+        ins.call(rt(b, "drop"));
+    }
     ins.i32_const(0);
     ins.return_();
     ins.end();

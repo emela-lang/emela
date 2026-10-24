@@ -111,7 +111,11 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
     // The Flow IR functions are the Core functions in the same order, so a test keeps the index
     // of its copy.
     let entry = match entry {
-        Entry::Main => emit::Run::Main,
+        // Call the monomorphized copy itself: its name and `exported` flag can differ from the
+        // input's (`main[Never]` is not exported), so looking the entry up by name is fragile.
+        Entry::Main => emit::Run::Main(copies.iter().flatten().next().map(|copy| {
+            emela_lir::FnId::from_raw(la_arena::RawIdx::from(u32::from(copy.into_raw())))
+        })),
         Entry::Tests(tests) => emit::Run::Tests(
             tests
                 .iter()

@@ -38,9 +38,11 @@ fn always(_: &Builder) -> bool {
 }
 
 mod alloc;
+mod constant;
 mod defect;
 mod float;
 mod host;
+mod notes;
 mod numeric;
 mod option;
 mod protocol;
@@ -123,6 +125,20 @@ const MODULES: &[RuntimeModule] = &[
         locals: unicode::locals,
         setup: unicode::setup,
         emit: unicode::emit,
+        used: always,
+    },
+    RuntimeModule {
+        funcs: constant::FUNCS,
+        locals: constant::locals,
+        setup: no_setup,
+        emit: constant::emit,
+        used: always,
+    },
+    RuntimeModule {
+        funcs: notes::FUNCS,
+        locals: notes::locals,
+        setup: no_setup,
+        emit: notes::emit,
         used: always,
     },
 ];

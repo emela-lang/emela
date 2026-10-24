@@ -119,6 +119,11 @@ fn str_new(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_tee(P);
     ins.local_get(0);
     ins.i32_store(mem(HDR, 4));
+    // A reused object may still hold the free list's link in `aux`; a live string starts with no
+    // self-reference marker (see `constant.rs`).
+    ins.local_get(P);
+    ins.i32_const(0);
+    ins.i32_store(mem(4, 4));
     ins.local_get(P);
 }
 

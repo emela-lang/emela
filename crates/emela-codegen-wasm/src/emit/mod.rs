@@ -46,7 +46,8 @@ use crate::{WasmError, WasmErrorKind, WasmOutput};
 /// What the generated `wasi:cli/run@0.3.0` export runs.
 #[allow(dead_code)]
 pub(crate) enum Run {
-    Main,
+    /// The entry's `main` (its monomorphized copy).
+    Main(Option<FnId>),
     /// Test functions, with their names.
     Tests(Vec<(String, FnId)>),
 }
@@ -130,11 +131,24 @@ const G_STDOUT_FUTURE: u32 = 7;
 const G_STDERR: u32 = 8;
 const G_STDERR_FUTURE: u32 = 9;
 const G_WAITSET: u32 = 10;
-const GLOBALS: u32 = 11;
+/// The name of the handler retired last (spec 14.4: the release note names it).
+pub(crate) const G_LAST_RETIRED: u32 = 11;
+const GLOBALS: u32 = 12;
 
 /// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, slots at 16. A `rc` of 0
 /// marks static data (never counted).
 const HDR: u32 = 16;
+
+// A const's cell (spec 5.6; see `runtime/constant.rs`). The state is 0 (not evaluated), 1 (being
+// evaluated), 2 (the value is in the cell) or 3 (the defect is in the cell). The last two words
+// hold the static strings the runtime needs: the self-reference message and the prefix of the
+// wrapped defect.
+pub(crate) const CONST_STATE: u32 = 0;
+pub(crate) const CONST_VALUE: u32 = 8;
+pub(crate) const CONST_DEFECT: u32 = 16;
+pub(crate) const CONST_SELF: u32 = 20;
+pub(crate) const CONST_PREFIX: u32 = 24;
+pub(crate) const CONST_CELL_SIZE: u32 = 32;
 const DESC_KIND: u32 = 0;
 const DESC_NSLOTS: u32 = 4;
 const DESC_TAG: u32 = 8;
@@ -177,6 +191,10 @@ pub(crate) struct Builder<'m> {
     strs: FxHashMap<Vec<u8>, u32>,
     nullary: FxHashMap<u32, u32>,
     static_closures: FxHashMap<FnId, u32>,
+    /// The function index of a const's body (the wrapper has `fn_index`).
+    const_inits: FxHashMap<FnId, u32>,
+    /// The static cell of a const.
+    const_cells: FxHashMap<FnId, u32>,
     pub(crate) errors: Vec<WasmError>,
     pub(crate) bodies: Vec<WasmFunction>,
 }
@@ -208,6 +226,8 @@ impl<'m> Builder<'m> {
             strs: FxHashMap::default(),
             nullary: FxHashMap::default(),
             static_closures: FxHashMap::default(),
+            const_inits: FxHashMap::default(),
+            const_cells: FxHashMap::default(),
             errors: Vec::new(),
             bodies: Vec::new(),
         };
@@ -397,7 +417,8 @@ impl<'m> Builder<'m> {
         self.waitable_set_drop();
         self.waitable_join();
         self.task_return();
-        // The IR definitions, in arena order (the entries of the table are the IR functions).
+        // The IR definitions, in arena order (the entries of the table are the IR functions). A
+        // const gets two: the wrapper callers see, then its body (`_init`).
         for (id, f) in self.m.functions.iter() {
             if self.imported(id) {
                 continue;
@@ -408,6 +429,12 @@ impl<'m> Builder<'m> {
             self.fn_table[ix(id)] = self.table_funcs.len() as u32;
             self.table_funcs.push(index);
             self.defs.push(ty);
+            if f.constant {
+                self.const_cell(id, f);
+                let init = self.imports.len() as u32 + self.defs.len() as u32;
+                self.const_inits.insert(id, init);
+                self.defs.push(ty);
+            }
         }
         // The error `show` functions, as table indices (their descriptors point at them).
         for (enum_id, function) in self.m.error_shows.iter().copied() {
@@ -462,7 +489,17 @@ impl<'m> Builder<'m> {
     /// The offset of a static string object: rc == 0, no slots, the length in the first word and
     /// the utf-8 bytes after it.
     pub(crate) fn string_literal(&mut self, bytes: &[u8]) -> u32 {
-        if let Some(&o) = self.strs.get(bytes) {
+        self.string_object(bytes, true)
+    }
+
+    /// A string literal that no other use shares, so that the runtime can mark its `aux` word
+    /// (the self-reference message of a const, spec 5.6).
+    fn unique_string_literal(&mut self, bytes: &[u8]) -> u32 {
+        self.string_object(bytes, false)
+    }
+
+    fn string_object(&mut self, bytes: &[u8], shared: bool) -> u32 {
+        if shared && let Some(&o) = self.strs.get(bytes) {
             return o;
         }
         let o = self.alloc_static(HDR + 4 + bytes.len() as u32 + 1);
@@ -471,8 +508,28 @@ impl<'m> Builder<'m> {
         self.write_u32(o + HDR, bytes.len() as u32);
         self.data[(o + HDR + 4) as usize..(o + HDR + 4) as usize + bytes.len()]
             .copy_from_slice(bytes);
-        self.strs.insert(bytes.to_vec(), o);
+        if shared {
+            self.strs.insert(bytes.to_vec(), o);
+        }
         o
+    }
+
+    /// The static cell of a const: its state, its value and defect, and the two messages the
+    /// runtime wraps with (spec 5.6).
+    fn const_cell(&mut self, id: FnId, f: &Function) {
+        let name = check::display_name(&f.name);
+        let prefix = self.string_literal(format!("while evaluating const {name}: ").as_bytes());
+        // The marker in `aux` travels with the defect (through `defect_take`, notes and
+        // `defect_resume`). The string is unique to this const, so marking it cannot affect a
+        // user string with the same bytes.
+        let self_ref = self.unique_string_literal(
+            format!("const {name} refers to itself while being evaluated").as_bytes(),
+        );
+        self.write_u32(self_ref + 4, 1);
+        let cell = self.alloc_static(CONST_CELL_SIZE);
+        self.write_u32(cell + CONST_SELF, self_ref);
+        self.write_u32(cell + CONST_PREFIX, prefix);
+        self.const_cells.insert(id, cell);
     }
 
     fn string_desc(&mut self) -> u32 {
@@ -721,6 +778,11 @@ impl<'m> Builder<'m> {
             if self.imported(id) {
                 continue;
             }
+            if f.constant {
+                bodies.push(self.const_wrapper(id, f));
+                bodies.push(self.emit_fn(id, f));
+                continue;
+            }
             let body = if f.external.is_some() {
                 self.external_stub(id, f)
             } else {
@@ -729,6 +791,115 @@ impl<'m> Builder<'m> {
             bodies.push(body);
         }
         self.bodies = bodies;
+    }
+
+    /// The function callers of a const call: returns the remembered value or defect, and runs the
+    /// body (`_init`) on the first reference only (spec 5.6).
+    fn const_wrapper(&mut self, id: FnId, f: &Function) -> WasmFunction {
+        let ret = self.repr(f.ret);
+        let cell = self.const_cells[&id];
+        let init = self.const_inits[&id];
+        let mut locals = Vec::new();
+        if ret != Repr::Void {
+            locals.push((1, val(ret)));
+        }
+        let mut func = WasmFunction::new(locals);
+        const TEMP: u32 = 0;
+        {
+            let mut ins = func.instructions();
+            // The cell holds the value: return it without calling the runtime.
+            ins.i32_const(cell as i32);
+            ins.i32_load(mem(CONST_STATE, 4));
+            ins.i32_const(2);
+            ins.i32_eq();
+            ins.if_(BlockType::Empty);
+            self.load_const_value(&mut ins, cell, ret);
+            ins.return_();
+            ins.end();
+            // 1: the cell holds the defect, which `const_enter` raised.
+            ins.i32_const(cell as i32);
+            ins.call(self.rt("const_enter"));
+            ins.if_(BlockType::Empty);
+            dummy_return(&mut ins, ret);
+            ins.end();
+            // 0: evaluate the body once.
+            ins.call(init);
+            if ret != Repr::Void {
+                ins.local_set(TEMP);
+            }
+            ins.global_get(G_DEFECT);
+            ins.if_(BlockType::Empty);
+            // A failing evaluation owns nothing to keep: the IR returns a dummy value.
+            if ret == Repr::Ref {
+                ins.local_get(TEMP);
+                let drop = self.rt("drop");
+                ins.call(drop);
+            }
+            ins.i32_const(cell as i32);
+            let leave = self.rt("const_leave");
+            ins.call(leave);
+            dummy_return(&mut ins, ret);
+            ins.end();
+            // The value is now in the cell; the caller gets its own reference.
+            if ret != Repr::Void {
+                ins.i32_const(cell as i32);
+                ins.local_get(TEMP);
+            }
+            match ret {
+                Repr::Void => {}
+                Repr::I32 | Repr::Ref => {
+                    ins.i32_store(mem(CONST_VALUE, 4));
+                }
+                Repr::I64 => {
+                    ins.i64_store(mem(CONST_VALUE, 8));
+                }
+                Repr::F64 => {
+                    ins.f64_store(mem(CONST_VALUE, 8));
+                }
+            }
+            if ret == Repr::Ref {
+                ins.local_get(TEMP);
+                let dup = self.rt("dup");
+                ins.call(dup);
+            }
+            ins.i32_const(cell as i32);
+            let leave = self.rt("const_leave");
+            ins.call(leave);
+            if ret != Repr::Void {
+                ins.local_get(TEMP);
+            }
+            ins.return_();
+            ins.end();
+        }
+        func
+    }
+
+    /// Loads a const's remembered value. A reference is duplicated: the cell keeps its own.
+    fn load_const_value(&mut self, ins: &mut InstructionSink, cell: u32, ret: Repr) {
+        match ret {
+            Repr::Void => {}
+            Repr::I32 => {
+                ins.i32_const(cell as i32);
+                ins.i32_load(mem(CONST_VALUE, 4));
+            }
+            Repr::Ref => {
+                // `dup` takes the pointer by value and counts it; load it again for the caller.
+                ins.i32_const(cell as i32);
+                ins.i32_load(mem(CONST_VALUE, 4));
+                let dup = self.rt("dup");
+                ins.call(dup);
+                ins.i32_const(cell as i32);
+                ins.i32_load(mem(CONST_VALUE, 4));
+            }
+            Repr::I64 => {
+                ins.i32_const(cell as i32);
+                ins.i64_load(mem(CONST_VALUE, 8));
+            }
+            Repr::F64 => {
+                ins.i32_const(cell as i32);
+                ins.f64_load(mem(CONST_VALUE, 8));
+            }
+        }
     }
 
     fn emit_fn(&mut self, id: FnId, f: &Function) -> WasmFunction {
@@ -755,20 +926,13 @@ impl<'m> Builder<'m> {
         {
             let ins = &mut func.instructions();
             match entry {
-                Run::Main => {
-                    let main = self
-                        .m
-                        .functions
-                        .iter()
-                        .find(|(_, f)| f.exported && f.name == "main")
-                        .map(|(id, _)| id);
-                    if let Some(id) = main {
-                        let index = self.fn_index(id);
-                        let ret = self.repr(self.m.functions[id].ret);
-                        ins.call(index);
-                        self.drop_result(ins, ret);
-                    }
+                Run::Main(Some(id)) => {
+                    let index = self.fn_index(*id);
+                    let ret = self.repr(self.m.functions[*id].ret);
+                    ins.call(index);
+                    self.drop_result(ins, ret);
                 }
+                Run::Main(None) => {}
                 Run::Tests(tests) => {
                     for (name, id) in tests {
                         let index = self.fn_index(*id);
