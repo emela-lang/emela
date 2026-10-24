@@ -410,6 +410,19 @@ fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         );
     } else if strings
         && target == "js"
+        && let [name] = rest
+        && string_value(name).as_deref() == Some("default")
+    {
+        // `(js, "default")` would be the default export itself, the object that the
+        // three-argument form adds properties to.
+        error(
+            out,
+            name.text_range(),
+            DiagnosticCode::MalformedExport,
+            "on target `js`, the name `\"default\"` is the default export: write `@export(js, \"default\", \"name\")`",
+        );
+    } else if strings
+        && target == "js"
         && let [interface, _] = rest
         && string_value(interface).as_deref() != Some("default")
     {

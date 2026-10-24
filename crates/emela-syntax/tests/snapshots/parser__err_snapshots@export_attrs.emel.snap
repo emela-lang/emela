@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/export_attrs.emel
 ---
-ROOT@0..742
+ROOT@0..793
   COMMENT@0..77 "# @export の引数の形（12.7，16.6.2）と qualified の形（17.3）．"
   NEWLINE@77..78 "\n"
   FN_DECL@78..107
@@ -545,6 +545,42 @@ ROOT@0..742
       L_BRACE@739..740 "{"
       R_BRACE@740..741 "}"
   NEWLINE@741..742 "\n"
+  NEWLINE@742..743 "\n"
+  FN_DECL@743..792
+    ANNOTATION@743..765
+      AT@743..744 "@"
+      LOWER_NAME@744..750 "export"
+      ANNOT_ARG_LIST@750..765
+        L_PAREN@750..751 "("
+        ANNOT_ARG@751..753
+          LOWER_NAME@751..753 "js"
+        COMMA@753..754 ","
+        WHITESPACE@754..755 " "
+        ANNOT_ARG@755..764
+          STRING@755..764
+            STRING_QUOTE@755..756 "\""
+            STRING_TEXT@756..763 "default"
+            STRING_QUOTE@763..764 "\""
+        R_PAREN@764..765 ")"
+    NEWLINE@765..766 "\n"
+    FN_KW@766..768 "fn"
+    WHITESPACE@768..769 " "
+    LOWER_NAME@769..781 "default_name"
+    PARAM_LIST@781..783
+      L_PAREN@781..782 "("
+      R_PAREN@782..783 ")"
+    WHITESPACE@783..784 " "
+    RET_TYPE@784..789
+      THIN_ARROW@784..786 "->"
+      WHITESPACE@786..787 " "
+      UNIT_TYPE@787..789
+        L_PAREN@787..788 "("
+        R_PAREN@788..789 ")"
+    WHITESPACE@789..790 " "
+    BLOCK_EXPR@790..792
+      L_BRACE@790..791 "{"
+      R_BRACE@791..792 "}"
+  NEWLINE@792..793 "\n"
 error[E0146]@78..85: expected `@export(target, "name")`
 error[E0146]@109..120: expected `@export(target, "name")`
 error[E0146]@146..172: expected `@export(target, "name")`
@@ -560,3 +596,4 @@ error[E0130]@609..616: a function without a body must be `@external`
 error[E0146]@626..642: `@export` is written on a top-level fn with a body
 error[E0110]@674..675: expected `.` and a function name after the module path
 error[E0110]@713..714: expected lower name
+error[E0146]@755..764: on target `js`, the name `"default"` is the default export: write `@export(js, "default", "name")`
