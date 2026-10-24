@@ -12,20 +12,20 @@ related: []
 
 # HTTP services
 
-## 要約
+## Summary
 
-`Std.Http` に HTTP サービスの入口アダプタ `serve` を足す．エントリのモジュールの fn に `@entry(Http.serve)` を付けると，ホストはリクエストが届くたびにその fn を呼ぶ．JS では `main.mjs` の default export の `fetch`，WASM では `wasi:http/handler@0.3.0` の `handle` になる．`emela run` はそのままサーバーを立てる．
+Add `serve`, an entry adapter for HTTP services, to `Std.Http`. When an fn of the entry module has `@entry(Http.serve)`, the host calls that fn for every request it receives. On JS this is the `fetch` of the default export of `main.mjs`; on WASM it is `handle` of `wasi:http/handler@0.3.0`. `emela run` starts a server as it is.
 
-## 動機
+## Motivation
 
-- `Std.Http` はクライアントだけで，サーバーは「後の段階で作る」となっている（`[lib.layers]`）
-- HTTP サーバーのホストの多くは，リクエストごとにプログラムを呼ぶ．Deno（`deno serve`），Bun，Cloudflare Workers は Fetch API の `fetch` を持つ default export を呼び，WASI 0.3 は `wasi:http/service` の component の `handle` を呼ぶ．listen する port はホストが持つ
-- app を effect の操作や外部関数のコールバックに渡す形は取れない（`[effect.decl]`，`[type.effect-bound]`）．ホストがエントリの fn を呼ぶ形（下書き export）なら，この制約に掛からない
-- 変換（ホストのリクエストと `Std.Http.Request`，405 / 400 / 500）は std の入口アダプタに閉じ込め，アプリを書く人はホストの名前も境界型も見ない
+- `Std.Http` has only a client; a server is "built at a later stage" (`[lib.layers]`).
+- Most HTTP server hosts call the program once per request. Deno (`deno serve`), Bun and Cloudflare Workers call the `fetch` of a default export (Fetch API), and WASI 0.3 calls `handle` of a component of the world `wasi:http/service`. The host owns the port it listens on.
+- Passing the app to an effect operation or to a callback of an external function is not possible (`[effect.decl]`, `[type.effect-bound]`). The host calling an fn of the entry (the proposal export) is not limited by this.
+- The conversion (between the host's request and `Std.Http.Request`, and the 405, 400 and 500 responses) is kept inside the entry adapter in std. The person writing the app sees neither the host's names nor boundary types.
 
-## 提案
+## Proposal
 
-### 使う側
+### Using it
 
 ```emel
 import Std.Http.{Request, Response}
@@ -37,10 +37,10 @@ pub fn app(request: Request) -> Response {
 }
 ```
 
-- `app` の型は `fn(Request) -> Response fails E use R`．R は Async を除いて空．E は何でもよい
-- `app` は普通の fn なので，テストから直接呼べる
+- The type of `app` is `fn(Request) -> Response fails E use R`. R is empty apart from Async. E can be anything.
+- `app` is an ordinary fn, so tests can call it directly.
 
-### `Std.Http` の入口アダプタ
+### The entry adapter of `Std.Http`
 
 ```emel
 ## The request as the host handed it over (JS: a Fetch API Request).
@@ -74,57 +74,57 @@ pub fn serve[E](
 }
 ```
 
-- 本文を読む外部関数は suspend するので，handler の中でしか呼べない（`[ext.call]`）．そのため非公開の effect `HostHttp` と handler `SystemHostHttp` を通す
-- ヘッダーは境界を越えられないので，数と添字で1つずつ読む（`headerCount`，`headerName`，`headerValue`）
-- WASM では，この外部関数に当たるものをランタイムが持つ（`wasi:http/types` の resource と `stream<u8>`）．std の handler が WASM でホストに届くのと同じ特権（`[target.wasm.external]`）
+- The external function that reads the body suspends, so it can only be called inside a handler (`[ext.call]`). It goes through a private effect `HostHttp` and its handler `SystemHostHttp`.
+- Headers cannot cross the boundary, so they are read one by one by count and index (`headerCount`, `headerName`, `headerValue`).
+- On WASM, the runtime has what corresponds to these external functions (the resources of `wasi:http/types` and `stream<u8>`). This is the same privilege by which the handlers of std reach the host on WASM (`[target.wasm.external]`).
 
-### モジュールの分け方
+### Modules
 
-std の慣習（`List` 型と `List.map`，`Map` 型と `Map.get`）に合わせ，Request と Response をそれぞれ同じ名前のモジュールに置く．サーバーでは両方を作って読むので，`Request.header` と `Response.header`，`Request.add_header` と `Response.add_header` のように名前をそろえる．
+Following the convention of std (the type `List` and `List.map`, the type `Map` and `Map.get`), Request and Response are each put in a module of the same name. A server both builds and reads both, so the names match: `Request.header` and `Response.header`, `Request.add_header` and `Response.add_header`.
 
-| モジュール | ファイル | 中身 |
+| Module | File | Contents |
 |---|---|---|
-| `Std.Http` | `std/http.emel` | effect `Http`，`SystemHttp`，`TestHttp`，`TestServer`，error（`InvalidUrl`，`ConnectionFailed`，`ResponseNotText`），`get`，`post`，入口アダプタ `serve`，`Incoming`，`Outgoing` |
-| `Std.Http.Request` | `std/http/request.emel` | 型 `Request`，enum `Method`，`new`，`add_header`，`header`，`headers`，`path`，`segments`，`query`，`encode_query`，`decode_query` |
-| `Std.Http.Response` | `std/http/response.emel` | 型 `Response`，error `UnexpectedStatus`，`new`，`add_header`，`header`，`headers`，`require_ok` |
+| `Std.Http` | `std/http.emel` | effect `Http`, `SystemHttp`, `TestHttp`, `TestServer`, errors (`InvalidUrl`, `ConnectionFailed`, `ResponseNotText`), `get`, `post`, the entry adapter `serve`, `Incoming`, `Outgoing` |
+| `Std.Http.Request` | `std/http/request.emel` | type `Request`, enum `Method`, `new`, `add_header`, `header`, `headers`, `path`, `segments`, `query`, `encode_query`, `decode_query` |
+| `Std.Http.Response` | `std/http/response.emel` | type `Response`, error `UnexpectedStatus`, `new`, `add_header`, `header`, `headers`, `require_ok` |
 
-- `Method` は `Std.Http.Request` に置く．`Request` は `Method` を持ち，`Std.Http` は `Request` を使うので，`Method` を `Std.Http` に残すとモジュールが循環する（`[module.name]`）
-- `Std.Http.Request` と `Std.Http.Response` は互いに依存しない．`Std.Http` が両方を import する
+- `Method` is in `Std.Http.Request`. `Request` has a `Method` and `Std.Http` uses `Request`, so leaving `Method` in `Std.Http` would make the modules depend on each other in a cycle (`[module.name]`).
+- `Std.Http.Request` and `Std.Http.Response` do not depend on each other. `Std.Http` imports both.
 
 ```emel
 # Std.Http.Request
 pub enum Method { Get, Head, Post, Put, Patch, Delete, Options }
 pub type Request(method: Method, url: String, headers: List[(String, String)], body: String)
 
-pub fn new(method: Method, url: String) -> Request                      # 旧 Http.request
-pub fn add_header(req: Request, name: String, value: String) -> Request # 旧 Http.add_header
+pub fn new(method: Method, url: String) -> Request                      # formerly Http.request
+pub fn add_header(req: Request, name: String, value: String) -> Request # formerly Http.add_header
 pub fn header(req: Request, name: String) -> Option[String]
 pub fn headers(req: Request, name: String) -> List[String]
-pub fn path(req: Request) -> String           # "/api/versions/a%20b"．query を除き，デコードしない
-pub fn segments(req: Request) -> List[String] # ["api", "versions", "a b"]．空の segment を除き，デコードする
+pub fn path(req: Request) -> String           # "/api/versions/a%20b": without the query, not decoded
+pub fn segments(req: Request) -> List[String] # ["api", "versions", "a b"]: without empty segments, decoded
 pub fn query(req: Request) -> List[(String, String)]
-pub fn encode_query(pairs: List[(String, String)]) -> String            # 旧 Http.encode_query
+pub fn encode_query(pairs: List[(String, String)]) -> String            # formerly Http.encode_query
 pub fn decode_query(s: String) -> List[(String, String)] fails ParseError
 
 # Std.Http.Response
 pub type Response(status: Int, headers: List[(String, String)], body: String)
 pub error UnexpectedStatus(status: Int, body: String)
 
-pub fn new(status: Int, body: String) -> Response                         # 旧 Http.response
+pub fn new(status: Int, body: String) -> Response                         # formerly Http.response
 pub fn add_header(res: Response, name: String, value: String) -> Response
-pub fn header(res: Response, name: String) -> Option[String]              # 旧 Http.header
-pub fn headers(res: Response, name: String) -> List[String]               # 旧 Http.headers
-pub fn require_ok(res: Response) -> Response fails UnexpectedStatus       # 旧 Http.require_ok
+pub fn header(res: Response, name: String) -> Option[String]              # formerly Http.header
+pub fn headers(res: Response, name: String) -> List[String]               # formerly Http.headers
+pub fn require_ok(res: Response) -> Response fails UnexpectedStatus       # formerly Http.require_ok
 ```
 
-- `path` と `segments` は `url` から作る．`segments` は各 segment をパーセントデコードする
-- 壊れた `%`（`%` の後に16進数2桁が続かないもの，デコードした結果が UTF-8 として読めないもの）が path か query にあるリクエストは，入口で 400 にして `app` を呼ばない（下の「変換」）．なので `segments` と `query` は fails を持たない．自分で作った Request（テストやクライアント）に壊れた `%` があれば，その segment や組はデコードせずにそのまま残す
-- `decode_query` は `encode_query` の逆．`&` で分け，最初の `=` で名前と値に分け，それぞれの `+` を空白にしてからパーセントデコードする．HTML の form は空白を `+` で送る．`encode_query` は `+` を `%2B` にするので，`encode_query` の出力を読み戻しても値は変わらない．`=` の無い組は値が空．壊れた `%` や UTF-8 として読めない結果は ParseError（`[lib.api-rules]` の「形の誤った入力は fail」）
-- `query` は `url` の `?` より後を `decode_query` と同じ規則で読む．`?` が無ければ空
-- `header` と `headers` は，名前を ASCII の範囲で大文字と小文字を区別せずに比べる．`add_header` は最後に足す
-- 移った名前（`Http.request`，`Http.add_header`，`Http.header`，`Http.headers`，`Http.encode_query`，`Http.require_ok`，`Http.response`）は，`@deprecated` を付けて1つの minor 版だけ `Std.Http` に残す．型と enum と error は移した先から import し直す
+- `path` and `segments` are made from `url`. `segments` percent-decodes each segment.
+- A request whose path or query has a malformed `%` (`%` not followed by two hexadecimal digits, or decoded bytes that are not UTF-8) is answered with 400 at the entry, and `app` is not called (see "Conversion" below). So `segments` and `query` do not fail. If a Request built by hand (in a test or for the client) has a malformed `%`, that segment or pair is kept as written, without decoding.
+- `decode_query` is the inverse of `encode_query`. It splits at `&`, splits each pair at the first `=`, replaces each `+` with a space, and then percent-decodes. HTML forms send a space as `+`. `encode_query` writes `+` as `%2B`, so reading back the output of `encode_query` does not change the values. A pair without `=` has an empty value. A malformed `%`, or a result that is not UTF-8, fails with ParseError (`[lib.api-rules]`: malformed input fails).
+- `query` reads the part of `url` after `?` by the rules of `decode_query`. It is empty if there is no `?`.
+- `header` and `headers` compare names case-insensitively within ASCII. `add_header` appends at the end.
+- The moved names (`Http.request`, `Http.add_header`, `Http.header`, `Http.headers`, `Http.encode_query`, `Http.require_ok`, `Http.response`) remain in `Std.Http` with `@deprecated` for one minor version. Types, enums and errors must be imported from their new modules.
 
-pkgs のサンプルは，これで次のように書ける．
+With this, the pkgs sample is written as follows.
 
 ```emel
 import Std.Http.Request.{Request, Get}
@@ -138,39 +138,39 @@ import Std.Http.Response.{Response}
 Response.new(200, body) |> Response.add_header("content-type", "application/json")
 ```
 
-### 変換
+### Conversion
 
-リクエスト:
+Requests:
 
-- method が `Method` にないものなら，`app` を呼ばずに 405 を返す．`allow` ヘッダーに `Method` にあるもの全部を書く（RFC 9110）
-- `url` は `scheme://authority/path-with-query` の絶対 URL．WASM で scheme が無いときは `http`
-- ヘッダーは名前を小文字にし，名前の順に並べ，同じ名前の値を `, ` でつなぐ（`set-cookie` だけは別の組のまま，届いた順）．クライアントの Response と同じ形．JS の Fetch API の Headers はこの形でしか読めないので，WASM もこれにそろえる
-- body は最後まで読んでから `app` を呼ぶ．UTF-8 として読めなければ，`app` を呼ばずに 400 を返す．先頭の BOM は取り除く
-- path か query に壊れた `%` があれば，`app` を呼ばずに 400 を返す
+- If the method is not one of `Method`, return 405 without calling `app`. The `allow` header lists every member of `Method` (RFC 9110).
+- `url` is the absolute URL `scheme://authority/path-with-query`. On WASM, when there is no scheme, it is `http`.
+- Header names are lowercased and sorted by name, and values with the same name are joined with `, ` (only `set-cookie` stays as separate pairs, in the order received). This is the form of the client's Response. The Headers of the JS Fetch API can only be read in this form, so WASM uses it too.
+- The body is read to the end before `app` is called. If it cannot be read as UTF-8, return 400 without calling `app`. A BOM at the start is removed.
+- If the path or query has a malformed `%`, return 400 without calling `app`.
 
-レスポンス:
+Responses:
 
-- ヘッダーは書いた順に送る．body があって content-type が無ければ `text/plain;charset=UTF-8` を足す
-- `app` が error，defect，中断で終わったら，原因を標準エラーに1行書き，500 を返す
-- 入口が返す 405，400，500 の body は状態の名前（`Method Not Allowed`，`Bad Request`，`Internal Server Error`）で，`content-type: text/plain;charset=UTF-8` を付ける．原因は body に書かない（上流の URL や error の中身を外に漏らさないため．原因は標準エラーにある）
+- Headers are sent in the order written. When there is a body and no content-type, `text/plain;charset=UTF-8` is added.
+- When `app` ends with an error, a defect or an interruption, the cause is written as one line to standard error, and 500 is returned.
+- The 405, 400 and 500 returned by the entry have the status name as the body (`Method Not Allowed`, `Bad Request`, `Internal Server Error`) with `content-type: text/plain;charset=UTF-8`. The cause is not written in the body, so that upstream URLs and the contents of errors do not leak out; the cause is in standard error.
 
-起動:
+Launches:
 
-- 1回の呼び出しが1回の起動．`app` の中の `with` の init と release はリクエストごとに走る．Emela には起動をまたいで値を持つ手段が無いので，ホストが instance や module を使い回しても，起動どうしは互いを観測できない
-- ホストは前の呼び出しが終わる前に次を呼んでよい．同時に進む起動は suspend の点でだけ切り替わる（`[fiber]`）．スレッドで並列に走るのではない．`wasmtime serve` は p3 の component に既定で同時に 16 件まで送る
-- 重い init はリクエストごとに走る．init をプロセスで1回にしたい常駐プロセス向けの形は，別の下書き http-serve で扱う
+- One call is one launch. The init and release of a `with` inside `app` run for each request. Emela has no way to keep a value across launches, so even if the host reuses an instance or module, launches cannot observe each other.
+- The host MAY call again before the previous call has finished. Launches in progress switch only at suspension points (`[fiber]`); they do not run in parallel on threads. By default, `wasmtime serve` sends up to 16 concurrent requests to a p3 component.
+- A heavy init runs for each request. A form for long-running processes, where init runs once per process, is left to a separate proposal, http-serve.
 
-### ターゲットごと
+### Targets
 
-- JS: `main.mjs` の default export の `fetch`．Deno（`deno serve main.mjs`），Bun（`bun main.mjs`），Workers（`wrangler.toml` の `main`）はそのまま動かせる．Workers は2つ目以降の引数（`env`，`ctx`）を渡すが，無視する
-- WASM: `@entry(Http.serve)` があれば，`main.wasm` は `wasi:http/service@0.3.0` の component になり，`wasi:cli/run` は export しない
-- C: 未対応で compile error
+- JS: the `fetch` of the default export of `main.mjs`. Deno (`deno serve main.mjs`), Bun (`bun main.mjs`) and Workers (`main` in `wrangler.toml`) run it as it is. Workers passes further arguments (`env`, `ctx`), which are ignored.
+- WASM: with `@entry(Http.serve)`, `main.wasm` is a component of the world `wasi:http/service@0.3.0` and does not export `wasi:cli/run`.
+- C: not supported; a compile error.
 
-### `emela build` と `emela run`
+### `emela build` and `emela run`
 
-- JS: `emela build` と `emela run` は `serve.mjs` も書く．`serve.mjs` は `node:http` で listen し，リクエストを Fetch API の Request に直して `fetch` に渡す．listen する address は，`--addr <host>:<port>`，環境変数 `HOST` と `PORT`，`127.0.0.1:8080` の順に決まる．`HOST` と `PORT` は片方だけでもよく，無い方は `127.0.0.1` と `8080`．`PORT` だけを渡す PaaS では `HOST=0.0.0.0` を設定する（既定で外に開かないため）．`emela run` は `serve.mjs` を node で動かす
-- WASM: `emela run` は `wasmtime serve -S p3=y,cli=y main.wasm` で動かす．`--` の後の引数は `main.wasm` の前に渡す
-- `main` が無くても，`@entry(Http.serve)` があれば `emela run` は E0230 にしない
+- JS: `emela build` and `emela run` also write `serve.mjs`. `serve.mjs` listens with `node:http`, turns each request into a Fetch API Request, and passes it to `fetch`. The address it listens on is decided in this order: `--addr <host>:<port>`, the environment variables `HOST` and `PORT`, then `127.0.0.1:8080`. Either of `HOST` and `PORT` may be set alone; the missing one is `127.0.0.1` or `8080`. On a PaaS that passes only `PORT`, set `HOST=0.0.0.0` (by default the server is not open to the outside). `emela run` runs `serve.mjs` with node.
+- WASM: `emela run` runs `wasmtime serve -S p3=y,cli=y main.wasm`. The arguments after `--` are passed before `main.wasm`.
+- Without `main`, `emela run` does not report E0230 when there is `@entry(Http.serve)`.
 
 ## Specification changes
 
@@ -274,36 +274,36 @@ Add `serve.mjs` to the table of files:
 
 Add: "HTTP services (`[lib.http-service]`). `@entry(Http.serve)` is a compile error when the target is `c`."
 
-## 診断
+## Diagnostics
 
-- [ ] C のターゲットでの `@entry(Http.serve)`（未対応）
-- [ ] E0230 を HTTP サービスでは出さない
+- [ ] `@entry(Http.serve)` on the C target (not supported)
+- [ ] Do not report E0230 for an HTTP service
 
-型の誤り（E0438）と R の誤り（E0402）は下書き export のもの．
+Type mismatches (E0438) and wrong R (E0402) belong to the proposal export.
 
-## 互換性
+## Compatibility
 
-`Request`，`Response`，`Method`，`UnexpectedStatus` と，それらを扱う関数が `Std.Http.Request` と `Std.Http.Response` に移る．`Std.Http.{Request, Response, Get}` のような import は壊れる．移った関数の古い名前は `@deprecated` を付けて1つの minor 版だけ残すので，呼び出しは警告で済む．型と enum と error の import は直す必要がある
+`Request`, `Response`, `Method`, `UnexpectedStatus` and the functions on them move to `Std.Http.Request` and `Std.Http.Response`. Imports such as `Std.Http.{Request, Response, Get}` break. The old names of the moved functions remain for one minor version with `@deprecated`, so calls only get a warning. Imports of the types, enums and errors must be fixed.
 
-## 実装
+## Implementation
 
-- std: `http.emel` に `Incoming`，`Outgoing`，`serve`，非公開の `HostHttp`．`http.mjs` に `readRequest` などの関数
-- emela-codegen-js: default export の `fetch` と `serve.mjs`
-- emela-codegen-wasm: `wit/` に `wasi:http@0.3.0` を vendor し，`service` world を持つ．`handle` を async lift で export し，起動ごとにスケジューラへ根の継続を積む（`run` の async lift と waitable set の仕組みを使う）．request と response の resource，`stream<u8>` の読み書き，`future` の完了を runtime に足す
-- emela-driver: `run` が `serve.mjs` か `wasmtime serve` を呼ぶ
+- std: `Incoming`, `Outgoing`, `serve` and the private `HostHttp` in `http.emel`. Functions such as `readRequest` in `http.mjs`.
+- emela-codegen-js: the `fetch` of the default export, and `serve.mjs`.
+- emela-codegen-wasm: vendor `wasi:http@0.3.0` into `wit/` and have the `service` world. Export `handle` with an async lift, and push a root continuation onto the scheduler for each launch (using the async lift and waitable sets of `run`). Add to the runtime the request and response resources, reading and writing `stream<u8>`, and completing `future`.
+- emela-driver: `run` calls `serve.mjs` or `wasmtime serve`.
 
-## 採らなかった案
+## Alternatives
 
-- WASM で `wasi:sockets` を listen し，accept のループと HTTP のパースを Emela で書く: Bytes が無いと書けない．TLS も無く，`wasi:http/service` を前提にした基盤に載らない
-- `main` の中で `with` を張り，`Http.serve(app)` で受けて init をプロセスで1回にする: リクエストの寿命をホストが握る所では成り立たない．Workers はあるリクエストで作った I/O の object を別のリクエストから使えず，response の後に残る待ちを打ち切る．wasmtime は instance を件数か待機時間で捨て，release を走らせる機会が無い．常駐プロセス向けの別の形として下書き http-serve で扱う
-- error と defect をホストの error（WASM の `err(internal-error)`，JS の reject）にする: ホストごとに返る response が変わり，ターゲットの間で結果がそろわない
+- Listening with `wasi:sockets` on WASM, and writing the accept loop and HTTP parsing in Emela: cannot be written without Bytes. There is no TLS either, and it does not fit platforms built on `wasi:http/service`.
+- Opening a `with` inside `main` and receiving with `Http.serve(app)`, so init runs once per process: this does not hold where the host owns the lifetime of a request. Workers cannot use an I/O object created in one request from another request, and cuts off waits left after the response. wasmtime discards instances after a number of requests or an idle time, and has no chance to run release. It is left to the proposal http-serve as a separate form for long-running processes.
+- Turning errors and defects into the host's error (`err(internal-error)` on WASM, a rejection on JS): the response would differ between hosts, and the results would not match across targets.
 
-## 先行する設計
+## Prior art
 
-- wasi-http 0.3 の `wasi:http/service` world と `handler` interface
-- Fetch API の Request と Response，`fetch` を default export する module の形
+- The world `wasi:http/service` and the interface `handler` of wasi-http 0.3.
+- The Request and Response of the Fetch API, and modules whose default export has `fetch`.
 
-## 未決
+## Open questions
 
 
-## 決定
+## Decision
