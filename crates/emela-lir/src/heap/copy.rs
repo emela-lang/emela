@@ -81,7 +81,7 @@ impl<'a> Copier<'a> {
                 value: value.as_ref().map(|v| self.operand(out, v)),
             },
             Term::Recur(args) => Term::Recur(self.operands(out, args)),
-            Term::Defect(msg) => Term::Defect(self.operand(out, msg)),
+            Term::Defect(msg, at) => Term::Defect(self.operand(out, msg), at.clone()),
             Term::Unwind => Term::Unwind,
             Term::Unreachable => Term::Unreachable,
         }
@@ -401,7 +401,7 @@ impl Cloner {
                 value: opt(value),
             },
             Term::Recur(args) => Term::Recur(args.iter().map(|a| self.operand(a)).collect()),
-            Term::Defect(msg) => Term::Defect(self.operand(msg)),
+            Term::Defect(msg, at) => Term::Defect(self.operand(msg), at.clone()),
             Term::Unwind => Term::Unwind,
             Term::Unreachable => Term::Unreachable,
         }

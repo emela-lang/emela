@@ -126,7 +126,7 @@ fn seq(f: &Function, id: SeqId, uses: &mut Uses, found: &mut Vec<(StmtId, Vec<Va
         Term::Yield(v) | Term::Return(v) | Term::Break { value: v, .. } => {
             v.iter().for_each(|o| uses.operand(o));
         }
-        Term::Fail(o) | Term::Defect(o) => uses.operand(o),
+        Term::Fail(o) | Term::Defect(o, _) => uses.operand(o),
         Term::Recur(args) => args.iter().for_each(|o| uses.operand(o)),
         Term::Unwind | Term::Unreachable => {}
     }

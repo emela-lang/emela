@@ -721,6 +721,44 @@ void em_raise(em_ref msg) {
   em_defect_resume(first);
 }
 
+/* The locations of failed asserts (spec 13.2): static Strings, numbered from 1 in the order they
+ * were first raised. A defect's `aux` holds the number of its location above the
+ * self-reference bit, so that the location travels with the defect through `defect_take`, a note
+ * and `defect_resume`, however many defects nested cleanups take and restore. */
+static em_ref *em_locations = NULL;
+static uint32_t em_location_count = 0;
+
+#define EM_AUX_SELF_REFERENCE 1u
+#define EM_AUX_LOCATION(aux) ((aux) >> 1)
+
+void em_raise_at(em_ref msg, em_ref at) {
+  uint32_t n = 0;
+  for (uint32_t i = 0; i < em_location_count; i++) {
+    if (em_locations[i] == at) {
+      n = i + 1;
+      break;
+    }
+  }
+  if (n == 0) {
+    em_ref *grown = realloc(em_locations, (em_location_count + 1) * sizeof *em_locations);
+    if (grown == NULL) em_out_of_memory();
+    em_locations = grown;
+    em_locations[em_location_count++] = at;
+    n = em_location_count;
+  }
+  /* A new string, so that marking it cannot affect another use of the message. */
+  em_ref d = em_str_from(EM_STR_BYTES(msg), EM_STR_LEN(msg));
+  d->hdr.u.h.aux = n << 1;
+  em_raise(d);
+  em_drop(d);
+}
+
+/* The location of the defect `d` (a static String), or NULL. */
+static em_ref em_defect_location(em_ref d) {
+  uint32_t n = EM_AUX_LOCATION(d->hdr.u.h.aux);
+  return n == 0 ? NULL : em_locations[n - 1];
+}
+
 void em_raise_cstr(const char *msg) {
   em_ref s = em_str_cstr(msg);
   em_raise(s);
@@ -765,7 +803,7 @@ void em_defect_resume(em_ref d) {
   em_buf_puts(&b, " also failed: ");
   em_buf_put(&b, EM_STR_BYTES(later), EM_STR_LEN(later));
   em_defect = em_buf_finish(&b);
-  /* The note keeps the first defect's self-reference marker (`aux`, spec 5.6). */
+  /* The note keeps the first defect's self-reference marker (spec 5.6) and location (`aux`). */
   em_defect->hdr.u.h.aux = d->hdr.u.h.aux;
   em_drop(d);
   em_drop(later);
@@ -805,10 +843,10 @@ bool em_const_enter(em_const *c, em_word *out) {
     case 1: {
       char msg[256];
       snprintf(msg, sizeof msg, "const %s refers to itself while being evaluated", c->name);
-      /* `aux == 1` marks the self-reference defect. The string is new, so no other use sees the
-       * marker; it travels through `defect_take`, a note and `defect_resume` (spec 5.6). */
+      /* Bit 0 of `aux` marks the self-reference defect. The string is new, so no other use sees
+       * the marker; it travels through `defect_take`, a note and `defect_resume` (spec 5.6). */
       em_ref self = em_str_cstr(msg);
-      self->hdr.u.h.aux = 1;
+      self->hdr.u.h.aux = EM_AUX_SELF_REFERENCE;
       em_raise(self);
       em_drop(self);
       return false;
@@ -826,7 +864,7 @@ void em_const_leave(em_const *c, em_word value) {
     c->state = 2;
     return;
   }
-  if (em_is_interrupted(em_defect) || em_defect->hdr.u.h.aux != 0) {
+  if (em_is_interrupted(em_defect) || (em_defect->hdr.u.h.aux & EM_AUX_SELF_REFERENCE) != 0) {
     c->state = 0;
     return;
   }
@@ -835,8 +873,11 @@ void em_const_leave(em_const *c, em_word value) {
   em_buf_puts(&b, c->name);
   em_buf_puts(&b, ": ");
   em_buf_put(&b, EM_STR_BYTES(em_defect), EM_STR_LEN(em_defect));
+  uint32_t aux = em_defect->hdr.u.h.aux;
   em_drop(em_defect);
   em_defect = em_buf_finish(&b);
+  /* The remembered defect keeps the location of a failed assert. */
+  em_defect->hdr.u.h.aux = aux;
   em_dup(em_defect);
   c->defect = em_defect;
   c->state = 3;
@@ -1316,6 +1357,8 @@ static void em_cause_note(em_ref first, em_ref other) {
       em_buf_puts(&m, "\n");
       em_buf_put(&m, EM_STR_BYTES(note), EM_STR_LEN(note));
       first->slots[1].p = em_buf_finish(&m);
+      /* The defect keeps its markers (`aux`): the location of a failed assert. */
+      first->slots[1].p->hdr.u.h.aux = d->hdr.u.h.aux;
       em_drop(d);
       break;
     }
@@ -3731,6 +3774,11 @@ void em_test_result(const char *name) {
   if (message != NULL) {
     fputs(",\"message\":", stdout);
     em_json_string(EM_STR_BYTES(message), EM_STR_LEN(message));
+    em_ref at = strcmp(outcome, "defect") == 0 ? em_defect_location(message) : NULL;
+    if (at != NULL) {
+      fputs(",\"location\":", stdout);
+      em_json_string(EM_STR_BYTES(at), EM_STR_LEN(at));
+    }
     em_drop(message);
   }
   fputs("}\n", stdout);

@@ -213,9 +213,11 @@ pub enum Term {
     /// tail position either, and a closure is another body.
     Recur(Vec<Operand>),
     /// Raises a defect with the message (a string operand, since some messages, such as those of
-    /// `assert`, are built at run time), unwinding through the cleanups to the caller. Flow IR only: the Heap IR makes the unwinding explicit with
-    /// [`RuntimeOp::Defect`] and [`Term::Unwind`].
-    Defect(Operand),
+    /// `assert`, are built at run time), unwinding through the cleanups to the caller. The
+    /// second field is the location of a failed assert (`<path>:<line>:<column>`,
+    /// `[test.assert]`), kept outside the message. Flow IR only: the Heap IR makes the unwinding
+    /// explicit with [`RuntimeOp::Defect`] (or [`RuntimeOp::DefectAt`]) and [`Term::Unwind`].
+    Defect(Operand, Option<String>),
     /// Heap IR: returns from the function with the pending defect (the caller's defect landing
     /// runs). The function's result is not given (backends return any value).
     Unwind,
@@ -654,6 +656,10 @@ pub enum RuntimeOp {
     /// release failing while unwinding, spec 14.4), the message becomes a note of it instead.
     /// Heap IR; a [`Term::Unwind`] (through the cleanups) follows.
     Defect,
+    /// `(String, String) -> ()`: [`RuntimeOp::Defect`] for a failed assert, whose defect carries
+    /// the location (the second string, a constant) outside its message (`[test.assert]`). The
+    /// location stays with the defect when a note is added to its message. Heap IR.
+    DefectAt,
     /// `() -> ref`: takes the pending defect out, so that a cleanup runs with no defect pending.
     /// Heap IR.
     DefectTake,
@@ -683,6 +689,7 @@ impl RuntimeOp {
             RuntimeOp::DebugPrint => "debug_print",
             RuntimeOp::Retire => "retire",
             RuntimeOp::Defect => "defect",
+            RuntimeOp::DefectAt => "defect_at",
             RuntimeOp::DefectTake => "defect_take",
             RuntimeOp::DefectResume => "defect_resume",
             RuntimeOp::Hold => "hold",
@@ -697,7 +704,7 @@ impl RuntimeOp {
         match self {
             RuntimeOp::ShowString => (&[Repr::Ref], Repr::Ref),
             RuntimeOp::DebugPrint => (&[Repr::Ref], Repr::Void),
-            RuntimeOp::Retire => (&[Repr::Ref, Repr::Ref], Repr::Void),
+            RuntimeOp::Retire | RuntimeOp::DefectAt => (&[Repr::Ref, Repr::Ref], Repr::Void),
             RuntimeOp::Defect | RuntimeOp::DefectResume => (&[Repr::Ref], Repr::Void),
             RuntimeOp::DefectTake => (&[], Repr::Ref),
             RuntimeOp::Hold | RuntimeOp::Unhold | RuntimeOp::Yield | RuntimeOp::YieldPerform => {

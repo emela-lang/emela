@@ -733,7 +733,7 @@ impl Checker<'_> {
                     }
                 }
             }
-            Term::Defect(msg) => {
+            Term::Defect(msg, _) => {
                 self.stage_at_most(Stage::ClosuresConverted, "defect");
                 let r = self.operand(msg);
                 self.expect(r, Repr::Ref, "defect message");

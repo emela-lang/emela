@@ -150,7 +150,7 @@ fn control() {
         );
         b.term(Term::Yield(Some(v.into())));
     });
-    let other = b.seq(|b| b.term(Term::Defect(string("no color"))));
+    let other = b.seq(|b| b.term(Term::Defect(string("no color"), None)));
     b.switch(
         Some(c),
         SwitchOn::Lit(n),

@@ -43,7 +43,7 @@ fn term_uses(t: &Term, out: &mut Set) {
         Term::Yield(v) | Term::Return(v) | Term::Break { value: v, .. } => {
             operands(v.as_slice(), out)
         }
-        Term::Fail(v) | Term::Defect(v) => operands(std::slice::from_ref(v), out),
+        Term::Fail(v) | Term::Defect(v, _) => operands(std::slice::from_ref(v), out),
         Term::Recur(args) => operands(args, out),
         Term::Unwind | Term::Unreachable => {}
     }

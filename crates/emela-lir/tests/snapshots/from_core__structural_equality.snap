@@ -35,7 +35,7 @@ export fn main() -> void (()) {
     s%18: ref (String) = builtin String.append("assertion failed: Point(x: 1, y: 2) == Point(x: 1, y: 3)\n  left: ", s%16)
     s%19: ref (String) = builtin String.append(s%18, "\n right: ")
     s%20: ref (String) = builtin String.append(s%19, s%17)
-    defect(s%20)
+    defect(s%20) at "src/main.emel:18:3"
   }
   return
 }

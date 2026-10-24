@@ -236,7 +236,7 @@ impl Lower<'_> {
     /// (host handle) has values, so `message` is a defect; otherwise it is never called.
     fn no_values(&mut self, external: bool, message: &str) {
         if external {
-            self.term(Term::Defect(string(message)));
+            self.term(Term::Defect(string(message), None));
         } else {
             self.term(Term::Unreachable);
         }

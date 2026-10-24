@@ -12,7 +12,9 @@
  * Every heap object starts with a 16-byte header:
  *
  *     offset 0: uint32_t rc     reference count; 0 marks static data, which is never counted
- *     offset 4: uint32_t aux    1 on a const's self-reference defect, 0 otherwise
+ *     offset 4: uint32_t aux    on a defect: bit 0 marks a const's self-reference defect, and
+ *                               the bits above it number the location of a failed assert
+ *                               (`em_raise_at`); 0 otherwise
  *     offset 8: em_desc *desc   what the object is: its kind, constructor tag, slot count and
  *                               which slots hold references
  *
@@ -133,6 +135,9 @@ extern em_ref em_failure;
 /* RuntimeOp::Defect: makes the message (borrowed) the pending defect. */
 void em_raise(em_ref msg);
 void em_raise_cstr(const char *msg);
+/* RuntimeOp::DefectAt: em_raise for a failed assert, whose defect carries the location `at` (a
+ * static String) outside its message (spec 13.2). */
+void em_raise_at(em_ref msg, em_ref at);
 /* RuntimeOp::DefectTake and DefectResume. */
 em_ref em_defect_take(void);
 void em_defect_resume(em_ref d);

@@ -11,7 +11,8 @@
 //! - `{"event":"result","name":…,"outcome":…,"message":…}` per test. `name` is the test name of
 //!   `[test.command]`. `outcome` is `"ok"` (no message), `"error"` (an unhandled error; the message
 //!   is the error's display, `NotFound(id: 0)`), `"defect"` (the defect's message) or
-//!   `"interrupted"` (unwound while suspended; no message).
+//!   `"interrupted"` (unwound while suspended; no message). The defect of a failed assert also
+//!   has `"location"`, `<path>:<line>:<column>` (`[test.assert]`).
 //! - `{"event":"done"}` last.
 //!
 //! Tests run one at a time; the next starts after the previous one ended, and an error, defect or

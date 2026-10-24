@@ -1,0 +1,8 @@
+exit: 101
+--- stdout
+release leaky
+--- stderr
+defect: assertion failed: (use Pool).get() == 2
+  left: 1
+ right: 2
+note: the release of handler Leaky also failed: release failed

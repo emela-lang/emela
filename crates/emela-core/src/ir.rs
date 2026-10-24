@@ -1555,6 +1555,10 @@ pub struct Assert {
     pub cond: AssertCond,
     /// The source text of the expression (`user.name == "alice"`), shown on failure. May be empty.
     pub text: String,
+    /// Where the assert expression is, as `<path>:<line>:<column>` (`[test.assert]`). The defect
+    /// of a failed assert carries it outside its message, for the test runner. `None` for an
+    /// assert without a source path.
+    pub location: Option<String>,
 }
 
 /// The shape of an assert expression. The compiler looks at it and, for a comparison, shows both
@@ -1599,6 +1603,7 @@ impl Assert {
                 rhs,
             },
             text: text.to_owned(),
+            location: None,
         }))
     }
 
@@ -1607,7 +1612,22 @@ impl Assert {
         Expr::Assert(Box::new(Assert {
             cond: AssertCond::Bool(cond),
             text: text.to_owned(),
+            location: None,
         }))
+    }
+
+    /// Sets the location of the assert that `expr` is, or ends with (the bindings of
+    /// [`Assert::shown`]).
+    pub fn at(mut expr: Expr, location: Option<String>) -> Expr {
+        fn set(e: &mut Expr, location: Option<String>) {
+            match e {
+                Expr::Assert(a) => a.location = location,
+                Expr::Let { body, .. } => set(body, location),
+                _ => {}
+            }
+        }
+        set(&mut expr, location);
+        expr
     }
 
     /// A comparison decided by `cond` ([`AssertCond::Shown`]): `let a = lhs; let b = rhs;
@@ -1629,6 +1649,7 @@ impl Assert {
                 rhs: Expr::Var(b),
             },
             text: text.to_owned(),
+            location: None,
         }));
         Expr::Let {
             var: a,

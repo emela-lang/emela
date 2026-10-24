@@ -1000,13 +1000,23 @@ impl<'s> Lower<'s> {
             Builtin::Panic => {
                 let v = self.expr(&args[0])?;
                 let msg = v.op.unwrap_or(Operand::Const(Const::String(String::new())));
-                self.term(Term::Defect(msg));
+                self.term(Term::Defect(msg, None));
                 Err(Div)
             }
             Builtin::Todo => {
-                self.term(Term::Defect(Operand::Const(Const::String(
-                    "not yet implemented".into(),
-                ))));
+                self.term(Term::Defect(
+                    Operand::Const(Const::String("not yet implemented".into())),
+                    None,
+                ));
+                Err(Div)
+            }
+            Builtin::AssertFail => {
+                let v = self.expr(&args[0])?;
+                let msg = v.op.unwrap_or(Operand::Const(Const::String(String::new())));
+                let Expr::Lit(Lit::String(at)) = &args[1] else {
+                    panic!("invalid IR: the location of an assert is not a string literal");
+                };
+                self.term(Term::Defect(msg, Some(at.clone())));
                 Err(Div)
             }
             Builtin::ShowString => {
@@ -1380,7 +1390,10 @@ impl<'s> Lower<'s> {
                 } else {
                     format!("assertion failed: {}", a.text)
                 };
-                self.term(Term::Defect(Operand::Const(Const::String(msg))));
+                self.term(Term::Defect(
+                    Operand::Const(Const::String(msg)),
+                    a.location.clone(),
+                ));
                 let else_ = self.close();
                 self.push(Stmt::If {
                     dst: None,
@@ -1413,7 +1426,7 @@ impl<'s> Lower<'s> {
             Piece::Text("\n right: ".into()),
             Piece::Op(right),
         ]);
-        self.term(Term::Defect(msg));
+        self.term(Term::Defect(msg, a.location.clone()));
         let else_ = self.close();
         self.push(Stmt::If {
             dst: None,

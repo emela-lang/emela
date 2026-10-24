@@ -39,7 +39,8 @@ pub enum Entry {
     /// Test functions (spec 13.4), called one by one in order. Each result is written to stdout
     /// as a line of [`TEST_EVENT_PREFIX`] and JSON, the protocol of the JS test runner: `{"event":
     /// "result", "name": …, "outcome": "ok" | "defect" | "error", "message": …}`, then `{"event":
-    /// "done"}`. `message` is left out when an error value has no display. The protocol is
+    /// "done"}`. `message` is left out when an error value has no display, and the defect of a
+    /// failed assert also has `"location"` (`[test.assert]`). The protocol is
     /// internal between the module and `emela test`, so the spec only fixes what `emela test`
     /// shows (`[cmd.test.output]`, `[cmd.test.outcome]`).
     Tests(Vec<TestEntry>),

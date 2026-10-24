@@ -10,6 +10,7 @@ test Util.in_util ... ok
 failures:
 
 ---- fails ----
+ --> src/main.emel:10:3
 defect: assertion failed: add(1, 2) == 4
   left: 3
  right: 4

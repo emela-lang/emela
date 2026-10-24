@@ -479,7 +479,11 @@ impl Printer<'_> {
                     }
                     AssertCond::Bool(e) => self.expr(e),
                 }
-                write!(self.out, ", text: {:?})", a.text).unwrap();
+                write!(self.out, ", text: {:?}", a.text).unwrap();
+                if let Some(location) = &a.location {
+                    write!(self.out, ", at: {location:?}").unwrap();
+                }
+                self.out.push(')');
             }
             Expr::Fail(e) => {
                 self.out.push_str("fail ");

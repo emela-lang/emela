@@ -9,6 +9,9 @@ pub const TEST_FAILURE_EXIT_CODE: u8 = 1;
 pub struct TestResult {
     pub name: String,
     pub outcome: TestOutcome,
+    /// Where the failure happened, as `<path>:<line>:<column>`: only a defect from a failed
+    /// assert has one (`[cmd.test.outcome]`).
+    pub location: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +101,9 @@ pub(crate) fn write_summary(out: &mut dyn Write, report: &TestReport) -> io::Res
         writeln!(out, "\nfailures:")?;
         for failure in &failures {
             writeln!(out, "\n---- {} ----", failure.name)?;
+            if let Some(location) = &failure.location {
+                writeln!(out, " --> {location}")?;
+            }
             match &failure.outcome {
                 TestOutcome::Passed => unreachable!(),
                 TestOutcome::Defect(message) => writeln!(out, "defect: {message}")?,

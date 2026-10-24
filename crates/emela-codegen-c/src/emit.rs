@@ -665,7 +665,7 @@ impl<'m> Emitter<'m> {
             }
             Term::Unwind => cx.dummy_return(),
             Term::Unreachable => cx.w.stmt("em_unreachable()"),
-            Term::Defect(_) => self.internal(format!("defect left in {}", cx.f.name)),
+            Term::Defect(..) => self.internal(format!("defect left in {}", cx.f.name)),
         }
     }
 
@@ -1087,6 +1087,7 @@ impl<'m> Emitter<'m> {
                     RuntimeOp::DebugPrint => call("em_debug_print", &a[..1]),
                     RuntimeOp::Retire => call("em_retire", &a[..2]),
                     RuntimeOp::Defect => call("em_raise", &a[..1]),
+                    RuntimeOp::DefectAt => call("em_raise_at", &a[..2]),
                     RuntimeOp::DefectTake => call("em_defect_take", [""; 0]),
                     RuntimeOp::DefectResume => call("em_defect_resume", &a[..1]),
                     RuntimeOp::Hold => call("em_hold", [""; 0]),
@@ -1387,6 +1388,7 @@ impl<'m> Emitter<'m> {
             | Builtin::StringChars
             | Builtin::Panic
             | Builtin::Todo
+            | Builtin::AssertFail
             | Builtin::Dbg
             | Builtin::Inspect
             | Builtin::ShowNested

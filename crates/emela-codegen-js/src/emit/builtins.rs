@@ -60,6 +60,7 @@ pub(crate) fn runtime_name(op: Builtin) -> &'static str {
         Builtin::CellSet => "$cellSet",
         Builtin::ShowString => "$showString",
         Builtin::DebugPrint => "$debugPrint",
+        Builtin::AssertFail => "$assertDefect",
         Builtin::ShowNested => unreachable!("monomorphization replaces String.show_nested"),
     }
 }
@@ -77,6 +78,7 @@ mod tests {
             Builtin::CellSet,
             Builtin::ShowString,
             Builtin::DebugPrint,
+            Builtin::AssertFail,
         ];
         let replaced = [Builtin::ShowNested];
         for &op in Builtin::ALL
