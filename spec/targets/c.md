@@ -67,3 +67,11 @@ The completions of external functions declared as `suspend fn` (`[ext.c-host]`) 
 - Completions from other threads are delivered to fibers in the order they arrive.
 - If there is no fiber that can run, no work waiting for a non-blocking iteration, no registration (timers and file descriptors), and no completion not yet delivered, the launch has stalled. In this case, if there are fibers sleeping on TestClock, the one with the earliest time is woken, as in `[effect.state]`. Otherwise, as in `[dyn.suspend]`, all fibers are interrupted, the waiting continuations are unwound, and the waiting tasks are canceled (`[ext.c-host]`). If the unwinding adds no new work and no registration, the launch ends.
 - Tasks held by other threads are not by themselves a reason for the launch not to stall. To keep it waiting, the host holds its own registration (`[ext.c-host]`).
+
+## 16.7.6 Exported functions `[target.c.export]`
+
+- An `@export(c, "name")` is emitted in `main.c` as a function with external linkage named `name`, with the prototype given by the table of 12.4.
+- An exported fn with Async in its R is a compile error on the `c` target (E0441).
+- Calling an exported fn while a launch is running on the same thread is a defect, with the message ``exported function `f` was called while Emela code is running``. This covers a call back from a host function that Emela called, and a call from an interrupt or signal handler. The runtime checks it on entry to the export.
+- Calling an exported fn from another thread is unspecified.
+- When an exported fn is called while no launch has started, the runtime is initialized by that call. The host does not call an initialization function.

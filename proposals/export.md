@@ -110,17 +110,17 @@ qualified    = type_name { "." type_name } "." lower_name ;
 >
 > - `@export` is written on a top-level fn with a body. Its arguments have the form `(target, "name")` or `(target, "interface", "name")`, as for `@external` (12.1). One `@export` is written per target name; a fn MAY have several for the same target. Malformed arguments are E0146.
 > - An `@export` fn exposes itself to the host under each name. Each call by the host is one launch, as main is.
-> - The parameters and the return value of an `@export` fn are boundary types (12.4) (E0434). Its E MUST be empty and its R MUST be empty except for Async (E0402).
-> - An `@export` fn that is not an entry adapter is allowed only in the entry module (E0435).
-> - Two exports with the same name for the same target, from `@export` or `@entry`, are a compile error (E0436).
+> - The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402).
+> - An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
+> - Two exports with the same name for the same target, from `@export` or `@entry`, are a compile error (E0438).
 > - How each target exposes the fn is in `[target.js.module]`, `[target.c.export]` and `[target.wasm.external]`.
 
 ### `[ext.entry]` (new)
 
 > ## 12.8 Entry adapters `[ext.entry]`
 >
-> - An `@export` fn whose first parameter has a function type is an entry adapter. An entry adapter is not exposed by itself, and MAY be in any module. Its first parameter need not be a boundary type; the other parameters and the return value are boundary types (E0434).
-> - `@entry(T)` is written on a top-level fn `f` of the entry module. `T` names an entry adapter (E0437). `f` MUST be accepted as the first argument of `T` (E0438).
+> - An `@export` fn whose first parameter has a function type is an entry adapter. An entry adapter is not exposed by itself, and MAY be in any module. Its first parameter need not be a boundary type; the other parameters and the return value are boundary types (E0436).
+> - `@entry(T)` is written on a top-level fn `f` of the entry module. `T` names an entry adapter (E0439). `f` MUST be accepted as the first argument of `T` (E0440).
 > - For each `@export` of `T`, the program exposes under the same name a fn that takes the remaining parameters of `T` and returns `T(f, ...)`. Each call is one launch.
 > - `f` remains an ordinary fn. It can be called, including from tests.
 
@@ -146,7 +146,7 @@ Replace "The `pub` fns of the entry are exported from `main.mjs`. A fn with a ty
 Add a section `[target.c.export]`:
 
 > - An `@export(c, "name")` is emitted in `main.c` as a function with external linkage named `name`, with the prototype given by the table of 12.4.
-> - An exported fn with Async in its R is a compile error on the `c` target (E0439).
+> - An exported fn with Async in its R is a compile error on the `c` target (E0441).
 > - Calling an exported fn while a launch is running on the same thread is a defect, with the message ``exported function `f` was called while Emela code is running``. This covers a call back from a host function that Emela called, and a call from an interrupt or signal handler. The runtime checks it on entry to the export.
 > - Calling an exported fn from another thread is unspecified.
 > - When an exported fn is called while no launch has started, the runtime is initialized by that call. The host does not call an initialization function.
@@ -166,12 +166,12 @@ After the item on the R of main: "The same holds for an `@export` fn (`[ext.expo
 ### `[diag.list]`
 
 > | E0146 | Malformed arguments of `@export` (12.7) | ``expected `@export(target, "name")` `` |
-> | E0434 | A parameter or the return value of an `@export` fn is not a boundary type (12.7, 12.8) | ``exported function `f` cannot take `List[Int]` `` |
-> | E0435 | An `@export` fn that is not an entry adapter outside the entry module (12.7) | ```@export` is only allowed in the entry module`` |
-> | E0436 | Two exports with the same name for the same target (12.7) | ```fetch` is exported twice for target `js` `` |
-> | E0437 | The argument of `@entry` is not an entry adapter (12.8) | ```Http.get` is not an entry adapter`` |
-> | E0438 | The fn cannot be passed as the first argument of the entry adapter (12.8) | ``app` does not fit `Http.serve` `` |
-> | E0439 | An exported fn that may suspend on the `c` target (16.7) | ``exported function `f` may suspend, which target `c` does not support`` |
+> | E0436 | A parameter or the return value of an `@export` fn is not a boundary type (12.7, 12.8) | ``exported function `f` cannot take `List[Int]` `` |
+> | E0437 | An `@export` fn that is not an entry adapter outside the entry module (12.7) | ```@export` is only allowed in the entry module`` |
+> | E0438 | Two exports with the same name for the same target (12.7) | ```fetch` is exported twice for target `js` `` |
+> | E0439 | The argument of `@entry` is not an entry adapter (12.8) | ```Http.get` is not an entry adapter`` |
+> | E0440 | The fn cannot be passed as the first argument of the entry adapter (12.8) | ``app` does not fit `Http.serve` `` |
+> | E0441 | An exported fn that may suspend on the `c` target (16.7) | ``exported function `f` may suspend, which target `c` does not support`` |
 
 E0402: add "an `@export` fn" to the list of contexts.
 
@@ -180,12 +180,12 @@ E0327: mark as unused ("(Unused, because only `@export` fns are exported, and th
 ## Diagnostics
 
 - [ ] E0146: malformed arguments of `@export`
-- [ ] E0434: a parameter or return value that is not a boundary type
-- [ ] E0435: `@export` outside the entry module
-- [ ] E0436: two exports with the same name
-- [ ] E0437: the argument of `@entry` is not an entry adapter
-- [ ] E0438: the fn does not fit the first parameter of the entry adapter
-- [ ] E0439: an export that may suspend on C
+- [ ] E0436: a parameter or return value that is not a boundary type
+- [ ] E0437: `@export` outside the entry module
+- [ ] E0438: two exports with the same name
+- [ ] E0439: the argument of `@entry` is not an entry adapter
+- [ ] E0440: the fn does not fit the first parameter of the entry adapter
+- [ ] E0441: an export that may suspend on C
 - [ ] E0402: the R of an `@export` fn
 - [ ] `@export(wasm, ...)` written by a user (no code)
 

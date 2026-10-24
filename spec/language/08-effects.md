@@ -106,7 +106,7 @@ fn run[R](f: fn() -> () use { Logger, R }) -> () use R {
 - `use X` refers to the handler provided by the innermost with as seen from the position where it is written. If the same function has no such with, it refers to the one passed from the caller.
 - `use X` inside an anonymous function first looks at the withs that enclose the anonymous function (in the same top-level function). If there is none, it refers to the one passed from the side that calls the anonymous function. This is because the R of an anonymous function is enclosed in the anonymous function's type (9.4) and does not appear in the R of the enclosing function.
 - A capability value taken out on the outer side keeps referring to the outer handler even if an inner with overrides the same effect.
-- The R of main MUST be empty except for Async. main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E0230). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a use clause is written. The R of the value of a const is also empty.
+- The R of main MUST be empty except for Async. main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E0230). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a use clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
 
 ```emel
 with PrimaryDb {

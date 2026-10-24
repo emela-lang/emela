@@ -46,6 +46,8 @@ An attribute has the form `@name(arguments)` and is placed immediately before a 
 | Attribute | Target | Meaning |
 |---|---|---|
 | `@external(...)` | fn without a body | Points to an implementation on the host side. It can also be attached to a type without fields (chapter 12) |
+| `@export(...)` | Top-level fn with a body | Exposes the fn to the host under a name, for each target (`[ext.export]`). An `@export` fn whose first parameter has a function type is an entry adapter and is not exposed by itself |
+| `@entry(...)` | Top-level fn of the entry module | Exposes the fn through an entry adapter (`[ext.entry]`) |
 | `@test` | fn | The function is a test function (chapter 13) |
 | `@deprecated(...)` | Any declaration | Warns at each use site |
 | `@intrinsic` | fn without a body and effect (only at the top level of the bundled core sources) | On a fn, the fn is a built-in function implemented by the compiler. The signature is written in Emela syntax, and the implementation is looked up by name in the compiler's table of built-in functions. A fn with this attribute satisfies the `@external` constraints in 17.3. On an effect, the effect becomes a built-in effect (8.1, 11.2). Outside the core sources it cannot be used (E0224), and an effect with it is checked as a user effect. Attaching it to a fn with a body, to any other declaration, or to a fn inside a trait, impl, or handler is a compile error (E0225) |
