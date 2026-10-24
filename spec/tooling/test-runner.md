@@ -45,6 +45,7 @@ test Util.new ... FAILED
 failures:
 
 ---- Util.new ----
+ --> src/util.emel:7:3
 defect: assertion failed: left != right
   left: "a"
  right: "a"
@@ -57,7 +58,7 @@ test result: FAILED. 2 passed; 1 failed; 0 filtered out
 
 - The first line is `running N tests`. If N is 1, it is `running 1 test`.
 - Each time a test finishes, one line, `test <name> ... ok` or `test <name> ... FAILED`, is printed. Tests are run one at a time, in order.
-- If there is at least one failure, then after a blank line and `failures:`, the command prints, for each failed test, a blank line, the line `---- <name> ----`, and the details of the failure ("Kinds of results" below). Then it prints a blank line, `failures:`, and the names of the failed tests, one per line, each preceded by four spaces.
+- If there is at least one failure, then after a blank line and `failures:`, the command prints, for each failed test, a blank line, the line `---- <name> ----`, the line ` --> <location>` if the failure has a location, and the details of the failure ("Kinds of results" below). Then it prints a blank line, `failures:`, and the names of the failed tests, one per line, each preceded by four spaces.
 - Finally, it prints a blank line and the summary line `test result: <ok|FAILED>. <number passed> passed; <number failed> failed; <number excluded by the filter> filtered out`. If there are no failures, it is `ok`.
 - The elapsed time is not printed, so that tests that compare output get the same output from the same input.
 - What the program writes to standard output while tests run appears as is between the result lines. The program's standard error goes to standard error as is. Standard input is not passed to the program.
@@ -114,6 +115,9 @@ test result: FAILED. 1 passed; 1 failed; 0 filtered out
 - An exception thrown inside a host callback while tests are running is a defect of the running test. Continuations of finished tests (a resume called later and so on) are not advanced.
 - On an early exit (when an external function terminates the process and so on), the test that was running fails. If tests after it did not run, `; 1 test after it did not run` or `; N tests after it did not run` is appended after the details line. Tests that did not run get no result line.
 - After a test with defect, error, or interrupted, the remaining tests continue.
+- A failure has a location when it is a defect from a failed assert (`[test.assert]`). Other failures have no location.
+- A location is shown as `<path>:<line>:<column>`. The path is relative to the project directory, and in single-file mode to the directory that contains the file. For an assert in a dependency Pome, the path is the path of its source file, not of the build output.
+- The location is shown only by the test runner. A defect that reaches `main` is displayed as in `[error.defect]`, without a location. Lines and columns are counted from 1, as in diagnostics (`[diag]`).
 
 ## Exit code `[cmd.test.exit]`
 
