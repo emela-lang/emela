@@ -497,8 +497,10 @@ pub fn app(request: Request) -> Response fails NotANumber {
 
 `emela run` serves it on `127.0.0.1:8080` (`--addr <host>:<port>`, or `HOST`
 and `PORT`). The same `main.mjs` is the `fetch` of its default export, so
-`deno serve`, Bun and Cloudflare Workers run it as it is. An error or a defect
-becomes a 500 whose cause goes only to standard error.
+`deno serve`, Bun and Cloudflare Workers run it as it is. With
+`--target wasm`, `main.wasm` is a `wasi:http/service` component and
+`emela run` serves it with `wasmtime serve`. An error or a defect becomes a 500
+whose cause goes only to standard error.
 
 ## Known limitations
 

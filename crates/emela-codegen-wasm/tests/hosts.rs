@@ -256,7 +256,7 @@ fn main() {
 
     // `Std.Platform` bundles the system handlers, so their external functions are reachable even
     // when only `Console` is used. The environment, random, system-clock and file-system
-    // interfaces are therefore imported; `Std.Http` has no WASM host at all, so it is not. This
+    // interfaces are therefore imported; the client of `Std.Http` has no WASM host, so it is not. This
     // is a known limitation (see NOTES.md).
     let platform = compile_checked(
         r#"

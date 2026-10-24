@@ -1,7 +1,7 @@
 ---
 title: HTTP services
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 428
 issue:
 decided: 2026-10-25

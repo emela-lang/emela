@@ -1133,3 +1133,68 @@ fn const_cycles() {
         "{run:?}"
     );
 }
+
+/// `emela run` of an HTTP service (`[cmd.build]`, `[target.wasm.run]`): no `main` is needed, JS
+/// runs `serve.mjs` on node and WASM runs `wasmtime serve -S p3=y,cli=y`, each with the arguments
+/// after `--`. A script that prints its arguments stands in for node and wasmtime.
+#[cfg(unix)]
+#[test]
+fn run_starts_the_server_of_an_http_service() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let project = Project::new(
+        "http-service",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "import Std.Http\nimport Std.Http.Request.{Request}\nimport Std.Http.Response.{Response}\n\n@entry(Http.serve)\npub fn app(request: Request) -> Response {\n  Response.new(200, request.url)\n}\n",
+            ),
+        ],
+    );
+    let echo = project.path().join("echo.sh");
+    // `--version` answers like a new enough wasmtime.
+    std::fs::write(
+        &echo,
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'wasmtime 50.0.0'; exit 0; fi\necho \"$@\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&echo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let run = |target: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+            .args(["run", "--target", target, "--", "--addr", "127.0.0.1:0"])
+            .current_dir(project.path())
+            .env("EMELA_NODE", &echo)
+            .env("EMELA_WASMTIME", &echo)
+            .env("NO_COLOR", "1")
+            .output()
+            .unwrap();
+        (
+            output.status.code(),
+            String::from_utf8(output.stdout).unwrap(),
+        )
+    };
+    let dir = std::fs::canonicalize(project.path())
+        .unwrap()
+        .join("target/emela");
+    assert_eq!(
+        run("js"),
+        (
+            Some(0),
+            format!(
+                "{} --addr 127.0.0.1:0\n",
+                dir.join("js/serve.mjs").display()
+            )
+        )
+    );
+    assert_eq!(
+        run("wasm"),
+        (
+            Some(0),
+            format!(
+                "serve -S p3=y,cli=y --addr 127.0.0.1:0 {}\n",
+                dir.join("wasm/main.wasm").display()
+            )
+        )
+    );
+}

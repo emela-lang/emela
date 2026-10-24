@@ -22,6 +22,7 @@ use crate::nav::{NavTarget, RenameError};
 use crate::output::{BuildOutput, write_output};
 use crate::run::{
     Output, ProgramCommand, RunOutput, node_command, node_script_command, wasmtime_command,
+    wasmtime_serve_command,
 };
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
@@ -907,6 +908,7 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
         )),
         Runner::Node => Ok(node_command(&options.node, &entry, &options.args)),
         Runner::Native => Ok(native_command(&entry, &options.args)),
+        Runner::Wasmtime if server => wasmtime_serve_command(&entry, &options.args),
         Runner::Wasmtime => wasmtime_command(&entry, &options.args),
     });
     before_start(&analysis, command.as_ref().and_then(|c| c.as_ref().ok()));

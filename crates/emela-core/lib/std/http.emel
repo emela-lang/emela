@@ -322,9 +322,48 @@ fn received_request(received: Received) -> Option[Request] {
     headers = List.map(List.range(0, host_received_header_count(received)), fn(i) {
       (host_received_header_name(received, i), host_received_header_value(received, i))
     })
+      |> normal_headers
     Request(method:, url: host_received_url(received), headers:, body: host_received_body(received))
   })
 }
+
+## `pairs` in the form of the headers of a client's `Response`: lower-case names sorted by name,
+## and the values of the same name joined with `, `, except that each `set-cookie` stays its own
+## pair. The sort is stable, so values keep the order received. The headers of the connection
+## are left out (`CONNECTION_HEADERS`). The JS host reads them in this form already; the WASM host
+## hands them over as received.
+fn normal_headers(pairs: List[(String, String)]) -> List[(String, String)] {
+  pairs
+    |> List.map(fn((name, value)) { (String.to_ascii_lowercase(name), value) })
+    |> List.filter(fn((name, _)) { !List.any(CONNECTION_HEADERS, fn(c) { c == name }) })
+    |> List.sort_by(fn((a, _), (b, _)) {
+      if a < b { Less } else if a > b { Greater } else { Equal }
+    })
+    |> List.fold(from: [], f: fn(acc, (name, value)) {
+      acc match {
+        [(last, joined), ..rest] if last == name && name != "set-cookie" -> [
+          (name, "#{joined}, #{value}"),
+          ..rest,
+        ]
+        _ -> [(name, value), ..acc]
+      }
+    })
+    |> List.reverse
+}
+
+## The headers that belong to the connection, which hosts of `wasi:http` do not hand over
+## (`[lib.http-service]`).
+const CONNECTION_HEADERS: List[String] = [
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "proxy-connection",
+  "transfer-encoding",
+  "upgrade",
+  "host",
+  "http2-settings",
+]
 
 ## The host's response for `res`, its headers in the written order.
 fn to_outgoing(res: Response) -> Outgoing {
@@ -348,44 +387,57 @@ handler SystemHostHttp: HostHttp {
 }
 
 ## A request read on the host: its method, URL, headers and whole body. `List` cannot cross the
-## external function boundary (spec 12.4), so the headers are read one by one by index.
+## external function boundary (spec 12.4), so the headers are read one by one by index. On WASM
+## the runtime keeps the request being served, so the value only stands for it.
 @external
 type Received
 
 @external(js, "./http.mjs", "readRequest")
+@external(wasm, "emela:runtime/http@0.1.0", "read-request")
 suspend fn host_read(incoming: Incoming) -> Received
 
 ## Whether the body is UTF-8. When it is not, the body is empty.
 @external(js, "./http.mjs", "receivedText")
+@external(wasm, "emela:runtime/http@0.1.0", "received-text")
 fn host_received_text(received: Received) -> Bool use {}
 
 @external(js, "./http.mjs", "receivedMethod")
+@external(wasm, "emela:runtime/http@0.1.0", "received-method")
 fn host_received_method(received: Received) -> String use {}
 
 @external(js, "./http.mjs", "receivedUrl")
+@external(wasm, "emela:runtime/http@0.1.0", "received-url")
 fn host_received_url(received: Received) -> String use {}
 
 @external(js, "./http.mjs", "body")
+@external(wasm, "emela:runtime/http@0.1.0", "received-body")
 fn host_received_body(received: Received) -> String use {}
 
 @external(js, "./http.mjs", "headerCount")
+@external(wasm, "emela:runtime/http@0.1.0", "received-header-count")
 fn host_received_header_count(received: Received) -> Int use {}
 
 @external(js, "./http.mjs", "headerName")
+@external(wasm, "emela:runtime/http@0.1.0", "received-header-name")
 fn host_received_header_name(received: Received, index: Int) -> String use {}
 
 @external(js, "./http.mjs", "headerValue")
+@external(wasm, "emela:runtime/http@0.1.0", "received-header-value")
 fn host_received_header_value(received: Received, index: Int) -> String use {}
 
-## The response being built on the host.
+## The response being built on the host. On WASM the runtime keeps the response being built, so
+## the value only stands for it.
 @external
 type Draft
 
 @external(js, "./http.mjs", "newDraft")
+@external(wasm, "emela:runtime/http@0.1.0", "new-draft")
 fn host_draft(status: Int, body: String) -> Draft use {}
 
 @external(js, "./http.mjs", "withHeader")
+@external(wasm, "emela:runtime/http@0.1.0", "draft-header")
 fn host_draft_header(draft: Draft, name: String, value: String) -> Draft use {}
 
 @external(js, "./http.mjs", "finishDraft")
+@external(wasm, "emela:runtime/http@0.1.0", "finish-draft")
 fn host_finish(draft: Draft) -> Outgoing use {}

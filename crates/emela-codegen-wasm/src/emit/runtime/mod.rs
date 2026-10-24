@@ -50,6 +50,7 @@ mod env;
 mod float;
 pub(super) mod fs;
 mod host;
+pub(super) mod http;
 mod notes;
 mod numeric;
 mod option;
@@ -216,6 +217,14 @@ const MODULES: &[RuntimeModule] = &[
         emit: attempt::emit,
         used: attempt::used,
     },
+    RuntimeModule {
+        funcs: http::FUNCS,
+        locals: http::locals,
+        // The plan's cells are allocated by `http::prepare`, before the index space is assigned.
+        setup: no_setup,
+        emit: http::emit,
+        used: http::used,
+    },
 ];
 
 /// Reserves the runtime functions in the function index space.
@@ -225,6 +234,7 @@ pub(crate) fn register(b: &mut Builder) {
     }
     async_bridge::prepare(b);
     fs::prepare(b);
+    http::prepare(b);
     for module in MODULES {
         if !(module.used)(b) {
             continue;

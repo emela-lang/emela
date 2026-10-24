@@ -48,19 +48,11 @@ const SKIPPED: &[Skipped] = &[
     },
     Skipped {
         feature: "http",
-        reason: "Std.Http has no WASM host yet",
+        reason: "the client of Std.Http (SystemHttp) has no WASM host yet",
         expected_failures: &[
             "external function `host_request` has no `@external` for target `wasm`",
         ],
         examples: &["http"],
-    },
-    Skipped {
-        feature: "http-service",
-        reason: "HTTP services are not built for WASM yet (`Http.serve` needs `Fiber.attempt`)",
-        expected_failures: &[
-            "exported function `app` has a `wasm` export, which the WASI 0.3 component target does not support yet",
-        ],
-        examples: &["http-service"],
     },
 ];
 
@@ -202,6 +194,10 @@ fn examples() -> Vec<(String, PathBuf)> {
     dirs
 }
 
+/// Examples that are HTTP services: `emela run` starts a server that does not end, so only their
+/// `@test` results are compared here. `http_service.rs` compares the servers.
+const SERVICES: &[&str] = &["http-service"];
+
 fn skip_of(name: &str) -> Option<&'static Skipped> {
     SKIPPED.iter().find(|skip| skip.examples.contains(&name))
 }
@@ -215,6 +211,9 @@ fn examples_run_the_same_on_js_and_wasm() {
     for (name, dir) in examples() {
         if let Some(skip) = skip_of(&name) {
             eprintln!("skipping {name} ({}): {}", skip.feature, skip.reason);
+            continue;
+        }
+        if SERVICES.contains(&name.as_str()) {
             continue;
         }
         let js = in_temp_cwd(&format!("run-js-{name}"), || {

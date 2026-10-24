@@ -53,13 +53,17 @@ pub(crate) enum Run {
     Main(Option<FnId>),
     /// Test functions, with their names.
     Tests(Vec<(String, FnId)>),
+    /// The fn of an HTTP service that `@entry(Http.serve)` made (its monomorphized copy), called
+    /// by the exported `handle` of `wasi:http/handler@0.3.0` with the request
+    /// (`runtime/http.rs`).
+    Service(Option<FnId>),
 }
 
 impl Run {
     /// The functions the output calls first.
     pub(crate) fn roots(&self) -> Vec<FnId> {
         match self {
-            Run::Main(main) => main.iter().copied().collect(),
+            Run::Main(main) | Run::Service(main) => main.iter().copied().collect(),
             Run::Tests(tests) => tests.iter().map(|&(_, id)| id).collect(),
         }
     }
@@ -94,6 +98,7 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>
         clock: b.uses_clock(),
         monotonic_clock: b.uses_std_host(StdHost::is_monotonic),
         filesystem: b.uses_std_host(StdHost::is_fs),
+        service: b.service,
     };
     let module = crate::component::wrap(&core, optional).map_err(|e| {
         vec![WasmError {
@@ -230,6 +235,10 @@ pub(crate) struct Builder<'m> {
     pub(crate) async_plan: Option<runtime::async_bridge::Plan>,
     /// The file system runtime's cells, when the program uses `Std.FileSystem`.
     pub(crate) fs_plan: Option<runtime::fs::Plan>,
+    pub(crate) http_plan: Option<runtime::http::Plan>,
+    /// Whether the output is an HTTP service ([`Run::Service`]): it exports `handle` of
+    /// `wasi:http/handler@0.3.0` instead of `run` of `wasi:cli/run@0.3.0`.
+    pub(crate) service: bool,
 }
 
 impl<'m> Builder<'m> {
@@ -267,6 +276,8 @@ impl<'m> Builder<'m> {
             sus: None,
             async_plan: None,
             fs_plan: None,
+            http_plan: None,
+            service: false,
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
@@ -502,6 +513,7 @@ impl<'m> Builder<'m> {
     }
 
     fn build(&mut self, entry: &Run) {
+        self.service = matches!(entry, Run::Service(_));
         // The imports (the WASI host and the externals with a wasm binding) take the lowest
         // indices. A supported `Std` host is a runtime wrapper instead; it is resolved after the
         // runtime functions have their indices.
@@ -545,7 +557,11 @@ impl<'m> Builder<'m> {
         self.waitable_set_wait();
         self.waitable_set_drop();
         self.waitable_join();
-        self.task_return();
+        if self.service {
+            runtime::http::imports(self);
+        } else {
+            self.task_return();
+        }
         // The IR definitions, in arena order (the entries of the table are the IR functions). A
         // const gets two: the wrapper callers see, then its body (`_init`).
         for (id, f) in self.m.functions.iter() {
@@ -597,9 +613,15 @@ impl<'m> Builder<'m> {
         if suspend::used(self) {
             suspend::prepare(self);
         }
-        // The async-lifted `wasi:cli/run@0.3.0#run` export and its callback. Both return the
+        // The async-lifted `wasi:cli/run@0.3.0#run` export (or `handle` of
+        // `wasi:http/handler@0.3.0`, which takes the request) and its callback. Both return the
         // component-model status code.
-        let ty = self.ty(vec![], vec![ValType::I32]);
+        let params = if self.service {
+            vec![ValType::I32]
+        } else {
+            Vec::new()
+        };
+        let ty = self.ty(params, vec![ValType::I32]);
         self.entry_index = self.imports.len() as u32 + self.defs.len() as u32;
         self.defs.push(ty);
         let ty = self.ty(
@@ -883,13 +905,18 @@ impl<'m> Builder<'m> {
 
         let mut exports = ExportSection::new();
         exports.export("memory", ExportKind::Memory, 0);
+        let entry = if self.service {
+            "wasi:http/handler@0.3.0#handle"
+        } else {
+            "wasi:cli/run@0.3.0#run"
+        };
         exports.export(
-            "[async-lift]wasi:cli/run@0.3.0#run",
+            &format!("[async-lift]{entry}"),
             ExportKind::Func,
             self.entry_index,
         );
         exports.export(
-            "[callback][async-lift]wasi:cli/run@0.3.0#run",
+            &format!("[callback][async-lift]{entry}"),
             ExportKind::Func,
             self.callback_index,
         );
@@ -1122,6 +1149,29 @@ impl<'m> Builder<'m> {
                     }
                 }
                 Run::Main(None) => {}
+                Run::Service(service) => {
+                    // One request: the launch, then the response (`runtime/http.rs`). A
+                    // launch that ended interrupted leaves no response; its unwinding is not
+                    // carried to the next request.
+                    if let Some(id) = service {
+                        let index = self.fn_index(*id);
+                        let ret = self.repr(self.m.functions[*id].ret);
+                        // `Incoming` is a counted reference: the handle goes in a box.
+                        ins.local_get(0);
+                        ins.call(self.rt("http_box"));
+                        ins.call(index);
+                        self.drop_result(ins, ret);
+                        if self.sus.is_some() {
+                            let root = self.rt("root_run");
+                            ins.call(root);
+                        }
+                    }
+                    ins.i32_const(0);
+                    ins.global_set(G_DEFECT);
+                    ins.i32_const(0);
+                    ins.global_set(G_FAILURE);
+                    ins.call(self.rt("http_respond"));
+                }
                 Run::Tests(tests) => {
                     for (name, id) in tests {
                         // Each test is a run of its own: the previous one may have stalled.
@@ -1147,10 +1197,14 @@ impl<'m> Builder<'m> {
                     ins.call(self.rt("test_done"));
                 }
             }
-            ins.call(self.rt("finish"));
-            ins.call(self.rt("close_output"));
-            ins.i32_const(0);
-            ins.call(self.task_return());
+            // A service keeps its output open for the next request, and `http_respond` did the
+            // `task.return`.
+            if !self.service {
+                ins.call(self.rt("finish"));
+                ins.call(self.rt("close_output"));
+                ins.i32_const(0);
+                ins.call(self.task_return());
+            }
             // `0` is the component model's EXIT status: the async-lifted run finished
             // synchronously.
             ins.i32_const(0);

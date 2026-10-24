@@ -2,14 +2,18 @@
 //! `fetch` of the default export of `main.mjs`, called by a harness the way Deno, Bun and Workers
 //! call it, and `serve.mjs`, which `emela run` starts.
 //!
-//! Needs node.
+//! Needs node; the WASM test also needs wasmtime (`EMELA_WASMTIME` or `wasmtime`), and is skipped
+//! with a message without it.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-use emela_driver::{CoreJs, Input, Lower, MemoryFiles, Output, RunOptions, build, run};
+use emela_driver::{
+    CoreJs, CoreWasm, Input, Lower, MemoryFiles, Output, RunOptions, Target, build, run,
+    wasmtime_program,
+};
 
 /// A per-test output directory. Leftovers from earlier runs are removed.
 fn out_dir(name: &str) -> PathBuf {
@@ -326,8 +330,7 @@ fn serve_mjs_passes_requests_to_fetch() {
     assert_eq!(
         echo,
         "HTTP/1.1 200 OK\ncontent-type: text/plain;charset=UTF-8\n[\"x\"] [(\"y\", \"1\")] \
-         [(\"connection\", \"close\"), (\"content-length\", \"0\"), (\"host\", \"127.0.0.1\"), \
-         (\"x-one\", \"1\")] "
+         [(\"content-length\", \"0\"), (\"x-one\", \"1\")] "
     );
     assert_eq!(
         post,
@@ -469,4 +472,295 @@ fn main() {}
         let dir = build_service(name, main);
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// A server of the service, for the test that compares the targets: `serve.mjs` on node, or
+/// `wasmtime serve`. Standard output and standard error are collected in a file.
+struct Served {
+    child: Child,
+    base: String,
+    log: PathBuf,
+}
+
+impl Served {
+    /// Starts `command` with its output in `log`, and waits for the line that names the address
+    /// (`listening on <base>` or `Serving HTTP on <base>/`).
+    fn start(mut command: Command, log: PathBuf) -> Served {
+        let file = std::fs::File::create(&log).unwrap();
+        command
+            .stdout(file.try_clone().unwrap())
+            .stderr(file)
+            .env_remove("HOST")
+            .env_remove("PORT");
+        // Made before waiting, so that `Drop` stops the server if it does not start.
+        let mut served = Served {
+            child: command.spawn().expect("cannot start the server"),
+            base: String::new(),
+            log,
+        };
+        let started = std::time::Instant::now();
+        loop {
+            let text = std::fs::read_to_string(&served.log).unwrap_or_default();
+            let found = text.lines().find_map(|line| {
+                line.strip_prefix("listening on ")
+                    .or_else(|| line.strip_prefix("Serving HTTP on "))
+            });
+            if let Some(base) = found {
+                served.base = base.trim_end_matches('/').to_owned();
+                return served;
+            }
+            assert!(
+                started.elapsed().as_secs() < 30,
+                "the server did not start:\n{text}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    /// The lines the program wrote, without the address and without the lines of the server
+    /// itself. `wasmtime serve` puts `stdout [n] :: ` or `stderr [n] :: ` before each line.
+    fn program_lines(&self) -> String {
+        let text = std::fs::read_to_string(&self.log).unwrap();
+        let port = self.base.rsplit(':').next().unwrap();
+        text.lines()
+            .filter(|line| {
+                !line.starts_with("listening on ") && !line.starts_with("Serving HTTP on ")
+            })
+            .map(|line| {
+                let line = match line.split_once(" :: ") {
+                    Some((prefix, rest)) if prefix.starts_with("std") => rest,
+                    _ => line,
+                };
+                format!("{}\n", line.replace(port, "PORT"))
+            })
+            .collect()
+    }
+}
+
+impl Drop for Served {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Sends the requests of `REQUESTS` to `base` one after another with the Fetch API of node, and
+/// prints each response: the status, the headers other than date and the framing ones, sorted,
+/// and the body. The port is written as `PORT`.
+fn fetch_all(dir: &Path, base: &str) -> String {
+    let script = format!(
+        r#"const base = {base:?};
+const port = new URL(base).port;
+const requests = [
+  ["GET", "/echo/a%20b/%E6%9D%B1?q=%E6%9D%B1+x&flag", {{ "X-B": "2", "x-a": "1", "X-L": "\u00e9" }}],
+  ["POST", "/echo", {{}}, "\uFEFF東京"],
+  ["POST", "/echo", {{}}, new Uint8Array([0x41, 0xff])],
+  ["GET", "/typed"],
+  ["GET", "/empty"],
+  ["GET", "/headers"],
+  ["PROPFIND", "/echo"],
+  ["GET", "/echo/%zz"],
+  ["GET", "/echo?a=%E6"],
+  ["GET", "/fail"],
+  ["GET", "/defect"],
+  ["GET", "/status"],
+  ["GET", "/no-content"],
+  ["GET", "/name"],
+  ["GET", "/value"],
+  ["GET", "/slow/5"],
+];
+const skip = new Set(["date", "connection", "keep-alive", "content-length", "transfer-encoding"]);
+for (const [method, path, headers = {{}}, body] of requests) {{
+  const res = await fetch(base + path, {{ method, headers, body }});
+  const kept = [...res.headers].filter(([name]) => !skip.has(name)).sort();
+  const text = (await res.text()).replaceAll(port, "PORT");
+  console.log(method, path, res.status, JSON.stringify(kept), JSON.stringify(text));
+}}
+"#
+    );
+    std::fs::write(dir.join("fetch_all.mjs"), script).unwrap();
+    let out = Command::new("node")
+        .arg("fetch_all.mjs")
+        .current_dir(dir)
+        .output()
+        .expect("cannot start node");
+    assert_eq!(text(&out.stderr), "");
+    text(&out.stdout).to_owned()
+}
+
+/// Whether wasmtime starts; prints why the test is skipped otherwise.
+fn have_wasmtime() -> bool {
+    let wasmtime = wasmtime_program();
+    let ok = Command::new(&wasmtime)
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !ok {
+        eprintln!("skipping: cannot start `{}`", wasmtime.display());
+    }
+    ok
+}
+
+/// The same requests give the same responses and the same output on JS (`serve.mjs`) and on WASM
+/// (`wasmtime serve`, `[target.wasm.output]`, `[target.wasm.run]`). Only the order of the response
+/// headers may differ (`[lib.http-service]`), so they are compared sorted, and the authority of
+/// `url`, which `wasmtime serve` does not give.
+#[test]
+fn wasm_serves_the_same_as_js() {
+    if !have_wasmtime() {
+        return;
+    }
+    let js = build_service("same-js", APP);
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", APP)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let wasm = out_dir("same-wasm");
+    let (analysis, entry) = build(
+        &fs,
+        &input,
+        &mut Lower::default().with_target(Target::Wasm),
+        &mut CoreWasm,
+        &wasm,
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let component = entry.unwrap();
+
+    let mut node = Command::new("node");
+    node.arg("serve.mjs")
+        .arg("--addr")
+        .arg("127.0.0.1:0")
+        .current_dir(&js);
+    let served = Served::start(node, js.join("served.log"));
+    let js_responses = fetch_all(&js, &served.base);
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let js_lines = served.program_lines();
+    drop(served);
+
+    let mut wasmtime = Command::new(wasmtime_program());
+    wasmtime
+        .args(["serve", "-S", "p3=y,cli=y", "--addr", "127.0.0.1:0"])
+        .arg(&component);
+    let served = Served::start(wasmtime, wasm.join("served.log"));
+    let wasm_responses = fetch_all(&wasm, &served.base);
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let wasm_lines = served.program_lines();
+    drop(served);
+    let _ = std::fs::remove_dir_all(&js);
+    let _ = std::fs::remove_dir_all(&wasm);
+
+    assert_eq!(wasm_responses, js_responses);
+    // `wasmtime serve` gives no authority, so `url` has an empty one there (`[lib.http-service]`).
+    assert_eq!(
+        wasm_lines,
+        js_lines.replace("http://127.0.0.1:PORT/", "http:///")
+    );
+    insta::assert_snapshot!(format!("{js_responses}---\n{js_lines}"));
+}
+
+const STALLS: &str = r##"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+
+effect Wait {
+  suspend fn wait() -> ()
+}
+
+## Never resumes: the launch stalls and ends interrupted.
+handler Forgets: Wait {
+  suspend fn wait(resume) { () }
+}
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response {
+  if Request.path(request) == "/stall" {
+    with Forgets { (use Wait).wait() }
+  }
+  Response.new(200, "ok")
+}
+"##;
+
+/// A launch that ends interrupted makes no response: the host gets an error. On JS the Promise
+/// of `fetch` rejects, and `serve.mjs` writes `interrupted` and answers with 500; on WASM `handle`
+/// returns `error-code.internal-error`, which `wasmtime serve` answers with 500
+/// (`[lib.http-service]`). The next request is served as usual.
+#[test]
+fn an_interrupted_launch_is_a_host_error() {
+    let js = build_service("stall-js", STALLS);
+    let (stdout, stderr) = harness(
+        &js,
+        &format!(
+            r#"{SHOW}
+await service.fetch(new Request("http://example.com/stall")).catch((e) => console.log("rejected", e.name));
+await show(new Request("http://example.com/ok"));
+"#
+        ),
+    );
+    let mut node = Command::new("node");
+    node.arg("serve.mjs")
+        .arg("--addr")
+        .arg("127.0.0.1:0")
+        .current_dir(&js);
+    let served = Served::start(node, js.join("served.log"));
+    let js_statuses = statuses(&served.base);
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let lines = served.program_lines();
+    drop(served);
+    let _ = std::fs::remove_dir_all(&js);
+    assert_eq!(
+        stdout,
+        "rejected Interrupted\n200 [[\"content-type\",\"text/plain;charset=UTF-8\"]] \"ok\"\n"
+    );
+    assert_eq!(stderr, "");
+    assert_eq!(js_statuses, "500 200");
+    assert_eq!(lines, "interrupted\n");
+
+    if !have_wasmtime() {
+        return;
+    }
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", STALLS)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let wasm = out_dir("stall-wasm");
+    let (analysis, entry) = build(
+        &fs,
+        &input,
+        &mut Lower::default().with_target(Target::Wasm),
+        &mut CoreWasm,
+        &wasm,
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let mut wasmtime = Command::new(wasmtime_program());
+    wasmtime
+        .args(["serve", "-S", "p3=y,cli=y", "--addr", "127.0.0.1:0"])
+        .arg(entry.unwrap());
+    let served = Served::start(wasmtime, wasm.join("served.log"));
+    let wasm_statuses = statuses(&served.base);
+    drop(served);
+    let _ = std::fs::remove_dir_all(&wasm);
+    assert_eq!(wasm_statuses, "500 200");
+}
+
+/// The statuses of `/stall` and then `/ok` at `base`.
+fn statuses(base: &str) -> String {
+    let script = format!(
+        r#"const codes = [];
+for (const path of ["/stall", "/ok"]) codes.push((await fetch({base:?} + path)).status);
+console.log(codes.join(" "));
+"#
+    );
+    let out = Command::new("node")
+        .arg("--input-type=module")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .expect("cannot start node");
+    text(&out.stdout).trim_end().to_owned()
 }
