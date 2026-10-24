@@ -740,6 +740,13 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(OLD);
     ins.i32_const(1);
     ins.i32_store(mem(P_HAS_CALLER, 4));
+    // This record goes between the outermost and the outermost's outer, which is the operation
+    // that started this cascade from its resumed implementation, if any; dropping that link would
+    // leave it out of the chain, so it would never be unwound or released.
+    ins.local_get(P);
+    ins.local_get(OLD);
+    ins.i32_load(mem(P_NEXT, 4));
+    ins.i32_store(mem(P_NEXT, 4));
     ins.local_get(OLD);
     ins.local_get(P);
     ins.i32_store(mem(P_NEXT, 4));

@@ -528,3 +528,77 @@ fn a_sync_suspension_after_a_park_unwinds_from_the_inside() {
         )
     );
 }
+
+/// A cascade of two operations started from an implementation that resumed from a sleep: the
+/// implementation calls `ping`, whose implementation sleeps and never resumes. The run stalls and
+/// every waiting continuation is unwound, including `go`'s caller, so `main`'s release runs
+/// (spec 14.5). `go` must stay in the chain behind the new cascade.
+const CASCADE_AFTER_RESUME: &str = r#"
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+effect Retry {
+  suspend fn go() -> Int
+}
+
+effect Ping {
+  suspend fn ping() -> Int
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler MainRes: Name {
+  init { MainRes }
+  fn name() { "main" }
+  release { dbg("release main") }
+}
+
+handler Dropping: Ping {
+  suspend fn ping(resume) {
+    (use Clock).sleep(5)
+    dbg("ping not resuming")
+    ()
+  }
+}
+
+handler Retrying: Retry {
+  suspend fn go(resume) {
+    (use Clock).sleep(100)
+    dbg("go woke")
+    n = (use Ping).ping()
+    resume(n)
+  }
+}
+
+fn main() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, fn() {
+    with TestClock {
+      with MainRes {
+        with Dropping, Retrying {
+          dbg("go #{(use Retry).go()}")
+        }
+      }
+    }
+  })
+  dbg("not reached")
+}
+"#;
+
+#[test]
+fn a_cascade_after_a_resume_keeps_the_outer_operation() {
+    let Some(outcome) = compare("cascade-after-resume", CASCADE_AFTER_RESUME) else {
+        return;
+    };
+    assert_eq!(
+        outcome,
+        (
+            130,
+            String::new(),
+            "\"go woke\"\n\"ping not resuming\"\n\"release main\"\ninterrupted\n".to_owned()
+        )
+    );
+}
