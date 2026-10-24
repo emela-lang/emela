@@ -374,6 +374,75 @@ fn program_cwd() -> Option<PathBuf> {
     PROGRAM_CWD.with(|cwd| cwd.borrow().clone())
 }
 
+/// A program ready to start: the command, and the diagnostic for failing to start it.
+pub struct ProgramCommand {
+    command: Command,
+    spawn_error: Box<dyn Fn(&io::Error) -> Diagnostic>,
+}
+
+impl ProgramCommand {
+    pub(crate) fn new(
+        command: Command,
+        spawn_error: impl Fn(&io::Error) -> Diagnostic + 'static,
+    ) -> ProgramCommand {
+        ProgramCommand {
+            command,
+            spawn_error: Box::new(spawn_error),
+        }
+    }
+
+    /// The command as one line, quoted for a POSIX shell, that `emela run` shows before starting
+    /// the program (spec `[cmd.build]`). node's `-e` launcher is shown as `<launcher>`: it is a
+    /// whole module, and the run passes it inline rather than from a file.
+    pub fn command_line(&self) -> String {
+        std::iter::once(self.command.get_program())
+            .chain(self.command.get_args())
+            .map(|arg| {
+                if arg == LAUNCHER {
+                    "<launcher>".to_string()
+                } else {
+                    shell_word(&arg.to_string_lossy())
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Runs the program to the end (see [`run_child`]).
+    pub(crate) fn run(mut self, output: Output) -> Result<RunOutput, Diagnostic> {
+        run_child(&mut self.command, output).map_err(|err| (self.spawn_error)(&err))
+    }
+}
+
+/// `word` as it would be typed in a POSIX shell: as is when it has no characters the shell
+/// treats specially, otherwise in single quotes.
+fn shell_word(word: &str) -> String {
+    let plain = !word.is_empty()
+        && word
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_./=:@%+,".contains(&b));
+    if plain {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', r"'\''"))
+    }
+}
+
+/// The command that runs the `.wasm` component `entry` with `wasmtime` (WASI 0.3). `args` are
+/// passed to the program. E0909 if the wasmtime is too old.
+pub(crate) fn wasmtime_command(
+    entry: &Path,
+    args: &[OsString],
+) -> Result<ProgramCommand, Diagnostic> {
+    let wasmtime = wasmtime_program();
+    check_wasmtime_version(&wasmtime)?;
+    let mut command = wasmtime_run_command(&wasmtime, entry);
+    command.args(args).stdin(Stdio::inherit());
+    Ok(ProgramCommand::new(command, move |err| {
+        wasmtime_spawn_error(&wasmtime, err)
+    }))
+}
+
 /// Runs the `.wasm` component `entry` with `wasmtime` (WASI 0.3). `args` are passed to the
 /// program.
 pub fn run_wasmtime(
@@ -381,11 +450,7 @@ pub fn run_wasmtime(
     args: &[OsString],
     output: Output,
 ) -> Result<RunOutput, Diagnostic> {
-    let wasmtime = wasmtime_program();
-    check_wasmtime_version(&wasmtime)?;
-    let mut command = wasmtime_run_command(&wasmtime, entry);
-    command.args(args).stdin(Stdio::inherit());
-    run_child(&mut command, output).map_err(|err| wasmtime_spawn_error(&wasmtime, &err))
+    wasmtime_command(entry, args)?.run(output)
 }
 
 fn wasmtime_spawn_error(wasmtime: &Path, err: &io::Error) -> Diagnostic {
@@ -401,13 +466,8 @@ fn wasmtime_spawn_error(wasmtime: &Path, err: &io::Error) -> Diagnostic {
     }
 }
 
-/// Runs the `.mjs` `entry` on node. `args` are passed to the program.
-pub fn run_node(
-    node: &Path,
-    entry: &Path,
-    args: &[OsString],
-    output: Output,
-) -> Result<RunOutput, Diagnostic> {
+/// The command that runs the `.mjs` `entry` on node. `args` are passed to the program.
+pub(crate) fn node_command(node: &Path, entry: &Path, args: &[OsString]) -> ProgramCommand {
     let mut command = Command::new(node);
     command
         .arg("--input-type=module")
@@ -418,7 +478,18 @@ pub fn run_node(
         .args(args)
         .stdin(Stdio::inherit());
     apply_program_cwd(&mut command);
-    run_child(&mut command, output).map_err(|err| spawn_error(node, &err))
+    let node = node.to_path_buf();
+    ProgramCommand::new(command, move |err| spawn_error(&node, err))
+}
+
+/// Runs the `.mjs` `entry` on node. `args` are passed to the program.
+pub fn run_node(
+    node: &Path,
+    entry: &Path,
+    args: &[OsString],
+    output: Output,
+) -> Result<RunOutput, Diagnostic> {
+    node_command(node, entry, args).run(output)
 }
 
 /// A diagnostic about failing to start node.
@@ -464,6 +535,27 @@ mod tests {
         let key = format!("Symbol.for(\"{FAIL_KEY}\")");
         assert!(emela_codegen_js::RUNTIME.contains(&key));
         assert!(emela_codegen_js::TEST_RUNNER.contains(&key));
+    }
+
+    #[test]
+    fn command_line_shows_the_launcher_by_name() {
+        let command = node_command(
+            Path::new("node"),
+            Path::new("target/emela/js/main.mjs"),
+            &["a b".into(), "it's".into(), "--x=1".into()],
+        );
+        assert_eq!(
+            command.command_line(),
+            r#"node --input-type=module -e <launcher> -- target/emela/js/main.mjs 'a b' 'it'\''s' --x=1"#
+        );
+    }
+
+    #[test]
+    fn shell_words() {
+        assert_eq!(shell_word("main.wasm"), "main.wasm");
+        assert_eq!(shell_word("p3=y"), "p3=y");
+        assert_eq!(shell_word(""), "''");
+        assert_eq!(shell_word("$HOME"), "'$HOME'");
     }
 
     #[test]

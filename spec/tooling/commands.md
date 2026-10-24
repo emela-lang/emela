@@ -33,6 +33,13 @@ JS output:
 - What is copied is everything under the source root of the Pome that contains the pointed-to file, except `.emel` files and entries starting with `.`. This lets a host file import neighboring files by relative path. In single-file mode, only the pointed-to file is copied.
 - The previous output is overwritten without being deleted (the same holds for `emela_core/` and the rest).
 
+Starting the program:
+
+- Before starting the program, `run` writes one line ``running `<command>` `` to standard error, for every build target. The line comes after the diagnostics and before any output of the program. It is not written when the program is not started (an error in the diagnostics, or wasmtime too old, E0909). When the command is written but cannot be started (node or the executable not found), the diagnostic about it follows the line.
+- `<command>` is the program that is started followed by its arguments, separated by single spaces: node with its options for `js`, the executable `main` for `c`, and wasmtime with its options for `wasm` (`[target.wasm.output]`), each followed by the arguments after `--`.
+- Each word is written as is when it is not empty and consists only of ASCII letters, digits and the characters `-_./=:@%+,`. Otherwise it is enclosed in single quotes, and each `'` inside it is written as `'\''`. Pasting the line into a POSIX shell starts the same command.
+- For `js`, the module that node runs with `-e` to load the entry is written as `<launcher>` (``running `node --input-type=module -e <launcher> -- target/emela/js/main.mjs` ``). This word alone does not follow the quoting rule above.
+
 Running the program (JS):
 
 - `run` loads the entry module and calls the exported `main` with no arguments. The return value of `main` is discarded. Arguments to the program are passed after `--` as node arguments.

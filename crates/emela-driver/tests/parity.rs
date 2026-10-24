@@ -95,8 +95,15 @@ fn run_on(
     };
     let mut frontend = Lower::default().with_target(target);
     let (analysis, output) = match target {
-        Target::Js => run(&OsFs, &input, &mut frontend, &mut CoreJs, &options, |_| {}),
-        Target::C => run(&OsFs, &input, &mut frontend, c, &options, |_| {}),
+        Target::Js => run(
+            &OsFs,
+            &input,
+            &mut frontend,
+            &mut CoreJs,
+            &options,
+            |_, _| {},
+        ),
+        Target::C => run(&OsFs, &input, &mut frontend, c, &options, |_, _| {}),
         Target::Wasm => unreachable!("parity compares js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);

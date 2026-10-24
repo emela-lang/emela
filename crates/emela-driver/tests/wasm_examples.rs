@@ -97,14 +97,21 @@ fn run_on(path: &Path, target: Target, name: &str) -> Result<Outcome, Box<Analys
     };
     let mut frontend = Lower::default().with_target(target);
     let (analysis, output) = with_program_timeout(PROGRAM_TIMEOUT, || match target {
-        Target::Js => run(&OsFs, &input, &mut frontend, &mut CoreJs, &options, |_| {}),
+        Target::Js => run(
+            &OsFs,
+            &input,
+            &mut frontend,
+            &mut CoreJs,
+            &options,
+            |_, _| {},
+        ),
         Target::Wasm => run(
             &OsFs,
             &input,
             &mut frontend,
             &mut CoreWasm,
             &options,
-            |_| {},
+            |_, _| {},
         ),
         Target::C => unreachable!("this test compares js and wasm"),
     });

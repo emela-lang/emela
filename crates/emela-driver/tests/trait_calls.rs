@@ -43,9 +43,9 @@ fn run_on(name: &str, main: &str, target: Target) -> (Analysis, Option<RunOutput
     let result = match target {
         Target::C => {
             let mut c = c_backend().expect("checked by the caller");
-            run(&fs, &input, &mut frontend, &mut c, &options, |_| {})
+            run(&fs, &input, &mut frontend, &mut c, &options, |_, _| {})
         }
-        _ => run(&fs, &input, &mut frontend, &mut CoreJs, &options, |_| {}),
+        _ => run(&fs, &input, &mut frontend, &mut CoreJs, &options, |_, _| {}),
     };
     let _ = std::fs::remove_dir_all(&out_dir);
     result

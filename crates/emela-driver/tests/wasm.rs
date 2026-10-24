@@ -62,7 +62,7 @@ fn run_wasm_files(name: &str, files: &[(&str, &str)]) -> (Analysis, Option<RunOu
         &mut Lower::default().with_target(Target::Wasm),
         &mut CoreWasm,
         &options,
-        |_| {},
+        |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
     result
