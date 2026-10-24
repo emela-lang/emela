@@ -119,6 +119,8 @@ fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutc
         node: PathBuf::from("node"),
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut out = Vec::new();
     let mut frontend = LowerTests::default().with_target(target);

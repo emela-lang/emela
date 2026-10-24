@@ -217,6 +217,8 @@ fn test_wasm(name: &str, main: &str) -> (Analysis, Vec<(String, TestOutcome)>) {
         node: wasmtime_program(),
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut out = Vec::new();
     let (analysis, report) = test(

@@ -74,10 +74,10 @@ pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
 pub use structure::{FoldKind, FoldRange, folding_ranges, selection_ranges};
 pub use target::{Target, project_target};
 pub use testing::{
-    C_TEST_OUT_DIR, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, TEST_ANNOTATION,
-    TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestDef, TestFn, TestModule, TestOptions,
-    TestOutcome, TestReport, TestResult, collect_tests, default_test_out_dir,
-    default_test_out_dir_for, is_test_fn, test,
+    AGENT_ENV_VARS, C_TEST_OUT_DIR, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, Reporter,
+    TEST_ANNOTATION, TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestDef, TestFn, TestModule,
+    TestOptions, TestOutcome, TestReport, TestResult, collect_tests, default_test_out_dir,
+    default_test_out_dir_for, is_test_fn, runs_in_agent, test,
 };
 pub use tokens::{SemanticToken, TokenKind};
 pub use wasm::{CoreWasm, WASM_ENTRY_FILE};

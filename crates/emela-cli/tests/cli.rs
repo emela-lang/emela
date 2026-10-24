@@ -28,7 +28,12 @@ impl Project {
     }
 
     fn emela(&self, args: &[&str]) -> Run {
-        let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        // `emela test` prints in the `plain` format outside a coding agent ([cmd.test.reporter]).
+        let mut command = Command::new(env!("CARGO_BIN_EXE_emela"));
+        for var in emela_driver::AGENT_ENV_VARS {
+            command.env_remove(var);
+        }
+        let output = command
             .args(args)
             .current_dir(&self.dir)
             .env("NO_COLOR", "1")

@@ -1,7 +1,7 @@
 ---
 title: Separate the output of emela test for people at a terminal and for coding agents
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 412
 issue:
 decided: 2026-10-24

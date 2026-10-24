@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 use emela_core::build::*;
 use emela_core::{Assert, BinOp, Builtin, Expr, Module, OpTy, Type, TypeId, WithBind};
 use emela_driver::{
-    Analysis, BuildOutput, Checked, CoreJs, Diagnostic, FileId, Frontend, Input, LowerTests,
-    MemoryFiles, Output, OutputFile, ParseOnly, Parsed, SourceFile, TestBackend, TestCase,
-    TestModule, TestOptions, TestOutcome, TestReport, Typecheck, check, test,
+    AGENT_ENV_VARS, Analysis, BuildOutput, Checked, CoreJs, Diagnostic, FileId, Frontend, Input,
+    LowerTests, MemoryFiles, Output, OutputFile, ParseOnly, Parsed, Reporter, SourceFile,
+    TestBackend, TestCase, TestModule, TestOptions, TestOutcome, TestReport, Typecheck, check,
+    runs_in_agent, test,
 };
 use emela_resolve::ModuleId;
 
@@ -41,13 +42,35 @@ fn out_dir(name: &str) -> PathBuf {
     dir
 }
 
-/// Runs the `emela test` stage. Returns (diagnostics, report, what was written to stdout).
+/// Runs the `emela test` stage with the `plain` reporter. Returns (diagnostics, report, what was
+/// written to stdout).
 fn run_tests<P, F: Frontend<Program = P>, B: TestBackend<P>>(
     name: &str,
     sources: &[(&str, &str)],
     frontend: &mut F,
     backend: &mut B,
     filter: Option<&str>,
+) -> (Analysis, Option<TestReport>, String) {
+    run_tests_with(
+        name,
+        sources,
+        frontend,
+        backend,
+        filter,
+        Reporter::Plain,
+        false,
+    )
+}
+
+/// [`run_tests`] with another reporter, and color for `pretty`.
+fn run_tests_with<P, F: Frontend<Program = P>, B: TestBackend<P>>(
+    name: &str,
+    sources: &[(&str, &str)],
+    frontend: &mut F,
+    backend: &mut B,
+    filter: Option<&str>,
+    reporter: Reporter,
+    color: bool,
 ) -> (Analysis, Option<TestReport>, String) {
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
@@ -56,6 +79,8 @@ fn run_tests<P, F: Frontend<Program = P>, B: TestBackend<P>>(
         node: PathBuf::from("node"),
         filter: filter.map(Into::into),
         output: Output::Capture,
+        reporter,
+        color,
     };
     let mut called = 0;
     let mut out = Vec::new();
@@ -74,12 +99,24 @@ fn run_tests<P, F: Frontend<Program = P>, B: TestBackend<P>>(
 }
 
 fn run_ir(name: &str, tests: TestModule, filter: Option<&str>) -> (TestReport, String) {
-    let (analysis, report, out) = run_tests(
+    run_ir_with(name, tests, filter, Reporter::Plain, false)
+}
+
+fn run_ir_with(
+    name: &str,
+    tests: TestModule,
+    filter: Option<&str>,
+    reporter: Reporter,
+    color: bool,
+) -> (TestReport, String) {
+    let (analysis, report, out) = run_tests_with(
         name,
         PROJECT,
         &mut HandBuiltTests(tests),
         &mut CoreJs,
         filter,
+        reporter,
+        color,
     );
     assert!(
         analysis.diagnostics.is_empty(),
@@ -345,6 +382,179 @@ fn runner_exiting_midway_fails_the_running_test() {
     );
 }
 
+/// `[cmd.test.output]` agent: no header and nothing for passed tests; `FAIL <name>` and the
+/// details for each failure in run order, separated by blank lines; a blank line, then the summary
+/// line of `plain`.
+#[test]
+fn agent_reporter_prints_only_failures_and_the_summary() {
+    let (report, out) = run_ir_with("agent", sample(), None, Reporter::Agent, false);
+    assert_eq!(report.exit_code(), 1);
+    insta::assert_snapshot!(out);
+    assert!(!out.contains("running"), "{out}");
+    assert!(!out.contains("adds ..."), "{out}");
+    // The name of a failure is printed once.
+    assert_eq!(out.matches("adds_wrong").count(), 1, "{out}");
+    assert!(
+        out.ends_with("\n\ntest result: FAILED. 2 passed; 4 failed; 0 filtered out\n"),
+        "{out}"
+    );
+}
+
+/// `[cmd.test.output]` agent: the summary line is printed even when every test passed, with no
+/// blank line before it.
+#[test]
+fn agent_reporter_prints_the_summary_when_all_pass() {
+    let mut tests = sample();
+    tests
+        .tests
+        .retain(|t| t.name == "adds" || t.name == "Util.contains");
+    let (report, out) = run_ir_with("agent-ok", tests, None, Reporter::Agent, false);
+    assert!(report.is_ok());
+    assert_eq!(out, "test result: ok. 2 passed; 0 failed; 0 filtered out\n");
+
+    let (_, out) = run_ir_with(
+        "agent-none",
+        TestModule::default(),
+        None,
+        Reporter::Agent,
+        false,
+    );
+    assert_eq!(out, "test result: ok. 0 passed; 0 failed; 0 filtered out\n");
+
+    let (_, out) = run_ir_with(
+        "agent-filter",
+        sample(),
+        Some("contains"),
+        Reporter::Agent,
+        false,
+    );
+    assert_eq!(out, "test result: ok. 1 passed; 0 failed; 5 filtered out\n");
+}
+
+/// `[cmd.test.output]` agent: what a failed test wrote to stdout follows its details in full; what
+/// a passed test wrote is not printed.
+#[test]
+fn agent_reporter_prints_the_output_of_failed_tests_only() {
+    let (_, report, out) = run_tests_with(
+        "agent-output",
+        PROJECT,
+        &mut ParseOnly::new(),
+        &mut HandWrittenTests {
+            names: vec!["quiet", "noisy_pass", "noisy_fail", "last"],
+            js: "export function quiet() {}\n\
+                 export function noisy_pass() { console.log(\"from the passed test\"); }\n\
+                 export function noisy_fail() { for (let i = 0; i < 50; i++) console.log(`line ${i}`); null.x; }\n\
+                 export function last() {}\n",
+        },
+        None,
+        Reporter::Agent,
+        false,
+    );
+    assert_eq!(report.unwrap().exit_code(), 1);
+    assert!(!out.contains("from the passed test"), "{out}");
+    let lines: String = (0..50).map(|i| format!("line {i}\n")).collect();
+    let (head, rest) = out.split_once('\n').unwrap();
+    assert_eq!(head, "FAIL noisy_fail");
+    assert!(rest.starts_with("defect: TypeError: "), "{out}");
+    assert!(
+        out.ends_with(&format!(
+            "\n{lines}\ntest result: FAILED. 3 passed; 1 failed; 0 filtered out\n"
+        )),
+        "{out}"
+    );
+}
+
+/// `[cmd.test.output]` agent: a test during which the runner exited is a failure, and what it wrote
+/// before exiting is its output.
+#[test]
+fn agent_reporter_prints_a_runner_exit() {
+    let (_, _, out) = run_tests_with(
+        "agent-abort",
+        PROJECT,
+        &mut ParseOnly::new(),
+        &mut HandWrittenTests {
+            names: vec!["first", "exits", "third"],
+            js: "export function first() { console.log(\"first\"); }\nexport function exits() { console.log(\"bye\"); process.exit(3); }\nexport function third() {}\n",
+        },
+        None,
+        Reporter::Agent,
+        false,
+    );
+    assert_eq!(
+        out,
+        "FAIL exits\n\
+         the test runner exited with code 3 while running this test; 1 test after it did not run\n\
+         bye\n\
+         \n\
+         test result: FAILED. 1 passed; 1 failed; 0 filtered out\n"
+    );
+}
+
+/// `[cmd.test.output]` agent and plain: the same input gives the same output (no elapsed time).
+#[test]
+fn agent_and_plain_reporters_are_deterministic() {
+    for reporter in [Reporter::Agent, Reporter::Plain] {
+        let (_, first) = run_ir_with("same-1", sample(), None, reporter, false);
+        let (_, second) = run_ir_with("same-2", sample(), None, reporter, false);
+        assert_eq!(first, second, "{reporter:?}");
+    }
+}
+
+/// `[cmd.test.output]` pretty: every failed test is shown with its details. Without color, no
+/// escape sequence is written.
+#[test]
+fn pretty_reporter_shows_every_failure() {
+    let (report, out) = run_ir_with("pretty", sample(), None, Reporter::Pretty, false);
+    assert_eq!(report.exit_code(), 1);
+    assert!(!out.contains('\x1b'), "{out}");
+    for result in report.results.iter().filter(|r| !r.outcome.is_passed()) {
+        let details = match &result.outcome {
+            TestOutcome::Defect(message) => format!("defect: {message}"),
+            TestOutcome::Error(message) => format!("error: {message}"),
+            outcome => panic!("{outcome:?}"),
+        };
+        // A comparison assert may be laid out differently; its first line is kept.
+        let first = details.lines().next().unwrap();
+        assert!(out.contains(&result.name), "{out}");
+        assert!(out.contains(first), "{first}\n{out}");
+    }
+    // Passed tests are listed too.
+    assert!(out.contains("Util.contains"), "{out}");
+
+    let (_, out) = run_ir_with("pretty-color", sample(), None, Reporter::Pretty, true);
+    assert!(out.contains('\x1b'), "{out}");
+}
+
+/// `[cmd.test.reporter]`: `agent` inside a coding agent, else `pretty` at a terminal, else
+/// `plain`.
+#[test]
+fn reporter_is_detected_from_the_environment() {
+    assert_eq!(Reporter::detect(true, true), Reporter::Agent);
+    assert_eq!(Reporter::detect(true, false), Reporter::Agent);
+    assert_eq!(Reporter::detect(false, true), Reporter::Pretty);
+    assert_eq!(Reporter::detect(false, false), Reporter::Plain);
+}
+
+/// `[cmd.test.reporter]`: the command runs inside a coding agent when `AI_AGENT` is set and not
+/// empty.
+#[test]
+fn ai_agent_means_a_coding_agent() {
+    use std::ffi::OsString;
+    let env = |vars: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            vars.iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| OsString::from(v))
+        }
+    };
+    assert!(AGENT_ENV_VARS.contains(&"AI_AGENT"));
+    assert!(runs_in_agent(env(&[("AI_AGENT", "1")])));
+    assert!(runs_in_agent(env(&[("AI_AGENT", "some-agent")])));
+    assert!(!runs_in_agent(env(&[("AI_AGENT", "")])));
+    assert!(!runs_in_agent(env(&[])));
+    assert!(!runs_in_agent(env(&[("PATH", "/bin")])));
+}
+
 #[test]
 fn missing_node_is_a_diagnostic() {
     let fs = MemoryFiles::new(PROJECT.iter().copied());
@@ -354,6 +564,8 @@ fn missing_node_is_a_diagnostic() {
         node: PathBuf::from("/nonexistent/node"),
         filter: None,
         output: Output::Capture,
+        reporter: Reporter::Plain,
+        color: false,
     };
     let mut out = Vec::new();
     let (analysis, report) = test(

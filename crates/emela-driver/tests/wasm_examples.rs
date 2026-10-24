@@ -138,6 +138,8 @@ fn test_on(
         },
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut frontend = LowerTests::default().with_target(target);
     let mut out = Vec::new();

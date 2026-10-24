@@ -148,10 +148,10 @@ Todo(id: 1, title: "Write docs", done: True)
 Some("alice@example.com")
 None
 $ emela test
-running 1 test
-test fizzbuzz_of_15 ... ok
+   ✓ fizzbuzz_of_15  0ms
 
-test result: ok. 1 passed; 0 failed; 0 filtered out
+ Tests  1 passed (1)
+ Duration  48ms
 ```
 
 ## Commands
@@ -170,7 +170,7 @@ run suspending code, fibers, `Float` operations or host callbacks either.
 | `emela check` | Reports diagnostics without compiling                   |
 | `emela run`   | Compiles and runs: JavaScript on Node.js, a native executable, or WASM with `wasmtime` |
 | `emela build` | Compiles under `target/emela/js` (JS), a native executable (C), or `main.wasm` (WASM) |
-| `emela test`  | Runs the functions marked `@test`                       |
+| `emela test`  | Runs the functions marked `@test`; `--reporter pretty\|plain\|agent` picks the output |
 | `emela fmt`   | Formats the sources in place; `--check` only lists them |
 | `emela lsp`   | Starts the language server over stdio                   |
 
