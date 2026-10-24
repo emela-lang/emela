@@ -1,0 +1,251 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/export.emel
+---
+ROOT@0..344
+  COMMENT@0..40 "# @export と @entry（12.7，12.8）．"
+  NEWLINE@40..41 "\n"
+  FN_DECL@41..96
+    ANNOTATION@41..70
+      AT@41..42 "@"
+      LOWER_NAME@42..48 "export"
+      ANNOT_ARG_LIST@48..70
+        L_PAREN@48..49 "("
+        ANNOT_ARG@49..50
+          LOWER_NAME@49..50 "c"
+        COMMA@50..51 ","
+        WHITESPACE@51..52 " "
+        ANNOT_ARG@52..69
+          STRING@52..69
+            STRING_QUOTE@52..53 "\""
+            STRING_TEXT@53..68 "TIM2_IRQHandler"
+            STRING_QUOTE@68..69 "\""
+        R_PAREN@69..70 ")"
+    NEWLINE@70..71 "\n"
+    PUB_KW@71..74 "pub"
+    WHITESPACE@74..75 " "
+    FN_KW@75..77 "fn"
+    WHITESPACE@77..78 " "
+    LOWER_NAME@78..85 "on_tick"
+    PARAM_LIST@85..87
+      L_PAREN@85..86 "("
+      R_PAREN@86..87 ")"
+    WHITESPACE@87..88 " "
+    RET_TYPE@88..93
+      THIN_ARROW@88..90 "->"
+      WHITESPACE@90..91 " "
+      UNIT_TYPE@91..93
+        L_PAREN@91..92 "("
+        R_PAREN@92..93 ")"
+    WHITESPACE@93..94 " "
+    BLOCK_EXPR@94..96
+      L_BRACE@94..95 "{"
+      R_BRACE@95..96 "}"
+  NEWLINE@96..97 "\n"
+  NEWLINE@97..98 "\n"
+  FN_DECL@98..190
+    ANNOTATION@98..116
+      AT@98..99 "@"
+      LOWER_NAME@99..105 "export"
+      ANNOT_ARG_LIST@105..116
+        L_PAREN@105..106 "("
+        ANNOT_ARG@106..108
+          LOWER_NAME@106..108 "js"
+        COMMA@108..109 ","
+        WHITESPACE@109..110 " "
+        ANNOT_ARG@110..115
+          STRING@110..115
+            STRING_QUOTE@110..111 "\""
+            STRING_TEXT@111..114 "add"
+            STRING_QUOTE@114..115 "\""
+        R_PAREN@115..116 ")"
+    NEWLINE@116..117 "\n"
+    ANNOTATION@117..146
+      AT@117..118 "@"
+      LOWER_NAME@118..124 "export"
+      ANNOT_ARG_LIST@124..146
+        L_PAREN@124..125 "("
+        ANNOT_ARG@125..127
+          LOWER_NAME@125..127 "js"
+        COMMA@127..128 ","
+        WHITESPACE@128..129 " "
+        ANNOT_ARG@129..138
+          STRING@129..138
+            STRING_QUOTE@129..130 "\""
+            STRING_TEXT@130..137 "default"
+            STRING_QUOTE@137..138 "\""
+        COMMA@138..139 ","
+        WHITESPACE@139..140 " "
+        ANNOT_ARG@140..145
+          STRING@140..145
+            STRING_QUOTE@140..141 "\""
+            STRING_TEXT@141..144 "add"
+            STRING_QUOTE@144..145 "\""
+        R_PAREN@145..146 ")"
+    NEWLINE@146..147 "\n"
+    PUB_KW@147..150 "pub"
+    WHITESPACE@150..151 " "
+    FN_KW@151..153 "fn"
+    WHITESPACE@153..154 " "
+    LOWER_NAME@154..157 "add"
+    PARAM_LIST@157..173
+      L_PAREN@157..158 "("
+      PARAM@158..164
+        LOWER_NAME@158..159 "a"
+        COLON@159..160 ":"
+        WHITESPACE@160..161 " "
+        PATH_TYPE@161..164
+          PATH@161..164
+            TYPE_NAME@161..164 "Int"
+      COMMA@164..165 ","
+      WHITESPACE@165..166 " "
+      PARAM@166..172
+        LOWER_NAME@166..167 "b"
+        COLON@167..168 ":"
+        WHITESPACE@168..169 " "
+        PATH_TYPE@169..172
+          PATH@169..172
+            TYPE_NAME@169..172 "Int"
+      R_PAREN@172..173 ")"
+    WHITESPACE@173..174 " "
+    RET_TYPE@174..180
+      THIN_ARROW@174..176 "->"
+      WHITESPACE@176..177 " "
+      PATH_TYPE@177..180
+        PATH@177..180
+          TYPE_NAME@177..180 "Int"
+    WHITESPACE@180..181 " "
+    BLOCK_EXPR@181..190
+      L_BRACE@181..182 "{"
+      WHITESPACE@182..183 " "
+      BIN_EXPR@183..188
+        NAME_REF@183..184
+          LOWER_NAME@183..184 "a"
+        WHITESPACE@184..185 " "
+        PLUS@185..186 "+"
+        WHITESPACE@186..187 " "
+        NAME_REF@187..188
+          LOWER_NAME@187..188 "b"
+      WHITESPACE@188..189 " "
+      R_BRACE@189..190 "}"
+  NEWLINE@190..191 "\n"
+  NEWLINE@191..192 "\n"
+  FN_DECL@192..235
+    ANNOTATION@192..205
+      AT@192..193 "@"
+      LOWER_NAME@193..198 "entry"
+      ANNOT_ARG_LIST@198..205
+        L_PAREN@198..199 "("
+        ANNOT_ARG@199..204
+          LOWER_NAME@199..204 "serve"
+        R_PAREN@204..205 ")"
+    NEWLINE@205..206 "\n"
+    FN_KW@206..208 "fn"
+    WHITESPACE@208..209 " "
+    LOWER_NAME@209..214 "local"
+    PARAM_LIST@214..222
+      L_PAREN@214..215 "("
+      PARAM@215..221
+        LOWER_NAME@215..216 "x"
+        COLON@216..217 ":"
+        WHITESPACE@217..218 " "
+        PATH_TYPE@218..221
+          PATH@218..221
+            TYPE_NAME@218..221 "Int"
+      R_PAREN@221..222 ")"
+    WHITESPACE@222..223 " "
+    RET_TYPE@223..229
+      THIN_ARROW@223..225 "->"
+      WHITESPACE@225..226 " "
+      PATH_TYPE@226..229
+        PATH@226..229
+          TYPE_NAME@226..229 "Int"
+    WHITESPACE@229..230 " "
+    BLOCK_EXPR@230..235
+      L_BRACE@230..231 "{"
+      WHITESPACE@231..232 " "
+      NAME_REF@232..233
+        LOWER_NAME@232..233 "x"
+      WHITESPACE@233..234 " "
+      R_BRACE@234..235 "}"
+  NEWLINE@235..236 "\n"
+  NEWLINE@236..237 "\n"
+  FN_DECL@237..287
+    ANNOTATION@237..255
+      AT@237..238 "@"
+      LOWER_NAME@238..243 "entry"
+      ANNOT_ARG_LIST@243..255
+        L_PAREN@243..244 "("
+        ANNOT_ARG@244..254
+          ANNOT_PATH@244..254
+            TYPE_NAME@244..248 "Http"
+            DOT@248..249 "."
+            LOWER_NAME@249..254 "serve"
+        R_PAREN@254..255 ")"
+    NEWLINE@255..256 "\n"
+    PUB_KW@256..259 "pub"
+    WHITESPACE@259..260 " "
+    FN_KW@260..262 "fn"
+    WHITESPACE@262..263 " "
+    LOWER_NAME@263..266 "app"
+    PARAM_LIST@266..274
+      L_PAREN@266..267 "("
+      PARAM@267..273
+        LOWER_NAME@267..268 "x"
+        COLON@268..269 ":"
+        WHITESPACE@269..270 " "
+        PATH_TYPE@270..273
+          PATH@270..273
+            TYPE_NAME@270..273 "Int"
+      R_PAREN@273..274 ")"
+    WHITESPACE@274..275 " "
+    RET_TYPE@275..281
+      THIN_ARROW@275..277 "->"
+      WHITESPACE@277..278 " "
+      PATH_TYPE@278..281
+        PATH@278..281
+          TYPE_NAME@278..281 "Int"
+    WHITESPACE@281..282 " "
+    BLOCK_EXPR@282..287
+      L_BRACE@282..283 "{"
+      WHITESPACE@283..284 " "
+      NAME_REF@284..285
+        LOWER_NAME@284..285 "x"
+      WHITESPACE@285..286 " "
+      R_BRACE@286..287 "}"
+  NEWLINE@287..288 "\n"
+  NEWLINE@288..289 "\n"
+  FN_DECL@289..343
+    ANNOTATION@289..324
+      AT@289..290 "@"
+      LOWER_NAME@290..295 "entry"
+      ANNOT_ARG_LIST@295..324
+        L_PAREN@295..296 "("
+        ANNOT_ARG@296..323
+          ANNOT_PATH@296..323
+            TYPE_NAME@296..306 "Cloudflare"
+            DOT@306..307 "."
+            TYPE_NAME@307..313 "Worker"
+            DOT@313..314 "."
+            LOWER_NAME@314..323 "scheduled"
+        R_PAREN@323..324 ")"
+    NEWLINE@324..325 "\n"
+    FN_KW@325..327 "fn"
+    WHITESPACE@327..328 " "
+    LOWER_NAME@328..332 "tick"
+    PARAM_LIST@332..334
+      L_PAREN@332..333 "("
+      R_PAREN@333..334 ")"
+    WHITESPACE@334..335 " "
+    RET_TYPE@335..340
+      THIN_ARROW@335..337 "->"
+      WHITESPACE@337..338 " "
+      UNIT_TYPE@338..340
+        L_PAREN@338..339 "("
+        R_PAREN@339..340 ")"
+    WHITESPACE@340..341 " "
+    BLOCK_EXPR@341..343
+      L_BRACE@341..342 "{"
+      R_BRACE@342..343 "}"
+  NEWLINE@343..344 "\n"

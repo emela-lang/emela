@@ -200,6 +200,7 @@ impl Module {
         self.functions.alloc(Function {
             name: name.to_owned(),
             exported,
+            host_exports: Vec::new(),
             params: Vec::new(),
             ret: TypeId::UNIT,
             type_params: 0,
@@ -307,9 +308,16 @@ pub struct LocalData {
 
 #[derive(Debug, Clone)]
 pub struct Function {
-    /// Unique in the module; exported under this name.
+    /// Unique in the module.
     pub name: String,
+    /// A root of the output: the entry's `main`, an exported fn ([`Function::host_exports`]), or
+    /// a test function. The output exposes it to the runtime's launcher (`main`, the test
+    /// functions) or to the host.
     pub exported: bool,
+    /// The names the host sees the function under, for the build target (`[ext.export]`): the
+    /// `@export`s of an exported fn, or of the entry adapter for a fn made by `@entry`. Empty for
+    /// other functions.
+    pub host_exports: Vec<HostExport>,
     /// Their types are the locals' types (`LocalData::ty`). The evidence table, if taken, is last,
     /// and it is the only parameter of type `Type::Evidence` ([`Module::takes_ev`]).
     pub params: Vec<Local>,
@@ -330,8 +338,9 @@ pub struct Function {
     /// For an external function (spec chapter 12), the host function. `body` is then unused.
     ///
     /// Lowering checks the build target's binding only for external functions reachable from the
-    /// entry (E0412). One without a binding can still be lowered, through an exported `pub` fn of
-    /// the entry; backends then emit a function that is a defect when called.
+    /// roots (main and the exported fns, or the test functions; E0412). One without a binding can
+    /// still be lowered when nothing reaches it from them (`Roots::All`); backends then emit a
+    /// function that is a defect when called.
     pub external: Option<External>,
     /// Whether it may suspend (spec 8.1, 16.5). If true, the body may contain suspending calls
     /// (`Expr::Call::suspends`). For an external function this is `@external suspend fn`
@@ -347,6 +356,15 @@ pub struct Function {
     /// over-approximate its instantiations, as for [`FnType::sets`], and [`crate::mono`] works out
     /// the exact ones per instantiation.
     pub sets: Option<FnSets>,
+}
+
+/// One `@export(js, "default", "fetch")` (`[ext.export]`): `interface` is the middle argument of
+/// the three-argument form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostExport {
+    pub target: String,
+    pub interface: Option<String>,
+    pub name: String,
 }
 
 /// The host function of an external function (spec 12.1). How the parameters and the return value

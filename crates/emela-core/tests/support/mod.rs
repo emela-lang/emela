@@ -121,9 +121,10 @@ pub fn try_lower_with(
                     LowerError::MissingCoreFile { path, span } => {
                         (format!("missing core file {path}"), span)
                     }
-                    LowerError::ConstrainedExport { name, param, span } => {
-                        (format!("constrained export {name} [{param}]"), span)
+                    LowerError::SuspendingExport { name, span } => {
+                        (format!("suspending export {name}"), span)
                     }
+                    LowerError::WasmExport { name, span } => (format!("wasm export {name}"), span),
                 };
                 let Some(span) = span else {
                     return format!("<no span> {what}");
