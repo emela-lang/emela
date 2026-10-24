@@ -1,10 +1,10 @@
 ---
 title: Separate the output of emela test for people at a terminal and for coding agents
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 412
 issue:
-decided:
+decided: 2026-10-24
 touches: [cmd.test.output, cmd.test.reporter (new), test.command]
 requires: []
 related: []
@@ -275,5 +275,6 @@ Having it besides `--reporter` adds precedence rules. For now there is only the 
 
 ## Open questions
 
-
 ## Decision
+
+`emela test` is run by people at a terminal and by coding agents, and they want opposite things from its output: people need color, grouping and the place where two values differ, while agents need only the failures, with nothing that fills their context. A single format serves neither, so the output is split into reporters selected by the reader.

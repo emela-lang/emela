@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-24 (Separate the output of emela test for people at a terminal and for coding agents)
+
+- `[cmd.test.output]`, `[cmd.test.reporter]`, `[test.command]`: `emela test` displays its results with one of three reporters: `pretty` for a person reading a terminal, `plain` that keeps the current line format, and `agent` for a coding agent. `--reporter` selects one; when it is omitted, the environment decides. The layout of `pretty` is left to the implementation, not the specification. Adopted in the proposal `test-reporters` (#412).
+
 ## 2026-10-22 (Arguments for handler init)
 
 - `[effect.handler]`, `[effect.with]`, `[effect.layer]`, `[effect.label]`, `[grammar.decl]`, `[grammar.expr]`, `[type.rules]`, `[dyn.with]`: The `init` of a handler can take parameters, and a value is passed to it by writing `H(x: ...)` as an item of a with or a layer, or on the right side of `by` for a label. This revises "The handler itself takes no arguments." in `[effect.handler]`. Adopted in the proposal `handler-init-arguments` (#389).
