@@ -13,9 +13,28 @@ This appendix defines the externally visible behavior of `emela test`. How to wr
 - Every selected test function is either run, or reported with the reason it cannot be run. A test function is never dropped silently. A test function whose inferred type still has type parameters is run with the default instantiation (an ordinary type parameter becomes `Never`, a set type parameter the empty set), on every target.
 - `--target <js|c|wasm>` selects the build target. When it is omitted, it is determined as for `build` (`[cmd.build]`). The results are displayed the same way for every target.
 
+## Reporters `[cmd.test.reporter]`
+
+`emela test` displays its results with one reporter.
+
+| Reporter | Output |
+|---|---|
+| `pretty` | Results for a person reading a terminal. Its layout is not specified |
+| `plain` | The line format of `[cmd.test.output]`. The same input gives the same output |
+| `agent` | Only the failures and one summary line |
+
+- `--reporter <pretty|plain|agent>` selects the reporter. Another name is an error in the command-line arguments, reported in the same way as an unknown value of `--target`, and no test is run.
+- When `--reporter` is omitted, the reporter is the first that applies of the following.
+  1. `agent`, if the command runs inside a coding agent.
+  2. `pretty`, if standard output is a terminal.
+  3. `plain`.
+- The command runs inside a coding agent when the environment variable `AI_AGENT` is set and not empty. An implementation MAY also treat other environment variables that coding agents set as meaning the same.
+- Every reporter writes to standard output. The exit code (`[cmd.test.exit]`) does not depend on the reporter.
+- Diagnostics found by checking are written to standard error as in `[diag]`, whatever the reporter.
+
 ## Output format `[cmd.test.output]`
 
-The results are printed to standard output in the following form.
+The `plain` reporter (`[cmd.test.reporter]`) prints the results to standard output in the following form.
 
 ```
 running 3 tests
@@ -42,6 +61,43 @@ test result: FAILED. 2 passed; 1 failed; 0 filtered out
 - Finally, it prints a blank line and the summary line `test result: <ok|FAILED>. <number passed> passed; <number failed> failed; <number excluded by the filter> filtered out`. If there are no failures, it is `ok`.
 - The elapsed time is not printed, so that tests that compare output get the same output from the same input.
 - What the program writes to standard output while tests run appears as is between the result lines. The program's standard error goes to standard error as is. Standard input is not passed to the program.
+
+### pretty
+
+- Every failed test is shown with the details of the failure (`[cmd.test.outcome]`).
+- Color is used only when standard output is a terminal and the environment variable `NO_COLOR` is empty or unset.
+- The layout, marks, colors, and whether the elapsed time is shown are not part of the specification, and an implementation MAY change them. An example:
+
+```
+ src/main.emel
+   ✓ adds                                     0ms
+   × adds_wrong                               1ms
+
+──── FAIL  adds_wrong ────
+defect: assertion failed: add(1, 2) == 4
+  left: 3
+ right: 4
+
+ Tests  1 failed | 1 passed (2)
+ Duration  12ms
+```
+
+### agent
+
+```
+FAIL adds_wrong
+defect: assertion failed: add(1, 2) == 4
+  left: 3
+ right: 4
+
+test result: FAILED. 1 passed; 1 failed; 0 filtered out
+```
+
+- Nothing is printed for a passed test. The header line `running N tests` is not printed.
+- For each failure, in run order, the line `FAIL <name>` is printed, then the details of the failure (`[cmd.test.outcome]`), then what the test wrote to standard output. Failures are separated by a blank line.
+- What a passed test writes to standard output is not printed. What a failed test writes is printed in full, without truncation.
+- The last line is the summary line of `plain`, `test result: <ok|FAILED>. <number passed> passed; <number failed> failed; <number excluded by the filter> filtered out`. It is printed even when every test passed. When a failure was printed, a blank line precedes it.
+- No color, mark or elapsed time is printed. The same input gives the same output.
 
 ## Kinds of results `[cmd.test.outcome]`
 
