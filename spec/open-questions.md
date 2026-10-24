@@ -61,7 +61,7 @@ This is the list of points that are not yet agreed on. To decide one, write a pr
 | 53 | The text of the message of FileSystemFailure differs by target. The C target uses the descriptions of the C library (`EIO: Input/output error, open 'a.txt'`). Whether to make it the same across targets | `[api.std.file-system]` |
 | 54 | `Path.join(a, b)` returns b if b starts with `/`. Whether to simply concatenate a and b instead | `[api.std.path]` |
 | 55 | `Path.extension("b.")` is None. Whether to return `Some("")` instead | `[api.std.path]` |
-| 56 | How external functions written by a user pass String, `@external type`, and suspension on the WASM target. The direction is to move the WASM output to the Component Model (from the wasi:http incoming-handler toward WASI 0.3) and pass values by its canonical ABI (strings as UTF-8, `@external type` as resources), rather than defining an ABI of our own | 16.8 |
+| 56 | How external functions written by a user pass String, `@external type`, and suspension on the WASM target. The WASM output is a WASI 0.3 component, and a fn with `@external(wasm, ...)` is not supported yet (`[target.wasm.external]`). The direction is to let a user declare the WIT of the host and pass values by the canonical ABI of the Component Model (strings as UTF-8, `@external type` as resources), rather than defining an ABI of our own | 16.8 |
 | 57 | Whether a const can have a type with Trait bounds (`const EMPTY: List[A]` used where `A: Show` is required). A generalized const remembers only one value because types are erased at run time | 5.6 |
 
 ## 18.3 Next steps `[open.next]`

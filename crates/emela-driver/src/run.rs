@@ -136,19 +136,59 @@ pub fn wasmtime_program() -> PathBuf {
         .map_or_else(|| PathBuf::from("wasmtime"), PathBuf::from)
 }
 
-/// Runs the `.wasm` `entry` with `wasmtime` (WASI). `args` are passed to the program.
+/// The `wasmtime run` command for a WASI 0.3 component. Callers add stdin/args/output as needed.
+///
+/// The output is a component exporting `wasi:cli/run@0.3.0`; p3 is not enabled by every
+/// wasmtime version, so the flag is explicit even where it is currently the default.
+pub(crate) fn wasmtime_run_command(wasmtime: &Path, entry: &Path) -> Command {
+    let mut command = Command::new(wasmtime);
+    command.arg("run").arg("-S").arg("p3=y").arg(entry);
+    command
+}
+
+/// The oldest wasmtime major version that runs WASI 0.3 components with `-S p3=y`.
+pub(crate) const WASMTIME_MIN_MAJOR: u32 = 49;
+
+/// E0909 when `wasmtime --version` reports a version older than [`WASMTIME_MIN_MAJOR`], which
+/// would reject `-S p3=y` or the component with an unrelated error. Nothing is reported when the
+/// version cannot be read: a wasmtime that does not start is reported by the run itself.
+pub(crate) fn check_wasmtime_version(wasmtime: &Path) -> Result<(), Diagnostic> {
+    let Ok(out) = Command::new(wasmtime).arg("--version").output() else {
+        return Ok(());
+    };
+    let version = String::from_utf8_lossy(&out.stdout);
+    match wasmtime_major(&version) {
+        Some(major) if major < WASMTIME_MIN_MAJOR => Err(Diagnostic::error(format!(
+            "`{}` is {}, but target `wasm` needs wasmtime {WASMTIME_MIN_MAJOR} or later",
+            wasmtime.display(),
+            version.trim()
+        ))
+        .with_code(code::WASMTIME_UNAVAILABLE)
+        .with_note(format!(
+            "install Wasmtime {WASMTIME_MIN_MAJOR} or later, or set {WASMTIME_ENV} to a newer wasmtime executable"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// The major version in the output of `wasmtime --version` (`wasmtime 49.0.3 (...)`, or
+/// `wasmtime-cli 20.0.0` for older releases).
+fn wasmtime_major(version: &str) -> Option<u32> {
+    let number = version.split_whitespace().nth(1)?;
+    number.split('.').next()?.parse().ok()
+}
+
+/// Runs the `.wasm` component `entry` with `wasmtime` (WASI 0.3). `args` are passed to the
+/// program.
 pub fn run_wasmtime(
     entry: &Path,
     args: &[OsString],
     output: Output,
 ) -> Result<RunOutput, Diagnostic> {
     let wasmtime = wasmtime_program();
-    let mut command = Command::new(&wasmtime);
-    command
-        .arg("run")
-        .arg(entry)
-        .args(args)
-        .stdin(Stdio::inherit());
+    check_wasmtime_version(&wasmtime)?;
+    let mut command = wasmtime_run_command(&wasmtime, entry);
+    command.args(args).stdin(Stdio::inherit());
     let result = match output {
         Output::Inherit => command.status().map(|status| RunOutput {
             code: exit_code(status),
@@ -169,7 +209,7 @@ fn wasmtime_spawn_error(wasmtime: &Path, err: &io::Error) -> Diagnostic {
         io::ErrorKind::NotFound => Diagnostic::error(format!("`{}` not found", wasmtime.display()))
             .with_code(code::WASMTIME_UNAVAILABLE)
             .with_note(format!(
-                "install Wasmtime and add it to PATH, or set {WASMTIME_ENV} to the wasmtime executable"
+                "install Wasmtime {WASMTIME_MIN_MAJOR} or later and add it to PATH, or set {WASMTIME_ENV} to the wasmtime executable"
             )),
         _ => Diagnostic::error(format!("cannot start `{}`: {err}", wasmtime.display()))
             .with_code(code::WASMTIME_UNAVAILABLE),
@@ -249,6 +289,17 @@ mod tests {
         let key = format!("Symbol.for(\"{FAIL_KEY}\")");
         assert!(emela_codegen_js::RUNTIME.contains(&key));
         assert!(emela_codegen_js::TEST_RUNNER.contains(&key));
+    }
+
+    #[test]
+    fn wasmtime_versions() {
+        assert_eq!(
+            wasmtime_major("wasmtime 49.0.3 (a1b2c3d 2026-01-20)\n"),
+            Some(49)
+        );
+        assert_eq!(wasmtime_major("wasmtime-cli 20.0.0\n"), Some(20));
+        assert_eq!(wasmtime_major("wasmtime\n"), None);
+        assert_eq!(wasmtime_major(""), None);
     }
 
     #[test]

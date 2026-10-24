@@ -198,7 +198,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0424 | A type parameter of an effect is used as a set (8.1; built-in effects are excluded) | ``type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types`` |
 | E0425 | The type of the value of `Fiber.scope` contains `Fiber` or `Deferred` (11.8). The note is ``= note: every fiber has ended once `Fiber.scope` returns, so the value would be of no use outside it`` | ``a `Fiber` cannot leave the `Fiber.scope` that started it`` |
 | E0426 | Type parameters on an operation of a user-defined effect (8.1) | ``operation `wrap` cannot have type parameters: only built-in effects may declare them`` |
-| E0427 | The build target is `c`, and an external function reachable from the entry takes or returns a callback (12.4). The same applies when the build target is `wasm`, and the target name in the message becomes `wasm` (`[target.wasm.external]`) | ``external function `on_data` takes a callback, which target `c` does not support yet`` |
+| E0427 | The build target is `c`, and an external function reachable from the entry takes or returns a callback (12.4). The `wasm` target does not use it: an `@external(wasm, ...)` fn is reported with the error of `[target.wasm.external]` instead | ``external function `on_data` takes a callback, which target `c` does not support yet`` |
 | E0428 | (Unused, because external functions that are suspend fn in C were allowed in the form of 12.6) | |
 | E0429 | The underlying effect of an effect label is a label or a built-in effect (8.9). When the underlying effect is a label, the help is ``= help: write `effect X of Console`; `AuditLog` can still be plugged into it with `with X by AuditLog` `` | ``label `Nested` cannot stand for `Audit`: `Audit` is a label`` |
 | E0430 | An effect that is not a label is written in with, or on the left of `by` (8.9). For an item of with, the help is ``= help: list a handler of `Console`, or declare a label with `effect L of Console` `` | ``effect `Log` is not a label: `with` takes a handler, a layer or a label`` / ``only a label can take `by`, but `Log` is not a label`` |
@@ -214,4 +214,4 @@ error[E0204]: duplicate module `Http.Client`
 | E0906 | The JS output stage returned invalid output (an internal error of the implementation) | `invalid output from the JS backend` |
 | E0907 | cc is not found or cannot be started (Appendix B) | ``cannot start `cc` `` |
 | E0908 | Compiling the output C failed (an error in the implementation or in the C of the host) | `` `cc` failed to compile `target/emela/c/main.c` `` |
-| E0909 | wasmtime is not found or cannot be started with `--target wasm` (`[target.wasm.run]`) | ``` `wasmtime` not found ``` |
+| E0909 | wasmtime is not found, cannot be started, or is older than 49 with `--target wasm` (`[target.wasm.run]`) | ``` `wasmtime` not found ``` |

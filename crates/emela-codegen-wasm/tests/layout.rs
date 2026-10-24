@@ -1,19 +1,34 @@
-//! 出力モジュールを `wasmparser` で読み，`WasmOutput.layout` と突き合わせて
-//! 線形メモリ配置の不変条件を検証する。`wasmtime` は不要（コンパイルと
-//! モジュール解析だけで走る）.
+//! Reads the emitted component with `wasmparser` and checks the invariants of the linear memory
+//! layout against `WasmOutput.layout`. Needs no `wasmtime` (only compilation and parsing).
+//!
+//! The output is a WASI 0.3 component, so the memory, data and global sections are in the core
+//! module embedded in the component.
 
 mod common;
 use common::*;
 use emela_codegen_wasm::layout;
 use wasmparser::{DataKind, Operator, Parser, Payload, ValType};
 
-/// `src` をコンパイルし，wasm バイト列と `Layout` を返す。
+/// Compiles `src` and returns the wasm bytes and the `Layout`.
 fn module_and_layout(src: &str) -> (Vec<u8>, layout::Layout) {
     let output = to_output(src);
     (output.module, output.layout)
 }
 
-/// `ConstExpr` が `i32.const N` 1 オペレータなら `Some(N)` を返す。
+/// Passes each `Payload` to `f`, descending into the core module inside the component. Stops when
+/// `f` returns `true`.
+///
+/// `Parser::parse_all` switches to the parser of a `ModuleSection` and returns its sections too.
+fn find_payload(bytes: &[u8], f: &mut impl FnMut(Payload<'_>) -> bool) -> bool {
+    for payload in Parser::new(0).parse_all(bytes) {
+        if f(payload.expect("wasm should parse")) {
+            return true;
+        }
+    }
+    false
+}
+
+/// `Some(N)` when the `ConstExpr` is the single operator `i32.const N`.
 fn const_i32(init: &wasmparser::ConstExpr<'_>) -> Option<i32> {
     let mut ops = init.get_operators_reader().into_iter();
     let op = ops.next()?.ok()?;
@@ -27,8 +42,8 @@ fn const_i32(init: &wasmparser::ConstExpr<'_>) -> Option<i32> {
 fn scratch_static_heap_do_not_overlap() {
     let (_bytes, layout) = module_and_layout("fn main() { dbg(1) }\n");
 
-    // スクラッチ [0, SCRATCH_END) < 静的データ [STATIC_START, data.len()) < ヒープ heap_base 以上，
-    // いずれも 8 バイト整列。重なりがあってはならない。
+    // Scratch [0, SCRATCH_END) < static data [STATIC_START, data.len()) < heap from heap_base,
+    // each aligned to 8 bytes. They must not overlap.
     assert_eq!(layout.scratch.start, 0);
     assert_eq!(layout.scratch.end, layout::SCRATCH_END);
     assert_eq!(layout.statics.start, layout::STATIC_START);
@@ -38,7 +53,7 @@ fn scratch_static_heap_do_not_overlap() {
     assert_eq!(layout.scratch.start % 8, 0);
     assert_eq!(layout.scratch.end % 8, 0);
     assert_eq!(layout.heap_base % 8, 0);
-    // #257 と同値：SCRATCH_END == STATIC_START == 168 を保つ（出力不変の前提）.
+    // As in #257: SCRATCH_END == STATIC_START == 168 (the emitted bytes depend on it).
     assert_eq!(layout::SCRATCH_END, 168);
     assert_eq!(layout::STATIC_START, 168);
 }
@@ -47,11 +62,11 @@ fn scratch_static_heap_do_not_overlap() {
 fn scratch_slots_fit_in_scratch() {
     let (_bytes, _layout) = module_and_layout("fn main() { dbg(1) }\n");
 
-    // 各スロット [off, off + len) はスクラッチ領域に収まる。
-    // スロットを足すと SCRATCH_END が自動で伸びるので，ここを更新し忘れると落ちる.
+    // Each slot [off, off + len) fits in the scratch region. Adding a slot moves SCRATCH_END,
+    // so a slot missing from this list fails here.
     let slots = [
-        (layout::IOVEC, 8),
-        (layout::NWRITTEN, 8),
+        (layout::WAITBUF, 8),
+        (layout::FUTUREBUF, 8),
         (layout::DIGITS, 16),
         (layout::NEWLINE, 1),
         (layout::DIGITS64, 24),
@@ -77,37 +92,38 @@ fn data_section_matches_layout() {
     let (bytes, layout) = module_and_layout("fn main() { dbg(1) }\n");
 
     let mut data_len = None;
-    for payload in Parser::new(0).parse_all(&bytes) {
-        let payload = payload.expect("wasm module should parse");
-        if let Payload::DataSection(section) = payload {
-            let mut segments = section.into_iter();
-            let seg = segments
-                .next()
-                .expect("data section has a segment")
-                .expect("data segment parses");
-            // 先頭セグメントは memory 0 へ offset i32.const 0 でアクティブ
-            match seg.kind {
-                DataKind::Active {
-                    memory_index,
-                    offset_expr,
-                } => {
-                    assert_eq!(memory_index, 0);
-                    assert_eq!(const_i32(&offset_expr), Some(0));
-                }
-                other => panic!("expected an active data segment, got {other:?}"),
+    find_payload(&bytes, &mut |payload| {
+        let Payload::DataSection(section) = payload else {
+            return false;
+        };
+        let mut segments = section.into_iter();
+        let seg = segments
+            .next()
+            .expect("data section has a segment")
+            .expect("data segment parses");
+        // The first segment is active, into memory 0 at offset i32.const 0
+        match seg.kind {
+            DataKind::Active {
+                memory_index,
+                offset_expr,
+            } => {
+                assert_eq!(memory_index, 0);
+                assert_eq!(const_i32(&offset_expr), Some(0));
             }
-            data_len = Some(seg.data.len());
-            // データセグメントの先頭はスクラッチ領域（全て 0 で予約済み）
-            let scratch_bytes = seg
-                .data
-                .get(..layout.scratch.end as usize)
-                .expect("data covers scratch");
-            for &byte in scratch_bytes {
-                assert_eq!(byte, 0, "scratch area must be zeroed");
-            }
+            other => panic!("expected an active data segment, got {other:?}"),
         }
-    }
-    // データセグメントの長さ = statics.end （データ全体 = スクラッチ予約 + 静的データ）.
+        data_len = Some(seg.data.len());
+        // The data segment starts with the scratch region (reserved, all zero)
+        let scratch_bytes = seg
+            .data
+            .get(..layout.scratch.end as usize)
+            .expect("data covers scratch");
+        for &byte in scratch_bytes {
+            assert_eq!(byte, 0, "scratch area must be zeroed");
+        }
+        true
+    });
+    // The data segment is statics.end long (the reserved scratch plus the static data).
     assert_eq!(data_len, Some(layout.statics.end as usize));
 }
 
@@ -115,46 +131,52 @@ fn data_section_matches_layout() {
 fn heap_global_matches_layout() {
     let (bytes, layout) = module_and_layout("fn main() { dbg(1) }\n");
 
-    for payload in Parser::new(0).parse_all(&bytes) {
-        let payload = payload.expect("wasm module should parse");
-        if let Payload::GlobalSection(section) = payload {
-            let mut globals = section.into_iter();
-            let g = globals
-                .next()
-                .expect("global section has a global")
-                .expect("global parses");
-            // G_HEAP == 0 は最初のグローバル，init は heap_base
-            assert_eq!(g.ty.content_type, ValType::I32);
-            assert_eq!(
-                const_i32(&g.init_expr),
-                Some(layout.heap_base as i32),
-                "heap global init must equal heap_base",
-            );
-            break;
-        }
-    }
+    let mut found = false;
+    find_payload(&bytes, &mut |payload| {
+        let Payload::GlobalSection(section) = payload else {
+            return false;
+        };
+        let mut globals = section.into_iter();
+        let g = globals
+            .next()
+            .expect("global section has a global")
+            .expect("global parses");
+        // G_HEAP == 0 is the first global, initialized to heap_base
+        assert_eq!(g.ty.content_type, ValType::I32);
+        assert_eq!(
+            const_i32(&g.init_expr),
+            Some(layout.heap_base as i32),
+            "heap global init must equal heap_base",
+        );
+        found = true;
+        true
+    });
+    assert!(found, "global section not found");
 }
 
 #[test]
 fn memory_minimum_covers_heap_base() {
     let (bytes, layout) = module_and_layout("fn main() { dbg(1) }\n");
 
-    for payload in Parser::new(0).parse_all(&bytes) {
-        let payload = payload.expect("wasm module should parse");
-        if let Payload::MemorySection(section) = payload {
-            let mut memories = section.into_iter();
-            let mem = memories
-                .next()
-                .expect("memory section has a memory")
-                .expect("memory parses");
-            // 確保ページ数 * PAGE >= heap_base
-            assert!(
-                mem.initial * (layout::PAGE as u64) >= layout.heap_base as u64,
-                "memory minimum {} pages must cover heap_base {}",
-                mem.initial,
-                layout.heap_base,
-            );
-            break;
-        }
-    }
+    let mut found = false;
+    find_payload(&bytes, &mut |payload| {
+        let Payload::MemorySection(section) = payload else {
+            return false;
+        };
+        let mut memories = section.into_iter();
+        let mem = memories
+            .next()
+            .expect("memory section has a memory")
+            .expect("memory parses");
+        // initial pages * PAGE >= heap_base
+        assert!(
+            mem.initial * (layout::PAGE as u64) >= layout.heap_base as u64,
+            "memory minimum {} pages must cover heap_base {}",
+            mem.initial,
+            layout.heap_base,
+        );
+        found = true;
+        true
+    });
+    assert!(found, "memory section not found");
 }

@@ -1,7 +1,7 @@
 //! The same programs on the JS and the WASM target (spec chapter 16: every target gives the same
 //! observable result). Each program uses only the pure language and `dbg`, which both targets
-//! write to stderr (JS `console.error`, WASM `fd_write(2)`), so their output can be compared
-//! without host functions.
+//! write to stderr (JS `console.error`, WASM `wasi:cli/stderr.write-via-stream`), so their output
+//! can be compared without host functions.
 //!
 //! Needs node (`EMELA_NODE` or `node`) and wasmtime (`EMELA_WASMTIME` or `wasmtime`); without
 //! wasmtime the tests are skipped with a message, like the C tests without a C compiler.

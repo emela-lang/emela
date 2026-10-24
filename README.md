@@ -31,8 +31,8 @@ repository describes the 0.1x language, not 0.20.
 Prebuilt binaries are published for macOS (Apple Silicon) and Linux (x86_64).
 Running the generated JavaScript (`emela run`, `emela test`) needs Node.js 18
 or later. The C target (`--target c`) needs a C11 compiler as `cc` (or set
-`EMELA_CC`). The WASM target (`--target wasm`) needs WebAssembly run as a WASI
-command with `wasmtime` (or set `EMELA_WASMTIME`).
+`EMELA_CC`). The WASM target (`--target wasm`) needs Wasmtime 49 or later, run as a
+WASI 0.3 component with `-S p3=y` (or set `EMELA_WASMTIME`).
 
 ```sh
 curl -fsSL https://emela.dev/install.sh | sh
@@ -159,7 +159,7 @@ test result: ok. 1 passed; 0 failed; 0 filtered out
 Each command takes a project directory or an entry file, and defaults to `.`.
 `run`, `build` and `test` take `--target js` (the default), `--target c`, which
 compiles to C and builds a native executable with `cc`, or `--target wasm`, which
-writes a WASI `main.wasm` (`target/emela/wasm`) and runs it with `wasmtime`;
+writes a WASI 0.3 component `main.wasm` (`target/emela/wasm`) and runs it with `wasmtime`;
 `[build] target = "..."` in `Pome.toml` changes the default. The C target does
 not run suspending code, fibers or `String.length` yet; the WASM target does not
 run suspending code, fibers, `Float` operations or host callbacks either.

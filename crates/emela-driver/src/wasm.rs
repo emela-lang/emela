@@ -1,5 +1,5 @@
-//! The WASM target (spec chapter 16, Tier 1): the output stage that turns the Core IR into WASM
-//! with emela-codegen-wasm and runs the module with `wasmtime` (WASI).
+//! The WASM target (spec chapter 16, Tier 1): the output stage that turns the Core IR into a
+//! WASI 0.3 component with emela-codegen-wasm and runs it with `wasmtime`.
 
 use std::path::PathBuf;
 
@@ -11,11 +11,11 @@ use crate::output::{BuildOutput, OutputFile};
 use crate::pipeline::{Analysis, Backend, Runner};
 use crate::testing::{TestBackend, TestModule};
 
-/// The module written to the output directory.
+/// The component written to the output directory.
 pub const WASM_ENTRY_FILE: &str = "main.wasm";
 
-/// Turns the Core IR into WASM (`emela build --target wasm`). The module is a WASI command run
-/// with `wasmtime`.
+/// Turns the Core IR into a WASI 0.3 component (`emela build --target wasm`), exporting
+/// `wasi:cli/run@0.3.0`. It is run with `wasmtime -S p3=y`.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CoreWasm;
 

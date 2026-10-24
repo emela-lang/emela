@@ -43,12 +43,23 @@ use wasm_encoder::{
 use crate::check;
 use crate::{WasmError, WasmErrorKind, WasmOutput};
 
-/// What the generated `_start` runs.
+/// What the generated `wasi:cli/run@0.3.0` export runs.
 #[allow(dead_code)]
 pub(crate) enum Run {
     Main,
     /// Test functions, with their names.
     Tests(Vec<(String, FnId)>),
+}
+
+/// The WASI 0.3 imports shared by the two output interfaces.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OutputImports {
+    pub(crate) write: u32,
+    pub(crate) stream_new: u32,
+    pub(crate) stream_write: u32,
+    pub(crate) stream_drop_writable: u32,
+    pub(crate) future_read: u32,
+    pub(crate) future_drop_readable: u32,
 }
 
 pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>> {
@@ -62,7 +73,13 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>
     if !b.errors.is_empty() {
         return Err(b.errors);
     }
-    let (module, layout) = b.finish();
+    let (core, layout) = b.finish();
+    let module = crate::component::wrap(&core).map_err(|e| {
+        vec![WasmError {
+            kind: WasmErrorKind::Internal,
+            message: format!("internal error in the WASM component: {e}"),
+        }]
+    })?;
     Ok(WasmOutput { module, layout })
 }
 
@@ -107,7 +124,13 @@ const G_FAILURE: u32 = 3;
 #[allow(dead_code)]
 const G_SUSPENDING: u32 = 4;
 const G_STRDESC: u32 = 5;
-const GLOBALS: u32 = 6;
+/// The output streams and the waitable set of the WASI 0.3 host calls (`runtime/host.rs`).
+const G_STDOUT: u32 = 6;
+const G_STDOUT_FUTURE: u32 = 7;
+const G_STDERR: u32 = 8;
+const G_STDERR_FUTURE: u32 = 9;
+const G_WAITSET: u32 = 10;
+const GLOBALS: u32 = 11;
 
 /// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, slots at 16. A `rc` of 0
 /// marks static data (never counted).
@@ -139,6 +162,7 @@ pub(crate) struct Builder<'m> {
     /// The `show` function of each error enum (spec 10.6), as a table index for the descriptor.
     pub(crate) error_shows: FxHashMap<EnumId, u32>,
     pub(crate) entry_index: u32,
+    pub(crate) callback_index: u32,
     pub(crate) str_desc: u32,
     /// The descriptors of a list cell whose head is a reference, and one whose head is a word
     /// (the runtime's `String.split` / `String.code_points` build lists).
@@ -173,6 +197,7 @@ impl<'m> Builder<'m> {
             rt_used: FxHashSet::default(),
             error_shows: FxHashMap::default(),
             entry_index: 0,
+            callback_index: 0,
             str_desc: 0,
             cons_ref_desc: 0,
             cons_val_desc: 0,
@@ -217,33 +242,126 @@ impl<'m> Builder<'m> {
         i
     }
 
-    /// Appends a WASI import, or returns the index of the one already there.
+    /// Appends a WASI 0.3 import, or returns the index of the one already there.
     ///
     /// Imports are assigned before the IR functions get their indices. A new host import is
     /// added by calling this in the same early phase (`build`), never in the middle of the
     /// function index space.
-    fn wasi_import(&mut self, name: &str, params: Vec<ValType>, results: Vec<ValType>) -> u32 {
-        let module = "wasi_snapshot_preview1".to_owned();
-        if let Some(&i) = self.import_map.get(&(module.clone(), name.to_owned())) {
+    fn host_import(
+        &mut self,
+        module: &str,
+        name: &str,
+        params: Vec<ValType>,
+        results: Vec<ValType>,
+    ) -> u32 {
+        let key = (module.to_owned(), name.to_owned());
+        if let Some(&i) = self.import_map.get(&key) {
             return i;
         }
         let ty = self.ty(params, results);
         let i = self.imports.len() as u32;
-        self.imports.push((module.clone(), name.to_owned(), ty));
-        self.import_map.insert((module, name.to_owned()), i);
+        self.imports.push((key.0.clone(), key.1.clone(), ty));
+        self.import_map.insert(key, i);
         i
     }
 
-    pub(crate) fn fd_write(&mut self) -> u32 {
-        self.wasi_import(
-            "fd_write",
-            vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+    // ---- WASI 0.3 imports ----
+
+    pub(crate) fn exit_with_code(&mut self) -> u32 {
+        self.host_import(
+            "wasi:cli/exit@0.3.0",
+            "exit-with-code",
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn task_return(&mut self) -> u32 {
+        self.host_import(
+            "[export]wasi:cli/run@0.3.0",
+            "[task-return]run",
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn waitable_set_new(&mut self) -> u32 {
+        self.host_import(
+            "$root",
+            "[waitable-set-new]",
+            Vec::new(),
             vec![ValType::I32],
         )
     }
 
-    pub(crate) fn proc_exit(&mut self) -> u32 {
-        self.wasi_import("proc_exit", vec![ValType::I32], vec![])
+    pub(crate) fn waitable_set_wait(&mut self) -> u32 {
+        self.host_import(
+            "$root",
+            "[waitable-set-wait]",
+            vec![ValType::I32, ValType::I32],
+            vec![ValType::I32],
+        )
+    }
+
+    pub(crate) fn waitable_set_drop(&mut self) -> u32 {
+        self.host_import(
+            "$root",
+            "[waitable-set-drop]",
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn waitable_join(&mut self) -> u32 {
+        self.host_import(
+            "$root",
+            "[waitable-join]",
+            vec![ValType::I32, ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    /// `write-via-stream` and the stream/future intrinsics it introduces, for one of the two
+    /// output interfaces (`wasi:cli/stdout@0.3.0` or `wasi:cli/stderr@0.3.0`).
+    pub(crate) fn output_imports(&mut self, interface: &'static str) -> OutputImports {
+        OutputImports {
+            write: self.host_import(
+                interface,
+                "write-via-stream",
+                vec![ValType::I32],
+                vec![ValType::I32],
+            ),
+            stream_new: self.host_import(
+                interface,
+                "[stream-new-0]write-via-stream",
+                Vec::new(),
+                vec![ValType::I64],
+            ),
+            stream_write: self.host_import(
+                interface,
+                "[async-lower][stream-write-0]write-via-stream",
+                vec![ValType::I32, ValType::I32, ValType::I32],
+                vec![ValType::I32],
+            ),
+            stream_drop_writable: self.host_import(
+                interface,
+                "[stream-drop-writable-0]write-via-stream",
+                vec![ValType::I32],
+                Vec::new(),
+            ),
+            future_read: self.host_import(
+                interface,
+                "[async-lower][future-read-1]write-via-stream",
+                vec![ValType::I32, ValType::I32],
+                vec![ValType::I32],
+            ),
+            future_drop_readable: self.host_import(
+                interface,
+                "[future-drop-readable-1]write-via-stream",
+                vec![ValType::I32],
+                Vec::new(),
+            ),
+        }
     }
 
     fn fn_ty(&mut self, f: &Function) -> u32 {
@@ -269,10 +387,16 @@ impl<'m> Builder<'m> {
                 self.external_import(id, f, binding);
             }
         }
-        // The WASI host calls the runtime always uses (their indices must be fixed before the
+        // The WASI 0.3 host calls the runtime always uses (their indices must be fixed before the
         // function index space is assigned).
-        self.fd_write();
-        self.proc_exit();
+        self.exit_with_code();
+        self.output_imports("wasi:cli/stdout@0.3.0");
+        self.output_imports("wasi:cli/stderr@0.3.0");
+        self.waitable_set_new();
+        self.waitable_set_wait();
+        self.waitable_set_drop();
+        self.waitable_join();
+        self.task_return();
         // The IR definitions, in arena order (the entries of the table are the IR functions).
         for (id, f) in self.m.functions.iter() {
             if self.imported(id) {
@@ -295,14 +419,22 @@ impl<'m> Builder<'m> {
             self.error_shows.insert(enum_id, slot);
         }
         runtime::register(self);
-        // One entry (`_start`).
-        let ty = self.ty(vec![], vec![]);
+        // The async-lifted `wasi:cli/run@0.3.0#run` export and its callback. Both return the
+        // component-model status code.
+        let ty = self.ty(vec![], vec![ValType::I32]);
         self.entry_index = self.imports.len() as u32 + self.defs.len() as u32;
+        self.defs.push(ty);
+        let ty = self.ty(
+            vec![ValType::I32, ValType::I32, ValType::I32],
+            vec![ValType::I32],
+        );
+        self.callback_index = self.imports.len() as u32 + self.defs.len() as u32;
         self.defs.push(ty);
 
         self.emit_ir_bodies();
         runtime::emit(self);
         self.emit_entry(entry);
+        self.emit_callback();
     }
 
     // ---- statics ----
@@ -542,7 +674,16 @@ impl<'m> Builder<'m> {
 
         let mut exports = ExportSection::new();
         exports.export("memory", ExportKind::Memory, 0);
-        exports.export("_start", ExportKind::Func, self.entry_index);
+        exports.export(
+            "[async-lift]wasi:cli/run@0.3.0#run",
+            ExportKind::Func,
+            self.entry_index,
+        );
+        exports.export(
+            "[callback][async-lift]wasi:cli/run@0.3.0#run",
+            ExportKind::Func,
+            self.callback_index,
+        );
         module.section(&exports);
 
         if !self.table_funcs.is_empty() {
@@ -642,6 +783,24 @@ impl<'m> Builder<'m> {
                 }
             }
             ins.call(self.rt("finish"));
+            ins.call(self.rt("close_output"));
+            ins.i32_const(0);
+            ins.call(self.task_return());
+            // `0` is the component model's EXIT status: the async-lifted run finished
+            // synchronously.
+            ins.i32_const(0);
+            ins.end();
+        }
+        self.bodies.push(func);
+    }
+
+    /// The callback of the async-lifted `run`. The generated run never yields (its waits are
+    /// synchronous), so the host never calls this; it must exist for the async ABI.
+    fn emit_callback(&mut self) {
+        let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+        {
+            let ins = &mut func.instructions();
+            ins.i32_const(0);
             ins.end();
         }
         self.bodies.push(func);

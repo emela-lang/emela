@@ -22,7 +22,7 @@ pub(crate) fn unsupported(m: &Module) -> Vec<WasmError> {
     for (_, f) in m.functions.iter() {
         if let Some(ext) = &f.external {
             if ext.binding("wasm").is_some() {
-                external(m, f, &mut found);
+                external(f, &mut found);
             }
             continue;
         }

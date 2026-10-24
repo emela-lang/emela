@@ -1,6 +1,6 @@
-//! The WASM target (spec chapter 16) through the `emela build` and `run` paths: the module is run
-//! with `wasmtime` (`EMELA_WASMTIME` or `wasmtime`). Tests that need wasmtime are skipped, with a
-//! message, when it cannot start.
+//! The WASM target (spec chapter 16) through the `emela build` and `run` paths: the component is
+//! run with `wasmtime` (`EMELA_WASMTIME` or `wasmtime`). Tests that need wasmtime are skipped,
+//! with a message, when it cannot start.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

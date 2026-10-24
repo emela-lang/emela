@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-23 (The WASM output becomes a WASI 0.3 component)
+
+- `[target.wasm.output]`, `[target.wasm.run]`, `[target.wasm.external]`, `[cmd.test.out-dir]`, `[diag.list]`, `[open.list]` #56: `main.wasm` is a WASI 0.3 component exporting `wasi:cli/run@0.3.0` and importing only `wasi:cli/stdout`, `wasi:cli/stderr` and `wasi:cli/exit` (all `@0.3.0`), instead of a `wasi_snapshot_preview1` command exporting `_start`. It runs with `wasmtime run -S p3=y` and needs wasmtime 49 or later; an older wasmtime is E0909 before the program runs. A reachable fn with `@external(wasm, ...)` is a compile error until the host's WIT can be declared, so the boundary types of the earlier core module import no longer apply, and E0427 is not used on WASM. This follows the pull request #401.
+
 ## 2026-10-22 (Arguments for handler init)
 
 - `[effect.handler]`, `[effect.with]`, `[effect.layer]`, `[effect.label]`, `[grammar.decl]`, `[grammar.expr]`, `[type.rules]`, `[dyn.with]`: The `init` of a handler can take parameters, and a value is passed to it by writing `H(x: ...)` as an item of a with or a layer, or on the right side of `by` for a label. This revises "The handler itself takes no arguments." in `[effect.handler]`. Adopted in the proposal `handler-init-arguments` (#389).

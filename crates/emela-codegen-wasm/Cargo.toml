@@ -11,6 +11,8 @@ emela-lir.workspace = true
 la-arena.workspace = true
 rustc-hash.workspace = true
 wasm-encoder.workspace = true
+wit-component.workspace = true
+wit-parser.workspace = true
 
 [dev-dependencies]
 emela-resolve.workspace = true

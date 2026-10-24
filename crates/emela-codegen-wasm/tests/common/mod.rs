@@ -106,7 +106,12 @@ pub fn run_bytes(dir: &Path, bytes: &[u8]) -> Run {
     let wt = wasmtime().expect("checked by the caller");
     std::fs::write(dir.join("main.wasm"), bytes).unwrap();
     let mut command = Command::new(wt);
-    command.arg("run").arg("main.wasm").current_dir(dir);
+    command
+        .arg("run")
+        .arg("-S")
+        .arg("p3=y")
+        .arg("main.wasm")
+        .current_dir(dir);
     let ran = run_with_timeout(command, Duration::from_secs(60)).expect("the program timed out");
     Run {
         stdout: String::from_utf8_lossy(&ran.stdout).into_owned(),
