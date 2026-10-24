@@ -188,6 +188,8 @@ jobs:
           if [ ! -f scripts/spec.py ]; then exit 0; fi
           python3 scripts/spec.py check
 
+  # Not part of `ci-ok`: the grammar is an editor aid, so a change to the syntax is not held back
+  # until the grammar follows it. A failure here shows the drift on the pull request.
   tree-sitter:
     needs: changes
     if: needs.changes.outputs.grammar == 'true'
@@ -252,7 +254,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [changes, lint, test, examples, laws, spec, tree-sitter, proposal-adopted]
+    needs: [changes, lint, test, examples, laws, spec, proposal-adopted]
     runs-on: ubuntu-latest
     steps:
       - name: Sum up the jobs
