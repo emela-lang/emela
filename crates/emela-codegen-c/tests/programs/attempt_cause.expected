@@ -1,0 +1,52 @@
+exit: 0
+--- stdout
+Fail error: Boom
+Fail error: NotFound(id: 3)
+Die defect: bad
+Die defect: division by zero
+init res
+body res
+release res
+Die defect: inside
+init res
+release res
+Die defect: release failed
+Die defect: first
+note: the release of handler BadRes also failed: release failed
+inner Die defect: inner
+Fail error: Boom
+raised -1
+again Die defect: twice
+found 9
+Fail error: Boom
+slept 10
+slept 10
+slept 10
+Fail error: Boom
+init res
+slept 10
+woke res
+release res
+Die defect: after sleep
+init res
+slept 5
+inner Fail error: NotFound(id: 4)
+slept 5
+release res
+Die defect: release failed
+slept 1
+slept 1
+raised -2
+done
+--- stderr
+Success(2)
+Success("s")
+Success(1.5)
+Success(True)
+Success(())
+Success(Point(x: 1, y: 2.0))
+Success([1, 2])
+Failure(Cause(raise: <fn>))
+Fail
+Success(42)
+Success("after")

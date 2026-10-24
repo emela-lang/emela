@@ -714,6 +714,50 @@ fn main() {
         "deep_recursion",
         "fn count(n: Int, acc: Int) -> Int {\n  if n == 0 { acc } else { count(n - 1, acc + 1) }\n}\nfn main() {\n  dbg(count(100000, 0))\n}\n",
     ),
+    (
+        "attempt",
+        r#"
+import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Cause.{Cause}
+
+error Boom
+
+error NotFound(id: Int) derive Show
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn cause[A, E](e: Exit[A, E]) {
+  e match {
+    Success(_) -> dbg("success")
+    Failure(c) -> {
+      dbg(Cause.kind(c))
+      dbg(Cause.to_string(c))
+    }
+  }
+}
+
+fn main() {
+  dbg(Fiber.attempt(fn() { 40 + 2 }))
+  dbg(Fiber.attempt(fn() { "text" }))
+  dbg(Fiber.attempt(fn() { 0.5 }))
+  dbg(Fiber.attempt(fn() { () }))
+  dbg(Fiber.attempt(fn() { boom() }))
+  cause(Fiber.attempt(fn() { boom() }))
+  cause(Fiber.attempt(fn() { fail NotFound(id: 7) }))
+  cause(Fiber.attempt(fn() { panic("bad") }))
+  dbg(Fiber.attempt(fn() { boom() }) match {
+    Success(v) -> v
+    Failure(c) -> Cause.raise(c)
+  } escape { Boom -> -1 })
+  cause(Fiber.attempt(fn() {
+    Fiber.attempt(fn() { panic("again") }) match {
+      Success(v) -> v
+      Failure(c) -> Cause.raise(c)
+    }
+  }))
+}
+"#,
+    ),
 ];
 
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops

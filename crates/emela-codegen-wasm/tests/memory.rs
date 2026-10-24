@@ -132,3 +132,57 @@ fn main() {
         "4000\n",
     );
 }
+
+#[test]
+fn attempts_free_their_exits_and_causes() {
+    // Each round makes an `Exit` of every kind, a `Cause` with its error or defect and the text of
+    // the cause, in place and across a suspension (the attempt's frame); all of them are freed.
+    run_limited(
+        "memory-attempt",
+        r#"
+import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Cause.{Cause}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+error Boom(text: String) derive Show
+
+fn length[A, E](e: Exit[A, E]) -> Int {
+  e match {
+    Success(_) -> 1
+    Failure(c) -> String.length(Cause.to_string(c))
+  }
+}
+
+fn round(i: Int) -> Int use { Clock } {
+  a = length(Fiber.attempt(fn() { "value #{i}" }))
+  b = length(Fiber.attempt(fn() { fail Boom(text: "boom #{i}") }))
+  c = length(Fiber.attempt(fn() { panic("bad #{i}") }))
+  d = length(Fiber.attempt(fn() {
+    (use Clock).sleep(1)
+    fail Boom(text: "late #{i}")
+  }))
+  e = Fiber.attempt(fn() { fail Boom(text: "again #{i}") }) match {
+    Success(_) -> 0
+    Failure(cause) -> Cause.raise(cause)
+  } escape { Boom(text) -> String.length(text) }
+  a + b + c + d + e
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Clock } {
+  if n == 0 { total } else { rounds(n - 1, total + round(n % 10)) }
+}
+
+fn main() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, fn() {
+    with TestClock {
+      dbg(rounds(3000, 0))
+    }
+  })
+}
+"#,
+        "225000\n",
+    );
+}

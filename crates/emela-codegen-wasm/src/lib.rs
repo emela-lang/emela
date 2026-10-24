@@ -16,9 +16,10 @@
 //! frames (`emit::suspend`) and a FIFO continuation scheduler (`emit::runtime::sched`). A sleep
 //! starts `wasi:clocks/monotonic-clock.wait-for` as an asynchronous subtask and the scheduler waits
 //! on its waitable set only when it has no continuation left (`emit::runtime::async_bridge`);
-//! TestClock uses the same suspension without a host timer. Fibers, other `Async` wakeups and
-//! custom host WIT are not implemented yet; reaching them is a [`WasmError`] or a stall unwound as
-//! interrupted (spec 14.5). The Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0) are
+//! TestClock uses the same suspension without a host timer. `Fiber.attempt` and `Std.Cause` run
+//! on the current fiber (`emit::runtime::attempt`). Fibers, other `Async` wakeups and custom host
+//! WIT are not implemented yet; reaching them is a [`WasmError`] or a stall unwound as interrupted
+//! (spec 14.5). The Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0) are
 //! part of the runtime.
 
 mod check;

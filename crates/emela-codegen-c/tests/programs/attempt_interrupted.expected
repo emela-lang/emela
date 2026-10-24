@@ -1,0 +1,7 @@
+exit: 130
+--- stdout
+init res
+parked
+release res
+--- stderr
+interrupted

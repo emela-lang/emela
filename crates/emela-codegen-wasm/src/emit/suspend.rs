@@ -62,6 +62,11 @@ pub(crate) struct Plan {
     pub(crate) twice_prefix: u32,
     pub(crate) after_prefix: u32,
     pub(crate) queue_full: u32,
+    /// Whether the run unwinds as interrupted (`runtime::attempt`). Allocated only when the
+    /// program uses `Fiber.attempt` or `Std.Cause`, so other programs keep their bytes.
+    pub(crate) unwinding: u32,
+    /// The table index of `attempt_resume`, when some attempt's function may suspend.
+    pub(crate) attempt_table: u32,
     /// The resume functions' table indices, by `repr_index`.
     resume_table: [u32; 5],
     machines: Vec<MachinePlan>,
@@ -171,6 +176,8 @@ pub(crate) fn reserve(b: &mut Builder<'_>) {
             twice_prefix: 0,
             after_prefix: 0,
             queue_full: 0,
+            unwinding: 0,
+            attempt_table: 0,
             resume_table: [0; 5],
             machines,
         });
@@ -242,7 +249,21 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         b.table_funcs.push(index);
         resume_table[i] = table;
     }
+    let unwinding = if runtime::attempt::used(b) {
+        b.alloc_static(4)
+    } else {
+        0
+    };
+    let attempt_table = if runtime::attempt::suspends(b) {
+        let index = b.rt("attempt_resume");
+        b.table_funcs.push(index);
+        b.table_funcs.len() as u32 - 1
+    } else {
+        0
+    };
     let Some(plan) = &mut b.sus else { return };
+    plan.unwinding = unwinding;
+    plan.attempt_table = attempt_table;
     plan.chain_head = cells[0];
     plan.chain_tail = cells[1];
     plan.in_mode = cells[2];

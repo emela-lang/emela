@@ -29,7 +29,7 @@ mod runtime;
 mod runtimeop;
 mod suspend;
 
-use emela_core::{EnumId, OPTION_NONE, OPTION_SOME, Type, TypeId};
+use emela_core::{EnumId, FiberOp, OPTION_NONE, OPTION_SOME, Type, TypeId};
 use emela_lir::{
     Callee, CaseKey, Const, FnId, Function, LabelId, Module, OnFail, Operand, PrimOp, PrimTy, Repr,
     SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of,
@@ -1124,6 +1124,14 @@ impl<'m> Builder<'m> {
                 Run::Main(None) => {}
                 Run::Tests(tests) => {
                     for (name, id) in tests {
+                        // Each test is a run of its own: the previous one may have stalled.
+                        if let Some(plan) = &self.sus
+                            && plan.unwinding != 0
+                        {
+                            ins.i32_const(plan.unwinding as i32);
+                            ins.i32_const(0);
+                            ins.i32_store(mem(0, 4));
+                        }
                         let index = self.fn_index(*id);
                         let ret = self.repr(self.m.functions[*id].ret);
                         ins.call(index);
@@ -1832,9 +1840,7 @@ impl<'m> Builder<'m> {
                     self.store_slot(cx, ins, d, i + 2, &Operand::Var(*o));
                 }
             }
-            Value::Fiber { .. } => {
-                self.internal(format!("fiber left in {}", cx.f.name));
-            }
+            Value::Fiber { op, args, .. } => self.fiber(cx, ins, dst, *op, args),
             Value::IsError { error, enum_id } => {
                 ins.local_get(cx.local(*error));
                 ins.i32_const(ix(*enum_id) as i32);
@@ -2235,6 +2241,123 @@ impl<'m> Builder<'m> {
         ins.end();
     }
 
+    /// `Fiber.attempt` and the operations of `Std.Cause` (spec 11.5), with the runtime of
+    /// `runtime::attempt`. The other concurrency operations are refused by `check` before this.
+    fn fiber(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        op: FiberOp,
+        args: &[Operand],
+    ) {
+        match op {
+            FiberOp::Attempt { suspends, .. } => {
+                let Some(Operand::Var(f)) = args.first() else {
+                    self.internal(format!("attempt without a function in {}", cx.f.name));
+                    return;
+                };
+                let ret = match self.core().ty(cx.f.vars[*f].ty) {
+                    Type::Fn(fty) => self.repr(fty.ret),
+                    _ => {
+                        self.internal(format!(
+                            "attempt of a value that is not a function in {}",
+                            cx.f.name
+                        ));
+                        return;
+                    }
+                };
+                // Call the function in place; its value goes to a word, as a slot stores it.
+                let word = cx.scratch(Repr::I64, 0);
+                let exit = cx.scratch(Repr::Ref, 0);
+                let ty = self.call_ty(&[Repr::Ref], ret);
+                ins.local_get(cx.local(*f));
+                ins.local_get(cx.local(*f));
+                ins.i32_load(mem(HDR, 4));
+                ins.call_indirect(0, ty);
+                match ret {
+                    Repr::I32 | Repr::Ref => {
+                        ins.i64_extend_i32_u();
+                    }
+                    Repr::I64 => {}
+                    Repr::F64 => {
+                        ins.i64_reinterpret_f64();
+                    }
+                    Repr::Void => {
+                        ins.i64_const(0);
+                    }
+                }
+                ins.local_set(word);
+                let success = runtime::attempt::success_desc(self, ret);
+                if suspends {
+                    // The function suspended: the attempt's frame goes after the callee's, and
+                    // makes the `Exit` when the continuation is resumed. The suspension edge of
+                    // the statement pushes the caller's frame next.
+                    let frame = runtime::attempt::frame_desc(self);
+                    let table = self.sus.as_ref().map_or(0, |p| p.attempt_table);
+                    ins.global_get(G_SUSPENDING);
+                    ins.if_(BlockType::Result(ValType::I32));
+                    ins.i32_const(frame as i32);
+                    ins.i32_const(table as i32);
+                    ins.i32_const(success as i32);
+                    ins.i32_const(0);
+                    let new = self.rt("frame_new");
+                    ins.call(new);
+                    let push = self.rt("frame_push");
+                    ins.call(push);
+                    ins.i32_const(0);
+                    ins.else_();
+                }
+                let caught = self.rt("attempt_caught");
+                ins.call(caught);
+                ins.local_tee(exit);
+                ins.if_(BlockType::Result(ValType::I32));
+                ins.local_get(exit);
+                ins.else_();
+                // Nothing caught: a value, or a defect that is not caught (then no value).
+                ins.global_get(G_DEFECT);
+                ins.if_(BlockType::Result(ValType::I32));
+                ins.i32_const(0);
+                ins.else_();
+                ins.i32_const(success as i32);
+                ins.local_get(word);
+                let make = self.rt("exit_success");
+                ins.call(make);
+                ins.end();
+                ins.end();
+                if suspends {
+                    ins.end();
+                }
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FiberOp::CauseKind { kind } => {
+                if enum_repr(self.core(), kind) != Repr::I32 {
+                    self.internal("`CauseKind` is not an enum of plain variants");
+                    return;
+                }
+                self.operand(cx, ins, &args[0]);
+                ins.i32_load(mem(4, 4));
+                self.assign(cx, ins, dst, Repr::I32);
+            }
+            FiberOp::CauseToString => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("cause_to_string");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FiberOp::CauseRaise { .. } => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("cause_raise");
+                ins.call(f);
+            }
+            _ => self.internal(format!(
+                "fiber operation `{}` left in {}",
+                op.name(),
+                cx.f.name
+            )),
+        }
+    }
+
     /// The resume function table index for an operation returning `ret`.
     fn resume_table(&mut self, ret: Repr) -> u32 {
         match &self.sus {
@@ -2313,7 +2436,7 @@ fn value_repr(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Repr {
 
 fn value_on_fail(v: &Value) -> Option<&OnFail> {
     match v {
-        Value::Call { on_fail, .. } => on_fail.as_ref(),
+        Value::Call { on_fail, .. } | Value::Fiber { on_fail, .. } => on_fail.as_ref(),
         _ => None,
     }
 }
