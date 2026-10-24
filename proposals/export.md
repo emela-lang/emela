@@ -1,10 +1,10 @@
 ---
 title: Exported functions and entries
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 427
 issue:
-decided:
+decided: 2026-10-24
 touches: [glossary.terms, kw.annotation, grammar.decl, ext, target.js.module, target.js.start, target.wasm.external, target.c, effect.with, module.pome, cmd.build, diag.list]
 requires: []
 related: []
@@ -224,3 +224,11 @@ E0327 (exporting a fn with a bounded type parameter) is no longer used. `@export
 ## Open questions
 
 ## Decision
+
+Entries other than `main` are needed for HTTP services, Workers, `wasi:http`, and embedded hosts, and they should not require a compiler change for each new kind.
+
+- `@export` is the reverse of `@external`. The host boundary stays below the effect system, as it already does for `@external`, so entries do not have to be effects and nobody writes handlers at the everyday level.
+- Entry adapters keep host names and boundary types inside std and Pomes. Application code only writes `@entry(Http.serve)` on an ordinary fn, which tests can still call directly.
+- `@entry` is a single attribute built into the compiler, so attributes stay a closed list (`[kw.annotation]`). Users do not define attributes.
+- Dropping the implicit JS export leaves one way to export (boundary types, Promises), and `pub` goes back to meaning only visibility between modules.
+- On C, calling an export while Emela code is running is a defect. Interrupt handlers stay in C and signal Emela through `@external`, rather than adding a sublanguage that neither allocates nor suspends.

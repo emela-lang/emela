@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-24 (Exported functions and entries)
+
+- `[glossary.terms]`, `[kw.annotation]`, `[grammar.decl]`, `[ext]`, `[target.js.module]`, `[target.js.start]`, `[target.wasm.external]`, `[target.c]`, `[effect.with]`, `[module.pome]`, `[cmd.build]`, `[diag.list]`: `@export` declares a function that the host calls. It is the reverse of `@external`: it is written on a fn with a body and gives, for each target, the name the host sees. Its parameters and return value are boundary types. An `@export` fn whose first parameter is a function is an entry adapter, and is not exported by itself. Writing `@entry(adapter)` on a fn of the entry module creates an export that passes that fn to the entry adapter as its first argument. Entries at the everyday level (HTTP services and others) are made by pointing `@entry` at an entry adapter written at the foundation level. Adopted in the proposal `export` (#427).
+
 ## 2026-10-24 (Separate the output of emela test for people at a terminal and for coding agents)
 
 - `[cmd.test.output]`, `[cmd.test.reporter]`, `[test.command]`: `emela test` displays its results with one of three reporters: `pretty` for a person reading a terminal, `plain` that keeps the current line format, and `agent` for a coding agent. `--reporter` selects one; when it is omitted, the environment decides. The layout of `pretty` is left to the implementation, not the specification. Adopted in the proposal `test-reporters` (#412).
