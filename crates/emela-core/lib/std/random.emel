@@ -9,10 +9,12 @@ pub effect Random {
 
 @external(js, "./random.mjs", "int")
 @external(c, "./random.c", "emela_random_int")
+@external(wasm, "wasi:random/random@0.3.0", "get-random-u64")
 fn random_int() -> Int
 
 @external(js, "./random.mjs", "float")
 @external(c, "./random.c", "emela_random_float")
+@external(wasm, "wasi:random/random@0.3.0", "get-random-u64")
 fn random_float() -> Float
 
 ## The host's random source (JS `crypto.getRandomValues`, C `arc4random_buf` or `getrandom`;

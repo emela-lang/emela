@@ -204,22 +204,16 @@ fn strings_extended() {
 }
 
 #[test]
-fn split_with_an_empty_separator_is_a_defect() {
-    // The constant empty separator is rejected before the Heap IR; a separator that is empty
-    // only at run time reaches the runtime, which raises the defect instead of splitting.
-    let Some(run) = run(
+fn split_with_an_empty_separator_splits_by_graphemes() {
+    // A separator that is empty only at run time reaches the runtime, which splits per grapheme
+    // cluster like `String.chars` (16.2).
+    let Some(out) = stderr(
         "split-empty",
-        "fn main() {\n  sep = String.trim(\" \")\n  dbg(String.split(\"ab\", sep))\n}\n",
+        "fn main() {\n  sep = String.trim(\" \")\n  dbg(String.split(\"a\u{1F44D}\u{1F3FD}\", sep))\n  dbg(String.length(\"a\u{1F44D}\u{1F3FD}\"))\n}\n",
     ) else {
         return;
     };
-    assert_eq!(run.code, 101);
-    assert!(
-        run.stderr
-            .starts_with("defect: `String.split` with an empty separator"),
-        "{}",
-        run.stderr
-    );
+    assert_eq!(out, "[\"a\", \"\u{1F44D}\u{1F3FD}\"]\n2\n");
 }
 
 #[test]
@@ -341,6 +335,265 @@ fn the_scratch_area_does_not_overlap_the_static_data() {
 }
 
 #[test]
+fn constants_are_evaluated_once_and_remembered() {
+    // `SHOWN` prints from its body: the second reference of `NEXT` must not evaluate it again
+    // (spec 5.6). `GREETING` depends on `NAMES`, so the dependency is evaluated first.
+    let Some(out) = stderr(
+        "const-once",
+        r#"
+const LIMIT = 3 * 7
+const NAMES = ["a", "b", "c"]
+const GREETING = "hello #{List.length(NAMES)}"
+const SHOWN = dbg(LIMIT)
+const NEXT = SHOWN + 1
+
+fn main() {
+  dbg(GREETING)
+  dbg(NAMES)
+  dbg(NEXT)
+  dbg(GREETING)
+  dbg(NEXT)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "\"hello 3\"\n[\"a\", \"b\", \"c\"]\n21\n22\n\"hello 3\"\n22\n"
+    );
+}
+
+#[test]
+fn a_const_that_refers_to_itself_is_a_defect() {
+    let Some(run) = run(
+        "const-self",
+        "const A: Int = if True { A } else { 0 }\nfn main() { dbg(A) }\n",
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: const A refers to itself while being evaluated\n"
+    );
+}
+
+#[test]
+fn a_const_that_fails_wraps_its_defect() {
+    let Some(run) = run(
+        "const-broken",
+        r#"
+const LIMIT = 3 * 7
+const BROKEN = 2 / (LIMIT - 21)
+
+fn main() {
+  dbg(BROKEN)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: while evaluating const BROKEN: division by zero\n"
+    );
+}
+
+#[test]
+fn nested_const_defects_get_each_name() {
+    let Some(run) = run(
+        "const-nested",
+        r#"
+const OUTER = INNER + 1
+const INNER = 1 / zero()
+
+fn zero() -> Int { 0 }
+
+fn main() {
+  dbg(OUTER)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: while evaluating const OUTER: while evaluating const INNER: division by zero\n"
+    );
+}
+
+#[test]
+fn a_failing_release_does_not_wrap_a_self_reference() {
+    // The self-reference defect is the first one, and the release fails while it unwinds. It must
+    // keep no name and must not be remembered (spec 5.6), even though the release appends a note
+    // to it.
+    let Some(run) = run(
+        "const-self-release",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler PoolH: Pool {
+  init { PoolH }
+  release { panic("release failed") }
+  fn get() { 0 }
+}
+
+const SELF: Int = with PoolH { if True { SELF } else { 0 } }
+
+fn main() {
+  dbg(SELF)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: const SELF refers to itself while being evaluated\n\
+         note: the release of handler PoolH also failed: release failed\n"
+    );
+}
+
+// Notes added by fiber failures (`note: another fiber also failed: …`, 11.2) are not tested here:
+// fibers are not supported on target `wasm` yet (see `check::unsupported`), so only the defect
+// notes of 14.4 are reachable.
+
+#[test]
+fn a_release_defect_becomes_a_note_of_the_first_defect() {
+    let Some(run) = run(
+        "release-note",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler Outer: Pool {
+  init { Outer }
+  release {
+    dbg("release outer")
+    panic("outer release failed")
+  }
+  fn get() { 0 }
+}
+
+handler Inner: Pool {
+  init { Inner }
+  release { dbg("release inner") }
+  fn get() { 1 }
+}
+
+fn work(xs: List[Int]) -> Int {
+  zero = (use Pool).get()
+  total = List.fold(xs, 0, fn(a, x) { a + x })
+  dbg("total #{total}")
+  total / zero
+}
+
+fn main() {
+  with Outer {
+    with Inner {
+      dbg("inner #{(use Pool).get()}")
+    }
+    work([1, 2, 3])
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "\"inner 1\"\n\"release inner\"\n\"total 6\"\n\"release outer\"\n\
+         defect: division by zero\n\
+         note: the release of handler Outer also failed: outer release failed\n"
+    );
+}
+
+#[test]
+fn a_released_handler_is_a_defect_when_used() {
+    let Some(run) = run(
+        "released-handler",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler PoolH: Pool {
+  init { PoolH }
+  release { () }
+  fn get() { 1 }
+}
+
+handler Spare: Pool {
+  init { Spare }
+  release { () }
+  fn get() { 2 }
+}
+
+fn main() {
+  f = with PoolH {
+    p = use Pool
+    fn() { p.get() }
+  }
+  with Spare { dbg(f()) }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(run.stderr, "defect: handler PoolH was used after release\n");
+}
+
+#[test]
+fn notes_keep_the_order_the_defects_happened() {
+    let Some(run) = run(
+        "release-notes",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler ResA: Pool {
+  init { ResA }
+  release { panic("a failed") }
+  fn get() { 0 }
+}
+
+handler ResB: Pool {
+  init { ResB }
+  release { panic("b failed") }
+  fn get() { 1 }
+}
+
+fn main() {
+  with ResA {
+    with ResB {
+      panic("body")
+    }
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: body\n\
+         note: the release of handler ResB also failed: b failed\n\
+         note: the release of handler ResA also failed: a failed\n"
+    );
+}
+
+#[test]
 fn all_scratch_buffers_are_stepped_in_one_program() {
     // 1 つのプログラムでスクラッチの全バッファ（WASI の iovec / 書き込みバイト数，
     // 整数の桁，改行，Int64 の桁，JSON escape，1 コードポイントの UTF-8）を触りつつ，
@@ -355,5 +608,203 @@ fn all_scratch_buffers_are_stepped_in_one_program() {
         out,
         "42\n\"-12345\"\n\"4611686014132420609\"\nSome(\"A\")\n\
          [\"a\", \"b\", \"c\"]\n[65, 66]\n\"hi\"\n"
+    );
+}
+
+#[test]
+fn floats_show_like_js() {
+    // The shortest round-trip digits, `.0` on a finite integral value, `-0.0` as `0.0`,
+    // exponents, the infinities and NaN (spec 10.6). The values and the expected text are the
+    // same as the JS target's.
+    let Some(out) = stderr(
+        "floats",
+        r#"
+fn main() {
+  dbg(1.5)
+  dbg(1.0)
+  dbg(-0.0)
+  dbg(0.1)
+  dbg(0.1 + 0.2)
+  dbg(1.0 / 3.0)
+  dbg(1.0e21)
+  dbg(1.0e20)
+  dbg(1.5e-7)
+  dbg(0.000001)
+  dbg(123456789.125)
+  dbg(1.7976931348623157e308)
+  dbg(5.0e-324)
+  dbg(1.0e-7)
+  dbg(123.0e-20)
+  dbg(5.641232424577593e-278)
+  dbg(5.641232424577592e-278)
+  dbg(3.6893488147419103e+19)
+  dbg(3.68934881474191e+19)
+  dbg(4.3039187809582457e-283)
+  dbg(4.303918780958246e-283)
+  dbg(2.0 / 0.0)
+  dbg(-2.0 / 0.0)
+  dbg(0.0 / 0.0)
+  dbg(5.5 % 2.0)
+  dbg(-5.5 % 2.0)
+  dbg("v=#{1.5} #{2.0} #{-0.0}")
+  dbg(inspect(1.5))
+  assert Float.floor(2.5) == 2
+  assert 1.0 < 2.0
+  assert !(0.0 / 0.0 == 0.0 / 0.0)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "1.5\n1.0\n0.0\n0.1\n0.30000000000000004\n0.3333333333333333\n1e+21\n\
+         100000000000000000000.0\n1.5e-7\n0.000001\n123456789.125\n\
+         1.7976931348623157e+308\n5e-324\n1e-7\n1.23e-18\n\
+         5.641232424577593e-278\n5.641232424577592e-278\n\
+         36893488147419103000.0\n36893488147419100000.0\n\
+         4.3039187809582457e-283\n4.303918780958246e-283\n\
+         Infinity\n-Infinity\nNaN\n\
+         1.5\n-1.5\n\"v=1.5 2.0 0.0\"\n\"1.5\"\n"
+    );
+}
+
+#[test]
+fn float_rounding_to_int() {
+    // Ties away from zero, -0.0 to 0, and the ends of the Int range (spec 16.1).
+    let Some(out) = stderr(
+        "float-round",
+        r#"
+fn main() {
+  dbg(Float.floor(2.5))
+  dbg(Float.ceil(2.5))
+  dbg(Float.round(2.5))
+  dbg(Float.round(-2.5))
+  dbg(Float.round(0.5))
+  dbg(Float.round(-0.5))
+  dbg(Float.round(0.49999999999999994))
+  dbg(Float.truncate(-2.7))
+  dbg(Float.floor(-1.5))
+  dbg(Float.ceil(-1.5))
+  dbg(Float.floor(-0.0))
+  dbg(Float.ceil(-0.0))
+  dbg(Float.round(-0.0))
+  dbg(Float.truncate(-0.0))
+  dbg(Float.floor(2147483647.9))
+  dbg(Float.truncate(-2147483648.9))
+  dbg(Float.round(2147483646.6))
+  dbg(Float.ceil(-2147483647.6))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "2\n3\n3\n-3\n1\n-1\n0\n-2\n-2\n-1\n0\n0\n0\n0\n2147483647\n-2147483648\n2147483647\n\
+         -2147483647\n"
+    );
+}
+
+#[test]
+fn float_parse_matches_js() {
+    // `Float.parse` (spec 15.3): the forms `to_string` writes, an optional sign, `Infinity`
+    // and `NaN`; anything else is `None`.
+    let Some(out) = stderr(
+        "float-parse",
+        r#"
+fn f(s: String) -> String {
+  Float.to_string(Float.parse(s)) escape { ParseError(input:) -> "bad #{input}" }
+}
+
+fn main() {
+  dbg(f("1.5"))
+  dbg(f("-0.25"))
+  dbg(f("3"))
+  dbg(f("1e+21"))
+  dbg(f("1.0e20"))
+  dbg(f("Infinity"))
+  dbg(f("-Infinity"))
+  dbg(f("NaN"))
+  dbg(f("+3"))
+  dbg(f("-0"))
+  dbg(f("-0.0"))
+  dbg(f("0.1"))
+  dbg(f("2.2250738585072011e-308"))
+  dbg(f("5e-324"))
+  dbg(f("1e400"))
+  dbg(f("1e-400"))
+  dbg(f(""))
+  dbg(f("1."))
+  dbg(f(".5"))
+  dbg(f("1e"))
+  dbg(f("inf"))
+  dbg(f(" 1"))
+  dbg(f("0x10"))
+  dbg(f("+NaN"))
+  dbg(Float.parse("1.5"))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "\"1.5\"\n\"-0.25\"\n\"3.0\"\n\"1e+21\"\n\"100000000000000000000.0\"\n\"Infinity\"\n\
+         \"-Infinity\"\n\"NaN\"\n\"3.0\"\n\"0.0\"\n\"0.0\"\n\"0.1\"\n\
+         \"2.225073858507201e-308\"\n\"5e-324\"\n\"Infinity\"\n\"0.0\"\n\"bad \"\n\"bad 1.\"\n\
+         \"bad .5\"\n\"bad 1e\"\n\"bad inf\"\n\"bad  1\"\n\"bad 0x10\"\n\"bad +NaN\"\n\
+         1.5\n"
+    );
+}
+
+#[test]
+fn float_parse_keeps_the_dropped_digits() {
+    // `1 + 2^-53` is a midpoint; with `1e-1000` appended the input is above it, even though the
+    // first 800 significant digits are the midpoint itself (the sticky bit decides the tie).
+    let midpoint = "1.00000000000000011102230246251565404236316680908203125";
+    let input = format!("{midpoint}{}1", "0".repeat(946));
+    let src = format!("fn main() {{\n  dbg(Float.to_string(Float.parse(\"{input}\")))\n}}\n");
+    let Some(out) = stderr("float-long-midpoint", &src) else {
+        return;
+    };
+    assert_eq!(out, "\"1.0000000000000002\"\n");
+}
+
+#[test]
+fn float_to_int_out_of_range_is_a_defect() {
+    let cases = [
+        ("Float.floor(0.0 / 0.0)", "NaN"),
+        ("Float.ceil(1.0 / 0.0)", "Infinity"),
+        ("Float.truncate(-1.0 / 0.0)", "-Infinity"),
+        ("Float.truncate(2147483648.0)", "2147483648.0"),
+        ("Float.round(2147483647.5)", "2147483647.5"),
+        ("Float.floor(-2147483648.5)", "-2147483648.5"),
+        ("Float.ceil(2147483647.1)", "2147483647.1"),
+    ];
+    for (i, (call, shown)) in cases.into_iter().enumerate() {
+        let src = format!("fn main() {{\n  dbg({call})\n}}\n");
+        let Some(run) = run(&format!("float-defect-{i}"), &src) else {
+            return;
+        };
+        assert_eq!(run.code, 101, "{call}");
+        assert_eq!(
+            run.stderr,
+            format!("defect: cannot convert {shown} to Int\n"),
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn a_failed_assert_shows_floats() {
+    // `assert` shows both sides through Show (spec 10.6), so a Float is shown like `dbg` does.
+    let Some(run) = run("float-assert", "fn main() {\n  assert 1.5 == 2.5\n}\n") else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: assertion failed: 1.5 == 2.5\n  left: 1.5\n right: 2.5\n"
     );
 }

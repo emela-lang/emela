@@ -94,8 +94,12 @@ jobs:
       # Same naming as release-plz.yml; install.sh fetches emela-<tag>-<target>.tar.gz.
       - name: Package tarball
         run: |
+          mkdir -p package
+          cp target/${{ matrix.target }}/release/emela package/
+          cp LICENSE package/
+          cp crates/emela-codegen-wasm/data/unicode/17.0.0/LICENSE.txt package/LICENSE-UNICODE
           tar czf "emela-$TAG-${{ matrix.target }}.tar.gz" \
-            -C target/${{ matrix.target }}/release emela
+            -C package emela LICENSE LICENSE-UNICODE
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

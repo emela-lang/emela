@@ -511,7 +511,7 @@ pub enum Runner {
     Node,
     /// A native executable.
     Native,
-    /// A `.wasm` module run with `wasmtime` (WASI).
+    /// A `.wasm` component run with `wasmtime` (WASI 0.3).
     Wasmtime,
 }
 

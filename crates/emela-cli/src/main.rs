@@ -29,6 +29,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Create a new Pome in a new directory
+    New {
+        /// A name (`hello`) or a source path (`github.com/alice/hello`, `github:alice/hello`)
+        name: String,
+        /// Create a library (`src/lib.emel`) instead of an application (`src/main.emel`)
+        #[arg(long)]
+        lib: bool,
+    },
     /// Report diagnostics without compiling
     Check {
         /// Entry file or project directory [default: .]
@@ -139,6 +147,7 @@ const DIAGNOSTIC_FAILURE: u8 = 1;
 
 fn main() -> ExitCode {
     match Cli::parse().command {
+        Command::New { name, lib } => new_pome(&name, lib),
         Command::Check { path } => check(&path_or_current(path)),
         Command::Build {
             path,
@@ -167,6 +176,52 @@ fn main() -> ExitCode {
         Command::Pome { command } => pome::pome(command),
         Command::Lsp => lsp(),
     }
+}
+
+fn new_pome(name: &str, lib: bool) -> ExitCode {
+    let pome = match emela_driver::new(name, lib) {
+        Ok(pome) => pome,
+        Err(diagnostic) => {
+            print_diagnostics(&[diagnostic], &SourceDb::new());
+            return ExitCode::from(DIAGNOSTIC_FAILURE);
+        }
+    };
+
+    let dir = Path::new(&pome.dir);
+    let exists = dir.symlink_metadata().is_ok();
+    if exists {
+        print_diagnostics(
+            &[Diagnostic::error(format!(
+                "`{}` already exists",
+                dir.display()
+            ))],
+            &SourceDb::new(),
+        );
+        return ExitCode::from(DIAGNOSTIC_FAILURE);
+    }
+
+    // Files written before a failure are left in place.
+    for file in &pome.files {
+        let path = dir.join(&file.path);
+        let written = path
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::write(&path, &file.contents));
+        if let Err(error) = written {
+            print_diagnostics(
+                &[Diagnostic::error(format!(
+                    "cannot write `{}`: {error}",
+                    path.display()
+                ))],
+                &SourceDb::new(),
+            );
+            return ExitCode::from(DIAGNOSTIC_FAILURE);
+        }
+    }
+
+    let kind = if lib { "library" } else { "application" };
+    eprintln!("created {kind} `{}`", pome.dir);
+    ExitCode::SUCCESS
 }
 
 fn path_or_current(path: Option<PathBuf>) -> PathBuf {

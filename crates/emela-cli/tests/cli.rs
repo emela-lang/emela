@@ -70,7 +70,7 @@ const BROKEN: &[(&str, &str)] = &[
 #[test]
 fn help_is_english() {
     let project = Project::new("help", &[]);
-    for command in ["", "check", "build", "run", "test", "fmt", "lsp"] {
+    for command in ["", "new", "check", "build", "run", "test", "fmt", "lsp"] {
         let args: Vec<&str> = [command, "--help"]
             .into_iter()
             .filter(|a| !a.is_empty())
@@ -79,6 +79,83 @@ fn help_is_english() {
         assert_eq!(run.code, Some(0), "{command}: {run:?}");
         assert!(run.stdout.is_ascii(), "{command}: {}", run.stdout);
     }
+}
+
+/// A new application passes check, run, test and fmt as created.
+#[test]
+fn new_application_runs() {
+    let project = Project::new("new-app", &[]);
+    let run = project.emela(&["new", "hello"]);
+    assert_eq!(run.code, Some(0), "{run:?}");
+    assert_eq!(run.stderr, "created application `hello`\n");
+    for args in [
+        &["check", "hello"][..],
+        &["test", "hello"],
+        &["fmt", "--check", "hello"],
+    ] {
+        let run = project.emela(args);
+        assert_eq!(run.code, Some(0), "{args:?}: {run:?}");
+    }
+    let run = project.emela(&["run", "hello"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str()),
+        (Some(0), "Hello, world!\n")
+    );
+}
+
+/// A new library has one passing test.
+#[test]
+fn new_library_tests() {
+    let project = Project::new("new-lib", &[]);
+    let run = project.emela(&["new", "github:alice/json-codec", "--lib"]);
+    assert_eq!(run.code, Some(0), "{run:?}");
+    assert_eq!(run.stderr, "created library `json-codec`\n");
+    for args in [
+        &["check", "json-codec"][..],
+        &["fmt", "--check", "json-codec"],
+    ] {
+        let run = project.emela(args);
+        assert_eq!(run.code, Some(0), "{args:?}: {run:?}");
+    }
+    let run = project.emela(&["test", "json-codec"]);
+    assert_eq!(run.code, Some(0), "{run:?}");
+    assert!(run.stdout.contains("1 passed"), "{}", run.stdout);
+}
+
+/// An existing directory, even an empty one, is left as it is.
+#[test]
+fn new_keeps_existing_directory() {
+    let project = Project::new("new-exists", &[("hello/keep.txt", "kept\n")]);
+    let run = project.emela(&["new", "hello"]);
+    assert_eq!(run.code, Some(1), "{run:?}");
+    let entries: Vec<_> = std::fs::read_dir(project.path().join("hello"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(entries, ["keep.txt"]);
+    assert_eq!(
+        std::fs::read_to_string(project.path().join("hello/keep.txt")).unwrap(),
+        "kept\n"
+    );
+
+    std::fs::create_dir(project.path().join("empty")).unwrap();
+    let run = project.emela(&["new", "empty"]);
+    assert_eq!(run.code, Some(1), "{run:?}");
+    assert_eq!(
+        std::fs::read_dir(project.path().join("empty"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+/// A rejected name creates nothing.
+#[test]
+fn new_rejects_name() {
+    let project = Project::new("new-bad", &[]);
+    let run = project.emela(&["new", "emela-json"]);
+    assert_eq!(run.code, Some(1), "{run:?}");
+    assert_eq!(std::fs::read_dir(project.path()).unwrap().count(), 0);
 }
 
 #[test]

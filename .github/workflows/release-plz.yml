@@ -75,8 +75,12 @@ jobs:
 
       - name: Package tarball
         run: |
+          mkdir -p package
+          cp target/${{ matrix.target }}/release/emela package/
+          cp LICENSE package/
+          cp crates/emela-codegen-wasm/data/unicode/17.0.0/LICENSE.txt package/LICENSE-UNICODE
           tar czf emela-${{ needs.release-plz-release.outputs.tag }}-${{ matrix.target }}.tar.gz \
-            -C target/${{ matrix.target }}/release emela
+            -C package emela LICENSE LICENSE-UNICODE
 
       - name: Upload asset
         run: gh release upload ${{ needs.release-plz-release.outputs.tag }} ./emela-*.tar.gz
@@ -106,7 +110,7 @@ jobs:
     # No GITHUB_TOKEN scopes needed: the cross-repo call uses the App token.
     permissions: {}
     steps:
-      - name: "Mint token for emela.nix (GitHub App: emela-release)"
+      - name: "Mint token for emela.nix (GitHub App: emela-bot)"
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
@@ -141,7 +145,7 @@ jobs:
       # before CI runs on it, so the merge queue never sees `ci-ok`. The App
       # token makes the release PR an ordinary one; the checkout uses it too,
       # because release-plz pushes the branch with the checkout's credentials.
-      - name: "Mint token for the release PR (GitHub App: emela-release)"
+      - name: "Mint token for the release PR (GitHub App: emela-bot)"
         id: app-token
         uses: actions/create-github-app-token@v1
         with:

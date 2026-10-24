@@ -38,8 +38,6 @@ static int64_t em_live = 0;
 /* The name of the handler retired last: the release that raised a defect while another one was
  * unwinding names it in the note (spec 14.4). */
 static em_ref em_last_retired = NULL;
-/* Whether the pending defect is a const referring to itself (not remembered by consts). */
-static bool em_self_reference = false;
 
 /* Defined with the fibers below. */
 static bool em_is_interrupted(em_ref x);
@@ -711,7 +709,6 @@ void em_debug_print(em_ref s) {
 /* ---- Defects ---- */
 
 void em_raise(em_ref msg) {
-  em_self_reference = false;
   if (em_defect == NULL) {
     em_dup(msg);
     em_defect = msg;
@@ -768,6 +765,8 @@ void em_defect_resume(em_ref d) {
   em_buf_puts(&b, " also failed: ");
   em_buf_put(&b, EM_STR_BYTES(later), EM_STR_LEN(later));
   em_defect = em_buf_finish(&b);
+  /* The note keeps the first defect's self-reference marker (`aux`, spec 5.6). */
+  em_defect->hdr.u.h.aux = d->hdr.u.h.aux;
   em_drop(d);
   em_drop(later);
 }
@@ -806,8 +805,12 @@ bool em_const_enter(em_const *c, em_word *out) {
     case 1: {
       char msg[256];
       snprintf(msg, sizeof msg, "const %s refers to itself while being evaluated", c->name);
-      em_raise_cstr(msg);
-      em_self_reference = true;
+      /* `aux == 1` marks the self-reference defect. The string is new, so no other use sees the
+       * marker; it travels through `defect_take`, a note and `defect_resume` (spec 5.6). */
+      em_ref self = em_str_cstr(msg);
+      self->hdr.u.h.aux = 1;
+      em_raise(self);
+      em_drop(self);
       return false;
     }
     default:
@@ -823,7 +826,7 @@ void em_const_leave(em_const *c, em_word value) {
     c->state = 2;
     return;
   }
-  if (em_self_reference || em_is_interrupted(em_defect)) {
+  if (em_is_interrupted(em_defect) || em_defect->hdr.u.h.aux != 0) {
     c->state = 0;
     return;
   }

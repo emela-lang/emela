@@ -1,0 +1,42 @@
+name: Pome lock
+
+# Renovate raises the versions in Pome.toml but cannot run `emela pome`, so the Pome.lock
+# it leaves behind still names the old commits and hashes. This job updates the locks on
+# Renovate's branches and pushes them as emela-bot, whose push (unlike one with
+# GITHUB_TOKEN) starts CI again. renovate.json5 lists emela-bot in `gitIgnoredAuthors`.
+#
+# The released emela is used, so no code from the branch runs while the token exists.
+
+on:
+  pull_request:
+    paths: ['**/Pome.toml']
+
+concurrency:
+  group: pome-lock-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lock:
+    if: >-
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+      - name: Generate a token for emela-bot
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: emela-lang/setup-emela/pome-lock@v1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          author-name: emela-bot[bot]
+          author-email: 300169090+emela-bot[bot]@users.noreply.github.com

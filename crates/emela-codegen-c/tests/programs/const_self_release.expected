@@ -1,0 +1,6 @@
+exit: 101
+--- stdout
+--- stderr
+"probe"
+defect: const SELF refers to itself while being evaluated
+note: the release of handler PoolH also failed: release failed

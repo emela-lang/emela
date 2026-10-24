@@ -1,6 +1,6 @@
-//! The WASM target (spec chapter 16) through the `emela build` and `run` paths: the module is run
-//! with `wasmtime` (`EMELA_WASMTIME` or `wasmtime`). Tests that need wasmtime are skipped, with a
-//! message, when it cannot start.
+//! The WASM target (spec chapter 16) through the `emela build` and `run` paths: the component is
+//! run with `wasmtime` (`EMELA_WASMTIME` or `wasmtime`). Tests that need wasmtime are skipped,
+//! with a message, when it cannot start.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -37,7 +37,19 @@ fn project(main: &str) -> (MemoryFiles, Input) {
 
 /// Builds and runs `main` on the WASM target.
 fn run_wasm(name: &str, main: &str) -> (Analysis, Option<RunOutput>) {
-    let (fs, input) = project(main);
+    run_wasm_files(name, &[("main.emel", main)])
+}
+
+/// Builds and runs a project of `src` files (`main.emel` first) on the WASM target.
+fn run_wasm_files(name: &str, files: &[(&str, &str)]) -> (Analysis, Option<RunOutput>) {
+    let mut sources: Vec<(String, String)> = vec![("app/Pome.toml".to_owned(), String::new())];
+    sources.extend(
+        files
+            .iter()
+            .map(|(path, text)| (format!("app/src/{path}"), (*text).to_owned())),
+    );
+    let fs = MemoryFiles::new(sources);
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
         node: wasmtime_program(),
@@ -81,6 +93,33 @@ fn builds_the_module() {
 }
 
 #[test]
+fn sleep_through_a_function_value_runs() {
+    // A closure that calls `Std.Clock.SystemClock.sleep` goes through the state machine and the
+    // asynchronous host bridge like a direct call.
+    if !have_wasmtime() {
+        return;
+    }
+    let (analysis, output) = run_wasm(
+        "sleep-closure",
+        r#"
+import Std.Clock.{Clock, SystemClock}
+
+fn main() {
+  with SystemClock {
+    nap = fn() { (use Clock).sleep(1) }
+    nap()
+    dbg("slept")
+  }
+}
+"#,
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(text(&output.stderr), "\"slept\"\n");
+}
+
+#[test]
 fn runs_under_wasmtime() {
     if !have_wasmtime() {
         return;
@@ -91,6 +130,83 @@ fn runs_under_wasmtime() {
     assert_eq!(output.code, 0);
     assert_eq!(text(&output.stdout), "");
     assert_eq!(text(&output.stderr), "5\n\"hi\"\n");
+}
+
+#[test]
+fn examples_run_on_wasm() {
+    if !have_wasmtime() {
+        return;
+    }
+    // The examples that use only the supported hosts (hello, errors and resources use
+    // SystemConsole; tour is pure apart from `dbg`).
+    let (analysis, output) = run_wasm_files(
+        "example-hello",
+        &[(
+            "main.emel",
+            include_str!("../../../examples/hello/src/main.emel"),
+        )],
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(text(&output.stdout), "hi\nHello, Emela!\nHello, world!\n");
+    assert_eq!(text(&output.stderr), "done\n");
+
+    let (analysis, output) = run_wasm_files(
+        "example-errors",
+        &[(
+            "main.emel",
+            include_str!("../../../examples/errors/src/main.emel"),
+        )],
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 1);
+    assert_eq!(text(&output.stdout), "Hello, alice!\nHello, guest!\n");
+    assert_eq!(
+        text(&output.stderr),
+        "error: Invalid(reason: \"negative id\")\n"
+    );
+
+    let (analysis, output) = run_wasm_files(
+        "example-resources",
+        &[(
+            "main.emel",
+            include_str!("../../../examples/resources/src/main.emel"),
+        )],
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(
+        text(&output.stdout),
+        "open store v1\nv1/alice\nv1/bob\nclose store v1\n"
+    );
+    assert_eq!(text(&output.stderr), "");
+
+    let (analysis, output) = run_wasm_files(
+        "example-tour",
+        &[
+            (
+                "main.emel",
+                include_str!("../../../examples/tour/src/main.emel"),
+            ),
+            (
+                "email.emel",
+                include_str!("../../../examples/tour/src/email.emel"),
+            ),
+        ],
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(text(&output.stdout), "");
+    assert_eq!(
+        text(&output.stderr),
+        "Todo(id: 1, title: \"Write docs\", done: True)\n6.0\n50005000\n\
+         \"1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz\"\n\
+         Some(\"alice@example.com\")\nNone\n"
+    );
 }
 
 /// Runs `main`'s tests on the WASM target and returns the outcomes, as (name, outcome).
@@ -154,9 +270,8 @@ fn a_release_defect_keeps_the_first_defect() {
     if !have_wasmtime() {
         return;
     }
-    // The body defects and the `release` fails too: the first defect stays the result (spec 14.4).
-    // The note for the release is not implemented on WASM yet (spec `[target.wasm.unsupported]`),
-    // so only the first line is checked.
+    // The body defects and the `release` fails too: the first defect stays the result, and the
+    // release's defect becomes a note (spec 14.4).
     let (analysis, output) = run_wasm(
         "release-defect",
         "effect Pool {\n  fn get() -> Int\n}\n\
@@ -176,10 +291,10 @@ fn a_release_defect_keeps_the_first_defect() {
     assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
     let output = output.unwrap();
     assert_eq!(output.code, 101);
-    assert!(
-        text(&output.stderr).starts_with("defect: division by zero"),
-        "{}",
-        text(&output.stderr)
+    assert_eq!(
+        text(&output.stderr),
+        "defect: division by zero\n\
+         note: the release of handler Outer also failed: outer release failed\n"
     );
     // A `release` that fails with no defect in the body is the result (spec 14.4).
     let (analysis, output) = run_wasm(
@@ -273,7 +388,10 @@ fn the_test_protocol_escapes_messages() {
 
 #[test]
 fn unsupported_features_are_diagnostics() {
-    let (analysis, output) = run_wasm("unsupported", "fn main() { dbg(1.5) }\n");
+    let (analysis, output) = run_wasm(
+        "unsupported",
+        "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
+    );
     assert!(analysis.has_errors());
     assert!(output.is_none());
     let messages: Vec<&str> = analysis
@@ -281,5 +399,36 @@ fn unsupported_features_are_diagnostics() {
         .iter()
         .map(|d| d.message.as_str())
         .collect();
-    assert!(messages.iter().any(|m| m.contains("Float")), "{messages:?}");
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("fibers are not supported on target `wasm`")),
+        "{messages:?}"
+    );
+}
+
+#[test]
+fn the_system_clock_sleep_runs_under_wasmtime() {
+    // `Std.Clock.SystemClock.sleep` waits on `sleep_milliseconds`, lowered to the asynchronous
+    // `wasi:clocks/monotonic-clock.wait-for` host (spec 8.7).
+    if !have_wasmtime() {
+        return;
+    }
+    let (analysis, output) = run_wasm(
+        "system-clock",
+        r#"
+import Std.Clock.{Clock, SystemClock}
+
+fn main() -> () use { Async } {
+  with SystemClock {
+    (use Clock).sleep(0)
+    ()
+  }
+}
+"#,
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(text(&output.stderr), "");
 }
