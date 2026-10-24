@@ -276,7 +276,7 @@ Add: "HTTP services (`[lib.http-service]`). `@entry(Http.serve)` is a compile er
 
 ## Diagnostics
 
-- [ ] `@entry(Http.serve)` on the C target (not supported)
+- [ ] E0442: `@entry(Http.serve)` on the C target (not supported)
 - [ ] Do not report E0230 for an HTTP service
 
 Type mismatches (E0438) and wrong R (E0402) belong to the proposal export.

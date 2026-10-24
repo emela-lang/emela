@@ -368,31 +368,24 @@ impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions,
 
 ### Std.Http (`std/http.emel`, `std/http.mjs`) `[api.std.http]`
 
-Has only a client. Requests and responses are values, and the functions on top of send can be tested without a handler.
+The client effect, its errors, and the entry adapter for HTTP services. Requests and responses are in `[api.std.http.request]` and `[api.std.http.response]`. Requests and responses are values, and the functions on top of send can be tested without a handler.
 
 | Declaration | Contents | Description |
 |---|---|---|
-| `Method` | `enum Method { Get, Head, Post, Put, Patch, Delete, Options }` | The methods that can be sent |
-| `Request` | `type Request(method: Method, url: String, headers: List[(String, String)], body: String)` | A request. Headers are sent in the order written. The body is sent as UTF-8 |
-| `Response` | `type Response(status: Int, headers: List[(String, String)], body: String)` | A response. Header names are lowercase and sorted by name, and values with the same name are joined with `, ` (only `set-cookie` is kept one per pair) |
 | `InvalidUrl` | `error InvalidUrl(url: String)` | Cannot be read as a URL. Also for schemes other than `http:` and `https:` |
 | `ConnectionFailed` | `error ConnectionFailed(url: String, message: String)` | No response could be received (name resolution, connection, TLS, exceeding the redirect limit). The cause is in `message` |
 | `ResponseNotText` | `error ResponseNotText(url: String)` | The response body cannot be read as UTF-8 |
-| `UnexpectedStatus` | `error UnexpectedStatus(status: Int, body: String)` | Not 2xx in `require_ok` |
 | `Http` | `effect Http { suspend fn send(request: Request) -> Response fails InvalidUrl \| ConnectionFailed \| ResponseNotText }` | Sends a request. 4xx and 5xx are not failures |
-| `request` | `request(method: Method, url: String) -> Request` | A request with no headers and no body |
-| `add_header` | `add_header(req: Request, name: String, value: String) -> Request` | Appends a header at the end |
 | `get` | `get(url: String) -> Response fails ... use Http` | Sends a GET |
 | `post` | `post(url: String, body: String) -> Response fails ... use Http` | Sends a POST with a body |
-| `header` | `header(res: Response, name: String) -> Option[String]` | The first value whose name matches. Case-insensitive (ASCII) |
-| `headers` | `headers(res: Response, name: String) -> List[String]` | All values whose name matches |
-| `encode_query` | `encode_query(pairs: List[(String, String)]) -> String` | A query that percent-encodes each name and value and joins the `name=value` pairs with `&` (`q=%E6%9D%B1&page=2`). The characters that are not escaped are in the Http item of `[lib.layers]` |
-| `require_ok` | `require_ok(res: Response) -> Response fails UnexpectedStatus` | Fails on anything other than 2xx |
-| `response` | `response(status: Int, body: String) -> Response` | A response without headers |
 | `SystemHttp` | `handler SystemHttp: Http` | JS `fetch`. Follows redirects and does not store cookies. Requires Async |
 | `TestServer` | `type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Request])` | The counterpart of TestHttp. `respond` takes a request and its count (from 0) |
 | `TestHttp` | `handler TestHttp: Http` | The state is `State[TestServer]`. Appends the request to `sent` and resumes immediately with the response from `respond`. `None` means ConnectionFailed |
+| `Incoming` | `@external type Incoming` | The request as the host handed it over. Used only when writing an export by hand |
+| `Outgoing` | `@external type Outgoing` | The response for the host to send |
+| `serve` | `serve[E](app: fn(Request) -> Response fails E use { Async }, incoming: Incoming) -> Outgoing use { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
 
+- `request`, `add_header`, `header`, `headers`, `encode_query`, `require_ok`, and `response` remain for one minor version with `@deprecated`, pointing to their new places (`Request.new`, `Request.add_header`, `Response.header`, `Response.headers`, `Request.encode_query`, `Response.require_ok`, `Response.new`).
 - The message of ConnectionFailed is the text of the host's exception. If cause information is available, the cause's code and text, joined by a space, are appended after `: ` (`fetch failed: ECONNREFUSED connect ECONNREFUSED 127.0.0.1:1234`). The text depends on the host.
 - A failure while reading the response body is also ConnectionFailed.
 - The default content-type (`text/plain;charset=UTF-8`) is added only when a body is sent. It is not added to GET and HEAD, which are sent without a body.
@@ -400,20 +393,53 @@ Has only a client. Requests and responses are values, and the functions on top o
 - Up to 20 redirects are followed; exceeding that is ConnectionFailed. The proxy environment variables are not read by default. When a proxy is enabled by host-side configuration (`NODE_USE_ENV_PROXY` in Node), that setting is followed.
 - TestHttp appends the request to the end of `sent` and then calls `respond`. The count passed to `respond` is the length of `sent` before the append. When `respond` returns None, the message of ConnectionFailed is `TestServer returned no response`.
 
-impl (`[trait.derive]`): Method, Request, and Response have `derive Eq, Show`. InvalidUrl, ConnectionFailed, ResponseNotText, and UnexpectedStatus have `derive Show` (their contents are shown when they reach main or a test; `[dyn.error]`).
+impl (`[trait.derive]`): InvalidUrl, ConnectionFailed, and ResponseNotText have `derive Show` (their contents are shown when they reach main or a test; `[dyn.error]`).
 
 ```emel
-import Std.Http.{Http, Request, Response, TestServer, TestHttp}
+import Std.Http.{Http, TestServer, TestHttp}
+import Std.Http.Response
 import Std.State.{State}
 
 @test
 fn fetches() {
-  server = TestServer(respond: fn(req, n) { Some(Http.response(200, "ok")) }, sent: [])
+  server = TestServer(respond: fn(req, n) { Some(Response.new(200, "ok")) }, sent: [])
   (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
   assert res.body == "ok"
   assert List.length(after.sent) == 1
 }
 ```
+
+### Std.Http.Request (`std/http/request.emel`) `[api.std.http.request]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Method` | `enum Method { Get, Head, Post, Put, Patch, Delete, Options }` | The methods that can be sent. Moved from `Std.Http` |
+| `Request` | `type Request(method: Method, url: String, headers: List[(String, String)], body: String)` | A request. Headers are sent in the order written. The body is sent as UTF-8. Moved from `Std.Http` |
+| `new` | `new(method: Method, url: String) -> Request` | A request with no headers and no body. Formerly `Http.request` |
+| `add_header` | `add_header(req: Request, name: String, value: String) -> Request` | Appends a header at the end |
+| `header` | `header(req: Request, name: String) -> Option[String]` | The first value whose name matches. Case-insensitive (ASCII) |
+| `headers` | `headers(req: Request, name: String) -> List[String]` | All values whose name matches |
+| `path` | `path(req: Request) -> String` | The path of `url`, without the query, as written (not decoded). `/` if empty |
+| `segments` | `segments(req: Request) -> List[String]` | The path split at `/`, without empty segments, each percent-decoded. A segment with a malformed `%` sequence, or whose decoded bytes are not UTF-8, is kept as written |
+| `query` | `query(req: Request) -> List[(String, String)]` | The part of `url` after `?`, read as `decode_query` does. Empty if there is no `?`. A pair with a malformed `%` sequence, or whose decoded bytes are not UTF-8, is kept as written |
+| `encode_query` | `encode_query(pairs: List[(String, String)]) -> String` | A query that percent-encodes each name and value and joins the `name=value` pairs with `&` (`q=%E6%9D%B1&page=2`). The characters that are not escaped are in the Http item of `[lib.layers]`. Moved from `Std.Http` |
+| `decode_query` | `decode_query(s: String) -> List[(String, String)] fails ParseError` | The inverse of `encode_query`. Splits at `&`, splits each pair at the first `=` (a pair without `=` has an empty value), replaces each `+` in the name and the value with a space, and then percent-decodes them. A malformed `%` sequence, or decoded bytes that are not UTF-8, fail with ParseError |
+
+impl (`[trait.derive]`): Method and Request have `derive Eq, Show`.
+
+### Std.Http.Response (`std/http/response.emel`) `[api.std.http.response]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Response` | `type Response(status: Int, headers: List[(String, String)], body: String)` | A response. The headers of a response received by `send` have lowercase names sorted by name, and values with the same name are joined with `, ` (only `set-cookie` is kept one per pair). Moved from `Std.Http` |
+| `UnexpectedStatus` | `error UnexpectedStatus(status: Int, body: String)` | Not 2xx in `require_ok`. Moved from `Std.Http` |
+| `new` | `new(status: Int, body: String) -> Response` | A response without headers. Formerly `Http.response` |
+| `add_header` | `add_header(res: Response, name: String, value: String) -> Response` | Appends a header at the end |
+| `header` | `header(res: Response, name: String) -> Option[String]` | The first value whose name matches. Case-insensitive (ASCII). Moved from `Std.Http` |
+| `headers` | `headers(res: Response, name: String) -> List[String]` | All values whose name matches. Moved from `Std.Http` |
+| `require_ok` | `require_ok(res: Response) -> Response fails UnexpectedStatus` | Fails on anything other than 2xx. Moved from `Std.Http` |
+
+impl (`[trait.derive]`): Response has `derive Eq, Show`, and UnexpectedStatus has `derive Show`.
 
 ### Std.FileSystem (`std/file_system.emel`, `std/file_system.mjs`, `std/file_system.c`) `[api.std.file-system]`
 
