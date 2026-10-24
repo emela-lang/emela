@@ -32,6 +32,7 @@ This section defines what can be observed about the component emitted with `--ta
   | `SystemRandom` (`int`, `float`) | `get-random-u64` of `wasi:random/random@0.3.0`. `int` is the low 32 bits as a signed integer; `float` is the top 53 bits times 2^-53, in `[0, 1)` |
   | `SystemClock` (`now`) | `now` of `wasi:clocks/system-clock@0.3.0`. Unix epoch milliseconds, `seconds * 1000 + nanoseconds / 1_000_000` with the division truncated |
 
+- An `@export(wasm, ...)` written by a user is a compile error with no code: `` exported function `f` has a `wasm` export, which the WASI 0.3 component target does not support yet ``. The entry adapters of the bundled `Std` are exposed by the runtime.
 - `SystemClock.sleep`, `Std.FileSystem` and `Std.Http` are not available on WASM yet.
 
 ## 16.8.4 Constructs not supported yet `[target.wasm.unsupported]`

@@ -154,3 +154,27 @@ void host_sleep(int32_t ms, em_task *task) {
 - When the event loop has no registered waits, only uncompleted `task`s remain, and every fiber has stopped, the continuations are treated as continuations discarded while suspended (14.5).
 - A host function that hands a task to another thread MUST keep the event loop waiting with its own registration (an `em_after` with a long deadline, for example). Tasks held by other threads alone do not keep the launch from being considered stalled (`[target.c.event-loop]`). The registration is removed on completion.
 - The types and the function signatures of `emela.h` can change between versions, like any other API.
+
+## 12.7 Exported functions `[ext.export]`
+
+```emel
+@export(c, "TIM2_IRQHandler")
+pub fn on_tick() -> () { ... }
+
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+```
+
+- `@export` is written on a top-level fn with a body. Its arguments have the form `(target, "name")` or `(target, "interface", "name")`, as for `@external` (12.1). One `@export` is written per target name; a fn MAY have several for the same target. Malformed arguments are E0146.
+- An `@export` fn exposes itself to the host under each name. Each call by the host is one launch, as main is.
+- The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402).
+- An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
+- Two exports with the same name for the same target, from `@export` or `@entry`, are a compile error (E0438).
+- How each target exposes the fn is in `[target.js.module]`, `[target.c.export]` and `[target.wasm.external]`.
+
+## 12.8 Entry adapters `[ext.entry]`
+
+- An `@export` fn whose first parameter has a function type is an entry adapter. An entry adapter is not exposed by itself, and MAY be in any module. Its first parameter need not be a boundary type; the other parameters and the return value are boundary types (E0436).
+- `@entry(T)` is written on a top-level fn `f` of the entry module. `T` names an entry adapter (E0439). `f` MUST be accepted as the first argument of `T` (E0440).
+- For each `@export` of `T`, the program exposes under the same name a fn that takes the remaining parameters of `T` and returns `T(f, ...)`. Each call is one launch.
+- `f` remains an ordinary fn. It can be called, including from tests.
