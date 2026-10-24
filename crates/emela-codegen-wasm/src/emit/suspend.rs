@@ -43,7 +43,11 @@ pub(crate) struct Plan {
     pub(crate) in_word: u32,
     pub(crate) out_mode: u32,
     pub(crate) out_word: u32,
+    /// The outermost operation of the current suspension cascade (see `runtime::async_bridge`).
     pub(crate) pending: u32,
+    /// The innermost active operation, whose implementation the event resumes (see
+    /// `runtime::async_bridge`).
+    pub(crate) sleep_op: u32,
     pub(crate) queue: u32,
     pub(crate) qhead: u32,
     pub(crate) qlen: u32,
@@ -156,6 +160,7 @@ pub(crate) fn reserve(b: &mut Builder<'_>) {
             out_mode: 0,
             out_word: 0,
             pending: 0,
+            sleep_op: 0,
             queue: 0,
             qhead: 0,
             qlen: 0,
@@ -182,7 +187,8 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         b.alloc_static(8), // input word
         b.alloc_static(4), // output mode
         b.alloc_static(8), // output word
-        b.alloc_static(4), // pending perform
+        b.alloc_static(4), // the outermost perform of the current suspension cascade
+        b.alloc_static(4), // the innermost active perform record
         b.alloc_static(QUEUE_ENTRIES * QUEUE_STRIDE),
         b.alloc_static(4), // queue head
         b.alloc_static(4), // queue length
@@ -195,9 +201,9 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "perform".to_owned(),
         show: None,
         // used, phase, where, now mode, now word, caller chain, has caller, sync, impl chain,
-        // inner record
+        // next outer operation
         refs: vec![
-            false, false, true, false, false, true, false, false, true, true,
+            false, false, true, false, false, true, false, false, true, false,
         ],
     });
     let resume_desc = b.desc(DescKey {
@@ -244,10 +250,11 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     plan.out_mode = cells[4];
     plan.out_word = cells[5];
     plan.pending = cells[6];
-    plan.queue = cells[7];
-    plan.qhead = cells[8];
-    plan.qlen = cells[9];
-    plan.sync_depth = cells[10];
+    plan.sleep_op = cells[7];
+    plan.queue = cells[8];
+    plan.qhead = cells[9];
+    plan.qlen = cells[10];
+    plan.sync_depth = cells[11];
     plan.perform_desc = perform_desc;
     plan.resume_desc = resume_desc;
     plan.interrupted = interrupted;

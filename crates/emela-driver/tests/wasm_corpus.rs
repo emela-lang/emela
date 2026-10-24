@@ -61,12 +61,15 @@ const SKIPPED: &[Skipped] = &[
             "suspend_resume",
         ],
     },
-    // This program's `sleep` is a `suspend fn` external and needs a wasm host (a test host, like
-    // `print`) before the program can run. The build stops at the missing host first.
+    // The program's own `sleep` is a custom `suspend fn` external with no WASM host (the
+    // `Std.Clock` host only covers the bundled handler), and its races need fibers.
     Skipped {
-        feature: "sleep host",
-        reason: "the program's `sleep` has no WASM host yet (it calls a `suspend fn` external)",
-        expected_failures: &["external function `sleep` has no `@external` for target `wasm`"],
+        feature: "custom sleep host and fiber",
+        reason: "the program's `sleep` has no WASM host, and its races need fibers",
+        expected_failures: &[
+            "has no `@external` for target `wasm`",
+            "fibers are not supported",
+        ],
         programs: &["suspend_external"],
     },
 ];

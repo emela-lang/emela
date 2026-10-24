@@ -1,5 +1,5 @@
-//! The synchronous WASI 0.3 hosts the bundled `Std` handlers use: Console, Env, Random and
-//! Clock.now. Sleep, the test clock's virtual sleep, the file system and HTTP are not part of
+//! The WASI 0.3 hosts the bundled `Std` handlers use: Console, Env, Random and Clock.now. The
+//! Clock sleeps have their own tests in `tests/clock.rs`; the file system and HTTP are not part of
 //! this target yet.
 
 mod common;
@@ -329,81 +329,66 @@ fn main() {
 }
 
 #[test]
-fn sleep_through_a_function_value_is_diagnosed() {
-    // A closure that really calls `sleep` is followed when the program calls it, so it is a
-    // diagnostic rather than an internal error or a silent success.
-    let errors = to_wasm(
+fn a_file_system_call_through_a_function_value_is_diagnosed() {
+    // A closure that really calls a `suspend fn` external without a `wasm` host is followed when
+    // the program calls it, so it is a diagnostic rather than an internal error or a silent
+    // success.
+    assert_host_call_is_diagnosed(
         r#"
-import Std.Clock.{Clock, SystemClock}
+import Std.FileSystem.{FileSystem, SystemFileSystem}
 
 fn main() {
-  with SystemClock {
-    nap = fn() { (use Clock).sleep(1) }
-    nap()
+  with SystemFileSystem {
+    look = fn() { (use FileSystem).exists("notes.txt") }
+    dbg(look())
   }
 }
 "#,
-    )
-    .expect_err("a called closure that sleeps must not compile");
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("sleep") && error.message.contains("suspend")),
-        "{errors:#?}"
     );
 }
 
 #[test]
-fn sleep_is_still_an_unsupported_external() {
-    // Clock.sleep is not implemented for this target, so reaching it is a diagnostic rather than
-    // a component that traps at run time.
-    let errors = to_wasm(
+fn a_file_system_call_is_an_unsupported_external() {
+    // The file system has no WASI 0.3 host on this target yet, so reaching it is a diagnostic
+    // rather than a component that traps at run time.
+    assert_host_call_is_diagnosed(
         r#"
-import Std.Clock.{Clock, SystemClock}
+import Std.FileSystem.{FileSystem, SystemFileSystem}
 
 fn main() {
-  with SystemClock {
-    (use Clock).sleep(1)
+  with SystemFileSystem {
+    dbg((use FileSystem).exists("notes.txt"))
   }
 }
 "#,
-    )
-    .expect_err("sleep must not compile");
+    );
+}
+
+/// Asserts that `src` is rejected because it reaches `Std.FileSystem`'s `exists` host.
+fn assert_host_call_is_diagnosed(src: &str) {
+    let errors = to_wasm(src).expect_err("a reachable file system call must not compile");
     assert!(
         errors.iter().any(|error| {
-            error.message.contains("sleep")
-                && (error.message.contains("`suspend fn` external")
-                    || error.message.contains("`wasm` import"))
+            error.message.contains("host_exists") && error.message.contains("`suspend fn` external")
         }),
         "{errors:#?}"
     );
 }
 
-/// Asserts that `src` is rejected because it reaches `sleep`.
-fn assert_sleep_is_diagnosed(src: &str) {
-    let errors = to_wasm(src).expect_err("a reachable sleep must not compile");
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("sleep") && error.message.contains("suspend")),
-        "{errors:#?}"
-    );
-}
-
 #[test]
-fn sleep_in_a_closure_passed_to_a_function_is_diagnosed() {
-    assert_sleep_is_diagnosed(
+fn a_file_system_call_in_a_closure_passed_to_a_function_is_diagnosed() {
+    assert_host_call_is_diagnosed(
         r#"
-import Std.Clock.{Clock, SystemClock}
+import Std.FileSystem.{FileSystem, SystemFileSystem}
 
-fn twice(f: fn() -> ()) {
-  f()
-  f()
+fn twice(f: fn() -> Bool) {
+  dbg(f())
+  dbg(f())
 }
 
 fn main() {
-  with SystemClock {
-    twice(fn() { (use Clock).sleep(1) })
+  with SystemFileSystem {
+    twice(fn() { (use FileSystem).exists("notes.txt") })
   }
 }
 "#,
@@ -411,16 +396,16 @@ fn main() {
 }
 
 #[test]
-fn sleep_in_a_captured_closure_is_diagnosed() {
-    assert_sleep_is_diagnosed(
+fn a_file_system_call_in_a_captured_closure_is_diagnosed() {
+    assert_host_call_is_diagnosed(
         r#"
-import Std.Clock.{Clock, SystemClock}
+import Std.FileSystem.{FileSystem, SystemFileSystem}
 
 fn main() {
-  with SystemClock {
-    nap = fn() { (use Clock).sleep(1) }
-    outer = fn() { nap() }
-    outer()
+  with SystemFileSystem {
+    look = fn() { (use FileSystem).exists("notes.txt") }
+    outer = fn() { look() }
+    dbg(outer())
   }
 }
 "#,

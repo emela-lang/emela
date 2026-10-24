@@ -1,8 +1,8 @@
 //! Suspending programs: in-place resumes, the values `resume` carries, a dropped continuation
 //! and a second resume (spec 8.4, 8.7, 14.5). Skipped without `wasmtime`.
 //!
-//! Fibers and a host callback for `suspend fn` external functions are not implemented yet, so
-//! nothing can resume a continuation *later*; a continuation that suspended is unwound as
+//! Fibers are not implemented yet; the only host that resumes a continuation later is
+//! `Std.Clock.sleep` (see `tests/clock.rs`). A continuation that nothing can resume is unwound as
 //! interrupted, which runs its `with` releases.
 
 mod common;
