@@ -113,3 +113,41 @@ fn main() {
         assert_eq!(about[0].kind, WasmErrorKind::Unsupported);
     }
 }
+
+#[test]
+fn the_scheduler_hook_is_not_a_user_host() {
+    // `emela:runtime/scheduler@0.1.0`/`when-stalled` is the bundled TestClock's idle hook, not a
+    // WIT import. The runtime implements it only for the bundled declaration, so a program's own
+    // binding to the same name is an unsupported `wasm` import, reported once.
+    let Err(errors) = to_wasm(
+        r#"
+@external(wasm, "emela:runtime/scheduler@0.1.0", "when-stalled")
+suspend fn poke(at: Int64) -> ()
+
+effect Hook {
+  suspend fn stall() -> ()
+}
+
+handler Hooked: Hook {
+  suspend fn stall(resume) {
+    poke(Int64.from_int(5))
+    resume(())
+  }
+}
+
+fn main() {
+  with Hooked {
+    (use Hook).stall()
+  }
+}
+"#,
+    ) else {
+        panic!("a user binding to the scheduler hook must not compile");
+    };
+    let about: Vec<_> = errors
+        .iter()
+        .filter(|error| error.message.contains("`poke`"))
+        .collect();
+    assert_eq!(about.len(), 1, "{errors:#?}");
+    assert_eq!(about[0].kind, WasmErrorKind::Unsupported);
+}
