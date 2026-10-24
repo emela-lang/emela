@@ -1,7 +1,7 @@
 ---
 title: Show where a test failed
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 413
 issue:
 decided: 2026-10-24

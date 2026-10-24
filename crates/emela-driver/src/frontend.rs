@@ -509,9 +509,19 @@ pub(crate) fn lower_typed(
     }
     let mut sources = ArenaMap::default();
     let mut paths = ArenaMap::default();
+    let mut shown_paths = ArenaMap::default();
     for (module, &file) in analysis.files.iter() {
-        sources.insert(module, analysis.sources[file].text());
-        paths.insert(module, analysis.sources[file].path());
+        let source = &analysis.sources[file];
+        sources.insert(module, source.text());
+        paths.insert(module, source.path());
+        shown_paths.insert(
+            module,
+            analysis
+                .sources
+                .display_path(source.path())
+                .display()
+                .to_string(),
+        );
     }
     let input = emela_core::LowerInput {
         hir: &typed.hir,
@@ -521,6 +531,7 @@ pub(crate) fn lower_typed(
         entry,
         tests: typed.tests.iter().map(|t| t.def).collect(),
         paths,
+        shown_paths,
         bundled_files: emela_core::bundled_files(),
         target: Some(target.name()),
     };

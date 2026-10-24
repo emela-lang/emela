@@ -117,6 +117,10 @@ pub enum Builtin {
     /// Prints the String as it is on one line to stderr. What `dbg` becomes for a value shown
     /// through its Show impl (spec 10.6). The value is `()`.
     DebugPrint,
+    /// `(message, location)`: the defect of a failed assert, with the location of the assert
+    /// expression outside the message (`[test.assert]`). What monomorphization makes of an assert
+    /// whose sides are shown through a written Show impl. The location is a string literal.
+    AssertFail,
 }
 
 /// `@intrinsic` declarations (module name, function name) that lowering maps as runtime handlers.
@@ -349,6 +353,7 @@ impl Builtin {
                 pure: false,
                 ..info(Some("$Debug"), "print", &[String], Unit)
             },
+            Builtin::AssertFail => info(Some("$Assert"), "fail", &[String, String], Never),
         }
     }
 

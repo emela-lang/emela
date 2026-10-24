@@ -250,7 +250,7 @@ const FAILING: &[(&str, &str)] = &[
     ),
 ];
 
-const AGENT_OUTPUT: &str = "FAIL adds_wrong\n\
+const AGENT_OUTPUT: &str = "FAIL adds_wrong src/main.emel:8:3\n\
     defect: assertion failed: 1 + 2 == 4\n  left: 3\n right: 4\n\
     \n\
     test result: FAILED. 1 passed; 1 failed; 0 filtered out\n";

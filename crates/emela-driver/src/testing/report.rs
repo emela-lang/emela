@@ -11,6 +11,9 @@ pub const TEST_FAILURE_EXIT_CODE: u8 = 1;
 pub struct TestResult {
     pub name: String,
     pub outcome: TestOutcome,
+    /// Where the failure happened, as `<path>:<line>:<column>`: only a defect from a failed
+    /// assert has one (`[cmd.test.outcome]`).
+    pub location: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -214,13 +217,17 @@ impl<'a> Display<'a> {
         let _ = self.out.flush();
     }
 
-    /// `FAIL <name>`, the details, and what the test wrote to stdout.
+    /// `FAIL <name>` (with ` <location>` when the failure has one), the details, and what the test
+    /// wrote to stdout.
     fn write_agent_failure(&mut self, result: &TestResult, output: &[u8]) -> io::Result<()> {
         if self.failures > 0 {
             writeln!(self.out)?;
         }
         self.failures += 1;
-        writeln!(self.out, "FAIL {}", result.name)?;
+        match &result.location {
+            Some(location) => writeln!(self.out, "FAIL {} {location}", result.name)?,
+            None => writeln!(self.out, "FAIL {}", result.name)?,
+        }
         write_details(self.out, &result.outcome)?;
         self.out.write_all(output)?;
         if !output.is_empty() && !output.ends_with(b"\n") {
@@ -246,6 +253,10 @@ impl<'a> Display<'a> {
         for failure in report.results.iter().filter(|r| !r.outcome.is_passed()) {
             let heading = self.paint(RED, &format!("──── FAIL  {} ────", failure.name));
             writeln!(self.out, "\n{heading}")?;
+            if let Some(location) = &failure.location {
+                let location = self.paint(DIM, location);
+                writeln!(self.out, " --> {location}")?;
+            }
             match &failure.outcome {
                 TestOutcome::Defect(message) => self.write_pretty_defect(message)?,
                 outcome => write_details(self.out, outcome)?,
@@ -373,6 +384,9 @@ fn write_summary(out: &mut dyn Write, report: &TestReport) -> io::Result<()> {
         writeln!(out, "\nfailures:")?;
         for failure in &failures {
             writeln!(out, "\n---- {} ----", failure.name)?;
+            if let Some(location) = &failure.location {
+                writeln!(out, " --> {location}")?;
+            }
             write_details(out, &failure.outcome)?;
         }
         writeln!(out, "\nfailures:")?;

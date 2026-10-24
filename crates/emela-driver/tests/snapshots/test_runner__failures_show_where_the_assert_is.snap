@@ -1,0 +1,94 @@
+---
+source: crates/emela-driver/tests/test_runner.rs
+expression: out
+---
+running 12 tests
+test compares ... FAILED
+test not_a_comparison ... FAILED
+test through_written_show ... FAILED
+test through_ord ... FAILED
+test without_show ... FAILED
+test in_a_generic_function ... FAILED
+test after_wide_characters ... FAILED
+test panics ... FAILED
+test passes ... ok
+test release_fails_too ... FAILED
+test in_a_const ... FAILED
+test Util.in_util ... FAILED
+
+failures:
+
+---- compares ----
+ --> src/main.emel:36:3
+defect: assertion failed: 1 + 1 == 3
+  left: 2
+ right: 3
+
+---- not_a_comparison ----
+ --> src/main.emel:41:3
+defect: assertion failed: False
+
+---- through_written_show ----
+ --> src/main.emel:46:3
+defect: assertion failed: Name(value: "a") == Name(value: "b")
+  left: <a>
+ right: <b>
+
+---- through_ord ----
+ --> src/main.emel:51:3
+defect: assertion failed: Version(major: 2, minor: 0) < Version(major: 1, minor: 0)
+  left: Version(major: 2, minor: 0)
+ right: Version(major: 1, minor: 0)
+
+---- without_show ----
+ --> src/main.emel:56:3
+defect: assertion failed: Hidden(n: 1) == Hidden(n: 2)
+
+---- in_a_generic_function ----
+ --> src/main.emel:15:36
+defect: assertion failed: a == b
+  left: [1]
+ right: [2]
+
+---- after_wide_characters ----
+ --> src/main.emel:66:20
+defect: assertion failed: "日本語" == "英語"
+  left: "日本語"
+ right: "英語"
+
+---- panics ----
+defect: boom
+
+---- release_fails_too ----
+ --> src/main.emel:81:16
+defect: assertion failed: (use Res).get() == 2
+  left: 1
+ right: 2
+note: the release of handler Leaky also failed: release failed
+
+---- in_a_const ----
+ --> src/main.emel:30:3
+defect: while evaluating const LIMIT: assertion failed: 1 > 2
+  left: 1
+ right: 2
+
+---- Util.in_util ----
+ --> src/util.emel:3:3
+defect: assertion failed: List.length([1]) == 2
+  left: 1
+ right: 2
+
+failures:
+    compares
+    not_a_comparison
+    through_written_show
+    through_ord
+    without_show
+    in_a_generic_function
+    after_wide_characters
+    panics
+    release_fails_too
+    in_a_const
+    Util.in_util
+
+test result: FAILED. 1 passed; 11 failed; 0 filtered out

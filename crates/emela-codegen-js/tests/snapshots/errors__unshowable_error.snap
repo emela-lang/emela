@@ -10,10 +10,13 @@ expression: js
 // When inlined, the leading `export ` of each line is stripped, so write `export` only at the start of a line.
 
 // A defect (spec 16.5). An unrecoverable error, thrown with its own class.
+// `location` is where a failed assert is (`path:line:column`, spec 13.2), kept outside the message for the test
+// runner; undefined for other defects.
 class $Defect extends Error {
-  constructor(message) {
+  constructor(message, location) {
     super(message);
     this.name = "Defect";
+    if (location !== undefined) this.location = location;
   }
 }
 
@@ -53,7 +56,8 @@ function $constant(cell, name, init) {
       cell.state = 0;
       throw error;
     }
-    const defect = new $Defect(`while evaluating const ${name}: ${error.message}`);
+    // The remembered defect keeps the location of a failed assert.
+    const defect = new $Defect(`while evaluating const ${name}: ${error.message}`, error.location);
     cell.value = defect;
     cell.state = 3;
     throw defect;
@@ -999,15 +1003,21 @@ function $retire(handler, name) {
   for (const key of Object.keys(handler)) Object.defineProperty(handler, key, { value: used });
 }
 
-// A failed assert (spec 13.2). `text` is the source text of the expression and may be empty.
-function $assertFail(text) {
-  throw new $Defect(text === "" ? "assertion failed" : `assertion failed: ${text}`);
+// A failed assert (spec 13.2). `text` is the source text of the expression and may be empty. `location` is where the
+// assert is, or undefined.
+function $assertFail(text, location) {
+  throw new $Defect(text === "" ? "assertion failed" : `assertion failed: ${text}`, location);
 }
 
 // A failed comparison assert. Both sides are received as displayed strings (displayed only on failure).
-function $assertCmp(text, op, left, right) {
+function $assertCmp(text, op, left, right, location) {
   const head = text === "" ? `left ${op} right` : text;
-  throw new $Defect(`assertion failed: ${head}\n  left: ${left}\n right: ${right}`);
+  throw new $Defect(`assertion failed: ${head}\n  left: ${left}\n right: ${right}`, location);
+}
+
+// A failed assert whose message was built by the caller (sides shown through a written Show impl).
+function $assertDefect(message, location) {
+  throw new $Defect(message, location);
 }
 
 // Division and remainder on Int (32-bit). Truncates toward zero; the remainder takes the sign of the dividend.

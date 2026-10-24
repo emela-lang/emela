@@ -462,6 +462,36 @@ fn main() {
 "#,
     ),
     (
+        // A failed assert that reaches main shows no location (`[cmd.test.outcome]`), also when
+        // a release adds a note or a const remembers the defect.
+        "assert_in_main",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler Leaky: Pool {
+  init { Leaky }
+  release { panic("release failed") }
+  fn get() { 1 }
+}
+
+const LIMIT: Int = limit()
+
+fn limit() -> Int {
+  assert 1 > 2
+  3
+}
+
+fn main() {
+  dbg(1)
+  with Leaky {
+    if (use Pool).get() == 1 { assert LIMIT == 3 }
+  }
+}
+"#,
+    ),
+    (
         "options",
         "fn main() {\n  dbg(Int.checked_add(1, 2))\n  dbg(Int.checked_add(2147483647, 1))\n  dbg(Int.checked_add(-2147483647, -2))\n  dbg(String.from_code_point(65))\n  dbg(String.from_code_point(8364))\n  dbg(String.from_code_point(55296))\n  dbg(Int.parse(\"42\"))\n}\n",
     ),

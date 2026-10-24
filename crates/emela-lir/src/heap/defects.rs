@@ -111,6 +111,7 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::FloatTruncate
         | Builtin::Panic
         | Builtin::Todo
+        | Builtin::AssertFail
         // Target c splits by grapheme clusters only ASCII text so far, and an empty separator
         // that turns up at run time on other text is a defect there.
         | Builtin::StringSplit => true,
@@ -265,7 +266,7 @@ fn analyse(m: &Module) -> Vec<bool> {
                 v => raises |= may_defect_without_flags(v),
             },
             Some(_) => {}
-            None => raises |= matches!(term, Term::Defect(_) | Term::Unwind),
+            None => raises |= matches!(term, Term::Defect(..) | Term::Unwind),
         });
         flags[i] = raises;
     }
@@ -456,9 +457,16 @@ impl<'a> Explicit<'a> {
                 Term::Break { label, value }
             }
             Term::Recur(args) => Term::Recur(self.c.operands(out, args)),
-            Term::Defect(msg) => {
+            Term::Defect(msg, at) => {
                 let msg = self.c.operand(out, msg);
-                self.runtime(stmts, RuntimeOp::Defect, vec![msg]);
+                match at {
+                    Some(at) => self.runtime(
+                        stmts,
+                        RuntimeOp::DefectAt,
+                        vec![msg, Const::String(at.clone()).into()],
+                    ),
+                    None => self.runtime(stmts, RuntimeOp::Defect, vec![msg]),
+                }
                 self.exit(0, true, stmts);
                 Term::Unwind
             }

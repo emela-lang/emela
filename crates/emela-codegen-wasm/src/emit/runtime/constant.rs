@@ -11,7 +11,8 @@
 //! or 3 (the defect). References keep their own count: the cell owns one and each use gets a
 //! duplicate.
 //!
-//! The self-reference message has 1 in its `aux` word. The marker travels with the defect
+//! The self-reference message has 1 in its `aux` word (bit 0; the bits above it are the location
+//! of a failed assert, see `defect`). The marker travels with the defect
 //! (`defect_take`, a release note and `defect_resume` all keep the string), unlike a global flag:
 //! nested cleanups can take and restore several defects.
 
@@ -94,6 +95,8 @@ fn const_leave(b: &mut Builder, ins: &mut InstructionSink) {
     // The marker is the defect string's `aux` word (see the module comment).
     ins.global_get(G_DEFECT);
     ins.i32_load(mem(4, 4));
+    ins.i32_const(1);
+    ins.i32_and();
     ins.if_(BlockType::Empty);
     ins.local_get(0);
     ins.i32_const(0);
@@ -107,6 +110,11 @@ fn const_leave(b: &mut Builder, ins: &mut InstructionSink) {
     let append = rt(b, "str_append");
     ins.call(append);
     ins.local_set(NEW);
+    // The remembered defect keeps the location of a failed assert (`aux`).
+    ins.local_get(NEW);
+    ins.global_get(G_DEFECT);
+    ins.i32_load(mem(4, 4));
+    ins.i32_store(mem(4, 4));
     ins.global_get(G_DEFECT);
     let drop = rt(b, "drop");
     ins.call(drop);

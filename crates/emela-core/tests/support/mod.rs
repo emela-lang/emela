@@ -87,6 +87,12 @@ pub fn try_lower_with(
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
     assert!(types.diags.is_empty(), "{:?}", types.diags);
+    // The files under `src`, as diagnostics would show them (the bundled sources have none).
+    let shown_paths = modules
+        .iter()
+        .filter(|(_, m)| m.file.starts_with("src"))
+        .map(|(id, m)| (id, m.file.display().to_string()))
+        .collect();
     let input = LowerInput {
         hir: &program,
         types: &types,
@@ -95,6 +101,7 @@ pub fn try_lower_with(
         entry: Some(entry),
         tests: Vec::new(),
         paths: Default::default(),
+        shown_paths,
         bundled_files,
         target: None,
     };
