@@ -438,14 +438,17 @@ impl Diagnostic {
                 )),
                 span,
             ),
-            emela_core::LowerError::ConstrainedExport { name, param, span } => (
+            emela_core::LowerError::SuspendingExport { name, span } => (
                 Diagnostic::error(format!(
-                    "cannot export `{name}`: its type parameter `{param}` has a trait bound"
+                    "exported function `{name}` may suspend, which target `c` does not support"
                 ))
-                .with_code(code::CONSTRAINED_EXPORT)
-                .with_help(
-                    "make a `pub` fn that calls it with concrete types, and export that instead",
-                ),
+                .with_code(code::SUSPENDING_EXPORT),
+                span,
+            ),
+            emela_core::LowerError::WasmExport { name, span } => (
+                Diagnostic::error(format!(
+                    "exported function `{name}` has a `wasm` export, which the WASI 0.3 component target does not support yet"
+                )),
                 span,
             ),
             emela_core::LowerError::MissingCoreFile { path, span } => (
@@ -699,6 +702,43 @@ impl Diagnostic {
                 Some(code::UNUSED_LABEL_PROVIDER),
                 format!("label `{label}` is listed here but never used"),
             ),
+            TypeDiagnosticKind::ExportOutsideEntry { attr } => (
+                Severity::Error,
+                Some(code::EXPORT_OUTSIDE_ENTRY),
+                format!("`@{attr}` is only allowed in the entry module"),
+            ),
+            TypeDiagnosticKind::NotEntryAdapter { name } => (
+                Severity::Error,
+                Some(code::NOT_ENTRY_ADAPTER),
+                match name {
+                    Some(name) => format!("`{name}` is not an entry adapter"),
+                    None => "the argument of `@entry` must name an entry adapter".to_owned(),
+                },
+            ),
+            TypeDiagnosticKind::DuplicateExport { name, target } => (
+                Severity::Error,
+                Some(code::DUPLICATE_EXPORT),
+                format!("`{name}` is exported twice for target `{target}`"),
+            ),
+            TypeDiagnosticKind::NotBoundary { function, ty, ret } => (
+                Severity::Error,
+                Some(code::NOT_BOUNDARY_EXPORT),
+                if *ret {
+                    format!("exported function `{function}` cannot return `{ty}`")
+                } else {
+                    format!("exported function `{function}` cannot take `{ty}`")
+                },
+            ),
+            TypeDiagnosticKind::ExportFails { function, errors } => (
+                Severity::Error,
+                Some(code::UNHANDLED_EFFECTS),
+                format!("exported function `{function}` cannot fail with `{errors}`"),
+            ),
+            TypeDiagnosticKind::EntryMismatch { entry, adapter } => (
+                Severity::Error,
+                Some(code::ENTRY_MISMATCH),
+                format!("`{entry}` does not fit `{adapter}`"),
+            ),
             TypeDiagnosticKind::UnknownOperation { effect, op } => (
                 Severity::Error,
                 Some(code::UNKNOWN_OPERATION),
@@ -737,6 +777,13 @@ impl Diagnostic {
                             None => "provide it with `with`".to_owned(),
                         });
                         format!("{list} {verb} not provided in `main`")
+                    }
+                    EffectContext::Export { name } => {
+                        help = Some(match scope {
+                            Some(scope) => format!("provide it with `with` outside `{scope}`"),
+                            None => "provide it with `with`".to_owned(),
+                        });
+                        format!("{list} {verb} not provided in exported function `{name}`")
                     }
                     EffectContext::Test { name } => {
                         help = Some(match scope {

@@ -1,0 +1,53 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "export_diagnostics(&[(\"home/main.emel\",\nr#\"import Util\n\n@export(js, \"add\")\n@export(js, \"default\", \"add\")\npub fn add(a: Int, b: Int) -> Int { a + b }\n\n@export(js, \"add\")\n@export(c, \"add\")\npub fn add_again(a: Int, b: Int) -> Int { a + b }\n\n@entry(Util.serve)\nfn app(x: Int) -> Int { x }\n\n@entry(Util.serve)\nfn app_again(x: Int) -> Int { x }\n\n@entry(Util.helper)\nfn not_adapter(x: Int) -> Int { x }\n\n@entry\nfn no_name(x: Int) -> Int { x }\n\nfn main() {}\n\"#,),\n(\"home/util.emel\",\nr#\"@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }\n\n@export(js, \"helper\")\npub fn helper(x: Int) -> Int { x }\n\n@entry(serve)\npub fn misplaced(x: Int) -> Int { x }\n\"#,),])"
+---
+error[E0438]: `add` is exported twice for target `js`
+   ╭─[ main.emel:7:1 ]
+   │
+ 7 │ @export(js, "add")
+   │ ─────────┬────────  
+   │          ╰────────── 
+───╯
+
+error[E0438]: `fetch` is exported twice for target `js`
+    ╭─[ main.emel:14:1 ]
+    │
+ 14 │ @entry(Util.serve)
+    │ ─────────┬────────  
+    │          ╰────────── 
+────╯
+
+error[E0439]: `Util.helper` is not an entry adapter
+    ╭─[ main.emel:17:1 ]
+    │
+ 17 │ @entry(Util.helper)
+    │ ─────────┬─────────  
+    │          ╰─────────── 
+────╯
+
+error[E0439]: the argument of `@entry` must name an entry adapter
+    ╭─[ main.emel:20:1 ]
+    │
+ 20 │ @entry
+    │ ───┬──  
+    │    ╰──── 
+────╯
+
+error[E0437]: `@export` is only allowed in the entry module
+   ╭─[ util.emel:4:1 ]
+   │
+ 4 │ @export(js, "helper")
+   │ ──────────┬──────────  
+   │           ╰──────────── 
+───╯
+
+error[E0437]: `@entry` is only allowed in the entry module
+   ╭─[ util.emel:7:1 ]
+   │
+ 7 │ @entry(serve)
+   │ ──────┬──────  
+   │       ╰──────── 
+───╯
+
+6 errors

@@ -355,7 +355,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<TypedProgram> {
         self.entry_main = None;
         let resolved = self.resolve.check(analysis, order);
-        let Some(hir) = resolved.program else {
+        let Some(mut hir) = resolved.program else {
             return Checked {
                 program: None,
                 diagnostics: resolved.diagnostics,
@@ -383,7 +383,10 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
             main,
             tests: tests.iter().map(|t| t.def).collect(),
         };
-        let types = check_program_with(&hir, &options);
+        // The exports `@entry` makes are fns that type checking infers (`[ext.entry]`).
+        let export_diagnostics = emela_types::add_entry_exports(&mut hir, analysis.entry);
+        let mut types = check_program_with(&hir, &options);
+        types.diags.extend(export_diagnostics);
         // Inference proceeds in call order, so sort by file and position like name resolution.
         let mut type_diagnostics: Vec<Diagnostic> = types
             .diags

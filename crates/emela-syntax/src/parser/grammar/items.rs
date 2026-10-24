@@ -147,7 +147,10 @@ fn decl(p: &mut Parser<'_>, m: Marker) {
 
 /// `"@" lower_name [ "(" annot_arg { "," annot_arg } ")" ]`
 ///
-/// `annot_arg = lower_name | literal | lower_name ":" literal`
+/// `annot_arg = lower_name | literal | lower_name ":" literal | qualified`
+///
+/// `qualified = type_name { "." type_name } "." lower_name`. Validation checks that only `@entry`
+/// takes one.
 ///
 /// Returns `true` if there is a name. Without one, the caller should not add more diagnostics.
 pub(crate) fn annotation(p: &mut Parser<'_>) -> bool {
@@ -163,6 +166,8 @@ pub(crate) fn annotation(p: &mut Parser<'_>) -> bool {
                 if p.eat(COLON) {
                     annot_literal(p);
                 }
+            } else if p.at(TYPE_NAME) {
+                annot_path(p);
             } else {
                 annot_literal(p);
             }
@@ -172,6 +177,28 @@ pub(crate) fn annotation(p: &mut Parser<'_>) -> bool {
     }
     m.complete(p, ANNOTATION);
     named
+}
+
+/// `Http.Server.serve`: type names joined by `.`, then a lower name.
+fn annot_path(p: &mut Parser<'_>) {
+    let m = p.start();
+    p.bump_kind(TYPE_NAME);
+    loop {
+        if !p.at(DOT) {
+            p.error(
+                DiagnosticCode::ExpectedToken,
+                "expected `.` and a function name after the module path",
+            );
+            break;
+        }
+        p.bump();
+        if p.eat(TYPE_NAME) {
+            continue;
+        }
+        p.expect(LOWER_NAME);
+        break;
+    }
+    m.complete(p, ANNOT_PATH);
 }
 
 fn annot_literal(p: &mut Parser<'_>) {

@@ -58,6 +58,7 @@ impl Mono<'_> {
         let new = self.out.functions.alloc(Function {
             name,
             exported: false,
+            host_exports: Vec::new(),
             params,
             ret,
             type_params: 0,

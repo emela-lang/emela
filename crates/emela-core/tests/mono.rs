@@ -192,33 +192,25 @@ fn main() {
     ));
 }
 
-/// An exported generic function (a `pub` fn of the entry, exported to JS) is instantiated at `Any`
-/// under its own name, its set type parameters as sets that fail and need the evidence table.
+/// An exported fn with a type parameter that its boundary types do not use is instantiated at
+/// `Any` under its own name.
 #[test]
 fn generic_exports_are_instantiated_at_any() {
     let m = mono(&lower_files(&[(
         "main.emel",
         "\
-pub fn apply[A, B](x: A, f: fn(A) -> B) -> B {
-  f(x)
-}
-
-pub fn firsts[A, B](xs: List[(A, B)]) -> List[A] {
-  List.map(xs, fn(p) {
-    (a, _) = p
-    a
-  })
+@export(js, \"count\")
+pub fn count[A](n: Int) -> Int {
+  xs: List[A] = []
+  n + List.length(xs)
 }
 
 fn main() {
-  dbg(apply(1, fn(n) { n + 1 }))
+  dbg(count(1))
 }
 ",
     )]));
-    insta::assert_snapshot!(parts(
-        &m,
-        &["fn main(", "fn apply", "fn firsts", "fn List.map["]
-    ));
+    insta::assert_snapshot!(parts(&m, &["fn main(", "fn count"]));
 }
 
 /// Build, run and test hand monomorphized IR to the C and WASM pipelines, which monomorphize it
