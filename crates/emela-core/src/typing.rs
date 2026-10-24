@@ -380,7 +380,7 @@ impl<'a> Typer<'a> {
                 self.intern(Type::Enum(kind, args))
             }
             FiberOp::CauseToString => TypeId::STRING,
-            FiberOp::CauseRaise => TypeId::NEVER,
+            FiberOp::CauseRaise { .. } => TypeId::NEVER,
         }
     }
 

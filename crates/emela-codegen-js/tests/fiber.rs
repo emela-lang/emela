@@ -787,7 +787,7 @@ fn attempt_turns_failures_into_values() {
         m.local("cause", k.cause_ty()),
     );
     let raised = escape(
-        fiber(FiberOp::CauseRaise, vec![var(cause)]),
+        fiber(FiberOp::CauseRaise { fails: true }, vec![var(cause)]),
         vec![arm(p_ctor(k.oops, vec![]), k.log("caught Oops"))],
     );
     let failure = CtorRef {

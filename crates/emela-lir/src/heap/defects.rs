@@ -164,7 +164,7 @@ pub fn fiber_may_defect(op: FiberOp) -> bool {
         | FiberOp::Await { .. }
         | FiberOp::Interrupt
         | FiberOp::DeferredAwait
-        | FiberOp::CauseRaise
+        | FiberOp::CauseRaise { .. }
         // A scope, handle or Deferred used after its scope ended (spec 11.8).
         | FiberOp::Fork
         | FiberOp::Deferred

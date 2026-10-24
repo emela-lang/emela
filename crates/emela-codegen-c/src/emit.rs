@@ -1182,7 +1182,7 @@ impl<'m> Emitter<'m> {
             FiberOp::CauseToString => {
                 Self::assign(cx, dst, &call("em_cause_to_string", &a[..1]));
             }
-            FiberOp::CauseRaise => cx.w.stmt(&call("em_cause_raise", &a[..1])),
+            FiberOp::CauseRaise { .. } => cx.w.stmt(&call("em_cause_raise", &a[..1])),
         }
     }
 

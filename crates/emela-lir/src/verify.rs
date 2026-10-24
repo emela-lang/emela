@@ -1216,7 +1216,7 @@ impl Checker<'_> {
                     }
                     FiberOp::CauseKind { kind } => Expect::Exactly(enum_repr(self.core, kind)),
                     FiberOp::Complete => Expect::Exactly(Repr::I32),
-                    FiberOp::Interrupt | FiberOp::CauseRaise => Expect::Exactly(Repr::Void),
+                    FiberOp::Interrupt | FiberOp::CauseRaise { .. } => Expect::Exactly(Repr::Void),
                     FiberOp::Scope { .. } | FiberOp::Join | FiberOp::DeferredAwait => {
                         Expect::Unknown
                     }

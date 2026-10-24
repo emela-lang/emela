@@ -1220,12 +1220,15 @@ impl<'s> Lower<'s> {
             ops.push(v.op.unwrap_or(Operand::Const(Const::Unit)));
         }
         let ty = self.fiber_result(op, first);
-        // A scope's `fails` over-approximates a set type argument that monomorphisation made
-        // empty. When its failure would leave a body that cannot fail, the types say it cannot
-        // fail.
+        // The `fails` of a scope and of `Cause.raise` over-approximates a set type argument that
+        // monomorphisation made empty. When their failure would leave a body that cannot fail,
+        // the types say it cannot fail (the raised cause is then a `Cause[{}]`).
         let op = match op {
             FiberOp::Scope { fails: true } if !self.fails && self.fail.is_empty() => {
                 FiberOp::Scope { fails: false }
+            }
+            FiberOp::CauseRaise { fails: true } if !self.fails && self.fail.is_empty() => {
+                FiberOp::CauseRaise { fails: false }
             }
             op => op,
         };
@@ -1285,7 +1288,7 @@ impl<'s> Lower<'s> {
                 self.intern(Type::Enum(kind, args))
             }
             FiberOp::CauseToString => TypeId::STRING,
-            FiberOp::CauseRaise => TypeId::NEVER,
+            FiberOp::CauseRaise { .. } => TypeId::NEVER,
         }
     }
 

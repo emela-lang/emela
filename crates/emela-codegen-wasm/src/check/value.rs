@@ -28,6 +28,6 @@ fn fiber_name(op: emela_core::FiberOp) -> &'static str {
         Poll => "Deferred.poll",
         CauseKind { .. } => "Cause.kind",
         CauseToString => "Cause.to_string",
-        CauseRaise => "Cause.raise",
+        CauseRaise { .. } => "Cause.raise",
     }
 }
