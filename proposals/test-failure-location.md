@@ -1,5 +1,5 @@
 ---
-title: テストの失敗に，失敗した場所を出す
+title: Show where a test failed
 authors: [Alliana]
 status: draft
 pr: 413
@@ -10,15 +10,15 @@ requires: []
 related: []
 ---
 
-# テストの失敗に，失敗した場所を出す
+# Show where a test failed
 
 ## Summary
 
-assert が失敗してできた defect に，その assert 式のソース上の場所（パスと行と桁）を持たせる．`emela test` は失敗の詳細にその場所を出す．
+A defect from a failed assert carries the source location of the assert expression (the path, the line and the column). `emela test` shows that location in the details of the failure.
 
 ## Motivation
 
-今の失敗の詳細（`[cmd.test.outcome]`）は，defect のメッセージだけを出す．
+The details of a failure (`[cmd.test.outcome]`) show only the message of the defect.
 
 ```
 ---- adds_wrong ----
@@ -27,18 +27,18 @@ defect: assertion failed: add(1, 2) == 4
  right: 4
 ```
 
-どのファイルの何行目の assert が失敗したかが出ない．
+They do not show which assert, in which file and on which line, failed.
 
-- 人は，式の字面（`add(1, 2) == 4`）でソースを検索して場所を探す．同じ字面の assert が複数あると，どれかが分からない．
-- エージェントは，失敗を直す前にまずソースを検索する．その分のやりとりとコンテキストを使う．
-- 診断（`[diag]`）は場所をコードフレームで示すのに，テストの失敗は示さない．
+- A person finds the location by searching the source for the text of the expression (`add(1, 2) == 4`). When several asserts have the same text, the search does not tell which one failed.
+- A coding agent searches the source before it can fix the failure, which costs turns and context.
+- Diagnostics (`[diag]`) show their location with a code frame; test failures do not.
 
-assert の場所はコンパイル時に決まっている．assert のメッセージ（`assertion failed: <source text>`）もコンパイル時に組み立てている（`[test.assert]`）．場所を足すのに実行時の追跡は要らない．
+The location of an assert is known at compile time. The message of an assert (`assertion failed: <source text>`) is also built at compile time (`[test.assert]`). Adding the location needs no tracking at run time.
 
 ## Proposal
 
-- assert が失敗してできた defect は，その assert 式の場所を持つ．
-- `emela test` は，場所を持つ失敗の詳細に場所を出す．`plain` では `---- <name> ----` の次の行に ` --> <path>:<line>:<column>` を出す．
+- A defect from a failed assert has the location of the assert expression.
+- `emela test` shows the location in the details of a failure that has one. In `plain`, the line ` --> <path>:<line>:<column>` follows the line `---- <name> ----`.
 
 ```
 ---- adds_wrong ----
@@ -48,17 +48,17 @@ defect: assertion failed: add(1, 2) == 4
  right: 4
 ```
 
-- パスはプロジェクトのディレクトリからの相対パス（単一ファイルモードでは，ファイルのあるディレクトリから）．依存 Pome の中の assert は，出力先（`emela_pomes/...`）のパスではなく，その Pome のソースのパスで出す．行と桁は1から数える．桁の数え方は診断と同じにする．
-- `emela run` で main まで届いた defect には場所を出さない．`[error.defect]` の `defect: <message>` の1行は変わらない．
-- assert 以外の defect（`panic`，ゼロ除算，外部関数の例外など），error，interrupted は場所を持たない．`panic` と `todo` の場所は別の提案で扱う．
+- The path is relative to the project directory (in single-file mode, to the directory that contains the file). For an assert in a dependency Pome, the path is the path of the Pome's source file, not of the build output (`emela_pomes/...`). Lines and columns are counted from 1. Columns are counted as in diagnostics.
+- A defect that reaches `main` under `emela run` is shown without a location. The line `defect: <message>` of `[error.defect]` does not change.
+- Defects other than those from asserts (`panic`, division by zero, exceptions from foreign functions, and so on), errors, and interruptions have no location. The locations of `panic` and `todo` are left to a separate proposal.
 
-`test-reporters` が採択されれば，`agent` は `FAIL <name> <path>:<line>:<column>`，`pretty` は場所を含むコードフレームを出す．
+If `test-reporters` is accepted, `agent` prints `FAIL <name> <path>:<line>:<column>`, and `pretty` prints a code frame that includes the location.
 
 ## Specification changes
 
 ### `[test.assert]`
 
-次を足す．
+Add:
 
 ```md
 - A defect from a failed assert has the location of the assert expression: the path of the file, the line and the column. The location is shown by the test runner (`[cmd.test.outcome]`). It is not part of the defect message.
@@ -66,7 +66,7 @@ defect: assertion failed: add(1, 2) == 4
 
 ### `[cmd.test.outcome]`
 
-次を足す．
+Add:
 
 ```md
 - A failure has a location when it is a defect from a failed assert (`[test.assert]`). Other failures have no location.
@@ -76,7 +76,7 @@ defect: assertion failed: add(1, 2) == 4
 
 ### `[cmd.test.output]`
 
-失敗の詳細の項目を次に置き換え，例も合わせて直す．
+Replace the item on the details of failures with the following, and update the example to match.
 
 ```md
 - If there is at least one failure, then after a blank line and `failures:`, the command prints, for each failed test, a blank line, the line `---- <name> ----`, the line ` --> <location>` if the failure has a location, and the details of the failure ("Kinds of results" below). Then it prints a blank line, `failures:`, and the names of the failed tests, one per line, each preceded by four spaces.
@@ -84,33 +84,33 @@ defect: assertion failed: add(1, 2) == 4
 
 ## Diagnostics
 
-なし．
+None.
 
 ## Compatibility
 
-- 言語の意味は変わらない．defect のメッセージも変わらない（場所はメッセージの外に持つ）．
-- `emela test` の `plain` の出力に，失敗ごとに1行増える．出力を比べているテスト（`crates/emela-driver/tests/snapshots/test_runner__*.snap`）は更新が要る．
+- The meaning of the language does not change. Defect messages do not change either (the location is kept outside the message).
+- The `plain` output of `emela test` gains one line per failure. Tests that compare the output (`crates/emela-driver/tests/snapshots/test_runner__*.snap`) need updating.
 
 ## Implementation
 
-- assert の defect は `crates/emela-lir/src/from_core.rs` で `Term::Defect(message)` に下ろしている．ここに場所を足す（`Term::Defect` に場所の定数を持たせる）．`crates/emela-core/src/mono.rs` の側も同じ．
-- JS，C，WASM の各ランタイムの defect に場所を持たせ，テストランナーの結果の行の JSON（`Event::Result`）に `location` を足す．
-- 場所はコンパイル時の定数なので，実行時の追跡は要らない．
+- `crates/emela-lir/src/from_core.rs` lowers the defect of an assert to `Term::Defect(message)`. Add the location there (`Term::Defect` carries the location as a constant). `crates/emela-core/src/mono.rs` changes in the same way.
+- Give the defects of the JS, C and WASM runtimes a location, and add `location` to the JSON of the test runner's result line (`Event::Result`).
+- The location is a compile-time constant, so no tracking at run time is needed.
 
 ## Alternatives
 
-### 場所を defect のメッセージに含める
+### Put the location in the defect message
 
-`assertion failed: add(1, 2) == 4 at src/main.emel:13:3` のようにする．ランタイムを変えずに済むが，`emela run` で main まで届いた defect の表示や `Fiber.attempt` で受け取るメッセージも変わる．reporter が場所を別に扱えない（`pretty` のコードフレームに使えない）．
+For example `assertion failed: add(1, 2) == 4 at src/main.emel:13:3`. The runtimes would not change, but the display of a defect that reaches `main` under `emela run` and the message received by `Fiber.attempt` would change too. Reporters could not handle the location separately (`pretty` could not use it for a code frame).
 
-### `panic` と `todo` も含める
+### Include `panic` and `todo`
 
-`panic` は関数なので，呼び出した場所を知るには呼び出し側の場所を暗黙の引数として渡す仕組みが要り，言語の変更になる．assert は式の形をコンパイラが見ている（`[test.assert]`）ので，この仕組みなしにできる．`panic` と `todo` は別の提案に分ける．
+`panic` is a function. Knowing where it was called needs a mechanism that passes the caller's location as an implicit argument, which is a change to the language. The compiler sees the form of an assert expression (`[test.assert]`), so asserts need no such mechanism. `panic` and `todo` are left to a separate proposal.
 
 ## Prior art
 
-- テストの失敗に，失敗した assert のソースの位置とコードフレームを出すテストランナー（Vitest，`cargo test` の `panicked at src/lib.rs:10:5`）．
-- 呼び出し側の場所を暗黙に受け取る関数（Rust の `#[track_caller]`）．`panic` に場所を持たせるときに要る仕組み．
+- Test runners that show the source location and a code frame of the failed assert (Vitest; `cargo test` with `panicked at src/lib.rs:10:5`).
+- Functions that receive the caller's location implicitly (Rust's `#[track_caller]`). This is the mechanism `panic` would need to carry a location.
 
 ## Open questions
 
