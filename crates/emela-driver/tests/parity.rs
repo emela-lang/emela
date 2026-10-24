@@ -127,6 +127,8 @@ fn test_on(
         node: emela_driver::node_program(),
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut frontend = LowerTests::default().with_target(target);
     let mut out = Vec::new();
@@ -395,6 +397,8 @@ fn after_the_others() {
             node: emela_driver::node_program(),
             filter: None,
             output: Output::Capture,
+            reporter: emela_driver::Reporter::Plain,
+            color: false,
         };
         let mut frontend = LowerTests::default().with_target(target);
         let mut out = Vec::new();

@@ -23,7 +23,10 @@ use emela_resolve::{BuiltinModules, ModuleId, NoBuiltins};
 use serde::Deserialize;
 
 pub use collect::{TEST_ANNOTATION, TestFn, collect_tests, is_test_fn};
-pub use report::{TEST_FAILURE_EXIT_CODE, TestOutcome, TestReport, TestResult};
+pub use report::{
+    AGENT_ENV_VARS, Reporter, TEST_FAILURE_EXIT_CODE, TestOutcome, TestReport, TestResult,
+    runs_in_agent,
+};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
@@ -308,11 +311,16 @@ pub struct TestOptions {
     pub filter: Option<String>,
     /// How node's stderr is handled. Stdout is always captured to read results.
     pub output: Output,
+    /// How results are displayed (`[cmd.test.reporter]`).
+    pub reporter: Reporter,
+    /// Whether [`Reporter::Pretty`] uses color. The caller decides it (`[cmd.test.output]`: only
+    /// when stdout is a terminal and `NO_COLOR` is empty or unset); other reporters never do.
+    pub color: bool,
 }
 
 /// The `emela test` stage: checks, writes the tests out as JS, and runs them one by one on node.
 ///
-/// Results are written to `out` as they arrive, in a format close to `cargo test`. `before_node`
+/// Results are written to `out` as they arrive, in the form of [`TestOptions::reporter`]. `before_node`
 /// is called once after emission and before node starts (even if checking or emission failed);
 /// the CLI prints diagnostics there. The result is `None` if diagnostics had errors or node could
 /// not start. A diagnostic about failing to start node is appended to `Analysis` after
@@ -354,14 +362,15 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
             (wasmtime, command)
         }
     };
-    match run_tests(&program, command, &selected, options.output, out) {
+    let mut display = report::Display::new(options.reporter, options.color, out);
+    match run_tests(&program, command, &selected, options.output, &mut display) {
         Ok((results, stderr)) => {
             let report = TestReport {
                 results,
                 filtered_out,
                 stderr,
             };
-            let _ = report::write_summary(out, &report);
+            display.finish(&report);
             (analysis, Some(report))
         }
         Err(diagnostic) => {
@@ -453,14 +462,14 @@ enum Outcome {
 }
 
 /// Runs the tests with `command` (node on the entry module, or the test executable; `program`
-/// names it in diagnostics), writing results to `out` as they are collected. Stdout lines that are
-/// not result lines pass through to `out`.
+/// names it in diagnostics), passing results to `display` as they are collected, with the stdout
+/// lines that are not result lines.
 fn run_tests(
     program: &Path,
     mut command: Command,
     selected: &[String],
     output: Output,
-    out: &mut dyn Write,
+    display: &mut report::Display,
 ) -> Result<(Vec<TestResult>, Vec<u8>), Diagnostic> {
     command
         .stdin(Stdio::null())
@@ -487,7 +496,7 @@ fn run_tests(
         }
     });
 
-    let _ = report::write_header(out, selected.len());
+    display.start(selected);
     let mut results = Vec::new();
     let mut finished = false;
     loop {
@@ -527,13 +536,11 @@ fn run_tests(
                     outcome,
                     location,
                 };
-                let _ = report::write_result(out, &result);
+                display.result(&result);
                 results.push(result);
             }
             Some(Event::Done) => finished = true,
-            None => {
-                let _ = out.write_all(&line);
-            }
+            None => display.output(&line),
         }
     }
     let status = wait_child(&mut child, deadline).map_err(|err| spawn_error(program, &err))?;
@@ -551,7 +558,7 @@ fn run_tests(
                 },
                 location: None,
             };
-            let _ = report::write_result(out, &result);
+            display.result(&result);
             results.push(result);
         }
     }

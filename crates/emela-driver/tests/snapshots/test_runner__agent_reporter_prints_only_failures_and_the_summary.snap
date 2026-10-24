@@ -1,0 +1,22 @@
+---
+source: crates/emela-driver/tests/test_runner.rs
+assertion_line: 392
+expression: out
+---
+FAIL adds_wrong
+defect: assertion failed: add(1, 2) == 4
+  left: 3
+ right: 4
+
+FAIL panics
+defect: boom
+
+FAIL divides_by_zero
+defect: division by zero
+
+FAIL Util.new
+defect: assertion failed: left != right
+  left: "a"
+ right: "a"
+
+test result: FAILED. 2 passed; 4 failed; 0 filtered out

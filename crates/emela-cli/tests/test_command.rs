@@ -25,10 +25,20 @@ impl Project {
     }
 
     fn emela(&self, args: &[&str]) -> (Option<i32>, String, String) {
-        let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        self.emela_env(args, &[])
+    }
+
+    /// Runs `emela` outside any coding agent (`[cmd.test.reporter]`), with `env` added.
+    fn emela_env(&self, args: &[&str], env: &[(&str, &str)]) -> (Option<i32>, String, String) {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_emela"));
+        for var in emela_driver::AGENT_ENV_VARS {
+            command.env_remove(var);
+        }
+        let output = command
             .args(args)
             .current_dir(&self.dir)
             .env("NO_COLOR", "1")
+            .envs(env.iter().copied())
             .output()
             .unwrap();
         (
@@ -229,5 +239,123 @@ fn valid_tests_run() {
             "{stdout}"
         );
         assert!(stdout.contains("test adds ... ok"), "{stdout}");
+    }
+}
+
+const FAILING: &[(&str, &str)] = &[
+    ("Pome.toml", ""),
+    (
+        "src/main.emel",
+        "@test\nfn adds() {\n  assert 1 + 2 == 3\n}\n\n@test\nfn adds_wrong() {\n  assert 1 + 2 == 4\n}\n",
+    ),
+];
+
+const AGENT_OUTPUT: &str = "FAIL adds_wrong src/main.emel:8:3\n\
+    defect: assertion failed: 1 + 2 == 4\n  left: 3\n right: 4\n\
+    \n\
+    test result: FAILED. 1 passed; 1 failed; 0 filtered out\n";
+
+/// `[cmd.test.reporter]`: `--reporter` selects the reporter; every reporter writes to stdout, and
+/// the exit code does not depend on it.
+#[test]
+fn reporter_flag_selects_the_reporter() {
+    let project = Project::new("reporter-flag", FAILING);
+    let (code, plain, stderr) = project.emela(&["test", "--reporter", "plain"]);
+    assert_eq!((code, stderr.as_str()), (Some(1), ""));
+    assert!(
+        plain.starts_with("running 2 tests\ntest adds ... ok\n"),
+        "{plain}"
+    );
+
+    let (code, agent, stderr) = project.emela(&["test", "--reporter", "agent"]);
+    assert_eq!((code, stderr.as_str()), (Some(1), ""));
+    assert_eq!(agent, AGENT_OUTPUT);
+
+    let (code, pretty, stderr) = project.emela(&["test", "--reporter", "pretty"]);
+    assert_eq!((code, stderr.as_str()), (Some(1), ""));
+    assert!(pretty.contains("adds_wrong"), "{pretty}");
+    assert!(
+        pretty.contains("defect: assertion failed: 1 + 2 == 4"),
+        "{pretty}"
+    );
+    // Stdout is not a terminal here, so `pretty` uses no color.
+    assert!(!pretty.contains('\x1b'), "{pretty}");
+
+    let passing = Project::new(
+        "reporter-flag-ok",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "@test\nfn adds() {\n  assert 1 + 2 == 3\n}\n",
+            ),
+        ],
+    );
+    for reporter in ["plain", "agent", "pretty"] {
+        let (code, _, _) = passing.emela(&["test", "--reporter", reporter]);
+        assert_eq!(code, Some(0), "{reporter}");
+    }
+}
+
+/// `[cmd.test.reporter]`: another name is an error in the command-line arguments, reported as an
+/// unknown `--target` is, and no test is run.
+#[test]
+fn unknown_reporter_is_an_argument_error() {
+    let project = Project::new("reporter-unknown", FAILING);
+    let (target_code, _, target_err) = project.emela(&["test", "--target", "json"]);
+    let (code, stdout, stderr) = project.emela(&["test", "--reporter", "json"]);
+    assert_eq!(code, target_code);
+    assert_eq!(code, Some(2));
+    assert_eq!(stdout, "");
+    assert!(
+        stderr.contains("invalid value 'json' for '--reporter"),
+        "{stderr}"
+    );
+    assert!(
+        target_err.contains("invalid value 'json' for '--target"),
+        "{target_err}"
+    );
+    assert!(!project.dir.join("target").exists());
+}
+
+/// `[cmd.test.reporter]`: without `--reporter`, `agent` when `AI_AGENT` is set and not empty, and
+/// `plain` when stdout is not a terminal.
+#[test]
+fn reporter_defaults_from_the_environment() {
+    let project = Project::new("reporter-default", FAILING);
+    let (code, stdout, _) = project.emela_env(&["test"], &[("AI_AGENT", "1")]);
+    assert_eq!(code, Some(1));
+    assert_eq!(stdout, AGENT_OUTPUT);
+
+    for env in [&[][..], &[("AI_AGENT", "")]] {
+        let (code, stdout, _) = project.emela_env(&["test"], env);
+        assert_eq!(code, Some(1));
+        assert!(stdout.starts_with("running 2 tests\n"), "{env:?}: {stdout}");
+    }
+
+    // `--reporter` comes first.
+    let (_, stdout, _) = project.emela_env(&["test", "--reporter", "plain"], &[("AI_AGENT", "1")]);
+    assert!(stdout.starts_with("running 2 tests\n"), "{stdout}");
+}
+
+/// `[cmd.test.reporter]`: diagnostics found by checking go to stderr whatever the reporter.
+#[test]
+fn diagnostics_go_to_stderr_with_every_reporter() {
+    let project = Project::new(
+        "reporter-diagnostics",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "@test\nfn takes(x: Int) {\n  assert x == 1\n}\n",
+            ),
+        ],
+    );
+    let (_, _, plain_err) = project.emela(&["test", "--reporter", "plain"]);
+    for reporter in ["agent", "pretty"] {
+        let (code, stdout, stderr) = project.emela(&["test", "--reporter", reporter]);
+        assert_eq!(code, Some(1), "{reporter}");
+        assert_eq!(stdout, "", "{reporter}");
+        assert_eq!(stderr, plain_err, "{reporter}");
     }
 }

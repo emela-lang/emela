@@ -239,6 +239,8 @@ fn raises_a_defect() {
         node: PathBuf::from("node"),
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut out = Vec::new();
     let (analysis, report) = test(
@@ -333,6 +335,8 @@ fn without_show() {
             node: emela_driver::node_program(),
             filter: None,
             output: Output::Capture,
+            reporter: emela_driver::Reporter::Plain,
+            color: false,
         };
         let mut frontend = LowerTests::default().with_target(target);
         let mut out = Vec::new();
@@ -721,6 +725,8 @@ fn suspend_externals_misbehaving() {
         node: PathBuf::from("node"),
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut out = Vec::new();
     let (analysis, report) = test(

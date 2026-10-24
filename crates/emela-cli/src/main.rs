@@ -9,8 +9,8 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use emela_driver::{
     Analysis, Backend, CoreC, CoreJs, CoreWasm, Diagnostic, FileSystem, Input, Lower, LowerTests,
-    MemoryFiles, OsFs, Output, RunOptions, SourceDb, Target, TestBackend, TestModule, TestOptions,
-    Typecheck,
+    MemoryFiles, OsFs, Output, Reporter, RunOptions, SourceDb, Target, TestBackend, TestModule,
+    TestOptions, Typecheck,
 };
 use std::ffi::OsString;
 use std::io::{IsTerminal, Read, Write};
@@ -81,6 +81,10 @@ enum Command {
         /// The target [default: `[build].target` of Pome.toml, or js]
         #[arg(long, value_enum)]
         target: Option<TargetArg>,
+        /// How results are shown [default: agent inside a coding agent, pretty at a terminal,
+        /// plain otherwise]
+        #[arg(long, value_enum)]
+        reporter: Option<ReporterArg>,
     },
     /// Format the sources in place
     Fmt {
@@ -135,6 +139,27 @@ impl From<TargetArg> for Target {
     }
 }
 
+/// How `emela test` shows its results (`[cmd.test.reporter]`).
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum ReporterArg {
+    /// For a person at a terminal: marks, color and elapsed time
+    Pretty,
+    /// One line per test and the failures at the end; the same input gives the same output
+    Plain,
+    /// Only the failures and the summary line, for a coding agent
+    Agent,
+}
+
+impl From<ReporterArg> for Reporter {
+    fn from(reporter: ReporterArg) -> Self {
+        match reporter {
+            ReporterArg::Pretty => Reporter::Pretty,
+            ReporterArg::Plain => Reporter::Plain,
+            ReporterArg::Agent => Reporter::Agent,
+        }
+    }
+}
+
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum DocFormat {
     /// Pages with a sidebar of modules, highlighted signatures and links between types
@@ -165,7 +190,8 @@ fn main() -> ExitCode {
             filter,
             out_dir,
             target,
-        } => test(&path_or_current(path), filter, out_dir, target),
+            reporter,
+        } => test(&path_or_current(path), filter, out_dir, target, reporter),
         Command::Fmt { paths, check } => fmt(paths, check),
         Command::Doc {
             path,
@@ -349,6 +375,7 @@ fn test(
     filter: Option<String>,
     out_dir: Option<PathBuf>,
     target: Option<TargetArg>,
+    reporter: Option<ReporterArg>,
 ) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path, true) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
@@ -361,6 +388,14 @@ fn test(
         node: emela_driver::node_program(),
         filter,
         output: Output::Inherit,
+        reporter: match reporter {
+            Some(reporter) => reporter.into(),
+            None => Reporter::detect(
+                emela_driver::runs_in_agent(|name| std::env::var_os(name)),
+                std::io::stdout().is_terminal(),
+            ),
+        },
+        color: stdout_color(),
     };
     match target {
         Target::Js => test_with(&input, &options, target, &mut CoreJs),
@@ -583,5 +618,15 @@ fn print_rendered(text: &str) {
 
 /// Only when stderr is a terminal and `NO_COLOR` is unset or empty.
 fn stderr_color() -> bool {
-    std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
+    std::io::stderr().is_terminal() && no_color_unset()
+}
+
+/// Color for the `pretty` reporter: only when stdout is a terminal and `NO_COLOR` is unset or
+/// empty (`[cmd.test.output]`).
+fn stdout_color() -> bool {
+    std::io::stdout().is_terminal() && no_color_unset()
+}
+
+fn no_color_unset() -> bool {
+    std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
 }
