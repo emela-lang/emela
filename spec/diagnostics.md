@@ -121,7 +121,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0227 | A test function is referred to from an fn or const that is not a test function (13.1). The note is ``= note: test functions are removed from normal builds (13.1)`` | ``test function `adds` can only be used from test functions`` |
 | E0228 | An `@internal` fn is referred to from outside the modules of the bundled core (from the body of an fn, const, or handler). Both calls and references as values count; listing it in an import alone does not trigger it (3.5). The note is ``= note: it is marked `@internal` `` | ``function `Secret.peek` can only be used from the bundled core library`` |
 | E0229 | `@internal` outside the bundled core, or on something other than a top-level fn (3.5) | ``` `@internal` can only be used in the bundled core library ``` / ``` `@internal` can only be used on top-level functions ``` |
-| E0230 | The entry of `emela run` has no fn named main. Also `run` on a library-only project (8.3, Appendix B). The location is the entry file, and it is reported only when there are no other errors | ``entry `src/main.emel` has no `main` function`` |
+| E0230 | The entry of `emela run` has no fn named main, and the program is not an HTTP service (`[lib.http-service]`). Also `run` on a library-only project (8.3, Appendix B). The location is the entry file, and it is reported only when there are no other errors | ``entry `src/main.emel` has no `main` function`` |
 | E0231 | Consts form a cycle through their names alone (5.6) | ``constants refer to each other: `A` -> `B` -> `A` `` |
 | E0232 | `[build].target` in `Pome.toml` is an unknown target (4.7). The note is ``= note: expected one of `js`, `c`, `wasm` `` | ``unknown target `node` in `[build].target` `` |
 | E0233 | An `@external` or `@export` in a dependency Pome is not allowed by `allow` in `[external]`, or an `@entry` names an entry adapter of such a Pome (4.7, Chapter 12). Reported only for the first `@external` in each module of a Pome that is not allowed. The help is ``= help: add it to `[external] allow` in Pome.toml, or run `emela pome add --allow-external <source path>` `` | `` `github.com/acme/x` uses `@external`, but it is not allowed `` |
@@ -214,6 +214,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0439 | The argument of `@entry` is not an entry adapter (12.8) | `` `Http.get` is not an entry adapter `` |
 | E0440 | The fn cannot be passed as the first argument of the entry adapter (12.8) | `` `app` does not fit `Http.serve` `` |
 | E0441 | An exported fn that may suspend on the `c` target (16.7.6) | ``exported function `f` may suspend, which target `c` does not support`` |
+| E0442 | `@entry(Http.serve)` on the `c` target (`[target.c.unsupported]`) | ``HTTP services are not supported on target `c` yet`` |
 | W0401 | A label item in with (`L`, `L by P`) is never used (8.9) | ``label `Audit` is listed here but never used`` |
 | E0901 | A path is not found | ``path `app` not found`` |
 | E0902 | A file or directory cannot be read | ``cannot read `src/a.emel`: permission denied`` |
