@@ -48,3 +48,87 @@ fn main() {
         "200000\n",
     );
 }
+
+#[test]
+fn a_finished_operation_call_frees_its_record() {
+    // A `suspend fn` operation call makes a perform record, its resume function and the name of
+    // the operation for diagnostics; all of them are freed once the call returns.
+    run_limited(
+        "memory-operation",
+        r#"
+effect Retry {
+  suspend fn go() -> Int
+}
+
+handler Retrying: Retry {
+  suspend fn go(resume) {
+    resume(1)
+  }
+}
+
+fn ten() -> Int use { Retry } {
+  (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go()
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Retry } {
+  if n == 0 {
+    total
+  } else {
+    rounds(n - 1, total + ten())
+  }
+}
+
+fn main() {
+  with Retrying {
+    dbg(rounds(1000, 0))
+  }
+}
+"#,
+        "10000\n",
+    );
+}
+
+#[test]
+fn a_sleeping_operation_call_reuses_its_memory() {
+    // A call that sleeps also makes frames and a queued continuation, of other sizes than the
+    // perform record; a block reused for a smaller object is given back whole.
+    run_limited(
+        "memory-sleeping-operation",
+        r#"
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+effect Retry {
+  suspend fn go() -> Int
+}
+
+handler Retrying: Retry {
+  suspend fn go(resume) {
+    (use Clock).sleep(1)
+    resume(1)
+  }
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Retry } {
+  if n == 0 {
+    total
+  } else {
+    rounds(n - 1, total + (use Retry).go())
+  }
+}
+
+fn main() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, fn() {
+    with TestClock {
+      with Retrying {
+        dbg(rounds(4000, 0))
+      }
+    }
+  })
+}
+"#,
+        "4000\n",
+    );
+}
