@@ -1,27 +1,14 @@
-# The Http effect (a client only), its handlers and the functions over `send` (the platform and
-# test layers of spec 15.2).
+# The Http effect (a client), its handlers and the functions over `send` (the platform and test
+# layers of spec 15.2), and the entry adapter `serve` of HTTP services (`[lib.http-service]`).
 #
 # Use it as `Http.get(url)` and provide it with `with SystemHttp { ... }`, or with
-# `with Platform { ... }` from `Std.Platform`. Requests and responses are values, so building a
-# request is an ordinary function that tests can call without a handler.
-#
-# `header` and `headers` compare names with `String.to_ascii_lowercase`: header names are ASCII
-# tokens, so nothing more is needed.
+# `with Platform { ... }` from `Std.Platform`. Requests and responses are values in
+# `Std.Http.Request` and `Std.Http.Response`, so building a request is an ordinary function that
+# tests can call without a handler.
 
 import Std.State.{State}
-
-## The request methods. A method not in this list cannot be sent.
-pub enum Method { Get, Head, Post, Put, Patch, Delete, Options }
-  derive Eq, Show
-
-## A request. `headers` are sent in the written order. The body is text, sent as UTF-8.
-pub type Request(method: Method, url: String, headers: List[(String, String)], body: String)
-  derive Eq, Show
-
-## A response. Header names are lower case and sorted by name; values of the same name are joined
-## with `, `, except that each `set-cookie` is its own pair.
-pub type Response(status: Int, headers: List[(String, String)], body: String)
-  derive Eq, Show
+import Std.Http.Request.{Request, Method, Get, Head, Post, Put, Patch, Delete, Options}
+import Std.Http.Response.{Response, UnexpectedStatus}
 
 ## The URL cannot be read as a URL.
 pub error InvalidUrl(url: String) derive Show
@@ -29,8 +16,6 @@ pub error InvalidUrl(url: String) derive Show
 pub error ConnectionFailed(url: String, message: String) derive Show
 ## The response body is not valid UTF-8.
 pub error ResponseNotText(url: String) derive Show
-## The status is not 2xx (`require_ok`).
-pub error UnexpectedStatus(status: Int, body: String) derive Show
 
 ## Sends requests. 4xx and 5xx are responses, not failures; fail only when no response is received.
 pub effect Http {
@@ -38,66 +23,59 @@ pub effect Http {
     fails InvalidUrl | ConnectionFailed | ResponseNotText
 }
 
-## A request with no headers and an empty body.
-pub fn request(method: Method, url: String) -> Request {
-  Request(method:, url:, headers: [], body: "")
-}
-
-## Adds a header after the ones already in `req`.
-pub fn add_header(req: Request, name: String, value: String) -> Request {
-  Request(headers: List.append(req.headers, [(name, value)]), ..req)
-}
-
 ## Sends a GET request to `url`.
 pub fn get(url: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText use Http {
-  (use Http).send(request(Get, url))
+  (use Http).send(Request.new(Get, url))
 }
 
 ## Sends a POST request to `url` with `body`.
 pub fn post(url: String, body: String) -> Response
   fails InvalidUrl | ConnectionFailed | ResponseNotText
   use Http {
-  (use Http).send(Request(body:, ..request(Post, url)))
+  (use Http).send(Request(body:, ..Request.new(Post, url)))
+}
+
+## A request with no headers and an empty body.
+@deprecated("use `Request.new` of `Std.Http.Request`")
+pub fn request(method: Method, url: String) -> Request {
+  Request.new(method, url)
+}
+
+## Adds a header after the ones already in `req`.
+@deprecated("use `Request.add_header` of `Std.Http.Request`")
+pub fn add_header(req: Request, name: String, value: String) -> Request {
+  Request.add_header(req, name, value)
 }
 
 ## The first value of the header `name`, compared without case.
+@deprecated("use `Response.header` of `Std.Http.Response`")
 pub fn header(res: Response, name: String) -> Option[String] {
-  List.head(headers(res, name))
+  Response.header(res, name)
 }
 
 ## All values of the header `name` in order, compared without case.
+@deprecated("use `Response.headers` of `Std.Http.Response`")
 pub fn headers(res: Response, name: String) -> List[String] {
-  key = String.to_ascii_lowercase(name)
-  res.headers
-    |> List.filter(fn((n, _)) { String.to_ascii_lowercase(n) == key })
-    |> List.map(fn((_, value)) { value })
+  Response.headers(res, name)
 }
 
 ## The query string of `pairs`, each part percent-encoded (`q=%E6%9D%B1&page=2`).
+@deprecated("use `Request.encode_query` of `Std.Http.Request`")
 pub fn encode_query(pairs: List[(String, String)]) -> String {
-  pairs
-    |> List.map(fn((name, value)) {
-      "#{encode_uri_component(name)}=#{encode_uri_component(value)}"
-    })
-    |> String.join("&")
+  Request.encode_query(pairs)
 }
 
 ## `res` if its status is 2xx, otherwise fails with UnexpectedStatus.
+@deprecated("use `Response.require_ok` of `Std.Http.Response`")
 pub fn require_ok(res: Response) -> Response fails UnexpectedStatus {
-  if res.status >= 200 && res.status < 300 {
-    res
-  } else {
-    fail UnexpectedStatus(status: res.status, body: res.body)
-  }
+  Response.require_ok(res)
 }
 
 ## A response with no headers.
+@deprecated("use `Response.new` of `Std.Http.Response`")
 pub fn response(status: Int, body: String) -> Response {
-  Response(status:, headers: [], body:)
+  Response.new(status, body)
 }
-
-@external(js, "encodeURIComponent")
-fn encode_uri_component(s: String) -> String use {}
 
 ## The request being built on the host (a JS object). `List` cannot cross the external function
 ## boundary (spec 12.4), so the headers are added one by one.
@@ -183,7 +161,7 @@ pub type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Re
 ## The test handler. The server is `State[TestServer]`, so use it inside `State.run`:
 ##
 ## ```emela
-## server = TestServer(respond: fn(req, n) { Some(Http.response(200, "ok")) }, sent: [])
+## server = TestServer(respond: fn(req, n) { Some(Response.new(200, "ok")) }, sent: [])
 ## (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
 ## ```
 ##
