@@ -333,11 +333,12 @@ fn an_http_call_through_a_function_value_is_diagnosed() {
     // success.
     assert_host_call_is_diagnosed(
         r#"
-import Std.Http.{Http, Get, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
+import Std.Http.{Http, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
+import Std.Http.Request.{Get}
 
 fn main() {
   with SystemHttp {
-    look = fn() { (use Http).send(Http.request(Get, "https://example.com")).status }
+    look = fn() { (use Http).send(Request.new(Get, "https://example.com")).status }
     dbg(look() escape {
       InvalidUrl(url: _) -> 0
       ConnectionFailed(url: _, message: _) -> 0
@@ -355,11 +356,12 @@ fn an_http_call_is_an_unsupported_external() {
     // component that traps at run time.
     assert_host_call_is_diagnosed(
         r#"
-import Std.Http.{Http, Get, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
+import Std.Http.{Http, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
+import Std.Http.Request.{Get}
 
 fn main() {
   with SystemHttp {
-    dbg((use Http).send(Http.request(Get, "https://example.com")).status escape {
+    dbg((use Http).send(Request.new(Get, "https://example.com")).status escape {
       InvalidUrl(url: _) -> 0
       ConnectionFailed(url: _, message: _) -> 0
       ResponseNotText(url: _) -> 0
@@ -385,7 +387,8 @@ fn assert_host_call_is_diagnosed(src: &str) {
 fn an_http_call_in_a_closure_passed_to_a_function_is_diagnosed() {
     assert_host_call_is_diagnosed(
         r#"
-import Std.Http.{Http, Get, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
+import Std.Http.{Http, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
+import Std.Http.Request.{Get}
 
 fn twice(f: fn() -> Int fails InvalidUrl | ConnectionFailed | ResponseNotText) {
   dbg(f() escape {
@@ -402,7 +405,7 @@ fn twice(f: fn() -> Int fails InvalidUrl | ConnectionFailed | ResponseNotText) {
 
 fn main() {
   with SystemHttp {
-    twice(fn() { (use Http).send(Http.request(Get, "https://example.com")).status })
+    twice(fn() { (use Http).send(Request.new(Get, "https://example.com")).status })
   }
 }
 "#,
@@ -413,11 +416,12 @@ fn main() {
 fn an_http_call_in_a_captured_closure_is_diagnosed() {
     assert_host_call_is_diagnosed(
         r#"
-import Std.Http.{Http, Get, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
+import Std.Http.{Http, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
+import Std.Http.Request.{Get}
 
 fn main() {
   with SystemHttp {
-    look = fn() { (use Http).send(Http.request(Get, "https://example.com")).status }
+    look = fn() { (use Http).send(Request.new(Get, "https://example.com")).status }
     outer = fn() { look() }
     dbg(outer() escape {
       InvalidUrl(url: _) -> 0

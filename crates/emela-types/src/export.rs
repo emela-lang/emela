@@ -36,6 +36,24 @@ pub fn is_entry_adapter(program: &Program, def: DefId) -> bool {
             .is_some_and(|ty| matches!(program.types[ty].kind, TypeKind::Fn { .. }))
 }
 
+/// Whether the program is an HTTP service (`[lib.http-service]`): an fn of the entry module has
+/// `@entry(Http.serve)`, the entry adapter of the bundled `Std.Http`. `Std` cannot be the root
+/// name of a project or a dependency (spec 4.1), so the module name identifies the bundled one.
+pub fn is_http_service(program: &Program) -> bool {
+    program
+        .entry_exports
+        .iter()
+        .any(|e| is_http_serve(program, e.adapter))
+}
+
+/// Whether `def` is `serve` of the bundled `Std.Http`.
+pub fn is_http_serve(program: &Program, def: DefId) -> bool {
+    let data = &program.defs[def];
+    data.name == "serve"
+        && matches!(data.module, DefModule::Source(m)
+            if program.modules.get(m).is_some_and(|items| items.name.segments() == ["Std", "Http"]))
+}
+
 /// Checks where `@export` and `@entry` are written (E0437, E0439) and that no two exports share a
 /// name (E0438), and adds the fns that `@entry` exposes ([`Program::entry_exports`]). `entry` is
 /// the entry module; without one, every `@export` that is not an entry adapter and every `@entry`

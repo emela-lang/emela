@@ -1743,11 +1743,14 @@ fn test_http_answers_from_the_test_server() {
     // The bundled TestHttp decides responses by passing the request and its attempt number (from
     // 0) to the respond of State[TestServer]; `None` becomes ConnectionFailed. Sent requests are
     // appended to sent in order (spec 15.2). Functions above send (get, post, header, headers,
-    // require_ok, encode_query) are plain value functions callable without a handler.
+    // require_ok, encode_query) are plain value functions callable without a handler. The names
+    // that moved to `Std.Http.Request` and `Std.Http.Response` stay in `Std.Http` (`[api.std.http]`).
     let output = run_source(
         "http-test",
         r##"import Std.Console.{Console, SystemConsole}
-import Std.Http.{Http, Get, Post, Delete, Request, Response, TestServer, TestHttp, ConnectionFailed, UnexpectedStatus}
+import Std.Http.{Http, TestServer, TestHttp, ConnectionFailed}
+import Std.Http.Request.{Request, Get, Post, Delete}
+import Std.Http.Response.{Response, UnexpectedStatus}
 import Std.State.{State}
 
 fn reply(req: Request, n: Int) -> Option[Response] {
@@ -1775,20 +1778,23 @@ fn main() {
       c = "#{Http.get("https://example.com/c").status}" escape {
         ConnectionFailed(url:, message:) -> "failed #{url}"
       }
-      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Http.header(a, "x-A")} #{Http.headers(b, "X-a")} #{Http.header(a, "none")}"
+      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Response.header(a, "x-A")} #{Response.headers(b, "X-a")} #{Response.header(a, "none")}"
     }
   })
   with SystemConsole {
     c = use Console
     c.print_line(out)
     c.print_line(String.join(List.map(after.sent, fn(req) { "#{method(req)} #{req.url} #{req.body}" }), ", "))
-    c.print_line(Http.encode_query([("q", "東 京"), ("a&b", "c=d"), ("page", "2")]))
-    c.print_line("#{Http.require_ok(Http.response(204, "")).status}")
-    c.print_line("#{Http.require_ok(Http.response(404, "nf")).status}" escape {
+    c.print_line(Request.encode_query([("q", "東 京"), ("a&b", "c=d"), ("page", "2")]))
+    c.print_line("#{Response.require_ok(Response.new(204, "")).status}")
+    c.print_line("#{Response.require_ok(Response.new(404, "nf")).status}" escape {
       UnexpectedStatus(status:, body:) -> "unexpected #{status} #{body}"
     })
-    r = Http.request(Delete, "u") |> Http.add_header("a", "1") |> Http.add_header("a", "2")
+    r = Request.new(Delete, "u") |> Request.add_header("a", "1") |> Request.add_header("a", "2")
     c.print_line("#{r.headers} #{r.body == ""}")
+    old = Http.request(Delete, "u") |> Http.add_header("a", "1")
+    res = Http.require_ok(Http.response(200, "")) |> Response.add_header("B", "2")
+    c.print_line("#{old.headers} #{Http.header(res, "b")} #{Http.headers(res, "b")} #{Http.encode_query([("a", " ")])}")
   }
 }
 "##,
@@ -1802,7 +1808,8 @@ fn main() {
              q=%E6%9D%B1%20%E4%BA%AC&a%26b=c%3Dd&page=2\n\
              204\n\
              unexpected 404 nf\n\
-             [(\"a\", \"1\"), (\"a\", \"2\")] True\n",
+             [(\"a\", \"1\"), (\"a\", \"2\")] True\n\
+             [(\"a\", \"1\")] Some(\"2\") [\"2\"] a=%20\n",
             ""
         )
     );
@@ -1906,7 +1913,8 @@ fn system_http_talks_to_a_local_server() {
     let closed = format!("http://127.0.0.1:{}/", server.closed_port);
     let main = r##"import Std.Console.{Console}
 import Std.Platform.{Platform}
-import Std.Http.{Http, Get, Head, Post, Request, InvalidUrl, ConnectionFailed, ResponseNotText}
+import Std.Http.{Http, InvalidUrl, ConnectionFailed, ResponseNotText}
+import Std.Http.Request.{Request, Get, Head, Post}
 
 fn picked(headers: List[(String, String)]) -> List[(String, String)] {
   List.filter(headers, fn(pair) {
@@ -1932,16 +1940,16 @@ fn main() {
   base = "BASE"
   with Platform {
     c = use Console
-    c.print_line(attempt(Http.request(Get, "#{base}/echo")))
-    c.print_line(attempt(Request(body: "東京", ..Http.request(Post, "#{base}/echo")) |> Http.add_header("X-One", "1")))
-    c.print_line(attempt(Http.request(Head, "#{base}/echo")))
-    c.print_line(attempt(Http.request(Get, "#{base}/redirect")))
-    c.print_line(attempt(Http.request(Get, "#{base}/missing")))
-    c.print_line(attempt(Http.request(Get, "#{base}/binary")))
-    c.print_line(attempt(Http.request(Get, "#{base}/loop")))
-    c.print_line(attempt(Http.request(Get, "not a url")))
-    c.print_line(attempt(Http.request(Get, "ftp://127.0.0.1/")))
-    c.print_line(attempt(Http.request(Get, "CLOSED")))
+    c.print_line(attempt(Request.new(Get, "#{base}/echo")))
+    c.print_line(attempt(Request(body: "東京", ..Request.new(Post, "#{base}/echo")) |> Request.add_header("X-One", "1")))
+    c.print_line(attempt(Request.new(Head, "#{base}/echo")))
+    c.print_line(attempt(Request.new(Get, "#{base}/redirect")))
+    c.print_line(attempt(Request.new(Get, "#{base}/missing")))
+    c.print_line(attempt(Request.new(Get, "#{base}/binary")))
+    c.print_line(attempt(Request.new(Get, "#{base}/loop")))
+    c.print_line(attempt(Request.new(Get, "not a url")))
+    c.print_line(attempt(Request.new(Get, "ftp://127.0.0.1/")))
+    c.print_line(attempt(Request.new(Get, "CLOSED")))
   }
 }
 "##

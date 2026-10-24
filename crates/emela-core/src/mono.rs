@@ -252,6 +252,7 @@ impl<'a> Mono<'a> {
             // For a later pass on the output (the C and WASM backends monomorphize again).
             trait_impls: m.trait_impls.clone(),
             show_trait: m.show_trait,
+            http_service: m.http_service,
             ..Module::default()
         };
         Mono {

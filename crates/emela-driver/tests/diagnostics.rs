@@ -934,6 +934,71 @@ fn main() {}
     insta::assert_snapshot!(out);
 }
 
+/// `[lib.http-service]`: `@entry(Http.serve)` takes an fn from `Request` to `Response` whose E is
+/// anything and whose R is empty apart from Async (E0440 otherwise). The C target does not support
+/// HTTP services (E0442); an entry adapter of the program's own named `serve` in a module `Http`
+/// is not one. check (no target) reports nothing.
+#[test]
+fn http_service_targets() {
+    let files = [
+        (
+            "home/main.emel",
+            r#"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+
+error Teapot
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response fails Teapot {
+  if request.body == "tea" { fail Teapot } else { Response.new(200, request.url) }
+}
+"#,
+        ),
+        (
+            "other/main.emel",
+            r#"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+import Std.Console.{Console}
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response {
+  (use Console).print_line(request.url)
+  Response.new(200, "")
+}
+"#,
+        ),
+        (
+            "own/main.emel",
+            r#"import Http
+
+@entry(Http.serve)
+fn app(x: Int) -> Int { x }
+
+fn main() {}
+"#,
+        ),
+        (
+            "own/http.emel",
+            r#"@export(c, "serve")
+pub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+"#,
+        ),
+    ];
+    let mut out = String::new();
+    for entry in ["home/main.emel", "other/main.emel", "own/main.emel"] {
+        for target in [Target::Js, Target::C] {
+            let analysis = check_files(&files, entry, &mut Lower::default().with_target(target));
+            out.push_str(&format!("== {entry} {}\n", target.name()));
+            out.push_str(&render(&analysis.diagnostics, &analysis.sources, false));
+        }
+    }
+    let analysis = check_files(&files, "home/main.emel", &mut Typecheck::default());
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+    insta::assert_snapshot!(out);
+}
+
 /// `[ext.export]` and `[ext.entry]`: an `@export` fn that is not an entry adapter only in the
 /// entry module (E0437), `@entry` only in the entry module (E0437) and naming an entry adapter
 /// (E0439), and the same name exported twice for the same target (E0438).

@@ -34,7 +34,7 @@ enum Std.Set.Set[A] {
   Set(inner: Std.Map.Map[A, ()])
 }
 
-enum Std.Http.Method {
+enum Std.Http.Request.Method {
   Get
   Head
   Post
@@ -44,12 +44,16 @@ enum Std.Http.Method {
   Options
 }
 
-enum Std.Http.Request {
-  Request(method: Std.Http.Method, url: String, headers: List[(String, String)], body: String)
+enum Std.Http.Request.Request {
+  Request(method: Std.Http.Request.Method, url: String, headers: List[(String, String)], body: String)
 }
 
-enum Std.Http.Response {
+enum Std.Http.Response.Response {
   Response(status: Int, headers: List[(String, String)], body: String)
+}
+
+error enum Std.Http.Response.UnexpectedStatus {
+  UnexpectedStatus(status: Int, body: String)
 }
 
 error enum Std.Http.InvalidUrl {
@@ -64,10 +68,6 @@ error enum Std.Http.ResponseNotText {
   ResponseNotText(url: String)
 }
 
-error enum Std.Http.UnexpectedStatus {
-  UnexpectedStatus(status: Int, body: String)
-}
-
 external enum Std.Http.HostRequest {
 }
 
@@ -75,7 +75,19 @@ external enum Std.Http.HostResponse {
 }
 
 enum Std.Http.TestServer {
-  TestServer(respond: fn(Std.Http.Request, Int) -> Option[Std.Http.Response], sent: List[Std.Http.Request])
+  TestServer(respond: fn(Std.Http.Request.Request, Int) -> Option[Std.Http.Response.Response], sent: List[Std.Http.Request.Request])
+}
+
+external enum Std.Http.Incoming {
+}
+
+external enum Std.Http.Outgoing {
+}
+
+external enum Std.Http.Received {
+}
+
+external enum Std.Http.Draft {
 }
 
 error enum Std.FileSystem.FileNotFound {

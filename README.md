@@ -457,8 +457,8 @@ answers with a function, so tests need no network. From
 
 ```emela
 fn search_request(query: String, page: Int) -> Request {
-  query_string = Http.encode_query([("q", query), ("page", Int.to_string(page))])
-  Http.request(Get, "#{BASE}/search?#{query_string}") |> Http.add_header("accept", "text/plain")
+  query_string = Request.encode_query([("q", query), ("page", Int.to_string(page))])
+  Request.new(Get, "#{BASE}/search?#{query_string}") |> Request.add_header("accept", "text/plain")
 }
 
 fn first_result(query: String) {
@@ -470,7 +470,7 @@ fn first_result(query: String) {
 
 @test
 fn a_404_is_not_a_failure() {
-  server = TestServer(respond: fn(req, n) { Some(Http.response(404, "")) }, sent: [])
+  server = TestServer(respond: fn(req, n) { Some(Response.new(404, "")) }, sent: [])
   (text, after) = State.run(server, fn() { with TestHttp { first_result("x") } })
   assert text == "status 404"
   assert List.length(after.sent) == 1
@@ -480,6 +480,25 @@ fn a_404_is_not_a_failure() {
 With `with Platform { ... }`, the same code sends real requests through
 `fetch`. For a deadline, wrap the call in `Fiber.timeout`; interrupting a fiber
 that waits on `send` aborts the request.
+
+An HTTP service is an fn with `@entry(Http.serve)`: the host calls it once for
+each request, and it is still an ordinary fn that tests call directly. From
+[`examples/http-service`](examples/http-service):
+
+```emela
+@entry(Http.serve)
+pub fn app(request: Request) -> Response fails NotANumber {
+  with Platform {
+    (use Console).print_line("#{request.method} #{Request.path(request)}")
+    route(request)
+  }
+}
+```
+
+`emela run` serves it on `127.0.0.1:8080` (`--addr <host>:<port>`, or `HOST`
+and `PORT`). The same `main.mjs` is the `fetch` of its default export, so
+`deno serve`, Bun and Cloudflare Workers run it as it is. An error or a defect
+becomes a 500 whose cause goes only to standard error.
 
 ## Known limitations
 

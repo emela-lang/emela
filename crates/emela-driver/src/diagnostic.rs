@@ -451,6 +451,11 @@ impl Diagnostic {
                 )),
                 span,
             ),
+            emela_core::LowerError::HttpServiceOnC { span } => (
+                Diagnostic::error("HTTP services are not supported on target `c` yet")
+                    .with_code(code::HTTP_SERVICE_ON_C),
+                span,
+            ),
             emela_core::LowerError::MissingCoreFile { path, span } => (
                 Diagnostic::error(format!(
                     "internal error: the bundled core has no file `{path}`"

@@ -2,6 +2,14 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-25 (What the hosts of HTTP services allow)
+
+- `[lib.http-service]`: Headers of a response with different names are sent in an unspecified order, and values with the same name may be joined, because the Headers of the JS Fetch API keep no order between names. A response with a status outside 200 to 599, a body on 204, 205 or 304, or an invalid header becomes status 500 with one line `invalid response: <reason>` on standard error. On JS the `url` of a received request is normalized by the URL Standard, and may differ from WASM. A launch that ends with an interruption gives the host an error instead of status 500, because `Fiber.attempt` does not catch the interruption of the current fiber. Decided while implementing the proposal `http-service` (#428).
+
+## 2026-10-25 (HTTP services)
+
+- `[lib.layers]`, `[lib.http-service]`, `[api.std.http]`, `[api.std.http.request]`, `[api.std.http.response]`, `[target.js.module]`, `[target.wasm.output]`, `[target.wasm.run]`, `[target.c.unsupported]`, `[target.wasm.external]`, `[cmd.build]`, `[diag.list]`: Add `serve`, an entry adapter for HTTP services, to `Std.Http`. When an fn of the entry module has `@entry(Http.serve)`, the host calls that fn for every request it receives. On JS this is the `fetch` of the default export of `main.mjs`; on WASM it is `handle` of `wasi:http/handler@0.3.0`. `emela run` starts a server as it is. Adopted in the proposal `http-service` (#428).
+
 ## 2026-10-24 (Exported functions and entries)
 
 - `[glossary.terms]`, `[kw.annotation]`, `[grammar.decl]`, `[ext]`, `[target.js.module]`, `[target.js.start]`, `[target.wasm.external]`, `[target.c]`, `[effect.with]`, `[module.pome]`, `[cmd.build]`, `[diag.list]`: `@export` declares a function that the host calls. It is the reverse of `@external`: it is written on a fn with a body and gives, for each target, the name the host sees. Its parameters and return value are boundary types. An `@export` fn whose first parameter is a function is an entry adapter, and is not exported by itself. Writing `@entry(adapter)` on a fn of the entry module creates an export that passes that fn to the entry adapter as its first argument. Entries at the everyday level (HTTP services and others) are made by pointing `@entry` at an entry adapter written at the foundation level. Adopted in the proposal `export` (#427).
