@@ -86,7 +86,7 @@ defect: assertion failed: add(1, 2) == 4
 ### agent
 
 ```
-FAIL adds_wrong
+FAIL adds_wrong src/main.emel:13:3
 defect: assertion failed: add(1, 2) == 4
   left: 3
  right: 4
@@ -95,7 +95,7 @@ test result: FAILED. 1 passed; 1 failed; 0 filtered out
 ```
 
 - Nothing is printed for a passed test. The header line `running N tests` is not printed.
-- For each failure, in run order, the line `FAIL <name>` is printed, then the details of the failure (`[cmd.test.outcome]`), then what the test wrote to standard output. Failures are separated by a blank line.
+- For each failure, in run order, the line `FAIL <name>` is printed, followed by a space and the location if the failure has one (`FAIL <name> <location>`, `[cmd.test.outcome]`), then the details of the failure (`[cmd.test.outcome]`), then what the test wrote to standard output. Failures are separated by a blank line.
 - What a passed test writes to standard output is not printed. What a failed test writes is printed in full, without truncation.
 - The last line is the summary line of `plain`, `test result: <ok|FAILED>. <number passed> passed; <number failed> failed; <number excluded by the filter> filtered out`. It is printed even when every test passed. When a failure was printed, a blank line precedes it.
 - No color, mark or elapsed time is printed. The same input gives the same output.
