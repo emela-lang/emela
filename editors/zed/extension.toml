@@ -1,0 +1,12 @@
+id = "emela"
+name = "Emela"
+description = "Emela syntax highlighting through tree-sitter."
+version = "0.1.0"
+schema_version = 1
+authors = ["Emela contributors"]
+repository = "https://github.com/emela-lang/emela"
+
+[grammars.emela]
+repository = "https://github.com/emela-lang/emela"
+rev = "main"
+path = "editors/tree-sitter-emela"
