@@ -1,10 +1,10 @@
 ---
 title: Show where a test failed
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 413
 issue:
-decided:
+decided: 2026-10-24
 touches: [cmd.test.output, cmd.test.outcome, test.assert]
 requires: []
 related: []
@@ -115,3 +115,5 @@ For example `assertion failed: add(1, 2) == 4 at src/main.emel:13:3`. The runtim
 ## Open questions
 
 ## Decision
+
+A test failure does not say which assert failed, so people and agents search the source for the text of the expression, and the search is ambiguous when several asserts have the same text. Diagnostics show their location; test failures should too.
