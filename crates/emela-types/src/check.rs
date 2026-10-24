@@ -130,6 +130,21 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         let name = program.defs[test].name.clone();
         closed.insert(test, EffectContext::Test { name });
     }
+    // Every `@export` fn, entry adapters included, has the R of main (`[ext.export]`).
+    for (def, item) in program.items.iter() {
+        if let Item::Fn(f) = item
+            && !f.exports.is_empty()
+            && f.body.is_some()
+        {
+            let name = program.defs[def].name.clone();
+            closed.insert(def, EffectContext::Export { name });
+        }
+    }
+    // So is a fn made by `@entry`; an error in it becomes E0440 (`crate::export::check`).
+    for e in &program.entry_exports {
+        let name = program.defs[e.entry].name.clone();
+        closed.insert(e.def, EffectContext::Export { name });
+    }
     let ty_table = TyTable::new(program);
     let mut diags = Vec::new();
     let mut sigs = Signatures::collect(program, &ty_table, &mut diags);
@@ -237,6 +252,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types.diags.extend(body.diags);
     }
 
+    crate::export::check(program, &types.ty_table, &sigs, &mut types.diags);
     crate::traits::unused_derives(program, &types.traits, &mut types.diags);
     types.layers = layer::check_layers(
         program,

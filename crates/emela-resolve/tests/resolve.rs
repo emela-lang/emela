@@ -841,3 +841,46 @@ fn main(base: Int) {
 "##,
     )]));
 }
+
+/// `@export` and `@entry` (spec 12.7, 12.8): the export names are kept, and the argument of
+/// `@entry` is looked up as a value, in the module or through a module path.
+#[test]
+fn export_and_entry() {
+    insta::assert_snapshot!(run(&[
+        (
+            "main.emel",
+            r##"import Http
+
+@export(js, "add")
+@export(js, "default", "add")
+@export(c, "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(js, "default", "run")
+fn local(app: fn(Int) -> Int, x: Int) -> Int { app(x) }
+
+@entry(local)
+@entry(Http.serve)
+fn app(x: Int) -> Int { x }
+
+@entry(missing)
+fn unknown(x: Int) -> Int { x }
+
+@entry(Http.missing)
+fn unknown_member(x: Int) -> Int { x }
+
+@entry
+fn no_arg(x: Int) -> Int { x }
+
+@entry("serve")
+fn string_arg(x: Int) -> Int { x }
+"##,
+        ),
+        (
+            "http.emel",
+            r##"@export(js, "default", "fetch")
+pub fn serve(app: fn(Int) -> Int, x: Int) -> Int { app(x) }
+"##,
+        ),
+    ]));
+}

@@ -1,0 +1,33 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: out
+---
+== js
+== c
+error[E0441]: exported function `wait` may suspend, which target `c` does not support
+   ╭─[ main.emel:3:1 ]
+   │
+ 3 │ @export(c, "wait")
+   │ ─────────┬────────  
+   │          ╰────────── 
+───╯
+
+1 error
+== wasm
+error: exported function `add` has a `wasm` export, which the WASI 0.3 component target does not support yet
+    ╭─[ main.emel:12:1 ]
+    │
+ 12 │ @export(wasm, "env", "add")
+    │ ─────────────┬─────────────  
+    │              ╰─────────────── 
+────╯
+
+error: exported function `app` has a `wasm` export, which the WASI 0.3 component target does not support yet
+    ╭─[ main.emel:19:1 ]
+    │
+ 19 │ @entry(serve)
+    │ ──────┬──────  
+    │       ╰──────── 
+────╯
+
+2 errors

@@ -532,6 +532,21 @@ pub struct FnItem {
     pub externals: Vec<ExternalAttr>,
     /// A built-in function of the bundled core sources.
     pub is_intrinsic: bool,
+    /// The arguments of `@export(js, "default", "fetch")` (spec 12.7), in source order, in the
+    /// same shape as [`FnItem::externals`]. Malformed ones are left out (E0146).
+    pub exports: Vec<ExternalAttr>,
+    /// The `@entry(Http.serve)` attributes (spec 12.8), in source order.
+    pub entries: Vec<EntryAttr>,
+}
+
+/// One `@entry(T)` on a fn (spec 12.8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryAttr {
+    /// What `T` names. `None` when the argument is not a single name or path (`@entry`,
+    /// `@entry(1)`, `@entry(a, b)`), which is reported as not naming an entry adapter (E0439).
+    pub adapter: Option<Res>,
+    /// The whole attribute.
+    pub span: Span,
 }
 
 /// The arguments of `@external(target, "a", "b")` (spec 12.1). `target` is the first argument's
@@ -542,6 +557,8 @@ pub struct FnItem {
 pub struct ExternalAttr {
     pub target: SmolStr,
     pub args: Vec<String>,
+    /// The whole attribute.
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -736,6 +753,25 @@ pub struct Program {
     /// [`LocalData::span`]). Effect operations (`log.info`) are looked up by type inference, so
     /// they are not here either.
     pub refs: Vec<NameRef>,
+    /// The exports made by `@entry` (spec 12.8), added after name resolution by
+    /// `emela_types::add_entry_exports`, which knows the entry module. Empty until then.
+    pub entry_exports: Vec<EntryExport>,
+}
+
+/// The fn that `@entry(T)` on `f` exposes for each `@export` of `T` (spec 12.8): a top-level fn
+/// [`EntryExport::def`] in the entry module, with the parameters of `T` after the first and the
+/// body `T(f, ...)`. It has no name in scope and no span. Its expressions and parameters have an
+/// empty range at the end of the attribute, and a type error in it is reported at the attribute
+/// (E0440).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryExport {
+    pub def: DefId,
+    /// `f`.
+    pub entry: DefId,
+    /// `T`, an entry adapter.
+    pub adapter: DefId,
+    /// The `@entry(T)` attribute.
+    pub span: Span,
 }
 
 /// Used by type inference to look up built-in types and constructors.
