@@ -1,0 +1,52 @@
+// Renovate keeps the dependencies up to date: the crates (Cargo.toml and Cargo.lock), the
+// VS Code extension (editors/vscode), the GitHub Actions, and the Pomes in Pome.toml.
+// The Pomes are found by the shared preset emela-lang/renovate-config.
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['config:recommended', 'github>emela-lang/renovate-config'],
+  timezone: 'Asia/Tokyo',
+  // One batch of pull requests a week, instead of a stream.
+  schedule: ['before 9am on monday'],
+  labels: ['dependencies'],
+  // config:recommended skips tests/ and examples/, but tests/laws depends on brix.
+  ignorePaths: ['**/node_modules/**', '**/target/**'],
+  // Cargo.lock and package-lock.json are refreshed once a week, which picks up the
+  // compatible releases of indirect dependencies.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ['before 9am on monday'],
+  },
+  // emela-bot pushes the updated Pome.lock to Renovate's branches (pome-lock.yml). Its
+  // commits do not count as edits, so Renovate keeps rebasing those branches.
+  gitIgnoredAuthors: ['300169090+emela-bot[bot]@users.noreply.github.com'],
+  packageRules: [
+    {
+      // A release that is pulled within a few days of publishing is never proposed.
+      matchDatasources: ['crate', 'npm'],
+      minimumReleaseAge: '3 days',
+    },
+    {
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['minor', 'patch', 'digest'],
+      groupName: 'GitHub Actions',
+    },
+    {
+      // Below 1.0 a minor release of a crate may break, so only patches are grouped.
+      matchManagers: ['cargo'],
+      matchUpdateTypes: ['patch'],
+      matchCurrentVersion: '>=1.0.0',
+      groupName: 'crate patches',
+    },
+    {
+      matchFileNames: ['editors/vscode/**'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'VS Code extension',
+    },
+    {
+      // The Pomes come from emela-lang itself for now, so a new version is proposed as
+      // soon as it is tagged.
+      matchDatasources: ['custom.pome'],
+      schedule: ['at any time'],
+    },
+  ],
+}
