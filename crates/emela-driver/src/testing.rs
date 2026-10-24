@@ -436,6 +436,9 @@ enum Event {
         outcome: Outcome,
         #[serde(default)]
         message: String,
+        /// The location of a failed assert's defect (`[test.assert]`).
+        #[serde(default)]
+        location: Option<String>,
     },
     Done,
 }
@@ -509,6 +512,7 @@ fn run_tests(
                 name,
                 outcome,
                 message,
+                location,
             }) => {
                 let outcome = match outcome {
                     Outcome::Ok => TestOutcome::Passed,
@@ -516,7 +520,13 @@ fn run_tests(
                     Outcome::Error => TestOutcome::Error(message),
                     Outcome::Interrupted => TestOutcome::Interrupted,
                 };
-                let result = TestResult { name, outcome };
+                // Only a defect has a location (`[cmd.test.outcome]`).
+                let location = location.filter(|_| matches!(outcome, TestOutcome::Defect(_)));
+                let result = TestResult {
+                    name,
+                    outcome,
+                    location,
+                };
                 let _ = report::write_result(out, &result);
                 results.push(result);
             }
@@ -539,6 +549,7 @@ fn run_tests(
                     code,
                     not_run: selected.len() - results.len() - 1,
                 },
+                location: None,
             };
             let _ = report::write_result(out, &result);
             results.push(result);

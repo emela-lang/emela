@@ -211,9 +211,10 @@ impl Lower<'_> {
     fn fail_exit(&mut self, fail: Option<LabelId>) {
         match fail {
             Some(label) => self.term(Term::Break { label, value: None }),
-            None => self.term(Term::Defect(Operand::Const(Const::String(
-                "unreachable: no match arm matched".into(),
-            )))),
+            None => self.term(Term::Defect(
+                Operand::Const(Const::String("unreachable: no match arm matched".into())),
+                None,
+            )),
         }
     }
 

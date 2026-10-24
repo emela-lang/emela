@@ -219,7 +219,8 @@ impl Printer<'_> {
                 None => format!("break {}", self.label(*label)),
             },
             Term::Recur(args) => format!("recur({})", self.operands(args)),
-            Term::Defect(msg) => format!("defect({})", self.operand(msg)),
+            Term::Defect(msg, None) => format!("defect({})", self.operand(msg)),
+            Term::Defect(msg, Some(at)) => format!("defect({}) at {at:?}", self.operand(msg)),
             Term::Unwind => "unwind".to_owned(),
             Term::Unreachable => "unreachable".to_owned(),
         };

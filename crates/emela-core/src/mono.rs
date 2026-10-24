@@ -1139,7 +1139,7 @@ impl<'a> Mono<'a> {
                             let l = self.out.local("left", ty);
                             let r = self.out.local("right", ty);
                             let test = compare(self, Expr::Var(l), Expr::Var(r));
-                            let failed = self.assert_failed(show, &a.text, *op, ty, l, r);
+                            let failed = self.assert_failed(show, a, *op, ty, l, r);
                             return assert_bound(test, failed, (l, lhs), (r, rhs));
                         } else if *op_ty == OpTy::Structural
                             && let Some(eq) = self.m.traits.eq
@@ -1149,7 +1149,8 @@ impl<'a> Mono<'a> {
                             let l = self.out.local("left", ty);
                             let r = self.out.local("right", ty);
                             let decide = self.structural_eq(*op, ty, Expr::Var(l), Expr::Var(r));
-                            return Assert::shown(decide, *op, ty, (l, lhs), (r, rhs), &a.text);
+                            let shown = Assert::shown(decide, *op, ty, (l, lhs), (r, rhs), &a.text);
+                            return Assert::at(shown, a.location.clone());
                         } else {
                             AssertCond::Compare {
                                 op: *op,
@@ -1177,7 +1178,7 @@ impl<'a> Mono<'a> {
                             // The sides are variables bound before the assert (`Assert::shown`).
                             && let (Expr::Var(l), Expr::Var(r)) = (&lhs, &rhs)
                         {
-                            let failed = self.assert_failed(show, &a.text, *op, ty, *l, *r);
+                            let failed = self.assert_failed(show, a, *op, ty, *l, *r);
                             return Expr::If {
                                 cond: Box::new(cond),
                                 then: Box::new(Expr::Lit(Lit::Unit)),
@@ -1198,6 +1199,7 @@ impl<'a> Mono<'a> {
                 Expr::Assert(Box::new(Assert {
                     cond,
                     text: a.text.clone(),
+                    location: a.location.clone(),
                 }))
             }
             Expr::Fail(v) => {
@@ -1563,16 +1565,16 @@ impl<'a> Mono<'a> {
     fn assert_failed(
         &mut self,
         show: FnId,
-        text: &str,
+        a: &Assert,
         op: BinOp,
         ty: TypeId,
         l: Local,
         r: Local,
     ) -> Expr {
-        let head = if text.is_empty() {
+        let head = if a.text.is_empty() {
             format!("left {} right", comparison_text(op))
         } else {
-            text.to_owned()
+            a.text.clone()
         };
         let message = Expr::Concat(vec![
             StrPart::Lit(format!("assertion failed: {head}\n  left: ")),
@@ -1586,10 +1588,18 @@ impl<'a> Mono<'a> {
                 TypeId::STRING,
             ),
         ]);
+        // The location stays outside the message (`[test.assert]`).
+        let (op, args) = match &a.location {
+            Some(location) => (
+                Builtin::AssertFail,
+                vec![message, Expr::Lit(Lit::String(location.clone()))],
+            ),
+            None => (Builtin::Panic, vec![message]),
+        };
         Expr::Builtin {
-            op: Builtin::Panic,
+            op,
             ty_args: Vec::new(),
-            args: vec![message],
+            args,
         }
     }
 

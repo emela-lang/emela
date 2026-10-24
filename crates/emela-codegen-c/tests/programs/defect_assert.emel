@@ -1,0 +1,25 @@
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+# A failed assert that reaches main is shown as `defect: <message>`, without the location of the
+# assert (`[cmd.test.outcome]`, `[error.defect]`). A release that also fails adds its note.
+
+effect Pool {
+  fn get() -> Int
+}
+
+handler Leaky(n: Int): Pool {
+  init { Leaky(n: 1) }
+  release {
+    print("release leaky")
+    panic("release failed")
+  }
+  fn get() { self.n }
+}
+
+fn main() {
+  with Leaky {
+    assert (use Pool).get() == 2
+  }
+}

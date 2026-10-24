@@ -107,6 +107,10 @@ pub struct LowerInput<'a> {
     /// (`"./ffi.mjs"`) to the file next to the declaring source (spec 12.1). Modules without a
     /// path are left alone.
     pub paths: ArenaMap<ModuleId, &'a Path>,
+    /// Source file paths of modules as diagnostics show them (relative to the project directory
+    /// when under it). Used for the location of an assert (`[test.assert]`). An assert in a
+    /// module without one has no location.
+    pub shown_paths: ArenaMap<ModuleId, String>,
     /// Bundled host files (paths relative to `lib/` and contents; `crate::bundled_files`). File
     /// specifiers of core modules are looked up here instead of next to the source, become
     /// `HostModule::Bundled`, and the files are put in `Module::bundled_files`.
@@ -150,6 +154,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         ev: None,
         bound: Vec::new(),
         paths: &input.paths,
+        shown_paths: &input.shown_paths,
         bundled_files: input.bundled_files,
         uses_bundled: false,
         errors: Vec::new(),
@@ -308,6 +313,7 @@ struct Lowerer<'a> {
     /// searches from the back (spec 8.3).
     bound: Vec<(EffectKey, Local)>,
     paths: &'a ArenaMap<ModuleId, &'a Path>,
+    shown_paths: &'a ArenaMap<ModuleId, String>,
     bundled_files: &'a [(&'a str, &'a str)],
     /// Whether a lowered external function pointed to a bundled host file.
     uses_bundled: bool,
@@ -2320,7 +2326,10 @@ impl<'a> Lowerer<'a> {
                 arms: arms.iter().map(|arm| self.arm(arm)).collect(),
             },
             ExprKind::Lambda { params, body } => self.lambda(id, params, *body),
-            ExprKind::Assert(cond) => self.assert(*cond),
+            ExprKind::Assert(cond) => {
+                let location = self.location(e.span);
+                Assert::at(self.assert(*cond), location)
+            }
             ExprKind::Update { ctor, fields, base } => {
                 self.update(id, *ctor, fields, *base, e.span)
             }
@@ -2980,6 +2989,19 @@ impl<'a> Lowerer<'a> {
         }
         let cond = self.expr(cond);
         Assert::bool(cond, text)
+    }
+
+    /// `<path>:<line>:<column>` of the start of `span` (`[cmd.test.outcome]`). Lines and columns
+    /// count from 1, and a column counts characters (Unicode scalar values) from the start of the
+    /// line, as the code frames of diagnostics do. `None` without a source or a shown path.
+    fn location(&self, span: Span) -> Option<String> {
+        let path = self.shown_paths.get(span.module)?;
+        let source = self.sources.get(span.module)?;
+        let before = source.get(..usize::from(span.range.start()))?;
+        let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+        let line = before.matches('\n').count() + 1;
+        let column = before[line_start..].chars().count() + 1;
+        Some(format!("{path}:{line}:{column}"))
     }
 
     /// The source text; empty for positions without a source.

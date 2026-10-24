@@ -1372,7 +1372,7 @@ impl<'m> Builder<'m> {
             Term::Unreachable => {
                 ins.unreachable();
             }
-            Term::Defect(_) => self.internal(format!("defect left in {}", cx.f.name)),
+            Term::Defect(..) => self.internal(format!("defect left in {}", cx.f.name)),
         }
     }
 

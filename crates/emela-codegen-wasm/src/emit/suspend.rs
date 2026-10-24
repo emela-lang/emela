@@ -735,7 +735,7 @@ fn compile_term(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, term: &Term, y: YieldTo)
             ins.unreachable();
             terminate(mcx, buf);
         }
-        Term::Defect(_) => {
+        Term::Defect(..) => {
             mcx.b.internal(format!("defect left in {}", mcx.f.name));
             let mut ins = InstructionSink::new(&mut buf.bytes);
             ins.unreachable();

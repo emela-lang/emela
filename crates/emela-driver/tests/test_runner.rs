@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 use emela_core::build::*;
 use emela_core::{Assert, BinOp, Builtin, Expr, Module, OpTy, Type, TypeId, WithBind};
 use emela_driver::{
-    Analysis, BuildOutput, Checked, CoreJs, Diagnostic, FileId, Frontend, Input, LowerTests,
-    MemoryFiles, Output, OutputFile, ParseOnly, Parsed, SourceFile, TestBackend, TestCase,
-    TestModule, TestOptions, TestOutcome, TestReport, Typecheck, check, test,
+    Analysis, BuildOutput, Checked, CoreC, CoreJs, CoreWasm, Dependencies, DependencyPome,
+    DependencyRef, Diagnostic, FileId, Frontend, Input, LowerTests, MemoryFiles, Output,
+    OutputFile, ParseOnly, Parsed, SourceFile, Target, TestBackend, TestCase, TestModule,
+    TestOptions, TestOutcome, TestReport, Typecheck, cc_command, check, test, wasmtime_program,
 };
 use emela_resolve::ModuleId;
 
@@ -896,5 +897,319 @@ fn failure_drops_the_state() {
                 TestOutcome::Error("Boom".into())
             ),
         ]
+    );
+}
+
+/// Whether `program --version` starts; prints why a target is skipped otherwise.
+fn starts(program: &Path, args: &[String]) -> bool {
+    let ok = std::process::Command::new(program)
+        .args(args)
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !ok {
+        eprintln!("skipping a target: cannot start `{}`", program.display());
+    }
+    ok
+}
+
+/// Runs the tests of `sources` on `target` with the `emela test` frontend. `None` when the
+/// target's tool (the C compiler, wasmtime) cannot start.
+fn run_on(
+    name: &str,
+    fs: &MemoryFiles,
+    input: &Input,
+    target: Target,
+) -> Option<(Analysis, Option<TestReport>, String)> {
+    let mut frontend = LowerTests::default().with_target(target);
+    let options = TestOptions {
+        out_dir: out_dir(&format!("{name}-{target}")),
+        node: emela_driver::node_program(),
+        filter: None,
+        output: Output::Capture,
+    };
+    let mut out = Vec::new();
+    let (analysis, report) = match target {
+        Target::Js => test(
+            fs,
+            input,
+            &mut frontend,
+            &mut CoreJs,
+            &options,
+            |_| {},
+            &mut out,
+        ),
+        Target::C => {
+            let (cc, flags) = cc_command();
+            if !starts(&cc, &flags) {
+                return None;
+            }
+            test(
+                fs,
+                input,
+                &mut frontend,
+                &mut CoreC::default(),
+                &options,
+                |_| {},
+                &mut out,
+            )
+        }
+        Target::Wasm => {
+            if !starts(&wasmtime_program(), &[]) {
+                return None;
+            }
+            test(
+                fs,
+                input,
+                &mut frontend,
+                &mut CoreWasm,
+                &options,
+                |_| {},
+                &mut out,
+            )
+        }
+    };
+    let _ = std::fs::remove_dir_all(&options.out_dir);
+    Some((analysis, report, String::from_utf8(out).unwrap()))
+}
+
+/// Runs the tests on every target, checks that they print the same and give the same results,
+/// and returns the JS output and each result's (name, location).
+fn run_everywhere(
+    name: &str,
+    fs: &MemoryFiles,
+    input: &Input,
+) -> (String, Vec<(String, Option<String>)>) {
+    let mut first: Option<(String, Vec<_>)> = None;
+    for target in [Target::Js, Target::C, Target::Wasm] {
+        let Some((analysis, report, out)) = run_on(name, fs, input, target) else {
+            continue;
+        };
+        assert!(
+            !analysis.has_errors(),
+            "{target}: {:?}",
+            analysis.diagnostics
+        );
+        let locations: Vec<_> = report
+            .unwrap()
+            .results
+            .into_iter()
+            .map(|r| (r.name, r.location))
+            .collect();
+        match &first {
+            None => first = Some((out, locations)),
+            Some((js_out, js_locations)) => {
+                assert_eq!(&out, js_out, "{target}");
+                assert_eq!(&locations, js_locations, "{target}");
+            }
+        }
+    }
+    first.expect("the JS target always runs")
+}
+
+/// A defect from a failed assert has the location of the assert expression, and the test runner
+/// shows it after the name of the failed test (`[test.assert]`, `[cmd.test.outcome]`,
+/// `[cmd.test.output]`). Every form of assert has it: a comparison, a non-comparison, sides
+/// shown through a written Show impl, an ordering through `Ord.compare`, sides without Show, and
+/// an assert in a generic function. Columns are counted in characters, as in diagnostics. A
+/// panic has no location. The location stays when the runtime adds to the message (a release
+/// that also failed, a const that remembers the defect).
+#[test]
+fn failures_show_where_the_assert_is() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            r##"type Name(value: String)
+
+impl Name: Show {
+  fn show(self) { "<#{self.value}>" }
+}
+
+impl Name: Eq {
+  fn eq(self, other) { self.value == other.value }
+}
+
+type Version(major: Int, minor: Int) derive Eq, Ord, Show
+
+type Hidden(n: Int) derive Eq
+
+fn same[A: Eq](a: A, b: A) -> () { assert a == b }
+
+effect Res {
+  fn get() -> Int
+}
+
+handler Leaky(n: Int): Res {
+  init { Leaky(n: 1) }
+  release { panic("release failed") }
+  fn get() { self.n }
+}
+
+const LIMIT: Int = limit()
+
+fn limit() -> Int {
+  assert 1 > 2
+  3
+}
+
+@test
+fn compares() {
+  assert 1 + 1 == 3
+}
+
+@test
+fn not_a_comparison() {
+  assert False
+}
+
+@test
+fn through_written_show() {
+  assert Name(value: "a") == Name(value: "b")
+}
+
+@test
+fn through_ord() {
+  assert Version(major: 2, minor: 0) < Version(major: 1, minor: 0)
+}
+
+@test
+fn without_show() {
+  assert Hidden(n: 1) == Hidden(n: 2)
+}
+
+@test
+fn in_a_generic_function() {
+  same([1], [2])
+}
+
+@test
+fn after_wide_characters() {
+  if "日本語" != "" { assert "日本語" == "英語" }
+}
+
+@test
+fn panics() {
+  panic("boom")
+}
+
+@test
+fn passes() {
+  assert True
+}
+
+@test
+fn release_fails_too() {
+  with Leaky { assert (use Res).get() == 2 }
+}
+
+@test
+fn in_a_const() {
+  assert LIMIT == 3
+}
+"##,
+        ),
+        (
+            "app/src/util.emel",
+            "@test\nfn in_util() {\n  assert List.length([1]) == 2\n}\n",
+        ),
+    ]);
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let (out, locations) = run_everywhere("locations", &fs, &input);
+    let location = |l: &str| Some(l.to_owned());
+    assert_eq!(
+        locations,
+        [
+            ("compares".to_owned(), location("src/main.emel:36:3")),
+            (
+                "not_a_comparison".to_owned(),
+                location("src/main.emel:41:3")
+            ),
+            (
+                "through_written_show".to_owned(),
+                location("src/main.emel:46:3")
+            ),
+            ("through_ord".to_owned(), location("src/main.emel:51:3")),
+            ("without_show".to_owned(), location("src/main.emel:56:3")),
+            (
+                "in_a_generic_function".to_owned(),
+                location("src/main.emel:15:36")
+            ),
+            (
+                "after_wide_characters".to_owned(),
+                location("src/main.emel:66:20")
+            ),
+            ("panics".to_owned(), None),
+            ("passes".to_owned(), None),
+            (
+                "release_fails_too".to_owned(),
+                location("src/main.emel:81:16")
+            ),
+            ("in_a_const".to_owned(), location("src/main.emel:30:3")),
+            ("Util.in_util".to_owned(), location("src/util.emel:3:3")),
+        ]
+    );
+    insta::assert_snapshot!(out);
+}
+
+/// In single-file mode the path is relative to the directory that contains the file
+/// (`[cmd.test.outcome]`).
+#[test]
+fn single_file_locations_are_relative_to_its_directory() {
+    let fs = MemoryFiles::new([(
+        "scripts/check.emel",
+        "@test\nfn fails() {\n  assert 1 == 2\n}\n",
+    )]);
+    let input = Input::resolve(&fs, Path::new("scripts/check.emel")).unwrap();
+    let (_, locations) = run_everywhere("single-file", &fs, &input);
+    assert_eq!(
+        locations,
+        [("fails".to_owned(), Some("check.emel:3:3".to_owned()))]
+    );
+}
+
+/// For an assert in a dependency Pome, the path is the path of the Pome's source file, shown as
+/// diagnostics show it (`[cmd.test.outcome]`).
+#[test]
+fn an_assert_in_a_dependency_has_its_source_path() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "import Quince\n\n@test\nfn checks() {\n  Quince.check(2)\n}\n",
+        ),
+        ("deps/quince/Pome.toml", ""),
+        (
+            "deps/quince/src/lib.emel",
+            "pub fn check(n: Int) -> () {\n  assert n == 1\n}\n",
+        ),
+    ]);
+    let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
+    input.dependencies = Dependencies {
+        pomes: vec![DependencyPome {
+            name: "github.com/acme/quince".into(),
+            dir: "/deps/quince".into(),
+            last_element: "quince".into(),
+            module: None,
+            emela: None,
+            targets: None,
+            version: "v1.0.0".into(),
+            dependencies: Vec::new(),
+        }],
+        project: vec![DependencyRef {
+            pome: 0,
+            module: None,
+        }],
+        dev: Vec::new(),
+        manifest: "/app/Pome.toml".into(),
+        allow_external: Vec::new(),
+    };
+    let (_, locations) = run_everywhere("dependency", &fs, &input);
+    assert_eq!(
+        locations,
+        [(
+            "checks".to_owned(),
+            Some("/deps/quince/src/lib.emel:2:3".to_owned())
+        )]
     );
 }

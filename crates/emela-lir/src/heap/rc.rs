@@ -178,7 +178,7 @@ pub(crate) fn term_consumes(f: &Function, t: &Term) -> Vec<VarId> {
         Term::Yield(v) | Term::Return(v) | Term::Break { value: v, .. } => {
             operand_vars(f, &v.iter().collect::<Vec<_>>())
         }
-        Term::Fail(v) | Term::Defect(v) => operand_vars(f, &[v]),
+        Term::Fail(v) | Term::Defect(v, _) => operand_vars(f, &[v]),
         Term::Recur(args) => operand_vars(f, &args.iter().collect::<Vec<_>>()),
         Term::Unwind | Term::Unreachable => Vec::new(),
     }
@@ -555,7 +555,7 @@ impl<'a> Counter<'a> {
             Term::Yield(_) => Some(yield_target.clone()),
             Term::Break { label, .. } => Some(self.label_target[label].clone()),
             Term::Recur(_) => Some(loop_target.cloned().unwrap_or_default()),
-            Term::Return(_) | Term::Fail(_) | Term::Unwind | Term::Defect(_) => {
+            Term::Return(_) | Term::Fail(_) | Term::Unwind | Term::Defect(..) => {
                 Some(Set::default())
             }
             Term::Unreachable => None,

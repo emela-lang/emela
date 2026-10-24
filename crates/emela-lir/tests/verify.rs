@@ -659,7 +659,7 @@ fn defects_and_the_stage() {
         on_defect: Some(landing),
         on_suspend: None,
     });
-    b.term(Term::Defect(string("boom")));
+    b.term(Term::Defect(string("boom"), None));
     let mut f = b.finish();
     f.defects = true;
     assert_eq!(

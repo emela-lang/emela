@@ -45,7 +45,8 @@ pub enum Entry {
     /// Test functions (spec 13.4), called one by one in order. Each result is written to stdout
     /// as a line of [`TEST_EVENT_PREFIX`] and JSON, the protocol of the JS test runner: `{"event":
     /// "result", "name": …, "outcome": "ok" | "defect" | "error" | "interrupted", "message": …}`,
-    /// then `{"event": "done"}`.
+    /// then `{"event": "done"}`. The defect of a failed assert also has `"location"`
+    /// (`[test.assert]`).
     Tests(Vec<TestEntry>),
 }
 
