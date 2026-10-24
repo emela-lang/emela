@@ -1,10 +1,10 @@
 ---
 title: HTTP services
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 428
 issue:
-decided:
+decided: 2026-10-25
 touches: [lib.layers, api.std.http, target.js.module, target.wasm.output, target.wasm.run, target.c.unsupported, cmd.build, diag.list]
 requires: [export]
 related: []
@@ -305,5 +305,6 @@ Type mismatches (E0438) and wrong R (E0402) belong to the proposal export.
 
 ## Open questions
 
-
 ## Decision
+
+HTTP services are an entry adapter in std, built on export, so the compiler does not special-case HTTP and the same app runs as the fetch of a default export on JS and as a wasi:http/service component on WASM. Each request is one launch: this is what hosts such as Workers and wasmtime serve allow, and a long-running form with process-wide init is left to http-serve. The entry answers 405, 400 and 500 itself with the status name as the body, and writes the cause only to standard error, so results match across targets and nothing leaks. Request and Response move to modules of their own, following the convention of List and Map, and malformed percent-encoding is rejected at the entry so segments and query need no fails.
