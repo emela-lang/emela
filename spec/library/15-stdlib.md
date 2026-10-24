@@ -198,12 +198,18 @@ pub fn app(request: Request) -> Response {
 - The host MAY call the fn again before an earlier call has returned. Launches in progress switch only at suspension points (`[fiber.basic]`).
 - The request is converted to a `Request` as follows.
   - A method that is not one of `Method` is answered with status 405 and the header `allow: GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS`, without calling the fn.
-  - `url` is the absolute URL of the request, `<scheme>://<authority><path-with-query>`.
+  - `url` is the absolute URL of the request, `<scheme>://<authority><path-with-query>`, as the host parsed it. On JS the host parses it by the URL Standard, so it is normalized there: the scheme and the host are lowercase, `.` and `..` segments are removed from the path, and characters outside ASCII in the path and the query are percent-encoded. On WASM the path and the query are as the host received them. `Request.path`, `Request.segments` and `Request.query` of the same request can therefore differ between the targets.
   - Header names are lowercased and sorted by name, and values with the same name are joined with `, `. Only `set-cookie` is kept as separate pairs, in the order received. This is the form of the headers of a `Response` of the client.
   - The whole body is read before the fn is called. A body that cannot be read as UTF-8 is answered with status 400, without calling the fn. A BOM at the start of the body is removed.
   - A request whose path or query has a malformed `%` sequence (`%` not followed by two hexadecimal digits), or one whose decoded bytes are not UTF-8, is answered with status 400, without calling the fn. So `Request.segments` and `Request.query` of a request received this way keep nothing as written.
-- The `Response` is converted as follows. Headers are sent in the order written. When the body is not empty and there is no `content-type` header, `content-type: text/plain;charset=UTF-8` is added. The body is sent as UTF-8.
-- When the launch ends with an error, a defect or an interruption, one line describing the cause (`Cause.to_string`) is written to standard error, and the response has status 500. The cause is not written in the response.
+- The `Response` is converted as follows. Values of headers with the same name are sent in the order written, and MAY be joined with `, ` into one header (not `set-cookie`). The order between headers with different names is not specified. When the body is not empty and there is no `content-type` header, `content-type: text/plain;charset=UTF-8` is added. The body is sent as UTF-8.
+- A `Response` that the host cannot send ends the launch like an error: one line `invalid response: <reason>` is written to standard error, and the response has status 500. `<reason>` is one of the following, checked in this order.
+  - `status <status>`: the status is not from 200 to 599.
+  - `status <status> cannot have a body`: the status is 204, 205 or 304 and the body is not empty.
+  - ``header name `<name>` ``: a header name is empty or has a character that is not an ASCII letter, a digit, or one of ``!#$%&'*+-.^_`|~``.
+  - ``header value of `<name>` ``: a header value has a character other than a tab and the printable ASCII characters (U+0020 to U+007E). The Headers of the JS Fetch API take only Latin-1, and `wasi:http` rejects control characters, so this is what both accept.
+- When the fn ends with an error or a defect, one line describing the cause (`Cause.to_string`) is written to standard error, and the response has status 500. The cause is not written in the response.
+- When the launch ends with an interruption (it stalled, `[dyn.suspend]`), no response is made, and the host gets an error: on JS the Promise that `fetch` returned rejects (`[target.js.module]`). `serve.mjs` then writes `interrupted` to standard error and answers with status 500.
 - The responses with status 405, 400 and 500 above have the body `Method Not Allowed`, `Bad Request` and `Internal Server Error`, with `content-type: text/plain;charset=UTF-8`.
 - On JS, `serve` is the property `fetch` of the default export of `main.mjs` (`[target.js.module]`). On WASM, `main.wasm` is a component of the world `wasi:http/service@0.3.0` that exports `handle` of `wasi:http/handler@0.3.0` (`[target.wasm.output]`). The C target does not support HTTP services yet (`[target.c.unsupported]`).
 
