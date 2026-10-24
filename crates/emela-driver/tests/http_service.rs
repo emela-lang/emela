@@ -433,3 +433,40 @@ fn no_serve_mjs_without_a_service() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(!exists);
 }
+
+/// The code of `[lib.http-service]` and of `[api.std.http]`, with the imports and the fn they
+/// leave out, type-checks (these examples use std, which the type checker's own spec examples do
+/// not load).
+#[test]
+fn spec_examples_check() {
+    let service = r##"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+import Std.Platform.{Platform}
+
+fn route(request: Request) -> Response { Response.new(200, request.url) } # 補
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response {
+  with Platform { route(request) }
+}
+"##;
+    let client = r##"import Std.Http.{Http, TestServer, TestHttp}
+import Std.Http.Response
+import Std.State.{State}
+
+@test
+fn fetches() {
+  server = TestServer(respond: fn(req, n) { Some(Response.new(200, "ok")) }, sent: [])
+  (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
+  assert res.body == "ok"
+  assert List.length(after.sent) == 1
+}
+
+fn main() {}
+"##;
+    for (name, main) in [("spec-service", service), ("spec-client", client)] {
+        let dir = build_service(name, main);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
