@@ -165,9 +165,10 @@ pub fn on_tick() -> () { ... }
 pub fn add(a: Int, b: Int) -> Int { a + b }
 ```
 
-- `@export` is written on a top-level fn with a body. Its arguments have the form `(target, "name")` or `(target, "interface", "name")`, as for `@external` (12.1). One `@export` is written per target name; a fn MAY have several for the same target. Malformed arguments are E0146.
+- `@export` is written on a top-level fn with a body. Writing it on any other declaration, or on a fn without a body, is E0146. Its arguments have the form `(target, "name")` or `(target, "interface", "name")`, as for `@external` (12.1). One `@export` is written per target name; a fn MAY have several for the same target. Malformed arguments are E0146, and an unknown target is E0140.
 - An `@export` fn exposes itself to the host under each name. Each call by the host is one launch, as main is.
 - The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402).
+- A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} use {}` (`f: fn(Int) -> String fails {} use {}`). Otherwise its E and R are not empty (E0402).
 - An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
 - Two exports with the same name for the same target, from `@export` or `@entry`, are a compile error (E0438).
 - How each target exposes the fn is in `[target.js.module]`, `[target.c.export]` and `[target.wasm.external]`.
@@ -175,6 +176,6 @@ pub fn add(a: Int, b: Int) -> Int { a + b }
 ## 12.8 Entry adapters `[ext.entry]`
 
 - An `@export` fn whose first parameter has a function type is an entry adapter. An entry adapter is not exposed by itself, and MAY be in any module. Its first parameter need not be a boundary type; the other parameters and the return value are boundary types (E0436).
-- `@entry(T)` is written on a top-level fn `f` of the entry module. `T` names an entry adapter (E0439). `f` MUST be accepted as the first argument of `T` (E0440).
+- `@entry(T)` is written on a top-level fn `f` of the entry module. Writing it outside the entry module is E0437. Its one argument is a lower name (`serve`, a fn of the same module) or a `qualified` path (`Http.serve`) that names an entry adapter; anything else is E0439. `f` MUST be accepted as the first argument of `T` (E0440).
 - For each `@export` of `T`, the program exposes under the same name a fn that takes the remaining parameters of `T` and returns `T(f, ...)`. Each call is one launch.
 - `f` remains an ordinary fn. It can be called, including from tests.
