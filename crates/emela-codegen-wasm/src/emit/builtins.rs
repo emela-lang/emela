@@ -15,6 +15,12 @@ impl<'m> Builder<'m> {
     ) {
         use Builtin::*;
         match op {
+            StringLength => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("str_grapheme_count");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::I32);
+            }
             StringByteSize => {
                 self.operand(cx, ins, &args[0]);
                 let f = self.rt("str_byte_size");
@@ -74,6 +80,12 @@ impl<'m> Builder<'m> {
                     self.operand(cx, ins, a);
                 }
                 let f = self.rt("str_trim");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            StringChars => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("str_grapheme_chars");
                 ins.call(f);
                 self.assign(cx, ins, dst, Repr::Ref);
             }

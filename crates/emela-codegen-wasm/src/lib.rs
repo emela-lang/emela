@@ -11,8 +11,9 @@
 //! module is a WASI command run with an external engine (`wasmtime`).
 //!
 //! The first version supports no programs that suspend (the emitter does not read the state
-//! machines of the Heap IR yet), no fibers, no callbacks to host functions and no builtins that
-//! need Unicode tables; reaching them is a [`WasmError`].
+//! machines of the Heap IR yet), no fibers and no callbacks to host functions; reaching them is a
+//! [`WasmError`]. The Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0) are part of
+//! the runtime.
 
 mod check;
 mod emit;
@@ -67,7 +68,7 @@ pub struct WasmError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WasmErrorKind {
-    /// A feature the WASM target does not support yet (suspending code, fibers, Unicode tables).
+    /// A feature the WASM target does not support yet (suspending code, fibers).
     Unsupported,
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,

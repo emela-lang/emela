@@ -204,22 +204,16 @@ fn strings_extended() {
 }
 
 #[test]
-fn split_with_an_empty_separator_is_a_defect() {
-    // The constant empty separator is rejected before the Heap IR; a separator that is empty
-    // only at run time reaches the runtime, which raises the defect instead of splitting.
-    let Some(run) = run(
+fn split_with_an_empty_separator_splits_by_graphemes() {
+    // A separator that is empty only at run time reaches the runtime, which splits per grapheme
+    // cluster like `String.chars` (16.2).
+    let Some(out) = stderr(
         "split-empty",
-        "fn main() {\n  sep = String.trim(\" \")\n  dbg(String.split(\"ab\", sep))\n}\n",
+        "fn main() {\n  sep = String.trim(\" \")\n  dbg(String.split(\"a\u{1F44D}\u{1F3FD}\", sep))\n  dbg(String.length(\"a\u{1F44D}\u{1F3FD}\"))\n}\n",
     ) else {
         return;
     };
-    assert_eq!(run.code, 101);
-    assert!(
-        run.stderr
-            .starts_with("defect: `String.split` with an empty separator"),
-        "{}",
-        run.stderr
-    );
+    assert_eq!(out, "[\"a\", \"\u{1F44D}\u{1F3FD}\"]\n2\n");
 }
 
 #[test]

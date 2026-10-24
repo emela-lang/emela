@@ -3,14 +3,9 @@
 use super::*;
 
 use emela_core::Builtin;
-use emela_lir::{Callee, Const, Function, Module, Operand, Value};
+use emela_lir::{Callee, Function, Module, Value};
 
 pub(super) fn value_unsupported(m: &Module, f: &Function, value: &Value, found: &mut Found) {
-    let graphemes = |what: &str| {
-        format!(
-            "{what} needs the Unicode grapheme cluster tables, which target `wasm` does not support yet"
-        )
-    };
     match value {
         Value::Fiber { op, .. } => {
             let name = fiber_name(*op);
@@ -34,13 +29,8 @@ pub(super) fn value_unsupported(m: &Module, f: &Function, value: &Value, found: 
         Value::Closure(c) if c.suspends => {
             found.suspending(format!("a closure in `{}`", display_name(&f.name)));
         }
-        Value::Builtin { op, args } => {
+        Value::Builtin { op, .. } => {
             let message = match op {
-                Builtin::StringLength => graphemes("`String.length`"),
-                Builtin::StringChars => graphemes("`String.chars`"),
-                Builtin::StringSplit if matches!(args.get(1), Some(Operand::Const(Const::String(s))) if s.is_empty()) => {
-                    graphemes("`String.split` with an empty separator")
-                }
                 Builtin::FloatToString
                 | Builtin::FloatParse
                 | Builtin::FloatFloor

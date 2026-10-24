@@ -9,8 +9,8 @@
 //! padding) then 8-byte slots. Static data (descriptors, string literals, nullary constructors,
 //! capture-less closures) has `rc == 0` and is never counted.
 //!
-//! The runtime is split by feature. Each module owns its entries of `FUNCS`, its locals and its
-//! lowering; `MODULES` is the whole registration list, in definition order.
+//! The runtime is split by feature. Each module owns its entries of `FUNCS`, its locals, its
+//! static data and its lowering; `MODULES` is the whole registration list, in definition order.
 
 use super::layout::{CPBUF, DIGITS, DIGITS64, IOVEC, JSONBUF, NEWLINE, NWRITTEN, PAGE};
 use super::*;
@@ -19,10 +19,13 @@ use wasm_encoder::{InstructionSink, ValType};
 /// A runtime function: its name and wasm signature.
 pub(super) type Sig = (&'static str, &'static [ValType], &'static [ValType]);
 
-/// One runtime module: its functions, the locals of each, and its lowering.
+/// One runtime module: its functions, the locals of each, its static data and its lowering.
 pub(super) struct RuntimeModule {
     funcs: &'static [Sig],
     locals: fn(&str) -> Vec<(u32, ValType)>,
+    /// Writes the module's static data before any runtime body is emitted, and records the
+    /// offsets in `Builder::rt_data` for the lowering to read.
+    setup: fn(&mut Builder),
     emit: fn(&mut Builder, &str, &mut InstructionSink) -> bool,
 }
 
@@ -34,52 +37,68 @@ mod option;
 mod protocol;
 mod show;
 mod string;
+mod unicode;
+mod unicode_tables;
 
 /// Every runtime module, in definition order.
 ///
-/// A new feature (Float, the file system, scheduling, Unicode tables, ...) adds its own module
-/// with `FUNCS`, `locals` and `emit`, and appends one entry here. The order of the existing
+/// A new feature (Float, the file system, scheduling, ...) adds its own module with `FUNCS`,
+/// `locals`, `setup` and `emit`, and appends one entry here. The order of the existing
 /// entries must not change, so function indices and the emitted bytes stay stable.
 const MODULES: &[RuntimeModule] = &[
     RuntimeModule {
         funcs: alloc::FUNCS,
         locals: alloc::locals,
+        setup: no_setup,
         emit: alloc::emit,
     },
     RuntimeModule {
         funcs: string::FUNCS,
         locals: string::locals,
+        setup: no_setup,
         emit: string::emit,
     },
     RuntimeModule {
         funcs: option::FUNCS,
         locals: option::locals,
+        setup: no_setup,
         emit: option::emit,
     },
     RuntimeModule {
         funcs: show::FUNCS,
         locals: show::locals,
+        setup: no_setup,
         emit: show::emit,
     },
     RuntimeModule {
         funcs: host::FUNCS,
         locals: host::locals,
+        setup: no_setup,
         emit: host::emit,
     },
     RuntimeModule {
         funcs: defect::FUNCS,
         locals: defect::locals,
+        setup: no_setup,
         emit: defect::emit,
     },
     RuntimeModule {
         funcs: protocol::FUNCS,
         locals: protocol::locals,
+        setup: no_setup,
         emit: protocol::emit,
     },
     RuntimeModule {
         funcs: numeric::FUNCS,
         locals: numeric::locals,
+        setup: no_setup,
         emit: numeric::emit,
+    },
+    RuntimeModule {
+        funcs: unicode::FUNCS,
+        locals: unicode::locals,
+        setup: unicode::setup,
+        emit: unicode::emit,
     },
 ];
 
@@ -95,6 +114,9 @@ pub(crate) fn register(b: &mut Builder) {
     }
 }
 
+/// The `setup` of a module without static data.
+fn no_setup(_: &mut Builder) {}
+
 /// `n` i32 locals. Their indices start after the parameters; each `locals` arm names them in a
 /// comment, in index order.
 pub(super) fn i32s(n: u32) -> Vec<(u32, ValType)> {
@@ -105,8 +127,12 @@ fn rt(b: &Builder, name: &'static str) -> u32 {
     b.rt[name]
 }
 
-/// Emits every runtime function body, in `MODULES` order.
+/// Writes the static data of every module, then emits every runtime function body, in `MODULES`
+/// order.
 pub(crate) fn emit(b: &mut Builder) {
+    for module in MODULES {
+        (module.setup)(b);
+    }
     for module in MODULES {
         for (name, ..) in module.funcs {
             let mut f = WasmFunction::new((module.locals)(name));

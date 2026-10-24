@@ -1,0 +1,3 @@
+# The files under this directory are byte-identical copies of the upstream Unicode
+# data. Do not edit them to satisfy `git diff --check`.
+** -whitespace

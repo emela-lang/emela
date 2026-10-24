@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use emela_driver::{
     Analysis, CoreJs, CoreWasm, Input, Lower, MemoryFiles, Output, RunOptions, Target,
@@ -15,6 +16,9 @@ use emela_driver::{
 };
 
 /// Programs that use only the pure language and `dbg`, so both targets must run them the same way.
+///
+/// `string_graphemes` is skipped unless Node's ICU is Unicode 17.x: the JS target segments with
+/// the host's `Intl.Segmenter`, while WASM uses the vendored Unicode 17.0.0 tables (spec 18.1 #18).
 const PROGRAMS: &[(&str, &str)] = &[
     (
         "xorshift",
@@ -125,6 +129,21 @@ fn main() {
     (
         "strings_extended",
         "fn main() {\n  dbg(String.contains(\"hello world\", \"o w\"))\n  dbg(String.starts_with(\"hello\", \"he\"))\n  dbg(String.ends_with(\"hello\", \"lo\"))\n  dbg(String.split(\"a,b,c\", \",\"))\n  dbg(String.join([\"a\", \"b\", \"c\"], \"-\"))\n  dbg(String.trim(\"  hi  \"))\n  dbg(String.code_points(\"A\u{20AC}\"))\n  dbg(String.split(\"\", \",\"))\n  dbg(String.trim(\"\u{00A0}hi\u{2003}\"))\n  dbg(String.starts_with(\"h\u{00E9}llo\", \"h\u{00E9}\"))\n}\n",
+    ),
+    (
+        "string_graphemes",
+        r#"
+fn main() {
+  dbg(String.length("\u{0915}\u{094d}\u{0937}"))
+  dbg(String.chars("\u{1f44d}\u{1f3fd}e\u{301}"))
+  dbg(String.split("\u{1f1ef}\u{1f1f5}\u{1f1fa}\u{1f1f8}", ""))
+  dbg(String.length("\r\n"))
+  dbg(String.split("a\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}b", ""))
+  dbg(String.join(String.split("x\u{1f1ef}\u{1f1f5}y", ""), "|"))
+  dbg(String.length("\u{1100}\u{1161}\u{11a8}"))
+  dbg(String.split("\u{ac00}\u{ac01}", ""))
+}
+"#,
     ),
     (
         "effects",
@@ -439,21 +458,29 @@ fn main() {
 const NOT_ON_WASM: &[(&str, &str, &str)] = &[
     ("float", "fn main() { dbg(1.5) }\n", "`Float` operation"),
     (
-        "string_length",
-        "fn count(s: String) -> Int { String.length(s) }\nfn main() { dbg(count(\"abc\")) }\n",
-        "`String.length` needs the Unicode grapheme cluster tables",
-    ),
-    (
-        "string_chars",
-        "fn points(s: String) -> List[String] { String.chars(s) }\nfn main() { dbg(points(\"abc\")) }\n",
-        "`String.chars` needs the Unicode grapheme cluster tables",
-    ),
-    (
         "fibers",
         "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
         "fibers are not supported on target `wasm`",
     ),
 ];
+
+/// The Unicode version of the Node used for the JS target (`process.versions.unicode`).
+fn node_unicode() -> Option<&'static str> {
+    static VERSION: OnceLock<Option<String>> = OnceLock::new();
+    VERSION
+        .get_or_init(|| {
+            let output = Command::new(node_program())
+                .arg("-e")
+                .arg("process.stdout.write(process.versions.unicode)")
+                .output()
+                .ok()?;
+            output
+                .status
+                .success()
+                .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        })
+        .as_deref()
+}
 
 fn out_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -529,6 +556,20 @@ fn programs_agree_on_js_and_wasm() {
     }
     let mut failures = Vec::new();
     for (name, src) in PROGRAMS {
+        if *name == "string_graphemes" {
+            match node_unicode() {
+                Some(version) if version.starts_with("17.") => {}
+                Some(version) => {
+                    eprintln!(
+                        "skipping {name}: node uses Unicode {version}, need 17.x \
+                         (Node 24.18 / ICU 78.3)"
+                    );
+                    continue;
+                }
+                // Let the normal JS build report a missing node.
+                None => {}
+            }
+        }
         let js = match run_on(name, src, Target::Js) {
             Ok(out) => out,
             Err(analysis) => {
