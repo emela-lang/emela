@@ -1,0 +1,17 @@
+const VALUE = {
+  dbg("once")
+  text = Int.to_string(42)
+  (Some(text), [text], fn(n: Int) { n + String.byte_size(text) })
+}
+pub fn read() -> Int {
+  (option, values, apply) = VALUE
+  size = option match {
+    Some(text) -> String.byte_size(text)
+    _ -> 0
+  }
+  first = values match {
+    [head, ..tail] -> String.byte_size(head)
+    _ -> 0
+  }
+  apply(38) + size + first - 2
+}

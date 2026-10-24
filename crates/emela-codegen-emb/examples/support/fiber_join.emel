@@ -1,0 +1,12 @@
+import Std.Fiber.{Fiber, Success, Failure}
+pub fn work(n: Int) -> Int use Async {
+  Fiber.scope(fn() {
+    child = Fiber.fork(fn() { n + 1 })
+    first = Fiber.join(child)
+    second = Fiber.await(child) match {
+      Success(v) -> v
+      Failure(_) -> -1
+    }
+    first + second
+  })
+}

@@ -1,0 +1,11 @@
+pub fn store(n: Int) -> List[(String, Option[String])] {
+  text = Int.to_string(n)
+  [(text, Some(text))]
+}
+
+pub fn read(xs: List[(String, Option[String])]) -> String {
+  xs match {
+    [(text, _), ..rest] -> text
+    [] -> ""
+  }
+}

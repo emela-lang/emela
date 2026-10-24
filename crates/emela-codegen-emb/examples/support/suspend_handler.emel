@@ -1,0 +1,18 @@
+@external(c, "host_wait")
+suspend fn wait(n: Int) -> Int
+
+effect Wait { suspend fn get(n: Int) -> Int }
+
+handler Waiting: Wait {
+  suspend fn get(n, resume) { resume(wait(n)) }
+}
+
+pub fn work(n: Int) -> Int {
+  with Waiting {
+    outer = fn(offset: Int) {
+      inner = fn() { (use Wait).get(n) + offset }
+      inner()
+    }
+    outer(1)
+  }
+}

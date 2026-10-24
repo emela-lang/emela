@@ -1,0 +1,16 @@
+[package]
+name = "emela-codegen-emb"
+description = "Emits C for embedded targets from Emela Flow IR"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-core.workspace = true
+emela-lir.workspace = true
+la-arena.workspace = true
+
+[dev-dependencies]
+emela-resolve.workspace = true
+emela-syntax.workspace = true
+emela-types.workspace = true

@@ -117,8 +117,8 @@ alpha が選ばれる。
 - release PR の version を手で変えるとき（例: 0.21.0 を 0.20.1 にする）は、PR のブランチで
   次の3つをそろえる。マージすると release-plz はその version のタグを打つ。
   1. Cargo.toml の `[workspace.package]` の `version` と、`[workspace.dependencies]` の
-     `emela-*` の `version` 9つ
-  2. Cargo.lock の `emela-*` 10個の `version`（`cargo metadata --locked` が通ること）
+     `emela-*` の `version` すべて
+  2. Cargo.lock の `emela-*` すべての `version`（`cargo metadata --locked` が通ること）
   3. CHANGELOG.md の見出し `## [0.20.1](…/compare/v0.20.0...v0.20.1)`
   直した後にほかの PR が `main` に入ると、release-plz は手のコミットが入った PR を閉じて、
   release PR を開き直す（version も元に戻る）。直したらすぐマージする。

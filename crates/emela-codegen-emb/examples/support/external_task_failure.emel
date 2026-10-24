@@ -1,0 +1,54 @@
+import Std.Fiber.{Fiber, Success, Failure}
+import Std.Cause.{Cause}
+@external(c, "host_wait")
+suspend fn wait(n: Int) -> Int
+@external(c, "mark")
+fn mark(n: Int) -> () use {}
+error Boom(message: String, parts: List[String]) derive Show
+effect Wait { suspend fn get(n: Int) -> Int }
+handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
+fn request(n: Int) -> Int fails Boom use Async {
+  with Waiting { (use Wait).get(n) }
+  fail Boom(message: "", parts: [])
+}
+effect Resource { fn read() -> Int }
+handler ResourceOwner: Resource {
+  fn read() { 0 }
+  release { mark(1) }
+}
+pub fn caught(n: Int) -> Int use Async {
+  with ResourceOwner { request(n) } escape {
+    Boom(message, parts) -> String.byte_size(message) + (parts match {
+      [head, ..] -> String.byte_size(head)
+      [] -> 0
+    })
+  }
+}
+pub fn attempted(n: Int) -> String use Async {
+  Fiber.attempt(fn() { request(n) }) match {
+    Success(value) -> Int.to_string(value)
+    Failure(cause) -> Cause.to_string(cause)
+  }
+}
+pub fn scoped(n: Int) -> Int use Async {
+  Fiber.scope(fn() {
+    child = Fiber.fork(fn() { request(n) })
+    Fiber.join(child)
+  }) escape { Boom(message, _) -> String.byte_size(message) }
+}
+pub fn plain(n: Int) -> Int use Async { with Waiting { (use Wait).get(n) } }
+pub fn parts(n: Int) -> List[String] { [Int.to_string(n)] }
+effect Cleanup { fn read() -> Int }
+handler AsyncCleanup: Cleanup {
+  fn read() { 0 }
+  release { with Waiting { (use Wait).get(99) }
+    mark(2) }
+}
+pub fn cleaned(n: Int) -> Int use Async {
+  with AsyncCleanup { request(n) } escape {
+    Boom(message, parts) -> String.byte_size(message) + (parts match {
+      [head, ..] -> String.byte_size(head)
+      [] -> 0
+    })
+  }
+}

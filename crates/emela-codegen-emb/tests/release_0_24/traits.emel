@@ -1,0 +1,71 @@
+import Std.Fiber.{Fiber, Success, Failure}
+import Std.Cause.{Cause}
+
+type Key(value: Int)
+impl Key: Eq { fn eq(self, other) { self.value % 10 == other.value % 10 } }
+impl Key: Ord { fn compare(self, other) { Int.compare(self.value % 10, other.value % 10) } }
+impl Key: Show { fn show(self) { "K#{self.value}" } }
+
+type Envelope(key: Key, text: String) derive Eq, Ord, Show
+
+enum Signal { Missing, Present(Key, String) } derive Eq, Ord, Show
+
+trait Score {
+  fn score(self) -> Int
+  fn next(self) -> Int { Score.score(self) + 1 }
+}
+impl Key: Score { fn score(self) { self.value + 1 } }
+fn get_score[A: Score](value: A) -> Int { Score.score(value) }
+fn larger[A: Ord](a: A, b: A) -> A { if Ord.compare(a, b) == Less { b } else { a } }
+
+pub fn traits(n: Int, text: String) -> String {
+  a = Envelope(key: Key(value: n), text: text)
+  b = Envelope(key: Key(value: n + 10), text: text)
+  assert(a == b)
+  assert(Ord.compare(a, b) == Equal)
+  assert(Missing < Present(Key(value: n), text))
+  assert(larger(Key(value: 2), Key(value: 11)).value == 2)
+  assert(get_score(Key(value: n)) == n + 1)
+  assert(Score.next(Key(value: n)) == n + 2)
+  inspect((a, [Some(Key(value: n))], Present(Key(value: n), text)))
+}
+
+pub fn quoted(text: String) -> String { inspect(text) }
+
+fn increment(n: Int) -> Int { n + 1 }
+pub fn debugging(n: Int) -> Int {
+  dbg(increment)
+  f = fn(x: Int) { x + n }
+  dbg(f)
+  dbg(Key(value: n))
+  n
+}
+
+error Written(message: String)
+impl Written: Show { fn show(self) { "written<#{self.message}>" } }
+error Derived(message: String) derive Show
+error Plain(message: String)
+
+fn bad_written(text: String) -> Int fails Written { fail Written(message: text) }
+fn bad_derived(text: String) -> Int fails Derived { fail Derived(message: text) }
+fn bad_plain(text: String) -> Int fails Plain { fail Plain(message: text) }
+
+pub fn written_cause(text: String) -> String {
+  Fiber.attempt(fn() { bad_written(text) }) match {
+    Success(_) -> "unexpected"
+    Failure(cause) -> Cause.to_string(cause)
+  }
+}
+pub fn derived_cause(text: String) -> String {
+  Fiber.attempt(fn() { bad_derived(text) }) match {
+    Success(_) -> "unexpected"
+    Failure(cause) -> Cause.to_string(cause)
+  }
+}
+pub fn plain_cause(text: String) -> String {
+  Fiber.attempt(fn() { bad_plain(text) }) match {
+    Success(_) -> "unexpected"
+    Failure(cause) -> Cause.to_string(cause)
+  }
+}
+pub fn entry_failure(text: String) -> Int fails Written { bad_written(text) }

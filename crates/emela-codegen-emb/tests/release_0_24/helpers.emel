@@ -1,0 +1,63 @@
+type Point(x: Int, y: Int)
+enum Wrap { Wrap(Int, String) }
+
+pub fn lambda_patterns(n: Int) -> Int {
+  pairs = [("a", n), ("b", n + 1), ("c", n + 2)]
+  total = List.fold(pairs, from: 0, f: fn(acc, (_, value)) { acc + value })
+  selected = List.map([Point(x: n, y: 2), Point(x: n + 1, y: 4)], fn(Point(x:, ..)) { x })
+  nested = List.map([((1, 2), Wrap(n, "w"))], fn(((a, b), Wrap(c, _))) { a + b + c })
+  shifted = List.map(pairs, fn((_, value): (String, Int)) { value + n })
+  assert(selected == [n, n + 1])
+  assert(nested == [n + 3])
+  assert(shifted == [n + n, n + n + 1, n + n + 2])
+  assert(List.map([()], fn(()) { 42 }) == [42])
+  second = fn(_, value) { value }
+  total + second(0, n)
+}
+
+pub fn list_helpers(n: Int) -> Int {
+  values = List.range(n, n + 6)
+  assert(List.take(values, 3) == [n, n + 1, n + 2])
+  assert(List.take(values, -1) == [])
+  assert(List.drop(values, 4) == [n + 4, n + 5])
+  assert(List.drop(values, 0) == values)
+  assert(List.last(values) == Some(n + 5))
+  assert(List.last(List.take(values, 0)) == None)
+  flat = List.flat_map(List.take(values, 2), fn(x) { [x, x] })
+  assert(flat == [n, n, n + 1, n + 1])
+  kept = List.filter_map(values, fn(x) { if x == n + 2 { Some(x * 2) } else { None } })
+  assert(kept == [(n + 2) * 2])
+  assert(List.find_index(values, fn(x) { x == n + 3 }) == Some(3))
+  enumerated = List.enumerate(List.take(values, 3))
+  assert(enumerated == [(0, n), (1, n + 1), (2, n + 2)])
+  (indexes, items) = List.unzip(enumerated)
+  assert(indexes == [0, 1, 2])
+  assert(items == List.take(values, 3))
+  sorted = List.sort_by([(1, n), (0, n + 1), (1, n + 2)], fn((a, _), (b, _)) { Int.compare(a, b) })
+  assert(sorted == [(0, n + 1), (1, n), (1, n + 2)])
+  assert(List.sort([3, 1, 2, 1]) == [1, 1, 2, 3])
+  List.fold(items, from: 0, f: fn(acc, value) { acc + value })
+}
+
+pub fn ascii(text: String) -> String {
+  String.join([String.to_ascii_lowercase(text), String.to_ascii_uppercase(text)], "|")
+}
+
+pub fn numeric(n: Int) -> Int {
+  assert(Int.compare(n, n) == Equal)
+  assert(Int.min(n, n) == n)
+  assert(Int.max(n, n) == n)
+  Int.abs(n)
+}
+pub fn numeric64(n: Int64) -> Int64 {
+  assert(Int64.compare(n, n) == Equal)
+  Int64.abs(Int64.min(n, Int64.max(n, n)))
+}
+pub fn numeric_float(x: Float) -> Bool {
+  if Float.is_nan(x) {
+    Float.compare(x, x) == Equal && Float.is_nan(Float.max(1.0, x)) && Float.min(1.0, x) == 1.0
+  } else {
+    Float.compare(x, x) == Equal && Float.abs(x) >= 0.0
+  }
+}
+pub fn boolean(text: String) -> Bool fails ParseError { Bool.parse(text) }

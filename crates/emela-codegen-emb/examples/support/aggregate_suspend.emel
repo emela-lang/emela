@@ -1,0 +1,56 @@
+import Std.Fiber.{Fiber}
+@external(c, "host_wait")
+suspend fn wait(n: Int) -> Int
+effect Wait { suspend fn get(n: Int) -> Int }
+handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
+
+pub fn make(n: Int) -> (String, Option[String]) {
+  text = Int.to_string(n)
+  (text, Some(text))
+}
+fn echo(pair: (String, Option[String])) -> (String, Option[String]) use Wait {
+  (use Wait).get(1)
+  pair
+}
+pub fn delayed(pair: (String, Option[String]), keep: Bool) -> (String, Option[String]) use Async {
+  with Waiting {
+    result = echo(pair)
+    (use Wait).get(2)
+    if keep { result } else { ("none", None) }
+  }
+}
+pub fn maker(s: String, n: Int) -> (fn() -> String) {
+  pair = (s, Some(Int.to_string(n)))
+  xs = [s, Int.to_string(n + 1)]
+  fn() {
+    (text, note) = pair
+    suffix = note match { Some(value) -> value
+      None -> "" }
+    String.append(String.append(text, suffix), String.join(xs, "/"))
+  }
+}
+pub fn scoped(n: Int, cancel: Bool) -> (String, Option[String]) use Async {
+  with Waiting {
+    xs = Fiber.scope(fn() {
+      pair = (Int.to_string(n), Some(Int.to_string(n + 1)))
+      parts = [Int.to_string(n + 2)]
+      child = Fiber.fork(fn() {
+        (use Wait).get(1)
+        (text, note) = pair
+        parts match {
+          [head, ..rest] -> [(String.append(text, head), note)]
+          [] -> []
+        }
+      })
+      (use Wait).get(2)
+      if cancel { Fiber.interrupt(child)
+        []
+      } else { Fiber.join(child) }
+    })
+    xs match {
+      [pair, ..rest] -> pair
+      [] -> ("none", None)
+    }
+  }
+}
+pub fn encoded(n: Int) -> Option[String] { String.from_code_point(n) }

@@ -1,0 +1,38 @@
+import Std.Fiber.{Fiber, Scope}
+import Std.Deferred.{Deferred}
+fn save(d: Deferred[(String, Option[String])], n: Int) -> Bool {
+  text = Int.to_string(n)
+  first = Deferred.complete(d, (text, Some(text)))
+  ignored = Int.to_string(n + 1)
+  again = Deferred.complete(d, (ignored, None))
+  first && !again
+}
+pub fn work(n: Int, cancel: Bool) -> List[(String, Option[String])] use Async {
+  Fiber.scope(fn() {
+    d: Deferred[(String, Option[String])] = (use Scope).deferred()
+    captured = (Int.to_string(n + 10), Some(Int.to_string(n + 11)))
+    first = Fiber.fork(fn() {
+      value = Deferred.await(d)
+      [value, captured]
+    })
+    second = Fiber.fork(fn() { [Deferred.await(d)] })
+    if cancel { [] } else {
+      if !save(d, n) { panic("unexpected complete result") }
+      value = Deferred.poll(d) match {
+        Some(pair) -> pair
+        None -> panic("unexpected empty deferred")
+      }
+      xs = Fiber.join(first)
+      Fiber.join(second)
+      [value, ..xs]
+    }
+  })
+}
+pub fn head(xs: List[(String, Option[String])]) -> (String, Option[String]) {
+  xs match { [pair, ..rest] -> pair
+    [] -> ("none", None) }
+}
+pub fn tail(xs: List[(String, Option[String])]) -> List[(String, Option[String])] {
+  xs match { [pair, ..rest] -> rest
+    [] -> [] }
+}

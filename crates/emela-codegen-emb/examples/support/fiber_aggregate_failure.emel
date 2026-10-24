@@ -1,0 +1,21 @@
+error Missing(text: String)
+fn right(n: Int, bad: Bool) -> Packet fails Missing use Wait {
+  (use Wait).get(20)
+  if bad { fail Missing(Int.to_string(n)) }
+  packet(n + 1)
+}
+pub fn checked(n: Int, bad: Bool) -> String use Async {
+  with Waiting {
+    result = Fiber.both(fn() { (use Wait).get(10)
+      packet(n) }, fn() { right(n, bad) }) escape {
+      Missing(text) -> (Empty, Data((text, None), []))
+    }
+    (_, value) = result
+    value match {
+      Data(pair, _) -> { (text, note) = pair
+        note match { Some(suffix) -> String.append(text, suffix)
+          None -> text } }
+      Empty -> "missing"
+    }
+  }
+}
