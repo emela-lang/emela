@@ -2,7 +2,8 @@
 //!
 //! It holds the Perceus allocator (`alloc`, `dup`, `drop` with the iterative free list), the
 //! string and integer conversions, the evidence tables and the WASI 0.3 host calls
-//! (`write-via-stream` for `dbg` and the test output, `exit-with-code`). It is written with
+//! (`write-via-stream` for `dbg` and the test output, `exit-with-code`, plus the Console, Env,
+//! Random and Clock.now wrappers). It is written with
 //! `wasm-encoder` like the rest of the module, so the backend has no external toolchain.
 //!
 //! Memory layout (see `crate::emit::layout`): a 16-byte object header (rc, aux, descriptor,
@@ -12,7 +13,7 @@
 //! The runtime is split by feature. Each module owns its entries of `FUNCS`, its locals, its
 //! static data and its lowering; `MODULES` is the whole registration list, in definition order.
 
-use super::layout::{CPBUF, DIGITS, DIGITS64, FUTUREBUF, JSONBUF, NEWLINE, PAGE, WAITBUF};
+use super::layout::{CPBUF, DIGITS, DIGITS64, FUTUREBUF, HOSTBUF, JSONBUF, NEWLINE, PAGE, WAITBUF};
 use super::*;
 use wasm_encoder::{InstructionSink, ValType};
 
@@ -38,14 +39,18 @@ fn always(_: &Builder) -> bool {
 }
 
 mod alloc;
+mod clock;
+mod console;
 mod constant;
 mod defect;
+mod env;
 mod float;
 mod host;
 mod notes;
 mod numeric;
 mod option;
 mod protocol;
+mod random;
 mod show;
 mod string;
 mod unicode;
@@ -140,6 +145,34 @@ const MODULES: &[RuntimeModule] = &[
         setup: no_setup,
         emit: notes::emit,
         used: always,
+    },
+    RuntimeModule {
+        funcs: console::FUNCS,
+        locals: console::locals,
+        setup: no_setup,
+        emit: console::emit,
+        used: console::used,
+    },
+    RuntimeModule {
+        funcs: env::FUNCS,
+        locals: env::locals,
+        setup: no_setup,
+        emit: env::emit,
+        used: env::used,
+    },
+    RuntimeModule {
+        funcs: random::FUNCS,
+        locals: random::locals,
+        setup: no_setup,
+        emit: random::emit,
+        used: random::used,
+    },
+    RuntimeModule {
+        funcs: clock::FUNCS,
+        locals: clock::locals,
+        setup: no_setup,
+        emit: clock::emit,
+        used: clock::used,
     },
 ];
 

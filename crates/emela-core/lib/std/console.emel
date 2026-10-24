@@ -13,10 +13,12 @@ pub effect Console {
 
 @external(js, "console.log")
 @external(c, "./console.c", "emela_console_print_line")
+@external(wasm, "wasi:cli/stdout@0.3.0", "write-via-stream")
 fn console_log(text: String) -> ()
 
 @external(js, "console.error")
 @external(c, "./console.c", "emela_console_print_error_line")
+@external(wasm, "wasi:cli/stderr@0.3.0", "write-via-stream")
 fn console_error(text: String) -> ()
 
 ## Writes to the host's standard output and standard error (JS `console.log` and `console.error`,

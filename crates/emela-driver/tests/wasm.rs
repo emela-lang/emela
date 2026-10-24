@@ -37,7 +37,19 @@ fn project(main: &str) -> (MemoryFiles, Input) {
 
 /// Builds and runs `main` on the WASM target.
 fn run_wasm(name: &str, main: &str) -> (Analysis, Option<RunOutput>) {
-    let (fs, input) = project(main);
+    run_wasm_files(name, &[("main.emel", main)])
+}
+
+/// Builds and runs a project of `src` files (`main.emel` first) on the WASM target.
+fn run_wasm_files(name: &str, files: &[(&str, &str)]) -> (Analysis, Option<RunOutput>) {
+    let mut sources: Vec<(String, String)> = vec![("app/Pome.toml".to_owned(), String::new())];
+    sources.extend(
+        files
+            .iter()
+            .map(|(path, text)| (format!("app/src/{path}"), (*text).to_owned())),
+    );
+    let fs = MemoryFiles::new(sources);
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
         node: wasmtime_program(),
@@ -91,6 +103,83 @@ fn runs_under_wasmtime() {
     assert_eq!(output.code, 0);
     assert_eq!(text(&output.stdout), "");
     assert_eq!(text(&output.stderr), "5\n\"hi\"\n");
+}
+
+#[test]
+fn examples_run_on_wasm() {
+    if !have_wasmtime() {
+        return;
+    }
+    // The examples that use only the supported hosts (hello, errors and resources use
+    // SystemConsole; tour is pure apart from `dbg`).
+    let (analysis, output) = run_wasm_files(
+        "example-hello",
+        &[(
+            "main.emel",
+            include_str!("../../../examples/hello/src/main.emel"),
+        )],
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(text(&output.stdout), "hi\nHello, Emela!\nHello, world!\n");
+    assert_eq!(text(&output.stderr), "done\n");
+
+    let (analysis, output) = run_wasm_files(
+        "example-errors",
+        &[(
+            "main.emel",
+            include_str!("../../../examples/errors/src/main.emel"),
+        )],
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 1);
+    assert_eq!(text(&output.stdout), "Hello, alice!\nHello, guest!\n");
+    assert_eq!(
+        text(&output.stderr),
+        "error: Invalid(reason: \"negative id\")\n"
+    );
+
+    let (analysis, output) = run_wasm_files(
+        "example-resources",
+        &[(
+            "main.emel",
+            include_str!("../../../examples/resources/src/main.emel"),
+        )],
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(
+        text(&output.stdout),
+        "open store v1\nv1/alice\nv1/bob\nclose store v1\n"
+    );
+    assert_eq!(text(&output.stderr), "");
+
+    let (analysis, output) = run_wasm_files(
+        "example-tour",
+        &[
+            (
+                "main.emel",
+                include_str!("../../../examples/tour/src/main.emel"),
+            ),
+            (
+                "email.emel",
+                include_str!("../../../examples/tour/src/email.emel"),
+            ),
+        ],
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(text(&output.stdout), "");
+    assert_eq!(
+        text(&output.stderr),
+        "Todo(id: 1, title: \"Write docs\", done: True)\n6.0\n50005000\n\
+         \"1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz\"\n\
+         Some(\"alice@example.com\")\nNone\n"
+    );
 }
 
 /// Runs `main`'s tests on the WASM target and returns the outcomes, as (name, outcome).

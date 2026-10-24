@@ -11,14 +11,17 @@
 //! output is a component exporting `wasi:cli/run@0.3.0`, run with an external engine
 //! (`wasmtime`).
 //!
-//! The first version supports no programs that suspend (the emitter does not read the state
-//! machines of the Heap IR yet), no fibers and no callbacks to host functions; reaching them is a
-//! [`WasmError`]. The Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0) are part of
-//! the runtime.
+//! The target supports the synchronous WASI hosts the bundled `Std` handlers use (Console, Env,
+//! Random and Clock.now). A function whose type merely *may* suspend (because it uses an effect
+//! with a suspend operation) but does not actually suspend is emitted inline; actual suspension
+//! (`sleep`), fibers and callbacks to host functions are not supported, and reaching them from
+//! the entry is a [`WasmError`]; a handler operation that nothing performs is not reached. The
+//! Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0) are part of the runtime.
 
 mod check;
 mod component;
 mod emit;
+mod std_host;
 
 pub use self::emit::layout;
 
@@ -70,7 +73,7 @@ pub struct WasmError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WasmErrorKind {
-    /// A feature the WASM target does not support yet (suspending code, fibers).
+    /// A feature the WASM target does not support yet (actual suspension, fibers).
     Unsupported,
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,
@@ -134,7 +137,7 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
         return Err(internal("monomorphisation", errors));
     }
     let mut lir = emela_lir::from_core(mono).map_err(|errors| internal("from_core", errors))?;
-    let errors = check::unsupported(&lir);
+    let errors = check::unsupported(&lir, &entry.roots());
     if !errors.is_empty() {
         return Err(errors);
     }

@@ -7,5 +7,9 @@ copied from the p3 WIT of `wasmtime-wasi` 50.0.0-rc.1
 wasmtime 49. The files are Apache-2.0 WITH LLVM-exception, like wasmtime; the
 license text is in `LICENSE`.
 
-`emela.wit` is this compiler's command world: it imports only the interfaces
-the runtime uses (stdout, stderr, exit) and exports `wasi:cli/run@0.3.0`.
+`emela.wit` is this compiler's command world. It always imports stdout, stderr
+and exit. The `// @optional-imports` marker is replaced by
+`src/component.rs` with the environment, random and system clock imports when
+the program uses the corresponding bundled `Std` handler. An unused interface
+is therefore not an import of the output component. The world exports
+`wasi:cli/run@0.3.0`.

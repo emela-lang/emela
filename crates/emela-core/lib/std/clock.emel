@@ -23,6 +23,7 @@ pub effect Clock {
 
 @external(js, "./clock.mjs", "nowMilliseconds")
 @external(c, "./clock.c", "emela_clock_now_milliseconds")
+@external(wasm, "wasi:clocks/system-clock@0.3.0", "now")
 fn now_milliseconds() -> Int64
 
 @external(js, "./clock.mjs", "sleep")

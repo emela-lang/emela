@@ -7,6 +7,42 @@ use common::*;
 use emela_codegen_wasm::WasmErrorKind;
 
 #[test]
+fn a_program_naming_a_wasi_host_is_diagnosed() {
+    // Only the bundled `Std` externals are runtime wrappers. A program's own binding to the same
+    // WASI function is not, whatever its shape.
+    let errors = to_wasm(
+        r#"
+effect Randomish {
+  fn next() -> Int
+}
+
+@external(wasm, "wasi:random/random@0.3.0", "get-random-u64")
+fn host_random() -> Int
+
+handler FromWasi: Randomish {
+  fn next() { host_random() }
+}
+
+fn main() {
+  with FromWasi {
+    dbg((use Randomish).next())
+  }
+}
+"#,
+    )
+    .expect_err("a program's own WASI binding is not supported");
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind == WasmErrorKind::Unsupported
+                && error.message.contains("`host_random`")
+                && error.message.contains("`wasm` import")
+        }),
+        "expected an unsupported wasm import diagnostic, got {errors:#?}"
+    );
+}
+
+#[test]
 fn wasm_externals_are_diagnosed() {
     let errors = to_wasm(
         r#"

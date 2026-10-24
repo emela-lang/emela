@@ -103,15 +103,18 @@ pub struct Run {
 
 /// Writes `bytes` as `main.wasm` under `dir` and runs it with `wasmtime`.
 pub fn run_bytes(dir: &Path, bytes: &[u8]) -> Run {
+    run_bytes_with_command(dir, bytes, |_| {})
+}
+
+/// Like [`run_bytes`], but lets the caller adjust the `wasmtime` command (environment variables,
+/// extra arguments) before it starts.
+pub fn run_bytes_with_command(dir: &Path, bytes: &[u8], adjust: impl FnOnce(&mut Command)) -> Run {
     let wt = wasmtime().expect("checked by the caller");
     std::fs::write(dir.join("main.wasm"), bytes).unwrap();
     let mut command = Command::new(wt);
-    command
-        .arg("run")
-        .arg("-S")
-        .arg("p3=y")
-        .arg("main.wasm")
-        .current_dir(dir);
+    command.arg("run").arg("-S").arg("p3=y");
+    adjust(&mut command);
+    command.arg("main.wasm").current_dir(dir);
     let ran = run_with_timeout(command, Duration::from_secs(60)).expect("the program timed out");
     Run {
         stdout: String::from_utf8_lossy(&ran.stdout).into_owned(),

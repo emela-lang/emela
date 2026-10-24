@@ -53,9 +53,9 @@ fn scratch_static_heap_do_not_overlap() {
     assert_eq!(layout.scratch.start % 8, 0);
     assert_eq!(layout.scratch.end % 8, 0);
     assert_eq!(layout.heap_base % 8, 0);
-    // As in #257: SCRATCH_END == STATIC_START == 168 (the emitted bytes depend on it).
-    assert_eq!(layout::SCRATCH_END, 168);
-    assert_eq!(layout::STATIC_START, 168);
+    // SCRATCH_END == STATIC_START, both derived from the scratch table.
+    assert_eq!(layout::SCRATCH_END, 184);
+    assert_eq!(layout::STATIC_START, 184);
 }
 
 #[test]
@@ -72,6 +72,7 @@ fn scratch_slots_fit_in_scratch() {
         (layout::DIGITS64, 24),
         (layout::JSONBUF, 6),
         (layout::CPBUF, 4),
+        (layout::HOSTBUF, 16),
     ];
     for (off, len) in slots {
         assert!(

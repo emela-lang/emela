@@ -1,23 +1,25 @@
 //! What the WASM target does not support yet, found on the Flow IR before the Heap IR passes.
 //!
 //! The checks are split by what they inspect: the whole module and the collected diagnostics
-//! here, external functions in `external`, and values (fibers, suspending calls, builtins) in
-//! `value`.
+//! here, external functions in `external`, the suspension points reachable from the entry in
+//! `suspend`, and values (fibers) in `value`.
 
 mod external;
+mod suspend;
 mod value;
 
-use emela_lir::{Module, Stmt};
+use emela_lir::{FnId, Module, Stmt};
 
 use crate::{WasmError, WasmErrorKind};
 
 use self::external::external;
+use self::suspend::suspension_points;
 use self::value::value_unsupported;
 
 /// Every construct reachable from the entry (the module holds only reachable functions after
 /// monomorphisation) that the WASM target cannot compile yet. Suspending code and fibers are
 /// reported once each, naming where they are reached.
-pub(crate) fn unsupported(m: &Module) -> Vec<WasmError> {
+pub(crate) fn unsupported(m: &Module, roots: &[FnId]) -> Vec<WasmError> {
     let mut found = Found::default();
     for (_, f) in m.functions.iter() {
         if let Some(ext) = &f.external {
@@ -26,15 +28,13 @@ pub(crate) fn unsupported(m: &Module) -> Vec<WasmError> {
             }
             continue;
         }
-        if f.suspends {
-            found.suspending(format!("`{}`", display_name(&f.name)));
-        }
         for (_, stmt) in f.stmts.iter() {
             if let Stmt::Let { value, .. } = stmt {
-                value_unsupported(m, f, value, &mut found);
+                value_unsupported(value, &mut found);
             }
         }
     }
+    suspension_points(m, roots, &mut found);
     found.finish()
 }
 
