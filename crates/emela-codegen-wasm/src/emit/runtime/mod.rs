@@ -40,6 +40,7 @@ fn always(_: &Builder) -> bool {
 
 mod alloc;
 pub(super) mod async_bridge;
+pub(super) mod attempt;
 mod canon;
 mod clock;
 mod console;
@@ -207,6 +208,13 @@ const MODULES: &[RuntimeModule] = &[
         setup: no_setup,
         emit: fs::emit,
         used: fs::used,
+    },
+    RuntimeModule {
+        funcs: attempt::FUNCS,
+        locals: attempt::locals,
+        setup: no_setup,
+        emit: attempt::emit,
+        used: attempt::used,
     },
 ];
 

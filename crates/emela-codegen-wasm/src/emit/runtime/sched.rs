@@ -120,7 +120,7 @@ const P_SLOTS: i32 = 10;
 
 /// A frame's slots.
 const F_RESUME: u32 = HDR;
-const F_STATE: u32 = HDR + 8;
+pub(super) const F_STATE: u32 = HDR + 8;
 const F_NEXT: u32 = HDR + 16;
 
 pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -> bool {
@@ -151,7 +151,7 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
     true
 }
 
-fn cell(b: &Builder<'_>, f: impl Fn(&super::super::suspend::Plan) -> u32) -> u32 {
+pub(super) fn cell(b: &Builder<'_>, f: impl Fn(&super::super::suspend::Plan) -> u32) -> u32 {
     f(b.sus.as_ref().expect("the suspend runtime"))
 }
 
@@ -1111,6 +1111,17 @@ fn unwind_ops(b: &mut Builder<'_>, ins: &mut InstructionSink) {
         ins.call(push);
         ins.end();
     };
+    // Unwinding the whole run (`depth` -1): `Fiber.attempt` no longer catches a defect.
+    if let Some(unwinding) = super::attempt::unwinding_cell(b) {
+        ins.local_get(DEPTH);
+        ins.i32_const(-1);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        ins.i32_const(unwinding as i32);
+        ins.i32_const(1);
+        ins.i32_store(mem(0, 4));
+        ins.end();
+    }
     // `sleep_op` is the innermost active operation; `P_NEXT` links outward. The innermost
     // implementation's continuation is unwound first, then every caller link outward, down to the
     // first operation made at `depth` or shallower.

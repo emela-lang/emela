@@ -1422,8 +1422,9 @@ pub enum FiberOp {
     /// `Cause.to_string(c)` (spec 11.5). `[cause]`. `error: …`, `defect: …` or `interrupted`.
     CauseToString,
     /// `Cause.raise(c)` (spec 11.5). `[cause]`. Fail becomes a failure, Die a defect, and Interrupt
-    /// unwinds the current fiber's interruption. The type is Never, but it may fail.
-    CauseRaise,
+    /// unwinds the current fiber's interruption. The type is Never, but it may fail. `fails` tells
+    /// whether the cause's E is not empty.
+    CauseRaise { fails: bool },
 }
 
 /// The index of `Success(A)` in `Exit`.
@@ -1459,15 +1460,14 @@ impl FiberOp {
             | FiberOp::Poll
             | FiberOp::CauseKind { .. }
             | FiberOp::CauseToString
-            | FiberOp::CauseRaise => false,
+            | FiberOp::CauseRaise { .. } => false,
         }
     }
 
     /// Whether it may fail (whether the result must be checked).
     pub fn fails(self) -> bool {
         match self {
-            FiberOp::Scope { fails } => fails,
-            FiberOp::CauseRaise => true,
+            FiberOp::Scope { fails } | FiberOp::CauseRaise { fails } => fails,
             _ => false,
         }
     }
@@ -1487,7 +1487,7 @@ impl FiberOp {
             FiberOp::Poll => "poll",
             FiberOp::CauseKind { .. } => "cause_kind",
             FiberOp::CauseToString => "cause_to_string",
-            FiberOp::CauseRaise => "cause_raise",
+            FiberOp::CauseRaise { .. } => "cause_raise",
         }
     }
 }

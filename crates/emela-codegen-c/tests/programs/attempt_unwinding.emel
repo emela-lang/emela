@@ -1,0 +1,66 @@
+import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Cause.{Cause}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+effect Wait {
+  suspend fn wait() -> Int
+}
+
+## Never resumes: the caller's continuation is abandoned, and the run stalls.
+handler Parked: Wait {
+  suspend fn wait(resume) { print("parked") }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res(label: String): Name {
+  init {
+    print("init res")
+    Res(label: "res")
+  }
+  fn name() { self.label }
+  release { print("release #{self.label}") }
+}
+
+## A release that uses attempt while the run unwinds as interrupted: a defect is not caught
+## there, so it replaces the interruption (spec 11.5, 14.4).
+handler Loud: Name {
+  init { Loud }
+  fn name() { "loud" }
+  release {
+    print("release loud")
+    r = Fiber.attempt(fn() { 1 })
+    print("release attempt #{show(r)}")
+    Fiber.attempt(fn() { panic("in release") }) match {
+      Success(_) -> print("not a failure")
+      Failure(c) -> print("caught #{Cause.to_string(c)}")
+    }
+    print("not reached")
+  }
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+fn main() -> () use { Async } {
+  with Parked {
+    with Loud {
+      r = Fiber.attempt(fn() {
+        with Res {
+          n = (use Wait).wait()
+          print("not resumed #{n}")
+        }
+      })
+      print("attempt returned #{show(r)}")
+    }
+  }
+}

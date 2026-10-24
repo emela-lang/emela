@@ -1,0 +1,49 @@
+import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Cause.{Cause}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+effect Wait {
+  suspend fn wait() -> Int
+}
+
+## Never resumes: the caller's continuation is abandoned.
+handler Parked: Wait {
+  suspend fn wait(resume) { print("parked") }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res: Name {
+  init {
+    print("init res")
+    Res
+  }
+  fn name() { "res" }
+  release { print("release res") }
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+## Without Async the abandoned continuation unwinds as interrupted at once (spec 8.7, 14.5), and
+## attempt does not catch the interruption (spec 11.5).
+fn main() {
+  with Parked {
+    r = Fiber.attempt(fn() {
+      with Res {
+        n = (use Wait).wait()
+        print("not resumed #{n}")
+      }
+    })
+    print("attempt returned #{show(r)}")
+  }
+}

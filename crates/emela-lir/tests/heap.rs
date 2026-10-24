@@ -256,6 +256,34 @@ fn main() -> Int {
     insta::assert_snapshot!(parts(&m, &["main", "pick", "Strict$release"]));
 }
 
+/// `Cause.raise` of a `Cause[{}]` cannot fail, so a body that cannot fail may call it (spec
+/// 11.5): the raise has no failure edge there.
+#[test]
+fn raising_a_cause_that_cannot_fail() {
+    let m = program(
+        "\
+import Std.Fiber.{Fiber, Success, Failure}
+import Std.Cause.{Cause}
+
+fn again() -> Int {
+  Fiber.attempt(fn() { panic(\"bad\") }) match {
+    Success(v) -> v
+    Failure(c) -> Cause.raise(c)
+  }
+}
+
+fn main() -> Int { again() }
+",
+    );
+    let f = m
+        .functions
+        .iter()
+        .find(|(_, f)| f.name == "again")
+        .map(|(_, f)| f)
+        .unwrap();
+    assert!(!f.fails);
+}
+
 #[test]
 fn effects_and_handlers() {
     let m = program(

@@ -1416,6 +1416,51 @@ fn agent_failures_show_where_the_assert_is() {
     );
 }
 
+/// Each test is a run of its own: after a test that stalls and unwinds as interrupted, the next
+/// test's `Fiber.attempt` catches a defect again (`[fiber.cause]`). The same on every target.
+#[test]
+fn an_attempt_after_a_stalled_test_catches_a_defect() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            r#"import Std.Fiber.{Fiber, Success, Failure}
+import Std.Cause.{Cause}
+
+effect Wait {
+  suspend fn wait() -> Int
+}
+
+handler Parked: Wait {
+  suspend fn wait(resume) { () }
+}
+
+@test
+fn stalls() -> () use { Async } {
+  with Parked { _ = (use Wait).wait() }
+}
+
+@test
+fn catches() -> () use { Async } {
+  Fiber.attempt(fn() { panic("caught") }) match {
+    Success(_) -> assert False
+    Failure(c) -> assert Cause.to_string(c) == "defect: caught"
+  }
+}
+"#,
+        ),
+    ]);
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let (out, _) = run_everywhere_with("attempt-after-stall", &fs, &input, Reporter::Agent);
+    assert_eq!(
+        out,
+        "FAIL stalls\n\
+         interrupted\n\
+         \n\
+         test result: FAILED. 1 passed; 1 failed; 0 filtered out\n"
+    );
+}
+
 #[test]
 fn single_file_locations_are_relative_to_its_directory() {
     let fs = MemoryFiles::new([(

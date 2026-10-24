@@ -161,11 +161,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # `emela test --target wasm` runs the WASI 0.3 component with wasmtime (49 or newer).
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          version: 49.0.3
       - name: Build
         run: cargo build --bin emela --locked
-      # WASM is left out until the WASM target supports `Fiber.attempt`, which brix's
-      # `Property` uses.
-      - name: Test on JS and C
+      - name: Test on JS, C and WASM
         working-directory: tests/laws
         run: |
           emela="$GITHUB_WORKSPACE/target/debug/emela"
@@ -173,6 +175,7 @@ jobs:
           "$emela" fmt --check
           "$emela" test --target js
           "$emela" test --target c
+          "$emela" test --target wasm
 
   # The one check branch protection requires. A skipped job (documentation only)
   # counts as passed; a failed or cancelled one does not.

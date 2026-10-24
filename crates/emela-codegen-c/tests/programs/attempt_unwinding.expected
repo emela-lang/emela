@@ -1,0 +1,9 @@
+exit: 101
+--- stdout
+init res
+parked
+release res
+release loud
+release attempt Success
+--- stderr
+defect: in release

@@ -661,7 +661,7 @@ fn closures_effects_fibers() {
     b.let_(
         None,
         Value::Fiber {
-            op: FiberOp::CauseRaise,
+            op: FiberOp::CauseRaise { fails: true },
             args: vec![cause.into()],
             on_fail: Some(OnFail::Propagate),
         },

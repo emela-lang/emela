@@ -1,0 +1,220 @@
+import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+error Boom
+
+error NotFound(id: Int) derive Show
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+## Resumes in place: the suspension point never really suspends.
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res(label: String): Name {
+  init {
+    print("init res")
+    Res(label: "res")
+  }
+  fn name() { self.label }
+  release { print("release #{self.label}") }
+}
+
+handler BadRes: Name {
+  init { BadRes }
+  fn name() { "bad" }
+  release { panic("release failed") }
+}
+
+type Point(x: Int, y: Float)
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn zero(n: Int) -> Int { n / (n - n) }
+
+fn kind_name(k: CauseKind) -> String {
+  k match {
+    Fail      -> "Fail"
+    Die       -> "Die"
+    Interrupt -> "Interrupt"
+  }
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> "#{kind_name(Cause.kind(c))} #{Cause.to_string(c)}"
+  }
+}
+
+fn nap(ms: Int) -> () use { Clock } {
+  (use Clock).sleep(ms)
+  print("slept #{ms}")
+}
+
+fn main() -> () use { Async } {
+  # In place: values of every representation, an error, a defect.
+  dbg(Fiber.attempt(fn() { 1 + 1 }))
+  dbg(Fiber.attempt(fn() { "s" }))
+  dbg(Fiber.attempt(fn() { 1.5 }))
+  dbg(Fiber.attempt(fn() { True }))
+  dbg(Fiber.attempt(fn() { () }))
+  dbg(Fiber.attempt(fn() { Point(x: 1, y: 2.0) }))
+  dbg(Fiber.attempt(fn() { [1, 2] }))
+  dbg(Fiber.attempt(fn() { boom() }))
+  print(show(Fiber.attempt(fn() { boom() })))
+  print(show(Fiber.attempt(fn() { fail NotFound(id: 3) })))
+  print(show(Fiber.attempt(fn() { panic("bad") })))
+  print(show(Fiber.attempt(fn() { zero(7) })))
+  dbg(
+    Cause.kind(
+      Fiber.attempt(fn() { boom() }) match {
+        Success(_) -> panic("no")
+        Failure(c) -> c
+      },
+    ),
+  )
+  # The releases run before attempt returns, from the inside.
+  print(
+    show(
+      Fiber.attempt(fn() {
+        with Res {
+          print("body #{(use Name).name()}")
+          panic("inside")
+        }
+      }),
+    ),
+  )
+  print(
+    show(
+      Fiber.attempt(fn() {
+        with Res {
+          with BadRes { boom() }
+        }
+      }),
+    ),
+  )
+  print(
+    show(
+      Fiber.attempt(fn() {
+        with BadRes { panic("first") }
+      }),
+    ),
+  )
+  # Nested.
+  print(
+    show(
+      Fiber.attempt(fn() {
+        inner = Fiber.attempt(fn() { panic("inner") })
+        print("inner #{show(inner)}")
+        boom()
+      }),
+    ),
+  )
+  # Raising a cause again.
+  raised = Fiber.attempt(fn() { boom() }) match {
+    Success(v) -> v
+    Failure(c) -> Cause.raise(c)
+  } escape { Boom -> -1 }
+  print("raised #{raised}")
+  again = Fiber.attempt(fn() {
+    Fiber.attempt(fn() { panic("twice") }) match {
+      Success(v) -> v
+      Failure(c) -> Cause.raise(c)
+    }
+  })
+  print("again #{show(again)}")
+  found = Fiber.attempt(fn() { fail NotFound(id: 9) }) match {
+    Success(_) -> 0
+    Failure(c) -> Cause.raise(c)
+  } escape { NotFound(id) -> id }
+  print("found #{found}")
+  # Suspension points inside: in place, and a real suspension (TestClock waits for the stall).
+  with Ticks {
+    print(
+      show(
+        Fiber.attempt(fn() {
+          (use Tick).tick()
+          boom()
+        }),
+      ),
+    )
+  }
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  _ = State.run(start, fn() {
+    with TestClock {
+      dbg(
+        Fiber.attempt(fn() {
+          nap(10)
+          42
+        }),
+      )
+      dbg(
+        Fiber.attempt(fn() {
+          nap(10)
+          "after"
+        }),
+      )
+      print(
+        show(
+          Fiber.attempt(fn() {
+            nap(10)
+            boom()
+          }),
+        ),
+      )
+      print(
+        show(
+          Fiber.attempt(fn() {
+            with Res {
+              nap(10)
+              print("woke #{(use Name).name()}")
+              panic("after sleep")
+            }
+          }),
+        ),
+      )
+      print(
+        show(
+          Fiber.attempt(fn() {
+            with Res {
+              inner = Fiber.attempt(fn() {
+                nap(5)
+                fail NotFound(id: 4)
+              })
+              print("inner #{show(inner)}")
+              nap(5)
+              with BadRes { 1 }
+            }
+          }),
+        ),
+      )
+      raised2 = Fiber.attempt(fn() {
+        nap(1)
+        boom()
+      }) match {
+        Success(v) -> v
+        Failure(c) -> {
+          nap(1)
+          Cause.raise(c)
+        }
+      } escape { Boom -> -2 }
+      print("raised #{raised2}")
+    }
+  })
+  print("done")
+}
