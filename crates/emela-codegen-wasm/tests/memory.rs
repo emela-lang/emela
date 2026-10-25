@@ -192,26 +192,96 @@ fn main() {
     );
 }
 
-/// The operators of the runtime function that reserves the heap, which is the only one that
-/// grows the memory.
-fn heap_reserve_ops<'a>(bytes: &'a [u8]) -> Option<Vec<Operator<'a>>> {
-    for payload in Parser::new(0).parse_all(bytes) {
-        if let Payload::CodeSectionEntry(body) = payload.expect("wasm should parse") {
-            let ops: Vec<Operator<'a>> = body
-                .get_operators_reader()
-                .expect("the body parses")
-                .into_iter()
-                .map(|op| op.expect("the operator parses"))
-                .collect();
-            if ops
-                .iter()
-                .any(|op| matches!(op, Operator::MemoryGrow { .. }))
-            {
-                return Some(ops);
+/// The core module inside the component: its function imports in index order, the operators of
+/// each defined function body, the initial `i32` value of each global, and the static data.
+struct CoreModule<'a> {
+    imports: Vec<(&'a str, &'a str)>,
+    bodies: Vec<Vec<Operator<'a>>>,
+    globals: Vec<Option<i32>>,
+    data: Vec<u8>,
+}
+
+/// The value of a `ConstExpr` that is a single `i32.const`.
+fn const_i32(init: &wasmparser::ConstExpr<'_>) -> Option<i32> {
+    match init.get_operators_reader().into_iter().next()?.ok()? {
+        Operator::I32Const { value } => Some(value),
+        _ => None,
+    }
+}
+
+/// Appends the function imports of one import group, in index order.
+fn push_imports<'a>(imports: &mut Vec<(&'a str, &'a str)>, group: wasmparser::Imports<'a>) {
+    match group {
+        wasmparser::Imports::Single(_, import) => {
+            if matches!(import.ty, wasmparser::TypeRef::Func(_)) {
+                imports.push((import.module, import.name));
+            }
+        }
+        wasmparser::Imports::Compact1 { module, items } => {
+            for item in items {
+                let item = item.expect("the import parses");
+                if matches!(item.ty, wasmparser::TypeRef::Func(_)) {
+                    imports.push((module, item.name));
+                }
+            }
+        }
+        wasmparser::Imports::Compact2 { module, ty, names } => {
+            if matches!(ty, wasmparser::TypeRef::Func(_)) {
+                for name in names {
+                    imports.push((module, name.expect("the import name parses")));
+                }
             }
         }
     }
-    None
+}
+
+fn core_module<'a>(bytes: &'a [u8]) -> CoreModule<'a> {
+    let mut imports = Vec::new();
+    let mut bodies = Vec::new();
+    let mut globals = Vec::new();
+    let mut data = None;
+    let mut in_main = false;
+    for payload in Parser::new(0).parse_all(bytes) {
+        match payload.expect("wasm should parse") {
+            // The component nests its main module first; the shim and fixup modules after it have
+            // their own index spaces.
+            Payload::ModuleSection { .. } => in_main = true,
+            Payload::End(_) if in_main => break,
+            _ if !in_main => {}
+            Payload::ImportSection(section) => {
+                for group in section {
+                    push_imports(&mut imports, group.expect("the imports parse"));
+                }
+            }
+            Payload::GlobalSection(section) => {
+                for global in section {
+                    globals.push(const_i32(&global.expect("the global parses").init_expr));
+                }
+            }
+            Payload::DataSection(section) => {
+                let segment = section
+                    .into_iter()
+                    .next()
+                    .expect("the data section has a segment")
+                    .expect("the data segment parses");
+                data = Some(segment.data.to_vec());
+            }
+            Payload::CodeSectionEntry(body) => bodies.push(
+                body.get_operators_reader()
+                    .expect("the body parses")
+                    .into_iter()
+                    .map(|op| op.expect("the operator parses"))
+                    .collect(),
+            ),
+            _ => {}
+        }
+    }
+    CoreModule {
+        imports,
+        bodies,
+        globals,
+        data: data.expect("the core module has a data section"),
+    }
 }
 
 #[test]
@@ -219,8 +289,37 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
     // An allocation failure is an abrupt end of the program, not a defect. The bump pointer must
     // not move past the end of the memory, or the next store traps with an unrelated
     // out-of-bounds error instead of the runtime's own trap.
-    let bytes = compile_checked("fn main() { dbg(1) }\n");
-    let ops = heap_reserve_ops(&bytes).expect("the runtime reserves the heap with `memory.grow`");
+    let output = to_output("fn main() { dbg(1) }\n");
+    wasmparser::validate(&output.module).expect("the module is valid");
+    let core = core_module(&output.module);
+    let heap_body = core
+        .bodies
+        .iter()
+        .position(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, Operator::MemoryGrow { .. }))
+        })
+        .expect("the runtime reserves the heap with `memory.grow`");
+    let ops = &core.bodies[heap_body];
+
+    // `write_stderr` is the function that calls the stderr stream's `write-via-stream`.
+    let stderr_write = core
+        .imports
+        .iter()
+        .position(|(module, name)| module.contains("stderr") && *name == "write-via-stream")
+        .expect("the runtime imports the stderr stream") as u32;
+    let write_stderr = u32::try_from(
+        core.bodies
+            .iter()
+            .position(|body| {
+                body.iter()
+                    .any(|op| matches!(op, Operator::Call { function_index } if *function_index == stderr_write))
+            })
+            .expect("the runtime has a wrapper for the stderr stream"),
+    )
+    .unwrap()
+        + core.imports.len() as u32;
+
     let grow = ops
         .iter()
         .position(|op| matches!(op, Operator::MemoryGrow { .. }))
@@ -233,31 +332,58 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
     assert_eq!(ops.get(grow + 2), Some(&Operator::I32Eq));
     assert!(matches!(ops.get(grow + 3), Some(Operator::If { .. })));
 
+    // The failure branch writes the message through `write_stderr(ptr, len)`.
+    let (ptr, len, callee) = match (ops.get(grow + 4), ops.get(grow + 5), ops.get(grow + 6)) {
+        (
+            Some(Operator::I32Const { value: ptr }),
+            Some(Operator::I32Const { value: len }),
+            Some(Operator::Call { function_index }),
+        ) => (*ptr, *len, *function_index),
+        other => panic!("the failed grow does not write the message: {other:?}"),
+    };
+    assert_eq!(callee, write_stderr, "the failure is not written to stderr");
+    assert_eq!(
+        usize::try_from(len).expect("the length is not negative"),
+        b"emela: out of memory\n".len()
+    );
+    let start = usize::try_from(ptr).expect("the pointer is not negative");
+    assert_eq!(
+        &core.data[start..start + len as usize],
+        b"emela: out of memory\n",
+        "the message is not at the pointer the failure passes"
+    );
+
     let trap = grow
         + 4
         + ops[grow + 4..]
             .iter()
             .position(|op| matches!(op, Operator::Unreachable))
             .expect("a failed grow traps");
-    let set = ops
-        .iter()
-        .position(|op| matches!(op, Operator::GlobalSet { .. }))
-        .expect("the reservation moves the bump pointer");
-    assert!(
-        trap < set,
-        "`G_HEAP` moves before the failed grow traps: {ops:?}"
-    );
+    // `G_HEAP` is the global initialised to `heap_base`.
+    let heap_global = u32::try_from(
+        core.globals
+            .iter()
+            .position(|init| *init == Some(output.layout.heap_base as i32))
+            .expect("a global holds `heap_base`"),
+    )
+    .unwrap();
     assert!(
         ops[grow..trap]
             .iter()
             .all(|op| !matches!(op, Operator::GlobalSet { .. })),
-        "`G_HEAP` moves in the failed grow path: {ops:?}"
+        "a global moves in the failed grow path: {ops:?}"
     );
-    assert!(
-        ops[grow + 4..trap]
-            .iter()
-            .any(|op| matches!(op, Operator::Call { .. })),
-        "the failed grow reports the failure before trapping: {ops:?}"
+    let sets: Vec<u32> = ops[trap..]
+        .iter()
+        .filter_map(|op| match op {
+            Operator::GlobalSet { global_index } => Some(*global_index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sets,
+        vec![heap_global],
+        "the reservation moves a different global after the trap: {ops:?}"
     );
 }
 
@@ -283,6 +409,40 @@ fn main() {
     assert!(
         run.stderr.contains("emela: out of memory"),
         "the failure is not reported by the runtime: {}",
+        run.stderr
+    );
+}
+
+#[test]
+fn fiber_attempt_does_not_catch_an_allocation_failure() {
+    let Some(_) = wasmtime() else { return };
+    // The attempt cannot make the program continue: the failure is not a defect or an error value
+    // and the runtime traps. Nothing after the attempt runs.
+    let bytes = compile_checked(
+        r#"
+import Std.Fiber.{Fiber}
+
+fn main() {
+  e = Fiber.attempt(fn() {
+    xs = List.range(0, 1000000)
+    dbg(List.length(xs))
+  })
+  dbg("after")
+}
+"#,
+    );
+    let run = run_bytes_with_command(&out_dir("memory-exhaustion-attempt"), &bytes, |command| {
+        command.arg("-W").arg("max-memory-size=1048576");
+    });
+    assert_ne!(run.code, 0, "the program finished: {}", run.stderr);
+    assert!(
+        run.stderr.contains("emela: out of memory"),
+        "the failure is not reported by the runtime: {}",
+        run.stderr
+    );
+    assert!(
+        !run.stderr.contains("after"),
+        "the attempt let the program continue: {}",
         run.stderr
     );
 }
