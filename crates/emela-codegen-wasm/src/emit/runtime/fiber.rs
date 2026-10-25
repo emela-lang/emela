@@ -4503,6 +4503,13 @@ fn note(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 fn notes_of(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const E: u32 = 1;
     let head = plan(b).notes;
+    // A program without the fiber runtime has no notes cell; 0 is the scratch area, not a list.
+    // The check is compile-time so the emitted function never reads address 0.
+    if head == 0 {
+        c(ins, 0);
+        ins.return_();
+        return;
+    }
     ins.i32_const(head as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(E);
@@ -4664,6 +4671,11 @@ fn notes_clear(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const E: u32 = 0;
     const NEXT: u32 = 1;
     let head = plan(b).notes;
+    // No fiber runtime: nothing was ever recorded, and 0 is the scratch area. Emit no read.
+    if head == 0 {
+        ins.return_();
+        return;
+    }
     ins.i32_const(head as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(E);

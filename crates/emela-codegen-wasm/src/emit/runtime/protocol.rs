@@ -70,7 +70,9 @@ fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.return_();
     ins.end();
-    let with_notes = b.fiber_plan.is_some();
+    // Only a program that can record notes (a fiber program) has a notes cell; a suspending
+    // program without fibers has `notes == 0`, and address 0 is the scratch area.
+    let with_notes = b.fiber_plan.as_ref().is_some_and(|plan| plan.notes != 0);
     if with_notes {
         ins.local_get(0);
         let f = b.rt("fb_notes_of");
@@ -98,6 +100,16 @@ fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     if with_notes {
         ins.local_get(NOTES);
         ins.if_(BlockType::Empty);
+        // Showing raised a defect (or the descriptor has no `show`): the display is null and the
+        // notes must not turn it into a message while the defect is pending.
+        ins.local_get(RESULT);
+        ins.i32_eqz();
+        ins.if_(BlockType::Empty);
+        ins.local_get(NOTES);
+        ins.call(rt(b, "drop"));
+        ins.i32_const(0);
+        ins.return_();
+        ins.end();
         let newline = b.string_literal(b"\n");
         let empty = b.string_literal(b"");
         let append = rt(b, "str_append");
