@@ -49,6 +49,7 @@ mod constant;
 mod defect;
 mod env;
 mod float;
+pub(super) mod fiber;
 pub(super) mod fs;
 mod host;
 pub(super) mod http;
@@ -232,6 +233,14 @@ const MODULES: &[RuntimeModule] = &[
         setup: no_setup,
         emit: bytes::emit,
         used: bytes::used,
+    },
+    RuntimeModule {
+        funcs: fiber::FUNCS,
+        locals: fiber::locals,
+        // The fiber runtime's statics belong to `emit::suspend::prepare`, like the scheduler's.
+        setup: no_setup,
+        emit: fiber::emit,
+        used: super::suspend::used,
     },
 ];
 
