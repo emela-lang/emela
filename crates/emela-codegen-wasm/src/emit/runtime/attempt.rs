@@ -203,13 +203,33 @@ fn attempt_caught(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
     if let Some(plan) = &b.sus {
-        let (interrupted, unwinding) = (plan.interrupted, plan.unwinding);
-        ins.global_get(G_DEFECT);
-        ins.i32_const(interrupted as i32);
-        ins.i32_eq();
-        ins.i32_const(unwinding as i32);
-        ins.i32_load(mem(0, 4));
-        ins.i32_or();
+        if b.fiber_plan.is_some() {
+            // An interruption, and any defect while the fiber unwinds as interrupted, is not
+            // caught (spec 11.5).
+            ins.global_get(G_DEFECT);
+            let f = b.rt("fb_is_interrupted");
+            ins.call(f);
+            let cur = b.fiber_plan.as_ref().map(|p| p.cur_fiber).unwrap_or(0);
+            ins.i32_const(cur as i32);
+            ins.i32_load(mem(0, 4));
+            ins.if_(BlockType::Result(ValType::I32));
+            ins.i32_const(cur as i32);
+            ins.i32_load(mem(0, 4));
+            let g = b.rt("fb_is_unwinding");
+            ins.call(g);
+            ins.else_();
+            ins.i32_const(0);
+            ins.end();
+            ins.i32_or();
+        } else {
+            let (interrupted, unwinding) = (plan.interrupted, plan.unwinding);
+            ins.global_get(G_DEFECT);
+            ins.i32_const(interrupted as i32);
+            ins.i32_eq();
+            ins.i32_const(unwinding as i32);
+            ins.i32_load(mem(0, 4));
+            ins.i32_or();
+        }
         ins.if_(BlockType::Empty);
         ins.i32_const(0);
         ins.return_();
@@ -389,7 +409,13 @@ fn cause_raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     // `Interrupt`: only `Fiber.await` makes one, so it needs the suspend runtime.
     if b.sus.is_some() {
-        ins.call(rt(b, "interrupted"));
+        if b.fiber_plan.is_some() {
+            ins.i32_const(0);
+            let f = b.rt("fb_interrupted_new");
+            ins.call(f);
+        } else {
+            ins.call(rt(b, "interrupted"));
+        }
         ins.call(rt(b, "raise"));
     }
 }

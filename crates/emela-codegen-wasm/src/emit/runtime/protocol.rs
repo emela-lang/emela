@@ -12,7 +12,7 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "show_failure" => i32s(3), // desc, show, result
+        "show_failure" => i32s(5), // desc, show, result, notes, tmp
         "json_string" => i32s(3),  // i, byte, hex
         "test_result" => i32s(4),  // kind, message, error, location
         "finish" => i32s(1),       // shown
@@ -46,7 +46,8 @@ const TEST_TAIL: &[u8] = b"}\n";
 const TEST_DONE_LINE: &[u8] = b"\x1eemela-test {\"event\":\"done\"}\n";
 
 /// `show_failure(e)`: the message of an error value, calling the `show` function of its descriptor
-/// ([trait.builtin]). An error whose type does not satisfy Show is shown by its name
+/// ([trait.builtin]) and appending the notes of the failures of the fibers of a scope
+/// ([fiber.scope]). An error whose type does not satisfy Show is shown by its name
 /// ([dyn.error]): `from_core` gives every constructed error enum a show function — the derived
 /// `name$E` (`Derive::ErrorName`) when the type does not satisfy Show, and its Show otherwise — so
 /// a language-produced error's descriptor always has one. Returns a null reference only when `e`
@@ -61,12 +62,21 @@ fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     const D: u32 = 1;
     const SHOW: u32 = 2;
     const RESULT: u32 = 3;
+    const NOTES: u32 = 4;
+    const TMP: u32 = 5;
     ins.local_get(0);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
     ins.i32_const(0);
     ins.return_();
     ins.end();
+    let with_notes = b.fiber_plan.is_some();
+    if with_notes {
+        ins.local_get(0);
+        let f = b.rt("fb_notes_of");
+        ins.call(f);
+        ins.local_set(NOTES);
+    }
     ins.local_get(0);
     ins.i32_load(mem(8, 4));
     ins.local_set(D);
@@ -83,8 +93,33 @@ fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(RESULT);
     ins.call(rt(b, "drop"));
     ins.i32_const(0);
-    ins.return_();
+    ins.local_set(RESULT);
     ins.end();
+    if with_notes {
+        ins.local_get(NOTES);
+        ins.if_(BlockType::Empty);
+        let newline = b.string_literal(b"\n");
+        let empty = b.string_literal(b"");
+        let append = rt(b, "str_append");
+        ins.local_get(RESULT);
+        ins.if_(BlockType::Result(ValType::I32));
+        ins.local_get(RESULT);
+        ins.i32_const(newline as i32);
+        ins.call(append);
+        ins.else_();
+        ins.i32_const(empty as i32);
+        ins.i32_const(newline as i32);
+        ins.call(append);
+        ins.end();
+        ins.local_set(TMP);
+        ins.local_get(TMP);
+        ins.local_get(NOTES);
+        ins.call(append);
+        ins.local_set(RESULT);
+        ins.local_get(NOTES);
+        ins.call(rt(b, "drop"));
+        ins.end();
+    }
     ins.local_get(RESULT);
 }
 
@@ -271,10 +306,16 @@ fn test_result(b: &mut Builder, ins: &mut InstructionSink) {
     // A run unwound as interrupted has its own outcome (spec 14.5); without suspending code the
     // value cannot occur, so the other programs keep the same bytes.
     if let Some(plan) = &b.sus {
-        let interrupted = plan.interrupted;
-        ins.global_get(G_DEFECT);
-        ins.i32_const(interrupted as i32);
-        ins.i32_eq();
+        if b.fiber_plan.is_some() {
+            ins.global_get(G_DEFECT);
+            let f = b.rt("fb_is_interrupted");
+            ins.call(f);
+        } else {
+            let interrupted = plan.interrupted;
+            ins.global_get(G_DEFECT);
+            ins.i32_const(interrupted as i32);
+            ins.i32_eq();
+        }
         ins.if_(BlockType::Empty);
         ins.i32_const(0);
         ins.global_set(G_DEFECT);
@@ -386,10 +427,16 @@ fn finish(b: &mut Builder, ins: &mut InstructionSink) {
     const SHOWN: u32 = 0;
     // A run unwound as interrupted exits with 130 and the single line `interrupted` (spec 14.5).
     if let Some(plan) = &b.sus {
-        let interrupted = plan.interrupted;
-        ins.global_get(G_DEFECT);
-        ins.i32_const(interrupted as i32);
-        ins.i32_eq();
+        if b.fiber_plan.is_some() {
+            ins.global_get(G_DEFECT);
+            let f = b.rt("fb_is_interrupted");
+            ins.call(f);
+        } else {
+            let interrupted = plan.interrupted;
+            ins.global_get(G_DEFECT);
+            ins.i32_const(interrupted as i32);
+            ins.i32_eq();
+        }
         ins.if_(BlockType::Empty);
         write_static(b, ins, 2, b"interrupted\n");
         ins.i32_const(130);

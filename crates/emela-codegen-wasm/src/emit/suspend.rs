@@ -58,6 +58,8 @@ pub(crate) struct Plan {
     pub(crate) resume_desc: u32,
     /// The static `interrupted` value (compared by pointer, like the C runtime).
     pub(crate) interrupted: u32,
+    /// The descriptor of an interruption (a static one, or one of a scope's body).
+    pub(crate) interrupted_desc: u32,
     /// The static pieces of the two resume diagnostics.
     pub(crate) twice_prefix: u32,
     pub(crate) after_prefix: u32,
@@ -151,7 +153,7 @@ pub(crate) fn reserve(b: &mut Builder<'_>) {
         b.defs.push(ty);
         let table = b.table_funcs.len() as u32;
         b.table_funcs.push(trampoline);
-        machines.push(MachinePlan { id, body, table });
+            machines.push(MachinePlan { id, body, table });
     }
     if let Some(plan) = &mut b.sus {
         plan.machines = machines;
@@ -173,6 +175,7 @@ pub(crate) fn reserve(b: &mut Builder<'_>) {
             perform_desc: 0,
             resume_desc: 0,
             interrupted: 0,
+            interrupted_desc: 0,
             twice_prefix: 0,
             after_prefix: 0,
             queue_full: 0,
@@ -227,7 +230,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         enum_id: -1,
         name: "interrupted".to_owned(),
         show: None,
-        refs: Vec::new(),
+        refs: vec![true],
     });
     let interrupted = b.nullary(interrupted_desc);
     let twice_prefix = b.string_literal(b"resume called twice in ");
@@ -279,6 +282,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     plan.perform_desc = perform_desc;
     plan.resume_desc = resume_desc;
     plan.interrupted = interrupted;
+    plan.interrupted_desc = interrupted_desc;
     plan.twice_prefix = twice_prefix;
     plan.after_prefix = after_prefix;
     plan.queue_full = queue_full;
@@ -792,15 +796,17 @@ fn compile_stmt(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, id: StmtId) {
             on_defect,
             on_suspend,
         } => {
-            // A fairness yield has nobody to hand a turn to here (no fibers), so neither its
-            // suspension edge nor its defect landing can be taken: no state, no landing copy.
+            // A fairness yield is a suspension point only when the program uses fibers: without
+            // them there is nobody to hand a turn to, and the state machine would double its
+            // states for nothing (`runtime::fiber::used`).
             if matches!(
                 &value,
                 Value::Runtime {
                     op: RuntimeOp::Yield | RuntimeOp::YieldPerform,
                     ..
                 }
-            ) {
+            ) && !super::runtime::fiber::used(mcx.b)
+            {
                 debug_assert!(dst.is_none(), "a fairness yield has no destination");
                 return;
             }

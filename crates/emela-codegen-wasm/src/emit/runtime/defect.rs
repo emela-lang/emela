@@ -48,6 +48,40 @@ fn interrupted(b: &Builder<'_>) -> Option<u32> {
     b.sus.as_ref().map(|plan| plan.interrupted)
 }
 
+/// Emits `G_DEFECT` and a test of whether it is an interruption (a static one, or a scope's).
+fn pending_interrupted(b: &mut Builder<'_>, ins: &mut InstructionSink) -> bool {
+    if b.fiber_plan.is_some() {
+        ins.global_get(G_DEFECT);
+        let f = b.rt("fb_is_interrupted");
+        ins.call(f);
+        true
+    } else if let Some(interrupted) = interrupted(b) {
+        ins.global_get(G_DEFECT);
+        ins.i32_const(interrupted as i32);
+        ins.i32_eq();
+        true
+    } else {
+        false
+    }
+}
+
+/// Emits `local` and a test of whether it is an interruption.
+fn local_interrupted(b: &mut Builder<'_>, ins: &mut InstructionSink, local: u32) -> bool {
+    if b.fiber_plan.is_some() {
+        ins.local_get(local);
+        let f = b.rt("fb_is_interrupted");
+        ins.call(f);
+        true
+    } else if let Some(interrupted) = interrupted(b) {
+        ins.local_get(local);
+        ins.i32_const(interrupted as i32);
+        ins.i32_eq();
+        true
+    } else {
+        false
+    }
+}
+
 fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     const FIRST: u32 = 1;
     const NOTE: u32 = 2;
@@ -62,12 +96,8 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.global_set(G_DEFECT);
     ins.else_();
-    if let Some(interrupted) = interrupted(b) {
-        // Unwinding as interrupted: the new defect replaces the interruption (spec 14.4). The
-        // interruption is a static value, so nothing is released.
-        ins.global_get(G_DEFECT);
-        ins.i32_const(interrupted as i32);
-        ins.i32_eq();
+    if pending_interrupted(b, ins) {
+        // Unwinding as interrupted: the new defect replaces the interruption (spec 14.4).
         ins.if_(BlockType::Empty);
         ins.local_get(0);
         ins.call(dup);
@@ -142,23 +172,17 @@ fn defect_resume(b: &mut Builder, ins: &mut InstructionSink) {
     // Nothing was raised by the cleanup.
     ins.return_();
     ins.end();
-    if let Some(interrupted) = interrupted(b) {
+    if local_interrupted(b, ins, 0) {
         // The pending defect was the interruption: whatever the cleanup raised replaces it
-        // (spec 14.4). The interruption is a static value, so nothing is released.
-        ins.local_get(0);
-        ins.i32_const(interrupted as i32);
-        ins.i32_eq();
+        // (spec 14.4).
         ins.if_(BlockType::Empty);
         ins.local_get(LATER);
         ins.global_set(G_DEFECT);
         ins.return_();
         ins.end();
-        // An interruption raised by the cleanup is no note of the first (spec 14.4): the first
-        // stays in the pending slot and the interruption is just left behind (a static value,
-        // nothing to release).
-        ins.local_get(LATER);
-        ins.i32_const(interrupted as i32);
-        ins.i32_eq();
+    }
+    if local_interrupted(b, ins, LATER) {
+        // An interruption raised by the cleanup is no note of the first (spec 14.4).
         ins.if_(BlockType::Empty);
         ins.return_();
         ins.end();
