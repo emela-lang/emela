@@ -70,6 +70,15 @@ pub(crate) fn check(
             diags.extend(boundary);
         }
         if let Some(entry) = &item.entry
+            && let Some(entry_module) = options.entry
+            && data.module != DefModule::Source(entry_module)
+        {
+            diags.push(Diagnostic {
+                span: Some(entry.span),
+                kind: DiagnosticKind::EntryOutsideEntryModule,
+            });
+        }
+        if let Some(entry) = &item.entry
             && let Res::Def(adapter_def) = entry.adapter
         {
             let Some(adapter_sig) = sigs.get(adapter_def) else {
@@ -105,9 +114,19 @@ pub(crate) fn check(
         }
     }
 
-    // In source order, so that the second occurrence is reported.
+    // In source order, so that the second occurrence is reported. The launcher of `main.mjs`
+    // always exports `main` and uses `$start`; the default export object is separate from a named
+    // export called `default` (spec 16.6.2). A user export with one of those names would make an
+    // invalid module or replace the launcher's export.
     exports.sort_by_key(|(_, span)| (span.module.into_raw().into_u32(), span.range.start()));
-    let mut seen: Vec<ExportKey> = Vec::new();
+    let mut seen: Vec<ExportKey> = ["main", "$start", "default"]
+        .into_iter()
+        .map(|name| ExportKey {
+            target: "js".into(),
+            interface: None,
+            name: name.into(),
+        })
+        .collect();
     for (key, span) in exports {
         if seen.contains(&key) {
             diags.push(Diagnostic {

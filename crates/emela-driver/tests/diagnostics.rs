@@ -1339,3 +1339,116 @@ fn main() { () }
     let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
     assert_eq!(codes, ["E0441"], "{:#?}", analysis.diagnostics);
 }
+
+/// `@export` and `@entry` are reaches of the entry for the target check (E0412), even without a
+/// `main` (spec 12.1, 12.7, 12.8).
+#[test]
+fn export_roots_are_checked_for_the_target_externals() {
+    let missing = "@external(wasm, \"env\", \"now\")\nfn wasm_now() -> Int use {}\n\n@export(js, \"tick\")\nfn tick() -> Int { wasm_now() }\n";
+    let analysis = check_files(
+        &[("home/main.emel", missing)],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::Js),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(codes, ["E0412"], "{:#?}", analysis.diagnostics);
+    assert!(
+        analysis.diagnostics[0]
+            .message
+            .contains("`wasm_now` has no `@external` for target `js`"),
+        "{:#?}",
+        analysis.diagnostics
+    );
+
+    let found = missing.replace(
+        "@external(wasm, \"env\", \"now\")",
+        "@external(wasm, \"env\", \"now\")\n@external(js, \"host_now\")",
+    );
+    let analysis = check_files(
+        &[("home/main.emel", &found)],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::Js),
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:#?}",
+        analysis.diagnostics
+    );
+
+    // The fn of `@entry` is a reach too, even when the adapter itself does not call the external.
+    let entry = "@external(wasm, \"env\", \"now\")\nfn wasm_now() -> Int use {}\n\n@export(js, \"default\", \"serve\")\npub fn serve(f: fn(Int) -> Int fails {} use {}) -> Int { f(1) }\n\n@entry(serve)\npub fn app(n: Int) -> Int { wasm_now() + n }\n";
+    let analysis = check_files(
+        &[("home/main.emel", entry)],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::Js),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(codes, ["E0412"], "{:#?}", analysis.diagnostics);
+}
+
+/// `@entry` is written on a fn of the entry module (spec 12.8). No diagnostic code is assigned to
+/// the rule yet, so the error is reported without one.
+#[test]
+fn entry_outside_the_entry_module_is_rejected() {
+    let analysis = check_files(
+        &[
+            ("home/main.emel", "import Http\n\nfn main() { () }\n"),
+            (
+                "home/http.emel",
+                "@export(js, \"default\", \"fetch\")\npub fn serve(f: fn(Int) -> Int fails {} use {}) -> Int { f(1) }\n\n@entry(serve)\npub fn other(n: Int) -> Int { n }\n",
+            ),
+        ],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    let found: Vec<_> = analysis
+        .diagnostics
+        .iter()
+        .filter(|d| d.message == "`@entry` is only allowed in the entry module")
+        .collect();
+    assert_eq!(found.len(), 1, "{:#?}", analysis.diagnostics);
+    assert_eq!(found[0].code, None);
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// A JS export may not take the names the launcher of `main.mjs` uses, nor the named `default`
+/// export (spec 16.6.2). They are duplicates of the module's own exports (E0438).
+#[test]
+fn reserved_js_host_names_are_diagnosed() {
+    let src = "@export(js, \"main\")\nfn a() -> Int { 1 }\n\n@export(js, \"$start\")\nfn b() -> Int { 1 }\n\n@export(js, \"default\")\nfn c() -> Int { 1 }\n\nfn main() { () }\n";
+    let analysis = check_files(
+        &[("home/main.emel", src)],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(
+        codes,
+        ["E0438", "E0438", "E0438"],
+        "{:#?}",
+        analysis.diagnostics
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// The R of an `@export` fn must be empty except Async (E0402, spec 12.7); the message names the
+/// exported function.
+#[test]
+fn export_effect_diagnostic() {
+    let src = "effect Logger {\n  fn info(msg: String) -> ()\n}\n\n@export(js, \"f\")\npub fn f() { (use Logger).info(\"x\") }\n";
+    let analysis = check_files(
+        &[("home/main.emel", src)],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(codes, ["E0402"], "{:#?}", analysis.diagnostics);
+    assert!(
+        analysis.diagnostics[0]
+            .message
+            .contains("is not provided in exported function `f`"),
+        "{:#?}",
+        analysis.diagnostics
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
