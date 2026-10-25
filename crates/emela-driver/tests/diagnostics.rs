@@ -1156,3 +1156,47 @@ fn main() { () }
     assert_eq!(codes, ["E0441"], "{:#?}", analysis.diagnostics);
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
+
+/// An entry adapter is not exported by itself, so its Async R alone is not E0441. Using it with
+/// `@entry` on the `c` target makes the export suspend (E0441, 16.7.6).
+#[test]
+fn c_suspending_export_only_applies_to_actual_exports() {
+    let adapter = r#"effect Clock {
+  suspend fn now() -> Int
+}
+
+@external(js, "Date.now")
+@external(c, "host_now")
+fn js_now() -> Int
+
+handler JsClock: Clock {
+  suspend fn now(resume) { resume(js_now()) }
+}
+
+@export(c, "now")
+pub fn serve(app: fn() -> Int fails {} use {}) -> Int use Async {
+  with JsClock { (use Clock).now() }
+}
+
+fn main() { () }
+"#;
+    let analysis = check_files(
+        &[("home/main.emel", adapter)],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::C),
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:#?}",
+        analysis.diagnostics
+    );
+
+    let with_entry = format!("{adapter}\n@entry(serve)\npub fn app() -> Int {{ 1 }}\n");
+    let analysis = check_files(
+        &[("home/main.emel", &with_entry)],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::C),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(codes, ["E0441"], "{:#?}", analysis.diagnostics);
+}

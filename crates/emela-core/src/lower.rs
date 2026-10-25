@@ -3448,11 +3448,19 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// Reports exported fns that may suspend on the `c` target (E0441, spec 16.7.6).
+    /// Reports exported fns that may suspend on the `c` target (E0441, spec 16.7.6). An entry
+    /// adapter is not exposed by itself, so only its use by `@entry` makes the export suspend:
+    /// the fn of the entry is reported when either it or the adapter may suspend.
     fn check_suspending_exports(&mut self) {
         let mut found = Vec::new();
         for (id, f) in self.module.functions.iter() {
-            if f.exports.is_empty() || !f.suspends {
+            if f.exports.is_empty() || f.is_entry_adapter {
+                continue;
+            }
+            let suspends = f.suspends
+                || f.entry_adapter
+                    .is_some_and(|adapter| self.module.functions[adapter].suspends);
+            if !suspends {
                 continue;
             }
             let Some((&(def, _), _)) = self.fns.iter().find(|&(_, &v)| v == id) else {
