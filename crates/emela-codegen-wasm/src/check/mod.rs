@@ -1,13 +1,13 @@
 //! What the WASM target does not support yet, found on the Flow IR before the Heap IR passes.
 //!
 //! The checks are split by what they inspect: the whole module and the collected diagnostics
-//! here, external functions in `external`, the calls to `suspend fn` external functions reachable
-//! from the entry in `suspend`, and values (fibers) in `value`. Suspending functions and `suspend
-//! fn` operations are supported; `suspend fn` external functions are not (they need a host
-//! callback).
+//! here, external functions in `external`, reachability from the entry in `reach`, and values
+//! (fibers) in `value`. Suspending functions and `suspend fn` operations are supported; `suspend
+//! fn` external functions are not (they need a host callback), so a reachable call to one without
+//! a `wasm` binding is unsupported.
 
 mod external;
-mod suspend;
+mod reach;
 mod value;
 
 use emela_lir::{FnId, Module, Stmt};
@@ -15,13 +15,19 @@ use emela_lir::{FnId, Module, Stmt};
 use crate::{WasmError, WasmErrorKind};
 
 use self::external::external;
-use self::suspend::suspension_points;
 use self::value::value_unsupported;
+
+pub(crate) use self::reach::Reach;
+
+/// What the entry can reach, for the diagnostics and the emitter (see [`reach::walk`]).
+pub(crate) fn reach(m: &Module, roots: &[FnId]) -> Reach {
+    reach::walk(m, roots)
+}
 
 /// Every construct reachable from the entry (the module holds only reachable functions after
 /// monomorphisation) that the WASM target cannot compile yet. Calls to `suspend fn` external
 /// functions and fibers are reported once each, naming where they are reached.
-pub(crate) fn unsupported(m: &Module, roots: &[FnId]) -> Vec<WasmError> {
+pub(crate) fn unsupported(m: &Module, reach: &Reach) -> Vec<WasmError> {
     let mut found = Found::default();
     for (_, f) in m.functions.iter() {
         if let Some(ext) = &f.external {
@@ -36,7 +42,12 @@ pub(crate) fn unsupported(m: &Module, roots: &[FnId]) -> Vec<WasmError> {
             }
         }
     }
-    suspension_points(m, roots, &mut found);
+    for &callee in reach.suspending() {
+        found.suspending(format!(
+            "a call to `{}`, a `suspend fn` external",
+            display_name(&m.functions[callee].name)
+        ));
+    }
     found.finish()
 }
 
