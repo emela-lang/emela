@@ -36,7 +36,6 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             fn_decl(node, out);
             fn_externals(node, out);
             fn_exports(node, out);
-            fn_entries(node, out);
         }
         TYPE_DECL => {
             if child_kind(node, FIELD_LIST).is_none() && !is_external(node) {
@@ -403,69 +402,6 @@ fn fn_exports(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 rest[0].text_range(),
                 DiagnosticCode::MalformedExport,
                 "on the `js` target, the middle argument of `@export` must be `\"default\"`",
-            );
-        }
-    }
-}
-
-/// The shape of a fn's `@entry(adapter)` (spec 12.8): a single argument that is a bare name or a
-/// qualified path ending in an adapter name (`Http.serve`, `Cloudflare.Worker.scheduled`), and at
-/// most one `@entry` on the fn. The argument must name an entry adapter; that is checked where
-/// names are resolved and types are known (E0439).
-fn fn_entries(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
-    let mut seen = false;
-    for annotation in annotations(node, "entry") {
-        if seen {
-            error(
-                out,
-                annotation.text_range(),
-                DiagnosticCode::ExpectedToken,
-                "only one `@entry` is allowed on a fn",
-            );
-            continue;
-        }
-        seen = true;
-        let args: Vec<SyntaxNode> = child_kind(&annotation, ANNOT_ARG_LIST)
-            .into_iter()
-            .flat_map(|list| list.children())
-            .filter(|arg| arg.kind() == ANNOT_ARG)
-            .collect();
-        if args
-            .iter()
-            .any(|arg| arg.descendants().any(|n| n.kind() == ERROR))
-        {
-            continue;
-        }
-        if args.len() != 1 {
-            error(
-                out,
-                annotation.text_range(),
-                DiagnosticCode::ExpectedToken,
-                "`@entry` takes one entry adapter name: `@entry(Http.serve)`",
-            );
-            continue;
-        }
-        let arg = &args[0];
-        let tokens: Vec<SyntaxKind> = arg
-            .descendants_with_tokens()
-            .filter_map(|e| e.into_token())
-            .filter(|t| matches!(t.kind(), TYPE_NAME | LOWER_NAME | DOT))
-            .map(|t| t.kind())
-            .collect();
-        let qualified = tokens.len() >= 3
-            && tokens.first() == Some(&TYPE_NAME)
-            && tokens.last() == Some(&LOWER_NAME)
-            && tokens
-                .iter()
-                .enumerate()
-                .all(|(i, k)| (i % 2 == 0) == (*k != DOT));
-        let bare = tokens.as_slice() == [LOWER_NAME];
-        if !(qualified || bare) {
-            error(
-                out,
-                arg.text_range(),
-                DiagnosticCode::ExpectedToken,
-                "`@entry` needs an entry adapter name such as `Http.serve`",
             );
         }
     }

@@ -20,6 +20,8 @@ fn wrong_case() { () }
 @entry(Http.serve, extra)
 fn extra() { () }
 
-@entry(Http.serve)
-@entry(Cloudflare.Worker.scheduled)
-fn twice() { () }
+@entry(Http.serve.extra)
+fn after_final_name() { () }
+
+@entry(Http)
+fn type_only() { () }
