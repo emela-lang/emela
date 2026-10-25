@@ -1635,12 +1635,14 @@ fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     st_const(ins, 0, W_CHAIN, 0);
     ldl(ins, 0, W_END);
     ins.local_set(END);
-    // The operation call whose strand this continuation belongs to (0 for a fiber's own).
+    // The operation call whose strand this continuation belongs to (0 for a fiber's own).  The
+    // wait keeps the reference while it is unlinked: `fb_unlink_wait` clears the perform's
+    // back-pointer and releases the wait reference the perform held.
     ldl(ins, 0, W_IMPL);
     ins.local_set(PERF);
-    st_const(ins, 0, W_IMPL, 0);
     g(ins, 0);
     call(b, ins, "fb_unlink_wait");
+    st_const(ins, 0, W_IMPL, 0);
     // The perform the wait held for a dropped caller is released with the wait.
     ldl(ins, 0, W_ONDROP);
     ins.local_set(LIVE);
@@ -1986,6 +1988,8 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     ins.if_(BlockType::Empty);
     dropv(b, ins, CHAIN);
+    // The perform reference was handed to this continuation and is not used any more.
+    dropv(b, ins, 5);
     g(ins, MODE);
     ins.if_(BlockType::Empty);
     g(ins, WORD);
@@ -2048,6 +2052,9 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.else_();
     dropv(b, ins, CHAIN);
     ins.end();
+    // `fb_suspended` took its own reference to the perform; release the one this continuation
+    // was called with.
+    dropv(b, ins, 5);
     // Inside the suspension `if`, depth 2 is the end of the outer block: stop running the
     // continuation here; the wait resumes it when it is woken.
     ins.br(2);

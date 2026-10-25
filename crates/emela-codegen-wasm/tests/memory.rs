@@ -657,3 +657,50 @@ fn main() -> () use { Async } {
         "0\n",
     );
 }
+
+#[test]
+fn a_resuspended_implementation_reuses_its_record() {
+    // The implementation sleeps, is woken, then sleeps again before it resumes the caller: each
+    // suspension settles the same perform record, and its reference is released when the
+    // continuation re-suspends.
+    run_limited(
+        "memory-resuspended-operation",
+        r#"
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+effect Retry {
+  suspend fn go() -> Int
+}
+
+handler Retrying: Retry {
+  suspend fn go(resume) {
+    (use Clock).sleep(1)
+    (use Clock).sleep(1)
+    resume(1)
+  }
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Retry } {
+  if n == 0 {
+    total
+  } else {
+    rounds(n - 1, total + (use Retry).go())
+  }
+}
+
+fn main() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, fn() {
+    with TestClock {
+      with Retrying {
+        dbg(rounds(4000, 0))
+      }
+    }
+  })
+}
+"#,
+        "4000\n",
+    );
+}
