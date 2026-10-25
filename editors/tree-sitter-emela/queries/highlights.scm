@@ -141,6 +141,10 @@
   "@" @attribute
   name: (identifier) @attribute)
 
+(annotation_path
+  module: (type_identifier) @module
+  name: (identifier) @function)
+
 ; Literals
 
 (integer) @number

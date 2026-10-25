@@ -451,3 +451,67 @@ fn h(x: Handler[NotFound | Timeout, { Db, Log }], y: (Int, String), z: ()) -> fn
         (type_identifier)))
     (block
       (identifier))))
+
+==================
+Exports and entries
+==================
+@export(js, "default", "fetch")
+@export(c, "handle")
+pub fn twice(n: Int) -> Int {
+  n
+}
+
+@entry(Http.serve)
+fn handle(n: Int) -> Int {
+  n
+}
+
+---
+
+(source_file
+  (function_declaration
+    (annotation
+      (identifier)
+      (annotation_argument
+        (identifier))
+      (annotation_argument
+        (string
+          (string_content)))
+      (annotation_argument
+        (string
+          (string_content))))
+    (annotation
+      (identifier)
+      (annotation_argument
+        (identifier))
+      (annotation_argument
+        (string
+          (string_content))))
+    (visibility)
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (type_reference
+      (type_identifier))
+    (block
+      (identifier)))
+  (function_declaration
+    (annotation
+      (identifier)
+      (annotation_argument
+        (annotation_path
+          (type_identifier)
+          (identifier))))
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (type_reference
+      (type_identifier))
+    (block
+      (identifier))))
