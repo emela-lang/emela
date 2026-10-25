@@ -4716,6 +4716,15 @@ fn call1(b: &mut Builder<'_>, ins: &mut InstructionSink, ret: Repr) {
 fn root_begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const F: u32 = 1;
     let desc = plan(b).fiber_desc;
+    // An orphan defect left by the previous run was not the run's result (it only replaces an
+    // interruption): release it before the cells are reset.
+    i32_const_cell(b, ins, |p| p.orphan);
+    ins.i32_load(mem(0, 4));
+    ins.if_(BlockType::Empty);
+    i32_const_cell(b, ins, |p| p.orphan);
+    ins.i32_load(mem(0, 4));
+    call(b, ins, "drop");
+    ins.end();
     // Reset the run's state (a test run follows the previous one).
     for f in [
         |p: &Plan| p.fhead,
