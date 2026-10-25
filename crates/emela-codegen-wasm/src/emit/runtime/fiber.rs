@@ -3834,11 +3834,13 @@ fn hold(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     ins.local_tee(F);
     ins.if_(BlockType::Empty);
-    ldl(ins, F, F_HOLDS);
+    // `F` stays the fiber in this branch: the count is read, changed and stored back through it.
+    g(ins, F);
+    g(ins, F);
+    ins.i32_load(mem(F_HOLDS, 4));
     c(ins, 1);
     ins.i32_add();
-    ins.local_set(0);
-    stl(ins, F, F_HOLDS, 0);
+    ins.i32_store(mem(F_HOLDS, 4));
     ins.end();
 }
 
@@ -3848,11 +3850,12 @@ fn unhold(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     ins.local_tee(F);
     ins.if_(BlockType::Empty);
-    ldl(ins, F, F_HOLDS);
+    g(ins, F);
+    g(ins, F);
+    ins.i32_load(mem(F_HOLDS, 4));
     c(ins, 1);
     ins.i32_sub();
-    ins.local_set(0);
-    stl(ins, F, F_HOLDS, 0);
+    ins.i32_store(mem(F_HOLDS, 4));
     ins.end();
 }
 
