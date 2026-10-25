@@ -704,3 +704,45 @@ fn main() {
         "4000\n",
     );
 }
+
+#[test]
+fn a_closing_scope_releases_its_closer_wait() {
+    // The body returns while its child still sleeps, so the scope waits for the child on a
+    // closer wait; waking that wait must release the scope's own reference to it, or every
+    // closing scope keeps the wait (and the child fiber it names) alive.
+    run_limited(
+        "memory-scope-closer",
+        r#"
+import Std.Fiber.{Fiber, Scope}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+fn round(i: Int) -> Int use { Async, Clock } {
+  Fiber.scope(fn() {
+    h = Fiber.fork(fn() {
+      (use Clock).sleep(1)
+      1
+    })
+    0
+  })
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Async, Clock } {
+  if n == 0 { total } else { rounds(n - 1, total + round(n % 10)) }
+}
+
+fn main() -> () use { Async } {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, fn() {
+    with TestClock {
+      dbg(rounds(3000, 0))
+      ()
+    }
+  })
+  ()
+}
+"#,
+        "0\n",
+    );
+}

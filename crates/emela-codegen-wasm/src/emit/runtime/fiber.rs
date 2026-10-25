@@ -1619,7 +1619,7 @@ fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     ins.local_get(2);
     ins.i32_wrap_i64();
-    ins.drop();
+    call(b, ins, "drop");
     ins.end();
     // The caller still owns this wait: the wake consumes it even when it was already dead.
     dropv(b, ins, 0);
@@ -1630,6 +1630,20 @@ fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, F);
     ins.if_(BlockType::Empty);
     ins.else_();
+    // A live wait always names its fiber, so this is defensive; consume the wake like the dead
+    // case so the caller's reference is not leaked.
+    g(ins, 1);
+    ins.i32_eqz();
+    ldl(ins, 0, W_REPR);
+    c(ins, R_REF);
+    ins.i32_eq();
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    call(b, ins, "drop");
+    ins.end();
+    dropv(b, ins, 0);
     ins.return_();
     ins.end();
     g(ins, F);
@@ -3308,7 +3322,10 @@ fn scope_body_done(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(TMP);
     stl(ins, W, W_FLAGS, TMP);
     stl(ins, W, W_TARGET, 0);
-    st_dup(b, ins, 0, S_CLOSER, W);
+    // The scope's field is raw (the descriptor does not count it): the suspension owns the
+    // wait, and `fb_scope_child_ended` wakes it through this pointer.  A counted reference here
+    // would leak with the (finalizer-less) scope record.
+    stl(ins, 0, S_CLOSER, W);
     i32_const_cell(b, ins, |p| p.susp_wait);
     g(ins, W);
     ins.i32_store(mem(0, 4));
@@ -4883,6 +4900,9 @@ fn root_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(root_interrupt);
     let drain = b.rt("fb_drain");
     ins.call(drain);
+    // The stall unwinds as interrupted (spec 14.5 cuts off running releases).  The next turn
+    // re-checks the later queue and the live waits before the run ends; the C runtime checks
+    // `later`/`em_loop_busy` at the same point and ends when both are empty.
     ins.br(1);
     ins.end();
     ins.end();
