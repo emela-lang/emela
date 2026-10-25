@@ -27,7 +27,7 @@
 use super::*;
 
 use super::attempt::{CAUSE_DIE, CAUSE_FAIL};
-use super::sched::{F_NEXT, P_CALLER, P_IMPL, P_USED, P_WHERE};
+use super::sched::{F_NEXT, P_CALLER, P_IMPL, P_NOW_MODE, P_NOW_WORD, P_USED, P_WHERE};
 
 /// The index of `Interrupt` in `CauseKind`.
 const CAUSE_INTERRUPT: i32 = 2;
@@ -198,6 +198,8 @@ pub(crate) struct Plan {
     pub(crate) interrupted_desc: u32,
     pub(crate) scope_body_table: u32,
     pub(crate) scope_close_table: u32,
+    pub(crate) impl_table: u32,
+    pub(crate) impl_desc: u32,
     pub(crate) call_table: u32,
     pub(crate) call1_table: u32,
     pub(crate) notes: u32,
@@ -394,6 +396,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ),
     ("fb_scope_body_resume", &[ValType::I32], &[]),
     ("fb_scope_close_resume", &[ValType::I32], &[]),
+    ("fb_impl_settle", &[ValType::I32], &[]),
     ("fb_scope_failed", &[ValType::I32, ValType::I32], &[]),
     ("fb_scope_child_ended", &[ValType::I32, ValType::I32], &[]),
     (
@@ -503,6 +506,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fb_queue_push" => i32s(7),
         "fb_scope_body_resume" => vec![(3, ValType::I32), (1, ValType::I64)],
         "fb_scope_close_resume" => vec![(6, ValType::I32), (1, ValType::I64)],
+        "fb_impl_settle" => i32s(6),
         "fb_scope_failed" => i32s(4),
         "fb_scope_child_ended" => i32s(4),
         "fb_scope_finish" => i32s(5),
@@ -704,6 +708,14 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         show: None,
         refs: vec![false, false, true, true, false, false, true, false],
     });
+    let impl_desc = b.desc(DescKey {
+        kind: 0,
+        tag: 0,
+        enum_id: -1,
+        name: "operation call".to_owned(),
+        show: None,
+        refs: vec![false, false, true, true, false],
+    });
     let mut call_index = 0;
     for name in [
         "fb_call_void",
@@ -729,12 +741,17 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         b.table_funcs.push(index);
     }
     let call1_table = b.table_funcs.len() as u32 - 5;
-    for name in ["fb_scope_body_resume", "fb_scope_close_resume"] {
+    for name in [
+        "fb_scope_body_resume",
+        "fb_scope_close_resume",
+        "fb_impl_settle",
+    ] {
         let index = b.rt(name);
         b.table_funcs.push(index);
     }
-    let scope_body_table = b.table_funcs.len() as u32 - 2;
+    let scope_body_table = b.table_funcs.len() as u32 - 3;
     let scope_close_table = scope_body_table + 1;
+    let impl_table = scope_body_table + 2;
     let notes = if used(b) { b.alloc_static(8) } else { 0 };
     let msg = |b: &mut Builder<'_>, s: &[u8]| b.string_literal(s);
     let msg_join = msg(b, b"fiber was interrupted");
@@ -777,6 +794,8 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         interrupted_desc: b.sus.as_ref().map(|p| p.interrupted_desc).unwrap_or(0),
         scope_body_table,
         scope_close_table,
+        impl_table,
+        impl_desc,
         call_table,
         call1_table,
         notes,
@@ -843,6 +862,7 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_queue_push" => queue_push(b, ins),
         "fb_scope_body_resume" => scope_body_resume(b, ins),
         "fb_scope_close_resume" => scope_close_resume(b, ins),
+        "fb_impl_settle" => impl_settle(b, ins),
         "fb_scope_failed" => scope_failed(b, ins),
         "fb_scope_child_ended" => scope_child_ended(b, ins),
         "fb_scope_finish" => scope_finish(b, ins),
@@ -2027,9 +2047,35 @@ fn suspended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     dropv(b, ins, 0);
     ins.return_();
     ins.end();
+    // Attach the captured frames to the request. Enclosing operation calls attach their own
+    // frames as their implementation unwinds too, so append to the chain instead of replacing it
+    // (the C runtime's `em_take_suspension`).
+    g(ins, 1);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.else_();
+    ldl(ins, 0, W_CHAIN);
+    ins.local_set(KIND);
+    g(ins, KIND);
+    ins.if_(BlockType::Empty);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ldl(ins, KIND, F_NEXT);
+    ins.local_tee(P);
+    ins.i32_eqz();
+    ins.br_if(1);
+    g(ins, P);
+    ins.local_set(KIND);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    stl(ins, KIND, F_NEXT, 1);
+    ins.else_();
     ins.local_get(0);
     g(ins, 1);
     ins.i32_store(mem(W_CHAIN, 4));
+    ins.end();
+    ins.end();
     i32_const_cell(b, ins, |p| p.cur_fiber);
     ins.i32_load(mem(0, 4));
     ins.local_set(F);
@@ -3178,6 +3224,70 @@ fn scope_close_resume(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     sic(b, ins, |p| p.out_word);
     g(ins, WORD);
     ins.i64_store(mem(0, 8));
+}
+
+/// `fb_impl_settle(frame)`: the continuation of an operation implementation ended after the
+/// operation call had suspended. Deliver the value the implementation resumed with, pass a
+/// failure or defect on, or keep the caller waiting when it never resumed (the run then stalls
+/// and unwinds as interrupted, spec 14.5).
+fn impl_settle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const P: u32 = 1;
+    const MODE: u32 = 2;
+    const W: u32 = 3;
+    const IN: u32 = 4;
+    ldl(ins, 0, HDR + 24);
+    ins.local_set(P);
+    st_const(ins, 0, HDR + 24, 0);
+    dropv(b, ins, 0);
+    // A failure or defect that ended the implementation is the caller's input.
+    sic(b, ins, |p| p.in_mode);
+    ins.i32_load8_u(mem(0, 1));
+    ins.local_set(IN);
+    g(ins, IN);
+    ins.if_(BlockType::Empty);
+    sic(b, ins, |p| p.out_mode);
+    g(ins, IN);
+    ins.i32_store(mem(0, 4));
+    sic(b, ins, |p| p.out_word);
+    sic(b, ins, |p| p.in_word);
+    ins.i64_load(mem(0, 8));
+    ins.i64_store(mem(0, 8));
+    dropv(b, ins, P);
+    ins.return_();
+    ins.end();
+    // A resume after the first suspension was kept in the operation call.
+    ldl(ins, P, P_NOW_MODE);
+    ins.local_set(MODE);
+    g(ins, MODE);
+    ins.i32_const(0);
+    ins.i32_ge_s();
+    ins.if_(BlockType::Empty);
+    st_const(ins, P, P_NOW_MODE, -1);
+    sic(b, ins, |p| p.out_mode);
+    g(ins, MODE);
+    ins.i32_store(mem(0, 4));
+    sic(b, ins, |p| p.out_word);
+    ins.local_get(P);
+    ins.i64_load(mem(P_NOW_WORD, 8));
+    ins.i64_store(mem(0, 8));
+    dropv(b, ins, P);
+    ins.return_();
+    ins.end();
+    // No resume: the caller waits for an implementation that will never resume.
+    c(ins, WK_CALLER);
+    c(ins, 0);
+    let new = b.rt("fb_wait_new");
+    ins.call(new);
+    ins.local_set(W);
+    i32_const_cell(b, ins, |p| p.susp_wait);
+    g(ins, W);
+    ins.i32_store(mem(0, 4));
+    c(ins, 1);
+    ins.global_set(G_SUSPENDING);
+    sic(b, ins, |p| p.out_mode);
+    c(ins, 3);
+    ins.i32_store(mem(0, 4));
+    dropv(b, ins, P);
 }
 
 /// `fb_scope_failed(so, cause)`: a failure of the body or a child (spec 11.2). Takes the cause.
