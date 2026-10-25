@@ -46,6 +46,13 @@ pub use test_runner::{TEST_EVENT_PREFIX, TEST_RUNNER, TestEntry, emit_test_main}
 /// The JS runtime source (an ES module).
 pub const RUNTIME: &str = include_str!("runtime.mjs");
 
+/// The server of an HTTP service (`[target.js.module]`): listens with node:http and passes each
+/// request to the `fetch` of the default export of `main.mjs`.
+pub const SERVE: &str = include_str!("serve.mjs");
+
+/// The file name of [`SERVE`], next to `main.mjs`.
+pub const SERVE_FILE: &str = "serve.mjs";
+
 /// Default file name when the runtime is written next to the output.
 pub const RUNTIME_FILE: &str = "emela_runtime.mjs";
 

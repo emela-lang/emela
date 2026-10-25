@@ -33,6 +33,14 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Random", include_str!("../lib/std/random.emel")),
     ("Std.Env", include_str!("../lib/std/env.emel")),
     ("Std.Clock", include_str!("../lib/std/clock.emel")),
+    (
+        "Std.Http.Request",
+        include_str!("../lib/std/http/request.emel"),
+    ),
+    (
+        "Std.Http.Response",
+        include_str!("../lib/std/http/response.emel"),
+    ),
     ("Std.Http", include_str!("../lib/std/http.emel")),
     ("Std.Path", include_str!("../lib/std/path.emel")),
     (

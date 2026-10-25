@@ -65,6 +65,9 @@ pub enum LowerError {
     /// An `@export(wasm, ...)` written by a user, on the `wasm` target (`[target.wasm.external]`).
     /// `span` is the `@export` or the `@entry`.
     WasmExport { name: String, span: Option<Span> },
+    /// `@entry(Http.serve)` on the `c` target (E0442, `[target.c.unsupported]`). `span` is the
+    /// `@entry`.
+    HttpServiceOnC { span: Option<Span> },
 }
 
 /// Which fns lowering starts from.
@@ -167,6 +170,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     };
     if roots == Roots::Exported {
         cx.collect_host_exports(input.target);
+        cx.module.http_service = emela_types::is_http_service(hir);
     }
     cx.declare_enums();
     cx.define_ctors();
@@ -3399,6 +3403,16 @@ impl<'a> Lowerer<'a> {
     /// bundled `Std` would be exposed by the runtime, and it has none yet).
     fn collect_host_exports(&mut self, target: Option<&str>) {
         for exposed in emela_types::host_exports(self.hir, self.entry) {
+            let entry = self.hir.entry_exports.iter().find(|e| e.def == exposed.def);
+            if target == Some("c")
+                && let Some(e) = entry.filter(|e| emela_types::is_http_serve(self.hir, e.adapter))
+            {
+                // `serve` has no `@export(c, ...)`, so nothing would be exposed and the program
+                // would build without an entry.
+                self.errors
+                    .push(LowerError::HttpServiceOnC { span: Some(e.span) });
+                continue;
+            }
             let exports: Vec<HostExport> = exposed
                 .exports
                 .iter()
@@ -3421,7 +3435,6 @@ impl<'a> Lowerer<'a> {
             if exports.is_empty() {
                 continue;
             }
-            let entry = self.hir.entry_exports.iter().find(|e| e.def == exposed.def);
             let name = self.hir.defs[entry.map_or(exposed.def, |e| e.entry)]
                 .name
                 .to_string();

@@ -179,6 +179,8 @@ static void em_buf_reserve(em_buf *b, size_t extra) {
 }
 
 static void em_buf_put(em_buf *b, const char *bytes, size_t len) {
+  /* An empty buffer has no data yet, and memcpy must not be given a null pointer even for 0 bytes. */
+  if (len == 0) return;
   em_buf_reserve(b, len);
   memcpy(b->data + b->len, bytes, len);
   b->len += len;

@@ -1,0 +1,40 @@
+exit: 0
+--- stdout
+--- stderr
+Request(method: Post, url: "https://example.com/a", headers: [], body: "")
+Request(method: Post, url: "https://example.com/a", headers: [("A", "1"), ("b", "2"), ("a", "3")], body: "")
+(Some("1"), ["1", "2"], None)
+"/api/a%20b"
+"/"
+"/"
+"/p/q/"
+"/relative/path"
+["api", "versions", "a b", "東"]
+["%zz", "%E6", "%2", "%C0%80", "%ED%A0%80", "ok/slash"]
+[]
+["a+b"]
+[("q", "東 x"), ("page", "2"), ("flag", ""), ("a", "b=c")]
+[("bad", "%E6"), ("ok", "1"), ("%zz", "v")]
+[]
+[]
+[("a", "1?b=2")]
+"q=%E6%9D%B1%E4%BA%AC%20a%2Bb&a%26b=c%3Dd&=&emoji=%F0%9F%91%8D&keep=-_.!~*'()"
+True
+[]
+[("a b", "c d"), ("e", ""), ("", "f")]
+[("Ab", "é")]
+[[("error", "a=%E6")]]
+[[("error", "a=%G0")]]
+[[("error", "a=1%")]]
+Response(status: 404, headers: [], body: "nf")
+(Some("a=1"), ["a=1", "b=2"])
+204
+299
+"unexpected 404 nf"
+"unexpected 199 x"
+True
+True
+Some("a=1")
+["a=1", "b=2"]
+True
+200

@@ -20,7 +20,9 @@ use crate::hints::InlayHint;
 use crate::hover::HoverInfo;
 use crate::nav::{NavTarget, RenameError};
 use crate::output::{BuildOutput, write_output};
-use crate::run::{Output, ProgramCommand, RunOutput, node_command, wasmtime_command};
+use crate::run::{
+    Output, ProgramCommand, RunOutput, node_command, node_script_command, wasmtime_command,
+};
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
 use crate::target::Target;
@@ -346,6 +348,12 @@ pub trait Frontend {
     /// entry (`run` then proceeds without checking).
     fn has_entry_main(&self) -> Option<bool> {
         None
+    }
+
+    /// Whether the program is an HTTP service in the last [`Frontend::check`]
+    /// (`[lib.http-service]`). `emela run` does not ask it for `main` (E0230).
+    fn is_http_service(&self) -> bool {
+        false
     }
 
     /// Same-file occurrences of the name, including its declaration (LSP documentHighlight).
@@ -812,7 +820,8 @@ fn build_with<F: Frontend, B: Backend<F::Program>>(
     }
     // Not reported if there are other errors: a syntax error may just have hidden main.
     if require_main
-        && (input.library_only || frontend.has_entry_main() == Some(false))
+        && (input.library_only
+            || (frontend.has_entry_main() == Some(false) && !frontend.is_http_service()))
         && let Some(entry) = &input.entry
     {
         analysis.diagnostics.push(
@@ -889,7 +898,13 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
     before_start: impl FnOnce(&Analysis, Option<&ProgramCommand>),
 ) -> (Analysis, Option<RunOutput>) {
     let (mut analysis, entry) = build_with(fs, input, frontend, backend, &options.out_dir, true);
+    let server = frontend.is_http_service();
     let command = entry.map(|entry| match backend.runner() {
+        Runner::Node if server => Ok(node_script_command(
+            &options.node,
+            &entry.with_file_name(emela_codegen_js::SERVE_FILE),
+            &options.args,
+        )),
         Runner::Node => Ok(node_command(&options.node, &entry, &options.args)),
         Runner::Native => Ok(native_command(&entry, &options.args)),
         Runner::Wasmtime => wasmtime_command(&entry, &options.args),

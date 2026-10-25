@@ -1,0 +1,37 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: out
+---
+== home/main.emel js
+== home/main.emel c
+error[E0442]: HTTP services are not supported on target `c` yet
+   ╭─[ main.emel:7:1 ]
+   │
+ 7 │ @entry(Http.serve)
+   │ ─────────┬────────  
+   │          ╰────────── 
+───╯
+
+1 error
+== other/main.emel js
+error[E0440]: `app` does not fit `Http.serve`
+   ╭─[ main.emel:6:1 ]
+   │
+ 6 │ @entry(Http.serve)
+   │ ─────────┬────────  
+   │          ╰────────── 
+───╯
+
+1 error
+== other/main.emel c
+error[E0440]: `app` does not fit `Http.serve`
+   ╭─[ main.emel:6:1 ]
+   │
+ 6 │ @entry(Http.serve)
+   │ ─────────┬────────  
+   │          ╰────────── 
+───╯
+
+1 error
+== own/main.emel js
+== own/main.emel c

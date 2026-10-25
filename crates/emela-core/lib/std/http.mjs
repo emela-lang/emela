@@ -88,3 +88,41 @@ export const body = (res) => res.body;
 export const headerCount = (res) => res.headers.length;
 export const headerName = (res, index) => res.headers[index][0];
 export const headerValue = (res, index) => res.headers[index][1];
+
+// Host functions for `serve` (http.emel), the entry of an HTTP service (`[lib.http-service]`).
+// The incoming request is a Fetch API Request and the outgoing response a Fetch API Response.
+
+/**
+ * Reads the whole of `request`: its method, URL, headers (in the form of `responseHeaders`) and
+ * body. A body that is not UTF-8 is kept as `text: false` with an empty body; a leading BOM is
+ * dropped, as `TextDecoder` does by default.
+ */
+export async function readRequest(request, signal) {
+  const bytes = await request.arrayBuffer();
+  let body = "";
+  let text = true;
+  try {
+    body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    text = false;
+  }
+  return { method: request.method, url: request.url, headers: responseHeaders(request.headers), body, text };
+}
+
+export const receivedText = (received) => received.text;
+export const receivedMethod = (received) => received.method;
+export const receivedUrl = (received) => received.url;
+
+/** A response with no headers; `withHeader` adds them. */
+export const newDraft = (status, body) => ({ status, body, headers: [] });
+
+/**
+ * The Fetch API Response for `draft`. `http.emel` has checked the status, the body and the headers,
+ * so the constructor does not throw. The Headers of the Response keep no order between names
+ * (`[lib.http-service]`).
+ */
+export function finishDraft(draft) {
+  const headers = new Headers();
+  for (const [name, value] of draft.headers) headers.append(name, value);
+  return new Response(draft.body === "" ? null : draft.body, { status: draft.status, headers });
+}

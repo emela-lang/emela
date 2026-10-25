@@ -381,7 +381,7 @@ fn std_types_have_impls() {
     let main = r##"
 import Std.Duration.{Duration}
 import Std.Instant
-import Std.Http.{Request, Get}
+import Std.Http.Request.{Request, Get}
 import Std.Cause.{Fail}
 
 fn main() {

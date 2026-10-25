@@ -38,7 +38,9 @@ pub use exhaustiveness::{
     Arm, CtorTable, Lit, MatchCheck, Pat, TyShape, VariantShape, WITNESS_LIMIT, Witness,
     check_match,
 };
-pub use export::{HostExports, add_entry_exports, host_exports, is_entry_adapter};
+pub use export::{
+    HostExports, add_entry_exports, host_exports, is_entry_adapter, is_http_serve, is_http_service,
+};
 pub use infer::{InferCtx, substitute_bound};
 pub use layer::{ArgsSource, LayerInfo, Supplier, WithBind, WithInfo};
 pub use lower::TyTable;

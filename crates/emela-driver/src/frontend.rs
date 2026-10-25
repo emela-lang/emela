@@ -185,6 +185,9 @@ pub struct Typecheck<B = NoBuiltins> {
     /// Whether the entry module had a `main` fn in the last `check`. `None` without an entry or
     /// HIR.
     entry_main: Option<bool>,
+    /// Whether the last `check` found `@entry(Http.serve)` in the entry module
+    /// (`[lib.http-service]`).
+    http_service: bool,
 }
 
 /// Name resolution and type checking results, which lowering reads (see [`ProgramTypes`]).
@@ -200,6 +203,7 @@ impl Default for Typecheck<NoBuiltins> {
         Typecheck {
             resolve: Resolve::default(),
             entry_main: None,
+            http_service: false,
         }
     }
 }
@@ -209,6 +213,7 @@ impl<B: BuiltinModules> Typecheck<B> {
         Typecheck {
             resolve,
             entry_main: None,
+            http_service: false,
         }
     }
 
@@ -240,6 +245,10 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 
     fn has_entry_main(&self) -> Option<bool> {
         self.entry_main
+    }
+
+    fn is_http_service(&self) -> bool {
+        self.http_service
     }
 
     fn document_highlights(
@@ -354,6 +363,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<TypedProgram> {
         self.entry_main = None;
+        self.http_service = false;
         let resolved = self.resolve.check(analysis, order);
         let Some(mut hir) = resolved.program else {
             return Checked {
@@ -385,6 +395,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         };
         // The exports `@entry` makes are fns that type checking infers (`[ext.entry]`).
         let export_diagnostics = emela_types::add_entry_exports(&mut hir, analysis.entry);
+        self.http_service = emela_types::is_http_service(&hir);
         let mut types = check_program_with(&hir, &options);
         types.diags.extend(export_diagnostics);
         // Inference proceeds in call order, so sort by file and position like name resolution.
@@ -459,6 +470,10 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
 
     fn has_entry_main(&self) -> Option<bool> {
         self.typecheck.has_entry_main()
+    }
+
+    fn is_http_service(&self) -> bool {
+        self.typecheck.is_http_service()
     }
 
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<emela_core::Module> {

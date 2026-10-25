@@ -14,6 +14,10 @@ error enum Prelude.ParseError {
   ParseError(input: String)
 }
 
+error enum Std.Http.Response.UnexpectedStatus {
+  UnexpectedStatus(status: Int, body: String)
+}
+
 error enum Std.Http.InvalidUrl {
   InvalidUrl(url: String)
 }
@@ -24,10 +28,6 @@ error enum Std.Http.ConnectionFailed {
 
 error enum Std.Http.ResponseNotText {
   ResponseNotText(url: String)
-}
-
-error enum Std.Http.UnexpectedStatus {
-  UnexpectedStatus(status: Int, body: String)
 }
 
 error enum Std.FileSystem.FileNotFound {

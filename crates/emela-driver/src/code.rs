@@ -166,6 +166,9 @@ pub const NOT_ENTRY_ADAPTER: &str = "E0439";
 pub const ENTRY_MISMATCH: &str = "E0440";
 pub const SUSPENDING_EXPORT: &str = "E0441";
 
+// HTTP services (`[lib.http-service]`)
+pub const HTTP_SERVICE_ON_C: &str = "E0442";
+
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";
 pub const CANNOT_READ: &str = "E0902";

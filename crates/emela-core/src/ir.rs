@@ -52,6 +52,10 @@ pub struct Module {
     /// [`crate::mono`] for the errors the functions construct. An error not here is shown by its
     /// name (its type does not satisfy Show).
     pub error_display: FxHashMap<EnumId, ErrorDisplay>,
+    /// Whether the program is an HTTP service (`[lib.http-service]`): its entry is exposed through
+    /// `Std.Http.serve` instead of `main`. Set only for the normal build (`Roots::Exported`); the
+    /// backends write the host's server for it (`serve.mjs` on JS).
+    pub http_service: bool,
 }
 
 /// A trait, by its index in [`Module::trait_impls`].

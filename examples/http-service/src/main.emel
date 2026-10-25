@@ -1,0 +1,58 @@
+# An HTTP service. The host calls `app` once for each request (`emela run` starts a server on
+# 127.0.0.1:8080; Deno, Bun and Workers call the `fetch` of `main.mjs` themselves). `app` is an
+# ordinary fn, so the tests call it directly with requests built as values.
+
+import Std.Http
+import Std.Http.Request.{Request, Get, Post}
+import Std.Http.Response.{Response}
+import Std.Platform.{Platform}
+import Std.Console.{Console}
+
+error NotANumber(text: String) derive Show
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response fails NotANumber {
+  with Platform {
+    (use Console).print_line("#{request.method} #{Request.path(request)}")
+    route(request)
+  }
+}
+
+fn route(request: Request) -> Response fails NotANumber {
+  (request.method, Request.segments(request)) match {
+    (Get, ["hello", name]) -> Response.new(200, "hello, #{name}")
+    (Get, ["sum"])         -> Response.new(200, Int.to_string(sum(Request.query(request))))
+    (Post, ["echo"]) -> Response.new(200, request.body)
+      |> Response.add_header("content-type", "text/plain;charset=UTF-8")
+    _                      -> Response.new(404, "not found")
+  }
+}
+
+## The sum of the values of the query, each a number (`?a=1&b=2`). A value that is not a number
+## fails, which the service answers with 500.
+fn sum(pairs: List[(String, String)]) -> Int fails NotANumber {
+  List.fold(pairs, from: 0, f: fn(total, (_, value)) {
+    total + (Int.parse(value) escape { ParseError(input:) -> fail NotANumber(text: input) })
+  })
+}
+
+@test
+fn greets_by_the_path() {
+  res = app(Request.new(Get, "http://localhost/hello/%E6%9D%B1%E4%BA%AC"))
+  assert res == Response.new(200, "hello, 東京")
+}
+
+@test
+fn sums_the_query() {
+  assert app(Request.new(Get, "http://localhost/sum?a=1&b=20")).body == "21"
+  assert (app(Request.new(Get, "http://localhost/sum?a=x")).status escape {
+    NotANumber(text:) -> 0
+  })
+    == 0
+}
+
+@test
+fn echoes_the_body() {
+  res = app(Request(body: "hi", ..Request.new(Post, "http://localhost/echo")))
+  assert (res.status, res.body) == (200, "hi")
+}

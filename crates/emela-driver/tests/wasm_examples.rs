@@ -54,6 +54,14 @@ const SKIPPED: &[Skipped] = &[
         ],
         examples: &["http"],
     },
+    Skipped {
+        feature: "http-service",
+        reason: "HTTP services are not built for WASM yet (`Http.serve` needs `Fiber.attempt`)",
+        expected_failures: &[
+            "exported function `app` has a `wasm` export, which the WASI 0.3 component target does not support yet",
+        ],
+        examples: &["http-service"],
+    },
 ];
 
 fn root() -> PathBuf {
