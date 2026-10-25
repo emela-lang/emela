@@ -1659,7 +1659,8 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_wrap_i64();
     ins.drop();
     ins.end();
-    ins.br(1);
+    // Inside the `if`, depth 2 is the end of the outer block (0: the `if`, 1: the loop).
+    ins.br(2);
     ins.end();
     g(ins, CHAIN);
     ins.i32_eqz();
@@ -1671,7 +1672,7 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, 5);
     let strand = b.rt("fb_strand_end");
     ins.call(strand);
-    ins.br(1);
+    ins.br(2);
     ins.end();
     g(ins, CHAIN);
     ins.local_set(FR);
