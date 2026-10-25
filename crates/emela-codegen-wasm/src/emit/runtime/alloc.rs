@@ -26,7 +26,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
     match name {
         "alloc" => alloc(b, ins),
-        "heap_reserve" => heap_reserve(ins),
+        "heap_reserve" => heap_reserve(b, ins),
         "dup" => dup(ins),
         "drop" => drop_(ins),
         "tag" => tag(ins),
@@ -130,7 +130,13 @@ fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
 
 /// `heap_reserve(end)`: moves the bump pointer to `end`, growing the memory by whole pages when
 /// `end` is past it. Shared by `alloc` and `cabi_realloc`.
-fn heap_reserve(ins: &mut InstructionSink) {
+///
+/// A failed `memory.grow` returns `-1`. The program then ends abruptly: it writes a line to
+/// standard error and traps (`unreachable`), and `G_HEAP` keeps its old value, so no store is
+/// made past the end of the memory. An allocation failure is not a defect: it does not set
+/// `G_DEFECT`, does not run releases, and cannot be observed at `Fiber.attempt`. The message and
+/// the trap are implementation-defined.
+fn heap_reserve(b: &mut Builder, ins: &mut InstructionSink) {
     const BYTES: u32 = 1;
     ins.memory_size(0);
     ins.i32_const(PAGE as i32);
@@ -148,7 +154,15 @@ fn heap_reserve(ins: &mut InstructionSink) {
     ins.i32_const(PAGE as i32);
     ins.i32_div_u();
     ins.memory_grow(0);
-    ins.drop();
+    ins.i32_const(-1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    let message = b.string_literal(b"emela: out of memory\n");
+    ins.i32_const((message + HDR + 4) as i32);
+    ins.i32_const(21);
+    ins.call(rt(b, "write_stderr"));
+    ins.unreachable();
+    ins.end();
     ins.end();
     ins.local_get(0);
     ins.global_set(G_HEAP);
