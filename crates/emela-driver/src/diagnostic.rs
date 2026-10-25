@@ -1296,6 +1296,11 @@ impl Diagnostic {
                 Some(code::ENTRY_DOES_NOT_FIT),
                 format!("`{function}` does not fit `{adapter}`"),
             ),
+            TypeDiagnosticKind::EntryOutsideEntryModule => (
+                Severity::Error,
+                None,
+                "`@entry` is only allowed in the entry module".to_owned(),
+            ),
         };
         let mut out = Diagnostic::new(severity, message);
         if let Some(code) = code {
