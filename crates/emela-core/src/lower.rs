@@ -242,13 +242,26 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     }
     let entries: Vec<FnId> = match roots {
         Roots::Tests => mono.roots.clone(),
-        // main is exported, so it is one of the roots.
-        _ => cx
-            .entry_main()
-            .and_then(|main| mono_roots.iter().position(|&f| f == main))
-            .map(|i| mono.roots[i])
-            .into_iter()
-            .collect(),
+        // The host calls main, every explicit export for this target, and every fn exported
+        // through `@entry` (spec 12.7, 12.8). An export adapter is one of them too: its body is
+        // reachable from the export even though the adapter is not exposed by itself.
+        _ => {
+            let mut entries = Vec::new();
+            if let Some(main) = cx
+                .entry_main()
+                .and_then(|main| mono_roots.iter().position(|&f| f == main))
+            {
+                entries.push(mono.roots[main]);
+            }
+            for (id, f) in mono.module.functions.iter() {
+                if f.exports.iter().any(|e| e.target == target) {
+                    entries.push(id);
+                }
+            }
+            entries.sort_unstable();
+            entries.dedup();
+            entries
+        }
     };
     cx.check_target(&mono, &entries, target);
     if !cx.errors.is_empty() {
@@ -3423,7 +3436,8 @@ impl<'a> Lowerer<'a> {
                 Some(Res::Def(adapter)) => Some(adapter),
                 _ => None,
             };
-            let is_entry_adapter = is_entry_adapter_sig(self.types.sigs.get(def));
+            let is_entry_adapter =
+                !f.exports.is_empty() && is_entry_adapter_sig(self.types.sigs.get(def));
             work.push((def, exports, is_entry_adapter, adapter));
         }
         for (def, exports, is_entry_adapter, adapter) in work {

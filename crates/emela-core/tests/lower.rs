@@ -1100,3 +1100,56 @@ fn entry_names_a_nested_module_of_the_package() {
         .expect("the entry fn is lowered");
     assert_eq!(app.entry_adapter, Some(adapter));
 }
+
+/// A generic entry adapter (`serve[E]`) keeps its export bindings through lowering's
+/// monomorphisation, and a second monomorphisation (what a backend does) keeps the entry link.
+#[test]
+fn generic_entry_adapter_keeps_its_exports_and_entry() {
+    let m = try_lower_target(
+        &[
+            (
+                "main.emel",
+                "import Http\n\n@entry(Http.serve)\npub fn app(n: Int) -> Int { n + 1 }\n\nfn main() { () }\n",
+            ),
+            (
+                "http.emel",
+                "@export(js, \"default\", \"fetch\")\n@export(c, \"serve\")\npub fn serve[A](f: fn(A) -> Int fails {} use {}, n: Int) -> Int { n }\n",
+            ),
+        ],
+        Roots::Exported,
+        Some("js"),
+    )
+    .expect("the generic entry adapter is well formed");
+    let (serve_id, serve) = find_fn(&m, "Http.serve");
+    assert_eq!(serve.type_params, 0, "the root is instantiated");
+    assert_eq!(
+        serve
+            .exports
+            .iter()
+            .map(|e| (e.target.as_str(), e.interface.as_deref(), e.name.as_str()))
+            .collect::<Vec<_>>(),
+        [("js", Some("default"), "fetch"), ("c", None, "serve")]
+    );
+    let (_, app) = find_fn(&m, "app");
+    assert_eq!(app.entry_adapter, Some(serve_id));
+
+    // The second pass in a backend, from the roots it keeps.
+    let roots: Vec<_> = m
+        .functions
+        .iter()
+        .filter(|(_, f)| !f.exports.is_empty() || f.entry_adapter.is_some())
+        .map(|(id, _)| id)
+        .collect();
+    let (mono, _) = emela_core::monomorphize_from(&m, &roots);
+    let (serve_id, serve) = find_fn(&mono, "Http.serve");
+    assert_eq!(serve.exports.len(), 2, "{serve:?}");
+    let (_, app) = find_fn(&mono, "app");
+    assert_eq!(app.entry_adapter, Some(serve_id));
+}
+
+fn find_fn<'m>(m: &'m Module, name: &str) -> (emela_core::FnId, &'m emela_core::Function) {
+    m.functions
+        .iter()
+        .find(|(_, f)| f.name == name)
+        .unwrap_or_else(|| panic!("no `{name}`: {:?}", fn_names(m)))
+}
