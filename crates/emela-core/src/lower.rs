@@ -65,6 +65,14 @@ pub enum LowerError {
     /// the entry adapters of the bundled `Std` are exposed by the runtime. `span` is the position
     /// of the function name.
     UnsupportedWasmExport { name: String, span: Option<Span> },
+    /// A `@export(c, ...)` or an `@entry` whose adapter has a `c` export (spec 16.7.6). C export
+    /// emission is not implemented yet. `entry_adapter` is true when `name` is the adapter of an
+    /// `@entry` (the span is then the `@entry` annotation).
+    UnsupportedCExport {
+        name: String,
+        entry_adapter: bool,
+        span: Option<Span>,
+    },
 }
 
 /// Which fns lowering starts from.
@@ -160,10 +168,11 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     };
     cx.declare_enums();
     cx.define_ctors();
+    let entry_adapters = referenced_entry_adapters(hir);
     for (_, items) in hir.modules.iter() {
         for &def in &items.items {
             let is_root = match (roots, hir.item(def)) {
-                (Roots::Exported, Some(Item::Fn(_))) => cx.is_root(def),
+                (Roots::Exported, Some(Item::Fn(_))) => cx.is_root(def, &entry_adapters),
                 (Roots::All, Some(Item::Fn(f))) => f.body.is_some() || f.is_external,
                 (Roots::All, Some(Item::Const(_) | Item::Handler(_))) => true,
                 _ => false,
@@ -188,7 +197,11 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     }
     cx.set_export_metadata();
     if input.target == Some("c") {
-        cx.check_suspending_exports();
+        // C export emission is not implemented yet. Until it is, every C export is rejected
+        // instead of being silently dropped; E0441 is only for a future implementation.
+        if !cx.check_unsupported_c_exports() {
+            cx.check_suspending_exports();
+        }
     }
     if input.target == Some("wasm") {
         cx.check_unsupported_wasm_exports();
@@ -247,6 +260,12 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         // reachable from the export even though the adapter is not exposed by itself.
         _ => {
             let mut entries = Vec::new();
+            let referenced_adapters: FxHashSet<FnId> = mono
+                .module
+                .functions
+                .iter()
+                .filter_map(|(_, f)| f.entry_adapter)
+                .collect();
             if let Some(main) = cx
                 .entry_main()
                 .and_then(|main| mono_roots.iter().position(|&f| f == main))
@@ -254,6 +273,9 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
                 entries.push(mono.roots[main]);
             }
             for (id, f) in mono.module.functions.iter() {
+                if f.is_entry_adapter && !referenced_adapters.contains(&id) {
+                    continue;
+                }
                 if f.exports.iter().any(|e| e.target == target) {
                     entries.push(id);
                 }
@@ -3390,12 +3412,22 @@ impl<'a> Lowerer<'a> {
 
     /// Whether lowering starts from `def`: an implicitly exported fn of the entry (the old rule),
     /// an `@export` fn (which may be an entry adapter in any module), or an `@entry` fn
-    /// (spec 12.7, 12.8).
-    fn is_root(&self, def: DefId) -> bool {
+    /// (spec 12.7, 12.8). An entry adapter is a root only when an `@entry` names it (12.8: it is
+    /// not exposed by itself).
+    fn is_root(&self, def: DefId, entry_adapters: &FxHashSet<DefId>) -> bool {
         if self.is_exported(def) {
             return true;
         }
-        matches!(self.hir.item(def), Some(Item::Fn(f)) if !f.exports.is_empty() || f.entry.is_some())
+        let Some(Item::Fn(f)) = self.hir.item(def) else {
+            return false;
+        };
+        if !f.entries.is_empty() {
+            return true;
+        }
+        if f.exports.is_empty() {
+            return false;
+        }
+        !is_entry_adapter_sig(self.types.sigs.get(def)) || entry_adapters.contains(&def)
     }
 
     /// Records the exports of each `@export` fn and links `@entry(T)` to `T` (spec 12.7, 12.8).
@@ -3407,7 +3439,7 @@ impl<'a> Lowerer<'a> {
             let Some(Item::Fn(f)) = self.hir.item(def) else {
                 continue;
             };
-            if f.exports.is_empty() && f.entry.is_none() {
+            if f.exports.is_empty() && f.entries.is_empty() {
                 continue;
             }
             let bundled = match data.module {
@@ -3432,7 +3464,7 @@ impl<'a> Lowerer<'a> {
                     })
                 })
                 .collect();
-            let adapter = match f.entry.as_ref().map(|e| e.adapter) {
+            let adapter = match f.entries.first().map(|e| e.adapter) {
                 Some(Res::Def(adapter)) => Some(adapter),
                 _ => None,
             };
@@ -3478,6 +3510,51 @@ impl<'a> Lowerer<'a> {
                 }
             }
         }
+    }
+
+    /// Reports every use of a C export while the C backend has no export emission
+    /// ([`target.c.export`]). Returns whether any was found. A `@export(c, ...)` on an entry
+    /// adapter is not exposed by itself, so only its use by `@entry` is reported.
+    fn check_unsupported_c_exports(&mut self) -> bool {
+        let mut found: Vec<(String, bool, Option<Span>)> = Vec::new();
+        for (def, data) in self.hir.defs.iter() {
+            let Some(Item::Fn(f)) = self.hir.item(def) else {
+                continue;
+            };
+            let has_c = f.exports.iter().any(|e| e.target == "c");
+            let adapter = has_c && is_entry_adapter_sig(self.types.sigs.get(def));
+            if has_c && !adapter {
+                found.push((data.name.to_string(), false, data.span));
+            }
+            let Some(entry) = f.entries.first() else {
+                continue;
+            };
+            let Res::Def(adapter_def) = entry.adapter else {
+                continue;
+            };
+            if let Some(Item::Fn(a)) = self.hir.item(adapter_def)
+                && a.exports.iter().any(|e| e.target == "c")
+            {
+                found.push((
+                    self.hir.defs[adapter_def].name.to_string(),
+                    true,
+                    Some(entry.span),
+                ));
+            }
+        }
+        found.sort_by_key(|(_, _, span)| {
+            span.map(|s| (s.module.into_raw().into_u32(), s.range.start()))
+        });
+        found.dedup();
+        let found_any = !found.is_empty();
+        for (name, entry_adapter, span) in found {
+            self.errors.push(LowerError::UnsupportedCExport {
+                name,
+                entry_adapter,
+                span,
+            });
+        }
+        found_any
     }
 
     /// Reports a user-written `@export(wasm, ...)` (spec 16.8.3). Checked in lowering, where every
@@ -3635,6 +3712,21 @@ fn mentions(e: &Expr, l: Local) -> bool {
     let mut found = false;
     e.for_each_child(&mut |c| found = found || mentions(c, l));
     found
+}
+
+/// The entry adapters named by some `@entry` (spec 12.8). Only these are lowering roots; an
+/// adapter that no `@entry` uses is not exposed by itself.
+fn referenced_entry_adapters(hir: &Program) -> FxHashSet<DefId> {
+    hir.defs
+        .iter()
+        .filter_map(|(def, _)| match hir.item(def) {
+            Some(Item::Fn(f)) => f.entries.first().and_then(|entry| match entry.adapter {
+                Res::Def(adapter) => Some(adapter),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Whether the first parameter of a signature has a function type (spec 12.8).

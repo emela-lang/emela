@@ -206,7 +206,10 @@ fn entry_args(p: &mut Parser<'_>) {
     p.bump_kind(L_PAREN);
     while p.eat(NEWLINE) {}
     if p.at(R_PAREN) {
-        p.error(DiagnosticCode::ExpectedToken, "expected lower name");
+        p.error(
+            DiagnosticCode::ExpectedToken,
+            "expected lower name or type name",
+        );
     } else {
         let arg = p.start();
         entry_argument(p);
@@ -267,7 +270,7 @@ fn entry_argument(p: &mut Parser<'_>) {
         } else {
             p.err_recover(
                 DiagnosticCode::ExpectedToken,
-                "expected type name",
+                "expected type name or lower name",
                 &[COMMA, R_PAREN, NEWLINE],
             );
             return;
@@ -285,7 +288,7 @@ fn entry_argument(p: &mut Parser<'_>) {
         }
     }
     if !ends_in_lower && !p.at(DOT) {
-        p.error(DiagnosticCode::ExpectedToken, "expected lower name");
+        p.error(DiagnosticCode::ExpectedToken, "expected `.`");
     }
 }
 

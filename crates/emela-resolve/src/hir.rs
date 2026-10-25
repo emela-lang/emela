@@ -532,8 +532,9 @@ pub struct FnItem {
     pub externals: Vec<ExternalAttr>,
     /// The arguments of each `@export(...)`, in source order (spec 12.7).
     pub exports: Vec<ExportAttr>,
-    /// The entry adapter named by `@entry(...)` (spec 12.8).
-    pub entry: Option<EntryAttr>,
+    /// The entry adapters named by `@entry(...)` (spec 12.8). More than one is an error; the
+    /// first is used for the rest of the checks.
+    pub entries: Vec<EntryAttr>,
     /// A built-in function of the bundled core sources.
     pub is_intrinsic: bool,
 }

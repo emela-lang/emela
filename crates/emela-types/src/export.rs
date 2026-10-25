@@ -38,6 +38,7 @@ pub(crate) fn check(
     diags: &mut Vec<Diagnostic>,
 ) {
     let mut exports: Vec<(ExportKey, Span)> = Vec::new();
+    let mut start_needed = false;
     for (def, data) in program.defs.iter() {
         let Some(Item::Fn(item)) = program.item(def) else {
             continue;
@@ -62,6 +63,9 @@ pub(crate) fn check(
                 }
                 for export in &item.exports {
                     if let Some(key) = key_of(export) {
+                        if key.target == "js" {
+                            start_needed |= may_suspend(program, sig);
+                        }
                         exports.push((key, export.span));
                     }
                 }
@@ -69,16 +73,25 @@ pub(crate) fn check(
             };
             diags.extend(boundary);
         }
-        if let Some(entry) = &item.entry
-            && let Some(entry_module) = options.entry
-            && data.module != DefModule::Source(entry_module)
-        {
+        // Only the first `@entry` is used; the rest are an error (spec 12.8 has one entry per fn
+        // and no code for the duplicate, so it is reported without one).
+        for extra in item.entries.iter().skip(1) {
             diags.push(Diagnostic {
-                span: Some(entry.span),
-                kind: DiagnosticKind::EntryOutsideEntryModule,
+                span: Some(extra.span),
+                kind: DiagnosticKind::MultipleEntryAnnotations,
             });
         }
-        if let Some(entry) = &item.entry
+        for entry in &item.entries {
+            if let Some(entry_module) = options.entry
+                && data.module != DefModule::Source(entry_module)
+            {
+                diags.push(Diagnostic {
+                    span: Some(entry.span),
+                    kind: DiagnosticKind::EntryOutsideEntryModule,
+                });
+            }
+        }
+        if let Some(entry) = item.entries.first()
             && let Res::Def(adapter_def) = entry.adapter
         {
             let Some(adapter_sig) = sigs.get(adapter_def) else {
@@ -107,6 +120,10 @@ pub(crate) fn check(
             if let Some(Item::Fn(adapter_item)) = program.item(adapter_def) {
                 for export in &adapter_item.exports {
                     if let Some(key) = key_of(export) {
+                        if key.target == "js" {
+                            start_needed |= may_suspend(program, adapter_sig);
+                            start_needed |= may_suspend(program, sig);
+                        }
                         exports.push((key, entry.span));
                     }
                 }
@@ -115,11 +132,18 @@ pub(crate) fn check(
     }
 
     // In source order, so that the second occurrence is reported. The launcher of `main.mjs`
-    // always exports `main` and uses `$start`; the default export object is separate from a named
-    // export called `default` (spec 16.6.2). A user export with one of those names would make an
-    // invalid module or replace the launcher's export.
+    // exports `main` only when the entry has it, uses `$start` only when an exported fn may
+    // suspend, and keeps the default export separate from a named export called `default`
+    // (spec 16.6.2).
     exports.sort_by_key(|(_, span)| (span.module.into_raw().into_u32(), span.range.start()));
-    let mut seen: Vec<ExportKey> = ["main", "$start", "default"]
+    let mut reserved = vec!["default"];
+    if options.main.is_some() {
+        reserved.push("main");
+    }
+    if start_needed {
+        reserved.push("$start");
+    }
+    let mut seen: Vec<ExportKey> = reserved
         .into_iter()
         .map(|name| ExportKey {
             target: "js".into(),
@@ -211,6 +235,27 @@ fn fn_ty(sig: &Signature) -> Option<&crate::ty::FnTy> {
     match &sig.scheme.ty {
         Ty::Fn(f) => Some(f),
         _ => None,
+    }
+}
+
+/// Whether the R of a signature contains `Async`, the only effect an `@export` fn may have
+/// (spec 12.7). An open set counts as maybe suspending, as JavaScript then needs `$start`.
+fn may_suspend(program: &Program, sig: &Signature) -> bool {
+    let Some(async_) = program.prelude_def("Async") else {
+        return true;
+    };
+    match fn_ty(sig) {
+        Some(f) => {
+            f.uses
+                .elems()
+                .iter()
+                .any(|e| matches!(e, RowElem::Tag(t) if t.def == async_))
+                || f.uses
+                    .elems()
+                    .iter()
+                    .any(|e| matches!(e, RowElem::Bound(_) | RowElem::Var(_)))
+        }
+        None => false,
     }
 }
 

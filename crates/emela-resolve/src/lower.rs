@@ -287,7 +287,7 @@ impl Lower<'_, '_> {
     fn fn_item(&mut self, def: DefId, f: &ast::FnDecl) -> FnItem {
         let type_params = self.type_params(def, f.type_params());
         let exports = self.export_attrs(f);
-        let entry = self.entry_attr(f);
+        let entries = self.entry_attrs(f);
         self.push_scope();
         let params = self.params(f.param_list(), LocalKind::Param);
         let sig = self.signature(f.syntax(), type_params, params, f.is_suspend());
@@ -300,7 +300,7 @@ impl Lower<'_, '_> {
             is_external: f.has_annotation("external"),
             externals: external_attrs(f),
             exports,
-            entry,
+            entries,
             is_intrinsic: f.has_annotation("intrinsic"),
         }
     }
@@ -351,18 +351,34 @@ impl Lower<'_, '_> {
         attrs
     }
 
-    /// The `@entry(...)` of a top-level fn (spec 12.8). The argument is a bare name in the same
-    /// module or a qualified name (`Http.serve`, `Cloudflare.Worker.scheduled`).
-    fn entry_attr(&mut self, f: &ast::FnDecl) -> Option<EntryAttr> {
-        let annotation = f
+    /// The `@entry(...)` annotations of a top-level fn (spec 12.8). The argument is a bare name
+    /// in the same module or a qualified name (`Http.serve`, `Cloudflare.Worker.scheduled`).
+    fn entry_attrs(&mut self, f: &ast::FnDecl) -> Vec<EntryAttr> {
+        let annotations: Vec<ast::Annotation> = f
             .annotations()
-            .find(|a| a.name().is_some_and(|n| n.text() == "entry"))?;
+            .filter(|a| a.name().is_some_and(|n| n.text() == "entry"))
+            .collect();
+        annotations
+            .iter()
+            .map(|annotation| self.entry_attr(annotation))
+            .collect()
+    }
+
+    /// One `@entry(...)`. Malformed shapes are syntax errors (E0110); the other checks skip an
+    /// `EntryAttr` whose adapter is `Res::Err`, so they are not reported again as E0439.
+    fn entry_attr(&mut self, annotation: &ast::Annotation) -> EntryAttr {
         let span = self.span(annotation.syntax().text_range());
+        let malformed = || EntryAttr {
+            path: SmolStr::default(),
+            adapter: Res::Err,
+            span,
+        };
         let mut args = annotation.args();
-        let arg = args.next()?;
-        // Malformed shapes are syntax errors (E0110); do not also report them as E0439.
+        let Some(arg) = args.next() else {
+            return malformed();
+        };
         if args.next().is_some() {
-            return None;
+            return malformed();
         }
         let tokens: Vec<SyntaxToken> = arg
             .descendants_with_tokens()
@@ -374,7 +390,7 @@ impl Lower<'_, '_> {
             && tokens.last().is_some_and(|t| t.kind() == LOWER_NAME);
         let bare = matches!(tokens.as_slice(), [only] if only.kind() == LOWER_NAME);
         if !(qualified || bare) {
-            return None;
+            return malformed();
         }
         let path: SmolStr = tokens
             .iter()
@@ -400,25 +416,28 @@ impl Lower<'_, '_> {
                     );
                     if let Some(m) = self.r.modules.lookup_from(self.module, &module) {
                         let left = DotLeft::Module(ModRef::Source(m));
-                        let adapter =
-                            match self.member_of_left(&left, Ns::Value, &name, last.text_range()) {
+                        return EntryAttr {
+                            path,
+                            adapter: match self.member_of_left(
+                                &left,
+                                Ns::Value,
+                                &name,
+                                last.text_range(),
+                            ) {
                                 Some(def) => Res::Def(def),
                                 None => Res::Err,
-                            };
-                        return Some(EntryAttr {
-                            path,
-                            adapter,
+                            },
                             span,
-                        });
+                        };
                     }
                 }
                 let prefix = &tokens[..tokens.len() - 1];
                 let Some(left) = self.resolve_prefix(prefix) else {
-                    return Some(EntryAttr {
+                    return EntryAttr {
                         path,
                         adapter: Res::Err,
                         span,
-                    });
+                    };
                 };
                 match self.member_of_left(&left, Ns::Value, &name, last.text_range()) {
                     Some(def) => Res::Def(def),
@@ -427,11 +446,11 @@ impl Lower<'_, '_> {
             }
             _ => Res::Err,
         };
-        Some(EntryAttr {
+        EntryAttr {
             path,
             adapter,
             span,
-        })
+        }
     }
 
     /// `-> T fails E use R`. `node` is a FN_DECL or OP_SIG.

@@ -78,14 +78,24 @@ pub fn monomorphize(m: &Module) -> Module {
     monomorphize_traced(m, &exported(m)).module
 }
 
-/// The roots of a normal build: the implicitly exported fns (`pub` and `main` of the entry), and
-/// every fn with an explicit `@export` or `@entry` (spec 12.7, 12.8). An explicit export is a root
-/// even when it is not `pub` or lives in a dependency; an entry adapter is a root because the fn
-/// of its `@entry` calls it. Backends use this to keep them after monomorphisation.
+/// The roots of a normal build: the implicitly exported fns (`pub` and `main` of the entry), every
+/// fn with an explicit `@export` or `@entry` (spec 12.7, 12.8), and the entry adapters some
+/// `@entry` names. An explicit export is a root even when it is not `pub` or lives in a
+/// dependency; an unused entry adapter is not exposed by itself and is not a root. Backends use
+/// this to keep them after monomorphisation.
 pub(crate) fn exported(m: &Module) -> Vec<FnId> {
+    let referenced: FxHashSet<FnId> = m
+        .functions
+        .iter()
+        .filter_map(|(_, f)| f.entry_adapter)
+        .collect();
     m.functions
         .iter()
-        .filter(|(_, f)| f.exported || !f.exports.is_empty() || f.entry_adapter.is_some())
+        .filter(|(id, f)| {
+            f.exported
+                || f.entry_adapter.is_some()
+                || (!f.exports.is_empty() && (!f.is_entry_adapter || referenced.contains(id)))
+        })
         .map(|(id, _)| id)
         .collect()
 }

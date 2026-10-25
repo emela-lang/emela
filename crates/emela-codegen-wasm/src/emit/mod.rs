@@ -55,16 +55,6 @@ pub(crate) enum Run {
     Tests(Vec<(String, FnId)>),
 }
 
-impl Run {
-    /// The functions the output calls first.
-    pub(crate) fn roots(&self) -> Vec<FnId> {
-        match self {
-            Run::Main(main) => main.iter().copied().collect(),
-            Run::Tests(tests) => tests.iter().map(|&(_, id)| id).collect(),
-        }
-    }
-}
-
 /// The WASI 0.3 imports shared by the two output interfaces.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct OutputImports {

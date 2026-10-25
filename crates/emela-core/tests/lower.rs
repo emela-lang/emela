@@ -1046,10 +1046,10 @@ fn explicit_exports_are_monomorphisation_roots() {
     );
 }
 
-/// A non-`pub` `@export(c, ...)` is a root on the C target too.
+/// C export emission is not implemented, so a `@export(c, ...)` is rejected rather than dropped.
 #[test]
-fn c_exports_are_monomorphisation_roots() {
-    let m = try_lower_target(
+fn c_exports_are_rejected_until_the_backend_supports_them() {
+    let errors = try_lower_target(
         &[(
             "main.emel",
             "@export(c, \"TIM2_IRQHandler\")\nfn on_tick() -> () { () }\n\nfn main() { () }\n",
@@ -1057,19 +1057,12 @@ fn c_exports_are_monomorphisation_roots() {
         Roots::Exported,
         Some("c"),
     )
-    .expect("the export is well formed");
-    let (_, on_tick) = m
-        .functions
-        .iter()
-        .find(|(_, f)| f.name == "on_tick")
-        .expect("the non-pub export is kept");
-    assert_eq!(
-        on_tick
-            .exports
+    .expect_err("the C export is not supported yet");
+    assert!(
+        errors
             .iter()
-            .map(|e| (e.target.as_str(), e.name.as_str()))
-            .collect::<Vec<_>>(),
-        [("c", "TIM2_IRQHandler")]
+            .any(|e| e.contains("unsupported c export on_tick")),
+        "{errors:?}"
     );
 }
 

@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/entry_attrs.emel
 ---
-ROOT@0..388
+ROOT@0..427
   COMMENT@0..45 "# The shape of the argument of @entry (12.8)."
   NEWLINE@45..46 "\n"
   FN_DECL@46..79
@@ -258,11 +258,42 @@ ROOT@0..388
       WHITESPACE@385..386 " "
       R_BRACE@386..387 "}"
   NEWLINE@387..388 "\n"
+  NEWLINE@388..389 "\n"
+  FN_DECL@389..426
+    ANNOTATION@389..403
+      AT@389..390 "@"
+      LOWER_NAME@390..395 "entry"
+      ANNOT_ARG_LIST@395..403
+        L_PAREN@395..396 "("
+        ANNOT_ARG@396..402
+          TYPE_NAME@396..400 "Http"
+          DOT@400..401 "."
+          ERROR@401..402
+            INT@401..402 "1"
+        R_PAREN@402..403 ")"
+    NEWLINE@403..404 "\n"
+    FN_KW@404..406 "fn"
+    WHITESPACE@406..407 " "
+    LOWER_NAME@407..417 "dot_number"
+    PARAM_LIST@417..419
+      L_PAREN@417..418 "("
+      R_PAREN@418..419 ")"
+    WHITESPACE@419..420 " "
+    BLOCK_EXPR@420..426
+      L_BRACE@420..421 "{"
+      WHITESPACE@421..422 " "
+      UNIT_EXPR@422..424
+        L_PAREN@422..423 "("
+        R_PAREN@423..424 ")"
+      WHITESPACE@424..425 " "
+      R_BRACE@425..426 "}"
+  NEWLINE@426..427 "\n"
 error[E0110]@87..88: expected `(`
-error[E0110]@127..128: expected lower name
+error[E0110]@127..128: expected lower name or type name
 error[E0110]@155..156: expected lower name or type name
 error[E0110]@187..188: expected lower name or type name
-error[E0110]@227..228: expected lower name
+error[E0110]@227..228: expected `.`
 error[E0110]@272..277: expected `)`
 error[E0110]@315..316: expected `)`
-error[E0110]@364..365: expected lower name
+error[E0110]@364..365: expected `.`
+error[E0110]@401..402: expected type name or lower name

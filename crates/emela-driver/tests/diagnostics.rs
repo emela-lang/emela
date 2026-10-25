@@ -1130,7 +1130,8 @@ pub fn duplicate() -> Int { 0 }
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// An exported fn that may suspend is a compile error on the `c` target (E0441, 16.7.6).
+/// C export emission is not implemented, so an `@export(c, ...)` is rejected instead of being
+/// silently dropped ([target.c.export]).
 #[test]
 fn exported_suspending_fn_is_rejected_on_c() {
     let mut frontend = Lower::default().with_target(Target::C);
@@ -1160,8 +1161,18 @@ fn main() { () }
         "home/main.emel",
         &mut frontend,
     );
-    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
-    assert_eq!(codes, ["E0441"], "{:#?}", analysis.diagnostics);
+    assert!(
+        analysis.diagnostics.iter().all(|d| d.code.is_none()),
+        "{:#?}",
+        analysis.diagnostics
+    );
+    assert!(
+        analysis.diagnostics[0].message.contains(
+            "exported function `now` has a `c` export, which target `c` does not support yet"
+        ),
+        "{:#?}",
+        analysis.diagnostics
+    );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
@@ -1336,8 +1347,18 @@ fn main() { () }
         "home/main.emel",
         &mut Lower::default().with_target(Target::C),
     );
-    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
-    assert_eq!(codes, ["E0441"], "{:#?}", analysis.diagnostics);
+    assert!(
+        analysis.diagnostics.iter().all(|d| d.code.is_none()),
+        "{:#?}",
+        analysis.diagnostics
+    );
+    assert!(
+        analysis.diagnostics[0]
+            .message
+            .contains("entry adapter `serve` has a `c` export"),
+        "{:#?}",
+        analysis.diagnostics
+    );
 }
 
 /// `@export` and `@entry` are reaches of the entry for the target check (E0412), even without a
@@ -1422,13 +1443,22 @@ fn reserved_js_host_names_are_diagnosed() {
         &mut Typecheck::default(),
     );
     let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
-    assert_eq!(
-        codes,
-        ["E0438", "E0438", "E0438"],
+    // `$start` is not exported when nothing may suspend.
+    assert_eq!(codes, ["E0438", "E0438"], "{:#?}", analysis.diagnostics);
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+
+    // Without `main` and without a suspending export, both launcher names are free.
+    let src = "@export(js, \"main\")\nfn a() -> Int { 1 }\n\n@export(js, \"$start\")\nfn b() -> Int { 1 }\n";
+    let analysis = check_files(
+        &[("home/main.emel", src)],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
         "{:#?}",
         analysis.diagnostics
     );
-    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
 /// The R of an `@export` fn must be empty except Async (E0402, spec 12.7); the message names the
@@ -1451,4 +1481,88 @@ fn export_effect_diagnostic() {
         analysis.diagnostics
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// Only one `@entry` is allowed on a fn; a silently ignored second annotation would drop an
+/// export (spec 12.8). No diagnostic code is assigned, so the error is reported without one.
+#[test]
+fn multiple_entry_annotations_are_rejected() {
+    let src = "@export(js, \"default\", \"a\")\npub fn serve(f: fn(Int) -> Int fails {} use {}) -> Int { f(1) }\n\n@export(js, \"default\", \"b\")\npub fn serve2(f: fn(Int) -> Int fails {} use {}) -> Int { f(2) }\n\n@entry(serve)\n@entry(serve2)\npub fn app(n: Int) -> Int { n }\n";
+    let analysis = check_files(
+        &[("home/main.emel", src)],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    let found: Vec<_> = analysis
+        .diagnostics
+        .iter()
+        .filter(|d| d.message == "only one `@entry` is allowed on a fn")
+        .collect();
+    assert_eq!(found.len(), 1, "{:#?}", analysis.diagnostics);
+    assert_eq!(found[0].code, None);
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// C export emission is not implemented: both a direct `@export(c)` and a `c` entry adapter are
+/// rejected with the "not supported yet" shape ([target.c.export]).
+#[test]
+fn c_exports_are_not_supported_yet() {
+    let direct = "@export(c, \"tick\")\nfn tick() -> () { () }\n\nfn main() { () }\n";
+    let analysis = check_files(
+        &[("home/main.emel", direct)],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::C),
+    );
+    assert_eq!(analysis.diagnostics.len(), 1, "{:#?}", analysis.diagnostics);
+    assert_eq!(analysis.diagnostics[0].code, None);
+    assert!(
+        analysis.diagnostics[0]
+            .message
+            .contains("exported function `tick` has a `c` export"),
+        "{:#?}",
+        analysis.diagnostics
+    );
+
+    let entry = "@export(c, \"now\")\npub fn serve(f: fn() -> Int fails {} use {}) -> Int { f() }\n\n@entry(serve)\npub fn app() -> Int { 1 }\n\nfn main() { () }\n";
+    let analysis = check_files(
+        &[("home/main.emel", entry)],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::C),
+    );
+    assert_eq!(analysis.diagnostics.len(), 1, "{:#?}", analysis.diagnostics);
+    assert_eq!(analysis.diagnostics[0].code, None);
+    assert!(
+        analysis.diagnostics[0]
+            .message
+            .contains("entry adapter `serve` has a `c` export"),
+        "{:#?}",
+        analysis.diagnostics
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// An entry adapter that no `@entry` names is not exposed by itself, so it is not a reach for the
+/// target check (E0412); once an `@entry` uses it, it is (spec 12.8).
+#[test]
+fn unused_entry_adapters_are_not_target_roots() {
+    let adapter = "@external(wasm, \"env\", \"now\")\nfn wasm_now() -> Int use {}\n\n@export(js, \"default\", \"serve\")\npub fn serve(f: fn(Int) -> Int fails {} use {}) -> Int { wasm_now() + f(1) }\n\nfn main() { () }\n";
+    let analysis = check_files(
+        &[("home/main.emel", adapter)],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::Js),
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:#?}",
+        analysis.diagnostics
+    );
+
+    let used = format!("{adapter}\n@entry(serve)\npub fn app(n: Int) -> Int {{ n }}\n");
+    let analysis = check_files(
+        &[("home/main.emel", &used)],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::Js),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(codes, ["E0412"], "{:#?}", analysis.diagnostics);
 }

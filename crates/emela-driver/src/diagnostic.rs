@@ -457,6 +457,22 @@ impl Diagnostic {
                 )),
                 span,
             ),
+            emela_core::LowerError::UnsupportedCExport {
+                name,
+                entry_adapter,
+                span,
+            } => (
+                Diagnostic::error(if *entry_adapter {
+                    format!(
+                        "entry adapter `{name}` has a `c` export, which target `c` does not support yet"
+                    )
+                } else {
+                    format!(
+                        "exported function `{name}` has a `c` export, which target `c` does not support yet"
+                    )
+                }),
+                span,
+            ),
         };
         match span.and_then(|s| files.get(s.module).map(|&file| Span::new(file, s.range))) {
             Some(span) => diagnostic.with_span(span),
@@ -1300,6 +1316,11 @@ impl Diagnostic {
                 Severity::Error,
                 None,
                 "`@entry` is only allowed in the entry module".to_owned(),
+            ),
+            TypeDiagnosticKind::MultipleEntryAnnotations => (
+                Severity::Error,
+                None,
+                "only one `@entry` is allowed on a fn".to_owned(),
             ),
         };
         let mut out = Diagnostic::new(severity, message);
