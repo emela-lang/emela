@@ -4366,7 +4366,9 @@ fn root_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let idle = b.rt("fb_idle");
     ins.call(idle);
     ins.if_(BlockType::Empty);
-    ins.br(0);
+    // Inside the `if`, depth 1 is the loop: a queued wake goes back to the drain, and only an
+    // empty event loop falls through to the interruption of the run.
+    ins.br(1);
     ins.end();
     let root_interrupt = b.rt("fb_root_interrupt");
     ins.call(root_interrupt);
