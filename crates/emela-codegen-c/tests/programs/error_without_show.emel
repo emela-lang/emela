@@ -1,6 +1,6 @@
 # An error that reaches main and whose type does not satisfy Show prints only its name (spec
-# 14.3). Both an error with no fields and one with a function field are covered, and an escape
-# keeps the value usable.
+# 14.3). Only the field-less `Nope` reaches main, so only its name is pinned here; the error with
+# a function field is caught by the escape below, and the value stays usable.
 
 error Nope
 error Retry(after: fn() -> Int)

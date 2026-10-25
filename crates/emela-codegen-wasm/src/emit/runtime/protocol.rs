@@ -46,7 +46,10 @@ const TEST_TAIL: &[u8] = b"}\n";
 const TEST_DONE_LINE: &[u8] = b"\x1eemela-test {\"event\":\"done\"}\n";
 
 /// `show_failure(e)`: the message of an error value, calling the `show` function of its descriptor
-/// (spec 10.6). Returns a null reference when there is none (or a defect happened while showing).
+/// (spec 10.6). An error whose type does not satisfy Show is shown by its name (spec 14.3):
+/// `from_core` gives every constructed error enum a `name$E` show function (`Derive::ErrorName`),
+/// which is the function in its descriptor, so the descriptor always has one. Returns a null
+/// reference only when `e` is null or showing raises a defect.
 fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     const D: u32 = 1;
     const SHOW: u32 = 2;
@@ -62,15 +65,7 @@ fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_set(D);
     ins.local_get(D);
     ins.i32_load(mem(DESC_SHOW, 4));
-    ins.local_tee(SHOW);
-    ins.i32_const(-1);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    ins.local_get(0);
-    ins.call(rt(b, "drop"));
-    ins.i32_const(0);
-    ins.return_();
-    ins.end();
+    ins.local_set(SHOW);
     let ty = b.call_ty(&[Repr::Ref], Repr::Ref);
     ins.local_get(0);
     ins.local_get(SHOW);
