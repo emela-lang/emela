@@ -4643,6 +4643,11 @@ fn root_begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
         |p: &Plan| p.qtail,
         |p: &Plan| p.lhead,
         |p: &Plan| p.ltail,
+        |p: &Plan| p.host_head,
+        |p: &Plan| p.host_tail,
+        |p: &Plan| p.test_head,
+        |p: &Plan| p.test_tail,
+        |p: &Plan| p.test_seq,
         |p: &Plan| p.run_mode,
         |p: &Plan| p.run_word,
         |p: &Plan| p.live_waits,
@@ -4873,13 +4878,10 @@ fn finish_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.br_if(1);
     ldl(ins, W, W_NEXT);
     ins.local_set(NEXT);
-    st_const(ins, W, W_PREV, 0);
-    st_const(ins, W, W_NEXT, 0);
-    ldl(ins, W, W_FLAGS);
-    c(ins, -1 - WF_ROOT);
-    ins.i32_and();
-    ins.local_set(F);
-    stl(ins, W, W_FLAGS, F);
+    // Take it out of every list it is in (the run's, its target's, the host or TestClock
+    // sleepers'): the heads and tails must not keep pointing at a released wait.
+    g(ins, W);
+    call(b, ins, "fb_unlink_wait");
     dropv(b, ins, W);
     g(ins, NEXT);
     ins.local_set(W);
