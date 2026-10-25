@@ -29,7 +29,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-/// Writes the out-of-memory line into static data before any body is emitted.
+/// Writes the out-of-memory line into static data before any runtime body is emitted.
 pub(super) fn setup(b: &mut Builder) {
     let off = b.alloc_static(OOM_MESSAGE.len() as u32);
     let at = off as usize;
@@ -147,9 +147,9 @@ fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
 ///
 /// A failed `memory.grow` returns `-1`. The program then ends abruptly: it writes a line to
 /// standard error and traps (`unreachable`), and `G_HEAP` keeps its old value, so no store is
-/// made past the end of the memory. An allocation failure is not a defect: it does not set
-/// `G_DEFECT`, does not run releases, and cannot be observed at `Fiber.attempt`. The message and
-/// the trap are implementation-defined.
+/// made past the end of the memory. In this backend an allocation failure is not a defect: it
+/// does not set `G_DEFECT`, does not run releases, and cannot be observed at `Fiber.attempt`. The
+/// classification, the message and the trap are implementation-defined.
 fn heap_reserve(b: &mut Builder, ins: &mut InstructionSink) {
     const BYTES: u32 = 1;
     ins.memory_size(0);
