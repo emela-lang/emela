@@ -2,6 +2,12 @@
 
 use super::*;
 
+/// The line written to standard error before a failed heap reservation traps. It is best effort:
+/// the specification does not require an allocation failure to write anything.
+const OOM_MESSAGE: &[u8] = b"emela: out of memory\n";
+/// Where [`setup`] records the offset of [`OOM_MESSAGE`] in `Builder::rt_data`.
+const OOM_MESSAGE_KEY: &str = "alloc.oom_message";
+
 pub(super) const FUNCS: &[Sig] = &[
     ("alloc", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("heap_reserve", &[ValType::I32], &[]),
@@ -21,6 +27,14 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "ev_lookup" => i32s(3),    // count, i, e
         _ => Vec::new(),
     }
+}
+
+/// Writes the out-of-memory line into static data before any body is emitted.
+pub(super) fn setup(b: &mut Builder) {
+    let off = b.alloc_static(OOM_MESSAGE.len() as u32);
+    let at = off as usize;
+    b.data[at..at + OOM_MESSAGE.len()].copy_from_slice(OOM_MESSAGE);
+    b.rt_data.insert(OOM_MESSAGE_KEY, off);
 }
 
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
@@ -157,9 +171,12 @@ fn heap_reserve(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(-1);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
-    let message = b.string_literal(b"emela: out of memory\n");
-    ins.i32_const((message + HDR + 4) as i32);
-    ins.i32_const(21);
+    let message = *b
+        .rt_data
+        .get(OOM_MESSAGE_KEY)
+        .expect("alloc::setup writes the out-of-memory line");
+    ins.i32_const(message as i32);
+    ins.i32_const(OOM_MESSAGE.len() as i32);
     ins.call(rt(b, "write_stderr"));
     ins.unreachable();
     ins.end();
