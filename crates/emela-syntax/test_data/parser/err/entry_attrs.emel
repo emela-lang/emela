@@ -1,0 +1,25 @@
+# The shape of the argument of @entry (12.8).
+@entry(Http.serve)
+fn ok() { () }
+
+@entry
+fn no_args_annotation() { () }
+
+@entry()
+fn empty() { () }
+
+@entry("x")
+fn string() { () }
+
+@entry(1)
+fn number() { () }
+
+@entry(Http.Serve)
+fn wrong_case() { () }
+
+@entry(Http.serve, extra)
+fn extra() { () }
+
+@entry(Http.serve)
+@entry(Cloudflare.Worker.scheduled)
+fn twice() { () }

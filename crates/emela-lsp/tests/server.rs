@@ -2832,17 +2832,27 @@ fn old_forms_have_rewriting_quickfixes() {
     client.shutdown();
 }
 
-/// `@export` and `@entry` parse and type-check, and formatting keeps the qualified `@entry` path
+/// `@export` and `@entry` parse and type-check, and formatting keeps a qualified `@entry` path
 /// (spec 12.7, 12.8).
 #[test]
 fn export_and_entry_annotations() {
-    let src = "@export(js, \"default\", \"serve\")\npub fn serve(app:fn(Int)->Int fails{}use{})->Int{app(1)}\n\n@export(js, \"add\")\npub fn add(a: Int, b: Int) -> Int { a + b }\n\n@entry(serve)\npub fn app(n: Int) -> Int { n }\n\nfn main() { () }\n\nconst BAD: Int = \"x\"\n";
-    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let main = "import Http\n\n@export(js, \"add\")\npub fn add(a:Int,b:Int)->Int{a+b}\n\n@entry( Http . serve )\npub fn app(n:Int)->Int{n}\n\nfn main() { () }\n\nconst BAD: Int = \"x\"\n";
+    let http = "@export(js, \"default\", \"serve\")\npub fn serve(app: fn(Int) -> Int fails {} use {}) -> Int { app(1) }\n";
+    let files = [
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", main),
+        ("/app/src/http.emel", http),
+    ];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     // The deliberate error makes the server publish; none of the export diagnostics appear.
     let params = client.diagnostics();
     assert_eq!(codes(&params), ["E0301"]);
     let edits = client.format("/app/src/main.emel").unwrap();
-    assert!(edits.iter().any(|e| e.new_text.contains("@entry(serve)")));
+    assert!(
+        edits
+            .iter()
+            .any(|e| e.new_text.contains("@entry(Http.serve)")),
+        "{edits:#?}"
+    );
     client.shutdown();
 }

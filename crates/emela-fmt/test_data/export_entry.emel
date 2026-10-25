@@ -11,3 +11,9 @@ pub fn serve(app: fn(Int) -> Int) -> Int { app(1) }
 
 @entry(serve)
 pub fn app(n: Int) -> Int { n }
+
+@entry(Http.serve)
+pub fn fetch(n: Int) -> Int { n }
+
+@entry(Cloudflare.Worker.scheduled)
+pub fn scheduled() { () }

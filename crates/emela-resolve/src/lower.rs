@@ -358,18 +358,24 @@ impl Lower<'_, '_> {
             .annotations()
             .find(|a| a.name().is_some_and(|n| n.text() == "entry"))?;
         let span = self.span(annotation.syntax().text_range());
-        let Some(arg) = annotation.args().next() else {
-            return Some(EntryAttr {
-                path: SmolStr::default(),
-                adapter: Res::Err,
-                span,
-            });
-        };
+        let mut args = annotation.args();
+        let arg = args.next()?;
+        // Malformed shapes are syntax errors (E0110); do not also report them as E0439.
+        if args.next().is_some() {
+            return None;
+        }
         let tokens: Vec<SyntaxToken> = arg
             .descendants_with_tokens()
             .filter_map(|e| e.into_token())
             .filter(|t| matches!(t.kind(), TYPE_NAME | LOWER_NAME))
             .collect();
+        let qualified = tokens.len() >= 2
+            && tokens.first().is_some_and(|t| t.kind() == TYPE_NAME)
+            && tokens.last().is_some_and(|t| t.kind() == LOWER_NAME);
+        let bare = matches!(tokens.as_slice(), [only] if only.kind() == LOWER_NAME);
+        if !(qualified || bare) {
+            return None;
+        }
         let path: SmolStr = tokens
             .iter()
             .map(|t| t.text())
