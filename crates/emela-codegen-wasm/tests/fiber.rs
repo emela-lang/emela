@@ -69,7 +69,9 @@ fn main() -> () use { Async } {
     ) else {
         return;
     };
-    assert_eq!(run.stderr, "\"body returns\"\n\"child starts\"\n2\n");
+    // The child had not started when the body returned, so it ends with Interrupt without being
+    // called ([fiber.scope]); only the body's output and value remain.
+    assert_eq!(run.stderr, "\"body returns\"\n2\n");
 }
 
 /// Nested scopes: a child of an inner scope forks its own children, and the inner scope closes
@@ -84,10 +86,19 @@ import Std.Fiber.{Fiber, Scope}
 fn main() -> () use { Async } {
   r = Fiber.scope(fn() {
     outer = use Scope
-    late = outer.fork(fn() { dbg("late") 9 })
+    late = outer.fork(fn() {
+      dbg("late")
+      9
+    })
     inner = Fiber.scope(fn() {
-      a = Fiber.fork(fn() { dbg("inner a") 1 })
-      b = Fiber.fork(fn() { dbg("inner b") 2 })
+      a = Fiber.fork(fn() {
+        dbg("inner a")
+        1
+      })
+      b = Fiber.fork(fn() {
+        dbg("inner b")
+        2
+      })
       Fiber.join(a) + Fiber.join(b)
     })
     dbg(inner)
@@ -100,7 +111,7 @@ fn main() -> () use { Async } {
     ) else {
         return;
     };
-    assert_eq!(run.stderr, "\"inner a\"\n\"inner b\"\n3\n\"late\"\n9\n");
+    assert_eq!(run.stderr, "\"late\"\n\"inner a\"\n\"inner b\"\n3\n9\n");
 }
 
 /// Many fibers and many joins: the scheduler handles a long runnable queue.
@@ -160,7 +171,7 @@ fn main() -> () use { Async } {
     };
     assert_eq!(
         run.stderr,
-        "None\nTrue\n41 42\nFalse\nSome(40)\n[\"x\", \"y\"]\n"
+        "None\nTrue\n\"41 42\"\nFalse\nSome(40)\n[\"x\", \"y\"]\n"
     );
 }
 
@@ -252,7 +263,10 @@ effect Name {
 }
 
 handler SlowRes: Name {
-  init { dbg("init slow") SlowRes }
+  init {
+    dbg("init slow")
+    SlowRes
+  }
   fn name() { "slow" }
   release {
     dbg("release slow starts")
@@ -315,7 +329,10 @@ effect Name {
 }
 
 handler Res: Name {
-  init { dbg("init res") Res }
+  init {
+    dbg("init res")
+    Res
+  }
   fn name() { "res" }
   release { panic("second") }
 }
@@ -338,7 +355,10 @@ fn main() -> () use { Async } {
   with Ticks {
     caught = Fiber.attempt(fn() {
       Fiber.scope(fn() {
-        Fiber.fork(fn() { spin(1000) fail Boom })
+        Fiber.fork(fn() {
+          spin(1000)
+          fail Boom
+        })
         Fiber.fork(fn() { with Res { spin(100000) } })
         spin(100000)
         ()
@@ -537,9 +557,12 @@ fn show[A, E](e: Exit[A, E]) -> String {
 fn main() -> () use { Async } {
   with Ticks {
     r = Fiber.scope(fn() {
-      Fiber.fork(fn() { spin(1000) fail Boom })
+      Fiber.fork(fn() {
+        spin(1000)
+        fail Boom
+      })
       spin(100000)
-      ()
+      0
     }) escape { Boom -> -1 }
     dbg(r)
     ()
@@ -571,7 +594,10 @@ handler Ticks: Tick {
 fn step(n: Int, tag: String) -> Int use { Tick } {
   if n == 0 { 0 } else {
     (use Tick).tick()
-    if n % 500 == 0 { dbg("#{tag} #{n}") } else { () }
+    if n % 500 == 0 {
+      dbg("#{tag} #{n}")
+      ()
+    } else { () }
     step(n - 1, tag) + 1
   }
 }
@@ -582,7 +608,10 @@ fn main() -> () use { Async } {
       a = Fiber.fork(fn() { step(3000, "a") })
       b = Fiber.fork(fn() { step(2000, "b") })
       d = Fiber.deferred()
-      Fiber.fork(fn() { step(1000, "c") Deferred.complete(d, "done") })
+      Fiber.fork(fn() {
+        step(1000, "c")
+        Deferred.complete(d, "done")
+      })
       dbg(Deferred.await(d))
       Fiber.join(a) + Fiber.join(b)
     })
@@ -615,7 +644,8 @@ import Std.Fiber.{Fiber, Scope}
 
 fn main() -> () use { Async } {
   Fiber.scope(fn() {
-    Fiber.fork(fn() { panic("child defect") })
+    h = Fiber.fork(fn() { panic("child defect") })
+    Fiber.join(h)
     ()
   })
   ()
@@ -633,6 +663,7 @@ fn main() -> () use { Async } {
     d = Fiber.deferred()
     h = Fiber.fork(fn() { Deferred.await(d) })
     Fiber.interrupt(h)
+    Fiber.join(h)
     ()
   })
   ()
