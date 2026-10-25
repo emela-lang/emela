@@ -379,6 +379,87 @@ fn main() -> () use { Async } {
     );
 }
 
+/// A note is attached to the failure it happened in: two scopes that fail the same static error
+/// must not share the notes of the first one (spec 11.2; the C runtime copies a static error).
+#[test]
+fn a_note_belongs_to_its_own_failure() {
+    let Some(run) = run_ok(
+        "fiber-notes-static",
+        r##"
+import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Cause.{Cause}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res: Name {
+  init {
+    dbg("init res")
+    Res
+  }
+  fn name() { "res" }
+  release { panic("second") }
+}
+
+fn spin(n: Int) -> () use { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn once() -> String use { Async, Tick } {
+  caught = Fiber.attempt(fn() {
+    Fiber.scope(fn() {
+      Fiber.fork(fn() {
+        spin(1000)
+        fail Boom
+      })
+      Fiber.fork(fn() { with Res { spin(100000) } })
+      spin(100000)
+      ()
+    })
+  })
+  caught match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+fn main() -> () use { Async } {
+  with Ticks {
+    dbg(once())
+    dbg(once())
+  }
+  ()
+}
+"##,
+    ) else {
+        return;
+    };
+    let note = "note: another fiber also failed: defect: second";
+    let causes: Vec<&str> = run
+        .stderr
+        .lines()
+        .filter(|line| line.starts_with("\"error: Boom"))
+        .collect();
+    assert_eq!(causes.len(), 2, "{}", run.stderr);
+    for cause in causes {
+        assert_eq!(cause.matches(note).count(), 1, "{cause}");
+    }
+}
+
 /// A scope capability, a fiber handle or a Deferred used after its scope ended is a defect, not a
 /// trap (spec 11.8).
 #[test]

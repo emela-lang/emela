@@ -112,10 +112,16 @@ fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
         ins.call(append);
         ins.end();
         ins.local_set(TMP);
+        // The appends borrow their arguments: the shown error and the intermediate string are
+        // released once the strings that kept them alive are built.
+        ins.local_get(RESULT);
+        ins.call(rt(b, "drop"));
         ins.local_get(TMP);
         ins.local_get(NOTES);
         ins.call(append);
         ins.local_set(RESULT);
+        ins.local_get(TMP);
+        ins.call(rt(b, "drop"));
         ins.local_get(NOTES);
         ins.call(rt(b, "drop"));
         ins.end();
