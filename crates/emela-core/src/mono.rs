@@ -82,17 +82,12 @@ pub fn monomorphize(m: &Module) -> Module {
 /// every fn with an explicit `@export` or `@entry` (spec 12.7, 12.8). An explicit export is a root
 /// even when it is not `pub` or lives in a dependency; an entry adapter is a root because the fn
 /// of its `@entry` calls it. Backends use this to keep them after monomorphisation.
-pub fn build_roots(m: &Module) -> Vec<FnId> {
+pub(crate) fn exported(m: &Module) -> Vec<FnId> {
     m.functions
         .iter()
         .filter(|(_, f)| f.exported || !f.exports.is_empty() || f.entry_adapter.is_some())
         .map(|(id, _)| id)
         .collect()
-}
-
-/// The roots of a normal build ([`build_roots`]).
-pub(crate) fn exported(m: &Module) -> Vec<FnId> {
-    build_roots(m)
 }
 
 /// Monomorphizes the module from `roots` (the entry, test functions, every function for tests).
@@ -113,7 +108,12 @@ pub fn monomorphize_from(m: &Module, roots: &[FnId]) -> (Module, Vec<Option<FnId
         })
         .collect();
     mono.run();
-    remap_entry_adapters(m, &mut mono.out, &mono.origins);
+    let root_copies: FxHashMap<FnId, FnId> = roots
+        .iter()
+        .zip(&out_roots)
+        .filter_map(|(&old, &new)| Some((old, new?)))
+        .collect();
+    remap_entry_adapters(m, &mut mono.out, &mono.origins, &root_copies);
     (mono.out, out_roots)
 }
 
@@ -145,9 +145,14 @@ pub struct Monomorphized {
 /// trait function through its type parameters.
 pub fn monomorphize_traced(m: &Module, roots: &[FnId]) -> Monomorphized {
     let mut mono = Mono::new(m);
-    let out_roots = roots.iter().map(|&f| mono.root(f)).collect();
+    let out_roots: Vec<FnId> = roots.iter().map(|&f| mono.root(f)).collect();
     mono.run();
-    remap_entry_adapters(m, &mut mono.out, &mono.origins);
+    let root_copies: FxHashMap<FnId, FnId> = roots
+        .iter()
+        .copied()
+        .zip(out_roots.iter().copied())
+        .collect();
+    remap_entry_adapters(m, &mut mono.out, &mono.origins, &root_copies);
     Monomorphized {
         module: mono.out,
         roots: out_roots,
@@ -156,10 +161,17 @@ pub fn monomorphize_traced(m: &Module, roots: &[FnId]) -> Monomorphized {
     }
 }
 
-/// Points each copy's `entry_adapter` at the copy of the adapter in the output. `origins` maps an
-/// output function to the input function it copies; an adapter may have several copies, and the
-/// first is used (entry adapters that take a fn are not instantiated per call).
-fn remap_entry_adapters(m: &Module, out: &mut Module, origins: &ArenaMap<FnId, FnId>) {
+/// Points each copy's `entry_adapter` at the copy of the adapter in the output. `root_copies` is
+/// the mapping of the roots, so the adapter is the one instantiated for the build when it is a
+/// root (an `@export` adapter always is). A fallback by `origins` covers an adapter reached only
+/// through another root; an adapter with no copy is left without one rather than pointing at an
+/// input function.
+fn remap_entry_adapters(
+    m: &Module,
+    out: &mut Module,
+    origins: &ArenaMap<FnId, FnId>,
+    root_copies: &FxHashMap<FnId, FnId>,
+) {
     let mut first: FxHashMap<FnId, FnId> = FxHashMap::default();
     for (new, old) in origins.iter() {
         first.entry(*old).or_insert(new);
@@ -173,7 +185,10 @@ fn remap_entry_adapters(m: &Module, out: &mut Module, origins: &ArenaMap<FnId, F
         })
         .collect();
     for (id, adapter) in wanted {
-        out.functions[id].entry_adapter = first.get(&adapter).copied();
+        out.functions[id].entry_adapter = root_copies
+            .get(&adapter)
+            .or_else(|| first.get(&adapter))
+            .copied();
     }
 }
 
@@ -488,7 +503,9 @@ impl<'a> Mono<'a> {
     // ---- Step 2: call targets ----
 
     /// The copy of the root `f`: its only instantiation, or for a generic `f` the one at
-    /// [`Mono::uniform_args`], named and exported like `f`.
+    /// [`Mono::uniform_args`], named and exported like `f`. A generic root also keeps its export
+    /// bindings: its copy at `Any` is the one the host calls, so clearing them as for a called
+    /// copy would drop `@export(js, ...)` and `@export(wasm, ...)` (spec 12.7, 12.8).
     fn root(&mut self, f: FnId) -> FnId {
         let old = &self.m.functions[f];
         if old.type_params == 0 {
@@ -496,12 +513,13 @@ impl<'a> Mono<'a> {
         }
         let args = self.uniform_args(f);
         let new = self.target(f, &args).f;
-        let (name, exported) = (old.name.clone(), old.exported);
+        let (name, exported, exports) = (old.name.clone(), old.exported, old.exports.clone());
         // Other copies of `f` have type arguments in their names, so the plain name is free.
         self.names.insert(name.clone());
         let copy = &mut self.out.functions[new];
         copy.name = name;
         copy.exported = exported;
+        copy.exports = exports;
         new
     }
 
