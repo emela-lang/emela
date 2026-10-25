@@ -2,9 +2,9 @@
 //! objects runs in a fixed amount of linear memory. Each program here runs under a memory limit
 //! far below what it allocates in total. Skipped without `wasmtime`.
 //!
-//! A program that does exhaust its memory ends abruptly. The runtime checks the result of
-//! `memory.grow` and traps before moving the bump pointer, so the end of the program is not an
-//! out-of-bounds store past the memory.
+//! In this backend a program that exhausts its memory ends abruptly. The runtime checks the
+//! result of `memory.grow` and traps before moving the bump pointer, so the end of the program is
+//! not an out-of-bounds store past the memory.
 
 mod common;
 
@@ -286,9 +286,9 @@ fn core_module<'a>(bytes: &'a [u8]) -> CoreModule<'a> {
 
 #[test]
 fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
-    // An allocation failure is an abrupt end of the program, not a defect. The bump pointer must
-    // not move past the end of the memory, or the next store traps with an unrelated
-    // out-of-bounds error instead of the runtime's own trap.
+    // In this backend an allocation failure is an abrupt end of the program, not a defect. The
+    // bump pointer must not move past the end of the memory, or the next store traps with an
+    // unrelated out-of-bounds error instead of the runtime's own trap.
     let output = to_output("fn main() { dbg(1) }\n");
     wasmparser::validate(&output.module).expect("the module is valid");
     let core = core_module(&output.module);
@@ -416,8 +416,8 @@ fn main() {
 #[test]
 fn fiber_attempt_does_not_catch_an_allocation_failure() {
     let Some(_) = wasmtime() else { return };
-    // The attempt cannot make the program continue: the failure is not a defect or an error value
-    // and the runtime traps. Nothing after the attempt runs.
+    // In this backend the attempt cannot make the program continue: the runtime traps before any
+    // defect or error value reaches it. Nothing after the attempt runs.
     let bytes = compile_checked(
         r#"
 import Std.Fiber.{Fiber}
