@@ -765,7 +765,6 @@ fn unwind_sync(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const CHAIN: u32 = 3;
     const F: u32 = 4;
     const NEXT: u32 = 5;
-    let whead = super::fiber::plan(b).whead;
     let wtail = super::fiber::plan(b).wtail;
     let cur = super::fiber::plan(b).cur_fiber;
     let push = b.rt("fb_queue_push");

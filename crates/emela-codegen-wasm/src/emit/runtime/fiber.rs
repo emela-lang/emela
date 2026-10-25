@@ -104,7 +104,7 @@ pub(super) const W_KIND: u32 = HDR + 16;
 pub(super) const W_VERB: u32 = HDR + 24;
 pub(super) const W_REPR: u32 = HDR + 32;
 pub(super) const W_TARGET: u32 = HDR + 40; // raw: the fiber, deferred or scope
-pub(super) const W_PREV: u32 = HDR + 48; // raw: the target's (or the run's) list
+pub(super) const W_PREV: u32 = HDR + 48; // raw: the run's list
 pub(super) const W_NEXT: u32 = HDR + 56;
 pub(super) const W_LIVE: u32 = HDR + 64;
 pub(super) const W_ONDROP: u32 = HDR + 72; // Ref: the operation call whose implementation it waits for
@@ -114,7 +114,11 @@ pub(super) const W_AT: u32 = HDR + 96; // i64: the TestClock time a sleeper wait
 pub(super) const W_SEQ: u32 = HDR + 104;
 pub(super) const W_HPREV: u32 = HDR + 112;
 pub(super) const W_HNEXT: u32 = HDR + 120;
-const W_SLOTS: i32 = 16;
+/// raw: the target's (a fiber's or a Deferred's) list of waiters. The run's list uses
+/// `W_PREV`/`W_NEXT`, so a wait in both does not overwrite either list.
+pub(super) const W_TPREV: u32 = HDR + 128;
+pub(super) const W_TNEXT: u32 = HDR + 136;
+const W_SLOTS: i32 = 18;
 
 /// What a wait waits for.
 pub(super) const WK_FIBER: i32 = 0; // join, await and interrupt of a child
@@ -625,7 +629,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         show: None,
         refs: vec![
             true, true, false, false, false, false, false, false, true, false, false, false, false,
-            false, false, false,
+            false, false, false, false, false,
         ],
     });
     let node_desc = b.desc(DescKey {
@@ -1249,7 +1253,7 @@ fn wait_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(W);
     for off in [
         W_CHAIN, W_FIBER, W_TARGET, W_PREV, W_NEXT, W_ONDROP, W_END, W_FLAGS, W_SEQ, W_HPREV,
-        W_HNEXT,
+        W_HNEXT, W_TPREV, W_TNEXT,
     ] {
         st_const(ins, W, off, 0);
     }
@@ -1278,11 +1282,11 @@ fn watch_add(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_add();
     ins.i32_load(mem(0, 4));
     ins.local_set(TAILV);
-    stl(ins, 1, W_PREV, TAILV);
-    st_const(ins, 1, W_NEXT, 0);
+    stl(ins, 1, W_TPREV, TAILV);
+    st_const(ins, 1, W_TNEXT, 0);
     g(ins, TAILV);
     ins.if_(BlockType::Empty);
-    stl(ins, TAILV, W_NEXT, 1);
+    stl(ins, TAILV, W_TNEXT, 1);
     ins.else_();
     g(ins, T);
     g(ins, HEAD);
@@ -1319,13 +1323,13 @@ fn watch_remove(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ldl(ins, 0, W_TARGET);
     ins.local_set(T);
     target_slots(b, ins, 0, HEAD, TAIL);
-    ldl(ins, 0, W_PREV);
+    ldl(ins, 0, W_TPREV);
     ins.local_set(PREV);
-    ldl(ins, 0, W_NEXT);
+    ldl(ins, 0, W_TNEXT);
     ins.local_set(NEXT);
     g(ins, PREV);
     ins.if_(BlockType::Empty);
-    stl(ins, PREV, W_NEXT, NEXT);
+    stl(ins, PREV, W_TNEXT, NEXT);
     ins.else_();
     g(ins, T);
     g(ins, HEAD);
@@ -1335,7 +1339,7 @@ fn watch_remove(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
     g(ins, NEXT);
     ins.if_(BlockType::Empty);
-    stl(ins, NEXT, W_PREV, PREV);
+    stl(ins, NEXT, W_TPREV, PREV);
     ins.else_();
     g(ins, T);
     g(ins, TAIL);
@@ -1349,8 +1353,8 @@ fn watch_remove(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(2);
     stl(ins, 0, W_FLAGS, 2);
     st_const(ins, 0, W_TARGET, 0);
-    st_const(ins, 0, W_PREV, 0);
-    st_const(ins, 0, W_NEXT, 0);
+    st_const(ins, 0, W_TPREV, 0);
+    st_const(ins, 0, W_TNEXT, 0);
 }
 
 /// `fb_unlink_wait(w)`: take a wait out of every list it is in and forget the links to it.
@@ -2600,9 +2604,10 @@ fn finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, W);
     ins.i32_eqz();
     ins.br_if(1);
-    ldl(ins, W, W_NEXT);
+    ldl(ins, W, W_TNEXT);
     ins.local_set(NEXT);
-    st_const(ins, W, W_NEXT, 0);
+    st_const(ins, W, W_TNEXT, 0);
+    st_const(ins, W, W_TPREV, 0);
     ldl(ins, W, W_FLAGS);
     c(ins, -1 - WF_TARGET);
     ins.i32_and();
@@ -3604,11 +3609,15 @@ fn complete(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.return_();
     ins.end();
     st_const(ins, 0, D_FULL, 1);
-    g(ins, 3);
+    g(ins, 2);
     c(ins, R_REF);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
     st_const(ins, 0, D_ISREF, 1);
+    // The Deferred keeps its own reference: the caller drops the value it passed.
+    ins.local_get(WORD);
+    ins.i32_wrap_i64();
+    call(b, ins, "dup");
     ins.local_get(0);
     ins.local_get(WORD);
     ins.i32_wrap_i64();
@@ -3628,10 +3637,10 @@ fn complete(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, W);
     ins.i32_eqz();
     ins.br_if(1);
-    ldl(ins, W, W_NEXT);
+    ldl(ins, W, W_TNEXT);
     ins.local_set(NEXT);
-    st_const(ins, W, W_NEXT, 0);
-    st_const(ins, W, W_PREV, 0);
+    st_const(ins, W, W_TNEXT, 0);
+    st_const(ins, W, W_TPREV, 0);
     st_const(ins, W, W_TARGET, 0);
     ldl(ins, W, W_FLAGS);
     c(ins, -1 - WF_TARGET);
