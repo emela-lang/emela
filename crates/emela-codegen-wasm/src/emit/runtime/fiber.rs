@@ -660,8 +660,8 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "wait".to_owned(),
         show: None,
         refs: vec![
-            true, true, false, false, false, false, false, false, true, false, false, false, false,
-            false, false, false, false, false, false,
+            true, true, false, false, false, false, false, false, false, true, false, false, false,
+            false, false, false, false, false, true,
         ],
     });
     let node_desc = b.desc(DescKey {
@@ -1293,8 +1293,8 @@ fn wait_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     call(b, ins, "alloc");
     ins.local_set(W);
     for off in [
-        W_CHAIN, W_FIBER, W_TARGET, W_PREV, W_NEXT, W_ONDROP, W_END, W_FLAGS, W_SEQ, W_HPREV,
-        W_HNEXT, W_TPREV, W_TNEXT, W_IMPL,
+        W_CHAIN, W_FIBER, W_TARGET, W_PREV, W_NEXT, W_LIVE, W_ONDROP, W_END, W_FLAGS, W_SEQ,
+        W_HPREV, W_HNEXT, W_TPREV, W_TNEXT, W_IMPL,
     ] {
         st_const(ins, W, off, 0);
     }
@@ -2115,6 +2115,8 @@ fn begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i64_extend_i32_u();
     let finish = b.rt("fb_finish");
     ins.call(finish);
+    // The job's reference to the fiber (the run's list reference is the one `fb_finish` drops).
+    dropv(b, ins, 0);
     ins.return_();
     ins.end();
     i32_const_cell(b, ins, |p| p.cur_fiber);
@@ -2199,6 +2201,9 @@ fn begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 0);
     let strand = b.rt("fb_strand_end");
     ins.call(strand);
+    // The job's reference to the fiber: `fb_strand_end` (through `fb_finish`) drops the run's
+    // list reference and may free the record.
+    dropv(b, ins, 0);
 }
 
 /// `fb_suspended(w, chain, end, impl)`: attach the captured continuation to the request it
