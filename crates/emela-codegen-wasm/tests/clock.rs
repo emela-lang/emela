@@ -107,6 +107,51 @@ fn main() {
 }
 
 #[test]
+fn several_fibers_sleep_in_the_order_of_their_wake_times() {
+    // Two fibers sleep for different times in the same TestClock. When nothing can go on, the
+    // earliest sleeper wakes first (spec 8.8); the later one wakes after it, and the virtual time
+    // ends at the later wake time. The observable lines are the order and the times, not the
+    // handler's update at call time (an open question in the handoff).
+    let Some(_) = wasmtime() else { return };
+    let Some(run) = run(
+        "clock-many-sleepers",
+        r##"
+import Std.Fiber.{Fiber, Scope}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+fn sleeper(label: String, ms: Int) -> () use { Clock } {
+  (use Clock).sleep(ms)
+  dbg("#{label} #{Instant.to_unix_milliseconds((use Clock).now())}")
+  ()
+}
+
+fn main() -> () use { Async } {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  (_, end) = State.run(start, fn() {
+    with TestClock {
+      Fiber.scope(fn() {
+        a = Fiber.fork(fn() { sleeper("a", 100) })
+        b = Fiber.fork(fn() { sleeper("b", 50) })
+        Fiber.join(a)
+        Fiber.join(b)
+        ()
+      })
+    }
+  })
+  dbg("end #{Instant.to_unix_milliseconds(end)}")
+  ()
+}
+"##,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stderr, "\"b 50\"\n\"a 100\"\n\"end 100\"\n");
+}
+
+#[test]
 fn a_sleep_inside_an_operation_implementation_resumes_outwards() {
     let Some(_) = wasmtime() else { return };
     let Some(run) = run(
