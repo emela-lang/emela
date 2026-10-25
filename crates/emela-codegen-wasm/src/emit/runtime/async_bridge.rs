@@ -37,7 +37,6 @@ pub(super) fn prepare(_b: &mut Builder<'_>) {}
 
 /// The canonical ABI status codes of an asynchronous lower (low four bits of the packed word).
 const STATUS_RETURNED: i32 = 2;
-const STATUS_RETURNED_CANCELLED: i32 = 4;
 
 pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -> bool {
     match name {

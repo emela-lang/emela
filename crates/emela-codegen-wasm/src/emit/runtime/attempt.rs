@@ -23,7 +23,7 @@
 
 use super::*;
 
-use super::sched::{F_STATE, cell};
+use super::sched::F_STATE;
 
 pub(super) const FUNCS: &[Sig] = &[
     ("cause_new", &[ValType::I32, ValType::I32], &[ValType::I32]),
@@ -428,13 +428,4 @@ fn cause_raise(b: &mut Builder, ins: &mut InstructionSink) {
         }
         ins.call(rt(b, "raise"));
     }
-}
-
-/// The `unwinding` cell (see the module documentation), if the program uses this module and
-/// suspends.
-pub(super) fn unwinding_cell(b: &Builder) -> Option<u32> {
-    if !used(b) {
-        return None;
-    }
-    b.sus.as_ref().map(|_| cell(b, |p| p.unwinding))
 }

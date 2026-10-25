@@ -345,8 +345,11 @@ fn sleeps_after_the_run() -> () {
   ()
 }
 "#;
-    let bytes = to_wasm_tests(src, &["leaves_a_sleeping_implementation", "sleeps_after_the_run"])
-        .unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"));
+    let bytes = to_wasm_tests(
+        src,
+        &["leaves_a_sleeping_implementation", "sleeps_after_the_run"],
+    )
+    .unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"));
     wasmparser::validate(&bytes).unwrap_or_else(|e| panic!("the module is not valid: {e}"));
     let run = run_bytes(&out_dir("clock-abandoned-sleeper"), &bytes);
     assert_eq!(run.code, 0, "{}", run.stderr);
