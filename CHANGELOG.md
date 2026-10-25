@@ -7,6 +7,17 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.25.1](https://github.com/emela-lang/emela/compare/v0.25.0...v0.25.1) - 2026-10-25
+
+### Added
+
+- host に関数を公開する export と入口アダプタを書ける ([#430](https://github.com/emela-lang/emela/pull/430)) (by @Allianaab2m)
+- Flow IRから組み込み向けCを生成するbackendを追加 ([#384](https://github.com/emela-lang/emela/pull/384)) (by @aoi-netai)
+
+### Other
+
+- 組み込み標準ライブラリとC接続を追加 ([#385](https://github.com/emela-lang/emela/pull/385)) (by @aoi-netai)
+
 ## [0.25.0](https://github.com/emela-lang/emela/compare/v0.24.0...v0.25.0) - 2026-10-25
 
 ### Added
