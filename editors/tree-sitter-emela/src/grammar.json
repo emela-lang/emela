@@ -364,6 +364,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "annotation_path"
+        },
+        {
+          "type": "SYMBOL",
           "name": "_literal"
         },
         {
@@ -390,6 +394,40 @@
               }
             }
           ]
+        }
+      ]
+    },
+    "annotation_path": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "type_identifier"
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "."
+              },
+              {
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "type_identifier"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "identifier"
+                  }
+                ]
+              }
+            ]
+          }
         }
       ]
     },

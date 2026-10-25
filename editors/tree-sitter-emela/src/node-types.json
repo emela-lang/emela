@@ -307,6 +307,10 @@
       "required": false,
       "types": [
         {
+          "type": "annotation_path",
+          "named": true
+        },
+        {
           "type": "float",
           "named": true
         },
@@ -320,6 +324,25 @@
         },
         {
           "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "annotation_path",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "type_identifier",
           "named": true
         }
       ]

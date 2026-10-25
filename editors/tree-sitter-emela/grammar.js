@@ -119,8 +119,15 @@ module.exports = grammar({
 
     annotation_argument: $ => choice(
       $.identifier,
+      $.annotation_path,
       $._literal,
       seq(field('name', $.identifier), ':', field('value', $._literal)),
+    ),
+
+    // `@entry(Http.serve)`: a qualified adapter or entry name ([kw.annotation]).
+    annotation_path: $ => seq(
+      $.type_identifier,
+      repeat1(seq('.', choice($.type_identifier, $.identifier))),
     ),
 
     _modifiers: $ => seq(
