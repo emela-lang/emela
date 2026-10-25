@@ -18,6 +18,26 @@ pub struct Diagnostic {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticKind {
+    /// E0437. An `@export` fn that is not an entry adapter, or an `@entry`, outside the entry
+    /// module (`[ext.export]`, `[ext.entry]`). `attr` is `export` or `entry`.
+    ExportOutsideEntry { attr: &'static str },
+    /// E0439. The argument of `@entry` does not name an entry adapter (`[ext.entry]`). `name` is
+    /// the fn it names, `None` when it does not name a fn.
+    NotEntryAdapter { name: Option<SmolStr> },
+    /// E0438. Two exports with the same name for the same target (`[ext.export]`).
+    DuplicateExport { name: SmolStr, target: SmolStr },
+    /// E0436. A parameter (`ret` false) or the return value of an `@export` fn is not a boundary
+    /// type (`[ext.export]`, `[ext.boundary]`).
+    NotBoundary {
+        function: SmolStr,
+        ty: SmolStr,
+        ret: bool,
+    },
+    /// E0402. An `@export` fn whose E is not empty (`[ext.export]`).
+    ExportFails { function: SmolStr, errors: SmolStr },
+    /// E0440. The fn with `@entry` cannot be passed as the first argument of the entry adapter
+    /// (`[ext.entry]`).
+    EntryMismatch { entry: SmolStr, adapter: SmolStr },
     /// A type does not satisfy a trait (E0326, spec 10.1–10.3): a constraint at a call, or a
     /// supertrait at an impl. `ty` is displayed.
     NotImplemented { ty: SmolStr, trait_name: SmolStr },
@@ -337,6 +357,8 @@ pub enum EffectContext {
     Main,
     /// A test function, whose R must be empty (spec 13.3).
     Test { name: SmolStr },
+    /// An `@export` fn, whose R must be empty except for Async (`[ext.export]`).
+    Export { name: SmolStr },
     /// The arguments of a layer item, which MUST be pure (`[effect.layer]`).
     LayerArg(LayerArg),
 }

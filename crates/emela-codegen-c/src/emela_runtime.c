@@ -3717,10 +3717,59 @@ em_ref em_deferred_poll(em_ref o, int32_t repr) {
 
 /* ---- The program ---- */
 
+static bool em_started = false;
+
 void em_start(int argc, char **argv) {
   (void)argc;
   (void)argv;
+  if (em_started) return;
+  em_started = true;
   em_loop_init();
+}
+
+/* ---- Exported functions (`[target.c.export]`) ---- */
+
+void em_export_enter(const char *function) {
+  /* `em_root_cur` is the running launch: the mark that Emela code is running on this thread. */
+  if (em_root_cur != NULL) {
+    fflush(stdout);
+    fprintf(stderr, "defect: exported function `%s` was called while Emela code is running\n", function);
+    fflush(stderr);
+    exit(EM_EXIT_DEFECT);
+  }
+  em_start(0, NULL);
+}
+
+void em_export_leave(void) {
+  if (em_defect != NULL) exit(em_exit(NULL));
+}
+
+em_ref em_from_export_string(const char *s, const char *function) {
+  if (s == NULL) {
+    char msg[256];
+    snprintf(msg, sizeof msg, "exported function `%s` was given NULL", function);
+    em_raise_cstr(msg);
+    return NULL;
+  }
+  size_t n = strlen(s);
+  char *copy = malloc(n + 1);
+  if (copy == NULL) em_out_of_memory();
+  memcpy(copy, s, n + 1);
+  return em_from_host_string(copy, function);
+}
+
+char *em_to_export_string(em_ref s) {
+  const char *bytes = em_cstr(s);
+  if (bytes == NULL) {
+    em_drop(s);
+    return NULL;
+  }
+  size_t n = EM_STR_LEN(s);
+  char *copy = malloc(n + 1);
+  if (copy == NULL) em_out_of_memory();
+  memcpy(copy, bytes, n + 1);
+  em_drop(s);
+  return copy;
 }
 
 /* ---- Tests (spec 13.4) ---- */

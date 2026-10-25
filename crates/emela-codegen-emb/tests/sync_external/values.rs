@@ -13,7 +13,7 @@ pub fn text(p: (String,List[String])) -> String { (s,_) = p
  s }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = compile(

@@ -17,7 +17,7 @@ fn main() {
     } else {
         include_str!("support/aggregate_suspend.emel")
     };
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported)
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public)
         .expect("lower aggregate ownership source");
     let output = compile(
         &core,

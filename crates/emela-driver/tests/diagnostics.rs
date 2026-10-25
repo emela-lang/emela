@@ -4,8 +4,8 @@ use std::path::Path;
 
 use emela_driver::{
     Analysis, Checked, CoreSource, Diagnostic, FileId, Frontend, Input, LexOnly, Location, Lower,
-    LowerTests, MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, Target,
-    Typecheck, check, render,
+    MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, Target, Typecheck, check,
+    render,
 };
 use emela_resolve::{Import, ModuleId, ModuleName};
 use emela_types::{InferCtx, Prim, Ty, TyCons};
@@ -816,10 +816,9 @@ fn reachable_external_without_target() {
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
 }
 
-/// An entry exporting fns with trait-bounded type parameters (appendix B). `label` and `pair` are
-/// reported; `same` too although it calls no trait function; `plain` (no bound) and `user_label`
-/// (concrete types) are exported.
-const CONSTRAINED_EXPORTS: &str = r#"type User(name: String)
+/// `pub` fns of the entry with trait-bounded type parameters. Only `@export` fns are exported
+/// (`[target.js.module]`), so they are not roots and build on every target (E0327 is unused).
+const CONSTRAINED_PUB_FNS: &str = r#"type User(name: String)
 
 impl User: Show {
   fn show(self) { "User(#{self.name})" }
@@ -829,33 +828,209 @@ pub fn label[A: Show](x: A) -> String { Show.show(x) }
 
 pub fn pair[A, B: Show + Eq](a: A, b: B) -> B { b }
 
-pub fn same[A: Show](x: A) -> A { x }
-
-pub fn plain[A](x: A) -> A { x }
-
-pub fn user_label(u: User) -> String { label(u) }
-
-fn hidden[A: Show](x: A) -> String { Show.show(x) }
-
-fn main() { dbg(hidden(User(name: "ann"))) }
+fn main() { dbg(label(User(name: "ann"))) }
 "#;
 
 #[test]
-fn constrained_export() {
-    // The JS build exports the entry's `pub` fns from main.mjs, so a trait bound is E0327.
-    let files = [("home/main.emel", CONSTRAINED_EXPORTS)];
-    let analysis = check_files(&files, "home/main.emel", &mut Lower::default());
-    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
-    // check and the LSP (up to type checking) choose no target, so they do not check.
+fn pub_fns_are_not_exported() {
+    let files = [("home/main.emel", CONSTRAINED_PUB_FNS)];
+    for frontend in [Lower::default(), Lower::default().with_target(Target::C)] {
+        let mut frontend = frontend;
+        let analysis = check_files(&files, "home/main.emel", &mut frontend);
+        assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+    }
+}
+
+fn export_diagnostics(files: &[(&str, &str)]) -> String {
+    let analysis = check_files(files, "home/main.emel", &mut Typecheck::default());
+    render(&analysis.diagnostics, &analysis.sources, false)
+}
+
+/// `[ext.export]`: the parameters and the return value are boundary types (E0436), E is empty and
+/// R is empty except for Async (E0402).
+#[test]
+fn export_types_and_effects() {
+    insta::assert_snapshot!(export_diagnostics(&[(
+        "home/main.emel",
+        r#"@external
+type Conn
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+error Oops
+
+@export(js, "ok")
+pub fn ok(a: Int, b: Int64, c: Float, d: Bool, e: String, f: (), g: Conn, h: fn(Int) -> String fails {} use {}) -> () {}
+
+@export(js, "callback")
+pub fn callback(h: fn(Int) -> String) -> String { h(1) }
+
+@export(js, "list")
+pub fn list(xs: List[Int]) -> Int { 0 }
+
+@export(js, "option")
+pub fn option() -> Option[Int] { None }
+
+@export(js, "generic")
+pub fn generic[A](x: A) -> Int { 0 }
+
+@export(js, "logs")
+pub fn logs() -> () { (use Log).info("x") }
+
+@export(js, "fails")
+pub fn fails() -> Int fails Oops { fail Oops }
+
+fn main() {}
+"#,
+    )]));
+}
+
+/// What each target cannot expose: an export that may suspend on `c` (E0441,
+/// `[target.c.export]`), a callback on `c` (not supported yet), and on `wasm` any `@export(wasm, ...)`
+/// a user writes (`[target.wasm.external]`), also through `@entry`. Each target reports only its
+/// own exports, and check (no target) reports none.
+#[test]
+fn export_target_errors() {
+    let files = [(
+        "home/main.emel",
+        r#"import Std.Clock.{Clock, SystemClock}
+
+@export(c, "wait")
+@export(js, "wait")
+fn wait(ms: Int) -> () {
+  with SystemClock { (use Clock).sleep(ms) }
+}
+
+@export(c, "apply")
+fn apply(x: Int, f: fn(Int) -> Int fails {} use {}) -> Int { f(x) }
+
+@export(wasm, "env", "add")
+@export(js, "add")
+fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(wasm, "wasi:http/handler@0.3.0", "handle")
+fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+
+@entry(serve)
+fn app(x: Int) -> Int { x }
+
+fn main() {}
+"#,
+    )];
+    let mut out = String::new();
+    for target in [Target::Js, Target::C, Target::Wasm] {
+        let analysis = check_files(
+            &files,
+            "home/main.emel",
+            &mut Lower::default().with_target(target),
+        );
+        out.push_str(&format!("== {}\n", target.name()));
+        out.push_str(&render(&analysis.diagnostics, &analysis.sources, false));
+    }
     let analysis = check_files(&files, "home/main.emel", &mut Typecheck::default());
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
-    // C exports only main, so the bounded fns are not roots.
-    let mut c = Lower::default().with_target(Target::C);
-    let analysis = check_files(&files, "home/main.emel", &mut c);
-    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
-    // `emela test` lowers from the test functions and exports nothing.
-    let analysis = check_files(&files, "home/main.emel", &mut LowerTests::default());
-    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+    insta::assert_snapshot!(out);
+}
+
+/// `[ext.export]` and `[ext.entry]`: an `@export` fn that is not an entry adapter only in the
+/// entry module (E0437), `@entry` only in the entry module (E0437) and naming an entry adapter
+/// (E0439), and the same name exported twice for the same target (E0438).
+#[test]
+fn export_placement() {
+    insta::assert_snapshot!(export_diagnostics(&[
+        (
+            "home/main.emel",
+            r#"import Util
+
+@export(js, "add")
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(js, "add")
+@export(c, "add")
+pub fn add_again(a: Int, b: Int) -> Int { a + b }
+
+@entry(Util.serve)
+fn app(x: Int) -> Int { x }
+
+@entry(Util.serve)
+fn app_again(x: Int) -> Int { x }
+
+@entry(Util.helper)
+fn not_adapter(x: Int) -> Int { x }
+
+@entry
+fn no_name(x: Int) -> Int { x }
+
+fn main() {}
+"#,
+        ),
+        (
+            "home/util.emel",
+            r#"@export(js, "default", "fetch")
+pub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+
+@export(js, "helper")
+pub fn helper(x: Int) -> Int { x }
+
+@entry(serve)
+pub fn misplaced(x: Int) -> Int { x }
+"#,
+        ),
+    ]));
+}
+
+/// `[ext.entry]`: the fn with `@entry` MUST be accepted as the first argument of the adapter
+/// (E0440). A generic fn is instantiated. An adapter that lets the E or R of the fn through has
+/// them in its own E and R (E0402), and so does the fn made by `@entry` (E0440).
+#[test]
+fn entry_fits_the_adapter() {
+    insta::assert_snapshot!(export_diagnostics(&[(
+        "home/main.emel",
+        r#"effect Log {
+  fn info(msg: String) -> ()
+}
+
+error Oops
+
+@export(js, "default", "one")
+fn one(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+
+@export(js, "default", "two")
+fn two(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+
+@export(js, "default", "three")
+fn three(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+
+@export(js, "default", "open")
+fn open(app: fn(String) -> String, s: String) -> String { app(s) }
+
+@export(js, "default", "four")
+fn four(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+
+@entry(one)
+fn fits(s: String) -> String { s }
+
+@entry(two)
+fn generic[A](x: A) -> A { x }
+
+@entry(three)
+fn wrong_type(x: Int) -> Int { x }
+
+@entry(four)
+fn wrong_effects(s: String) -> String {
+  (use Log).info(s)
+  s
+}
+
+@entry(open)
+fn through(s: String) -> String fails Oops { fail Oops }
+
+fn main() {}
+"#,
+    )]));
 }
 
 /// A handler whose `sleep` has no JS `@external`. Only operations called somewhere reachable are

@@ -8,7 +8,7 @@ fn runtime_fixture() -> Output {
 }
 
 fn compile_runtime(source: &str, frame_bytes: u16) -> Output {
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut output = compile(
         &core,
         &options()

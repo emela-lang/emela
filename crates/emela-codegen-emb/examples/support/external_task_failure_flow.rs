@@ -6,7 +6,7 @@ use emela_lir::Module;
 pub fn lower() -> Module {
     let core = super::support::try_lower(
         &[("main.emel", include_str!("external_task_failure.emel"))],
-        Roots::Exported,
+        Roots::Public,
     )
     .expect("lower task failure fixture");
     let mut flow = emela_codegen_emb::flow_from_core(&core).expect("verified source Flow");

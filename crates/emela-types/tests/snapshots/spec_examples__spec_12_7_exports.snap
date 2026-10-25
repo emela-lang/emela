@@ -1,0 +1,8 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\n@export(c, \"TIM2_IRQHandler\")\npub fn on_tick() -> () {}  # 補: the body\n\n@export(js, \"default\", \"add\")\npub fn add(a: Int, b: Int) -> Int { a + b }\n\"#)"
+---
+on_tick: fn() -> ()
+add: fn(Int, Int) -> Int
+  a: Int
+  b: Int

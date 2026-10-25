@@ -19,7 +19,7 @@ pub fn kind(n: Int) -> Int {
  }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(1024)).unwrap(),
         r#"
@@ -46,7 +46,7 @@ pub fn make(n: Int) -> Cause[Boom] {
 }
 pub fn show(c: Cause[Boom]) -> String { Cause.to_string(c) }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(2048)).unwrap(),
         r#"
@@ -91,7 +91,7 @@ pub fn rethrow(n: Int) -> Int {
  }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(1024)).unwrap(),
         r#"
@@ -163,7 +163,7 @@ pub fn raised(c: Cause[{}], asynchronous: Bool) -> Int use Async {
 }
 pub fn show(c: Cause[{}]) -> String { Cause.to_string(c) }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(
             &core,
@@ -276,7 +276,7 @@ pub fn work(asynchronous: Bool) -> Int use Async {
  } } }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     super::interrupt::protect_cleanup_call(&mut flow);
     let mut output = compile_flow(
@@ -381,7 +381,7 @@ pub fn work(c: Cause[{{}}], failing: Bool) -> Int use Async {{ with Waiting {{
 }} }}
 "#
         );
-        let core = support::try_lower(&[("main.emel", &source)], Roots::Exported).unwrap();
+        let core = support::try_lower(&[("main.emel", &source)], Roots::Public).unwrap();
         let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
         super::interrupt::protect_cleanup_call(&mut flow);
         let mut output = compile_flow(

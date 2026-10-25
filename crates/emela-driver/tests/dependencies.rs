@@ -185,6 +185,27 @@ fn allows_external_only_when_the_project_says_so() {
     );
 }
 
+/// `[module.pome]`: `@export` counts as `@external` for `[external] allow`, so `@entry` can name
+/// an entry adapter of a dependency only when it is allowed. The adapter is `pub` (E0237 is about
+/// `@external` only).
+#[test]
+fn allows_entry_adapters_only_when_the_project_says_so() {
+    let router = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }\n\npub fn route() -> Int { 1 }\n";
+    let app = "import Quince.Router\n\n@entry(Router.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() -> Int { 1 }\n";
+    let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
+    assert!(
+        found.iter().any(|d| d
+            .starts_with("E0233 `github.com/acme/quince` uses `@export`, but it is not allowed")),
+        "{found:?}"
+    );
+    let mut allowed = dependencies(None, COMPILER);
+    allowed.allow_external = vec!["github.com/acme/quince".into()];
+    assert_eq!(
+        diagnostics(&files(app, router), allowed),
+        Vec::<String>::new()
+    );
+}
+
 #[test]
 fn checks_the_targets_of_dependencies() {
     let mut deps = dependencies(None, COMPILER);

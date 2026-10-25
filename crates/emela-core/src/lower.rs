@@ -28,9 +28,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::intrinsics::Builtin;
 use crate::ir::{
     Arm, Assert, BinOp, BundledFile, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
-    External, ExternalBinding, FiberOp, FnId, FnSets, FnType, HostModule, HostRef, Lit, Local,
-    Module, OpDef, OpTy, Pat, PreludeTraits, SetSummary, StrPart, Type, TypeId, UnOp, VariantDef,
-    VariantFields, WithBind,
+    External, ExternalBinding, FiberOp, FnId, FnSets, FnType, HostExport, HostModule, HostRef, Lit,
+    Local, Module, OpDef, OpTy, Pat, PreludeTraits, SetSummary, StrPart, Type, TypeId, UnOp,
+    VariantDef, VariantFields, WithBind,
 };
 use crate::mono::Monomorphized;
 use crate::named;
@@ -58,23 +58,26 @@ pub enum LowerError {
     /// host files (`LowerInput::bundled_files`). An error in the bundled sources. `path` is the
     /// specifier as written.
     MissingCoreFile { path: String, span: Option<Span> },
-    /// An exported fn of the entry has a type parameter with a trait bound (E0327, appendix B):
-    /// JS could call it at any type, so no impl can be chosen for it. Reported only for the JS
-    /// target, the one that exports the entry's `pub` fns. `span` is the position of the function
-    /// name.
-    ConstrainedExport {
-        name: String,
-        param: String,
-        span: Option<Span>,
-    },
+    /// An exported fn that may suspend, on the `c` target (E0441, `[target.c.export]`). `name` is
+    /// the fn, or the fn with `@entry` for an export made by `@entry`. `span` is the `@export` or
+    /// the `@entry`.
+    SuspendingExport { name: String, span: Option<Span> },
+    /// An `@export(wasm, ...)` written by a user, on the `wasm` target (`[target.wasm.external]`).
+    /// `span` is the `@export` or the `@entry`.
+    WasmExport { name: String, span: Option<Span> },
 }
 
 /// Which fns lowering starts from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Roots {
-    /// The fns exported by the entry module (`pub` and `main`, excluding test functions). The
-    /// normal build.
+    /// The entry module's `main` and the fns the program exposes to the host (`[ext.export]`)
+    /// for the build target. The normal build.
     Exported,
+    /// The entry module's `main` and its `pub` fns, except test functions and fns with a
+    /// trait-bounded type parameter (no impl could be chosen for a caller that sees every type
+    /// the same). Not a build of a target in the specification: the embedded C backend
+    /// (`emela-codegen-emb`) exports these until it moves to `@export`.
+    Public,
     /// The test functions (`LowerInput::tests`), for `emela test`.
     Tests,
     /// Every fn and const with a body, every `@external` fn and every handler, including unused
@@ -159,16 +162,19 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         uses_bundled: false,
         errors: Vec::new(),
         prelude_trait_fns: FxHashMap::default(),
+        host_exports: Vec::new(),
+        roots,
     };
+    if roots == Roots::Exported {
+        cx.collect_host_exports(input.target);
+    }
     cx.declare_enums();
     cx.define_ctors();
-    if roots == Roots::Exported && input.target == Some("js") {
-        cx.check_constrained_exports();
-    }
     for (_, items) in hir.modules.iter() {
         for &def in &items.items {
             let is_root = match (roots, hir.item(def)) {
-                (Roots::Exported, Some(Item::Fn(_))) => cx.is_exported(def),
+                (Roots::Exported, Some(Item::Fn(_))) => cx.is_main(def),
+                (Roots::Public, Some(Item::Fn(_))) => cx.is_public_root(def),
                 (Roots::All, Some(Item::Fn(f))) => f.body.is_some() || f.is_external,
                 (Roots::All, Some(Item::Const(_) | Item::Handler(_))) => true,
                 _ => false,
@@ -177,6 +183,9 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
                 cx.fn_id(def, 0);
             }
         }
+    }
+    for i in 0..cx.host_exports.len() {
+        cx.fn_id(cx.host_exports[i].def, 0);
     }
     let tests = match roots {
         Roots::Tests => input.tests.iter().map(|&def| cx.fn_id(def, 0)).collect(),
@@ -209,7 +218,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     }
     // Target-neutral, so done once here: every backend gets self tail calls as loops (16.3).
     crate::tail::loopify(&mut cx.module);
-    let (Some(target), Roots::Exported | Roots::Tests) = (input.target, roots) else {
+    let (Some(target), Roots::Exported | Roots::Public | Roots::Tests) = (input.target, roots)
+    else {
         return Ok(Lowered {
             module: cx.module,
             tests,
@@ -238,16 +248,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
             span: None,
         });
     }
-    let entries: Vec<FnId> = match roots {
-        Roots::Tests => mono.roots.clone(),
-        // main is exported, so it is one of the roots.
-        _ => cx
-            .entry_main()
-            .and_then(|main| mono_roots.iter().position(|&f| f == main))
-            .map(|i| mono.roots[i])
-            .into_iter()
-            .collect(),
-    };
+    // Every root of a normal build (main and the exported fns) is an entry (spec 12.1).
+    let entries: Vec<FnId> = mono.roots.clone();
     cx.check_target(&mono, &entries, target);
     if !cx.errors.is_empty() {
         return Err(cx.errors);
@@ -320,6 +322,10 @@ struct Lowerer<'a> {
     errors: Vec<LowerError>,
     /// The Prelude's trait functions by trait and name, once looked up.
     prelude_trait_fns: FxHashMap<(String, String), Option<DefId>>,
+    /// The fns exposed to the host for the build target, with their names (`[ext.export]`), in
+    /// the order of `emela_types::host_exports`. Filled only for `Roots::Exported`.
+    host_exports: Vec<Exposed>,
+    roots: Roots,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without
@@ -782,6 +788,11 @@ impl<'a> Lowerer<'a> {
             .module
             .declare(&name, spec == 0 && self.is_exported(def));
         self.module.functions[id].suspends = self.fn_suspends(def, spec);
+        if spec == 0
+            && let Some(exposed) = self.host_exports.iter().find(|e| e.def == def)
+        {
+            self.module.functions[id].host_exports = exposed.exports.clone();
+        }
         self.fns.insert((def, spec), id);
         self.worklist.push((def, spec));
         id
@@ -2183,17 +2194,6 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// The IR function of the entry module's `main`.
-    fn entry_main(&self) -> Option<FnId> {
-        let items = self.hir.modules.get(self.entry?)?;
-        items.items.iter().find_map(|&def| {
-            let data = &self.hir.defs[def];
-            (data.name == "main" && data.kind == DefKind::Fn)
-                .then(|| self.fns.get(&(def, 0)).copied())
-                .flatten()
-        })
-    }
-
     /// Reports external functions reachable from `entries` (functions of the monomorphized
     /// module) that lack an `@external` for `target` (spec 12.1), at their HIR definitions.
     fn check_target(&mut self, mono: &Monomorphized, entries: &[FnId], target: &str) {
@@ -3355,54 +3355,101 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// Whether to export in JS: the entry module's `pub` fns and `main` (called by the entry
-    /// module). Test functions are excluded (for `emela test`, the test runner exports them).
-    /// Whether `def` is a fn the entry exports: `pub` or `main`, but not a test function, and not
-    /// one with a trait-bounded type parameter (E0327 on JS; on C and WASM only main is used).
-    fn is_exported(&self, def: DefId) -> bool {
-        self.exports(def) && self.bounded_param(def).is_none()
-    }
-
-    /// Whether `def` is a fn the entry would export, regardless of its type parameters.
-    fn exports(&self, def: DefId) -> bool {
+    /// Whether `def` is the entry module's `main` (not a test function).
+    fn is_main(&self, def: DefId) -> bool {
         let data = &self.hir.defs[def];
         data.kind == DefKind::Fn
             && self
                 .entry
                 .is_some_and(|entry| data.module == DefModule::Source(entry))
-            && (data.is_pub || data.name == "main")
+            && data.name == "main"
             && !self.tests.contains(&def)
     }
 
-    /// The name of the first type parameter of `def` with a trait bound.
-    fn bounded_param(&self, def: DefId) -> Option<&str> {
-        let sig = self.types.sigs.get(def)?;
-        sig.scheme
-            .params
-            .iter()
-            .find(|p| !p.traits.is_empty())
-            .map(|p| p.name.as_str())
+    /// Whether `def` is a root of the build: `main`, a fn exposed to the host, or with
+    /// `Roots::Public` a `pub` fn of the entry.
+    fn is_exported(&self, def: DefId) -> bool {
+        self.is_main(def)
+            || self.host_exports.iter().any(|e| e.def == def)
+            || (self.roots == Roots::Public && self.is_public_root(def))
     }
 
-    /// Reports the entry's exported fns with a trait-bounded type parameter (E0327, appendix B),
-    /// in declaration order.
-    fn check_constrained_exports(&mut self) {
-        let Some(items) = self.entry.and_then(|entry| self.hir.modules.get(entry)) else {
-            return;
-        };
-        for &def in &items.items {
-            if !matches!(self.hir.item(def), Some(Item::Fn(_))) || !self.exports(def) {
+    /// A root of `Roots::Public`: `main`, or a `pub` fn of the entry that is not a test function
+    /// and has no trait-bounded type parameter.
+    fn is_public_root(&self, def: DefId) -> bool {
+        let data = &self.hir.defs[def];
+        let bounded = self
+            .types
+            .sigs
+            .get(def)
+            .is_some_and(|sig| sig.scheme.params.iter().any(|p| !p.traits.is_empty()));
+        self.is_main(def)
+            || (data.kind == DefKind::Fn
+                && data.is_pub
+                && self
+                    .entry
+                    .is_some_and(|entry| data.module == DefModule::Source(entry))
+                && !self.tests.contains(&def)
+                && !bounded)
+    }
+
+    /// Fills [`Lowerer::host_exports`] with the exports for `target` (every target for `None`),
+    /// and reports the ones the target cannot expose: one that may suspend on `c` (E0441), and on
+    /// `wasm` any written by a user (`[target.wasm.external]`; only the entry adapters of the
+    /// bundled `Std` would be exposed by the runtime, and it has none yet).
+    fn collect_host_exports(&mut self, target: Option<&str>) {
+        for exposed in emela_types::host_exports(self.hir, self.entry) {
+            let exports: Vec<HostExport> = exposed
+                .exports
+                .iter()
+                .filter(|e| target.is_none_or(|t| e.target == t))
+                .map(|e| {
+                    let (interface, name) = match e.args.as_slice() {
+                        [interface, name] => (Some(interface.clone()), name.clone()),
+                        [name] => (None, name.clone()),
+                        // The parser reported it (E0146).
+                        _ => return None,
+                    };
+                    Some(HostExport {
+                        target: e.target.to_string(),
+                        interface,
+                        name,
+                    })
+                })
+                .collect::<Option<_>>()
+                .unwrap_or_default();
+            if exports.is_empty() {
                 continue;
             }
-            if let Some(param) = self.bounded_param(def) {
-                self.errors.push(LowerError::ConstrainedExport {
-                    name: self.hir.defs[def].name.to_string(),
-                    param: param.to_owned(),
-                    span: self.hir.defs[def].span,
-                });
+            let entry = self.hir.entry_exports.iter().find(|e| e.def == exposed.def);
+            let name = self.hir.defs[entry.map_or(exposed.def, |e| e.entry)]
+                .name
+                .to_string();
+            let span = Some(exposed.entry.unwrap_or(exposed.exports[0].span));
+            match target {
+                Some("c") if self.fn_suspends(exposed.def, 0) => {
+                    self.errors
+                        .push(LowerError::SuspendingExport { name, span });
+                    continue;
+                }
+                Some("wasm") => {
+                    self.errors.push(LowerError::WasmExport { name, span });
+                    continue;
+                }
+                _ => {}
             }
+            self.host_exports.push(Exposed {
+                def: exposed.def,
+                exports,
+            });
         }
     }
+}
+
+/// A fn exposed to the host, with its names for the build target ([`Lowerer::host_exports`]).
+struct Exposed {
+    def: DefId,
+    exports: Vec<HostExport>,
 }
 
 /// Collapses `.` and `..` in a path textually (symbolic links are not resolved).

@@ -1501,6 +1501,35 @@ fn definition_of_names() {
     client.shutdown();
 }
 
+/// The argument of `@entry` (`[ext.entry]`) goes to the entry adapter, and its module to the top
+/// of the module's file.
+#[test]
+fn definition_of_an_entry_adapter() {
+    let main = "import Http\n\n@entry(Http.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() {}\n";
+    let http = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }\n";
+    let files = [
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", main),
+        ("/app/src/http.emel", http),
+    ];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let http_path = "/app/src/http.emel";
+    assert_eq!(
+        client.definition(MAIN, 2, 13),
+        location(http_path, (1, 7), (1, 12))
+    );
+    assert_eq!(
+        client.definition(MAIN, 2, 8),
+        location(http_path, (0, 0), (0, 0))
+    );
+    // The fn that `@entry` makes has no source: hover and inlay hints do not show it.
+    let hover = format!("{:?}", client.hover(MAIN, 2, 2));
+    assert!(!hover.contains("$entry"), "{hover}");
+    let hints = client.inlay_hints(MAIN).unwrap_or_default();
+    assert!(hints.iter().all(|(line, ..)| *line != 2), "{hints:?}");
+    client.shutdown();
+}
+
 /// Definitions in the bundled core have no location to go to.
 #[test]
 fn definition_of_core_is_null() {

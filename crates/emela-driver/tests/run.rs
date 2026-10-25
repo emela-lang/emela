@@ -475,17 +475,53 @@ fn run_without_main_stops_before_node() {
     let _ = std::fs::remove_dir_all(&options.out_dir);
 }
 
-/// A generic `pub` fn of the entry is exported to JS callers as its copy for `Any` (lowering
-/// monomorphizes the JS output), under its own name, and works for any JS value.
+/// `[target.js.module]`: `@export(js, "name")` is a named export of main.mjs and
+/// `@export(js, "default", "name")` a property of the default export; `@entry` exports the fn
+/// through the adapter (`[ext.entry]`). A pub fn without `@export` is not exported. A fn that does
+/// not suspend returns its value and throws a defect; one that may suspend returns a Promise.
+/// Arguments and return values cross as boundary values (`[target.js.value]`), callbacks too.
 #[test]
-fn generic_pub_fns_are_exported_for_any_type() {
-    let main = "pub fn apply[A, B](x: A, f: fn(A) -> B) -> B {\n  f(x)\n}\n\n\
-                pub fn first_or[A](xs: List[A], d: A) -> A {\n  List.head(xs) |> Option.or(d)\n}\n\n\
-                fn main() {\n  dbg(apply(1, fn(n) { n + 1 }))\n}\n";
+fn js_exports_are_called_by_the_host() {
+    let main = r##"import Std.Clock.{Clock, SystemClock}
+
+@export(js, "add")
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(js, "greet")
+fn greet(name: String, suffix: fn(String) -> String fails {} use {}) -> String {
+  "hello, #{suffix(name)}"
+}
+
+@export(js, "half")
+fn half(n: Int) -> Int { 10 / n }
+
+@export(js, "late")
+fn late(ms: Int) -> Int {
+  with SystemClock { (use Clock).sleep(ms) }
+  ms * 2
+}
+
+@export(js, "late_boom")
+fn late_boom(n: Int) -> Int {
+  with SystemClock { (use Clock).sleep(1) }
+  10 / n
+}
+
+@export(js, "default", "run")
+fn run(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) + 1 }
+
+@entry(run)
+fn twice(x: Int) -> Int { x * 2 }
+
+pub fn hidden() -> Int { 1 }
+
+fn main() { dbg(twice(1)) }
+"##;
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
-    let dir = out_dir("generic-exports");
+    let dir = out_dir("js-exports");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
     assert!(
         analysis.diagnostics.is_empty(),
@@ -493,9 +529,15 @@ fn generic_pub_fns_are_exported_for_any_type() {
         analysis.diagnostics
     );
     assert!(entry.is_some());
-    let harness = "import { apply, first_or } from \"./main.mjs\";\n\
-                   console.log(apply(\"a\", (s) => s + \"!\"), apply(2, (n) => n * 3));\n\
-                   console.log(first_or(null, \"none\"), first_or({ h: 7, t: null }, 0));\n";
+    let harness = r#"import host, * as m from "./main.mjs";
+console.log(m.add(2, 3), host.add(4, 5), host.run(10), Object.keys(host).join(","));
+console.log(m.greet("ann", (s) => s + "!"));
+console.log(typeof m.hidden, typeof m.twice, typeof m.run);
+try { m.half(0); } catch (e) { console.log(e.name, e.message); }
+const p = m.late(5);
+console.log(p instanceof Promise, await p);
+await m.late_boom(0).catch((e) => console.log(e.name, e.message));
+"#;
     std::fs::write(dir.join("harness.mjs"), harness).unwrap();
     let out = std::process::Command::new("node")
         .arg("harness.mjs")
@@ -505,7 +547,11 @@ fn generic_pub_fns_are_exported_for_any_type() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(
         (text(&out.stdout), text(&out.stderr)),
-        ("a! 6\nnone 7\n", "")
+        (
+            "5 9 21 add,run\nhello, ann!\nundefined undefined undefined\n\
+             Defect division by zero\ntrue 10\nDefect division by zero\n",
+            ""
+        )
     );
 }
 

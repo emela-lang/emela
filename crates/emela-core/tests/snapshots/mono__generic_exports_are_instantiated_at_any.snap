@@ -1,31 +1,17 @@
 ---
 source: crates/emela-core/tests/mono.rs
-expression: "parts(&m, &[\"fn main(\", \"fn apply\", \"fn firsts\", \"fn List.map[\"])"
+expression: "parts(&m, &[\"fn main(\", \"fn count\"])"
 ---
-export fn apply(x%0: any, f%1: fn(any) -> any fails ev, ev%2: evidence) -> any fails {
-  (f%1)(x%0, ev%2)?
-}
-
-export fn firsts(xs%3: List[(any, any)]) -> List[any] {
-  List.map[(any, any), any, {}, {}](xs%3, fn(p%6: (any, any)) -> any {
-    match p%6 {
-      (a%7, _) -> a%7
-    }
-  })
-}
-
 export fn main() -> Int {
-  @dbg[Int](apply[Int, Int, {}, {}](1, fn(n%10: Int) -> Int {
-    (n%10 +[Int] 1)
-  }))
+  @dbg[Int](count[()](1))
 }
 
-fn List.map[(any, any), any, {}, {}](xs%4: List[(any, any)], f%5: fn((any, any)) -> any) -> List[any] {
-  List.reverse[any](List.fold[(any, any), List[any], {}, {}](xs%4, []: List[any], fn(acc%15: List[any], x%16: (any, any)) -> List[any] {
-    [(f%5)(x%16), ..acc%15]: List[any]
-  }))
+export fn count(n%0: Int) -> Int {
+  let xs%2: List[any] = []: List[any]
+  (n%0 +[Int] List.length[any](xs%2))
 }
 
-fn apply[Int, Int, {}, {}](x%8: Int, f%9: fn(Int) -> Int) -> Int {
-  (f%9)(x%8)
+fn count[()](n%1: Int) -> Int {
+  let xs%4: List[()] = []: List[()]
+  (n%1 +[Int] List.length[()](xs%4))
 }

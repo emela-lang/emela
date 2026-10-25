@@ -311,6 +311,37 @@ impl Emitter<'_> {
         self.line("}");
     }
 
+    /// The function the host calls for an exported fn (`[target.js.module]`), named `name`. It
+    /// converts the arguments from the host, calls the fn as one launch and converts its value
+    /// back. A fn that may suspend returns a Promise of the value, which rejects with the defect or
+    /// the interruption the launch ends with; one that does not suspend returns the value and
+    /// throws a defect.
+    pub(super) fn host_export_fn(&mut self, id: FnId, f: &Function, name: &str) {
+        let params: Vec<String> = (0..f.params.len()).map(|i| format!("$p{i}")).collect();
+        self.line(&format!("function {name}({}) {{", params.join(", ")));
+        self.indent += 1;
+        let args: Vec<String> = params
+            .iter()
+            .zip(&f.params)
+            .map(|(p, &local)| self.convert(self.m.locals[local].ty, p, Dir::FromHost, 0))
+            .collect();
+        let call = format!("{}({})", self.fn_js(id), args.join(", "));
+        if f.suspends {
+            let launch = self.rt("$export");
+            let value = self.convert(f.ret, "$v", Dir::ToHost, 0);
+            if value == "$v" {
+                self.line(&format!("return {launch}({call});"));
+            } else {
+                self.line(&format!("return {launch}({call}).then(($v) => {value});"));
+            }
+        } else {
+            let value = self.convert(f.ret, &call, Dir::ToHost, 0);
+            self.line(&format!("return {value};"));
+        }
+        self.indent -= 1;
+        self.line("}");
+    }
+
     /// Calls the host function `callee` with `args` (converted JS expressions) and an AbortSignal
     /// as the last argument (spec 12.2). The runtime aborts it when the waiting fiber is
     /// interrupted.

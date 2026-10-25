@@ -1,7 +1,7 @@
 ---
 title: Exported functions and entries
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 427
 issue:
 decided: 2026-10-24
@@ -179,15 +179,15 @@ E0327: mark as unused ("(Unused, because only `@export` fns are exported, and th
 
 ## Diagnostics
 
-- [ ] E0146: malformed arguments of `@export`
-- [ ] E0436: a parameter or return value that is not a boundary type
-- [ ] E0437: `@export` outside the entry module
-- [ ] E0438: two exports with the same name
-- [ ] E0439: the argument of `@entry` is not an entry adapter
-- [ ] E0440: the fn does not fit the first parameter of the entry adapter
-- [ ] E0441: an export that may suspend on C
-- [ ] E0402: the R of an `@export` fn
-- [ ] `@export(wasm, ...)` written by a user (no code)
+- [x] E0146: malformed arguments of `@export`
+- [x] E0436: a parameter or return value that is not a boundary type
+- [x] E0437: `@export` outside the entry module
+- [x] E0438: two exports with the same name
+- [x] E0439: the argument of `@entry` is not an entry adapter
+- [x] E0440: the fn does not fit the first parameter of the entry adapter
+- [x] E0441: an export that may suspend on C
+- [x] E0402: the R of an `@export` fn
+- [x] `@export(wasm, ...)` written by a user (no code)
 
 ## Compatibility
 

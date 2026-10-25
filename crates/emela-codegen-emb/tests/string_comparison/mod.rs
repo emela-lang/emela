@@ -53,7 +53,7 @@ _Noreturn void emela_board_defect(EmelaDefectKind k,const char *m,uint16_t n) { 
 
 #[test]
 fn source_comparisons_are_heapless_and_allow_isr_and_constant_space_tail_loops() {
-    let core = support::try_lower(&[("main.emel", SOURCE)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", SOURCE)], Roots::Public).unwrap();
     let output = compile(&core, &Options::default().with_isr_entry("lt")).unwrap();
     let source = c_source(&output);
     assert!(source.contains("emela_emb_string_compare"));
@@ -132,7 +132,7 @@ fn owned_string_views_compare_without_allocating_or_changing_ownership() {
     let source = format!(
         "{SOURCE}\npub fn store(text: String) -> List[String] {{ [text] }}\npub fn read(values: List[String]) -> String {{ values match {{ [head, ..rest] -> head\n [] -> \"\" }} }}\n"
     );
-    let core = support::try_lower(&[("main.emel", &source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", &source)], Roots::Public).unwrap();
     let mut output = compile(&core, &Options::default().with_heap_bytes(1024)).unwrap();
     output
         .files
@@ -188,7 +188,7 @@ fn suspend_source_comparisons_preserve_captured_bytes_and_release_on_completion_
             "main.emel",
             include_str!("../../examples/support/string_comparison_suspend.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = compile(

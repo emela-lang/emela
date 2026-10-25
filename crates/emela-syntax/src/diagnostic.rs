@@ -89,6 +89,9 @@ pub enum DiagnosticCode {
     UnknownExternalTarget,
     /// Arguments on `@external type` (spec 12.3).
     ExternalTypeWithArgs,
+    /// Malformed arguments of `@export`, or `@export` on something other than a top-level fn
+    /// with a body (spec 12.7, 16.6.2).
+    MalformedExport,
     /// `match` written before the value. `match x { ... }` (spec 6.5)
     PrefixMatch,
     /// The old head of an impl. `impl Show for User`, `impl[A: Eq] Box[A]: Eq` (spec 10.2)
@@ -144,6 +147,7 @@ impl DiagnosticCode {
             Self::PrefixMatch => "E0142",
             Self::OldImplHead => "E0144",
             Self::OldHandlerHead => "E0145",
+            Self::MalformedExport => "E0146",
         }
     }
 }

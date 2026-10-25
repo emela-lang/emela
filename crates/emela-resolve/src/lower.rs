@@ -292,12 +292,69 @@ impl Lower<'_, '_> {
         let body = f.body().map(|b| self.block(&b));
         self.pop_scope();
         self.pop_type_params();
+        let entries = f
+            .annotations()
+            .filter(|a| a.name().is_some_and(|n| n.text() == "entry"))
+            .map(|a| EntryAttr {
+                adapter: self.entry_adapter(&a),
+                span: self.span(a.syntax().text_range()),
+            })
+            .collect();
         FnItem {
             sig,
             body,
             is_external: f.has_annotation("external"),
-            externals: external_attrs(f),
+            externals: attrs(f, "external", self.module),
             is_intrinsic: f.has_annotation("intrinsic"),
+            exports: attrs(f, "export", self.module),
+            entries,
+        }
+    }
+
+    /// What the argument of `@entry(T)` names: a fn of this module (`serve`) or of another one
+    /// (`Http.serve`), looked up as a value. `None` if the argument is not one name or path.
+    fn entry_adapter(&mut self, annotation: &ast::Annotation) -> Option<Res> {
+        let args: Vec<SyntaxNode> = annotation
+            .args()
+            .filter(|a| a.kind() == ANNOT_ARG)
+            .collect();
+        let [arg] = args.as_slice() else {
+            return None;
+        };
+        if let Some(path) = arg.children().find(|c| c.kind() == ANNOT_PATH) {
+            let tokens: Vec<SyntaxToken> = path
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .filter(|t| matches!(t.kind(), TYPE_NAME | LOWER_NAME))
+                .collect();
+            let (last, prefix) = tokens.split_last()?;
+            if last.kind() != LOWER_NAME {
+                // `@entry(Http.)`: the parser reported it.
+                return Some(Res::Err);
+            }
+            let (name, range) = token_name(last);
+            let res = match self.resolve_prefix(prefix) {
+                Some(left) => match self.member_of_left(&left, Ns::Value, &name, range) {
+                    Some(def) => {
+                        self.refer(range, RefTarget::Def(def));
+                        Res::Def(def)
+                    }
+                    None => Res::Err,
+                },
+                None => Res::Err,
+            };
+            return Some(res);
+        }
+        let mut tokens = arg
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| !t.kind().is_trivia());
+        match (tokens.next(), tokens.next(), arg.first_child()) {
+            (Some(name), None, None) if name.kind() == LOWER_NAME => {
+                let (name, range) = token_name(&name);
+                Some(self.value(&name, range, LOWER_NAME))
+            }
+            _ => None,
         }
     }
 
@@ -2126,12 +2183,13 @@ fn pat_literal(node: &SyntaxNode) -> PatKind {
     PatKind::Lit(Literal::String(text))
 }
 
-/// The arguments of an fn's `@external(target, "a", "b")`. Skips annotations whose first argument
-/// is not a name (`@external("x")`), and non-string remaining arguments (`@external(js, 1)`,
-/// `@external(js, k: "v")`). The parser reports E0138 for both.
-fn external_attrs(f: &ast::FnDecl) -> Vec<ExternalAttr> {
+/// The arguments of an fn's `@external(target, "a", "b")` or `@export(target, "a", "b")`
+/// (`attr`). Skips annotations whose first argument is not a name (`@external("x")`), and
+/// non-string remaining arguments (`@external(js, 1)`, `@external(js, k: "v")`). The parser
+/// reports them (E0138, E0146).
+fn attrs(f: &ast::FnDecl, attr: &str, module: ModuleId) -> Vec<ExternalAttr> {
     f.annotations()
-        .filter(|a| a.name().is_some_and(|n| n.text() == "external"))
+        .filter(|a| a.name().is_some_and(|n| n.text() == attr))
         .filter_map(|a| {
             let mut args = a.args();
             let first = args.next()?;
@@ -2159,6 +2217,10 @@ fn external_attrs(f: &ast::FnDecl) -> Vec<ExternalAttr> {
             Some(ExternalAttr {
                 target: target.text().into(),
                 args,
+                span: Span {
+                    module,
+                    range: a.syntax().text_range(),
+                },
             })
         })
         .collect()

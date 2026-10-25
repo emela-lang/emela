@@ -103,11 +103,13 @@ fn names_are_qualified_except_in_the_entry() {
     assert!(!enums.iter().any(|e| e.ends_with("Bool")), "{enums:?}");
 }
 
+/// The roots of a normal build are `main` and the `@export` fns (`[ext.export]`); a `pub` fn is not
+/// one (`[target.js.module]`). An exported fn carries its host names.
 #[test]
-fn entry_exports_pub_fns_and_main() {
+fn entry_exports_main_and_export_fns() {
     let m = lower_files(&[(
         "main.emel",
-        "fn main() { 0 }\n\npub fn api() -> Int { 1 }\n\nfn private() -> Int { 2 }\n",
+        "fn main() { 0 }\n\n@export(js, \"api\")\n@export(js, \"default\", \"api\")\npub fn api() -> Int { 1 }\n\npub fn other() -> Int { 2 }\n",
     )]);
     let exported: Vec<&str> = m
         .functions
@@ -116,6 +118,13 @@ fn entry_exports_pub_fns_and_main() {
         .map(|(_, f)| f.name.as_str())
         .collect();
     assert_eq!(exported, ["main", "api"]);
+    let (_, api) = m.functions.iter().find(|(_, f)| f.name == "api").unwrap();
+    let names: Vec<(Option<&str>, &str)> = api
+        .host_exports
+        .iter()
+        .map(|x| (x.interface.as_deref(), x.name.as_str()))
+        .collect();
+    assert_eq!(names, [(None, "api"), (Some("default"), "api")]);
 }
 
 #[test]

@@ -18,7 +18,7 @@ fn main() {
     } else {
         include_str!("support/const_runtime.emel")
     };
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut flow = flow_from_core(&core).unwrap();
     if cycles {
         gc_anchor::add(&mut flow);

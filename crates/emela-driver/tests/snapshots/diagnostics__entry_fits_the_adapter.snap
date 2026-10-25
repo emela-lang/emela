@@ -1,0 +1,46 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "export_diagnostics(&[(\"home/main.emel\",\nr#\"effect Log {\n  fn info(msg: String) -> ()\n}\n\nerror Oops\n\n@export(js, \"default\", \"one\")\nfn one(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }\n\n@export(js, \"default\", \"two\")\nfn two(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }\n\n@export(js, \"default\", \"three\")\nfn three(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }\n\n@export(js, \"default\", \"open\")\nfn open(app: fn(String) -> String, s: String) -> String { app(s) }\n\n@export(js, \"default\", \"four\")\nfn four(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }\n\n@entry(one)\nfn fits(s: String) -> String { s }\n\n@entry(two)\nfn generic[A](x: A) -> A { x }\n\n@entry(three)\nfn wrong_type(x: Int) -> Int { x }\n\n@entry(four)\nfn wrong_effects(s: String) -> String {\n  (use Log).info(s)\n  s\n}\n\n@entry(open)\nfn through(s: String) -> String fails Oops { fail Oops }\n\nfn main() {}\n\"#,)])"
+---
+error[E0402]: exported function `open` cannot fail with `E(app)`
+    ╭─[ main.emel:16:1 ]
+    │
+ 16 │ @export(js, "default", "open")
+    │ ───────────────┬──────────────  
+    │                ╰──────────────── 
+────╯
+
+error[E0402]: effect `R(app)` is not provided in exported function `open`
+    ╭─[ main.emel:17:59 ]
+    │
+ 17 │ fn open(app: fn(String) -> String, s: String) -> String { app(s) }
+    │                                                           ───┬──  
+    │                                                              ╰──── 
+────╯
+   = help: provide it with `with`
+
+error[E0440]: `wrong_type` does not fit `three`
+    ╭─[ main.emel:28:1 ]
+    │
+ 28 │ @entry(three)
+    │ ──────┬──────  
+    │       ╰──────── 
+────╯
+
+error[E0440]: `wrong_effects` does not fit `four`
+    ╭─[ main.emel:31:1 ]
+    │
+ 31 │ @entry(four)
+    │ ──────┬─────  
+    │       ╰─────── 
+────╯
+
+error[E0440]: `through` does not fit `open`
+    ╭─[ main.emel:37:1 ]
+    │
+ 37 │ @entry(open)
+    │ ──────┬─────  
+    │       ╰─────── 
+────╯
+
+5 errors

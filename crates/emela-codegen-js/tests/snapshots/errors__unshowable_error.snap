@@ -465,6 +465,35 @@ function $start(gen, done) {
   return () => root.stalled();
 }
 
+// The stall functions (`$start`'s result) of the launches of exported functions that have not ended.
+const $exportLaunches = new Set();
+let $exportWatching = false;
+
+// Runs the generator `gen` of an exported function that may suspend as one launch (16.6.2), and returns a Promise of
+// its value. The Promise rejects with the defect or the interruption the launch ends with. When the host reports that
+// its event loop is empty (`beforeExit`, where the host has one), the launches that have not ended are stalled, as
+// the launcher does for main.
+function $export(gen) {
+  return new Promise((resolve, reject) => {
+    let ended = false;
+    let stalled;
+    stalled = $start(gen, (ok, value) => {
+      ended = true;
+      $exportLaunches.delete(stalled);
+      if (ok) resolve(value);
+      else reject(value);
+    });
+    if (ended) return;
+    $exportLaunches.add(stalled);
+    if (!$exportWatching && typeof globalThis.process?.on === "function") {
+      $exportWatching = true;
+      globalThis.process.on("beforeExit", () => {
+        for (const stall of [...$exportLaunches]) stall();
+      });
+    }
+  });
+}
+
 // A continuation unwound while interrupted (11.4, 14.5). Thrown into a fiber when it is interrupted, by `$sync`
 // when a suspend operation inside a non-suspending function is not resumed in place, and by `Cause.raise` of an
 // Interrupt. It unwinds like a defect, but `Fiber.attempt` does not catch it. `scope` is the scope whose body is

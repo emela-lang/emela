@@ -21,7 +21,7 @@ fn lower_value(with_collector: bool, managed_success: bool) -> Module {
             )
             .replace("state.set(Int.to_string(value))", "state.set(value)");
     }
-    let core = super::support::try_lower(&[("main.emel", &source)], Roots::Exported)
+    let core = super::support::try_lower(&[("main.emel", &source)], Roots::Public)
         .expect("lower phase 7 integration fixture");
     let mut flow = emela_codegen_emb::flow_from_core(&core).expect("verified source Flow");
     let (_, request) = flow

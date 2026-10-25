@@ -4,7 +4,7 @@ mod clock;
 mod diagnostics;
 
 fn source_output(source: &str) -> Output {
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported)
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public)
         .expect("lower a source using the standard embedded handlers");
     compile(
         &core,

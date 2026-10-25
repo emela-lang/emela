@@ -21,7 +21,7 @@ pub fn show() -> String {{
 "#,
         ty = "Wrap[Int]"
     );
-    let core = support::try_lower(&[("main.emel", &source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", &source)], Roots::Public).unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     assert!(flow.functions.len() < 64);
     assert_eq!(flow.error_shows.len(), 1);

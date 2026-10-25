@@ -7,7 +7,7 @@ mod support;
 fn main() {
     let core = support::try_lower(
         &[("main.emel", include_str!("support/const_polymorphic.emel"))],
-        Roots::Exported,
+        Roots::Public,
     )
     .expect("lower polymorphic const fixture");
     let flow = flow_from_core(&core).expect("verify polymorphic const Flow");

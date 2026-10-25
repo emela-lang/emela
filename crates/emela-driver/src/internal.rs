@@ -139,16 +139,20 @@ pub(crate) fn check_external_in_dependencies<'p>(
             .descendants()
             .filter_map(ast::Annotation::cast)
         {
-            if annotation
+            // `@export` reaches the host too, so it counts as `@external` for `allow`
+            // (`[module.pome]`). An entry adapter is named by `@entry` from the depending side, so
+            // it may be `pub`.
+            let Some(attr) = annotation
                 .name()
-                .is_none_or(|name| name.text() != "external")
-            {
+                .map(|name| name.text().to_owned())
+                .filter(|name| name == "external" || name == "export")
+            else {
                 continue;
-            }
+            };
             let span = Span::new(file, annotation.syntax().text_range());
             if !package.external_allowed {
                 diagnostics.push(
-                    Diagnostic::error(format!("`{}` uses `@external`, but it is not allowed", package.name))
+                    Diagnostic::error(format!("`{}` uses `@{attr}`, but it is not allowed", package.name))
                         .with_code(code::EXTERNAL_IN_DEPENDENCY)
                         .with_span(span)
                         .with_note(format!(
@@ -160,7 +164,7 @@ pub(crate) fn check_external_in_dependencies<'p>(
                 break;
             }
             let fn_decl = annotation.syntax().parent().and_then(ast::FnDecl::cast);
-            if fn_decl.is_some_and(|f| f.is_pub()) {
+            if attr == "external" && fn_decl.is_some_and(|f| f.is_pub()) {
                 diagnostics.push(
                     Diagnostic::error("an `@external` function cannot be `pub` in a dependency")
                         .with_code(code::PUB_EXTERNAL_IN_DEPENDENCY)

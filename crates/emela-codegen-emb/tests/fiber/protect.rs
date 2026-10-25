@@ -172,7 +172,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -237,7 +237,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -310,7 +310,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -358,7 +358,7 @@ handler Resource: Marker { fn read() { 1 }
 pub fn work() -> Int use Async { with Resource { panic("bad") } }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(

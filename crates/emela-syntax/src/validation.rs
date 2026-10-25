@@ -5,7 +5,7 @@
 //!   Also check that `_` and a bare `..`, which only patterns allow, do not appear outside it.
 //! - Check the constraints beyond the spec 17.3 grammar that syntax alone decides (whether
 //!   `@external` is needed, empty enums, the shape of handler and impl fns).
-//! - Check the arguments of `@external` (spec 12.1, 12.3).
+//! - Check the arguments of `@external` (spec 12.1, 12.3) and of `@export` (spec 12.7, 16.6.2).
 //! - Report the old impl and handler heads with the head to write instead (E0144, E0145).
 
 use rowan::TextRange;
@@ -36,6 +36,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             fn_decl(node, out);
             fn_externals(node, out);
         }
+        ANNOTATION if is_named(node, "export") => export(node, out),
         TYPE_DECL => {
             if child_kind(node, FIELD_LIST).is_none() && !is_external(node) {
                 error(
@@ -322,6 +323,139 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             );
         }
     }
+}
+
+/// The place and the arguments of `@export(target, "name")` and
+/// `@export(target, "interface", "name")` (spec 12.7). Unlike `@external`, a fn may have several
+/// for the same target. On `js` the middle argument of the three-argument form is `"default"`
+/// (spec 16.6.2).
+fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let on_fn_with_body = annotation.parent().is_some_and(|decl| {
+        decl.kind() == FN_DECL
+            && decl.parent().is_none_or(|p| p.kind() != ITEM_LIST)
+            && child_kind(&decl, BLOCK_EXPR).is_some()
+    });
+    if !on_fn_with_body {
+        error(
+            out,
+            annotation.text_range(),
+            DiagnosticCode::MalformedExport,
+            "`@export` is written on a top-level fn with a body",
+        );
+        return;
+    }
+    let args: Vec<SyntaxNode> = child_kind(annotation, ANNOT_ARG_LIST)
+        .into_iter()
+        .flat_map(|list| list.children())
+        .filter(|arg| arg.kind() == ANNOT_ARG)
+        .collect();
+    if args
+        .iter()
+        .any(|arg| arg.descendants().any(|n| n.kind() == ERROR))
+    {
+        return;
+    }
+    let malformed = |out: &mut Vec<Diagnostic>, range| {
+        error(
+            out,
+            range,
+            DiagnosticCode::MalformedExport,
+            "expected `@export(target, \"name\")`",
+        );
+    };
+    let Some((first, rest)) = args.split_first() else {
+        malformed(out, annotation.text_range());
+        return;
+    };
+    let Some(target) = annot_name(first) else {
+        malformed(out, first.text_range());
+        return;
+    };
+    if !EXTERNAL_TARGETS.contains(&target.as_str()) {
+        error(
+            out,
+            first.text_range(),
+            DiagnosticCode::UnknownExternalTarget,
+            &format!("unknown target `{target}` in `@export`: expected `js`, `wasm` or `c`"),
+        );
+    }
+    let mut strings = true;
+    for arg in rest {
+        match annot_string(arg) {
+            Some(true) => {}
+            Some(false) => {
+                strings = false;
+                error(
+                    out,
+                    arg.text_range(),
+                    DiagnosticCode::MalformedExport,
+                    "string interpolation is not allowed in `@export`",
+                );
+            }
+            None => {
+                strings = false;
+                malformed(out, arg.text_range());
+            }
+        }
+    }
+    if !(1..=2).contains(&rest.len()) {
+        malformed(out, annotation.text_range());
+    } else if target == "c" && rest.len() == 2 {
+        // `[target.c.export]` gives only `@export(c, "name")` a meaning.
+        error(
+            out,
+            annotation.text_range(),
+            DiagnosticCode::MalformedExport,
+            "on target `c`, `@export` takes one name: `@export(c, \"name\")`",
+        );
+    } else if strings
+        && target == "js"
+        && let [name] = rest
+        && string_value(name).as_deref() == Some("default")
+    {
+        // `(js, "default")` would be the default export itself, the object that the
+        // three-argument form adds properties to.
+        error(
+            out,
+            name.text_range(),
+            DiagnosticCode::MalformedExport,
+            "on target `js`, the name `\"default\"` is the default export: write `@export(js, \"default\", \"name\")`",
+        );
+    } else if strings
+        && target == "js"
+        && let [interface, _] = rest
+        && string_value(interface).as_deref() != Some("default")
+    {
+        error(
+            out,
+            interface.text_range(),
+            DiagnosticCode::MalformedExport,
+            "on target `js`, the middle argument of `@export` must be `\"default\"`",
+        );
+    }
+}
+
+/// The text of a string argument without interpolation, as written (escapes are not decoded;
+/// `"default"` has none).
+fn string_value(arg: &SyntaxNode) -> Option<String> {
+    let string = child_kind(arg, STRING)?;
+    Some(
+        string
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == STRING_TEXT)
+            .map(|t| t.text().to_owned())
+            .collect(),
+    )
+}
+
+/// Whether the annotation's name (the token after `@`) is `name`.
+fn is_named(annotation: &SyntaxNode, name: &str) -> bool {
+    annotation
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == LOWER_NAME)
+        .is_some_and(|t| t.text() == name)
 }
 
 /// The name of an annotation argument that is a bare name (`js`).

@@ -6,7 +6,7 @@ fn fixture(heap_bytes: u32) -> Output {
             "main.emel",
             include_str!("../../examples/support/fiber_child_reclaim.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = compile(
@@ -220,7 +220,7 @@ int main(void) {
 #[test]
 fn failed_handleless_children_release_records_while_scope_waits_for_sibling_cleanup() {
     let source = include_str!("../../examples/support/fiber_child_failure_reclaim.emel");
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut output = compile(
         &core,
         &options()

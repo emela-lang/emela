@@ -11,7 +11,7 @@ pub fn message(text: String) -> String {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let output = compile(&core, &Options::default().with_string_capacity(64)).unwrap();

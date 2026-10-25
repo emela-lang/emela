@@ -82,7 +82,7 @@ effect Sensor { fn read(a: Int64, b: Float) -> Float }
 handler BoardSensor: Sensor { fn read(a,b) { mix(a,b) } }
 pub fn read(a: Int64, b: Float) -> Float { with BoardSensor { (use Sensor).read(a,b) } }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let output = compile(&core, &Options::default().with_heap_bytes(1024)).unwrap();
     compile_and_run(
         output,

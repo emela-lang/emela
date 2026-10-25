@@ -1,0 +1,49 @@
+# @export の引数の形（12.7，16.6.2）と qualified の形（17.3）．
+@export
+fn no_args() -> () {}
+
+@export(js)
+fn no_string() -> () {}
+
+@export(js, "a", "b", "c")
+fn three_strings() -> () {}
+
+@export(js, 1)
+fn int_arg() -> () {}
+
+@export("add")
+fn string_first() -> () {}
+
+@export(jvm, "a")
+fn unknown_target() -> () {}
+
+@export(js, "#{x}")
+fn interpolated() -> () {}
+
+@export(js, "module", "add")
+fn js_not_default() -> () {}
+
+@export(c, "lib", "add")
+fn c_three() -> () {}
+
+@export(js, "a")
+@export(js, "b")
+fn two_names() -> () {}
+
+@export(Http.serve)
+fn path_arg() -> () {}
+
+@export(js, "a")
+fn no_body() -> ()
+
+@export(js, "a")
+type NotFn(x: Int)
+
+@entry(Http)
+fn type_only() -> () {}
+
+@entry(Http.)
+fn trailing_dot() -> () {}
+
+@export(js, "default")
+fn default_name() -> () {}

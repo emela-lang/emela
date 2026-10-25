@@ -3,7 +3,9 @@
 //! Functions that reach a suspend operation become generators (spec 16.5). The JS runtime is
 //! embedded with `include_str!` and written out alongside the output.
 //!
-//! The output is an ES module. Public functions are exported under their Emela names.
+//! The output is an ES module. `main` and the test functions are exported under their Emela names
+//! for the launcher and the test runner; the fns with `@export(js, ...)` are exported under their
+//! host names, as named exports or properties of the default export (`[target.js.module]`).
 //!
 //! # Value representation
 //!

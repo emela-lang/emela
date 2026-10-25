@@ -29,7 +29,7 @@ void emela_board_debug(const char *text, uint16_t length) { (void)text; (void)le
 "#;
 
 fn fixture(source: &str) -> Output {
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     assert_eq!(flow.stage, emela_lir::Stage::Flow);
     emela_codegen_emb::verify_flow(&flow).unwrap();

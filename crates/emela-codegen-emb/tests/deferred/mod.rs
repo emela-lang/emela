@@ -16,7 +16,7 @@ fn deferred_constructor_reuses_slots_and_scope_only_programs_omit_the_pool() {
             "main.emel",
             "import Std.Fiber.{Fiber, Scope}\nimport Std.Deferred.{Deferred}\npub fn work() -> () use Async {\n  Fiber.scope(fn() {\n    d: Deferred[Int] = (use Scope).deferred()\n    ()\n  })\n}\n",
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let output = compile(&core, &options().with_deferred_capacity(1)).unwrap();
@@ -45,7 +45,7 @@ int main(void) {
             .iter()
             .any(|e| e.kind == ErrorKind::InvalidOptions)
     );
-    let scope = support::try_lower(&[("main.emel", "import Std.Fiber.{Fiber}\npub fn work() -> Int use Async { Fiber.scope(fn() { 1 }) }\n")], Roots::Exported).unwrap();
+    let scope = support::try_lower(&[("main.emel", "import Std.Fiber.{Fiber}\npub fn work() -> Int use Async { Fiber.scope(fn() { 1 }) }\n")], Roots::Public).unwrap();
     let output = compile(&scope, &options().with_deferred_capacity(0)).unwrap();
     assert!(
         !output.files.iter().any(|f| f.path == "emela_embedded.c"
@@ -163,7 +163,7 @@ pub fn cycle() -> Bool use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -206,7 +206,7 @@ pub fn leak() -> (fn() -> Bool) use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -286,7 +286,7 @@ pub fn poll(n: Int) -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -342,7 +342,7 @@ pub fn text(n: Int) -> String use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -411,7 +411,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -463,7 +463,7 @@ pub fn list(n: Int) -> List[Int] use Async {
 pub fn length(xs: List[Int]) -> Int { List.length(xs) }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -539,7 +539,7 @@ pub fn cancel(early: Bool) -> Int use Async {
   }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(
             &core,
@@ -608,7 +608,7 @@ pub fn real(n: Float) -> Float use Async {
   })
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_deferred_capacity(1)).unwrap(),
         r#"
@@ -665,7 +665,7 @@ pub fn boundary() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -708,7 +708,7 @@ pub fn full() -> Bool use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -755,7 +755,7 @@ pub fn leak() -> (fn() -> {ret}) use Async {{
 {invoke}
 "#
         );
-        let core = support::try_lower(&[("main.emel", &source)], Roots::Exported).unwrap();
+        let core = support::try_lower(&[("main.emel", &source)], Roots::Public).unwrap();
         let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
         let ty = flow
             .functions
@@ -831,7 +831,7 @@ pub fn flag(n: Bool) -> Bool use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(

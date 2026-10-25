@@ -128,6 +128,19 @@ impl Dumper<'_> {
                         .collect();
                     header.push_str(&format!("({})", args.join(", ")));
                 }
+                for ext in &f.exports {
+                    let args: Vec<String> = std::iter::once(ext.target.to_string())
+                        .chain(ext.args.iter().map(|a| format!("{a:?}")))
+                        .collect();
+                    header.push_str(&format!(" export({})", args.join(", ")));
+                }
+                for entry in &f.entries {
+                    let adapter = match entry.adapter {
+                        Some(res) => self.res(res),
+                        None => "?".to_owned(),
+                    };
+                    header.push_str(&format!(" entry({adapter})"));
+                }
                 self.line(0, header);
                 self.fn_body(1, &f.sig, f.body);
             }

@@ -364,7 +364,28 @@ void em_run(em_word (*entry)(void), int32_t repr);
 
 /* ---- The program ---- */
 
+/* Starts the runtime. Later calls do nothing: an exported function called before main starts it
+ * (`[target.c.export]`). */
 void em_start(int argc, char **argv);
+
+/* ---- Exported functions (`[target.c.export]`) ----
+ *
+ * The C function of an exported function calls `em_export_enter`, stores its arguments, runs a
+ * thunk with `em_run` (one launch) and then calls `em_export_leave`. The thunk converts the
+ * arguments, calls the Emela function and converts its value back, so a defect while converting
+ * is a defect of the launch. */
+
+/* A call while a launch is running on this thread is a defect, reported as main's defect is
+ * (`defect: ...`, exit code 101). Otherwise starts the runtime if it has not started. */
+void em_export_enter(const char *function);
+/* Ends the process as main's end does if the launch ended with a defect. */
+void em_export_leave(void);
+/* A String from a string the host owns (copied; invalid UTF-8 becomes U+FFFD). NULL is a defect
+ * naming the exported function, and returns NULL. */
+em_ref em_from_export_string(const char *s, const char *function);
+/* A `malloc`ed NUL-terminated copy of `s` for the host, consuming `s`. U+0000 is a defect, and
+ * returns NULL. */
+char *em_to_export_string(em_ref s);
 /* Reports how the test function that just returned ended, as a line of the test runner protocol
  * on stdout, and clears a pending defect or failure. */
 void em_test_result(const char *name);

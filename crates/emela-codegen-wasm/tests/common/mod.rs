@@ -56,10 +56,10 @@ pub fn compile_checked(src: &str) -> Vec<u8> {
     bytes
 }
 
-/// Compiles the exported functions `tests` of `src` as test functions ([`Entry::Tests`]),
-/// validating the module with `wasmparser`.
+/// Compiles the functions `tests` of `src` as test functions ([`Entry::Tests`]), validating the
+/// module with `wasmparser`.
 pub fn compile_tests_checked(src: &str, tests: &[&str]) -> Vec<u8> {
-    let m = support::try_lower(&[("main.emel", src)], Roots::Exported)
+    let m = support::try_lower(&[("main.emel", src)], Roots::All)
         .unwrap_or_else(|e| panic!("lowering failed: {e:#?}"));
     let tests = tests
         .iter()
@@ -68,9 +68,9 @@ pub fn compile_tests_checked(src: &str, tests: &[&str]) -> Vec<u8> {
             function: m
                 .functions
                 .iter()
-                .find(|(_, f)| f.exported && f.name == name)
+                .find(|(_, f)| f.name == name)
                 .map(|(id, _)| id)
-                .unwrap_or_else(|| panic!("no exported function `{name}`")),
+                .unwrap_or_else(|| panic!("no function `{name}`")),
         })
         .collect();
     let bytes = compile(&m, &Entry::Tests(tests))

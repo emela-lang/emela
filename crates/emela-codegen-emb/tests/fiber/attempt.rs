@@ -12,7 +12,7 @@ pub fn attempt(n: Int) -> Int {
  }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(1024)).unwrap(),
         r#"
@@ -59,7 +59,7 @@ pub fn attempt(n: Int) -> Int use Async {
  }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(4096)).unwrap(),
         r#"
@@ -107,7 +107,7 @@ pub fn attempt(n: Int) -> Int {
  }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(2048)).unwrap(),
         r#"
@@ -139,7 +139,7 @@ pub fn stopped() -> Int {
  }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options()).unwrap(),
         r#"

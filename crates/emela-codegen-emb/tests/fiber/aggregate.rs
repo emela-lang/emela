@@ -6,7 +6,7 @@ fn fixture() -> (Output, usize, usize) {
             "main.emel",
             include_str!("../../examples/support/aggregate_suspend.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -49,7 +49,7 @@ fn deferred_complete_poll_and_await_share_owned_string_aggregates_past_scope_end
             "main.emel",
             include_str!("../../examples/support/deferred_aggregate.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -361,7 +361,7 @@ fn native_string_enum_producers_use_owned_backing_and_heapless_borrowed_tuples_s
             "main.emel",
             "pub fn encoded(n: Int) -> Option[String] { String.from_code_point(n) }\n",
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -409,7 +409,7 @@ int main(void) {{
         ),
     );
 
-    let core = support::try_lower(&[("main.emel", "pub fn identity(pair: (String, Option[String])) -> (String, Option[String]) { pair }\n")], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", "pub fn identity(pair: (String, Option[String])) -> (String, Option[String]) { pair }\n")], Roots::Public).unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     let ty = flow
         .functions

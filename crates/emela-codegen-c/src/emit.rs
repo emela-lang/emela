@@ -29,8 +29,9 @@ use crate::{CError, CErrorKind, COutput, RUNTIME_H_FILE};
 
 /// What the generated `main` runs.
 pub(crate) enum Run {
-    /// The entry's `main` (its monomorphized copy), if any.
-    Main(Option<FnId>),
+    /// The entry's `main` (its monomorphized copy), if any, and the exported fns (their copies)
+    /// with their host names (`[target.c.export]`).
+    Main(Option<FnId>, Vec<(FnId, Vec<String>)>),
     /// Test functions, with their names.
     Tests(Vec<(String, FnId)>),
 }
@@ -87,7 +88,10 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<COutput, Vec<CError>> {
         bodies.blank();
     }
     match entry {
-        Run::Main(main) => e.c_main(&mut bodies, *main),
+        Run::Main(main, exports) => {
+            e.c_exports(&mut bodies, exports);
+            e.c_main(&mut bodies, *main);
+        }
         Run::Tests(tests) => e.c_test_main(&mut bodies, tests),
     }
     if !e.errors.is_empty() {
@@ -1607,6 +1611,166 @@ impl<'m> Emitter<'m> {
         });
         out.blank();
         (thunk, ret)
+    }
+
+    /// The C functions of the exported fns (`[target.c.export]`): for each host name, a function
+    /// with external linkage and the prototype of the table in `[ext.boundary]`. It stores its
+    /// arguments in statics and runs a thunk as one launch; the thunk converts them, calls the fn
+    /// and stores the converted value. A fn with a callback is not supported yet.
+    fn c_exports(&mut self, out: &mut Writer, exports: &[(FnId, Vec<String>)]) {
+        for (id, names) in exports {
+            let f = &self.m.functions[*id];
+            let fname = self.fn_names[ix(*id)].clone();
+            let shown = display_name(&f.name).to_owned();
+            let mut params = Vec::new();
+            let mut ok = true;
+            for &p in &f.params {
+                match self.host_ty(f.vars[p].ty) {
+                    Some(t) => params.push((p, t)),
+                    None => {
+                        self.export_type_error(&shown, f.vars[p].ty);
+                        ok = false;
+                    }
+                }
+            }
+            let ret_ty = if f.ret == TypeId::UNIT || f.ret == TypeId::NEVER {
+                Some(HostTy::Unit)
+            } else {
+                self.host_ty(f.ret)
+            };
+            let Some(ret_ty) = ret_ty else {
+                self.export_type_error(&shown, f.ret);
+                continue;
+            };
+            if !ok {
+                continue;
+            }
+            let arg = |i: usize| format!("{fname}_xa{i}");
+            let result = format!("{fname}_xr");
+            for (i, (_, t)) in params.iter().enumerate() {
+                if *t != HostTy::Unit {
+                    let ty = if *t == HostTy::String {
+                        "const char *"
+                    } else {
+                        t.param()
+                    };
+                    self.statics.decl(&format!("static {ty}"), &arg(i), None);
+                }
+            }
+            if ret_ty != HostTy::Unit {
+                self.statics
+                    .decl(&format!("static {}", ret_ty.ret()), &result, None);
+            }
+            let thunk = format!("{fname}_xthunk");
+            let name_lit = names::string_literal(shown.as_bytes());
+            let ret = self.repr(f.ret);
+            let no_args: [&str; 0] = [];
+            out.static_func(&signature("em_word", &thunk, no_args), |w| {
+                w.decl("em_word", "w", None);
+                w.assign("w.l", "0");
+                let mut args = Vec::new();
+                let mut strings: Vec<String> = Vec::new();
+                for (i, (p, t)) in params.iter().enumerate() {
+                    let a = arg(i);
+                    args.push(match t {
+                        HostTy::String => {
+                            let s = format!("s{i}");
+                            w.decl(
+                                "em_ref",
+                                &s,
+                                Some(&call(
+                                    "em_from_export_string",
+                                    [a.as_str(), name_lit.as_str()],
+                                )),
+                            );
+                            w.if_begin(&format!("{s} == NULL"));
+                            for earlier in &strings {
+                                w.stmt(&call("em_drop", [earlier.as_str()]));
+                            }
+                            w.ret(Some("w"));
+                            w.end();
+                            strings.push(s.clone());
+                            s
+                        }
+                        HostTy::Bool => format!("({a} ? 1 : 0)"),
+                        HostTy::Handle => call("em_host_box", [&a]),
+                        HostTy::Unit => dummy(self.m.functions[*id].vars[*p].repr)
+                            .unwrap_or("0")
+                            .to_owned(),
+                        _ => a,
+                    });
+                }
+                let value = call(&fname, &args);
+                if ret == Repr::Void {
+                    w.stmt(&value);
+                    return w.ret(Some("w"));
+                }
+                w.decl(cty(ret), "r", Some(&value));
+                w.if_return("em_defect != NULL", Some("w"));
+                match ret_ty {
+                    HostTy::Unit => {}
+                    HostTy::String => w.assign(&result, &call("em_to_export_string", ["r"])),
+                    HostTy::Bool => w.assign(&result, "(r != 0)"),
+                    HostTy::Handle => {
+                        w.assign(&result, &call("em_host_get", ["r"]));
+                        w.stmt(&call("em_drop", ["r"]));
+                    }
+                    _ => w.assign(&result, "r"),
+                }
+                w.ret(Some("w"));
+            });
+            out.blank();
+            for name in names {
+                if !names::is_c_identifier(name) {
+                    self.errors.push(CError::new(
+                        CErrorKind::Unsupported,
+                        format!(
+                            "`{name}` in `@export(c, ...)` of `{shown}` is not a C function name"
+                        ),
+                    ));
+                    continue;
+                }
+                let c_params: Vec<String> = params
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (_, t))| *t != HostTy::Unit)
+                    .map(|(i, (_, t))| param(t.param(), &format!("a{i}")))
+                    .collect();
+                let c_params = if c_params.is_empty() {
+                    vec!["void".to_owned()]
+                } else {
+                    c_params
+                };
+                out.func(&signature(ret_ty.ret(), name, c_params), |w| {
+                    w.stmt(&call("em_export_enter", [name_lit.as_str()]));
+                    for (i, (_, t)) in params.iter().enumerate() {
+                        if *t != HostTy::Unit {
+                            w.assign(&arg(i), &format!("a{i}"));
+                        }
+                    }
+                    w.stmt(&call("em_run", [thunk.as_str(), "EM_REPR_VOID"]));
+                    w.stmt("em_export_leave()");
+                    if ret_ty != HostTy::Unit {
+                        w.ret(Some(&result));
+                    }
+                });
+                out.blank();
+            }
+        }
+    }
+
+    fn export_type_error(&mut self, function: &str, ty: TypeId) {
+        // Not E0427, which is about external functions: an exported fn with a callback has no
+        // code of its own yet (the form of callbacks in C is open, 18.1 #38).
+        let what = if matches!(self.core().ty(ty), Type::Fn(_)) {
+            format!(
+                "exported function `{function}` takes a callback, which target `c` does not support yet"
+            )
+        } else {
+            let name = emela_lir::core_ty(self.core(), ty);
+            format!("exported function `{function}` uses the type {name}, which cannot cross to C")
+        };
+        self.errors.push(CError::new(CErrorKind::Unsupported, what));
     }
 
     /// `int main(int argc, char **argv)`: starts the runtime, runs `body` and exits.

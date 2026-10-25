@@ -60,7 +60,7 @@ fn returned_list_owns_formatted_strings_after_the_producer_stack_returns() {
             "main.emel",
             include_str!("../../examples/support/owned_payload.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = compile(&core, &Options::default().with_heap_bytes(1024)).unwrap();

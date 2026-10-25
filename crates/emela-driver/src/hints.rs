@@ -136,7 +136,8 @@ impl Hints<'_> {
         let mut locals: Vec<LocalId> = Vec::new();
         let mut calls: Vec<ExprId> = Vec::new();
         for (_, expr) in hir.exprs.iter() {
-            if expr.span.module != self.module {
+            // The fns `@entry` makes have empty spans and no source to show hints in.
+            if expr.span.module != self.module || expr.span.range.is_empty() {
                 continue;
             }
             match &expr.kind {

@@ -1,0 +1,66 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"import Http\n\n@export(js, \"add\")\n@export(js, \"default\", \"add\")\n@export(c, \"add\")\npub fn add(a: Int, b: Int) -> Int { a + b }\n\n@export(js, \"default\", \"run\")\nfn local(app: fn(Int) -> Int, x: Int) -> Int { app(x) }\n\n@entry(local)\n@entry(Http.serve)\nfn app(x: Int) -> Int { x }\n\n@entry(missing)\nfn unknown(x: Int) -> Int { x }\n\n@entry(Http.missing)\nfn unknown_member(x: Int) -> Int { x }\n\n@entry\nfn no_arg(x: Int) -> Int { x }\n\n@entry(\"serve\")\nfn string_arg(x: Int) -> Int { x }\n\"##,),\n(\"http.emel\",\nr##\"@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int, x: Int) -> Int { app(x) }\n\"##,),])"
+---
+== Http (src/http.emel)
+fn Http.serve pub export(js, "default", "fetch")
+  param app#0: fn(Int) -> Int
+  param x#1: Int
+  ret Int
+  body
+    block
+      call
+        app#0
+        x#1
+== Main (src/main.emel)
+fn Main.add pub export(js, "add") export(js, "default", "add") export(c, "add")
+  param a#0: Int
+  param b#1: Int
+  ret Int
+  body
+    block
+      Add
+        a#0
+        b#1
+fn Main.local export(js, "default", "run")
+  param app#2: fn(Int) -> Int
+  param x#3: Int
+  ret Int
+  body
+    block
+      call
+        app#2
+        x#3
+fn Main.app entry(Main.local) entry(Http.serve)
+  param x#4: Int
+  ret Int
+  body
+    block
+      x#4
+fn Main.unknown entry(<error>)
+  param x#5: Int
+  ret Int
+  body
+    block
+      x#5
+fn Main.unknown_member entry(<error>)
+  param x#6: Int
+  ret Int
+  body
+    block
+      x#6
+fn Main.no_arg entry(?)
+  param x#7: Int
+  ret Int
+  body
+    block
+      x#7
+fn Main.string_arg entry(?)
+  param x#8: Int
+  ret Int
+  body
+    block
+      x#8
+== diagnostics
+error src/main.emel@281..288 `missing`: undefined value `missing`
+error src/main.emel@335..342 `missing`: `Http` has no `missing`
