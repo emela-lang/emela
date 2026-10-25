@@ -346,6 +346,70 @@ impl InferCtx {
         }
     }
 
+    /// Whether the inclusion constraints collected so far all hold (with the least solution of
+    /// their set variables). Used where a function type must fit another outside body inference,
+    /// such as `@entry` matching (E0440, spec 12.8).
+    pub(crate) fn subsets_hold(&mut self) -> bool {
+        let subsets = self.subsets.clone();
+        if subsets.is_empty() {
+            return true;
+        }
+        let mut solution: FxHashMap<RowVar, Row> = FxHashMap::default();
+        for _ in 0..64 {
+            self.set_row_solution(solution.clone());
+            let mut changed = false;
+            let mut violation = false;
+            for c in &subsets {
+                let sub = self.resolve_row(&c.sub);
+                let sup = self.resolve_row(&c.sup);
+                let missing: Vec<RowElem> = sub
+                    .elems()
+                    .iter()
+                    .filter(|e| !self.elem_in_row(&sup, e))
+                    .cloned()
+                    .collect();
+                if missing.is_empty() {
+                    continue;
+                }
+                match sup.vars().next() {
+                    Some(v) => {
+                        let lower = solution.entry(v).or_default();
+                        for e in missing {
+                            if !lower.contains(&e) {
+                                lower.insert(e);
+                                changed = true;
+                            }
+                        }
+                    }
+                    None => violation = true,
+                }
+            }
+            if violation {
+                return false;
+            }
+            if !changed {
+                break;
+            }
+        }
+        self.set_row_solution(solution);
+        for c in &subsets {
+            let sub = self.resolve_row(&c.sub);
+            let sup = self.resolve_row(&c.sup);
+            let missing = sub.elems().iter().any(|e| !self.elem_in_row(&sup, e));
+            if missing && sup.vars().next().is_none() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn elem_in_row(&mut self, row: &Row, e: &RowElem) -> bool {
+        match e {
+            RowElem::Tag(t) => self.row_has_tag(row, t),
+            e => row.contains(e),
+        }
+    }
+
     /// The form for error reports. Undetermined integer-literal type variables are shown as
     /// `Int`, since that is what they default to. Unsolved set variables are omitted, since they
     /// play no part in explaining a type mismatch.

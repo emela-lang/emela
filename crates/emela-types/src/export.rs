@@ -17,6 +17,7 @@ use smol_str::SmolStr;
 use crate::diagnostic::{BoundaryPosition, Diagnostic, DiagnosticKind};
 use crate::infer::InferCtx;
 use crate::lower::TyTable;
+use crate::row::RowElem;
 use crate::signature::{Signature, Signatures};
 use crate::ty::{Prim, Ty, TyConKind};
 
@@ -46,6 +47,8 @@ pub(crate) fn check(
         };
         let adapter = is_entry_adapter(sig);
         if !item.exports.is_empty() {
+            // The E of an `@export` fn MUST be empty, entry adapter or not (E0402, spec 12.7).
+            diags.extend(fails_errors(program, def, sig, ty_table));
             let boundary = if adapter {
                 boundary_errors(program, def, item, sig, ty_table, 1)
             } else {
@@ -138,6 +141,44 @@ fn key_of(export: &emela_resolve::hir::ExportAttr) -> Option<ExportKey> {
     }
 }
 
+/// E0402 for a non-empty E on an `@export` fn. The declared E is what the fn may fail with, so a
+/// written `fails` clause is enough to reject it even when the body never fails.
+fn fails_errors(
+    program: &Program,
+    def: DefId,
+    sig: &Signature,
+    ty_table: &TyTable,
+) -> Vec<Diagnostic> {
+    let Some(f) = fn_ty(sig) else {
+        return Vec::new();
+    };
+    if f.fails.is_empty() {
+        return Vec::new();
+    }
+    let errors: Vec<SmolStr> = f
+        .fails
+        .elems()
+        .iter()
+        .map(|e| match e {
+            RowElem::Tag(t) => program.defs[t.def].name.clone(),
+            RowElem::Of(ty) => SmolStr::new(ty.display(&ty_table.cons).to_string()),
+            RowElem::Bound(i) => sig
+                .scheme
+                .params
+                .get(*i as usize)
+                .map_or_else(|| SmolStr::new("?"), |p| p.name.clone()),
+            RowElem::Var(v) => SmolStr::new(format!("?e{}", v.index())),
+        })
+        .collect();
+    vec![Diagnostic {
+        span: program.defs[def].span,
+        kind: DiagnosticKind::ExportFails {
+            function: program.defs[def].name.clone(),
+            errors,
+        },
+    }]
+}
+
 /// Whether the first parameter of `sig` has a function type (spec 12.8).
 fn is_entry_adapter(sig: &Signature) -> bool {
     match &sig.scheme.ty {
@@ -170,7 +211,7 @@ fn fits(sigs: &Signatures, adapter: DefId, f: DefId) -> bool {
         return false;
     };
     let f_ty = ctx.instantiate(&f_sig.scheme);
-    ctx.unify(first, &f_ty).is_ok()
+    ctx.unify(first, &f_ty).is_ok() && ctx.subsets_hold()
 }
 
 /// E0436 for the parameters of `sig` from `skip` and its return value. `skip` is 1 for an entry
@@ -196,7 +237,10 @@ fn boundary_errors(
             span: span.or(program.defs[def].span),
             kind: DiagnosticKind::NotBoundaryType {
                 function: function.clone(),
-                ty: SmolStr::new(ty.display(&ty_table.cons).to_string()),
+                ty: SmolStr::new(
+                    ty.display_with(&ty_table.cons, &sig.scheme.params)
+                        .to_string(),
+                ),
                 position,
             },
         });

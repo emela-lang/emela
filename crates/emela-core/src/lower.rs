@@ -58,18 +58,13 @@ pub enum LowerError {
     /// host files (`LowerInput::bundled_files`). An error in the bundled sources. `path` is the
     /// specifier as written.
     MissingCoreFile { path: String, span: Option<Span> },
-    /// An exported fn of the entry has a type parameter with a trait bound (E0327, appendix B):
-    /// JS could call it at any type, so no impl can be chosen for it. Reported only for the JS
-    /// target, the one that exports the entry's `pub` fns. `span` is the position of the function
-    /// name.
-    ConstrainedExport {
-        name: String,
-        param: String,
-        span: Option<Span>,
-    },
     /// An exported fn may suspend, which the `c` target does not support (E0441, spec 16.7.6).
     /// `span` is the position of the function name.
     SuspendingExport { name: String, span: Option<Span> },
+    /// A user-written `@export(wasm, ...)` (spec 16.8.3). A component exports only its WIT world;
+    /// the entry adapters of the bundled `Std` are exposed by the runtime. `span` is the position
+    /// of the function name.
+    UnsupportedWasmExport { name: String, span: Option<Span> },
 }
 
 /// Which fns lowering starts from.
@@ -165,9 +160,6 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     };
     cx.declare_enums();
     cx.define_ctors();
-    if roots == Roots::Exported && input.target == Some("js") {
-        cx.check_constrained_exports();
-    }
     for (_, items) in hir.modules.iter() {
         for &def in &items.items {
             let is_root = match (roots, hir.item(def)) {
@@ -197,6 +189,9 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     cx.set_export_metadata();
     if input.target == Some("c") {
         cx.check_suspending_exports();
+    }
+    if input.target == Some("wasm") {
+        cx.check_unsupported_wasm_exports();
     }
     cx.builtin_impls();
     cx.trait_impls();
@@ -3362,12 +3357,22 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// Whether to export in JS: the entry module's `pub` fns and `main` (called by the entry
-    /// module). Test functions are excluded (for `emela test`, the test runner exports them).
-    /// Whether `def` is a fn the entry exports: `pub` or `main`, but not a test function, and not
-    /// one with a trait-bounded type parameter (E0327 on JS; on C and WASM only main is used).
+    /// Whether `def` is a fn the entry exports implicitly (`pub` or `main`); test functions are
+    /// excluded. No target exports these to the host any more (spec 16.6.2); they stay as the
+    /// roots of `Roots::Exported` for lowering. Explicit `@export` fns are roots in
+    /// [`Lowerer::is_root`].
     fn is_exported(&self, def: DefId) -> bool {
         self.exports(def) && self.bounded_param(def).is_none()
+    }
+
+    /// The name of the first type parameter of `def` with a trait bound.
+    fn bounded_param(&self, def: DefId) -> Option<&str> {
+        let sig = self.types.sigs.get(def)?;
+        sig.scheme
+            .params
+            .iter()
+            .find(|p| !p.traits.is_empty())
+            .map(|p| p.name.as_str())
     }
 
     /// Whether lowering starts from `def`: an implicitly exported fn of the entry (the old rule),
@@ -3410,6 +3415,7 @@ impl<'a> Lowerer<'a> {
                         interface,
                         name,
                         bundled,
+                        via_entry: false,
                     })
                 })
                 .collect();
@@ -3436,7 +3442,8 @@ impl<'a> Lowerer<'a> {
         }
         // The exports of an adapter are what the entry exposes. Copy them to the fn of the entry
         // so a backend sees one place to export from (spec 12.8). A second pass, because the
-        // adapter may come later in declaration order.
+        // adapter may come later in declaration order. The fn may have its own `@export`s too
+        // (12.7), so merge rather than replace.
         let entries: Vec<(FnId, FnId)> = self
             .module
             .functions
@@ -3444,7 +3451,53 @@ impl<'a> Lowerer<'a> {
             .filter_map(|(id, f)| Some((id, f.entry_adapter?)))
             .collect();
         for (id, adapter) in entries {
-            self.module.functions[id].exports = self.module.functions[adapter].exports.clone();
+            let adapter_exports = self.module.functions[adapter].exports.clone();
+            let exports = &mut self.module.functions[id].exports;
+            for mut export in adapter_exports {
+                export.via_entry = true;
+                if !exports.iter().any(|e| {
+                    e.target == export.target
+                        && e.interface == export.interface
+                        && e.name == export.name
+                }) {
+                    exports.push(export);
+                }
+            }
+        }
+    }
+
+    /// Reports a user-written `@export(wasm, ...)` (spec 16.8.3). Checked in lowering, where every
+    /// function is still present and the bundled files are known, so an unreachable export is
+    /// reported too; `emela-codegen-wasm` only sees the functions reachable from the entry.
+    fn check_unsupported_wasm_exports(&mut self) {
+        let mut found = Vec::new();
+        for (def, data) in self.hir.defs.iter() {
+            let Some(Item::Fn(f)) = self.hir.item(def) else {
+                continue;
+            };
+            if !f.exports.iter().any(|e| e.target == "wasm") {
+                continue;
+            }
+            // The bundled core's entry adapters are exposed by the runtime (spec 16.8.3).
+            let bundled = match data.module {
+                DefModule::Source(m) => self.modules.is_core(m),
+                _ => false,
+            };
+            if !bundled {
+                found.push(def);
+            }
+        }
+        found.sort_by_key(|&def| {
+            self.hir.defs[def]
+                .span
+                .map(|s| (s.module.into_raw().into_u32(), s.range.start()))
+        });
+        found.dedup();
+        for def in found {
+            self.errors.push(LowerError::UnsupportedWasmExport {
+                name: self.hir.defs[def].name.to_string(),
+                span: self.hir.defs[def].span,
+            });
         }
     }
 
@@ -3454,7 +3507,8 @@ impl<'a> Lowerer<'a> {
     fn check_suspending_exports(&mut self) {
         let mut found = Vec::new();
         for (id, f) in self.module.functions.iter() {
-            if f.exports.is_empty() || f.is_entry_adapter {
+            // Only a `c` export is affected: a `js` or `wasm` export of the same fn may suspend.
+            if f.is_entry_adapter || !f.exports.iter().any(|e| e.target == "c") {
                 continue;
             }
             let suspends = f.suspends
@@ -3491,36 +3545,6 @@ impl<'a> Lowerer<'a> {
                 .is_some_and(|entry| data.module == DefModule::Source(entry))
             && (data.is_pub || data.name == "main")
             && !self.tests.contains(&def)
-    }
-
-    /// The name of the first type parameter of `def` with a trait bound.
-    fn bounded_param(&self, def: DefId) -> Option<&str> {
-        let sig = self.types.sigs.get(def)?;
-        sig.scheme
-            .params
-            .iter()
-            .find(|p| !p.traits.is_empty())
-            .map(|p| p.name.as_str())
-    }
-
-    /// Reports the entry's exported fns with a trait-bounded type parameter (E0327, appendix B),
-    /// in declaration order.
-    fn check_constrained_exports(&mut self) {
-        let Some(items) = self.entry.and_then(|entry| self.hir.modules.get(entry)) else {
-            return;
-        };
-        for &def in &items.items {
-            if !matches!(self.hir.item(def), Some(Item::Fn(_))) || !self.exports(def) {
-                continue;
-            }
-            if let Some(param) = self.bounded_param(def) {
-                self.errors.push(LowerError::ConstrainedExport {
-                    name: self.hir.defs[def].name.to_string(),
-                    param: param.to_owned(),
-                    span: self.hir.defs[def].span,
-                });
-            }
-        }
     }
 }
 

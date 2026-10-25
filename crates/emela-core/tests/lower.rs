@@ -3,7 +3,7 @@
 mod support;
 
 use emela_core::{EnumDef, Expr, Module, Roots, Type, TypeId, VariantFields, dump};
-use support::{lower_files, try_lower, try_lower_with};
+use support::{lower_files, try_lower, try_lower_target, try_lower_with};
 
 /// Renders an enum definition as `Name[2] { Ctor(first: A, second: B), Unit }`, with type
 /// parameters as `A`, `B`, ….
@@ -998,6 +998,79 @@ fn export_and_entry_are_kept_in_the_ir() {
         .map(|e| (e.target.as_str(), e.interface.as_deref(), e.name.as_str()))
         .collect();
     assert_eq!(exported, [("js", Some("default"), "fetch")]);
+}
+
+/// A non-`pub` `@export` and an entry adapter in a dependency are monomorphisation roots, so a
+/// build keeps them (spec 12.7, 12.8). The target is set, as in the driver.
+#[test]
+fn explicit_exports_are_monomorphisation_roots() {
+    let m = try_lower_target(
+        &[
+            (
+                "main.emel",
+                "import Http\n\n@export(js, \"add\")\nfn add(a: Int, b: Int) -> Int { a + b }\n\n@entry(Http.serve)\npub fn app(n: Int) -> Int { n }\n\nfn main() { () }\n",
+            ),
+            (
+                "http.emel",
+                "@export(js, \"default\", \"fetch\")\npub fn serve(f: fn(Int) -> Int fails {} use {}) -> Int { f(1) }\n",
+            ),
+        ],
+        Roots::Exported,
+        Some("js"),
+    )
+    .expect("the exports are well formed");
+    let by_name = |name: &str| {
+        m.functions
+            .iter()
+            .find(|(_, f)| f.name == name)
+            .unwrap_or_else(|| panic!("no `{name}`: {:?}", fn_names(&m)))
+    };
+    let (_, add) = by_name("add");
+    assert_eq!(
+        add.exports
+            .iter()
+            .map(|e| (e.target.as_str(), e.name.as_str()))
+            .collect::<Vec<_>>(),
+        [("js", "add")]
+    );
+    let (serve_id, serve) = by_name("Http.serve");
+    assert!(serve.is_entry_adapter, "the dependency adapter is kept");
+    let (_, app) = by_name("app");
+    assert_eq!(app.entry_adapter, Some(serve_id));
+    assert_eq!(
+        app.exports
+            .iter()
+            .map(|e| (e.target.as_str(), e.interface.as_deref(), e.name.as_str()))
+            .collect::<Vec<_>>(),
+        [("js", Some("default"), "fetch")]
+    );
+}
+
+/// A non-`pub` `@export(c, ...)` is a root on the C target too.
+#[test]
+fn c_exports_are_monomorphisation_roots() {
+    let m = try_lower_target(
+        &[(
+            "main.emel",
+            "@export(c, \"TIM2_IRQHandler\")\nfn on_tick() -> () { () }\n\nfn main() { () }\n",
+        )],
+        Roots::Exported,
+        Some("c"),
+    )
+    .expect("the export is well formed");
+    let (_, on_tick) = m
+        .functions
+        .iter()
+        .find(|(_, f)| f.name == "on_tick")
+        .expect("the non-pub export is kept");
+    assert_eq!(
+        on_tick
+            .exports
+            .iter()
+            .map(|e| (e.target.as_str(), e.name.as_str()))
+            .collect::<Vec<_>>(),
+        [("c", "TIM2_IRQHandler")]
+    );
 }
 
 /// An `@entry` path of three or more segments names a nested module by its full name

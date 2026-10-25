@@ -69,11 +69,21 @@ pub fn lower_files(files: &[(&str, &str)]) -> Module {
 
 /// Lowers after type checking. Errors are formatted as `` `source text` what ``.
 pub fn try_lower(files: &[(&str, &str)], roots: Roots) -> Result<Module, Vec<String>> {
-    try_lower_with(
+    try_lower_target(files, roots, None)
+}
+
+/// [`try_lower`] with a build target, so that mono and target checks run (spec 12.1, 12.7).
+pub fn try_lower_target(
+    files: &[(&str, &str)],
+    roots: Roots,
+    target: Option<&str>,
+) -> Result<Module, Vec<String>> {
+    try_lower_full(
         files,
         roots,
         emela_core::core_sources(),
         emela_core::bundled_files(),
+        target,
     )
 }
 
@@ -83,6 +93,16 @@ pub fn try_lower_with(
     roots: Roots,
     core: &[(&str, &str)],
     bundled_files: &[(&str, &str)],
+) -> Result<Module, Vec<String>> {
+    try_lower_full(files, roots, core, bundled_files, None)
+}
+
+fn try_lower_full(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
+    target: Option<&str>,
 ) -> Result<Module, Vec<String>> {
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
@@ -103,7 +123,7 @@ pub fn try_lower_with(
         paths: Default::default(),
         shown_paths,
         bundled_files,
-        target: None,
+        target,
     };
     let lowered = lower(&input, roots).map(|l| l.module);
     if let Ok(m) = &lowered {
@@ -121,11 +141,11 @@ pub fn try_lower_with(
                     LowerError::MissingCoreFile { path, span } => {
                         (format!("missing core file {path}"), span)
                     }
-                    LowerError::ConstrainedExport { name, param, span } => {
-                        (format!("constrained export {name} [{param}]"), span)
-                    }
                     LowerError::SuspendingExport { name, span } => {
                         (format!("suspending export {name}"), span)
+                    }
+                    LowerError::UnsupportedWasmExport { name, span } => {
+                        (format!("unsupported wasm export {name}"), span)
                     }
                 };
                 let Some(span) = span else {

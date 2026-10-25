@@ -438,16 +438,6 @@ impl Diagnostic {
                 )),
                 span,
             ),
-            emela_core::LowerError::ConstrainedExport { name, param, span } => (
-                Diagnostic::error(format!(
-                    "cannot export `{name}`: its type parameter `{param}` has a trait bound"
-                ))
-                .with_code(code::CONSTRAINED_EXPORT)
-                .with_help(
-                    "make a `pub` fn that calls it with concrete types, and export that instead",
-                ),
-                span,
-            ),
             emela_core::LowerError::MissingCoreFile { path, span } => (
                 Diagnostic::error(format!(
                     "internal error: the bundled core has no file `{path}`"
@@ -459,6 +449,12 @@ impl Diagnostic {
                     "exported function `{name}` may suspend, which target `c` does not support"
                 ))
                 .with_code(code::SUSPENDING_EXPORT),
+                span,
+            ),
+            emela_core::LowerError::UnsupportedWasmExport { name, span } => (
+                Diagnostic::error(format!(
+                    "exported function `{name}` has a `wasm` export, which the WASI 0.3 component target does not support yet"
+                )),
                 span,
             ),
         };
@@ -761,6 +757,16 @@ impl Diagnostic {
                     }
                 };
                 (Severity::Error, Some(code::UNHANDLED_EFFECTS), message)
+            }
+            TypeDiagnosticKind::ExportFails { function, errors } => {
+                let list = quoted_list("error", "errors", errors);
+                (
+                    Severity::Error,
+                    Some(code::UNHANDLED_EFFECTS),
+                    format!(
+                        "exported function `{function}` cannot fail, but this may fail with {list}"
+                    ),
+                )
             }
             TypeDiagnosticKind::EffectSetMismatch { expected, found } => (
                 Severity::Error,

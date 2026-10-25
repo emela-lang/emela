@@ -175,6 +175,11 @@ pub enum DiagnosticKind {
         ty: SmolStr,
         position: BoundaryPosition,
     },
+    /// An `@export` fn with a non-empty E (E0402, spec 12.7). `errors` lists the declared errors.
+    ExportFails {
+        function: SmolStr,
+        errors: Vec<SmolStr>,
+    },
     /// An `@export` fn that is not an entry adapter is outside the entry module (E0437, spec
     /// 12.7).
     ExportOutsideEntryModule,

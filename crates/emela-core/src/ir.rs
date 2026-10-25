@@ -375,6 +375,9 @@ pub struct ExportBinding {
     /// adapters of the bundled `Std`; a user-written `@export(wasm, ...)` is a compile error
     /// (`[target.wasm.external]`).
     pub bundled: bool,
+    /// Whether this binding comes from the entry adapter of `@entry(T)` rather than from an
+    /// `@export` on the fn itself (spec 12.8).
+    pub via_entry: bool,
 }
 
 /// The host function of an external function (spec 12.1). How the parameters and the return value

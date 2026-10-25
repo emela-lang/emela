@@ -113,13 +113,24 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
         return Err(user_exports);
     }
     let roots: Vec<FnId> = match entry {
+        // Explicit exports are roots too, so that an entry adapter of the bundled `Std` (which
+        // the runtime exposes, spec 16.8.3) is not dropped. A user-written `@export(wasm, ...)`
+        // has already been rejected. An implicit `pub` fn is not a WASM export.
         Entry::Main => core
             .functions
             .iter()
-            .filter(|(_, f)| f.exported && f.name == "main")
+            .filter(|(_, f)| {
+                (f.exported && f.name == "main") || f.exports.iter().any(|e| e.target == "wasm")
+            })
             .map(|(id, _)| id)
             .collect(),
         Entry::Tests(tests) => tests.iter().map(|t| t.function).collect(),
+    };
+    let main = match entry {
+        Entry::Main => roots
+            .iter()
+            .position(|&id| core.functions[id].exported && core.functions[id].name == "main"),
+        Entry::Tests(_) => None,
     };
     let (mono, copies) = emela_core::monomorphize_from(core, &roots);
     // The Flow IR functions are the Core functions in the same order, so a test keeps the index
@@ -127,9 +138,9 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
     let entry = match entry {
         // Call the monomorphized copy itself: its name and `exported` flag can differ from the
         // input's (`main[Never]` is not exported), so looking the entry up by name is fragile.
-        Entry::Main => emit::Run::Main(copies.iter().flatten().next().map(|copy| {
-            emela_lir::FnId::from_raw(la_arena::RawIdx::from(u32::from(copy.into_raw())))
-        })),
+        Entry::Main => emit::Run::Main(main.and_then(|i| copies.get(i).copied().flatten()).map(
+            |copy| emela_lir::FnId::from_raw(la_arena::RawIdx::from(u32::from(copy.into_raw()))),
+        )),
         Entry::Tests(tests) => emit::Run::Tests(
             tests
                 .iter()
