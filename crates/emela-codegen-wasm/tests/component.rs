@@ -9,17 +9,20 @@ use wasmparser::{ComponentExternalKind, Encoding, Parser, Payload};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-/// The imports of a command component, in the order the component lists them. They are the ones
-/// spec `[target.wasm.output]` fixes: stdout, stderr and exit; `wasi:cli/types` and
-/// `import-func-run` belong to the async-lifted `wasi:cli/run@0.3.0` export. A host of
-/// `Std.Platform` is added only when the entry reaches it, so this program uses none.
+/// The imports of the command world, in the order the component lists them. They are the ones
+/// spec `[target.wasm.output]` fixes: stdout, stderr and exit. `wasi:cli/types@0.3.0` is here
+/// because `write-via-stream` of stdout and stderr returns a future of an `error-code`, which that
+/// interface defines. A host of `Std.Platform` is added only when the entry reaches it, so this
+/// program uses none.
 const COMMAND_IMPORTS: &[&str] = &[
     "wasi:cli/exit@0.3.0",
     "wasi:cli/types@0.3.0",
     "wasi:cli/stdout@0.3.0",
     "wasi:cli/stderr@0.3.0",
-    "import-func-run",
 ];
+
+/// The export of a command component (spec `[target.wasm.output]`).
+const COMMAND_EXPORTS: &[&str] = &["wasi:cli/run@0.3.0"];
 
 /// The `wasi:cli/run@0.3.0` program used by the ABI snapshots.
 const PLATFORM_CONSOLE: &str = r#"
@@ -35,38 +38,11 @@ fn main() {
 
 #[test]
 fn command_world_imports_and_exports_are_stable() {
+    // The component's own interface, not the imports and exports of the shims `wit-component`
+    // nests inside it (`[task-return]run`, the inner `run`).
     let bytes = compile_checked(PLATFORM_CONSOLE);
-    let mut imports = Vec::new();
-    let mut exports = Vec::new();
-    for payload in Parser::new(0).parse_all(&bytes) {
-        match payload.unwrap() {
-            Payload::ComponentImportSection(section) => {
-                for import in section {
-                    imports.push(
-                        import
-                            .expect("the import parses")
-                            .name
-                            .full_name()
-                            .into_owned(),
-                    );
-                }
-            }
-            Payload::ComponentExportSection(section) => {
-                for export in section {
-                    exports.push(
-                        export
-                            .expect("the export parses")
-                            .name
-                            .full_name()
-                            .into_owned(),
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
-    assert_eq!(imports, COMMAND_IMPORTS);
-    assert_eq!(exports, ["run", "wasi:cli/run@0.3.0"]);
+    assert_eq!(component_imports(&bytes), COMMAND_IMPORTS);
+    assert_eq!(component_exports(&bytes), COMMAND_EXPORTS);
 }
 
 #[test]
