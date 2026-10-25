@@ -361,17 +361,22 @@ fn perform_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 }
 
 /// `resume_with(resume, mode, word, owns_ref)`: deliver a resume value to the operation call.
+///
+/// While the implementation is still being called the value is kept in the record and the caller
+/// continues after the implementation returns (spec 14.5 item 3). Once the implementation has
+/// suspended, the value wakes the caller's wait, which runs the caller inside this `resume` and
+/// returns when the caller next suspends or ends (item 4, the C runtime's `em_pass`).
 fn resume_with(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const P: u32 = 4;
     const W: u32 = 5;
     let run_over = super::fiber::plan(b).run_over;
-    let sleep_op = cell(b, |p| p.sleep_op);
     ins.local_get(0);
     ins.i32_load(mem(HDR + 8, 4));
     ins.local_set(P);
     ins.i32_const(run_over as i32);
     ins.i32_load(mem(0, 4));
     ins.if_(BlockType::Empty);
+    // The run is over: the resume has no caller to reach.
     ins.local_get(3);
     ins.if_(BlockType::Empty);
     ins.local_get(2);
@@ -422,39 +427,33 @@ fn resume_with(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i64_store(mem(P_NOW_WORD, 8));
     ins.return_();
     ins.end();
-    // The implementation returned already: wake the caller's wait.
+    // The implementation is suspended: wake the caller's wait. It is the same fiber, so the
+    // caller runs now, inside this call of `resume`.
     ins.local_get(P);
     ins.i32_load(mem(P_CALLER, 4));
-    ins.local_tee(W);
-    ins.if_(BlockType::Empty);
+    ins.local_set(W);
     ins.local_get(P);
     ins.i32_const(0);
     ins.i32_store(mem(P_CALLER, 4));
+    ins.local_get(W);
+    ins.if_(BlockType::Empty);
+    // The wait stays alive in the run's list; the operation call releases its own reference.
+    ins.local_get(W);
+    let drop = b.rt("drop");
+    ins.call(drop);
     ins.local_get(W);
     ins.local_get(1);
     ins.local_get(2);
     let wake = b.rt("fb_wait_wake");
     ins.call(wake);
     ins.else_();
-    // The implementation suspended before this resume: the caller's frames follow its settling
-    // frame, which delivers this value when the implementation ends.
-    ins.local_get(P);
-    ins.local_get(1);
-    ins.i32_store(mem(P_NOW_MODE, 4));
-    ins.local_get(P);
-    ins.local_get(2);
-    ins.i64_store(mem(P_NOW_WORD, 8));
-    ins.end();
-    // The innermost active operation is done once its caller has been queued.
-    ins.local_get(P);
-    ins.i32_const(sleep_op as i32);
-    ins.i32_load(mem(0, 4));
-    ins.i32_eq();
+    ins.local_get(3);
     ins.if_(BlockType::Empty);
-    ins.i32_const(sleep_op as i32);
-    ins.local_get(P);
-    ins.i32_load(mem(P_NEXT, 4));
-    ins.i32_store(mem(0, 4));
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    let drop = b.rt("drop");
+    ins.call(drop);
+    ins.end();
     ins.end();
 }
 
@@ -506,9 +505,12 @@ fn resume_ref(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(f);
 }
 
+/// `perform_end(rs)`: the call of an operation implementation returned. The caller either
+/// continues with the value a resume left (spec 14.5 item 3) or parks on a wait of its own while
+/// the implementation goes on as a strand of the same fiber (item 4). A defect or failure before
+/// the resume goes to the caller; after it ends the run (the C runtime's `em_perform_end`).
 fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const P: u32 = 1;
-    const WORD: u32 = 2; // i64
     const CHAIN: u32 = 3;
     const W: u32 = 4;
     const TMP: u32 = 5;
@@ -530,42 +532,47 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(0, 4));
     ins.global_get(G_SUSPENDING);
     ins.if_(BlockType::Empty);
-    // The implementation suspended. Its frames and its callers' stay in the captured chain; the
-    // outermost driver attaches the whole chain to the request that caused the suspension (the
-    // request is in `susp_wait`). Push a settling frame after the implementation's frames: the
-    // call suspends now, so the value a later `resume` carries can only be delivered when the
-    // implementation finally ends.
-    ins.i32_const(super::fiber::plan(b).impl_desc as i32);
-    ins.i32_const(super::fiber::plan(b).impl_table as i32);
+    // The implementation suspended. Take the continuation captured inside the call (the C
+    // runtime's `em_take_suspension(NULL, &chain)`) and attach it to the request as the
+    // implementation's own strand (`end = EM_END_IMPL`).
     ins.i32_const(0);
-    ins.i32_const(2);
-    let new = b.rt("frame_new");
-    ins.call(new);
+    let take = b.rt("frame_take");
+    ins.call(take);
     ins.local_set(CHAIN);
-    ins.local_get(CHAIN);
-    ins.local_get(P);
-    ins.call(dup);
-    ins.local_get(P);
-    ins.i32_store(mem(HDR + 24, 4));
-    ins.local_get(CHAIN);
+    ins.i32_const(susp_wait as i32);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(W);
+    ins.i32_const(susp_wait as i32);
     ins.i32_const(0);
-    ins.i32_store(mem(HDR + 32, 4));
-    let push = b.rt("frame_push");
+    ins.i32_store(mem(0, 4));
+    ins.local_get(W);
+    ins.if_(BlockType::Empty);
+    ins.local_get(W);
     ins.local_get(CHAIN);
-    ins.call(push);
+    ins.i32_const(super::fiber::WE_IMPL);
     ins.local_get(P);
-    ins.i32_const(0);
-    ins.i32_store(mem(P_PHASE, 4));
-    let drop = b.rt("drop");
-    ins.local_get(0);
-    ins.call(drop);
-    ins.local_get(P);
-    ins.call(drop);
-    ins.return_();
+    let suspended = b.rt("fb_suspended");
+    ins.call(suspended);
     ins.else_();
-    // The implementation returned: a pending defect or failure is the caller's input.
+    ins.local_get(CHAIN);
+    let drop = b.rt("drop");
+    ins.call(drop);
+    ins.end();
+    ins.else_();
+    // The implementation returned: a pending defect or failure is the caller's input unless the
+    // implementation already resumed it; then it is the run's result (spec 14.5).
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
+    ins.local_get(P);
+    ins.i32_load(mem(P_USED, 4));
+    ins.if_(BlockType::Empty);
+    // The caller already has its value: the defect ends the run (the C runtime's
+    // `em_run_fails`).
+    ins.i32_const(2);
+    ins.global_get(G_DEFECT);
+    let result = b.rt("fb_run_result");
+    ins.call(result);
+    ins.else_();
     ins.local_get(P);
     ins.i32_const(2);
     ins.i32_store(mem(P_NOW_MODE, 4));
@@ -574,15 +581,15 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(P_NOW_WORD, 4));
     ins.i32_const(0);
     ins.global_set(G_DEFECT);
+    ins.end();
     ins.else_();
     ins.global_get(G_FAILURE);
     ins.if_(BlockType::Empty);
-    // A failure after the implementation resumed cannot go to the caller any more: the caller
-    // already resumed. It becomes a defect showing the error (spec 14.5), like the C runtime's
-    // `settled`.
     ins.local_get(P);
     ins.i32_load(mem(P_USED, 4));
     ins.if_(BlockType::Empty);
+    // A failure after the implementation resumed cannot go to the caller any more: the caller
+    // already went on. It becomes the run's defect (spec 14.5), as `em_settled` makes it.
     ins.global_get(G_FAILURE);
     ins.local_set(C);
     ins.i32_const(0);
@@ -606,13 +613,12 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(drop);
     ins.local_get(TMP);
     ins.call(drop);
-    ins.local_get(P);
-    ins.i32_const(2);
-    ins.i32_store(mem(P_NOW_MODE, 4));
-    ins.local_get(P);
     ins.local_get(CHAIN);
-    ins.i64_extend_i32_u();
-    ins.i64_store(mem(P_NOW_WORD, 8));
+    ins.global_set(G_DEFECT);
+    ins.i32_const(2);
+    ins.global_get(G_DEFECT);
+    let result = b.rt("fb_run_result");
+    ins.call(result);
     ins.else_();
     ins.local_get(P);
     ins.i32_const(1);
@@ -626,12 +632,31 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.end();
+    // The implementation is no longer being called.
     ins.local_get(P);
     ins.i32_const(0);
     ins.i32_store(mem(P_PHASE, 4));
     let drop = b.rt("drop");
     ins.local_get(0);
     ins.call(drop);
+    ins.i32_const(super::fiber::plan(b).run_over as i32);
+    ins.i32_load(mem(0, 4));
+    ins.if_(BlockType::Empty);
+    // The run is over: keep the suspension going with no request, so the caller's captured
+    // frames bubble up and are dropped, which runs their releases (`em_suspend_on(NULL)`).
+    ins.i32_const(1);
+    ins.global_set(G_SUSPENDING);
+    ins.i32_const(susp_wait as i32);
+    ins.i32_const(0);
+    ins.i32_store(mem(0, 4));
+    ins.i32_const(out_mode as i32);
+    ins.i32_const(3);
+    ins.i32_store(mem(0, 4));
+    ins.local_get(P);
+    let drop = b.rt("drop");
+    ins.call(drop);
+    ins.return_();
+    ins.end();
     // The caller continues: with the value the implementation resumed it with, or by waiting for
     // it.
     ins.local_get(P);
@@ -669,7 +694,8 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(-1);
     ins.i32_store(mem(P_NOW_MODE, 4));
     ins.else_();
-    // Nothing resumed: the caller parks on a wait it owns.
+    // No resume: the caller parks on a wait it owns, and the implementation goes on as its own
+    // strand (the C runtime's per-operation caller wait).
     ins.i32_const(super::fiber::WK_CALLER);
     ins.local_get(P);
     ins.i32_load(mem(P_REPR, 4));
@@ -695,10 +721,9 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(3);
     ins.i32_store(mem(0, 4));
     ins.end();
-    let drop = b.rt("drop");
     ins.local_get(P);
+    let drop = b.rt("drop");
     ins.call(drop);
-    let _ = TMP;
 }
 
 // ---- calls of suspending code from non-suspending functions (spec 8.7) ----
@@ -779,72 +804,16 @@ fn sync_leave(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 /// non-suspending function, and the caller chain `extra`, to be resumed with an interruption
 /// (spec 8.7, 14.5). Their releases run; the input they end with is the call's defect.
 fn unwind_sync(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const W: u32 = 1;
-    const PREV: u32 = 2;
-    const CHAIN: u32 = 3;
     const F: u32 = 4;
-    const NEXT: u32 = 5;
-    let wtail = super::fiber::plan(b).wtail;
     let cur = super::fiber::plan(b).cur_fiber;
-    let push = b.rt("fb_queue_push");
-    let unlink = b.rt("fb_unlink_wait");
     let dup = b.rt("dup");
-    let drop = b.rt("drop");
+    let push = b.rt("fb_queue_push");
+    // The captured frames of this region are never resumed: unwind them in place as interrupted.
+    ins.local_get(0);
+    ins.if_(BlockType::Empty);
     ins.i32_const(cur as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(F);
-    ins.i32_const(wtail as i32);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(W);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(W);
-    ins.i32_eqz();
-    ins.br_if(1);
-    ins.local_get(W);
-    ins.i32_load(mem(super::fiber::W_PREV, 4));
-    ins.local_set(PREV);
-    ins.local_get(W);
-    ins.i32_load(mem(super::fiber::W_FIBER, 4));
-    ins.local_get(F);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    ins.local_get(W);
-    ins.i32_load(mem(super::fiber::W_LIVE, 4));
-    ins.if_(BlockType::Empty);
-    ins.local_get(W);
-    ins.i32_load(mem(super::fiber::W_CHAIN, 4));
-    ins.local_set(CHAIN);
-    ins.local_get(W);
-    ins.i32_const(0);
-    ins.i32_store(mem(super::fiber::W_CHAIN, 4));
-    ins.local_get(W);
-    ins.call(unlink);
-    ins.local_get(W);
-    ins.call(drop);
-    ins.local_get(CHAIN);
-    ins.if_(BlockType::Empty);
-    ins.i32_const(super::fiber::JK_INTERRUPT);
-    ins.local_get(F);
-    ins.call(dup);
-    ins.local_get(F);
-    ins.local_get(CHAIN);
-    ins.i32_const(super::fiber::WE_SYNC);
-    ins.i32_const(0);
-    ins.i64_const(0);
-    ins.i32_const(0);
-    ins.call(push);
-    ins.end();
-    ins.end();
-    ins.end();
-    ins.local_get(PREV);
-    ins.local_set(W);
-    ins.br(0);
-    ins.end();
-    ins.end();
-    // The caller chain of the sync function is the outermost continuation.
-    ins.local_get(0);
-    ins.if_(BlockType::Empty);
     ins.i32_const(super::fiber::JK_INTERRUPT);
     ins.local_get(F);
     ins.call(dup);
@@ -856,5 +825,4 @@ fn unwind_sync(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.call(push);
     ins.end();
-    let _ = NEXT;
 }

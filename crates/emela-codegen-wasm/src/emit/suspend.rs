@@ -632,6 +632,27 @@ fn emit_trampoline(b: &mut Builder<'_>, f: &Function, mp: MachinePlan) -> WasmFu
         ins.i32_store(mem(0, 4));
         ins.return_();
         ins.end();
+        // The run already ended: its result lives in `run_word` now, so a strand that finishes
+        // afterwards must not take it out of the pending-defect globals.
+        if let Some(fp) = &b.fiber_plan {
+            ins.i32_const(fp.run_over as i32);
+            ins.i32_load(mem(0, 4));
+            ins.if_(BlockType::Empty);
+            for global in [G_DEFECT, G_FAILURE] {
+                ins.global_get(global);
+                ins.if_(BlockType::Empty);
+                ins.global_get(global);
+                ins.call(b.rt("drop"));
+                ins.i32_const(0);
+                ins.global_set(global);
+                ins.end();
+            }
+            ins.i32_const(out_mode as i32);
+            ins.i32_const(0);
+            ins.i32_store(mem(0, 4));
+            ins.return_();
+            ins.end();
+        }
         ins.global_get(G_DEFECT);
         ins.if_(BlockType::Empty);
         ins.i32_const(out_mode as i32);

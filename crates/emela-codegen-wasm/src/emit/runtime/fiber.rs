@@ -27,7 +27,7 @@
 use super::*;
 
 use super::attempt::{CAUSE_DIE, CAUSE_FAIL};
-use super::sched::{F_NEXT, P_CALLER, P_IMPL, P_NOW_MODE, P_NOW_WORD, P_USED, P_WHERE};
+use super::sched::{F_NEXT, P_CALLER, P_IMPL, P_USED, P_WHERE};
 
 /// The index of `Interrupt` in `CauseKind`.
 const CAUSE_INTERRUPT: i32 = 2;
@@ -118,7 +118,9 @@ pub(super) const W_HNEXT: u32 = HDR + 120;
 /// `W_PREV`/`W_NEXT`, so a wait in both does not overwrite either list.
 pub(super) const W_TPREV: u32 = HDR + 128;
 pub(super) const W_TNEXT: u32 = HDR + 136;
-const W_SLOTS: i32 = 18;
+/// Ref: the operation call whose strand this continuation is (`W_END == WE_IMPL`).
+pub(super) const W_IMPL: u32 = HDR + 144;
+const W_SLOTS: i32 = 19;
 
 /// What a wait waits for.
 pub(super) const WK_FIBER: i32 = 0; // join, await and interrupt of a child
@@ -178,6 +180,9 @@ pub(super) const JK_INTERRUPT: i32 = 2;
 pub(crate) struct Plan {
     pub(crate) cur_fiber: u32,
     pub(crate) cur_main: u32,
+    /// 1 while a continuation runs (`em_cur` in the C runtime); the event loop resumes a
+    /// continuation by queueing it, not inside the wake.
+    pub(crate) stepping: u32,
     pub(crate) susp_wait: u32,
     pub(crate) fhead: u32,
     pub(crate) ftail: u32,
@@ -185,7 +190,15 @@ pub(crate) struct Plan {
     pub(crate) wtail: u32,
     pub(crate) qhead: u32,
     pub(crate) qtail: u32,
+    /// Jobs that wait for a turn of the host event loop, after the queue empties (the C runtime's
+    /// `later`; every 16th fairness yield goes here).
+    pub(crate) lhead: u32,
+    pub(crate) ltail: u32,
     pub(crate) pauses: u32,
+    /// The run's result: 0 for a value, 1 for a failure, 2 for a defect. A strand that finishes
+    /// after the run ended must not take it out of `G_DEFECT`/`G_FAILURE`.
+    pub(crate) run_mode: u32,
+    pub(crate) run_word: u32,
     pub(crate) run_over: u32,
     pub(crate) live_waits: u32,
     pub(crate) orphan: u32,
@@ -198,8 +211,6 @@ pub(crate) struct Plan {
     pub(crate) interrupted_desc: u32,
     pub(crate) scope_body_table: u32,
     pub(crate) scope_close_table: u32,
-    pub(crate) impl_table: u32,
-    pub(crate) impl_desc: u32,
     pub(crate) call_table: u32,
     pub(crate) call1_table: u32,
     pub(crate) notes: u32,
@@ -295,7 +306,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ),
     (
         "fb_suspended",
-        &[ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
         &[],
     ),
     (
@@ -319,6 +330,7 @@ pub(super) const FUNCS: &[Sig] = &[
         &[ValType::I32, ValType::I32, ValType::I64],
         &[],
     ),
+    ("fb_run_result", &[ValType::I32, ValType::I32], &[]),
     ("fb_cause_string", &[ValType::I32], &[ValType::I32]),
     (
         "fb_watch_settle",
@@ -394,9 +406,22 @@ pub(super) const FUNCS: &[Sig] = &[
         ],
         &[],
     ),
+    (
+        "fb_later_push",
+        &[
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I64,
+            ValType::I32,
+        ],
+        &[],
+    ),
+    ("fb_later_move", &[], &[]),
     ("fb_scope_body_resume", &[ValType::I32], &[]),
     ("fb_scope_close_resume", &[ValType::I32], &[]),
-    ("fb_impl_settle", &[ValType::I32], &[]),
     ("fb_scope_failed", &[ValType::I32, ValType::I32], &[]),
     ("fb_scope_child_ended", &[ValType::I32, ValType::I32], &[]),
     (
@@ -466,6 +491,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fb_wake_test", &[], &[ValType::I32]),
     ("fb_root_interrupt", &[], &[]),
     ("fb_unlink_wait", &[ValType::I32], &[]),
+    ("fb_drop_wait", &[ValType::I32], &[]),
 ];
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
@@ -474,13 +500,14 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fb_drain" => vec![(8, ValType::I32), (1, ValType::I64)],
         "fb_step" => vec![(5, ValType::I32), (1, ValType::I64)],
         "fb_begin" => vec![(7, ValType::I32), (1, ValType::I64)],
-        "fb_advance" => vec![(7, ValType::I32), (1, ValType::I64)],
+        "fb_advance" => vec![(8, ValType::I32), (1, ValType::I64)],
         "fb_suspended" => i32s(6),
         "fb_strand_end" => vec![(3, ValType::I32), (1, ValType::I64)],
         "fb_cause_string" => i32s(3),
         "fb_watch_settle" => vec![(5, ValType::I32), (1, ValType::I64)],
         "fb_finish" => vec![(7, ValType::I32), (1, ValType::I64)],
         "fb_settled_impl" => i32s(4),
+        "fb_run_result" => i32s(2),
         "fb_cause_new" => i32s(2),
         "fb_scope" => vec![(6, ValType::I32), (1, ValType::I64)],
         "fb_fork" => i32s(7),
@@ -503,10 +530,11 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fb_watch_add" => i32s(4),
         "fb_watch_remove" => i32s(6),
         "fb_unlink_wait" => i32s(5),
-        "fb_queue_push" => i32s(7),
+        "fb_drop_wait" => i32s(5),
+        "fb_queue_push" | "fb_later_push" => i32s(7),
+        "fb_later_move" => i32s(3),
         "fb_scope_body_resume" => vec![(3, ValType::I32), (1, ValType::I64)],
         "fb_scope_close_resume" => vec![(6, ValType::I32), (1, ValType::I64)],
-        "fb_impl_settle" => i32s(6),
         "fb_scope_failed" => i32s(4),
         "fb_scope_child_ended" => i32s(4),
         "fb_scope_finish" => i32s(5),
@@ -597,7 +625,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     if !super::suspend::used(b) {
         return;
     }
-    let cells: Vec<u32> = (0..20).map(|_| b.alloc_static(4)).collect();
+    let cells: Vec<u32> = (0..25).map(|_| b.alloc_static(4)).collect();
     let fiber_desc = b.desc(DescKey {
         kind: 0,
         tag: 0,
@@ -633,7 +661,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         show: None,
         refs: vec![
             true, true, false, false, false, false, false, false, true, false, false, false, false,
-            false, false, false, false, false,
+            false, false, false, false, false, false,
         ],
     });
     let node_desc = b.desc(DescKey {
@@ -708,14 +736,6 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         show: None,
         refs: vec![false, false, true, true, false, false, true, false],
     });
-    let impl_desc = b.desc(DescKey {
-        kind: 0,
-        tag: 0,
-        enum_id: -1,
-        name: "operation call".to_owned(),
-        show: None,
-        refs: vec![false, false, true, true, false],
-    });
     let mut call_index = 0;
     for name in [
         "fb_call_void",
@@ -741,17 +761,12 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         b.table_funcs.push(index);
     }
     let call1_table = b.table_funcs.len() as u32 - 5;
-    for name in [
-        "fb_scope_body_resume",
-        "fb_scope_close_resume",
-        "fb_impl_settle",
-    ] {
+    for name in ["fb_scope_body_resume", "fb_scope_close_resume"] {
         let index = b.rt(name);
         b.table_funcs.push(index);
     }
-    let scope_body_table = b.table_funcs.len() as u32 - 3;
+    let scope_body_table = b.table_funcs.len() as u32 - 2;
     let scope_close_table = scope_body_table + 1;
-    let impl_table = scope_body_table + 2;
     let notes = if used(b) { b.alloc_static(8) } else { 0 };
     let msg = |b: &mut Builder<'_>, s: &[u8]| b.string_literal(s);
     let msg_join = msg(b, b"fiber was interrupted");
@@ -768,6 +783,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     b.fiber_plan = Some(Plan {
         cur_fiber: cells[0],
         cur_main: cells[1],
+        stepping: cells[20],
         susp_wait: cells[2],
         fhead: cells[3],
         ftail: cells[4],
@@ -775,7 +791,11 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         wtail: cells[6],
         qhead: cells[7],
         qtail: cells[8],
+        lhead: cells[21],
+        ltail: cells[22],
         pauses: cells[9],
+        run_mode: cells[23],
+        run_word: cells[24],
         run_over: cells[10],
         live_waits: cells[11],
         orphan: cells[12],
@@ -794,8 +814,6 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         interrupted_desc: b.sus.as_ref().map(|p| p.interrupted_desc).unwrap_or(0),
         scope_body_table,
         scope_close_table,
-        impl_table,
-        impl_desc,
         call_table,
         call1_table,
         notes,
@@ -833,6 +851,7 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_strand_end" => strand_end(b, ins),
         "fb_finish" => finish(b, ins),
         "fb_settled_impl" => settled_impl(b, ins),
+        "fb_run_result" => run_result(b, ins),
         "fb_cause_string" => cause_string(b, ins),
         "fb_watch_settle" => watch_settle(b, ins),
         "fb_cause_new" => cause_new(b, ins),
@@ -859,10 +878,11 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_wait_chain" => wait_chain(b, ins),
         "fb_watch_add" => watch_add(b, ins),
         "fb_watch_remove" => watch_remove(b, ins),
-        "fb_queue_push" => queue_push(b, ins),
+        "fb_queue_push" => queue_push(b, ins, |p| (p.qhead, p.qtail)),
+        "fb_later_push" => queue_push(b, ins, |p| (p.lhead, p.ltail)),
+        "fb_later_move" => later_move(b, ins),
         "fb_scope_body_resume" => scope_body_resume(b, ins),
         "fb_scope_close_resume" => scope_close_resume(b, ins),
-        "fb_impl_settle" => impl_settle(b, ins),
         "fb_scope_failed" => scope_failed(b, ins),
         "fb_scope_child_ended" => scope_child_ended(b, ins),
         "fb_scope_finish" => scope_finish(b, ins),
@@ -896,6 +916,7 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_wake_test" => wake_test(b, ins),
         "fb_root_interrupt" => root_interrupt(b, ins),
         "fb_unlink_wait" => unlink_wait(b, ins),
+        "fb_drop_wait" => drop_wait(b, ins),
         _ => return false,
     }
     true
@@ -1273,7 +1294,7 @@ fn wait_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(W);
     for off in [
         W_CHAIN, W_FIBER, W_TARGET, W_PREV, W_NEXT, W_ONDROP, W_END, W_FLAGS, W_SEQ, W_HPREV,
-        W_HNEXT, W_TPREV, W_TNEXT,
+        W_HNEXT, W_TPREV, W_TNEXT, W_IMPL,
     ] {
         st_const(ins, W, off, 0);
     }
@@ -1475,6 +1496,7 @@ fn unlink_wait(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     st_const(ins, F, F_WAITER, 0);
     ins.end();
     ins.end();
+    // The operation calls that pointed at this wait release it.
     ldl(ins, 0, W_ONDROP);
     ins.local_set(P);
     g(ins, P);
@@ -1483,16 +1505,93 @@ fn unlink_wait(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, 0);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
+    ldl(ins, P, P_CALLER);
+    ins.local_set(NEXT);
     st_const(ins, P, P_CALLER, 0);
+    g(ins, NEXT);
+    call(b, ins, "drop");
     ins.end();
+    ins.end();
+    ldl(ins, 0, W_IMPL);
+    ins.local_set(P);
+    g(ins, P);
+    ins.if_(BlockType::Empty);
     ldl(ins, P, P_IMPL);
     g(ins, 0);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
+    ldl(ins, P, P_IMPL);
+    ins.local_set(NEXT);
     st_const(ins, P, P_IMPL, 0);
+    g(ins, NEXT);
+    call(b, ins, "drop");
     ins.end();
     ins.end();
     let _ = F;
+}
+
+/// `fb_drop_wait(w)`: a waiting continuation is abandoned (the run stalled, or its fiber is
+/// interrupted). The implementation it waits for is unwound too, innermost first, as an orphan
+/// continuation (`em_drop_wait` of the C runtime).
+fn drop_wait(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const P: u32 = 1;
+    const IW: u32 = 2;
+    const CHAIN: u32 = 3;
+    const F: u32 = 4;
+    ldl(ins, 0, W_LIVE);
+    ins.if_(BlockType::Empty);
+    ins.else_();
+    ins.return_();
+    ins.end();
+    st_const(ins, 0, W_LIVE, 0);
+    g(ins, 0);
+    call(b, ins, "fb_unlink_wait");
+    ldl(ins, 0, W_ONDROP);
+    ins.local_set(P);
+    g(ins, P);
+    ins.if_(BlockType::Empty);
+    ldl(ins, P, P_USED);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ldl(ins, P, P_IMPL);
+    ins.local_set(IW);
+    g(ins, IW);
+    ins.if_(BlockType::Empty);
+    ldl(ins, IW, W_LIVE);
+    ins.if_(BlockType::Empty);
+    g(ins, IW);
+    call(b, ins, "fb_drop_wait");
+    ldl(ins, IW, W_CHAIN);
+    ins.local_set(CHAIN);
+    st_const(ins, IW, W_CHAIN, 0);
+    ldl(ins, IW, W_FIBER);
+    ins.local_set(F);
+    g(ins, F);
+    call(b, ins, "dup");
+    c(ins, JK_INTERRUPT);
+    g(ins, F);
+    g(ins, CHAIN);
+    c(ins, WE_ORPHAN);
+    c(ins, 0);
+    ins.i64_const(0);
+    c(ins, 0);
+    let push = b.rt("fb_queue_push");
+    ins.call(push);
+    ins.end();
+    ins.end();
+    ins.end();
+    ins.end();
+    // The wait's references to operation calls go with it.
+    for off in [W_ONDROP, W_IMPL] {
+        ldl(ins, 0, off);
+        ins.local_set(IW);
+        st_const(ins, 0, off, 0);
+        g(ins, IW);
+        ins.if_(BlockType::Empty);
+        g(ins, IW);
+        call(b, ins, "drop");
+        ins.end();
+    }
 }
 
 /// `fb_wait_chain(w) -> Ref`: take the suspended continuation out of the wait.
@@ -1505,6 +1604,10 @@ fn wait_chain(_b: &mut Builder<'_>, ins: &mut InstructionSink) {
 }
 
 /// `fb_wait_wake(w, mode, word)`: continue the wait with the input. The wait is consumed.
+///
+/// A continuation of the fiber that is running resumes now, inside the wake; one of another
+/// fiber is queued (the C runtime's `em_cont`). The event loop runs with nothing stepping, so its
+/// wakes are queued too.
 fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const F: u32 = 3;
     const CHAIN: u32 = 4;
@@ -1545,18 +1648,21 @@ fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     st_const(ins, 0, W_CHAIN, 0);
     ldl(ins, 0, W_END);
     ins.local_set(END);
-    c(ins, 0);
+    // The operation call whose strand this continuation belongs to (0 for a fiber's own).
+    ldl(ins, 0, W_IMPL);
     ins.local_set(PERF);
-    g(ins, END);
-    c(ins, WE_IMPL);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    ldl(ins, 0, W_ONDROP);
-    ins.local_set(PERF);
-    st_const(ins, 0, W_ONDROP, 0);
-    ins.end();
+    st_const(ins, 0, W_IMPL, 0);
     g(ins, 0);
     call(b, ins, "fb_unlink_wait");
+    // The perform the wait held for a dropped caller is released with the wait.
+    ldl(ins, 0, W_ONDROP);
+    ins.local_set(LIVE);
+    st_const(ins, 0, W_ONDROP, 0);
+    g(ins, LIVE);
+    ins.if_(BlockType::Empty);
+    g(ins, LIVE);
+    call(b, ins, "drop");
+    ins.end();
     dropv(b, ins, 0);
     g(ins, CHAIN);
     ins.if_(BlockType::Empty);
@@ -1570,6 +1676,26 @@ fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.drop();
     ins.end();
     ins.return_();
+    ins.end();
+    // Resume inside the wake when the continuation is the fiber that is stepping now.
+    i32_const_cell(b, ins, |p| p.stepping);
+    ins.i32_load(mem(0, 4));
+    ins.if_(BlockType::Empty);
+    i32_const_cell(b, ins, |p| p.cur_fiber);
+    ins.i32_load(mem(0, 4));
+    g(ins, F);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, F);
+    g(ins, CHAIN);
+    g(ins, END);
+    g(ins, 1);
+    ins.local_get(2);
+    g(ins, PERF);
+    let advance = b.rt("fb_advance");
+    ins.call(advance);
+    ins.return_();
+    ins.end();
     ins.end();
     c(ins, JK_RESUME);
     g(ins, F);
@@ -1585,9 +1711,10 @@ fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 
 /// `fb_queue_push(kind, fiber, chain, end, mode, word, perform)`: append a job. The job takes the
 /// references; when the run is over they are released here.
-fn queue_push(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+fn queue_push(b: &mut Builder<'_>, ins: &mut InstructionSink, list: impl Fn(&Plan) -> (u32, u32)) {
     const J: u32 = 7;
     let desc = plan(b).job_desc;
+    let (head, tail) = list(plan(b));
     i32_const_cell(b, ins, |p| p.run_over);
     ins.i32_load(mem(0, 4));
     ins.if_(BlockType::Empty);
@@ -1610,19 +1737,64 @@ fn queue_push(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(5);
     ins.i64_store(mem(J_WORD, 8));
     st_const(ins, J, J_NEXT, 0);
-    i32_const_cell(b, ins, |p| p.qtail);
+    c(ins, tail as i32);
     ins.i32_load(mem(0, 4));
     ins.if_(BlockType::Empty);
-    i32_const_cell(b, ins, |p| p.qtail);
+    c(ins, tail as i32);
     ins.i32_load(mem(0, 4));
     g(ins, J);
     ins.i32_store(mem(J_NEXT, 4));
     ins.else_();
-    i32_const_cell(b, ins, |p| p.qhead);
+    c(ins, head as i32);
     g(ins, J);
     ins.i32_store(mem(0, 4));
     ins.end();
-    i32_const_cell(b, ins, |p| p.qtail);
+    c(ins, tail as i32);
+    g(ins, J);
+    ins.i32_store(mem(0, 4));
+}
+
+/// `fb_later_move()`: move the head of the later list to the run's queue, so the next drain runs
+/// it after a turn of the event loop (the C runtime's `em_run`).
+fn later_move(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const J: u32 = 0;
+    let lhead = cell(b, |p| p.lhead);
+    let ltail = cell(b, |p| p.ltail);
+    let qhead = cell(b, |p| p.qhead);
+    let qtail = cell(b, |p| p.qtail);
+    c(ins, lhead as i32);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(J);
+    g(ins, J);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.return_();
+    ins.end();
+    c(ins, lhead as i32);
+    ldl(ins, J, J_NEXT);
+    ins.i32_store(mem(0, 4));
+    c(ins, lhead as i32);
+    ins.i32_load(mem(0, 4));
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    c(ins, ltail as i32);
+    c(ins, 0);
+    ins.i32_store(mem(0, 4));
+    ins.end();
+    st_const(ins, J, J_NEXT, 0);
+    c(ins, qtail as i32);
+    ins.i32_load(mem(0, 4));
+    ins.if_(BlockType::Empty);
+    c(ins, qtail as i32);
+    ins.i32_load(mem(0, 4));
+    g(ins, J);
+    ins.i32_store(mem(J_NEXT, 4));
+    ins.else_();
+    c(ins, qhead as i32);
+    g(ins, J);
+    ins.i32_store(mem(0, 4));
+    ins.end();
+    c(ins, qtail as i32);
     g(ins, J);
     ins.i32_store(mem(0, 4));
 }
@@ -1794,11 +1966,17 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const MODE: u32 = 9;
     const W: u32 = 10;
     const CHAIN: u32 = 11;
-    const TMP: u32 = 12;
-    const WORD: u32 = 13; // i64
+    const PREVS: u32 = 13;
+    const WORD: u32 = 14; // i64
     i32_const_cell(b, ins, |p| p.cur_fiber);
     ins.i32_load(mem(0, 4));
     ins.local_set(PREVF);
+    i32_const_cell(b, ins, |p| p.stepping);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(PREVS);
+    i32_const_cell(b, ins, |p| p.stepping);
+    c(ins, 1);
+    ins.i32_store(mem(0, 4));
     i32_const_cell(b, ins, |p| p.cur_main);
     ins.i32_load(mem(0, 4));
     ins.local_set(PREVM);
@@ -1877,6 +2055,7 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, W);
     g(ins, CHAIN);
     g(ins, 2);
+    g(ins, 5);
     let suspended = b.rt("fb_suspended");
     ins.call(suspended);
     ins.else_();
@@ -1903,6 +2082,9 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(0, 4));
     i32_const_cell(b, ins, |p| p.cur_main);
     g(ins, PREVM);
+    ins.i32_store(mem(0, 4));
+    i32_const_cell(b, ins, |p| p.stepping);
+    g(ins, PREVS);
     ins.i32_store(mem(0, 4));
     dropv(b, ins, 0);
 }
@@ -1972,6 +2154,7 @@ fn begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, W);
     g(ins, CHAIN);
     c(ins, WE_MAIN);
+    c(ins, 0);
     let suspended = b.rt("fb_suspended");
     ins.call(suspended);
     ins.else_();
@@ -2018,12 +2201,15 @@ fn begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(strand);
 }
 
-/// `fb_suspended(w, chain, end)`: attach the captured continuation to the request it suspended
-/// at. A fairness yield queues the fiber again.
+/// `fb_suspended(w, chain, end, impl)`: attach the captured continuation to the request it
+/// suspended at. `end` is whose continuation it is; an implementation continuation also names the
+/// operation call it settles (`impl`). A fairness yield queues the fiber again.
 fn suspended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const F: u32 = 3;
-    const P: u32 = 4;
-    const KIND: u32 = 5;
+    const F: u32 = 4;
+    const P: u32 = 5;
+    const KIND: u32 = 6;
+    const FLAGS: u32 = 7;
+    const TMP: u32 = 8;
     ldl(ins, 0, W_KIND);
     ins.local_set(KIND);
     g(ins, KIND);
@@ -2035,6 +2221,32 @@ fn suspended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(F);
     g(ins, F);
     call(b, ins, "dup");
+    // Every 16th yield waits for a turn of the event loop (the C runtime's `later`), so a fiber
+    // that never waits still lets the others run in the same order.
+    c(ins, cell(b, |p| p.pauses) as i32);
+    c(ins, cell(b, |p| p.pauses) as i32);
+    ins.i32_load(mem(0, 4));
+    c(ins, 1);
+    ins.i32_add();
+    ins.local_set(TMP);
+    c(ins, cell(b, |p| p.pauses) as i32);
+    g(ins, TMP);
+    ins.i32_store(mem(0, 4));
+    g(ins, TMP);
+    c(ins, 16);
+    ins.i32_rem_u();
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    c(ins, JK_RESUME);
+    g(ins, F);
+    g(ins, 1);
+    c(ins, WE_MAIN);
+    c(ins, 0);
+    ins.i64_const(0);
+    c(ins, 0);
+    let late = b.rt("fb_later_push");
+    ins.call(late);
+    ins.else_();
     c(ins, JK_RESUME);
     g(ins, F);
     g(ins, 1);
@@ -2044,6 +2256,7 @@ fn suspended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 0);
     let push = b.rt("fb_queue_push");
     ins.call(push);
+    ins.end();
     dropv(b, ins, 0);
     ins.return_();
     ins.end();
@@ -2102,8 +2315,8 @@ fn suspended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ldl(ins, 0, W_FLAGS);
     c(ins, WF_ROOT);
     ins.i32_or();
-    ins.local_set(3);
-    stl(ins, 0, W_FLAGS, 3);
+    ins.local_set(FLAGS);
+    stl(ins, 0, W_FLAGS, FLAGS);
     i32_const_cell(b, ins, |p| p.live_waits);
     i32_const_cell(b, ins, |p| p.live_waits);
     ins.i32_load(mem(0, 4));
@@ -2114,12 +2327,22 @@ fn suspended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, WE_MAIN);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
+    // The fiber's main continuation is parked here (the C runtime's `f->wait`).
     stl(ins, F, F_WAITER, 0);
     ins.else_();
-    ldl(ins, 0, W_ONDROP);
-    ins.local_tee(P);
+    g(ins, 2);
+    c(ins, WE_IMPL);
+    ins.i32_eq();
     ins.if_(BlockType::Empty);
+    // An implementation's continuation: the operation call settles when it ends. Both ways point
+    // at each other, like `impl->impl_wait` and `w->impl` in the C runtime.
+    g(ins, 3);
+    ins.local_set(P);
+    g(ins, P);
+    ins.if_(BlockType::Empty);
+    st_dup(b, ins, 0, W_IMPL, P);
     st_dup(b, ins, P, P_IMPL, 0);
+    ins.end();
     ins.end();
     ins.end();
     let _ = F;
@@ -2406,6 +2629,11 @@ fn strand_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, 1);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
+    g(ins, MODE);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.end();
     g(ins, 0);
     g(ins, MODE);
     ins.local_get(WORD);
@@ -2601,17 +2829,21 @@ fn finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 1);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
+    c(ins, 1);
     ins.local_get(2);
     ins.i32_wrap_i64();
-    ins.global_set(G_FAILURE);
+    let result = b.rt("fb_run_result");
+    ins.call(result);
     ins.else_();
     g(ins, 1);
     c(ins, 2);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
+    c(ins, 2);
     ins.local_get(2);
     ins.i32_wrap_i64();
-    ins.global_set(G_DEFECT);
+    let result = b.rt("fb_run_result");
+    ins.call(result);
     ins.else_();
     g(ins, REPR);
     c(ins, R_REF);
@@ -2621,11 +2853,12 @@ fn finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_wrap_i64();
     ins.drop();
     ins.end();
+    c(ins, 0);
+    c(ins, 0);
+    let result = b.rt("fb_run_result");
+    ins.call(result);
     ins.end();
     ins.end();
-    i32_const_cell(b, ins, |p| p.run_over);
-    c(ins, 1);
-    ins.i32_store(mem(0, 4));
     ins.end();
     // The fiber's own copy of the input is released once the cause or the result has it.
     g(ins, SCOPE);
@@ -2706,28 +2939,111 @@ fn finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     dropv(b, ins, 0);
 }
 
+/// `fb_run_result(mode, word)`: record the run's result (0 value, 1 failure, 2 defect). The word
+/// is owned. The result outlives the strands still finishing, so `run_word` keeps its own
+/// reference and `finish_run` puts it back before the exit report.
+fn run_result(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    let run_over = cell(b, |p| p.run_over);
+    let run_mode = cell(b, |p| p.run_mode);
+    let run_word = cell(b, |p| p.run_word);
+    let dup = b.rt("dup");
+    let drop = b.rt("drop");
+    // The first result stays (the C runtime's `em_root_finish`).
+    c(ins, run_over as i32);
+    ins.i32_load(mem(0, 4));
+    ins.if_(BlockType::Empty);
+    g(ins, 0);
+    ins.if_(BlockType::Empty);
+    g(ins, 1);
+    ins.call(drop);
+    ins.end();
+    ins.return_();
+    ins.end();
+    c(ins, run_over as i32);
+    c(ins, 1);
+    ins.i32_store(mem(0, 4));
+    c(ins, run_mode as i32);
+    g(ins, 0);
+    ins.i32_store(mem(0, 4));
+    c(ins, run_word as i32);
+    g(ins, 0);
+    ins.if_(BlockType::Result(ValType::I32));
+    g(ins, 1);
+    ins.call(dup);
+    g(ins, 1);
+    ins.else_();
+    c(ins, 0);
+    ins.end();
+    ins.i32_store(mem(0, 4));
+    g(ins, 0);
+    c(ins, 1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, 1);
+    ins.global_set(G_FAILURE);
+    ins.return_();
+    ins.end();
+    g(ins, 0);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, 1);
+    ins.global_set(G_DEFECT);
+    ins.end();
+}
+
 /// `fb_settled_impl(perform, mode, word)`: the continuation of an operation implementation
-/// ended. Before a resume the result went to the caller; after one it is the run's result (spec
-/// 14.5).
+/// ended. A defect or failure before the resume is the caller's input; after the resume it ends
+/// the run (spec 14.5, the C runtime's `em_settled`). A value is not observable.
 fn settled_impl(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const SHOWN: u32 = 3;
     const TMP: u32 = 4;
+    const W: u32 = 5;
     let WORD: u32 = 2; // the i64 parameter
+    let wake = b.rt("fb_wait_wake");
+    // A defect.
     g(ins, 1);
     c(ins, 2);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
+    ins.local_get(0);
+    ins.i32_load(mem(P_USED, 4));
+    ins.if_(BlockType::Empty);
+    c(ins, 2);
     ins.local_get(WORD);
     ins.i32_wrap_i64();
-    ins.global_set(G_DEFECT);
-    i32_const_cell(b, ins, |p| p.run_over);
-    c(ins, 1);
-    ins.i32_store(mem(0, 4));
+    let result = b.rt("fb_run_result");
+    ins.call(result);
     ins.return_();
     ins.end();
+    ins.local_get(0);
+    c(ins, 1);
+    ins.i32_store(mem(P_USED, 4));
+    ldl(ins, 0, P_CALLER);
+    ins.local_set(W);
+    st_const(ins, 0, P_CALLER, 0);
+    g(ins, W);
+    ins.if_(BlockType::Empty);
+    g(ins, W);
+    call(b, ins, "drop");
+    g(ins, W);
+    c(ins, 2);
+    ins.local_get(WORD);
+    ins.call(wake);
+    ins.else_();
+    ins.local_get(WORD);
+    ins.i32_wrap_i64();
+    ins.drop();
+    ins.end();
+    ins.return_();
+    ins.end();
+    // A failure.
     g(ins, 1);
     c(ins, 1);
     ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.local_get(0);
+    ins.i32_load(mem(P_USED, 4));
     ins.if_(BlockType::Empty);
     ins.local_get(WORD);
     ins.i32_wrap_i64();
@@ -2752,9 +3068,31 @@ fn settled_impl(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(raise);
     dropv(b, ins, TMP);
     dropv(b, ins, SHOWN);
-    i32_const_cell(b, ins, |p| p.run_over);
+    c(ins, 2);
+    ins.global_get(G_DEFECT);
+    let result = b.rt("fb_run_result");
+    ins.call(result);
+    ins.return_();
+    ins.end();
+    ins.local_get(0);
     c(ins, 1);
-    ins.i32_store(mem(0, 4));
+    ins.i32_store(mem(P_USED, 4));
+    ldl(ins, 0, P_CALLER);
+    ins.local_set(W);
+    st_const(ins, 0, P_CALLER, 0);
+    g(ins, W);
+    ins.if_(BlockType::Empty);
+    g(ins, W);
+    call(b, ins, "drop");
+    g(ins, W);
+    c(ins, 1);
+    ins.local_get(WORD);
+    ins.call(wake);
+    ins.else_();
+    ins.local_get(WORD);
+    ins.i32_wrap_i64();
+    ins.drop();
+    ins.end();
     ins.return_();
     ins.end();
     // A value after a resume is not observable; release it when it is a reference.
@@ -3224,70 +3562,6 @@ fn scope_close_resume(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     sic(b, ins, |p| p.out_word);
     g(ins, WORD);
     ins.i64_store(mem(0, 8));
-}
-
-/// `fb_impl_settle(frame)`: the continuation of an operation implementation ended after the
-/// operation call had suspended. Deliver the value the implementation resumed with, pass a
-/// failure or defect on, or keep the caller waiting when it never resumed (the run then stalls
-/// and unwinds as interrupted, spec 14.5).
-fn impl_settle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const P: u32 = 1;
-    const MODE: u32 = 2;
-    const W: u32 = 3;
-    const IN: u32 = 4;
-    ldl(ins, 0, HDR + 24);
-    ins.local_set(P);
-    st_const(ins, 0, HDR + 24, 0);
-    dropv(b, ins, 0);
-    // A failure or defect that ended the implementation is the caller's input.
-    sic(b, ins, |p| p.in_mode);
-    ins.i32_load8_u(mem(0, 1));
-    ins.local_set(IN);
-    g(ins, IN);
-    ins.if_(BlockType::Empty);
-    sic(b, ins, |p| p.out_mode);
-    g(ins, IN);
-    ins.i32_store(mem(0, 4));
-    sic(b, ins, |p| p.out_word);
-    sic(b, ins, |p| p.in_word);
-    ins.i64_load(mem(0, 8));
-    ins.i64_store(mem(0, 8));
-    dropv(b, ins, P);
-    ins.return_();
-    ins.end();
-    // A resume after the first suspension was kept in the operation call.
-    ldl(ins, P, P_NOW_MODE);
-    ins.local_set(MODE);
-    g(ins, MODE);
-    ins.i32_const(0);
-    ins.i32_ge_s();
-    ins.if_(BlockType::Empty);
-    st_const(ins, P, P_NOW_MODE, -1);
-    sic(b, ins, |p| p.out_mode);
-    g(ins, MODE);
-    ins.i32_store(mem(0, 4));
-    sic(b, ins, |p| p.out_word);
-    ins.local_get(P);
-    ins.i64_load(mem(P_NOW_WORD, 8));
-    ins.i64_store(mem(0, 8));
-    dropv(b, ins, P);
-    ins.return_();
-    ins.end();
-    // No resume: the caller waits for an implementation that will never resume.
-    c(ins, WK_CALLER);
-    c(ins, 0);
-    let new = b.rt("fb_wait_new");
-    ins.call(new);
-    ins.local_set(W);
-    i32_const_cell(b, ins, |p| p.susp_wait);
-    g(ins, W);
-    ins.i32_store(mem(0, 4));
-    c(ins, 1);
-    ins.global_set(G_SUSPENDING);
-    sic(b, ins, |p| p.out_mode);
-    c(ins, 3);
-    ins.i32_store(mem(0, 4));
-    dropv(b, ins, P);
 }
 
 /// `fb_scope_failed(so, cause)`: a failure of the body or a child (spec 11.2). Takes the cause.
@@ -4362,6 +4636,10 @@ fn root_begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
         |p: &Plan| p.wtail,
         |p: &Plan| p.qhead,
         |p: &Plan| p.qtail,
+        |p: &Plan| p.lhead,
+        |p: &Plan| p.ltail,
+        |p: &Plan| p.run_mode,
+        |p: &Plan| p.run_word,
         |p: &Plan| p.live_waits,
         |p: &Plan| p.orphan,
         |p: &Plan| p.pauses,
@@ -4373,6 +4651,10 @@ fn root_begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     i32_const_cell(b, ins, |p| p.run_over);
     c(ins, 0);
     ins.i32_store(mem(0, 4));
+    // The notes belong to the run's result, which is reported after the run: drop them when the
+    // next run starts.
+    let clear = b.rt("fb_notes_clear");
+    ins.call(clear);
     c(ins, F_SLOTS);
     c(ins, desc as i32);
     call(b, ins, "alloc");
@@ -4430,6 +4712,7 @@ fn root_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, W);
     g(ins, CHAIN);
     c(ins, WE_MAIN);
+    c(ins, 0);
     let suspended = b.rt("fb_suspended");
     ins.call(suspended);
     ins.else_();
@@ -4474,6 +4757,15 @@ fn root_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     i32_const_cell(b, ins, |p| p.run_over);
     ins.i32_load(mem(0, 4));
     ins.br_if(1);
+    // A job that waits for the event loop runs after the queue is empty; the C runtime moves one
+    // per turn, so the jobs it adds run before the next.
+    i32_const_cell(b, ins, |p| p.lhead);
+    ins.i32_load(mem(0, 4));
+    ins.if_(BlockType::Empty);
+    let later = b.rt("fb_later_move");
+    ins.call(later);
+    ins.br(1);
+    ins.end();
     let has = b.rt("fb_has_waits");
     ins.call(has);
     ins.i32_eqz();
@@ -4502,6 +4794,51 @@ fn finish_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const W: u32 = 0;
     const NEXT: u32 = 1;
     const F: u32 = 2;
+    // Put the run's result back: the strands that finished after the run ended cleared it from
+    // the pending globals so they could not take it with them.
+    let drop = b.rt("drop");
+    i32_const_cell(b, ins, |p| p.run_mode);
+    ins.i32_load(mem(0, 4));
+    c(ins, 1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_FAILURE);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_FAILURE);
+    ins.call(drop);
+    i32_const_cell(b, ins, |p| p.run_word);
+    ins.i32_load(mem(0, 4));
+    ins.global_set(G_FAILURE);
+    ins.else_();
+    i32_const_cell(b, ins, |p| p.run_word);
+    ins.i32_load(mem(0, 4));
+    ins.call(drop);
+    ins.end();
+    ins.else_();
+    i32_const_cell(b, ins, |p| p.run_mode);
+    ins.i32_load(mem(0, 4));
+    c(ins, 2);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_DEFECT);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_DEFECT);
+    ins.call(drop);
+    i32_const_cell(b, ins, |p| p.run_word);
+    ins.i32_load(mem(0, 4));
+    ins.global_set(G_DEFECT);
+    ins.else_();
+    i32_const_cell(b, ins, |p| p.run_word);
+    ins.i32_load(mem(0, 4));
+    ins.call(drop);
+    ins.end();
+    ins.end();
+    ins.end();
+    i32_const_cell(b, ins, |p| p.run_word);
+    c(ins, 0);
+    ins.i32_store(mem(0, 4));
     // A defect in an operation implementation's release wins over the run's interruption.
     let intr = b.rt("fb_is_interrupted");
     ins.global_get(G_DEFECT);
@@ -4580,37 +4917,41 @@ fn finish_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     i32_const_cell(b, ins, |p| p.ftail);
     c(ins, 0);
     ins.i32_store(mem(0, 4));
-    // The jobs a "failed after resume" left.
-    i32_const_cell(b, ins, |p| p.qhead);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(W);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    g(ins, W);
-    ins.i32_eqz();
-    ins.br_if(1);
-    ldl(ins, W, J_NEXT);
-    ins.local_set(NEXT);
-    dropv(b, ins, W);
-    g(ins, NEXT);
-    ins.local_set(W);
-    ins.br(0);
-    ins.end();
-    ins.end();
-    i32_const_cell(b, ins, |p| p.qhead);
-    c(ins, 0);
-    ins.i32_store(mem(0, 4));
-    i32_const_cell(b, ins, |p| p.qtail);
-    c(ins, 0);
-    ins.i32_store(mem(0, 4));
+    // The jobs a "failed after resume" left, queued or waiting for the event loop.
+    for list in [|p: &Plan| p.qhead, |p: &Plan| p.lhead] {
+        i32_const_cell(b, ins, list);
+        ins.i32_load(mem(0, 4));
+        ins.local_set(W);
+        ins.block(BlockType::Empty);
+        ins.loop_(BlockType::Empty);
+        g(ins, W);
+        ins.i32_eqz();
+        ins.br_if(1);
+        ldl(ins, W, J_NEXT);
+        ins.local_set(NEXT);
+        dropv(b, ins, W);
+        g(ins, NEXT);
+        ins.local_set(W);
+        ins.br(0);
+        ins.end();
+        ins.end();
+    }
+    for list in [
+        |p: &Plan| p.qhead,
+        |p: &Plan| p.qtail,
+        |p: &Plan| p.lhead,
+        |p: &Plan| p.ltail,
+    ] {
+        i32_const_cell(b, ins, list);
+        c(ins, 0);
+        ins.i32_store(mem(0, 4));
+    }
     i32_const_cell(b, ins, |p| p.cur_fiber);
     c(ins, 0);
     ins.i32_store(mem(0, 4));
     i32_const_cell(b, ins, |p| p.cur_main);
     c(ins, 0);
     ins.i32_store(mem(0, 4));
-    let clear = b.rt("fb_notes_clear");
-    ins.call(clear);
     let _ = W;
 }
 
@@ -4700,8 +5041,11 @@ fn root_interrupt(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, WE_ORPHAN);
     ins.local_set(END);
     ins.end();
+    // Drop the wait first: a caller's implementation is unwound before the caller, and its
+    // continuation is queued ahead of this one (the C runtime's `em_drop_wait`).
     g(ins, W);
-    call(b, ins, "fb_unlink_wait");
+    let drop_wait = b.rt("fb_drop_wait");
+    ins.call(drop_wait);
     dropv(b, ins, W);
     c(ins, JK_INTERRUPT);
     g(ins, F);
@@ -4966,15 +5310,15 @@ fn wake_test(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, W);
     ins.local_set(BEST);
     ins.else_();
-    ldl(ins, W, W_AT);
-    ins.i64_load(mem(0, 8));
-    ldl(ins, BEST, W_AT);
-    ins.i64_load(mem(0, 8));
+    g(ins, W);
+    ins.i64_load(mem(W_AT, 8));
+    g(ins, BEST);
+    ins.i64_load(mem(W_AT, 8));
     ins.i64_lt_s();
-    ldl(ins, W, W_AT);
-    ins.i64_load(mem(0, 8));
-    ldl(ins, BEST, W_AT);
-    ins.i64_load(mem(0, 8));
+    g(ins, W);
+    ins.i64_load(mem(W_AT, 8));
+    g(ins, BEST);
+    ins.i64_load(mem(W_AT, 8));
     ins.i64_eq();
     ldl(ins, W, W_SEQ);
     ldl(ins, BEST, W_SEQ);
