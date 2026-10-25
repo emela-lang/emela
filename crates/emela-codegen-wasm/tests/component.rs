@@ -123,6 +123,20 @@ fn exit_codes_are_zero_one_and_101() {
     assert_eq!(failure.code, 1);
     assert_eq!(failure.stderr, "error: Nope(why: \"no\")\n");
 
+    // Without Show, only the name of the error is shown (spec 14.3); the process outcome is the
+    // same.
+    let Some(named) = run(
+        "exit-1-name",
+        "error Nope\n\
+         fn fail_it() -> Int fails Nope { fail Nope }\n\
+         fn main() { dbg(fail_it()) }\n",
+    ) else {
+        return;
+    };
+    assert_eq!(named.code, 1);
+    assert_eq!(named.stdout, "");
+    assert_eq!(named.stderr, "error: Nope\n");
+
     let Some(defect) = run("exit-101", "fn main() { assert 1 + 1 == 3 }\n") else {
         return;
     };
