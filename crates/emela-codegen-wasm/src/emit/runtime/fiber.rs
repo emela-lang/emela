@@ -599,11 +599,6 @@ fn raise_msg(b: &mut Builder, ins: &mut InstructionSink, msg: u32) {
     call(b, ins, "raise");
 }
 
-fn dupv(b: &mut Builder, ins: &mut InstructionSink, l: u32) {
-    ins.local_get(l);
-    call(b, ins, "dup");
-}
-
 /// Stores a reference (dup'ed) in a slot.
 fn st_dup(b: &mut Builder, ins: &mut InstructionSink, base: u32, off: u32, src: u32) {
     ins.local_get(src);
@@ -611,14 +606,6 @@ fn st_dup(b: &mut Builder, ins: &mut InstructionSink, base: u32, off: u32, src: 
     ins.local_get(base);
     ins.local_get(src);
     ins.i32_store(mem(off, 4));
-}
-
-/// `return` after storing `value` in `dst`.
-fn ret_i32(ins: &mut InstructionSink, dst: u32, value: u32) {
-    ins.local_get(value);
-    ins.local_set(dst);
-    ins.local_get(dst);
-    ins.return_();
 }
 
 pub(crate) fn prepare(b: &mut Builder<'_>) {
@@ -944,28 +931,28 @@ fn push_node(
     tail: u32,
     n: u32,
 ) {
-    let N: u32 = n;
+    let node: u32 = n;
     let desc = plan(b).node_desc;
     c(ins, N_SLOTS);
     c(ins, desc as i32);
     call(b, ins, "alloc");
-    ins.local_set(N);
-    st_const(ins, N, N_NEXT, 0);
+    ins.local_set(node);
+    st_const(ins, node, N_NEXT, 0);
     g(ins, target);
     ins.if_(BlockType::Empty);
-    st_dup(b, ins, N, N_TARGET, target);
+    st_dup(b, ins, node, N_TARGET, target);
     ins.else_();
-    st_const(ins, N, N_TARGET, 0);
+    st_const(ins, node, N_TARGET, 0);
     ins.end();
     ldl(ins, f, tail);
     ins.if_(BlockType::Empty);
     ldl(ins, f, tail);
-    g(ins, N);
+    g(ins, node);
     ins.i32_store(mem(N_NEXT, 4));
     ins.else_();
-    stl(ins, f, head, N);
+    stl(ins, f, head, node);
     ins.end();
-    stl(ins, f, tail, N);
+    stl(ins, f, tail, node);
 }
 
 /// `fb_pending_has(f, target) -> i32`: whether an interruption of `target` (0: the whole fiber)
@@ -3006,7 +2993,7 @@ fn settled_impl(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const SHOWN: u32 = 3;
     const TMP: u32 = 4;
     const W: u32 = 5;
-    let WORD: u32 = 2; // the i64 parameter
+    let word: u32 = 2; // the i64 parameter
     let wake = b.rt("fb_wait_wake");
     // A defect.
     g(ins, 1);
@@ -3017,7 +3004,7 @@ fn settled_impl(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_load(mem(P_USED, 4));
     ins.if_(BlockType::Empty);
     c(ins, 2);
-    ins.local_get(WORD);
+    ins.local_get(word);
     ins.i32_wrap_i64();
     let result = b.rt("fb_run_result");
     ins.call(result);
@@ -3035,10 +3022,10 @@ fn settled_impl(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     call(b, ins, "drop");
     g(ins, W);
     c(ins, 2);
-    ins.local_get(WORD);
+    ins.local_get(word);
     ins.call(wake);
     ins.else_();
-    ins.local_get(WORD);
+    ins.local_get(word);
     ins.i32_wrap_i64();
     ins.drop();
     ins.end();
@@ -3052,7 +3039,7 @@ fn settled_impl(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.i32_load(mem(P_USED, 4));
     ins.if_(BlockType::Empty);
-    ins.local_get(WORD);
+    ins.local_get(word);
     ins.i32_wrap_i64();
     let show = b.rt("show_failure");
     ins.call(show);
@@ -3093,10 +3080,10 @@ fn settled_impl(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     call(b, ins, "drop");
     g(ins, W);
     c(ins, 1);
-    ins.local_get(WORD);
+    ins.local_get(word);
     ins.call(wake);
     ins.else_();
-    ins.local_get(WORD);
+    ins.local_get(word);
     ins.i32_wrap_i64();
     ins.drop();
     ins.end();
@@ -3107,7 +3094,7 @@ fn settled_impl(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, R_REF);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
-    ins.local_get(WORD);
+    ins.local_get(word);
     ins.i32_wrap_i64();
     ins.drop();
     ins.end();
