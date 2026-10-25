@@ -41,29 +41,6 @@ struct Skipped {
 
 /// The corpus programs whose feature the WASM target does not support yet.
 const SKIPPED: &[Skipped] = &[
-    // The single-chain scheduler in `runtime::fiber` still differs from C/JS when an operation
-    // implementation suspends and later resumes, when the caller's value comes from such a resume,
-    // and when a sibling's release fails during an interruption. These are runtime gaps, not
-    // missing features: see the fiber handoff.
-    Skipped {
-        feature: "fiber resume values and releases",
-        reason: "a resume after the implementation suspended does not reach the caller, and the \
-                 interruption of a release differs from C/JS",
-        expected_failures: &[
-            "not reached",
-            "defect: resume called twice",
-            "await Interrupt interrupted",
-        ],
-        programs: &["fiber_failures", "fiber_unwinding", "suspend_resume"],
-    },
-    // The fiber combinators (`Fiber.all`/`race`/`both`/`map`) and a long run of yielding fibers
-    // still hit runtime and codegen gaps (a validation error and a stalled fairness run).
-    Skipped {
-        feature: "fiber combinators and fairness",
-        reason: "the combinators do not compile and a long fairness run stalls on WASM",
-        expected_failures: &["internal error in the WASM component", "a 0", "error: Boom"],
-        programs: &["fiber_deferred", "fiber_fairness", "fiber_main_fails"],
-    },
     // The program's own `sleep` is a custom `suspend fn` external with no WASM host (the
     // `Std.Clock` host only covers the bundled handler), and its races need fibers.
     Skipped {
