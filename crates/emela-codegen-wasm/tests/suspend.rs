@@ -257,6 +257,44 @@ fn main() {
 }
 
 #[test]
+fn cause_to_string_shows_the_name_of_an_error_without_show() {
+    // `Cause.to_string` uses the display of an error reaching main (spec 14.3,
+    // `[api.std.cause]`): the name only when the error's type does not satisfy Show, and the
+    // inspect display when it does.
+    let Some(run) = run_code(
+        "cause-name",
+        r#"
+import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Cause.{Cause}
+
+error Nope
+error Retry(after: fn() -> Int)
+error Shown(why: String) derive Show
+
+fn show_cause[A, E](e: Exit[A, E]) {
+  e match {
+    Success(_) -> dbg("success")
+    Failure(c) -> dbg(Cause.to_string(c))
+  }
+}
+
+fn main() {
+  show_cause(Fiber.attempt(fn() { fail Nope }))
+  show_cause(Fiber.attempt(fn() { fail Retry(after: fn() { 1 }) }))
+  show_cause(Fiber.attempt(fn() { fail Shown(why: "no") }))
+}
+"#,
+        0,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        run.stderr,
+        "\"error: Nope\"\n\"error: Retry\"\n\"error: Shown(why: \\\"no\\\")\"\n"
+    );
+}
+
+#[test]
 fn a_second_resume_is_a_defect() {
     let Some(run) = run_code(
         "suspend-twice",

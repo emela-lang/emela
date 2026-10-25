@@ -190,6 +190,72 @@ fn main() {
 }
 
 #[test]
+fn an_error_without_show_reaching_main_shows_its_name() {
+    // An error whose type does not satisfy Show is shown by its name only (spec 14.3), and the
+    // program still exits with 1 rather than trapping.
+    let Some(run) = run(
+        "error-name",
+        r#"
+error Nope
+
+fn nope() -> Int fails Nope { fail Nope }
+
+fn main() {
+  dbg(nope())
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stdout, "");
+    assert_eq!(run.stderr, "error: Nope\n");
+}
+
+#[test]
+fn an_error_without_show_shows_only_its_name() {
+    // The fields of an error whose type does not satisfy Show are not shown; only the name is
+    // (spec 14.3).
+    let Some(run) = run(
+        "error-name-fields",
+        r#"
+error Nope(why: String)
+
+fn nope() -> Int fails Nope { fail Nope(why: "no") }
+
+fn main() {
+  dbg(nope())
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stderr, "error: Nope\n");
+}
+
+#[test]
+fn an_error_with_show_reaching_main_keeps_its_display() {
+    // An error whose type satisfies Show is shown the same way as by inspect (spec 10.6, 14.3).
+    let Some(run) = run(
+        "error-name-show",
+        r#"
+error Nope(why: String) derive Show
+
+fn nope() -> Int fails Nope { fail Nope(why: "no") }
+
+fn main() {
+  dbg(nope())
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stderr, "error: Nope(why: \"no\")\n");
+}
+
+#[test]
 fn strings_extended() {
     let Some(out) = stderr(
         "strings2",
