@@ -78,13 +78,21 @@ pub fn monomorphize(m: &Module) -> Module {
     monomorphize_traced(m, &exported(m)).module
 }
 
-/// The exported functions of `m`, the roots of a normal build.
-pub(crate) fn exported(m: &Module) -> Vec<FnId> {
+/// The roots of a normal build: the implicitly exported fns (`pub` and `main` of the entry), and
+/// every fn with an explicit `@export` or `@entry` (spec 12.7, 12.8). An explicit export is a root
+/// even when it is not `pub` or lives in a dependency; an entry adapter is a root because the fn
+/// of its `@entry` calls it. Backends use this to keep them after monomorphisation.
+pub fn build_roots(m: &Module) -> Vec<FnId> {
     m.functions
         .iter()
-        .filter(|(_, f)| f.exported)
+        .filter(|(_, f)| f.exported || !f.exports.is_empty() || f.entry_adapter.is_some())
         .map(|(id, _)| id)
         .collect()
+}
+
+/// The roots of a normal build ([`build_roots`]).
+pub(crate) fn exported(m: &Module) -> Vec<FnId> {
+    build_roots(m)
 }
 
 /// Monomorphizes the module from `roots` (the entry, test functions, every function for tests).
@@ -119,8 +127,8 @@ pub struct Monomorphized {
     /// Trait functions called for a type without an impl, as `Show.show` and the type's name.
     /// The type checker accepts only types with an impl, so this guards against the two
     /// disagreeing: such a call reaches the trait function's body, which panics. A generic root
-    /// instantiated at `Any` has no trait-bounded type parameter (lowering does not export one,
-    /// E0327), so it reaches no trait function through its type parameters.
+    /// instantiated at `Any` has no trait-bounded type parameter (lowering does not make one a
+    /// root), so it reaches no trait function through its type parameters.
     pub missing_impls: Vec<(String, String)>,
 }
 
@@ -130,12 +138,11 @@ pub struct Monomorphized {
 ///
 /// Unlike [`monomorphize_from`], a generic root is instantiated whether or not it takes arguments.
 /// It has no single instantiation, so it is instantiated for callers that see every value the same
-/// way (JS, to which the entry
-/// module's generic `pub` fns are exported): `Type::Any` for each type parameter, and for each set
-/// type parameter a set that fails and needs the evidence table but does not suspend, the flags
-/// polymorphic lowering gives such a function. The copy keeps the original name and whether it is
-/// exported. A root with a trait-bounded type parameter would have no impl to call at `Any`;
-/// lowering reports it (E0327) instead of exporting it.
+/// way: `Type::Any` for each type parameter, and for each set type parameter a set that fails and
+/// needs the evidence table but does not suspend, the flags polymorphic lowering gives such a
+/// function. The copy keeps the original name and whether it is exported. Lowering does not make
+/// a `pub` fn with a trait-bounded type parameter a root, so a generic root at `Any` reaches no
+/// trait function through its type parameters.
 pub fn monomorphize_traced(m: &Module, roots: &[FnId]) -> Monomorphized {
     let mut mono = Mono::new(m);
     let out_roots = roots.iter().map(|&f| mono.root(f)).collect();

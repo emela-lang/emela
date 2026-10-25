@@ -4,8 +4,8 @@ use std::path::Path;
 
 use emela_driver::{
     Analysis, Checked, CoreSource, Diagnostic, FileId, Frontend, Input, LexOnly, Location, Lower,
-    LowerTests, MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, Target,
-    Typecheck, check, render,
+    MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, Target, Typecheck, check,
+    render,
 };
 use emela_resolve::{Import, ModuleId, ModuleName};
 use emela_types::{InferCtx, Prim, Ty, TyCons};
@@ -15,6 +15,17 @@ fn check_files(files: &[(&str, &str)], path: &str, frontend: &mut impl Frontend)
     let fs = MemoryFiles::new(files.iter().copied());
     let input = Input::resolve(&fs, Path::new(path)).unwrap();
     check(&fs, &input, frontend).0
+}
+
+/// Like [`check_files`], but also returns the lowered program (the build path's Core IR).
+fn checked_program(
+    files: &[(&str, &str)],
+    path: &str,
+    frontend: &mut impl Frontend<Program = emela_core::Module>,
+) -> (Analysis, Option<emela_core::Module>) {
+    let fs = MemoryFiles::new(files.iter().copied());
+    let input = Input::resolve(&fs, Path::new(path)).unwrap();
+    check(&fs, &input, frontend)
 }
 
 #[test]
@@ -841,21 +852,18 @@ fn main() { dbg(hidden(User(name: "ann"))) }
 "#;
 
 #[test]
-fn constrained_export() {
-    // The JS build exports the entry's `pub` fns from main.mjs, so a trait bound is E0327.
+fn trait_bounded_fns_are_not_exports() {
+    // E0327 is unused: a `pub` fn without `@export` is not exported for the host, and an
+    // `@export` fn takes only boundary types, so no trait-bounded type parameter is exported.
     let files = [("home/main.emel", CONSTRAINED_EXPORTS)];
     let analysis = check_files(&files, "home/main.emel", &mut Lower::default());
-    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
-    // check and the LSP (up to type checking) choose no target, so they do not check.
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:#?}",
+        analysis.diagnostics
+    );
     let analysis = check_files(&files, "home/main.emel", &mut Typecheck::default());
-    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
-    // C exports only main, so the bounded fns are not roots.
-    let mut c = Lower::default().with_target(Target::C);
-    let analysis = check_files(&files, "home/main.emel", &mut c);
-    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
-    // `emela test` lowers from the test functions and exports nothing.
-    let analysis = check_files(&files, "home/main.emel", &mut LowerTests::default());
-    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+    assert!(analysis.diagnostics.is_empty());
 }
 
 /// A handler whose `sleep` has no JS `@external`. Only operations called somewhere reachable are
@@ -1155,6 +1163,137 @@ fn main() { () }
     let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
     assert_eq!(codes, ["E0441"], "{:#?}", analysis.diagnostics);
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// Lowering with a target keeps a non-`pub` `@export` and an entry adapter of a dependency, which
+/// the driver then hands to the backend (spec 12.7, 12.8).
+#[test]
+fn explicit_exports_reach_the_build_ir() {
+    let (analysis, program) = checked_program(
+        &[
+            (
+                "home/main.emel",
+                "import Http\n\n@export(js, \"add\")\nfn add(a: Int, b: Int) -> Int { a + b }\n\n@entry(Http.serve)\npub fn app(n: Int) -> Int { n }\n\nfn main() { () }\n",
+            ),
+            (
+                "home/http.emel",
+                "@export(js, \"default\", \"fetch\")\npub fn serve(f: fn(Int) -> Int fails {} use {}) -> Int { f(1) }\n",
+            ),
+        ],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::Js),
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:#?}",
+        analysis.diagnostics
+    );
+    let program = program.expect("the build lowers");
+    let by_name = |name: &str| {
+        program
+            .functions
+            .iter()
+            .find(|(_, f)| f.name == name)
+            .unwrap_or_else(|| panic!("`{name}` was dropped"))
+    };
+    let (_, add) = by_name("add");
+    assert_eq!(add.exports[0].name, "add");
+    let (adapter, serve) = by_name("Http.serve");
+    assert!(serve.is_entry_adapter);
+    let (_, app) = by_name("app");
+    assert_eq!(app.entry_adapter, Some(adapter));
+    assert_eq!(app.exports[0].name, "fetch");
+}
+
+/// A `js`-only suspending export is not an E0441 on the C target (spec 16.7.6).
+#[test]
+fn c_ignores_a_js_suspending_export() {
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Clock {
+  suspend fn now() -> Int
+}
+
+@external(js, "Date.now")
+fn js_now() -> Int
+
+handler JsClock: Clock {
+  suspend fn now(resume) { resume(js_now()) }
+}
+
+@export(js, "now")
+fn now() -> Int use Async {
+  with JsClock { (use Clock).now() }
+}
+
+fn main() { () }
+"#,
+        )],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::C),
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:#?}",
+        analysis.diagnostics
+    );
+}
+
+/// A user-written `@export(wasm, ...)` is reported even when no entry point reaches it (spec
+/// 16.8.3). Checked in lowering, before monomorphisation drops it.
+#[test]
+fn unreachable_wasm_export_is_rejected() {
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            "@export(wasm, \"env\", \"f\")\nfn f() -> Int { 1 }\n\nfn main() { () }\n",
+        )],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::Wasm),
+    );
+    let found: Vec<_> = analysis
+        .diagnostics
+        .iter()
+        .map(|d| (d.code, d.message.as_str()))
+        .collect();
+    assert_eq!(
+        found,
+        [(
+            None,
+            "exported function `f` has a `wasm` export, which the WASI 0.3 component target does not support yet"
+        )],
+        "{:#?}",
+        analysis.diagnostics
+    );
+}
+
+/// The same applies to an entry adapter that is not reached by `main`: `@entry` makes its exports
+/// part of the program, so its user-written `wasm` export is reported too.
+#[test]
+fn wasm_export_of_an_unreached_entry_adapter_is_rejected() {
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            "@export(wasm, \"env\", \"serve\")\nfn serve(app: fn(Int) -> Int fails {} use {}) -> Int { app(1) }\n\n@entry(serve)\nfn app(n: Int) -> Int { n }\n\nfn main() { () }\n",
+        )],
+        "home/main.emel",
+        &mut Lower::default().with_target(Target::Wasm),
+    );
+    let found: Vec<_> = analysis
+        .diagnostics
+        .iter()
+        .map(|d| (d.code, d.message.as_str()))
+        .collect();
+    assert_eq!(
+        found,
+        [(
+            None,
+            "exported function `serve` has a `wasm` export, which the WASI 0.3 component target does not support yet"
+        )],
+        "{:#?}",
+        analysis.diagnostics
+    );
 }
 
 /// An entry adapter is not exported by itself, so its Async R alone is not E0441. Using it with

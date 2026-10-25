@@ -111,13 +111,24 @@ impl std::fmt::Display for CError {
 /// Compiles lowered Core IR (self tail calls loopified, as `emela_core::lower` leaves it) to C.
 pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<CError>> {
     let roots: Vec<FnId> = match entry {
+        // Every explicit `@export(c, ...)` and `@entry` is a root too (spec 12.7, 12.8): one may
+        // not be `pub`, or may be an entry adapter in a dependency. An implicit `pub` fn is not
+        // a C export (spec 16.7.6).
         Entry::Main => core
             .functions
             .iter()
-            .filter(|(_, f)| f.exported && f.name == "main")
+            .filter(|(_, f)| {
+                (f.exported && f.name == "main") || f.exports.iter().any(|e| e.target == "c")
+            })
             .map(|(id, _)| id)
             .collect(),
         Entry::Tests(tests) => tests.iter().map(|t| t.function).collect(),
+    };
+    let main = match entry {
+        Entry::Main => roots
+            .iter()
+            .position(|&id| core.functions[id].exported && core.functions[id].name == "main"),
+        Entry::Tests(_) => None,
     };
     // A generic root (a test whose inferred type has type parameters) is instantiated too. One
     // that cannot be (it takes arguments) is reported rather than skipped. `main` is taken from
@@ -145,7 +156,7 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<
         }
     }
     let entry = match entry {
-        Entry::Main => emit::Run::Main(copied.first().copied()),
+        Entry::Main => emit::Run::Main(main.and_then(|i| copied.get(i).copied())),
         Entry::Tests(tests) => emit::Run::Tests(
             tests
                 .iter()
