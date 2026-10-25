@@ -1564,6 +1564,8 @@ fn drop_wait(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 0);
     let push = b.rt("fb_queue_push");
     ins.call(push);
+    // The recursion left the wait's own reference for this caller.
+    dropv(b, ins, IW);
     ins.end();
     ins.end();
     ins.end();
@@ -1619,6 +1621,8 @@ fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_wrap_i64();
     ins.drop();
     ins.end();
+    // The caller still owns this wait: the wake consumes it even when it was already dead.
+    dropv(b, ins, 0);
     ins.return_();
     ins.end();
     ldl(ins, 0, W_FIBER);
