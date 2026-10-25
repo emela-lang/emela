@@ -153,7 +153,7 @@ pub(crate) fn reserve(b: &mut Builder<'_>) {
         b.defs.push(ty);
         let table = b.table_funcs.len() as u32;
         b.table_funcs.push(trampoline);
-            machines.push(MachinePlan { id, body, table });
+        machines.push(MachinePlan { id, body, table });
     }
     if let Some(plan) = &mut b.sus {
         plan.machines = machines;

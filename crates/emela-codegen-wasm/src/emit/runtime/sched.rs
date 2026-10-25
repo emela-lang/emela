@@ -530,41 +530,19 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(0, 4));
     ins.global_get(G_SUSPENDING);
     ins.if_(BlockType::Empty);
-    // The implementation itself suspended: its frames become its wait's continuation.
+    // The implementation suspended. Its frames and its callers' stay in the captured chain; the
+    // outermost driver attaches the whole chain to the request that caused the suspension (the
+    // request is in `susp_wait`), so this call neither takes the chain nor parks a caller of its
+    // own.
+    ins.local_get(P);
     ins.i32_const(0);
-    let take = b.rt("frame_take");
-    ins.call(take);
-    ins.local_set(CHAIN);
-    ins.i32_const(susp_wait as i32);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(W);
-    ins.i32_const(susp_wait as i32);
-    ins.i32_const(0);
-    ins.i32_store(mem(0, 4));
-    ins.local_get(W);
-    ins.if_(BlockType::Empty);
-    // The wait owns the operation call (for the end of the implementation) and the call owns the
-    // wait.
-    ins.local_get(P);
-    ins.call(dup);
-    ins.local_get(W);
-    ins.local_get(P);
-    ins.i32_store(mem(super::fiber::W_ONDROP, 4));
-    ins.local_get(W);
-    ins.call(dup);
-    ins.local_get(P);
-    ins.local_get(W);
-    ins.i32_store(mem(P_IMPL, 4));
-    ins.local_get(W);
-    ins.local_get(CHAIN);
-    ins.i32_const(super::fiber::WE_IMPL);
-    let suspended = b.rt("fb_suspended");
-    ins.call(suspended);
-    ins.else_();
-    ins.local_get(CHAIN);
+    ins.i32_store(mem(P_PHASE, 4));
     let drop = b.rt("drop");
+    ins.local_get(0);
     ins.call(drop);
-    ins.end();
+    ins.local_get(P);
+    ins.call(drop);
+    ins.return_();
     ins.else_();
     // The implementation returned: a pending defect or failure is the caller's input.
     ins.global_get(G_DEFECT);
@@ -580,6 +558,43 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.else_();
     ins.global_get(G_FAILURE);
     ins.if_(BlockType::Empty);
+    // A failure after the implementation resumed cannot go to the caller any more: the caller
+    // already resumed. It becomes a defect showing the error (spec 14.5), like the C runtime's
+    // `settled`.
+    ins.local_get(P);
+    ins.i32_load(mem(P_USED, 4));
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_FAILURE);
+    ins.local_set(C);
+    ins.i32_const(0);
+    ins.global_set(G_FAILURE);
+    ins.local_get(C);
+    let show = b.rt("show_failure");
+    ins.call(show);
+    ins.local_set(TMP);
+    ins.local_get(P);
+    ins.i32_load(mem(P_WHERE, 4));
+    ins.i32_const(super::fiber::plan(b).failed_after as i32);
+    let append = b.rt("str_append");
+    ins.call(append);
+    ins.local_set(W);
+    ins.local_get(W);
+    ins.local_get(TMP);
+    ins.call(append);
+    ins.local_set(CHAIN);
+    let drop = b.rt("drop");
+    ins.local_get(W);
+    ins.call(drop);
+    ins.local_get(TMP);
+    ins.call(drop);
+    ins.local_get(P);
+    ins.i32_const(2);
+    ins.i32_store(mem(P_NOW_MODE, 4));
+    ins.local_get(P);
+    ins.local_get(CHAIN);
+    ins.i64_extend_i32_u();
+    ins.i64_store(mem(P_NOW_WORD, 8));
+    ins.else_();
     ins.local_get(P);
     ins.i32_const(1);
     ins.i32_store(mem(P_NOW_MODE, 4));
@@ -588,6 +603,7 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(P_NOW_WORD, 4));
     ins.i32_const(0);
     ins.global_set(G_FAILURE);
+    ins.end();
     ins.end();
     ins.end();
     ins.end();

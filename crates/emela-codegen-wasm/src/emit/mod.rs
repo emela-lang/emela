@@ -1270,7 +1270,6 @@ impl<'m> Builder<'m> {
                         let index = self.fn_index(*id);
                         let ret = self.repr(self.m.functions[*id].ret);
                         if self.sus.is_some() {
-                            ins.i32_const(repr_code(ret));
                             let begin = self.rt("fb_root_begin");
                             ins.call(begin);
                         }
