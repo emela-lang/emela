@@ -2162,6 +2162,8 @@ fn begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.else_();
     dropv(b, ins, CHAIN);
     ins.end();
+    // The wait took its own reference to the fiber; release the begin job's.
+    dropv(b, ins, 0);
     ins.return_();
     ins.end();
     i32_const_cell(b, ins, |p| p.cur_fiber);
@@ -3370,17 +3372,27 @@ fn scope_finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(FIRST);
     g(ins, FIRST);
     ins.if_(BlockType::Empty);
-    // A failure wins over how the body ended; the interruption of the body is dropped.
+    // A failure wins over how the body ended. The body's own input is released with the
+    // reference-counting `drop`: a failure or defect/interruption value (modes 1 and 2) is a
+    // reference, a value only when it is one.
+    g(ins, 1);
+    c(ins, 1);
+    ins.i32_eq();
+    g(ins, 1);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.i32_or();
     g(ins, 1);
     ins.i32_eqz();
     g(ins, 3);
     c(ins, R_REF);
     ins.i32_eq();
     ins.i32_and();
+    ins.i32_or();
     ins.if_(BlockType::Empty);
     ins.local_get(2);
     ins.i32_wrap_i64();
-    ins.drop();
+    call(b, ins, "drop");
     ins.end();
     ldl(ins, FIRST, HDR);
     ins.local_set(V);
