@@ -115,15 +115,24 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
     let roots: Vec<FnId> = match entry {
         // Explicit exports are roots too, so that an entry adapter of the bundled `Std` (which
         // the runtime exposes, spec 16.8.3) is not dropped. A user-written `@export(wasm, ...)`
-        // has already been rejected. An implicit `pub` fn is not a WASM export.
-        Entry::Main => core
-            .functions
-            .iter()
-            .filter(|(_, f)| {
-                (f.exported && f.name == "main") || f.exports.iter().any(|e| e.target == "wasm")
-            })
-            .map(|(id, _)| id)
-            .collect(),
+        // has already been rejected. An unused entry adapter is not exposed by itself. An
+        // implicit `pub` fn is not a WASM export.
+        Entry::Main => {
+            let referenced: std::collections::HashSet<FnId> = core
+                .functions
+                .iter()
+                .filter_map(|(_, f)| f.entry_adapter)
+                .collect();
+            core.functions
+                .iter()
+                .filter(|(id, f)| {
+                    (f.exported && f.name == "main")
+                        || (f.exports.iter().any(|e| e.target == "wasm")
+                            && (!f.is_entry_adapter || referenced.contains(id)))
+                })
+                .map(|(id, _)| id)
+                .collect()
+        }
         Entry::Tests(tests) => tests.iter().map(|t| t.function).collect(),
     };
     let main = match entry {
@@ -133,6 +142,13 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
         Entry::Tests(_) => None,
     };
     let (mono, copies) = emela_core::monomorphize_from(core, &roots);
+    // Every root is a reach of the import and unsupported-feature checks, not only `main`/the
+    // tests: an export (or the adapter an `@entry` uses) reaches code that `main` does not.
+    let check_roots: Vec<emela_lir::FnId> = copies
+        .iter()
+        .flatten()
+        .map(|&copy| emela_lir::FnId::from_raw(la_arena::RawIdx::from(u32::from(copy.into_raw()))))
+        .collect();
     // The Flow IR functions are the Core functions in the same order, so a test keeps the index
     // of its copy.
     let entry = match entry {
@@ -159,10 +175,10 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
         return Err(internal("monomorphisation", errors));
     }
     let mut lir = emela_lir::from_core(mono).map_err(|errors| internal("from_core", errors))?;
-    // Reachability is computed on the Flow IR and read again by the emitter: the Heap IR passes
-    // append functions but keep the index of every existing one, so the roots' reachable
-    // external functions are the same.
-    let reach = check::reach(&lir, &entry.roots());
+    // Reachability is computed on the Flow IR and read again by the diagnostics and the
+    // emitter: the Heap IR passes append functions but keep the index of every existing one,
+    // so the roots' reachable external functions are the same.
+    let reach = check::reach(&lir, &check_roots);
     let errors = check::unsupported(&lir, &reach);
     if !errors.is_empty() {
         return Err(errors);

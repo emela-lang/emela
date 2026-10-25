@@ -10,14 +10,6 @@ error[E0438]: `main` is exported twice for target `js`
    │          ╰─────────── 
 ───╯
 
-error[E0438]: `$start` is exported twice for target `js`
-   ╭─[ main.emel:4:1 ]
-   │
- 4 │ @export(js, "$start")
-   │ ──────────┬──────────  
-   │           ╰──────────── 
-───╯
-
 error[E0438]: `default` is exported twice for target `js`
    ╭─[ main.emel:7:1 ]
    │
@@ -26,4 +18,4 @@ error[E0438]: `default` is exported twice for target `js`
    │            ╰──────────── 
 ───╯
 
-3 errors
+2 errors

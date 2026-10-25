@@ -2035,8 +2035,10 @@ fn js_default_export_handles_proto() {
     assert_eq!((text(&out.stdout), text(&out.stderr)), ("true 7\n", ""));
 }
 
-/// A generic entry adapter (`serve[E]`) keeps its export after the build's monomorphisation
-/// (spec 12.7, 12.8).
+/// End-to-end coverage that a generic entry adapter (`serve[E]`) keeps its export through the
+/// whole build (spec 12.7, 12.8). The monomorphisation-level assertion (the adapter's own bindings
+/// and the entry link after a second pass) is in
+/// `emela-core/tests/lower.rs::generic_entry_adapter_keeps_its_exports_and_entry`.
 #[test]
 fn js_generic_entry_adapter_is_exported() {
     let main = "@export(js, \"default\", \"serve\")\npub fn serve[E](app: fn(Int) -> Int fails E use {}) -> Int { 1 }\n\n@entry(serve)\npub fn app(n: Int) -> Int { n }\n\nfn main() { () }\n";

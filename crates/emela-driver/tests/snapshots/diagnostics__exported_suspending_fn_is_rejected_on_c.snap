@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0441]: exported function `now` may suspend, which target `c` does not support
+error: exported function `now` has a `c` export, which target `c` does not support yet
     ╭─[ main.emel:14:4 ]
     │
  14 │ fn now() -> Int use Async {

@@ -25,3 +25,6 @@ fn after_final_name() { () }
 
 @entry(Http)
 fn type_only() { () }
+
+@entry(Http.1)
+fn dot_number() { () }

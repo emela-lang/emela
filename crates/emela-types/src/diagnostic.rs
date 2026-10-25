@@ -198,6 +198,9 @@ pub enum DiagnosticKind {
     /// `@entry` is written on a fn outside the entry module (spec 12.8). No diagnostic code is
     /// assigned to this rule yet; the driver reports it without one.
     EntryOutsideEntryModule,
+    /// More than one `@entry` on one fn (spec 12.8). No diagnostic code is assigned; the driver
+    /// reports it without one and the first annotation is used.
+    MultipleEntryAnnotations,
     /// A handler with fields but no `init` (E0419, spec 8.4).
     MissingInit { handler: SmolStr },
     /// A handler whose init takes parameters, written without arguments (E0434,

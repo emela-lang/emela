@@ -147,6 +147,9 @@ fn try_lower_full(
                     LowerError::UnsupportedWasmExport { name, span } => {
                         (format!("unsupported wasm export {name}"), span)
                     }
+                    LowerError::UnsupportedCExport { name, span, .. } => {
+                        (format!("unsupported c export {name}"), span)
+                    }
                 };
                 let Some(span) = span else {
                     return format!("<no span> {what}");

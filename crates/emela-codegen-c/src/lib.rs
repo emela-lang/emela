@@ -112,16 +112,24 @@ impl std::fmt::Display for CError {
 pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<CError>> {
     let roots: Vec<FnId> = match entry {
         // Every explicit `@export(c, ...)` and `@entry` is a root too (spec 12.7, 12.8): one may
-        // not be `pub`, or may be an entry adapter in a dependency. An implicit `pub` fn is not
-        // a C export (spec 16.7.6).
-        Entry::Main => core
-            .functions
-            .iter()
-            .filter(|(_, f)| {
-                (f.exported && f.name == "main") || f.exports.iter().any(|e| e.target == "c")
-            })
-            .map(|(id, _)| id)
-            .collect(),
+        // not be `pub`, or may be an entry adapter in a dependency. An unused entry adapter is
+        // not exposed by itself. An implicit `pub` fn is not a C export (spec 16.7.6).
+        Entry::Main => {
+            let referenced: std::collections::HashSet<FnId> = core
+                .functions
+                .iter()
+                .filter_map(|(_, f)| f.entry_adapter)
+                .collect();
+            core.functions
+                .iter()
+                .filter(|(id, f)| {
+                    (f.exported && f.name == "main")
+                        || (f.exports.iter().any(|e| e.target == "c")
+                            && (!f.is_entry_adapter || referenced.contains(id)))
+                })
+                .map(|(id, _)| id)
+                .collect()
+        }
         Entry::Tests(tests) => tests.iter().map(|t| t.function).collect(),
     };
     let main = match entry {
