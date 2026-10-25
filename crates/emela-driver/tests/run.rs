@@ -1982,3 +1982,81 @@ fn main() {
         )
     );
 }
+
+/// A fn of `@entry` may itself take a function first parameter; it is not an entry adapter (only
+/// an `@export` fn is), so its merged exports are still emitted (spec 12.8, 16.6.2).
+#[test]
+fn js_entry_fn_with_a_callback_is_exported() {
+    let main = "@export(js, \"default\", \"serve\")\npub fn serve(app: fn(fn(Int) -> Int fails {} use {}) -> Int fails {} use {}) -> Int {\n  app(fn(n) { n + 1 })\n}\n\n@entry(serve)\npub fn app(cb: fn(Int) -> Int fails {} use {}) -> Int { cb(41) }\n\nfn main() { () }\n";
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let dir = out_dir("js-entry-callback");
+    let (analysis, _) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let harness = "import m from \"./main.mjs\";\nconsole.log(m.serve());\n";
+    std::fs::write(dir.join("harness.mjs"), harness).unwrap();
+    let out = std::process::Command::new("node")
+        .arg("harness.mjs")
+        .current_dir(&dir)
+        .output()
+        .expect("cannot start node");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!((text(&out.stdout), text(&out.stderr)), ("42\n", ""));
+}
+
+/// `__proto__` is an own property of the default export object, not its prototype
+/// (spec 16.6.2).
+#[test]
+fn js_default_export_handles_proto() {
+    let main = "@export(js, \"default\", \"__proto__\")\npub fn proto() -> Int { 7 }\n\nfn main() { () }\n";
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let dir = out_dir("js-proto");
+    let (analysis, _) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let harness = "import m from \"./main.mjs\";\nconsole.log(Object.prototype.hasOwnProperty.call(m, \"__proto__\"), m[\"__proto__\"]());\n";
+    std::fs::write(dir.join("harness.mjs"), harness).unwrap();
+    let out = std::process::Command::new("node")
+        .arg("harness.mjs")
+        .current_dir(&dir)
+        .output()
+        .expect("cannot start node");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!((text(&out.stdout), text(&out.stderr)), ("true 7\n", ""));
+}
+
+/// A generic entry adapter (`serve[E]`) keeps its export after the build's monomorphisation
+/// (spec 12.7, 12.8).
+#[test]
+fn js_generic_entry_adapter_is_exported() {
+    let main = "@export(js, \"default\", \"serve\")\npub fn serve[E](app: fn(Int) -> Int fails E use {}) -> Int { 1 }\n\n@entry(serve)\npub fn app(n: Int) -> Int { n }\n\nfn main() { () }\n";
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let dir = out_dir("js-generic-entry");
+    let (analysis, _) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let harness = "import m from \"./main.mjs\";\nconsole.log(m.serve());\n";
+    std::fs::write(dir.join("harness.mjs"), harness).unwrap();
+    let out = std::process::Command::new("node")
+        .arg("harness.mjs")
+        .current_dir(&dir)
+        .output()
+        .expect("cannot start node");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!((text(&out.stdout), text(&out.stderr)), ("1\n", ""));
+}

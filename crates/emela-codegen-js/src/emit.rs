@@ -272,8 +272,16 @@ pub(crate) fn emit_module(m: &Module, opts: &Options, extra_exports: &[FnId]) ->
             e.fn_js(export.function).to_owned()
         };
         match &export.interface {
-            // `@export(js, "default", "name")`: a property of the default export object.
-            Some(_) => default_props.push(format!("{}: {expression}", js_string(&export.name))),
+            // `@export(js, "default", "name")`: a property of the default export object. A computed
+            // key keeps `__proto__` an own property instead of setting the object's prototype.
+            Some(_) => default_props.push(format!(
+                "{}: {expression}",
+                if export.name == "__proto__" {
+                    format!("[{}]", js_string(&export.name))
+                } else {
+                    js_string(&export.name)
+                }
+            )),
             None => {
                 let name = &export.name;
                 if is_identifier_name(name) {
