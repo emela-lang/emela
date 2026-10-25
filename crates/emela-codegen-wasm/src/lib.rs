@@ -157,7 +157,11 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
         return Err(internal("monomorphisation", errors));
     }
     let mut lir = emela_lir::from_core(mono).map_err(|errors| internal("from_core", errors))?;
-    let errors = check::unsupported(&lir, &entry.roots());
+    // Reachability is computed on the Flow IR and read again by the emitter: the Heap IR passes
+    // append functions but keep the index of every existing one, so the roots' reachable
+    // external functions are the same.
+    let reach = check::reach(&lir, &entry.roots());
+    let errors = check::unsupported(&lir, &reach);
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -167,7 +171,7 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
     {
         return Err(internal("the Heap IR verifier", errors));
     }
-    emit::emit(&lir, &entry)
+    emit::emit(&lir, &entry, &reach)
 }
 
 fn internal<E: std::fmt::Display>(stage: &str, errors: Vec<E>) -> Vec<WasmError> {
