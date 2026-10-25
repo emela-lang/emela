@@ -443,6 +443,29 @@ pub(crate) fn wasmtime_command(
     }))
 }
 
+/// The command that serves the HTTP service `entry` with `wasmtime serve -S p3=y,cli=y`
+/// (`[target.wasm.run]`). `args` go to wasmtime, before the component. E0909 if the wasmtime is
+/// too old.
+pub(crate) fn wasmtime_serve_command(
+    entry: &Path,
+    args: &[OsString],
+) -> Result<ProgramCommand, Diagnostic> {
+    let wasmtime = wasmtime_program();
+    check_wasmtime_version(&wasmtime)?;
+    let mut command = Command::new(&wasmtime);
+    command
+        .arg("serve")
+        .arg("-S")
+        .arg("p3=y,cli=y")
+        .args(args)
+        .arg(entry_for_child(entry))
+        .stdin(Stdio::inherit());
+    apply_program_cwd(&mut command);
+    Ok(ProgramCommand::new(command, move |err| {
+        wasmtime_spawn_error(&wasmtime, err)
+    }))
+}
+
 /// Runs the `.wasm` component `entry` with `wasmtime` (WASI 0.3). `args` are passed to the
 /// program.
 pub fn run_wasmtime(

@@ -29,7 +29,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
 }
 
 pub(super) fn used(b: &Builder) -> bool {
-    b.uses_env() || b.uses_std_host(StdHost::is_fs)
+    b.uses_env() || b.uses_std_host(StdHost::is_fs) || b.uses_std_host(StdHost::is_http)
 }
 
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
@@ -84,6 +84,41 @@ fn cabi_realloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.return_();
     ins.end();
+    // While the HTTP runtime reads a request, the host's strings go to its arena
+    // (`runtime/http.rs`), as long as they fit.
+    if let Some(http) = b.http_plan {
+        ins.i32_const(http.arena_cur as i32);
+        ins.i32_load(mem(0, 4));
+        ins.if_(BlockType::Empty);
+        ins.i32_const(http.arena_cur as i32);
+        ins.i32_load(mem(0, 4));
+        ins.local_get(2);
+        ins.i32_add();
+        ins.i32_const(1);
+        ins.i32_sub();
+        ins.i32_const(0);
+        ins.local_get(2);
+        ins.i32_sub();
+        ins.i32_and();
+        ins.local_set(P);
+        ins.local_get(P);
+        ins.local_get(3);
+        ins.i32_add();
+        ins.i32_const(http.arena_end as i32);
+        ins.i32_load(mem(0, 4));
+        ins.i32_le_u();
+        ins.if_(BlockType::Empty);
+        ins.i32_const(http.arena_cur as i32);
+        ins.local_get(P);
+        ins.local_get(3);
+        ins.i32_add();
+        ins.i32_store(mem(0, 4));
+        copy_old(ins, P, COPY);
+        ins.local_get(P);
+        ins.return_();
+        ins.end();
+        ins.end();
+    }
     // P = align_up(G_HEAP, align); `align` is a power of two.
     ins.global_get(G_HEAP);
     ins.local_get(2);
@@ -99,7 +134,12 @@ fn cabi_realloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(3);
     ins.i32_add();
     ins.call(rt(b, "heap_reserve"));
-    // Copy the old contents when growing in place was not possible.
+    copy_old(ins, P, COPY);
+    ins.local_get(P);
+}
+
+/// Copies the common bytes of the old run (`old_ptr`, `old_size`) to `P`, when there was one.
+fn copy_old(ins: &mut InstructionSink, p: u32, copy: u32) {
     ins.local_get(0);
     ins.i32_eqz();
     ins.i32_eqz();
@@ -110,11 +150,10 @@ fn cabi_realloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(3);
     ins.i32_lt_u();
     ins.select();
-    ins.local_set(COPY);
-    ins.local_get(P);
+    ins.local_set(copy);
+    ins.local_get(p);
     ins.local_get(0);
-    ins.local_get(COPY);
+    ins.local_get(copy);
     ins.memory_copy(0, 0);
     ins.end();
-    ins.local_get(P);
 }

@@ -1,0 +1,17 @@
+// The component world of an HTTP service (`[lib.http-service]`, `[target.wasm.output]`): a
+// component that `wasi:http/service@0.3.0` hosts can run. It exports `wasi:http/handler@0.3.0`
+// instead of `wasi:cli/run@0.3.0`, imports the request and response resources of
+// `wasi:http/types`, and imports stdout, stderr and exit like the command world (`emela.wit`,
+// `[target.wasm.output]`: the runtime's defect path can still exit). `wasmtime serve -S cli=y`
+// provides them. The environment, random and clock imports are added at the marker as in the
+// command world.
+package emela:service@0.1.0;
+
+world service {
+  import wasi:cli/exit@0.3.0;
+  import wasi:cli/stdout@0.3.0;
+  import wasi:cli/stderr@0.3.0;
+  import wasi:http/types@0.3.0;
+  // @optional-imports
+  export wasi:http/handler@0.3.0;
+}

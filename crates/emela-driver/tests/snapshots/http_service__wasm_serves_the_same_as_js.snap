@@ -1,0 +1,64 @@
+---
+source: crates/emela-driver/tests/http_service.rs
+expression: "format!(\"{js_responses}---\\n{js_lines}\")"
+---
+GET /echo/a%20b/%E6%9D%B1?q=%E6%9D%B1+x&flag 200 [["content-type","text/plain;charset=UTF-8"]] "[\"a b\", \"東\"] [(\"q\", \"東 x\"), (\"flag\", \"\")] [(\"accept\", \"*/*\"), (\"accept-encoding\", \"gzip, deflate\"), (\"accept-language\", \"*\"), (\"sec-fetch-mode\", \"cors\"), (\"user-agent\", \"node\"), (\"x-a\", \"1\"), (\"x-b\", \"2\"), (\"x-l\", \"é\")] "
+POST /echo 200 [["content-type","text/plain;charset=UTF-8"]] "東京"
+POST /echo 400 [["content-type","text/plain;charset=UTF-8"]] "Bad Request"
+GET /typed 201 [["content-type","application/json"]] "{}"
+GET /empty 204 [] ""
+GET /headers 200 [["set-cookie","a=1"],["set-cookie","b=2"],["x-a","2, 3"],["x-b","1"]] ""
+PROPFIND /echo 405 [["allow","GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"],["content-type","text/plain;charset=UTF-8"]] "Method Not Allowed"
+GET /echo/%zz 400 [["content-type","text/plain;charset=UTF-8"]] "Bad Request"
+GET /echo?a=%E6 400 [["content-type","text/plain;charset=UTF-8"]] "Bad Request"
+GET /fail 500 [["content-type","text/plain;charset=UTF-8"]] "Internal Server Error"
+GET /defect 500 [["content-type","text/plain;charset=UTF-8"]] "Internal Server Error"
+GET /status 500 [["content-type","text/plain;charset=UTF-8"]] "Internal Server Error"
+GET /no-content 500 [["content-type","text/plain;charset=UTF-8"]] "Internal Server Error"
+GET /name 500 [["content-type","text/plain;charset=UTF-8"]] "Internal Server Error"
+GET /value 500 [["content-type","text/plain;charset=UTF-8"]] "Internal Server Error"
+GET /slow/5 200 [["content-type","text/plain;charset=UTF-8"]] "5"
+---
+init
+Get http://127.0.0.1:PORT/echo/a%20b/%E6%9D%B1?q=%E6%9D%B1+x&flag
+release
+init
+Post http://127.0.0.1:PORT/echo
+release
+init
+Get http://127.0.0.1:PORT/typed
+release
+init
+Get http://127.0.0.1:PORT/empty
+release
+init
+Get http://127.0.0.1:PORT/headers
+release
+init
+Get http://127.0.0.1:PORT/fail
+release
+error: Teapot(reason: "short and stout")
+init
+Get http://127.0.0.1:PORT/defect
+release
+defect: boom
+init
+Get http://127.0.0.1:PORT/status
+release
+invalid response: status 99
+init
+Get http://127.0.0.1:PORT/no-content
+release
+invalid response: status 204 cannot have a body
+init
+Get http://127.0.0.1:PORT/name
+release
+invalid response: header name `bad name`
+init
+Get http://127.0.0.1:PORT/value
+release
+invalid response: header value of `x-v`
+init
+Get http://127.0.0.1:PORT/slow/5
+woke 5
+release

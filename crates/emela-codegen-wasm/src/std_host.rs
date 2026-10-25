@@ -6,7 +6,8 @@
 //! `Std.Random`, `Std.Clock.now` and `Std.Clock.sleep`); each of those externals is a runtime
 //! wrapper with its own encoding of the host's result. `Std.FileSystem` names
 //! `emela:runtime/filesystem@0.1.0`, a runtime label rather than a WIT interface: one operation
-//! takes several `wasi:filesystem` calls, which the runtime imports itself. The TestClock's
+//! takes several `wasi:filesystem` calls, which the runtime imports itself. The entry adapter of
+//! `Std.Http` names `emela:runtime/http@0.1.0` the same way, over `wasi:http/types`. The TestClock's
 //! `when-stalled` is a scheduler hook of the runtime rather than a WIT import, and is recognized
 //! the same way. [`classify`] recognizes them by their IR name, never by the module/name pair,
 //! so a program that names the same WASI function stays an unsupported external in
@@ -63,6 +64,28 @@ pub(crate) enum StdHost {
     FsOutcomeNameAt,
     /// Gives up a host outcome.
     FsReleaseOutcome,
+    /// `Std.Http.serve`: reads the whole request being served.
+    HttpRead,
+    /// Whether the body of the request is UTF-8.
+    HttpReceivedText,
+    /// The method of the request.
+    HttpReceivedMethod,
+    /// The absolute URL of the request.
+    HttpReceivedUrl,
+    /// The body of the request.
+    HttpReceivedBody,
+    /// The number of headers of the request.
+    HttpReceivedHeaderCount,
+    /// One header name of the request.
+    HttpReceivedHeaderName,
+    /// One header value of the request.
+    HttpReceivedHeaderValue,
+    /// Starts the response: its status and body.
+    HttpNewDraft,
+    /// Adds a header to the response.
+    HttpDraftHeader,
+    /// The `response` resource of the response built.
+    HttpFinishDraft,
 }
 
 impl StdHost {
@@ -91,6 +114,17 @@ impl StdHost {
             StdHost::FsOutcomeNameCount => "fs_outcome_name_count",
             StdHost::FsOutcomeNameAt => "fs_outcome_name_at",
             StdHost::FsReleaseOutcome => "fs_release_outcome",
+            StdHost::HttpRead => "http_read",
+            StdHost::HttpReceivedText => "http_received_text",
+            StdHost::HttpReceivedMethod => "http_received_method",
+            StdHost::HttpReceivedUrl => "http_received_url",
+            StdHost::HttpReceivedBody => "http_received_body",
+            StdHost::HttpReceivedHeaderCount => "http_received_header_count",
+            StdHost::HttpReceivedHeaderName => "http_received_header_name",
+            StdHost::HttpReceivedHeaderValue => "http_received_header_value",
+            StdHost::HttpNewDraft => "http_new_draft",
+            StdHost::HttpDraftHeader => "http_draft_header",
+            StdHost::HttpFinishDraft => "http_finish_draft",
         }
     }
 
@@ -117,6 +151,24 @@ impl StdHost {
     /// Whether the host needs the real monotonic clock import (not the TestClock hook).
     pub(crate) fn is_monotonic(self) -> bool {
         matches!(self, StdHost::ClockSleep)
+    }
+
+    /// Whether the host is part of `Std.Http.serve` (`runtime/http.rs`).
+    pub(crate) fn is_http(self) -> bool {
+        matches!(
+            self,
+            StdHost::HttpRead
+                | StdHost::HttpReceivedText
+                | StdHost::HttpReceivedMethod
+                | StdHost::HttpReceivedUrl
+                | StdHost::HttpReceivedBody
+                | StdHost::HttpReceivedHeaderCount
+                | StdHost::HttpReceivedHeaderName
+                | StdHost::HttpReceivedHeaderValue
+                | StdHost::HttpNewDraft
+                | StdHost::HttpDraftHeader
+                | StdHost::HttpFinishDraft
+        )
     }
 
     /// Whether the host is part of `Std.FileSystem`.
@@ -176,6 +228,26 @@ const STD_HOSTS: &[(&str, StdHost)] = &[
     ),
     ("Std.FileSystem.outcome_name_at", StdHost::FsOutcomeNameAt),
     ("Std.FileSystem.release_outcome", StdHost::FsReleaseOutcome),
+    ("Std.Http.host_read", StdHost::HttpRead),
+    ("Std.Http.host_received_text", StdHost::HttpReceivedText),
+    ("Std.Http.host_received_method", StdHost::HttpReceivedMethod),
+    ("Std.Http.host_received_url", StdHost::HttpReceivedUrl),
+    ("Std.Http.host_received_body", StdHost::HttpReceivedBody),
+    (
+        "Std.Http.host_received_header_count",
+        StdHost::HttpReceivedHeaderCount,
+    ),
+    (
+        "Std.Http.host_received_header_name",
+        StdHost::HttpReceivedHeaderName,
+    ),
+    (
+        "Std.Http.host_received_header_value",
+        StdHost::HttpReceivedHeaderValue,
+    ),
+    ("Std.Http.host_draft", StdHost::HttpNewDraft),
+    ("Std.Http.host_draft_header", StdHost::HttpDraftHeader),
+    ("Std.Http.host_finish", StdHost::HttpFinishDraft),
 ];
 
 /// If `f` is a bundled `Std` external with a `wasm` binding that the runtime implements, which

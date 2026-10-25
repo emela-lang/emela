@@ -3399,8 +3399,8 @@ impl<'a> Lowerer<'a> {
 
     /// Fills [`Lowerer::host_exports`] with the exports for `target` (every target for `None`),
     /// and reports the ones the target cannot expose: one that may suspend on `c` (E0441), and on
-    /// `wasm` any written by a user (`[target.wasm.external]`; only the entry adapters of the
-    /// bundled `Std` would be exposed by the runtime, and it has none yet).
+    /// `wasm` any written by a user (`[target.wasm.external]`; only `Std.Http.serve`, the entry
+    /// adapter of the bundled `Std`, is exposed by the runtime).
     fn collect_host_exports(&mut self, target: Option<&str>) {
         for exposed in emela_types::host_exports(self.hir, self.entry) {
             let entry = self.hir.entry_exports.iter().find(|e| e.def == exposed.def);
@@ -3445,7 +3445,10 @@ impl<'a> Lowerer<'a> {
                         .push(LowerError::SuspendingExport { name, span });
                     continue;
                 }
-                Some("wasm") => {
+                // The runtime exposes the entry adapter of the bundled `Std.Http`.
+                Some("wasm")
+                    if !entry.is_some_and(|e| emela_types::is_http_serve(self.hir, e.adapter)) =>
+                {
                     self.errors.push(LowerError::WasmExport { name, span });
                     continue;
                 }
