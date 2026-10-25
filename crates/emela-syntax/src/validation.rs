@@ -35,6 +35,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         FN_DECL => {
             fn_decl(node, out);
             fn_externals(node, out);
+            fn_exports(node, out);
         }
         TYPE_DECL => {
             if child_kind(node, FIELD_LIST).is_none() && !is_external(node) {
@@ -324,9 +325,107 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
 }
 
+/// Known `@export` targets (spec 12.7).
+const EXPORT_TARGETS: [&str; 3] = ["js", "wasm", "c"];
+
+/// The shape of a fn's `@export(target, "a")` and `@export(target, "a", "b")` (spec 12.7): a
+/// target name and one or two strings. On the `js` target the middle argument of the
+/// three-argument form is `"default"`.
+fn fn_exports(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    for annotation in annotations(node, "export") {
+        let args: Vec<SyntaxNode> = child_kind(&annotation, ANNOT_ARG_LIST)
+            .into_iter()
+            .flat_map(|list| list.children())
+            .filter(|arg| arg.kind() == ANNOT_ARG)
+            .collect();
+        if args
+            .iter()
+            .any(|arg| arg.descendants().any(|n| n.kind() == ERROR))
+        {
+            continue;
+        }
+        let Some((first, rest)) = args.split_first() else {
+            error(
+                out,
+                annotation.text_range(),
+                DiagnosticCode::MalformedExport,
+                "`@export` needs a target and a name: `@export(js, \"name\")`",
+            );
+            continue;
+        };
+        let Some(target) = annot_name(first) else {
+            error(
+                out,
+                first.text_range(),
+                DiagnosticCode::MalformedExport,
+                "the first argument of `@export` must be a target name such as `js`",
+            );
+            continue;
+        };
+        if !EXPORT_TARGETS.contains(&target.as_str()) {
+            error(
+                out,
+                first.text_range(),
+                DiagnosticCode::MalformedExport,
+                &format!("unknown target `{target}` in `@export`: expected `js`, `wasm` or `c`"),
+            );
+        }
+        for arg in rest {
+            let message = match annot_string(arg) {
+                Some(true) => continue,
+                Some(false) => "string interpolation is not allowed in `@export`",
+                None => "arguments after the target of `@export` must be strings",
+            };
+            error(
+                out,
+                arg.text_range(),
+                DiagnosticCode::MalformedExport,
+                message,
+            );
+        }
+        if !(1..=2).contains(&rest.len()) {
+            error(
+                out,
+                annotation.text_range(),
+                DiagnosticCode::MalformedExport,
+                &format!(
+                    "`@export` takes one or two strings after the target, found {}",
+                    rest.len()
+                ),
+            );
+        } else if target == "js"
+            && rest.len() == 2
+            && annot_string_text(&rest[0]).as_deref() != Some("default")
+        {
+            error(
+                out,
+                rest[0].text_range(),
+                DiagnosticCode::MalformedExport,
+                "on the `js` target, the middle argument of `@export` must be `\"default\"`",
+            );
+        }
+    }
+}
+
+/// The text of a string argument without interpolation.
+fn annot_string_text(arg: &SyntaxNode) -> Option<String> {
+    let string = child_kind(arg, STRING)?;
+    if child_kind(&string, INTERP).is_some() {
+        return None;
+    }
+    Some(
+        string
+            .descendants_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == STRING_TEXT)
+            .map(|t| t.text().to_owned())
+            .collect(),
+    )
+}
+
 /// The name of an annotation argument that is a bare name (`js`).
 fn annot_name(arg: &SyntaxNode) -> Option<String> {
-    if arg.first_child().is_some() || has_token(arg, COLON) {
+    if arg.first_child().is_some() || has_token(arg, COLON) || has_token(arg, DOT) {
         return None;
     }
     arg.children_with_tokens()

@@ -87,6 +87,9 @@ pub enum DiagnosticCode {
     DuplicateExternalTarget,
     /// An `@external` target that is not a known name (spec 12.1).
     UnknownExternalTarget,
+    /// The arguments of `@export` (spec 12.7): a target and one or two strings, and on the `js`
+    /// target the middle argument of the three-argument form is `"default"`.
+    MalformedExport,
     /// Arguments on `@external type` (spec 12.3).
     ExternalTypeWithArgs,
     /// `match` written before the value. `match x { ... }` (spec 6.5)
@@ -144,6 +147,7 @@ impl DiagnosticCode {
             Self::PrefixMatch => "E0142",
             Self::OldImplHead => "E0144",
             Self::OldHandlerHead => "E0145",
+            Self::MalformedExport => "E0146",
         }
     }
 }

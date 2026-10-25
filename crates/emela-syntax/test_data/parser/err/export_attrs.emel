@@ -1,0 +1,30 @@
+# The shape of the arguments of @export (12.7).
+@export(js, "ok")
+fn ok() { () }
+
+@export
+fn no_args() { () }
+
+@export()
+fn empty() { () }
+
+@export("name")
+fn no_target() { () }
+
+@export(jvm, "x")
+fn unknown() { () }
+
+@export(js)
+fn no_name() { () }
+
+@export(js, "a", "b", "c")
+fn three() { () }
+
+@export(js, 1)
+fn number() { () }
+
+@export(js, "#{x}")
+fn interpolated() { () }
+
+@export(js, "other", "add")
+fn bad_container() { () }

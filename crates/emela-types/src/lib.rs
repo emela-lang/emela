@@ -12,6 +12,7 @@ mod diagnostic;
 mod display;
 mod error;
 mod exhaustiveness;
+mod export;
 mod fiber;
 mod infer;
 mod layer;
@@ -28,8 +29,8 @@ mod tests;
 
 pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
 pub use diagnostic::{
-    Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, LabelBaseReason, LayerArg,
-    SuspendingCall,
+    BoundaryPosition, Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, LabelBaseReason,
+    LayerArg, SuspendingCall,
 };
 pub use display::{SchemeDisplay, TyDisplay};
 pub use error::{TypeError, TypeErrorKind};

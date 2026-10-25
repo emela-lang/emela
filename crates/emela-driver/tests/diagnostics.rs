@@ -1061,3 +1061,98 @@ fn main() {
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
+
+/// `@export` and `@entry` (spec 12.7, 12.8): boundary types (E0436), placement (E0437),
+/// duplicate host names (E0438), an `@entry` that does not name an entry adapter (E0439) and an
+/// fn that does not fit the adapter's first parameter (E0440).
+#[test]
+fn export_and_entry_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[
+            (
+                "home/main.emel",
+                r#"import Http
+
+@entry(Http.serve)
+pub fn app(n: Int) -> Int { n }
+
+@entry(Http.serve)
+pub fn wrong(s: String) -> Int { 0 }
+
+@entry(Http.not_adapter)
+pub fn app2() -> Int { 0 }
+
+@export(js, "dup")
+pub fn dup1() -> Int { 0 }
+
+@export(js, "dup")
+pub fn dup2() -> Int { 0 }
+
+@export(js, "bad")
+pub fn bad(a: List[Int]) -> List[Int] { a }
+"#,
+            ),
+            (
+                "home/http.emel",
+                r#"@export(js, "default", "fetch")
+pub fn serve(app: fn(Int) -> Int fails {} use {}) -> Int { app(1) }
+
+@export(js, "not_adapter")
+pub fn not_adapter() -> Int { 0 }
+
+@export(js, "default", "fetch")
+pub fn duplicate() -> Int { 0 }
+"#,
+            ),
+        ],
+        "home/main.emel",
+        &mut frontend,
+    );
+    let mut codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    codes.sort_unstable();
+    assert_eq!(
+        codes,
+        [
+            "E0436", "E0436", "E0437", "E0437", "E0438", "E0438", "E0438", "E0439", "E0440"
+        ],
+        "{:#?}",
+        analysis.diagnostics
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// An exported fn that may suspend is a compile error on the `c` target (E0441, 16.7.6).
+#[test]
+fn exported_suspending_fn_is_rejected_on_c() {
+    let mut frontend = Lower::default().with_target(Target::C);
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Clock {
+  suspend fn now() -> Int
+}
+
+@external(js, "Date.now")
+@external(c, "host_now")
+fn js_now() -> Int
+
+handler JsClock: Clock {
+  suspend fn now(resume) { resume(js_now()) }
+}
+
+@export(c, "now")
+fn now() -> Int use Async {
+  with JsClock { (use Clock).now() }
+}
+
+fn main() { () }
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(codes, ["E0441"], "{:#?}", analysis.diagnostics);
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}

@@ -210,6 +210,9 @@ impl Module {
             suspends: false,
             constant: false,
             sets: None,
+            exports: Vec::new(),
+            is_entry_adapter: false,
+            entry_adapter: None,
         })
     }
 
@@ -347,6 +350,31 @@ pub struct Function {
     /// over-approximate its instantiations, as for [`FnType::sets`], and [`crate::mono`] works out
     /// the exact ones per instantiation.
     pub sets: Option<FnSets>,
+    /// The host names this fn is exported under (spec 12.7). Empty for a fn that is not
+    /// exported. An entry adapter keeps its own exports here, but `is_entry_adapter` says that it
+    /// is not exposed by itself.
+    pub exports: Vec<ExportBinding>,
+    /// Whether the first parameter has a function type, which makes this fn an entry adapter
+    /// (spec 12.8).
+    pub is_entry_adapter: bool,
+    /// For the fn of an `@entry(T)`, the entry adapter `T` (spec 12.8). Its `exports` are the
+    /// exports of `T`: each call of the export passes this fn as the first argument of `T`.
+    pub entry_adapter: Option<FnId>,
+}
+
+/// One `@export(target, "name")` or `@export(target, "interface", "name")` (spec 12.7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportBinding {
+    /// The target (`js`, `c`, `wasm`).
+    pub target: String,
+    /// The middle argument of the three-argument form (`"default"` on the `js` target).
+    pub interface: Option<String>,
+    /// The name the host calls.
+    pub name: String,
+    /// Whether the fn is in the bundled core (`Std`). The WASM runtime exposes the entry
+    /// adapters of the bundled `Std`; a user-written `@export(wasm, ...)` is a compile error
+    /// (`[target.wasm.external]`).
+    pub bundled: bool,
 }
 
 /// The host function of an external function (spec 12.1). How the parameters and the return value

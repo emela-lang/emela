@@ -105,6 +105,7 @@ pub fn monomorphize_from(m: &Module, roots: &[FnId]) -> (Module, Vec<Option<FnId
         })
         .collect();
     mono.run();
+    remap_entry_adapters(m, &mut mono.out, &mono.origins);
     (mono.out, out_roots)
 }
 
@@ -139,11 +140,33 @@ pub fn monomorphize_traced(m: &Module, roots: &[FnId]) -> Monomorphized {
     let mut mono = Mono::new(m);
     let out_roots = roots.iter().map(|&f| mono.root(f)).collect();
     mono.run();
+    remap_entry_adapters(m, &mut mono.out, &mono.origins);
     Monomorphized {
         module: mono.out,
         roots: out_roots,
         origins: mono.origins,
         missing_impls: mono.missing_impls,
+    }
+}
+
+/// Points each copy's `entry_adapter` at the copy of the adapter in the output. `origins` maps an
+/// output function to the input function it copies; an adapter may have several copies, and the
+/// first is used (entry adapters that take a fn are not instantiated per call).
+fn remap_entry_adapters(m: &Module, out: &mut Module, origins: &ArenaMap<FnId, FnId>) {
+    let mut first: FxHashMap<FnId, FnId> = FxHashMap::default();
+    for (new, old) in origins.iter() {
+        first.entry(*old).or_insert(new);
+    }
+    let wanted: Vec<(FnId, FnId)> = out
+        .functions
+        .iter()
+        .filter_map(|(id, _)| {
+            let old = origins.get(id)?;
+            Some((id, m.functions[*old].entry_adapter?))
+        })
+        .collect();
+    for (id, adapter) in wanted {
+        out.functions[id].entry_adapter = first.get(&adapter).copied();
     }
 }
 
@@ -587,6 +610,13 @@ impl<'a> Mono<'a> {
             suspends: old.suspends,
             constant: old.constant,
             sets: None,
+            exports: if args.is_empty() {
+                old.exports.clone()
+            } else {
+                Vec::new()
+            },
+            is_entry_adapter: old.is_entry_adapter,
+            entry_adapter: None,
         });
         self.origins.insert(new, f);
         let t = Target {

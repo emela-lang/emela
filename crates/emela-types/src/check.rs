@@ -115,6 +115,9 @@ pub struct CheckOptions {
     /// The entry module's `main`.
     pub main: Option<DefId>,
     pub tests: Vec<DefId>,
+    /// The entry module (spec 4.1). `@export` fns that are not entry adapters are allowed only
+    /// here (E0437, spec 12.7).
+    pub entry: Option<emela_resolve::ModuleId>,
 }
 
 pub fn check_program(program: &Program) -> ProgramTypes {
@@ -129,6 +132,19 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
     for &test in &options.tests {
         let name = program.defs[test].name.clone();
         closed.insert(test, EffectContext::Test { name });
+    }
+    // The R of an `@export` fn must be empty except for Async (spec 12.7).
+    for (def, data) in program.defs.iter() {
+        if let Some(Item::Fn(f)) = program.item(def)
+            && !f.exports.is_empty()
+        {
+            closed.insert(
+                def,
+                EffectContext::Export {
+                    name: data.name.clone(),
+                },
+            );
+        }
     }
     let ty_table = TyTable::new(program);
     let mut diags = Vec::new();
@@ -246,6 +262,13 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         &mut types.diags,
     );
     types.sigs = sigs;
+    {
+        // Executing the checks after inference, because they need the final signatures of the
+        // adapter and of the fn passed to it.
+        let sigs = &types.sigs;
+        let ty_table = &types.ty_table;
+        crate::export::check(program, options, sigs, ty_table, &mut types.diags);
+    }
     types
 }
 

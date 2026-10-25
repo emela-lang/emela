@@ -158,7 +158,24 @@ pub(crate) fn annotation(p: &mut Parser<'_>) -> bool {
         let args = p.start();
         super::delimited(p, L_PAREN, R_PAREN, |p| {
             let arg = p.start();
-            if p.at(LOWER_NAME) {
+            if p.at(TYPE_NAME) {
+                // `qualified = type_name { "." type_name } "." lower_name` (spec 17.3). Allowed
+                // only as the argument of `@entry`; the shape checks elsewhere enforce that.
+                p.bump();
+                while p.at(DOT) {
+                    p.bump();
+                    if p.at(TYPE_NAME) || p.at(LOWER_NAME) {
+                        p.bump();
+                    } else {
+                        p.err_recover(
+                            DiagnosticCode::ExpectedToken,
+                            "expected a name after `.`",
+                            &[COMMA, R_PAREN, NEWLINE],
+                        );
+                        break;
+                    }
+                }
+            } else if p.at(LOWER_NAME) {
                 p.bump();
                 if p.eat(COLON) {
                     annot_literal(p);

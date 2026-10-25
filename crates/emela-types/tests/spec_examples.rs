@@ -944,3 +944,23 @@ fn bad_lambda() -> Int { run(fn() { fail Timeout }) }
 "#
     ));
 }
+
+/// 12.7 `@export` and 12.8 entry adapters and `@entry`.
+#[test]
+fn spec_12_7_export_and_12_8_entry() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+@export(c, "TIM2_IRQHandler")
+pub fn on_tick() -> () { () }
+
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(js, "default", "serve")
+pub fn serve(app: fn(Int) -> Int fails {} use {}) -> Int { app(1) }
+
+@entry(serve)
+pub fn app(n: Int) -> Int { n }
+"#
+    ));
+}

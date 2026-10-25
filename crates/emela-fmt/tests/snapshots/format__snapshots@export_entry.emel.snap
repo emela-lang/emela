@@ -1,0 +1,18 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/export_entry.emel
+---
+# Exported functions and entries (12.7, 12.8).
+@export(c, "TIM2_IRQHandler")
+pub fn on_tick() -> () { () }
+
+@export(js, "add")
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(js, "default", "serve")
+pub fn serve(app: fn(Int) -> Int) -> Int { app(1) }
+
+@entry(serve)
+pub fn app(n: Int) -> Int { n }

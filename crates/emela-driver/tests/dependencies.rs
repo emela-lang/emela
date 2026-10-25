@@ -176,6 +176,21 @@ fn allows_external_only_when_the_project_says_so() {
     let found = diagnostics(&files(app, public), allowed.clone());
     assert!(found.iter().any(|d| d.starts_with("E0237")), "{found:?}");
 
+    // `@export` counts as `@external` for `[external] allow` (spec 4.7, 12.7).
+    let exporter = "@export(js, \"default\", \"serve\")\npub fn serve(app: fn(Int) -> Int fails {} use {}) -> Int { app(1) }\n\npub fn route() -> Int { 1 }\n";
+    let found = diagnostics(&files(app, exporter), dependencies(None, COMPILER));
+    assert!(
+        found.iter().any(|d| d
+            .starts_with("E0233 `github.com/acme/quince` uses `@export`, but it is not allowed")),
+        "{found:?}"
+    );
+    let mut allowed_export = dependencies(None, COMPILER);
+    allowed_export.allow_external = vec!["github.com/acme/quince".into()];
+    assert_eq!(
+        diagnostics(&files(app, exporter), allowed_export),
+        Vec::<String>::new()
+    );
+
     // An allowed Pome that is not depended on.
     allowed.allow_external.push("github.com/acme/old".into());
     let found = diagnostics(&files(app, router), allowed);

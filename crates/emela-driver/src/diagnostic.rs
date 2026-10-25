@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use emela_resolve::ModuleId;
 use emela_resolve::{DiagnosticKind, NameError};
 use emela_types::{
-    DiagnosticKind as TypeDiagnosticKind, EffectContext, ImmediateSource, SuspendingCall, Ty,
-    TyCons, TypeError, TypeErrorKind,
+    BoundaryPosition, DiagnosticKind as TypeDiagnosticKind, EffectContext, ImmediateSource,
+    SuspendingCall, Ty, TyCons, TypeError, TypeErrorKind,
 };
 use la_arena::ArenaMap;
 use line_index::TextRange;
@@ -454,6 +454,13 @@ impl Diagnostic {
                 )),
                 span,
             ),
+            emela_core::LowerError::SuspendingExport { name, span } => (
+                Diagnostic::error(format!(
+                    "exported function `{name}` may suspend, which target `c` does not support"
+                ))
+                .with_code(code::SUSPENDING_EXPORT),
+                span,
+            ),
         };
         match span.and_then(|s| files.get(s.module).map(|&file| Span::new(file, s.range))) {
             Some(span) => diagnostic.with_span(span),
@@ -744,6 +751,13 @@ impl Diagnostic {
                             None => "provide it with `with`".to_owned(),
                         });
                         format!("{list} {verb} not provided in test function `{name}`")
+                    }
+                    EffectContext::Export { name } => {
+                        help = Some(match scope {
+                            Some(scope) => format!("provide it with `with` outside `{scope}`"),
+                            None => "provide it with `with`".to_owned(),
+                        });
+                        format!("{list} {verb} not provided in exported function `{name}`")
                     }
                 };
                 (Severity::Error, Some(code::UNHANDLED_EFFECTS), message)
@@ -1240,6 +1254,41 @@ impl Diagnostic {
                 format!(
                     "`Immediate` can only constrain effect sets, but `{param}` is not used in `use`"
                 ),
+            ),
+            TypeDiagnosticKind::NotBoundaryType {
+                function,
+                ty,
+                position,
+            } => {
+                let verb = match position {
+                    BoundaryPosition::Parameter => "take",
+                    BoundaryPosition::Return => "return",
+                };
+                (
+                    Severity::Error,
+                    Some(code::NOT_BOUNDARY_TYPE),
+                    format!("exported function `{function}` cannot {verb} `{ty}`"),
+                )
+            }
+            TypeDiagnosticKind::ExportOutsideEntryModule => (
+                Severity::Error,
+                Some(code::EXPORT_OUTSIDE_ENTRY_MODULE),
+                "`@export` is only allowed in the entry module".to_owned(),
+            ),
+            TypeDiagnosticKind::DuplicateExport { name, target, .. } => (
+                Severity::Error,
+                Some(code::DUPLICATE_EXPORT),
+                format!("`{name}` is exported twice for target `{target}`"),
+            ),
+            TypeDiagnosticKind::NotEntryAdapter { path } => (
+                Severity::Error,
+                Some(code::NOT_ENTRY_ADAPTER),
+                format!("`{path}` is not an entry adapter"),
+            ),
+            TypeDiagnosticKind::EntryDoesNotFit { function, adapter } => (
+                Severity::Error,
+                Some(code::ENTRY_DOES_NOT_FIT),
+                format!("`{function}` does not fit `{adapter}`"),
             ),
         };
         let mut out = Diagnostic::new(severity, message);

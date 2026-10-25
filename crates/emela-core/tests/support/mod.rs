@@ -124,6 +124,9 @@ pub fn try_lower_with(
                     LowerError::ConstrainedExport { name, param, span } => {
                         (format!("constrained export {name} [{param}]"), span)
                     }
+                    LowerError::SuspendingExport { name, span } => {
+                        (format!("suspending export {name}"), span)
+                    }
                 };
                 let Some(span) = span else {
                     return format!("<no span> {what}");

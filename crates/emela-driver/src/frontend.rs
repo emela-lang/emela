@@ -382,6 +382,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         let options = CheckOptions {
             main,
             tests: tests.iter().map(|t| t.def).collect(),
+            entry: analysis.entry,
         };
         let types = check_program_with(&hir, &options);
         // Inference proceeds in call order, so sort by file and position like name resolution.

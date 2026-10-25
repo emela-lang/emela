@@ -1,0 +1,347 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/export_attrs.emel
+---
+ROOT@0..432
+  COMMENT@0..47 "# The shape of the arguments of @export (12.7)."
+  NEWLINE@47..48 "\n"
+  FN_DECL@48..80
+    ANNOTATION@48..65
+      AT@48..49 "@"
+      LOWER_NAME@49..55 "export"
+      ANNOT_ARG_LIST@55..65
+        L_PAREN@55..56 "("
+        ANNOT_ARG@56..58
+          LOWER_NAME@56..58 "js"
+        COMMA@58..59 ","
+        WHITESPACE@59..60 " "
+        ANNOT_ARG@60..64
+          STRING@60..64
+            STRING_QUOTE@60..61 "\""
+            STRING_TEXT@61..63 "ok"
+            STRING_QUOTE@63..64 "\""
+        R_PAREN@64..65 ")"
+    NEWLINE@65..66 "\n"
+    FN_KW@66..68 "fn"
+    WHITESPACE@68..69 " "
+    LOWER_NAME@69..71 "ok"
+    PARAM_LIST@71..73
+      L_PAREN@71..72 "("
+      R_PAREN@72..73 ")"
+    WHITESPACE@73..74 " "
+    BLOCK_EXPR@74..80
+      L_BRACE@74..75 "{"
+      WHITESPACE@75..76 " "
+      UNIT_EXPR@76..78
+        L_PAREN@76..77 "("
+        R_PAREN@77..78 ")"
+      WHITESPACE@78..79 " "
+      R_BRACE@79..80 "}"
+  NEWLINE@80..81 "\n"
+  NEWLINE@81..82 "\n"
+  FN_DECL@82..109
+    ANNOTATION@82..89
+      AT@82..83 "@"
+      LOWER_NAME@83..89 "export"
+    NEWLINE@89..90 "\n"
+    FN_KW@90..92 "fn"
+    WHITESPACE@92..93 " "
+    LOWER_NAME@93..100 "no_args"
+    PARAM_LIST@100..102
+      L_PAREN@100..101 "("
+      R_PAREN@101..102 ")"
+    WHITESPACE@102..103 " "
+    BLOCK_EXPR@103..109
+      L_BRACE@103..104 "{"
+      WHITESPACE@104..105 " "
+      UNIT_EXPR@105..107
+        L_PAREN@105..106 "("
+        R_PAREN@106..107 ")"
+      WHITESPACE@107..108 " "
+      R_BRACE@108..109 "}"
+  NEWLINE@109..110 "\n"
+  NEWLINE@110..111 "\n"
+  FN_DECL@111..138
+    ANNOTATION@111..120
+      AT@111..112 "@"
+      LOWER_NAME@112..118 "export"
+      ANNOT_ARG_LIST@118..120
+        L_PAREN@118..119 "("
+        R_PAREN@119..120 ")"
+    NEWLINE@120..121 "\n"
+    FN_KW@121..123 "fn"
+    WHITESPACE@123..124 " "
+    LOWER_NAME@124..129 "empty"
+    PARAM_LIST@129..131
+      L_PAREN@129..130 "("
+      R_PAREN@130..131 ")"
+    WHITESPACE@131..132 " "
+    BLOCK_EXPR@132..138
+      L_BRACE@132..133 "{"
+      WHITESPACE@133..134 " "
+      UNIT_EXPR@134..136
+        L_PAREN@134..135 "("
+        R_PAREN@135..136 ")"
+      WHITESPACE@136..137 " "
+      R_BRACE@137..138 "}"
+  NEWLINE@138..139 "\n"
+  NEWLINE@139..140 "\n"
+  FN_DECL@140..177
+    ANNOTATION@140..155
+      AT@140..141 "@"
+      LOWER_NAME@141..147 "export"
+      ANNOT_ARG_LIST@147..155
+        L_PAREN@147..148 "("
+        ANNOT_ARG@148..154
+          STRING@148..154
+            STRING_QUOTE@148..149 "\""
+            STRING_TEXT@149..153 "name"
+            STRING_QUOTE@153..154 "\""
+        R_PAREN@154..155 ")"
+    NEWLINE@155..156 "\n"
+    FN_KW@156..158 "fn"
+    WHITESPACE@158..159 " "
+    LOWER_NAME@159..168 "no_target"
+    PARAM_LIST@168..170
+      L_PAREN@168..169 "("
+      R_PAREN@169..170 ")"
+    WHITESPACE@170..171 " "
+    BLOCK_EXPR@171..177
+      L_BRACE@171..172 "{"
+      WHITESPACE@172..173 " "
+      UNIT_EXPR@173..175
+        L_PAREN@173..174 "("
+        R_PAREN@174..175 ")"
+      WHITESPACE@175..176 " "
+      R_BRACE@176..177 "}"
+  NEWLINE@177..178 "\n"
+  NEWLINE@178..179 "\n"
+  FN_DECL@179..216
+    ANNOTATION@179..196
+      AT@179..180 "@"
+      LOWER_NAME@180..186 "export"
+      ANNOT_ARG_LIST@186..196
+        L_PAREN@186..187 "("
+        ANNOT_ARG@187..190
+          LOWER_NAME@187..190 "jvm"
+        COMMA@190..191 ","
+        WHITESPACE@191..192 " "
+        ANNOT_ARG@192..195
+          STRING@192..195
+            STRING_QUOTE@192..193 "\""
+            STRING_TEXT@193..194 "x"
+            STRING_QUOTE@194..195 "\""
+        R_PAREN@195..196 ")"
+    NEWLINE@196..197 "\n"
+    FN_KW@197..199 "fn"
+    WHITESPACE@199..200 " "
+    LOWER_NAME@200..207 "unknown"
+    PARAM_LIST@207..209
+      L_PAREN@207..208 "("
+      R_PAREN@208..209 ")"
+    WHITESPACE@209..210 " "
+    BLOCK_EXPR@210..216
+      L_BRACE@210..211 "{"
+      WHITESPACE@211..212 " "
+      UNIT_EXPR@212..214
+        L_PAREN@212..213 "("
+        R_PAREN@213..214 ")"
+      WHITESPACE@214..215 " "
+      R_BRACE@215..216 "}"
+  NEWLINE@216..217 "\n"
+  NEWLINE@217..218 "\n"
+  FN_DECL@218..249
+    ANNOTATION@218..229
+      AT@218..219 "@"
+      LOWER_NAME@219..225 "export"
+      ANNOT_ARG_LIST@225..229
+        L_PAREN@225..226 "("
+        ANNOT_ARG@226..228
+          LOWER_NAME@226..228 "js"
+        R_PAREN@228..229 ")"
+    NEWLINE@229..230 "\n"
+    FN_KW@230..232 "fn"
+    WHITESPACE@232..233 " "
+    LOWER_NAME@233..240 "no_name"
+    PARAM_LIST@240..242
+      L_PAREN@240..241 "("
+      R_PAREN@241..242 ")"
+    WHITESPACE@242..243 " "
+    BLOCK_EXPR@243..249
+      L_BRACE@243..244 "{"
+      WHITESPACE@244..245 " "
+      UNIT_EXPR@245..247
+        L_PAREN@245..246 "("
+        R_PAREN@246..247 ")"
+      WHITESPACE@247..248 " "
+      R_BRACE@248..249 "}"
+  NEWLINE@249..250 "\n"
+  NEWLINE@250..251 "\n"
+  FN_DECL@251..295
+    ANNOTATION@251..277
+      AT@251..252 "@"
+      LOWER_NAME@252..258 "export"
+      ANNOT_ARG_LIST@258..277
+        L_PAREN@258..259 "("
+        ANNOT_ARG@259..261
+          LOWER_NAME@259..261 "js"
+        COMMA@261..262 ","
+        WHITESPACE@262..263 " "
+        ANNOT_ARG@263..266
+          STRING@263..266
+            STRING_QUOTE@263..264 "\""
+            STRING_TEXT@264..265 "a"
+            STRING_QUOTE@265..266 "\""
+        COMMA@266..267 ","
+        WHITESPACE@267..268 " "
+        ANNOT_ARG@268..271
+          STRING@268..271
+            STRING_QUOTE@268..269 "\""
+            STRING_TEXT@269..270 "b"
+            STRING_QUOTE@270..271 "\""
+        COMMA@271..272 ","
+        WHITESPACE@272..273 " "
+        ANNOT_ARG@273..276
+          STRING@273..276
+            STRING_QUOTE@273..274 "\""
+            STRING_TEXT@274..275 "c"
+            STRING_QUOTE@275..276 "\""
+        R_PAREN@276..277 ")"
+    NEWLINE@277..278 "\n"
+    FN_KW@278..280 "fn"
+    WHITESPACE@280..281 " "
+    LOWER_NAME@281..286 "three"
+    PARAM_LIST@286..288
+      L_PAREN@286..287 "("
+      R_PAREN@287..288 ")"
+    WHITESPACE@288..289 " "
+    BLOCK_EXPR@289..295
+      L_BRACE@289..290 "{"
+      WHITESPACE@290..291 " "
+      UNIT_EXPR@291..293
+        L_PAREN@291..292 "("
+        R_PAREN@292..293 ")"
+      WHITESPACE@293..294 " "
+      R_BRACE@294..295 "}"
+  NEWLINE@295..296 "\n"
+  NEWLINE@296..297 "\n"
+  FN_DECL@297..330
+    ANNOTATION@297..311
+      AT@297..298 "@"
+      LOWER_NAME@298..304 "export"
+      ANNOT_ARG_LIST@304..311
+        L_PAREN@304..305 "("
+        ANNOT_ARG@305..307
+          LOWER_NAME@305..307 "js"
+        COMMA@307..308 ","
+        WHITESPACE@308..309 " "
+        ANNOT_ARG@309..310
+          LITERAL@309..310
+            INT@309..310 "1"
+        R_PAREN@310..311 ")"
+    NEWLINE@311..312 "\n"
+    FN_KW@312..314 "fn"
+    WHITESPACE@314..315 " "
+    LOWER_NAME@315..321 "number"
+    PARAM_LIST@321..323
+      L_PAREN@321..322 "("
+      R_PAREN@322..323 ")"
+    WHITESPACE@323..324 " "
+    BLOCK_EXPR@324..330
+      L_BRACE@324..325 "{"
+      WHITESPACE@325..326 " "
+      UNIT_EXPR@326..328
+        L_PAREN@326..327 "("
+        R_PAREN@327..328 ")"
+      WHITESPACE@328..329 " "
+      R_BRACE@329..330 "}"
+  NEWLINE@330..331 "\n"
+  NEWLINE@331..332 "\n"
+  FN_DECL@332..376
+    ANNOTATION@332..351
+      AT@332..333 "@"
+      LOWER_NAME@333..339 "export"
+      ANNOT_ARG_LIST@339..351
+        L_PAREN@339..340 "("
+        ANNOT_ARG@340..342
+          LOWER_NAME@340..342 "js"
+        COMMA@342..343 ","
+        WHITESPACE@343..344 " "
+        ANNOT_ARG@344..350
+          STRING@344..350
+            STRING_QUOTE@344..345 "\""
+            INTERP@345..349
+              INTERP_START@345..347 "#{"
+              NAME_REF@347..348
+                LOWER_NAME@347..348 "x"
+              INTERP_END@348..349 "}"
+            STRING_QUOTE@349..350 "\""
+        R_PAREN@350..351 ")"
+    NEWLINE@351..352 "\n"
+    FN_KW@352..354 "fn"
+    WHITESPACE@354..355 " "
+    LOWER_NAME@355..367 "interpolated"
+    PARAM_LIST@367..369
+      L_PAREN@367..368 "("
+      R_PAREN@368..369 ")"
+    WHITESPACE@369..370 " "
+    BLOCK_EXPR@370..376
+      L_BRACE@370..371 "{"
+      WHITESPACE@371..372 " "
+      UNIT_EXPR@372..374
+        L_PAREN@372..373 "("
+        R_PAREN@373..374 ")"
+      WHITESPACE@374..375 " "
+      R_BRACE@375..376 "}"
+  NEWLINE@376..377 "\n"
+  NEWLINE@377..378 "\n"
+  FN_DECL@378..431
+    ANNOTATION@378..405
+      AT@378..379 "@"
+      LOWER_NAME@379..385 "export"
+      ANNOT_ARG_LIST@385..405
+        L_PAREN@385..386 "("
+        ANNOT_ARG@386..388
+          LOWER_NAME@386..388 "js"
+        COMMA@388..389 ","
+        WHITESPACE@389..390 " "
+        ANNOT_ARG@390..397
+          STRING@390..397
+            STRING_QUOTE@390..391 "\""
+            STRING_TEXT@391..396 "other"
+            STRING_QUOTE@396..397 "\""
+        COMMA@397..398 ","
+        WHITESPACE@398..399 " "
+        ANNOT_ARG@399..404
+          STRING@399..404
+            STRING_QUOTE@399..400 "\""
+            STRING_TEXT@400..403 "add"
+            STRING_QUOTE@403..404 "\""
+        R_PAREN@404..405 ")"
+    NEWLINE@405..406 "\n"
+    FN_KW@406..408 "fn"
+    WHITESPACE@408..409 " "
+    LOWER_NAME@409..422 "bad_container"
+    PARAM_LIST@422..424
+      L_PAREN@422..423 "("
+      R_PAREN@423..424 ")"
+    WHITESPACE@424..425 " "
+    BLOCK_EXPR@425..431
+      L_BRACE@425..426 "{"
+      WHITESPACE@426..427 " "
+      UNIT_EXPR@427..429
+        L_PAREN@427..428 "("
+        R_PAREN@428..429 ")"
+      WHITESPACE@429..430 " "
+      R_BRACE@430..431 "}"
+  NEWLINE@431..432 "\n"
+error[E0146]@82..89: `@export` needs a target and a name: `@export(js, "name")`
+error[E0146]@111..120: `@export` needs a target and a name: `@export(js, "name")`
+error[E0146]@148..154: the first argument of `@export` must be a target name such as `js`
+error[E0146]@187..190: unknown target `jvm` in `@export`: expected `js`, `wasm` or `c`
+error[E0146]@218..229: `@export` takes one or two strings after the target, found 0
+error[E0146]@251..277: `@export` takes one or two strings after the target, found 3
+error[E0146]@309..310: arguments after the target of `@export` must be strings
+error[E0146]@344..350: string interpolation is not allowed in `@export`
+error[E0146]@390..397: on the `js` target, the middle argument of `@export` must be `"default"`

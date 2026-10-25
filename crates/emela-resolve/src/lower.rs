@@ -286,6 +286,8 @@ impl Lower<'_, '_> {
 
     fn fn_item(&mut self, def: DefId, f: &ast::FnDecl) -> FnItem {
         let type_params = self.type_params(def, f.type_params());
+        let exports = self.export_attrs(f);
+        let entry = self.entry_attr(f);
         self.push_scope();
         let params = self.params(f.param_list(), LocalKind::Param);
         let sig = self.signature(f.syntax(), type_params, params, f.is_suspend());
@@ -297,8 +299,133 @@ impl Lower<'_, '_> {
             body,
             is_external: f.has_annotation("external"),
             externals: external_attrs(f),
+            exports,
+            entry,
             is_intrinsic: f.has_annotation("intrinsic"),
         }
+    }
+
+    /// The arguments of each `@export(target, "a", "b")` (spec 12.7). Malformed ones are left out;
+    /// the syntax check reports them (E0146).
+    fn export_attrs(&mut self, f: &ast::FnDecl) -> Vec<ExportAttr> {
+        let mut attrs = Vec::new();
+        for annotation in f
+            .annotations()
+            .filter(|a| a.name().is_some_and(|n| n.text() == "export"))
+        {
+            let span = self.span(annotation.syntax().text_range());
+            let mut args = annotation.args();
+            let Some(first) = args.next() else {
+                continue;
+            };
+            let target = first
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .find(|t| t.kind() == LOWER_NAME)
+                .filter(|_| first.children().next().is_none());
+            let Some(target) = target else {
+                continue;
+            };
+            let args = args
+                .filter(|arg| {
+                    !arg.children_with_tokens()
+                        .any(|e| e.kind() == LOWER_NAME || e.kind() == COLON || e.kind() == DOT)
+                })
+                .filter_map(|arg| {
+                    let lit = arg.children().find(|n| n.kind() == STRING)?;
+                    Some(
+                        lit.descendants_with_tokens()
+                            .filter_map(|e| e.into_token())
+                            .filter(|t| t.kind() == STRING_TEXT)
+                            .map(|t| string_text(&t))
+                            .collect(),
+                    )
+                })
+                .collect();
+            attrs.push(ExportAttr {
+                target: target.text().into(),
+                args,
+                span,
+            });
+        }
+        attrs
+    }
+
+    /// The `@entry(...)` of a top-level fn (spec 12.8). The argument is a bare name in the same
+    /// module or a qualified name (`Http.serve`, `Cloudflare.Worker.scheduled`).
+    fn entry_attr(&mut self, f: &ast::FnDecl) -> Option<EntryAttr> {
+        let annotation = f
+            .annotations()
+            .find(|a| a.name().is_some_and(|n| n.text() == "entry"))?;
+        let span = self.span(annotation.syntax().text_range());
+        let Some(arg) = annotation.args().next() else {
+            return Some(EntryAttr {
+                path: SmolStr::default(),
+                adapter: Res::Err,
+                span,
+            });
+        };
+        let tokens: Vec<SyntaxToken> = arg
+            .descendants_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| matches!(t.kind(), TYPE_NAME | LOWER_NAME))
+            .collect();
+        let path: SmolStr = tokens
+            .iter()
+            .map(|t| t.text())
+            .collect::<Vec<_>>()
+            .join(".")
+            .into();
+        let adapter = match tokens.as_slice() {
+            [only] if only.kind() == LOWER_NAME => {
+                let name: SmolStr = only.text().into();
+                self.value(&name, only.text_range(), LOWER_NAME)
+            }
+            [first, .., last] if first.kind() == TYPE_NAME && last.kind() == LOWER_NAME => {
+                let name: SmolStr = last.text().into();
+                // A path of three or more segments may name a nested module by its full name
+                // (`Cloudflare.Worker.scheduled`); a two-segment path names an imported module
+                // (`Http.serve`).
+                if tokens.len() > 2 {
+                    let module = crate::module_name::ModuleName::new(
+                        tokens[..tokens.len() - 1]
+                            .iter()
+                            .map(|t| SmolStr::from(t.text())),
+                    );
+                    if let Some(m) = self.r.modules.lookup_from(self.module, &module) {
+                        let left = DotLeft::Module(ModRef::Source(m));
+                        let adapter =
+                            match self.member_of_left(&left, Ns::Value, &name, last.text_range()) {
+                                Some(def) => Res::Def(def),
+                                None => Res::Err,
+                            };
+                        return Some(EntryAttr {
+                            path,
+                            adapter,
+                            span,
+                        });
+                    }
+                }
+                let prefix = &tokens[..tokens.len() - 1];
+                let Some(left) = self.resolve_prefix(prefix) else {
+                    return Some(EntryAttr {
+                        path,
+                        adapter: Res::Err,
+                        span,
+                    });
+                };
+                match self.member_of_left(&left, Ns::Value, &name, last.text_range()) {
+                    Some(def) => Res::Def(def),
+                    None => Res::Err,
+                }
+            }
+            _ => Res::Err,
+        };
+        Some(EntryAttr {
+            path,
+            adapter,
+            span,
+        })
     }
 
     /// `-> T fails E use R`. `node` is a FN_DECL or OP_SIG.

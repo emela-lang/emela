@@ -68,6 +68,9 @@ impl Mono<'_> {
             suspends: false,
             constant: false,
             sets: None,
+            exports: Vec::new(),
+            is_entry_adapter: false,
+            entry_adapter: None,
         });
         self.origins.insert(new, f);
         self.derived_work.push(DerivedSpec {

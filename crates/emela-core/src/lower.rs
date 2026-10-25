@@ -27,10 +27,10 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::intrinsics::Builtin;
 use crate::ir::{
-    Arm, Assert, BinOp, BundledFile, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
-    External, ExternalBinding, FiberOp, FnId, FnSets, FnType, HostModule, HostRef, Lit, Local,
-    Module, OpDef, OpTy, Pat, PreludeTraits, SetSummary, StrPart, Type, TypeId, UnOp, VariantDef,
-    VariantFields, WithBind,
+    Arm, Assert, BinOp, BundledFile, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId,
+    ExportBinding, Expr, External, ExternalBinding, FiberOp, FnId, FnSets, FnType, HostModule,
+    HostRef, Lit, Local, Module, OpDef, OpTy, Pat, PreludeTraits, SetSummary, StrPart, Type,
+    TypeId, UnOp, VariantDef, VariantFields, WithBind,
 };
 use crate::mono::Monomorphized;
 use crate::named;
@@ -67,6 +67,9 @@ pub enum LowerError {
         param: String,
         span: Option<Span>,
     },
+    /// An exported fn may suspend, which the `c` target does not support (E0441, spec 16.7.6).
+    /// `span` is the position of the function name.
+    SuspendingExport { name: String, span: Option<Span> },
 }
 
 /// Which fns lowering starts from.
@@ -168,7 +171,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     for (_, items) in hir.modules.iter() {
         for &def in &items.items {
             let is_root = match (roots, hir.item(def)) {
-                (Roots::Exported, Some(Item::Fn(_))) => cx.is_exported(def),
+                (Roots::Exported, Some(Item::Fn(_))) => cx.is_root(def),
                 (Roots::All, Some(Item::Fn(f))) => f.body.is_some() || f.is_external,
                 (Roots::All, Some(Item::Const(_) | Item::Handler(_))) => true,
                 _ => false,
@@ -190,6 +193,10 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         } else {
             break;
         }
+    }
+    cx.set_export_metadata();
+    if input.target == Some("c") {
+        cx.check_suspending_exports();
     }
     cx.builtin_impls();
     cx.trait_impls();
@@ -3363,6 +3370,110 @@ impl<'a> Lowerer<'a> {
         self.exports(def) && self.bounded_param(def).is_none()
     }
 
+    /// Whether lowering starts from `def`: an implicitly exported fn of the entry (the old rule),
+    /// an `@export` fn (which may be an entry adapter in any module), or an `@entry` fn
+    /// (spec 12.7, 12.8).
+    fn is_root(&self, def: DefId) -> bool {
+        if self.is_exported(def) {
+            return true;
+        }
+        matches!(self.hir.item(def), Some(Item::Fn(f)) if !f.exports.is_empty() || f.entry.is_some())
+    }
+
+    /// Records the exports of each `@export` fn and links `@entry(T)` to `T` (spec 12.7, 12.8).
+    /// The bindings are on the fn's copy 0 of each definition, the one that keeps the definition's
+    /// name and the one a backend uses for an export.
+    fn set_export_metadata(&mut self) {
+        let mut work: Vec<(DefId, Vec<ExportBinding>, bool, Option<DefId>)> = Vec::new();
+        for (def, data) in self.hir.defs.iter() {
+            let Some(Item::Fn(f)) = self.hir.item(def) else {
+                continue;
+            };
+            if f.exports.is_empty() && f.entry.is_none() {
+                continue;
+            }
+            let bundled = match data.module {
+                DefModule::Source(m) => self.modules.is_core(m),
+                _ => false,
+            };
+            let exports: Vec<ExportBinding> = f
+                .exports
+                .iter()
+                .filter_map(|e| {
+                    let (interface, name) = match e.args.as_slice() {
+                        [name] => (None, name.clone()),
+                        [interface, name] => (Some(interface.clone()), name.clone()),
+                        _ => return None,
+                    };
+                    Some(ExportBinding {
+                        target: e.target.to_string(),
+                        interface,
+                        name,
+                        bundled,
+                    })
+                })
+                .collect();
+            let adapter = match f.entry.as_ref().map(|e| e.adapter) {
+                Some(Res::Def(adapter)) => Some(adapter),
+                _ => None,
+            };
+            let is_entry_adapter = is_entry_adapter_sig(self.types.sigs.get(def));
+            work.push((def, exports, is_entry_adapter, adapter));
+        }
+        for (def, exports, is_entry_adapter, adapter) in work {
+            let Some(&id) = self.fns.get(&(def, 0)) else {
+                continue;
+            };
+            self.module.functions[id].exports = exports;
+            self.module.functions[id].is_entry_adapter = is_entry_adapter;
+            let Some(adapter) = adapter else {
+                continue;
+            };
+            let Some(&adapter_id) = self.fns.get(&(adapter, 0)) else {
+                continue;
+            };
+            self.module.functions[id].entry_adapter = Some(adapter_id);
+        }
+        // The exports of an adapter are what the entry exposes. Copy them to the fn of the entry
+        // so a backend sees one place to export from (spec 12.8). A second pass, because the
+        // adapter may come later in declaration order.
+        let entries: Vec<(FnId, FnId)> = self
+            .module
+            .functions
+            .iter()
+            .filter_map(|(id, f)| Some((id, f.entry_adapter?)))
+            .collect();
+        for (id, adapter) in entries {
+            self.module.functions[id].exports = self.module.functions[adapter].exports.clone();
+        }
+    }
+
+    /// Reports exported fns that may suspend on the `c` target (E0441, spec 16.7.6).
+    fn check_suspending_exports(&mut self) {
+        let mut found = Vec::new();
+        for (id, f) in self.module.functions.iter() {
+            if f.exports.is_empty() || !f.suspends {
+                continue;
+            }
+            let Some((&(def, _), _)) = self.fns.iter().find(|&(_, &v)| v == id) else {
+                continue;
+            };
+            found.push(def);
+        }
+        found.sort_by_key(|&def| {
+            self.hir.defs[def]
+                .span
+                .map(|s| (s.module.into_raw().into_u32(), s.range.start()))
+        });
+        found.dedup();
+        for def in found {
+            self.errors.push(LowerError::SuspendingExport {
+                name: self.hir.defs[def].name.to_string(),
+                span: self.hir.defs[def].span,
+            });
+        }
+    }
+
     /// Whether `def` is a fn the entry would export, regardless of its type parameters.
     fn exports(&self, def: DefId) -> bool {
         let data = &self.hir.defs[def];
@@ -3478,6 +3589,14 @@ fn mentions(e: &Expr, l: Local) -> bool {
     let mut found = false;
     e.for_each_child(&mut |c| found = found || mentions(c, l));
     found
+}
+
+/// Whether the first parameter of a signature has a function type (spec 12.8).
+fn is_entry_adapter_sig(sig: Option<&emela_types::Signature>) -> bool {
+    matches!(
+        sig.map(|s| &s.scheme.ty),
+        Some(emela_types::Ty::Fn(f)) if matches!(f.params.first(), Some(emela_types::Ty::Fn(_)))
+    )
 }
 
 /// External functions without an `@external` for `target` that are reachable from `entries`

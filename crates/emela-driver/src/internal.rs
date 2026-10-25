@@ -139,28 +139,33 @@ pub(crate) fn check_external_in_dependencies<'p>(
             .descendants()
             .filter_map(ast::Annotation::cast)
         {
-            if annotation
-                .name()
-                .is_none_or(|name| name.text() != "external")
-            {
+            let Some(annotation_name) = annotation.name() else {
+                continue;
+            };
+            // `@export` counts as `@external` for `[external] allow` (spec 4.7, 12.7).
+            let at = annotation_name.text();
+            if at != "external" && at != "export" {
                 continue;
             }
             let span = Span::new(file, annotation.syntax().text_range());
             if !package.external_allowed {
                 diagnostics.push(
-                    Diagnostic::error(format!("`{}` uses `@external`, but it is not allowed", package.name))
-                        .with_code(code::EXTERNAL_IN_DEPENDENCY)
-                        .with_span(span)
-                        .with_note(format!(
-                            "{HELP_PREFIX}add it to `[external] allow` in Pome.toml, or run `emela pome add --allow-external {}`",
-                            package.name
-                        )),
+                    Diagnostic::error(format!(
+                        "`{}` uses `@{at}`, but it is not allowed",
+                        package.name
+                    ))
+                    .with_code(code::EXTERNAL_IN_DEPENDENCY)
+                    .with_span(span)
+                    .with_note(format!(
+                        "{HELP_PREFIX}add it to `[external] allow` in Pome.toml, or run `emela pome add --allow-external {}`",
+                        package.name
+                    )),
                 );
                 // One error per module is enough to say the Pome needs allowing.
                 break;
             }
             let fn_decl = annotation.syntax().parent().and_then(ast::FnDecl::cast);
-            if fn_decl.is_some_and(|f| f.is_pub()) {
+            if at == "external" && fn_decl.is_some_and(|f| f.is_pub()) {
                 diagnostics.push(
                     Diagnostic::error("an `@external` function cannot be `pub` in a dependency")
                         .with_code(code::PUB_EXTERNAL_IN_DEPENDENCY)
