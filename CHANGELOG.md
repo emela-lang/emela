@@ -7,6 +7,36 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.25.0](https://github.com/emela-lang/emela/compare/v0.24.0...v0.25.0) - 2026-10-25
+
+### Added
+
+- HTTP サービスを WASM で wasi:http/service の component にする ([#439](https://github.com/emela-lang/emela/pull/439)) (by @Allianaab2m)
+- emela run が起動前にコマンドを標準エラーに出す ([#426](https://github.com/emela-lang/emela/pull/426)) (by @Allianaab2m)
+- emela test の出力を --reporter で pretty，plain，agent から選べる ([#424](https://github.com/emela-lang/emela/pull/424)) (by @Allianaab2m)
+- host に関数を公開する export と入口アダプタを書ける ([#430](https://github.com/emela-lang/emela/pull/430)) (by @Allianaab2m)
+- handler の init に引数を渡せる（with H(x: ...)） ([#398](https://github.com/emela-lang/emela/pull/398)) (by @Allianaab2m)
+- @entry(Http.serve) で HTTP サービスを書ける ([#434](https://github.com/emela-lang/emela/pull/434)) (by @Allianaab2m)
+- WASM のターゲットで Fiber.attempt と Std.Cause を動かす ([#433](https://github.com/emela-lang/emela/pull/433)) (by @Allianaab2m)
+- テストの失敗に，失敗した assert の場所を出す ([#425](https://github.com/emela-lang/emela/pull/425)) (by @Allianaab2m)
+- Flow IRから組み込み向けCを生成するbackendを追加 ([#384](https://github.com/emela-lang/emela/pull/384)) (by @aoi-netai)
+
+### Other
+
+- [5/10] feat(wasm): const の評価と defect の note を実装 ([#402](https://github.com/emela-lang/emela/pull/402)) (by @isoshigi)
+- emela new のサブコマンド追加（#214） ([#283](https://github.com/emela-lang/emela/pull/283)) (by @Satoru314)
+- 仕様を spec/ に整理し，英語にして，proposal の手順と skills を足す ([#388](https://github.com/emela-lang/emela/pull/388)) (by @Allianaab2m)
+- 組み込み標準ライブラリとC接続を追加 ([#385](https://github.com/emela-lang/emela/pull/385)) (by @aoi-netai)
+- [10/10] feat(wasm): Std.FileSystem を WASI 0.3 の file system で動かす ([#407](https://github.com/emela-lang/emela/pull/407)) (by @isoshigi)
+- [9/10] feat(wasm): Std.Clock.sleep を WASI 0.3 の async ホストで動かす ([#406](https://github.com/emela-lang/emela/pull/406)) (by @isoshigi)
+- [6/10] feat(wasm): Console/Env/Random/Clock.now を WASI 0.3 で使えるようにする ([#403](https://github.com/emela-lang/emela/pull/403)) (by @isoshigi)
+- [8/10] feat(wasm): suspend fn の状態機械と継続の再開を実装 ([#405](https://github.com/emela-lang/emela/pull/405)) (by @isoshigi)
+- [4/10] feat(wasm): WASI 0.3 の component を出力する ([#401](https://github.com/emela-lang/emela/pull/401)) (by @isoshigi)
+- [3/10] feat(wasm): Float の表示・parse・Int 変換のランタイムを追加 ([#400](https://github.com/emela-lang/emela/pull/400)) (by @isoshigi)
+- [2/10] feat(wasm): String の書記素クラスタを Unicode 17.0 の UAX #29 で実装 ([#399](https://github.com/emela-lang/emela/pull/399)) (by @isoshigi)
+- [1/10] refactor(wasm): emitter と runtime を機能別モジュールへ分割 ([#376](https://github.com/emela-lang/emela/pull/376)) (by @isoshigi)
+- [7/10] test(wasm): C コーパスと examples を WASM で実行する ([#404](https://github.com/emela-lang/emela/pull/404)) (by @isoshigi)
+
 ## [0.24.0](https://github.com/emela-lang/emela/compare/v0.23.0...v0.24.0) - 2026-10-20
 
 ### Added
