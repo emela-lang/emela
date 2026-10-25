@@ -2452,11 +2452,17 @@ impl<'m> Builder<'m> {
             FiberOp::Complete => {
                 let repr = self.operand_repr_of(cx, &args[1]);
                 self.operand(cx, ins, &args[0]);
-                self.operand(cx, ins, &args[1]);
-                if repr != Repr::I64 && repr != Repr::F64 {
-                    ins.i64_extend_i32_u();
-                } else if repr == Repr::F64 {
-                    ins.i64_reinterpret_f64();
+                // A value without representation is passed as the zero word (the C runtime's
+                // `em_deferred_complete`).
+                if repr == Repr::Void {
+                    ins.i64_const(0);
+                } else {
+                    self.operand(cx, ins, &args[1]);
+                    if repr == Repr::F64 {
+                        ins.i64_reinterpret_f64();
+                    } else if repr != Repr::I64 {
+                        ins.i64_extend_i32_u();
+                    }
                 }
                 ins.i32_const(repr_code(repr));
                 let f = self.rt("fb_complete");
