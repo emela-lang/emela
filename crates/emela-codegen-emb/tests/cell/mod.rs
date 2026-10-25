@@ -30,7 +30,7 @@ fn shared_cells_keep_string_updates_alive_across_capture_suspend_and_cancellatio
             "main.emel",
             include_str!("../../examples/support/shared_cell.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = with_heap_check(

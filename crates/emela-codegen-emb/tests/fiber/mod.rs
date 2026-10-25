@@ -35,7 +35,7 @@ fn scope_starts_children_at_real_suspension_and_reclaims_waiting_tasks() {
             "main.emel",
             include_str!("../../examples/support/fiber_scope.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -95,7 +95,7 @@ pub fn skip() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -128,7 +128,7 @@ fn completed_children_and_queued_events_do_not_leak_across_scope_reuse() {
             "main.emel",
             include_str!("../../examples/support/fiber_scope.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -202,7 +202,7 @@ pub fn nested() -> Int use Async {
   }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(
             &core,
@@ -277,7 +277,7 @@ pub fn siblings() -> Int use Async {
   }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(16384)).unwrap(),
         r#"
@@ -411,7 +411,7 @@ pub fn full() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -460,7 +460,7 @@ pub fn managed(n: Int) -> String use Async {
   }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(8192)).unwrap(),
         r#"

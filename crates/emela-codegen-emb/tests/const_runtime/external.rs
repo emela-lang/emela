@@ -32,7 +32,7 @@ pub fn discard() { VALUE
  () }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     for policy in [
@@ -108,7 +108,7 @@ const TOKEN = token()
 pub fn read() -> Token { TOKEN }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     for policy in [ExternalResult::Borrowed, ExternalResult::Owned] {
@@ -162,7 +162,7 @@ pub fn first() -> String { (_,values)=VALUE
  _ -> "" } }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     for gc in [false, true] {
@@ -241,7 +241,7 @@ const VALUE = value()
 pub fn size() -> Int { String.byte_size(VALUE) }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let output = compile(

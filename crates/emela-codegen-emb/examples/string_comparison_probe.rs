@@ -10,7 +10,7 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("target/string-comparison-probe/generated"));
     let core = support::try_lower(
         &[("main.emel", include_str!("support/string_comparison.emel"))],
-        Roots::Exported,
+        Roots::Public,
     )
     .expect("lower String comparisons");
     let output = compile(&core, &Options::default().with_isr_entry("lt"))

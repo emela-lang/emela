@@ -14,7 +14,7 @@ fn main() {
             "main.emel",
             include_str!("support/external_task_values.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .expect("lower typed task source");
     let output = compile(

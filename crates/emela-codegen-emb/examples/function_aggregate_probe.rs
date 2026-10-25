@@ -25,7 +25,7 @@ fn main() {
     } else {
         include_str!("support/fiber_aggregate_abi.emel").to_owned()
     };
-    let core = support::try_lower(&[("main.emel", &source)], Roots::Exported)
+    let core = support::try_lower(&[("main.emel", &source)], Roots::Public)
         .expect("lower aggregate ABI source");
     let output = compile(
         &core,

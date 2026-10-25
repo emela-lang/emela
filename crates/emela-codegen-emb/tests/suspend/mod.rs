@@ -313,7 +313,7 @@ pub fn work(n: Int) -> Int {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let output = compile(
@@ -1158,7 +1158,7 @@ pub fn instant(n: Int) -> Int {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let output = compile(&core, &Options::default().with_heap_bytes(2048)).unwrap();
@@ -1212,7 +1212,7 @@ pub fn work() -> Int {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let output = compile(
@@ -1276,7 +1276,7 @@ handler Twice: Wait {
 pub fn work() -> Int { with Twice { (use Wait).get(42) } }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -1428,7 +1428,7 @@ fn suspend_handler_source_waits_and_resumes_into_the_callers_result() {
             "main.emel",
             include_str!("../../examples/support/suspend_handler.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .expect("lower a valid suspend handler program");
     let output = compile(

@@ -12,7 +12,7 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("target/fiber-failure-probe/generated"));
     let core = support::try_lower(
         &[("main.emel", include_str!("support/fiber_failure.emel"))],
-        Roots::Exported,
+        Roots::Public,
     )
     .expect("lower Fiber Failure source");
     let flow = flow_from_core(&core).expect("verified Flow IR");

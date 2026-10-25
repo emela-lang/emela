@@ -12,7 +12,7 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("target/shared-cell-probe/generated"));
     let core = support::try_lower(
         &[("main.emel", include_str!("support/shared_cell.emel"))],
-        Roots::Exported,
+        Roots::Public,
     )
     .expect("lower shared Cell source");
     let output = compile(

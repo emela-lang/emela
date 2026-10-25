@@ -40,7 +40,7 @@ pub fn discard() -> () use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -93,7 +93,7 @@ pub fn list(n: Int) -> List[Int] use Async {
 pub fn sum(xs: List[Int]) -> Int { List.fold(xs, 0, fn(a, b) { a + b }) }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -160,7 +160,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -207,7 +207,7 @@ pub fn leak() -> (fn() -> Int use Async) use Async {
 }
 pub fn invoke(f: fn() -> Int fails {} use Async) -> Int use Async { f() }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     let ty = flow
         .functions
@@ -281,7 +281,7 @@ pub fn boundary() -> Int use Async {{
 }}
 "#
         );
-        let core = support::try_lower(&[("main.emel", &source)], Roots::Exported).unwrap();
+        let core = support::try_lower(&[("main.emel", &source)], Roots::Public).unwrap();
         compile_and_run(
             compile(&core, &options().with_deferred_capacity(1)).unwrap(),
             r#"
@@ -329,7 +329,7 @@ pub fn cycle() -> Bool use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -398,7 +398,7 @@ pub fn ready() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -451,7 +451,7 @@ pub fn flag(n: Bool) -> Bool use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -499,7 +499,7 @@ pub fn text(n: Int) -> String use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = compile(&core, &options().with_heap_bytes(4096)).unwrap();
@@ -544,7 +544,7 @@ pub fn terminal(n: Int) -> Exit[Int, {}] use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = compile(&core, &options()).unwrap();
@@ -610,7 +610,7 @@ pub fn work(n: Int) -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();

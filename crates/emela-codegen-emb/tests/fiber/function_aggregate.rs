@@ -7,7 +7,7 @@ fn native_aggregate_callbacks_own_results_after_captures_and_arguments_are_relea
             "main.emel",
             include_str!("../../examples/support/function_aggregate.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -93,7 +93,7 @@ fn plus(n: Int) -> Int { n + 1 }
 pub fn work(n: Int) -> (Int, Bool) { apply(unpack, Call(plus, (n, True))) }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -332,7 +332,7 @@ pub fn checked(n: Int, bad: Bool) -> String {
     None -> text }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut output = compile(
         &core,
         &Options::default()

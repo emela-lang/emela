@@ -12,7 +12,7 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("target/scope-failure-abi-probe/generated"));
     let core = support::try_lower(
         &[("main.emel", include_str!("support/scope_failure_abi.emel"))],
-        Roots::Exported,
+        Roots::Public,
     )
     .expect("lower mixed Scope source");
     let options = Options::default()

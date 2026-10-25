@@ -3,7 +3,7 @@ use emela_lir::Stmt;
 
 fn masked_notes_flow() -> emela_lir::Module {
     let source = include_str!("../../examples/support/fiber_notes.emel");
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     // Hold lets all three verified Flow bodies fail despite sibling cancellation.
     // Each logical child ends while masked; no live caller inherits its hold count.

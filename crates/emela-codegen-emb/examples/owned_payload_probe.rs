@@ -12,7 +12,7 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("target/owned-payload-probe/generated"));
     let core = support::try_lower(
         &[("main.emel", include_str!("support/owned_payload.emel"))],
-        Roots::Exported,
+        Roots::Public,
     )
     .expect("lower owned payload source");
     let output = compile(

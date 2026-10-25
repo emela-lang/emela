@@ -58,7 +58,7 @@ pub fn work(n: Int) -> Int {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = compile(&core, &Options::default().with_heap_bytes(4096))

@@ -6,7 +6,7 @@ mod external;
 // through verified Core without relying on the upstream bare-function const lowering bug.
 fn emit_source(source: &str, heap: u32) -> Output {
     let core =
-        support::try_lower(&[("main.emel", source)], Roots::Exported).expect("lower const source");
+        support::try_lower(&[("main.emel", source)], Roots::Public).expect("lower const source");
     compile(&core, &Options::default().with_heap_bytes(heap)).expect("emit runtime const")
 }
 
@@ -189,7 +189,7 @@ const V = with BoardSeed { (use Seed).read() }
 pub fn read() -> Int { V }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let errors = compile(
@@ -207,7 +207,7 @@ pub fn read() -> Int { V }
     );
     let core = support::try_lower(
         &[("main.emel", "const V = 40 + 2\npub fn read() -> Int { V }")],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let output = compile(&core, &Options::default().with_isr_entry("read")).unwrap();
@@ -361,7 +361,7 @@ pub fn read() -> Int { VALUE match { [head, ..tail] -> head
 _ -> 0 } }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let output = compile(&core, &Options::default().with_heap_bytes(64)).unwrap();
@@ -396,7 +396,7 @@ fn persistent_const_roots_survive_cycle_collection_and_caller_release() {
             "main.emel",
             include_str!("../../examples/support/const_runtime.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -609,7 +609,7 @@ fn strings(xs: List[String]) -> Int { List.length(xs) }
 pub fn read() -> Int { ints(EMPTY) + strings(EMPTY) }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -695,7 +695,7 @@ pub fn text() -> String { (identity, _) = IDENTITY
  identity("42", ()) }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -778,7 +778,7 @@ pub fn text() -> Int { (capture,_) = CAPTURE
  (value,text)=capture(identity("42"))()
  texts(EMPTY,MISSING) + String.byte_size(value) + String.byte_size(apply(fn(){"42"})) + String.byte_size(choice("")) + String.byte_size(text) + 37 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     for cycles in [false, true] {
         let mut flow = flow.clone();
@@ -821,7 +821,7 @@ fn polymorphic_const_callable_families_preserve_failure_evidence_and_selected_or
             "main.emel",
             include_str!("../../examples/support/const_polymorphic.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -899,7 +899,7 @@ fn number(h: Handle[Int]) -> Int { 42 }
 fn text(h: Handle[String]) -> Int { 42 }
 pub fn work() -> Int { number(HANDLE) + text(HANDLE) - 42 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let options = Options::default().with_external_adapter(
         "host_handle",
         emela_codegen_emb::ExternalAdapter::new(
@@ -955,7 +955,7 @@ fn canonical_const_roots_include_dependency_specializations_until_they_reach_a_f
             "main.emel",
             include_str!("../../examples/support/const_polymorphic_dependency.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -1099,7 +1099,7 @@ fn oversized_static_string_growth_falls_back_before_unbounded_compiler_allocatio
     let source = format!(
         "fn double(value: String) -> String {{ String.append(value,value) }}\nconst VALUE = {expression}\npub fn size() -> Int {{ String.byte_size(VALUE) }}"
     );
-    let core = support::try_lower(&[("main.emel", &source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", &source)], Roots::Public).unwrap();
     let output = compile(
         &core,
         &Options::default()

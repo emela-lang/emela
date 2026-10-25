@@ -24,7 +24,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -84,7 +84,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -162,7 +162,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -218,7 +218,7 @@ handler Resource: Marker { fn read() { 1 }
 pub fn work() -> Int use Async { with Waiting, Finishing, Resource { 42 } }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -376,7 +376,7 @@ pub fn work(inside: Bool) -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -450,7 +450,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -506,7 +506,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -543,7 +543,7 @@ pub fn leak() -> (fn() -> () use Async) use Async {
 pub fn invoke(f: fn() -> () fails {} use Async) -> () use Async { f() }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -613,7 +613,7 @@ pub fn work() -> Bool use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -670,7 +670,7 @@ pub fn work() -> Bool use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -719,7 +719,7 @@ pub fn failure() -> Cause[{}] use Async {
 pub fn keep(c: Cause[{}]) -> Cause[{}] { c }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     compile_and_run(
@@ -795,7 +795,7 @@ pub fn work() -> Int use Async {
 }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();

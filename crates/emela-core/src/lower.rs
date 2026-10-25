@@ -73,6 +73,11 @@ pub enum Roots {
     /// The entry module's `main` and the fns the program exposes to the host (`[ext.export]`)
     /// for the build target. The normal build.
     Exported,
+    /// The entry module's `main` and its `pub` fns, except test functions and fns with a
+    /// trait-bounded type parameter (no impl could be chosen for a caller that sees every type
+    /// the same). Not a build of a target in the specification: the embedded C backend
+    /// (`emela-codegen-emb`) exports these until it moves to `@export`.
+    Public,
     /// The test functions (`LowerInput::tests`), for `emela test`.
     Tests,
     /// Every fn and const with a body, every `@external` fn and every handler, including unused
@@ -158,6 +163,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         errors: Vec::new(),
         prelude_trait_fns: FxHashMap::default(),
         host_exports: Vec::new(),
+        roots,
     };
     if roots == Roots::Exported {
         cx.collect_host_exports(input.target);
@@ -168,6 +174,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         for &def in &items.items {
             let is_root = match (roots, hir.item(def)) {
                 (Roots::Exported, Some(Item::Fn(_))) => cx.is_main(def),
+                (Roots::Public, Some(Item::Fn(_))) => cx.is_public_root(def),
                 (Roots::All, Some(Item::Fn(f))) => f.body.is_some() || f.is_external,
                 (Roots::All, Some(Item::Const(_) | Item::Handler(_))) => true,
                 _ => false,
@@ -211,7 +218,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     }
     // Target-neutral, so done once here: every backend gets self tail calls as loops (16.3).
     crate::tail::loopify(&mut cx.module);
-    let (Some(target), Roots::Exported | Roots::Tests) = (input.target, roots) else {
+    let (Some(target), Roots::Exported | Roots::Public | Roots::Tests) = (input.target, roots)
+    else {
         return Ok(Lowered {
             module: cx.module,
             tests,
@@ -317,6 +325,7 @@ struct Lowerer<'a> {
     /// The fns exposed to the host for the build target, with their names (`[ext.export]`), in
     /// the order of `emela_types::host_exports`. Filled only for `Roots::Exported`.
     host_exports: Vec<Exposed>,
+    roots: Roots,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without
@@ -3357,9 +3366,31 @@ impl<'a> Lowerer<'a> {
             && !self.tests.contains(&def)
     }
 
-    /// Whether `def` is a root of the normal build: `main`, or a fn exposed to the host.
+    /// Whether `def` is a root of the build: `main`, a fn exposed to the host, or with
+    /// `Roots::Public` a `pub` fn of the entry.
     fn is_exported(&self, def: DefId) -> bool {
-        self.is_main(def) || self.host_exports.iter().any(|e| e.def == def)
+        self.is_main(def)
+            || self.host_exports.iter().any(|e| e.def == def)
+            || (self.roots == Roots::Public && self.is_public_root(def))
+    }
+
+    /// A root of `Roots::Public`: `main`, or a `pub` fn of the entry that is not a test function
+    /// and has no trait-bounded type parameter.
+    fn is_public_root(&self, def: DefId) -> bool {
+        let data = &self.hir.defs[def];
+        let bounded = self
+            .types
+            .sigs
+            .get(def)
+            .is_some_and(|sig| sig.scheme.params.iter().any(|p| !p.traits.is_empty()));
+        self.is_main(def)
+            || (data.kind == DefKind::Fn
+                && data.is_pub
+                && self
+                    .entry
+                    .is_some_and(|entry| data.module == DefModule::Source(entry))
+                && !self.tests.contains(&def)
+                && !bounded)
     }
 
     /// Fills [`Lowerer::host_exports`] with the exports for `target` (every target for `None`),

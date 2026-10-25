@@ -6,7 +6,7 @@ fn output() -> Output {
             "main.emel",
             include_str!("../../examples/support/external_task_values.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = compile(

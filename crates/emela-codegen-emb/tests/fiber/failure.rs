@@ -28,7 +28,7 @@ pub fn caught(n: Int) -> Int use Async {
   } }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(4096)).unwrap(),
         r#"
@@ -93,7 +93,7 @@ pub fn caught(n: Int) -> Int use Async {
   }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(4096)).unwrap(),
         r#"
@@ -146,7 +146,7 @@ pub fn failure() -> Int fails Boom use Async {
  }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options()).unwrap(),
         r#"
@@ -209,7 +209,7 @@ pub fn caught(mode: Int) -> Int use Async {
  }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(
             &core,
@@ -271,7 +271,7 @@ pub fn caught(n: Int) -> Int use Async {
  with Waiting { (use Wait).get(n) escape { Boom(n) -> n } }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options().with_heap_bytes(2048)).unwrap(),
         r#"
@@ -312,7 +312,7 @@ pub fn work() -> Int use Async {
  with Ticking { (use Tick).tick() escape { Boom -> 0 } }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options()).unwrap(),
         r#"
@@ -375,7 +375,7 @@ pub fn work(joined: Bool) -> Int use Async {
  }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     super::interrupt::protect_cleanup_call(&mut flow);
     compile_and_run(
@@ -596,7 +596,7 @@ pub fn work() -> Int use Async {
  } }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     compile_and_run(
         compile(&core, &options()).unwrap(),
         r#"
@@ -686,7 +686,7 @@ int main(void) {
 #[test]
 fn failing_and_infallible_scopes_share_the_fork_operation_abi() {
     let source = include_str!("../../examples/support/scope_failure_abi.emel");
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut output = compile(
         &core,
         &options().with_heap_bytes(4096).with_frame_capacity(32),

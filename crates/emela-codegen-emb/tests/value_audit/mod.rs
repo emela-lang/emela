@@ -307,7 +307,7 @@ pub enum Nest[A] { End(A), Next(Nest[Bool]) }
 pub fn make() -> Nest[Int] { End(42) }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .expect("finite recursive type arguments are legal source types");
     let flow = emela_codegen_emb::flow_from_core(&core)

@@ -54,7 +54,7 @@ pub fn discard(s: String) -> () { echo(s)
  () }
 "#,
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = compile(

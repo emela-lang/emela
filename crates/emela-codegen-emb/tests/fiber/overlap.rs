@@ -39,7 +39,7 @@ pub fn work() -> Int use Async {
  } } }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     let (_, late) = flow
         .functions
@@ -127,7 +127,7 @@ pub fn work() -> Cause[Boom] use Async {
 }
 pub fn show(c: Cause[Boom]) -> String { Cause.to_string(c) }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     let (_, late) = flow
         .functions
@@ -245,7 +245,7 @@ pub fn work(c: Cause[{}]) -> Cause[Boom] use Async { with Waiting {
 } }
 pub fn show(c: Cause[Boom]) -> String { Cause.to_string(c) }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
     super::interrupt::protect_cleanup_call(&mut flow);
     let (_, late) = flow

@@ -6,7 +6,7 @@ pub(super) fn payload_notes_flow() -> Module {
             "main.emel",
             include_str!("../../examples/support/fiber_payload.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -48,7 +48,7 @@ pub fn caught(n: Int) -> Int use Async {
   }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut output = compile(&core, &options().with_heap_bytes(4096)).unwrap();
     notes::add_heap_check(&mut output);
     compile_and_run(
@@ -154,7 +154,7 @@ fn native_failure_channels_own_formatted_parse_errors_and_list_payloads() {
             "main.emel",
             include_str!("../../examples/support/error_payload_native.emel"),
         )],
-        Roots::Exported,
+        Roots::Public,
     )
     .unwrap();
     let mut output = compile(&core, &options().with_heap_bytes(2048)).unwrap();
@@ -233,7 +233,7 @@ pub fn caught(n: Int, direct: Bool) -> Int use Async {
   }
 }
 "#;
-    let core = support::try_lower(&[("main.emel", source)], Roots::Exported).unwrap();
+    let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let mut output = compile(&core, &options().with_heap_bytes(4096)).unwrap();
     notes::add_heap_check(&mut output);
     output
