@@ -2652,6 +2652,11 @@ fn finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ldl(ins, 0, F_PREVF);
     ins.i32_store(mem(0, 4));
     ins.end();
+    // A fiber that ends may still carry interruptions (one interrupted before it started ends
+    // this way); their nodes are not reachable from the record once it is dropped.
+    let clear = b.rt("fb_pending_clear");
+    g(ins, 0);
+    ins.call(clear);
     dropv(b, ins, 0);
 }
 

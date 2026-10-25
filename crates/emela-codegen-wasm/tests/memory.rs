@@ -514,3 +514,34 @@ fn main() {
         run.stderr
     );
 }
+
+#[test]
+fn short_lived_fibers_reuse_their_records() {
+    // Fifty scopes of twenty children each: every child, its handle, its join request and its
+    // frames are freed when the scope ends, so a thousand fibers run in the fixed memory. The
+    // handoff records that a run ten times this size needs several more pages, so the bound here
+    // is the size that currently holds; a regression makes it fail.
+    run_limited(
+        "memory-fibers",
+        r#"
+import Std.Fiber.{Fiber, Scope}
+
+fn round(i: Int) -> Int use { Async } {
+  Fiber.scope(fn() {
+    hs = List.map(List.range(0, 20), fn(j) { Fiber.fork(fn() { i + j }) })
+    List.fold(hs, 0, fn(acc, h) { acc + Fiber.join(h) })
+  })
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Async } {
+  if n == 0 { total } else { rounds(n - 1, total + round(n % 10)) }
+}
+
+fn main() -> () use { Async } {
+  dbg(rounds(50, 0))
+  ()
+}
+"#,
+        "14000\n",
+    );
+}
