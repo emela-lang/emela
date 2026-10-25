@@ -108,6 +108,10 @@ impl std::fmt::Display for WasmError {
 
 /// Compiles lowered Core IR (self tail calls loopified, as `emela_core::lower` leaves it) to WASM.
 pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, Vec<WasmError>> {
+    let user_exports = check::user_exports(core);
+    if !user_exports.is_empty() {
+        return Err(user_exports);
+    }
     let roots: Vec<FnId> = match entry {
         Entry::Main => core
             .functions
