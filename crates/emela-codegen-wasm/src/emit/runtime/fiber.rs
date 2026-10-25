@@ -1929,14 +1929,10 @@ fn begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call_indirect(0, ty);
     ins.local_set(WORD);
     dropv(b, ins, 1);
-    i32_const_cell(b, ins, |p| p.cur_fiber);
-    g(ins, PREVF);
-    ins.i32_store(mem(0, 4));
-    i32_const_cell(b, ins, |p| p.cur_main);
-    g(ins, PREVM);
-    ins.i32_store(mem(0, 4));
     ins.global_get(G_SUSPENDING);
     ins.if_(BlockType::Empty);
+    // The child suspended: attach its continuation while it is still the current fiber (a
+    // fairness yield queues it under its own record).
     c(ins, 0);
     let take = b.rt("frame_take");
     ins.call(take);
@@ -1959,6 +1955,12 @@ fn begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
     ins.return_();
     ins.end();
+    i32_const_cell(b, ins, |p| p.cur_fiber);
+    g(ins, PREVF);
+    ins.i32_store(mem(0, 4));
+    i32_const_cell(b, ins, |p| p.cur_main);
+    g(ins, PREVM);
+    ins.i32_store(mem(0, 4));
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
     ins.global_get(G_DEFECT);
