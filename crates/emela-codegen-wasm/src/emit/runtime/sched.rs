@@ -436,14 +436,14 @@ fn resume_with(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let wake = b.rt("fb_wait_wake");
     ins.call(wake);
     ins.else_();
-    // Nobody waits (the run is over or the caller was unwound).
-    ins.local_get(3);
-    ins.if_(BlockType::Empty);
+    // The implementation suspended before this resume: the caller's frames follow its settling
+    // frame, which delivers this value when the implementation ends.
+    ins.local_get(P);
+    ins.local_get(1);
+    ins.i32_store(mem(P_NOW_MODE, 4));
+    ins.local_get(P);
     ins.local_get(2);
-    ins.i32_wrap_i64();
-    let drop = b.rt("drop");
-    ins.call(drop);
-    ins.end();
+    ins.i64_store(mem(P_NOW_WORD, 8));
     ins.end();
     // The innermost active operation is done once its caller has been queued.
     ins.local_get(P);
@@ -532,8 +532,27 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     // The implementation suspended. Its frames and its callers' stay in the captured chain; the
     // outermost driver attaches the whole chain to the request that caused the suspension (the
-    // request is in `susp_wait`), so this call neither takes the chain nor parks a caller of its
-    // own.
+    // request is in `susp_wait`). Push a settling frame after the implementation's frames: the
+    // call suspends now, so the value a later `resume` carries can only be delivered when the
+    // implementation finally ends.
+    ins.i32_const(super::fiber::plan(b).impl_desc as i32);
+    ins.i32_const(super::fiber::plan(b).impl_table as i32);
+    ins.i32_const(0);
+    ins.i32_const(2);
+    let new = b.rt("frame_new");
+    ins.call(new);
+    ins.local_set(CHAIN);
+    ins.local_get(CHAIN);
+    ins.local_get(P);
+    ins.call(dup);
+    ins.local_get(P);
+    ins.i32_store(mem(HDR + 24, 4));
+    ins.local_get(CHAIN);
+    ins.i32_const(0);
+    ins.i32_store(mem(HDR + 32, 4));
+    let push = b.rt("frame_push");
+    ins.local_get(CHAIN);
+    ins.call(push);
     ins.local_get(P);
     ins.i32_const(0);
     ins.i32_store(mem(P_PHASE, 4));
