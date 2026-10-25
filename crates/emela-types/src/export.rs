@@ -1,0 +1,248 @@
+//! Checks for `@export` and `@entry` (spec 12.7, 12.8).
+//!
+//! - The parameters and the return value of an `@export` fn are boundary types (E0436). The first
+//!   parameter of an entry adapter is not checked: it is the function the adapter receives.
+//! - An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
+//! - Two exports with the same host name for the same target are an error (E0438). The middle
+//!   argument of the three-argument form is part of the host name (`@export(js, "add")` and
+//!   `@export(js, "default", "add")` are different).
+//! - `@entry(T)` names an entry adapter (E0439) and the fn must fit its first parameter (E0440).
+//!
+//! The R of an `@export` fn is checked with the other closed contexts (E0402, spec 12.7): the
+//! entry module's fns with `@export` are registered in `check_program_with`.
+
+use emela_resolve::hir::{DefId, DefModule, Item, Program, Res, Span};
+use smol_str::SmolStr;
+
+use crate::diagnostic::{BoundaryPosition, Diagnostic, DiagnosticKind};
+use crate::infer::InferCtx;
+use crate::lower::TyTable;
+use crate::signature::{Signature, Signatures};
+use crate::ty::{Prim, Ty, TyConKind};
+
+/// One host name of an export: the target, the middle argument of the three-argument form, and
+/// the name.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct ExportKey {
+    target: SmolStr,
+    interface: Option<SmolStr>,
+    name: SmolStr,
+}
+
+pub(crate) fn check(
+    program: &Program,
+    options: &crate::check::CheckOptions,
+    sigs: &Signatures,
+    ty_table: &TyTable,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let mut exports: Vec<(ExportKey, Span)> = Vec::new();
+    for (def, data) in program.defs.iter() {
+        let Some(Item::Fn(item)) = program.item(def) else {
+            continue;
+        };
+        let Some(sig) = sigs.get(def) else {
+            continue;
+        };
+        let adapter = is_entry_adapter(sig);
+        if !item.exports.is_empty() {
+            let boundary = if adapter {
+                boundary_errors(program, def, item, sig, ty_table, 1)
+            } else {
+                if let Some(entry) = options.entry
+                    && data.module != DefModule::Source(entry)
+                {
+                    diags.push(Diagnostic {
+                        span: Some(item.exports[0].span),
+                        kind: DiagnosticKind::ExportOutsideEntryModule,
+                    });
+                }
+                for export in &item.exports {
+                    if let Some(key) = key_of(export) {
+                        exports.push((key, export.span));
+                    }
+                }
+                boundary_errors(program, def, item, sig, ty_table, 0)
+            };
+            diags.extend(boundary);
+        }
+        if let Some(entry) = &item.entry
+            && let Res::Def(adapter_def) = entry.adapter
+        {
+            let Some(adapter_sig) = sigs.get(adapter_def) else {
+                continue;
+            };
+            let is_adapter = matches!(program.item(adapter_def), Some(Item::Fn(a)) if !a.exports.is_empty())
+                && is_entry_adapter(adapter_sig);
+            if !is_adapter {
+                diags.push(Diagnostic {
+                    span: Some(entry.span),
+                    kind: DiagnosticKind::NotEntryAdapter {
+                        path: entry.path.clone(),
+                    },
+                });
+                continue;
+            }
+            if !fits(sigs, adapter_def, def) {
+                diags.push(Diagnostic {
+                    span: Some(entry.span),
+                    kind: DiagnosticKind::EntryDoesNotFit {
+                        function: data.name.clone(),
+                        adapter: entry.path.clone(),
+                    },
+                });
+            }
+            if let Some(Item::Fn(adapter_item)) = program.item(adapter_def) {
+                for export in &adapter_item.exports {
+                    if let Some(key) = key_of(export) {
+                        exports.push((key, entry.span));
+                    }
+                }
+            }
+        }
+    }
+
+    // In source order, so that the second occurrence is reported.
+    exports.sort_by_key(|(_, span)| (span.module.into_raw().into_u32(), span.range.start()));
+    let mut seen: Vec<ExportKey> = Vec::new();
+    for (key, span) in exports {
+        if seen.contains(&key) {
+            diags.push(Diagnostic {
+                span: Some(span),
+                kind: DiagnosticKind::DuplicateExport {
+                    name: key.name,
+                    target: key.target,
+                    interface: key.interface,
+                },
+            });
+        } else {
+            seen.push(key);
+        }
+    }
+}
+
+fn key_of(export: &emela_resolve::hir::ExportAttr) -> Option<ExportKey> {
+    match export.args.as_slice() {
+        [name] => Some(ExportKey {
+            target: export.target.clone(),
+            interface: None,
+            name: name.as_str().into(),
+        }),
+        [interface, name] => Some(ExportKey {
+            target: export.target.clone(),
+            interface: Some(interface.as_str().into()),
+            name: name.as_str().into(),
+        }),
+        // The syntax check reported the shape (E0146).
+        _ => None,
+    }
+}
+
+/// Whether the first parameter of `sig` has a function type (spec 12.8).
+fn is_entry_adapter(sig: &Signature) -> bool {
+    match &sig.scheme.ty {
+        Ty::Fn(f) => matches!(f.params.first(), Some(Ty::Fn(_))),
+        _ => false,
+    }
+}
+
+/// The fn type of a signature, if it has one.
+fn fn_ty(sig: &Signature) -> Option<&crate::ty::FnTy> {
+    match &sig.scheme.ty {
+        Ty::Fn(f) => Some(f),
+        _ => None,
+    }
+}
+
+/// Whether `f` is accepted as the first argument of `adapter` (E0440). Both signatures are
+/// instantiated, so a generic entry adapter (`Http.serve[E]`) accepts a callback at the caller's
+/// types.
+fn fits(sigs: &Signatures, adapter: DefId, f: DefId) -> bool {
+    let (Some(adapter_sig), Some(f_sig)) = (sigs.get(adapter), sigs.get(f)) else {
+        return false;
+    };
+    let mut ctx = InferCtx::new();
+    let adapter_ty = ctx.instantiate(&adapter_sig.scheme);
+    let Ty::Fn(adapter_fn) = adapter_ty else {
+        return false;
+    };
+    let Some(first) = adapter_fn.params.first() else {
+        return false;
+    };
+    let f_ty = ctx.instantiate(&f_sig.scheme);
+    ctx.unify(first, &f_ty).is_ok()
+}
+
+/// E0436 for the parameters of `sig` from `skip` and its return value. `skip` is 1 for an entry
+/// adapter, whose first parameter is the fn it receives.
+fn boundary_errors(
+    program: &Program,
+    def: DefId,
+    item: &emela_resolve::hir::FnItem,
+    sig: &Signature,
+    ty_table: &TyTable,
+    skip: usize,
+) -> Vec<Diagnostic> {
+    let Some(f) = fn_ty(sig) else {
+        return Vec::new();
+    };
+    let function: SmolStr = program.defs[def].name.clone();
+    let mut diags = Vec::new();
+    let mut push = |ty: &Ty, position, span: Option<Span>| {
+        if boundary(ty, program, ty_table) {
+            return;
+        }
+        diags.push(Diagnostic {
+            span: span.or(program.defs[def].span),
+            kind: DiagnosticKind::NotBoundaryType {
+                function: function.clone(),
+                ty: SmolStr::new(ty.display(&ty_table.cons).to_string()),
+                position,
+            },
+        });
+    };
+    for (i, ty) in f.params.iter().enumerate().skip(skip) {
+        let span = item
+            .sig
+            .params
+            .get(i)
+            .and_then(|p| p.ty)
+            .and_then(|id| program.types[id].span);
+        push(ty, BoundaryPosition::Parameter, span);
+    }
+    let ret_span = item
+        .sig
+        .ret
+        .and_then(|id| program.types[id].span)
+        .or(program.defs[def].span);
+    push(&f.ret, BoundaryPosition::Return, ret_span);
+    diags
+}
+
+/// Whether `ty` is a boundary type (spec 12.4): a primitive, `()`, an `@external type`, or a
+/// function type made only of those.
+fn boundary(ty: &Ty, program: &Program, ty_table: &TyTable) -> bool {
+    match ty {
+        Ty::Prim(
+            Prim::Int | Prim::Int64 | Prim::Float | Prim::Bool | Prim::String | Prim::Unit,
+        ) => true,
+        Ty::Named(id, args) if args.is_empty() => external_type(program, ty_table, *id),
+        Ty::Fn(f) => {
+            f.params.iter().all(|p| boundary(p, program, ty_table))
+                && boundary(&f.ret, program, ty_table)
+        }
+        _ => false,
+    }
+}
+
+/// An `@external type`: a `type` with no fields (spec 12.3). A type without fields must be
+/// `@external`, so the shape decides it.
+fn external_type(program: &Program, ty_table: &TyTable, id: crate::ty::TyConId) -> bool {
+    if ty_table.cons[id].kind != TyConKind::Type {
+        return false;
+    }
+    matches!(
+        program.item(ty_table.def_of(id)),
+        Some(Item::Type(t)) if matches!(t.fields, emela_resolve::hir::Fields::None)
+    )
+}

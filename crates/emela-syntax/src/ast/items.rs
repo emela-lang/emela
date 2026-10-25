@@ -549,6 +549,26 @@ mod tests {
     }
 
     #[test]
+    fn export_と_entryの注釈() {
+        let items = items(
+            "@export(js, \"add\")\n@export(js, \"default\", \"add\")\n@entry(Http.serve)\npub fn add(a: Int, b: Int) -> Int { a + b }",
+        );
+        let Item::Fn(add) = &items[0] else {
+            panic!("expected `fn`")
+        };
+        let annotations: Vec<_> = add.annotations().collect();
+        let names: Vec<_> = annotations
+            .iter()
+            .map(|a| a.name().unwrap().text().to_owned())
+            .collect();
+        assert_eq!(names, ["export", "export", "entry"]);
+        assert_eq!(annotations[0].args().count(), 2);
+        assert_eq!(annotations[1].args().count(), 3);
+        let arg = annotations[2].args().next().unwrap();
+        assert_eq!(arg.text().to_string(), "Http.serve");
+    }
+
+    #[test]
     fn import_と注釈とドキュメントコメント() {
         let items = items(
             "import Data.Json.{Json, decode}\n## 足す\n## 2行目\n@external(js, \"add\")\npub fn add(x: Int) -> Int",

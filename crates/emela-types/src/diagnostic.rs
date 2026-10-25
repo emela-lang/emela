@@ -168,6 +168,28 @@ pub enum DiagnosticKind {
     ConstCycle { cycle: Vec<SmolStr> },
     /// A handler value's constructor used outside that handler's `init` (E0418, spec 8.4).
     HandlerCtorOutsideInit { handler: SmolStr },
+    /// A parameter or the return value of an `@export` fn is not a boundary type (E0436, spec
+    /// 12.7, 12.8).
+    NotBoundaryType {
+        function: SmolStr,
+        ty: SmolStr,
+        position: BoundaryPosition,
+    },
+    /// An `@export` fn that is not an entry adapter is outside the entry module (E0437, spec
+    /// 12.7).
+    ExportOutsideEntryModule,
+    /// Two exports have the same host name for the same target (E0438, spec 12.7). `interface`
+    /// is the middle argument of the three-argument form (`"default"` on the `js` target).
+    DuplicateExport {
+        name: SmolStr,
+        target: SmolStr,
+        interface: Option<SmolStr>,
+    },
+    /// The argument of `@entry` is not an entry adapter (E0439, spec 12.8). `path` is the name as
+    /// written.
+    NotEntryAdapter { path: SmolStr },
+    /// The fn cannot be passed as the first argument of the entry adapter (E0440, spec 12.8).
+    EntryDoesNotFit { function: SmolStr, adapter: SmolStr },
     /// A handler with fields but no `init` (E0419, spec 8.4).
     MissingInit { handler: SmolStr },
     /// A handler whose init takes parameters, written without arguments (E0434,
@@ -337,8 +359,17 @@ pub enum EffectContext {
     Main,
     /// A test function, whose R must be empty (spec 13.3).
     Test { name: SmolStr },
+    /// An `@export` fn, whose R must be empty except for Async (spec 12.7).
+    Export { name: SmolStr },
     /// The arguments of a layer item, which MUST be pure (`[effect.layer]`).
     LayerArg(LayerArg),
+}
+
+/// Which part of an exported fn's signature a boundary-type error is about (E0436, spec 12.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundaryPosition {
+    Parameter,
+    Return,
 }
 
 /// An item of a layer with arguments (`WorkerKv(binding: "KV")` in `layer AppLive`), where E and

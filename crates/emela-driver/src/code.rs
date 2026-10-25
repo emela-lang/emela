@@ -158,6 +158,18 @@ pub const HANDLER_OF_LABEL: &str = "E0433";
 // Arguments of handler init (spec 8.4)
 pub const MISSING_INIT_ARGS: &str = "E0434";
 pub const UNEXPECTED_INIT_ARGS: &str = "E0435";
+/// A parameter or the return value of an `@export` fn is not a boundary type (spec 12.7, 12.8).
+pub const NOT_BOUNDARY_TYPE: &str = "E0436";
+/// An `@export` fn that is not an entry adapter outside the entry module (spec 12.7).
+pub const EXPORT_OUTSIDE_ENTRY_MODULE: &str = "E0437";
+/// Two exports with the same host name for the same target (spec 12.7).
+pub const DUPLICATE_EXPORT: &str = "E0438";
+/// The argument of `@entry` is not an entry adapter (spec 12.8).
+pub const NOT_ENTRY_ADAPTER: &str = "E0439";
+/// The fn does not fit the first parameter of the entry adapter (spec 12.8).
+pub const ENTRY_DOES_NOT_FIT: &str = "E0440";
+/// An exported fn that may suspend on the `c` target (spec 16.7.6).
+pub const SUSPENDING_EXPORT: &str = "E0441";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

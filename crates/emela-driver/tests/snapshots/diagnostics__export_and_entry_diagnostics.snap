@@ -1,0 +1,77 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0438]: `fetch` is exported twice for target `js`
+   ╭─[ main.emel:3:1 ]
+   │
+ 3 │ @entry(Http.serve)
+   │ ─────────┬────────  
+   │          ╰────────── 
+───╯
+
+error[E0440]: `wrong` does not fit `Http.serve`
+   ╭─[ main.emel:6:1 ]
+   │
+ 6 │ @entry(Http.serve)
+   │ ─────────┬────────  
+   │          ╰────────── 
+───╯
+
+error[E0438]: `fetch` is exported twice for target `js`
+   ╭─[ main.emel:6:1 ]
+   │
+ 6 │ @entry(Http.serve)
+   │ ─────────┬────────  
+   │          ╰────────── 
+───╯
+
+error[E0439]: `Http.not_adapter` is not an entry adapter
+   ╭─[ main.emel:9:1 ]
+   │
+ 9 │ @entry(Http.not_adapter)
+   │ ────────────┬───────────  
+   │             ╰───────────── 
+───╯
+
+error[E0438]: `dup` is exported twice for target `js`
+    ╭─[ main.emel:15:1 ]
+    │
+ 15 │ @export(js, "dup")
+    │ ─────────┬────────  
+    │          ╰────────── 
+────╯
+
+error[E0436]: exported function `bad` cannot take `List[Int]`
+    ╭─[ main.emel:19:15 ]
+    │
+ 19 │ pub fn bad(a: List[Int]) -> List[Int] { a }
+    │               ────┬────  
+    │                   ╰────── 
+────╯
+
+error[E0436]: exported function `bad` cannot return `List[Int]`
+    ╭─[ main.emel:19:29 ]
+    │
+ 19 │ pub fn bad(a: List[Int]) -> List[Int] { a }
+    │                             ────┬────  
+    │                                 ╰────── 
+────╯
+
+error[E0437]: `@export` is only allowed in the entry module
+   ╭─[ http.emel:4:1 ]
+   │
+ 4 │ @export(js, "not_adapter")
+   │ ─────────────┬────────────  
+   │              ╰────────────── 
+───╯
+
+error[E0437]: `@export` is only allowed in the entry module
+   ╭─[ http.emel:7:1 ]
+   │
+ 7 │ @export(js, "default", "fetch")
+   │ ───────────────┬───────────────  
+   │                ╰───────────────── 
+───╯
+
+9 errors

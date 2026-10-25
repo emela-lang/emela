@@ -530,6 +530,10 @@ pub struct FnItem {
     /// The arguments of `@external(js, "console.log")`, in source order. An `@external` without
     /// arguments is not included.
     pub externals: Vec<ExternalAttr>,
+    /// The arguments of each `@export(...)`, in source order (spec 12.7).
+    pub exports: Vec<ExportAttr>,
+    /// The entry adapter named by `@entry(...)` (spec 12.8).
+    pub entry: Option<EntryAttr>,
     /// A built-in function of the bundled core sources.
     pub is_intrinsic: bool,
 }
@@ -542,6 +546,24 @@ pub struct FnItem {
 pub struct ExternalAttr {
     pub target: SmolStr,
     pub args: Vec<String>,
+}
+
+/// One `@export(target, "name")` or `@export(target, "interface", "name")` (spec 12.7).
+/// Malformed arguments are left out; the syntax check reports them (E0146).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportAttr {
+    pub target: SmolStr,
+    pub args: Vec<String>,
+    pub span: Span,
+}
+
+/// The `@entry(Http.serve)` of a top-level fn (spec 12.8). `path` is the written name, for
+/// diagnostics; `adapter` is its resolution (`Res::Err` if it did not resolve).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryAttr {
+    pub path: SmolStr,
+    pub adapter: Res,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -955,3 +955,75 @@ fn main() {
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
 }
+
+/// `@export` keeps its per-target host name in the IR, and `@entry` links the entry module's fn
+/// to the entry adapter with the adapter's exports (spec 12.7, 12.8).
+#[test]
+fn export_and_entry_are_kept_in_the_ir() {
+    let m = lower_files(&[
+        (
+            "main.emel",
+            "import Http\n\n@export(js, \"add\")\n@export(js, \"default\", \"add\")\npub fn add(a: Int, b: Int) -> Int { a + b }\n\n@entry(Http.serve)\npub fn app(n: Int) -> Int { n }\n\nfn main() { dbg(add(1, 2)) }\n",
+        ),
+        (
+            "http.emel",
+            "@export(js, \"default\", \"fetch\")\npub fn serve(f: fn(Int) -> Int fails {} use {}) -> Int { f(1) }\n",
+        ),
+    ]);
+    let by_name = |name: &str| {
+        m.functions
+            .iter()
+            .find(|(_, f)| f.name == name)
+            .unwrap_or_else(|| panic!("no `{name}`: {:?}", fn_names(&m)))
+    };
+    let (_, add) = by_name("add");
+    let exported: Vec<_> = add
+        .exports
+        .iter()
+        .map(|e| (e.target.as_str(), e.interface.as_deref(), e.name.as_str()))
+        .collect();
+    assert_eq!(
+        exported,
+        [("js", None, "add"), ("js", Some("default"), "add")]
+    );
+    assert!(!add.is_entry_adapter);
+
+    let (serve_id, serve) = by_name("Http.serve");
+    assert!(serve.is_entry_adapter);
+    let (_, app) = by_name("app");
+    assert_eq!(app.entry_adapter, Some(serve_id));
+    let exported: Vec<_> = app
+        .exports
+        .iter()
+        .map(|e| (e.target.as_str(), e.interface.as_deref(), e.name.as_str()))
+        .collect();
+    assert_eq!(exported, [("js", Some("default"), "fetch")]);
+}
+
+/// An `@entry` path of three or more segments names a nested module by its full name
+/// (`Cloudflare.Worker.scheduled` in spec 12.8).
+#[test]
+fn entry_names_a_nested_module_of_the_package() {
+    let m = lower_files(&[
+        (
+            "main.emel",
+            "@entry(Http.Default.serve)\npub fn app(n: Int) -> Int { n }\n\nfn main() { () }\n",
+        ),
+        (
+            "http/default.emel",
+            "@export(js, \"default\", \"fetch\")\npub fn serve(f: fn(Int) -> Int fails {} use {}) -> Int { f(1) }\n",
+        ),
+    ]);
+    let adapter = m
+        .functions
+        .iter()
+        .find(|(_, f)| f.name == "Http.Default.serve")
+        .map(|(id, _)| id)
+        .expect("the adapter is lowered");
+    let (_, app) = m
+        .functions
+        .iter()
+        .find(|(_, f)| f.name == "app")
+        .expect("the entry fn is lowered");
+    assert_eq!(app.entry_adapter, Some(adapter));
+}

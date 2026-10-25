@@ -25,7 +25,14 @@ fn render(src: &str) -> String {
         .filter(|(def, data)| in_main(*def) && data.name.starts_with("test_"))
         .map(|(def, _)| def)
         .collect();
-    let types = check_program_with(&program, &CheckOptions { main: None, tests });
+    let types = check_program_with(
+        &program,
+        &CheckOptions {
+            main: None,
+            tests,
+            entry: None,
+        },
+    );
     let cons = &types.ty_table.cons;
 
     let mut out = String::new();

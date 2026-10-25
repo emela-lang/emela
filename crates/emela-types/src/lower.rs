@@ -185,6 +185,11 @@ impl TyTable {
         }
     }
 
+    /// The definition of a named type (`TyConKind::Type`, `Enum` or `Error`).
+    pub(crate) fn def_of(&self, id: TyConId) -> DefId {
+        self.def_of[id]
+    }
+
     pub(crate) fn decl_sets(&self) -> &DeclSets {
         &self.sets
     }

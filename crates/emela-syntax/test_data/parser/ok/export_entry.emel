@@ -1,0 +1,16 @@
+# @export (12.7) and @entry (12.8).
+@export(c, "TIM2_IRQHandler")
+pub fn on_tick() -> () { () }
+
+@export(js, "add")
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(wasm, "wasi:http/handler@0.3.0", "handle")
+pub fn serve(app: fn(Int) -> Int) -> Int { app(1) }
+
+@entry(Http.serve)
+fn fetch(n: Int) -> Int { n }
+
+@entry(Cloudflare.Worker.scheduled)
+fn scheduled() { () }
