@@ -66,8 +66,10 @@ pub enum LowerError {
     /// of the function name.
     UnsupportedWasmExport { name: String, span: Option<Span> },
     /// A `@export(c, ...)` or an `@entry` whose adapter has a `c` export (spec 16.7.6). C export
-    /// emission is not implemented yet. `entry_adapter` is true when `name` is the adapter of an
-    /// `@entry` (the span is then the `@entry` annotation).
+    /// emission is not implemented yet; this is temporary and tracked as a future issue. The C
+    /// export ABI is out of scope for the current plan, so E0441 is superseded by this error until
+    /// it lands. `entry_adapter` is true when `name` is the adapter of an `@entry` (the span is
+    /// then the `@entry` annotation).
     UnsupportedCExport {
         name: String,
         entry_adapter: bool,
@@ -3532,7 +3534,12 @@ impl<'a> Lowerer<'a> {
             let Res::Def(adapter_def) = entry.adapter else {
                 continue;
             };
-            if let Some(Item::Fn(a)) = self.hir.item(adapter_def)
+            // Only an entry adapter makes the `@entry` expose the adapter's C binding; a
+            // non-adapter is E0439 (and lowering does not run after that error).
+            let is_adapter = matches!(self.hir.item(adapter_def), Some(Item::Fn(a)) if !a.exports.is_empty())
+                && is_entry_adapter_sig(self.types.sigs.get(adapter_def));
+            if is_adapter
+                && let Some(Item::Fn(a)) = self.hir.item(adapter_def)
                 && a.exports.iter().any(|e| e.target == "c")
             {
                 found.push((

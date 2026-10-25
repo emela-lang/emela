@@ -113,7 +113,9 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<
     let roots: Vec<FnId> = match entry {
         // Every explicit `@export(c, ...)` and `@entry` is a root too (spec 12.7, 12.8): one may
         // not be `pub`, or may be an entry adapter in a dependency. An unused entry adapter is
-        // not exposed by itself. An implicit `pub` fn is not a C export (spec 16.7.6).
+        // not exposed by itself. An implicit `pub` fn is not a C export (spec 16.7.6). These
+        // roots are unreachable for a valid C build today: lowering rejects every C export until
+        // the ABI lands. Kept ready for that work.
         Entry::Main => {
             let referenced: std::collections::HashSet<FnId> = core
                 .functions

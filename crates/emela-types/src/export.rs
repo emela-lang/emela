@@ -132,9 +132,20 @@ pub(crate) fn check(
     }
 
     // In source order, so that the second occurrence is reported. The launcher of `main.mjs`
-    // exports `main` only when the entry has it, uses `$start` only when an exported fn may
-    // suspend, and keeps the default export separate from a named export called `default`
-    // (spec 16.6.2).
+    // exports `main` only when the entry has it, uses `$start` when `main`, a selected test or an
+    // exported fn may suspend, and keeps the default export separate from a named export called
+    // `default` (spec 16.6.2). `CheckOptions.tests` is every test, so a build without a suspending
+    // test still reserves `$start` here; `emela test` may select one of them.
+    if let Some(main) = options.main
+        && let Some(sig) = sigs.get(main)
+    {
+        start_needed |= may_suspend(program, sig);
+    }
+    for &test in &options.tests {
+        if let Some(sig) = sigs.get(test) {
+            start_needed |= may_suspend(program, sig);
+        }
+    }
     exports.sort_by_key(|(_, span)| (span.module.into_raw().into_u32(), span.range.start()));
     let mut reserved = vec!["default"];
     if options.main.is_some() {
