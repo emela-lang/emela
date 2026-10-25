@@ -5187,6 +5187,7 @@ fn idle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
     let set_wait = b.waitable_set_wait();
     c(ins, set as i32);
+    ins.i32_load(mem(0, 4));
     c(ins, WAITBUF as i32);
     ins.call(set_wait);
     ins.local_set(EVENT);
@@ -5217,7 +5218,8 @@ fn idle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     g(ins, W);
     ins.local_set(FOUND);
-    ins.br(1);
+    // Out of the loop and its enclosing block (0: the `if`, 1: the loop, 2: the block).
+    ins.br(2);
     ins.end();
     ldl(ins, W, W_HNEXT);
     ins.local_set(W);
@@ -5277,6 +5279,7 @@ fn idle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let join = b.waitable_join();
     g(ins, HANDLE);
     c(ins, set as i32);
+    ins.i32_load(mem(0, 4));
     ins.call(join);
     c(ins, 0);
     ins.return_();
