@@ -200,6 +200,16 @@ fn failure_of(
 fn attempt_caught(b: &mut Builder, ins: &mut InstructionSink) {
     const C: u32 = 0;
     const EXIT: u32 = 1;
+    if let Some(run_over) = b.fiber_plan.as_ref().map(|p| p.run_over) {
+        // A defect that ended the run (a failure or defect after the operation implementation
+        // resumed, spec 14.5) is not caught: it is the run's result.
+        ins.i32_const(run_over as i32);
+        ins.i32_load(mem(0, 4));
+        ins.if_(BlockType::Empty);
+        ins.i32_const(0);
+        ins.return_();
+        ins.end();
+    }
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
     if let Some(plan) = &b.sus {
