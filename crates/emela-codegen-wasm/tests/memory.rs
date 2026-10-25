@@ -1,10 +1,15 @@
 //! Freed objects go back to the allocator: a program that keeps making and dropping the same
 //! objects runs in a fixed amount of linear memory. Each program here runs under a memory limit
 //! far below what it allocates in total. Skipped without `wasmtime`.
+//!
+//! A program that does exhaust its memory ends abruptly. The runtime checks the result of
+//! `memory.grow` and traps before moving the bump pointer, so the end of the program is not an
+//! out-of-bounds store past the memory.
 
 mod common;
 
 use common::*;
+use wasmparser::{Operator, Parser, Payload};
 
 /// The linear memory each program may grow to: six 64 KiB pages.
 const LIMIT: u32 = 6 * 65536;
@@ -184,5 +189,100 @@ fn main() {
 }
 "#,
         "225000\n",
+    );
+}
+
+/// The operators of the runtime function that reserves the heap, which is the only one that
+/// grows the memory.
+fn heap_reserve_ops<'a>(bytes: &'a [u8]) -> Option<Vec<Operator<'a>>> {
+    for payload in Parser::new(0).parse_all(bytes) {
+        if let Payload::CodeSectionEntry(body) = payload.expect("wasm should parse") {
+            let ops: Vec<Operator<'a>> = body
+                .get_operators_reader()
+                .expect("the body parses")
+                .into_iter()
+                .map(|op| op.expect("the operator parses"))
+                .collect();
+            if ops
+                .iter()
+                .any(|op| matches!(op, Operator::MemoryGrow { .. }))
+            {
+                return Some(ops);
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
+    // An allocation failure is an abrupt end of the program, not a defect. The bump pointer must
+    // not move past the end of the memory, or the next store traps with an unrelated
+    // out-of-bounds error instead of the runtime's own trap.
+    let bytes = compile_checked("fn main() { dbg(1) }\n");
+    let ops = heap_reserve_ops(&bytes).expect("the runtime reserves the heap with `memory.grow`");
+    let grow = ops
+        .iter()
+        .position(|op| matches!(op, Operator::MemoryGrow { .. }))
+        .expect("the reservation grows the memory");
+    assert_eq!(
+        ops.get(grow + 1),
+        Some(&Operator::I32Const { value: -1 }),
+        "the result of `memory.grow` is compared with -1"
+    );
+    assert_eq!(ops.get(grow + 2), Some(&Operator::I32Eq));
+    assert!(matches!(ops.get(grow + 3), Some(Operator::If { .. })));
+
+    let trap = grow
+        + 4
+        + ops[grow + 4..]
+            .iter()
+            .position(|op| matches!(op, Operator::Unreachable))
+            .expect("a failed grow traps");
+    let set = ops
+        .iter()
+        .position(|op| matches!(op, Operator::GlobalSet { .. }))
+        .expect("the reservation moves the bump pointer");
+    assert!(
+        trap < set,
+        "`G_HEAP` moves before the failed grow traps: {ops:?}"
+    );
+    assert!(
+        ops[grow..trap]
+            .iter()
+            .all(|op| !matches!(op, Operator::GlobalSet { .. })),
+        "`G_HEAP` moves in the failed grow path: {ops:?}"
+    );
+    assert!(
+        ops[grow + 4..trap]
+            .iter()
+            .any(|op| matches!(op, Operator::Call { .. })),
+        "the failed grow reports the failure before trapping: {ops:?}"
+    );
+}
+
+#[test]
+fn exhausting_the_memory_ends_the_program_abruptly() {
+    let Some(_) = wasmtime() else { return };
+    // A million cells do not fit in 1 MiB, and the list is never dropped.
+    let bytes = compile_checked(
+        r#"
+fn main() {
+  xs = List.range(0, 1000000)
+  dbg(List.length(xs))
+}
+"#,
+    );
+    let run = run_bytes_with_command(&out_dir("memory-exhaustion"), &bytes, |command| {
+        command.arg("-W").arg("max-memory-size=1048576");
+    });
+    // The exit code and the trap text are implementation-defined. What the backend guarantees is
+    // that the program does not finish, and that the failure comes from its own check.
+    assert_ne!(run.code, 0, "the program finished: {}", run.stderr);
+    assert_eq!(run.stdout, "");
+    assert!(
+        run.stderr.contains("emela: out of memory"),
+        "the failure is not reported by the runtime: {}",
+        run.stderr
     );
 }
