@@ -7,9 +7,10 @@
 //! `SystemClock`, or of a handler that delegates `sleep` to an outer `Clock`, is not reached by a
 //! program that only reads the time.
 //!
-//! The entry's reachable functions decide two things: which calls are diagnostics (the
-//! suspending-call check) and which hosts the component imports (spec `[target.wasm.output]`: a
-//! host interface is imported only when the entry reaches a host function that uses it).
+//! The entry's reachable functions decide which calls the target does not support yet (the
+//! suspending-call check) and which host interfaces the emitted component imports. For the std
+//! hosts the target supports, this is the implementation of `[target.wasm.output]`: an interface
+//! is imported only when the entry reaches a host function that uses it.
 
 use emela_core::EffectId;
 use emela_lir::{Callee, FnId, Function, Module, SeqId, Stmt, Value, VarId};

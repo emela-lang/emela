@@ -5,28 +5,12 @@
 mod common;
 
 use common::*;
-use wasmparser::{Parser, Payload};
-
-/// The interface names a component imports.
-fn component_imports(bytes: &[u8]) -> Vec<String> {
-    let mut imports = Vec::new();
-    for payload in Parser::new(0).parse_all(bytes) {
-        if let Payload::ComponentImportSection(section) = payload.unwrap() {
-            for import in section {
-                imports.push(import.unwrap().name.full_name().into_owned());
-            }
-        }
-    }
-    imports
-}
 
 /// The interfaces every command component imports (spec `[target.wasm.output]`).
 ///
-/// `import-func-run` (`[task-return]run`) and `wasi:cli/types@0.3.0` (the `error-code` its result
-/// uses) are part of the async-lifted `wasi:cli/run@0.3.0` export, which every command component
-/// has; they are not hosts the program reaches.
+/// `wasi:cli/types@0.3.0` is here because `write-via-stream` of stdout and stderr returns a future
+/// of an `error-code`, which that interface defines.
 const ALWAYS_IMPORTED: &[&str] = &[
-    "import-func-run",
     "wasi:cli/exit@0.3.0",
     "wasi:cli/stderr@0.3.0",
     "wasi:cli/stdout@0.3.0",
@@ -366,100 +350,12 @@ fn main() {
     assert_eq!(run.stderr, "True\n");
 }
 
-#[test]
-fn platform_with_sleep_imports_only_the_monotonic_clock() {
-    // `wasi:clocks/monotonic-clock` uses a type of `wasi:clocks/types`, so that interface comes
-    // with it.
-    let bytes = assert_imports(
-        r#"
-import Std.Clock.{Clock}
-import Std.Platform.{Platform}
-
-fn main() {
-  with Platform {
-    (use Clock).sleep(0)
-  }
-}
-"#,
-        &[
-            "wasi:clocks/monotonic-clock@0.3.0",
-            "wasi:clocks/types@0.3.0",
-        ],
-    );
-    if wasmtime().is_none() {
-        return;
-    }
-    // A zero sleep still starts the host wait, so the run reaches the monotonic clock.
-    let run = run_bytes(&out_dir("platform-sleep"), &bytes);
-    assert_eq!(run.code, 0, "{}", run.stderr);
-    assert_eq!(run.stdout, "");
-    assert_eq!(run.stderr, "");
-}
-
-#[test]
-fn a_test_clock_sleep_does_not_import_the_monotonic_clock() {
-    // `with Platform, TestClock` replaces the system clock, so the host timer is not in the
-    // module; the test clock's `when-stalled` is a scheduler hook, not a WIT import.
-    let bytes = assert_imports(
-        r#"
-import Std.Clock.{Clock, TestClock}
-import Std.Instant.{Instant}
-import Std.Platform.{Platform}
-import Std.State.{State}
-
-fn main() {
-  start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
-    with Platform, TestClock {
-      (use Clock).sleep(250)
-      dbg(Instant.to_unix_milliseconds((use Clock).now()))
-    }
-  })
-  dbg(Instant.to_unix_milliseconds(end))
-}
-"#,
-        &[],
-    );
-    if wasmtime().is_none() {
-        return;
-    }
-    let run = run_bytes(&out_dir("platform-test-clock"), &bytes);
-    assert_eq!(run.code, 0, "{}", run.stderr);
-    assert_eq!(run.stderr, "250\n250\n");
-}
-
-#[test]
-fn platform_with_filesystem_imports_only_the_filesystem() {
-    // `wasi:filesystem/types` names `instant` of `wasi:clocks/system-clock` in one of its
-    // records, so importing the file system brings the system clock interface along.
-    let bytes = assert_imports(
-        r#"
-import Std.FileSystem.{FileSystem}
-import Std.Platform.{Platform}
-
-fn main() {
-  with Platform {
-    dbg((use FileSystem).exists("does-not-exist"))
-  }
-}
-"#,
-        &[
-            "wasi:clocks/system-clock@0.3.0",
-            "wasi:filesystem/preopens@0.3.0",
-            "wasi:filesystem/types@0.3.0",
-        ],
-    );
-    if wasmtime().is_none() {
-        return;
-    }
-    let dir = std::path::absolute(out_dir("platform-filesystem")).unwrap();
-    std::fs::create_dir_all(&dir).unwrap();
-    let run = run_bytes_with_command(&dir, &bytes, |command| {
-        command.arg("--dir").arg(&dir);
-    });
-    assert_eq!(run.code, 0, "{}", run.stderr);
-    assert_eq!(run.stderr, "False\n");
-}
+// `SystemClock.sleep` and `Std.FileSystem` are not specified for WASM yet:
+// `[target.wasm.external]` lists them as not available and the proposal that makes them available
+// is still a draft. The implementation carries their hosts when a program reaches them, but this
+// file does not pin their imports as part of the contract until the specification says so. Their
+// behaviour is tested in `tests/clock.rs` and `tests/filesystem.rs`, next to the rest of those
+// suites.
 
 #[test]
 fn an_unused_http_handler_is_not_an_error() {
