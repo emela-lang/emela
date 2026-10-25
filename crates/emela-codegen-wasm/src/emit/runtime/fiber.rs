@@ -1115,7 +1115,8 @@ fn wait_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
         st_const(ins, W, off, 0);
     }
     stl(ins, W, W_KIND, 0);
-    stl(ins, W, W_VERB, 1);
+    stl(ins, W, W_VERB, 0);
+    stl(ins, W, W_REPR, 1);
     ins.local_get(W);
     ins.i64_const(0);
     ins.i64_store(mem(W_AT, 8));
@@ -1714,7 +1715,9 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.else_();
     dropv(b, ins, CHAIN);
     ins.end();
-    ins.br(1);
+    // Inside the suspension `if`, depth 2 is the end of the outer block: stop running the
+    // continuation here; the wait resumes it when it is woken.
+    ins.br(2);
     ins.end();
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
@@ -2013,6 +2016,101 @@ fn cause_string(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, interrupted as i32);
 }
 
+/// Emits the `Any` value stored at `base`+`off`, unboxed to the representation code in local
+/// `repr`, as an `i64` word in local `word` (the C runtime's `em_unbox`). A reference is the
+/// value itself and is duplicated for the caller; `Void` is zero; any other value is the first
+/// slot of its box.
+fn unbox_word(
+    b: &mut Builder<'_>,
+    ins: &mut InstructionSink,
+    repr: u32,
+    base: u32,
+    off: u32,
+    tmp: u32,
+    word: u32,
+) {
+    ldl(ins, base, off);
+    ins.local_set(tmp);
+    g(ins, repr);
+    c(ins, R_REF);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, tmp);
+    call(b, ins, "dup");
+    g(ins, tmp);
+    ins.i64_extend_i32_u();
+    ins.local_set(word);
+    ins.else_();
+    g(ins, repr);
+    c(ins, 0);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.i64_const(0);
+    ins.local_set(word);
+    ins.else_();
+    g(ins, repr);
+    c(ins, 1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, tmp);
+    ins.i32_load(mem(HDR, 4));
+    ins.i64_extend_i32_u();
+    ins.local_set(word);
+    ins.else_();
+    g(ins, tmp);
+    ins.i64_load(mem(HDR, 8));
+    ins.local_set(word);
+    ins.end();
+    ins.end();
+    ins.end();
+}
+
+/// Stores the `Any` value at `base`+`off`, unboxed to the representation code in local `repr`,
+/// into the first slot of the object in local `obj`.
+fn unbox_slot(
+    b: &mut Builder<'_>,
+    ins: &mut InstructionSink,
+    repr: u32,
+    base: u32,
+    off: u32,
+    obj: u32,
+) {
+    g(ins, repr);
+    c(ins, R_REF);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ldl(ins, base, off);
+    call(b, ins, "dup");
+    g(ins, obj);
+    ldl(ins, base, off);
+    ins.i32_store(mem(HDR, 4));
+    ins.else_();
+    g(ins, repr);
+    c(ins, 0);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, obj);
+    c(ins, 0);
+    ins.i32_store(mem(HDR, 4));
+    ins.else_();
+    g(ins, repr);
+    c(ins, 1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, obj);
+    ldl(ins, base, off);
+    ins.i32_load(mem(HDR, 4));
+    ins.i32_store(mem(HDR, 4));
+    ins.else_();
+    g(ins, obj);
+    ldl(ins, base, off);
+    ins.i64_load(mem(HDR, 8));
+    ins.i64_store(mem(HDR, 8));
+    ins.end();
+    ins.end();
+    ins.end();
+}
+
 /// `fb_watch_settle(w, f) -> (mode, word)`: what a fiber's end delivers to one of its watchers.
 /// The value is borrowed from the fiber where it can be (the wait duplicates it).
 fn watch_settle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
@@ -2036,25 +2134,14 @@ fn watch_settle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, CAUSE);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    // The child ended with a value.
+    // The child ended with a value. Its value is an `Any`: a reference is the value itself,
+    // anything else is a box (the erased child returns `Any`), so unbox it to the expected
+    // representation (the C runtime's `em_unbox`).
     g(ins, VERB);
     c(ins, WV_JOIN);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
-    g(ins, REPR);
-    c(ins, R_REF);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    ldl(ins, 1, F_RESVAL);
-    call(b, ins, "dup");
-    ldl(ins, 1, F_RESVAL);
-    ins.i64_extend_i32_u();
-    ins.local_set(WORD);
-    ins.else_();
-    ldl(ins, 1, F_RESWORD);
-    ins.i64_load(mem(0, 8));
-    ins.local_set(WORD);
-    ins.end();
+    unbox_word(b, ins, REPR, 1, F_RESVAL, TMP, WORD);
     c(ins, 0);
     ins.local_get(WORD);
     ins.return_();
@@ -2074,21 +2161,7 @@ fn watch_settle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
     call(b, ins, "alloc");
     ins.local_set(E);
-    g(ins, REPR);
-    c(ins, R_REF);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    ldl(ins, 1, F_RESVAL);
-    call(b, ins, "dup");
-    ins.local_get(E);
-    ldl(ins, 1, F_RESVAL);
-    ins.i32_store(mem(HDR, 4));
-    ins.else_();
-    ins.local_get(E);
-    ldl(ins, 1, F_RESWORD);
-    ins.i64_load(mem(0, 8));
-    ins.i64_store(mem(HDR, 8));
-    ins.end();
+    unbox_slot(b, ins, REPR, 1, F_RESVAL, E);
     c(ins, 0);
     g(ins, E);
     ins.i64_extend_i32_u();
@@ -3496,8 +3569,8 @@ fn deferred_await(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i64_extend_i32_u();
     ins.return_();
     ins.end();
-    ldl(ins, 0, D_WORD);
-    ins.i64_load(mem(0, 8));
+    ins.local_get(0);
+    ins.i64_load(mem(D_WORD, 8));
     ins.return_();
     ins.end();
     c(ins, WK_DEFERRED);
@@ -3550,8 +3623,8 @@ fn poll(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(HDR, 4));
     ins.else_();
     ins.local_get(E);
-    ldl(ins, 0, D_WORD);
-    ins.i64_load(mem(0, 8));
+    ins.local_get(0);
+    ins.i64_load(mem(D_WORD, 8));
     ins.i64_store(mem(HDR, 8));
     ins.end();
     g(ins, E);
