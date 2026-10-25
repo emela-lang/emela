@@ -151,3 +151,25 @@ fn main() {
     assert_eq!(about.len(), 1, "{errors:#?}");
     assert_eq!(about[0].kind, WasmErrorKind::Unsupported);
 }
+
+#[test]
+fn a_user_wasm_export_is_diagnosed() {
+    let errors = to_wasm(
+        r#"
+@export(wasm, "env", "f")
+fn f() -> Int { 1 }
+
+fn main() { dbg(f()) }
+"#,
+    )
+    .expect_err("a program's own `@export(wasm, ...)` is not supported");
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind == WasmErrorKind::Unsupported
+                && error.message
+                    == "exported function `f` has a `wasm` export, which the WASI 0.3 component target does not support yet"
+        }),
+        "expected an unsupported wasm export diagnostic, got {errors:#?}"
+    );
+}

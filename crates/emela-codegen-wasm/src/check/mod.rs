@@ -6,6 +6,7 @@
 //! fn` external functions are not (they need a host callback), so a reachable call to one without
 //! a `wasm` binding is unsupported.
 
+mod export;
 mod external;
 mod reach;
 mod value;
@@ -17,6 +18,7 @@ use crate::{WasmError, WasmErrorKind};
 use self::external::external;
 use self::value::value_unsupported;
 
+pub(crate) use self::export::user_exports;
 pub(crate) use self::reach::Reach;
 
 /// What the entry can reach, for the diagnostics and the emitter (see [`reach::walk`]).
