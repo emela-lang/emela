@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/entry_attrs.emel
 ---
-ROOT@0..371
+ROOT@0..388
   COMMENT@0..45 "# The shape of the argument of @entry (12.8)."
   NEWLINE@45..46 "\n"
   FN_DECL@46..79
@@ -181,8 +181,7 @@ ROOT@0..371
           LOWER_NAME@265..270 "serve"
         COMMA@270..271 ","
         WHITESPACE@271..272 " "
-        ANNOT_ARG@272..277
-          LOWER_NAME@272..277 "extra"
+        LOWER_NAME@272..277 "extra"
         R_PAREN@277..278 ")"
     NEWLINE@278..279 "\n"
     FN_KW@279..281 "fn"
@@ -202,51 +201,68 @@ ROOT@0..371
       R_BRACE@295..296 "}"
   NEWLINE@296..297 "\n"
   NEWLINE@297..298 "\n"
-  FN_DECL@298..370
-    ANNOTATION@298..316
+  FN_DECL@298..351
+    ANNOTATION@298..322
       AT@298..299 "@"
       LOWER_NAME@299..304 "entry"
-      ANNOT_ARG_LIST@304..316
+      ANNOT_ARG_LIST@304..322
         L_PAREN@304..305 "("
-        ANNOT_ARG@305..315
+        ANNOT_ARG@305..321
           TYPE_NAME@305..309 "Http"
           DOT@309..310 "."
           LOWER_NAME@310..315 "serve"
-        R_PAREN@315..316 ")"
-    NEWLINE@316..317 "\n"
-    ANNOTATION@317..352
-      AT@317..318 "@"
-      LOWER_NAME@318..323 "entry"
-      ANNOT_ARG_LIST@323..352
-        L_PAREN@323..324 "("
-        ANNOT_ARG@324..351
-          TYPE_NAME@324..334 "Cloudflare"
-          DOT@334..335 "."
-          TYPE_NAME@335..341 "Worker"
-          DOT@341..342 "."
-          LOWER_NAME@342..351 "scheduled"
-        R_PAREN@351..352 ")"
-    NEWLINE@352..353 "\n"
-    FN_KW@353..355 "fn"
-    WHITESPACE@355..356 " "
-    LOWER_NAME@356..361 "twice"
-    PARAM_LIST@361..363
-      L_PAREN@361..362 "("
-      R_PAREN@362..363 ")"
-    WHITESPACE@363..364 " "
-    BLOCK_EXPR@364..370
-      L_BRACE@364..365 "{"
-      WHITESPACE@365..366 " "
-      UNIT_EXPR@366..368
-        L_PAREN@366..367 "("
-        R_PAREN@367..368 ")"
-      WHITESPACE@368..369 " "
-      R_BRACE@369..370 "}"
-  NEWLINE@370..371 "\n"
-error[E0110]@81..87: `@entry` takes one entry adapter name: `@entry(Http.serve)`
-error[E0110]@120..128: `@entry` takes one entry adapter name: `@entry(Http.serve)`
-error[E0110]@155..158: `@entry` needs an entry adapter name such as `Http.serve`
-error[E0110]@187..188: `@entry` needs an entry adapter name such as `Http.serve`
-error[E0110]@217..227: `@entry` needs an entry adapter name such as `Http.serve`
-error[E0110]@253..278: `@entry` takes one entry adapter name: `@entry(Http.serve)`
-error[E0110]@317..352: only one `@entry` is allowed on a fn
+          DOT@315..316 "."
+          LOWER_NAME@316..321 "extra"
+        R_PAREN@321..322 ")"
+    NEWLINE@322..323 "\n"
+    FN_KW@323..325 "fn"
+    WHITESPACE@325..326 " "
+    LOWER_NAME@326..342 "after_final_name"
+    PARAM_LIST@342..344
+      L_PAREN@342..343 "("
+      R_PAREN@343..344 ")"
+    WHITESPACE@344..345 " "
+    BLOCK_EXPR@345..351
+      L_BRACE@345..346 "{"
+      WHITESPACE@346..347 " "
+      UNIT_EXPR@347..349
+        L_PAREN@347..348 "("
+        R_PAREN@348..349 ")"
+      WHITESPACE@349..350 " "
+      R_BRACE@350..351 "}"
+  NEWLINE@351..352 "\n"
+  NEWLINE@352..353 "\n"
+  FN_DECL@353..387
+    ANNOTATION@353..365
+      AT@353..354 "@"
+      LOWER_NAME@354..359 "entry"
+      ANNOT_ARG_LIST@359..365
+        L_PAREN@359..360 "("
+        ANNOT_ARG@360..364
+          TYPE_NAME@360..364 "Http"
+        R_PAREN@364..365 ")"
+    NEWLINE@365..366 "\n"
+    FN_KW@366..368 "fn"
+    WHITESPACE@368..369 " "
+    LOWER_NAME@369..378 "type_only"
+    PARAM_LIST@378..380
+      L_PAREN@378..379 "("
+      R_PAREN@379..380 ")"
+    WHITESPACE@380..381 " "
+    BLOCK_EXPR@381..387
+      L_BRACE@381..382 "{"
+      WHITESPACE@382..383 " "
+      UNIT_EXPR@383..385
+        L_PAREN@383..384 "("
+        R_PAREN@384..385 ")"
+      WHITESPACE@385..386 " "
+      R_BRACE@386..387 "}"
+  NEWLINE@387..388 "\n"
+error[E0110]@87..88: expected `(`
+error[E0110]@127..128: expected lower name
+error[E0110]@155..156: expected lower name or type name
+error[E0110]@187..188: expected lower name or type name
+error[E0110]@227..228: expected lower name
+error[E0110]@272..277: expected `)`
+error[E0110]@315..316: expected `)`
+error[E0110]@364..365: expected lower name

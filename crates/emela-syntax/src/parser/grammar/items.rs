@@ -153,8 +153,11 @@ fn decl(p: &mut Parser<'_>, m: Marker) {
 pub(crate) fn annotation(p: &mut Parser<'_>) -> bool {
     let m = p.start();
     p.bump_kind(AT);
+    let is_entry = p.at_contextual_kw("entry");
     let named = p.expect(LOWER_NAME);
-    if p.at(L_PAREN) {
+    if is_entry {
+        entry_args(p);
+    } else if p.at(L_PAREN) {
         let args = p.start();
         super::delimited(p, L_PAREN, R_PAREN, |p| {
             let arg = p.start();
@@ -189,6 +192,101 @@ pub(crate) fn annotation(p: &mut Parser<'_>) -> bool {
     }
     m.complete(p, ANNOTATION);
     named
+}
+
+/// `@entry(adapter)`: exactly one bare name or qualified path. The grammar of `annot_arg` is wider,
+/// so the narrower shape of `@entry` is read here (spec 12.8). The token-level errors use E0110
+/// with the token the grammar expects.
+fn entry_args(p: &mut Parser<'_>) {
+    if !p.at(L_PAREN) {
+        p.error(DiagnosticCode::ExpectedToken, "expected `(`");
+        return;
+    }
+    let args = p.start();
+    p.bump_kind(L_PAREN);
+    while p.eat(NEWLINE) {}
+    if p.at(R_PAREN) {
+        p.error(DiagnosticCode::ExpectedToken, "expected lower name");
+    } else {
+        let arg = p.start();
+        entry_argument(p);
+        arg.complete(p, ANNOT_ARG);
+    }
+    while p.eat(NEWLINE) {}
+    // The formatter writes a trailing comma in a broken argument list.
+    if p.eat(COMMA) {
+        while p.eat(NEWLINE) {}
+        if !p.at(R_PAREN) {
+            p.error(DiagnosticCode::ExpectedToken, "expected `)`");
+            while !p.at(R_PAREN) && !p.at(NEWLINE) && !p.at_eof() {
+                p.bump();
+            }
+            while p.eat(NEWLINE) {}
+        }
+    }
+    p.expect(R_PAREN);
+    args.complete(p, ANNOT_ARG_LIST);
+}
+
+/// `lower_name | type_name { "." type_name } "." lower_name`.
+fn entry_argument(p: &mut Parser<'_>) {
+    if p.eat(LOWER_NAME) {
+        return;
+    }
+    if !p.at(TYPE_NAME) {
+        p.error(
+            DiagnosticCode::ExpectedToken,
+            "expected lower name or type name",
+        );
+        // Read the written argument so the list still closes; a literal is otherwise left for
+        // the generic recovery to cut in the middle of a string.
+        if matches!(p.current(), INT | FLOAT | STRING_QUOTE | TRIPLE_QUOTE) {
+            annot_literal(p);
+        } else if p.at(LOWER_NAME) {
+            p.bump();
+            if p.eat(COLON) {
+                annot_literal(p);
+            }
+        } else {
+            p.err_recover(
+                DiagnosticCode::ExpectedToken,
+                "expected lower name or type name",
+                &[COMMA, R_PAREN, NEWLINE],
+            );
+        }
+        return;
+    }
+    p.bump();
+    let mut ends_in_lower = false;
+    while p.eat(DOT) {
+        if p.eat(TYPE_NAME) {
+            ends_in_lower = false;
+        } else if p.eat(LOWER_NAME) {
+            ends_in_lower = true;
+            break;
+        } else {
+            p.err_recover(
+                DiagnosticCode::ExpectedToken,
+                "expected type name",
+                &[COMMA, R_PAREN, NEWLINE],
+            );
+            return;
+        }
+    }
+    // A lower name may not be followed by another `.` (grammar 17.3). Consume the rest of the
+    // path so the argument list still closes in the right place.
+    while p.at(DOT) {
+        p.error(DiagnosticCode::ExpectedToken, "expected `)`");
+        p.bump();
+        if p.at(TYPE_NAME) || p.at(LOWER_NAME) {
+            p.bump();
+        } else {
+            break;
+        }
+    }
+    if !ends_in_lower && !p.at(DOT) {
+        p.error(DiagnosticCode::ExpectedToken, "expected lower name");
+    }
 }
 
 fn annot_literal(p: &mut Parser<'_>) {
