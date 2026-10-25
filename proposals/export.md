@@ -185,7 +185,7 @@ E0327: mark as unused ("(Unused, because only `@export` fns are exported, and th
 - [x] E0438: two exports with the same name
 - [x] E0439: the argument of `@entry` is not an entry adapter
 - [x] E0440: the fn does not fit the first parameter of the entry adapter
-- [x] E0441: an export that may suspend on C
+- [ ] E0441: an export that may suspend on C (deferred until the C ABI is implemented)
 - [x] E0402: the R of an `@export` fn
 - [x] `@export(wasm, ...)` written by a user (no code)
 
