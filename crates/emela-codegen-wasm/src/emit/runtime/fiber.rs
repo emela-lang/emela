@@ -259,25 +259,100 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fb_root_run", &[], &[]),
     ("fb_finish_run", &[], &[]),
     ("fb_drain", &[], &[]),
-    ("fb_step", &[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64], &[]),
-    ("fb_begin", &[ValType::I32, ValType::I32, ValType::I32, ValType::I32], &[]),
-    ("fb_advance", &[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64, ValType::I32], &[]),
-    ("fb_suspended", &[ValType::I32, ValType::I32, ValType::I32], &[]),
-    ("fb_strand_end", &[ValType::I32, ValType::I32, ValType::I32, ValType::I64, ValType::I32], &[]),
-    ("fb_finish", &[ValType::I32, ValType::I32, ValType::I64], &[]),
-    ("fb_settled_impl", &[ValType::I32, ValType::I32, ValType::I64], &[]),
+    (
+        "fb_step",
+        &[
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I64,
+        ],
+        &[],
+    ),
+    (
+        "fb_begin",
+        &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+        &[],
+    ),
+    (
+        "fb_advance",
+        &[
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I64,
+            ValType::I32,
+        ],
+        &[],
+    ),
+    (
+        "fb_suspended",
+        &[ValType::I32, ValType::I32, ValType::I32],
+        &[],
+    ),
+    (
+        "fb_strand_end",
+        &[
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I64,
+            ValType::I32,
+        ],
+        &[],
+    ),
+    (
+        "fb_finish",
+        &[ValType::I32, ValType::I32, ValType::I64],
+        &[],
+    ),
+    (
+        "fb_settled_impl",
+        &[ValType::I32, ValType::I32, ValType::I64],
+        &[],
+    ),
     ("fb_cause_string", &[ValType::I32], &[ValType::I32]),
-    ("fb_watch_settle", &[ValType::I32, ValType::I32], &[ValType::I32, ValType::I64]),
-    ("fb_cause_new", &[ValType::I32, ValType::I32], &[ValType::I32]),
-    ("fb_scope", &[ValType::I32, ValType::I32, ValType::I32], &[ValType::I64]),
-    ("fb_fork", &[ValType::I32, ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]),
+    (
+        "fb_watch_settle",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I32, ValType::I64],
+    ),
+    (
+        "fb_cause_new",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "fb_scope",
+        &[ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I64],
+    ),
+    (
+        "fb_fork",
+        &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
     ("fb_join", &[ValType::I32, ValType::I32], &[ValType::I64]),
     ("fb_await", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("fb_interrupt", &[ValType::I32], &[]),
     ("fb_deferred", &[ValType::I32], &[ValType::I32]),
-    ("fb_complete", &[ValType::I32, ValType::I64, ValType::I32], &[ValType::I32]),
-    ("fb_deferred_await", &[ValType::I32, ValType::I32], &[ValType::I64]),
-    ("fb_poll", &[ValType::I32, ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]),
+    (
+        "fb_complete",
+        &[ValType::I32, ValType::I64, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "fb_deferred_await",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I64],
+    ),
+    (
+        "fb_poll",
+        &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
     ("fb_yield", &[ValType::I32], &[]),
     ("fb_hold", &[], &[]),
     ("fb_unhold", &[], &[]),
@@ -287,20 +362,56 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fb_interrupt_here", &[], &[ValType::I32]),
     ("fb_interrupt_fiber", &[ValType::I32, ValType::I32], &[]),
     ("fb_is_interrupted", &[ValType::I32], &[ValType::I32]),
-    ("fb_wait_new", &[ValType::I32, ValType::I32], &[ValType::I32]),
-    ("fb_wait_wake", &[ValType::I32, ValType::I32, ValType::I64], &[]),
+    (
+        "fb_wait_new",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "fb_wait_wake",
+        &[ValType::I32, ValType::I32, ValType::I64],
+        &[],
+    ),
     ("fb_wait_chain", &[ValType::I32], &[ValType::I32]),
     ("fb_watch_add", &[ValType::I32, ValType::I32], &[]),
     ("fb_watch_remove", &[ValType::I32], &[]),
-    ("fb_queue_push", &[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I64, ValType::I32], &[]),
+    (
+        "fb_queue_push",
+        &[
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I64,
+            ValType::I32,
+        ],
+        &[],
+    ),
     ("fb_scope_body_resume", &[ValType::I32], &[]),
     ("fb_scope_close_resume", &[ValType::I32], &[]),
     ("fb_scope_failed", &[ValType::I32, ValType::I32], &[]),
     ("fb_scope_child_ended", &[ValType::I32, ValType::I32], &[]),
-    ("fb_scope_finish", &[ValType::I32, ValType::I32, ValType::I64, ValType::I32], &[ValType::I64]),
-    ("fb_scope_body_done", &[ValType::I32, ValType::I32, ValType::I64, ValType::I32], &[ValType::I64]),
-    ("fb_pending_has", &[ValType::I32, ValType::I32], &[ValType::I32]),
-    ("fb_unwinds_has", &[ValType::I32, ValType::I32], &[ValType::I32]),
+    (
+        "fb_scope_finish",
+        &[ValType::I32, ValType::I32, ValType::I64, ValType::I32],
+        &[ValType::I64],
+    ),
+    (
+        "fb_scope_body_done",
+        &[ValType::I32, ValType::I32, ValType::I64, ValType::I32],
+        &[ValType::I64],
+    ),
+    (
+        "fb_pending_has",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "fb_unwinds_has",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
     ("fb_interrupted_new", &[ValType::I32], &[ValType::I32]),
     ("fb_pending_push", &[ValType::I32, ValType::I32], &[]),
     ("fb_pending_clear", &[ValType::I32], &[]),
@@ -316,11 +427,31 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fb_call_f64", &[ValType::I32], &[ValType::I64]),
     ("fb_call_ref", &[ValType::I32], &[ValType::I64]),
     ("fb_call_void", &[ValType::I32], &[ValType::I64]),
-    ("fb_call1_i32", &[ValType::I32, ValType::I32], &[ValType::I64]),
-    ("fb_call1_i64", &[ValType::I32, ValType::I32], &[ValType::I64]),
-    ("fb_call1_f64", &[ValType::I32, ValType::I32], &[ValType::I64]),
-    ("fb_call1_ref", &[ValType::I32, ValType::I32], &[ValType::I64]),
-    ("fb_call1_void", &[ValType::I32, ValType::I32], &[ValType::I64]),
+    (
+        "fb_call1_i32",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I64],
+    ),
+    (
+        "fb_call1_i64",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I64],
+    ),
+    (
+        "fb_call1_f64",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I64],
+    ),
+    (
+        "fb_call1_ref",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I64],
+    ),
+    (
+        "fb_call1_void",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I64],
+    ),
     ("fb_sleep_start", &[ValType::I32], &[]),
     ("fb_test_sleep", &[ValType::I64], &[]),
     ("fb_idle", &[], &[ValType::I32]),
@@ -466,8 +597,8 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "Fiber".to_owned(),
         show: None,
         refs: vec![
-            true, false, false, false, false, true, false, false, false, true, false, false,
-            false, false, false, false, false, false, false, false, false, false,
+            true, false, false, false, false, true, false, false, false, true, false, false, false,
+            false, false, false, false, false, false, false, false, false,
         ],
     });
     let scope_desc = b.desc(DescKey {
@@ -681,7 +812,7 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_settled_impl" => settled_impl(b, ins),
         "fb_cause_string" => cause_string(b, ins),
         "fb_watch_settle" => watch_settle(b, ins),
-                "fb_cause_new" => cause_new(b, ins),
+        "fb_cause_new" => cause_new(b, ins),
         "fb_scope" => scope(b, ins),
         "fb_fork" => fork(b, ins),
         "fb_join" => join(b, ins),
@@ -759,7 +890,15 @@ fn fiber_of(_b: &mut Builder<'_>, ins: &mut InstructionSink) {
 }
 
 /// The nodes of the pending and unwinding interruption lists, appended in arrival order.
-fn push_node(b: &mut Builder<'_>, ins: &mut InstructionSink, f: u32, target: u32, head: u32, tail: u32, n: u32) {
+fn push_node(
+    b: &mut Builder<'_>,
+    ins: &mut InstructionSink,
+    f: u32,
+    target: u32,
+    head: u32,
+    tail: u32,
+    n: u32,
+) {
     let N: u32 = n;
     let desc = plan(b).node_desc;
     c(ins, N_SLOTS);
@@ -1469,7 +1608,11 @@ fn i32_const_cell(b: &mut Builder<'_>, ins: &mut InstructionSink, f: impl Fn(&Pl
 }
 
 /// The same for a cell of the suspend runtime.
-fn sic(b: &mut Builder<'_>, ins: &mut InstructionSink, f: impl Fn(&super::super::suspend::Plan) -> u32) {
+fn sic(
+    b: &mut Builder<'_>,
+    ins: &mut InstructionSink,
+    f: impl Fn(&super::super::suspend::Plan) -> u32,
+) {
     ins.i32_const(super::sched::cell(b, f) as i32);
 }
 
@@ -1719,33 +1862,15 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     // continuation here; the wait resumes it when it is woken.
     ins.br(2);
     ins.end();
-    ins.global_get(G_DEFECT);
-    ins.if_(BlockType::Empty);
-    ins.global_get(G_DEFECT);
-    ins.i64_extend_i32_u();
-    ins.local_set(WORD);
-    c(ins, 0);
-    ins.global_set(G_DEFECT);
-    c(ins, 2);
+    // The frame's resume function reports the next frame's input as `out_mode`/`out_word`
+    // (0 value, 1 failure, 2 defect; 3 is the suspension handled above), like the C runtime's
+    // `$advance` reads it.
+    sic(b, ins, |p| p.out_mode);
+    ins.i32_load(mem(0, 4));
     ins.local_set(MODE);
-    ins.else_();
-    ins.global_get(G_FAILURE);
-    ins.if_(BlockType::Empty);
-    ins.global_get(G_FAILURE);
-    ins.i64_extend_i32_u();
-    ins.local_set(WORD);
-    c(ins, 0);
-    ins.global_set(G_FAILURE);
-    c(ins, 1);
-    ins.local_set(MODE);
-    ins.else_();
     sic(b, ins, |p| p.out_word);
     ins.i64_load(mem(0, 8));
     ins.local_set(WORD);
-    c(ins, 0);
-    ins.local_set(MODE);
-    ins.end();
-    ins.end();
     ins.br(0);
     ins.end();
     ins.end();
@@ -4096,7 +4221,7 @@ fn call1(b: &mut Builder<'_>, ins: &mut InstructionSink, ret: Repr) {
 
 // ---- the run ----
 
-/// `fb_root_begin(repr)`: make the run's root fiber the current one.
+/// `fb_root_begin()`: make the run's root fiber the current one.
 fn root_begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const F: u32 = 1;
     let desc = plan(b).fiber_desc;
