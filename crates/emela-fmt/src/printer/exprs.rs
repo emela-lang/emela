@@ -104,9 +104,9 @@ impl Printer {
             RET_TYPE | FAILS_CLAUSE | USE_CLAUSE | FAIL_EXPR | ASSERT_EXPR | MATCH_GUARD => {
                 self.seq(node, |_, _| true)
             }
-            // No space before `:`.
+            // No space before `:` or around the `.` of a qualified `@entry` path (`Http.serve`).
             PARAM | TYPE_PARAM | NAMED_ARG | FIELD_PAT | BINDING | ANNOT_ARG => {
-                self.seq(node, |_, cur| cur != COLON)
+                self.seq(node, |prev, cur| cur != COLON && cur != DOT && prev != DOT)
             }
             FN_TYPE => self.seq(node, |_, cur| cur != PARAM_TYPE_LIST),
             ERROR_SET => self.seq(node, |prev, cur| prev != L_BRACE && cur != R_BRACE),

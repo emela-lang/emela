@@ -1,0 +1,252 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/entry_attrs.emel
+---
+ROOT@0..371
+  COMMENT@0..45 "# The shape of the argument of @entry (12.8)."
+  NEWLINE@45..46 "\n"
+  FN_DECL@46..79
+    ANNOTATION@46..64
+      AT@46..47 "@"
+      LOWER_NAME@47..52 "entry"
+      ANNOT_ARG_LIST@52..64
+        L_PAREN@52..53 "("
+        ANNOT_ARG@53..63
+          TYPE_NAME@53..57 "Http"
+          DOT@57..58 "."
+          LOWER_NAME@58..63 "serve"
+        R_PAREN@63..64 ")"
+    NEWLINE@64..65 "\n"
+    FN_KW@65..67 "fn"
+    WHITESPACE@67..68 " "
+    LOWER_NAME@68..70 "ok"
+    PARAM_LIST@70..72
+      L_PAREN@70..71 "("
+      R_PAREN@71..72 ")"
+    WHITESPACE@72..73 " "
+    BLOCK_EXPR@73..79
+      L_BRACE@73..74 "{"
+      WHITESPACE@74..75 " "
+      UNIT_EXPR@75..77
+        L_PAREN@75..76 "("
+        R_PAREN@76..77 ")"
+      WHITESPACE@77..78 " "
+      R_BRACE@78..79 "}"
+  NEWLINE@79..80 "\n"
+  NEWLINE@80..81 "\n"
+  FN_DECL@81..118
+    ANNOTATION@81..87
+      AT@81..82 "@"
+      LOWER_NAME@82..87 "entry"
+    NEWLINE@87..88 "\n"
+    FN_KW@88..90 "fn"
+    WHITESPACE@90..91 " "
+    LOWER_NAME@91..109 "no_args_annotation"
+    PARAM_LIST@109..111
+      L_PAREN@109..110 "("
+      R_PAREN@110..111 ")"
+    WHITESPACE@111..112 " "
+    BLOCK_EXPR@112..118
+      L_BRACE@112..113 "{"
+      WHITESPACE@113..114 " "
+      UNIT_EXPR@114..116
+        L_PAREN@114..115 "("
+        R_PAREN@115..116 ")"
+      WHITESPACE@116..117 " "
+      R_BRACE@117..118 "}"
+  NEWLINE@118..119 "\n"
+  NEWLINE@119..120 "\n"
+  FN_DECL@120..146
+    ANNOTATION@120..128
+      AT@120..121 "@"
+      LOWER_NAME@121..126 "entry"
+      ANNOT_ARG_LIST@126..128
+        L_PAREN@126..127 "("
+        R_PAREN@127..128 ")"
+    NEWLINE@128..129 "\n"
+    FN_KW@129..131 "fn"
+    WHITESPACE@131..132 " "
+    LOWER_NAME@132..137 "empty"
+    PARAM_LIST@137..139
+      L_PAREN@137..138 "("
+      R_PAREN@138..139 ")"
+    WHITESPACE@139..140 " "
+    BLOCK_EXPR@140..146
+      L_BRACE@140..141 "{"
+      WHITESPACE@141..142 " "
+      UNIT_EXPR@142..144
+        L_PAREN@142..143 "("
+        R_PAREN@143..144 ")"
+      WHITESPACE@144..145 " "
+      R_BRACE@145..146 "}"
+  NEWLINE@146..147 "\n"
+  NEWLINE@147..148 "\n"
+  FN_DECL@148..178
+    ANNOTATION@148..159
+      AT@148..149 "@"
+      LOWER_NAME@149..154 "entry"
+      ANNOT_ARG_LIST@154..159
+        L_PAREN@154..155 "("
+        ANNOT_ARG@155..158
+          STRING@155..158
+            STRING_QUOTE@155..156 "\""
+            STRING_TEXT@156..157 "x"
+            STRING_QUOTE@157..158 "\""
+        R_PAREN@158..159 ")"
+    NEWLINE@159..160 "\n"
+    FN_KW@160..162 "fn"
+    WHITESPACE@162..163 " "
+    LOWER_NAME@163..169 "string"
+    PARAM_LIST@169..171
+      L_PAREN@169..170 "("
+      R_PAREN@170..171 ")"
+    WHITESPACE@171..172 " "
+    BLOCK_EXPR@172..178
+      L_BRACE@172..173 "{"
+      WHITESPACE@173..174 " "
+      UNIT_EXPR@174..176
+        L_PAREN@174..175 "("
+        R_PAREN@175..176 ")"
+      WHITESPACE@176..177 " "
+      R_BRACE@177..178 "}"
+  NEWLINE@178..179 "\n"
+  NEWLINE@179..180 "\n"
+  FN_DECL@180..208
+    ANNOTATION@180..189
+      AT@180..181 "@"
+      LOWER_NAME@181..186 "entry"
+      ANNOT_ARG_LIST@186..189
+        L_PAREN@186..187 "("
+        ANNOT_ARG@187..188
+          LITERAL@187..188
+            INT@187..188 "1"
+        R_PAREN@188..189 ")"
+    NEWLINE@189..190 "\n"
+    FN_KW@190..192 "fn"
+    WHITESPACE@192..193 " "
+    LOWER_NAME@193..199 "number"
+    PARAM_LIST@199..201
+      L_PAREN@199..200 "("
+      R_PAREN@200..201 ")"
+    WHITESPACE@201..202 " "
+    BLOCK_EXPR@202..208
+      L_BRACE@202..203 "{"
+      WHITESPACE@203..204 " "
+      UNIT_EXPR@204..206
+        L_PAREN@204..205 "("
+        R_PAREN@205..206 ")"
+      WHITESPACE@206..207 " "
+      R_BRACE@207..208 "}"
+  NEWLINE@208..209 "\n"
+  NEWLINE@209..210 "\n"
+  FN_DECL@210..251
+    ANNOTATION@210..228
+      AT@210..211 "@"
+      LOWER_NAME@211..216 "entry"
+      ANNOT_ARG_LIST@216..228
+        L_PAREN@216..217 "("
+        ANNOT_ARG@217..227
+          TYPE_NAME@217..221 "Http"
+          DOT@221..222 "."
+          TYPE_NAME@222..227 "Serve"
+        R_PAREN@227..228 ")"
+    NEWLINE@228..229 "\n"
+    FN_KW@229..231 "fn"
+    WHITESPACE@231..232 " "
+    LOWER_NAME@232..242 "wrong_case"
+    PARAM_LIST@242..244
+      L_PAREN@242..243 "("
+      R_PAREN@243..244 ")"
+    WHITESPACE@244..245 " "
+    BLOCK_EXPR@245..251
+      L_BRACE@245..246 "{"
+      WHITESPACE@246..247 " "
+      UNIT_EXPR@247..249
+        L_PAREN@247..248 "("
+        R_PAREN@248..249 ")"
+      WHITESPACE@249..250 " "
+      R_BRACE@250..251 "}"
+  NEWLINE@251..252 "\n"
+  NEWLINE@252..253 "\n"
+  FN_DECL@253..296
+    ANNOTATION@253..278
+      AT@253..254 "@"
+      LOWER_NAME@254..259 "entry"
+      ANNOT_ARG_LIST@259..278
+        L_PAREN@259..260 "("
+        ANNOT_ARG@260..270
+          TYPE_NAME@260..264 "Http"
+          DOT@264..265 "."
+          LOWER_NAME@265..270 "serve"
+        COMMA@270..271 ","
+        WHITESPACE@271..272 " "
+        ANNOT_ARG@272..277
+          LOWER_NAME@272..277 "extra"
+        R_PAREN@277..278 ")"
+    NEWLINE@278..279 "\n"
+    FN_KW@279..281 "fn"
+    WHITESPACE@281..282 " "
+    LOWER_NAME@282..287 "extra"
+    PARAM_LIST@287..289
+      L_PAREN@287..288 "("
+      R_PAREN@288..289 ")"
+    WHITESPACE@289..290 " "
+    BLOCK_EXPR@290..296
+      L_BRACE@290..291 "{"
+      WHITESPACE@291..292 " "
+      UNIT_EXPR@292..294
+        L_PAREN@292..293 "("
+        R_PAREN@293..294 ")"
+      WHITESPACE@294..295 " "
+      R_BRACE@295..296 "}"
+  NEWLINE@296..297 "\n"
+  NEWLINE@297..298 "\n"
+  FN_DECL@298..370
+    ANNOTATION@298..316
+      AT@298..299 "@"
+      LOWER_NAME@299..304 "entry"
+      ANNOT_ARG_LIST@304..316
+        L_PAREN@304..305 "("
+        ANNOT_ARG@305..315
+          TYPE_NAME@305..309 "Http"
+          DOT@309..310 "."
+          LOWER_NAME@310..315 "serve"
+        R_PAREN@315..316 ")"
+    NEWLINE@316..317 "\n"
+    ANNOTATION@317..352
+      AT@317..318 "@"
+      LOWER_NAME@318..323 "entry"
+      ANNOT_ARG_LIST@323..352
+        L_PAREN@323..324 "("
+        ANNOT_ARG@324..351
+          TYPE_NAME@324..334 "Cloudflare"
+          DOT@334..335 "."
+          TYPE_NAME@335..341 "Worker"
+          DOT@341..342 "."
+          LOWER_NAME@342..351 "scheduled"
+        R_PAREN@351..352 ")"
+    NEWLINE@352..353 "\n"
+    FN_KW@353..355 "fn"
+    WHITESPACE@355..356 " "
+    LOWER_NAME@356..361 "twice"
+    PARAM_LIST@361..363
+      L_PAREN@361..362 "("
+      R_PAREN@362..363 ")"
+    WHITESPACE@363..364 " "
+    BLOCK_EXPR@364..370
+      L_BRACE@364..365 "{"
+      WHITESPACE@365..366 " "
+      UNIT_EXPR@366..368
+        L_PAREN@366..367 "("
+        R_PAREN@367..368 ")"
+      WHITESPACE@368..369 " "
+      R_BRACE@369..370 "}"
+  NEWLINE@370..371 "\n"
+error[E0110]@81..87: `@entry` takes one entry adapter name: `@entry(Http.serve)`
+error[E0110]@120..128: `@entry` takes one entry adapter name: `@entry(Http.serve)`
+error[E0110]@155..158: `@entry` needs an entry adapter name such as `Http.serve`
+error[E0110]@187..188: `@entry` needs an entry adapter name such as `Http.serve`
+error[E0110]@217..227: `@entry` needs an entry adapter name such as `Http.serve`
+error[E0110]@253..278: `@entry` takes one entry adapter name: `@entry(Http.serve)`
+error[E0110]@317..352: only one `@entry` is allowed on a fn
