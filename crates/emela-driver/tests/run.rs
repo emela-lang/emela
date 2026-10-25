@@ -2062,3 +2062,29 @@ fn js_generic_entry_adapter_is_exported() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!((text(&out.stdout), text(&out.stderr)), ("1\n", ""));
 }
+
+/// `main` and `$start` are free export names when the entry has no `main` and nothing suspends
+/// (spec 16.6.2).
+#[test]
+fn js_launcher_names_are_free_without_main_or_suspension() {
+    let main = "@export(js, \"main\")\npub fn a() -> Int { 1 }\n\n@export(js, \"$start\")\npub fn b() -> Int { 2 }\n";
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let dir = out_dir("js-launcher-names");
+    let (analysis, _) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let harness = "import { main, $start } from \"./main.mjs\";\nconsole.log(main(), $start());\n";
+    std::fs::write(dir.join("harness.mjs"), harness).unwrap();
+    let out = std::process::Command::new("node")
+        .arg("harness.mjs")
+        .current_dir(&dir)
+        .output()
+        .expect("cannot start node");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!((text(&out.stdout), text(&out.stderr)), ("1 2\n", ""));
+}

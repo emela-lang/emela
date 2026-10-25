@@ -168,7 +168,8 @@ pub const DUPLICATE_EXPORT: &str = "E0438";
 pub const NOT_ENTRY_ADAPTER: &str = "E0439";
 /// The fn does not fit the first parameter of the entry adapter (spec 12.8).
 pub const ENTRY_DOES_NOT_FIT: &str = "E0440";
-/// An exported fn that may suspend on the `c` target (spec 16.7.6).
+/// An exported fn that may suspend on the `c` target (spec 16.7.6). Unreachable until the C
+/// export ABI lands: every C export is currently rejected with `UnsupportedCExport` instead.
 pub const SUSPENDING_EXPORT: &str = "E0441";
 
 // E09xx: tooling

@@ -1133,7 +1133,7 @@ pub fn duplicate() -> Int { 0 }
 /// C export emission is not implemented, so an `@export(c, ...)` is rejected instead of being
 /// silently dropped ([target.c.export]).
 #[test]
-fn exported_suspending_fn_is_rejected_on_c() {
+fn c_export_is_rejected_for_a_suspending_fn() {
     let mut frontend = Lower::default().with_target(Target::C);
     let analysis = check_files(
         &[(
@@ -1307,10 +1307,10 @@ fn wasm_export_of_an_unreached_entry_adapter_is_rejected() {
     );
 }
 
-/// An entry adapter is not exported by itself, so its Async R alone is not E0441. Using it with
-/// `@entry` on the `c` target makes the export suspend (E0441, 16.7.6).
+/// An entry adapter is not exported by itself, so its `c` export is rejected only when an
+/// `@entry` uses it ([target.c.export], temporary until the C ABI lands).
 #[test]
-fn c_suspending_export_only_applies_to_actual_exports() {
+fn c_entry_adapter_is_rejected_only_when_used() {
     let adapter = r#"effect Clock {
   suspend fn now() -> Int
 }
@@ -1487,7 +1487,9 @@ fn export_effect_diagnostic() {
 /// export (spec 12.8). No diagnostic code is assigned, so the error is reported without one.
 #[test]
 fn multiple_entry_annotations_are_rejected() {
-    let src = "@export(js, \"default\", \"a\")\npub fn serve(f: fn(Int) -> Int fails {} use {}) -> Int { f(1) }\n\n@export(js, \"default\", \"b\")\npub fn serve2(f: fn(Int) -> Int fails {} use {}) -> Int { f(2) }\n\n@entry(serve)\n@entry(serve2)\npub fn app(n: Int) -> Int { n }\n";
+    // Both adapters export the same host name; processing both would be E0438, so the test also
+    // shows that only the first annotation is used.
+    let src = "@export(js, \"default\", \"same\")\npub fn serve(f: fn(Int) -> Int fails {} use {}) -> Int { f(1) }\n\n@export(js, \"default\", \"same\")\npub fn serve2(f: fn(Int) -> Int fails {} use {}) -> Int { f(2) }\n\n@entry(serve)\n@entry(serve2)\npub fn app(n: Int) -> Int { n }\n";
     let analysis = check_files(
         &[("home/main.emel", src)],
         "home/main.emel",
@@ -1565,4 +1567,70 @@ fn unused_entry_adapters_are_not_target_roots() {
     );
     let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
     assert_eq!(codes, ["E0412"], "{:#?}", analysis.diagnostics);
+}
+
+/// `$start` is emitted when `main` or a selected test suspends, so an `@export(js, "$start")`
+/// collides even when the exported fn itself does not suspend (spec 16.6.2).
+#[test]
+fn start_is_reserved_when_main_or_a_test_suspends() {
+    let src = r#"effect Clock {
+  suspend fn now() -> Int
+}
+
+@external(js, "Date.now")
+fn js_now() -> Int
+
+handler JsClock: Clock {
+  suspend fn now(resume) { resume(js_now()) }
+}
+
+@export(js, "$start")
+fn b() -> Int { 1 }
+
+fn main() use Async {
+  with JsClock { (use Clock).now() }
+}
+"#;
+    let analysis = check_files(
+        &[("home/main.emel", src)],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(codes, ["E0438"], "{:#?}", analysis.diagnostics);
+    assert!(
+        analysis.diagnostics[0]
+            .message
+            .contains("`$start` is exported twice"),
+        "{:#?}",
+        analysis.diagnostics
+    );
+
+    // A selected test that suspends needs `$start` too (spec 13.3, 16.6.2).
+    let test = r#"effect Clock {
+  suspend fn now() -> Int
+}
+
+@external(js, "Date.now")
+fn js_now() -> Int
+
+handler JsClock: Clock {
+  suspend fn now(resume) { resume(js_now()) }
+}
+
+@export(js, "$start")
+fn b() -> Int { 1 }
+
+@test
+fn t() use Async {
+  with JsClock { (use Clock).now() }
+}
+"#;
+    let analysis = check_files(
+        &[("home/main.emel", test)],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(codes, ["E0438"], "{:#?}", analysis.diagnostics);
 }
