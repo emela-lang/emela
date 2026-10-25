@@ -25,4 +25,4 @@ function main() {
   return `${fact(5, 5n, 1n)}\n${fact(20, 20n, 1n)}\n${fact(21, 21n, 1n)}\n${fact(100000, 100000n, 1n)}`;
 }
 
-export { fact, main };
+export { main };

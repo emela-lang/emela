@@ -3,7 +3,8 @@
 //! Functions that reach a suspend operation become generators (spec 16.5). The JS runtime is
 //! embedded with `include_str!` and written out alongside the output.
 //!
-//! The output is an ES module. Public functions are exported under their Emela names.
+//! The output is an ES module. The fns with `@export(js, ...)`, and the exports made by `@entry`,
+//! are exported to the host (spec 16.6.2); a `pub` fn without `@export` is not.
 //!
 //! # Value representation
 //!
@@ -31,8 +32,8 @@
 //!   with fields are not frozen, for speed.
 //! - A field or operation named `__proto__` is written as the computed key `["__proto__"]`, since
 //!   in an object literal the plain key would set the prototype instead.
-//! - A value has the same representation whatever its type. This is what lets lowering export a
-//!   generic `pub fn` as a single copy with `Any` type arguments (`[target.js.module]`).
+//! - A value has the same representation whatever its type, so the host boundary of a target
+//!   needs no type-directed conversions.
 
 mod emit;
 mod test_runner;

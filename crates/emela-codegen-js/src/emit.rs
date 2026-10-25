@@ -59,7 +59,6 @@ pub(crate) struct Emitter<'m> {
 }
 
 pub(crate) fn emit_module(m: &Module, opts: &Options, extra_exports: &[FnId]) -> String {
-    let exported = |id: FnId, f: &Function| f.exported || extra_exports.contains(&id);
     let mut e = Emitter {
         m,
         out: String::new(),
@@ -156,33 +155,156 @@ pub(crate) fn emit_module(m: &Module, opts: &Options, extra_exports: &[FnId]) ->
         e.line("");
     }
 
-    let mut exports: Vec<String> = m
-        .functions
-        .iter()
-        .filter(|&(id, f)| exported(id, f))
-        .map(|(id, f)| {
+    // Host exports (spec 16.6.2): the named exports of `main.mjs` are the fns with
+    // `@export(js, ...)` and the exports made by `@entry`; a `pub` fn without `@export` is not
+    // exported for the host. `main` stays exported for the runtime launcher, and test functions
+    // are exported for `emela test` (`extra_exports`).
+    let mut named: Vec<String> = Vec::new();
+    let mut default_props: Vec<String> = Vec::new();
+    let mut start_needed = false;
+
+    // The entry's `main`, which the runtime launcher calls.
+    for (id, f) in m.functions.iter() {
+        if f.exported && f.name == "main" {
             let js = e.fn_js(id).to_owned();
-            if js == f.name {
-                js
-            } else if is_identifier_name(&f.name) {
-                format!("{js} as {}", f.name)
+            if js == "main" {
+                named.push("main".to_owned());
             } else {
-                // Functions of other modules (`Util.in_util`) cannot be written as identifiers,
-                // so they are exported under string names (ES2022).
-                format!("{js} as {}", js_string(&f.name))
+                named.push(format!("{js} as main"));
             }
-        })
-        .collect();
+            start_needed |= f.suspends;
+            break;
+        }
+    }
+    // Selected test functions, under their Emela names.
+    for &id in extra_exports {
+        let f = &m.functions[id];
+        let js = e.fn_js(id).to_owned();
+        if js == f.name {
+            named.push(js);
+        } else if is_identifier_name(&f.name) {
+            named.push(format!("{js} as {}", f.name));
+        } else {
+            named.push(format!("{js} as {}", js_string(&f.name)));
+        }
+        start_needed |= f.suspends;
+    }
+
+    struct HostExport {
+        function: FnId,
+        interface: Option<String>,
+        name: String,
+        via_entry: bool,
+    }
+    let mut host: Vec<HostExport> = Vec::new();
+    for (id, f) in m.functions.iter() {
+        // An entry adapter is not exposed by itself (spec 12.8).
+        if f.is_entry_adapter {
+            continue;
+        }
+        for export in &f.exports {
+            if export.target == "js" {
+                host.push(HostExport {
+                    function: id,
+                    interface: export.interface.clone(),
+                    name: export.name.clone(),
+                    via_entry: export.via_entry,
+                });
+            }
+        }
+    }
+    for (i, export) in host.iter().enumerate() {
+        let f = &m.functions[export.function];
+        // The call the export makes and the parameters the host passes: the adapter's parameters
+        // after the first, or the fn's own (spec 12.8).
+        let (call, params, suspends) = if export.via_entry {
+            let Some(adapter_id) = f.entry_adapter else {
+                continue;
+            };
+            let adapter = &m.functions[adapter_id];
+            let takes_ev = m.takes_ev(adapter_id);
+            let kept = adapter.params.len() - usize::from(takes_ev);
+            let params: Vec<String> = (1..kept).map(|k| format!("$a{k}")).collect();
+            let mut args = vec![e.fn_js(export.function).to_owned()];
+            args.extend(params.iter().cloned());
+            if takes_ev {
+                args.push("Object.create(null)".to_owned());
+            }
+            (
+                format!("{}({})", e.fn_js(adapter_id), args.join(", ")),
+                params,
+                adapter.suspends || f.suspends,
+            )
+        } else {
+            let takes_ev = m.takes_ev(export.function);
+            let kept = f.params.len() - usize::from(takes_ev);
+            let params: Vec<String> = (0..kept).map(|k| format!("$a{k}")).collect();
+            let mut args = params.clone();
+            if takes_ev {
+                args.push("Object.create(null)".to_owned());
+            }
+            (
+                format!("{}({})", e.fn_js(export.function), args.join(", ")),
+                params,
+                f.suspends,
+            )
+        };
+        let expression = if suspends || export.via_entry {
+            let wrapper = format!("$host{i}");
+            if suspends {
+                let start = e.rt("$start");
+                e.line(&format!("function {wrapper}({}) {{", params.join(", ")));
+                e.line("  return new Promise((resolve, reject) => {");
+                e.line(&format!(
+                    "    {start}({call}, (ok, value) => (ok ? resolve(value) : reject(value)));"
+                ));
+                e.line("  });");
+                e.line("}");
+                start_needed = true;
+            } else {
+                e.line(&format!("function {wrapper}({}) {{", params.join(", ")));
+                e.line(&format!("  return {call};"));
+                e.line("}");
+            }
+            e.line("");
+            wrapper
+        } else {
+            e.fn_js(export.function).to_owned()
+        };
+        match &export.interface {
+            // `@export(js, "default", "name")`: a property of the default export object.
+            Some(_) => default_props.push(format!("{}: {expression}", js_string(&export.name))),
+            None => {
+                let name = &export.name;
+                if is_identifier_name(name) {
+                    named.push(format!("{expression} as {name}"));
+                } else {
+                    named.push(format!("{expression} as {}", js_string(name)));
+                }
+            }
+        }
+    }
+
+    if !default_props.is_empty() {
+        e.line("export default {");
+        for (i, property) in default_props.iter().enumerate() {
+            let comma = if i + 1 == default_props.len() {
+                ""
+            } else {
+                ","
+            };
+            e.line(&format!("  {property}{comma}"));
+        }
+        e.line("};");
+        e.line("");
+    }
     // When a suspending function is exported, also export the driver that steps generators that
     // call it. The entry module and the test runner use it, since they do not load the runtime.
-    if m.functions
-        .iter()
-        .any(|(id, f)| exported(id, f) && f.suspends)
-    {
-        exports.push(e.rt("$start").to_owned());
+    if start_needed {
+        named.push(e.rt("$start").to_owned());
     }
-    if !exports.is_empty() {
-        e.line(&format!("export {{ {} }};", exports.join(", ")));
+    if !named.is_empty() {
+        e.line(&format!("export {{ {} }};", named.join(", ")));
     }
 
     let mut head = String::from("// Generated by Emela.\n");
