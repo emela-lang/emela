@@ -921,6 +921,41 @@ fn start() -> Int { 1 }
     );
 }
 
+/// A `js` host export that may suspend makes the launcher export `$start`, so that name is
+/// reserved even without a suspending `main`.
+#[test]
+fn a_suspending_js_export_reserves_start() {
+    let output = export_diagnostics(&[(
+        "home/main.emel",
+        r#"@export(js, "slow")
+fn slow() use Async { () }
+
+@export(js, "$start")
+fn start() -> Int { 1 }
+"#,
+    )]);
+    assert_eq!(output.matches("error[E0438]").count(), 1, "{output}");
+    insta::assert_snapshot!(output);
+}
+
+/// The three-argument form is a property of the default export object, not a named export, so
+/// `$start` is free there.
+#[test]
+fn a_default_export_property_may_be_named_start() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(js, "slow")
+fn slow() use Async { () }
+
+@export(js, "default", "$start")
+fn value() -> Int { 1 }
+"#,
+        )]),
+        ""
+    );
+}
+
 /// A `@test fn main` is not the entry's main, so `main` is not a launcher export of the build.
 #[test]
 fn a_test_named_main_does_not_reserve_the_name() {
