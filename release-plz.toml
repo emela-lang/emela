@@ -126,8 +126,6 @@ version_group = "emela"
 [[package]]
 name = "emela-codegen-emb"
 version_group = "emela"
-# Added after v0.24.0: not in that tag. Remove once a release tag contains it.
-git_tag_name = "emela-codegen-emb-v{{ version }}"
 
 [[package]]
 name = "emela-fmt"
