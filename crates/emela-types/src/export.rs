@@ -17,9 +17,11 @@ use emela_resolve::hir::{
 use rowan::TextRange;
 use smol_str::SmolStr;
 
+use crate::check::CheckOptions;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::lower::TyTable;
-use crate::signature::Signatures;
+use crate::row::RowElem;
+use crate::signature::{Signature, Signatures};
 use crate::ty::{Prim, Ty};
 
 /// Whether `def` is an entry adapter: an `@export` fn whose first parameter has a function type
@@ -320,6 +322,7 @@ pub(crate) fn check(
     program: &Program,
     ty_table: &TyTable,
     sigs: &Signatures,
+    options: &CheckOptions,
     diags: &mut Vec<Diagnostic>,
 ) {
     for (def, item) in program.items.iter() {
@@ -386,6 +389,62 @@ pub(crate) fn check(
             });
         }
     }
+    reserved_js_names(program, sigs, options, diags);
+}
+
+/// The names `main.mjs` already exports (`[target.js.module]`): `main` when the entry has it, and
+/// `$start` when the launcher or a host export may suspend. An `@export(js, "name")` with one of
+/// them is a duplicate of that export (E0438).
+fn reserved_js_names(
+    program: &Program,
+    sigs: &Signatures,
+    options: &CheckOptions,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let Some(entry) = options.entry else {
+        return;
+    };
+    let suspended = |def: DefId| sigs.get(def).is_some_and(|sig| may_suspend(program, sig));
+    let exposed = host_exports(program, Some(entry));
+    let start = options.main.is_some_and(suspended)
+        || options.tests.iter().copied().any(suspended)
+        || exposed.iter().any(|e| suspended(e.def));
+    for exposed in exposed {
+        for export in exposed.exports {
+            // Only the named form collides; the three-argument form is a property of the
+            // default export object.
+            if export.target != "js" || export.args.len() != 1 {
+                continue;
+            }
+            let name = &export.args[0];
+            if (name == "main" && options.main.is_some()) || (name == "$start" && start) {
+                diags.push(Diagnostic {
+                    span: Some(exposed.entry.unwrap_or(export.span)),
+                    kind: DiagnosticKind::DuplicateExport {
+                        name: SmolStr::new(name),
+                        target: SmolStr::new("js"),
+                    },
+                });
+            }
+        }
+    }
+}
+
+/// Whether the R of `sig` contains `Async`, the only effect an `@export` fn may have
+/// (`[ext.export]`). An open set counts as maybe suspending, because JavaScript then needs
+/// `$start` ([`reserved_js_names`]).
+fn may_suspend(program: &Program, sig: &Signature) -> bool {
+    let Some(async_) = program.prelude_def("Async") else {
+        return true;
+    };
+    let Ty::Fn(f) = &sig.scheme.ty else {
+        return false;
+    };
+    f.uses.elems().iter().any(|e| match e {
+        RowElem::Tag(t) => t.def == async_,
+        RowElem::Bound(_) | RowElem::Var(_) => true,
+        RowElem::Of(_) => false,
+    })
 }
 
 /// E0402 when the E of `def` is not empty. A hidden set variable of a parameter's function type

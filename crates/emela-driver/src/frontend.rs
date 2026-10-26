@@ -390,6 +390,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
             .and_then(|entry| entry_main(&hir, entry));
         self.entry_main = analysis.entry.map(|_| main.is_some());
         let options = CheckOptions {
+            entry: analysis.entry,
             main,
             tests: tests.iter().map(|t| t.def).collect(),
         };
