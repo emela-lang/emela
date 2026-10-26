@@ -130,9 +130,14 @@ fn cabi_realloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_sub();
     ins.i32_and();
     ins.local_set(P);
+    // A failed reservation writes its line best effort: this runs inside the host's
+    // `cabi_realloc` callback, where a blocking call can be forbidden, so the line (and the trap)
+    // may be lost (`alloc.rs`).
     ins.local_get(P);
+    ins.i64_extend_i32_u();
     ins.local_get(3);
-    ins.i32_add();
+    ins.i64_extend_i32_u();
+    ins.i64_add();
     ins.call(rt(b, "heap_reserve"));
     copy_old(ins, P, COPY);
     ins.local_get(P);
