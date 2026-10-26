@@ -65,7 +65,7 @@ insta = { version = "1", features = ["glob"] }
 proptest = "1"
 # Pome（4.7）: 中身のハッシュ h1，sumdb の checkpoint の署名の検証．
 sha2 = "0.10"
-base64 = "0.22"
+base64 = "0.23"
 ed25519-dalek = "2"
 # Pome の取得: proxy と sumdb への HTTP（rustls．tokio を持ち込まない同期型），アーカイブ（.tar.gz）の展開．
 ureq = { version = "3", default-features = false, features = ["rustls"] }
