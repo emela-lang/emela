@@ -332,7 +332,8 @@ fn cause_to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
     // In a failure cause, `show_failure` is null only when showing raised a defect; the cause
-    // then shows as `error: ` and the defect stays pending.
+    // then shows as `error: ` and the defect stays pending for the attempt frame to catch
+    // (`attempt_caught`), unlike a test result, which reports and clears it.
     ins.i32_const(error as i32);
     ins.return_();
     ins.end();
