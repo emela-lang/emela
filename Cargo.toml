@@ -24,7 +24,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 # 無損失構文木（rust-analyzer と同じ green/red tree）．空白とコメントも木に残るので，
 # fmt と LSP が同じ木を使える．
-rowan = "0.16"
+rowan = "0.17"
 # 字句解析器の生成．改行の継続判定（2.5）はトークン列を受けた後段で行う．
 logos = "0.16"
 # 型推論の単一化（rustc 由来の union-find）．
