@@ -100,6 +100,31 @@ fn library_build_only_typechecks_and_never_calls_backend_hooks() {
         assert!(!options.out_dir.exists());
     }
 
+    // A library-only build produces no `main.mjs`, so the launcher's names are not reserved even
+    // when a host export may suspend.
+    let launcher_fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/lib.emel",
+            "@export(js, \"late\")\npub fn late() use Async { () }\n\n@export(js, \"$start\")\npub fn start() -> Int { 1 }\n",
+        ),
+    ]);
+    let launcher_input = Input::resolve(&launcher_fs, Path::new("app")).unwrap();
+    let launcher_options = options("launcher-names");
+    let (analysis, entry) = build(
+        &launcher_fs,
+        &launcher_input,
+        &mut Lower::default(),
+        &mut NoBackend,
+        &launcher_options.out_dir,
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    assert!(entry.is_none());
+
     // Explicit files retain normal build semantics, including lowering diagnostics.
     let file = Input::resolve(&fs, Path::new("app/src/lib.emel")).unwrap();
     let (analysis, _) = build(

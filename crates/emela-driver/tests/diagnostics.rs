@@ -881,6 +881,98 @@ fn b() -> Int { 1 }
     );
 }
 
+/// A build does not emit test functions, so a suspending test does not make the launcher export
+/// `$start`.
+#[test]
+fn a_suspending_test_does_not_reserve_the_launcher_names() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(js, "main")
+fn a() -> Int { 1 }
+
+@export(js, "$start")
+fn b() -> Int { 1 }
+
+@test
+fn t() use Async { () }
+"#,
+        )]),
+        ""
+    );
+}
+
+/// `$start` is emitted when a `js` host export may suspend; a suspending export of another target
+/// does not make the launcher export it.
+#[test]
+fn only_suspending_js_exports_reserve_start() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(wasm, "env", "late")
+@export(c, "late")
+fn late() use Async { () }
+
+@export(js, "$start")
+fn start() -> Int { 1 }
+"#,
+        )]),
+        ""
+    );
+}
+
+/// A `@test fn main` is not the entry's main, so `main` is not a launcher export of the build.
+#[test]
+fn a_test_named_main_does_not_reserve_the_name() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(js, "main")
+fn a() -> Int { 1 }
+
+@test
+fn main() {}
+"#,
+        )]),
+        ""
+    );
+}
+
+/// A reserved name and a duplicate are reported once each: the first export collides with the
+/// launcher's `main`, and the second is a duplicate of the first (E0438).
+#[test]
+fn a_reserved_name_and_a_duplicate_are_two_diagnostics() {
+    let output = export_diagnostics(&[(
+        "home/main.emel",
+        r#"@export(js, "main")
+fn a() -> Int { 1 }
+
+@export(js, "main")
+fn b() -> Int { 1 }
+
+fn main() {}
+"#,
+    )]);
+    assert_eq!(output.matches("error[E0438]").count(), 2, "{output}");
+    insta::assert_snapshot!(output);
+}
+
+/// An export made by `@entry` is reported at the `@entry`, not at the adapter's `@export`.
+#[test]
+fn a_reserved_name_from_entry_is_reported_once_at_the_attribute() {
+    insta::assert_snapshot!(export_diagnostics(&[(
+        "home/main.emel",
+        r#"@export(js, "main")
+fn serve(app: fn(Int) -> Int fails {} use {}) -> Int { app(1) }
+
+@entry(serve)
+fn app(n: Int) -> Int { n }
+
+fn main() {}
+"#,
+    )]));
+}
+
 /// `[ext.export]`: the parameters and the return value are boundary types (E0436), E is empty and
 /// R is empty except for Async (E0402).
 #[test]
