@@ -2,7 +2,7 @@
 title: Method calls
 authors: [Alliana]
 status: draft
-pr:
+pr: 454
 issue:
 decided:
 touches: [lex.name, data.type, type.rules, trait.call, module.resolution, api.list, api.string, api.std.http.request, api.std.http.response, lsp.completion, lsp.navigation, diag.list]
