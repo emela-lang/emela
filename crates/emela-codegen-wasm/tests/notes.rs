@@ -203,8 +203,14 @@ fn failing_show() -> () fails Boom use { Async } {
         .unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"));
     wasmparser::validate(&bytes).unwrap_or_else(|e| panic!("the module is not valid: {e}"));
     let run = run_bytes(&out_dir("notes-failing-show"), &bytes);
-    // The defect from `show` is the run's result; the test line was already written.
-    assert_eq!(run.code, 101, "{}", run.stderr);
+    // The defect from `show` is reported as this test's error message and cleared (the C
+    // runtime's `em_test_result` does the same), so the test runner sees a normal result.
+    assert_eq!(run.code, 0, "stdout={} stderr={}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains("\"message\":\"show failed\""),
+        "{}",
+        run.stdout
+    );
     assert!(
         !run.stdout.contains("note: another fiber also failed"),
         "{}",

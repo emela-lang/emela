@@ -170,11 +170,16 @@ const J_PERF: u32 = HDR + 32; // Ref: the operation call of an implementation co
 const J_MODE: u32 = HDR + 40;
 const J_WORD: u32 = HDR + 48; // i64
 const J_NEXT: u32 = HDR + 56;
+/// The representation of a value-mode word, so an interruption that replaces it can release a
+/// reference (see `drain`).
+const J_REPR: u32 = HDR + 60;
 const J_SLOTS: i32 = 8;
 
 pub(super) const JK_RESUME: i32 = 0;
 pub(super) const JK_BEGIN: i32 = 1;
 pub(super) const JK_INTERRUPT: i32 = 2;
+/// A fairness yield: `J_CHAIN` is the pause wait to resume from (the C runtime's `EM_JOB_GO`).
+pub(super) const JK_GO: i32 = 3;
 
 /// The statics and descriptors the fiber runtime uses.
 pub(crate) struct Plan {
@@ -276,17 +281,6 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fb_root_run", &[], &[]),
     ("fb_finish_run", &[], &[]),
     ("fb_drain", &[], &[]),
-    (
-        "fb_step",
-        &[
-            ValType::I32,
-            ValType::I32,
-            ValType::I32,
-            ValType::I32,
-            ValType::I64,
-        ],
-        &[],
-    ),
     (
         "fb_begin",
         &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
@@ -403,6 +397,7 @@ pub(super) const FUNCS: &[Sig] = &[
             ValType::I32,
             ValType::I64,
             ValType::I32,
+            ValType::I32,
         ],
         &[],
     ),
@@ -415,6 +410,7 @@ pub(super) const FUNCS: &[Sig] = &[
             ValType::I32,
             ValType::I32,
             ValType::I64,
+            ValType::I32,
             ValType::I32,
         ],
         &[],
@@ -497,8 +493,7 @@ pub(super) const FUNCS: &[Sig] = &[
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "fb_root_begin" | "fb_root_run" | "fb_finish_run" => i32s(4),
-        "fb_drain" => vec![(8, ValType::I32), (1, ValType::I64)],
-        "fb_step" => vec![(5, ValType::I32), (1, ValType::I64)],
+        "fb_drain" => vec![(8, ValType::I32), (1, ValType::I64), (2, ValType::I32)],
         "fb_begin" => vec![(7, ValType::I32), (1, ValType::I64)],
         "fb_advance" => vec![(8, ValType::I32), (1, ValType::I64)],
         "fb_suspended" => i32s(6),
@@ -531,7 +526,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fb_watch_remove" => i32s(6),
         "fb_unlink_wait" => i32s(5),
         "fb_drop_wait" => i32s(5),
-        "fb_queue_push" | "fb_later_push" => i32s(7),
+        "fb_queue_push" | "fb_later_push" => i32s(9),
         "fb_later_move" => i32s(3),
         "fb_scope_body_resume" => vec![(3, ValType::I32), (1, ValType::I64)],
         "fb_scope_close_resume" => vec![(6, ValType::I32), (1, ValType::I64)],
@@ -721,6 +716,9 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         enum_id: -1,
         name: "Fiber.scope".to_owned(),
         show: None,
+        // Slots 0..7. Slot 6 is `RESVAL`: it shares its word with the high half of the i64
+        // `WORD` in slot 5, and only one of the two is live (the body's representation chooses).
+        // Slot 7 is the i32 `MODE`, not a reference.
         refs: vec![false, false, true, true, false, false, true, false],
     });
     let mut call_index = 0;
@@ -831,7 +829,6 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_root_run" => root_run(b, ins),
         "fb_finish_run" => finish_run(b, ins),
         "fb_drain" => drain(b, ins),
-        "fb_step" => step(b, ins),
         "fb_begin" => begin(b, ins),
         "fb_advance" => advance(b, ins),
         "fb_suspended" => suspended(b, ins),
@@ -1562,6 +1559,7 @@ fn drop_wait(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 0);
     ins.i64_const(0);
     c(ins, 0);
+    c(ins, 0);
     let push = b.rt("fb_queue_push");
     ins.call(push);
     // The recursion left the wait's own reference for this caller.
@@ -1711,15 +1709,18 @@ fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, 1);
     ins.local_get(2);
     g(ins, PERF);
+    ldl(ins, 0, W_REPR);
     call(b, ins, "fb_queue_push");
 }
 
 // ---- the run's queue ----
 
-/// `fb_queue_push(kind, fiber, chain, end, mode, word, perform)`: append a job. The job takes the
-/// references; when the run is over they are released here.
+/// `fb_queue_push(kind, fiber, chain, end, mode, word, perform, repr)`: append a job. The job
+/// takes the references; when the run is over they are released here. `repr` is the
+/// representation of a value-mode `word` (0 when it cannot be a reference), so the drain can
+/// release the value an interruption replaces.
 fn queue_push(b: &mut Builder<'_>, ins: &mut InstructionSink, list: impl Fn(&Plan) -> (u32, u32)) {
-    const J: u32 = 7;
+    const J: u32 = 8;
     let desc = plan(b).job_desc;
     let (head, tail) = list(plan(b));
     i32_const_cell(b, ins, |p| p.run_over);
@@ -1740,6 +1741,7 @@ fn queue_push(b: &mut Builder<'_>, ins: &mut InstructionSink, list: impl Fn(&Pla
     stl(ins, J, J_CHAIN, 2);
     stl(ins, J, J_PERF, 6);
     stl(ins, J, J_MODE, 4);
+    stl(ins, J, J_REPR, 7);
     ins.local_get(J);
     ins.local_get(5);
     ins.i64_store(mem(J_WORD, 8));
@@ -1830,6 +1832,8 @@ fn drain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const MODE: u32 = 6;
     const TMP: u32 = 7;
     const WORD: u32 = 8; // i64
+    const REPR: u32 = 9;
+    const WAIT: u32 = 10;
     ins.block(BlockType::Empty);
     ins.loop_(BlockType::Empty);
     i32_const_cell(b, ins, |p| p.qhead);
@@ -1862,6 +1866,8 @@ fn drain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(END);
     ldl(ins, J, J_MODE);
     ins.local_set(MODE);
+    ldl(ins, J, J_REPR);
+    ins.local_set(REPR);
     ins.local_get(J);
     ins.i64_load(mem(J_WORD, 8));
     ins.local_set(WORD);
@@ -1876,7 +1882,44 @@ fn drain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     dropv(b, ins, F);
     dropv(b, ins, CHAIN);
     dropv(b, ins, PERF);
-    ins.br(0);
+    // The loop is one label out from inside this `if`.
+    ins.br(1);
+    ins.end();
+    // A fairness yield: the job holds the pause wait, which holds the continuation (the C
+    // runtime's `EM_JOB_GO`). Taking it here keeps the wait's links to the fiber and to the
+    // operation call, so an interruption can still find and unwind them; a wait an interruption
+    // already took is skipped.
+    g(ins, KIND);
+    c(ins, JK_GO);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, CHAIN);
+    ins.local_set(WAIT);
+    ldl(ins, WAIT, W_LIVE);
+    ins.if_(BlockType::Empty);
+    ldl(ins, WAIT, W_CHAIN);
+    ins.local_set(CHAIN);
+    st_const(ins, WAIT, W_CHAIN, 0);
+    ldl(ins, WAIT, W_END);
+    ins.local_set(END);
+    ldl(ins, WAIT, W_IMPL);
+    ins.local_set(PERF);
+    g(ins, WAIT);
+    call(b, ins, "fb_unlink_wait");
+    // The perform reference moved to `PERF`; the wait must not drop it too.
+    st_const(ins, WAIT, W_IMPL, 0);
+    // The run's list and the job each owned a reference to the wait.
+    dropv(b, ins, WAIT);
+    dropv(b, ins, WAIT);
+    c(ins, JK_RESUME);
+    ins.local_set(KIND);
+    ins.else_();
+    // The wait was taken (an interruption unwound its continuation): drop the job's references
+    // and go on with the next job (the loop is two labels out: the target `if` and the kind `if`).
+    dropv(b, ins, WAIT);
+    dropv(b, ins, F);
+    ins.br(2);
+    ins.end();
     ins.end();
     g(ins, KIND);
     c(ins, JK_BEGIN);
@@ -1918,6 +1961,54 @@ fn drain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(MODE);
     ins.end();
     ins.end();
+    // A queued wake resumes as the main continuation only when the fiber is not interrupted: the
+    // value is not delivered, the interruption is (the C runtime's `em_fiber_resume`). A fairness
+    // yield of the main continuation is queued the same way.
+    g(ins, KIND);
+    c(ins, JK_RESUME);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, END);
+    c(ins, WE_MAIN);
+    ins.i32_eq();
+    g(ins, MODE);
+    c(ins, 2);
+    ins.i32_ne();
+    ins.i32_and();
+    g(ins, F);
+    let interrupting = b.rt("fb_interrupting");
+    ins.call(interrupting);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    // Release the value the interruption replaces: a failure word is always a reference, a value
+    // word only in the reference representation.
+    g(ins, MODE);
+    c(ins, 1);
+    ins.i32_eq();
+    g(ins, MODE);
+    ins.i32_eqz();
+    g(ins, REPR);
+    c(ins, R_REF);
+    ins.i32_eq();
+    ins.i32_and();
+    ins.i32_or();
+    ins.if_(BlockType::Empty);
+    ins.local_get(WORD);
+    ins.i32_wrap_i64();
+    let drop = b.rt("drop");
+    ins.call(drop);
+    ins.end();
+    g(ins, F);
+    let deliver = b.rt("fb_deliver");
+    ins.call(deliver);
+    ins.local_set(TMP);
+    g(ins, TMP);
+    ins.i64_extend_i32_u();
+    ins.local_set(WORD);
+    c(ins, 2);
+    ins.local_set(MODE);
+    ins.end();
+    ins.end();
     g(ins, F);
     g(ins, CHAIN);
     g(ins, END);
@@ -1929,39 +2020,6 @@ fn drain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.br(0);
     ins.end();
     ins.end();
-}
-
-/// `fb_step(f, chain, end, mode, word)`: run one continuation as `f` (the current fiber).
-fn step(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const PREVF: u32 = 5;
-    const PREVM: u32 = 6;
-    i32_const_cell(b, ins, |p| p.cur_fiber);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(PREVF);
-    i32_const_cell(b, ins, |p| p.cur_main);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(PREVM);
-    i32_const_cell(b, ins, |p| p.cur_fiber);
-    g(ins, 0);
-    ins.i32_store(mem(0, 4));
-    i32_const_cell(b, ins, |p| p.cur_main);
-    g(ins, 2);
-    ins.i32_eqz();
-    ins.i32_store(mem(0, 4));
-    g(ins, 0);
-    g(ins, 1);
-    g(ins, 2);
-    g(ins, 3);
-    ins.local_get(4);
-    c(ins, 0);
-    let advance = b.rt("fb_advance");
-    ins.call(advance);
-    i32_const_cell(b, ins, |p| p.cur_fiber);
-    g(ins, PREVF);
-    ins.i32_store(mem(0, 4));
-    i32_const_cell(b, ins, |p| p.cur_main);
-    g(ins, PREVM);
-    ins.i32_store(mem(0, 4));
 }
 
 /// `fb_advance(f, chain, end, mode, word, perform)`: run the continuation until it ends or
@@ -2231,54 +2289,10 @@ fn suspended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const TMP: u32 = 8;
     ldl(ins, 0, W_KIND);
     ins.local_set(KIND);
-    g(ins, KIND);
-    c(ins, WK_PAUSE);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    i32_const_cell(b, ins, |p| p.cur_fiber);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(F);
-    g(ins, F);
-    call(b, ins, "dup");
-    // Every 16th yield waits for a turn of the event loop (the C runtime's `later`), so a fiber
-    // that never waits still lets the others run in the same order.
-    c(ins, cell(b, |p| p.pauses) as i32);
-    c(ins, cell(b, |p| p.pauses) as i32);
-    ins.i32_load(mem(0, 4));
-    c(ins, 1);
-    ins.i32_add();
-    ins.local_set(TMP);
-    c(ins, cell(b, |p| p.pauses) as i32);
-    g(ins, TMP);
-    ins.i32_store(mem(0, 4));
-    g(ins, TMP);
-    c(ins, 16);
-    ins.i32_rem_u();
-    ins.i32_eqz();
-    ins.if_(BlockType::Empty);
-    c(ins, JK_RESUME);
-    g(ins, F);
-    g(ins, 1);
-    c(ins, WE_MAIN);
-    c(ins, 0);
-    ins.i64_const(0);
-    c(ins, 0);
-    let late = b.rt("fb_later_push");
-    ins.call(late);
-    ins.else_();
-    c(ins, JK_RESUME);
-    g(ins, F);
-    g(ins, 1);
-    c(ins, WE_MAIN);
-    c(ins, 0);
-    ins.i64_const(0);
-    c(ins, 0);
-    let push = b.rt("fb_queue_push");
-    ins.call(push);
-    ins.end();
-    dropv(b, ins, 0);
-    ins.return_();
-    ins.end();
+    // A fairness yield waits like any other suspension (the C runtime's `em_suspended`): the
+    // attach below links it to the fiber or to the operation call it belongs to, and the job
+    // queued at the end resumes it. Interrupting the fiber then finds the wait and unwinds the
+    // implementation.
     // Attach the captured frames to the request. Enclosing operation calls attach their own
     // frames as their implementation unwinds too, so append to the chain instead of replacing it
     // (the C runtime's `em_take_suspension`).
@@ -2364,6 +2378,56 @@ fn suspended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.end();
+    // Every 16th fairness yield waits for a turn of the event loop (the C runtime's `later`), so
+    // a fiber that never waits still lets the others run in the same order.
+    ldl(ins, 0, W_KIND);
+    c(ins, WK_PAUSE);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    c(ins, cell(b, |p| p.pauses) as i32);
+    ins.i32_load(mem(0, 4));
+    c(ins, 1);
+    ins.i32_add();
+    ins.local_set(TMP);
+    c(ins, cell(b, |p| p.pauses) as i32);
+    g(ins, TMP);
+    ins.i32_store(mem(0, 4));
+    g(ins, TMP);
+    c(ins, 16);
+    ins.i32_rem_u();
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    c(ins, JK_GO);
+    g(ins, F);
+    call(b, ins, "dup");
+    g(ins, F);
+    g(ins, 0);
+    call(b, ins, "dup");
+    g(ins, 0);
+    c(ins, 0);
+    c(ins, 0);
+    ins.i64_const(0);
+    c(ins, 0);
+    c(ins, 0);
+    let late = b.rt("fb_later_push");
+    ins.call(late);
+    ins.else_();
+    c(ins, JK_GO);
+    g(ins, F);
+    call(b, ins, "dup");
+    g(ins, F);
+    g(ins, 0);
+    call(b, ins, "dup");
+    g(ins, 0);
+    c(ins, 0);
+    c(ins, 0);
+    ins.i64_const(0);
+    c(ins, 0);
+    c(ins, 0);
+    let push = b.rt("fb_queue_push");
+    ins.call(push);
+    ins.end();
+    ins.end();
     let _ = F;
 }
 
@@ -2401,9 +2465,7 @@ fn cause_string(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_load(mem(4, 4));
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    ins.local_get(0);
-    ins.i32_load(mem(HDR, 4));
-    call(b, ins, "dup");
+    // `show_failure` borrows the cause's error; the cause keeps its own reference.
     ins.local_get(0);
     ins.i32_load(mem(HDR, 4));
     ins.call(show);
@@ -2648,11 +2710,6 @@ fn strand_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, 1);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    g(ins, MODE);
-    c(ins, 2);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    ins.end();
     g(ins, 0);
     g(ins, MODE);
     ins.local_get(WORD);
@@ -3069,6 +3126,10 @@ fn settled_impl(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let show = b.rt("show_failure");
     ins.call(show);
     ins.local_set(SHOWN);
+    // `show_failure` borrows the failure; release it after building the message.
+    ins.local_get(word);
+    ins.i32_wrap_i64();
+    call(b, ins, "drop");
     ldl(ins, 0, P_WHERE);
     let after = plan(b).failed_after;
     c(ins, after as i32);
@@ -3786,6 +3847,7 @@ fn fork(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, 3);
     ins.i64_extend_i32_u();
     c(ins, 0);
+    c(ins, 0);
     let push = b.rt("fb_queue_push");
     ins.call(push);
     g(ins, C);
@@ -4326,7 +4388,6 @@ fn interrupt_here(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 fn interrupt_fiber(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const W: u32 = 2;
     const P: u32 = 3;
-    const IW: u32 = 4;
     const CHAIN: u32 = 5;
     const END: u32 = 6;
     ldl(ins, 0, F_FLAGS);
@@ -4375,45 +4436,11 @@ fn interrupt_fiber(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.else_();
     ins.return_();
     ins.end();
-    // Dropping a caller also unwinds the implementation it waits for (spec 14.5).
-    ldl(ins, W, W_ONDROP);
-    ins.local_tee(P);
-    ins.if_(BlockType::Empty);
-    ldl(ins, W, W_END);
-    c(ins, WE_MAIN);
-    ins.i32_eq();
-    ldl(ins, P, P_USED);
-    ins.i32_eqz();
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    ldl(ins, P, P_IMPL);
-    ins.local_tee(IW);
-    ins.if_(BlockType::Empty);
-    ldl(ins, IW, W_LIVE);
-    ins.if_(BlockType::Empty);
-    ldl(ins, IW, W_CHAIN);
-    ins.local_set(CHAIN);
-    st_const(ins, IW, W_CHAIN, 0);
-    ldl(ins, IW, W_FIBER);
-    ins.local_set(P);
-    g(ins, P);
-    call(b, ins, "dup");
-    g(ins, IW);
-    call(b, ins, "fb_unlink_wait");
-    dropv(b, ins, IW);
-    c(ins, JK_INTERRUPT);
-    g(ins, P);
-    g(ins, CHAIN);
-    c(ins, WE_ORPHAN);
-    c(ins, 0);
-    ins.i64_const(0);
-    c(ins, 0);
-    let push = b.rt("fb_queue_push");
-    ins.call(push);
-    ins.end();
-    ins.end();
-    ins.end();
-    ins.end();
+    // Dropping a caller also unwinds the implementation it waits for, and any implementation that
+    // one waits for in turn, innermost first (spec 14.5; the C runtime's `em_drop_wait`).
+    g(ins, W);
+    let drop_wait = b.rt("fb_drop_wait");
+    ins.call(drop_wait);
     // Then the fiber's own continuation, with the interruption when the job runs.
     ldl(ins, W, W_CHAIN);
     ins.local_set(CHAIN);
@@ -4424,8 +4451,6 @@ fn interrupt_fiber(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(P);
     g(ins, P);
     call(b, ins, "dup");
-    g(ins, W);
-    call(b, ins, "fb_unlink_wait");
     dropv(b, ins, W);
     c(ins, JK_INTERRUPT);
     g(ins, P);
@@ -4433,6 +4458,7 @@ fn interrupt_fiber(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, END);
     c(ins, 0);
     ins.i64_const(0);
+    c(ins, 0);
     c(ins, 0);
     let push = b.rt("fb_queue_push");
     ins.call(push);
@@ -5185,6 +5211,7 @@ fn root_interrupt(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 0);
     ins.i64_const(0);
     c(ins, 0);
+    c(ins, 0);
     let push = b.rt("fb_queue_push");
     ins.call(push);
     ins.end();
@@ -5401,7 +5428,8 @@ fn idle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 1);
     ins.return_();
     ins.end();
-    // Still pending: join it again and leave the run to stall.
+    // Still pending: join it again and leave the run to stall. wasmtime 49 only returns terminal
+    // statuses from `waitable-set.wait`, so leaving 0 here does not keep a run that could go on.
     let join = b.waitable_join();
     g(ins, HANDLE);
     c(ins, set as i32);

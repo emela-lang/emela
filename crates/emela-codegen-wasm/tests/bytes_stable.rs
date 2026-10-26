@@ -46,8 +46,8 @@ fn main() {
   dbg("ab" == "ab")
 }
 "#,
-        13509,
-        0x8672_a520_9fe8_3b18,
+        13522,
+        0xfb9b_cb52_4f4e_09b1,
     ),
     (
         "lists_enums_strings",
@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        23720,
-        0xcace_41df_19bb_1f0a,
+        23733,
+        0x25af_9524_8dd8_6a36,
     ),
     (
         "floats",
@@ -96,8 +96,8 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        22781,
-        0x1cc0_4e8b_e111_0472,
+        22794,
+        0x2ac0_4623_c0f4_6f13,
     ),
     (
         "platform_console",
@@ -111,8 +111,8 @@ fn main() {
   }
 }
 "#,
-        31530,
-        0x568b_5f45_d772_7d25,
+        43156,
+        0x1e8c_0cd7_f945_b883,
     ),
     (
         "state_and_options",
@@ -131,8 +131,8 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        15708,
-        0x7de4_8561_f49b_e0c2,
+        15721,
+        0x716c_d0ae_9c64_1e8f,
     ),
     (
         "numeric",
@@ -158,8 +158,8 @@ fn main() {
   dbg(Float.from_int(7) % Float.from_int(2) > 0.5)
 }
 "#,
-        13796,
-        0xadeb_9853_1687_d600,
+        13809,
+        0x82a1_1af2_ac13_8a73,
     ),
 ];
 
@@ -178,8 +178,8 @@ pub fn fails_with_an_error() -> Int fails Nope { half(3) }
 pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
-    13594,
-    0x9232_0953_ef2b_6c9f,
+    13607,
+    0x849b_83dd_96bb_8fd0,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new

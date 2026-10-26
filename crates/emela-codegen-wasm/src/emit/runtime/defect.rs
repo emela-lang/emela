@@ -99,6 +99,9 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     if pending_interrupted(b, ins) {
         // Unwinding as interrupted: the new defect replaces the interruption (spec 14.4).
         ins.if_(BlockType::Empty);
+        // The interruption is a counted value since `suspend` records it; release it.
+        ins.global_get(G_DEFECT);
+        ins.call(drop);
         ins.local_get(0);
         ins.call(dup);
         ins.local_get(0);
@@ -174,16 +177,21 @@ fn defect_resume(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     if local_interrupted(b, ins, 0) {
         // The pending defect was the interruption: whatever the cleanup raised replaces it
-        // (spec 14.4).
+        // (spec 14.4). The interruption is a counted value and is released.
         ins.if_(BlockType::Empty);
+        ins.local_get(0);
+        ins.call(drop);
         ins.local_get(LATER);
         ins.global_set(G_DEFECT);
         ins.return_();
         ins.end();
     }
     if local_interrupted(b, ins, LATER) {
-        // An interruption raised by the cleanup is no note of the first (spec 14.4).
+        // An interruption raised by the cleanup is no note of the first (spec 14.4), and is
+        // released.
         ins.if_(BlockType::Empty);
+        ins.local_get(LATER);
+        ins.call(drop);
         ins.return_();
         ins.end();
     }
