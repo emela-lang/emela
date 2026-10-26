@@ -392,9 +392,15 @@ pub(crate) fn check(
     reserved_js_names(program, sigs, options, diags);
 }
 
-/// The names `main.mjs` already exports (`[target.js.module]`): `main` when the entry has it, and
-/// `$start` when the launcher or a host export may suspend. An `@export(js, "name")` with one of
-/// them is a duplicate of that export (E0438).
+/// The names `main.mjs` already exports (`[target.js.module]`) and a two-argument
+/// `@export(js, "name")` may not take: `main` when the entry has a `main` ([`CheckOptions::main`],
+/// which excludes tests), and `$start` when the entry's `main` or a fn with an `@export(js, ...)`
+/// may suspend. The `$start` of a fn with several exports is emitted only for a `js` export, and
+/// tests are not in the output of a build. An export with one of these names is a duplicate of the
+/// launcher's export (E0438).
+///
+/// Reported once per name, at the first such export in source order (at the `@entry` for an export
+/// it makes). Later exports of the same name are [`duplicates`]' diagnostics.
 fn reserved_js_names(
     program: &Program,
     sigs: &Signatures,
@@ -407,26 +413,40 @@ fn reserved_js_names(
     let suspended = |def: DefId| sigs.get(def).is_some_and(|sig| may_suspend(program, sig));
     let exposed = host_exports(program, Some(entry));
     let start = options.main.is_some_and(suspended)
-        || options.tests.iter().copied().any(suspended)
-        || exposed.iter().any(|e| suspended(e.def));
-    for exposed in exposed {
-        for export in exposed.exports {
-            // Only the named form collides; the three-argument form is a property of the
-            // default export object.
-            if export.target != "js" || export.args.len() != 1 {
-                continue;
-            }
-            let name = &export.args[0];
-            if (name == "main" && options.main.is_some()) || (name == "$start" && start) {
-                diags.push(Diagnostic {
-                    span: Some(exposed.entry.unwrap_or(export.span)),
-                    kind: DiagnosticKind::DuplicateExport {
-                        name: SmolStr::new(name),
-                        target: SmolStr::new("js"),
-                    },
-                });
-            }
+        || exposed
+            .iter()
+            .any(|e| e.exports.iter().any(|x| x.target == "js") && suspended(e.def));
+    for name in ["main", "$start"] {
+        if (name == "main" && options.main.is_none()) || (name == "$start" && !start) {
+            continue;
         }
+        let first = exposed
+            .iter()
+            .flat_map(|exposed| {
+                exposed
+                    .exports
+                    .iter()
+                    // Only the named form collides; the three-argument form is a property of
+                    // the default export object.
+                    .filter(|export| {
+                        export.target == "js" && export.args.len() == 1 && export.args[0] == name
+                    })
+                    .map(|export| exposed.entry.unwrap_or(export.span))
+            })
+            .min_by_key(|span| (span.module, span.range.start()));
+        let Some(span) = first else { continue };
+        let kind = DiagnosticKind::DuplicateExport {
+            name: SmolStr::new(name),
+            target: SmolStr::new("js"),
+        };
+        // A duplicate at the same place is already reported by `duplicates`.
+        if diags.iter().any(|d| d.span == Some(span) && d.kind == kind) {
+            continue;
+        }
+        diags.push(Diagnostic {
+            span: Some(span),
+            kind,
+        });
     }
 }
 
