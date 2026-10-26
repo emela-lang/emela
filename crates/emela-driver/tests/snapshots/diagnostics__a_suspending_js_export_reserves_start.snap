@@ -1,0 +1,13 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: output
+---
+error[E0438]: `$start` is exported twice for target `js`
+   ╭─[ main.emel:4:1 ]
+   │
+ 4 │ @export(js, "$start")
+   │ ──────────┬──────────  
+   │           ╰──────────── 
+───╯
+
+1 error
