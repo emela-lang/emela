@@ -846,6 +846,41 @@ fn export_diagnostics(files: &[(&str, &str)]) -> String {
     render(&analysis.diagnostics, &analysis.sources, false)
 }
 
+/// A JS host export may not take a name that `main.mjs` already exports (`[target.js.module]`):
+/// `main` when the entry has it, and `$start` when the launcher or a host export may suspend.
+/// They are duplicates of those exports (E0438).
+#[test]
+fn reserved_js_host_names_are_diagnosed() {
+    insta::assert_snapshot!(export_diagnostics(&[(
+        "home/main.emel",
+        r#"@export(js, "main")
+fn a() -> Int { 1 }
+
+@export(js, "$start")
+fn b() -> Int { 1 }
+
+fn main() use Async { () }
+"#,
+    )]));
+}
+
+/// Without `main` and without a suspending export, the launcher's names are free.
+#[test]
+fn launcher_names_are_free_without_main_or_suspension() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(js, "main")
+fn a() -> Int { 1 }
+
+@export(js, "$start")
+fn b() -> Int { 1 }
+"#,
+        )]),
+        ""
+    );
+}
+
 /// `[ext.export]`: the parameters and the return value are boundary types (E0436), E is empty and
 /// R is empty except for Async (E0402).
 #[test]

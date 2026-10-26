@@ -1,0 +1,21 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "export_diagnostics(&[(\"home/main.emel\",\nr#\"@export(js, \"main\")\nfn a() -> Int { 1 }\n\n@export(js, \"$start\")\nfn b() -> Int { 1 }\n\nfn main() use Async { () }\n\"#,)])"
+---
+error[E0438]: `main` is exported twice for target `js`
+   ╭─[ main.emel:1:1 ]
+   │
+ 1 │ @export(js, "main")
+   │ ─────────┬─────────  
+   │          ╰─────────── 
+───╯
+
+error[E0438]: `$start` is exported twice for target `js`
+   ╭─[ main.emel:4:1 ]
+   │
+ 4 │ @export(js, "$start")
+   │ ──────────┬──────────  
+   │           ╰──────────── 
+───╯
+
+2 errors
