@@ -470,7 +470,7 @@ pub(super) fn fixture(shape: Shape) -> (Module, TypeId, u32, u32) {
 
 #[test]
 fn generated_value_adapters_roundtrip_managed_types_with_borrowed_and_owned_results() {
-    for shape in [
+    let shapes = [
         Shape::String,
         Shape::Tuple,
         Shape::Enum,
@@ -483,7 +483,8 @@ fn generated_value_adapters_roundtrip_managed_types_with_borrowed_and_owned_resu
         Shape::Function,
         Shape::Handler,
         Shape::Evidence,
-    ] {
+    ];
+    for_each_in_parallel(shapes, |shape| {
         for result in [ExternalResult::Borrowed, ExternalResult::Owned] {
             let (flow, ty, make, read) = fixture(shape);
             let mut output = compile_flow(
@@ -543,5 +544,5 @@ int main(void) {{for(int i=0;i<1000;i++) {{
                 ),
             );
         }
-    }
+    });
 }
