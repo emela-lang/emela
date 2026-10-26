@@ -1244,10 +1244,14 @@ impl<'m> Builder<'m> {
                         // `Incoming` is a counted reference: the handle goes in a box.
                         ins.local_get(0);
                         ins.call(self.rt("http_box"));
+                        if self.sus.is_some() {
+                            let begin = self.rt("fb_root_begin");
+                            ins.call(begin);
+                        }
                         ins.call(index);
                         self.drop_result(ins, ret);
                         if self.sus.is_some() {
-                            let root = self.rt("root_run");
+                            let root = self.rt("fb_root_run");
                             ins.call(root);
                         }
                     }
