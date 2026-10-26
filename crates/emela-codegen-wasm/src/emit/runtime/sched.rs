@@ -823,6 +823,7 @@ fn unwind_sync(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.i64_const(0);
     ins.i32_const(0);
+    ins.i32_const(0);
     ins.call(push);
     ins.end();
 }

@@ -15,7 +15,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "show_failure" => i32s(5), // desc, show, result, notes, tmp
         "json_string" => i32s(3),  // i, byte, hex
         "test_result" => i32s(4),  // kind, message, error, location
-        "finish" => i32s(1),       // shown
+        "finish" => i32s(2),       // shown, tmp
         _ => Vec::new(),
     }
 }
@@ -58,6 +58,8 @@ const TEST_DONE_LINE: &[u8] = b"\x1eemela-test {\"event\":\"done\"}\n";
 /// and reports it for the running test; `cause_to_string` leaves it pending for the attempt frame
 /// to catch; `finish` reports the failure as an empty `error: ` line and exits with 1, leaving the
 /// defect pending, like the C runtime's `em_exit`.
+///
+/// `e` is borrowed: the caller keeps its reference and releases it itself.
 fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     const D: u32 = 1;
     const SHOW: u32 = 2;
@@ -335,6 +337,9 @@ fn test_result(b: &mut Builder, ins: &mut InstructionSink) {
             ins.i32_eq();
         }
         ins.if_(BlockType::Empty);
+        // The interruption is a counted value; release it before the outcome is reported.
+        ins.global_get(G_DEFECT);
+        ins.call(rt(b, "drop"));
         ins.i32_const(0);
         ins.global_set(G_DEFECT);
         ins.i32_const(3);
@@ -358,9 +363,12 @@ fn test_result(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_set(G_FAILURE);
     ins.i32_const(2);
     ins.local_set(KIND);
+    // `show_failure` borrows the error; release the failure after showing it.
     ins.local_get(E);
     ins.call(rt(b, "show_failure"));
     ins.local_set(MESSAGE);
+    ins.local_get(E);
+    ins.call(rt(b, "drop"));
     // Showing the error can raise a defect. Its display is then null; report the defect as this
     // test's error message and clear it here, like the C runtime's `em_test_result`, so that the
     // next test does not observe it (spec 13.4).
@@ -443,6 +451,7 @@ fn test_done(b: &mut Builder, ins: &mut InstructionSink) {
 /// this case.
 fn finish(b: &mut Builder, ins: &mut InstructionSink) {
     const SHOWN: u32 = 0;
+    const TMP: u32 = 1;
     // A run unwound as interrupted exits with 130 and the single line `interrupted` (spec 14.5).
     if let Some(plan) = &b.sus {
         if b.fiber_plan.is_some() {
@@ -482,8 +491,13 @@ fn finish(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.global_set(G_FAILURE);
     write_static(b, ins, 2, b"error: ");
+    // `show_failure` borrows the error; its message replaces it.
     ins.local_get(SHOWN);
     ins.call(rt(b, "show_failure"));
+    ins.local_set(TMP);
+    ins.local_get(SHOWN);
+    ins.call(rt(b, "drop"));
+    ins.local_get(TMP);
     ins.local_set(SHOWN);
     ins.local_get(SHOWN);
     ins.i32_eqz();

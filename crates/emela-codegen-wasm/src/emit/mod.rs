@@ -1255,6 +1255,12 @@ impl<'m> Builder<'m> {
                             ins.call(root);
                         }
                     }
+                    // The run's result is a counted value (`fb_finish_run` put it back into the
+                    // global). Release it before the next request starts.
+                    ins.global_get(G_DEFECT);
+                    ins.call(self.rt("drop"));
+                    ins.global_get(G_FAILURE);
+                    ins.call(self.rt("drop"));
                     ins.i32_const(0);
                     ins.global_set(G_DEFECT);
                     ins.i32_const(0);

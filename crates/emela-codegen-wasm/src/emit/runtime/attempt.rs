@@ -351,10 +351,7 @@ fn cause_to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(CAUSE_FAIL);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
-    // `show_failure` takes the error value; the cause keeps its own.
-    ins.local_get(0);
-    ins.i32_load(mem(HDR, 4));
-    ins.call(rt(b, "dup"));
+    // `show_failure` borrows the error; the cause keeps its own reference.
     ins.local_get(0);
     ins.i32_load(mem(HDR, 4));
     ins.call(rt(b, "show_failure"));
