@@ -20,6 +20,9 @@ fn run_limited(name: &str, src: &str, stderr: &str) {
     let bytes = compile_checked(src);
     let run = run_bytes_with_command(&out_dir(name), &bytes, |command| {
         command.arg("-W").arg(format!("max-memory-size={LIMIT}"));
+        // The guest must see `memory.grow` return -1 and run its own failure path, not take a
+        // host-side trap from the limit.
+        command.arg("-W").arg("trap-on-grow-failure=n");
     });
     assert_eq!(run.code, 0, "{name}: {}", run.stderr);
     assert_eq!(run.stderr, stderr, "{name}");
@@ -320,6 +323,65 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
     .unwrap()
         + core.imports.len() as u32;
 
+    // `end` is a 64-bit sum, so an end past 4 GiB is refused rather than wrapped. The first
+    // check is `end > u32::MAX`.
+    let max = ops
+        .iter()
+        .position(|op| matches!(op, Operator::I64Const { value } if *value == i64::from(u32::MAX)))
+        .expect("the reservation refuses an end past 4 GiB");
+    assert_eq!(
+        ops.get(max - 1),
+        Some(&Operator::LocalGet { local_index: 0 })
+    );
+    assert_eq!(ops.get(max + 1), Some(&Operator::I64GtU));
+
+    // The heap only grows: an end below `G_HEAP` is a wrapped caller arithmetic and is refused
+    // too, so `G_HEAP` is never set back to a small value.
+    let wrapped = ops
+        .iter()
+        .position(|op| matches!(op, Operator::I64LtU))
+        .expect("the reservation refuses an end below the heap");
+    assert_eq!(
+        ops.get(wrapped - 3),
+        Some(&Operator::LocalGet { local_index: 0 })
+    );
+    assert!(matches!(
+        ops.get(wrapped - 2),
+        Some(Operator::GlobalGet { .. })
+    ));
+    assert_eq!(ops.get(wrapped - 1), Some(&Operator::I64ExtendI32U));
+
+    // The memory size in bytes is computed in i64. At 65536 pages it is 2^32, which i32 would
+    // wrap to 0 and take for exhausted memory.
+    let size = ops
+        .iter()
+        .position(|op| matches!(op, Operator::MemorySize { .. }))
+        .expect("the reservation reads the memory size");
+    assert_eq!(ops.get(size + 1), Some(&Operator::I64ExtendI32U));
+    assert_eq!(
+        ops.get(size + 2),
+        Some(&Operator::I64Const { value: 65536 })
+    );
+    assert_eq!(ops.get(size + 3), Some(&Operator::I64Mul));
+    assert_eq!(
+        ops.get(size + 4),
+        Some(&Operator::LocalSet { local_index: 1 })
+    );
+    assert_eq!(
+        ops.get(size + 5),
+        Some(&Operator::LocalGet { local_index: 0 })
+    );
+    assert_eq!(
+        ops.get(size + 6),
+        Some(&Operator::LocalGet { local_index: 1 })
+    );
+    assert_eq!(
+        ops.get(size + 7),
+        Some(&Operator::I64GtU),
+        "`end` is compared with the memory size as unsigned 64-bit, including the end == bytes page boundary"
+    );
+    assert!(matches!(ops.get(size + 8), Some(Operator::If { .. })));
+
     let grow = ops
         .iter()
         .position(|op| matches!(op, Operator::MemoryGrow { .. }))
@@ -401,11 +463,16 @@ fn main() {
     );
     let run = run_bytes_with_command(&out_dir("memory-exhaustion"), &bytes, |command| {
         command.arg("-W").arg("max-memory-size=1048576");
+        command.arg("-W").arg("trap-on-grow-failure=n");
     });
     // The exit code and the trap text are implementation-defined. What the backend guarantees is
     // that the program does not finish, and that the failure comes from its own check.
     assert_ne!(run.code, 0, "the program finished: {}", run.stderr);
-    assert_eq!(run.stdout, "");
+    assert!(
+        !run.stderr.contains("1000000"),
+        "the program printed the list length instead of exhausting memory: {}",
+        run.stderr
+    );
     assert!(
         run.stderr.contains("emela: out of memory"),
         "the failure is not reported by the runtime: {}",
@@ -433,6 +500,7 @@ fn main() {
     );
     let run = run_bytes_with_command(&out_dir("memory-exhaustion-attempt"), &bytes, |command| {
         command.arg("-W").arg("max-memory-size=1048576");
+        command.arg("-W").arg("trap-on-grow-failure=n");
     });
     assert_ne!(run.code, 0, "the program finished: {}", run.stderr);
     assert!(
