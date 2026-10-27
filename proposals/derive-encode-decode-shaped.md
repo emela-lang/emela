@@ -5,7 +5,7 @@ status: draft
 pr: 455
 issue:
 decided:
-touches: [lib.layers, trait.derive, api.std.dynamic (new), api.std.dynamic.number (new), api.std.shape (new), api.std.shape.rule (new), diag.list, open.list]
+touches: [lib.layers, trait.derive, api.std.dynamic (new), api.std.dynamic.number (new), api.std.shape (new), diag.list, open.list]
 requires: []
 related: []
 ---
@@ -14,7 +14,7 @@ related: []
 
 ## Summary
 
-x/dynamic（形式によらない値 `Dynamic` と trait `Encode`/`Decode`）と x/shape（型の形 `Shape` と trait `Shaped`，`Rule`）を std の value の層に移し，`Std.Dynamic` と `Std.Shape` にする．compiler が `derive Encode, Decode, Shaped` を導出できるようにする．
+x/dynamic（形式によらない値 `Dynamic` と trait `Encode`/`Decode`）と x/shape（型の形 `Shape` と trait `Shaped`）を std の value の層に移し，`Std.Dynamic` と `Std.Shape` にする．compiler が `derive Encode, Decode, Shaped` を導出できるようにする．
 
 ```emel
 import Std.Dynamic.{Encode, Decode}
@@ -45,11 +45,18 @@ JSON の parse と書き出し（x/json）と JSON Schema の生成（x/shape �
 | `Std.Dynamic` | `Dynamic`，`Segment`，`DecodeError`，trait `Encode`，`Decode`，`ObjectKey`，decoder（`string`，`int`，`field`，`list`，`optional`，`dict`，`index`，`tag`），`object`，`variant`，`kind` | x/dynamic |
 | `Std.Dynamic.Number` | `Number`，`OutOfRange`，`parse`，`from_int`，`to_int` など | x/dynamic の `Number` |
 | `Std.Shape` | `Shape`，`Field`，`Variant`，`Contents`，trait `Shaped`，`visit`，`name_of`，`generic_name`，`annotate`，`strip`，`note`，`field_names`，`of_value`，`of_parameter`，`description`，`pattern`，`format` | x/shape |
-| `Std.Shape.Rule` | `Rule`，`Broken`，`AllBroken`，条件と確かめる関数 | x/shape の `Shape.Rule` |
 
-どれも value の層（純粋でホストによらない）に入る．中身は x の今の版と同じで，名前の頭が変わるだけ（`import Dynamic.{...}` は `import Std.Dynamic.{...}` になる）．
+どれも value の層（純粋でホストによらない）に入る．`Rule`（条件と注記を 1 つにまとめた値）は形が固まっていないので std に入れず，x/rule に分ける（下の「Rule」）．中身は x の今の版と同じで，名前の頭が変わるだけ（`import Dynamic.{...}` は `import Std.Dynamic.{...}` になる）．
 
 `Shape` の variant は説明する型の名前にする（`Bool`，`Int`，`Int64`，`Float`，`String`，`List`，`Option`，`Map`．`Dynamic` の形は `Any`）．モジュールで修飾して `Shape.Int` と書く．variant `List` があっても `List.map` はモジュール `List` を指し，型 `Int` と variant `Int` は名前の空間が別なのでぶつからない．`Dynamic` の `Bool` と並べて修飾なしで import したときだけ，どちらかを修飾する．
+
+### Rule
+
+x/shape の `Shape.Rule`（条件とその注記を 1 つにまとめた値）は std に入れない．失敗の形を呼ぶ側が選ぶ API（`check`，`check_all`，`check_or`，`check_all_or`）は作ったばかりで，使った例がまだない．
+
+- std が約束するのは，`Shape` を書く側と読む側の間の注記の名前だけにする．`minimum`，`maximum`，`min_length`，`max_length`，`min_items`，`max_items` を，`description` と同じく注記を付けるだけの関数として `Std.Shape` に足す．JSON Schema も OpenAPI も，読むのはこの名前だけ
+- `Rule` は新しいパッケージ x/rule（モジュール `Rule`）に移し，注記を `Std.Shape` の関数で付ける．x/shape に残すと，パッケージの根のモジュール `Shape` と `Std.Shape` が import の名前でぶつかる
+- 導出は `Rule` に触らない．derive した `Shaped` は中身の型の形を出すだけで，条件の注記を付けるのは手で書く opaque type の impl（`Named` と `Rule.annotate`）だけ
 
 ### 導出の規則
 
@@ -139,12 +146,12 @@ In the table of the layers, replace the contents of the value layer with:
 
 | Layer | Nature | Contents |
 |---|---|---|
-| value | Pure and independent of the host | Instant, Duration, Path, Dynamic (values in no particular format, and Encode and Decode), Shape (the shapes of types, Shaped and Rule). Collections (Map, Set, Array) in 0.24 |
+| value | Pure and independent of the host | Instant, Duration, Path, Dynamic (values in no particular format, and Encode and Decode), Shape (the shapes of types, and Shaped). Collections (Map, Set, Array) in 0.24 |
 
 Replace "JSON conversion (Encode, Decode) is provided by the standard library as traits with deriving rules." with:
 
 - Values that go out of and come into a program are converted through `Dynamic` (`Std.Dynamic`), a value in no particular format: Null, Bool, Number, Text, Items and Fields. Encode turns a value into a Dynamic and Decode builds a value from one; both are derivable (`[trait.derive]`). A format (JSON, TOML) only parses into and writes from Dynamic; formats are provided outside std until they settle.
-- The shape of a type (`Std.Shape`) describes all the values of the type without a value: its fields, its variants and the types inside them. Shaped gives it and is derivable. Rules (`Std.Shape.Rule`) hold a condition on values together with the note that describes it, so a function that checks its input and the shape of its type read the same rules.
+- The shape of a type (`Std.Shape`) describes all the values of the type without a value: its fields, its variants and the types inside them. Shaped gives it and is derivable. A shape carries notes for its readers; `Std.Shape` names the notes it defines (`[api.std.shape]`), and a reader passes on the notes it does not know.
 
 ### `[api.std.dynamic]`
 
@@ -204,6 +211,9 @@ A new section after `[api.std.dynamic.number]`.
 > | `of_value`, `of_parameter` | `of_value[A: Shaped](value: A) -> Shape`, `of_parameter[A: Shaped, B, E, R](f: fn(A) -> B fails E use R) -> Shape` | The shape of the type of a value, and of the parameter of a function without calling it |
 > | `annotate` | `annotate(shape: Shape, name: String, value: Dynamic) -> Shape` | Add the note `name` after the notes of `shape`, replacing a note of the same name |
 > | `description`, `pattern`, `format` | `fn(shape: Shape, text: String) -> Shape` | The notes `"description"`, `"pattern"` (a regular expression) and `"format"` (`"date-time"`, `"email"`) |
+> | `minimum`, `maximum` | `fn(shape: Shape, n: Int) -> Shape` | The notes `"minimum"` and `"maximum"`: the least and the greatest number allowed |
+> | `min_length`, `max_length` | `fn(shape: Shape, n: Int) -> Shape` | The notes `"min_length"` and `"max_length"`: the length of a string, counted in code points |
+> | `min_items`, `max_items` | `fn(shape: Shape, n: Int) -> Shape` | The notes `"min_items"` and `"max_items"`: the number of items of a list |
 > | `strip` | `strip(shape: Shape) -> Shape` | `shape` without its notes and names |
 > | `note` | `note(shape: Shape, name: String) -> Option[Dynamic]` | The value of the note `name`, looking through names |
 > | `field_names` | `field_names(shape: Shape) -> List[String]` | The names of the fields of a record in declaration order, looking through notes and names; empty for any other shape |
@@ -211,27 +221,9 @@ A new section after `[api.std.dynamic.number]`.
 > | `generic_name` | `generic_name(name: String, arguments: List[Shape]) -> String` | `name` followed by the names of `arguments` in brackets, or `name` alone without arguments |
 >
 > impl: Bool, Int, Int64, Float, String, Dynamic, `List[A]`, `Option[A]` and `Map[K, V]` have Shaped. The impls of `List`, `Option` and `Map` pass `visiting` on to their type arguments.
-
-### `[api.std.shape.rule]`
-
-A new section after `[api.std.shape]`.
-
-> ### Std.Shape.Rule (`std/shape/rule.emel`) `[api.std.shape.rule]`
 >
-> | Declaration | Contents | Description |
-> |---|---|---|
-> | `Rule` | `opaque type Rule[A]` | A condition on values of A, held with the note that describes it to a shape. Opaque, so that a condition and its note are always made together |
-> | `Broken` | `error Broken(message: String)` | The first rule broken, by its message |
-> | `AllBroken` | `error AllBroken(messages: List[String])` | Every rule broken, in the order of the rules |
-> | `at_least`, `at_most` | `fn(n: Int) -> Rule[Int]` | Notes `"minimum"` and `"maximum"` |
-> | `min_length`, `max_length` | `fn(n: Int) -> Rule[String]` | Counted in code points. Notes `"min_length"` and `"max_length"` |
-> | `min_items`, `max_items` | `fn[A](n: Int) -> Rule[List[A]]` | Notes `"min_items"` and `"max_items"` |
-> | `custom` | `custom[A](message: String, holds: fn(A) -> Bool fails {} use {}) -> Rule[A]` | A condition of one's own. It adds no note |
-> | `message` | `message[A](rule: Rule[A]) -> String` | What the rule asks for (`"at least 1"`) |
-> | `broken` | `broken[A](value: A, rules: List[Rule[A]]) -> List[Rule[A]]` | The rules that `value` breaks, in order |
-> | `check`, `check_all` | `check[A](value: A, rules: List[Rule[A]]) -> A fails Broken`, `check_all[A](...) -> A fails AllBroken` | `value` if it keeps every rule. `check` stops at the first broken rule; `check_all` tries them all |
-> | `check_or`, `check_all_or` | `check_or[A, E](value: A, rules: List[Rule[A]], to_error: fn(Rule[A]) -> E) -> A fails E`, `check_all_or[A, E](..., to_error: fn(List[Rule[A]]) -> E) -> A fails E` | The same, failing with the error `to_error` makes |
-> | `annotate` | `annotate[A](shape: Shape, rules: List[Rule[A]]) -> Shape` | `shape` with the notes of `rules`, in order |
+> The notes defined by `Std.Shape` are `"description"`, `"pattern"`, `"format"`, `"minimum"`, `"maximum"`, `"min_length"`, `"max_length"`, `"min_items"` and `"max_items"`, each with the value its function above writes. Notes are only described: the notes do not change which values a shape describes, and nothing in `Std.Shape` checks them. Other notes may be added with `annotate`.
+
 
 ### `[diag.list]`
 
@@ -255,20 +247,21 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler, and th
 
 - 今のプログラムで意味が変わるものはない．`derive Encode` は今 E0326 なので，それが通るようになるだけ
 - 利用者が `Encode`，`Decode`，`Shaped` という名前の trait を自分で宣言していても，その derive は今と同じく E0326
-- x/dynamic と x/shape を使っているコードは，import を `Std.Dynamic` と `Std.Shape` に書き換える．Emela には再エクスポートがない（`[module.resolution]`）ので，x の側で std の名前を見せ続けることはできない．x/dynamic と x/shape は最後の版で README に移行先を書き，更新をやめる
+- x/dynamic と x/shape を使っているコードは，import を `Std.Dynamic` と `Std.Shape` に書き換える．Emela には再エクスポートがない（`[module.resolution]`）ので，x の側で std の名前を見せ続けることはできない．x/dynamic と x/shape は最後の版で README に移行先を書き，更新をやめる．`Shape.Rule` を使っているコードは x/rule に移る
 - x/json は `Std.Dynamic` に依存する版に上げる（v0.3.0）
 
 ## Implementation
 
-- emela-core（std）：`std/dynamic.emel`，`std/dynamic/number.emel`，`std/shape.emel`，`std/shape/rule.emel` を x から移す
+- emela-core（std）：`std/dynamic.emel`，`std/dynamic/number.emel`，`std/shape.emel` を x から移す．`Std.Shape` に注記の関数（`minimum` など 6 つ）を足す
 - emela-core（lower.rs）：`derived` が Prelude の名前だけでなく，`Std.Dynamic.Encode`，`Std.Dynamic.Decode`，`Std.Shape.Shaped` を見分ける．生成するコードが呼ぶ std の関数（`Dynamic.object`，`Dynamic.field`，`Dynamic.tag`，`Dynamic.index`，`Dynamic.variant`，`Shape.visit`，`Shape.generic_name`）を，名前で引ける表に入れる
 - emela-core（mono/derive.rs）：`DeriveOp` に Encode，Decode，Shaped を足す．型が単相化で決まったところで本体を組み立てる．Shaped のフィールドの `None: Option[T]` は IR で型付きの値として直接作る．`generic_name` に渡す名前は，単相化の時点で決まっているので定数でもよい
 - emela-types：E0336 を derive の検査に足す
 - emela-lsp：derive の補完の候補に 3 つの trait を足す（import されているとき）
-- x：x/json を `Std.Dynamic` に移し，JSON Schema の生成を x/shape から x/json（`Json.Schema`）に移す
+- x：x/json を `Std.Dynamic` に移し，JSON Schema の生成を x/shape から x/json（`Json.Schema`）に移す．`Shape.Rule` を x/rule に移す
 
 ## Alternatives
 
+- `Rule` も `Std.Shape.Rule` として std に入れる：opaque type を作る関数の書き方が std の中で完結する．ただ `Rule` の API は使った例がなく，std で固めるには早い．注記の名前が std にあれば，後から入れても読む側は変わらない
 - trait の作者が導出の規則を書ける仕組み（#3）を先に入れ，x のまま derive する：構文も意味も決まっておらず，この 3 つのために待つ理由がない．#3 が入ったら，compiler が持つ規則をその構文で書き直せばいい
 - 型の宣言から impl を生成する外部の道具（`emela gen` など）：生成したファイルと宣言がずれる．型が変わるたびに道具を走らせる手間が残る
 - Encode と Decode だけを std に入れ，Shaped は x に残す：Shaped を手で書くことになり，JSON Schema と実際の形がずれる原因が残る．同じ宣言から同じ規則で導出することが，この提案の一番の利点
@@ -281,7 +274,6 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler, and th
 
 ## Open questions
 
-- `Rule` も std に入れるか．入れないと，`Shaped` の注記と作る関数の条件をまとめる手段が std の外になる
 - 位置の中身の数：derived Decode は余った要素を無視する（`index` の今の動き）が，JSON Schema の生成は `maxItems` を書く．どちらに揃えるか
 - derived Decode が最初の失敗で止まるか，全部集めるか（std-json の下書きの未決）
 - フィールドの属性（名前の変換，None のキーを省く）．`[open.list]` #3 で決めるとして，それまで手書きの impl に任せてよいか
