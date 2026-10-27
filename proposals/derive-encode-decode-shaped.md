@@ -49,6 +49,8 @@ JSON の parse と書き出し（x/json）と JSON Schema の生成（x/shape �
 
 どれも value の層（純粋でホストによらない）に入る．中身は x の今の版と同じで，名前の頭が変わるだけ（`import Dynamic.{...}` は `import Std.Dynamic.{...}` になる）．
 
+`Shape` の variant は説明する型の名前にする（`Bool`，`Int`，`Int64`，`Float`，`String`，`List`，`Option`，`Map`．`Dynamic` の形は `Any`）．モジュールで修飾して `Shape.Int` と書く．variant `List` があっても `List.map` はモジュール `List` を指し，型 `Int` と variant `Int` は名前の空間が別なのでぶつからない．`Dynamic` の `Bool` と並べて修飾なしで import したときだけ，どちらかを修飾する．
+
 ### 導出の規則
 
 どれも，各フィールドをそのフィールドの型の impl に通す（`derive Show` と同じ）．型パラメータには同じ trait の境界を付ける（`[trait.derive]` の今の規則のまま）．
@@ -193,7 +195,7 @@ A new section after `[api.std.dynamic.number]`.
 >
 > | Declaration | Contents | Description |
 > |---|---|---|
-> | `Shape` | `enum Shape { BoolShape, IntShape, Int64Shape, FloatShape, StringShape, DynamicShape, ListOf(Shape), OptionOf(Shape), MapOf(key: Shape, value: Shape), Record(name: String, fields: List[Field]), Variants(name: String, variants: List[Variant]), Ref(String), Named(name: String, shape: Shape), Annotated(shape: Shape, notes: List[(String, Dynamic)]) }` | The shape of a type, without a value. `Ref` is a record or enum that appears again inside itself. `Named` is a type known by its name with the shape of its contents (an opaque type). `Annotated` carries notes; a reader passes on the keys it does not know |
+> | `Shape` | `enum Shape { Bool, Int, Int64, Float, String, Any, List(Shape), Option(Shape), Map(key: Shape, value: Shape), Record(name: String, fields: List[Field]), Variants(name: String, variants: List[Variant]), Ref(String), Named(name: String, shape: Shape), Annotated(shape: Shape, notes: List[(String, Dynamic)]) }` | The shape of a type, without a value. The variants are named after the types they describe and are written with the module (`Shape.Int`, `Shape.List(Shape.String)`). `Any` is the shape of Dynamic. `Ref` is a record or enum that appears again inside itself. `Named` is a type known by its name with the shape of its contents (an opaque type). `Annotated` carries notes; a reader passes on the keys it does not know |
 > | `Field` | `type Field(name: String, shape: Shape)` | A field of a record or of named contents |
 > | `Variant` | `type Variant(name: String, contents: Contents)` | A variant of an enum |
 > | `Contents` | `enum Contents { NoFields, PositionalFields(List[Shape]), NamedFields(List[Field]) }` | The contents of a variant, in the form they are declared in |
@@ -279,7 +281,6 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler, and th
 
 ## Open questions
 
-- `Shape` の variant 名（`IntShape`，`StringShape`）を std で固めてよいか．`Dynamic` の variant（`Bool`，`Text`）とぶつからないようにした名前だが，enum を import したときの修飾（`Shape.Int`）が入るなら，そちらに合わせて付け直したい．std に入れた後は変えにくい
 - `Rule` も std に入れるか．入れないと，`Shaped` の注記と作る関数の条件をまとめる手段が std の外になる
 - 位置の中身の数：derived Decode は余った要素を無視する（`index` の今の動き）が，JSON Schema の生成は `maxItems` を書く．どちらに揃えるか
 - derived Decode が最初の失敗で止まるか，全部集めるか（std-json の下書きの未決）
