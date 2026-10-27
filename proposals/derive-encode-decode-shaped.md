@@ -42,7 +42,7 @@ JSON の parse と書き出し（x/json）と JSON Schema の生成（x/shape �
 
 | std のモジュール | 中身 | 元 |
 |---|---|---|
-| `Std.Dynamic` | `Dynamic`，`Segment`，`DecodeError`，trait `Encode`，`Decode`，`ObjectKey`，decoder（`string`，`int`，`field`，`list`，`optional`，`dict`，`index`，`items`，`tag`），`object`，`variant`，`kind` | x/dynamic |
+| `Std.Dynamic` | `Dynamic`，`Segment`，`DecodeError`，trait `Encode`，`Decode`，`ObjectKey`，decoder（`string`，`int`，`field`，`list`，`optional`，`dict`，`index`，`items`，`tag`，`field_all`，`index_all`，`attempt`，`errors_of`），`DecodeErrors`，`Attempt`，`object`，`variant`，`kind` | x/dynamic |
 | `Std.Dynamic.Number` | `Number`，`OutOfRange`，`parse`，`from_int`，`to_int` など | x/dynamic の `Number` |
 | `Std.Shape` | `Shape`，`Field`，`Variant`，`Contents`，trait `Shaped`，`visit`，`name_of`，`generic_name`，`annotate`，`strip`，`note`，`field_names`，`of_value`，`of_parameter`，`description`，`pattern`，`format` | x/shape |
 
@@ -82,7 +82,14 @@ Decode（値を作る）
 - record：フィールドごとに `Std.Dynamic.field(d, 名前, Decode.from_dynamic)` で読み，構築する．キーがないときは null を読んだものとして扱う（`field` の今の動き）ので，`Option` のフィールドは省いてよい
 - enum：`Std.Dynamic.tag(d)` で variant を選び，`"value"` を中身の形で読む．位置の中身は，まず `Std.Dynamic.items(value, n)` で要素の数が宣言どおりかを確かめ，それから `index(i, Decode.from_dynamic)` で読む．数が違えば `DecodeError(expected: "2 items", ...)`．名前付きの中身と record は，知らないキーを今までどおり無視する
 - 知らない tag は `DecodeError(expected: "one of Leaf, Pair, Node", actual: Text(tag), path: [Key("tag")])`
-- 最初の失敗で止まる．path にはフィールド名と位置が積まれる
+- path にはフィールド名と位置が積まれる
+
+失敗の扱いは 2 つの関数で分ける．
+
+- `from_dynamic` は最初の失敗で止まり，`DecodeError` を 1 つ返す
+- `from_dynamic_all` はすべてのフィールドを読み，失敗を宣言の順にすべて集めて `DecodeErrors` で返す．入れ子の型，`List` の要素，`Map` の値の失敗も，それぞれの path を付けて集まる
+- `Decode` の trait では，`from_dynamic_all` は `from_dynamic` の失敗を 1 つだけ包む既定の実装を持つ．手で書いた impl は `from_dynamic` だけ書けば動き，その型の中では最初の失敗で止まる．導出した impl と `List`，`Option`，`Map` の impl は `from_dynamic_all` を上書きして集める
+- API が 400 を返すときに，壊れたフィールドを一度に全部伝えられる
 
 ```emel
 type TodoBody(title: String, due: Option[String]) derive Decode
@@ -94,8 +101,21 @@ impl TodoBody: Decode {
       due: Dynamic.field(d, "due", Decode.from_dynamic),
     )
   }
+
+  fn from_dynamic_all(d) {
+    title = Dynamic.attempt(fn() { Dynamic.field_all(d, "title", Decode.from_dynamic_all) })
+    due = Dynamic.attempt(fn() { Dynamic.field_all(d, "due", Decode.from_dynamic_all) })
+    (title, due) match {
+      (Decoded(title), Decoded(due)) -> TodoBody(title:, due:)
+      _ -> fail DecodeErrors(
+        errors: List.flatten([Dynamic.errors_of(title), Dynamic.errors_of(due)]),
+      )
+    }
+  }
 }
 ```
+
+この形（trait の既定の実装，`List` の impl の上書き，上の生成されるコード）は，x/dynamic の写しに足して今の compiler で動くことを確かめた．`title` が null で `tags` の 2 つめと 3 つめが null の値からは，`[.title]`，`[.tags[1]]`，`[.tags[2]]` の 3 つが集まる．
 
 Shaped（型の形）
 
@@ -126,7 +146,7 @@ Replace "Only Eq, Ord and Show can be derived, and the compiler owns the derivat
 Add after the bullet on Ord:
 
 - A derived Encode of a type writes an object of its fields, by name, each through `Encode.to_dynamic`. A field whose value is None is written as Null; the key is not left out. A derived Encode of an enum writes `Std.Dynamic.variant(name, contents)`: an object for named contents, Items with one element for each positional field, and no value for a variant without contents.
-- A derived Decode of a type reads each field with `Std.Dynamic.field(value, name, Decode.from_dynamic)`, in declaration order, and constructs the value. A missing key is read as Null, so a field of an Option type may be left out. A derived Decode of an enum reads the variant from `Std.Dynamic.tag(value)` and its contents from `"value"` in the form of the variant, a positional field `i` with `Std.Dynamic.index(i, Decode.from_dynamic)`, after `Std.Dynamic.items(value, n)` has checked that the contents hold exactly as many items as the variant has fields. Keys that name no field of a type or of named contents are ignored. A tag that names no variant fails with `DecodeError(expected: "one of A, B", actual: the tag, path: [Key("tag")])`, listing the variants in declaration order. Decoding stops at the first failure.
+- A derived Decode of a type reads each field with `Std.Dynamic.field(value, name, Decode.from_dynamic)`, in declaration order, and constructs the value. A missing key is read as Null, so a field of an Option type may be left out. A derived Decode of an enum reads the variant from `Std.Dynamic.tag(value)` and its contents from `"value"` in the form of the variant, a positional field `i` with `Std.Dynamic.index(i, Decode.from_dynamic)`, after `Std.Dynamic.items(value, n)` has checked that the contents hold exactly as many items as the variant has fields. Keys that name no field of a type or of named contents are ignored. A tag that names no variant fails with `DecodeError(expected: "one of A, B", actual: the tag, path: [Key("tag")])`, listing the variants in declaration order. `from_dynamic` stops at the first failure. A derived Decode also defines `from_dynamic_all`, which reads every field in the same way with `Std.Dynamic.field_all` and `Std.Dynamic.index_all` and `Decode.from_dynamic_all`, and fails with `DecodeErrors` holding every failure in declaration order, each with its path. It constructs the value only when no field failed.
 - A derived Shaped of a type or an enum is `Std.Shape.visit(name, visiting, build)`, where build makes a Record of its fields (or Variants of its variants), each field through `Shaped.shape_in` with the visiting it is given. The name of a type with type parameters is `Std.Shape.generic_name(name, shapes)`, with the shapes of its type arguments in order.
 - Decode cannot be derived for an opaque type (E0336): a derived Decode constructs the value without the functions of its module that check it. Encode and Shaped can be derived for an opaque type, and show its contents, as Show does.
 
@@ -165,7 +185,11 @@ A new section after `[api.std.map]`.
 > | `Segment` | `enum Segment { Key(String), Index(Int) }` | A step of a path into a Dynamic |
 > | `DecodeError` | `error DecodeError(expected: String, actual: Dynamic, path: List[Segment])` | Show writes the kind of `actual`, not its contents |
 > | `Encode` | `trait Encode { fn to_dynamic(self) -> Dynamic }` | Derivable |
-> | `Decode` | `trait Decode { fn from_dynamic(d: Dynamic) -> Self fails DecodeError }` | Derivable, except for opaque types |
+> | `Decode` | `trait Decode { fn from_dynamic(d: Dynamic) -> Self fails DecodeError; fn from_dynamic_all(d: Dynamic) -> Self fails DecodeErrors }` | Derivable, except for opaque types. `from_dynamic` stops at the first failure. `from_dynamic_all` reports every failure; its default fails with the one failure of `from_dynamic` |
+> | `DecodeErrors` | `error DecodeErrors(errors: List[DecodeError])` | Every failure of `from_dynamic_all`, in the order the parts were read. Never empty |
+> | `Attempt` | `enum Attempt[A] { Decoded(A), Failed(List[DecodeError]) }` | The result of reading one part while collecting failures |
+> | `attempt`, `errors_of` | `attempt[A](f: fn() -> A fails DecodeErrors) -> Attempt[A]`, `errors_of[A](a: Attempt[A]) -> List[DecodeError]` | Keep the failures of `f` instead of failing, and read them back (empty for Decoded) |
+> | `field_all`, `index_all` | `field_all[A](value: Dynamic, name: String, decoder) -> A fails DecodeErrors`, `index_all[A](n: Int, decoder) -> decoder` | `field` and `index` for a decoder that fails with DecodeErrors; the key or the position is added in front of the path of every failure |
 > | `ObjectKey` | `trait ObjectKey: Ord { fn to_key(self) -> String; fn from_key(key: String) -> Self fails DecodeError }` | The keys of a Map written as Fields |
 > | `string`, `bool`, `int`, `int64`, `float` | `fn(value: Dynamic) -> A fails DecodeError` | Read a value of a basic type. `int` and `int64` accept a number whose value is an integer (`1.0`, `1e3`) |
 > | `list`, `optional`, `dict` | `fn(decoder) -> decoder` | Read Items, Null or a value, and Fields with each value read by `decoder` |
@@ -176,7 +200,7 @@ A new section after `[api.std.map]`.
 > | `object`, `variant` | `object(fields: List[(String, Dynamic)]) -> Dynamic`, `variant(tag: String, value: Option[Dynamic]) -> Dynamic` | Build Fields, and the form of an enum |
 > | `kind` | `kind(value: Dynamic) -> String` | `"null"`, `"bool"`, `"number"`, `"text"`, `"items"` or `"fields"` |
 >
-> impl: Bool, Int, Int64, Float, String, `List[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None.
+> impl: Bool, Int, Int64, Float, String, `List[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. The Decode of `List[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None.
 
 ### `[api.std.dynamic.number]`
 
@@ -275,7 +299,6 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler, and th
 
 ## Open questions
 
-- derived Decode が最初の失敗で止まるか，全部集めるか（std-json の下書きの未決）
 - フィールドの属性（名前の変換，None のキーを省く）．`[open.list]` #3 で決めるとして，それまで手書きの impl に任せてよいか
 - JSON（x/json）を同じ proposal で std に入れるか，x に残すか
 - `ObjectKey` も導出できるようにするか（enum を Map のキーに使う場合）
