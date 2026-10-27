@@ -68,7 +68,7 @@ An `@external type` with no fields is an opaque type that represents a host obje
 
 Only the following types can be used for the parameters and the return value of an external function.
 
-- Int, Int64, Float, Bool, String, `()`
+- Int, Int64, Float, Bool, String, Bytes (`Std.Bytes`), `()`
 - Types declared with `@external type`
 - Function types made only of the types above (callbacks)
 
@@ -76,6 +76,7 @@ List and user-defined types cannot be passed directly. They are converted inside
 
 - The parameters and return value of a function passed as a callback are treated the same as the parameters and return value of an external function (a String received from the host is normalized as in 12.5).
 - An external function that returns `()` discards the host's return value and returns `()`.
+- A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.
 
 On the `c` target, the types map to C types by the following table.
 
@@ -97,6 +98,7 @@ On the `c` target, the types map to C types by the following table.
 - A String received from C is copied into an Emela string, and freed with `free` right after the copy. Sequences that are not valid UTF-8 are replaced with the replacement character (U+FFFD) (the same idea as the normalization in 12.5). The replacement is one replacement character per maximal subpart of an invalid sequence. A returned NULL is a defect. The message is ``external function `f` returned NULL`` (`X` is the name of the external function).
 - A C type not in the table, such as `size_t` or `int`, is converted to a type in the table by a small function written on the C side. The compiler does not guess the width of integers.
 - The first version of the C target (0.21) does not support parameters and return values of function types. When the build target is `c` and an external function reachable from the entry point takes or returns a callback, it is a compile error (E0427). The form of callbacks (a pair of a function pointer and a context) and how long the C side can keep them are decided in 18.1 #38.
+- The C target does not support Bytes yet. When the build target is `c` and an external function reachable from the entry, or an exported fn, takes or returns Bytes, it is a compile error (E0443). The C form (a pointer and a length) is decided together with callbacks (18.1 #38).
 
 ## 12.5 Exceptions and failures `[ext.exception]`
 

@@ -215,6 +215,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0440 | The fn cannot be passed as the first argument of the entry adapter (12.8) | `` `app` does not fit `Http.serve` `` |
 | E0441 | An exported fn that may suspend on the `c` target (16.7.6) | ``exported function `f` may suspend, which target `c` does not support`` |
 | E0442 | `@entry(Http.serve)` on the `c` target (`[target.c.unsupported]`) | ``HTTP services are not supported on target `c` yet`` |
+| E0443 | The build target is `c`, and an external function reachable from the entry, or an exported fn, takes or returns `Bytes` (12.4) | ``external function `read_file` takes `Bytes`, which target `c` does not support yet`` |
 | W0401 | A label item in with (`L`, `L by P`) is never used (8.9) | ``label `Audit` is listed here but never used`` |
 | E0901 | A path is not found | ``path `app` not found`` |
 | E0902 | A file or directory cannot be read | ``cannot read `src/a.emel`: permission denied`` |
