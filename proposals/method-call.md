@@ -1,10 +1,10 @@
 ---
 title: Method calls
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 454
 issue:
-decided:
+decided: 2026-10-27
 touches: [lex.name, data.type, type.rules, trait.call, module.resolution, api.list, api.string, api.std.http.request, api.std.http.response, api.std.http, lsp.completion, lsp.navigation, diag.list]
 requires: []
 related: [http-service]
@@ -239,3 +239,5 @@ Add after E0333:
 ## Open questions
 
 ## Decision
+
+Chains of calls on one type were read from the inside out, and `|>` still repeats the module name at every step. Looking up functions by the type of the first argument needs no mark on functions and leaves out the ones that make values. The functions of the type's module are found without imports, as fields are, because only the owner of the type can add them. Trait functions are found only from traits visible by name, so a new dependency cannot make existing method calls ambiguous. `x.f` without a call stays an error, which keeps partial application open for later. The rename to `header_values` breaks code, but before 1.0 that is better than a rule kept only for a deprecation period.
