@@ -1,0 +1,51 @@
+# Traits, derive and the collections in std. `==`, `<` and `#{}` go through the
+# Eq, Ord and Show impls of the type.
+import Std.Map.{Map}
+import Std.Set.{Set}
+
+# The derived Ord orders variants by their order of declaration.
+enum Priority {
+  Low
+  High
+} derive Eq, Ord, Show
+
+type Task(title: String, priority: Priority)
+  derive Eq
+
+trait Describe {
+  fn describe(self) -> String
+}
+
+impl Task: Describe {
+  fn describe(self) { "#{self.title} (#{self.priority})" }
+}
+
+fn describe_all[A: Describe](xs: List[A]) -> List[String] {
+  List.map(xs, Describe.describe)
+}
+
+fn main() {
+  tasks = [
+    Task(title: "write docs", priority: Low),
+    Task(title: "fix build", priority: High),
+    Task(title: "review", priority: High),
+  ]
+  dbg(describe_all(tasks)) # ["write docs (Low)", "fix build (High)", "review (High)"]
+
+  urgent = List.filter(tasks, fn(t) { t.priority > Low })
+  dbg(List.length(urgent)) # 2
+
+  # A Map keeps its keys in Ord order.
+  by_priority = List.fold(tasks, from: Map.empty(), f: fn(m, t) {
+    Map.update(m, t.priority, fn(n) { Some(Option.or(n, 0) + 1) })
+  })
+  dbg(by_priority) # Map.from_list([(Low, 1), (High, 2)])
+
+  dbg(Set.from_list(["b", "a", "b"])) # Set.from_list(["a", "b"])
+}
+
+@test
+fn tasks_compare_by_contents() {
+  assert Task(title: "x", priority: Low) == Task(title: "x", priority: Low)
+  assert High > Low
+}
