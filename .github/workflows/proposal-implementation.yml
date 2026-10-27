@@ -46,20 +46,20 @@ jobs:
             python3 - "$file" > "$RUNNER_TEMP/issue.md" <<'PY'
           import sys
           sys.path.insert(0, "scripts")
-          from spec import read_proposal
+          from spec import read_proposal, touched
 
           path = sys.argv[1]
           meta, _ = read_proposal(path)
           if meta.get("status") != "accepted":
               sys.exit(0)
           slug = path.rsplit("/", 1)[1][:-3]
-          def names(key):
-              return ", ".join(f"`{x}`" for x in meta.get(key) or []) or "none"
+          def names(xs):
+              return ", ".join(f"`{x}`" for x in xs) or "none"
           print(f"Implement: {meta.get('title', slug)}")
           print(f"Implements [`proposals/{slug}.md`]({path}), accepted in #{meta.get('pr')}.")
           print()
-          print(f"- touches: {names('touches')}")
-          print(f"- requires: {names('requires')}")
+          print(f"- touches: {names(touched(meta))}")
+          print(f"- requires: {names(meta.get('requires') or [])}")
           print()
           print("Assign yourself to take it. The implementing pull request starts its description with "
                 f"`Implements: proposals/{slug}.md` and closes this issue with `Closes #<this issue>`.")
