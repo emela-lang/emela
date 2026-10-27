@@ -5,7 +5,7 @@ status: draft
 pr: 455
 issue:
 decided:
-touches: [lib.layers, trait.derive, api.std.dynamic (new), api.std.dynamic.number (new), api.std.shape (new), diag.list, open.list]
+touches: [kw.annotation, grammar.decl, lib.layers, trait.derive, api.std.dynamic (new), api.std.dynamic.number (new), api.std.shape (new), diag.list, open.list]
 requires: []
 related: []
 ---
@@ -126,6 +126,27 @@ Shaped（型の形）
 
 Encode，Decode，Shaped は同じ宣言から同じ規則で導出されるので，`Shaped` が説明する形は，`Encode` が書き出し `Decode` が読む JSON の形と作りからして一致する．
 
+### キーと tag の名前
+
+フィールドには `@key("...")`，variant には `@tag("...")` を付けられる．Encode，Decode，Shaped の導出は，フィールドの名前と variant の名前の代わりにこの名前を使う．
+
+```emel
+type TodoView(id: String, @key("dueAt") due_at: Option[String]) derive Encode, Decode, Shaped
+
+enum Status {
+  @tag("open")
+  Open
+  @tag("done")
+  Done
+} derive Encode, Decode, Shaped
+```
+
+- Emela のフィールドは snake_case で，外の相手は `dueAt` のような名前を求めることが多い．名前が 1 つ違うだけで手書きの impl に戻らずに済む
+- Shape の `Field` と `Variant` の `name` にもこの名前が入るので，JSON Schema と実際の形はずれない．`Record` と `Variants` の `name`（型の名前）は変わらない
+- 同じ型の中で 2 つのフィールドが同じキーに，同じ enum の中で 2 つの variant が同じ tag になれば compile error（E0337）
+- `@key` をフィールド以外に，`@tag` を variant 以外に付けたり，引数が文字列リテラル 1 つでなかったりすれば compile error（E0338）
+- None のキーを省く属性と，型全体の名前の変換（全フィールドを camelCase にする）は入れない．導出した Decode はキーがなくても null でも読むので，省いた形が要るのは厳しい外の schema に合わせるときだけ．型全体の変換は，変換の規則（`id_url` を `idUrl` にするか `idURL` にするか）まで決めることになる
+
 ### opaque type
 
 - `derive Encode` と `derive Shaped` は opaque type にも書ける．`derive Show` と同じく中身を見せる
@@ -148,6 +169,7 @@ Add after the bullet on Ord:
 - A derived Encode of a type writes an object of its fields, by name, each through `Encode.to_dynamic`. A field whose value is None is written as Null; the key is not left out. A derived Encode of an enum writes `Std.Dynamic.variant(name, contents)`: an object for named contents, Items with one element for each positional field, and no value for a variant without contents.
 - A derived Decode of a type reads each field with `Std.Dynamic.field(value, name, Decode.from_dynamic)`, in declaration order, and constructs the value. A missing key is read as Null, so a field of an Option type may be left out. A derived Decode of an enum reads the variant from `Std.Dynamic.tag(value)` and its contents from `"value"` in the form of the variant, a positional field `i` with `Std.Dynamic.index(i, Decode.from_dynamic)`, after `Std.Dynamic.items(value, n)` has checked that the contents hold exactly as many items as the variant has fields. Keys that name no field of a type or of named contents are ignored. A tag that names no variant fails with `DecodeError(expected: "one of A, B", actual: the tag, path: [Key("tag")])`, listing the variants in declaration order. `from_dynamic` stops at the first failure. A derived Decode also defines `from_dynamic_all`, which reads every field in the same way with `Std.Dynamic.field_all` and `Std.Dynamic.index_all` and `Decode.from_dynamic_all`, and fails with `DecodeErrors` holding every failure in declaration order, each with its path. It constructs the value only when no field failed.
 - A derived Shaped of a type or an enum is `Std.Shape.visit(name, visiting, build)`, where build makes a Record of its fields (or Variants of its variants), each field through `Shaped.shape_in` with the visiting it is given. The name of a type with type parameters is `Std.Shape.generic_name(name, shapes)`, with the shapes of its type arguments in order.
+- In all three, the key of a field is the argument of its `@key` attribute if it has one, and its name otherwise; the tag of a variant is the argument of its `@tag` attribute if it has one, and its name otherwise. The names in `Field` and `Variant` of a derived Shaped are these keys and tags.
 - Decode cannot be derived for an opaque type (E0336): a derived Decode constructs the value without the functions of its module that check it. Encode and Shaped can be derived for an opaque type, and show its contents, as Show does.
 
 Replace the table of the kinds of derivation and the text before it with:
@@ -159,6 +181,25 @@ The derivations that the compiler owns come in three kinds. Letting trait author
 | Fold | Takes one value and combines the results for each field | Show, Encode, Shaped (over the types of the fields) |
 | Comparison | Takes two values and compares them field by field | Eq, Ord |
 | Construction | Builds a value from the results generated for each field | Decode |
+
+### `[kw.annotation]`
+
+Replace the row of field attributes with:
+
+| Attribute | Target | Meaning |
+|---|---|---|
+| `@key("name")` | Fields of types and of named contents of variants | The key of the field in a derived Encode, Decode and Shaped (`[trait.derive]`), instead of the name of the field |
+| `@tag("name")` | Variants of enums | The tag of the variant in a derived Encode, Decode and Shaped, instead of the name of the variant |
+
+The argument of `@key` and `@tag` is one string literal. `@key` on anything but a field, `@tag` on anything but a variant, or any other argument is a compile error (E0338). Two fields of one type or of one variant with the same key, or two variants of one enum with the same tag, is a compile error (E0337). The attributes have no effect on code that is not derived: a field is still accessed and constructed by its name.
+
+### `[grammar.decl]`
+
+Allow attributes before a variant:
+
+```ebnf
+variant      = { annotation } type_name [ "(" ( fields | type { "," type } ) ")" ]
+```
 
 ### `[lib.layers]`
 
@@ -252,20 +293,24 @@ A new section after `[api.std.dynamic.number]`.
 
 ### `[diag.list]`
 
-Change E0326 to list the derivable traits, and add E0336.
+Change E0326 to list the derivable traits, and add E0336, E0337 and E0338.
 
 | Code | Condition | Message |
 |---|---|---|
+| E0337 | Two fields of one type or variant with the same key, or two variants of one enum with the same tag, after `@key` and `@tag` (3.5) | ``key `dueAt` is used by both `due_at` and `due` `` / ``tag `done` is used by both `Done` and `Closed` `` |
+| E0338 | `@key` not on a field, `@tag` not on a variant, or an argument that is not one string literal (3.5) | `` `@key` takes one string literal `` / `` `@tag` can only be placed on a variant `` |
 | E0336 | `derive Decode` on an opaque type (10.5). The help is ``= help: write `impl Email: Decode` that builds the value with a function that checks it`` | ``cannot derive `Decode` for opaque type `Email` `` |
 
 ### `[open.list]`
 
-In #3, record that Encode, Decode and Shaped are derived by the compiler, and that the question is now only the syntax for trait authors and field attributes.
+In #3, record that Encode, Decode and Shaped are derived by the compiler with the field attributes `@key` and `@tag`, and that the question is now only the syntax for trait authors.
 
 ## Diagnostics
 
 - [ ] E0326: 導出できる trait の一覧を広げる．利用者が同じ名前で宣言した trait は今までどおり E0326
 - [ ] E0336（新規）：opaque type に `derive Decode`
+- [ ] E0337（新規）：`@key` と `@tag` を当てた後のキーや tag の重複
+- [ ] E0338（新規）：`@key` と `@tag` の置き場所と引数
 - [ ] W0303：導出した Encode，Decode，Shaped も「どこからも要求されない」の対象にする．境界を持つ関数への引き渡し（`Json.encode(view)`）が要求に当たる
 
 ## Compatibility
@@ -299,7 +344,6 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler, and th
 
 ## Open questions
 
-- フィールドの属性（名前の変換，None のキーを省く）．`[open.list]` #3 で決めるとして，それまで手書きの impl に任せてよいか
 - JSON（x/json）を同じ proposal で std に入れるか，x に残すか
 - `ObjectKey` も導出できるようにするか（enum を Map のキーに使う場合）
 
