@@ -5,7 +5,7 @@ status: draft
 pr: 454
 issue:
 decided:
-touches: [lex.name, data.type, type.rules, trait.call, module.resolution, api.list, api.string, api.std.http.request, api.std.http.response, lsp.completion, lsp.navigation, diag.list]
+touches: [lex.name, data.type, type.rules, trait.call, module.resolution, api.list, api.string, api.std.http.request, api.std.http.response, api.std.http, lsp.completion, lsp.navigation, diag.list]
 requires: []
 related: [http-service]
 ---
@@ -14,29 +14,29 @@ related: [http-service]
 
 ## Summary
 
-`x.f(a)` を `M.f(x, a)` として呼べるようにする．M は x の型を定義したモジュールで，f はそのモジュールの関数のうち第 1 引数の型の頭が x の型のもの．x の型が impl している trait の関数も同じ形で呼べる．関数に印は付けない．
+`x.f(a)` can be written for `M.f(x, a)`, where M is the module that defines the type of x and f is a function of that module whose first parameter has that type at its head. The functions of a trait that the type implements can be called the same way, when the trait is visible by name. Functions are not marked.
 
-あわせて，`String.join` を `List.join` に移し，`Request.headers` と `Response.headers`（関数）を `header_values` に改名する．
+`String.join` moves to `List.join`, and the functions `Request.headers` and `Response.headers` are renamed to `header_values`.
 
 ## Motivation
 
-- 同じ型の操作を重ねると，内側から外側へ読むことになる．std，examples，x（今の構文で約 5600 行）には `Mod.f(Mod.g(...))` の形が 30 箇所ある
+- A chain of operations on the same type is read from the inside out. std, examples and x (about 5600 lines in the current syntax) have 30 places of the form `Mod.f(Mod.g(...))`.
 
   ```emel
   # examples/http
   Option.or(List.head(String.split(res.body, "\n")), "")
   ```
 
-- `|>` で並べ替えられるが，一段ごとにモジュール名を書くことになる．`|>` の連鎖（2 段以上）15 箇所のうち 8 箇所は同じモジュールの中で閉じている
-- 第 1 引数がそのモジュールの型である関数の呼び出しは 312 箇所ある（List 129，String 50，Option 33，x/dynamic の Number 32，Int 23，Map 18）．どれもメソッドとして書ける
-- そうでない呼び出しは 166 箇所で，ほとんどは値を作る関数（`Map.from_list` 24，`Number.from_int` 18，`Map.empty` 14，`Response.new` 10，`List.range` 10）．第 1 引数の型で決める規則なら，これらは自然にメソッドから外れる
-- 今の言語での回避策は `|>` だけで，モジュール名は省けない
+- `|>` reorders them, but the module name is written at every step. Of the 15 chains of `|>` with two or more steps, 8 stay within one module.
+- There are 312 calls of a function whose first parameter has the type of its module (List 129, String 50, Option 33, `Number` of x/dynamic 32, Int 23, Map 18). All of them can be written as method calls.
+- The other 166 calls are mostly functions that make values (`Map.from_list` 24, `Number.from_int` 18, `Map.empty` 14, `Response.new` 10, `List.range` 10). A rule based on the type of the first parameter leaves them out without marking anything.
+- The only workaround in the current language is `|>`, and it cannot leave out the module name.
 
 ## Proposal
 
 ### Syntax
 
-文法は変えない．`postfix = primary { "(" [ args ] ")" | "." lower_name }` がすでに `x.f(a)` を読める．今は，x が能力の値なら操作の呼び出し，そうでなければ関数型のフィールドの呼び出しとして読まれる．
+The grammar does not change. `postfix = primary { "(" [ args ] ")" | "." lower_name }` already reads `x.f(a)`. Today it is read as a call of an operation when x is a capability value, and otherwise as a call of a field of function type.
 
 ```emel
 fn first_line(res: Response) -> String {
@@ -56,37 +56,40 @@ fn sum_lengths(words: List[String]) -> Int {
 }
 ```
 
-今のコンパイラは，これらを E0313（``type `String` has no fields``）で止める．
+The current compiler stops these with E0313 (``type `String` has no fields``).
 
 ### Meaning
 
-- x の型の頭が名前付きの型 T のとき，`x.f(a1, ..., an)` は次の順で f を探す
-  1. T のフィールド f（今の規則のまま．関数型なら呼ぶ）
-  2. T を定義したモジュールの fn f のうち，第 1 引数の型の頭が T のもの．モジュールの外からは pub の fn だけ
-  3. T が impl している trait の関数 f のうち，`self` をとるもの
-- 見つかった fn は `M.f(x, a1, ..., an)` と同じに呼ぶ．名前付き引数，評価の順序（x が先），E と R はその呼び出しと同じ
-- 探すときにスコープを見ない．`user.rename("a")` は，User のモジュールを import していなくても呼べる．フィールドアクセスが import なしで使えるのに揃える
-- x の型が型パラメータ A のときは，A の境界の trait から探す（3 だけ）
-- 型の頭が判れば足りる．型引数まで決まっている必要はない．`List.join` は `List.join(xs: List[String], ...)` として見つかり，`[1, 2].join(", ")` は普通の引数の型の不一致になる
-- 能力の値（`use X` の値）は名前付きの型ではないので，`log.info(...)` は今のまま操作の呼び出し
-- `|>` は変えない．`xs |> List.map(f)` は今のまま書ける
+- When the type of x has a named type T at its head, `x.f(a1, ..., an)` looks up f in this order:
+  1. The field f of T (the current rule; a field of function type is called).
+  2. The fns f of the module that defines T whose first parameter has T at the head of its type. Outside that module, only pub fns.
+  3. The functions f that take `self` of the traits that T implements, among the traits that are visible by name in the calling module: the traits of the Prelude (Eq, Ord, Show), the traits imported by name (`import L.{Seq}`), and the traits defined in the calling module. A trait that can only be written qualified (`L.Seq` after `import L`) is not looked up.
+- A function found is called as `M.f(x, a1, ..., an)` (or `Trait.f(x, a1, ..., an)`), with the same named arguments, order of evaluation (x first), E and R.
+- Step 2 does not look at the scope. `user.rename("a")` can be called without importing the module of User, as a field access can. Only the owner of T can add functions to that module, so a new dependency cannot add candidates to step 2.
+- Step 3 looks only at visible traits because an impl can be written in the module of the trait (`[trait.impl]`). If every trait in the program were looked up, a dependency that declares `trait Seq { fn map(self, ...) }` with `impl List: Seq` would make every `xs.map(f)` in the program ambiguous, also in modules that never import it.
+- When the type of x is a type parameter A, only the functions of the bounds of A are looked up (step 3). A bound names the trait, so it is visible.
+- Only the head of the type needs to be known, not its type arguments. `List.join` is found for `[1, 2].join(", ")` as `List.join(xs: List[String], ...)`, and the call is an ordinary mismatch of the argument type.
+- A capability value (the value of `use X`) is not a named type, so `log.info(...)` stays a call of an operation.
+- `x.f` written without a call, where f is not a field but a function found by step 2 or 3, is E0312 with ``= help: call it as `x.f(...)` ``. It is not a partially applied function value. A function value that fixes x is written as a lambda (`fn(f) { users.map(f) }`).
+- `|>` does not change. `xs |> List.map(f)` can still be written. `emela fmt` does not rewrite one form into the other.
 
 ### Declarations
 
-- T のフィールドと同じ名前で，第 1 引数の型の頭が T である fn を，T と同じモジュールに宣言すると compile error（E0334）．呼ぶ側で 1 と 2 が両方見つかることはなくなる
-- 1 と 3，2 と 3，3 の中の 2 つ以上が同時に見つかったときは，呼んだ位置で compile error（E0335）．`T.f(x)` や `Trait.f(x)` と書けば避けられる
+- Declaring, in the module of T, an fn whose first parameter has T at its head and whose name is the name of a field of T, is a compile error (E0334). So steps 1 and 2 are never both found at a call.
+- When steps 1 and 3, steps 2 and 3, or two or more traits in step 3 are found at the same time, it is a compile error at the call (E0335). Writing `T.f(x)` or `Trait.f(x)` avoids it.
 
 ### Library
 
-- `List.join(xs: List[String], sep: String) -> String` を足す．`String.join` は `@deprecated` にして 1 minor version 残す
-- `Request.headers(req, name)` と `Response.headers(res, name)` を `header_values` に改名する．フィールド `headers` と E0334 でぶつかるので，旧名を残せない
-- `Std.Http.headers`（`@deprecated`）は `Std.Http` のモジュールにあるので E0334 に当たらない．指す先の名前だけ `Response.header_values` に直す
-- std の内部では `Cause` の非公開フィールド `raise` が関数 `Cause.raise` とぶつかる．フィールドの名前を変える（API には出ていない）
+- Add `List.join(xs: List[String], sep: String) -> String`. `String.join` becomes `@deprecated` and remains for one minor version.
+- `String.concat(parts: List[String])` stays in String and is not moved. It makes a String from parts, like the functions that make values, and is not a method. At the end of a chain, `.join("")` does the same.
+- Rename `Request.headers(req, name)` and `Response.headers(res, name)` to `header_values`. They collide with the field `headers` (E0334), so the old names cannot remain. This is a breaking change without a deprecation period.
+- `Std.Http.headers` (`@deprecated`) is in the module `Std.Http`, so E0334 does not apply. Only the name it points to changes to `Response.header_values`.
+- Inside std, the private field `raise` of `Cause` collides with the function `Cause.raise`. The field is renamed (it is not part of the API).
 
 ### Typing rules
 
-- `x.f(a)` の型は，探し当てた fn を `M.f(x, a)` と呼んだときの型
-- x の型の頭が，検査がそこに達した時点で決まっていなければ E0314．フィールドアクセスと同じ条件
+- The type of `x.f(a)` is the type of the call `M.f(x, a)` of the function found.
+- If the head of the type of x is not determined when checking reaches the call, it is E0314, under the same condition as a field access.
 
 ## Specification changes
 
@@ -94,128 +97,145 @@ fn sum_lengths(words: List[String]) -> Int {
 
 Replace the second bullet after "From these rules, the meaning of `.` is clear from its left-hand side." with:
 
-- Lowercase name or uppercase name on the left: access to a value (a field, an operation of a capability obtained with `use`, or a method call, `[type.rules]`). Examples: `user.name`, `log.info`, `DEFAULT_CONFIG.port`, `xs.map(f)`
+> - Lowercase name or uppercase name on the left: access to a value (a field, an operation of a capability obtained with `use`, or a method call, `[type.rules]`). Examples: `user.name`, `log.info`, `DEFAULT_CONFIG.port`, `xs.map(f)`
 
 ### `[data.type]`
 
 After "Construction is written `User(id: 1, name: "a")`, and field access is written `user.name`.", add:
 
-- A function of the module that defines a type, whose first parameter has that type, can also be called as `user.f(...)` (`[type.rules]`). A function MUST NOT have the name of a field of that type (E0334).
+> - A function of the module that defines a type, whose first parameter has that type, can also be called as `user.f(...)` (`[type.rules]`). Such a function MUST NOT have the name of a field of that type (E0334).
 
 ### `[type.rules]`
 
 Add a row after `f(a)`:
 
-| Expression | T | E | R |
-|---|---|---|---|
-| `x.f(a)` (method call) | The return type of the function found, called as `M.f(x, a)` | Ex ∪ Ef ∪ Ea | Rx ∪ Rf ∪ Ra |
+> | Expression | T | E | R |
+> |---|---|---|---|
+> | `x.f(a)` (method call) | The return type of the function found, called as `M.f(x, a)` | Ex ∪ Ef ∪ Ea | Rx ∪ Rf ∪ Ra |
 
 After the bullet on field access, add:
 
-- A method call `x.f(a1, ..., an)` applies when the type of x has a named type T at its head and x is not a capability value. f is looked up, without looking at the scope, among: (1) the fields of T, (2) the fns of the module that defines T whose first parameter has T at the head of its type (only pub fns outside that module), and (3) the functions that take `self` of the traits that T implements. When x has a type parameter A, only the functions of the bounds of A are looked up. A field is called as a value of function type. A function is called as `M.f(x, a1, ..., an)`, with the same named arguments, order of evaluation, E and R. Only the head of the type of x is needed: the type arguments are checked as for the first argument of that call.
-- When more than one candidate is found, it is a compile error (E0335). A field and a function of the module cannot both be found, because declaring them is E0334. When none is found, it is E0312 (E0313 for a type without fields).
-- The head of the type of x MUST already be determined when checking reaches the method call (E0314), as for a field access.
+> - A method call `x.f(a1, ..., an)` applies when the type of x has a named type T at its head and x is not a capability value. f is looked up among: (1) the fields of T; (2) the fns of the module that defines T whose first parameter has T at the head of its type (only pub fns outside that module), without looking at the scope; and (3) the functions that take `self` of the traits that T implements, among the traits visible by name in the calling module (the traits of the Prelude, the traits imported by name in braces, and the traits defined in that module; a trait reached only as `L.Trait` is not looked up). When x has a type parameter A, only the functions of the bounds of A are looked up. A field is called as a value of function type. A function is called as `M.f(x, a1, ..., an)`, with the same named arguments, order of evaluation, E and R. Only the head of the type of x is needed: the type arguments are checked as for the first argument of that call.
+> - When more than one candidate is found, it is a compile error (E0335). A field and a function of the module cannot both be found, because declaring them is E0334. When none is found, it is E0312 (E0313 for a type without fields).
+> - `x.f` without a call, where f is a function found by (2) or (3) and not a field, is E0312 with ``= help: call it as `x.f(...)` ``. It does not make a function value.
+> - The head of the type of x MUST already be determined when checking reaches the method call (E0314), as for a field access.
 
 ### `[trait.call]`
 
 Replace "A trait function is called in the form `Trait.function(value)`. There is no method call syntax such as `user.show()`." with:
 
-- A trait function is called in the form `Trait.function(value)`. A function that takes `self` can also be called as `value.function()` (`[type.rules]`).
+> - A trait function is called in the form `Trait.function(value)`. A function that takes `self` can also be called as `value.function()` when the trait is visible by name in the calling module (`[type.rules]`).
 
 ### `[module.resolution]`
 
 After "On the left of `.`, only modules and Traits are looked up.", add:
 
-- A method call (`x.f(...)`, `[type.rules]`) does not look at the scope. The functions are looked up from the type of x, so the module that defines the type does not need to be imported.
+> - A method call (`x.f(...)`, `[type.rules]`) looks up the functions of the module that defines the type of x without looking at the scope, so that module does not need to be imported. The functions of traits are looked up only in the traits that can be written unqualified in the calling module.
 
 ### `[api.list]`
 
 Add:
 
-| Function | Signature | Implementation | Description |
-|---|---|---|---|
-| `join` | `join(xs: List[String], sep: String) -> String` | intrinsic | Joins with `sep` in between. Formerly `String.join` |
+> | Function | Signature | Implementation | Description |
+> |---|---|---|---|
+> | `join` | `join(xs: List[String], sep: String) -> String` | intrinsic | Joins with `sep` in between. Formerly `String.join` |
 
 ### `[api.string]`
 
 Replace the row of `join` with:
 
-| Function | Signature | Implementation | Description |
-|---|---|---|---|
-| `join` | `join(parts: List[String], sep: String) -> String` | Emela | `@deprecated`, remains for one minor version. `List.join(parts, sep)` |
+> | Function | Signature | Implementation | Description |
+> |---|---|---|---|
+> | `join` | `join(parts: List[String], sep: String) -> String` | Emela | `@deprecated`, remains for one minor version. `List.join(parts, sep)` |
 
 ### `[api.std.http.request]`
 
 Replace the row of `headers` with:
 
-| Declaration | Contents | Description |
-|---|---|---|
-| `header_values` | `header_values(req: Request, name: String) -> List[String]` | All values whose name matches. Formerly `headers`, renamed because the field `headers` has the same name (E0334) |
+> | Declaration | Contents | Description |
+> |---|---|---|
+> | `header_values` | `header_values(req: Request, name: String) -> List[String]` | All values whose name matches. Formerly `headers`, renamed because the field `headers` has the same name (E0334) |
 
 ### `[api.std.http.response]`
 
 Replace the row of `headers` with:
 
-| Declaration | Contents | Description |
-|---|---|---|
-| `header_values` | `header_values(res: Response, name: String) -> List[String]` | All values whose name matches. Formerly `headers`, renamed because the field `headers` has the same name (E0334) |
+> | Declaration | Contents | Description |
+> |---|---|---|
+> | `header_values` | `header_values(res: Response, name: String) -> List[String]` | All values whose name matches. Moved from `Std.Http`. Formerly `headers`, renamed because the field `headers` has the same name (E0334) |
 
-In `[api.std.http]`, replace `Response.headers` in the list of new places of the deprecated functions with `Response.header_values`.
+### `[api.std.http]`
+
+Replace `Response.headers` in the list of new places of the deprecated functions with `Response.header_values`.
 
 ### `[lsp.completion]`
 
 Replace "After `.`, otherwise: ..." with:
 
-- After `.`, otherwise: if the type of the left expression is a capability value, the operations of the effect. If its head is a named type, its fields (the description is the text of the written type), then the functions that can be called as methods (`[type.rules]`; kind Method, the first parameter left out of the signature). For other types, empty.
+> - After `.`, otherwise: if the type of the left expression is a capability value, the operations of the effect. If its head is a named type, its fields (the description is the text of the written type), then the functions that can be called as methods (`[type.rules]`; kind Method, the first parameter left out of the signature). For other types, empty.
 
 ### `[lsp.navigation]`
 
 Add:
 
-- A method call is a reference of the function it calls. Go to definition, references and rename treat `x.f(...)` as `M.f(x, ...)`.
+> - A method call is a reference of the function it calls. Go to definition, references and rename treat `x.f(...)` as `M.f(x, ...)`.
+
+### `[diag.list]`
+
+Replace the rows of E0312, E0313 and E0314 with:
+
+> | E0312 | No field or function with that name for a method call or a field access, or a function found by a method lookup written without a call (`[type.rules]`). For the latter, the help is ``= help: call it as `x.f(...)` `` | ``no field or function `nmae` for type `User` `` |
+> | E0313 | A field access or a method call on a type without fields, where no function is found | ``type `Int` has no field or function `nmae` `` |
+> | E0314 | A field access or a method call on a value whose type is not determined. The help is ``= help: add a type annotation`` | ``the type of this value must be known to access field `name` `` / ``the type of this value must be known to call `f` `` |
+
+Add after E0333:
+
+> | E0334 | In the module of a type, an fn whose first parameter has that type at its head has the name of a field of that type (`[data.type]`). Points at the name of the fn | ``function `headers` has the same name as a field of `Request` `` |
+> | E0335 | More than one candidate for a method call (`[type.rules]`). The help names the qualified forms | ``ambiguous method `show` for `User`: `User.show` and `Show.show` `` with ``= help: write `User.show(x)` or `Show.show(x)` `` |
 
 ## Diagnostics
 
-- [ ] E0312: widen to methods. ``no field or function `nmae` for type `User` ``
-- [ ] E0313: widen to methods. ``type `Int` has no fields or function `nmae` `` （文面は要検討）
-- [ ] E0314: widen to methods. ``the type of this value must be known to call `f` ``
-- [ ] E0334 (new): a fn with the name of a field of the type of its first parameter, in the module of that type. ``function `headers` has the same name as a field of `Request` ``. Points at the name of the fn
-- [ ] E0335 (new): more than one candidate for a method call. ``ambiguous method `show` for `User`: `User.show` and `Show.show` `` with ``= help: write `User.show(x)` or `Show.show(x)` ``
+- [ ] E0312: widened to method calls and to a function written without a call. ``no field or function `nmae` for type `User` ``
+- [ ] E0313: widened to method calls. ``type `Int` has no field or function `nmae` ``
+- [ ] E0314: widened to method calls. ``the type of this value must be known to call `f` ``
+- [ ] E0334 (new): a fn with the name of a field of the type of its first parameter, in the module of that type.
+- [ ] E0335 (new): more than one candidate for a method call.
 
 ## Compatibility
 
-- 今の書き方（`M.f(x)`，`x |> M.f`）はすべてそのまま通る
-- 今 E0312 や E0313 になっていたプログラムの一部が通るようになる
-- E0334 で通らなくなるプログラムがある．型と同じモジュールに，フィールドと同じ名前で第 1 引数がその型の fn を持つもの．std，examples，x では `Request.headers`，`Response.headers`，`Cause` の非公開フィールド `raise` の 3 つ
-- `Request.headers` と `Response.headers` の改名は，`@deprecated` の期間を置けない破壊的な変更になる
+- Every current form (`M.f(x)`, `x |> M.f`) still compiles with the same meaning.
+- Some programs that are E0312 or E0313 now compile.
+- Programs with an fn, in the module of a type, whose name is a field of that type and whose first parameter has that type, stop compiling (E0334). In std, examples and x, these are `Request.headers`, `Response.headers` and the private field `raise` of `Cause`.
+- Renaming `Request.headers` and `Response.headers` is a breaking change with no deprecation period.
 
 ## Implementation
 
-- emela-types: field access の検査に method lookup を足す．引く先は T の定義モジュールの関数表と，T の impl の表
-- emela-resolve: E0334 を宣言の検査で出す
-- emela-core: `List.join` を足し，`String.join` を `@deprecated` にする．`header_values` に改名する．`Cause` のフィールドの名前を変える
-- emela-lsp: `.` の後の補完，定義への移動，参照，rename
-- lowering は `M.f(x, a)` と同じ形に落とすので，codegen は変えない
+- emela-types: add the method lookup to the check of field access. It reads the table of functions of the module that defines T, the table of impls of T, and the traits visible in the calling module.
+- emela-resolve: report E0334 in the check of declarations.
+- emela-core: add `List.join` and deprecate `String.join`. Rename to `header_values`. Rename the field of `Cause`.
+- emela-lsp: completion after `.`, go to definition, references and rename.
+- A method call is lowered to the same form as `M.f(x, a)`, so the code generators do not change.
 
 ## Alternatives
 
-- `self` を書いた関数だけをメソッドにする：`self` という引数の名前が特別な意味を持つ．第 1 引数の型で決めれば，値を作る関数は自然に外れるので，印は要らない
-- 呼ぶ側の import を要求する：フィールドアクセスと揃わない．どの関数が呼べるかが型だけで決まらなくなる
-- フィールドとメソッドを呼び方で分ける（`x.f` はフィールド，`x.f(...)` は関数）：関数型のフィールドは今でも `x.f(...)` と呼べるので，この区別は成り立たない
-- `|>` だけで済ませる：モジュール名を毎段書くことになり，入れ子の呼び出しの読みにくさは残る
+- Only functions that write `self` are methods. The name `self` of a parameter would take a special meaning. Deciding by the type of the first parameter already leaves out the functions that make values, so no mark is needed.
+- Requiring the caller to import the module of the type. It would not match field access, and which functions can be called would not be decided by the type alone.
+- Looking up every trait that T implements, regardless of the scope. A dependency that declares a trait and implements it for List or String in its own module would make method calls ambiguous in modules that never import it.
+- Importing or hiding impls (`pub impl`). For one pair of a type and a trait there is one impl in the program (E0330), so importing the trait already decides which impl is meant. Hiding an impl in some modules would make bounds, `==` and interpolation depend on the module, while values flow between modules.
+- Telling fields and methods apart by the form of the call (`x.f` for a field, `x.f(...)` for a function). A field of function type is already called as `x.f(...)`, so the distinction does not hold.
+- `x.f` without a call as a partially applied function value. The same form would take a field out or make a closure depending on the declaration of f, and named arguments, E and R of the closure would need rules of their own. It is E0312 now, so it can be added later without breaking programs.
+- Moving `String.concat` to `List.concat`, or deprecating it. `List.concat` reads as joining lists, which `List.flatten` does. `String.concat` makes a String and is not wanted at the end of a chain.
+- Keeping `Request.headers` and `Response.headers` deprecated for one minor version, by lowering E0334 to a warning for `@deprecated` functions and preferring the field in method calls. It adds a rule for a short period before 1.0.
+- Other names for `header_values`: `all_headers` reads as all the pairs, the same as the field `headers`; `headers_named` has no counterpart in std. `header` and `header_values` read as the first value and all the values.
+- Only `|>`. The module name is written at every step, and nested calls stay hard to read.
+- A lint that prefers `|>` or method calls. There is no linter in the specification yet, and which form fits which code is known only after method calls are used. It is left to a later decision.
 
 ## Prior art
 
-- Uniform function call syntax（D，Nim）：第 1 引数を `.` の左に置く呼び出し．ただしスコープにある関数を引く
-- 型の定義モジュールから関数を引く形（Rust の inherent impl，Go のメソッド集合）
-- Kotlin の拡張関数は呼ぶ側の import を要る
+- Uniform function call syntax, which puts the first argument on the left of `.` (D, Nim). These look up the functions in the scope.
+- Looking up functions from the module that defines the type (inherent impls in Rust, method sets in Go).
+- Extension functions that the caller imports (Kotlin), and trait methods that need the trait in scope (Rust).
 
 ## Open questions
-
-- 呼ばずに書いた `x.f`（f がフィールドでなく関数）をどうするか．案：E0312 にして，help で ``call it as `x.f(...)`, or write `M.f` `` と出す．部分適用した関数値にはしない
-- 3（trait の関数）を探すとき，trait がスコープにあることを要求するか．モジュールの関数（2）は要求しないので，揃えるなら要求しない
-- `String.concat` も `List` に移すか．`List.concat` は「リストをつなぐ」と読まれやすい．`join("")` で足りるので，残すか `@deprecated` にするか
-- 改名先の名前（`header_values` でいいか）
-- `|>` とメソッドの使い分けを linter で寄せるか
 
 ## Decision
