@@ -153,9 +153,31 @@ enum Status {
 - `derive Encode` と `derive Shaped` は opaque type にも書ける．`derive Show` と同じく中身を見せる
 - `derive Decode` は opaque type には書けない（E0336）．導出した Decode は条件を確かめて作る関数を通らずに値を作るので，opaque type が守っている条件を破れてしまう．`impl Email: Decode` を手で書き，その中で `Email.parse` を呼ぶ
 
+### ObjectKey
+
+`Map` のキーを Fields のキーに書く trait `ObjectKey` も導出できる．対象は 2 つの形だけ．
+
+```emel
+enum Status {
+  @tag("open")
+  Open
+  @tag("done")
+  Done
+} derive Eq, Ord, ObjectKey
+
+type Code(value: String) derive Eq, Ord, ObjectKey
+```
+
+- すべての variant が中身を持たない enum：`to_key` は tag（`@tag` があればその名前）を返し，`from_key` は tag から variant を選ぶ．どの tag でもなければ `DecodeError(expected: "one of open, done", ...)`
+- フィールドが 1 つの型：`to_key` と `from_key` をそのフィールドの型の `ObjectKey` に任せる
+- それ以外の形は compile error（E0339）．中身のある variant や 2 つ以上のフィールドは，1 つの文字列にする決まった書き方がない．区切り文字を決めると，その文字を含む値で壊れる
+- opaque type には導出できない（E0336）．`from_key` が条件を確かめる関数を通らずに値を作るため
+- `ObjectKey` は `Ord` を親に持つので，今の trait の規則どおり `Ord` の impl も要る
+- Map のキーに enum を使う型でも `derive Encode, Decode` が通るようになる
+
 ### 導出できる trait
 
-`Eq`，`Ord`，`Show`（Prelude）と，`Std.Dynamic.Encode`，`Std.Dynamic.Decode`，`Std.Shape.Shaped`．同じ名前の利用者の trait（`trait Encode`）は導出できない（E0326 のまま）．
+`Eq`，`Ord`，`Show`（Prelude）と，`Std.Dynamic.Encode`，`Std.Dynamic.Decode`，`Std.Dynamic.ObjectKey`，`Std.Shape.Shaped`．同じ名前の利用者の trait（`trait Encode`）は導出できない（E0326 のまま）．
 
 ## Specification changes
 
@@ -163,7 +185,7 @@ enum Status {
 
 Replace "Only Eq, Ord and Show can be derived, and the compiler owns the derivation rules. Writing any other trait in derive is a compile error (E0326)." with:
 
-- Eq, Ord and Show of the Prelude, Encode and Decode of `Std.Dynamic`, and Shaped of `Std.Shape` can be derived, and the compiler owns the derivation rules. Writing any other trait in derive is a compile error (E0326), including a user trait with one of these names.
+- Eq, Ord and Show of the Prelude, Encode, Decode and ObjectKey of `Std.Dynamic`, and Shaped of `Std.Shape` can be derived, and the compiler owns the derivation rules. Writing any other trait in derive is a compile error (E0326), including a user trait with one of these names.
 
 Add after the bullet on Ord:
 
@@ -171,7 +193,8 @@ Add after the bullet on Ord:
 - A derived Decode of a type reads each field with `Std.Dynamic.field(value, name, Decode.from_dynamic)`, in declaration order, and constructs the value. A missing key is read as Null, so a field of an Option type may be left out. A derived Decode of an enum reads the variant from `Std.Dynamic.tag(value)` and its contents from `"value"` in the form of the variant, a positional field `i` with `Std.Dynamic.index(i, Decode.from_dynamic)`, after `Std.Dynamic.items(value, n)` has checked that the contents hold exactly as many items as the variant has fields. Keys that name no field of a type or of named contents are ignored. A tag that names no variant fails with `DecodeError(expected: "one of A, B", actual: the tag, path: [Key("tag")])`, listing the variants in declaration order. `from_dynamic` stops at the first failure. A derived Decode also defines `from_dynamic_all`, which reads every field in the same way with `Std.Dynamic.field_all` and `Std.Dynamic.index_all` and `Decode.from_dynamic_all`, and fails with `DecodeErrors` holding every failure in declaration order, each with its path. It constructs the value only when no field failed.
 - A derived Shaped of a type or an enum is `Std.Shape.visit(name, visiting, build)`, where build makes a Record of its fields (or Variants of its variants), each field through `Shaped.shape_in` with the visiting it is given. The name of a type with type parameters is `Std.Shape.generic_name(name, shapes)`, with the shapes of its type arguments in order.
 - In all three, the key of a field is the argument of its `@key` attribute if it has one, and its name otherwise; the tag of a variant is the argument of its `@tag` attribute if it has one, and its name otherwise. The names in `Field` and `Variant` of a derived Shaped are these keys and tags.
-- Decode cannot be derived for an opaque type (E0336): a derived Decode constructs the value without the functions of its module that check it. Encode and Shaped can be derived for an opaque type, and show its contents, as Show does.
+- A derived ObjectKey of an enum whose variants all have no contents writes the tag of the variant as the key and reads a key by the tags; a key that is no tag fails with `DecodeError(expected: "one of A, B", actual: the key, path: [])`. A derived ObjectKey of a type with exactly one field delegates `to_key` and `from_key` to the ObjectKey of that field. Deriving ObjectKey for any other type is a compile error (E0339).
+- Decode and ObjectKey cannot be derived for an opaque type (E0336): a derived Decode or ObjectKey constructs the value without the functions of its module that check it. Encode and Shaped can be derived for an opaque type, and show its contents, as Show does.
 
 Replace the table of the kinds of derivation and the text before it with:
 
@@ -179,9 +202,9 @@ The derivations that the compiler owns come in three kinds. Letting trait author
 
 | Kind of derivation | Shape | Derivable traits |
 |---|---|---|
-| Fold | Takes one value and combines the results for each field | Show, Encode, Shaped (over the types of the fields) |
+| Fold | Takes one value and combines the results for each field | Show, Encode, Shaped (over the types of the fields), `to_key` of ObjectKey |
 | Comparison | Takes two values and compares them field by field | Eq, Ord |
-| Construction | Builds a value from the results generated for each field | Decode |
+| Construction | Builds a value from the results generated for each field | Decode, `from_key` of ObjectKey |
 
 ### `[kw.annotation]`
 
@@ -309,13 +332,14 @@ A new section after `[api.std.shape]`.
 
 ### `[diag.list]`
 
-Change E0326 to list the derivable traits, and add E0336, E0337 and E0338.
+Change E0326 to list the derivable traits, and add E0336, E0337, E0338 and E0339.
 
 | Code | Condition | Message |
 |---|---|---|
 | E0337 | Two fields of one type or variant with the same key, or two variants of one enum with the same tag, after `@key` and `@tag` (3.5) | ``key `dueAt` is used by both `due_at` and `due` `` / ``tag `done` is used by both `Done` and `Closed` `` |
 | E0338 | `@key` not on a field, `@tag` not on a variant, or an argument that is not one string literal (3.5) | `` `@key` takes one string literal `` / `` `@tag` can only be placed on a variant `` |
-| E0336 | `derive Decode` on an opaque type (10.5). The help is ``= help: write `impl Email: Decode` that builds the value with a function that checks it`` | ``cannot derive `Decode` for opaque type `Email` `` |
+| E0336 | `derive Decode` or `derive ObjectKey` on an opaque type (10.5). The help is ``= help: write `impl Email: Decode` that builds the value with a function that checks it`` | ``cannot derive `Decode` for opaque type `Email` `` |
+| E0339 | `derive ObjectKey` on a type with no field or more than one, or on an enum with a variant that has contents (10.5) | ``cannot derive `ObjectKey` for `Shape`: variant `Circle` has contents`` / ``cannot derive `ObjectKey` for `Point`: it has 2 fields`` |
 
 ### `[open.list]`
 
@@ -324,7 +348,8 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler with th
 ## Diagnostics
 
 - [ ] E0326: 導出できる trait の一覧を広げる．利用者が同じ名前で宣言した trait は今までどおり E0326
-- [ ] E0336（新規）：opaque type に `derive Decode`
+- [ ] E0336（新規）：opaque type に `derive Decode` と `derive ObjectKey`
+- [ ] E0339（新規）：`derive ObjectKey` を付けられない形
 - [ ] E0337（新規）：`@key` と `@tag` を当てた後のキーや tag の重複
 - [ ] E0338（新規）：`@key` と `@tag` の置き場所と引数
 - [ ] W0303：導出した Encode，Decode，Shaped も「どこからも要求されない」の対象にする．境界を持つ関数への引き渡し（`Json.encode(view)`）が要求に当たる
@@ -339,9 +364,9 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler with th
 ## Implementation
 
 - emela-core（std）：`std/dynamic.emel`，`std/dynamic/number.emel`，`std/shape.emel` を x から移す．`Std.Shape` に注記の関数（`minimum` など 6 つ）を足す．`Std.Dynamic` に `items` を足す（x/dynamic にはない）
-- emela-core（lower.rs）：`derived` が Prelude の名前だけでなく，`Std.Dynamic.Encode`，`Std.Dynamic.Decode`，`Std.Shape.Shaped` を見分ける．生成するコードが呼ぶ std の関数（`Dynamic.object`，`Dynamic.field`，`Dynamic.tag`，`Dynamic.index`，`Dynamic.variant`，`Shape.visit`，`Shape.generic_name`）を，名前で引ける表に入れる
-- emela-core（mono/derive.rs）：`DeriveOp` に Encode，Decode，Shaped を足す．型が単相化で決まったところで本体を組み立てる．Shaped のフィールドの `None: Option[T]` は IR で型付きの値として直接作る．`generic_name` に渡す名前は，単相化の時点で決まっているので定数でもよい
-- emela-types：E0336 を derive の検査に足す
+- emela-core（lower.rs）：`derived` が Prelude の名前だけでなく，`Std.Dynamic.Encode`，`Std.Dynamic.Decode`，`Std.Dynamic.ObjectKey`，`Std.Shape.Shaped` を見分ける．生成するコードが呼ぶ std の関数（`Dynamic.object`，`Dynamic.field`，`Dynamic.tag`，`Dynamic.index`，`Dynamic.variant`，`Shape.visit`，`Shape.generic_name`）を，名前で引ける表に入れる
+- emela-core（mono/derive.rs）：`DeriveOp` に Encode，Decode，ObjectKey，Shaped を足す．Decode は `from_dynamic` と `from_dynamic_all` の 2 つを生成する．型が単相化で決まったところで本体を組み立てる．Shaped のフィールドの `None: Option[T]` は IR で型付きの値として直接作る．`generic_name` に渡す名前は，単相化の時点で決まっているので定数でもよい
+- emela-types：E0336，E0339 を derive の検査に，E0337，E0338 を属性の検査に足す
 - emela-lsp：derive の補完の候補に 3 つの trait を足す（import されているとき）
 - emela-core（std）：`std/json.emel` を x/json から移し，`decode_all` を足す
 - x：JSON Schema の生成を x/shape から新しいパッケージ x/json-schema（モジュール `JsonSchema`）に移す．x/json に置くと，根のモジュール `Json` が `Std.Json` と import の名前でぶつかる．`Shape.Rule` を x/rule に移す
@@ -361,6 +386,6 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler with th
 
 ## Open questions
 
-- `ObjectKey` も導出できるようにするか（enum を Map のキーに使う場合）
+なし．
 
 ## Decision
