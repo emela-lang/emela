@@ -2,7 +2,7 @@
 title: The JavaScript launcher names
 authors: [isoshigi]
 status: draft
-pr:
+pr: 462
 issue:
 decided:
 touches: [target.js.module, ext.export, diag.list]
