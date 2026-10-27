@@ -2,7 +2,7 @@
 title: Behavior when memory is exhausted
 authors: [isoshigi]
 status: draft
-pr:
+pr: 461
 issue:
 decided:
 touches: [dyn.memory, target.unspecified, error.defect, fiber.cause, target.wasm.run]
