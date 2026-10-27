@@ -42,7 +42,7 @@ JSON の parse と書き出し（x/json）と JSON Schema の生成（x/shape �
 
 | std のモジュール | 中身 | 元 |
 |---|---|---|
-| `Std.Dynamic` | `Dynamic`，`Segment`，`DecodeError`，trait `Encode`，`Decode`，`ObjectKey`，decoder（`string`，`int`，`field`，`list`，`optional`，`dict`，`index`，`tag`），`object`，`variant`，`kind` | x/dynamic |
+| `Std.Dynamic` | `Dynamic`，`Segment`，`DecodeError`，trait `Encode`，`Decode`，`ObjectKey`，decoder（`string`，`int`，`field`，`list`，`optional`，`dict`，`index`，`items`，`tag`），`object`，`variant`，`kind` | x/dynamic |
 | `Std.Dynamic.Number` | `Number`，`OutOfRange`，`parse`，`from_int`，`to_int` など | x/dynamic の `Number` |
 | `Std.Shape` | `Shape`，`Field`，`Variant`，`Contents`，trait `Shaped`，`visit`，`name_of`，`generic_name`，`annotate`，`strip`，`note`，`field_names`，`of_value`，`of_parameter`，`description`，`pattern`，`format` | x/shape |
 
@@ -80,7 +80,7 @@ impl TodoView: Encode {
 Decode（値を作る）
 
 - record：フィールドごとに `Std.Dynamic.field(d, 名前, Decode.from_dynamic)` で読み，構築する．キーがないときは null を読んだものとして扱う（`field` の今の動き）ので，`Option` のフィールドは省いてよい
-- enum：`Std.Dynamic.tag(d)` で variant を選び，`"value"` を中身の形で読む．位置の中身は `index(i, Decode.from_dynamic)`
+- enum：`Std.Dynamic.tag(d)` で variant を選び，`"value"` を中身の形で読む．位置の中身は，まず `Std.Dynamic.items(value, n)` で要素の数が宣言どおりかを確かめ，それから `index(i, Decode.from_dynamic)` で読む．数が違えば `DecodeError(expected: "2 items", ...)`．名前付きの中身と record は，知らないキーを今までどおり無視する
 - 知らない tag は `DecodeError(expected: "one of Leaf, Pair, Node", actual: Text(tag), path: [Key("tag")])`
 - 最初の失敗で止まる．path にはフィールド名と位置が積まれる
 
@@ -126,7 +126,7 @@ Replace "Only Eq, Ord and Show can be derived, and the compiler owns the derivat
 Add after the bullet on Ord:
 
 - A derived Encode of a type writes an object of its fields, by name, each through `Encode.to_dynamic`. A field whose value is None is written as Null; the key is not left out. A derived Encode of an enum writes `Std.Dynamic.variant(name, contents)`: an object for named contents, Items with one element for each positional field, and no value for a variant without contents.
-- A derived Decode of a type reads each field with `Std.Dynamic.field(value, name, Decode.from_dynamic)`, in declaration order, and constructs the value. A missing key is read as Null, so a field of an Option type may be left out. A derived Decode of an enum reads the variant from `Std.Dynamic.tag(value)` and its contents from `"value"` in the form of the variant, a positional field `i` with `Std.Dynamic.index(i, Decode.from_dynamic)`. A tag that names no variant fails with `DecodeError(expected: "one of A, B", actual: the tag, path: [Key("tag")])`, listing the variants in declaration order. Decoding stops at the first failure.
+- A derived Decode of a type reads each field with `Std.Dynamic.field(value, name, Decode.from_dynamic)`, in declaration order, and constructs the value. A missing key is read as Null, so a field of an Option type may be left out. A derived Decode of an enum reads the variant from `Std.Dynamic.tag(value)` and its contents from `"value"` in the form of the variant, a positional field `i` with `Std.Dynamic.index(i, Decode.from_dynamic)`, after `Std.Dynamic.items(value, n)` has checked that the contents hold exactly as many items as the variant has fields. Keys that name no field of a type or of named contents are ignored. A tag that names no variant fails with `DecodeError(expected: "one of A, B", actual: the tag, path: [Key("tag")])`, listing the variants in declaration order. Decoding stops at the first failure.
 - A derived Shaped of a type or an enum is `Std.Shape.visit(name, visiting, build)`, where build makes a Record of its fields (or Variants of its variants), each field through `Shaped.shape_in` with the visiting it is given. The name of a type with type parameters is `Std.Shape.generic_name(name, shapes)`, with the shapes of its type arguments in order.
 - Decode cannot be derived for an opaque type (E0336): a derived Decode constructs the value without the functions of its module that check it. Encode and Shaped can be derived for an opaque type, and show its contents, as Show does.
 
@@ -170,6 +170,7 @@ A new section after `[api.std.map]`.
 > | `string`, `bool`, `int`, `int64`, `float` | `fn(value: Dynamic) -> A fails DecodeError` | Read a value of a basic type. `int` and `int64` accept a number whose value is an integer (`1.0`, `1e3`) |
 > | `list`, `optional`, `dict` | `fn(decoder) -> decoder` | Read Items, Null or a value, and Fields with each value read by `decoder` |
 > | `index` | `index[A](n: Int, decoder) -> decoder` | Read the element `n` of Items. Fewer elements is a DecodeError |
+> | `items` | `items(value: Dynamic, n: Int) -> List[Dynamic] fails DecodeError` | The elements of Items that has exactly `n` elements. Any other number is `DecodeError(expected: "n items", ...)` |
 > | `field` | `field[A](value: Dynamic, name: String, decoder) -> A fails DecodeError` | Read the key `name` of Fields. A missing key is read as Null |
 > | `tag` | `tag(value: Dynamic) -> String fails DecodeError` | The `"tag"` of an enum written by Encode |
 > | `object`, `variant` | `object(fields: List[(String, Dynamic)]) -> Dynamic`, `variant(tag: String, value: Option[Dynamic]) -> Dynamic` | Build Fields, and the form of an enum |
@@ -252,7 +253,7 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler, and th
 
 ## Implementation
 
-- emela-core（std）：`std/dynamic.emel`，`std/dynamic/number.emel`，`std/shape.emel` を x から移す．`Std.Shape` に注記の関数（`minimum` など 6 つ）を足す
+- emela-core（std）：`std/dynamic.emel`，`std/dynamic/number.emel`，`std/shape.emel` を x から移す．`Std.Shape` に注記の関数（`minimum` など 6 つ）を足す．`Std.Dynamic` に `items` を足す（x/dynamic にはない）
 - emela-core（lower.rs）：`derived` が Prelude の名前だけでなく，`Std.Dynamic.Encode`，`Std.Dynamic.Decode`，`Std.Shape.Shaped` を見分ける．生成するコードが呼ぶ std の関数（`Dynamic.object`，`Dynamic.field`，`Dynamic.tag`，`Dynamic.index`，`Dynamic.variant`，`Shape.visit`，`Shape.generic_name`）を，名前で引ける表に入れる
 - emela-core（mono/derive.rs）：`DeriveOp` に Encode，Decode，Shaped を足す．型が単相化で決まったところで本体を組み立てる．Shaped のフィールドの `None: Option[T]` は IR で型付きの値として直接作る．`generic_name` に渡す名前は，単相化の時点で決まっているので定数でもよい
 - emela-types：E0336 を derive の検査に足す
@@ -274,7 +275,6 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler, and th
 
 ## Open questions
 
-- 位置の中身の数：derived Decode は余った要素を無視する（`index` の今の動き）が，JSON Schema の生成は `maxItems` を書く．どちらに揃えるか
 - derived Decode が最初の失敗で止まるか，全部集めるか（std-json の下書きの未決）
 - フィールドの属性（名前の変換，None のキーを省く）．`[open.list]` #3 で決めるとして，それまで手書きの impl に任せてよいか
 - JSON（x/json）を同じ proposal で std に入れるか，x に残すか
