@@ -195,13 +195,29 @@ fn examples() -> Vec<(String, PathBuf)> {
 
 #[test]
 fn examples_run_the_same_on_js_and_c() {
-    let Some(mut c) = c_backend() else { return };
+    let Some(c) = c_backend() else { return };
+    let examples = examples();
+    // The examples run in parallel, all on C and then all on JS, and each target starts from the
+    // same current directory: the examples that write files there (`notes`) must not write the
+    // same ones.
+    let on_c = in_clean_cwd(|| {
+        map_in_parallel(&examples, &c, |(name, dir), c| {
+            run_on(dir, Target::C, c, name)
+        })
+    });
+    // The examples that do not build on C are not run on JS either: some of them write files in
+    // the current directory.
+    let on_js = in_clean_cwd(|| {
+        map_in_parallel(&examples, &c, |(name, dir), c| {
+            (!NOT_ON_C.iter().any(|(n, _)| n == name)).then(|| {
+                run_on(dir, Target::Js, c, name)
+                    .unwrap_or_else(|a| panic!("{name} does not run on JS: {:?}", messages(&a)))
+            })
+        })
+    });
     let mut failures = Vec::new();
-    for (name, dir) in examples() {
-        let on_c = in_clean_cwd(|| run_on(&dir, Target::C, &mut c, &name));
-        // The examples that do not build on C are not run on JS either: some of them write files
-        // in the current directory.
-        if let Some((_, code)) = NOT_ON_C.iter().find(|(n, _)| *n == name) {
+    for (((name, _), on_c), js) in examples.iter().zip(on_c).zip(on_js) {
+        if let Some((_, code)) = NOT_ON_C.iter().find(|(n, _)| n == name) {
             match on_c {
                 Ok(_) => failures.push(format!("{name} now builds on C: take it out of NOT_ON_C")),
                 Err(analysis) if first_code(&analysis) == *code => {}
@@ -212,8 +228,7 @@ fn examples_run_the_same_on_js_and_c() {
             }
             continue;
         }
-        let js = in_clean_cwd(|| run_on(&dir, Target::Js, &mut c, &name))
-            .unwrap_or_else(|a| panic!("{name} does not run on JS: {:?}", messages(&a)));
+        let js = js.expect("run on JS");
         match on_c {
             Ok(on_c) if on_c == js => {}
             Ok(on_c) => failures.push(format!("{name}: JS gives {js:?}\nC gives {on_c:?}")),
@@ -228,23 +243,24 @@ fn examples_run_the_same_on_js_and_c() {
 
 #[test]
 fn example_tests_give_the_same_results_on_js_and_c() {
-    let Some(mut c) = c_backend() else { return };
-    let mut failures = Vec::new();
-    for (name, dir) in examples() {
-        if NOT_ON_C.iter().any(|(n, _)| *n == name) {
-            continue;
-        }
-        let js = test_on(&dir, Target::Js, &mut c, &name)
+    let Some(c) = c_backend() else { return };
+    let examples: Vec<_> = examples()
+        .into_iter()
+        .filter(|(name, _)| !NOT_ON_C.iter().any(|(n, _)| n == name))
+        .collect();
+    // The tests use file systems in memory, not the current directory, so they run in parallel.
+    let failures = in_parallel(&examples, &c, |(name, dir), c| {
+        let js = test_on(dir, Target::Js, c, name)
             .unwrap_or_else(|a| panic!("the tests of {name} fail on JS: {:?}", messages(&a)));
-        match test_on(&dir, Target::C, &mut c, &name) {
-            Ok(on_c) if on_c == js => {}
-            Ok(on_c) => failures.push(format!("{name}: JS gives {js:?}\nC gives {on_c:?}")),
-            Err(analysis) => failures.push(format!(
+        match test_on(dir, Target::C, c, name) {
+            Ok(on_c) if on_c == js => None,
+            Ok(on_c) => Some(format!("{name}: JS gives {js:?}\nC gives {on_c:?}")),
+            Err(analysis) => Some(format!(
                 "the tests of {name} do not build on C: {:?}",
                 messages(&analysis)
             )),
         }
-    }
+    });
     report(&failures);
 }
 
@@ -287,20 +303,33 @@ fn in_parallel<T: Sync>(
     c: &CoreC,
     check: impl Fn(&T, &mut CoreC) -> Option<String> + Sync,
 ) -> Vec<String> {
+    map_in_parallel(items, c, check)
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// Calls `f` on every item from as many threads as there are CPUs, each with its own copy of the
+/// C backend, and returns the results in the order of `items`.
+fn map_in_parallel<T: Sync, R: Send>(
+    items: &[T],
+    c: &CoreC,
+    f: impl Fn(&T, &mut CoreC) -> R + Sync,
+) -> Vec<R> {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
     let next = std::sync::atomic::AtomicUsize::new(0);
-    let mut results: Vec<(usize, String)> = std::thread::scope(|s| {
+    let mut results: Vec<(usize, R)> = std::thread::scope(|s| {
         let workers: Vec<_> = (0..threads.min(items.len()))
             .map(|_| {
                 s.spawn(|| {
                     let mut c = c.clone();
-                    let mut failures = Vec::new();
+                    let mut results = Vec::new();
                     loop {
                         let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(item) = items.get(i) else { break };
-                        failures.extend(check(item, &mut c).map(|f| (i, f)));
+                        results.push((i, f(item, &mut c)));
                     }
-                    failures
+                    results
                 })
             })
             .collect();
@@ -310,7 +339,7 @@ fn in_parallel<T: Sync>(
             .collect()
     });
     results.sort_by_key(|(i, _)| *i);
-    results.into_iter().map(|(_, f)| f).collect()
+    results.into_iter().map(|(_, r)| r).collect()
 }
 
 /// Test functions with fibers and suspension (spec chapters 11, 13, 14.5): the outcomes, an

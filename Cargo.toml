@@ -94,3 +94,7 @@ opt-level = 3
 # sumdb の証明のテストは何万回も sha256 を計算する．
 [profile.dev.package.sha2]
 opt-level = 3
+
+# 構文木をたどる処理の大半は rowan の中で動く（fmt の性質テストは命令数が半分になる）．
+[profile.dev.package.rowan]
+opt-level = 3

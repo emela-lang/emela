@@ -6,6 +6,7 @@
 mod common;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::{PRELUDE, cc, run, to_c};
 use emela_codegen_c::CErrorKind;
@@ -42,25 +43,59 @@ fn programs_behave_as_on_js() {
         .collect();
     programs.sort();
     assert!(!programs.is_empty());
-    let mut failures = Vec::new();
-    for path in programs {
+    // Each program builds twice (plainly and with the sanitizers) in its own directory, so they
+    // run in parallel: this test is the slowest of the suite otherwise.
+    let failures = in_parallel(&programs, |path| {
         let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
-        let src = std::fs::read_to_string(&path).unwrap();
+        let src = std::fs::read_to_string(path).unwrap();
         let expected = parse_expected(
             &std::fs::read_to_string(path.with_extension("expected"))
                 .unwrap_or_else(|_| panic!("{name}.expected is missing")),
         );
         let got = run(&name, &src).expect("cc is available");
-        if (got.code, &got.stdout, &got.stderr)
-            != (expected.code, &expected.stdout, &expected.stderr)
-        {
-            failures.push(format!(
-                "{name}: expected exit {}\n{}{}\ngot exit {}\n{}{}",
-                expected.code, expected.stdout, expected.stderr, got.code, got.stdout, got.stderr
-            ));
-        }
-    }
+        ((got.code, &got.stdout, &got.stderr)
+            != (expected.code, &expected.stdout, &expected.stderr))
+            .then(|| {
+                format!(
+                    "{name}: expected exit {}\n{}{}\ngot exit {}\n{}{}",
+                    expected.code,
+                    expected.stdout,
+                    expected.stderr,
+                    got.code,
+                    got.stdout,
+                    got.stderr
+                )
+            })
+    });
     assert!(failures.is_empty(), "\n{}", failures.join("\n\n"));
+}
+
+/// Calls `check` on every item from as many threads as there are CPUs, and returns the failures
+/// in the order of `items`.
+fn in_parallel<T: Sync>(items: &[T], check: impl Fn(&T) -> Option<String> + Sync) -> Vec<String> {
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let next = AtomicUsize::new(0);
+    let mut results: Vec<(usize, String)> = std::thread::scope(|s| {
+        let workers: Vec<_> = (0..threads.min(items.len()))
+            .map(|_| {
+                s.spawn(|| {
+                    let mut failures = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(item) = items.get(i) else { break };
+                        failures.extend(check(item).map(|f| (i, f)));
+                    }
+                    failures
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|w| w.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    });
+    results.sort_by_key(|(i, _)| *i);
+    results.into_iter().map(|(_, f)| f).collect()
 }
 
 /// The message of the only error compiling `src` (after [`PRELUDE`]) to C.

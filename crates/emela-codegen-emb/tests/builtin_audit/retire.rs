@@ -122,13 +122,14 @@ fn flow(alias: Alias, suspends: bool) -> Module {
 
 #[test]
 fn retired_handler_aliases_keep_the_active_check_in_native_and_suspend_callers() {
-    for alias in [
+    let aliases = [
         Alias::Direct,
         Alias::Evidence,
         Alias::Coerce,
         Alias::Tuple,
         Alias::Argument,
-    ] {
+    ];
+    for_each_in_parallel(aliases, |alias| {
         for suspends in [false, true] {
             let flow = flow(alias, suspends);
             emela_lir::verify(&flow).expect("retiring an alias is verified Flow");
@@ -158,7 +159,7 @@ int main(void) {{ {invoke} return 1; }}
                 ),
             );
         }
-    }
+    });
 }
 
 #[test]
