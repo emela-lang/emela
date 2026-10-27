@@ -101,6 +101,7 @@ The names in a module are split into three namespaces (types, constructors, and 
 | Values | fn, const |
 
 - Which namespace is looked up depends on where the name is written. On the left of `.`, only modules and Traits are looked up. In a type position, only types are looked up. For a type name in an expression or a pattern, only constructors are looked up. This is why the module `Email` and the type `Email` in 4.4 do not collide.
+- A method call (`x.f(...)`, `[type.rules]`) looks up the functions of the module that defines the type of x without looking at the scope, so that module does not need to be imported. The functions of traits are looked up only in the traits that can be written unqualified in the calling module.
 - `import Email` alone does not make the type `Email` usable unqualified. Write `Email.Email`, or import it with `import Email.{Email}`.
 - A name on the left of `.` is looked up among the module's definitions and imports, and if not found, among the built-in modules and the Traits of the Prelude. If both a module and a Trait are found at the same level, it is a compile error (E0218).
 - The B in `A.B.f` is limited to a pub Trait of module A. There are no nested modules. An effect cannot be written on the left of `.` (`Logger.info` is a compile error. 8.2).
