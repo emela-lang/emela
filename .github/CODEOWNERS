@@ -5,7 +5,3 @@
 /proposals/ @Allianaab2m
 /.agents/skills/ @Allianaab2m
 /.claude/skills/ @Allianaab2m
-
-# The last matching pattern wins, so emela-codegen-wasm comes after the rule for the other crates.
-/crates/ @Allianaab2m
-/crates/emela-codegen-wasm/ @isoshigi
