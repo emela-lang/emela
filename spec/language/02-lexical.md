@@ -33,7 +33,7 @@ The kind of a name is determined by case, and the end of a statement is determin
 From these rules, the meaning of `.` is clear from its left-hand side.
 
 - Type name on the left: a static reference (a function of a module, a method of a Trait). Example: `List.map`
-- Lowercase name or uppercase name on the left: access to a value (a field, an operation of a capability obtained with `use`). Examples: `user.name`, `log.info`, `DEFAULT_CONFIG.port`
+- Lowercase name or uppercase name on the left: access to a value (a field, an operation of a capability obtained with `use`, or a method call, `[type.rules]`). Examples: `user.name`, `log.info`, `DEFAULT_CONFIG.port`, `xs.map(f)`
 
 ## 2.4 Literals `[lex.literal]`
 

@@ -40,6 +40,7 @@ impl (`[trait.derive]`): ParseError has `derive Show` (its contents are shown wh
 | `reverse` | `reverse[A](xs: List[A]) -> List[A]` | Emela | Reverse order |
 | `append` | `append[A](xs: List[A], ys: List[A]) -> List[A]` | Emela | Joins two lists |
 | `flatten` | `flatten[A](xss: List[List[A]]) -> List[A]` | Emela | Flattens a list of lists |
+| `join` | `join(xs: List[String], sep: String) -> String` | intrinsic | Joins with `sep` in between. Formerly `String.join` |
 | `partition` | `partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A])` | Emela | Splits into the True elements and the False elements |
 | `any` | `any[A](xs: List[A], f: fn(A) -> Bool) -> Bool` | Emela | Whether some element gives True (stops when one is found) |
 | `all` | `all[A](xs: List[A], f: fn(A) -> Bool) -> Bool` | Emela | Whether all give True (stops at False) |
@@ -79,13 +80,13 @@ impl (`[trait.builtin]`): `impl Option[A: Eq]: Eq`, `impl Option[A: Ord]: Ord`, 
 | `length` | `length(s: String) -> Int` | intrinsic | The number of grapheme clusters |
 | `byte_size` | `byte_size(s: String) -> Int` | intrinsic | The number of UTF-8 bytes |
 | `append` | `append(a: String, b: String) -> String` | intrinsic | Joins two strings |
-| `concat` | `concat(parts: List[String]) -> String` | Emela | Joins all of them in order (`join(parts, "")`) |
+| `concat` | `concat(parts: List[String]) -> String` | Emela | Joins all of them in order (`List.join(parts, "")`) |
 | `contains` | `contains(s: String, sub: String) -> Bool` | intrinsic | Whether it contains `sub` |
 | `starts_with` | `starts_with(s: String, prefix: String) -> Bool` | intrinsic | Whether it starts with `prefix` |
 | `ends_with` | `ends_with(s: String, suffix: String) -> Bool` | intrinsic | Whether it ends with `suffix` |
 | `split` | `split(s: String, sep: String) -> List[String]` | intrinsic | Splits at `sep`. By grapheme cluster if `sep` is empty |
 | `chars` | `chars(s: String) -> List[String]` | intrinsic | A list of the grapheme clusters |
-| `join` | `join(parts: List[String], sep: String) -> String` | intrinsic | Joins with `sep` in between |
+| `join` | `join(parts: List[String], sep: String) -> String` | Emela | `@deprecated`, remains for one minor version. `List.join(parts, sep)` |
 | `trim` | `trim(s: String) -> String` | intrinsic | Removes leading and trailing White_Space |
 | `code_points` | `code_points(s: String) -> List[Int]` | intrinsic | A list of the code point values |
 | `from_code_point` | `from_code_point(n: Int) -> Option[String]` | intrinsic | `None` if not a scalar value |
@@ -93,7 +94,7 @@ impl (`[trait.builtin]`): `impl Option[A: Eq]: Eq`, `impl Option[A: Ord]: Ord`, 
 | `to_ascii_uppercase` | `to_ascii_uppercase(s: String) -> String` | Emela | Converts only a to z into A to Z |
 | `show_nested` | `show_nested[A: Show](value: A) -> String` | intrinsic | `@internal`. The representation of a value placed inside another value (`[trait.builtin]`). A String is enclosed in `"`, and anything else uses `Show.show`. Used by the Show impls in core |
 
-- `split(s, "")` splits by grapheme cluster (the same result as `chars(s)`). `split("", "")` is `[]`. With a non-empty separator, `split("", ",")` is `[""]`. In both cases, `String.join(String.split(s, sep), sep) == s` holds.
+- `split(s, "")` splits by grapheme cluster (the same result as `chars(s)`). `split("", "")` is `[]`. With a non-empty separator, `split("", ",")` is `[""]`. In both cases, `List.join(String.split(s, sep), sep) == s` holds.
 - `contains`, `starts_with`, `ends_with`, and `split` match on the sequence of code points and do not look at grapheme cluster boundaries (`String.contains("e\u{301}", "e")` is True).
 - In `code_points`, one grapheme cluster can produce several values. `from_code_point(n)` returns None if n is not a Unicode scalar value (0 to 0x10FFFF inclusive, excluding the surrogates 0xD800 to 0xDFFF).
 - The whitespace that `trim` removes is the 25 characters with the Unicode White_Space property (U+0009 to U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000). U+FEFF and U+200B are not whitespace. This table is fixed and does not depend on the host's Unicode version.
@@ -414,7 +415,7 @@ The client effect, its errors, and the entry adapter for HTTP services. Requests
 | `Outgoing` | `@external type Outgoing` | The response for the host to send |
 | `serve` | `serve[E](app: fn(Request) -> Response fails E use { Async }, incoming: Incoming) -> Outgoing use { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
 
-- `request`, `add_header`, `header`, `headers`, `encode_query`, `require_ok`, and `response` remain for one minor version with `@deprecated`, pointing to their new places (`Request.new`, `Request.add_header`, `Response.header`, `Response.headers`, `Request.encode_query`, `Response.require_ok`, `Response.new`).
+- `request`, `add_header`, `header`, `headers`, `encode_query`, `require_ok`, and `response` remain for one minor version with `@deprecated`, pointing to their new places (`Request.new`, `Request.add_header`, `Response.header`, `Response.header_values`, `Request.encode_query`, `Response.require_ok`, `Response.new`).
 - The message of ConnectionFailed is the text of the host's exception. If cause information is available, the cause's code and text, joined by a space, are appended after `: ` (`fetch failed: ECONNREFUSED connect ECONNREFUSED 127.0.0.1:1234`). The text depends on the host.
 - A failure while reading the response body is also ConnectionFailed.
 - The default content-type (`text/plain;charset=UTF-8`) is added only when a body is sent. It is not added to GET and HEAD, which are sent without a body.
@@ -447,7 +448,7 @@ fn fetches() {
 | `new` | `new(method: Method, url: String) -> Request` | A request with no headers and no body. Formerly `Http.request` |
 | `add_header` | `add_header(req: Request, name: String, value: String) -> Request` | Appends a header at the end |
 | `header` | `header(req: Request, name: String) -> Option[String]` | The first value whose name matches. Case-insensitive (ASCII) |
-| `headers` | `headers(req: Request, name: String) -> List[String]` | All values whose name matches |
+| `header_values` | `header_values(req: Request, name: String) -> List[String]` | All values whose name matches. Formerly `headers`, renamed because the field `headers` has the same name (E0334) |
 | `path` | `path(req: Request) -> String` | The path of `url`, without the query, as written (not decoded). `/` if empty |
 | `segments` | `segments(req: Request) -> List[String]` | The path split at `/`, without empty segments, each percent-decoded. A segment with a malformed `%` sequence, or whose decoded bytes are not UTF-8, is kept as written |
 | `query` | `query(req: Request) -> List[(String, String)]` | The part of `url` after `?`, read as `decode_query` does. Empty if there is no `?`. A pair with a malformed `%` sequence, or whose decoded bytes are not UTF-8, is kept as written |
@@ -465,7 +466,7 @@ impl (`[trait.derive]`): Method and Request have `derive Eq, Show`.
 | `new` | `new(status: Int, body: String) -> Response` | A response without headers. Formerly `Http.response` |
 | `add_header` | `add_header(res: Response, name: String, value: String) -> Response` | Appends a header at the end |
 | `header` | `header(res: Response, name: String) -> Option[String]` | The first value whose name matches. Case-insensitive (ASCII). Moved from `Std.Http` |
-| `headers` | `headers(res: Response, name: String) -> List[String]` | All values whose name matches. Moved from `Std.Http` |
+| `header_values` | `header_values(res: Response, name: String) -> List[String]` | All values whose name matches. Moved from `Std.Http`. Formerly `headers`, renamed because the field `headers` has the same name (E0334) |
 | `require_ok` | `require_ok(res: Response) -> Response fails UnexpectedStatus` | Fails on anything other than 2xx. Moved from `Std.Http` |
 
 impl (`[trait.derive]`): Response has `derive Eq, Show`, and UnexpectedStatus has `derive Show`.

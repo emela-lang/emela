@@ -86,6 +86,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 - Go to definition and find references answer per lexical token of a resolved name. A path like `Http.Client.get` is a separate reference at each segment.
 - In an import path, each segment points to the module with the name up to that segment, if it exists (the `Util` of `import Util.Log` points to nothing if that module does not exist). The names in `{x, Y}` point to all of the imported definitions (for a type, the type and the constructor).
 - The name of a handler operation and the name of a function in an impl point to the operation of the implemented effect and the function of the Trait.
+- A method call is a reference of the function it calls. Go to definition, references and rename treat `x.f(...)` as `M.f(x, ...)`.
 - The location of a module's definition is the start of its file (an empty range).
 - When finding references, definitions with the same name position (a type and its constructor, an error and its constructor) are treated as the same. The results are returned in order of file and position. References to a module do not include the location of the definition.
 
@@ -148,7 +149,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - Before `{` on an `import` line: the next segment after the module name (`Log` for `import Util.`). Names of functions and types, and the module itself, are not shown.
   - Inside `import A.{`: the pub definitions of module A (including enum variants).
   - After `.`, when the left side is a sequence of capitalized names: the name to the left of `.` is looked up in the same order as `[module.resolution]` (imported modules, core modules, Traits). For a module, its pub definitions. For a Trait, its functions.
-  - After `.`, otherwise: if the type of the left expression is a capability value, the operations of the effect. If it is a type or error, its fields (the description is the text of the written type). For other types, empty. Even for a `.` at the end of a line, the type of the left expression is computed and candidates are shown (`l.from.`, `c.now().`).
+  - After `.`, otherwise: if the type of the left expression is a capability value, the operations of the effect. If its head is a named type, its fields (the description is the text of the written type), then the functions that can be called as methods (`[type.rules]`; kind Method, the first parameter left out of the signature). For other types, empty. Even for a `.` at the end of a line, the type of the left expression is computed and candidates are shown (`l.from.`, `c.now().`).
   - Right after `use`: effects only. Right after `with`: handlers and layers only.
   - Otherwise: in this order, the visible local variables (innermost first), the definitions of this module (including variants), the names listed in imports, the imported modules, the core modules whose name has one segment (except `Prelude`), the definitions of Prelude, and reserved words (except `as`). For the same name, only the first one is shown.
 - The type of an operation candidate of a capability value is the type with the effect's type parameters replaced by the type arguments of the capability value.
