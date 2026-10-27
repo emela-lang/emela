@@ -15,7 +15,7 @@ pub fn append(a: String, b: String) -> String
 
 ## Joins all the strings in order: `String.concat(["a", "b", "c"])` is `"abc"`.
 pub fn concat(parts: List[String]) -> String {
-  join(parts, "")
+  List.join(parts, "")
 }
 
 ## Matches by code point sequence.
@@ -29,7 +29,7 @@ pub fn starts_with(s: String, prefix: String) -> Bool
 pub fn ends_with(s: String, suffix: String) -> Bool
 
 ## Splits into grapheme clusters if `sep` is empty.
-## `join(split(s, sep), sep) == s` holds.
+## `List.join(split(s, sep), sep) == s` holds.
 @intrinsic
 pub fn split(s: String, sep: String) -> List[String]
 
@@ -37,9 +37,11 @@ pub fn split(s: String, sep: String) -> List[String]
 @intrinsic
 pub fn chars(s: String) -> List[String]
 
-## Reads as `parts |> String.join(", ")`.
-@intrinsic
-pub fn join(parts: List[String], sep: String) -> String
+## Moved to `List.join`, so that it reads as `parts.join(", ")`.
+@deprecated("use `List.join`")
+pub fn join(parts: List[String], sep: String) -> String {
+  List.join(parts, sep)
+}
 
 ## Removes leading and trailing whitespace (Unicode White_Space).
 @intrinsic

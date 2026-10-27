@@ -14,7 +14,7 @@ handler Plain: use {}
 `Counter` HandlerCtorOutsideInit { handler: "Counter" }
 `NoInit` MissingInit { handler: "NoInit" }
 `1` mismatch: expected `WrongInit`, found `Int`
-`m` no field `m` on type `WrongInit`
+`m` no field or function `m` for type `WrongInit`
 `Counter` HandlerCtorOutsideInit { handler: "Counter" }
 `Counter` HandlerCtorOutsideInit { handler: "Counter" }
 --- R

@@ -30,11 +30,12 @@ pub fn add_header(req: Request, name: String, value: String) -> Request {
 
 ## The first value of the header `name`, compared without case.
 pub fn header(req: Request, name: String) -> Option[String] {
-  List.head(headers(req, name))
+  List.head(header_values(req, name))
 }
 
-## All values of the header `name` in order, compared without case.
-pub fn headers(req: Request, name: String) -> List[String] {
+## All values of the header `name` in order, compared without case. Not named `headers`, the
+## field (E0334).
+pub fn header_values(req: Request, name: String) -> List[String] {
   key = String.to_ascii_lowercase(name)
   req.headers
     |> List.filter(fn((n, _)) { String.to_ascii_lowercase(n) == key })
@@ -72,7 +73,7 @@ pub fn query(req: Request) -> List[(String, String)] {
 pub fn encode_query(pairs: List[(String, String)]) -> String {
   pairs
     |> List.map(fn((name, value)) { "#{percent_encode(name)}=#{percent_encode(value)}" })
-    |> String.join("&")
+    |> List.join("&")
 }
 
 ## The pairs of the query string `s`, the inverse of `encode_query`: split at `&`, then at the first
@@ -93,11 +94,11 @@ fn split_target(url: String) -> (String, String) {
   target = String.split(url, "://") match {
     [scheme, first, ..rest] if scheme != ""
       && !String.contains(scheme, "/")
-      && !String.contains(scheme, "?") -> after_authority(String.join([first, ..rest], "://"))
+      && !String.contains(scheme, "?") -> after_authority(List.join([first, ..rest], "://"))
     _ -> url
   }
   String.split(target, "?") match {
-    [path, query, ..rest] -> (path, String.join([query, ..rest], "?"))
+    [path, query, ..rest] -> (path, List.join([query, ..rest], "?"))
     _                     -> (target, "")
   }
 }
@@ -126,7 +127,7 @@ fn query_pairs(s: String) -> List[(String, String)] {
         String.split(pair, "=") match {
           []             -> ("", "")
           [name]         -> (name, "")
-          [name, ..rest] -> (name, String.join(rest, "="))
+          [name, ..rest] -> (name, List.join(rest, "="))
         }
       })
   }
@@ -141,7 +142,7 @@ fn decode_pair(name: String, value: String) -> Option[(String, String)] {
 }
 
 fn plus_as_space(s: String) -> String {
-  String.join(String.split(s, "+"), " ")
+  List.join(String.split(s, "+"), " ")
 }
 
 ## Every byte of the UTF-8 of `s` as `%XX`, except ASCII letters, digits and `-_.!~*'()`.

@@ -1,7 +1,7 @@
 ---
 title: Method calls
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 454
 issue:
 decided: 2026-10-27
@@ -195,11 +195,11 @@ Add after E0333:
 
 ## Diagnostics
 
-- [ ] E0312: widened to method calls and to a function written without a call. ``no field or function `nmae` for type `User` ``
-- [ ] E0313: widened to method calls. ``type `Int` has no field or function `nmae` ``
-- [ ] E0314: widened to method calls. ``the type of this value must be known to call `f` ``
-- [ ] E0334 (new): a fn with the name of a field of the type of its first parameter, in the module of that type.
-- [ ] E0335 (new): more than one candidate for a method call.
+- [x] E0312: widened to method calls and to a function written without a call. ``no field or function `nmae` for type `User` ``
+- [x] E0313: widened to method calls. ``type `Int` has no field or function `nmae` ``
+- [x] E0314: widened to method calls. ``the type of this value must be known to call `f` ``
+- [x] E0334 (new): a fn with the name of a field of the type of its first parameter, in the module of that type.
+- [x] E0335 (new): more than one candidate for a method call.
 
 ## Compatibility
 

@@ -964,3 +964,24 @@ fn main() {
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
 }
+
+/// A method call is lowered as the call of the function it finds (`[type.rules]`): `x.f(a)` as
+/// `M.f(x, a)` and `x.g()` of a trait as `Trait.g(x)`, with the receiver evaluated first.
+#[test]
+fn method_calls_lower_as_calls() {
+    let module = |body: &str| {
+        let main = format!(
+            "type User(name: String)\n  derive Show\n\nfn rename(u: User, name: String) -> User {{ User(name:, ..u) }}\n\nfn main() {{\n  u = User(name: \"a\")\n  {body}\n}}\n"
+        );
+        let m = lower_files(&[("main.emel", &main)]);
+        emela_core::dump(&m)
+    };
+    assert_eq!(
+        module("u.rename(\"b\").show()"),
+        module("Show.show(rename(u, \"b\"))")
+    );
+    assert_eq!(
+        module("[u.show()].map(fn(s) { s.append(\"!\") }).join(\",\")"),
+        module("List.join(List.map([Show.show(u)], fn(s) { String.append(s, \"!\") }), \",\")")
+    );
+}

@@ -1778,7 +1778,7 @@ fn main() {
       c = "#{Http.get("https://example.com/c").status}" escape {
         ConnectionFailed(url:, message:) -> "failed #{url}"
       }
-      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Response.header(a, "x-A")} #{Response.headers(b, "X-a")} #{Response.header(a, "none")}"
+      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Response.header(a, "x-A")} #{Response.header_values(b, "X-a")} #{Response.header(a, "none")}"
     }
   })
   with SystemConsole {

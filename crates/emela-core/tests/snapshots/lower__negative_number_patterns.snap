@@ -126,7 +126,7 @@ enum Std.FileSystem.TestFiles {
 }
 
 enum Std.Cause.Cause[A] {
-  Cause(raise: fn() -> Never fails (E {A}, R {}))
+  Cause(failure: fn() -> Never fails (E {A}, R {}))
 }
 
 enum Std.Cause.CauseKind {

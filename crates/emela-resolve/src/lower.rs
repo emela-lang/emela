@@ -14,6 +14,60 @@ use crate::resolve::{DotLeft, ModRef, Ns, Pending, Resolver, child_token, token_
 use crate::source::ModuleId;
 use crate::suggest::best_match;
 
+/// Reports an fn of the module of a type, whose first parameter has that type at its head and
+/// whose name is a field of that type (E0334, `[data.type]`). Types with fields are types,
+/// errors and handlers with fields. Runs after every item is lowered, since it reads the
+/// resolved type of the first parameter.
+pub(crate) fn check_fn_field_names(resolver: &mut Resolver<'_>) {
+    let program = &resolver.program;
+    let mut found = Vec::new();
+    for (def, item) in program.items.iter() {
+        let Item::Fn(f) = item else { continue };
+        let data = &program.defs[def];
+        let (DefModule::Source(module), Some(span)) = (&data.module, data.span) else {
+            continue;
+        };
+        let Some(ty) = f.sig.params.first().and_then(|p| p.ty) else {
+            continue;
+        };
+        let TypeKind::Path {
+            res: Res::Def(ty_def),
+            ..
+        } = program.types[ty].kind
+        else {
+            continue;
+        };
+        if program.defs[ty_def].module != data.module {
+            continue;
+        }
+        let fields = match program.item(ty_def) {
+            Some(Item::Type(t)) => &t.fields,
+            Some(Item::Error(e)) => &e.fields,
+            Some(Item::Handler(h)) => match h.ctor.and_then(|c| program.item(c)) {
+                Some(Item::Ctor(c)) => &c.fields,
+                _ => continue,
+            },
+            _ => continue,
+        };
+        let Fields::Named(fields) = fields else {
+            continue;
+        };
+        if fields.iter().any(|field| field.name == data.name) {
+            found.push((
+                *module,
+                span.range,
+                DiagnosticKind::FnNamedLikeField {
+                    name: data.name.clone(),
+                    ty: program.defs[ty_def].name.clone(),
+                },
+            ));
+        }
+    }
+    for (module, range, kind) in found {
+        resolver.error(module, range, kind);
+    }
+}
+
 pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
     let mut lower = Lower {
         r: resolver,

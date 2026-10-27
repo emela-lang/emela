@@ -1,0 +1,7 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr#\"pub type Request(headers: List[String], url: String)\n\npub error NotFound(id: Int)\n\npub type Pair[A](left: A, right: A)\n\npub fn headers(req: Request, name: String) -> List[String] { req.headers }\n\nfn url(n: Int) -> Int { n }\n\nfn other(name: String, req: Request) -> Int { 0 }\n\nfn id(e: NotFound) -> Int { e.id }\n\nfn left[A](p: Pair[A]) -> A { p.left }\n\"#,),\n(\"other.emel\",\nr#\"import Main.{Request}\n\nfn headers(req: Request) -> List[String] { req.headers }\n\"#,),])"
+---
+error src/main.emel@127..134 `headers`: function `headers` has the same name as a field of `Request`
+error src/main.emel@279..281 `id`: function `id` has the same name as a field of `NotFound`
+error src/main.emel@315..319 `left`: function `left` has the same name as a field of `Pair`
