@@ -3,6 +3,7 @@
 //! This crate verifies Flow IR and emits C with fixed-capacity memory and feature-specific
 //! runtimes without running Heap IR passes. A convenience entry also lowers ordinary Core IR.
 
+pub mod boards;
 mod const_eval;
 mod const_origins;
 mod const_runtime;
@@ -228,11 +229,24 @@ impl Options {
     }
 }
 
-/// Generated files returned by the backend.
+/// Generated files and public entry points returned by the backend.
 #[derive(Debug, Clone, Default)]
 pub struct Output {
     /// Files keyed by their path relative to the generated output directory.
     pub files: Vec<GeneratedFile>,
+    /// Public functions with their actual callable C symbols.
+    pub exports: Vec<ExportedFunction>,
+}
+
+/// A public entry point emitted into the generated header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportedFunction {
+    /// The function name recorded by Flow IR, before C identifier sanitization.
+    pub source_name: String,
+    /// The callable C symbol; suspension entries include the `_start` suffix.
+    pub c_symbol: String,
+    /// Whether calling the entry starts a suspendable fiber.
+    pub suspends: bool,
 }
 
 /// One file produced by the backend.

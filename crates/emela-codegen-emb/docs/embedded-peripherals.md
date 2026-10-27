@@ -1,6 +1,6 @@
 # 標準組み込みhandlerとCボードABI
 
-利用者向けの構成・Emelaでの利用方法は[組み込みインターフェース](embedded-interfaces.md)、Rust APIと入力契約は[実装範囲と対応状況](implementation.md)を参照する。この文書は `Std.Embedded.Board` とC実装の境界を記録する。CLI・BSP・ツールチェーン・emulator接続は後続の範囲である。
+利用者向けの構成・Emelaでの利用方法は[組み込みインターフェース](embedded-interfaces.md)、Rust APIと入力契約は[実装範囲と対応状況](implementation.md)を参照する。この文書は `Std.Embedded.Board` とC実装の境界を記録する。STM32F4・ESP32-C3のBSPとstandalone build・Flash起動確認は[ボードpackage](boards.md)へ分ける。CLIへの接続は後続の範囲である。
 
 ## 接続と検査
 

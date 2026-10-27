@@ -14,4 +14,4 @@ EmelaのFlow IRから、組み込み向けのCコードを生成するコンパ�
 
 ## このcrateの範囲
 
-コンパイラー本体、生成ランタイム、検証用のテストとexampleに加え、`Std.Embedded` の共通effectと共有handlerをC ABIへ接続するbridgeを提供します。[組み込みインターフェース](docs/embedded-interfaces.md)と[標準周辺機器bridge](docs/embedded-peripherals.md)に利用方法と所有権・容量の契約をまとめています。CLIへの組み込み、ボード定義・BSP、クロスコンパイラー、書き込みとエミュレーターの操作は、後続のツールチェーン統合で扱います。
+コンパイラー本体、生成ランタイム、検証用のテストとexampleに加え、`Std.Embedded` の共通effectと共有handlerをC ABIへ接続するbridgeを提供します。[組み込みインターフェース](docs/embedded-interfaces.md)と[標準周辺機器bridge](docs/embedded-peripherals.md)に利用方法と所有権・容量の契約をまとめています。[ボードpackageと確認手順](docs/boards.md)では、STM32F4・ESP32-C3のBSP、Rust exampleからのstandalone build/flash、Renode/QEMUによるFlash起動の確認を提供します。CLIの組み込みtarget・board選択、TOML設定、利用例の統合は後続の範囲です。
