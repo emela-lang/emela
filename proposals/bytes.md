@@ -40,20 +40,16 @@ This proposal adds only the type and its pure functions. The operations of the p
 ```emel
 import Std.Bytes.{Bytes}
 
-fn png_signature() -> Bytes {
-  Bytes.from_hex("89504e47") match {
-    Some(b) -> b
-    None    -> panic("not hexadecimal")
-  }
-}
+const PNG_SIGNATURE = Bytes.hex("89504e47")
 
 @test
 fn bytes_round_trip() {
-  data = Bytes.append(png_signature(), Bytes.encode_utf8("hi"))
+  data = Bytes.append(PNG_SIGNATURE, Bytes.encode_utf8("hi"))
   assert Bytes.size(data) == 6
   assert Bytes.get(data, 0) == Some(0x89)
   assert Bytes.decode_utf8(Bytes.slice(data, 4, 6)) == Some("hi")
   assert Bytes.to_hex(data) == "89504e476869"
+  assert Bytes.from_hex("not hex") == None
 }
 ```
 
@@ -61,6 +57,7 @@ fn bytes_round_trip() {
 
 - A `Bytes` is a finite sequence of bytes. Each byte is an integer from 0 to 255, read as `Int`.
 - `Bytes` is an opaque type. Its values are made only with the functions of `Std.Bytes`, and they are immutable: no function changes a `Bytes` in place.
+- A constant is written with `Bytes.hex`, which is a defect for a string that is not hexadecimal. A string that comes from outside the program is read with `Bytes.from_hex`, which returns `None` instead. There is no literal for Bytes.
 - Positions are 0-based `Int`. A function that takes a position does not fail and is not a defect for a position out of range: `get` returns `None`, and `slice` clamps.
 - `Bytes` is defined in `std/bytes.emel` as an opaque type with `@intrinsic`, and its functions are intrinsics. Like the effect layer that has `@intrinsic`, it works only with the same version of the runtime (`[lib.layers]`).
 
@@ -104,12 +101,14 @@ Placed after `[api.std.instant]`.
 > | `decode_utf8` | `decode_utf8(b: Bytes) -> Option[String]` | intrinsic | The string that `b` encodes in UTF-8. `None` if `b` is not valid UTF-8. A leading BOM is kept as U+FEFF |
 > | `to_hex` | `to_hex(b: Bytes) -> String` | intrinsic | Two lowercase hexadecimal digits per byte, with no separator (`"89504e47"`) |
 > | `from_hex` | `from_hex(s: String) -> Option[Bytes]` | intrinsic | The inverse of `to_hex`. Accepts uppercase and lowercase digits. `None` for an odd number of digits or any other character, including whitespace |
+> | `hex` | `hex(s: String) -> Bytes` | Emela | The bytes that `from_hex` reads from `s`. A defect if `from_hex` returns `None`. For constants written in the program (`const PNG_SIGNATURE = Bytes.hex("89504e47")`) |
 >
+> - The defect message of `hex` is ``Bytes.hex was given a string that is not hexadecimal: "<s>"``, where `<s>` is shown as by inspect. In a const, the name of the const is prepended (`[data.const]`).
 > - `size(encode_utf8(s)) == String.byte_size(s)`, and `decode_utf8(encode_utf8(s)) == Some(s)`, for every String `s`.
 > - Invalid UTF-8 is not replaced with the replacement character: `decode_utf8` returns `None`, so text that is read and written back is not changed silently. A sequence that encodes a surrogate (U+D800 to U+DFFF) or a value above U+10FFFF, and an overlong encoding, are not valid UTF-8.
 > - `size`, `get` and `is_empty` are O(1). `slice` is O(`to - from`) or less. `append` and `concat` are O(n) in the number of bytes of the result. `to_list`, `from_list`, `encode_utf8`, `decode_utf8`, `to_hex` and `from_hex` are O(n).
 >
-> impl: `impl Bytes: Eq`, `impl Bytes: Ord`, `impl Bytes: Show`. Two Bytes are equal when they have the same bytes in the same order. Ord is lexicographic on the bytes as unsigned values (if the common prefix is equal, the shorter one is smaller). Show is the source form `Bytes.from_hex("89504e47")`, with the digits of `to_hex`. A Bytes inside another value is displayed the same way (`[Bytes.from_hex("00")]`).
+> impl: `impl Bytes: Eq`, `impl Bytes: Ord`, `impl Bytes: Show`. Two Bytes are equal when they have the same bytes in the same order. Ord is lexicographic on the bytes as unsigned values (if the common prefix is equal, the shorter one is smaller). Show is the source form `Bytes.hex("89504e47")`, with the digits of `to_hex`, so the output can be pasted back as an expression. A Bytes inside another value is displayed the same way (`[Bytes.hex("00")]`).
 
 ### `[ext.boundary]`
 
@@ -119,7 +118,7 @@ The first bullet becomes:
 
 Add after the bullet on callbacks:
 
-> - A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes. A Bytes passed to the host MUST NOT be modified by the host. Whether the runtime passes its own buffer or a copy is implementation-defined.
+> - A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.
 
 Add after the table of C types:
 
@@ -129,7 +128,12 @@ Add after the table of C types:
 
 Add a row to the table, after String:
 
-> | Bytes | `Uint8Array`. A `Uint8Array` received from the host is copied (`[ext.boundary]`); a value of another type where Bytes is expected is a defect |
+> | Bytes | `Uint8Array` |
+
+Add after the table:
+
+> - Where Bytes is expected from JS (the return value of an external function, a value resolved by an external suspend fn, an argument of a callback, and an argument of an exported fn), the value MUST satisfy `instanceof Uint8Array`. Subclasses are accepted (a Node.js `Buffer`). Any other value, including an `ArrayBuffer`, another typed array, a `DataView` and a `Uint8Array` from another realm, is a defect with the message ``external function `f` returned a value that is not a `Uint8Array` `` (for an argument of a callback or of an exported fn, ``argument `x` of `f` is not a `Uint8Array` ``). Wrap other values with `new Uint8Array(...)` in the host code.
+> - Only the bytes visible through the `Uint8Array` (from `byteOffset`, `byteLength` bytes) are copied, not the whole underlying `ArrayBuffer`.
 
 ### `[diag.list]`
 
@@ -156,6 +160,11 @@ No program that compiles now changes meaning. `Bytes` is reached only through `i
 - `List[Int]` with helper functions. It does not keep elements in 0 to 255, has O(n) access, and cannot cross the host boundary. Allowing `List[Int]` at the boundary would make every list a candidate for conversion, which `[ext.boundary]` avoids on purpose.
 - Bytes in core and the Prelude. Core holds the types the compiler knows as syntax (`[lib.layers]`), and Bytes has no syntax. Placing it in core would also make `bytes.emel` a reserved file name (`[module.name]`). If a byte literal is added later, this can be revisited.
 - A mutable byte buffer. Every other value in the language is immutable, and mutation would have to be tracked in effects. A builder for building large Bytes efficiently can be added later as a separate type.
+- A literal for Bytes (`x"89504e47"` for hexadecimal, or `b"\x89PNG"` mixing ASCII and escapes). It would check the digits at compile time and let a const of Bytes take part in exhaustiveness (`[data.const]`), but the type of a literal is known to the compiler, so Bytes would move to core and the Prelude, `bytes.emel` would become a reserved name (E0203), and the lexer, the grammar, `emela fmt`, tree-sitter, the LSP and the three code generators would change. `Bytes.hex` covers constants for now. A literal can be added later without breaking programs other than those with a `bytes.emel`, by keeping `Std.Bytes.Bytes` as a name for the core type.
+- Only `from_hex`, returning `Option`, with no `hex`. Every constant and every test fixture would need a match and a panic.
+- base64 (`to_base64`, `from_base64`) in `Std.Bytes`. It can be written in pure Emela on top of `get` and `from_list`, and the variants that std needs (the standard or the URL-safe alphabet, with or without padding) depend on the JSON representation of Bytes and on JWT. It is released first in `github.com/emela-lang/x`, and taken into std, as intrinsics if speed matters, together with the decision on the JSON representation of Bytes.
+- Reading and writing fixed-width integers (`read_u16_be` and so on). They can be written in pure Emela on top of `get` (O(1)), and the open points (whether a `u32` is returned as Int64 or as a signed Int, how a read out of range is reported, whether writing needs a builder) are decided better after binary formats are written with them. They are released first in `github.com/emela-lang/x`.
+- Accepting any typed array, `ArrayBuffer` and `DataView` at the JS boundary, or values from another realm (checked with `ArrayBuffer.isView` and `Symbol.toStringTag`). The rule grows, and `Uint8ClampedArray` and `Int8Array` would need to be told apart. Host code wraps such values with `new Uint8Array(...)`.
 - `from_list` that takes the low 8 bits of each element instead of returning `Option`. It never fails, but `256` silently becomes `0`. The rest of std returns `Option` for an argument outside the domain (`String.from_code_point`).
 - `decode_utf8` that replaces invalid sequences with U+FFFD. Lossy decoding hides corrupted input; it can be written on top of the strict version later if needed.
 
@@ -165,11 +174,5 @@ No program that compiles now changes meaning. `Bytes` is reached only through `i
 - Strict UTF-8 decoding that fails instead of replacing: Rust `String::from_utf8`, the WHATWG Encoding Standard's `fatal` flag.
 
 ## Open questions
-
-- Should there be a literal for Bytes (for example `b"\x89PNG"` or `0x"89504e47"`)? Without one, a constant is written with `from_hex` and an `Option`. A literal would move Bytes toward core.
-- Is the Show form `Bytes.from_hex("...")` right? It cannot be pasted back as is, because `from_hex` returns an `Option`. The alternative is a form that is not source, such as `<89 50 4e 47>`.
-- Should base64 (`to_base64`, `from_base64`) be in `Std.Bytes` from the start? It is needed for HTTP and JSON payloads, but its variants (standard or URL-safe, with or without padding) need decisions of their own.
-- Should `Std.Bytes` have the reading functions of fixed-width integers (`read_u16_be`, `read_i32_le` and so on) now, or should they wait for the binary formats that need them?
-- Is a defect on a non-`Uint8Array` value at the JS boundary right, or should an `ArrayBuffer` and other typed arrays be accepted and copied?
 
 ## Decision
