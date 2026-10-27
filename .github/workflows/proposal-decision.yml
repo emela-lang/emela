@@ -125,8 +125,10 @@ jobs:
         run: |
           cp base/scripts/spec.py scripts/spec.py
           rm -rf base
+          # No `spec.py check` here: the entry in `spec/history.md` names the new sections of
+          # `touches`, which exist only once "Specification changes" are applied. The `spec` job of
+          # CI checks the pull request after that.
           python3 scripts/spec.py accept "$SLUG" "$RUNNER_TEMP/reasons.md" "$(TZ=Asia/Tokyo date +%F)"
-          python3 scripts/spec.py check
 
       - name: Push and mark ready for review
         if: steps.command.outputs.verb == 'accept'

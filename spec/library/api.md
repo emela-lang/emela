@@ -206,6 +206,35 @@ A point in time. An opaque type whose contents are an Int64 of milliseconds sinc
 
 impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl is the same as `to_string`.
 
+### Std.Bytes (`std/bytes.emel`) `[api.std.bytes]`
+
+The value layer (`[lib.layers]`). An immutable sequence of bytes. Each byte is an `Int` from 0 to 255.
+
+| Declaration | Signature | Implementation | Description |
+|---|---|---|---|
+| `Bytes` | `opaque type Bytes` | intrinsic | A sequence of bytes |
+| `empty` | `empty() -> Bytes` | intrinsic | The sequence of no bytes |
+| `from_list` | `from_list(xs: List[Int]) -> Option[Bytes]` | intrinsic | The bytes in the order of `xs`. `None` if an element is outside 0 to 255 |
+| `to_list` | `to_list(b: Bytes) -> List[Int]` | intrinsic | The bytes in order |
+| `size` | `size(b: Bytes) -> Int` | intrinsic | The number of bytes |
+| `is_empty` | `is_empty(b: Bytes) -> Bool` | Emela | Whether there are no bytes |
+| `get` | `get(b: Bytes, index: Int) -> Option[Int]` | intrinsic | The byte at `index` (0-based). `None` if out of range or negative |
+| `slice` | `slice(b: Bytes, from: Int, to: Int) -> Bytes` | intrinsic | The bytes from `from` inclusive to `to` exclusive. Both are clamped to 0 to `size(b)`; empty if `from` is not less than `to` |
+| `append` | `append(a: Bytes, b: Bytes) -> Bytes` | intrinsic | The bytes of `a`, then those of `b` |
+| `concat` | `concat(parts: List[Bytes]) -> Bytes` | intrinsic | The bytes of all of them in order |
+| `encode_utf8` | `encode_utf8(s: String) -> Bytes` | intrinsic | The UTF-8 encoding of `s`. No BOM is added |
+| `decode_utf8` | `decode_utf8(b: Bytes) -> Option[String]` | intrinsic | The string that `b` encodes in UTF-8. `None` if `b` is not valid UTF-8. A leading BOM is kept as U+FEFF |
+| `to_hex` | `to_hex(b: Bytes) -> String` | intrinsic | Two lowercase hexadecimal digits per byte, with no separator (`"89504e47"`) |
+| `from_hex` | `from_hex(s: String) -> Option[Bytes]` | intrinsic | The inverse of `to_hex`. Accepts uppercase and lowercase digits. `None` for an odd number of digits or any other character, including whitespace |
+| `hex` | `hex(s: String) -> Bytes` | Emela | The bytes that `from_hex` reads from `s`. A defect if `from_hex` returns `None`. For constants written in the program (`const PNG_SIGNATURE = Bytes.hex("89504e47")`) |
+
+- The defect message of `hex` is ``Bytes.hex was given a string that is not hexadecimal: "<s>"``, where `<s>` is shown as by inspect. In a const, the name of the const is prepended (`[data.const]`).
+- `size(encode_utf8(s)) == String.byte_size(s)`, and `decode_utf8(encode_utf8(s)) == Some(s)`, for every String `s`.
+- Invalid UTF-8 is not replaced with the replacement character: `decode_utf8` returns `None`, so text that is read and written back is not changed silently. A sequence that encodes a surrogate (U+D800 to U+DFFF) or a value above U+10FFFF, and an overlong encoding, are not valid UTF-8.
+- `size`, `get` and `is_empty` are O(1). `slice` is O(`to - from`) or less. `append` and `concat` are O(n) in the number of bytes of the result. `to_list`, `from_list`, `encode_utf8`, `decode_utf8`, `to_hex` and `from_hex` are O(n).
+
+impl: `impl Bytes: Eq`, `impl Bytes: Ord`, `impl Bytes: Show`. Two Bytes are equal when they have the same bytes in the same order. Ord is lexicographic on the bytes as unsigned values (if the common prefix is equal, the shorter one is smaller). Show is the source form `Bytes.hex("89504e47")`, with the digits of `to_hex`, so the output can be pasted back as an expression. A Bytes inside another value is displayed the same way (`[Bytes.hex("00")]`).
+
 ### Std.Map (`std/map.emel`) `[api.std.map]`
 
 A mapping from keys to values. Immutable and ordered by key (the Ord order) (`[lib.layers]`, `[open.list]` #36). An opaque type whose contents are a weight-balanced tree.
