@@ -1,20 +1,20 @@
 ---
-title: Encode, Decode and Shaped in std, with their derives
+title: Dynamic, Shape and JSON in std, with derived Encode, Decode and Shaped
 authors: [Alliana]
 status: draft
 pr: 455
 issue:
 decided:
-touches: [kw.annotation, grammar.decl, lib.layers, trait.derive, api.std.dynamic (new), api.std.dynamic.number (new), api.std.shape (new), diag.list, open.list]
+touches: [kw.annotation, grammar.decl, lib.layers, trait.derive, api.std.dynamic (new), api.std.dynamic.number (new), api.std.shape (new), api.std.json (new), diag.list, open.list]
 requires: []
 related: []
 ---
 
-# Encode, Decode and Shaped in std, with their derives
+# Dynamic, Shape and JSON in std, with derived Encode, Decode and Shaped
 
 ## Summary
 
-x/dynamic（形式によらない値 `Dynamic` と trait `Encode`/`Decode`）と x/shape（型の形 `Shape` と trait `Shaped`）を std の value の層に移し，`Std.Dynamic` と `Std.Shape` にする．compiler が `derive Encode, Decode, Shaped` を導出できるようにする．
+x/dynamic（形式によらない値 `Dynamic` と trait `Encode`/`Decode`）と x/shape（型の形 `Shape` と trait `Shaped`）を std の value の層に移し，`Std.Dynamic` と `Std.Shape` にする．JSON の parse と書き出し（x/json）も `Std.Json` として移す．compiler が `derive Encode, Decode, Shaped` を導出できるようにする．
 
 ```emel
 import Std.Dynamic.{Encode, Decode}
@@ -24,7 +24,7 @@ type TodoBody(title: String, due: Option[String]) derive Decode, Shaped
 type TodoView(id: String, title: String, done: Bool) derive Encode, Shaped
 ```
 
-JSON の parse と書き出し（x/json）と JSON Schema の生成（x/shape の `Shape.JsonSchema`）は x に残す．
+JSON Schema の生成（x/shape の `Shape.JsonSchema`）は x に残し，新しいパッケージ x/json-schema に移す．
 
 ## Motivation
 
@@ -44,9 +44,10 @@ JSON の parse と書き出し（x/json）と JSON Schema の生成（x/shape �
 |---|---|---|
 | `Std.Dynamic` | `Dynamic`，`Segment`，`DecodeError`，trait `Encode`，`Decode`，`ObjectKey`，decoder（`string`，`int`，`field`，`list`，`optional`，`dict`，`index`，`items`，`tag`，`field_all`，`index_all`，`attempt`，`errors_of`），`DecodeErrors`，`Attempt`，`object`，`variant`，`kind` | x/dynamic |
 | `Std.Dynamic.Number` | `Number`，`OutOfRange`，`parse`，`from_int`，`to_int` など | x/dynamic の `Number` |
+| `Std.Json` | `SyntaxError`，`parse`，`to_string`，`decode`，`decode_all`，`encode` | x/json（`decode_all` は新しい） |
 | `Std.Shape` | `Shape`，`Field`，`Variant`，`Contents`，trait `Shaped`，`visit`，`name_of`，`generic_name`，`annotate`，`strip`，`note`，`field_names`，`of_value`，`of_parameter`，`description`，`pattern`，`format` | x/shape |
 
-どれも value の層（純粋でホストによらない）に入る．`Rule`（条件と注記を 1 つにまとめた値）は形が固まっていないので std に入れず，x/rule に分ける（下の「Rule」）．中身は x の今の版と同じで，名前の頭が変わるだけ（`import Dynamic.{...}` は `import Std.Dynamic.{...}` になる）．
+どれも value の層（純粋でホストによらない）に入る．`[lib.layers]` が std に入れるものの例に「formats such as JSON」を挙げているとおり，JSON は HTTP のサービスのほぼすべてが読み書きする．`derive Decode` が std にあっても `Json.decode` が std の外にあれば，結局 x を足すことになる．`Rule`（条件と注記を 1 つにまとめた値）は形が固まっていないので std に入れず，x/rule に分ける（下の「Rule」）．中身は x の今の版と同じで，名前の頭が変わるだけ（`import Dynamic.{...}` は `import Std.Dynamic.{...}` になる）．
 
 `Shape` の variant は説明する型の名前にする（`Bool`，`Int`，`Int64`，`Float`，`String`，`List`，`Option`，`Map`．`Dynamic` の形は `Any`）．モジュールで修飾して `Shape.Int` と書く．variant `List` があっても `List.map` はモジュール `List` を指し，型 `Int` と variant `Int` は名前の空間が別なのでぶつからない．`Dynamic` の `Bool` と並べて修飾なしで import したときだけ，どちらかを修飾する．
 
@@ -211,7 +212,7 @@ In the table of the layers, replace the contents of the value layer with:
 
 Replace "JSON conversion (Encode, Decode) is provided by the standard library as traits with deriving rules." with:
 
-- Values that go out of and come into a program are converted through `Dynamic` (`Std.Dynamic`), a value in no particular format: Null, Bool, Number, Text, Items and Fields. Encode turns a value into a Dynamic and Decode builds a value from one; both are derivable (`[trait.derive]`). A format (JSON, TOML) only parses into and writes from Dynamic; formats are provided outside std until they settle.
+- Values that go out of and come into a program are converted through `Dynamic` (`Std.Dynamic`), a value in no particular format: Null, Bool, Number, Text, Items and Fields. Encode turns a value into a Dynamic and Decode builds a value from one; both are derivable (`[trait.derive]`). A format only parses into and writes from Dynamic. JSON is provided by `Std.Json`; other formats (TOML) are provided outside std until they settle.
 - The shape of a type (`Std.Shape`) describes all the values of the type without a value: its fields, its variants and the types inside them. Shaped gives it and is derivable. A shape carries notes for its readers; `Std.Shape` names the notes it defines (`[api.std.shape]`), and a reader passes on the notes it does not know.
 
 ### `[api.std.dynamic]`
@@ -291,6 +292,21 @@ A new section after `[api.std.dynamic.number]`.
 > The notes defined by `Std.Shape` are `"description"`, `"pattern"`, `"format"`, `"minimum"`, `"maximum"`, `"min_length"`, `"max_length"`, `"min_items"` and `"max_items"`, each with the value its function above writes. Notes are only described: the notes do not change which values a shape describes, and nothing in `Std.Shape` checks them. Other notes may be added with `annotate`.
 
 
+### `[api.std.json]`
+
+A new section after `[api.std.shape]`.
+
+> ### Std.Json (`std/json.emel`) `[api.std.json]`
+>
+> | Declaration | Contents | Description |
+> |---|---|---|
+> | `SyntaxError` | `error SyntaxError(message: String, offset: Int)` | Text that is not JSON. `offset` counts code points from the start of the input |
+> | `parse` | `parse(s: String) -> Dynamic fails SyntaxError` | Read one JSON value (RFC 8259), with whitespace allowed around it. Numbers are read with `Std.Dynamic.Number.parse`. For a key repeated in an object, the later value is kept |
+> | `to_string` | `to_string(value: Dynamic) -> String` | Write `value` as JSON without whitespace. Keys come in the order of the Map. A string escapes `"`, `\` and the control characters, and keeps every other character as it is |
+> | `decode` | `decode[A: Decode](text: String) -> A fails SyntaxError \| DecodeError` | `parse`, then `Decode.from_dynamic` |
+> | `decode_all` | `decode_all[A: Decode](text: String) -> A fails SyntaxError \| DecodeErrors` | `parse`, then `Decode.from_dynamic_all` |
+> | `encode` | `encode[A: Encode](value: A) -> String` | `Encode.to_dynamic`, then `to_string` |
+
 ### `[diag.list]`
 
 Change E0326 to list the derivable traits, and add E0336, E0337 and E0338.
@@ -318,7 +334,7 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler with th
 - 今のプログラムで意味が変わるものはない．`derive Encode` は今 E0326 なので，それが通るようになるだけ
 - 利用者が `Encode`，`Decode`，`Shaped` という名前の trait を自分で宣言していても，その derive は今と同じく E0326
 - x/dynamic と x/shape を使っているコードは，import を `Std.Dynamic` と `Std.Shape` に書き換える．Emela には再エクスポートがない（`[module.resolution]`）ので，x の側で std の名前を見せ続けることはできない．x/dynamic と x/shape は最後の版で README に移行先を書き，更新をやめる．`Shape.Rule` を使っているコードは x/rule に移る
-- x/json は `Std.Dynamic` に依存する版に上げる（v0.3.0）
+- x/json を使っているコードは，import を `Std.Json` に書き換える．x/json は最後の版で README に移行先を書き，更新をやめる
 
 ## Implementation
 
@@ -327,7 +343,8 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler with th
 - emela-core（mono/derive.rs）：`DeriveOp` に Encode，Decode，Shaped を足す．型が単相化で決まったところで本体を組み立てる．Shaped のフィールドの `None: Option[T]` は IR で型付きの値として直接作る．`generic_name` に渡す名前は，単相化の時点で決まっているので定数でもよい
 - emela-types：E0336 を derive の検査に足す
 - emela-lsp：derive の補完の候補に 3 つの trait を足す（import されているとき）
-- x：x/json を `Std.Dynamic` に移し，JSON Schema の生成を x/shape から x/json（`Json.Schema`）に移す．`Shape.Rule` を x/rule に移す
+- emela-core（std）：`std/json.emel` を x/json から移し，`decode_all` を足す
+- x：JSON Schema の生成を x/shape から新しいパッケージ x/json-schema（モジュール `JsonSchema`）に移す．x/json に置くと，根のモジュール `Json` が `Std.Json` と import の名前でぶつかる．`Shape.Rule` を x/rule に移す
 
 ## Alternatives
 
@@ -344,7 +361,6 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler with th
 
 ## Open questions
 
-- JSON（x/json）を同じ proposal で std に入れるか，x に残すか
 - `ObjectKey` も導出できるようにするか（enum を Map のキーに使う場合）
 
 ## Decision
