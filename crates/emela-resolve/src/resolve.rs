@@ -297,8 +297,13 @@ impl<'a> Resolver<'a> {
                 ast::Item::Impl(_) => (DefKind::Impl, None, false, false),
             };
             if !matches!(item, ast::Item::Fn(_)) {
-                // A built-in effect (`Scope`, spec 11.2) is marked with `@intrinsic`.
-                let allowed = matches!(item, ast::Item::Effect(_));
+                // A built-in effect (`Scope`, spec 11.2) and a built-in type (`Bytes`,
+                // `[api.std.bytes]`) are marked with `@intrinsic`.
+                let allowed = match &item {
+                    ast::Item::Effect(_) => true,
+                    ast::Item::Type(it) => it.field_list().is_none(),
+                    _ => false,
+                };
                 self.check_intrinsic(module, &syntax, allowed);
             }
             let (name, range) = match &name_token {
@@ -388,8 +393,9 @@ impl<'a> Resolver<'a> {
         pending
     }
 
-    /// `@intrinsic` is allowed only on fns without a body and on effects (built-in effects such
-    /// as `Scope`, spec 8.1) in the bundled core sources. `allowed` tells whether `node` is one of
+    /// `@intrinsic` is allowed only on fns without a body, on effects (built-in effects such
+    /// as `Scope`, spec 8.1) and on types without fields (built-in types such as `Bytes`,
+    /// `[kw.annotation]`) in the bundled core sources. `allowed` tells whether `node` is one of
     /// those. Fns in traits, impls and handlers are checked too (never allowed), although the
     /// parser does not put annotations inside those bodies yet.
     pub(crate) fn check_intrinsic(&mut self, module: ModuleId, node: &SyntaxNode, allowed: bool) {

@@ -564,10 +564,14 @@ pub struct ExternalAttr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeItem {
     pub type_params: Vec<TypeParam>,
-    /// The same-named constructor. Absent for an `@external` type without fields.
+    /// The same-named constructor. Absent for an `@external` or `@intrinsic` type without
+    /// fields.
     pub ctor: Option<DefId>,
     pub fields: Fields,
     pub derives: Vec<(Res, Span)>,
+    /// A built-in type of the bundled sources, marked with `@intrinsic` (`Std.Bytes.Bytes`,
+    /// `[kw.annotation]`). Its values are represented by the runtime.
+    pub is_intrinsic: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

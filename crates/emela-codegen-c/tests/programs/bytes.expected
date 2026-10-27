@@ -1,0 +1,50 @@
+exit: 0
+--- stdout
+--- stderr
+6
+Some(137)
+Some(105)
+None
+None
+"89504e476869"
+[137, 80, 78, 71, 104, 105]
+Some("hi")
+True
+False
+Bytes.hex("8950")
+Bytes.hex("6869")
+Bytes.hex("")
+Bytes.hex("")
+Some(Bytes.hex("007f80ff"))
+None
+None
+Some(Bytes.hex(""))
+Some(Bytes.hex("deadbeef"))
+Some(Bytes.hex(""))
+None
+None
+None
+"00010f10ab"
+Bytes.hex("010203")
+Bytes.hex("")
+Bytes.hex("c3a9f09f918defbbbf")
+Some([65279, 65])
+None
+None
+None
+None
+None
+None
+None
+Some("👍")
+Less
+Greater
+Greater
+Equal
+Equal
+"Bytes.hex(\"89504e47\")"
+"Bytes.hex(\"\")"
+[Bytes.hex("00")]
+Packet(id: 1, payload: Bytes.hex("cafe"))
+20000
+None

@@ -466,6 +466,32 @@ pub fn add(a: Int, b: Int) -> Int { a + b }
     ));
 }
 
+/// `[api.std.bytes]`: a const of Bytes written with `Bytes.hex`, and the functions of
+/// `Std.Bytes` with their types, Eq and Ord.
+#[test]
+fn spec_api_std_bytes() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+import Std.Bytes.{Bytes}
+
+const PNG_SIGNATURE = Bytes.hex("89504e47")
+
+fn round_trip() -> Option[String] {
+  data = Bytes.append(PNG_SIGNATURE, Bytes.encode_utf8("hi"))
+  size = Bytes.size(data)
+  first = Bytes.get(data, 0)
+  hex = Bytes.to_hex(data)
+  parsed = Bytes.from_hex("not hex")
+  listed = Bytes.from_list([0x89, 0x50])
+  bytes = Bytes.to_list(Bytes.slice(data, 4, 6))
+  joined = Bytes.concat([data, Bytes.empty()])
+  same = data == PNG_SIGNATURE && data < joined && Bytes.is_empty(joined)
+  Bytes.decode_utf8(Bytes.slice(data, 4, 6))
+}
+"#
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Code the text declares to be errors
 

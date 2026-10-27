@@ -1318,6 +1318,15 @@ impl<'m> Emitter<'m> {
             Builtin::StringTrim => named("em_string_trim"),
             Builtin::StringCodePoints => named("em_string_code_points"),
             Builtin::StringFromCodePoint => named("em_string_from_code_point"),
+            // A Bytes has the representation of a String (a byte length and the bytes), so the
+            // size and the steps between text and bytes are those of a String.
+            Builtin::BytesSize => named("em_string_byte_size"),
+            Builtin::BytesFromList => named("em_bytes_from_list"),
+            Builtin::BytesToList => named("em_bytes_to_list"),
+            Builtin::BytesGet => named("em_bytes_get"),
+            Builtin::BytesSlice => named("em_bytes_slice"),
+            Builtin::BytesConcat => named("em_bytes_concat"),
+            Builtin::BytesEncodeUtf8 | Builtin::BytesDecodeValidUtf8 => named("em_bytes_same"),
             Builtin::IntToString => named("em_int_to_string"),
             Builtin::IntParse => named("em_int_parse"),
             Builtin::IntCheckedAdd => named("em_int_checked_add"),
@@ -1628,7 +1637,7 @@ impl<'m> Emitter<'m> {
                 match self.host_ty(f.vars[p].ty) {
                     Some(t) => params.push((p, t)),
                     None => {
-                        self.export_type_error(&shown, f.vars[p].ty);
+                        self.export_type_error(&shown, f.vars[p].ty, "takes");
                         ok = false;
                     }
                 }
@@ -1639,7 +1648,7 @@ impl<'m> Emitter<'m> {
                 self.host_ty(f.ret)
             };
             let Some(ret_ty) = ret_ty else {
-                self.export_type_error(&shown, f.ret);
+                self.export_type_error(&shown, f.ret, "returns");
                 continue;
             };
             if !ok {
@@ -1759,7 +1768,18 @@ impl<'m> Emitter<'m> {
         }
     }
 
-    fn export_type_error(&mut self, function: &str, ty: TypeId) {
+    /// `verb` is `takes` or `returns`.
+    fn export_type_error(&mut self, function: &str, ty: TypeId, verb: &str) {
+        // Bytes is E0443 for exported fns too (`[ext.boundary]`).
+        if *self.core().ty(ty) == Type::Bytes {
+            self.errors.push(CError::new(
+                CErrorKind::Bytes,
+                format!(
+                    "exported function `{function}` {verb} `Bytes`, which target `c` does not support yet"
+                ),
+            ));
+            return;
+        }
         // Not E0427, which is about external functions: an exported fn with a callback has no
         // code of its own yet (the form of callbacks in C is open, 18.1 #38).
         let what = if matches!(self.core().ty(ty), Type::Fn(_)) {

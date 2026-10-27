@@ -613,6 +613,7 @@ impl TypeId {
     pub const EVIDENCE: TypeId = TypeId(7);
     pub const FIBER_SCOPE: TypeId = TypeId(8);
     pub const ANY: TypeId = TypeId(9);
+    pub const BYTES: TypeId = TypeId(10);
 
     /// The position in the type table.
     pub fn index(self) -> usize {
@@ -640,6 +641,9 @@ pub enum Type {
     Float,
     Bool,
     String,
+    /// `Std.Bytes.Bytes` (`[api.std.bytes]`), the built-in type of an `@intrinsic` type
+    /// declaration. Immutable; the `Builtin::Bytes*` functions make and read it.
+    Bytes,
     Unit,
     Never,
     /// Two or more elements.
@@ -794,10 +798,11 @@ impl Default for TypeTable {
             Type::Evidence,
             Type::FiberScope,
             Type::Any,
+            Type::Bytes,
         ] {
             table.intern(t);
         }
-        debug_assert_eq!(table.types[TypeId::ANY.index()], Type::Any);
+        debug_assert_eq!(table.types[TypeId::BYTES.index()], Type::Bytes);
         table
     }
 }

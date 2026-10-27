@@ -38,7 +38,12 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         }
         ANNOTATION if is_named(node, "export") => export(node, out),
         TYPE_DECL => {
-            if child_kind(node, FIELD_LIST).is_none() && !is_external(node) {
+            // A built-in type of the bundled sources (`Bytes`) has no fields either; name
+            // resolution checks where `@intrinsic` may appear.
+            if child_kind(node, FIELD_LIST).is_none()
+                && !is_external(node)
+                && !has_annotation(node, "intrinsic")
+            {
                 error(
                     out,
                     name_or(node),

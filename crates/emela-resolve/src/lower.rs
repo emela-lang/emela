@@ -539,6 +539,8 @@ impl Lower<'_, '_> {
             ctor,
             fields,
             derives,
+            // Outside the bundled sources, `@intrinsic` is E0224 and the type stays a user type.
+            is_intrinsic: t.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
         })
     }
 
