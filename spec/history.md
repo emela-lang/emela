@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-27 (Bytes)
+
+- `[lib.layers]`, `[api.std.bytes]`, `[ext.boundary]`, `[target.js.value]`, `[diag.list]`: Add `Bytes`, an immutable sequence of bytes, to the value layer of std as `Std.Bytes`. It has functions to build, read, slice and join byte sequences, and to convert to and from UTF-8 text and hexadecimal. `Bytes` becomes a boundary type of external functions on the JS target, so that the platform layer can later pass binary data to and from the host. Adopted in the proposal `bytes` (#457).
+
 ## 2026-10-25 (Requests of HTTP services on WASM)
 
 - `[lib.http-service]`, `[target.wasm.output]`: The headers that belong to the connection (`connection`, `keep-alive`, `proxy-authenticate`, `proxy-authorization`, `proxy-connection`, `transfer-encoding`, `upgrade`, `host`, `http2-settings`) are left out of a received request on every target, because hosts of `wasi:http` do not hand them over. On WASM a request without an authority has an empty authority, so `url` is `http:///<path-with-query>` under `wasmtime serve`. Decided while implementing the proposal `http-service` (#428).

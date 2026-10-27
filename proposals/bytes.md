@@ -1,10 +1,10 @@
 ---
 title: Bytes
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 457
 issue:
-decided:
+decided: 2026-10-27
 touches: [lib.layers, api.std.bytes (new), ext.boundary, target.js.value, diag.list]
 requires: []
 related: [http-service]
@@ -122,7 +122,7 @@ Add after the bullet on callbacks:
 
 Add after the table of C types:
 
-> - The C target does not support Bytes yet. When the build target is `c` and an external function reachable from the entry, or an exported fn, takes or returns Bytes, it is a compile error (code to be assigned). The C form (a pointer and a length) is decided together with callbacks (18.1 #38).
+> - The C target does not support Bytes yet. When the build target is `c` and an external function reachable from the entry, or an exported fn, takes or returns Bytes, it is a compile error (E0443). The C form (a pointer and a length) is decided together with callbacks (18.1 #38).
 
 ### `[target.js.value]`
 
@@ -137,11 +137,11 @@ Add after the table:
 
 ### `[diag.list]`
 
-> | E0xxx | The build target is `c`, and an external function reachable from the entry, or an exported fn, takes or returns `Bytes` (12.4) | ``external function `read_file` takes `Bytes`, which target `c` does not support yet`` |
+> | E0443 | The build target is `c`, and an external function reachable from the entry, or an exported fn, takes or returns `Bytes` (12.4) | ``external function `read_file` takes `Bytes`, which target `c` does not support yet`` |
 
 ## Diagnostics
 
-- [ ] New: Bytes at the boundary of an external function or an exported fn on the `c` target. Code to be assigned (band of E0427).
+- [x] New: E0443, Bytes at the boundary of an external function or an exported fn on the `c` target.
 
 ## Compatibility
 
@@ -176,3 +176,5 @@ No program that compiles now changes meaning. `Bytes` is reached only through `i
 ## Open questions
 
 ## Decision
+
+Binary data could not cross the host boundary, which blocked binary files, binary HTTP bodies and random bytes. Bytes goes in std rather than core, as [ext.decl] already intends, so no file name becomes reserved. Constants use Bytes.hex instead of a literal, which keeps the lexer and the three code generators unchanged and leaves a literal possible later. base64 and fixed-width integers start in x, because their variants depend on uses not written yet. The JS boundary accepts only Uint8Array and copies it, so a Bytes never changes after it is received.

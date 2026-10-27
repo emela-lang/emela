@@ -32,7 +32,7 @@ Within std, modules are divided into four layers by their nature.
 
 | Layer | Nature | Contents |
 |---|---|---|
-| value | Pure and independent of the host | Instant, Duration, Path. Collections (Map, Set, Array) in 0.24 |
+| value | Pure and independent of the host | Instant, Duration, Path, Bytes. Collections (Map, Set, Array) in 0.24 |
 | effect | Concurrency and state | State, Fiber, Cause, Deferred (0.20). Queue, Semaphore, Schedule, Stream (later versions. A limit on the number of tasks running at the same time comes before Http) |
 | platform | Effect declarations and the host handlers | Console, Clock, Random, Env, FileSystem, Http |
 | test | Replacements for testing | Handlers such as TestClock and TestConsole. They keep their state in State (8.8), so they are used inside `State.run`. Value comparison helpers, generators, and property testing are not placed in std (below) |
@@ -99,10 +99,11 @@ pub fn union[A: Ord](a: Set[A], b: Set[A]) -> Set[A]
   - Display (Show) uses a source form that can rebuild the value, written `Map.from_list([(1, "a"), (2, "b")])` and `Set.from_list([1, 2])` (`impl Map[K: Show, V: Show]: Show`, `impl Set[A: Show]: Show`). Values inside enclose a String in `"`, as in 10.6. inspect also uses this Show, as in 10.6.
   - With n the number of elements, the Map and Set operations get, insert, remove, update, and contains are O(log n), from_list and union are O(n log n) or less, and the others are O(n). The depth of the tree is kept at O(log n), so even a large Map does not use deep stack.
 - A point in time is represented by Instant, and a length of time by Duration. Both are opaque types whose contents are an Int64. An Instant is milliseconds since the Unix epoch (1970-01-01T00:00:00Z), and a Duration is a length in milliseconds that can also be negative. Leap seconds are not counted. An Instant can be created with `Instant.from_unix_milliseconds(ms: Int64)` (to fix the time in a test, or when a user writes a Clock handler). Instant has no invariant to maintain. It is opaque to prevent confusing it with Int64 or Duration and to hide the unit.
+- A byte sequence is represented by Bytes (`Std.Bytes`), an immutable and opaque type. Each byte is an `Int` from 0 to 255. Bytes is the type through which the platform layer passes binary data, and it is a boundary type of external functions (12.4). Its declarations are in `[api.std.bytes]`.
 - Console has two operations, `print_line(text: String) -> ()` (standard output) and `print_error_line(text: String) -> ()` (standard error). Both write with a trailing newline and do not fail. The system handler is `SystemConsole`.
 - Random has two operations, `int() -> Int` (uniform over the whole range of Int) and `float() -> Float` (uniform over 0 inclusive to 1 exclusive), and they do not fail. The system handler SystemRandom draws from a cryptographically secure random source on JS (`crypto.getRandomValues`). Values in a range are provided separately as ordinary functions written on top of `int()`, and seedable pseudo-random numbers as pure values and functions.
 - Env has only the operation `get(name: String) -> Option[String]`, and it does not fail. An empty value (`NAME=`) is `Some("")`, and an unset variable is `None`.
-- FileSystem (`Std.FileSystem`) handles only text (UTF-8). There is no Bytes, so binary data is left to a later version. All operations are suspend fn (a synchronous API would stop every fiber while reading).
+- FileSystem (`Std.FileSystem`) handles only text (UTF-8). Reading and writing binary data as Bytes (`Std.Bytes`) is left to a later version. All operations are suspend fn (a synchronous API would stop every fiber while reading).
 
 ```emel
 pub error FileNotFound(path: String)

@@ -40,11 +40,14 @@ The parameters and return values of external functions (`[ext.boundary]`) and of
 | Float | number |
 | Bool | boolean |
 | String | string |
+| Bytes | `Uint8Array` |
 | `()` | `undefined` |
 | `@external type` | The host object itself |
 | Function type | A JS function. Its parameters and return value are converted by this table |
 
 - A String received from the host is normalized as in `[ext.exception]`. The same applies to a String received as an argument of a callback.
+- Where Bytes is expected from JS (the return value of an external function, a value resolved by an external suspend fn, an argument of a callback, and an argument of an exported fn), the value MUST satisfy `instanceof Uint8Array`. Subclasses are accepted (a Node.js `Buffer`). Any other value, including an `ArrayBuffer`, another typed array, a `DataView` and a `Uint8Array` from another realm, is a defect with the message ``external function `f` returned a value that is not a `Uint8Array` `` (for an argument of a callback or of an exported fn, ``argument `x` of `f` is not a `Uint8Array` ``). Wrap other values with `new Uint8Array(...)` in the host code.
+- Only the bytes visible through the `Uint8Array` (from `byteOffset`, `byteLength` bytes) are copied, not the whole underlying `ArrayBuffer`.
 - The JS representation of values of other types is unspecified (`[target.unspecified]`).
 
 ## 16.6.4 How outcomes appear `[target.js.outcome]`
