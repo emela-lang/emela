@@ -1,0 +1,80 @@
+name: Proposal implementation issue
+
+# When a proposal's pull request (label `proposal`) is merged, opens an issue for implementing it,
+# with no assignee. Whoever implements it assigns themselves; the implementing pull request closes
+# it with `Closes #<issue>` (proposals/README.md, "Implementation").
+
+on:
+  # `pull_request_target` so that a merged pull request from a fork can open the issue too. The job
+  # checks out only the default branch after the merge, never code chosen by the pull request.
+  pull_request_target:
+    types: [closed]
+
+jobs:
+  open-issue:
+    if: >-
+      github.event.pull_request.merged &&
+      contains(github.event.pull_request.labels.*.name, 'proposal')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+
+      - name: Open an issue for each accepted proposal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SERVER: ${{ github.server_url }}
+          SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          gh label create implementation --repo "$REPO" --color 0E8A16 \
+            --description "Implementing an accepted proposal (proposals/)" 2>/dev/null || true
+          files="$(gh pr diff "$PR" --repo "$REPO" --name-only \
+            | grep -E '^proposals/[^/]+\.md$' | grep -vE '^proposals/(README|TEMPLATE)\.md$' || true)"
+          for file in $files; do
+            [ -f "$file" ] || continue
+            slug="$(basename "$file" .md)"
+            # Prints the title on the first line and the body after it, or nothing when the
+            # proposal is not `accepted`.
+            python3 - "$file" > "$RUNNER_TEMP/issue.md" <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          from spec import read_proposal
+
+          path = sys.argv[1]
+          meta, _ = read_proposal(path)
+          if meta.get("status") != "accepted":
+              sys.exit(0)
+          slug = path.rsplit("/", 1)[1][:-3]
+          def names(key):
+              return ", ".join(f"`{x}`" for x in meta.get(key) or []) or "none"
+          print(f"Implement: {meta.get('title', slug)}")
+          print(f"Implements [`proposals/{slug}.md`]({path}), accepted in #{meta.get('pr')}.")
+          print()
+          print(f"- touches: {names('touches')}")
+          print(f"- requires: {names('requires')}")
+          print()
+          print("Assign yourself to take it. The implementing pull request starts its description with "
+                f"`Implements: proposals/{slug}.md` and closes this issue with `Closes #<this issue>`.")
+          PY
+            if [ ! -s "$RUNNER_TEMP/issue.md" ]; then
+              echo "$file is not accepted; no issue"
+              continue
+            fi
+            title="$(head -n1 "$RUNNER_TEMP/issue.md")"
+            tail -n +2 "$RUNNER_TEMP/issue.md" \
+              | sed "s|]($file)|]($SERVER/$REPO/blob/$SHA/$file)|" > "$RUNNER_TEMP/body.md"
+            if gh issue list --repo "$REPO" --state all --label implementation \
+                 --search "\"proposals/$slug.md\" in:body" --json number --jq '.[].number' | grep -q .; then
+              echo "an implementation issue for $slug already exists"
+              continue
+            fi
+            gh issue create --repo "$REPO" --title "$title" --label implementation --body-file "$RUNNER_TEMP/body.md"
+          done
