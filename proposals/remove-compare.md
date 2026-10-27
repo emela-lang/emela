@@ -2,7 +2,7 @@
 title: Remove the compare functions that Ord already gives
 authors: [Alliana]
 status: draft
-pr:
+pr: 468
 issue:
 decided:
 touches: [api.int, api.int64, api.std.duration, api.std.instant, target.number, open.list]
