@@ -1,10 +1,10 @@
 ---
 title: Remove the compare functions that Ord already gives
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 468
 issue:
-decided:
+decided: 2026-10-28
 touches: [api.int, api.int64, api.std.duration, api.std.instant, target.number, open.list]
 requires: [method-call]
 related: [method-call]
@@ -94,3 +94,5 @@ None. A call of a removed function is the existing E0212 (no such member).
 ## Open questions
 
 ## Decision
+
+With method calls, `n.compare(m)` found both the module's fn and `Ord.compare` for Int, Int64, Duration and Instant, so the most common comparison was always E0335. The two functions give the same order, so removing the module's fn loses nothing, and `Ord.compare(a, b)` and `a.compare(b)` replace it. Letting the module's fn win over the trait would make adding a fn to a module silently change calls that used the trait, which is what `method-call` chose E0335 to prevent. A deprecation period would keep the ambiguity, so the change breaks code at once; before 1.0 that is acceptable. `Float.compare` stays because Float does not satisfy Ord. A check at declaration could only cover the traits of the same module and the Prelude, and the call already reports E0335, so it is not added.
