@@ -14,6 +14,8 @@ and operators:
   [tree-sitter](https://tree-sitter.github.io/) grammar with highlight, fold,
   indent and text-object queries, used by Neovim and Zed.
 - [`editors/zed/`](../editors/zed) — a Zed extension built on that grammar.
+- [`editors/vscode/`](../editors/vscode) — a VS Code extension with a TextMate
+  grammar, which also starts the `emela lsp` language server.
 
 ## `bat`
 
@@ -29,14 +31,14 @@ Verify that `bat` picked it up:
 
 ```sh
 bat --list-languages | grep Emela      # => Emela:emel
-bat examples/hello.emel                # highlighted
+bat examples/hello/src/main.emel       # highlighted
 ```
 
 `bat` selects the syntax from the `.emel` extension automatically. To force it
 (for example when reading from stdin), pass `--language=Emela`:
 
 ```sh
-cat examples/hello.emel | bat --language=Emela
+cat examples/hello/src/main.emel | bat --language=Emela
 ```
 
 To pick up later changes to the definition, edit
@@ -83,6 +85,12 @@ installing it with nvim-treesitter or by hand.
 Install [`editors/zed/`](../editors/zed) as a dev extension (`zed: install dev
 extension` in the command palette). See
 [`editors/zed/README.md`](../editors/zed/README.md).
+
+## VS Code
+
+Build and install [`editors/vscode/`](../editors/vscode) as described in
+[`editors/vscode/README.md`](../editors/vscode/README.md). It needs `emela` on
+`PATH` (or the setting `emela.serverPath`) for the language server.
 
 ## Sublime Text
 

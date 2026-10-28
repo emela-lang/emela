@@ -4,8 +4,8 @@
 
 - 正式版（`vX.Y.Z`）: `main` で release-plz が自動化する。設定は `release-plz.toml`、
   動作は `.github/workflows/release-plz.yml`。
-- プレリリース（`vX.Y.Z-<pre>`、例 `v0.20.0-alpha.1`）: タグを手で打つと
-  `.github/workflows/prerelease.yml` が動く。0.20 系の alpha は `next` から出す。
+- プレリリース（`vX.Y.Z-<pre>`、例 `v0.26.0-alpha.1`）: タグを手で打つと
+  `.github/workflows/prerelease.yml` が動く。
 
 どちらも配布物は `emela` バイナリの tarball
 `emela-<tag>-<target>.tar.gz`（`x86_64-unknown-linux-gnu` と `aarch64-apple-darwin`）
@@ -47,13 +47,9 @@
 
 ## プレリリース（prerelease.yml）
 
-`prerelease.yml` はプレリリースのタグ（`v*-*`）の push で動く。ハイフンのない
-`vX.Y.Z` では動かないので、release-plz の正式版と二重にならない。
-
-タグの push で動かすのは、`workflow_dispatch` は既定のブランチ（`main`）に
-ワークフローの定義がないと使えないため。タグの push ならタグを打ったコミット
-（`next` の上）の定義で動く。`workflow_dispatch`（入力にタグ名）は、`main` に
-このファイルが入った後に既存のタグで作り直すための予備。
+`prerelease.yml` はプレリリースのタグ（`v*-*`，例 `v0.26.0-alpha.1`）の push で動く。
+ハイフンのない `vX.Y.Z` では動かないので、release-plz の正式版と二重にならない。
+`workflow_dispatch`（入力にタグ名）は、既存のタグで作り直すための予備。
 
 ワークフローがやること:
 
@@ -66,39 +62,35 @@
 
 emela.nix には知らせない（正式版だけ）。
 
-### 0.20 の alpha を `next` から出す
+### 出し方
 
-1. `next` 向けに version を上げる PR を出す。`Cargo.toml` の
-   `[workspace.package]` の `version` を `0.20.0-alpha.N` にし、
+1. version を上げる PR を出す。`Cargo.toml` の `[workspace.package]` の `version` と
+   `[workspace.dependencies]` の `emela-*` の `version` を `X.Y.Z-alpha.N` にし、
    `cargo build` で `Cargo.lock` も更新する。
-2. その PR を `next` にマージする。
-3. `next` の先頭でタグを打って push する。
+2. その PR をマージし、マージしたコミットでタグを打って push する。
 
    ```sh
-   git switch next && git pull
-   git tag v0.20.0-alpha.N
-   git push origin v0.20.0-alpha.N
+   git tag vX.Y.Z-alpha.N
+   git push origin vX.Y.Z-alpha.N
    ```
 
-4. `prerelease.yml` が prerelease を作る。Actions の実行と Releases を確認する。
+3. `prerelease.yml` が prerelease を作る。Actions の実行と Releases を確認する。
 
 タグと version がずれていたら、ワークフローはビルドの前に失敗する。そのときは
-タグを消して（`git push origin :refs/tags/v0.20.0-alpha.N`）、version を直してから
+タグを消して（`git push origin :refs/tags/vX.Y.Z-alpha.N`）、version を直してから
 打ち直す。
 
 ## インストール
 
 ```sh
 # 最新の正式版（prerelease は選ばれない）
-curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | sh
+curl -fsSL https://emela.dev/install.sh | sh
 
 # 版を指定する（prerelease も可、先頭の v は省略可）
-curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh \
-  | EMELA_VERSION=v0.20.0-alpha.1 sh
+curl -fsSL https://emela.dev/install.sh | EMELA_VERSION=v0.24.0 sh
 ```
 
-`EMELA_CHANNEL=nightly` は最新の prerelease を選ぶ。今は nightly を出していないので、
-alpha が選ばれる。
+`EMELA_CHANNEL=nightly` は最新の prerelease を選ぶ。
 
 ## 補足
 
@@ -124,6 +116,7 @@ alpha が選ばれる。
   release PR を開き直す（version も元に戻る）。直したらすぐマージする。
 - `release-plz-pr` は `release-plz-release` の後に動く。version を手で上げて `main` に
   入れたときに、先にタグを打たせるため。
-- 0.20.0 の正式版を出すときに `next` を `main` に入れる。Cargo.toml はもう `0.20.0`
-  なので、release-plz は release PR を作らずに、その push で `v0.20.0` を打つ。
-  古い `release v0.11.0` の PR（#108）は、入れる前に閉じる。
+- 新しいクレートを足すときは `release-plz.toml` の `[[package]]` に `version_group = "emela"`
+  で加え、`emela-cli` の `changelog_include` にも足す。最初のリリースのタグにそのクレートが
+  入るまでは `git_tag_name = "<crate>-v{{ version }}"` を付ける（理由は `release-plz.toml` の
+  コメント）。タグが打たれたら外す。
