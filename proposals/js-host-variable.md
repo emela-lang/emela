@@ -1,25 +1,31 @@
 ---
-title: Choose the JS host with EMELA_JS_HOST
+title: JS hosts are Node and Bun, chosen with EMELA_JS_HOST
 authors: [Alliana]
 status: draft
 pr: 472
 issue:
 decided:
-touches: [cmd.build, cmd.test.out-dir, diag.list]
+touches: [target, target.js.host, cmd.build, cmd.test.out-dir, diag.list]
 requires: []
 related: []
 ---
 
-# Choose the JS host with EMELA_JS_HOST
+# JS hosts are Node and Bun, chosen with EMELA_JS_HOST
 
 ## Summary
 
-`emela run` と `emela test` が JS の出力を走らせる host を，環境変数 `EMELA_JS_HOST` で選べるようにする．値は command で，起動の仕方は今の `EMELA_NODE` と同じ．`EMELA_NODE` は deprecated にし，1 minor version の間だけ警告付きで読む．
+`emela run` と `emela test` が JS の出力を走らせる host を，環境変数 `EMELA_JS_HOST` で選べるようにする．値は command で，起動の仕方は今の `EMELA_NODE` と同じ．`EMELA_NODE` は deprecated にし，1 minor version の間だけ警告付きで読む．あわせて，JS の target が想定する host から Deno を外し，Node と Bun にする．
 
 ## Motivation
 
-- JS の target は Node，Deno，Bun を host として想定し（`[target]`），三つで同じ結果になることを確かめている（`[target.js.host]`）．ところが host を選ぶ変数の名前は `EMELA_NODE` で，Node 以外を指すと名前と中身が食い違う
+- JS の target は Node 以外の host も想定している（`[target]`）．ところが host を選ぶ変数の名前は `EMELA_NODE` で，Node 以外を指すと名前と中身が食い違う
 - x/platform-bun のように，Bun の組み込み機能（`bun:sqlite`）を叩く Pome が出てきた．そのテストは `EMELA_NODE=bun emela test` で走らせている．読んだ人には Node を指しているように見える
+
+Deno は想定から外す．
+
+- 今の仕様は Deno を host に挙げ，結果が Node と同じになることを確かめたと書いている（`[target.js.host]`）．ところが emela は Deno を起動できない．`deno` は `--input-type=module -e` を受け付けず，`emela run` と `emela test` の起動の形に合わない
+- Deno のために起動の仕方を分けたり，権限の flag を決めたり，CI で確かめ続けたりするだけの理由が，今はない．Bun の組み込み機能を叩く x/platform-bun のような Pome はあるが，Deno に当たるものはない
+- 想定から外すのは，emela が Deno で動くことを約束しないという意味．`main.mjs` を Deno で import して動くことはあり得るが，仕様は扱わない
 
 他の道具の変数（`EMELA_CC`，`EMELA_WASMTIME`）は道具の名前を付けている．あれは使える道具が 1 つしかないので成り立つ．JS は host を選べるので，役割の名前にする．名前に host を使うのは，仕様が JS を動かすものを一貫して host と呼んでいるため（`[target.js.host]`，host functions）．`RUNTIME` は，emela が出力する `emela_runtime.mjs` と紛らわしい．
 
@@ -33,6 +39,14 @@ related: []
 - `EMELA_NODE` は次の minor version まで読む．その次の minor version で読まなくなる
 
 ## Specification changes
+
+### `[target]`
+
+Replace "The JS target assumes a host that runs on a server (Node 18 or later, and Deno and Bun with `node:` modules and `fetch`)." with "The JS target assumes a host that runs on a server: Node 18 or later, or Bun." The rest of the paragraph stays.
+
+### `[target.js.host]`
+
+Replace the informative item with: "Informative: suspension and resumption, yielding, AbortSignal, and the order of virtual time (`[target.js.event-loop]`, `[target.js.abort]`) have been checked to give the same results on Node 22.14 and Bun 1.3.8 (2026-10-13)."
 
 ### `[cmd.build]`
 
@@ -59,6 +73,8 @@ Replace "`emela test` runs the launcher module with node." with: "`emela test` r
 
 ## Compatibility
 
+- Deno で `main.mjs` を動かしていたプログラムは，仕様の上では保証されなくなる．emela の出力そのものは変えないので，すぐに動かなくなるわけではない
+
 - `EMELA_NODE` だけを設定している環境は，1 minor version の間，警告が出るだけで同じように動く
 - compiler の tests（`crates/emela-driver/tests/wasm_*.rs`，`crates/emela-codegen-wasm/tests/unicode.rs`，`crates/emela-cli/tests/`）が `EMELA_NODE` を読んでいる．`EMELA_JS_HOST` に移す
 
@@ -66,6 +82,7 @@ Replace "`emela test` runs the launcher module with node." with: "`emela test` r
 
 - emela-driver：`NODE_ENV` を `EMELA_JS_HOST` と `EMELA_NODE` の 2 つにする．起動の組み立て（`node_command`，`node_script_command`）は変えない
 - emela-cli：W0902 を出す．E0904 の note を直す
+- README：JS の target の host の説明（Node.js，Deno，Bun）と，HTTP サービスの出力を `deno serve` で動かせるという記述を直す
 
 ## Alternatives
 
