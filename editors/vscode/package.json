@@ -3,7 +3,7 @@
   "displayName": "Emela",
   "description": "Emela language support: diagnostics, completion and the other features of `emela lsp`, plus syntax highlighting.",
   "version": "0.1.0",
-  "publisher": "emela-lang",
+  "publisher": "Emela",
   "license": "MIT",
   "repository": {
     "type": "git",
