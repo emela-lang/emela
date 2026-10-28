@@ -126,6 +126,14 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::StringTrim
         | Builtin::StringCodePoints
         | Builtin::StringFromCodePoint
+        | Builtin::BytesFromList
+        | Builtin::BytesToList
+        | Builtin::BytesSize
+        | Builtin::BytesGet
+        | Builtin::BytesSlice
+        | Builtin::BytesConcat
+        | Builtin::BytesEncodeUtf8
+        | Builtin::BytesDecodeValidUtf8
         | Builtin::IntToString
         | Builtin::IntParse
         | Builtin::IntCheckedAdd

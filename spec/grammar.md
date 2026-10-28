@@ -99,7 +99,7 @@ The following restrictions apply outside the grammar.
 - A `qualified` annot_arg is allowed only as the argument of `@entry`.
 - `opaque` can be applied only to type and enum.
 - Each parameter of init is a lower_name with a type (8.4).
-- A type_decl without fields is allowed only when it has `@external`.
+- A type_decl without fields is allowed only when it has `@external` (or `@intrinsic` in the bundled sources, 3.5).
 - An enum_decl has at least one variant. Never is the only type with no values.
 - When `derive` follows the newline right after a type_decl, enum_decl, or error_decl, that newline is not a terminator, and the derive continues the declaration (as written in the examples in 10.5). Blank lines and comment-only lines in between are skipped (as in the line continuation check in 2.5). Because `derive` is a contextual keyword, it is not part of the lexical line continuation rules in 2.5, and it is handled only at the position of a declaration.
 

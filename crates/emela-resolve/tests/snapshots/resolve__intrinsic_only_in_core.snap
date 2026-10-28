@@ -1,7 +1,8 @@
 ---
 source: crates/emela-resolve/tests/resolve.rs
-expression: "diagnostics(&[(\"main.emel\",\nr##\"@intrinsic\nfn length(s: String) -> Int\n\n@intrinsic\ntype Handle(id: Int)\n\n@intrinsic\nfn with_body() -> Int { 1 }\n\"##,)])"
+expression: "diagnostics(&[(\"main.emel\",\nr##\"@intrinsic\nfn length(s: String) -> Int\n\n@intrinsic\ntype Handle(id: Int)\n\n@intrinsic\npub opaque type Raw\n\n@intrinsic\nfn with_body() -> Int { 1 }\n\"##,)])"
 ---
 error src/main.emel@0..10 `@intrinsic`: `@intrinsic` can only be used in the bundled core sources
 error src/main.emel@40..50 `@intrinsic`: `@intrinsic` can only be used on a function without a body
-error src/main.emel@73..83 `@intrinsic`: `@intrinsic` can only be used on a function without a body
+error src/main.emel@73..83 `@intrinsic`: `@intrinsic` can only be used in the bundled core sources
+error src/main.emel@105..115 `@intrinsic`: `@intrinsic` can only be used on a function without a body

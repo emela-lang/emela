@@ -99,6 +99,7 @@ fn signature_type(core: &mut emela_core::Module, sig: Sig) -> Option<TypeId> {
         Sig::Float => TypeId::FLOAT,
         Sig::Bool => TypeId::BOOL,
         Sig::String => TypeId::STRING,
+        Sig::Bytes => TypeId::BYTES,
         Sig::Unit => TypeId::UNIT,
         Sig::Never => TypeId::NEVER,
         Sig::List(element) => {
