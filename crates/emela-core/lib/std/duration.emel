@@ -40,16 +40,6 @@ pub fn subtract(d: Duration, other: Duration) -> Duration {
   Duration(milliseconds: d.milliseconds - other.milliseconds)
 }
 
-pub fn compare(d: Duration, other: Duration) -> Ordering {
-  if d.milliseconds < other.milliseconds {
-    Less
-  } else if d.milliseconds > other.milliseconds {
-    Greater
-  } else {
-    Equal
-  }
-}
-
 ## Milliseconds with an `ms` suffix (`1500ms`).
 pub fn to_string(d: Duration) -> String {
   "#{Int64.to_string(d.milliseconds)}ms"

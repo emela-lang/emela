@@ -1,5 +1,6 @@
 ---
 source: crates/emela-types/tests/methods.rs
+assertion_line: 149
 expression: "render_bodies(r#\"\ntype User(name: String)\n\nfn rename(u: User, name: String) -> User {\n  User(name:, ..u)\n}\n\nfn too_few(u: User) {\n  u.rename()\n}\n\nfn not_called(u: User) {\n  u.rename\n}\n\nfn misspelled(u: User) {\n  u.renmae(\"a\")\n}\n\nfn tuple(p: (Int, Int)) {\n  p.first()\n}\n\nfn unknown() {\n  fn(x) { x.rename(\"a\") }\n}\n\"#)"
 ---
 rename: fn(User, String) -> User
@@ -17,6 +18,6 @@ unknown: ∀ A. fn() -> fn(A) -> {unknown}
   x: ?1
 `u.rename()` WrongArgCount { callee: Some("rename"), expected: 1, found: 0 }
 `rename` MethodNotCalled { ty: Named(Idx::<TyConData>(3), []), name: "rename", receiver: Some("u") }
-`renmae` NoFieldOrFunction { ty: Named(Idx::<TyConData>(3), []), name: "renmae" }
+`renmae` no field or function `renmae` for type `User`
 `first` type `(Int, Int)` has no fields (`first`)
 `rename` FieldOnUnknownType { field: "rename", call: true }
