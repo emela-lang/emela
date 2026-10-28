@@ -2,7 +2,7 @@
 title: Choose the JS host with EMELA_JS_HOST
 authors: [Alliana]
 status: draft
-pr:
+pr: 472
 issue:
 decided:
 touches: [cmd.build, cmd.test.out-dir, diag.list]
