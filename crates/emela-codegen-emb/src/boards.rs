@@ -60,6 +60,9 @@ pub const BOARD_NAMES: &[&str] = &[
     "esp32c3",
 ];
 
+/// Verifies build inputs and images before invoking a board flasher.
+pub const BUILD_STATE_SCRIPT: &str = include_str!("../boards/build_state.py");
+
 /// Returns a package without depending on the compiler's source checkout at runtime.
 pub fn package(id: &str) -> Option<BoardPackage> {
     let (id, assets): (_, &'static [BoardAsset]) = match id {

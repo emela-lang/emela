@@ -1,6 +1,6 @@
 # ESP32-C3ボードpackage
 
-Rust APIから出力したEmela生成CとこのpackageをPythonの`build.py`でRISC-Vへcompileし、`firmware.elf`・`firmware.bin`・`firmware.map`・`resources.json`を生成する。標準entryは引数なし・`Int`戻り値のsuspend関数で、`generated/emela_embedded_exports.h`の`board_main_start` aliasから呼び出す。schedulerはmain contextで実行し、SysTimer ISRは完了通知だけを行う。Emela CLIの組み込みtarget・board選択は次のPRの統合範囲である。
+Emela生成CとこのpackageをPythonの`build.py`でRISC-Vへcompileし、`firmware.elf`・`firmware.bin`・`firmware.map`・`resources.json`を生成する。標準entryは引数なし・`Int`戻り値のsuspend関数で、`generated/emela_embedded_exports.h`の`board_main_start` aliasから呼び出す。schedulerはmain contextで実行し、SysTimer ISRは完了通知だけを行う。通常のprojectは[Emela CLIの開発手順](../../docs/cli-embedded.md)でboardを選び、生成・build・flashを行える。以下はRust APIを使うstandalone手順である。
 
 ## 前提ツール
 
@@ -64,7 +64,7 @@ python3 /tmp/emela-board-esp32c3/bsp/build.py flash \
   --port /dev/ttyUSB0
 ```
 
-`flash`は成功したbuildのmanifestと成果物hashを照合する。失敗したbuildの古いmanifestや改変されたimageは書き込まない。照合対象はbuild成果物であり、Emelaソースや生成設定の鮮度照合はCLI統合の範囲になる。ソースを変更した場合はC生成とbuildをやり直す。
+`flash`は成功したbuildのmanifestと成果物hashを照合する。失敗したbuildの古いmanifestや改変されたimageは書き込まない。standaloneの照合対象はbuild成果物である。Emelaソースや生成設定の鮮度まで照合する場合は`emela build`／`emela flash`を使う。ソースを変更した場合はC生成とbuildをやり直す。
 
 実行前にGPIO9をLowにしてresetするUART download modeが必要になるボードもある。詳細は[公式boot mode説明](https://docs.espressif.com/projects/esptool/en/latest/esp32c3/advanced-topics/boot-mode-selection.html)を参照する。
 
@@ -74,6 +74,6 @@ python3 /tmp/emela-board-esp32c3/bsp/build.py flash \
 
 [QEMU runner](../../tools/board_probe_esp32c3.py)はbuild manifestとimageを検査し、Flash imageの末尾だけを`0xff`で4MBへ補完してSPI Flashへ接続する。`-kernel`・`-bios`によるアプリ注入を行わず、QEMU内蔵ROMのpower-onから起動し、Console・10msのIRQ待機再開・結果42・stack guardを観測する。再実行手順と確認範囲は[ボード接続と確認](../../docs/boards.md)を参照する。
 
-この版の[QEMU GPIO model](https://github.com/espressif/qemu/blob/esp-develop-9.2.2-20260417/hw/gpio/esp32_gpio.c)はstrap以外のreadを0にし、writeを無視する。このためQEMUはGPIO3の物理出力遷移を検証する根拠にはしない。温度監視アプリ、別のemulator接続や実機の配線・serial転送は後続の確認範囲である。
+この版の[QEMU GPIO model](https://github.com/espressif/qemu/blob/esp-develop-9.2.2-20260417/hw/gpio/esp32_gpio.c)はstrap以外のreadを0にし、writeを無視する。このためQEMUはGPIO3の物理出力遷移を検証する根拠にはしない。実機の配線・serial転送は別の確認範囲である。
 
 レジスタの根拠は[ESP-IDF v5.4.1 ESP32-C3 headers](https://github.com/espressif/esp-idf/tree/v5.4.1/components/soc/esp32c3/register/soc)、[起動処理](https://docs.espressif.com/projects/esp-idf/en/v5.4.1/esp32c3/api-guides/startup.html)。Flash imageのchecksum・SHA-256・chip ID・entry・load範囲はbuild時に独立に検査し、公式`esptool image_info`でも確認する。

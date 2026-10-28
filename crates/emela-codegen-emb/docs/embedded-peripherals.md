@@ -1,6 +1,6 @@
 # 標準組み込みhandlerとCボードABI
 
-利用者向けの構成・Emelaでの利用方法は[組み込みインターフェース](embedded-interfaces.md)、Rust APIと入力契約は[実装範囲と対応状況](implementation.md)を参照する。この文書は `Std.Embedded.Board` とC実装の境界を記録する。STM32F4・ESP32-C3のBSPとstandalone build・Flash起動確認は[ボードpackage](boards.md)へ分ける。CLIへの接続は後続の範囲である。
+利用者向けの構成・Emelaでの利用方法は[組み込みインターフェース](embedded-interfaces.md)、Rust APIと入力契約は[実装範囲と対応状況](implementation.md)を参照する。この文書は `Std.Embedded.Board` とC実装の境界を記録する。STM32F4・ESP32-C3のBSPとstandalone build・Flash起動確認は[ボードpackage](boards.md)、projectの設定・build・flashは[CLIの開発手順](cli-embedded.md)へ分ける。
 
 ## 接続と検査
 
@@ -115,4 +115,4 @@ workspace rootから既存のhost C検証helperを使って再実行する。
 cargo test -p emela-codegen-emb --test emit embedded_peripherals:: --locked
 ```
 
-この文書は今回の実行結果・成功件数を記録するものではない。C mockは共通word範囲と値の移送を観測するもので、機器設定に応じた7/8/9/16bitの物理driverを実装するものではない。回帰試験は共通ABIと代表入力の契約を確認し、MCUごとのGPIOレジスタ、UART/I²C/SPIの物理動作、実割込みtiming、C stackの最大値を保証しない。過去のCLI・ARM・emulatorによる手動確認は、このPRの再現可能な検証結果として含めない。
+この文書は実行結果・成功件数を記録するものではない。C mockは共通word範囲と値の移送を観測するもので、機器設定に応じた7/8/9/16bitの物理driverを実装するものではない。回帰試験は共通ABIと代表入力の契約を確認し、MCUごとのGPIOレジスタ、UART/I²C/SPIの物理動作、実割込みtiming、C stackの最大値を保証しない。CLIの回帰試験とBSPのFlash起動観測は、それぞれ[CLI](cli-embedded.md#検証の範囲)と[ボード確認](boards.md)へ分ける。

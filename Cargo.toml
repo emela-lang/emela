@@ -84,6 +84,7 @@ emela-lir = { path = "crates/emela-lir", version = "0.25.0" }
 emela-codegen-js = { path = "crates/emela-codegen-js", version = "0.25.0" }
 emela-codegen-wasm = { path = "crates/emela-codegen-wasm", version = "0.25.0" }
 emela-codegen-c = { path = "crates/emela-codegen-c", version = "0.25.0" }
+emela-codegen-emb = { path = "crates/emela-codegen-emb", version = "0.25.0" }
 emela-driver = { path = "crates/emela-driver", version = "0.25.0" }
 emela-lsp = { path = "crates/emela-lsp", version = "0.25.0" }
 emela-pome = { path = "crates/emela-pome", version = "0.25.0" }

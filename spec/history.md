@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-29 (The embedded C target)
+
+- `[target]`, `[target.c-embedded]`, `[target.c-embedded.output]`, `[target.c-embedded.board]`, `[target.c-embedded.entry]`, `[target.c-embedded.project]`, `[target.c-embedded.config]`, `[module.pome]`, `[cmd]`, `[cmd.build]`, `[cmd.flash]`: Add the target `c-embedded`, which makes C for microcontrollers, and, with a board selected by `--board` or `[embedded].board`, a firmware image. `emela flash` writes the image of the last successful build after checking that its inputs and outputs have not changed. `[pome].targets` and `[build].target` can name `c-embedded`. The `[embedded]` table of `Pome.toml` and the runtime configuration file are added. This follows the pull request #387.
+
 ## 2026-10-28 (Remove the compare functions that Ord already gives)
 
 - `[api.int]`, `[api.int64]`, `[api.std.duration]`, `[api.std.instant]`, `[target.number]`, `[open.list]`: `Int.compare`, `Int64.compare`, `Duration.compare` and `Instant.compare` are removed. These types satisfy Ord, and `Ord.compare` gives the same order. With method calls (`[type.rules]`), `n.compare(m)` finds both the fn of the module and the function of Ord, and is E0335. `Float.compare` stays: Float does not satisfy Ord. Adopted in the proposal `remove-compare` (#468).

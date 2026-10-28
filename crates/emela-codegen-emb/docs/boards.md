@@ -1,6 +1,6 @@
 # ボードpackageとFlash起動の確認
 
-この段階では、前段のFlow IRコンパイラーと標準組み込みhandlerに、ボードpackage、C/assemblyのstartup・runtime、standalone build/flash scriptを接続する。Rust APIで生成したCからfirmwareを作り、STM32F4はRenode、ESP32-C3はEspressif QEMUでFlash起動を確認する。CLIの組み込みtarget・設定ファイル・board選択は後続の統合範囲である。
+Flow IRコンパイラーと標準組み込みhandlerに、ボードpackage、C/assemblyのstartup・runtime、standalone build/flash scriptを接続する。Rust APIで生成したCからfirmwareを作り、STM32F4はRenode、ESP32-C3はEspressif QEMUでFlash起動を確認する。この文書はBSPと既存probeの再現手順を扱う。通常のprojectをEmela CLIで作成・build・flashする手順は[CLIでの開発](cli-embedded.md)を参照する。
 
 ## 構成と境界
 
@@ -56,6 +56,8 @@ probeはGPIOを出力に設定し、Highへ変更して `board probe: high` をC
 ## CLIを使わない生成とbuild
 
 workspace rootから実行する。Rust exampleの出力先は未存在のdirectoryを指定する。生成時は隣接するstaging directoryを使い、成功した一式を公開する。
+
+以下のstandalone手順は`artifacts/`を出力先にする。CLIのboard buildは`generated/`・`bsp/`・`firmware/`を作り、project入力の鮮度照合も行う。両者の出力構成とflash手順を混在させない。
 
 ```sh
 cargo build -p emela-codegen-emb --example board_probe --locked

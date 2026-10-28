@@ -33,7 +33,7 @@ F407の総SRAM 192 KiBにはCCM 64 KiBが含まれるため、このpackageが�
 
 ## Rust APIから生成してstandalone buildする
 
-このPRはRust API・BSP・Pythonのbuild／flash処理を提供する。Emela CLIの組み込みtarget・board選択や設定ファイルへの接続は次のPRで行う。
+このpackageはRust API・BSP・Pythonのbuild／flash処理を提供する。通常のprojectは[Emela CLIの開発手順](../../../docs/cli-embedded.md)でboardを選び、生成・build・flashを行える。以下はRust APIを使うstandalone手順である。
 
 repo rootで次のように生成する。`board_probe`は引数なしで`Int`を返す`Async` entryを生成し、GPIOをHigh、Consoleへ`board probe: high`を出力、10ms待機、GPIOをLow、`board probe: low`を出力して42を返す。F446／Nucleo／互換IDではPA5（5）、F407／F412／F429／DiscoveryではPD12（60）を使う。
 
@@ -64,7 +64,7 @@ python3 /tmp/emela-board-stm32f446re/bsp/build.py flash \
   --output-dir /tmp/emela-board-stm32f446re/artifacts
 ```
 
-`--port`はST-Link adapter serialを指定する。`OPENOCD`で実行するOpenOCDを選べる。照合対象は`firmware.json`に記録したbuild成果物であり、Emelaソースや生成設定の鮮度照合はCLI統合の範囲になる。ソースを変更した場合はC生成とbuildをやり直す。
+`--port`はST-Link adapter serialを指定する。`OPENOCD`で実行するOpenOCDを選べる。standaloneの照合対象は`firmware.json`に記録したbuild成果物である。Emelaソースや生成設定の鮮度まで照合する場合は`emela build`／`emela flash`を使う。ソースを変更した場合はC生成とbuildをやり直す。
 
 ## GPIOとConsoleの契約
 
@@ -103,7 +103,7 @@ stackは16 KiB、low guardは別に256 byteを予約する。固定heap・fiber�
 
 `board_app_completed`・`board_app_result`・`board_app_failures`・`board_ticks`・`board_notifications`・`board_rejected_notifications`・`board_uart_bytes`、`board_boot_*`と`emela_validation_stack_*`を観測できる。stack paint走査はmainのwork後と終了時に行い、IRQはSPの記録だけとする。
 
-このPRの[Renode runner](../../../tools/board_probe_stm32f4.py)はFlash binaryからresetし、GPIOのHigh→Low、Console、10msの実IRQ待機再開、結果42、stack guardを観測する。[matrix runner](../../../tools/board_probe_matrix.py)は登録されたF4 profileとplatformの組合せを実行する。対象・再実行手順・今回の確認結果は[ボード接続と確認](../../../docs/boards.md)を参照する。ST-Linkによる物理転送とエミュレータの実行結果は別の確認範囲である。温度監視アプリなどの利用例は後続のPRで扱う。
+[Renode runner](../../../tools/board_probe_stm32f4.py)はFlash binaryからresetし、GPIOのHigh→Low、Console、10msの実IRQ待機再開、結果42、stack guardを観測する。[matrix runner](../../../tools/board_probe_matrix.py)は登録されたF4 profileとplatformの組合せを実行する。対象と再実行手順は[ボード接続と確認](../../../docs/boards.md)を参照する。ST-Linkによる物理転送とエミュレータの実行結果は別の確認範囲である。
 
 ## 設定根拠
 

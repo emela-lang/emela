@@ -115,7 +115,7 @@ suspendは固定pool上の継続と協調schedulerで実装する。Scope/Fork/J
 
 ISRとして公開するEmela関数は `with_isr_entry` で指定する。到達先にheap値・参照管理・再帰・suspend・runtime const初期化・動的call・Hold/Unholdがある場合は拒否する。外部C symbolは `with_isr_safe_external` で明示し、非scalar adapter等の追加制約も満たす必要がある。この検査は外部関数の実装や実行時間を証明しない。ISRのstack総量は算出しない。
 
-標準 `Std.Embedded` effect・共有handlerとC bridgeは[共通インターフェース](embedded-interfaces.md)と[ABI契約](embedded-peripherals.md)で提供する。これらの標準bindingでは汎用adapterの明示mappingは不要である。[ボードpackage](boards.md)はSTM32F4とESP32-C3のstartup/runtime、standalone build/flash script、Rustのboard probeとFlash起動の観測runnerを提供する。`Output.exports` から公開C symbolとsuspend入口かどうかを取得できる。CLIのtarget/board選択、TOML設定、ツールチェーン取得や利用例の統合は後続の範囲である。BSPはGPIO・Console・Clock等の対応部分を実装し、未提供のdriverは利用側が補う。
+標準 `Std.Embedded` effect・共有handlerとC bridgeは[共通インターフェース](embedded-interfaces.md)と[ABI契約](embedded-peripherals.md)で提供する。これらの標準bindingでは汎用adapterの明示mappingは不要である。[ボードpackage](boards.md)はSTM32F4とESP32-C3のstartup/runtime、standalone build/flash script、Rustのboard probeとFlash起動の観測runnerを提供する。`Output.exports` から公開C symbolとsuspend入口かどうかを取得できる。[CLIとdriver](cli-embedded.md)はこのCore便宜APIを利用し、target/board選択、TOML設定、module置換、firmware buildとflash時の鮮度照合へ接続する。ツールチェーンの自動取得は行わない。BSPはGPIO・Console・Clock等の対応部分を実装し、未提供のdriverは利用側が補う。
 
 ## 5. APIの最小利用例とhostでの確認
 
@@ -398,4 +398,4 @@ host試験は生成Cの値・制御・所有権・容量defectを確認する。
 | 外部Cの所有契約 | `sync_external::source_string_adapters_snapshot_borrowed_results_and_board_held_arguments`、`const_runtime::external::pure_external_aggregate_const_owns_string_and_list_fields_after_board_release` | ABI mapping、借用・所有、caller buffer、managed fieldの寿命。 |
 | schedulerの固定poolと通知 | `fixed_scheduler_bounds_work_reuses_pools_and_rejects_stale_handles` | main側の処理数・pool再利用とstale検査。実割込みtimingやWCETの測定ではない。 |
 
-表の「対応」をもって、全Emelaソースが任意の小容量ボードで動作する、CLIからfirmwareを書き込める、すべての組合せを実行検証した、という意味にはしない。後続のfrontend/CLI接続やボードdriverの拡張では、ここで定義したIR・所有権・資源・外部Cの契約を保ち、対象ごとの生成物と実行結果を確認する。
+表の「対応」は、全Emelaソースが任意の小容量ボードで動作することや、すべての組合せを実行検証したことを意味しない。CLIのbuild・flashには別途project・entry・toolchain・BSPの条件がある。frontendやボードdriverの拡張では、ここで定義したIR・所有権・資源・外部Cの契約を保ち、対象ごとの生成物と実行結果を確認する。

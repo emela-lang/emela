@@ -60,7 +60,7 @@ pub fn set_output() {
 
 アプリは共通effectを使い、利用側のC実装が論理ピン5の物理的な接続を定める。全ての物理ボード用driverを標準ライブラリが提供するわけではない。使うhandlerのほかのoperationも生成runtimeから到達扱いになる場合があるため、C側は生成headerとlink結果に従って必要な関数を用意する。
 
-標準module・共有handlerとC bridgeを提供する。ソースからCoreを作る既存frontendとRustの `compile` / `compile_flow` APIを組み合わせてCを生成し、利用側がC実装とcompile・linkする。入力と生成ファイルの扱いは[実装範囲と対応状況](implementation.md)を参照する。STM32F4・ESP32-C3のBSP、Rust exampleからのstandalone build/flash、emulatorの観測方法は[ボードpackage](boards.md)を参照する。CLIの組み込みtarget/board選択、設定ファイルと利用例は後続の統合範囲である。
+標準module・共有handlerとC bridgeを提供する。ソースからCoreを作る既存frontendとRustの `compile` / `compile_flow` APIを組み合わせてCを生成し、利用側がC実装とcompile・linkできる。通常のprojectは[CLIの`c-embedded` targetとboard設定](cli-embedded.md)で生成・firmware build・flashまで進められる。入力と生成ファイルの扱いは[実装範囲と対応状況](implementation.md)、STM32F4・ESP32-C3のBSPとstandalone手順、emulatorの観測方法は[ボードpackage](boards.md)を参照する。
 
 ## 転送データと容量
 
