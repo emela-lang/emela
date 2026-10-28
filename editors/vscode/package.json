@@ -5,6 +5,11 @@
   "version": "0.1.0",
   "publisher": "emela-lang",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emela-lang/emela.git",
+    "directory": "editors/vscode"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
