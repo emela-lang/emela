@@ -1,0 +1,77 @@
+name: VSCode extension
+# Packages the VSCode extension in editors/vscode on every pull request that touches it, and
+# publishes it to the Visual Studio Marketplace on an `editors/vscode/vX.Y.Z` tag.
+#
+# The tag has a `/` so that neither prerelease.yml (`v*-*`) nor release-plz (`vX.Y.Z`) picks it
+# up. Publishing uses Trusted Publishing: the Marketplace publisher `Emela` has a policy for this
+# repository and this file, and `vsce publish --oidc` exchanges the job's GitHub OIDC token for a
+# Marketplace credential. No secret is stored.
+on:
+  push:
+    tags:
+      - "editors/vscode/v*"
+  pull_request:
+    paths:
+      - "editors/vscode/**"
+      - ".github/workflows/vscode-release.yml"
+
+concurrency:
+  group: vscode-release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: editors/vscode
+
+jobs:
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - run: npm ci
+      - name: Check that the tag matches the version
+        if: ${{ github.event_name == 'push' }}
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [ "$TAG" != "editors/vscode/v$version" ]; then
+            echo "::error::the tag '$TAG' does not match the version $version in editors/vscode/package.json"
+            exit 1
+          fi
+      - run: npm run package -- --out emela.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emela-vsix
+          path: editors/vscode/emela.vsix
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: package
+    if: ${{ github.event_name == 'push' && github.repository_owner == 'emela-lang' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: emela-vsix
+          path: editors/vscode
+      - run: npx vsce publish --oidc --packagePath emela.vsix
