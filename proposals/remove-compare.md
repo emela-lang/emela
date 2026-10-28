@@ -1,7 +1,7 @@
 ---
 title: Remove the compare functions that Ord already gives
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 468
 issue:
 decided: 2026-10-28

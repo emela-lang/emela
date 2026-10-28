@@ -26,7 +26,7 @@ The JS target assumes a host that runs on a server (Node 18 or later, and Deno a
 
 To detect overflow, use functions such as `Int.checked_add`. Dividing the minimum value by -1 (`-2147483648 / -1`) also overflows and wraps around.
 
-The comparison functions (`Int.compare`, `Float.compare` and so on), and `min` and `max` built on them, compare by a total order, unlike the operator `<`. `Float.compare` treats NaN as the largest value, two NaNs as Equal, and `0.0` and `-0.0` as Equal. `min` and `max` choose by this order, and return the first argument when the values are equal. Because NaN is the largest value, `Float.min` returns the other argument when exactly one is NaN (`Float.min(NaN, 1.0)` is `1.0`), and `Float.max` returns NaN (`Float.max(NaN, 1.0)` is NaN). `abs` wraps around at the minimum value and returns the minimum value.
+`Float.compare`, and `min` and `max` of Int, Int64 and Float, compare by a total order. For Float, this order differs from the operator `<`. `Float.compare` treats NaN as the largest value, two NaNs as Equal, and `0.0` and `-0.0` as Equal. `min` and `max` choose by this order, and return the first argument when the values are equal. Because NaN is the largest value, `Float.min` returns the other argument when exactly one is NaN (`Float.min(NaN, 1.0)` is `1.0`), and `Float.max` returns NaN (`Float.max(NaN, 1.0)` is NaN). `abs` wraps around at the minimum value and returns the minimum value.
 
 ## 16.2 Strings `[target.string]`
 

@@ -361,6 +361,11 @@ impl Diagnostic {
                 code::IMPL_HEAD,
                 format!("impl head must be a type with distinct type parameters: `{head}`"),
             ),
+            DiagnosticKind::FnNamedLikeField { name, ty } => (
+                Severity::Error,
+                code::FN_NAMED_LIKE_FIELD,
+                format!("function `{name}` has the same name as a field of `{ty}`"),
+            ),
             _ => unreachable!("module and import graph diagnostics are handled by from_resolve"),
         };
         let mut out = Diagnostic::new(severity, message)
@@ -581,17 +586,70 @@ impl Diagnostic {
                 Some(code::NO_FIELD),
                 format!("no field `{field}` on type {}", show(ty)),
             ),
-            TypeDiagnosticKind::NoFields { ty, .. } => (
+            TypeDiagnosticKind::NoFieldOrFunction { ty, name } => (
+                Severity::Error,
+                Some(code::NO_FIELD),
+                format!("no field or function `{name}` for type {}", show(ty)),
+            ),
+            TypeDiagnosticKind::MethodNotCalled { ty, name, receiver } => {
+                let receiver = receiver.as_deref().unwrap_or("x");
+                help = Some(format!("call it as `{receiver}.{name}(...)`"));
+                (
+                    Severity::Error,
+                    Some(code::NO_FIELD),
+                    format!("no field `{name}` for type {}", show(ty)),
+                )
+            }
+            TypeDiagnosticKind::NoFields { ty, field } => (
                 Severity::Error,
                 Some(code::NO_FIELDS),
-                format!("type {} has no fields", show(ty)),
+                format!("type {} has no field or function `{field}`", show(ty)),
             ),
-            TypeDiagnosticKind::FieldOnUnknownType { field } => {
+            TypeDiagnosticKind::FieldOnUnknownType { field, call } => {
                 help = Some("add a type annotation".to_owned());
+                let what = if *call {
+                    format!("call `{field}`")
+                } else {
+                    format!("access field `{field}`")
+                };
                 (
                     Severity::Error,
                     Some(code::FIELD_ON_UNKNOWN_TYPE),
-                    format!("the type of this value must be known to access field `{field}`"),
+                    format!("the type of this value must be known to {what}"),
+                )
+            }
+            TypeDiagnosticKind::AmbiguousMethod {
+                ty,
+                name,
+                field,
+                qualified,
+                receiver,
+            } => {
+                let receiver = receiver.as_deref().unwrap_or("x");
+                let mut candidates: Vec<String> = Vec::new();
+                if *field {
+                    candidates.push(format!("the field `{name}`"));
+                }
+                candidates.extend(qualified.iter().map(|q| format!("`{q}`")));
+                let calls: Vec<String> = qualified
+                    .iter()
+                    .map(|q| format!("`{q}({receiver})`"))
+                    .collect();
+                let mut text = format!("write {}", or_list(&calls));
+                if *field {
+                    text.push_str(&format!(
+                        ", or take the field out first (`f = {receiver}.{name}`)"
+                    ));
+                }
+                help = Some(text);
+                (
+                    Severity::Error,
+                    Some(code::AMBIGUOUS_METHOD),
+                    format!(
+                        "ambiguous method `{name}` for {}: {}",
+                        show(ty),
+                        and_list(&candidates)
+                    ),
                 )
             }
             TypeDiagnosticKind::OpaqueField { ty, field } => (
@@ -1347,4 +1405,22 @@ fn name_error(error: &NameError) -> String {
 
 pub fn error_count(diagnostics: &[Diagnostic]) -> usize {
     diagnostics.iter().filter(|d| d.is_error()).count()
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn and_list(items: &[String]) -> String {
+    joined(items, "and")
+}
+
+/// `a`, `a or b`, `a, b or c`.
+fn or_list(items: &[String]) -> String {
+    joined(items, "or")
+}
+
+fn joined(items: &[String], word: &str) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [init @ .., last] => format!("{} {word} {last}", init.join(", ")),
+    }
 }

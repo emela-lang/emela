@@ -46,7 +46,7 @@ Success(True)
 Success(())
 Success(Point(x: 1, y: 2.0))
 Success([1, 2])
-Failure(Cause(raise: <fn>))
+Failure(Cause(failure: <fn>))
 Fail
 Success(42)
 Success("after")

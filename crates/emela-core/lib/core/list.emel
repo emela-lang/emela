@@ -81,6 +81,11 @@ pub fn append[A](xs: List[A], ys: List[A]) -> List[A] {
   reverse_onto(reverse(xs), ys)
 }
 
+## Joins the strings with `sep` in between: `["a", "b"].join(", ")` is `"a, b"`.
+## `String.split(s, sep).join(sep) == s` holds.
+@intrinsic
+pub fn join(xs: List[String], sep: String) -> String
+
 ## Flattens a list of lists, keeping the order.
 pub fn flatten[A](xss: List[List[A]]) -> List[A] {
   fold(reverse(xss), from: [], f: fn(acc, xs) { append(xs, acc) })
@@ -302,6 +307,6 @@ fn compare_lists[A: Ord](xs: List[A], ys: List[A]) -> Ordering {
 ## `[1, 2, 3]`. A String element is quoted (`["a"]`).
 impl List[A: Show]: Show {
   fn show(self) {
-    "[#{String.join(map(self, fn(x) { String.show_nested(x) }), ", ")}]"
+    "[#{join(map(self, fn(x) { String.show_nested(x) }), ", ")}]"
   }
 }

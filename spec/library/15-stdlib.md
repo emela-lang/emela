@@ -157,7 +157,7 @@ pub error UnexpectedStatus(status: Int, body: String)
 
 pub fn new(status: Int, body: String) -> Response # a response without headers
 pub fn header(res: Response, name: String) -> Option[String] # the first value, case-insensitive
-pub fn headers(res: Response, name: String) -> List[String] # all values
+pub fn header_values(res: Response, name: String) -> List[String] # all values
 pub fn require_ok(res: Response) -> Response fails UnexpectedStatus # fails on anything other than 2xx
 
 # Std.Http

@@ -34,7 +34,7 @@ pub enum Builtin {
     StringSplit,
     /// `String.chars`: one string per grapheme cluster.
     StringChars,
-    /// `String.join(parts, sep)`．
+    /// `List.join(parts, sep)`, formerly `String.join`. It makes a String.
     StringJoin,
     /// `String.trim`: removes leading and trailing Unicode White_Space.
     StringTrim,
@@ -312,7 +312,7 @@ impl Builtin {
             Builtin::StringEndsWith => info(S, "ends_with", &[String, String], Bool),
             Builtin::StringSplit => info(S, "split", &[String, String], STRS),
             Builtin::StringChars => info(S, "chars", &[String], STRS),
-            Builtin::StringJoin => info(S, "join", &[STRS, String], String),
+            Builtin::StringJoin => info(Some("List"), "join", &[STRS, String], String),
             Builtin::StringTrim => info(S, "trim", &[String], String),
             Builtin::StringCodePoints => info(S, "code_points", &[String], List(&Int)),
             Builtin::StringFromCodePoint => info(S, "from_code_point", &[Int], Option(&String)),

@@ -1,0 +1,18 @@
+---
+source: crates/emela-types/tests/methods.rs
+assertion_line: 98
+expression: "render_bodies(r##\"\ntrait Area {\n  fn area(self) -> Int\n}\n\ntrait Shape: Area {\n  fn name(self) -> String\n}\n\ntype Square(side: Int)\n  derive Show\n\ntype Greeter(greet: fn(String) -> String)\n\nimpl Square: Area {\n  fn area(self) { self.side * self.side }\n}\n\nimpl Square: Shape {\n  fn name(self) { \"square\" }\n}\n\nfn call_field(g: Greeter) {\n  g.greet(\"hi\")\n}\n\nfn traits(s: Square) {\n  \"#{s.show()} #{s.area()} #{s.name()}\"\n}\n\nfn total[A: Area](xs: List[A]) -> Int {\n  xs.fold(from: 0, f: fn(n, x) { n + x.area() })\n}\n\nfn through_super[A: Shape](x: A) -> Int {\n  x.area()\n}\n\nfn unbounded[A](x: A) -> Int {\n  x.area()\n}\n\"##)"
+---
+call_field: fn(Greeter) -> String
+  g: Greeter
+traits: fn(Square) -> String
+  s: Square
+total: ∀ A: Area. fn(List[A]) -> Int
+  xs: List['0]
+  n: Int
+  x: '0
+through_super: ∀ A: Shape. fn(A) -> Int
+  x: '0
+unbounded: ∀ A. fn(A) -> Int
+  x: '0
+`area` type `'0` has no fields (`area`)

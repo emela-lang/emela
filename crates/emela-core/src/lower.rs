@@ -2271,7 +2271,13 @@ impl<'a> Lowerer<'a> {
             ExprKind::Lit(lit) => self.lit(id, lit),
             ExprKind::Path(res) => self.path(id, *res, e.span),
             ExprKind::Call { callee, args } => {
-                let written = args.iter().map(|a| a.value).collect();
+                let mut written: Vec<ExprId> = args.iter().map(|a| a.value).collect();
+                // A method call `x.f(a)` is `M.f(x, a)` (`[type.rules]`).
+                if let ExprKind::Field { base, .. } = &hir.exprs[*callee].kind
+                    && self.types.methods.get(*callee).is_some()
+                {
+                    written.insert(0, *base);
+                }
                 self.call(id, *callee, written)
             }
             ExprKind::Binary {
@@ -2618,8 +2624,13 @@ impl<'a> Lowerer<'a> {
                 call,
             });
         }
-        let ExprKind::Path(Res::Def(def)) = hir.exprs[callee].kind else {
-            return Ok(Target::Value(self.expr(callee), call, ev));
+        // A method call's callee is typed as a reference to the function it calls.
+        let def = match hir.exprs[callee].kind {
+            ExprKind::Path(Res::Def(def)) => def,
+            _ => match self.types.methods.get(callee) {
+                Some(&def) => def,
+                None => return Ok(Target::Value(self.expr(callee), call, ev)),
+            },
         };
         let is_trait_fn = hir.defs[def].kind == DefKind::TraitFn;
         match hir.item(def) {
@@ -2839,7 +2850,12 @@ impl<'a> Lowerer<'a> {
     fn hir_def_of(&self, expr: ExprId) -> DefId {
         match self.hir.exprs[expr].kind {
             ExprKind::Path(Res::Def(def)) => def,
-            _ => unreachable!("a definition reference"),
+            // The callee of a method call (`[type.rules]`).
+            _ => *self
+                .types
+                .methods
+                .get(expr)
+                .expect("a definition reference"),
         }
     }
 

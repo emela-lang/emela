@@ -224,8 +224,8 @@ impl Context<'_> {
     }
 
     /// After `.`: if the left is a run of uppercase names, the contents of a module or trait;
-    /// otherwise, from the expression's type, operations of a capability value or fields of a
-    /// type.
+    /// otherwise, from the expression's type, operations of a capability value, or fields and
+    /// methods.
     fn after_dot(&self, left: &str) -> Vec<Completion> {
         let path = &left[left.trim_end_matches(|c| is_name_char(c) || c == '.').len()..];
         let segments: Vec<&str> = path.split('.').collect();
@@ -310,8 +310,9 @@ impl Context<'_> {
         }
     }
 
-    /// From the type of the expression ending right before `.`: operations of a capability value
-    /// or fields of a type or error.
+    /// From the type of the expression ending right before `.` (`[lsp.completion]`): operations
+    /// of a capability value, or fields of a type or error followed by the functions that can be
+    /// called as methods.
     fn expr_members(&self, end: TextSize) -> Vec<Completion> {
         let hir = self.hir();
         let types = &self.program.types;
@@ -325,14 +326,49 @@ impl Context<'_> {
         else {
             return Vec::new();
         };
-        let ty = self.expr_ty(expr);
-        match ty.as_ref() {
-            Some(Ty::Cap(effect)) => hir
+        let Some(ty) = self.expr_ty(expr) else {
+            return Vec::new();
+        };
+        let mut items = self.fields_of(&ty);
+        // Then the functions that can be called as methods (`[type.rules]`).
+        let env = self.enclosing_params(end);
+        let cons = &types.ty_table.cons;
+        for def in emela_types::methods_of(hir, types, self.module, &ty, &env) {
+            let Some(sig) = types.sigs.get(def) else {
+                continue;
+            };
+            let Ty::Fn(f) = &sig.scheme.ty else {
+                continue;
+            };
+            // The first parameter is x of `x.f(...)`.
+            let called = Ty::func_sets(
+                f.params.iter().skip(1).cloned(),
+                f.ret.clone(),
+                f.fails.clone(),
+                f.uses.clone(),
+            );
+            items.push(Completion {
+                label: hir.defs[def].name.to_string(),
+                kind: CompletionKind::Method,
+                detail: Some(called.display_with(cons, &sig.scheme.params).to_string()),
+                documentation: self.docs.definition(self.program, self.analysis, def),
+                insert_text: None,
+            });
+        }
+        items
+    }
+
+    /// The operations of a capability value, or the fields of a type, an error or a handler.
+    fn fields_of(&self, ty: &Ty) -> Vec<Completion> {
+        let hir = self.hir();
+        let types = &self.program.types;
+        match ty {
+            Ty::Cap(effect) => hir
                 .effect_ops(effect.def)
                 .iter()
                 .filter_map(|&op| self.def_item(op))
                 .collect(),
-            Some(Ty::Named(con, _)) => {
+            Ty::Named(con, _) => {
                 let def = types.ty_table.def(*con);
                 let fields = match hir.item(def) {
                     Some(Item::Type(t)) => match &t.fields {
@@ -365,7 +401,8 @@ impl Context<'_> {
     /// The expression's type. If it is not in the type table (for `log.` or `a.b.`, the nameless
     /// `.` is `Missing` in the resolver and the left expression never reaches inference), it is
     /// computed from the left: locals and definitions use their declared types, `x.f` the field
-    /// type or the capability operation's type, and calls the return type of the callee.
+    /// type, the capability operation's type or the method's type, and calls the return type of
+    /// the callee.
     fn expr_ty(&self, expr: ExprId) -> Option<Ty> {
         let hir = self.hir();
         let types = &self.program.types;
@@ -388,8 +425,15 @@ impl Context<'_> {
                         .get(*op)
                         .map(|sig| emela_types::substitute_bound(&sig.scheme.ty, &effect.args))
                 }
-                Ty::Named(con, args) => self.field_ty(types.ty_table.def(con), &args, &name.name),
-                _ => None,
+                base_ty => {
+                    let field = match &base_ty {
+                        Ty::Named(con, args) => {
+                            self.field_ty(types.ty_table.def(*con), args, &name.name)
+                        }
+                        _ => None,
+                    };
+                    field.or_else(|| self.method_ty(&base_ty, &name.name, expr))
+                }
             },
             ExprKind::Call { callee, .. } => match self.expr_ty(*callee)? {
                 Ty::Fn(f) => Some(f.ret),
@@ -397,6 +441,20 @@ impl Context<'_> {
             },
             _ => None,
         }
+    }
+
+    /// The declared type of the function `name` that a method call on a value of type `ty` calls
+    /// (`[type.rules]`), for the left of `xs.map(f).`. Its type parameters are not instantiated:
+    /// only the head of its return type is used.
+    fn method_ty(&self, ty: &Ty, name: &str, expr: ExprId) -> Option<Ty> {
+        let hir = self.hir();
+        let types = &self.program.types;
+        let env = self.enclosing_params(hir.exprs[expr].span.range.end());
+        emela_types::methods_of(hir, types, self.module, ty, &env)
+            .into_iter()
+            .find(|&def| hir.defs[def].name == name)
+            .and_then(|def| types.sigs.get(def))
+            .map(|sig| sig.scheme.ty.clone())
     }
 
     /// The type of a named field of a type or error. Taken from the constructor's signature

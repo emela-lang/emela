@@ -1,0 +1,91 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+assertion_line: 1429
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0334]: function `width` has the same name as a field of `Box`
+    ╭─[ src/shapes.emel:15:8 ]
+    │
+ 15 │ pub fn width(b: Box) -> Int {
+    │        ──┬──  
+    │          ╰──── 
+────╯
+
+error[E0312]: no field or function `secret` for type `Square`
+    ╭─[ src/main.emel:30:5 ]
+    │
+ 30 │   s.secret()
+    │     ───┬──  
+    │        ╰──── 
+────╯
+
+error[E0312]: no field or function `label` for type `Square`
+    ╭─[ src/main.emel:34:5 ]
+    │
+ 34 │   s.label()
+    │     ──┬──  
+    │       ╰──── 
+────╯
+
+error[E0312]: no field `area` for type `Square`
+    ╭─[ src/main.emel:38:9 ]
+    │
+ 38 │   f = s.area
+    │         ──┬─  
+    │           ╰─── 
+────╯
+   = help: call it as `s.area(...)`
+
+error[E0312]: no field or function `aera` for type `Square`
+    ╭─[ src/main.emel:43:5 ]
+    │
+ 43 │   s.aera()
+    │     ──┬─  
+    │       ╰─── 
+────╯
+
+error[E0313]: type `Int` has no field or function `nmae`
+    ╭─[ src/main.emel:47:5 ]
+    │
+ 47 │   n.nmae()
+    │     ──┬─  
+    │       ╰─── 
+────╯
+
+error[E0314]: the type of this value must be known to call `area`
+    ╭─[ src/main.emel:51:17 ]
+    │
+ 51 │   f = fn(x) { x.area() }
+    │                 ──┬─  
+    │                   ╰─── 
+────╯
+   = help: add a type annotation
+
+error[E0335]: ambiguous method `size` for `Point`: `Main.size` and `Seq.size`
+    ╭─[ src/main.emel:56:5 ]
+    │
+ 56 │   p.size()
+    │     ──┬─  
+    │       ╰─── 
+────╯
+   = help: write `Main.size(p)` or `Seq.size(p)`
+
+error[E0335]: ambiguous method `size` for `Rec`: the field `size` and `Seq.size`
+    ╭─[ src/main.emel:60:5 ]
+    │
+ 60 │   r.size()
+    │     ──┬─  
+    │       ╰─── 
+────╯
+   = help: write `Seq.size(r)`, or take the field out first (`f = r.size`)
+
+error[E0335]: ambiguous method `size` for `Square`: `Big.size` and `Seq.size`
+    ╭─[ src/main.emel:64:5 ]
+    │
+ 64 │   s.size()
+    │     ──┬─  
+    │       ╰─── 
+────╯
+   = help: write `Big.size(s)` or `Seq.size(s)`
+
+10 errors

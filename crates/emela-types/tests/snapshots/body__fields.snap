@@ -14,6 +14,6 @@ f: fn(User, Pair[Int, String], NotFound, Shape, Int) -> String
   d: {unknown}
   g: {unknown}
   h: {unknown}
-`nmae` no field `nmae` on type `User`
+`nmae` no field or function `nmae` for type `User`
 `radius` type `Shape` has no fields (`radius`)
 `name` type `Int` has no fields (`name`)

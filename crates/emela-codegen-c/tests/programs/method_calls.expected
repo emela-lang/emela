@@ -1,0 +1,23 @@
+exit: 0
+--- stdout
+--- stderr
+"bea"
+20
+"hi!"
+"user ann"
+["user ann", "user cy"]
+"receiver"
+"argument"
+"argument"
+"too young: 17"
+"ann"
+"7 ann"
+[1, 2, 3]
+16
+"x-y-z"
+"xy"
+""
+6
+2
+"User(name: \"dee\", age: 17)"
+[4, 2, 3]

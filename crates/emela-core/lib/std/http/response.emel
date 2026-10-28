@@ -25,11 +25,12 @@ pub fn add_header(res: Response, name: String, value: String) -> Response {
 
 ## The first value of the header `name`, compared without case.
 pub fn header(res: Response, name: String) -> Option[String] {
-  List.head(headers(res, name))
+  List.head(header_values(res, name))
 }
 
-## All values of the header `name` in order, compared without case.
-pub fn headers(res: Response, name: String) -> List[String] {
+## All values of the header `name` in order, compared without case. Not named `headers`, the
+## field (E0334).
+pub fn header_values(res: Response, name: String) -> List[String] {
   key = String.to_ascii_lowercase(name)
   res.headers
     |> List.filter(fn((n, _)) { String.to_ascii_lowercase(n) == key })

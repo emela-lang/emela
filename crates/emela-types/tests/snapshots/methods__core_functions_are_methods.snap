@@ -1,0 +1,18 @@
+---
+source: crates/emela-types/tests/methods.rs
+expression: "render_bodies(r#\"\nfn lengths(xs: List[String]) {\n  xs.map(fn(s) { s.length() }).fold(from: 0, f: fn(a, b) { a + b })\n}\n\nfn first_line(s: String) {\n  s.split(\"\\n\").head().or(\"\")\n}\n\nfn joined(xs: List[String]) {\n  xs.join(\", \")\n}\n\nfn digits(n: Int) {\n  n.to_string().length()\n}\n\nfn not_strings(xs: List[Int]) -> String {\n  xs.join(\", \")\n}\n\"#)"
+---
+lengths: fn(List[String]) -> Int
+  xs: List[String]
+  s: String
+  a: Int
+  b: Int
+first_line: fn(String) -> String
+  s: String
+joined: fn(List[String]) -> String
+  xs: List[String]
+digits: fn(Int) -> Int
+  n: Int
+not_strings: fn(List[Int]) -> String
+  xs: List[Int]
+`xs` mismatch: expected `List[String]`, found `List[Int]`

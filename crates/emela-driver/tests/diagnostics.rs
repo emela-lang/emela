@@ -1302,6 +1302,191 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// The diagnostics of method calls (`[type.rules]`, `[data.type]`): no field or function (E0312,
+/// also for a function written without a call), a type without fields (E0313), an undetermined
+/// type (E0314), a fn named like a field (E0334) and more than one candidate (E0335). A trait
+/// reached only as `Traits.Named` is not looked up, and a private fn is not found outside its
+/// module.
+#[test]
+fn method_call_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/traits.emel",
+                r#"pub trait Seq {
+  fn size(self) -> Int
+}
+
+pub trait Named {
+  fn label(self) -> String
+}
+"#,
+            ),
+            (
+                "app/src/shapes.emel",
+                r#"import Traits.{Seq, Named}
+
+pub type Square(side: Int)
+
+pub type Box(width: Int)
+
+pub fn area(s: Square) -> Int {
+  s.side * s.side
+}
+
+fn secret(s: Square) -> Int {
+  s.side
+}
+
+pub fn width(b: Box) -> Int {
+  b.width
+}
+
+impl Square: Seq {
+  fn size(self) { 4 }
+}
+
+impl Square: Named {
+  fn label(self) { "square" }
+}
+"#,
+            ),
+            (
+                "app/src/main.emel",
+                r#"import Shapes
+import Traits
+import Traits.{Seq}
+
+trait Big {
+  fn size(self) -> Int
+}
+
+type Point(x: Int)
+
+type Rec(size: Int)
+
+impl Point: Seq {
+  fn size(self) { 1 }
+}
+
+impl Rec: Seq {
+  fn size(self) { 2 }
+}
+
+impl Shapes.Square: Big {
+  fn size(self) { 3 }
+}
+
+fn size(p: Point) -> Int {
+  p.x
+}
+
+fn private(s: Shapes.Square) -> Int {
+  s.secret()
+}
+
+fn qualified_only(s: Shapes.Square) -> String {
+  s.label()
+}
+
+fn not_called(s: Shapes.Square) -> Int {
+  f = s.area
+  0
+}
+
+fn misspelled(s: Shapes.Square) -> Int {
+  s.aera()
+}
+
+fn no_fields(n: Int) -> Int {
+  n.nmae()
+}
+
+fn unknown() -> Int {
+  f = fn(x) { x.area() }
+  0
+}
+
+fn module_and_trait(p: Point) -> Int {
+  p.size()
+}
+
+fn field_and_trait(r: Rec) -> Int {
+  r.size()
+}
+
+fn two_traits(s: Shapes.Square) -> Int {
+  s.size()
+}
+"#,
+            ),
+        ],
+        "app",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// A method call needs no import of the module that defines the type (`[module.resolution]`),
+/// and finds the traits imported by name, defined in the module, and of the Prelude.
+#[test]
+fn method_calls_without_imports_check_cleanly() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/shapes.emel",
+                r#"pub type Square(side: Int)
+  derive Show
+
+pub fn area(s: Square) -> Int {
+  s.side * s.side
+}
+
+pub fn grow(s: Square, by: Int) -> Square {
+  Square(side: s.side + by)
+}
+"#,
+            ),
+            (
+                "app/src/factory.emel",
+                r#"import Shapes.{Square}
+
+pub fn unit() -> Square {
+  Square(side: 1)
+}
+"#,
+            ),
+            (
+                "app/src/main.emel",
+                r#"import Factory
+
+trait Doubled {
+  fn doubled(self) -> Int
+}
+
+impl Int: Doubled {
+  fn doubled(self) { self * 2 }
+}
+
+fn main() -> Int {
+  s = Factory.unit()
+  t = s.grow(by: 2)
+  label = t.show()
+  label.length() + t.area().doubled() + ["a", "b"].join(", ").length()
+}
+"#,
+            ),
+        ],
+        "app",
+        &mut frontend,
+    );
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+}
+
 /// `[api.std.bytes]`, compatibility: `Bytes` is reached only through `import Std.Bytes`, so a
 /// module `bytes.emel` and a user type named `Bytes` keep working. Outside `Std.Bytes`, a Bytes is
 /// made only by its functions: it has no constructor to call or match.
@@ -1311,11 +1496,11 @@ fn bytes_names_stay_free() {
         ("app/Pome.toml", ""),
         (
             "app/src/bytes.emel",
-            "pub type Bytes(count: Int)\n\npub fn count(b: Bytes) -> Int { b.count }\n",
+            "pub type Bytes(value: Int)\n\npub fn count(b: Bytes) -> Int { b.value }\n",
         ),
         (
             "app/src/main.emel",
-            "import Bytes\n\nfn main() {\n  dbg(Bytes.count(Bytes.Bytes(count: 1)))\n}\n",
+            "import Bytes\n\nfn main() {\n  dbg(Bytes.count(Bytes.Bytes(value: 1)))\n}\n",
         ),
     ];
     let analysis = check_files(&files, "app", &mut Typecheck::default());

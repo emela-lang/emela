@@ -905,3 +905,38 @@ pub fn serve(app: fn(Int) -> Int, x: Int) -> Int { app(x) }
         ),
     ]));
 }
+
+/// In the module of a type, an fn whose first parameter has that type at its head cannot have
+/// the name of one of its fields (E0334, `[data.type]`), so that a method call never finds both.
+/// A fn of another module, or whose first parameter has another type, may.
+#[test]
+fn fn_named_like_a_field() {
+    insta::assert_snapshot!(diagnostics(&[
+        (
+            "main.emel",
+            r#"pub type Request(headers: List[String], url: String)
+
+pub error NotFound(id: Int)
+
+pub type Pair[A](left: A, right: A)
+
+pub fn headers(req: Request, name: String) -> List[String] { req.headers }
+
+fn url(n: Int) -> Int { n }
+
+fn other(name: String, req: Request) -> Int { 0 }
+
+fn id(e: NotFound) -> Int { e.id }
+
+fn left[A](p: Pair[A]) -> A { p.left }
+"#,
+        ),
+        (
+            "other.emel",
+            r#"import Main.{Request}
+
+fn headers(req: Request) -> List[String] { req.headers }
+"#,
+        ),
+    ]));
+}

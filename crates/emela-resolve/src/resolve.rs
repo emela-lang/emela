@@ -126,6 +126,7 @@ pub fn resolve(
                 name: data.name.clone(),
                 items: Vec::new(),
                 is_core: modules.is_core(module),
+                traits: Vec::new(),
             },
         );
         if let Some(file) = files.get(module) {
@@ -141,9 +142,14 @@ pub fn resolve(
             resolver.warn_prelude_shadowing(module);
         }
     }
+    for (module, _) in modules.iter() {
+        let traits = resolver.visible_traits(module);
+        resolver.program.modules[module].traits = traits;
+    }
     for pending in pending {
         crate::lower::lower_item(&mut resolver, pending);
     }
+    crate::lower::check_fn_field_names(&mut resolver);
     let Resolver {
         program,
         mut diagnostics,
@@ -615,6 +621,19 @@ impl<'a> Resolver<'a> {
             .get(ns, name)
             .map(|e| e.target)
             .or_else(|| self.prelude[ns as usize].get(name).copied())
+    }
+
+    /// The traits that can be written unqualified in `module` ([`ModuleItems::traits`]).
+    fn visible_traits(&self, module: ModuleId) -> Vec<DefId> {
+        let mut traits: Vec<DefId> = self.scopes[module]
+            .names(Ns::Type)
+            .chain(self.prelude[Ns::Type as usize].keys())
+            .filter_map(|name| self.lookup(module, Ns::Type, name))
+            .filter(|&def| self.program.defs[def].kind == DefKind::Trait)
+            .collect();
+        traits.sort_by_key(|def| def.into_raw());
+        traits.dedup();
+        traits
     }
 
     /// "Did you mean" candidates: names in the module's namespaces and the Prelude.

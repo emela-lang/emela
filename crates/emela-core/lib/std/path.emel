@@ -63,7 +63,7 @@ fn components(path: String) -> List[String] {
 
 ## Joins the components back, keeping the leading `/` of an absolute `path`.
 fn from_components(path: String, parts: List[String]) -> String {
-  joined = String.join(parts, "/")
+  joined = List.join(parts, "/")
   if String.starts_with(path, "/") { "/#{joined}" } else { joined }
 }
 

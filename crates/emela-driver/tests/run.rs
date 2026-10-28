@@ -1217,7 +1217,7 @@ fn lists_strings_and_int64_run_through_core() {
   dbg(String.to_ascii_uppercase("Hello, äb 東 @[`{"))
   big = Int64.from_int(2147483647) * Int64.from_int(4)
   one = Int64.from_int(1)
-  dbg((Int64.compare(big, one), Int64.min(big, one), Int64.max(big, one), Int64.abs(-big)))
+  dbg((big.compare(one), Int64.min(big, one), Int64.max(big, one), Int64.abs(-big)))
 }
 "##,
     );
@@ -1264,14 +1264,14 @@ fn main() {
     c.print_line(Duration.to_string(d))
     c.print_line(Int64.to_string(Duration.to_seconds(Duration.milliseconds(-1500))))
     c.print_line(Duration.to_string(Duration.subtract(Duration.hours(1), Duration.minutes(61))))
-    c.print_line(show(Duration.compare(Duration.seconds(1), Duration.milliseconds(1000))))
+    c.print_line(show(Duration.seconds(1).compare(Duration.milliseconds(1000))))
     c.print_line(if Duration.seconds(1) == Duration.milliseconds(1000) { "eq" } else { "ne" })
     start = Instant.from_unix_milliseconds(1760238245678)
     later = start |> Instant.add(Duration.hours(25))
     c.print_line(Instant.to_string(start))
     c.print_line(Instant.to_string(later))
     c.print_line(Duration.to_string(later |> Instant.since(start)))
-    c.print_line(show(Instant.compare(start, later)))
+    c.print_line(show(start.compare(later)))
     c.print_line(Int64.to_string(Instant.to_unix_milliseconds(Instant.subtract(start, Duration.milliseconds(678)))))
     c.print_line(Instant.to_string(Instant.from_unix_milliseconds(0)))
     c.print_line(Instant.to_string(Instant.from_unix_milliseconds(-1)))
@@ -1894,7 +1894,7 @@ fn main() {
       c = "#{Http.get("https://example.com/c").status}" escape {
         ConnectionFailed(url:, message:) -> "failed #{url}"
       }
-      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Response.header(a, "x-A")} #{Response.headers(b, "X-a")} #{Response.header(a, "none")}"
+      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Response.header(a, "x-A")} #{Response.header_values(b, "X-a")} #{Response.header(a, "none")}"
     }
   })
   with SystemConsole {

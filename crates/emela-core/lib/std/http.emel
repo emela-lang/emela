@@ -57,9 +57,9 @@ pub fn header(res: Response, name: String) -> Option[String] {
 }
 
 ## All values of the header `name` in order, compared without case.
-@deprecated("use `Response.headers` of `Std.Http.Response`")
+@deprecated("use `Response.header_values` of `Std.Http.Response`")
 pub fn headers(res: Response, name: String) -> List[String] {
-  Response.headers(res, name)
+  Response.header_values(res, name)
 }
 
 ## The query string of `pairs`, each part percent-encoded (`q=%E6%9D%B1&page=2`).
@@ -293,7 +293,7 @@ fn is_field_value(value: String) -> Bool {
 ## The query is the text after the first `?` of `url`: neither the scheme nor the authority can
 ## hold a `?`.
 fn well_formed(request: Request) -> Bool {
-  query = String.split(request.url, "?") |> List.drop(1) |> String.join("?")
+  query = String.split(request.url, "?") |> List.drop(1) |> List.join("?")
   decodes(Request.path(request)) && decodes(query)
 }
 

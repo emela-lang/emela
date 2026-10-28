@@ -739,6 +739,10 @@ pub struct ModuleItems {
     /// A core module bundled with the compiler (`ModuleMap::is_core`). Its impls of the Prelude's
     /// traits for the Prelude's types are the built-in impls (spec 10.6).
     pub is_core: bool,
+    /// The traits that can be written unqualified in the module: its own, those imported by name
+    /// in braces, and the Prelude's it does not shadow. A method call looks up the functions of
+    /// these traits only (`[type.rules]`). Sorted by definition.
+    pub traits: Vec<DefId>,
 }
 
 #[derive(Debug, Default, Clone)]

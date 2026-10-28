@@ -3,7 +3,7 @@ import Std.Set.{Set}
 
 type Key(value: Int)
 impl Key: Eq { fn eq(self, other) { self.value % 10 == other.value % 10 } }
-impl Key: Ord { fn compare(self, other) { Int.compare(self.value % 10, other.value % 10) } }
+impl Key: Ord { fn compare(self, other) { Ord.compare(self.value % 10, other.value % 10) } }
 
 pub fn collections(n: Int) -> Int {
   old = Map.from_list([(3, n + 3), (1, n + 1), (2, n + 2)])
