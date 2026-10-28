@@ -1,10 +1,15 @@
 {
   "name": "emela",
   "displayName": "Emela",
-  "description": "Emela language support: diagnostics and completion via `emela lsp` (spec 0033), plus syntax highlighting.",
+  "description": "Emela language support: diagnostics, completion and the other features of `emela lsp`, plus syntax highlighting.",
   "version": "0.1.0",
-  "publisher": "emela-lang",
+  "publisher": "Emela",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emela-lang/emela.git",
+    "directory": "editors/vscode"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -33,21 +38,20 @@
         "path": "./syntaxes/emela.tmLanguage.json"
       }
     ],
+    "commands": [
+      {
+        "command": "emela.restartServer",
+        "title": "Restart Language Server",
+        "category": "Emela"
+      }
+    ],
     "configuration": {
       "title": "Emela",
       "properties": {
         "emela.serverPath": {
           "type": "string",
           "default": "emela",
-          "description": "Path to the `emela` binary that provides the language server (`emela lsp`)."
-        },
-        "emela.packageRoots": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "description": "Directories passed to the server as `--package` import roots (each must contain an emela-package.json)."
+          "description": "Path to the `emela` binary that provides the language server (`emela lsp`). A bare name is looked up on `PATH` and then in `~/.emela/bin`. Changing it restarts the server."
         }
       }
     }

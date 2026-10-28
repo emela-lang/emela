@@ -4,69 +4,256 @@
 #
 # This is a Sublime Text `.sublime-syntax` file, which is also the format the
 # `bat` pager (via the syntect library) reads. See docs/syntax-highlight.md for
-# install instructions.
+# install instructions. It follows the tree-sitter grammar in
+# editors/tree-sitter-emela and matches editors/vscode/syntaxes/emela.tmLanguage.json.
 name: Emela
 file_extensions:
   - emel
 scope: source.emela
 
 variables:
-  ident: '[A-Za-z_][A-Za-z0-9_]*'
-  type_name: '[A-Z][A-Za-z0-9_]*'
+  ident: '[a-z_][A-Za-z0-9_]*'
+  # A type name has at least one lowercase letter; an uppercase name has none ([lex.name]).
+  type_name: '[A-Z][A-Za-z0-9]*'
+  constant_name: '[A-Z][A-Z0-9_]*(?![A-Za-z0-9_])'
 
 contexts:
   main:
+    - include: code
+
+  code:
     - include: comments
     - include: strings
     - include: numbers
+    - include: annotations
+    - include: imports
+    - include: declarations
     - include: keywords
     - include: types
     - include: functions
     - include: operators
+    - include: punctuation
 
   comments:
-    # Line comments run from `--` to end of line (there are no block comments).
-    - match: '--.*$'
-      scope: comment.line.double-dash.emela
+    # Comments run from `#` to the end of the line; `##` is a doc comment. There are no block
+    # comments.
+    - match: '##.*$'
+      scope: comment.line.documentation.emela
+    - match: '#(?!\{).*$'
+      scope: comment.line.number-sign.emela
 
   strings:
+    - match: '"""'
+      scope: punctuation.definition.string.begin.emela
+      push: triple_string
     - match: '"'
       scope: punctuation.definition.string.begin.emela
+      push: double_string
+
+  triple_string:
+    - meta_scope: string.quoted.triple.emela
+    - match: '"""'
+      scope: punctuation.definition.string.end.emela
+      pop: true
+    - include: string_contents
+
+  double_string:
+    - meta_scope: string.quoted.double.emela
+    - match: '"'
+      scope: punctuation.definition.string.end.emela
+      pop: true
+    # A string cannot span a line break (E0101).
+    - match: '$'
+      pop: true
+    - include: string_contents
+
+  string_contents:
+    - match: '\\(u\{[0-9a-fA-F]{1,6}\}|["\\ntr#])'
+      scope: constant.character.escape.emela
+    - match: '\\.'
+      scope: invalid.illegal.escape.emela
+    - match: '#\{'
+      scope: punctuation.section.interpolation.begin.emela
+      push: interpolation
+
+  interpolation:
+    - clear_scopes: 1
+    - meta_scope: meta.interpolation.emela
+    - match: '\}'
+      scope: punctuation.section.interpolation.end.emela
+      pop: true
+    - include: interpolation_braces
+    - include: code
+
+  # Braces nest inside an interpolation, so `#{ {a} }` ends at the outer `}`.
+  interpolation_braces:
+    - match: '\{'
       push:
-        - meta_scope: string.quoted.double.emela
-        - match: '\\[nt"\\]'
-          scope: constant.character.escape.emela
-        - match: '"'
-          scope: punctuation.definition.string.end.emela
+        - match: '\}'
           pop: true
+        - include: interpolation_braces
+        - include: code
 
   numbers:
-    - match: '\b[0-9]+\.[0-9]+\b'
+    - match: '\b[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?\b'
       scope: constant.numeric.float.emela
-    - match: '\b[0-9]+\b'
+    - match: '\b0x[0-9a-fA-F][0-9a-fA-F_]*\b'
+      scope: constant.numeric.hex.emela
+    - match: '\b0b[01][01_]*\b'
+      scope: constant.numeric.binary.emela
+    - match: '\b[0-9][0-9_]*\b'
       scope: constant.numeric.integer.emela
 
+  # `@export(js, "default", "fetch")`, `@entry(Http.serve)`, `@test`.
+  annotations:
+    - match: '(@)({{ident}})\s*(\()'
+      captures:
+        1: punctuation.definition.annotation.emela
+        2: storage.type.annotation.emela
+        3: punctuation.section.arguments.begin.emela
+      push: annotation_arguments
+    - match: '(@)({{ident}})'
+      captures:
+        1: punctuation.definition.annotation.emela
+        2: storage.type.annotation.emela
+
+  annotation_arguments:
+    - meta_scope: meta.annotation.emela
+    - match: '\)'
+      scope: punctuation.section.arguments.end.emela
+      pop: true
+    - include: comments
+    - include: strings
+    - include: numbers
+    - match: '\b((?:{{type_name}}\.)+)({{ident}})\b'
+      captures:
+        1: entity.name.namespace.emela
+        2: entity.name.function.emela
+    - match: '\b({{ident}})\s*(:)'
+      captures:
+        1: variable.parameter.emela
+        2: punctuation.separator.key-value.emela
+    - match: '\b{{ident}}\b'
+      scope: constant.other.emela
+    - include: punctuation
+
+  # `import Http.Client.{get, Response}`: the type names of the path are modules.
+  imports:
+    - match: '\bimport\b'
+      scope: keyword.control.import.emela
+      push: import_path
+
+  import_path:
+    - meta_scope: meta.import.emela
+    - match: '$|(?=#)'
+      pop: true
+    - match: '\{'
+      push: import_list
+    - match: '\b{{type_name}}\b'
+      scope: entity.name.namespace.emela
+    - include: punctuation
+
+  import_list:
+    - match: '\}'
+      pop: true
+    - match: '\b{{constant_name}}'
+      scope: variable.other.constant.emela
+    - match: '\b{{type_name}}\b'
+      scope: entity.name.type.emela
+    - match: '\b{{ident}}\b'
+      scope: entity.name.function.emela
+    - include: comments
+    - include: punctuation
+
+  declarations:
+    - match: '\b(fn)\s+({{ident}})'
+      captures:
+        1: storage.type.function.emela
+        2: entity.name.function.emela
+    - match: '\b(type|enum|error|effect|handler|layer|trait)\s+({{type_name}})'
+      captures:
+        1: storage.type.emela
+        2: entity.name.type.emela
+    - match: '\b(const)\s+({{constant_name}})'
+      captures:
+        1: storage.type.emela
+        2: variable.other.constant.emela
+
   keywords:
-    - match: '\b(if|else|match|for|try|catch|throw|throws|panic|uses)\b'
-      scope: keyword.control.emela
-    - match: '\b(fn|let|enum|trait|impl|import|module|extern|intrinsic|pub)\b'
-      scope: keyword.declaration.emela
-    - match: '\b(true|false)\b'
-      scope: constant.language.boolean.emela
+    - match: '\b(if|else|match)\b'
+      scope: keyword.control.conditional.emela
+    - match: '\b(fail|escape)\b'
+      scope: keyword.control.exception.emela
+    - match: '\bfn\b'
+      scope: storage.type.function.emela
+    - match: '\b(type|enum|error|effect|handler|layer|trait|const)\b'
+      scope: storage.type.emela
+    - match: '\b(pub|opaque|suspend)\b'
+      scope: storage.modifier.emela
+    - match: '\b(impl|use|with|assert)\b'
+      scope: keyword.other.emela
+    # Contextual keywords ([kw.contextual]). Outside their positions they are identifiers, which
+    # this definition cannot tell apart, so only the forms that are rarely identifiers are matched.
+    - match: '\b(fails|derive)\b|(?:^|(?<=\{))\s*\b(init|release)\b(?=\s*[({])|\b(of|by)\b(?=\s+[A-Z])'
+      scope: keyword.other.emela
+    - match: '\bdefault(?=\s*$)'
+      scope: keyword.other.emela
+    - match: '\bself\b'
+      scope: variable.language.self.emela
+    - match: '\bSelf\b'
+      scope: storage.type.self.emela
+    # Reserved words without syntax ([kw.reserved], [kw.future]).
+    - match: '\b(as|var|return|while|loop|let|mut|in|where|do|try|catch|throw|async|yield|defer|macro|mod)\b'
+      scope: invalid.illegal.reserved.emela
 
   types:
-    # Built-in primitive and standard generic types.
-    - match: '\b(Int|Float|Bool|String|Char|Unit|Array|Option)\b'
+    - match: '\b(True|False)\b'
+      scope: constant.language.boolean.emela
+    # `List.map`, `Http.Client.get`: a type name on the left of `.` is a module.
+    - match: '\b{{type_name}}(?=\.[A-Za-z_])'
+      scope: entity.name.namespace.emela
+    - match: '\b(Int|Int64|Float|Bool|String|Unit|List|Option|Result)\b'
       scope: support.type.builtin.emela
-    # Any other capitalised identifier is a user type, enum, or variant.
+    # An uppercase name: a const or a type parameter.
+    - match: '\b{{constant_name}}'
+      scope: variable.other.constant.emela
     - match: '\b{{type_name}}\b'
       scope: entity.name.type.emela
 
   functions:
-    # A lowercase identifier immediately followed by `(` is a call/definition.
-    - match: '\b({{ident}})\s*(?=\()'
+    # `xs |> List.reverse`, `x |> dbg`
+    - match: '(?<=\|>)\s*({{ident}})\b(?!\s*\.)'
+      captures:
+        1: variable.function.emela
+    - match: '\b{{ident}}(?=\()'
       scope: variable.function.emela
+    - match: '\b({{ident}})\s*(:)'
+      captures:
+        1: variable.parameter.emela
+        2: punctuation.separator.colon.emela
 
   operators:
-    - match: '->|::|\?|\+\+|&&|\|>|\|\||[+\-*/%<>=!]=?'
-      scope: keyword.operator.emela
+    - match: '->'
+      scope: keyword.operator.arrow.emela
+    - match: '\|>'
+      scope: keyword.operator.pipe.emela
+    - match: '\.\.'
+      scope: keyword.operator.spread.emela
+    - match: '&&|\|\||!(?!=)'
+      scope: keyword.operator.logical.emela
+    - match: '==|!=|<=|>=|<|>'
+      scope: keyword.operator.comparison.emela
+    - match: '='
+      scope: keyword.operator.assignment.emela
+    - match: '[+\-*/%]'
+      scope: keyword.operator.arithmetic.emela
+    - match: '\|'
+      scope: keyword.operator.union.emela
+
+  punctuation:
+    - match: ','
+      scope: punctuation.separator.comma.emela
+    - match: '\.'
+      scope: punctuation.accessor.emela
+    - match: ':'
+      scope: punctuation.separator.colon.emela
