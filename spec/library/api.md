@@ -120,7 +120,6 @@ impl (`[trait.builtin]`): `impl Option[A: Eq]: Eq`, `impl Option[A: Ord]: Ord`, 
 | `shift_left` | `shift_left(n: Int, by: Int) -> Int` | intrinsic | Left shift. 0 if `by` is 32 or more; a defect if negative |
 | `shift_right` | `shift_right(n: Int, by: Int) -> Int` | intrinsic | Arithmetic right shift. 0 or -1 if 32 or more |
 | `shift_right_unsigned` | `shift_right_unsigned(n: Int, by: Int) -> Int` | intrinsic | Logical right shift. 0 if 32 or more |
-| `compare` | `compare(a: Int, b: Int) -> Ordering` | Emela | Less / Equal / Greater |
 | `min` / `max` | `(a: Int, b: Int) -> Int` | Emela | The smaller / the larger |
 | `abs` | `abs(n: Int) -> Int` | Emela | Absolute value. The minimum value wraps around to the same value |
 
@@ -140,7 +139,6 @@ impl (`[trait.builtin]`): `impl Option[A: Eq]: Eq`, `impl Option[A: Ord]: Ord`, 
 | `shift_left` | `shift_left(n: Int64, by: Int) -> Int64` | intrinsic | Left shift. 0 if `by` is 64 or more; a defect if negative |
 | `shift_right` | `shift_right(n: Int64, by: Int) -> Int64` | intrinsic | Arithmetic right shift. 0 or -1 if 64 or more |
 | `shift_right_unsigned` | `shift_right_unsigned(n: Int64, by: Int) -> Int64` | intrinsic | Logical right shift. 0 if 64 or more |
-| `compare` | `compare(a: Int64, b: Int64) -> Ordering` | Emela | Less / Equal / Greater |
 | `min` / `max` | `(a: Int64, b: Int64) -> Int64` | Emela | The first argument if Equal |
 | `abs` | `abs(n: Int64) -> Int64` | Emela | The minimum value wraps around to itself |
 
@@ -184,7 +182,6 @@ A length of time. An opaque type whose contents are an Int64 of milliseconds (`[
 | `to_seconds` | `to_seconds(d: Duration) -> Int64` | Emela | The number of seconds. The fraction is truncated toward 0 |
 | `add` | `add(d: Duration, other: Duration) -> Duration` | Emela | The sum |
 | `subtract` | `subtract(d: Duration, other: Duration) -> Duration` | Emela | The difference. Can be negative |
-| `compare` | `compare(d: Duration, other: Duration) -> Ordering` | Emela | Compares |
 | `to_string` | `to_string(d: Duration) -> String` | Emela | `1500ms` |
 
 impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl gives `1500ms`, the same as `to_string`.
@@ -200,7 +197,6 @@ A point in time. An opaque type whose contents are an Int64 of milliseconds sinc
 | `add` | `add(t: Instant, d: Duration) -> Instant` | Emela | `d` later |
 | `subtract` | `subtract(t: Instant, d: Duration) -> Instant` | Emela | `d` earlier |
 | `since` | `since(t: Instant, earlier: Instant) -> Duration` | Emela | The length from `earlier` to `t` |
-| `compare` | `compare(t: Instant, other: Instant) -> Ordering` | Emela | The earlier one is smaller |
 | `to_string` | `to_string(t: Instant) -> String` | Emela | ISO 8601 in UTC (`2025-10-12T03:04:05.678Z`) |
 
 - If the year is outside 0 to 9999, `to_string` writes the year as a sign and six digits (`+010000-01-01T00:00:00.000Z`, `-000001-12-31T00:00:00.000Z`). Dates are counted in the proleptic Gregorian calendar. Every value of Instant is written by this rule, without a range limit.
