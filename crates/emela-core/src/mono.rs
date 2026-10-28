@@ -1369,6 +1369,8 @@ impl<'a> Mono<'a> {
             | Type::Unit
             | Type::Never
             | Type::Any => return true,
+            // Its Eq, Ord and Show are written in `std/bytes.emel`.
+            Type::Bytes => return false,
             Type::List(t) => vec![t],
             Type::Tuple(ts) => ts,
             Type::Enum(id, args) => {
@@ -1510,6 +1512,8 @@ impl<'a> Mono<'a> {
             return false;
         }
         let parts: Vec<TypeId> = match self.out.ty(ty).clone() {
+            // Its only Show is the one written in `std/bytes.emel`.
+            Type::Bytes => return true,
             Type::List(t) => vec![t],
             Type::Tuple(ts) => ts,
             Type::Enum(id, args) => {

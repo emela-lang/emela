@@ -252,6 +252,14 @@ em_ref em_string_join(em_ref parts, em_ref sep);
 em_ref em_string_trim(em_ref s);
 em_ref em_string_code_points(em_ref s);
 em_ref em_string_from_code_point(int32_t n);
+/* A Bytes (`[api.std.bytes]`) is an EM_KIND_STRING object whose bytes need not be UTF-8. */
+em_ref em_bytes_from_list(em_ref xs);
+em_ref em_bytes_to_list(em_ref b);
+em_ref em_bytes_get(em_ref b, int32_t index);
+em_ref em_bytes_slice(em_ref b, int32_t from, int32_t to);
+em_ref em_bytes_concat(em_ref parts);
+/* The same object, owned once more: `encode_utf8`, and `decode_utf8` of bytes already checked. */
+em_ref em_bytes_same(em_ref b);
 em_ref em_int_to_string(int32_t n);
 em_ref em_int_parse(em_ref s);
 em_ref em_int_checked_add(int32_t a, int32_t b);

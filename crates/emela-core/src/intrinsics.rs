@@ -92,6 +92,23 @@ pub enum Builtin {
     FloatRound,
     FloatTruncate,
 
+    // Std.Bytes (`[api.std.bytes]`). The rest of the module is written in Emela over these.
+    /// `Bytes.from_list`. `None` if an element is outside 0 to 255.
+    BytesFromList,
+    BytesToList,
+    BytesSize,
+    /// `Bytes.get(b, index)`. `None` if out of range or negative.
+    BytesGet,
+    /// `Bytes.slice(b, from, to)`. Both ends are clamped to 0 to the size; empty if `from` is not
+    /// less than `to`.
+    BytesSlice,
+    BytesConcat,
+    /// `Bytes.encode_utf8`: the UTF-8 bytes of the string.
+    BytesEncodeUtf8,
+    /// The private `decode_valid_utf8`: the string of bytes that `decode_utf8` has already
+    /// checked to be valid UTF-8. Backends need not check again.
+    BytesDecodeValidUtf8,
+
     // Prelude (spec 15.1).
     /// `panic(message)`.
     Panic,
@@ -140,6 +157,8 @@ pub enum Sig {
     Float,
     Bool,
     String,
+    /// `Std.Bytes.Bytes`.
+    Bytes,
     Unit,
     Never,
     List(&'static Sig),
@@ -149,18 +168,19 @@ pub enum Sig {
 }
 
 impl Sig {
-    /// `option` is the `TyConId` of Prelude's `Option`.
-    pub fn to_ty(self, option: TyConId) -> Ty {
+    /// `option` is the `TyConId` of Prelude's `Option`, and `bytes` that of `Std.Bytes.Bytes`.
+    pub fn to_ty(self, option: TyConId, bytes: TyConId) -> Ty {
         match self {
             Sig::Int => Ty::INT,
             Sig::Int64 => Ty::INT64,
             Sig::Float => Ty::FLOAT,
             Sig::Bool => Ty::BOOL,
             Sig::String => Ty::STRING,
+            Sig::Bytes => Ty::named(bytes, []),
             Sig::Unit => Ty::UNIT,
             Sig::Never => Ty::Never,
-            Sig::List(t) => Ty::list(t.to_ty(option)),
-            Sig::Option(t) => Ty::named(option, [t.to_ty(option)]),
+            Sig::List(t) => Ty::list(t.to_ty(option, bytes)),
+            Sig::Option(t) => Ty::named(option, [t.to_ty(option, bytes)]),
             Sig::Param(i) => Ty::Bound(i),
         }
     }
@@ -190,13 +210,13 @@ impl BuiltinInfo {
     }
 
     /// The type scheme for type inference, with type parameters named `A`, `B`, ….
-    pub fn scheme(&self, option: TyConId) -> Scheme {
+    pub fn scheme(&self, option: TyConId, bytes: TyConId) -> Scheme {
         let params = (0..self.ty_params)
             .map(|i| TyParam::new(char::from(b'A' + i as u8).to_string()))
             .collect();
         let ty = Ty::func(
-            self.params.iter().map(|p| p.to_ty(option)),
-            self.ret.to_ty(option),
+            self.params.iter().map(|p| p.to_ty(option, bytes)),
+            self.ret.to_ty(option, bytes),
         );
         Scheme::new(params, ty)
     }
@@ -222,6 +242,7 @@ const S: Option<&str> = Some("String");
 const I: Option<&str> = Some("Int");
 const L: Option<&str> = Some("Int64");
 const F: Option<&str> = Some("Float");
+const B: Option<&str> = Some("Std.Bytes");
 
 impl Builtin {
     pub const ALL: &'static [Builtin] = &[
@@ -265,6 +286,14 @@ impl Builtin {
         Builtin::FloatCeil,
         Builtin::FloatRound,
         Builtin::FloatTruncate,
+        Builtin::BytesFromList,
+        Builtin::BytesToList,
+        Builtin::BytesSize,
+        Builtin::BytesGet,
+        Builtin::BytesSlice,
+        Builtin::BytesConcat,
+        Builtin::BytesEncodeUtf8,
+        Builtin::BytesDecodeValidUtf8,
         Builtin::Panic,
         Builtin::Todo,
         Builtin::Dbg,
@@ -320,6 +349,14 @@ impl Builtin {
             Builtin::FloatCeil => info(F, "ceil", &[Float], Int),
             Builtin::FloatRound => info(F, "round", &[Float], Int),
             Builtin::FloatTruncate => info(F, "truncate", &[Float], Int),
+            Builtin::BytesFromList => info(B, "from_list", &[List(&Int)], Option(&Bytes)),
+            Builtin::BytesToList => info(B, "to_list", &[Bytes], List(&Int)),
+            Builtin::BytesSize => info(B, "size", &[Bytes], Int),
+            Builtin::BytesGet => info(B, "get", &[Bytes, Int], Option(&Int)),
+            Builtin::BytesSlice => info(B, "slice", &[Bytes, Int, Int], Bytes),
+            Builtin::BytesConcat => info(B, "concat", &[List(&Bytes)], Bytes),
+            Builtin::BytesEncodeUtf8 => info(B, "encode_utf8", &[String], Bytes),
+            Builtin::BytesDecodeValidUtf8 => info(B, "decode_valid_utf8", &[Bytes], String),
             Builtin::Panic => info(None, "panic", &[String], Never),
             Builtin::Todo => info(None, "todo", &[], Never),
             Builtin::Dbg => BuiltinInfo {

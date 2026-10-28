@@ -581,6 +581,8 @@ impl<'a> Lowerer<'a> {
                         let id = self.module.option_enum();
                         self.enums.insert(def, id);
                     }
+                    // A built-in type is `TypeId::BYTES` (`Lowerer::ty`).
+                    Some(Item::Type(t)) if t.is_intrinsic => {}
                     Some(Item::Type(t)) => {
                         let id = self.declare_enum(def, t.type_params.len());
                         // An `@external type` has no constructor (spec 12.3).
@@ -716,6 +718,9 @@ impl<'a> Lowerer<'a> {
             Ty::List(t) => Type::List(self.ty(t)),
             Ty::Named(con, args) => {
                 let def = self.types.ty_table.def(*con);
+                if matches!(self.hir.item(def), Some(Item::Type(t)) if t.is_intrinsic) {
+                    return TypeId::BYTES;
+                }
                 match self.enums.get(def) {
                     Some(&id) => Type::Enum(id, args.iter().map(|t| self.ty(t)).collect()),
                     // `self` of a stateless handler. The value is `()` (`Lowerer::path`).

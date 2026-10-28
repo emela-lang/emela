@@ -214,19 +214,19 @@ The value layer (`[lib.layers]`). An immutable sequence of bytes. Each byte is a
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
 | `Bytes` | `opaque type Bytes` | intrinsic | A sequence of bytes |
-| `empty` | `empty() -> Bytes` | intrinsic | The sequence of no bytes |
+| `empty` | `empty() -> Bytes` | Emela | The sequence of no bytes |
 | `from_list` | `from_list(xs: List[Int]) -> Option[Bytes]` | intrinsic | The bytes in the order of `xs`. `None` if an element is outside 0 to 255 |
 | `to_list` | `to_list(b: Bytes) -> List[Int]` | intrinsic | The bytes in order |
 | `size` | `size(b: Bytes) -> Int` | intrinsic | The number of bytes |
 | `is_empty` | `is_empty(b: Bytes) -> Bool` | Emela | Whether there are no bytes |
 | `get` | `get(b: Bytes, index: Int) -> Option[Int]` | intrinsic | The byte at `index` (0-based). `None` if out of range or negative |
 | `slice` | `slice(b: Bytes, from: Int, to: Int) -> Bytes` | intrinsic | The bytes from `from` inclusive to `to` exclusive. Both are clamped to 0 to `size(b)`; empty if `from` is not less than `to` |
-| `append` | `append(a: Bytes, b: Bytes) -> Bytes` | intrinsic | The bytes of `a`, then those of `b` |
+| `append` | `append(a: Bytes, b: Bytes) -> Bytes` | Emela | The bytes of `a`, then those of `b` |
 | `concat` | `concat(parts: List[Bytes]) -> Bytes` | intrinsic | The bytes of all of them in order |
 | `encode_utf8` | `encode_utf8(s: String) -> Bytes` | intrinsic | The UTF-8 encoding of `s`. No BOM is added |
-| `decode_utf8` | `decode_utf8(b: Bytes) -> Option[String]` | intrinsic | The string that `b` encodes in UTF-8. `None` if `b` is not valid UTF-8. A leading BOM is kept as U+FEFF |
-| `to_hex` | `to_hex(b: Bytes) -> String` | intrinsic | Two lowercase hexadecimal digits per byte, with no separator (`"89504e47"`) |
-| `from_hex` | `from_hex(s: String) -> Option[Bytes]` | intrinsic | The inverse of `to_hex`. Accepts uppercase and lowercase digits. `None` for an odd number of digits or any other character, including whitespace |
+| `decode_utf8` | `decode_utf8(b: Bytes) -> Option[String]` | Emela | The string that `b` encodes in UTF-8. `None` if `b` is not valid UTF-8. A leading BOM is kept as U+FEFF |
+| `to_hex` | `to_hex(b: Bytes) -> String` | Emela | Two lowercase hexadecimal digits per byte, with no separator (`"89504e47"`) |
+| `from_hex` | `from_hex(s: String) -> Option[Bytes]` | Emela | The inverse of `to_hex`. Accepts uppercase and lowercase digits. `None` for an odd number of digits or any other character, including whitespace |
 | `hex` | `hex(s: String) -> Bytes` | Emela | The bytes that `from_hex` reads from `s`. A defect if `from_hex` returns `None`. For constants written in the program (`const PNG_SIGNATURE = Bytes.hex("89504e47")`) |
 
 - The defect message of `hex` is ``Bytes.hex was given a string that is not hexadecimal: "<s>"``, where `<s>` is shown as by inspect. In a const, the name of the const is prepended (`[data.const]`).

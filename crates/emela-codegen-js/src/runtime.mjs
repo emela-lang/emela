@@ -1238,6 +1238,81 @@ export function $strfromcodepoint(n) {
   return { $tag: 0, $0: String.fromCodePoint(n) };
 }
 
+// ---- Bytes (`[api.std.bytes]`) ----
+//
+// A Bytes is a `Uint8Array` that nothing changes after it is made (`[target.js.value]`). The
+// functions that make one always allocate a new array, so a Bytes never shares a buffer with
+// another value or with the host.
+
+// None if an element is outside 0 to 255.
+export function $bytesFromList(xs) {
+  const items = [];
+  for (let p = xs; p !== null; p = p.t) {
+    if (p.h < 0 || p.h > 255) return $None;
+    items.push(p.h);
+  }
+  return { $tag: 0, $0: Uint8Array.from(items) };
+}
+
+export function $bytesToList(b) {
+  return $list(Array.from(b));
+}
+
+export function $bytesSize(b) {
+  return b.length;
+}
+
+export function $bytesGet(b, i) {
+  return i >= 0 && i < b.length ? { $tag: 0, $0: b[i] } : $None;
+}
+
+// Both ends are clamped to 0 to the size; empty if `from` is not less than `to`.
+export function $bytesSlice(b, from, to) {
+  const f = Math.min(Math.max(from, 0), b.length);
+  const t = Math.min(Math.max(to, 0), b.length);
+  return f < t ? b.slice(f, t) : new Uint8Array(0);
+}
+
+export function $bytesConcat(parts) {
+  let size = 0;
+  for (let p = parts; p !== null; p = p.t) size += p.h.length;
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (let p = parts; p !== null; p = p.t) {
+    out.set(p.h, at);
+    at += p.h.length;
+  }
+  return out;
+}
+
+const $utf8Encoder = new TextEncoder();
+// `ignoreBOM` keeps a leading BOM as U+FEFF. The input is already valid UTF-8 (`decode_utf8`
+// checks it in Emela), so nothing is replaced.
+const $utf8Decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+
+export function $bytesEncodeUtf8(s) {
+  return $utf8Encoder.encode(s);
+}
+
+export function $bytesDecodeValidUtf8(b) {
+  return $utf8Decoder.decode(b);
+}
+
+// The source form `Bytes.hex("89504e47")`, as the Show impl in `std/bytes.emel` writes it.
+export function $showBytes(b) {
+  let digits = "";
+  for (const x of b) digits += x.toString(16).padStart(2, "0");
+  return `Bytes.hex("${digits}")`;
+}
+
+// A Bytes received from the host (`[target.js.value]`): a `Uint8Array` (or a subclass such as
+// Node.js `Buffer`) of this realm, copied so that later changes to the host's buffer do not reach
+// it. Only the bytes the view shows are copied. `message` is the defect for any other value.
+export function $hostBytes(b, message) {
+  if (!(b instanceof Uint8Array)) throw new $Defect(message);
+  return new Uint8Array(b);
+}
+
 // ---- Numeric conversions (spec 16.1) ----
 
 export function $itof(n) {

@@ -250,7 +250,11 @@ fn loopify_through_short_circuit() {
     }
 }
 
-fn prelude_cons() -> (emela_types::TyCons, emela_types::TyConId) {
+fn prelude_cons() -> (
+    emela_types::TyCons,
+    emela_types::TyConId,
+    emela_types::TyConId,
+) {
     use emela_types::{TyConData, TyConKind, TyCons, TyParam};
     let mut cons = TyCons::new();
     let option = cons.alloc(TyConData {
@@ -258,7 +262,12 @@ fn prelude_cons() -> (emela_types::TyCons, emela_types::TyConId) {
         kind: TyConKind::Enum,
         params: vec![TyParam::new("A")],
     });
-    (cons, option)
+    let bytes = cons.alloc(TyConData {
+        name: "Bytes".into(),
+        kind: TyConKind::Type,
+        params: Vec::new(),
+    });
+    (cons, option, bytes)
 }
 
 #[test]
@@ -281,8 +290,8 @@ fn builtin_names_are_unique_and_found_by_lookup() {
 
 #[test]
 fn builtin_schemes() {
-    let (cons, option) = prelude_cons();
-    let show = |op: Builtin| format!("{}", op.info().scheme(option).display(&cons));
+    let (cons, option, bytes) = prelude_cons();
+    let show = |op: Builtin| format!("{}", op.info().scheme(option, bytes).display(&cons));
     assert_eq!(show(Builtin::StringLength), "fn(String) -> Int");
     assert_eq!(
         show(Builtin::StringSplit),

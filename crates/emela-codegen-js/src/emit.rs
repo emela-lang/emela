@@ -572,6 +572,8 @@ impl Emitter<'_> {
             Type::Float => self.rt("$showFloat").to_owned(),
             Type::Bool => self.rt("$showBool").to_owned(),
             Type::String => self.rt("$showString").to_owned(),
+            // Monomorphization shows a Bytes through its written Show impl; this is the same text.
+            Type::Bytes => self.rt("$showBytes").to_owned(),
             // A set type argument of an enum has no values, so it is never shown; the enum's show
             // function still takes a show function per type parameter.
             Type::Unit | Type::Set(_) => self.rt("$showUnit").to_owned(),

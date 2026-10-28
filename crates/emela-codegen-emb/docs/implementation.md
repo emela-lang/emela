@@ -170,7 +170,7 @@ host試験は生成Cの値・制御・所有権・容量defectを確認する。
 <!-- flow-audit:SwitchOn Tag Lit -->
 <!-- flow-audit:CaseKey Variant Lit -->
 <!-- flow-audit:Stage Flow ClosuresConverted DefectsExplicit StateMachines RefCounted -->
-<!-- flow-audit:Builtin StringLength StringByteSize StringAppend StringContains StringStartsWith StringEndsWith StringSplit StringChars StringJoin StringTrim StringCodePoints StringFromCodePoint IntToString IntParse IntCheckedAdd IntBitAnd IntBitOr IntBitXor IntBitNot IntShiftLeft IntShiftRight IntShiftRightUnsigned Int64FromInt Int64ToString Int64ToInt Int64BitAnd Int64BitOr Int64BitXor Int64BitNot Int64ShiftLeft Int64ShiftRight Int64ShiftRightUnsigned FloatToString FloatFromInt FloatParse FloatFloor FloatCeil FloatRound FloatTruncate Panic Todo Dbg Inspect ShowNested CellNew CellGet CellSet ShowString DebugPrint AssertFail -->
+<!-- flow-audit:Builtin StringLength StringByteSize StringAppend StringContains StringStartsWith StringEndsWith StringSplit StringChars StringJoin StringTrim StringCodePoints StringFromCodePoint IntToString IntParse IntCheckedAdd IntBitAnd IntBitOr IntBitXor IntBitNot IntShiftLeft IntShiftRight IntShiftRightUnsigned Int64FromInt Int64ToString Int64ToInt Int64BitAnd Int64BitOr Int64BitXor Int64BitNot Int64ShiftLeft Int64ShiftRight Int64ShiftRightUnsigned FloatToString FloatFromInt FloatParse FloatFloor FloatCeil FloatRound FloatTruncate BytesFromList BytesToList BytesSize BytesGet BytesSlice BytesConcat BytesEncodeUtf8 BytesDecodeValidUtf8 Panic Todo Dbg Inspect ShowNested CellNew CellGet CellSet ShowString DebugPrint AssertFail -->
 <!-- flow-audit:RuntimeOp ShowString DebugPrint Retire Defect DefectAt DefectTake DefectResume Hold Unhold Yield YieldPerform -->
 
 ### Value
@@ -349,6 +349,14 @@ host試験は生成Cの値・制御・所有権・容量defectを確認する。
 | `Builtin::FloatCeil` | 正方向へ丸めてIntにする | 対応 | `emit_builtin`、`emit_float_to_int_helper` | `float_rounding_builtins_match_spec_and_defect_out_of_range` | 共通helperのoperation1。 |
 | `Builtin::FloatRound` | tieを0から遠ざけてIntにする | 対応 | `emit_builtin`、`emit_float_to_int_helper` | `float_rounding_builtins_match_spec_and_defect_out_of_range` | 正負tie、Int境界とNaNを確認。 |
 | `Builtin::FloatTruncate` | 小数部を捨ててIntにする | 対応 | `emit_builtin`、`emit_float_to_int_helper` | `float_rounding_builtins_match_spec_and_defect_out_of_range` | 共通helperのoperation3。 |
+| `Builtin::BytesFromList` | IntのListからBytesを作る（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesToList` | BytesをIntのListにする（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesSize` | byte数（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesGet` | 位置のbyteをOptionで返す（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesSlice` | 範囲を切り出す（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesConcat` | BytesのListを結合する（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesEncodeUtf8` | StringのUTF-8 byte列（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesDecodeValidUtf8` | 検査済みUTF-8をStringにする（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
 | `Builtin::Panic` | message付きdefectを発生させる | Flow禁止（lower先に対応） | `from_core::Lower::builtin`、`emit_return`のDefect分岐、`lib::verify_flow`の入口guard | `sends_dynamic_defect_string_views_to_the_board_hook`、`rejects_source_builtins_that_must_lower_to_flow_control_or_runtime` | sourceのlower先は実装済み。生BuiltinはInvalidFlowIr。組み込み契約に従いdefect時はcleanupを省略する。 |
 | `Builtin::Todo` | 未実装defectを発生させる | Flow禁止（lower先に対応） | `from_core::Lower::builtin`、`emit_return`のDefect分岐、入口guard | `classifies_a_static_todo_defect`、`rejects_source_builtins_that_must_lower_to_flow_control_or_runtime` | 同じlower経路でTODO kindに分類。生BuiltinはInvalidFlowIr。defectの即時停止契約を維持。 |
 | `Builtin::AssertFail` | 失敗したassertのdefectを場所つきで発生させる | Flow禁止（lower先に対応） | `from_core::Lower::builtin`、`emit_return`のDefect分岐、入口guard | `rejects_source_builtins_that_must_lower_to_flow_control_or_runtime` | `Term::Defect`の場所はboard hookに渡さず、messageだけを使う。生BuiltinはInvalidFlowIr。 |

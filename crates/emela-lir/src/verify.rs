@@ -1554,7 +1554,7 @@ fn sig_repr(s: Sig) -> Option<Repr> {
         Sig::Int64 => Repr::I64,
         Sig::Float => Repr::F64,
         // Option has a constructor with a field.
-        Sig::String | Sig::List(_) | Sig::Option(_) => Repr::Ref,
+        Sig::String | Sig::Bytes | Sig::List(_) | Sig::Option(_) => Repr::Ref,
         Sig::Unit | Sig::Never => Repr::Void,
         Sig::Param(_) => return None,
     })

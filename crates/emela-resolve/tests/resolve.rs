@@ -782,9 +782,30 @@ fn length(s: String) -> Int
 type Handle(id: Int)
 
 @intrinsic
+pub opaque type Raw
+
+@intrinsic
 fn with_body() -> Int { 1 }
 "##,
     )]));
+}
+
+/// `[kw.annotation]`: in the bundled sources, `@intrinsic` may be put on a type without fields (a
+/// built-in type such as `Bytes`), not on one with fields (E0225).
+#[test]
+fn intrinsic_types_in_core() {
+    insta::assert_snapshot!(run_with_core(
+        &[("main.emel", "fn size(b: Raw.Raw) -> Raw.Raw { b }\n",)],
+        &[(
+            "raw.emel",
+            r##"@intrinsic
+pub opaque type Raw
+
+@intrinsic
+pub type Cooked(n: Int)
+"##,
+        )],
+    ));
 }
 
 /// `[effect.handler]`: the parameters of init are in scope in its body only. The arguments of

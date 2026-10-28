@@ -168,6 +168,8 @@ pub const SUSPENDING_EXPORT: &str = "E0441";
 
 // HTTP services (`[lib.http-service]`)
 pub const HTTP_SERVICE_ON_C: &str = "E0442";
+// Bytes at the boundary on the C target (`[ext.boundary]`)
+pub const BYTES_ON_C: &str = "E0443";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

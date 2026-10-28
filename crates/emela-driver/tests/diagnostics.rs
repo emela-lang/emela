@@ -1301,3 +1301,44 @@ fn main() {
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
+
+/// `[api.std.bytes]`, compatibility: `Bytes` is reached only through `import Std.Bytes`, so a
+/// module `bytes.emel` and a user type named `Bytes` keep working. Outside `Std.Bytes`, a Bytes is
+/// made only by its functions: it has no constructor to call or match.
+#[test]
+fn bytes_names_stay_free() {
+    let files = [
+        ("app/Pome.toml", ""),
+        (
+            "app/src/bytes.emel",
+            "pub type Bytes(count: Int)\n\npub fn count(b: Bytes) -> Int { b.count }\n",
+        ),
+        (
+            "app/src/main.emel",
+            "import Bytes\n\nfn main() {\n  dbg(Bytes.count(Bytes.Bytes(count: 1)))\n}\n",
+        ),
+    ];
+    let analysis = check_files(&files, "app", &mut Typecheck::default());
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+
+    let files = [
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            r#"import Std.Bytes.{Bytes}
+
+fn size(b: Bytes) -> Int {
+  b match {
+    Bytes() -> 0
+  }
+}
+
+fn main() {
+  dbg(Bytes())
+}
+"#,
+        ),
+    ];
+    let analysis = check_files(&files, "app", &mut Typecheck::default());
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}

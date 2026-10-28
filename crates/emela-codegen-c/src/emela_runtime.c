@@ -450,6 +450,72 @@ em_ref em_string_from_code_point(int32_t n) {
   return em_some(w, true);
 }
 
+/* ---- Bytes (`[api.std.bytes]`) ----
+ *
+ * A Bytes is a String object (slot 0 the length, then the bytes and a NUL that is not part of
+ * them) whose bytes need not be UTF-8. Nothing changes one after it is made. */
+
+em_ref em_bytes_from_list(em_ref xs) {
+  size_t n = 0;
+  for (em_ref p = xs; p != NULL; p = p->slots[1].p) {
+    int32_t x = p->slots[0].i;
+    if (x < 0 || x > 255) return EM_NONE;
+    n++;
+  }
+  em_ref b = em_str_alloc(n);
+  unsigned char *bytes = (unsigned char *)EM_STR_BYTES(b);
+  size_t i = 0;
+  for (em_ref p = xs; p != NULL; p = p->slots[1].p) bytes[i++] = (unsigned char)p->slots[0].i;
+  em_word w;
+  w.p = b;
+  return em_some(w, true);
+}
+
+em_ref em_bytes_to_list(em_ref b) {
+  em_list_builder out = {NULL, NULL};
+  const unsigned char *bytes = (const unsigned char *)EM_STR_BYTES(b);
+  size_t n = EM_STR_LEN(b);
+  for (size_t i = 0; i < n; i++) {
+    em_word w;
+    w.i = bytes[i];
+    em_list_push(&out, w, false);
+  }
+  return out.head;
+}
+
+em_ref em_bytes_get(em_ref b, int32_t index) {
+  if (index < 0 || (size_t)index >= EM_STR_LEN(b)) return EM_NONE;
+  em_word w;
+  w.i = ((const unsigned char *)EM_STR_BYTES(b))[index];
+  return em_some(w, false);
+}
+
+/* Both ends are clamped to 0 to the size; empty if `from` is not less than `to`. */
+em_ref em_bytes_slice(em_ref b, int32_t from, int32_t to) {
+  int64_t n = (int64_t)EM_STR_LEN(b);
+  int64_t f = from < 0 ? 0 : from > n ? n : from;
+  int64_t t = to < 0 ? 0 : to > n ? n : to;
+  if (f == 0 && t == n) {
+    em_dup(b);
+    return b;
+  }
+  return em_str_from(EM_STR_BYTES(b) + f, f < t ? (size_t)(t - f) : 0);
+}
+
+em_ref em_bytes_concat(em_ref parts) {
+  em_buf out = {NULL, 0, 0};
+  for (em_ref p = parts; p != NULL; p = p->slots[1].p) {
+    em_ref part = p->slots[0].p;
+    em_buf_put(&out, EM_STR_BYTES(part), EM_STR_LEN(part));
+  }
+  return em_buf_finish(&out);
+}
+
+em_ref em_bytes_same(em_ref b) {
+  em_dup(b);
+  return b;
+}
+
 /* ---- Numbers ---- */
 
 em_ref em_int_to_string(int32_t n) {
