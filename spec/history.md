@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-29 (Behavior when memory is exhausted)
+
+- `[dyn.memory]`, `[target.unspecified]`, `[error.defect]`, `[fiber.cause]`, `[target.wasm.run]`: The specification does not say what happens when a program cannot obtain the memory it needs. This proposal leaves the result implementation-defined, including whether it is a defect (and therefore whether the releases run and whether the failure is observable at `Fiber.attempt`), what is written and the exit status. A program MUST NOT depend on any of these. A future proposal may fix them. Adopted in the proposal `memory-exhaustion` (#461).
+
 ## 2026-10-29 (A wildcard arm for escape)
 
 - `[error.escape]`, `[type.rules]`, `[module.resolution]`, `[diag.list]`: An escape arm MAY be the wildcard `_`. It handles every error of the original expression, including the errors in opaque set variables, and removes all of them from E. It is meant for falling back to a default, doing nothing, or turning a failure into a defect. `_` cannot have a guard. A variable pattern stays a compile error, because a value of "one of E" cannot be typed (`[error.decl]`). Adopted in the proposal `escape-wildcard-arm` (#420).
