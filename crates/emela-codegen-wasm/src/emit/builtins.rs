@@ -102,6 +102,36 @@ impl<'m> Builder<'m> {
             IntParse => self.option_call(cx, ins, dst, args, "int_parse"),
             IntCheckedAdd => self.option_call(cx, ins, dst, args, "int_checked_add"),
             StringFromCodePoint => self.option_call(cx, ins, dst, args, "from_code_point"),
+            // A Bytes is a string object whose bytes need not be UTF-8 (`runtime/bytes.rs`).
+            BytesSize => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("str_byte_size");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::I32);
+            }
+            BytesFromList => self.option_call(cx, ins, dst, args, "bytes_from_list"),
+            BytesGet => self.option_call(cx, ins, dst, args, "bytes_get"),
+            BytesToList | BytesSlice | BytesConcat => {
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                let name = match op {
+                    BytesToList => "bytes_to_list",
+                    BytesSlice => "bytes_slice",
+                    _ => "bytes_concat",
+                };
+                let f = self.rt(name);
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            // The same object, owned once more (arguments are borrowed and results owned).
+            BytesEncodeUtf8 | BytesDecodeValidUtf8 => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("dup");
+                ins.call(f);
+                self.operand(cx, ins, &args[0]);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
             IntToString => {
                 self.operand(cx, ins, &args[0]);
                 let f = self.rt("int_to_string");

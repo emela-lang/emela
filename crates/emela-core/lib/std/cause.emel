@@ -15,8 +15,8 @@
 ## The cause of a fiber's failure. `E` is the error set it can fail with.
 ##
 ## The runtime holds the value. The field only makes `E` an error set (spec 9.2); it is never
-## read.
-pub opaque type Cause[E](raise: fn() -> Never fails E)
+## read. It is not named `raise`, the function that raises the cause again (E0334).
+pub opaque type Cause[E](failure: fn() -> Never fails E)
 
 ## The three kinds of causes.
 pub enum CauseKind {

@@ -5,19 +5,33 @@
 mod common;
 
 use common::*;
-use wasmparser::{Parser, Payload};
 
-/// The interface names a component imports.
-fn component_imports(bytes: &[u8]) -> Vec<String> {
-    let mut imports = Vec::new();
-    for payload in Parser::new(0).parse_all(bytes) {
-        if let Payload::ComponentImportSection(section) = payload.unwrap() {
-            for import in section {
-                imports.push(import.unwrap().name.full_name().into_owned());
-            }
-        }
-    }
-    imports
+/// The interfaces every command component imports (spec `[target.wasm.output]`).
+///
+/// `wasi:cli/types@0.3.0` is here because `write-via-stream` of stdout and stderr returns a future
+/// of an `error-code`, which that interface defines.
+const ALWAYS_IMPORTED: &[&str] = &[
+    "wasi:cli/exit@0.3.0",
+    "wasi:cli/stderr@0.3.0",
+    "wasi:cli/stdout@0.3.0",
+    "wasi:cli/types@0.3.0",
+];
+
+/// Asserts that `src` imports exactly [`ALWAYS_IMPORTED`] plus `extra`, and returns its bytes.
+///
+/// The set, not the order, is compared: the order is pinned by `tests/component.rs`.
+fn assert_imports(src: &str, extra: &[&str]) -> Vec<u8> {
+    let bytes = compile_checked(src);
+    let mut expected: Vec<String> = ALWAYS_IMPORTED
+        .iter()
+        .chain(extra)
+        .map(|name| (*name).to_owned())
+        .collect();
+    expected.sort();
+    let mut actual = component_imports(&bytes);
+    actual.sort();
+    assert_eq!(actual, expected, "the component imports");
+    bytes
 }
 
 fn stderr(name: &str, src: &str) -> Option<String> {
@@ -223,12 +237,9 @@ fn main() {
 }
 
 #[test]
-fn unused_hosts_are_not_imported() {
-    if wasmtime().is_none() {
-        return;
-    }
-    // A program with only SystemConsole must not import the environment, random or clock.
-    let console = compile_checked(
+fn a_console_program_imports_only_the_output_interfaces() {
+    // A program with only `SystemConsole` must not import the environment, random or clock.
+    assert_imports(
         r#"
 import Std.Console.{Console, SystemConsole}
 
@@ -238,27 +249,16 @@ fn main() {
   }
 }
 "#,
+        &[],
     );
-    let imports = component_imports(&console);
-    assert!(
-        imports.iter().any(|i| i == "wasi:cli/stdout@0.3.0"),
-        "{imports:?}"
-    );
-    for unused in [
-        "wasi:cli/environment@0.3.0",
-        "wasi:random/random@0.3.0",
-        "wasi:clocks/system-clock@0.3.0",
-        "wasi:filesystem/types@0.3.0",
-        "wasi:filesystem/preopens@0.3.0",
-    ] {
-        assert!(!imports.iter().any(|i| i == unused), "{imports:?}");
-    }
+}
 
-    // `Std.Platform` bundles the system handlers, so their external functions are reachable even
-    // when only `Console` is used. The environment, random, system-clock and file-system
-    // interfaces are therefore imported; the client of `Std.Http` has no WASM host, so it is not. This
-    // is a known limitation (see NOTES.md).
-    let platform = compile_checked(
+#[test]
+fn platform_with_console_imports_only_the_output_interfaces() {
+    // `Std.Platform` bundles every system handler, so their external functions are in the
+    // module. Only the operations the entry performs reach a host: creating the handlers does
+    // not import anything (spec `[target.wasm.output]`).
+    let bytes = assert_imports(
         r#"
 import Std.Console.{Console}
 import Std.Platform.{Platform}
@@ -269,26 +269,112 @@ fn main() {
   }
 }
 "#,
+        &[],
     );
-    let imports = component_imports(&platform);
-    assert!(!imports.iter().any(|i| i.contains("http")), "{imports:?}");
-    for bundled in [
-        "wasi:cli/environment@0.3.0",
-        "wasi:random/random@0.3.0",
-        "wasi:clocks/system-clock@0.3.0",
-        "wasi:filesystem/types@0.3.0",
-        "wasi:filesystem/preopens@0.3.0",
-    ] {
-        assert!(
-            imports.iter().any(|i| i == bundled),
-            "`Std.Platform` should import `{bundled}`: {imports:?}"
-        );
+    if wasmtime().is_none() {
+        return;
     }
-    let dir = out_dir("platform-console");
-    let run = run_bytes(&dir, &platform);
+    let run = run_bytes(&out_dir("platform-console"), &bytes);
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, "platform\n");
     assert_eq!(run.stderr, "");
+}
+
+#[test]
+fn platform_with_env_imports_only_the_environment() {
+    let bytes = assert_imports(
+        r#"
+import Std.Env.{Env}
+import Std.Platform.{Platform}
+
+fn main() {
+  with Platform {
+    dbg((use Env).get("EMELA_TEST_UNSET"))
+  }
+}
+"#,
+        &["wasi:cli/environment@0.3.0"],
+    );
+    if wasmtime().is_none() {
+        return;
+    }
+    let run = run_bytes(&out_dir("platform-env"), &bytes);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stderr, "None\n");
+}
+
+#[test]
+fn platform_with_random_imports_only_random() {
+    let bytes = assert_imports(
+        r#"
+import Std.Platform.{Platform}
+import Std.Random.{Random}
+
+fn main() {
+  with Platform {
+    dbg((use Random).float() >= 0.0 && (use Random).float() < 1.0)
+  }
+}
+"#,
+        &["wasi:random/random@0.3.0"],
+    );
+    if wasmtime().is_none() {
+        return;
+    }
+    let run = run_bytes(&out_dir("platform-random"), &bytes);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stderr, "True\n");
+}
+
+#[test]
+fn platform_with_clock_now_imports_only_the_system_clock() {
+    let bytes = assert_imports(
+        r#"
+import Std.Clock.{Clock}
+import Std.Instant.{Instant}
+import Std.Platform.{Platform}
+
+fn main() {
+  with Platform {
+    dbg(Instant.to_unix_milliseconds((use Clock).now()) > Int64.from_int(0))
+  }
+}
+"#,
+        &["wasi:clocks/system-clock@0.3.0"],
+    );
+    if wasmtime().is_none() {
+        return;
+    }
+    let run = run_bytes(&out_dir("platform-clock"), &bytes);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stderr, "True\n");
+}
+
+// `SystemClock.sleep` and `Std.FileSystem` are not specified for WASM yet:
+// `[target.wasm.external]` lists them as not available and the proposal that makes them available
+// is still a draft. The implementation carries their hosts when a program reaches them, but this
+// file does not pin their imports as part of the contract until the specification says so. Their
+// behaviour is tested in `tests/clock.rs` and `tests/filesystem.rs`, next to the rest of those
+// suites.
+
+#[test]
+fn an_unused_http_handler_is_not_an_error() {
+    // `Std.Http` has no WASM host, so `SystemHttp` is only diagnosed when the entry performs
+    // `Http.send`. Merely providing it through `Platform` does not report (spec
+    // `[target.wasm.external]`).
+    assert_imports(
+        r#"
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+
+fn main() {
+  with Platform {
+    (use Console).print_line("no http")
+  }
+}
+"#,
+        &[],
+    );
 }
 
 #[test]

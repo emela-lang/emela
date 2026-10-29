@@ -157,7 +157,7 @@ pub error UnexpectedStatus(status: Int, body: String)
 
 pub fn new(status: Int, body: String) -> Response # a response without headers
 pub fn header(res: Response, name: String) -> Option[String] # the first value, case-insensitive
-pub fn headers(res: Response, name: String) -> List[String] # all values
+pub fn header_values(res: Response, name: String) -> List[String] # all values
 pub fn require_ok(res: Response) -> Response fails UnexpectedStatus # fails on anything other than 2xx
 
 # Std.Http
@@ -221,7 +221,7 @@ Functions in the standard library (core and std) are named according to the foll
 
 - The subject is the first argument, so the function can be written with a pipe, as in `xs |> List.map(f)`.
 - An argument that takes a function is named `f` and is passed by position, not by name (`List.map(xs, fn(x) { ... })`). The proposal to use `with` and `where` as argument names was not adopted: both are reserved words (3.1, 3.3) and cannot be used as parameter names, and the case is not strong enough to add syntax that separates the external argument name from the internal name.
-- A function that joins two values is `append` (`List.append(xs, ys)`, `String.append(a, b)`), a function that flattens a sequence is `List.flatten(xss)` or `String.concat(parts)`, and a function that joins with a separator in between is `join` (`String.join(parts, sep)`).
+- A function that joins two values is `append` (`List.append(xs, ys)`, `String.append(a, b)`), a function that flattens a sequence is `List.flatten(xss)` or `String.concat(parts)`, and a function that joins with a separator in between is `join` (`List.join(parts, sep)`).
 - The argument for the initial value of a fold is named `from` (`List.fold(xs, from: 0, f: add)`).
 - How a function reports that something did not work depends on the situation.
   - Not found, or out of range: return an Option (`List.get`, `List.find`, `Env.get`).

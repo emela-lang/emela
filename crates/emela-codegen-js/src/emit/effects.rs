@@ -7,8 +7,9 @@
 //! functions.
 //!
 //! An external function becomes a wrapper that calls the host function. Thrown exceptions become
-//! defects (spec 12.5), and lone surrogates in strings received from the host are replaced with
-//! U+FFFD (spec 12.5). The wrapper for an `@external suspend fn` is a generator that awaits the
+//! defects (spec 12.5), lone surrogates in strings received from the host are replaced with
+//! U+FFFD (spec 12.5), and a Bytes received from the host is checked to be a `Uint8Array` and
+//! copied (`[target.js.value]`). The wrapper for an `@external suspend fn` is a generator that awaits the
 //! Promise the host returns, passing an AbortSignal as the last argument (spec 12.2).
 
 use emela_core::{
@@ -267,16 +268,17 @@ impl Emitter<'_> {
                 self.import(&specifier, name)
             }
         });
+        let site = Site::Return(source_name(&f.name));
         match callee {
             Some(callee) => {
                 let args: Vec<String> = params
                     .iter()
                     .zip(&param_tys)
-                    .map(|(p, &ty)| self.convert(ty, p, Dir::ToHost, 0))
+                    .map(|(p, &ty)| self.convert(ty, p, Dir::ToHost, 0, &site))
                     .collect();
                 let foreign = self.rt("$foreign");
                 if f.suspends {
-                    self.suspending_external(&callee, &args, f.ret, foreign);
+                    self.suspending_external(&callee, &args, f.ret, foreign, &site);
                     self.indent -= 1;
                     self.line("}");
                     return;
@@ -290,7 +292,7 @@ impl Emitter<'_> {
                         self.line("return undefined;");
                     }
                     ret => {
-                        let v = self.convert(ret, &call, Dir::FromHost, 0);
+                        let v = self.convert(ret, &call, Dir::FromHost, 0, &site);
                         self.line(&format!("return {v};"));
                     }
                 }
@@ -320,22 +322,28 @@ impl Emitter<'_> {
         let params: Vec<String> = (0..f.params.len()).map(|i| format!("$p{i}")).collect();
         self.line(&format!("function {name}({}) {{", params.join(", ")));
         self.indent += 1;
+        let fn_name = source_name(&f.name);
         let args: Vec<String> = params
             .iter()
             .zip(&f.params)
-            .map(|(p, &local)| self.convert(self.m.locals[local].ty, p, Dir::FromHost, 0))
+            .map(|(p, &local)| {
+                let local = &self.m.locals[local];
+                let site = Site::Arg(fn_name, local.hint.clone());
+                self.convert(local.ty, p, Dir::FromHost, 0, &site)
+            })
             .collect();
         let call = format!("{}({})", self.fn_js(id), args.join(", "));
+        let site = Site::Return(fn_name);
         if f.suspends {
             let launch = self.rt("$export");
-            let value = self.convert(f.ret, "$v", Dir::ToHost, 0);
+            let value = self.convert(f.ret, "$v", Dir::ToHost, 0, &site);
             if value == "$v" {
                 self.line(&format!("return {launch}({call});"));
             } else {
                 self.line(&format!("return {launch}({call}).then(($v) => {value});"));
             }
         } else {
-            let value = self.convert(f.ret, &call, Dir::ToHost, 0);
+            let value = self.convert(f.ret, &call, Dir::ToHost, 0, &site);
             self.line(&format!("return {value};"));
         }
         self.indent -= 1;
@@ -345,7 +353,14 @@ impl Emitter<'_> {
     /// Calls the host function `callee` with `args` (converted JS expressions) and an AbortSignal
     /// as the last argument (spec 12.2). The runtime aborts it when the waiting fiber is
     /// interrupted.
-    fn suspending_external(&mut self, callee: &str, args: &[String], ret: TypeId, foreign: &str) {
+    fn suspending_external(
+        &mut self,
+        callee: &str,
+        args: &[String],
+        ret: TypeId,
+        foreign: &str,
+        site: &Site<'_>,
+    ) {
         let abortable = self.rt("$abortable");
         self.line(&format!("const $c = {abortable}();"));
         let mut args = args.to_vec();
@@ -364,7 +379,7 @@ impl Emitter<'_> {
             }
             ret => {
                 self.line(&format!("const $v = {wait};"));
-                let v = self.convert(ret, "$v", Dir::FromHost, 0);
+                let v = self.convert(ret, "$v", Dir::FromHost, 0, site);
                 self.line(&format!("return {v};"));
             }
         }
@@ -386,28 +401,61 @@ impl Emitter<'_> {
     }
 
     /// The JS expression converting `v` (a JS expression, used once) of type `ty` across the
-    /// boundary in direction `dir` (spec 12.4, 12.5). Strings from the host are made well formed
-    /// and callbacks are wrapped to convert their arguments and results; other values pass as is.
-    fn convert(&mut self, ty: TypeId, v: &str, dir: Dir, depth: usize) -> String {
+    /// boundary in direction `dir` (spec 12.4, 12.5). Strings from the host are made well formed,
+    /// Bytes from the host are checked and copied (`[target.js.value]`), and callbacks are wrapped
+    /// to convert their arguments and results; other values pass as is. `site` says what `v` is,
+    /// for the defect message of a value that is not a `Uint8Array`.
+    fn convert(&mut self, ty: TypeId, v: &str, dir: Dir, depth: usize, site: &Site<'_>) -> String {
         let m = self.m;
         match (m.ty(ty), dir) {
             (Type::String, Dir::FromHost) => format!("{}({v})", self.rt("$wellFormed")),
+            (Type::Bytes, Dir::FromHost) => {
+                let message = match site {
+                    Site::Return(f) => format!(
+                        "external function `{f}` returned a value that is not a `Uint8Array`"
+                    ),
+                    Site::Arg(f, x) => format!("argument `{x}` of `{f}` is not a `Uint8Array`"),
+                };
+                format!("{}({v}, {})", self.rt("$hostBytes"), js_string(&message))
+            }
             (Type::Fn(f), _) => {
                 let (params, ret) = (&f.params, f.ret);
                 // Callback arguments convert the opposite way; return values the same way.
                 let names: Vec<String> = (0..params.len())
                     .map(|i| format!("$a{depth}_{i}"))
                     .collect();
+                // The parameters of a function type have no names, so a callback's argument is
+                // named by its position from 1, with the function the boundary belongs to.
+                let f = site.function();
                 let args: Vec<String> = params
                     .iter()
                     .zip(&names)
-                    .map(|(&p, n)| self.convert(p, n, dir.flip(), depth + 1))
+                    .enumerate()
+                    .map(|(i, (&p, n))| {
+                        let site = Site::Arg(f, (i + 1).to_string());
+                        self.convert(p, n, dir.flip(), depth + 1, &site)
+                    })
                     .collect();
                 let call = format!("$f{depth}({})", args.join(", "));
-                let body = self.convert(ret, &call, dir, depth + 1);
+                let body = self.convert(ret, &call, dir, depth + 1, &Site::Return(f));
                 format!("(($f{depth}) => ({}) => {body})({v})", names.join(", "))
             }
             _ => v.to_owned(),
+        }
+    }
+}
+
+/// What a value crossing the boundary is, for its defect message: the return value of a function
+/// (or the value a suspending one resolves to), or its argument `x`.
+enum Site<'a> {
+    Return(&'a str),
+    Arg(&'a str, String),
+}
+
+impl<'a> Site<'a> {
+    fn function(&self) -> &'a str {
+        match self {
+            Site::Return(f) | Site::Arg(f, _) => f,
         }
     }
 }

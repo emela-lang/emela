@@ -1,0 +1,84 @@
+import Std.Bytes.{Bytes}
+
+const PNG_SIGNATURE = Bytes.hex("89504e47")
+
+type Packet(id: Int, payload: Bytes)
+  derive Eq
+
+fn main() {
+  data = Bytes.append(PNG_SIGNATURE, Bytes.encode_utf8("hi"))
+  dbg(Bytes.size(data))
+  dbg(Bytes.get(data, 0))
+  dbg(Bytes.get(data, 5))
+  dbg(Bytes.get(data, 6))
+  dbg(Bytes.get(data, -1))
+  dbg(Bytes.to_hex(data))
+  dbg(Bytes.to_list(data))
+  dbg(Bytes.decode_utf8(Bytes.slice(data, 4, 6)))
+  dbg(Bytes.is_empty(Bytes.empty()))
+  dbg(Bytes.is_empty(data))
+
+  # slice clamps both ends and is empty when `from` is not less than `to`
+  dbg(Bytes.slice(data, -3, 2))
+  dbg(Bytes.slice(data, 4, 100))
+  dbg(Bytes.slice(data, 4, 2))
+  dbg(Bytes.slice(data, 7, 9))
+
+  # from_list keeps each byte in 0 to 255
+  dbg(Bytes.from_list([0, 127, 128, 255]))
+  dbg(Bytes.from_list([256]))
+  dbg(Bytes.from_list([-1]))
+  dbg(Bytes.from_list([]))
+
+  # hexadecimal
+  dbg(Bytes.from_hex("DEADbeef"))
+  dbg(Bytes.from_hex(""))
+  dbg(Bytes.from_hex("abc"))
+  dbg(Bytes.from_hex("zz"))
+  dbg(Bytes.from_hex("ab cd"))
+  small = Bytes.from_list([0, 1, 15, 16, 171]) |> Option.or(Bytes.empty())
+  dbg(Bytes.to_hex(small))
+
+  # concat joins all the parts in order
+  dbg(Bytes.concat([Bytes.hex("01"), Bytes.empty(), Bytes.hex("0203")]))
+  dbg(Bytes.concat([]))
+
+  # UTF-8
+  text = "é👍\u{FEFF}"
+  encoded = Bytes.encode_utf8(text)
+  dbg(encoded)
+  assert Bytes.size(encoded) == String.byte_size(text)
+  assert Bytes.decode_utf8(encoded) == Some(text)
+  dbg(Bytes.decode_utf8(Bytes.hex("efbbbf41")) |> Option.map(String.code_points))
+  dbg(Bytes.decode_utf8(Bytes.hex("ff")))
+  dbg(Bytes.decode_utf8(Bytes.hex("c0af")))
+  dbg(Bytes.decode_utf8(Bytes.hex("e08080")))
+  dbg(Bytes.decode_utf8(Bytes.hex("eda080")))
+  dbg(Bytes.decode_utf8(Bytes.hex("f4908080")))
+  dbg(Bytes.decode_utf8(Bytes.hex("e282")))
+  dbg(Bytes.decode_utf8(Bytes.hex("80")))
+  dbg(Bytes.decode_utf8(Bytes.hex("f09f918d")))
+
+  # Eq, Ord and Show
+  assert Some(Bytes.hex("0102")) == Bytes.from_list([1, 2])
+  assert Bytes.hex("0102") != Bytes.hex("01")
+  dbg(Ord.compare(Bytes.hex("01"), Bytes.hex("0102")))
+  dbg(Ord.compare(Bytes.hex("02"), Bytes.hex("0102")))
+  dbg(Ord.compare(Bytes.hex("ff"), Bytes.hex("00")))
+  dbg(Ord.compare(Bytes.hex("0102"), Bytes.hex("0102")))
+  dbg(Ord.compare(Bytes.empty(), Bytes.empty()))
+  dbg("#{PNG_SIGNATURE}")
+  dbg(inspect(Bytes.empty()))
+  dbg([Bytes.hex("00")])
+  packet = Packet(id: 1, payload: Bytes.hex("cafe"))
+  dbg(packet)
+  assert packet == Packet(id: 1, payload: Bytes.hex("CAFE"))
+
+  # a long sequence goes through loops, not deep recursion
+  long = Bytes.concat(List.map(List.range(0, 20000), fn(_) { Bytes.hex("ab") }))
+  dbg(Bytes.size(long))
+  assert long == Bytes.concat([long])
+  round_trip = Bytes.from_hex(Bytes.to_hex(long)) |> Option.or(Bytes.empty())
+  assert round_trip == long
+  dbg(Bytes.decode_utf8(long))
+}

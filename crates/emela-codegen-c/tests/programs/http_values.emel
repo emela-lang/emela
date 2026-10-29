@@ -23,7 +23,7 @@ fn main() {
   dbg(
     (
       Request.header(with_headers, "x-KEY"),
-      Request.headers(with_headers, "X-Key"),
+      Request.header_values(with_headers, "X-Key"),
       Request.header(with_headers, "none"),
     ),
   )
@@ -77,7 +77,7 @@ fn main() {
   with_set = res
     |> Response.add_header("Set-Cookie", "a=1")
     |> Response.add_header("set-cookie", "b=2")
-  dbg((Response.header(with_set, "SET-COOKIE"), Response.headers(with_set, "set-cookie")))
+  dbg((Response.header(with_set, "SET-COOKIE"), Response.header_values(with_set, "set-cookie")))
   dbg(Response.require_ok(Response.new(204, "")).status)
   dbg(Response.require_ok(Response.new(299, "")).status)
   dbg(

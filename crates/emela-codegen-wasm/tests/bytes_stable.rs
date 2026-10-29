@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        23604,
-        0x6382_92bd_4842_1063,
+        23637,
+        0x5584_63b1_ba71_56df,
     ),
     (
         "floats",
@@ -98,6 +98,21 @@ fn main() {
 "#,
         22698,
         0x28fa_43ce_d217_d4f8,
+    ),
+    (
+        "platform_console",
+        r#"
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+
+fn main() {
+  with Platform {
+    (use Console).print_line("platform")
+  }
+}
+"#,
+        31444,
+        0x4c5c_9a46_dc5a_6266,
     ),
     (
         "state_and_options",

@@ -77,6 +77,10 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
         DiagnosticKind::NoField { ty, field } => {
             format!("`{text}` no field `{field}` on type `{}`", ty.display(cons))
         }
+        DiagnosticKind::NoFieldOrFunction { ty, name } => format!(
+            "`{text}` no field or function `{name}` for type `{}`",
+            ty.display(cons)
+        ),
         DiagnosticKind::NoFields { ty, field } => {
             format!(
                 "`{text}` type `{}` has no fields (`{field}`)",

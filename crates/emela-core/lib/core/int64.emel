@@ -37,20 +37,9 @@ pub fn shift_right(n: Int64, by: Int) -> Int64
 @intrinsic
 pub fn shift_right_unsigned(n: Int64, by: Int) -> Int64
 
-## Less, Equal or Greater as `a` is less than, equal to or greater than `b`.
-pub fn compare(a: Int64, b: Int64) -> Ordering {
-  if a < b {
-    Less
-  } else if a > b {
-    Greater
-  } else {
-    Equal
-  }
-}
-
 ## The first argument if they are equal.
 pub fn min(a: Int64, b: Int64) -> Int64 {
-  compare(a, b) match {
+  Ord.compare(a, b) match {
     Greater -> b
     _       -> a
   }
@@ -58,7 +47,7 @@ pub fn min(a: Int64, b: Int64) -> Int64 {
 
 ## The first argument if they are equal.
 pub fn max(a: Int64, b: Int64) -> Int64 {
-  compare(a, b) match {
+  Ord.compare(a, b) match {
     Less -> b
     _    -> a
   }

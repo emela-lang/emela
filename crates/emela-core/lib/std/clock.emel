@@ -66,7 +66,7 @@ pub handler TestClock: Clock {
     at = Instant.add(st.get(), Duration.milliseconds(Int64.from_int(if ms < 0 { 0 } else { ms })))
     when_stalled(Instant.to_unix_milliseconds(at))
     st.update(fn(t) {
-      Instant.compare(t, at) match {
+      Ord.compare(t, at) match {
         Less -> at
         _    -> t
       }

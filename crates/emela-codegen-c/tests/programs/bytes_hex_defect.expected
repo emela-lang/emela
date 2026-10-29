@@ -1,0 +1,5 @@
+exit: 101
+--- stdout
+--- stderr
+Bytes.hex("ff")
+defect: while evaluating const BROKEN: Bytes.hex was given a string that is not hexadecimal: "8 9"

@@ -1,6 +1,6 @@
 # Appendix B. Commands `[cmd]`
 
-This appendix defines the externally visible behavior of the `emela` command. `emela test` is in 13.4 and `[cmd.test]`, and `emela pome` is in `[cmd.pome]`.
+This appendix defines the externally visible behavior of the `emela` command. `emela test` is in 13.4 and `[cmd.test]`, `emela pome` is in `[cmd.pome]`, and `emela flash` is in `[cmd.flash]`.
 
 ## emela check, build, run `[cmd.build]`
 
@@ -16,8 +16,9 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 
 Build target and output directory:
 
-- `build`, `run`, and `test` select the build target with `--target <js|c|wasm>`. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `js` (`[module.pome]`). `check` takes no build target.
-- The default output directory of `build` and `run` is `target/emela/<target>` (`target/emela/js`, `target/emela/c`, `target/emela/wasm`) in the project (in single-file mode, in the directory that contains the file). The default output directory of `test` is as in `[cmd.test.out-dir]`. `--out-dir` changes the output directory of `build` and `run` for every target.
+- `build`, `run`, and `test` select the build target with `--target <js|c|c-embedded|wasm>`. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `c-embedded` for a `build` with a board selected (`[target.c-embedded.board]`) and `js` otherwise (`[module.pome]`). `run` and `test` are not available for `c-embedded`. `check` takes no build target.
+- `build` and `check` take `--board <id>`, and `build` takes `--embedded-config <path>` (`[target.c-embedded]`). `check` with a board, or with `[embedded].board`, reads the module replacements of that board (`[target.c-embedded.project]`).
+- The default output directory of `build` and `run` is `target/emela/<target>` (`target/emela/js`, `target/emela/c`, `target/emela/c-embedded`, `target/emela/wasm`; `target/emela/c-embedded/<board>` with a board) in the project (in single-file mode, in the directory that contains the file). The default output directory of `test` is as in `[cmd.test.out-dir]`. `--out-dir` changes the output directory of `build` and `run` for every target.
 - Giving `build` or `run` a file inside the test root is a compile error (E0208, ``... is under the test root, which only check and test read``). `build` and `run` do not read the test root.
 
 Entry and main:
@@ -62,6 +63,17 @@ Diagnostics and help:
 
 - The form and destination of diagnostics are in Appendix A (`[diag]`).
 - The text of `--help` is written in English.
+
+## emela flash `[cmd.flash]`
+
+- Writes the firmware image of the last successful `emela build` with a board (`[target.c-embedded]`) to the device. It does not build.
+- Takes one path like `build` (`[cmd.build]`). The board is `--board`, else `[embedded].board`; without either it is an error (``` `flash` requires `--board` or `[embedded].board` ```). `--out-dir` and `--embedded-config` MUST be the same as given to the build. `--port` is the serial port (ESP32-C3) or the serial number of the debug probe (STM32F4).
+- A successful board build records the SHA-256 of its inputs and outputs in `board-build.json`: the sources and manifests of the project and of its dependencies, `Pome.lock`, the runtime configuration, the module replacements, the files of `[embedded].sources` and the headers next to them, the generated C, the board support files, and the firmware outputs. The selected project, board, entry, runtime configuration and output directory are recorded with them.
+- `build` with a board removes the previous record once the target is decided and before it compiles anything, and writes a new one only when the build succeeds and no input changed while it ran. A failed build leaves no record.
+- `flash` checks the current files and selection against the record before it starts any program from the output directory. Without a record, it is an error (``no successful firmware build exists; run `emela build` first``). When anything differs, it is an error and nothing is written to the device.
+- After the check, the image is written with OpenOCD (STM32F4, the environment variable `OPENOCD`, else `openocd`) or esptool (ESP32-C3, run by the environment variable `EMELA_ESPTOOL_PYTHON`, else by the Python of the build). ESP32-C3 requires `--port` unless `--dry-run` is given. Paths and the port are passed as separate arguments, without a shell.
+- `--dry-run` performs the same check, prints the command that would write the image, and does not open the device.
+- The exit code is 0 on success and 1 otherwise.
 
 ## emela fmt `[cmd.fmt]`
 

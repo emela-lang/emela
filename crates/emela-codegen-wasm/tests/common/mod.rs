@@ -11,6 +11,62 @@ use std::time::{Duration, Instant};
 
 use emela_codegen_wasm::{Entry, TestEntry, WasmError, WasmOutput, compile};
 use emela_core::Roots;
+use wasmparser::{Parser, Payload};
+
+/// Runs `f` on the payloads of the component's own sections, without descending into the modules
+/// and components it nests (the shims `wit-component` builds for the canonical ABI).
+fn top_level<'a>(bytes: &'a [u8], mut f: impl FnMut(Payload<'a>)) {
+    let mut depth = 0usize;
+    for payload in Parser::new(0).parse_all(bytes) {
+        match payload.expect("the component parses") {
+            Payload::ModuleSection { .. } | Payload::ComponentSection { .. } => depth += 1,
+            Payload::End(_) if depth > 0 => depth -= 1,
+            payload if depth == 0 => f(payload),
+            _ => {}
+        }
+    }
+}
+
+/// The interfaces the output component itself imports, in the component's order.
+///
+/// Nested shims have imports of their own (`[task-return]run`, for example); they are internal to
+/// the encoder and not part of the component's interface.
+pub fn component_imports(bytes: &[u8]) -> Vec<String> {
+    let mut imports = Vec::new();
+    top_level(bytes, |payload| {
+        if let Payload::ComponentImportSection(section) = payload {
+            for import in section {
+                imports.push(
+                    import
+                        .expect("the import parses")
+                        .name
+                        .full_name()
+                        .into_owned(),
+                );
+            }
+        }
+    });
+    imports
+}
+
+/// The interfaces the output component itself exports, in the component's order.
+pub fn component_exports(bytes: &[u8]) -> Vec<String> {
+    let mut exports = Vec::new();
+    top_level(bytes, |payload| {
+        if let Payload::ComponentExportSection(section) = payload {
+            for export in section {
+                exports.push(
+                    export
+                        .expect("the export parses")
+                        .name
+                        .full_name()
+                        .into_owned(),
+                );
+            }
+        }
+    });
+    exports
+}
 
 /// Lowers `src` and compiles it to WASM.
 pub fn to_wasm(src: &str) -> Result<Vec<u8>, Vec<WasmError>> {

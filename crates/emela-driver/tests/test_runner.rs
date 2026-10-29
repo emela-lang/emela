@@ -1194,6 +1194,7 @@ fn run_on(
                 &mut out,
             )
         }
+        Target::CEmbedded => unreachable!("this test compares js, c and wasm"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     Some((analysis, report, String::from_utf8(out).unwrap()))

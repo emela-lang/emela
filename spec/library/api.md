@@ -40,6 +40,7 @@ impl (`[trait.derive]`): ParseError has `derive Show` (its contents are shown wh
 | `reverse` | `reverse[A](xs: List[A]) -> List[A]` | Emela | Reverse order |
 | `append` | `append[A](xs: List[A], ys: List[A]) -> List[A]` | Emela | Joins two lists |
 | `flatten` | `flatten[A](xss: List[List[A]]) -> List[A]` | Emela | Flattens a list of lists |
+| `join` | `join(xs: List[String], sep: String) -> String` | intrinsic | Joins with `sep` in between. Formerly `String.join` |
 | `partition` | `partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A])` | Emela | Splits into the True elements and the False elements |
 | `any` | `any[A](xs: List[A], f: fn(A) -> Bool) -> Bool` | Emela | Whether some element gives True (stops when one is found) |
 | `all` | `all[A](xs: List[A], f: fn(A) -> Bool) -> Bool` | Emela | Whether all give True (stops at False) |
@@ -79,13 +80,13 @@ impl (`[trait.builtin]`): `impl Option[A: Eq]: Eq`, `impl Option[A: Ord]: Ord`, 
 | `length` | `length(s: String) -> Int` | intrinsic | The number of grapheme clusters |
 | `byte_size` | `byte_size(s: String) -> Int` | intrinsic | The number of UTF-8 bytes |
 | `append` | `append(a: String, b: String) -> String` | intrinsic | Joins two strings |
-| `concat` | `concat(parts: List[String]) -> String` | Emela | Joins all of them in order (`join(parts, "")`) |
+| `concat` | `concat(parts: List[String]) -> String` | Emela | Joins all of them in order (`List.join(parts, "")`) |
 | `contains` | `contains(s: String, sub: String) -> Bool` | intrinsic | Whether it contains `sub` |
 | `starts_with` | `starts_with(s: String, prefix: String) -> Bool` | intrinsic | Whether it starts with `prefix` |
 | `ends_with` | `ends_with(s: String, suffix: String) -> Bool` | intrinsic | Whether it ends with `suffix` |
 | `split` | `split(s: String, sep: String) -> List[String]` | intrinsic | Splits at `sep`. By grapheme cluster if `sep` is empty |
 | `chars` | `chars(s: String) -> List[String]` | intrinsic | A list of the grapheme clusters |
-| `join` | `join(parts: List[String], sep: String) -> String` | intrinsic | Joins with `sep` in between |
+| `join` | `join(parts: List[String], sep: String) -> String` | Emela | `@deprecated`, remains for one minor version. `List.join(parts, sep)` |
 | `trim` | `trim(s: String) -> String` | intrinsic | Removes leading and trailing White_Space |
 | `code_points` | `code_points(s: String) -> List[Int]` | intrinsic | A list of the code point values |
 | `from_code_point` | `from_code_point(n: Int) -> Option[String]` | intrinsic | `None` if not a scalar value |
@@ -93,7 +94,7 @@ impl (`[trait.builtin]`): `impl Option[A: Eq]: Eq`, `impl Option[A: Ord]: Ord`, 
 | `to_ascii_uppercase` | `to_ascii_uppercase(s: String) -> String` | Emela | Converts only a to z into A to Z |
 | `show_nested` | `show_nested[A: Show](value: A) -> String` | intrinsic | `@internal`. The representation of a value placed inside another value (`[trait.builtin]`). A String is enclosed in `"`, and anything else uses `Show.show`. Used by the Show impls in core |
 
-- `split(s, "")` splits by grapheme cluster (the same result as `chars(s)`). `split("", "")` is `[]`. With a non-empty separator, `split("", ",")` is `[""]`. In both cases, `String.join(String.split(s, sep), sep) == s` holds.
+- `split(s, "")` splits by grapheme cluster (the same result as `chars(s)`). `split("", "")` is `[]`. With a non-empty separator, `split("", ",")` is `[""]`. In both cases, `List.join(String.split(s, sep), sep) == s` holds.
 - `contains`, `starts_with`, `ends_with`, and `split` match on the sequence of code points and do not look at grapheme cluster boundaries (`String.contains("e\u{301}", "e")` is True).
 - In `code_points`, one grapheme cluster can produce several values. `from_code_point(n)` returns None if n is not a Unicode scalar value (0 to 0x10FFFF inclusive, excluding the surrogates 0xD800 to 0xDFFF).
 - The whitespace that `trim` removes is the 25 characters with the Unicode White_Space property (U+0009 to U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000). U+FEFF and U+200B are not whitespace. This table is fixed and does not depend on the host's Unicode version.
@@ -119,7 +120,6 @@ impl (`[trait.builtin]`): `impl Option[A: Eq]: Eq`, `impl Option[A: Ord]: Ord`, 
 | `shift_left` | `shift_left(n: Int, by: Int) -> Int` | intrinsic | Left shift. 0 if `by` is 32 or more; a defect if negative |
 | `shift_right` | `shift_right(n: Int, by: Int) -> Int` | intrinsic | Arithmetic right shift. 0 or -1 if 32 or more |
 | `shift_right_unsigned` | `shift_right_unsigned(n: Int, by: Int) -> Int` | intrinsic | Logical right shift. 0 if 32 or more |
-| `compare` | `compare(a: Int, b: Int) -> Ordering` | Emela | Less / Equal / Greater |
 | `min` / `max` | `(a: Int, b: Int) -> Int` | Emela | The smaller / the larger |
 | `abs` | `abs(n: Int) -> Int` | Emela | Absolute value. The minimum value wraps around to the same value |
 
@@ -139,7 +139,6 @@ impl (`[trait.builtin]`): `impl Option[A: Eq]: Eq`, `impl Option[A: Ord]: Ord`, 
 | `shift_left` | `shift_left(n: Int64, by: Int) -> Int64` | intrinsic | Left shift. 0 if `by` is 64 or more; a defect if negative |
 | `shift_right` | `shift_right(n: Int64, by: Int) -> Int64` | intrinsic | Arithmetic right shift. 0 or -1 if 64 or more |
 | `shift_right_unsigned` | `shift_right_unsigned(n: Int64, by: Int) -> Int64` | intrinsic | Logical right shift. 0 if 64 or more |
-| `compare` | `compare(a: Int64, b: Int64) -> Ordering` | Emela | Less / Equal / Greater |
 | `min` / `max` | `(a: Int64, b: Int64) -> Int64` | Emela | The first argument if Equal |
 | `abs` | `abs(n: Int64) -> Int64` | Emela | The minimum value wraps around to itself |
 
@@ -183,7 +182,6 @@ A length of time. An opaque type whose contents are an Int64 of milliseconds (`[
 | `to_seconds` | `to_seconds(d: Duration) -> Int64` | Emela | The number of seconds. The fraction is truncated toward 0 |
 | `add` | `add(d: Duration, other: Duration) -> Duration` | Emela | The sum |
 | `subtract` | `subtract(d: Duration, other: Duration) -> Duration` | Emela | The difference. Can be negative |
-| `compare` | `compare(d: Duration, other: Duration) -> Ordering` | Emela | Compares |
 | `to_string` | `to_string(d: Duration) -> String` | Emela | `1500ms` |
 
 impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl gives `1500ms`, the same as `to_string`.
@@ -199,7 +197,6 @@ A point in time. An opaque type whose contents are an Int64 of milliseconds sinc
 | `add` | `add(t: Instant, d: Duration) -> Instant` | Emela | `d` later |
 | `subtract` | `subtract(t: Instant, d: Duration) -> Instant` | Emela | `d` earlier |
 | `since` | `since(t: Instant, earlier: Instant) -> Duration` | Emela | The length from `earlier` to `t` |
-| `compare` | `compare(t: Instant, other: Instant) -> Ordering` | Emela | The earlier one is smaller |
 | `to_string` | `to_string(t: Instant) -> String` | Emela | ISO 8601 in UTC (`2025-10-12T03:04:05.678Z`) |
 
 - If the year is outside 0 to 9999, `to_string` writes the year as a sign and six digits (`+010000-01-01T00:00:00.000Z`, `-000001-12-31T00:00:00.000Z`). Dates are counted in the proleptic Gregorian calendar. Every value of Instant is written by this rule, without a range limit.
@@ -213,19 +210,19 @@ The value layer (`[lib.layers]`). An immutable sequence of bytes. Each byte is a
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
 | `Bytes` | `opaque type Bytes` | intrinsic | A sequence of bytes |
-| `empty` | `empty() -> Bytes` | intrinsic | The sequence of no bytes |
+| `empty` | `empty() -> Bytes` | Emela | The sequence of no bytes |
 | `from_list` | `from_list(xs: List[Int]) -> Option[Bytes]` | intrinsic | The bytes in the order of `xs`. `None` if an element is outside 0 to 255 |
 | `to_list` | `to_list(b: Bytes) -> List[Int]` | intrinsic | The bytes in order |
 | `size` | `size(b: Bytes) -> Int` | intrinsic | The number of bytes |
 | `is_empty` | `is_empty(b: Bytes) -> Bool` | Emela | Whether there are no bytes |
 | `get` | `get(b: Bytes, index: Int) -> Option[Int]` | intrinsic | The byte at `index` (0-based). `None` if out of range or negative |
 | `slice` | `slice(b: Bytes, from: Int, to: Int) -> Bytes` | intrinsic | The bytes from `from` inclusive to `to` exclusive. Both are clamped to 0 to `size(b)`; empty if `from` is not less than `to` |
-| `append` | `append(a: Bytes, b: Bytes) -> Bytes` | intrinsic | The bytes of `a`, then those of `b` |
+| `append` | `append(a: Bytes, b: Bytes) -> Bytes` | Emela | The bytes of `a`, then those of `b` |
 | `concat` | `concat(parts: List[Bytes]) -> Bytes` | intrinsic | The bytes of all of them in order |
 | `encode_utf8` | `encode_utf8(s: String) -> Bytes` | intrinsic | The UTF-8 encoding of `s`. No BOM is added |
-| `decode_utf8` | `decode_utf8(b: Bytes) -> Option[String]` | intrinsic | The string that `b` encodes in UTF-8. `None` if `b` is not valid UTF-8. A leading BOM is kept as U+FEFF |
-| `to_hex` | `to_hex(b: Bytes) -> String` | intrinsic | Two lowercase hexadecimal digits per byte, with no separator (`"89504e47"`) |
-| `from_hex` | `from_hex(s: String) -> Option[Bytes]` | intrinsic | The inverse of `to_hex`. Accepts uppercase and lowercase digits. `None` for an odd number of digits or any other character, including whitespace |
+| `decode_utf8` | `decode_utf8(b: Bytes) -> Option[String]` | Emela | The string that `b` encodes in UTF-8. `None` if `b` is not valid UTF-8. A leading BOM is kept as U+FEFF |
+| `to_hex` | `to_hex(b: Bytes) -> String` | Emela | Two lowercase hexadecimal digits per byte, with no separator (`"89504e47"`) |
+| `from_hex` | `from_hex(s: String) -> Option[Bytes]` | Emela | The inverse of `to_hex`. Accepts uppercase and lowercase digits. `None` for an odd number of digits or any other character, including whitespace |
 | `hex` | `hex(s: String) -> Bytes` | Emela | The bytes that `from_hex` reads from `s`. A defect if `from_hex` returns `None`. For constants written in the program (`const PNG_SIGNATURE = Bytes.hex("89504e47")`) |
 
 - The defect message of `hex` is ``Bytes.hex was given a string that is not hexadecimal: "<s>"``, where `<s>` is shown as by inspect. In a const, the name of the const is prepended (`[data.const]`).
@@ -414,7 +411,7 @@ The client effect, its errors, and the entry adapter for HTTP services. Requests
 | `Outgoing` | `@external type Outgoing` | The response for the host to send |
 | `serve` | `serve[E](app: fn(Request) -> Response fails E use { Async }, incoming: Incoming) -> Outgoing use { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
 
-- `request`, `add_header`, `header`, `headers`, `encode_query`, `require_ok`, and `response` remain for one minor version with `@deprecated`, pointing to their new places (`Request.new`, `Request.add_header`, `Response.header`, `Response.headers`, `Request.encode_query`, `Response.require_ok`, `Response.new`).
+- `request`, `add_header`, `header`, `headers`, `encode_query`, `require_ok`, and `response` remain for one minor version with `@deprecated`, pointing to their new places (`Request.new`, `Request.add_header`, `Response.header`, `Response.header_values`, `Request.encode_query`, `Response.require_ok`, `Response.new`).
 - The message of ConnectionFailed is the text of the host's exception. If cause information is available, the cause's code and text, joined by a space, are appended after `: ` (`fetch failed: ECONNREFUSED connect ECONNREFUSED 127.0.0.1:1234`). The text depends on the host.
 - A failure while reading the response body is also ConnectionFailed.
 - The default content-type (`text/plain;charset=UTF-8`) is added only when a body is sent. It is not added to GET and HEAD, which are sent without a body.
@@ -447,7 +444,7 @@ fn fetches() {
 | `new` | `new(method: Method, url: String) -> Request` | A request with no headers and no body. Formerly `Http.request` |
 | `add_header` | `add_header(req: Request, name: String, value: String) -> Request` | Appends a header at the end |
 | `header` | `header(req: Request, name: String) -> Option[String]` | The first value whose name matches. Case-insensitive (ASCII) |
-| `headers` | `headers(req: Request, name: String) -> List[String]` | All values whose name matches |
+| `header_values` | `header_values(req: Request, name: String) -> List[String]` | All values whose name matches. Formerly `headers`, renamed because the field `headers` has the same name (E0334) |
 | `path` | `path(req: Request) -> String` | The path of `url`, without the query, as written (not decoded). `/` if empty |
 | `segments` | `segments(req: Request) -> List[String]` | The path split at `/`, without empty segments, each percent-decoded. A segment with a malformed `%` sequence, or whose decoded bytes are not UTF-8, is kept as written |
 | `query` | `query(req: Request) -> List[(String, String)]` | The part of `url` after `?`, read as `decode_query` does. Empty if there is no `?`. A pair with a malformed `%` sequence, or whose decoded bytes are not UTF-8, is kept as written |
@@ -465,7 +462,7 @@ impl (`[trait.derive]`): Method and Request have `derive Eq, Show`.
 | `new` | `new(status: Int, body: String) -> Response` | A response without headers. Formerly `Http.response` |
 | `add_header` | `add_header(res: Response, name: String, value: String) -> Response` | Appends a header at the end |
 | `header` | `header(res: Response, name: String) -> Option[String]` | The first value whose name matches. Case-insensitive (ASCII). Moved from `Std.Http` |
-| `headers` | `headers(res: Response, name: String) -> List[String]` | All values whose name matches. Moved from `Std.Http` |
+| `header_values` | `header_values(res: Response, name: String) -> List[String]` | All values whose name matches. Moved from `Std.Http`. Formerly `headers`, renamed because the field `headers` has the same name (E0334) |
 | `require_ok` | `require_ok(res: Response) -> Response fails UnexpectedStatus` | Fails on anything other than 2xx. Moved from `Std.Http` |
 
 impl (`[trait.derive]`): Response has `derive Eq, Show`, and UnexpectedStatus has `derive Show`.

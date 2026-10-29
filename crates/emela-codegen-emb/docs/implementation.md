@@ -115,7 +115,7 @@ suspendは固定pool上の継続と協調schedulerで実装する。Scope/Fork/J
 
 ISRとして公開するEmela関数は `with_isr_entry` で指定する。到達先にheap値・参照管理・再帰・suspend・runtime const初期化・動的call・Hold/Unholdがある場合は拒否する。外部C symbolは `with_isr_safe_external` で明示し、非scalar adapter等の追加制約も満たす必要がある。この検査は外部関数の実装や実行時間を証明しない。ISRのstack総量は算出しない。
 
-標準 `Std.Embedded` effect・共有handlerとC bridgeは[共通インターフェース](embedded-interfaces.md)と[ABI契約](embedded-peripherals.md)で提供する。これらの標準bindingでは汎用adapterの明示mappingは不要である。CLIのtarget/board選択、TOML設定、BSP、linker/startup、ツールチェーン取得、build/flash、Renode/QEMUの起動とボードexampleは後続PRの範囲である。このPRのRust exampleはbackendやhost C検証のprobeであり、ボード開発用CLIではない。GPIO/UART等の実装は、このライブラリでは外部C契約を満たす利用側が用意する。
+標準 `Std.Embedded` effect・共有handlerとC bridgeは[共通インターフェース](embedded-interfaces.md)と[ABI契約](embedded-peripherals.md)で提供する。これらの標準bindingでは汎用adapterの明示mappingは不要である。[ボードpackage](boards.md)はSTM32F4とESP32-C3のstartup/runtime、standalone build/flash script、Rustのboard probeとFlash起動の観測runnerを提供する。`Output.exports` から公開C symbolとsuspend入口かどうかを取得できる。[CLIとdriver](cli-embedded.md)はこのCore便宜APIを利用し、target/board選択、TOML設定、module置換、firmware buildとflash時の鮮度照合へ接続する。ツールチェーンの自動取得は行わない。BSPはGPIO・Console・Clock等の対応部分を実装し、未提供のdriverは利用側が補う。
 
 ## 5. APIの最小利用例とhostでの確認
 
@@ -170,7 +170,7 @@ host試験は生成Cの値・制御・所有権・容量defectを確認する。
 <!-- flow-audit:SwitchOn Tag Lit -->
 <!-- flow-audit:CaseKey Variant Lit -->
 <!-- flow-audit:Stage Flow ClosuresConverted DefectsExplicit StateMachines RefCounted -->
-<!-- flow-audit:Builtin StringLength StringByteSize StringAppend StringContains StringStartsWith StringEndsWith StringSplit StringChars StringJoin StringTrim StringCodePoints StringFromCodePoint IntToString IntParse IntCheckedAdd IntBitAnd IntBitOr IntBitXor IntBitNot IntShiftLeft IntShiftRight IntShiftRightUnsigned Int64FromInt Int64ToString Int64ToInt Int64BitAnd Int64BitOr Int64BitXor Int64BitNot Int64ShiftLeft Int64ShiftRight Int64ShiftRightUnsigned FloatToString FloatFromInt FloatParse FloatFloor FloatCeil FloatRound FloatTruncate Panic Todo Dbg Inspect ShowNested CellNew CellGet CellSet ShowString DebugPrint AssertFail -->
+<!-- flow-audit:Builtin StringLength StringByteSize StringAppend StringContains StringStartsWith StringEndsWith StringSplit StringChars StringJoin StringTrim StringCodePoints StringFromCodePoint IntToString IntParse IntCheckedAdd IntBitAnd IntBitOr IntBitXor IntBitNot IntShiftLeft IntShiftRight IntShiftRightUnsigned Int64FromInt Int64ToString Int64ToInt Int64BitAnd Int64BitOr Int64BitXor Int64BitNot Int64ShiftLeft Int64ShiftRight Int64ShiftRightUnsigned FloatToString FloatFromInt FloatParse FloatFloor FloatCeil FloatRound FloatTruncate BytesFromList BytesToList BytesSize BytesGet BytesSlice BytesConcat BytesEncodeUtf8 BytesDecodeValidUtf8 Panic Todo Dbg Inspect ShowNested CellNew CellGet CellSet ShowString DebugPrint AssertFail -->
 <!-- flow-audit:RuntimeOp ShowString DebugPrint Retire Defect DefectAt DefectTake DefectResume Hold Unhold Yield YieldPerform -->
 
 ### Value
@@ -349,6 +349,14 @@ host試験は生成Cの値・制御・所有権・容量defectを確認する。
 | `Builtin::FloatCeil` | 正方向へ丸めてIntにする | 対応 | `emit_builtin`、`emit_float_to_int_helper` | `float_rounding_builtins_match_spec_and_defect_out_of_range` | 共通helperのoperation1。 |
 | `Builtin::FloatRound` | tieを0から遠ざけてIntにする | 対応 | `emit_builtin`、`emit_float_to_int_helper` | `float_rounding_builtins_match_spec_and_defect_out_of_range` | 正負tie、Int境界とNaNを確認。 |
 | `Builtin::FloatTruncate` | 小数部を捨ててIntにする | 対応 | `emit_builtin`、`emit_float_to_int_helper` | `float_rounding_builtins_match_spec_and_defect_out_of_range` | 共通helperのoperation3。 |
+| `Builtin::BytesFromList` | IntのListからBytesを作る（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesToList` | BytesをIntのListにする（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesSize` | byte数（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesGet` | 位置のbyteをOptionで返す（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesSlice` | 範囲を切り出す（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesConcat` | BytesのListを結合する（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesEncodeUtf8` | StringのUTF-8 byte列（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::BytesDecodeValidUtf8` | 検査済みUTF-8をStringにする（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
 | `Builtin::Panic` | message付きdefectを発生させる | Flow禁止（lower先に対応） | `from_core::Lower::builtin`、`emit_return`のDefect分岐、`lib::verify_flow`の入口guard | `sends_dynamic_defect_string_views_to_the_board_hook`、`rejects_source_builtins_that_must_lower_to_flow_control_or_runtime` | sourceのlower先は実装済み。生BuiltinはInvalidFlowIr。組み込み契約に従いdefect時はcleanupを省略する。 |
 | `Builtin::Todo` | 未実装defectを発生させる | Flow禁止（lower先に対応） | `from_core::Lower::builtin`、`emit_return`のDefect分岐、入口guard | `classifies_a_static_todo_defect`、`rejects_source_builtins_that_must_lower_to_flow_control_or_runtime` | 同じlower経路でTODO kindに分類。生BuiltinはInvalidFlowIr。defectの即時停止契約を維持。 |
 | `Builtin::AssertFail` | 失敗したassertのdefectを場所つきで発生させる | Flow禁止（lower先に対応） | `from_core::Lower::builtin`、`emit_return`のDefect分岐、入口guard | `rejects_source_builtins_that_must_lower_to_flow_control_or_runtime` | `Term::Defect`の場所はboard hookに渡さず、messageだけを使う。生BuiltinはInvalidFlowIr。 |
@@ -390,4 +398,4 @@ host試験は生成Cの値・制御・所有権・容量defectを確認する。
 | 外部Cの所有契約 | `sync_external::source_string_adapters_snapshot_borrowed_results_and_board_held_arguments`、`const_runtime::external::pure_external_aggregate_const_owns_string_and_list_fields_after_board_release` | ABI mapping、借用・所有、caller buffer、managed fieldの寿命。 |
 | schedulerの固定poolと通知 | `fixed_scheduler_bounds_work_reuses_pools_and_rejects_stale_handles` | main側の処理数・pool再利用とstale検査。実割込みtimingやWCETの測定ではない。 |
 
-表の「対応」をもって、全Emelaソースが任意の小容量ボードで動作する、CLIからfirmwareを書き込める、すべての組合せを実行検証した、という意味にはしない。後続のfrontend/CLI/BSP接続では、ここで定義したIR・所有権・資源・外部Cの契約を保ち、対象ごとの生成物と実行結果を確認する。
+表の「対応」は、全Emelaソースが任意の小容量ボードで動作することや、すべての組合せを実行検証したことを意味しない。CLIのbuild・flashには別途project・entry・toolchain・BSPの条件がある。frontendやボードdriverの拡張では、ここで定義したIR・所有権・資源・外部Cの契約を保ち、対象ごとの生成物と実行結果を確認する。
