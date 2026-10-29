@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-29 (A wildcard arm for escape)
+
+- `[error.escape]`, `[type.rules]`, `[module.resolution]`, `[diag.list]`: An escape arm MAY be the wildcard `_`. It handles every error of the original expression, including the errors in opaque set variables, and removes all of them from E. It is meant for falling back to a default, doing nothing, or turning a failure into a defect. `_` cannot have a guard. A variable pattern stays a compile error, because a value of "one of E" cannot be typed (`[error.decl]`). Adopted in the proposal `escape-wildcard-arm` (#420).
+
 ## 2026-10-23 (The std hosts on WASM)
 
 - `[target.wasm.output]`, `[target.wasm.external]`: `SystemConsole`, `SystemEnv`, `SystemRandom` and `SystemClock.now` reach the WASI 0.3 hosts through the runtime, and the component imports `wasi:cli/environment`, `wasi:random/random` and `wasi:clocks/system-clock` (all `@0.3.0`) only when the entry reaches the std host function that uses each. A fn written by a user that names the same WASI function is still a compile error. This follows the pull request #403.

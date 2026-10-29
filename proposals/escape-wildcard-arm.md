@@ -1,10 +1,10 @@
 ---
 title: A wildcard arm for escape
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 420
 issue:
-decided:
+decided: 2026-10-29
 touches: [error.escape, type.rules, module.resolution, diag.list]
 requires: []
 related: []
@@ -152,5 +152,6 @@ Programs that compiled before compile the same. `_` was E0320.
 
 ## Open questions
 
-
 ## Decision
+
+Recovering from every error meant listing each constructor, and the list broke whenever a callee gained an error. A function that falls back on any error of a function it receives could not be written at all, because escape removes nothing from an opaque set variable. Fiber.attempt was the only way out, and it also turns defects into values. `_` handles every error, including opaque set variables, and still lets defects and interruptions through, so `or_else` can be written without swallowing bugs. A variable pattern stays an error because a value of one of several errors has no type; to look at the error, handle it by its constructors. `_` with a guard is rejected because it binds nothing and would look like a catch-all while letting errors through. The change is additive: `_` was E0320 before.
