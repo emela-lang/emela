@@ -1,10 +1,15 @@
 {
   "name": "emela",
   "displayName": "Emela",
-  "description": "Emela language support: diagnostics and completion via `emela lsp` (spec 0033), plus syntax highlighting.",
-  "version": "0.1.0",
-  "publisher": "emela-lang",
-  "license": "MIT",
+  "description": "Emela language support: diagnostics, completion and the other features of `emela lsp`, plus syntax highlighting.",
+  "version": "0.25.0",
+  "publisher": "Emela",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emela-lang/emela.git",
+    "directory": "editors/vscode"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -33,29 +38,30 @@
         "path": "./syntaxes/emela.tmLanguage.json"
       }
     ],
+    "commands": [
+      {
+        "command": "emela.restartServer",
+        "title": "Restart Language Server",
+        "category": "Emela"
+      }
+    ],
     "configuration": {
       "title": "Emela",
       "properties": {
         "emela.serverPath": {
           "type": "string",
           "default": "emela",
-          "description": "Path to the `emela` binary that provides the language server (`emela lsp`)."
-        },
-        "emela.packageRoots": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "description": "Directories passed to the server as `--package` import roots (each must contain an emela-package.json)."
+          "description": "Path to the `emela` binary that provides the language server (`emela lsp`). A bare name is looked up on `PATH` and then in `~/.emela/bin`. Changing it restarts the server."
         }
       }
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "vscode:prepublish": "npm run compile"
+    "check": "tsc -p ./ --noEmit",
+    "compile": "npm run check && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "vsce package",
+    "vscode:prepublish": "npm run check && node esbuild.mjs --production"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
@@ -63,6 +69,8 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "4.1.0",
+    "esbuild": "^0.25.12",
     "typescript": "^5.4.0"
   }
 }

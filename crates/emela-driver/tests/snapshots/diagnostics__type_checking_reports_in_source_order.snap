@@ -52,7 +52,7 @@ error[E0308]: pattern `User` does not mention field `id`
 ────╯
    = help: add `..` to ignore the remaining fields
 
-error[E0312]: no field `nmae` on type `User`
+error[E0312]: no field or function `nmae` for type `User`
     ╭─[ main.emel:27:9 ]
     │
  27 │   d = u.nmae

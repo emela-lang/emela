@@ -3,7 +3,7 @@ import Std.Cause.{Cause}
 
 type Key(value: Int)
 impl Key: Eq { fn eq(self, other) { self.value % 10 == other.value % 10 } }
-impl Key: Ord { fn compare(self, other) { Int.compare(self.value % 10, other.value % 10) } }
+impl Key: Ord { fn compare(self, other) { Ord.compare(self.value % 10, other.value % 10) } }
 impl Key: Show { fn show(self) { "K#{self.value}" } }
 
 type Envelope(key: Key, text: String) derive Eq, Ord, Show

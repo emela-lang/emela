@@ -734,6 +734,11 @@ fn main() {
         include_str!("../../emela-codegen-c/tests/programs/http_values.emel"),
     ),
     (
+        "method_calls",
+        // Shared with the C programs: method calls run the same on the three targets.
+        include_str!("../../emela-codegen-c/tests/programs/method_calls.emel"),
+    ),
+    (
         "deep_recursion",
         "fn count(n: Int, acc: Int) -> Int {\n  if n == 0 { acc } else { count(n - 1, acc + 1) }\n}\nfn main() {\n  dbg(count(100000, 0))\n}\n",
     ),
@@ -780,6 +785,15 @@ fn main() {
   }))
 }
 "#,
+    ),
+    // `[api.std.bytes]`: the same program as the JS and C parity test.
+    (
+        "bytes",
+        include_str!("../../emela-codegen-c/tests/programs/bytes.emel"),
+    ),
+    (
+        "bytes_hex_defect",
+        include_str!("../../emela-codegen-c/tests/programs/bytes_hex_defect.emel"),
     ),
 ];
 
@@ -862,7 +876,7 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Box<Analysis
             &options,
             |_, _| {},
         ),
-        Target::C => unreachable!("parity compares js and wasm"),
+        Target::C | Target::CEmbedded => unreachable!("parity compares js and wasm"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {

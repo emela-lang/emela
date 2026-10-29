@@ -1,0 +1,8 @@
+import Std.Bytes.{Bytes}
+
+const BROKEN = Bytes.hex("8 9")
+
+fn main() {
+  dbg(Bytes.hex("ff"))
+  dbg(BROKEN)
+}

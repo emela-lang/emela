@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        23604,
-        0x87f1_13cd_a1af_87c8,
+        23637,
+        0xf5cb_3ea8_0313_810f,
     ),
     (
         "floats",

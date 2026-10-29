@@ -33,7 +33,7 @@ pub fn list_helpers(n: Int) -> Int {
   (indexes, items) = List.unzip(enumerated)
   assert(indexes == [0, 1, 2])
   assert(items == List.take(values, 3))
-  sorted = List.sort_by([(1, n), (0, n + 1), (1, n + 2)], fn((a, _), (b, _)) { Int.compare(a, b) })
+  sorted = List.sort_by([(1, n), (0, n + 1), (1, n + 2)], fn((a, _), (b, _)) { Ord.compare(a, b) })
   assert(sorted == [(0, n + 1), (1, n), (1, n + 2)])
   assert(List.sort([3, 1, 2, 1]) == [1, 1, 2, 3])
   List.fold(items, from: 0, f: fn(acc, value) { acc + value })
@@ -44,13 +44,13 @@ pub fn ascii(text: String) -> String {
 }
 
 pub fn numeric(n: Int) -> Int {
-  assert(Int.compare(n, n) == Equal)
+  assert(Ord.compare(n, n) == Equal)
   assert(Int.min(n, n) == n)
   assert(Int.max(n, n) == n)
   Int.abs(n)
 }
 pub fn numeric64(n: Int64) -> Int64 {
-  assert(Int64.compare(n, n) == Equal)
+  assert(Ord.compare(n, n) == Equal)
   Int64.abs(Int64.min(n, Int64.max(n, n)))
 }
 pub fn numeric_float(x: Float) -> Bool {

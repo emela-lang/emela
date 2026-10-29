@@ -108,6 +108,10 @@ pub const DUPLICATE_IMPL: &str = "E0330";
 pub const ORPHAN_IMPL: &str = "E0331";
 pub const IMPL_FN_PARAM_COUNT: &str = "E0332";
 pub const AMBIGUOUS_SELF: &str = "E0333";
+// Method calls (`[type.rules]`, `[data.type]`). E0334 is found by name resolution, which sees the
+// declarations.
+pub const FN_NAMED_LIKE_FIELD: &str = "E0334";
+pub const AMBIGUOUS_METHOD: &str = "E0335";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_DERIVE: &str = "W0303";
@@ -168,6 +172,8 @@ pub const SUSPENDING_EXPORT: &str = "E0441";
 
 // HTTP services (`[lib.http-service]`)
 pub const HTTP_SERVICE_ON_C: &str = "E0442";
+// Bytes at the boundary on the C target (`[ext.boundary]`)
+pub const BYTES_ON_C: &str = "E0443";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

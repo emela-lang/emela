@@ -19,7 +19,7 @@ Talk with the person who asked in the language they use. Code, comments, rustdoc
 1. Find the proposal: by slug (`proposals/<slug>.md`) or by its pull request number (`rg -l '^pr: <N>$' proposals`).
 2. It MUST be `status: accepted` and its "Specification changes" MUST already be in `spec/` on main. If it is `draft`, stop: an agent does not implement an undecided proposal. If the specification changes are not applied yet, stop and say so (the `emela-proposal` skill applies them).
 3. Read `requires`. Every proposal listed there MUST be `implemented` first. Otherwise stop and name it.
-4. Check that no one else is implementing it: `gh pr list --search "Implements: proposals/<slug>.md"` and `gh issue list --search "<slug>"`.
+4. Find its implementation issue (`gh issue list --label implementation --state all --search "proposals/<slug>.md in:body"`, opened when the proposal was merged). If someone else is assigned, or `gh pr list --search "Implements: proposals/<slug>.md"` finds a pull request, stop: someone else is implementing it. Otherwise ask the person you work for to assign themselves to the issue.
 5. Start a branch from main: `feat/<slug>`.
 
 ## 1. Read the specification, not only the proposal
@@ -93,7 +93,7 @@ The parity tests need node, a C compiler and wasmtime; without them they are ski
 2. Commits follow the repository's convention (Conventional Commits, `feat:` for the language change, subject in Japanese). Do not put a bare `@name` in a commit message.
 3. Open the pull request:
    - Title: `feat: <what users can now write>`
-   - Body: the first line is `Implements: proposals/<slug>.md`, then `Closes #<issue>` if there is an implementation issue, the list of rules from step 1.3 with the test that checks each one, the diagnostic codes assigned, and anything skipped or reported.
+   - Body: the first line is `Implements: proposals/<slug>.md`, then `Closes #<issue>` for the implementation issue, the list of rules from step 1.3 with the test that checks each one, the diagnostic codes assigned, and anything skipped or reported.
 4. Do not merge it. The author reviews and merges.
 
 ## Stopping and reporting

@@ -17,6 +17,7 @@ mod fiber;
 mod infer;
 mod layer;
 mod lower;
+mod methods;
 mod row;
 mod scheme;
 mod signature;
@@ -44,6 +45,7 @@ pub use export::{
 pub use infer::{InferCtx, substitute_bound};
 pub use layer::{ArgsSource, LayerInfo, Supplier, WithBind, WithInfo};
 pub use lower::TyTable;
+pub use methods::methods_of;
 pub use scheme::Scheme;
 pub use signature::{InitParams, Signature, Signatures};
 pub use traits::{ImplHead, Traits, Unsatisfied, head_def};

@@ -1,0 +1,79 @@
+# Method calls (`[type.rules]`): `x.f(a)` calls `M.f(x, a)` of the module that defines the type
+# of x, or a function of a visible trait. Only the pure language and `dbg`, so that WASM runs it
+# too.
+
+error TooYoung(age: Int)
+
+trait Describe {
+  fn describe(self) -> String
+}
+
+effect Counter {
+  fn next() -> Int
+}
+
+handler Fixed: Counter {
+  fn next() { 7 }
+}
+
+type User(name: String, age: Int)
+  derive Show
+
+type Greeter(greet: fn(String) -> String)
+
+impl User: Describe {
+  fn describe(self) {
+    "user #{self.name}"
+  }
+}
+
+fn rename(u: User, name: String) -> User {
+  User(name:, ..u)
+}
+
+fn older(u: User, years: Int) -> User {
+  User(age: u.age + years, ..u)
+}
+
+fn adult(u: User) -> User fails TooYoung {
+  if u.age < 18 { fail TooYoung(age: u.age) } else { u }
+}
+
+fn numbered(u: User) -> String use Counter {
+  "#{(use Counter).next()} #{u.name}"
+}
+
+fn traced(label: String, u: User) -> User {
+  dbg(label)
+  u
+}
+
+fn describe_all[A: Describe](xs: List[A]) -> List[String] {
+  xs.map(fn(x) { x.describe() })
+}
+
+fn main() {
+  u = User(name: "ann", age: 17)
+  g = Greeter(greet: fn(s) { "#{s}!" })
+  dbg(u.rename("bea").name)
+  dbg(u.older(years: 3).age)
+  dbg(g.greet("hi"))
+  dbg(u.describe())
+  dbg(describe_all([u, u.rename("cy")]))
+  dbg(traced("receiver", u).rename(dbg("argument")).name)
+  dbg(u.adult().name escape { TooYoung(age:) -> "too young: #{age}" })
+  dbg(u.older(years: 1).adult().name escape { TooYoung(_) -> "no" })
+  with Fixed {
+    dbg(u.numbered())
+  }
+  dbg("a,bb,ccc".split(",").map(fn(s) { s.byte_size() }))
+  dbg([1, 2, 3].fold(from: 10, f: fn(acc, x) { acc + x }))
+  dbg(["x", "y", "z"].join("-"))
+  dbg(["x", "y"].join(""))
+  dbg("".split("\n").head().or("none"))
+  dbg(Some(3).map(fn(n) { n * 2 }).or(0))
+  n: Int = 42
+  dbg(n.to_string().byte_size())
+  dbg(u.rename("dee").show())
+  dbg([3, 1, 2] |> List.map(fn(x) { x + 1 }))
+}

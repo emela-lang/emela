@@ -32,17 +32,6 @@ pub fn since(t: Instant, earlier: Instant) -> Duration {
   Duration.milliseconds(t.milliseconds - earlier.milliseconds)
 }
 
-## Earlier instants are smaller.
-pub fn compare(t: Instant, other: Instant) -> Ordering {
-  if t.milliseconds < other.milliseconds {
-    Less
-  } else if t.milliseconds > other.milliseconds {
-    Greater
-  } else {
-    Equal
-  }
-}
-
 ## UTC in ISO 8601 (`2026-10-12T03:04:05.678Z`). Same format as JS `Date.prototype.toISOString`:
 ## years outside 0 to 9999 are written with a sign and six digits (`+010000`, `-000001`).
 pub fn to_string(t: Instant) -> String {

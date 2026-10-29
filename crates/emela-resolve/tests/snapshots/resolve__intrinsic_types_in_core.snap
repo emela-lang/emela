@@ -1,0 +1,13 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run_with_core(&[(\"main.emel\", \"fn size(b: Raw.Raw) -> Raw.Raw { b }\\n\",)],\n&[(\"raw.emel\",\nr##\"@intrinsic\npub opaque type Raw\n\n@intrinsic\npub type Cooked(n: Int)\n\"##,)],)"
+---
+== Main (src/main.emel)
+fn Main.size
+  param b#0: Raw.Raw
+  ret Raw.Raw
+  body
+    block
+      b#0
+== diagnostics
+error <core>/raw.emel@32..42 `@intrinsic`: `@intrinsic` can only be used on a function without a body

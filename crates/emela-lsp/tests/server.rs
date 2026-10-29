@@ -1693,22 +1693,11 @@ fn completion_after_dot() {
     // A module's pub definitions.
     client.change(MAIN, 2, &NAV_MAIN.replace("Log.prefix(name)", "Log."));
     assert_eq!(labels(&client.complete(MAIN, 13, 15).unwrap()), ["prefix"]);
-    // A type's fields, with the declared type as detail.
+    // A type's fields, with the declared type as detail, then its methods.
     client.change(MAIN, 3, &NAV_MAIN.replace("  area(s)\n", "  s.\n"));
     assert_eq!(
-        client.complete(MAIN, 19, 4).unwrap(),
-        [
-            (
-                "w".to_owned(),
-                lsp::CompletionItemKind::FIELD,
-                Some("Int".to_owned())
-            ),
-            (
-                "h".to_owned(),
-                lsp::CompletionItemKind::FIELD,
-                Some("Int".to_owned())
-            ),
-        ]
+        labels(&client.complete(MAIN, 19, 4).unwrap()),
+        ["w", "h", "area"]
     );
     // core modules usable without an import.
     client.change(MAIN, 4, &NAV_MAIN.replace("  area(s)\n", "  List.\n"));
@@ -2858,5 +2847,73 @@ fn old_forms_have_rewriting_quickfixes() {
         let edits = &actions[0].edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
         assert_eq!(edits[0].new_text, expected);
     }
+    client.shutdown();
+}
+
+/// A method call is a reference of the function it calls (`[lsp.navigation]`), and after `.` the
+/// functions that can be called as methods follow the fields (`[lsp.completion]`).
+#[test]
+fn method_calls_in_navigation_and_completion() {
+    let src = NAV_MAIN.replace("  area(s)\n", "  s.area()\n");
+    let files = [
+        ("/app/Pome.toml", ""),
+        (MAIN, src.as_str()),
+        (SHAPES, NAV_SHAPES),
+        (LOG, NAV_LOG),
+    ];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    assert_eq!(
+        client.definition(MAIN, 19, 5),
+        location(SHAPES, (2, 7), (2, 11))
+    );
+    let main = |s, e| (MAIN.to_owned(), range(s, e));
+    let shapes = |s, e| (SHAPES.to_owned(), range(s, e));
+    assert_eq!(
+        client.references(SHAPES, 2, 8, true),
+        Some(vec![
+            main((1, 22), (1, 26)),
+            main((19, 4), (19, 8)),
+            shapes((2, 7), (2, 11)),
+        ])
+    );
+    let edit = |path: &str, s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
+    assert_eq!(
+        client.rename(MAIN, 19, 5, "size"),
+        Ok(vec![
+            edit(MAIN, (1, 22), (1, 26), "size"),
+            edit(MAIN, (19, 4), (19, 8), "size"),
+            edit(SHAPES, (2, 7), (2, 11), "size"),
+        ])
+    );
+    client.change(MAIN, 2, &NAV_MAIN.replace("  area(s)\n", "  s.\n"));
+    assert_eq!(
+        client.complete(MAIN, 19, 4).unwrap(),
+        [
+            (
+                "w".to_owned(),
+                lsp::CompletionItemKind::FIELD,
+                Some("Int".to_owned())
+            ),
+            (
+                "h".to_owned(),
+                lsp::CompletionItemKind::FIELD,
+                Some("Int".to_owned())
+            ),
+            (
+                "area".to_owned(),
+                lsp::CompletionItemKind::METHOD,
+                Some("fn() -> Int".to_owned())
+            ),
+        ]
+    );
+    // The return type of a method in a chain: `s.w.to_string()` is a String.
+    client.change(
+        MAIN,
+        3,
+        &NAV_MAIN.replace("  area(s)\n", "  s.w.to_string().\n"),
+    );
+    let items = client.complete(MAIN, 19, 18).unwrap();
+    assert!(labels(&items).contains(&"length"), "{items:?}");
+    drain(&client);
     client.shutdown();
 }

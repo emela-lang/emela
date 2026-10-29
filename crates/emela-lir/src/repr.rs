@@ -37,7 +37,7 @@ impl std::fmt::Display for Repr {
 /// The representation of a value of the Core type.
 ///
 /// - Int, Bool → `i32`; Int64 → `i64`; Float → `f64`; `()`, Never → none
-/// - String, List, tuples, functions, handlers, evidence tables, cells, fiber scopes, Any → `ref`
+/// - String, Bytes, List, tuples, functions, handlers, evidence tables, cells, fiber scopes, Any → `ref`
 /// - An enum whose constructors all take no arguments → `i32` (the tag); other enums → `ref`.
 ///   Error enums are always `ref` (errors of different enums must be told apart at run time), and
 ///   so are `@external type`s (host handles, `EnumDef::external`) and other enums without
@@ -53,6 +53,7 @@ pub fn repr_of(core: &emela_core::Module, ty: TypeId) -> Repr {
         Type::Unit | Type::Never | Type::Set(_) => Repr::Void,
         Type::Enum(id, _) => enum_repr(core, *id),
         Type::String
+        | Type::Bytes
         | Type::Tuple(_)
         | Type::List(_)
         | Type::Fn(_)

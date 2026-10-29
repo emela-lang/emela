@@ -116,7 +116,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0222 | The callee of a record update is not something with a single constructor (type, error, or handler with fields) (5.3). Includes a trailing `..` in the arguments of a handler's init written on an item of a with or a layer (8.4), for which the message is ``handler `WorkerKv` cannot be updated`` | ``cannot update enum variant `Circle` with `..` `` |
 | E0223 | A field to update is written by position in a record update (5.3) | ``fields to update must be named: `field: value` `` |
 | E0224 | `@intrinsic` used outside the source of the bundled core (3.5) | ``` `@intrinsic` can only be used in the bundled core library ``` |
-| E0225 | `@intrinsic` on something other than an fn without a body (3.5) | ``` `@intrinsic` can only be used on a function without a body ``` |
+| E0225 | `@intrinsic` on something other than an fn without a body, an effect, or a type without fields (3.5) | ``` `@intrinsic` can only be used on a function without a body ``` |
 | E0226 | `@test` on an fn with parameters, an fn without a body, or something other than a top-level fn, or `@test` with arguments (13.1) | ``test function `takes` cannot take parameters`` |
 | E0227 | A test function is referred to from an fn or const that is not a test function (13.1). The note is ``= note: test functions are removed from normal builds (13.1)`` | ``test function `adds` can only be used from test functions`` |
 | E0228 | An `@internal` fn is referred to from outside the modules of the bundled core (from the body of an fn, const, or handler). Both calls and references as values count; listing it in an import alone does not trigger it (3.5). The note is ``= note: it is marked `@internal` `` | ``function `Secret.peek` can only be used from the bundled core library`` |
@@ -147,9 +147,9 @@ error[E0204]: duplicate module `Http.Client`
 | E0309 | The wrong number of fields in a constructor pattern (too many, or too few without `..`) (6.5) | ``pattern `Rect` has 2 fields, found 1`` |
 | E0310 | A non-numeric type where a number is expected (arithmetic operators, unary minus) (6.6). Where an integer is required, ``expected an integer (`Int` or `Int64`), found `Float` `` | ``expected a number (`Int`, `Int64` or `Float`), found `String` `` |
 | E0311 | An integer literal is out of the range of its type (2.4) | ``integer literal `3000000000` is out of range for `Int` `` |
-| E0312 | No field with that name | ``no field `nmae` on type `User` `` |
-| E0313 | A field access on a type without fields | ``type `Int` has no fields`` |
-| E0314 | A field access on a value whose type is not determined. The help is ``= help: add a type annotation`` | ``the type of this value must be known to access field `name` `` |
+| E0312 | No field or function with that name for a method call or a field access, or a function found by a method lookup written without a call (`[type.rules]`). For the latter, the help is ``= help: call it as `x.f(...)` `` | ``no field or function `nmae` for type `User` `` |
+| E0313 | A field access or a method call on a type without fields, where no function is found | ``type `Int` has no field or function `nmae` `` |
+| E0314 | A field access or a method call on a value whose type is not determined. The help is ``= help: add a type annotation`` | ``the type of this value must be known to access field `name` `` / ``the type of this value must be known to call `f` `` |
 | E0315 | A field access on an opaque type outside its defining module (4.4) | ``cannot access field `value` of opaque type `Email` outside its module`` |
 | E0316 | A parameter of a top-level fn, or of the init of a handler, has no type (6.1, 8.4). For init, ``parameter `url` of the `init` of `WorkerKv` needs a type`` | ``parameter `x` of a top-level function needs a type`` |
 | E0317 | The pattern of a binding or of an anonymous function parameter is refutable (6.1, 6.3). The help is ``= help: use `match` to handle the other cases`` | ``refutable pattern in binding: `None` not covered`` |
@@ -169,6 +169,8 @@ error[E0204]: duplicate module `Http.Client`
 | E0331 | An impl outside both the module that defines the type and the module that defines the trait (10.2) | `` `Show` for `User` can only be implemented in the module of `Show` or of `User` `` |
 | E0332 | An fn in an impl has a different number of parameters from the trait declaration (10.2) | ``wrong number of parameters: `show` of `Show` takes 1, found 2`` |
 | E0333 | The Self of a trait function is not determined within the function (10.3) | ``cannot infer which impl of `Parse` to use: add a type annotation`` |
+| E0334 | In the module of a type, an fn whose first parameter has that type at its head has the name of a field of that type (`[data.type]`). Points at the name of the fn | ``function `headers` has the same name as a field of `Request` `` |
+| E0335 | More than one candidate for a method call (`[type.rules]`). The help names the qualified forms | ``ambiguous method `show` for `User`: `User.show` and `Show.show` `` with ``= help: write `User.show(x)` or `Show.show(x)` `` |
 | W0301 | A redundant arm (6.5) | `unreachable match arm` |
 | W0302 | The error an escape arm receives is never raised by the original expression (7.3) | ``error `Timeout` is never raised here`` |
 | W0303 | An implementation derived for a type that is not `pub` is never required anywhere (10.5). The help is ``= help: remove it from `derive` ``. For Show, ``= help: remove it from `derive`; `dbg` then shows `Point` as constructed, and a failed `assert` no longer shows its values`` | ``derived `Ord` for `Point` is never used`` |
@@ -215,6 +217,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0440 | The fn cannot be passed as the first argument of the entry adapter (12.8) | `` `app` does not fit `Http.serve` `` |
 | E0441 | An exported fn that may suspend on the `c` target (16.7.6) | ``exported function `f` may suspend, which target `c` does not support`` |
 | E0442 | `@entry(Http.serve)` on the `c` target (`[target.c.unsupported]`) | ``HTTP services are not supported on target `c` yet`` |
+| E0443 | The build target is `c`, and an external function reachable from the entry, or an exported fn, takes or returns `Bytes` (12.4) | ``external function `read_file` takes `Bytes`, which target `c` does not support yet`` |
 | W0401 | A label item in with (`L`, `L by P`) is never used (8.9) | ``label `Audit` is listed here but never used`` |
 | E0901 | A path is not found | ``path `app` not found`` |
 | E0902 | A file or directory cannot be read | ``cannot read `src/a.emel`: permission denied`` |

@@ -1,0 +1,12 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\ntype User(id: Int, name: String)\n  derive Show\n\nfn rename(user: User, name: String) -> User { User(name:, ..user) }  # 補\n\nfn names(xs: List[User], f: fn(User) -> String) -> List[String] {  # 補\n  xs.map(f)\n}\n\nfn shown(user: User) -> String {  # 補\n  Show.show(user) == user.show()\n  user.rename(\"b\").name\n}\n\"#)"
+---
+rename: fn(User, String) -> User
+  user: User
+  name: String
+names: ∀ E(f), R(f). fn(List[User], fn(User) -> String fails E(f) use R(f)) -> List[String] fails E(f) use R(f)
+  xs: List[User]
+  f: fn(User) -> String fails '0 use '1
+shown: fn(User) -> String
+  user: User

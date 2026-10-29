@@ -35,11 +35,12 @@ pub fn discard() { VALUE
         Roots::Public,
     )
     .unwrap();
-    for policy in [
+    let policies = [
         ExternalResult::Borrowed,
         ExternalResult::Owned,
         ExternalResult::StringBuffer,
-    ] {
+    ];
+    for_each_in_parallel(policies, |policy| {
         for gc in [false, true] {
             for via_flow in [false, true] {
                 let options = Options::default()
@@ -91,7 +92,7 @@ int main(void) {{
                 );
             }
         }
-    }
+    });
 }
 
 #[test]

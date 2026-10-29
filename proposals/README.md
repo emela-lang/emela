@@ -58,7 +58,8 @@ local draft ──> draft pull request (review) ──> merged (adopted)
 
 ### 4. Implementation
 
-- An adopted proposal is implemented following `spec/` (the `emela-implement` skill). The pull request that completes the implementation starts its description with `Implements: proposals/<slug>.md` and sets the proposal's `status` to `implemented` itself.
+- When the pull request of an adopted proposal is merged, the `Proposal implementation issue` workflow (`.github/workflows/proposal-implementation.yml`) opens an issue `Implement: <title>` with the label `implementation` and no assignee. The person who implements the proposal, who may not be its author, assigns themselves to the issue. An issue with no assignee is open for anyone to take.
+- An adopted proposal is implemented following `spec/` (the `emela-implement` skill). The pull request that completes the implementation starts its description with `Implements: proposals/<slug>.md`, closes the issue with `Closes #<issue>`, and sets the proposal's `status` to `implemented` itself.
 
 ## Status
 

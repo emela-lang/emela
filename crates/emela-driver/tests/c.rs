@@ -197,6 +197,62 @@ fn main() {}
     );
 }
 
+/// `[ext.boundary]`: the C target does not support Bytes at the boundary yet. An external
+/// function reachable from the entry, or an exported fn, that takes or returns Bytes is E0443.
+#[test]
+fn bytes_at_the_boundary_are_e0443() {
+    let main = r##"import Std.Bytes.{Bytes}
+
+@external(c, "read_file")
+fn read_file(path: String) -> Bytes use {}
+
+@external(c, "write_file")
+fn write_file(data: Bytes) -> () use {}
+
+fn main() { write_file(read_file("a")) }
+"##;
+    let (analysis, output) = run_c("bytes-boundary", main, &mut CoreC::default());
+    assert!(output.is_none());
+    assert_eq!(
+        codes(&analysis),
+        [
+            (
+                Some("E0443"),
+                "external function `write_file` takes `Bytes`, which target `c` does not support yet"
+            ),
+            (
+                Some("E0443"),
+                "external function `read_file` returns `Bytes`, which target `c` does not support yet"
+            ),
+        ]
+    );
+    let main = r##"import Std.Bytes.{Bytes}
+
+@export(c, "size")
+fn size(b: Bytes) -> Int { Bytes.size(b) }
+
+@export(c, "empty")
+fn empty() -> Bytes { Bytes.empty() }
+
+fn main() {}
+"##;
+    let (analysis, output) = run_c("bytes-export", main, &mut CoreC::default());
+    assert!(output.is_none());
+    assert_eq!(
+        codes(&analysis),
+        [
+            (
+                Some("E0443"),
+                "exported function `size` takes `Bytes`, which target `c` does not support yet"
+            ),
+            (
+                Some("E0443"),
+                "exported function `empty` returns `Bytes`, which target `c` does not support yet"
+            ),
+        ]
+    );
+}
+
 #[test]
 fn cc_problems_are_e0907_and_e0908() {
     let main = "fn main() { dbg(1) }\n";
