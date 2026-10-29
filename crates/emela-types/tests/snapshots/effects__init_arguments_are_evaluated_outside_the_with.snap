@@ -1,0 +1,51 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_handlers(r#\"\neffect Config {\n  fn url() -> String\n}\n\neffect Kv {\n  fn get(key: String) -> String\n}\n\neffect AuditKv of Kv\n\nhandler EnvConfig: Config {\n  fn url() { \"kv://\" }\n}\n\nhandler RemoteKv(url: String): Kv {\n  init(url: String) { RemoteKv(url:) }\n  fn get(key) { self.url }\n}\n\nhandler FakeKv: Kv {\n  fn get(key) { \"\" }\n}\n\nfn own_config() {\n  with EnvConfig, RemoteKv(url: (use Config).url()) { (use Kv).get(\"a\") }\n}\n\nfn overridden() {\n  with RemoteKv(url: (use Config).url()), FakeKv { (use Kv).get(\"a\") }\n}\n\nfn label() {\n  with AuditKv by RemoteKv(url: (use Config).url()) { (use AuditKv).get(\"a\") }\n}\n\nfn main() {\n  with EnvConfig {\n    with EnvConfig, RemoteKv((use Config).url()) { (use Kv).get(\"a\") }\n  }\n}\n\"#)"
+---
+own_config: fn() -> String use Config
+overridden: fn() -> String
+label: fn() -> String use Config
+main: fn() -> String
+handler EnvConfig: use {}
+handler RemoteKv: use {}
+handler FakeKv: use {}
+with EnvConfig, RemoteKv(url: (use Config).url()): init [EnvConfig, RemoteKv]
+with RemoteKv(url: (use Config).url()), FakeKv: init [FakeKv]
+with AuditKv by RemoteKv(url: (use Config).url()): init [AuditKv by RemoteKv]
+with EnvConfig: init [EnvConfig]
+with EnvConfig, RemoteKv((use Config).url()): init [EnvConfig, RemoteKv]
+--- R
+{   with EnvConfig, RemoteKv(url: (use Config).url()) { (use Kv).get("a") } }: Config
+with EnvConfig, RemoteKv(url: (use Config).url()) { (use Kv).get("a") }: Config
+(use Config).url(): Config
+(use Config).url: Config
+use Config: Config
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+(use Config).url(): Config
+(use Config).url: Config
+use Config: Config
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+{   with AuditKv by RemoteKv(url: (use Config).url()) { (use AuditKv).get("a") } }: Config
+with AuditKv by RemoteKv(url: (use Config).url()) { (use AuditKv).get("a") }: Config
+(use Config).url(): Config
+(use Config).url: Config
+use Config: Config
+{ (use AuditKv).get("a") }: AuditKv
+(use AuditKv).get("a"): AuditKv
+(use AuditKv).get: AuditKv
+use AuditKv: AuditKv
+{     with EnvConfig, RemoteKv((use Config).url()) { (use Kv).get("a") }   }: Config
+with EnvConfig, RemoteKv((use Config).url()) { (use Kv).get("a") }: Config
+(use Config).url(): Config
+(use Config).url: Config
+use Config: Config
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv

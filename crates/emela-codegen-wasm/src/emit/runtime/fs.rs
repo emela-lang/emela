@@ -481,7 +481,7 @@ fn alloc_raw(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 
 /// `fs_utf8(ptr, len) -> i32`: whether the bytes are valid UTF-8 (the fatal WHATWG decoder's
 /// rules: no overlong forms, no surrogates, nothing above U+10FFFF).
-fn utf8(ins: &mut InstructionSink) {
+pub(super) fn utf8(ins: &mut InstructionSink) {
     const I: u32 = 2;
     const N: u32 = 3;
     const C: u32 = 4;
@@ -806,7 +806,7 @@ fn await_(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 }
 
 /// `fs_wait_code(waitable)`: wait for a stream or future operation and return its packed code.
-fn wait_code(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+pub(super) fn wait_code(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const SET: u32 = 1;
     const CODE: u32 = 2;
     const EVENT: u32 = 3;

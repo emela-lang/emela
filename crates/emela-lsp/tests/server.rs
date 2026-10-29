@@ -1055,6 +1055,33 @@ fn hover_shows_stateful_handlers_and_layers() {
     client.shutdown();
 }
 
+/// `[effect.handler]`: the hover on a handler shows the parameters of its init, a parameter of
+/// init has its type, and a name in
+/// the arguments of a `with` item goes to its definition.
+#[test]
+fn handler_init_arguments() {
+    let src = "effect Kv {\n  fn get(key: String) -> String\n}\n\nconst NAME: String = \"KV\"\n\nhandler WorkerKv(binding: String): Kv {\n  init(binding: String, retries: Int) { WorkerKv(binding:) }\n  fn get(key) { self.binding }\n}\n\nfn main() {\n  with WorkerKv(binding: NAME, retries: 1) { (use Kv).get(\"a\") }\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 6, 10)),
+        "```emela\nhandler WorkerKv(binding: String): Kv\ninit(binding: String, retries: Int)\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 7, 8)),
+        "```emela\nbinding: String\n```"
+    );
+    let def = client
+        .definition("/app/src/main.emel", 12, 26)
+        .expect("a definition");
+    assert_eq!(def.range, range((4, 6), (4, 10)));
+    client.shutdown();
+}
+
 /// Effects with type arguments (spec 8.1). The handler name shows `handler H: Cell[Int]`, a
 /// capability shows `use Cell[Int]`, and an operation shows its type with the arguments substituted.
 #[test]
@@ -1474,6 +1501,35 @@ fn definition_of_names() {
     client.shutdown();
 }
 
+/// The argument of `@entry` (`[ext.entry]`) goes to the entry adapter, and its module to the top
+/// of the module's file.
+#[test]
+fn definition_of_an_entry_adapter() {
+    let main = "import Http\n\n@entry(Http.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() {}\n";
+    let http = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }\n";
+    let files = [
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", main),
+        ("/app/src/http.emel", http),
+    ];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let http_path = "/app/src/http.emel";
+    assert_eq!(
+        client.definition(MAIN, 2, 13),
+        location(http_path, (1, 7), (1, 12))
+    );
+    assert_eq!(
+        client.definition(MAIN, 2, 8),
+        location(http_path, (0, 0), (0, 0))
+    );
+    // The fn that `@entry` makes has no source: hover and inlay hints do not show it.
+    let hover = format!("{:?}", client.hover(MAIN, 2, 2));
+    assert!(!hover.contains("$entry"), "{hover}");
+    let hints = client.inlay_hints(MAIN).unwrap_or_default();
+    assert!(hints.iter().all(|(line, ..)| *line != 2), "{hints:?}");
+    client.shutdown();
+}
+
 /// Definitions in the bundled core have no location to go to.
 #[test]
 fn definition_of_core_is_null() {
@@ -1637,22 +1693,11 @@ fn completion_after_dot() {
     // A module's pub definitions.
     client.change(MAIN, 2, &NAV_MAIN.replace("Log.prefix(name)", "Log."));
     assert_eq!(labels(&client.complete(MAIN, 13, 15).unwrap()), ["prefix"]);
-    // A type's fields, with the declared type as detail.
+    // A type's fields, with the declared type as detail, then its methods.
     client.change(MAIN, 3, &NAV_MAIN.replace("  area(s)\n", "  s.\n"));
     assert_eq!(
-        client.complete(MAIN, 19, 4).unwrap(),
-        [
-            (
-                "w".to_owned(),
-                lsp::CompletionItemKind::FIELD,
-                Some("Int".to_owned())
-            ),
-            (
-                "h".to_owned(),
-                lsp::CompletionItemKind::FIELD,
-                Some("Int".to_owned())
-            ),
-        ]
+        labels(&client.complete(MAIN, 19, 4).unwrap()),
+        ["w", "h", "area"]
     );
     // core modules usable without an import.
     client.change(MAIN, 4, &NAV_MAIN.replace("  area(s)\n", "  List.\n"));
@@ -2802,5 +2847,73 @@ fn old_forms_have_rewriting_quickfixes() {
         let edits = &actions[0].edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
         assert_eq!(edits[0].new_text, expected);
     }
+    client.shutdown();
+}
+
+/// A method call is a reference of the function it calls (`[lsp.navigation]`), and after `.` the
+/// functions that can be called as methods follow the fields (`[lsp.completion]`).
+#[test]
+fn method_calls_in_navigation_and_completion() {
+    let src = NAV_MAIN.replace("  area(s)\n", "  s.area()\n");
+    let files = [
+        ("/app/Pome.toml", ""),
+        (MAIN, src.as_str()),
+        (SHAPES, NAV_SHAPES),
+        (LOG, NAV_LOG),
+    ];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    assert_eq!(
+        client.definition(MAIN, 19, 5),
+        location(SHAPES, (2, 7), (2, 11))
+    );
+    let main = |s, e| (MAIN.to_owned(), range(s, e));
+    let shapes = |s, e| (SHAPES.to_owned(), range(s, e));
+    assert_eq!(
+        client.references(SHAPES, 2, 8, true),
+        Some(vec![
+            main((1, 22), (1, 26)),
+            main((19, 4), (19, 8)),
+            shapes((2, 7), (2, 11)),
+        ])
+    );
+    let edit = |path: &str, s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
+    assert_eq!(
+        client.rename(MAIN, 19, 5, "size"),
+        Ok(vec![
+            edit(MAIN, (1, 22), (1, 26), "size"),
+            edit(MAIN, (19, 4), (19, 8), "size"),
+            edit(SHAPES, (2, 7), (2, 11), "size"),
+        ])
+    );
+    client.change(MAIN, 2, &NAV_MAIN.replace("  area(s)\n", "  s.\n"));
+    assert_eq!(
+        client.complete(MAIN, 19, 4).unwrap(),
+        [
+            (
+                "w".to_owned(),
+                lsp::CompletionItemKind::FIELD,
+                Some("Int".to_owned())
+            ),
+            (
+                "h".to_owned(),
+                lsp::CompletionItemKind::FIELD,
+                Some("Int".to_owned())
+            ),
+            (
+                "area".to_owned(),
+                lsp::CompletionItemKind::METHOD,
+                Some("fn() -> Int".to_owned())
+            ),
+        ]
+    );
+    // The return type of a method in a chain: `s.w.to_string()` is a String.
+    client.change(
+        MAIN,
+        3,
+        &NAV_MAIN.replace("  area(s)\n", "  s.w.to_string().\n"),
+    );
+    let items = client.complete(MAIN, 19, 18).unwrap();
+    assert!(labels(&items).contains(&"length"), "{items:?}");
+    drain(&client);
     client.shutdown();
 }

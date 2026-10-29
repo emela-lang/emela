@@ -294,6 +294,92 @@ fn main() {
 "##,
     ),
     (
+        "handler_init_args",
+        r##"
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Count {
+  fn next() -> Int
+}
+
+effect Audit of Log
+
+error Bad
+
+handler Tagged(tag: String): Log {
+  init(tag: String, times: Int) {
+    _ = dbg("open #{tag} #{times}")
+    Tagged(tag:)
+  }
+  release {
+    _ = dbg("close #{self.tag}")
+  }
+  fn log(msg) { _ = dbg("#{self.tag}: #{msg}") }
+}
+
+handler Counter(start: Int): Count {
+  init(start: Int) {
+    (use Log).log("counter from #{start}")
+    Counter(start:)
+  }
+  fn next() { self.start + 1 }
+}
+
+handler Quiet: Log {
+  fn log(msg) { () }
+}
+
+fn note(s: String) -> String {
+  _ = dbg("arg #{s}")
+  s
+}
+
+fn number(s: String, n: Int) -> Int {
+  _ = dbg("arg #{s}")
+  n
+}
+
+fn bad(s: String) -> Int fails Bad {
+  _ = dbg("arg #{s} fails")
+  fail Bad
+}
+
+fn base() -> Int { 40 }
+
+fn say(s: String) { _ = dbg(s) }
+
+layer AppLive {
+  Tagged(tag: "app", times: base() + 1)
+  Counter(start: base())
+}
+
+fn main() {
+  with Counter(start: number("one", 3)), Tagged(times: 2, tag: note("two")) {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  with AppLive {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  with AppLive, Tagged(tag: note("local"), times: 3) {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  with Tagged(tag: note("skipped"), times: 4), Quiet {
+    (use Log).log("quiet")
+  }
+  with Audit by Tagged(tag: "audit", times: 5) {
+    (use Audit).log("audited")
+  }
+  with Tagged(tag: note("first"), times: 6), Counter(start: bad("second")) {
+    (use Log).log("unreachable")
+  } escape {
+    Bad -> say("failed with Bad")
+  }
+}
+"##,
+    ),
+    (
         "constants",
         r#"
 const NAMES = ["a", "b", "c"]
@@ -371,6 +457,36 @@ fn main() {
     with ResB {
       panic("body")
     }
+  }
+}
+"#,
+    ),
+    (
+        // A failed assert that reaches main shows no location (`[cmd.test.outcome]`), also when
+        // a release adds a note or a const remembers the defect.
+        "assert_in_main",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler Leaky: Pool {
+  init { Leaky }
+  release { panic("release failed") }
+  fn get() { 1 }
+}
+
+const LIMIT: Int = limit()
+
+fn limit() -> Int {
+  assert 1 > 2
+  3
+}
+
+fn main() {
+  dbg(1)
+  with Leaky {
+    if (use Pool).get() == 1 { assert LIMIT == 3 }
   }
 }
 "#,
@@ -595,8 +711,71 @@ fn main() {
 "##,
     ),
     (
+        "http_values",
+        // Shared with the C programs, so the three targets run the same requests and responses.
+        include_str!("../../emela-codegen-c/tests/programs/http_values.emel"),
+    ),
+    (
+        "method_calls",
+        // Shared with the C programs: method calls run the same on the three targets.
+        include_str!("../../emela-codegen-c/tests/programs/method_calls.emel"),
+    ),
+    (
         "deep_recursion",
         "fn count(n: Int, acc: Int) -> Int {\n  if n == 0 { acc } else { count(n - 1, acc + 1) }\n}\nfn main() {\n  dbg(count(100000, 0))\n}\n",
+    ),
+    (
+        "attempt",
+        r#"
+import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Cause.{Cause}
+
+error Boom
+
+error NotFound(id: Int) derive Show
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn cause[A, E](e: Exit[A, E]) {
+  e match {
+    Success(_) -> dbg("success")
+    Failure(c) -> {
+      dbg(Cause.kind(c))
+      dbg(Cause.to_string(c))
+    }
+  }
+}
+
+fn main() {
+  dbg(Fiber.attempt(fn() { 40 + 2 }))
+  dbg(Fiber.attempt(fn() { "text" }))
+  dbg(Fiber.attempt(fn() { 0.5 }))
+  dbg(Fiber.attempt(fn() { () }))
+  dbg(Fiber.attempt(fn() { boom() }))
+  cause(Fiber.attempt(fn() { boom() }))
+  cause(Fiber.attempt(fn() { fail NotFound(id: 7) }))
+  cause(Fiber.attempt(fn() { panic("bad") }))
+  dbg(Fiber.attempt(fn() { boom() }) match {
+    Success(v) -> v
+    Failure(c) -> Cause.raise(c)
+  } escape { Boom -> -1 })
+  cause(Fiber.attempt(fn() {
+    Fiber.attempt(fn() { panic("again") }) match {
+      Success(v) -> v
+      Failure(c) -> Cause.raise(c)
+    }
+  }))
+}
+"#,
+    ),
+    // `[api.std.bytes]`: the same program as the JS and C parity test.
+    (
+        "bytes",
+        include_str!("../../emela-codegen-c/tests/programs/bytes.emel"),
+    ),
+    (
+        "bytes_hex_defect",
+        include_str!("../../emela-codegen-c/tests/programs/bytes_hex_defect.emel"),
     ),
 ];
 
@@ -670,9 +849,16 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Box<Analysis
     };
     let mut frontend = Lower::default().with_target(target);
     let (analysis, output) = match target {
-        Target::Js => run(&fs, &input, &mut frontend, &mut CoreJs, &options, |_| {}),
-        Target::Wasm => run(&fs, &input, &mut frontend, &mut CoreWasm, &options, |_| {}),
-        Target::C => unreachable!("parity compares js and wasm"),
+        Target::Js => run(&fs, &input, &mut frontend, &mut CoreJs, &options, |_, _| {}),
+        Target::Wasm => run(
+            &fs,
+            &input,
+            &mut frontend,
+            &mut CoreWasm,
+            &options,
+            |_, _| {},
+        ),
+        Target::C | Target::CEmbedded => unreachable!("parity compares js and wasm"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {

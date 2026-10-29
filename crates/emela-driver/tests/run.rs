@@ -79,7 +79,7 @@ fn run_with(
         &mut LexOnly,
         &mut HandWritten::main(js),
         &options,
-        |analysis| reported = Some(analysis.diagnostics.len()),
+        |analysis, _| reported = Some(analysis.diagnostics.len()),
     );
     // Called once before node. A diagnostic about failing to start node is added after it.
     assert!(reported.unwrap() <= result.0.diagnostics.len());
@@ -256,7 +256,7 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
         &mut HandBuiltIr(module),
         &mut CoreJs,
         &options,
-        |_| {},
+        |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert!(
@@ -383,7 +383,7 @@ fn run_source_in(name: &str, main: &str, frontend: &mut Lower, node: PathBuf) ->
         args: Vec::new(),
         output: Output::Capture,
     };
-    let (analysis, output) = run(&fs, &input, frontend, &mut CoreJs, &options, |_| {});
+    let (analysis, output) = run(&fs, &input, frontend, &mut CoreJs, &options, |_, _| {});
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert!(
         analysis.diagnostics.is_empty(),
@@ -441,7 +441,7 @@ fn run_without_main_stops_before_node() {
         &mut Lower::default(),
         &mut CoreJs,
         &options,
-        |_| {},
+        |_, _| {},
     );
     assert!(output.is_none());
     assert!(!options.out_dir.exists());
@@ -475,17 +475,53 @@ fn run_without_main_stops_before_node() {
     let _ = std::fs::remove_dir_all(&options.out_dir);
 }
 
-/// A generic `pub` fn of the entry is exported to JS callers as its copy for `Any` (lowering
-/// monomorphizes the JS output), under its own name, and works for any JS value.
+/// `[target.js.module]`: `@export(js, "name")` is a named export of main.mjs and
+/// `@export(js, "default", "name")` a property of the default export; `@entry` exports the fn
+/// through the adapter (`[ext.entry]`). A pub fn without `@export` is not exported. A fn that does
+/// not suspend returns its value and throws a defect; one that may suspend returns a Promise.
+/// Arguments and return values cross as boundary values (`[target.js.value]`), callbacks too.
 #[test]
-fn generic_pub_fns_are_exported_for_any_type() {
-    let main = "pub fn apply[A, B](x: A, f: fn(A) -> B) -> B {\n  f(x)\n}\n\n\
-                pub fn first_or[A](xs: List[A], d: A) -> A {\n  List.head(xs) |> Option.or(d)\n}\n\n\
-                fn main() {\n  dbg(apply(1, fn(n) { n + 1 }))\n}\n";
+fn js_exports_are_called_by_the_host() {
+    let main = r##"import Std.Clock.{Clock, SystemClock}
+
+@export(js, "add")
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(js, "greet")
+fn greet(name: String, suffix: fn(String) -> String fails {} use {}) -> String {
+  "hello, #{suffix(name)}"
+}
+
+@export(js, "half")
+fn half(n: Int) -> Int { 10 / n }
+
+@export(js, "late")
+fn late(ms: Int) -> Int {
+  with SystemClock { (use Clock).sleep(ms) }
+  ms * 2
+}
+
+@export(js, "late_boom")
+fn late_boom(n: Int) -> Int {
+  with SystemClock { (use Clock).sleep(1) }
+  10 / n
+}
+
+@export(js, "default", "run")
+fn run(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) + 1 }
+
+@entry(run)
+fn twice(x: Int) -> Int { x * 2 }
+
+pub fn hidden() -> Int { 1 }
+
+fn main() { dbg(twice(1)) }
+"##;
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
-    let dir = out_dir("generic-exports");
+    let dir = out_dir("js-exports");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
     assert!(
         analysis.diagnostics.is_empty(),
@@ -493,9 +529,15 @@ fn generic_pub_fns_are_exported_for_any_type() {
         analysis.diagnostics
     );
     assert!(entry.is_some());
-    let harness = "import { apply, first_or } from \"./main.mjs\";\n\
-                   console.log(apply(\"a\", (s) => s + \"!\"), apply(2, (n) => n * 3));\n\
-                   console.log(first_or(null, \"none\"), first_or({ h: 7, t: null }, 0));\n";
+    let harness = r#"import host, * as m from "./main.mjs";
+console.log(m.add(2, 3), host.add(4, 5), host.run(10), Object.keys(host).join(","));
+console.log(m.greet("ann", (s) => s + "!"));
+console.log(typeof m.hidden, typeof m.twice, typeof m.run);
+try { m.half(0); } catch (e) { console.log(e.name, e.message); }
+const p = m.late(5);
+console.log(p instanceof Promise, await p);
+await m.late_boom(0).catch((e) => console.log(e.name, e.message));
+"#;
     std::fs::write(dir.join("harness.mjs"), harness).unwrap();
     let out = std::process::Command::new("node")
         .arg("harness.mjs")
@@ -505,7 +547,127 @@ fn generic_pub_fns_are_exported_for_any_type() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(
         (text(&out.stdout), text(&out.stderr)),
-        ("a! 6\nnone 7\n", "")
+        (
+            "5 9 21 add,run\nhello, ann!\nundefined undefined undefined\n\
+             Defect division by zero\ntrue 10\nDefect division by zero\n",
+            ""
+        )
+    );
+}
+
+/// `[target.js.value]`, `[ext.boundary]`: a Bytes crosses as a `Uint8Array`. One from JS (a return
+/// value, a value a suspend fn resolves to, an argument of a callback or of an exported fn) is
+/// copied, only the bytes its view shows; a subclass (`Buffer`) is accepted, and any other value,
+/// including a `Uint8Array` of another realm, is a defect.
+#[test]
+fn js_bytes_cross_as_uint8_array() {
+    let main = r##"import Std.Bytes.{Bytes}
+
+@external(js, "globalThis.hostBytes")
+fn host_bytes() -> Bytes use {}
+
+@external(js, "globalThis.laterBytes")
+suspend fn later_bytes() -> Bytes
+
+@external(js, "globalThis.mutate")
+fn mutate() -> () use {}
+
+@external(js, "globalThis.apply")
+fn apply(f: fn(Bytes) -> Int) -> Int use {}
+
+effect Source {
+  suspend fn next() -> Bytes
+}
+
+handler HostSource: Source {
+  suspend fn next(resume) { resume(later_bytes()) }
+}
+
+@export(js, "size")
+fn size(b: Bytes) -> Int { Bytes.size(b) }
+
+@export(js, "echo")
+fn echo(b: Bytes) -> Bytes { Bytes.append(b, Bytes.hex("ff")) }
+
+@export(js, "fromHost")
+fn from_host() -> String { Bytes.to_hex(host_bytes()) }
+
+@export(js, "copied")
+fn copied() -> String {
+  b = host_bytes()
+  mutate()
+  Bytes.to_hex(b)
+}
+
+@export(js, "later")
+fn later() -> String { with HostSource { Bytes.to_hex((use Source).next()) } }
+
+@export(js, "applied")
+fn applied() -> Int { apply(Bytes.size) }
+
+fn main() { dbg(size(Bytes.empty())) }
+"##;
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let dir = out_dir("js-bytes");
+    let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    assert!(entry.is_some());
+    let harness = r#"import vm from "node:vm";
+import * as m from "./main.mjs";
+const show = (f) => { try { console.log(f()); } catch (e) { console.log(e.name, e.message); } };
+const buf = new Uint8Array([0, 1, 2, 3, 4, 5]);
+globalThis.hostBytes = () => buf.subarray(2, 4);
+globalThis.mutate = () => { buf[2] = 99; };
+show(() => m.fromHost());
+show(() => m.copied());
+globalThis.hostBytes = () => Buffer.from([0xab]);
+show(() => m.fromHost());
+const out = m.echo(new Uint8Array([1, 2]));
+console.log(out instanceof Uint8Array, Array.from(out).join(","));
+show(() => m.size(Buffer.from("abc")));
+show(() => m.size(new ArrayBuffer(2)));
+show(() => m.size([1, 2]));
+show(() => m.size(new Int8Array(2)));
+show(() => m.size(vm.runInNewContext("new Uint8Array(2)")));
+globalThis.hostBytes = () => "0203";
+show(() => m.fromHost());
+globalThis.apply = (f) => f(new Uint8Array(3));
+show(() => m.applied());
+globalThis.apply = (f) => f(new DataView(new ArrayBuffer(3)));
+show(() => m.applied());
+globalThis.laterBytes = async () => new Uint8Array([7]);
+console.log(await m.later());
+globalThis.laterBytes = async () => 7;
+await m.later().catch((e) => console.log(e.name, e.message));
+"#;
+    std::fs::write(dir.join("harness.mjs"), harness).unwrap();
+    let out = std::process::Command::new("node")
+        .arg("harness.mjs")
+        .current_dir(&dir)
+        .output()
+        .expect("cannot start node");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        (text(&out.stdout), text(&out.stderr)),
+        (
+            "0203\n0203\nab\ntrue 1,2,255\n3\n\
+             Defect argument `b` of `size` is not a `Uint8Array`\n\
+             Defect argument `b` of `size` is not a `Uint8Array`\n\
+             Defect argument `b` of `size` is not a `Uint8Array`\n\
+             Defect argument `b` of `size` is not a `Uint8Array`\n\
+             Defect external function `host_bytes` returned a value that is not a `Uint8Array`\n\
+             3\n\
+             Defect argument `1` of `apply` is not a `Uint8Array`\n\
+             07\n\
+             Defect external function `later_bytes` returned a value that is not a `Uint8Array`\n",
+            ""
+        )
     );
 }
 
@@ -1055,7 +1217,7 @@ fn lists_strings_and_int64_run_through_core() {
   dbg(String.to_ascii_uppercase("Hello, äb 東 @[`{"))
   big = Int64.from_int(2147483647) * Int64.from_int(4)
   one = Int64.from_int(1)
-  dbg((Int64.compare(big, one), Int64.min(big, one), Int64.max(big, one), Int64.abs(-big)))
+  dbg((big.compare(one), Int64.min(big, one), Int64.max(big, one), Int64.abs(-big)))
 }
 "##,
     );
@@ -1102,14 +1264,14 @@ fn main() {
     c.print_line(Duration.to_string(d))
     c.print_line(Int64.to_string(Duration.to_seconds(Duration.milliseconds(-1500))))
     c.print_line(Duration.to_string(Duration.subtract(Duration.hours(1), Duration.minutes(61))))
-    c.print_line(show(Duration.compare(Duration.seconds(1), Duration.milliseconds(1000))))
+    c.print_line(show(Duration.seconds(1).compare(Duration.milliseconds(1000))))
     c.print_line(if Duration.seconds(1) == Duration.milliseconds(1000) { "eq" } else { "ne" })
     start = Instant.from_unix_milliseconds(1760238245678)
     later = start |> Instant.add(Duration.hours(25))
     c.print_line(Instant.to_string(start))
     c.print_line(Instant.to_string(later))
     c.print_line(Duration.to_string(later |> Instant.since(start)))
-    c.print_line(show(Instant.compare(start, later)))
+    c.print_line(show(start.compare(later)))
     c.print_line(Int64.to_string(Instant.to_unix_milliseconds(Instant.subtract(start, Duration.milliseconds(678)))))
     c.print_line(Instant.to_string(Instant.from_unix_milliseconds(0)))
     c.print_line(Instant.to_string(Instant.from_unix_milliseconds(-1)))
@@ -1697,11 +1859,14 @@ fn test_http_answers_from_the_test_server() {
     // The bundled TestHttp decides responses by passing the request and its attempt number (from
     // 0) to the respond of State[TestServer]; `None` becomes ConnectionFailed. Sent requests are
     // appended to sent in order (spec 15.2). Functions above send (get, post, header, headers,
-    // require_ok, encode_query) are plain value functions callable without a handler.
+    // require_ok, encode_query) are plain value functions callable without a handler. The names
+    // that moved to `Std.Http.Request` and `Std.Http.Response` stay in `Std.Http` (`[api.std.http]`).
     let output = run_source(
         "http-test",
         r##"import Std.Console.{Console, SystemConsole}
-import Std.Http.{Http, Get, Post, Delete, Request, Response, TestServer, TestHttp, ConnectionFailed, UnexpectedStatus}
+import Std.Http.{Http, TestServer, TestHttp, ConnectionFailed}
+import Std.Http.Request.{Request, Get, Post, Delete}
+import Std.Http.Response.{Response, UnexpectedStatus}
 import Std.State.{State}
 
 fn reply(req: Request, n: Int) -> Option[Response] {
@@ -1729,20 +1894,23 @@ fn main() {
       c = "#{Http.get("https://example.com/c").status}" escape {
         ConnectionFailed(url:, message:) -> "failed #{url}"
       }
-      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Http.header(a, "x-A")} #{Http.headers(b, "X-a")} #{Http.header(a, "none")}"
+      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Response.header(a, "x-A")} #{Response.header_values(b, "X-a")} #{Response.header(a, "none")}"
     }
   })
   with SystemConsole {
     c = use Console
     c.print_line(out)
     c.print_line(String.join(List.map(after.sent, fn(req) { "#{method(req)} #{req.url} #{req.body}" }), ", "))
-    c.print_line(Http.encode_query([("q", "東 京"), ("a&b", "c=d"), ("page", "2")]))
-    c.print_line("#{Http.require_ok(Http.response(204, "")).status}")
-    c.print_line("#{Http.require_ok(Http.response(404, "nf")).status}" escape {
+    c.print_line(Request.encode_query([("q", "東 京"), ("a&b", "c=d"), ("page", "2")]))
+    c.print_line("#{Response.require_ok(Response.new(204, "")).status}")
+    c.print_line("#{Response.require_ok(Response.new(404, "nf")).status}" escape {
       UnexpectedStatus(status:, body:) -> "unexpected #{status} #{body}"
     })
-    r = Http.request(Delete, "u") |> Http.add_header("a", "1") |> Http.add_header("a", "2")
+    r = Request.new(Delete, "u") |> Request.add_header("a", "1") |> Request.add_header("a", "2")
     c.print_line("#{r.headers} #{r.body == ""}")
+    old = Http.request(Delete, "u") |> Http.add_header("a", "1")
+    res = Http.require_ok(Http.response(200, "")) |> Response.add_header("B", "2")
+    c.print_line("#{old.headers} #{Http.header(res, "b")} #{Http.headers(res, "b")} #{Http.encode_query([("a", " ")])}")
   }
 }
 "##,
@@ -1756,7 +1924,8 @@ fn main() {
              q=%E6%9D%B1%20%E4%BA%AC&a%26b=c%3Dd&page=2\n\
              204\n\
              unexpected 404 nf\n\
-             [(\"a\", \"1\"), (\"a\", \"2\")] True\n",
+             [(\"a\", \"1\"), (\"a\", \"2\")] True\n\
+             [(\"a\", \"1\")] Some(\"2\") [\"2\"] a=%20\n",
             ""
         )
     );
@@ -1860,7 +2029,8 @@ fn system_http_talks_to_a_local_server() {
     let closed = format!("http://127.0.0.1:{}/", server.closed_port);
     let main = r##"import Std.Console.{Console}
 import Std.Platform.{Platform}
-import Std.Http.{Http, Get, Head, Post, Request, InvalidUrl, ConnectionFailed, ResponseNotText}
+import Std.Http.{Http, InvalidUrl, ConnectionFailed, ResponseNotText}
+import Std.Http.Request.{Request, Get, Head, Post}
 
 fn picked(headers: List[(String, String)]) -> List[(String, String)] {
   List.filter(headers, fn(pair) {
@@ -1886,16 +2056,16 @@ fn main() {
   base = "BASE"
   with Platform {
     c = use Console
-    c.print_line(attempt(Http.request(Get, "#{base}/echo")))
-    c.print_line(attempt(Request(body: "東京", ..Http.request(Post, "#{base}/echo")) |> Http.add_header("X-One", "1")))
-    c.print_line(attempt(Http.request(Head, "#{base}/echo")))
-    c.print_line(attempt(Http.request(Get, "#{base}/redirect")))
-    c.print_line(attempt(Http.request(Get, "#{base}/missing")))
-    c.print_line(attempt(Http.request(Get, "#{base}/binary")))
-    c.print_line(attempt(Http.request(Get, "#{base}/loop")))
-    c.print_line(attempt(Http.request(Get, "not a url")))
-    c.print_line(attempt(Http.request(Get, "ftp://127.0.0.1/")))
-    c.print_line(attempt(Http.request(Get, "CLOSED")))
+    c.print_line(attempt(Request.new(Get, "#{base}/echo")))
+    c.print_line(attempt(Request(body: "東京", ..Request.new(Post, "#{base}/echo")) |> Request.add_header("X-One", "1")))
+    c.print_line(attempt(Request.new(Head, "#{base}/echo")))
+    c.print_line(attempt(Request.new(Get, "#{base}/redirect")))
+    c.print_line(attempt(Request.new(Get, "#{base}/missing")))
+    c.print_line(attempt(Request.new(Get, "#{base}/binary")))
+    c.print_line(attempt(Request.new(Get, "#{base}/loop")))
+    c.print_line(attempt(Request.new(Get, "not a url")))
+    c.print_line(attempt(Request.new(Get, "ftp://127.0.0.1/")))
+    c.print_line(attempt(Request.new(Get, "CLOSED")))
   }
 }
 "##

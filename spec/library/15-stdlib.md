@@ -32,7 +32,7 @@ Within std, modules are divided into four layers by their nature.
 
 | Layer | Nature | Contents |
 |---|---|---|
-| value | Pure and independent of the host | Instant, Duration, Path. Collections (Map, Set, Array) in 0.24 |
+| value | Pure and independent of the host | Instant, Duration, Path, Bytes. Collections (Map, Set, Array) in 0.24 |
 | effect | Concurrency and state | State, Fiber, Cause, Deferred (0.20). Queue, Semaphore, Schedule, Stream (later versions. A limit on the number of tasks running at the same time comes before Http) |
 | platform | Effect declarations and the host handlers | Console, Clock, Random, Env, FileSystem, Http |
 | test | Replacements for testing | Handlers such as TestClock and TestConsole. They keep their state in State (8.8), so they are used inside `State.run`. Value comparison helpers, generators, and property testing are not placed in std (below) |
@@ -99,10 +99,11 @@ pub fn union[A: Ord](a: Set[A], b: Set[A]) -> Set[A]
   - Display (Show) uses a source form that can rebuild the value, written `Map.from_list([(1, "a"), (2, "b")])` and `Set.from_list([1, 2])` (`impl Map[K: Show, V: Show]: Show`, `impl Set[A: Show]: Show`). Values inside enclose a String in `"`, as in 10.6. inspect also uses this Show, as in 10.6.
   - With n the number of elements, the Map and Set operations get, insert, remove, update, and contains are O(log n), from_list and union are O(n log n) or less, and the others are O(n). The depth of the tree is kept at O(log n), so even a large Map does not use deep stack.
 - A point in time is represented by Instant, and a length of time by Duration. Both are opaque types whose contents are an Int64. An Instant is milliseconds since the Unix epoch (1970-01-01T00:00:00Z), and a Duration is a length in milliseconds that can also be negative. Leap seconds are not counted. An Instant can be created with `Instant.from_unix_milliseconds(ms: Int64)` (to fix the time in a test, or when a user writes a Clock handler). Instant has no invariant to maintain. It is opaque to prevent confusing it with Int64 or Duration and to hide the unit.
+- A byte sequence is represented by Bytes (`Std.Bytes`), an immutable and opaque type. Each byte is an `Int` from 0 to 255. Bytes is the type through which the platform layer passes binary data, and it is a boundary type of external functions (12.4). Its declarations are in `[api.std.bytes]`.
 - Console has two operations, `print_line(text: String) -> ()` (standard output) and `print_error_line(text: String) -> ()` (standard error). Both write with a trailing newline and do not fail. The system handler is `SystemConsole`.
 - Random has two operations, `int() -> Int` (uniform over the whole range of Int) and `float() -> Float` (uniform over 0 inclusive to 1 exclusive), and they do not fail. The system handler SystemRandom draws from a cryptographically secure random source on JS (`crypto.getRandomValues`). Values in a range are provided separately as ordinary functions written on top of `int()`, and seedable pseudo-random numbers as pure values and functions.
 - Env has only the operation `get(name: String) -> Option[String]`, and it does not fail. An empty value (`NAME=`) is `Some("")`, and an unset variable is `None`.
-- FileSystem (`Std.FileSystem`) handles only text (UTF-8). There is no Bytes, so binary data is left to a later version. All operations are suspend fn (a synchronous API would stop every fiber while reading).
+- FileSystem (`Std.FileSystem`) handles only text (UTF-8). Reading and writing binary data as Bytes (`Std.Bytes`) is left to a later version. All operations are suspend fn (a synchronous API would stop every fiber while reading).
 
 ```emel
 pub error FileNotFound(path: String)
@@ -139,31 +140,37 @@ pub effect FileSystem {
   - The system handler SystemFileSystem uses `node:fs/promises` on JS and is bundled in Platform.
   - The test handler TestFileSystem keeps its state in `State[TestFiles]` and resumes immediately. With `pub type TestFiles(files: List[(String, String)], directories: List[String])`, files keeps pairs of a path and its contents in path order. The ancestors of a file are treated as directories. Paths are compared as strings. Errors are raised under the same rules as SystemFileSystem. FileAccessDenied, InvalidText, and FileSystemFailure cannot be raised, so to test them, the user writes a small handler.
   - The R of FileSystem is not Immediate, so it cannot be used inside the callback of an external function (9.5). This is because a JS callback cannot wait. From a callback, signal a fiber with a Deferred (11.7), and handle the files on the fiber's side.
-- Http (`Std.Http`) has only a client (a server will be built on fibers at a later stage). It has one operation, `send`, and requests and responses are values. Common forms are functions on top of send. A handler author only has to implement send, and the code that builds requests can be tested as ordinary functions.
+- Http (`Std.Http`) has a client, and the entry adapter `serve` for HTTP services (`[lib.http-service]`). The client has one operation, `send`, and requests and responses are values. Common forms are functions on top of send. A handler author only has to implement send, and the code that builds requests can be tested as ordinary functions. Requests are in the module `Std.Http.Request` and responses in `Std.Http.Response`, each with the functions on them (`[api.std.http.request]`, `[api.std.http.response]`).
 
 ```emel
+# Std.Http.Request
 pub enum Method { Get, Head, Post, Put, Patch, Delete, Options }
 pub type Request(method: Method, url: String, headers: List[(String, String)], body: String)
-pub type Response(status: Int, headers: List[(String, String)], body: String)
 
+pub fn new(method: Method, url: String) -> Request # no body, no headers
+pub fn add_header(req: Request, name: String, value: String) -> Request
+pub fn encode_query(pairs: List[(String, String)]) -> String # q=%E6%9D%B1&page=2
+
+# Std.Http.Response
+pub type Response(status: Int, headers: List[(String, String)], body: String)
+pub error UnexpectedStatus(status: Int, body: String)
+
+pub fn new(status: Int, body: String) -> Response # a response without headers
+pub fn header(res: Response, name: String) -> Option[String] # the first value, case-insensitive
+pub fn header_values(res: Response, name: String) -> List[String] # all values
+pub fn require_ok(res: Response) -> Response fails UnexpectedStatus # fails on anything other than 2xx
+
+# Std.Http
 pub error InvalidUrl(url: String)
 pub error ConnectionFailed(url: String, message: String)
 pub error ResponseNotText(url: String)
-pub error UnexpectedStatus(status: Int, body: String)
 
 pub effect Http {
   suspend fn send(request: Request) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText
 }
 
-pub fn request(method: Method, url: String) -> Request # no body, no headers
-pub fn add_header(req: Request, name: String, value: String) -> Request
 pub fn get(url: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText use Http
 pub fn post(url: String, body: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText use Http
-pub fn header(res: Response, name: String) -> Option[String] # the first value, case-insensitive
-pub fn headers(res: Response, name: String) -> List[String] # all values
-pub fn encode_query(pairs: List[(String, String)]) -> String # q=%E6%9D%B1&page=2
-pub fn require_ok(res: Response) -> Response fails UnexpectedStatus # fails on anything other than 2xx
-pub fn response(status: Int, body: String) -> Response # a response without headers
 ```
 
   - Bodies are text only. A body is sent as UTF-8 and received by reading it as UTF-8; if it cannot be read, send fails with ResponseNotText (the same approach as InvalidText in FileSystem). A BOM at the start of the body is removed (FileSystem keeps the BOM so that reading and writing back does not change a file). If no content-type is written, it is `text/plain;charset=UTF-8`. The whole body is read before returning (streams are for a later version).
@@ -179,13 +186,42 @@ pub fn response(status: Int, body: String) -> Response # a response without head
 - JSON conversion (Encode, Decode) is provided by the standard library as traits with deriving rules.
 - The Prelude and the core modules are `.emel` sources bundled with the compiler. std is bundled too. This is because the central platform and effect layers of std are tied to the host and the runtime, and can be distributed only together with the compiler. std can grow large, but it includes only things that most programs use and that have a single settled form (the host boundary, concurrency and state, basic value types, formats such as JSON, test handlers). The helpers for test assertions are distributed in brix (15.2). Pure Emela components whose form is not yet settled are released first in the Pome `github.com/emela-lang/x` (root name `X`; `X.Random` and so on) and are taken into std once they settle through use. Things on which preferences differ, such as frameworks, are not put in std and become independent Pomes. A function that cannot be written in Emela is declared in that source as an fn without a body, marked with `@intrinsic`, with its signature in Emela syntax. `@external` is not used so that the boundary type restriction of 12.4 (List and similar cannot be passed) does not apply.
 
-## 15.3 API conventions `[lib.api-rules]`
+## 15.3 HTTP services `[lib.http-service]`
+
+```emel
+@entry(Http.serve)
+pub fn app(request: Request) -> Response {
+  with Platform { route(request) }
+}
+```
+
+- A program whose entry module has an fn with `@entry(Http.serve)` is an HTTP service. The host calls that fn once for each request it receives, and each call is one launch. Launches share no state: a `with` inside the fn runs its init and release once per request.
+- The host MAY call the fn again before an earlier call has returned. Launches in progress switch only at suspension points (`[fiber.basic]`).
+- The request is converted to a `Request` as follows.
+  - A method that is not one of `Method` is answered with status 405 and the header `allow: GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS`, without calling the fn.
+  - `url` is the absolute URL of the request, `<scheme>://<authority><path-with-query>`, as the host parsed it. On JS the host parses it by the URL Standard, so it is normalized there: the scheme and the host are lowercase, `.` and `..` segments are removed from the path, and characters outside ASCII in the path and the query are percent-encoded. On WASM the path and the query are as the host received them, and the scheme and the authority are what the host gives: `http` when it gives no scheme, and empty when it gives no authority (`wasmtime serve` gives neither, so `url` is `http:///<path-with-query>` there). `url`, and `Request.path`, `Request.segments` and `Request.query`, of the same request can therefore differ between the targets.
+  - Header names are lowercased and sorted by name, and values with the same name are joined with `, `. Only `set-cookie` is kept as separate pairs, in the order received. This is the form of the headers of a `Response` of the client.
+  - The headers `connection`, `keep-alive`, `proxy-authenticate`, `proxy-authorization`, `proxy-connection`, `transfer-encoding`, `upgrade`, `host` and `http2-settings` are left out. They belong to the connection, and hosts of `wasi:http` do not hand them over, so they are left out on every target.
+  - The whole body is read before the fn is called. A body that cannot be read as UTF-8 is answered with status 400, without calling the fn. A BOM at the start of the body is removed.
+  - A request whose path or query has a malformed `%` sequence (`%` not followed by two hexadecimal digits), or one whose decoded bytes are not UTF-8, is answered with status 400, without calling the fn. So `Request.segments` and `Request.query` of a request received this way keep nothing as written.
+- The `Response` is converted as follows. Values of headers with the same name are sent in the order written, and MAY be joined with `, ` into one header (not `set-cookie`). The order between headers with different names is not specified. When the body is not empty and there is no `content-type` header, `content-type: text/plain;charset=UTF-8` is added. The body is sent as UTF-8.
+- A `Response` that the host cannot send ends the launch like an error: one line `invalid response: <reason>` is written to standard error, and the response has status 500. `<reason>` is one of the following, checked in this order.
+  - `status <status>`: the status is not from 200 to 599.
+  - `status <status> cannot have a body`: the status is 204, 205 or 304 and the body is not empty.
+  - ``header name `<name>` ``: a header name is empty or has a character that is not an ASCII letter, a digit, or one of ``!#$%&'*+-.^_`|~``.
+  - ``header value of `<name>` ``: a header value has a character other than a tab and the printable ASCII characters (U+0020 to U+007E). The Headers of the JS Fetch API take only Latin-1, and `wasi:http` rejects control characters, so this is what both accept.
+- When the fn ends with an error or a defect, one line describing the cause (`Cause.to_string`) is written to standard error, and the response has status 500. The cause is not written in the response.
+- When the launch ends with an interruption (it stalled, `[dyn.suspend]`), no response is made, and the host gets an error: on JS the Promise that `fetch` returned rejects (`[target.js.module]`). `serve.mjs` then writes `interrupted` to standard error and answers with status 500.
+- The responses with status 405, 400 and 500 above have the body `Method Not Allowed`, `Bad Request` and `Internal Server Error`, with `content-type: text/plain;charset=UTF-8`.
+- On JS, `serve` is the property `fetch` of the default export of `main.mjs` (`[target.js.module]`). On WASM, `main.wasm` is a component of the world `wasi:http/service@0.3.0` that exports `handle` of `wasi:http/handler@0.3.0` (`[target.wasm.output]`). The C target does not support HTTP services yet (`[target.c.unsupported]`).
+
+## 15.4 API conventions `[lib.api-rules]`
 
 Functions in the standard library (core and std) are named according to the following conventions. Conventions are added starting from those decided in 18.1 #34.
 
 - The subject is the first argument, so the function can be written with a pipe, as in `xs |> List.map(f)`.
 - An argument that takes a function is named `f` and is passed by position, not by name (`List.map(xs, fn(x) { ... })`). The proposal to use `with` and `where` as argument names was not adopted: both are reserved words (3.1, 3.3) and cannot be used as parameter names, and the case is not strong enough to add syntax that separates the external argument name from the internal name.
-- A function that joins two values is `append` (`List.append(xs, ys)`, `String.append(a, b)`), a function that flattens a sequence is `List.flatten(xss)` or `String.concat(parts)`, and a function that joins with a separator in between is `join` (`String.join(parts, sep)`).
+- A function that joins two values is `append` (`List.append(xs, ys)`, `String.append(a, b)`), a function that flattens a sequence is `List.flatten(xss)` or `String.concat(parts)`, and a function that joins with a separator in between is `join` (`List.join(parts, sep)`).
 - The argument for the initial value of a fold is named `from` (`List.fold(xs, from: 0, f: add)`).
 - How a function reports that something did not work depends on the situation.
   - Not found, or out of range: return an Option (`List.get`, `List.find`, `Env.get`).

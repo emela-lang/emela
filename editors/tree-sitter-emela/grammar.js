@@ -121,6 +121,13 @@ module.exports = grammar({
       $.identifier,
       $._literal,
       seq(field('name', $.identifier), ':', field('value', $._literal)),
+      $.annotation_path,
+    ),
+
+    // `@entry(Http.serve)`: the qualified name of a function.
+    annotation_path: $ => seq(
+      repeat1(seq(field('module', $.type_identifier), '.')),
+      field('name', $.identifier),
     ),
 
     _modifiers: $ => seq(

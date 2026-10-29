@@ -52,6 +52,8 @@ fn failures_on(name: &str, main: &str, target: Target) -> Vec<(Target, String, T
         node: PathBuf::from("node"),
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut out = Vec::new();
     let mut frontend = LowerTests::default().with_target(target);
@@ -74,7 +76,7 @@ fn failures_on(name: &str, main: &str, target: Target) -> Vec<(Target, String, T
             |_| {},
             &mut out,
         ),
-        Target::Wasm => unreachable!("the file system tests run js and c"),
+        Target::Wasm | Target::CEmbedded => unreachable!("the file system tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert_eq!(analysis.diagnostics, []);

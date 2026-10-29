@@ -1,11 +1,11 @@
 # Appendix B. Commands `[cmd]`
 
-This appendix defines the externally visible behavior of the `emela` command. `emela test` is in 13.4 and `[cmd.test]`, and `emela pome` is in `[cmd.pome]`.
+This appendix defines the externally visible behavior of the `emela` command. `emela test` is in 13.4 and `[cmd.test]`, `emela pome` is in `[cmd.pome]`, and `emela flash` is in `[cmd.flash]`.
 
 ## emela check, build, run `[cmd.build]`
 
 - Takes one path, which defaults to `.`. When a directory is given, the target is the whole project of the ancestor `Pome.toml` (4.1). The directory given can be the project directory or a directory inside the source root or the test root. A directory outside them (`scripts/`) is a compile error (E0208, the same as fmt). Even when a directory inside the source root or the test root is given, the whole project is checked, because type checking spans modules. `emela test` does the same.
-- The command writes `main.mjs`, translated from the entry, and the runtime to the output directory. The `pub` fns of the entry are exported from `main.mjs`. A fn with a type parameter that has a bound cannot be exported (E0327), because which impl to use is not determined. Make a fn that wraps it with concrete types `pub`. `emela run` also writes to the default output directory (4.1) before running, and overwrites the previous output without deleting it. `--out-dir` changes the output directory.
+- The command writes `main.mjs`, translated from the entry, and the runtime to the output directory. The fns with `@export(js, ...)` and the exports made by `@entry` are exported from `main.mjs` (`[target.js.module]`). `emela run` also writes to the default output directory (4.1) before running, and overwrites the previous output without deleting it. `--out-dir` changes the output directory.
 - Arguments to the program are written after `--`. Diagnostics are reported before the program is launched.
 - The node used is the environment variable `EMELA_NODE` if set, and otherwise `node` on PATH.
 - For `c`, the command writes `main.c`, translated from the entry, and the C sources of the runtime to the output directory, and places the executable `main` compiled with cc. The cc used is the environment variable `EMELA_CC` if set, and otherwise `cc` on PATH (E0907, E0908).
@@ -16,15 +16,16 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 
 Build target and output directory:
 
-- `build`, `run`, and `test` select the build target with `--target <js|c|wasm>`. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `js` (`[module.pome]`). `check` takes no build target.
-- The default output directory of `build` and `run` is `target/emela/<target>` (`target/emela/js`, `target/emela/c`, `target/emela/wasm`) in the project (in single-file mode, in the directory that contains the file). The default output directory of `test` is as in `[cmd.test.out-dir]`. `--out-dir` changes the output directory of `build` and `run` for every target.
+- `build`, `run`, and `test` select the build target with `--target <js|c|c-embedded|wasm>`. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `c-embedded` for a `build` with a board selected (`[target.c-embedded.board]`) and `js` otherwise (`[module.pome]`). `run` and `test` are not available for `c-embedded`. `check` takes no build target.
+- `build` and `check` take `--board <id>`, and `build` takes `--embedded-config <path>` (`[target.c-embedded]`). `check` with a board, or with `[embedded].board`, reads the module replacements of that board (`[target.c-embedded.project]`).
+- The default output directory of `build` and `run` is `target/emela/<target>` (`target/emela/js`, `target/emela/c`, `target/emela/c-embedded`, `target/emela/wasm`; `target/emela/c-embedded/<board>` with a board) in the project (in single-file mode, in the directory that contains the file). The default output directory of `test` is as in `[cmd.test.out-dir]`. `--out-dir` changes the output directory of `build` and `run` for every target.
 - Giving `build` or `run` a file inside the test root is a compile error (E0208, ``... is under the test root, which only check and test read``). `build` and `run` do not read the test root.
 
 Entry and main:
 
 - When a directory is given and neither `src/main.emel` nor `src/lib.emel` exists, `check` passes, and `build` and `run` report a compile error (E0209).
 - When a directory is given and `src/main.emel` does not exist but `src/lib.emel` does, the project is a library-only project, and `lib.emel` is the entry for checking and testing. `build` only checks and outputs nothing. `run` is a compile error (E0230), whether or not `lib.emel` has a fn `main`. If `src/main.emel` exists, it is the entry. When a file is given, that file is the entry, including `lib.emel`.
-- If the entry module has no fn named `main`, `run` reports a compile error (E0230, located at the entry file), and neither outputs anything nor launches the program. Something named `main` that is not a fn (a const and so on) does not count. This error is reported only when there are no other errors (syntax, names, types). `build` outputs even without main (8.3).
+- If the entry module has no fn named `main` and the program is not an HTTP service (`[lib.http-service]`), `run` reports a compile error (E0230, located at the entry file), and neither outputs anything nor launches the program. Something named `main` that is not a fn (a const and so on) does not count. This error is reported only when there are no other errors (syntax, names, types). `build` outputs even without main (8.3).
 
 JS output:
 
@@ -33,8 +34,16 @@ JS output:
 - What is copied is everything under the source root of the Pome that contains the pointed-to file, except `.emel` files and entries starting with `.`. This lets a host file import neighboring files by relative path. In single-file mode, only the pointed-to file is copied.
 - The previous output is overwritten without being deleted (the same holds for `emela_core/` and the rest).
 
+Starting the program:
+
+- Before starting the program, `run` writes one line ``running `<command>` `` to standard error, for every build target. The line comes after the diagnostics and before any output of the program. It is not written when the program is not started (an error in the diagnostics, or wasmtime too old, E0909). When the command is written but cannot be started (node or the executable not found), the diagnostic about it follows the line.
+- `<command>` is the program that is started followed by its arguments, separated by single spaces: node with its options for `js`, the executable `main` for `c`, and wasmtime with its options for `wasm` (`[target.wasm.output]`), each followed by the arguments after `--`.
+- Each word is written as is when it is not empty and consists only of ASCII letters, digits and the characters `-_./=:@%+,`. Otherwise it is enclosed in single quotes, and each `'` inside it is written as `'\''`. Pasting the line into a POSIX shell starts the same command.
+- For `js`, the module that node runs with `-e` to load the entry is written as `<launcher>` (``running `node --input-type=module -e <launcher> -- target/emela/js/main.mjs` ``). This word alone does not follow the quoting rule above.
+
 Running the program (JS):
 
+- For an HTTP service, `run` runs `node serve.mjs` (`[target.js.module]`) with the arguments after `--`, instead of what follows.
 - `run` loads the entry module and calls the exported `main` with no arguments. The return value of `main` is discarded. Arguments to the program are passed after `--` as node arguments.
 - A `main` that can suspend is awaited on the event loop until it finishes.
 - The standard error output and exit code when execution stops are as follows. The exit code is determined after writing to standard error finishes (writes to a pipe are not cut off midway).
@@ -54,6 +63,17 @@ Diagnostics and help:
 
 - The form and destination of diagnostics are in Appendix A (`[diag]`).
 - The text of `--help` is written in English.
+
+## emela flash `[cmd.flash]`
+
+- Writes the firmware image of the last successful `emela build` with a board (`[target.c-embedded]`) to the device. It does not build.
+- Takes one path like `build` (`[cmd.build]`). The board is `--board`, else `[embedded].board`; without either it is an error (``` `flash` requires `--board` or `[embedded].board` ```). `--out-dir` and `--embedded-config` MUST be the same as given to the build. `--port` is the serial port (ESP32-C3) or the serial number of the debug probe (STM32F4).
+- A successful board build records the SHA-256 of its inputs and outputs in `board-build.json`: the sources and manifests of the project and of its dependencies, `Pome.lock`, the runtime configuration, the module replacements, the files of `[embedded].sources` and the headers next to them, the generated C, the board support files, and the firmware outputs. The selected project, board, entry, runtime configuration and output directory are recorded with them.
+- `build` with a board removes the previous record once the target is decided and before it compiles anything, and writes a new one only when the build succeeds and no input changed while it ran. A failed build leaves no record.
+- `flash` checks the current files and selection against the record before it starts any program from the output directory. Without a record, it is an error (``no successful firmware build exists; run `emela build` first``). When anything differs, it is an error and nothing is written to the device.
+- After the check, the image is written with OpenOCD (STM32F4, the environment variable `OPENOCD`, else `openocd`) or esptool (ESP32-C3, run by the environment variable `EMELA_ESPTOOL_PYTHON`, else by the Python of the build). ESP32-C3 requires `--port` unless `--dry-run` is given. Paths and the port are passed as separate arguments, without a shell.
+- `--dry-run` performs the same check, prints the command that would write the image, and does not open the device.
+- The exit code is 0 on success and 1 otherwise.
 
 ## emela fmt `[cmd.fmt]`
 

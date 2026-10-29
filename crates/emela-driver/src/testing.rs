@@ -23,7 +23,10 @@ use emela_resolve::{BuiltinModules, ModuleId, NoBuiltins};
 use serde::Deserialize;
 
 pub use collect::{TEST_ANNOTATION, TestFn, collect_tests, is_test_fn};
-pub use report::{TEST_FAILURE_EXIT_CODE, TestOutcome, TestReport, TestResult};
+pub use report::{
+    AGENT_ENV_VARS, Reporter, TEST_FAILURE_EXIT_CODE, TestOutcome, TestReport, TestResult,
+    runs_in_agent,
+};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
@@ -31,7 +34,8 @@ use crate::frontend::{Typecheck, lower_typed};
 use crate::js::{CoreJs, JS_ENTRY_FILE, bundled_outputs};
 use crate::output::{BuildOutput, OutputFile, write_output};
 use crate::pipeline::{
-    Analysis, Backend, Checked, CoreSource, Frontend, Input, NoJsBackend, Parsed, Runner, check,
+    Analysis, Backend, Checked, CoreSource, Frontend, Input, NoJsBackend, Parsed, Runner,
+    build_only_diagnostic, check,
 };
 use crate::run::{
     Deadline, Output, exit_code, join_reader, read_to_end_on_thread, spawn_error, wait_child,
@@ -45,6 +49,8 @@ use crate::target::Target;
 pub const JS_TEST_OUT_DIR: &str = "target/emela/test";
 /// The default C output directory for tests (`--target c`), relative like [`JS_TEST_OUT_DIR`].
 pub const C_TEST_OUT_DIR: &str = "target/emela/test-c";
+/// Reserved output directory for embedded C test backends; the CLI does not run them.
+pub const C_EMBEDDED_TEST_OUT_DIR: &str = "target/emela/test-c-embedded";
 /// The default WASM output directory for tests (`--target wasm`), relative like
 /// [`JS_TEST_OUT_DIR`].
 pub const WASM_TEST_OUT_DIR: &str = "target/emela/test-wasm";
@@ -61,6 +67,7 @@ pub fn default_test_out_dir_for(input: &Input, target: Target) -> PathBuf {
     match target {
         Target::Js => input.base.join(JS_TEST_OUT_DIR),
         Target::C => input.base.join(C_TEST_OUT_DIR),
+        Target::CEmbedded => input.base.join(C_EMBEDDED_TEST_OUT_DIR),
         Target::Wasm => input.base.join(WASM_TEST_OUT_DIR),
     }
 }
@@ -308,11 +315,16 @@ pub struct TestOptions {
     pub filter: Option<String>,
     /// How node's stderr is handled. Stdout is always captured to read results.
     pub output: Output,
+    /// How results are displayed (`[cmd.test.reporter]`).
+    pub reporter: Reporter,
+    /// Whether [`Reporter::Pretty`] uses color. The caller decides it (`[cmd.test.output]`: only
+    /// when stdout is a terminal and `NO_COLOR` is empty or unset); other reporters never do.
+    pub color: bool,
 }
 
 /// The `emela test` stage: checks, writes the tests out as JS, and runs them one by one on node.
 ///
-/// Results are written to `out` as they arrive, in a format close to `cargo test`. `before_node`
+/// Results are written to `out` as they arrive, in the form of [`TestOptions::reporter`]. `before_node`
 /// is called once after emission and before node starts (even if checking or emission failed);
 /// the CLI prints diagnostics there. The result is `None` if diagnostics had errors or node could
 /// not start. A diagnostic about failing to start node is appended to `Analysis` after
@@ -327,12 +339,21 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
     out: &mut dyn Write,
 ) -> (Analysis, Option<TestReport>) {
     let (mut analysis, program) = check(fs, input, frontend);
+    if backend.runner() == Runner::BuildOnly {
+        analysis.diagnostics.push(build_only_diagnostic("test"));
+        before_node(&analysis);
+        return (analysis, None);
+    }
     let prepared = prepare(&mut analysis, program, backend, options);
     before_node(&analysis);
     let Some((entry, selected, filtered_out)) = prepared else {
         return (analysis, None);
     };
     let (program, command) = match backend.runner() {
+        Runner::BuildOnly => {
+            analysis.diagnostics.push(build_only_diagnostic("test"));
+            return (analysis, None);
+        }
         Runner::Node => {
             let mut command = Command::new(&options.node);
             command.arg(crate::run::entry_for_child(&entry));
@@ -354,14 +375,15 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
             (wasmtime, command)
         }
     };
-    match run_tests(&program, command, &selected, options.output, out) {
+    let mut display = report::Display::new(options.reporter, options.color, out);
+    match run_tests(&program, command, &selected, options.output, &mut display) {
         Ok((results, stderr)) => {
             let report = TestReport {
                 results,
                 filtered_out,
                 stderr,
             };
-            let _ = report::write_summary(out, &report);
+            display.finish(&report);
             (analysis, Some(report))
         }
         Err(diagnostic) => {
@@ -436,6 +458,9 @@ enum Event {
         outcome: Outcome,
         #[serde(default)]
         message: String,
+        /// The location of a failed assert's defect (`[test.assert]`).
+        #[serde(default)]
+        location: Option<String>,
     },
     Done,
 }
@@ -450,14 +475,14 @@ enum Outcome {
 }
 
 /// Runs the tests with `command` (node on the entry module, or the test executable; `program`
-/// names it in diagnostics), writing results to `out` as they are collected. Stdout lines that are
-/// not result lines pass through to `out`.
+/// names it in diagnostics), passing results to `display` as they are collected, with the stdout
+/// lines that are not result lines.
 fn run_tests(
     program: &Path,
     mut command: Command,
     selected: &[String],
     output: Output,
-    out: &mut dyn Write,
+    display: &mut report::Display,
 ) -> Result<(Vec<TestResult>, Vec<u8>), Diagnostic> {
     command
         .stdin(Stdio::null())
@@ -484,7 +509,7 @@ fn run_tests(
         }
     });
 
-    let _ = report::write_header(out, selected.len());
+    display.start(selected);
     let mut results = Vec::new();
     let mut finished = false;
     loop {
@@ -509,6 +534,7 @@ fn run_tests(
                 name,
                 outcome,
                 message,
+                location,
             }) => {
                 let outcome = match outcome {
                     Outcome::Ok => TestOutcome::Passed,
@@ -516,14 +542,18 @@ fn run_tests(
                     Outcome::Error => TestOutcome::Error(message),
                     Outcome::Interrupted => TestOutcome::Interrupted,
                 };
-                let result = TestResult { name, outcome };
-                let _ = report::write_result(out, &result);
+                // Only a defect has a location (`[cmd.test.outcome]`).
+                let location = location.filter(|_| matches!(outcome, TestOutcome::Defect(_)));
+                let result = TestResult {
+                    name,
+                    outcome,
+                    location,
+                };
+                display.result(&result);
                 results.push(result);
             }
             Some(Event::Done) => finished = true,
-            None => {
-                let _ = out.write_all(&line);
-            }
+            None => display.output(&line),
         }
     }
     let status = wait_child(&mut child, deadline).map_err(|err| spawn_error(program, &err))?;
@@ -539,8 +569,9 @@ fn run_tests(
                     code,
                     not_run: selected.len() - results.len() - 1,
                 },
+                location: None,
             };
-            let _ = report::write_result(out, &result);
+            display.result(&result);
             results.push(result);
         }
     }

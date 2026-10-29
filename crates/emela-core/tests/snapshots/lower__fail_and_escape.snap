@@ -14,6 +14,10 @@ error enum Prelude.ParseError {
   ParseError(input: String)
 }
 
+error enum Std.Http.Response.UnexpectedStatus {
+  UnexpectedStatus(status: Int, body: String)
+}
+
 error enum Std.Http.InvalidUrl {
   InvalidUrl(url: String)
 }
@@ -24,10 +28,6 @@ error enum Std.Http.ConnectionFailed {
 
 error enum Std.Http.ResponseNotText {
   ResponseNotText(url: String)
-}
-
-error enum Std.Http.UnexpectedStatus {
-  UnexpectedStatus(status: Int, body: String)
 }
 
 error enum Std.FileSystem.FileNotFound {
@@ -58,6 +58,10 @@ error enum Std.FileSystem.FileSystemFailure {
   FileSystemFailure(path: String, message: String)
 }
 
+error enum Std.Embedded.Peripheral.PeripheralError {
+  PeripheralError(code: Int)
+}
+
 export fn main() -> Int fails {
   let a%1: Int = {
     find(1)?
@@ -70,12 +74,12 @@ export fn main() -> Int fails {
   @dbg[Int](c%3)
 }
 
-fn find(id%70: Int) -> Int fails {
-  if (id%70 >[Int] 0) {
-    id%70
+fn find(id%78: Int) -> Int fails {
+  if (id%78 >[Int] 0) {
+    id%78
   } else {
-    if (id%70 ==[Int] 0) {
-      fail NotFound.NotFound(id: id%70)
+    if (id%78 ==[Int] 0) {
+      fail NotFound.NotFound(id: id%78)
     } else {
       fail Unauthorized.Unauthorized
     }

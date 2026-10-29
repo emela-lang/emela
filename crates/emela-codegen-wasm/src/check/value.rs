@@ -1,33 +1,32 @@
-//! Values that reach an unsupported feature (fibers).
+//! Values that reach an unsupported feature (fibers). `Fiber.attempt` and the operations of
+//! `Std.Cause` run on the current fiber, so they are supported (`emit::runtime::attempt`).
 
 use super::*;
 
 use emela_lir::Value;
 
 pub(super) fn value_unsupported(value: &Value, found: &mut Found) {
-    if let Value::Fiber { op, .. } = value {
-        let name = fiber_name(*op);
-        if !found.fibers.contains(&name) {
-            found.fibers.push(name);
-        }
+    if let Value::Fiber { op, .. } = value
+        && let Some(name) = fiber_name(*op)
+        && !found.fibers.contains(&name)
+    {
+        found.fibers.push(name);
     }
 }
 
-fn fiber_name(op: emela_core::FiberOp) -> &'static str {
+/// The name of a concurrency operation that needs fibers, or `None` for one that does not.
+fn fiber_name(op: emela_core::FiberOp) -> Option<&'static str> {
     use emela_core::FiberOp::*;
-    match op {
+    Some(match op {
         Scope { .. } => "Fiber.scope",
         Fork => "Fiber.fork",
         Deferred => "Deferred",
         Join => "Fiber.join",
         Await { .. } => "Fiber.await",
         Interrupt => "Fiber.interrupt",
-        Attempt { .. } => "Fiber.attempt",
         Complete => "Deferred.complete",
         DeferredAwait => "Deferred.await",
         Poll => "Deferred.poll",
-        CauseKind { .. } => "Cause.kind",
-        CauseToString => "Cause.to_string",
-        CauseRaise => "Cause.raise",
-    }
+        Attempt { .. } | CauseKind { .. } | CauseToString | CauseRaise { .. } => return None,
+    })
 }

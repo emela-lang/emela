@@ -102,6 +102,9 @@ pub enum DiagnosticKind {
     /// An impl head that is not a type name with distinct type parameters (E0328, spec 10.2):
     /// `impl List[Int]: Show`, `impl Pair[A, A]: Eq`. `head` is the head as written.
     ImplHead { head: SmolStr },
+    /// In the module of a type, an fn whose first parameter has that type at its head has the
+    /// name of one of its fields (E0334, `[data.type]`). A method call would find both.
+    FnNamedLikeField { name: SmolStr, ty: SmolStr },
 }
 
 /// Where a name was looked up. Used in the diagnostic message.
@@ -290,6 +293,10 @@ impl fmt::Display for DiagnosticKind {
             DiagnosticKind::ImplHead { head } => write!(
                 f,
                 "impl head must be a type with distinct type parameters: `{head}`"
+            ),
+            DiagnosticKind::FnNamedLikeField { name, ty } => write!(
+                f,
+                "function `{name}` has the same name as a field of `{ty}`"
             ),
         }
     }

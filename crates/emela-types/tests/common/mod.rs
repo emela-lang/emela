@@ -77,6 +77,10 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
         DiagnosticKind::NoField { ty, field } => {
             format!("`{text}` no field `{field}` on type `{}`", ty.display(cons))
         }
+        DiagnosticKind::NoFieldOrFunction { ty, name } => format!(
+            "`{text}` no field or function `{name}` for type `{}`",
+            ty.display(cons)
+        ),
         DiagnosticKind::NoFields { ty, field } => {
             format!(
                 "`{text}` type `{}` has no fields (`{field}`)",
@@ -120,9 +124,23 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             found,
         } => format!("`{text}` pattern `{ctor}` has {expected} fields, found {found}"),
         DiagnosticKind::Unsupported { what } => format!("`{text}` not supported yet: {what}"),
-        DiagnosticKind::UnhandledErrors { errors, declared } => format!(
+        DiagnosticKind::UnhandledErrors {
+            errors,
+            declared,
+            layer_arg: None,
+        } => format!(
             "`{text}` unhandled errors {} (fails written: {declared})",
             errors.join(" | ")
+        ),
+        DiagnosticKind::UnhandledErrors {
+            errors,
+            layer_arg: Some(arg),
+            ..
+        } => format!(
+            "`{text}` unhandled errors {} (in the arguments of `{}` in layer `{}`)",
+            errors.join(" | "),
+            arg.handler,
+            arg.layer
         ),
         DiagnosticKind::NotAnError { found } => {
             format!("`{text}` not an error type: `{}`", found.display(cons))

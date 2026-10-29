@@ -52,6 +52,10 @@ pub struct Module {
     /// [`crate::mono`] for the errors the functions construct. An error not here is shown by its
     /// name (its type does not satisfy Show).
     pub error_display: FxHashMap<EnumId, ErrorDisplay>,
+    /// Whether the program is an HTTP service (`[lib.http-service]`): its entry is exposed through
+    /// `Std.Http.serve` instead of `main`. Set only for the normal build (`Roots::Exported`); the
+    /// backends write the host's server for it (`serve.mjs` on JS).
+    pub http_service: bool,
 }
 
 /// A trait, by its index in [`Module::trait_impls`].
@@ -200,6 +204,7 @@ impl Module {
         self.functions.alloc(Function {
             name: name.to_owned(),
             exported,
+            host_exports: Vec::new(),
             params: Vec::new(),
             ret: TypeId::UNIT,
             type_params: 0,
@@ -307,9 +312,16 @@ pub struct LocalData {
 
 #[derive(Debug, Clone)]
 pub struct Function {
-    /// Unique in the module; exported under this name.
+    /// Unique in the module.
     pub name: String,
+    /// A root of the output: the entry's `main`, an exported fn ([`Function::host_exports`]), or
+    /// a test function. The output exposes it to the runtime's launcher (`main`, the test
+    /// functions) or to the host.
     pub exported: bool,
+    /// The names the host sees the function under, for the build target (`[ext.export]`): the
+    /// `@export`s of an exported fn, or of the entry adapter for a fn made by `@entry`. Empty for
+    /// other functions.
+    pub host_exports: Vec<HostExport>,
     /// Their types are the locals' types (`LocalData::ty`). The evidence table, if taken, is last,
     /// and it is the only parameter of type `Type::Evidence` ([`Module::takes_ev`]).
     pub params: Vec<Local>,
@@ -330,8 +342,9 @@ pub struct Function {
     /// For an external function (spec chapter 12), the host function. `body` is then unused.
     ///
     /// Lowering checks the build target's binding only for external functions reachable from the
-    /// entry (E0412). One without a binding can still be lowered, through an exported `pub` fn of
-    /// the entry; backends then emit a function that is a defect when called.
+    /// roots (main and the exported fns, or the test functions; E0412). One without a binding can
+    /// still be lowered when nothing reaches it from them (`Roots::All`); backends then emit a
+    /// function that is a defect when called.
     pub external: Option<External>,
     /// Whether it may suspend (spec 8.1, 16.5). If true, the body may contain suspending calls
     /// (`Expr::Call::suspends`). For an external function this is `@external suspend fn`
@@ -347,6 +360,15 @@ pub struct Function {
     /// over-approximate its instantiations, as for [`FnType::sets`], and [`crate::mono`] works out
     /// the exact ones per instantiation.
     pub sets: Option<FnSets>,
+}
+
+/// One `@export(js, "default", "fetch")` (`[ext.export]`): `interface` is the middle argument of
+/// the three-argument form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostExport {
+    pub target: String,
+    pub interface: Option<String>,
+    pub name: String,
 }
 
 /// The host function of an external function (spec 12.1). How the parameters and the return value
@@ -591,6 +613,7 @@ impl TypeId {
     pub const EVIDENCE: TypeId = TypeId(7);
     pub const FIBER_SCOPE: TypeId = TypeId(8);
     pub const ANY: TypeId = TypeId(9);
+    pub const BYTES: TypeId = TypeId(10);
 
     /// The position in the type table.
     pub fn index(self) -> usize {
@@ -618,6 +641,9 @@ pub enum Type {
     Float,
     Bool,
     String,
+    /// `Std.Bytes.Bytes` (`[api.std.bytes]`), the built-in type of an `@intrinsic` type
+    /// declaration. Immutable; the `Builtin::Bytes*` functions make and read it.
+    Bytes,
     Unit,
     Never,
     /// Two or more elements.
@@ -772,10 +798,11 @@ impl Default for TypeTable {
             Type::Evidence,
             Type::FiberScope,
             Type::Any,
+            Type::Bytes,
         ] {
             table.intern(t);
         }
-        debug_assert_eq!(table.types[TypeId::ANY.index()], Type::Any);
+        debug_assert_eq!(table.types[TypeId::BYTES.index()], Type::Bytes);
         table
     }
 }
@@ -1422,8 +1449,9 @@ pub enum FiberOp {
     /// `Cause.to_string(c)` (spec 11.5). `[cause]`. `error: …`, `defect: …` or `interrupted`.
     CauseToString,
     /// `Cause.raise(c)` (spec 11.5). `[cause]`. Fail becomes a failure, Die a defect, and Interrupt
-    /// unwinds the current fiber's interruption. The type is Never, but it may fail.
-    CauseRaise,
+    /// unwinds the current fiber's interruption. The type is Never, but it may fail. `fails` tells
+    /// whether the cause's E is not empty.
+    CauseRaise { fails: bool },
 }
 
 /// The index of `Success(A)` in `Exit`.
@@ -1459,15 +1487,14 @@ impl FiberOp {
             | FiberOp::Poll
             | FiberOp::CauseKind { .. }
             | FiberOp::CauseToString
-            | FiberOp::CauseRaise => false,
+            | FiberOp::CauseRaise { .. } => false,
         }
     }
 
     /// Whether it may fail (whether the result must be checked).
     pub fn fails(self) -> bool {
         match self {
-            FiberOp::Scope { fails } => fails,
-            FiberOp::CauseRaise => true,
+            FiberOp::Scope { fails } | FiberOp::CauseRaise { fails } => fails,
             _ => false,
         }
     }
@@ -1487,7 +1514,7 @@ impl FiberOp {
             FiberOp::Poll => "poll",
             FiberOp::CauseKind { .. } => "cause_kind",
             FiberOp::CauseToString => "cause_to_string",
-            FiberOp::CauseRaise => "cause_raise",
+            FiberOp::CauseRaise { .. } => "cause_raise",
         }
     }
 }
@@ -1555,6 +1582,10 @@ pub struct Assert {
     pub cond: AssertCond,
     /// The source text of the expression (`user.name == "alice"`), shown on failure. May be empty.
     pub text: String,
+    /// Where the assert expression is, as `<path>:<line>:<column>` (`[test.assert]`). The defect
+    /// of a failed assert carries it outside its message, for the test runner. `None` for an
+    /// assert without a source path.
+    pub location: Option<String>,
 }
 
 /// The shape of an assert expression. The compiler looks at it and, for a comparison, shows both
@@ -1599,6 +1630,7 @@ impl Assert {
                 rhs,
             },
             text: text.to_owned(),
+            location: None,
         }))
     }
 
@@ -1607,7 +1639,22 @@ impl Assert {
         Expr::Assert(Box::new(Assert {
             cond: AssertCond::Bool(cond),
             text: text.to_owned(),
+            location: None,
         }))
+    }
+
+    /// Sets the location of the assert that `expr` is, or ends with (the bindings of
+    /// [`Assert::shown`]).
+    pub fn at(mut expr: Expr, location: Option<String>) -> Expr {
+        fn set(e: &mut Expr, location: Option<String>) {
+            match e {
+                Expr::Assert(a) => a.location = location,
+                Expr::Let { body, .. } => set(body, location),
+                _ => {}
+            }
+        }
+        set(&mut expr, location);
+        expr
     }
 
     /// A comparison decided by `cond` ([`AssertCond::Shown`]): `let a = lhs; let b = rhs;
@@ -1629,6 +1676,7 @@ impl Assert {
                 rhs: Expr::Var(b),
             },
             text: text.to_owned(),
+            location: None,
         }));
         Expr::Let {
             var: a,

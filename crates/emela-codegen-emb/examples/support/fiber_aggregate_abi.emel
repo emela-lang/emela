@@ -1,0 +1,53 @@
+import Std.Fiber.{Fiber, Exit}
+@external(c, "host_wait")
+suspend fn wait(n: Int) -> Int
+effect Wait { suspend fn get(n: Int) -> Int }
+handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
+
+pub enum Packet { Data((String, Option[String]), List[String])
+  Empty }
+fn packet(n: Int) -> Packet {
+  text = Int.to_string(n)
+  Data((text, Some(text)), [text])
+}
+pub fn both(n: Int) -> ((String, Option[String]), Option[String]) use Async {
+  with Waiting {
+    text = Int.to_string(n)
+    Fiber.both(fn() {
+      (use Wait).get(10)
+      (text, Some(text))
+    }, fn() {
+      (use Wait).get(20)
+      Some(Int.to_string(n + 1))
+    })
+  }
+}
+pub fn terminal(n: Int, cancel: Bool) -> Exit[Packet, {}] use Async {
+  with Waiting {
+    Fiber.scope(fn() {
+      child = Fiber.fork(fn() {
+        (use Wait).get(30)
+        packet(n)
+      })
+      (use Wait).get(40)
+      if cancel { Fiber.interrupt(child) }
+      Fiber.await(child)
+    })
+  }
+}
+effect Echo { suspend fn echo(value: Packet) -> Packet }
+handler Echoing: Echo {
+  suspend fn echo(value, resume) {
+    wait(50)
+    resume(value)
+  }
+}
+pub fn echoed(n: Int) -> Packet use Async {
+  with Waiting {
+    with Echoing {
+      value = (use Echo).echo(packet(n))
+      (use Wait).get(60)
+      value
+    }
+  }
+}

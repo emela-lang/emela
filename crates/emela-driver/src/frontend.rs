@@ -185,6 +185,9 @@ pub struct Typecheck<B = NoBuiltins> {
     /// Whether the entry module had a `main` fn in the last `check`. `None` without an entry or
     /// HIR.
     entry_main: Option<bool>,
+    /// Whether the last `check` found `@entry(Http.serve)` in the entry module
+    /// (`[lib.http-service]`).
+    http_service: bool,
 }
 
 /// Name resolution and type checking results, which lowering reads (see [`ProgramTypes`]).
@@ -200,6 +203,7 @@ impl Default for Typecheck<NoBuiltins> {
         Typecheck {
             resolve: Resolve::default(),
             entry_main: None,
+            http_service: false,
         }
     }
 }
@@ -209,6 +213,7 @@ impl<B: BuiltinModules> Typecheck<B> {
         Typecheck {
             resolve,
             entry_main: None,
+            http_service: false,
         }
     }
 
@@ -240,6 +245,10 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 
     fn has_entry_main(&self) -> Option<bool> {
         self.entry_main
+    }
+
+    fn is_http_service(&self) -> bool {
+        self.http_service
     }
 
     fn document_highlights(
@@ -354,8 +363,9 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<TypedProgram> {
         self.entry_main = None;
+        self.http_service = false;
         let resolved = self.resolve.check(analysis, order);
-        let Some(hir) = resolved.program else {
+        let Some(mut hir) = resolved.program else {
             return Checked {
                 program: None,
                 diagnostics: resolved.diagnostics,
@@ -383,7 +393,11 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
             main,
             tests: tests.iter().map(|t| t.def).collect(),
         };
-        let types = check_program_with(&hir, &options);
+        // The exports `@entry` makes are fns that type checking infers (`[ext.entry]`).
+        let export_diagnostics = emela_types::add_entry_exports(&mut hir, analysis.entry);
+        self.http_service = emela_types::is_http_service(&hir);
+        let mut types = check_program_with(&hir, &options);
+        types.diags.extend(export_diagnostics);
         // Inference proceeds in call order, so sort by file and position like name resolution.
         let mut type_diagnostics: Vec<Diagnostic> = types
             .diags
@@ -413,7 +427,9 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 ///
 /// Lowering is skipped if name resolution or type checking reported any error (lowering assumes
 /// an error-free program), or for library-only directory inputs (build is only a check). Only
-/// fns reachable from the fns the entry module exports are lowered.
+/// fns reachable from the fns the entry module exports are lowered. Embedded C preserves
+/// polymorphic Core so its backend can track const origins before monomorphization; other
+/// targets receive monomorphized Core.
 pub struct Lower<B = NoBuiltins> {
     typecheck: Typecheck<B>,
     target: Target,
@@ -436,7 +452,8 @@ impl<B: BuiltinModules> Lower<B> {
         }
     }
 
-    /// Checks external functions against `target` (spec 12.1) instead of JS.
+    /// Selects the build target. Embedded C defers monomorphization and external binding checks
+    /// to its backend; other targets check external functions during lowering (spec 12.1).
     pub fn with_target(mut self, target: Target) -> Self {
         self.target = target;
         self
@@ -456,6 +473,10 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
 
     fn has_entry_main(&self) -> Option<bool> {
         self.typecheck.has_entry_main()
+    }
+
+    fn is_http_service(&self) -> bool {
+        self.typecheck.is_http_service()
     }
 
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<emela_core::Module> {
@@ -488,8 +509,9 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
 /// `main.emel` and `lib.emel` still runs its tests). Lowering errors are added to `diagnostics`,
 /// returning `None`.
 ///
-/// External functions are checked (spec 12.1) for `target`. Only build, run and test call
-/// lowering (check and the LSP do not).
+/// External functions are checked (spec 12.1) for `target`, except embedded C defers these
+/// checks and monomorphization to its backend. Only build, run and test call lowering
+/// (check and the LSP do not).
 ///
 /// Lowering also gets each module's source path (`LowerInput::paths`), so that the file an
 /// `@external` names is resolved next to its source.
@@ -509,9 +531,19 @@ pub(crate) fn lower_typed(
     }
     let mut sources = ArenaMap::default();
     let mut paths = ArenaMap::default();
+    let mut shown_paths = ArenaMap::default();
     for (module, &file) in analysis.files.iter() {
-        sources.insert(module, analysis.sources[file].text());
-        paths.insert(module, analysis.sources[file].path());
+        let source = &analysis.sources[file];
+        sources.insert(module, source.text());
+        paths.insert(module, source.path());
+        shown_paths.insert(
+            module,
+            analysis
+                .sources
+                .display_path(source.path())
+                .display()
+                .to_string(),
+        );
     }
     let input = emela_core::LowerInput {
         hir: &typed.hir,
@@ -521,15 +553,23 @@ pub(crate) fn lower_typed(
         entry,
         tests: typed.tests.iter().map(|t| t.def).collect(),
         paths,
+        shown_paths,
         bundled_files: emela_core::bundled_files(),
-        target: Some(target.name()),
+        // The embedded backend monomorphizes after recording generalized const origins.
+        target: (target != Target::CEmbedded).then(|| target.external_target()),
     };
     match emela_core::lower(&input, roots) {
         Ok(lowered) => {
-            // Ill-typed IR is a lowering bug, not an error in the program. Lowering monomorphizes
-            // (it is given a target) and checks the polymorphic IR first.
+            // Ill-typed IR is a lowering bug, not an error in the program. Embedded codegen
+            // receives polymorphic Core and owns monomorphization and C binding validation.
             #[cfg(debug_assertions)]
-            if let Err(errors) = emela_core::verify_monomorphic(&lowered.module) {
+            let verified = if target == Target::CEmbedded {
+                emela_core::verify(&lowered.module)
+            } else {
+                emela_core::verify_monomorphic(&lowered.module)
+            };
+            #[cfg(debug_assertions)]
+            if let Err(errors) = verified {
                 let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
                 panic!(
                     "lowering produced ill-typed IR (a compiler bug):\n{}",

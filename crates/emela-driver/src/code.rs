@@ -99,8 +99,8 @@ pub const SET_AS_TYPE: &str = "E0324";
 pub const INCOMPLETE_IMPL: &str = "E0325";
 // Traits (spec 10.1–10.3)
 pub const NOT_IMPLEMENTED: &str = "E0326";
-/// Found by lowering for the JS target, which exports the entry's `pub` fns (appendix B).
-pub const CONSTRAINED_EXPORT: &str = "E0327";
+// E0327 is retired: only `@export` fns are exported, and they take only boundary types
+// (`[ext.export]`).
 /// Found by name resolution, which sees the names in the head.
 pub const IMPL_HEAD: &str = "E0328";
 pub const SUPERTRAIT_CYCLE: &str = "E0329";
@@ -108,6 +108,10 @@ pub const DUPLICATE_IMPL: &str = "E0330";
 pub const ORPHAN_IMPL: &str = "E0331";
 pub const IMPL_FN_PARAM_COUNT: &str = "E0332";
 pub const AMBIGUOUS_SELF: &str = "E0333";
+// Method calls (`[type.rules]`, `[data.type]`). E0334 is found by name resolution, which sees the
+// declarations.
+pub const FN_NAMED_LIKE_FIELD: &str = "E0334";
+pub const AMBIGUOUS_METHOD: &str = "E0335";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_DERIVE: &str = "W0303";
@@ -155,6 +159,21 @@ pub const NOT_A_LABEL: &str = "E0430";
 pub const LABEL_MISMATCH: &str = "E0431";
 pub const LABEL_PROVIDED_TWICE: &str = "E0432";
 pub const HANDLER_OF_LABEL: &str = "E0433";
+// Arguments of handler init (spec 8.4)
+pub const MISSING_INIT_ARGS: &str = "E0434";
+pub const UNEXPECTED_INIT_ARGS: &str = "E0435";
+// Exported functions and entry adapters (`[ext.export]`, `[ext.entry]`)
+pub const NOT_BOUNDARY_EXPORT: &str = "E0436";
+pub const EXPORT_OUTSIDE_ENTRY: &str = "E0437";
+pub const DUPLICATE_EXPORT: &str = "E0438";
+pub const NOT_ENTRY_ADAPTER: &str = "E0439";
+pub const ENTRY_MISMATCH: &str = "E0440";
+pub const SUSPENDING_EXPORT: &str = "E0441";
+
+// HTTP services (`[lib.http-service]`)
+pub const HTTP_SERVICE_ON_C: &str = "E0442";
+// Bytes at the boundary on the C target (`[ext.boundary]`)
+pub const BYTES_ON_C: &str = "E0443";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

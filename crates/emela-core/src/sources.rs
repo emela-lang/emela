@@ -8,9 +8,9 @@
 /// The module name of the Prelude source. `prelude.emel` is reserved at the source root (spec 4.1).
 pub const PRELUDE: &str = "Prelude";
 
-/// The namespace for std modules (spec 15.2). std modules have two-segment names like
-/// `Std.Console` and are imported. `std.emel` and `std/` directly under the source root are
-/// reserved (spec 4.1).
+/// The namespace for std modules (spec 15.2). std modules have names like
+/// `Std.Console` and `Std.Embedded.Gpio` and are imported. `std.emel` and `std/` directly under
+/// the source root are reserved (spec 4.1).
 pub const STD: &str = "Std";
 
 /// Bundled sources as (module name, source) pairs, Prelude first. core (`lib/core/`, short names
@@ -24,6 +24,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("Int64", include_str!("../lib/core/int64.emel")),
     ("Float", include_str!("../lib/core/float.emel")),
     ("Bool", include_str!("../lib/core/bool.emel")),
+    ("Std.Bytes", include_str!("../lib/std/bytes.emel")),
     ("Std.Duration", include_str!("../lib/std/duration.emel")),
     ("Std.Instant", include_str!("../lib/std/instant.emel")),
     ("Std.Map", include_str!("../lib/std/map.emel")),
@@ -33,6 +34,14 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Random", include_str!("../lib/std/random.emel")),
     ("Std.Env", include_str!("../lib/std/env.emel")),
     ("Std.Clock", include_str!("../lib/std/clock.emel")),
+    (
+        "Std.Http.Request",
+        include_str!("../lib/std/http/request.emel"),
+    ),
+    (
+        "Std.Http.Response",
+        include_str!("../lib/std/http/response.emel"),
+    ),
     ("Std.Http", include_str!("../lib/std/http.emel")),
     ("Std.Path", include_str!("../lib/std/path.emel")),
     (
@@ -43,6 +52,30 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Cause", include_str!("../lib/std/cause.emel")),
     ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
     ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
+    (
+        "Std.Embedded.Peripheral",
+        include_str!("../lib/std/embedded/peripheral.emel"),
+    ),
+    (
+        "Std.Embedded.Gpio",
+        include_str!("../lib/std/embedded/gpio.emel"),
+    ),
+    (
+        "Std.Embedded.Uart",
+        include_str!("../lib/std/embedded/uart.emel"),
+    ),
+    (
+        "Std.Embedded.I2c",
+        include_str!("../lib/std/embedded/i2c.emel"),
+    ),
+    (
+        "Std.Embedded.Spi",
+        include_str!("../lib/std/embedded/spi.emel"),
+    ),
+    (
+        "Std.Embedded.Board",
+        include_str!("../lib/std/embedded/board.emel"),
+    ),
 ];
 
 /// Bundled host files as (path relative to `lib/`, contents) pairs. These are the files that
@@ -119,6 +152,7 @@ mod tests {
             Sig::Float => "Float".into(),
             Sig::Bool => "Bool".into(),
             Sig::String => "String".into(),
+            Sig::Bytes => "Bytes".into(),
             Sig::Unit => "()".into(),
             Sig::Never => "Never".into(),
             Sig::List(t) => format!("List[{}]", render(*t)),

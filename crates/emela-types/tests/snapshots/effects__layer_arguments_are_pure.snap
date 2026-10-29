@@ -1,0 +1,19 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_handlers(r#\"\neffect Config {\n  fn url() -> String\n}\n\neffect Kv {\n  fn get(key: String) -> String\n}\n\nhandler RemoteKv(url: String): Kv {\n  init(url: String) { RemoteKv(url:) }\n  fn get(key) { self.url }\n}\n\nconst HOST: String = \"kv\"\n\nfn url_of(host: String) -> String { \"kv://#{host}\" }\n\nlayer Pure {\n  RemoteKv(url: url_of(HOST))\n}\n\nlayer Impure {\n  RemoteKv(url: (use Config).url())\n}\n\nfn main() {\n  with Pure { (use Kv).get(\"a\") }\n}\n\"#)"
+---
+url_of: fn(String) -> String
+main: fn() -> String
+handler RemoteKv: use {}
+layer Pure: [RemoteKv] use {}
+layer Impure: [RemoteKv] use {}
+with Pure: init [RemoteKv]
+`use Config` unhandled effects Config (LayerArg(LayerArg { layer: "Impure", handler: "RemoteKv" }))
+--- R
+(use Config).url(): Config
+(use Config).url: Config
+use Config: Config
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv

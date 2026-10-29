@@ -9,6 +9,7 @@ license.workspace = true
 emela-resolve.workspace = true
 ena.workspace = true
 la-arena.workspace = true
+rowan.workspace = true
 rustc-hash.workspace = true
 smol_str.workspace = true
 

@@ -18,7 +18,9 @@ const CLOCKS: &str = include_str!("../wit/deps/clocks.wit");
 const SOCKETS: &str = include_str!("../wit/deps/sockets.wit");
 const FILESYSTEM: &str = include_str!("../wit/deps/filesystem.wit");
 const CLI: &str = include_str!("../wit/deps/cli.wit");
+const HTTP: &str = include_str!("../wit/deps/http.wit");
 const WORLD: &str = include_str!("../wit/emela.wit");
+const SERVICE_WORLD: &str = include_str!("../wit/service.wit");
 
 /// The optional interfaces to add to the command world. The runtime always uses stdout, stderr
 /// and exit; the environment, random, system clock, monotonic clock and file system are only
@@ -32,6 +34,8 @@ pub(crate) struct OptionalImports {
     pub(crate) clock: bool,
     pub(crate) monotonic_clock: bool,
     pub(crate) filesystem: bool,
+    /// An HTTP service: the world of `wit/service.wit` instead of the command world.
+    pub(crate) service: bool,
 }
 
 impl OptionalImports {
@@ -41,6 +45,7 @@ impl OptionalImports {
             | usize::from(self.clock) << 2
             | usize::from(self.monotonic_clock) << 3
             | usize::from(self.filesystem) << 4
+            | usize::from(self.service) << 5
     }
 }
 
@@ -48,7 +53,12 @@ impl OptionalImports {
 const OPTIONAL_MARKER: &str = "  // @optional-imports";
 
 fn world_source(optional: OptionalImports) -> Result<String, String> {
-    let (before, after) = WORLD
+    let world = if optional.service {
+        SERVICE_WORLD
+    } else {
+        WORLD
+    };
+    let (before, after) = world
         .split_once(OPTIONAL_MARKER)
         .ok_or_else(|| format!("the command world has no `{OPTIONAL_MARKER}` marker"))?;
     if after.contains(OPTIONAL_MARKER) {
@@ -80,13 +90,15 @@ fn world_source(optional: OptionalImports) -> Result<String, String> {
 fn resolve(optional: OptionalImports) -> Result<(Resolve, wit_parser::WorldId), String> {
     let mut resolve = Resolve::default();
     // The dependencies are pushed in dependency order: `sockets` and
-    // `filesystem` use `clocks`, and `wasi:cli` uses all of them.
+    // `filesystem` use `clocks`, `wasi:cli` uses all of them, and `wasi:http` uses `wasi:cli`
+    // and `wasi:clocks`.
     for (path, source) in [
         ("deps/random.wit", RANDOM),
         ("deps/clocks.wit", CLOCKS),
         ("deps/sockets.wit", SOCKETS),
         ("deps/filesystem.wit", FILESYSTEM),
         ("deps/cli.wit", CLI),
+        ("deps/http.wit", HTTP),
     ] {
         resolve
             .push_str(path, source)
@@ -96,8 +108,9 @@ fn resolve(optional: OptionalImports) -> Result<(Resolve, wit_parser::WorldId), 
     let pkg = resolve
         .push_str("emela.wit", &world)
         .map_err(|e| format!("cannot load the command world: {e}"))?;
+    let name = if optional.service { "service" } else { "emela" };
     let world = resolve
-        .select_world(&[pkg], Some("emela"))
+        .select_world(&[pkg], Some(name))
         .map_err(|e| format!("cannot select the command world: {e}"))?;
     Ok((resolve, world))
 }
@@ -107,8 +120,8 @@ type ResolvedWorld = Result<(Resolve, wit_parser::WorldId), String>;
 /// The vendored WIT is the same for every combination of optional imports, so each is parsed
 /// once. The resolved `Resolve` is borrowed; `wrap` does not need a mutable copy.
 fn resolved(optional: OptionalImports) -> Result<&'static (Resolve, wit_parser::WorldId), String> {
-    static RESOLVED: OnceLock<[OnceLock<ResolvedWorld>; 32]> = OnceLock::new();
-    let slots = RESOLVED.get_or_init(|| [const { OnceLock::new() }; 32]);
+    static RESOLVED: OnceLock<[OnceLock<ResolvedWorld>; 64]> = OnceLock::new();
+    let slots = RESOLVED.get_or_init(|| [const { OnceLock::new() }; 64]);
     slots[optional.bits()]
         .get_or_init(|| resolve(optional))
         .as_ref()

@@ -6,9 +6,11 @@ use std::path::{Path, PathBuf};
 use emela_core::build::*;
 use emela_core::{Assert, BinOp, Builtin, Expr, Module, OpTy, Type, TypeId, WithBind};
 use emela_driver::{
-    Analysis, BuildOutput, Checked, CoreJs, Diagnostic, FileId, Frontend, Input, LowerTests,
-    MemoryFiles, Output, OutputFile, ParseOnly, Parsed, SourceFile, TestBackend, TestCase,
-    TestModule, TestOptions, TestOutcome, TestReport, Typecheck, check, test,
+    AGENT_ENV_VARS, Analysis, BuildOutput, Checked, CoreC, CoreJs, CoreWasm, Dependencies,
+    DependencyPome, DependencyRef, Diagnostic, FileId, Frontend, Input, LowerTests, MemoryFiles,
+    Output, OutputFile, ParseOnly, Parsed, Reporter, SourceFile, Target, TestBackend, TestCase,
+    TestModule, TestOptions, TestOutcome, TestReport, Typecheck, cc_command, check, runs_in_agent,
+    test, wasmtime_program,
 };
 use emela_resolve::ModuleId;
 
@@ -41,13 +43,35 @@ fn out_dir(name: &str) -> PathBuf {
     dir
 }
 
-/// Runs the `emela test` stage. Returns (diagnostics, report, what was written to stdout).
+/// Runs the `emela test` stage with the `plain` reporter. Returns (diagnostics, report, what was
+/// written to stdout).
 fn run_tests<P, F: Frontend<Program = P>, B: TestBackend<P>>(
     name: &str,
     sources: &[(&str, &str)],
     frontend: &mut F,
     backend: &mut B,
     filter: Option<&str>,
+) -> (Analysis, Option<TestReport>, String) {
+    run_tests_with(
+        name,
+        sources,
+        frontend,
+        backend,
+        filter,
+        Reporter::Plain,
+        false,
+    )
+}
+
+/// [`run_tests`] with another reporter, and color for `pretty`.
+fn run_tests_with<P, F: Frontend<Program = P>, B: TestBackend<P>>(
+    name: &str,
+    sources: &[(&str, &str)],
+    frontend: &mut F,
+    backend: &mut B,
+    filter: Option<&str>,
+    reporter: Reporter,
+    color: bool,
 ) -> (Analysis, Option<TestReport>, String) {
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
@@ -56,6 +80,8 @@ fn run_tests<P, F: Frontend<Program = P>, B: TestBackend<P>>(
         node: PathBuf::from("node"),
         filter: filter.map(Into::into),
         output: Output::Capture,
+        reporter,
+        color,
     };
     let mut called = 0;
     let mut out = Vec::new();
@@ -74,12 +100,24 @@ fn run_tests<P, F: Frontend<Program = P>, B: TestBackend<P>>(
 }
 
 fn run_ir(name: &str, tests: TestModule, filter: Option<&str>) -> (TestReport, String) {
-    let (analysis, report, out) = run_tests(
+    run_ir_with(name, tests, filter, Reporter::Plain, false)
+}
+
+fn run_ir_with(
+    name: &str,
+    tests: TestModule,
+    filter: Option<&str>,
+    reporter: Reporter,
+    color: bool,
+) -> (TestReport, String) {
+    let (analysis, report, out) = run_tests_with(
         name,
         PROJECT,
         &mut HandBuiltTests(tests),
         &mut CoreJs,
         filter,
+        reporter,
+        color,
     );
     assert!(
         analysis.diagnostics.is_empty(),
@@ -345,6 +383,190 @@ fn runner_exiting_midway_fails_the_running_test() {
     );
 }
 
+/// `[cmd.test.output]` agent: no header and nothing for passed tests; `FAIL <name>` and the
+/// details for each failure in run order, separated by blank lines; a blank line, then the summary
+/// line of `plain`.
+#[test]
+fn agent_reporter_prints_only_failures_and_the_summary() {
+    let (report, out) = run_ir_with("agent", sample(), None, Reporter::Agent, false);
+    assert_eq!(report.exit_code(), 1);
+    insta::assert_snapshot!(out);
+    assert!(!out.contains("running"), "{out}");
+    assert!(!out.contains("adds ..."), "{out}");
+    // The name of a failure is printed once.
+    assert_eq!(out.matches("adds_wrong").count(), 1, "{out}");
+    assert!(
+        out.ends_with("\n\ntest result: FAILED. 2 passed; 4 failed; 0 filtered out\n"),
+        "{out}"
+    );
+}
+
+/// `[cmd.test.output]` agent: the summary line is printed even when every test passed, with no
+/// blank line before it.
+#[test]
+fn agent_reporter_prints_the_summary_when_all_pass() {
+    let mut tests = sample();
+    tests
+        .tests
+        .retain(|t| t.name == "adds" || t.name == "Util.contains");
+    let (report, out) = run_ir_with("agent-ok", tests, None, Reporter::Agent, false);
+    assert!(report.is_ok());
+    assert_eq!(out, "test result: ok. 2 passed; 0 failed; 0 filtered out\n");
+
+    let (_, out) = run_ir_with(
+        "agent-none",
+        TestModule::default(),
+        None,
+        Reporter::Agent,
+        false,
+    );
+    assert_eq!(out, "test result: ok. 0 passed; 0 failed; 0 filtered out\n");
+
+    let (_, out) = run_ir_with(
+        "agent-filter",
+        sample(),
+        Some("contains"),
+        Reporter::Agent,
+        false,
+    );
+    assert_eq!(out, "test result: ok. 1 passed; 0 failed; 5 filtered out\n");
+}
+
+/// `[cmd.test.output]` agent: what a failed test wrote to stdout follows its details in full; what
+/// a passed test wrote is not printed.
+#[test]
+fn agent_reporter_prints_the_output_of_failed_tests_only() {
+    let (_, report, out) = run_tests_with(
+        "agent-output",
+        PROJECT,
+        &mut ParseOnly::new(),
+        &mut HandWrittenTests {
+            names: vec!["quiet", "noisy_pass", "noisy_fail", "last"],
+            js: "export function quiet() {}\n\
+                 export function noisy_pass() { console.log(\"from the passed test\"); }\n\
+                 export function noisy_fail() { for (let i = 0; i < 50; i++) console.log(`line ${i}`); null.x; }\n\
+                 export function last() {}\n",
+        },
+        None,
+        Reporter::Agent,
+        false,
+    );
+    assert_eq!(report.unwrap().exit_code(), 1);
+    assert!(!out.contains("from the passed test"), "{out}");
+    let lines: String = (0..50).map(|i| format!("line {i}\n")).collect();
+    let (head, rest) = out.split_once('\n').unwrap();
+    assert_eq!(head, "FAIL noisy_fail");
+    assert!(rest.starts_with("defect: TypeError: "), "{out}");
+    assert!(
+        out.ends_with(&format!(
+            "\n{lines}\ntest result: FAILED. 3 passed; 1 failed; 0 filtered out\n"
+        )),
+        "{out}"
+    );
+}
+
+/// `[cmd.test.output]` agent: a test during which the runner exited is a failure, and what it wrote
+/// before exiting is its output.
+#[test]
+fn agent_reporter_prints_a_runner_exit() {
+    let (_, _, out) = run_tests_with(
+        "agent-abort",
+        PROJECT,
+        &mut ParseOnly::new(),
+        &mut HandWrittenTests {
+            names: vec!["first", "exits", "third"],
+            js: "export function first() { console.log(\"first\"); }\nexport function exits() { console.log(\"bye\"); process.exit(3); }\nexport function third() {}\n",
+        },
+        None,
+        Reporter::Agent,
+        false,
+    );
+    assert_eq!(
+        out,
+        "FAIL exits\n\
+         the test runner exited with code 3 while running this test; 1 test after it did not run\n\
+         bye\n\
+         \n\
+         test result: FAILED. 1 passed; 1 failed; 0 filtered out\n"
+    );
+}
+
+/// `[cmd.test.output]` agent and plain: the same input gives the same output (no elapsed time).
+#[test]
+fn agent_and_plain_reporters_are_deterministic() {
+    for reporter in [Reporter::Agent, Reporter::Plain] {
+        let (_, first) = run_ir_with("same-1", sample(), None, reporter, false);
+        let (_, second) = run_ir_with("same-2", sample(), None, reporter, false);
+        assert_eq!(first, second, "{reporter:?}");
+    }
+}
+
+/// `[cmd.test.output]` pretty: every failed test is shown with its details. Without color, no
+/// escape sequence is written.
+#[test]
+fn pretty_reporter_shows_every_failure() {
+    let (report, out) = run_ir_with("pretty", sample(), None, Reporter::Pretty, false);
+    assert_eq!(report.exit_code(), 1);
+    assert!(!out.contains('\x1b'), "{out}");
+    for result in report.results.iter().filter(|r| !r.outcome.is_passed()) {
+        let details = match &result.outcome {
+            TestOutcome::Defect(message) => format!("defect: {message}"),
+            TestOutcome::Error(message) => format!("error: {message}"),
+            outcome => panic!("{outcome:?}"),
+        };
+        // A comparison assert may be laid out differently; its first line is kept.
+        let first = details.lines().next().unwrap();
+        assert!(out.contains(&result.name), "{out}");
+        assert!(out.contains(first), "{first}\n{out}");
+    }
+    // Passed tests are listed too.
+    assert!(out.contains("Util.contains"), "{out}");
+
+    let (_, out) = run_ir_with("pretty-color", sample(), None, Reporter::Pretty, true);
+    assert!(out.contains('\x1b'), "{out}");
+}
+
+/// `[cmd.test.reporter]`: `agent` inside a coding agent, else `pretty` at a terminal, else
+/// `plain`.
+#[test]
+fn reporter_is_detected_from_the_environment() {
+    assert_eq!(Reporter::detect(true, true), Reporter::Agent);
+    assert_eq!(Reporter::detect(true, false), Reporter::Agent);
+    assert_eq!(Reporter::detect(false, true), Reporter::Pretty);
+    assert_eq!(Reporter::detect(false, false), Reporter::Plain);
+}
+
+/// `[cmd.test.reporter]`: the command runs inside a coding agent when `AI_AGENT` is set and not
+/// empty.
+#[test]
+fn ai_agent_means_a_coding_agent() {
+    use std::ffi::OsString;
+    let env = |vars: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            vars.iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| OsString::from(v))
+        }
+    };
+    assert!(AGENT_ENV_VARS.contains(&"AI_AGENT"));
+    assert!(runs_in_agent(env(&[("AI_AGENT", "1")])));
+    assert!(runs_in_agent(env(&[("AI_AGENT", "some-agent")])));
+    assert!(!runs_in_agent(env(&[("AI_AGENT", "")])));
+    assert!(!runs_in_agent(env(&[])));
+    assert!(!runs_in_agent(env(&[("PATH", "/bin")])));
+    // Each of the other variables means the same.
+    for var in AGENT_ENV_VARS {
+        assert!(
+            runs_in_agent(|name| (name == *var).then(|| "1".into())),
+            "{var}"
+        );
+        assert!(
+            !runs_in_agent(|name| (name == *var).then(OsString::new)),
+            "{var}"
+        );
+    }
+}
+
 #[test]
 fn missing_node_is_a_diagnostic() {
     let fs = MemoryFiles::new(PROJECT.iter().copied());
@@ -354,6 +576,8 @@ fn missing_node_is_a_diagnostic() {
         node: PathBuf::from("/nonexistent/node"),
         filter: None,
         output: Output::Capture,
+        reporter: Reporter::Plain,
+        color: false,
     };
     let mut out = Vec::new();
     let (analysis, report) = test(
@@ -896,5 +1120,404 @@ fn failure_drops_the_state() {
                 TestOutcome::Error("Boom".into())
             ),
         ]
+    );
+}
+
+/// Whether `program --version` starts; prints why a target is skipped otherwise.
+fn starts(program: &Path, args: &[String]) -> bool {
+    let ok = std::process::Command::new(program)
+        .args(args)
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !ok {
+        eprintln!("skipping a target: cannot start `{}`", program.display());
+    }
+    ok
+}
+
+/// Runs the tests of `sources` on `target` with the `emela test` frontend. `None` when the
+/// target's tool (the C compiler, wasmtime) cannot start.
+fn run_on(
+    name: &str,
+    fs: &MemoryFiles,
+    input: &Input,
+    target: Target,
+    reporter: Reporter,
+) -> Option<(Analysis, Option<TestReport>, String)> {
+    let mut frontend = LowerTests::default().with_target(target);
+    let options = TestOptions {
+        out_dir: out_dir(&format!("{name}-{target}")),
+        node: emela_driver::node_program(),
+        filter: None,
+        output: Output::Capture,
+        reporter,
+        color: false,
+    };
+    let mut out = Vec::new();
+    let (analysis, report) = match target {
+        Target::Js => test(
+            fs,
+            input,
+            &mut frontend,
+            &mut CoreJs,
+            &options,
+            |_| {},
+            &mut out,
+        ),
+        Target::C => {
+            let (cc, flags) = cc_command();
+            if !starts(&cc, &flags) {
+                return None;
+            }
+            test(
+                fs,
+                input,
+                &mut frontend,
+                &mut CoreC::default(),
+                &options,
+                |_| {},
+                &mut out,
+            )
+        }
+        Target::Wasm => {
+            if !starts(&wasmtime_program(), &[]) {
+                return None;
+            }
+            test(
+                fs,
+                input,
+                &mut frontend,
+                &mut CoreWasm,
+                &options,
+                |_| {},
+                &mut out,
+            )
+        }
+        Target::CEmbedded => unreachable!("this test compares js, c and wasm"),
+    };
+    let _ = std::fs::remove_dir_all(&options.out_dir);
+    Some((analysis, report, String::from_utf8(out).unwrap()))
+}
+
+/// Runs the tests on every target, checks that they print the same and give the same results,
+/// and returns the JS output and each result's (name, location).
+fn run_everywhere(
+    name: &str,
+    fs: &MemoryFiles,
+    input: &Input,
+) -> (String, Vec<(String, Option<String>)>) {
+    run_everywhere_with(name, fs, input, Reporter::Plain)
+}
+
+/// [`run_everywhere`] with another reporter.
+fn run_everywhere_with(
+    name: &str,
+    fs: &MemoryFiles,
+    input: &Input,
+    reporter: Reporter,
+) -> (String, Vec<(String, Option<String>)>) {
+    let mut first: Option<(String, Vec<_>)> = None;
+    for target in [Target::Js, Target::C, Target::Wasm] {
+        let Some((analysis, report, out)) = run_on(name, fs, input, target, reporter) else {
+            continue;
+        };
+        assert!(
+            !analysis.has_errors(),
+            "{target}: {:?}",
+            analysis.diagnostics
+        );
+        let locations: Vec<_> = report
+            .unwrap()
+            .results
+            .into_iter()
+            .map(|r| (r.name, r.location))
+            .collect();
+        match &first {
+            None => first = Some((out, locations)),
+            Some((js_out, js_locations)) => {
+                assert_eq!(&out, js_out, "{target}");
+                assert_eq!(&locations, js_locations, "{target}");
+            }
+        }
+    }
+    first.expect("the JS target always runs")
+}
+
+/// A defect from a failed assert has the location of the assert expression, and the test runner
+/// shows it after the name of the failed test (`[test.assert]`, `[cmd.test.outcome]`,
+/// `[cmd.test.output]`). Every form of assert has it: a comparison, a non-comparison, sides
+/// shown through a written Show impl, an ordering through `Ord.compare`, sides without Show, and
+/// an assert in a generic function. Columns are counted in characters, as in diagnostics. A
+/// panic has no location. The location stays when the runtime adds to the message (a release
+/// that also failed, a const that remembers the defect).
+#[test]
+fn failures_show_where_the_assert_is() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            r##"type Name(value: String)
+
+impl Name: Show {
+  fn show(self) { "<#{self.value}>" }
+}
+
+impl Name: Eq {
+  fn eq(self, other) { self.value == other.value }
+}
+
+type Version(major: Int, minor: Int) derive Eq, Ord, Show
+
+type Hidden(n: Int) derive Eq
+
+fn same[A: Eq](a: A, b: A) -> () { assert a == b }
+
+effect Res {
+  fn get() -> Int
+}
+
+handler Leaky(n: Int): Res {
+  init { Leaky(n: 1) }
+  release { panic("release failed") }
+  fn get() { self.n }
+}
+
+const LIMIT: Int = limit()
+
+fn limit() -> Int {
+  assert 1 > 2
+  3
+}
+
+@test
+fn compares() {
+  assert 1 + 1 == 3
+}
+
+@test
+fn not_a_comparison() {
+  assert False
+}
+
+@test
+fn through_written_show() {
+  assert Name(value: "a") == Name(value: "b")
+}
+
+@test
+fn through_ord() {
+  assert Version(major: 2, minor: 0) < Version(major: 1, minor: 0)
+}
+
+@test
+fn without_show() {
+  assert Hidden(n: 1) == Hidden(n: 2)
+}
+
+@test
+fn in_a_generic_function() {
+  same([1], [2])
+}
+
+@test
+fn after_wide_characters() {
+  if "日本語" != "" { assert "日本語" == "英語" }
+}
+
+@test
+fn panics() {
+  panic("boom")
+}
+
+@test
+fn passes() {
+  assert True
+}
+
+@test
+fn release_fails_too() {
+  with Leaky { assert (use Res).get() == 2 }
+}
+
+@test
+fn in_a_const() {
+  assert LIMIT == 3
+}
+"##,
+        ),
+        (
+            "app/src/util.emel",
+            "@test\nfn in_util() {\n  assert List.length([1]) == 2\n}\n",
+        ),
+    ]);
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let (out, locations) = run_everywhere("locations", &fs, &input);
+    let location = |l: &str| Some(l.to_owned());
+    assert_eq!(
+        locations,
+        [
+            ("compares".to_owned(), location("src/main.emel:36:3")),
+            (
+                "not_a_comparison".to_owned(),
+                location("src/main.emel:41:3")
+            ),
+            (
+                "through_written_show".to_owned(),
+                location("src/main.emel:46:3")
+            ),
+            ("through_ord".to_owned(), location("src/main.emel:51:3")),
+            ("without_show".to_owned(), location("src/main.emel:56:3")),
+            (
+                "in_a_generic_function".to_owned(),
+                location("src/main.emel:15:36")
+            ),
+            (
+                "after_wide_characters".to_owned(),
+                location("src/main.emel:66:20")
+            ),
+            ("panics".to_owned(), None),
+            ("passes".to_owned(), None),
+            (
+                "release_fails_too".to_owned(),
+                location("src/main.emel:81:16")
+            ),
+            ("in_a_const".to_owned(), location("src/main.emel:30:3")),
+            ("Util.in_util".to_owned(), location("src/util.emel:3:3")),
+        ]
+    );
+    insta::assert_snapshot!(out);
+}
+
+/// In single-file mode the path is relative to the directory that contains the file
+/// (`[cmd.test.outcome]`).
+/// `[cmd.test.output]` agent: a failure with a location prints it after the name
+/// (`FAIL <name> <location>`); a failure without one prints `FAIL <name>` alone. The same on every
+/// target.
+#[test]
+fn agent_failures_show_where_the_assert_is() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "@test\nfn passes() {\n  assert 1 == 1\n}\n\n@test\nfn compares() {\n  assert 1 + 1 == 3\n}\n\n@test\nfn panics() {\n  panic(\"boom\")\n}\n",
+        ),
+    ]);
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let (out, _) = run_everywhere_with("agent-location", &fs, &input, Reporter::Agent);
+    assert_eq!(
+        out,
+        "FAIL compares src/main.emel:8:3\n\
+         defect: assertion failed: 1 + 1 == 3\n  left: 2\n right: 3\n\
+         \n\
+         FAIL panics\n\
+         defect: boom\n\
+         \n\
+         test result: FAILED. 1 passed; 2 failed; 0 filtered out\n"
+    );
+}
+
+/// Each test is a run of its own: after a test that stalls and unwinds as interrupted, the next
+/// test's `Fiber.attempt` catches a defect again (`[fiber.cause]`). The same on every target.
+#[test]
+fn an_attempt_after_a_stalled_test_catches_a_defect() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            r#"import Std.Fiber.{Fiber, Success, Failure}
+import Std.Cause.{Cause}
+
+effect Wait {
+  suspend fn wait() -> Int
+}
+
+handler Parked: Wait {
+  suspend fn wait(resume) { () }
+}
+
+@test
+fn stalls() -> () use { Async } {
+  with Parked { _ = (use Wait).wait() }
+}
+
+@test
+fn catches() -> () use { Async } {
+  Fiber.attempt(fn() { panic("caught") }) match {
+    Success(_) -> assert False
+    Failure(c) -> assert Cause.to_string(c) == "defect: caught"
+  }
+}
+"#,
+        ),
+    ]);
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let (out, _) = run_everywhere_with("attempt-after-stall", &fs, &input, Reporter::Agent);
+    assert_eq!(
+        out,
+        "FAIL stalls\n\
+         interrupted\n\
+         \n\
+         test result: FAILED. 1 passed; 1 failed; 0 filtered out\n"
+    );
+}
+
+#[test]
+fn single_file_locations_are_relative_to_its_directory() {
+    let fs = MemoryFiles::new([(
+        "scripts/check.emel",
+        "@test\nfn fails() {\n  assert 1 == 2\n}\n",
+    )]);
+    let input = Input::resolve(&fs, Path::new("scripts/check.emel")).unwrap();
+    let (_, locations) = run_everywhere("single-file", &fs, &input);
+    assert_eq!(
+        locations,
+        [("fails".to_owned(), Some("check.emel:3:3".to_owned()))]
+    );
+}
+
+/// For an assert in a dependency Pome, the path is the path of the Pome's source file, shown as
+/// diagnostics show it (`[cmd.test.outcome]`).
+#[test]
+fn an_assert_in_a_dependency_has_its_source_path() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "import Quince\n\n@test\nfn checks() {\n  Quince.check(2)\n}\n",
+        ),
+        ("deps/quince/Pome.toml", ""),
+        (
+            "deps/quince/src/lib.emel",
+            "pub fn check(n: Int) -> () {\n  assert n == 1\n}\n",
+        ),
+    ]);
+    let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
+    input.dependencies = Dependencies {
+        pomes: vec![DependencyPome {
+            name: "github.com/acme/quince".into(),
+            dir: "/deps/quince".into(),
+            last_element: "quince".into(),
+            module: None,
+            emela: None,
+            targets: None,
+            version: "v1.0.0".into(),
+            dependencies: Vec::new(),
+        }],
+        project: vec![DependencyRef {
+            pome: 0,
+            module: None,
+        }],
+        dev: Vec::new(),
+        manifest: "/app/Pome.toml".into(),
+        allow_external: Vec::new(),
+    };
+    let (_, locations) = run_everywhere("dependency", &fs, &input);
+    assert_eq!(
+        locations,
+        [(
+            "checks".to_owned(),
+            Some("/deps/quince/src/lib.emel:2:3".to_owned())
+        )]
     );
 }

@@ -1000,13 +1000,23 @@ impl<'s> Lower<'s> {
             Builtin::Panic => {
                 let v = self.expr(&args[0])?;
                 let msg = v.op.unwrap_or(Operand::Const(Const::String(String::new())));
-                self.term(Term::Defect(msg));
+                self.term(Term::Defect(msg, None));
                 Err(Div)
             }
             Builtin::Todo => {
-                self.term(Term::Defect(Operand::Const(Const::String(
-                    "not yet implemented".into(),
-                ))));
+                self.term(Term::Defect(
+                    Operand::Const(Const::String("not yet implemented".into())),
+                    None,
+                ));
+                Err(Div)
+            }
+            Builtin::AssertFail => {
+                let v = self.expr(&args[0])?;
+                let msg = v.op.unwrap_or(Operand::Const(Const::String(String::new())));
+                let Expr::Lit(Lit::String(at)) = &args[1] else {
+                    panic!("invalid IR: the location of an assert is not a string literal");
+                };
+                self.term(Term::Defect(msg, Some(at.clone())));
                 Err(Div)
             }
             Builtin::ShowString => {
@@ -1044,6 +1054,7 @@ impl<'s> Lower<'s> {
             Sig::Float => TypeId::FLOAT,
             Sig::Bool => TypeId::BOOL,
             Sig::String => TypeId::STRING,
+            Sig::Bytes => TypeId::BYTES,
             Sig::Unit => TypeId::UNIT,
             Sig::Never => TypeId::NEVER,
             Sig::List(t) => {
@@ -1210,12 +1221,15 @@ impl<'s> Lower<'s> {
             ops.push(v.op.unwrap_or(Operand::Const(Const::Unit)));
         }
         let ty = self.fiber_result(op, first);
-        // A scope's `fails` over-approximates a set type argument that monomorphisation made
-        // empty. When its failure would leave a body that cannot fail, the types say it cannot
-        // fail.
+        // The `fails` of a scope and of `Cause.raise` over-approximates a set type argument that
+        // monomorphisation made empty. When their failure would leave a body that cannot fail,
+        // the types say it cannot fail (the raised cause is then a `Cause[{}]`).
         let op = match op {
             FiberOp::Scope { fails: true } if !self.fails && self.fail.is_empty() => {
                 FiberOp::Scope { fails: false }
+            }
+            FiberOp::CauseRaise { fails: true } if !self.fails && self.fail.is_empty() => {
+                FiberOp::CauseRaise { fails: false }
             }
             op => op,
         };
@@ -1275,7 +1289,7 @@ impl<'s> Lower<'s> {
                 self.intern(Type::Enum(kind, args))
             }
             FiberOp::CauseToString => TypeId::STRING,
-            FiberOp::CauseRaise => TypeId::NEVER,
+            FiberOp::CauseRaise { .. } => TypeId::NEVER,
         }
     }
 
@@ -1380,7 +1394,10 @@ impl<'s> Lower<'s> {
                 } else {
                     format!("assertion failed: {}", a.text)
                 };
-                self.term(Term::Defect(Operand::Const(Const::String(msg))));
+                self.term(Term::Defect(
+                    Operand::Const(Const::String(msg)),
+                    a.location.clone(),
+                ));
                 let else_ = self.close();
                 self.push(Stmt::If {
                     dst: None,
@@ -1413,7 +1430,7 @@ impl<'s> Lower<'s> {
             Piece::Text("\n right: ".into()),
             Piece::Op(right),
         ]);
-        self.term(Term::Defect(msg));
+        self.term(Term::Defect(msg, a.location.clone()));
         let else_ = self.close();
         self.push(Stmt::If {
             dst: None,

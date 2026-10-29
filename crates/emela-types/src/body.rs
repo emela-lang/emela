@@ -12,7 +12,7 @@ use crate::sparse::SparseMap;
 use emela_resolve::hir::{
     Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnSig, HandlerItem,
     Item, Label, ListRest, Literal, LocalId, Param, PatArg, PatId, PatKind, Program, Res, Span,
-    Stmt, StrPart, TypeId, UnaryOp, int_literal_value,
+    Stmt, StrPart, SupplyArgs, TypeId, UnaryOp, WithItem, int_literal_value,
 };
 use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
@@ -35,6 +35,7 @@ use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
 mod capabilities;
 mod effects;
 mod errors;
+mod methods;
 mod suspend;
 
 /// The result of inferring one group of definitions. Types have unification bindings followed.
@@ -66,6 +67,8 @@ pub(crate) struct BodyTypes {
     /// References to capability operations (the `Field` expression of `log.info`) → the effect
     /// operation's definition.
     pub(crate) ops: SparseMap<ExprId, DefId>,
+    /// Method calls (the `Field` callee of `x.f(a)`) → the function they call.
+    pub(crate) methods: SparseMap<ExprId, DefId>,
     /// Dependencies of the group's handlers (the union of the R of init, release and the
     /// operation bodies).
     pub(crate) handler_uses: Vec<(DefId, Row)>,
@@ -74,6 +77,10 @@ pub(crate) struct BodyTypes {
     /// `with` expressions → handlers in initialization order (layers expanded, later handlers
     /// overriding earlier ones).
     pub(crate) with_handlers: SparseMap<ExprId, crate::layer::WithInfo>,
+    /// `with` expressions → per item, the arguments of init reordered by parameter.
+    pub(crate) with_args: SparseMap<ExprId, Vec<Vec<Option<ExprId>>>>,
+    /// Layers → per member, the arguments of init reordered by parameter.
+    pub(crate) layer_args: Vec<(DefId, Vec<Vec<Option<ExprId>>>)>,
 }
 
 /// A handler operation body ([`BodyInfer::infer_handler`]), used when computing E and R.
@@ -188,12 +195,19 @@ pub(crate) struct BodyInfer<'a> {
     expr_effects: SparseMap<ExprId, Row>,
     /// References to capability operations → effect operations.
     ops: SparseMap<ExprId, DefId>,
+    /// Method calls (the `Field` callee) → the fn or trait function called (`[type.rules]`).
+    methods: SparseMap<ExprId, DefId>,
     /// `with` expressions with their listed handlers (layers expanded) and dependencies. The
     /// initialization order and dependency cycles are decided after sets are solved
     /// (`body/effects.rs`).
     withs: Vec<crate::layer::PendingWith>,
     /// `with` expressions → providers in initialization order.
     with_handlers: SparseMap<ExprId, crate::layer::WithInfo>,
+    /// `with` expressions → per item, the arguments of init reordered by parameter
+    /// ([`Self::infer_supply_args`]). Empty for an item without them.
+    with_args: SparseMap<ExprId, Vec<Vec<Option<ExprId>>>>,
+    /// Layers → per member, the arguments of init reordered by parameter.
+    layer_args: Vec<(DefId, Vec<Vec<Option<ExprId>>>)>,
     /// Effect sets required to be `Immediate` (`body/suspend.rs`).
     immediates: Vec<ImmediateObligation>,
     /// Types required to satisfy a trait by the constraints of instantiated type parameters,
@@ -293,8 +307,11 @@ impl<'a> BodyInfer<'a> {
             escapes: Vec::new(),
             expr_effects: SparseMap::new(),
             ops: SparseMap::new(),
+            methods: SparseMap::new(),
             withs: Vec::new(),
             with_handlers: SparseMap::new(),
+            with_args: SparseMap::new(),
+            layer_args: Vec::new(),
             immediates: Vec::new(),
             trait_obligations: Vec::new(),
             self_obligations: Vec::new(),
@@ -342,6 +359,10 @@ impl<'a> BodyInfer<'a> {
     pub(crate) fn declare(&mut self, def: DefId) {
         self.enter(def);
         let program = self.program;
+        // A layer has no type; only the arguments of its members are inferred.
+        if let Some(Item::Layer(_)) = program.item(def) {
+            return;
+        }
         if let Some(Item::Handler(_)) = program.item(def) {
             let uses = self.ctx.new_row_var();
             let fails = self.ctx.new_row_var();
@@ -413,6 +434,15 @@ impl<'a> BodyInfer<'a> {
         let program = self.program;
         if let Some(Item::Handler(item)) = program.item(def) {
             self.infer_handler(def, item);
+            return;
+        }
+        if let Some(Item::Layer(item)) = program.item(def) {
+            let args = item
+                .members
+                .iter()
+                .map(|m| self.infer_supply_args(m.res, m.args.as_ref(), m.span))
+                .collect();
+            self.layer_args.push((def, args));
             return;
         }
         let declared = match self.sigs.get(def) {
@@ -504,6 +534,14 @@ impl<'a> BodyInfer<'a> {
             .unwrap_or_default();
         match item.init {
             Some(init) => {
+                let params = self.sigs.init_params(def).map(|p| p.tys.clone());
+                for (i, p) in item.init_params.iter().enumerate() {
+                    let ty = params
+                        .as_ref()
+                        .and_then(|tys| tys.get(i).cloned())
+                        .unwrap_or(Ty::Error);
+                    self.set_local(p.local, ty);
+                }
                 self.in_init = Some(def);
                 self.check_expr(init, &handler_ty);
                 self.in_init = None;
@@ -634,7 +672,7 @@ impl<'a> BodyInfer<'a> {
                 && hop
                     .params
                     .last()
-                    .is_some_and(|resume| suspend::resume_escapes(program, body, resume.local));
+                    .is_some_and(|resume| suspend::resume_escapes(self, body, resume.local));
             self.handler_bodies.push(HandlerBody {
                 handler: def,
                 index,
@@ -861,9 +899,12 @@ impl<'a> BodyInfer<'a> {
             errors,
             effects,
             ops: self.ops,
+            methods: self.methods,
             handler_uses,
             handler_fails,
             with_handlers: self.with_handlers,
+            with_args: self.with_args,
+            layer_args: self.layer_args,
         }
     }
 
@@ -1011,13 +1052,91 @@ impl<'a> BodyInfer<'a> {
                 }
             }
             ExprKind::Use { .. } => Ty::Error,
-            ExprKind::With { body, .. } => match expected {
-                Some(expected) => {
-                    self.check_expr(*body, expected);
-                    expected.clone()
+            ExprKind::With { handlers, body } => {
+                self.infer_with_args(expr, handlers);
+                match expected {
+                    Some(expected) => {
+                        self.check_expr(*body, expected);
+                        expected.clone()
+                    }
+                    None => self.infer_expr(*body),
                 }
-                None => self.infer_expr(*body),
-            },
+            }
+        }
+    }
+
+    /// The arguments of init written on the items of a `with` (`[effect.with]`). Every item's
+    /// arguments are checked, including those of a handler a later item overrides.
+    fn infer_with_args(&mut self, expr: ExprId, items: &[WithItem]) {
+        let args = items
+            .iter()
+            .map(|item| match item.by {
+                // The label left of `by` takes no arguments.
+                Some((by, by_span)) => {
+                    self.infer_supply_args(item.res, item.args.as_ref(), item.span);
+                    self.infer_supply_args(by, item.by_init_args.as_ref(), by_span)
+                }
+                None => self.infer_supply_args(item.res, item.args.as_ref(), item.span),
+            })
+            .collect();
+        self.with_args.insert(expr, args);
+    }
+
+    /// Checks the arguments written after `target` (`WorkerKv(binding: "KV")`) against the
+    /// parameters of its init, as the arguments of a call (`[effect.handler]`, spec 6.2), and
+    /// returns them reordered by parameter. A handler whose init takes parameters needs them
+    /// (E0434); anything else takes none (E0435). `span` is where `target` is written.
+    fn infer_supply_args(
+        &mut self,
+        target: Res,
+        args: Option<&SupplyArgs>,
+        span: Span,
+    ) -> Vec<Option<ExprId>> {
+        let program = self.program;
+        let sigs = self.sigs;
+        let handler = match target {
+            Res::Def(def) if matches!(program.item(def), Some(Item::Handler(_))) => Some(def),
+            _ => None,
+        };
+        let params = handler.and_then(|h| sigs.init_params(h).map(|p| (h, p)));
+        match (params, args) {
+            (None, None) => Vec::new(),
+            (Some((h, params)), None) => {
+                self.diags.push(Diagnostic {
+                    span: Some(span),
+                    kind: DiagnosticKind::MissingInitArgs {
+                        handler: program.defs[h].name.clone(),
+                        params: params.labels.iter().flatten().cloned().collect(),
+                    },
+                });
+                Vec::new()
+            }
+            (None, Some(args)) => {
+                if let Res::Def(def) = target {
+                    let kind = match program.defs[def].kind {
+                        DefKind::Effect if crate::signature::is_label(program, def) => "label",
+                        kind => kind.describe(),
+                    };
+                    self.diags.push(Diagnostic {
+                        span: Some(args.span),
+                        kind: DiagnosticKind::UnexpectedInitArgs {
+                            name: program.defs[def].name.clone(),
+                            kind,
+                        },
+                    });
+                }
+                for arg in &args.args {
+                    self.infer_expr(arg.value);
+                }
+                Vec::new()
+            }
+            (Some((h, params)), Some(args)) => self.check_args(
+                Some(&program.defs[h].name),
+                Some(&params.labels),
+                &params.tys,
+                &args.args,
+                args.span,
+            ),
         }
     }
 
@@ -1288,7 +1407,24 @@ impl<'a> BodyInfer<'a> {
             ),
             _ => (None, None),
         };
-        let callee_ty = self.infer_expr(callee);
+        // `x.f(a)` may be a method call (`[type.rules]`).
+        let callee_ty = match &program.exprs[callee].kind {
+            ExprKind::Field { base, name } => {
+                let base_ty = self.infer_expr(*base);
+                match self.infer_dot(callee, *base, &base_ty, name, true) {
+                    methods::Dot::Method(def) => {
+                        return self.infer_method_call(
+                            expr, callee, *base, &base_ty, def, name, args, span,
+                        );
+                    }
+                    methods::Dot::Value(ty) => {
+                        self.exprs.insert(callee, ty.clone());
+                        ty
+                    }
+                }
+            }
+            _ => self.infer_expr(callee),
+        };
         // Capability operations (`log.info(...)`) use the declared operation's parameter names as
         // labels.
         let (callee_name, labels) = match (callee_name, self.ops.get(callee)) {
@@ -1325,10 +1461,28 @@ impl<'a> BodyInfer<'a> {
             }
         };
 
+        let slots = self.check_args(callee_name, labels, &f.params, args, span);
+        self.calls.insert(expr, slots);
+
+        f.ret
+    }
+
+    /// Assigns `args` to the parameters `params` ([`Self::assign_args`]), reports a wrong number
+    /// of them at `span` (E0305), checks each argument against its parameter's type and infers
+    /// the extra ones (spec 6.2). Returns the arguments in parameter order. Shared by calls and
+    /// the arguments of init (`[effect.handler]`).
+    fn check_args(
+        &mut self,
+        callee_name: Option<&SmolStr>,
+        labels: Option<&[Option<SmolStr>]>,
+        params: &[Ty],
+        args: &[Arg],
+        span: Span,
+    ) -> Vec<Option<ExprId>> {
         let assigned = self.assign_args(
             callee_name,
             labels,
-            f.params.len(),
+            params.len(),
             args.iter().map(|arg| (arg.label.as_ref(), arg.value)),
         );
         if !assigned.reported && (assigned.too_many || assigned.has_missing()) {
@@ -1336,24 +1490,20 @@ impl<'a> BodyInfer<'a> {
                 span: Some(span),
                 kind: DiagnosticKind::WrongArgCount {
                     callee: callee_name.cloned(),
-                    expected: f.params.len(),
+                    expected: params.len(),
                     found: args.len(),
                 },
             });
         }
-
-        for (slot, param_ty) in assigned.slots.iter().zip(&f.params) {
+        for (slot, param_ty) in assigned.slots.iter().zip(params) {
             if let Some(arg) = slot {
                 self.check_expr(*arg, param_ty);
             }
         }
-
         for extra in assigned.extra {
             self.infer_expr(extra);
         }
-        self.calls.insert(expr, assigned.slots);
-
-        f.ret
+        assigned.slots
     }
 
     /// Without else, the body is `()` or `Never` and the whole is `()` (spec 6.4). With an
@@ -1555,74 +1705,14 @@ impl<'a> BodyInfer<'a> {
         ty
     }
 
-    /// The type of field access `x.name`, looked up in the declaration of the base type (type or
-    /// error). The base type must be known by now; it is not inferred backwards from the name.
+    /// The type of `x.name` when it is not called: a field, looked up in the declaration of the
+    /// base type (type or error), or an operation of a capability value. The base type must be
+    /// known by now; it is not inferred backwards from the name.
     fn infer_field(&mut self, expr: ExprId, base: ExprId, name: &Label) -> Ty {
         let base_ty = self.infer_expr(base);
-        let base_ty = self.ctx.shallow_resolve(&base_ty);
-        let (id, args) = match &base_ty {
-            Ty::Named(id, args) => (*id, args),
-            Ty::Cap(effect) => return self.infer_op(expr, effect, name),
-            Ty::Error | Ty::Never => return Ty::Error,
-            Ty::Var(_) => {
-                return self.field_error(
-                    name,
-                    DiagnosticKind::FieldOnUnknownType {
-                        field: name.name.clone(),
-                    },
-                );
-            }
-            _ => {
-                let ty = self.ctx.resolve(&base_ty);
-                return self.field_error(
-                    name,
-                    DiagnosticKind::NoFields {
-                        ty,
-                        field: name.name.clone(),
-                    },
-                );
-            }
-        };
-
-        let program = self.program;
-        let type_def = self.ty_table.def(id);
-        let data = &program.defs[type_def];
-        if data.is_opaque && data.module != self.module {
-            let ty = self.ctx.resolve(&base_ty);
-            return self.field_error(
-                name,
-                DiagnosticKind::OpaqueField {
-                    ty,
-                    field: name.name.clone(),
-                },
-            );
-        }
-
-        match self.field_ty(type_def, args, &name.name) {
-            FieldTy::Found(index, ty) => {
-                self.fields.insert(expr, index);
-                ty
-            }
-            FieldTy::NoSuchField => {
-                let ty = self.ctx.resolve(&base_ty);
-                self.field_error(
-                    name,
-                    DiagnosticKind::NoField {
-                        ty,
-                        field: name.name.clone(),
-                    },
-                )
-            }
-            FieldTy::NotARecord => {
-                let ty = self.ctx.resolve(&base_ty);
-                self.field_error(
-                    name,
-                    DiagnosticKind::NoFields {
-                        ty,
-                        field: name.name.clone(),
-                    },
-                )
-            }
+        match self.infer_dot(expr, base, &base_ty, name, false) {
+            methods::Dot::Value(ty) => ty,
+            methods::Dot::Method(_) => unreachable!("a method is found only for a call"),
         }
     }
 

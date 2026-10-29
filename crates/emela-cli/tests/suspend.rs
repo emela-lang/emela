@@ -29,17 +29,38 @@ impl Project {
         Project { dir }
     }
 
+    /// Runs emela. For `run`, the line naming the command that started the program is left out of
+    /// stderr, which then holds only the program's own output.
     fn emela(&self, args: &[&str]) -> (Option<i32>, String, String) {
-        let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        // `emela test` prints in the `plain` format outside a coding agent ([cmd.test.reporter]).
+        let mut command = Command::new(env!("CARGO_BIN_EXE_emela"));
+        for var in emela_driver::AGENT_ENV_VARS {
+            command.env_remove(var);
+        }
+        let output = command
             .args(args)
             .current_dir(&self.dir)
             .env("NO_COLOR", "1")
             .output()
             .unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let stderr = if args.first() == Some(&"run") {
+            let mut found = false;
+            stderr
+                .split_inclusive('\n')
+                .filter(|line| {
+                    let command = !found && line.starts_with("running `");
+                    found |= command;
+                    !command
+                })
+                .collect()
+        } else {
+            stderr
+        };
         (
             output.status.code(),
             String::from_utf8(output.stdout).unwrap(),
-            String::from_utf8(output.stderr).unwrap(),
+            stderr,
         )
     }
 }

@@ -1,33 +1,26 @@
-# An HTTP client. Requests and responses are values, `send` is the only operation, and 4xx and
-# 5xx are responses, not failures. This example never touches the network: `main` replaces
-# `SystemHttp` from `Platform` with `TestHttp`, which answers with a function.
+# An HTTP client. Requests and responses are values (`Std.Http.Request` and `Std.Http.Response`),
+# `send` is the only operation, and 4xx and 5xx are responses, not failures. This example never
+# touches the network: `main` replaces `SystemHttp` from `Platform` with `TestHttp`, which answers
+# with a function.
 
 import Std.Platform.{Platform}
 import Std.Console.{Console}
-import Std.Http
-import Std.Http.{
-  Http,
-  Get,
-  Request,
-  Response,
-  ConnectionFailed,
-  UnexpectedStatus,
-  TestHttp,
-  TestServer,
-}
+import Std.Http.{Http, ConnectionFailed, TestHttp, TestServer}
+import Std.Http.Request.{Request, Get}
+import Std.Http.Response.{Response, UnexpectedStatus}
 import Std.State.{State}
 
 const BASE: String = "https://search.example.com"
 
 ## The request for page `page` of the results for `query`.
 fn search_request(query: String, page: Int) -> Request {
-  query_string = Http.encode_query([("q", query), ("page", Int.to_string(page))])
-  Http.request(Get, "#{BASE}/search?#{query_string}") |> Http.add_header("accept", "text/plain")
+  query_string = Request.encode_query([("q", query), ("page", Int.to_string(page))])
+  Request.new(Get, "#{BASE}/search?#{query_string}") |> Request.add_header("accept", "text/plain")
 }
 
 ## The first line of the results for `query`. Fails unless the status is 2xx.
 fn first_line(query: String) {
-  res = (use Http).send(search_request(query, 1)) |> Http.require_ok
+  res = (use Http).send(search_request(query, 1)) |> Response.require_ok
   Option.or(List.head(String.split(res.body, "\n")), "")
 }
 
@@ -44,9 +37,9 @@ fn respond(req: Request, n: Int) -> Option[Response] {
   if n >= 2 {
     None
   } else if String.contains(req.url, "q=emela") {
-    Some(Http.response(200, "Emela: typed errors and effects\nEmela on GitHub"))
+    Some(Response.new(200, "Emela: typed errors and effects\nEmela on GitHub"))
   } else {
-    Some(Http.response(404, "no results"))
+    Some(Response.new(404, "no results"))
   }
 }
 
@@ -73,7 +66,7 @@ fn the_query_is_encoded() {
 
 @test
 fn a_404_is_not_a_failure() {
-  server = TestServer(respond: fn(_, _) { Some(Http.response(404, "")) }, sent: [])
+  server = TestServer(respond: fn(_, _) { Some(Response.new(404, "")) }, sent: [])
   (text, after) = State.run(server, fn() { with TestHttp { first_result("x") } })
   assert text == "status 404"
   assert List.length(after.sent) == 1

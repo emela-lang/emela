@@ -72,12 +72,13 @@ fn library_build_only_typechecks_and_never_calls_backend_hooks() {
     let fs = MemoryFiles::new([
         ("app/Pome.toml", ""),
         // Showing a capability value is type-correct but not supported by lowering. A check-
-        // only build must not lower exports or produce a backend-dependent error.
+        // only build must not lower exports or produce a backend-dependent error. `show` is an
+        // export, so a build of the file lowers it.
         // Generic interpolation is supported via monomorphization, so it cannot serve as
         // the unsupported expression here.
         (
             "app/src/lib.emel",
-            "import Std.Console.{Console, SystemConsole}\n\npub fn show() -> String {\n  with SystemConsole {\n    c = use Console\n    \"#{c}\"\n  }\n}\n",
+            "import Std.Console.{Console, SystemConsole}\n\n@export(js, \"show\")\npub fn show() -> String {\n  with SystemConsole {\n    c = use Console\n    \"#{c}\"\n  }\n}\n",
         ),
     ]);
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
@@ -138,7 +139,7 @@ fn library_run_is_e0230_even_if_lib_defines_main() {
                 &mut Lower::default().with_target(target),
                 &mut NoBackend,
                 &options,
-                |_| called += 1,
+                |_, _| called += 1,
             );
             assert_eq!(called, 1);
             assert!(output.is_none());
@@ -175,7 +176,7 @@ fn library_build_and_run_do_not_hide_type_errors() {
         &mut Lower::default(),
         &mut NoBackend,
         &options,
-        |_| {},
+        |_, _| {},
     );
     assert!(entry.is_none());
     assert!(output.is_none());
@@ -206,7 +207,7 @@ fn projects_with_neither_entry_still_report_e0209() {
         &mut Lower::default(),
         &mut NoBackend,
         &options,
-        |_| {},
+        |_, _| {},
     );
     assert!(entry.is_none());
     assert!(output.is_none());

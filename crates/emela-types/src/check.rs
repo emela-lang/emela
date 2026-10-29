@@ -8,11 +8,12 @@
 //! recursion between definitions without declared types is not polymorphic.
 
 use emela_resolve::hir::{
-    Block, DefId, ExprId, ExprKind, Item, LocalId, PatId, PatKind, Program, Res, Span, Stmt,
-    StrPart,
+    Block, DefId, DefKind, ExprId, ExprKind, Item, LocalId, PatId, PatKind, Program, Res, Span,
+    Stmt, StrPart, TypeKind,
 };
 use la_arena::ArenaMap;
 use rustc_hash::FxHashMap;
+use smol_str::SmolStr;
 
 use crate::body::{BodyInfer, HandlerFacts};
 use crate::diagnostic::{Diagnostic, EffectContext};
@@ -48,7 +49,8 @@ pub struct ProgramTypes {
     /// order).
     pub fields: ArenaMap<ExprId, usize>,
     /// Call (`Call`), pipe (`Binary { op: Pipe }`) and update (`Update`) expressions → the
-    /// arguments reordered by parameter (field) position. Pipes include the left operand first;
+    /// arguments reordered by parameter (field) position. Pipes include the left operand first,
+    /// and method calls (`methods`) the x of `x.f(a)`;
     /// their callee is the right side's callee if the right side is a call, else the right side
     /// itself. Updates have `Some` only for the fields written. Whether to evaluate in written
     /// order (`named::in_written_order`) is left to lowering.
@@ -84,6 +86,11 @@ pub struct ProgramTypes {
     /// References to capability operations (the `Field` expression of `log.info`) → the effect
     /// operation's definition.
     pub ops: ArenaMap<ExprId, DefId>,
+    /// Method calls (the `Field` callee of `x.f(a)`, `[type.rules]`) → the fn of the module of the
+    /// type of x, or the trait function, that it calls. The callee has that function's
+    /// instantiated type and its `type_args` and `type_rows`, as a `Path` to it would, and the
+    /// `calls` of the call put x first, as a pipe does.
+    pub methods: ArenaMap<ExprId, DefId>,
     /// A handler's dependencies (the union of the R of init, release and the operation bodies;
     /// "deps(H)" in spec 9.4). Only for inferred handlers.
     pub handler_uses: ArenaMap<DefId, Row>,
@@ -97,6 +104,12 @@ pub struct ProgramTypes {
     /// Layer → its expansion (handlers in initialization order and the dependencies the layer
     /// leaves unmet).
     pub layers: ArenaMap<DefId, LayerInfo>,
+    /// `with` expressions → per item, the arguments of init reordered by parameter
+    /// (`[effect.handler]`). Empty for an item without them. `WithBind::args` refers to these.
+    pub with_args: ArenaMap<ExprId, Vec<Vec<Option<ExprId>>>>,
+    /// Layers → per item, the arguments of init reordered by parameter. Only for layers with
+    /// arguments.
+    pub layer_args: ArenaMap<DefId, Vec<Vec<Option<ExprId>>>>,
     /// Supertraits and impls (spec 10.1–10.2).
     pub traits: Traits,
     pub diags: Vec<Diagnostic>,
@@ -124,6 +137,21 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         let name = program.defs[test].name.clone();
         closed.insert(test, EffectContext::Test { name });
     }
+    // Every `@export` fn, entry adapters included, has the R of main (`[ext.export]`).
+    for (def, item) in program.items.iter() {
+        if let Item::Fn(f) = item
+            && !f.exports.is_empty()
+            && f.body.is_some()
+        {
+            let name = program.defs[def].name.clone();
+            closed.insert(def, EffectContext::Export { name });
+        }
+    }
+    // So is a fn made by `@entry`; an error in it becomes E0440 (`crate::export::check`).
+    for e in &program.entry_exports {
+        let name = program.defs[e.entry].name.clone();
+        closed.insert(e.def, EffectContext::Export { name });
+    }
     let ty_table = TyTable::new(program);
     let mut diags = Vec::new();
     let mut sigs = Signatures::collect(program, &ty_table, &mut diags);
@@ -147,10 +175,13 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         errors: ArenaMap::default(),
         effects: ArenaMap::default(),
         ops: ArenaMap::default(),
+        methods: ArenaMap::default(),
         handler_uses: ArenaMap::default(),
         handler_fails: ArenaMap::default(),
         with_handlers: ArenaMap::default(),
         layers: ArenaMap::default(),
+        with_args: ArenaMap::default(),
+        layer_args: ArenaMap::default(),
         traits,
         diags,
     };
@@ -217,14 +248,22 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             .effects
             .extend(body.effects.iter().map(|(id, row)| (id, row.clone())));
         types.ops.extend(body.ops.iter().map(|(id, &op)| (id, op)));
+        types
+            .methods
+            .extend(body.methods.iter().map(|(id, &def)| (id, def)));
         types.handler_uses.extend(body.handler_uses);
         types.handler_fails.extend(body.handler_fails);
         types
             .with_handlers
             .extend(body.with_handlers.iter().map(|(id, hs)| (id, hs.clone())));
+        types
+            .with_args
+            .extend(body.with_args.iter().map(|(id, args)| (id, args.clone())));
+        types.layer_args.extend(body.layer_args);
         types.diags.extend(body.diags);
     }
 
+    crate::export::check(program, &types.ty_table, &sigs, &mut types.diags);
     crate::traits::unused_derives(program, &types.traits, &mut types.diags);
     types.layers = layer::check_layers(
         program,
@@ -237,7 +276,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
     types
 }
 
-/// Orders the definitions to infer (fns with bodies, consts, handlers, trait default
+/// Orders the definitions to infer (fns with bodies, consts, handlers, layers, trait default
 /// implementations and impl functions with signatures) into groups that refer to each other,
 /// callees first.
 fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
@@ -249,6 +288,9 @@ fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
             Some(Item::Fn(item)) => item.body.is_some(),
             Some(Item::TraitFn(item)) => item.body.is_some() && sigs.get(def).is_some(),
             Some(Item::Const(_) | Item::Handler(_)) => true,
+            // The arguments of a layer's items are inferred, as the value of a const. Every
+            // layer is, since an item without arguments may need them (E0434).
+            Some(Item::Layer(_)) => true,
             // An impl function without a signature (its impl or trait function has an error) is
             // not inferred.
             _ => program
@@ -258,25 +300,63 @@ fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
         .collect();
     let is_node: FxHashMap<DefId, ()> = nodes.iter().map(|&def| (def, ())).collect();
 
+    // A method call `x.f(...)` calls a fn found from the type of x (`[type.rules]`), which is
+    // known only during inference. A fn without a declared type has to be inferred before its
+    // callers, so a method call gets an edge to every such fn named f that can be called as a
+    // method (its first parameter is written as a named type). This can put definitions that do
+    // not call each other into one group, inferred together and not generalized between them:
+    // the cost of not knowing the callee before inference.
+    let mut methods: FxHashMap<&SmolStr, Vec<DefId>> = FxHashMap::default();
+    for &def in &nodes {
+        if sigs.get(def).is_none() && may_be_method(program, def) {
+            methods
+                .entry(&program.defs[def].name)
+                .or_default()
+                .push(def);
+        }
+    }
+
     let mut edges: FxHashMap<DefId, Vec<DefId>> = FxHashMap::default();
     for &def in &nodes {
+        let body = body_refs_and_methods(program, def);
         // A layer written in `with` becomes edges to its handlers (spec 8.5).
-        let mut refs: Vec<DefId> = body_refs(program, def)
+        let mut refs: Vec<DefId> = body
+            .defs
             .into_iter()
             .flat_map(|(r, _)| match program.item(r) {
                 Some(Item::Layer(_)) => layer::flatten(program, r)
                     .into_iter()
-                    .map(|(h, _)| h)
+                    .map(|f| f.handler)
                     .collect(),
                 _ => vec![r],
             })
             .collect();
+        refs.extend(
+            body.methods
+                .iter()
+                .flat_map(|name| methods.get(name).into_iter().flatten()),
+        );
         refs.retain(|r| is_node.contains_key(r));
         refs.dedup();
         edges.insert(def, refs);
     }
 
     strongly_connected(&nodes, &edges)
+}
+
+/// A top-level fn whose first parameter is written as a named type (not a type parameter), so
+/// that a method call can find it.
+fn may_be_method(program: &Program, def: DefId) -> bool {
+    let Some(Item::Fn(item)) = program.item(def) else {
+        return false;
+    };
+    let Some(ty) = item.sig.params.first().and_then(|p| p.ty) else {
+        return false;
+    };
+    matches!(
+        program.types[ty].kind,
+        TypeKind::Path { res: Res::Def(d), .. } if program.defs[d].kind != DefKind::TypeParam
+    )
 }
 
 /// The strongly connected components of the graph, each sorted in definition order. A component
@@ -354,9 +434,21 @@ impl Tarjan<'_> {
 /// The definitions referred to in a definition's body (fns with bodies, consts, handlers), with
 /// their spans, in source order. Empty for definitions without a body. Includes consts in
 /// patterns and handlers written in `with`. For handlers, looks at init, release and the
-/// operation bodies.
+/// operation bodies; for layers, at the arguments of their items.
 pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
-    let mut out = Vec::new();
+    body_refs_and_methods(program, def).defs
+}
+
+/// What a body refers to: the definitions of [`body_refs`], and the names of the method calls
+/// (`x.f(...)`), whose callees are known only after type inference.
+#[derive(Default)]
+struct Refs {
+    defs: Vec<(DefId, Span)>,
+    methods: Vec<SmolStr>,
+}
+
+fn body_refs_and_methods(program: &Program, def: DefId) -> Refs {
+    let mut out = Refs::default();
     match program.item(def) {
         Some(Item::Fn(item) | Item::TraitFn(item)) => {
             if let Some(body) = item.body {
@@ -364,6 +456,15 @@ pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
             }
         }
         Some(Item::Const(item)) => collect_expr_refs(program, item.value, &mut out),
+        Some(Item::Layer(item)) => {
+            for arg in item
+                .members
+                .iter()
+                .flat_map(|m| m.args.iter().flat_map(|a| &a.args))
+            {
+                collect_expr_refs(program, arg.value, &mut out);
+            }
+        }
         Some(Item::Handler(item)) => {
             let bodies = item
                 .init
@@ -385,11 +486,11 @@ pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
     out
 }
 
-fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<(DefId, Span)>) {
-    let go = |e: ExprId, out: &mut Vec<(DefId, Span)>| collect_expr_refs(program, e, out);
+fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Refs) {
+    let go = |e: ExprId, out: &mut Refs| collect_expr_refs(program, e, out);
     let e = &program.exprs[expr];
     match &e.kind {
-        ExprKind::Path(Res::Def(def)) => out.push((*def, e.span)),
+        ExprKind::Path(Res::Def(def)) => out.defs.push((*def, e.span)),
         ExprKind::Missing
         | ExprKind::Lit(_)
         | ExprKind::Path(_)
@@ -404,6 +505,9 @@ fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<(DefId, Span
         }
         ExprKind::Field { base, .. } => go(*base, out),
         ExprKind::Call { callee, args } => {
+            if let ExprKind::Field { name, .. } = &program.exprs[*callee].kind {
+                out.methods.push(name.name.clone());
+            }
             go(*callee, out);
             for arg in args {
                 go(arg.value, out);
@@ -459,8 +563,11 @@ fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<(DefId, Span
             for item in handlers {
                 for (res, span) in std::iter::once((item.res, item.span)).chain(item.by) {
                     if let Res::Def(h) = res {
-                        out.push((h, span));
+                        out.defs.push((h, span));
                     }
+                }
+                for arg in layer::item_args(item) {
+                    go(arg, out);
                 }
             }
             go(*body, out);
@@ -469,7 +576,7 @@ fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<(DefId, Span
     }
 }
 
-fn collect_block_refs(program: &Program, block: &Block, out: &mut Vec<(DefId, Span)>) {
+fn collect_block_refs(program: &Program, block: &Block, out: &mut Refs) {
     for stmt in &block.stmts {
         match stmt {
             Stmt::Let { pat, value, .. } => {
@@ -485,10 +592,10 @@ fn collect_block_refs(program: &Program, block: &Block, out: &mut Vec<(DefId, Sp
 }
 
 /// Collects the consts referred to in a pattern.
-fn collect_pat_refs(program: &Program, pat: PatId, out: &mut Vec<(DefId, Span)>) {
+fn collect_pat_refs(program: &Program, pat: PatId, out: &mut Refs) {
     let p = &program.pats[pat];
     match &p.kind {
-        PatKind::Const(Res::Def(def)) => out.push((*def, p.span)),
+        PatKind::Const(Res::Def(def)) => out.defs.push((*def, p.span)),
         PatKind::Ctor { args, .. } => {
             for arg in args.iter().flatten() {
                 collect_pat_refs(program, arg.pat, out);

@@ -62,7 +62,7 @@ fn run_wasm_files(name: &str, files: &[(&str, &str)]) -> (Analysis, Option<RunOu
         &mut Lower::default().with_target(Target::Wasm),
         &mut CoreWasm,
         &options,
-        |_| {},
+        |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
     result
@@ -217,6 +217,8 @@ fn test_wasm(name: &str, main: &str) -> (Analysis, Vec<(String, TestOutcome)>) {
         node: wasmtime_program(),
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut out = Vec::new();
     let (analysis, report) = test(

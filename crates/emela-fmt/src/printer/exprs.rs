@@ -85,7 +85,7 @@ impl Printer {
             PATH | PATH_TYPE | TYPE_VAR | SELF_TYPE | NAME_REF | PATH_EXPR | UNDERSCORE_EXPR
             | PAREN_EXPR | FIELD_EXPR | PREFIX_EXPR | REST_EXPR | LITERAL | PAREN_TYPE
             | SPREAD_ARG | WILDCARD_PAT | IDENT_PAT | CONST_PAT | LITERAL_PAT | VARIANT_PAT
-            | REST_PAT | ANNOTATION => self.seq(node, |_, _| false),
+            | REST_PAT | ANNOTATION | ANNOT_PATH => self.seq(node, |_, _| false),
             TYPE_ARG_LIST | PARAM_TYPE_LIST | UNIT_TYPE | TUPLE_TYPE | TYPE_PARAM_LIST
             | PARAM_LIST | UNIT_EXPR | TUPLE_EXPR | LIST_EXPR | PAT_ARG_LIST | UNIT_PAT
             | TUPLE_PAT | LIST_PAT | ANNOT_ARG_LIST | FIELD_LIST | TUPLE_FIELD_LIST
@@ -114,7 +114,8 @@ impl Printer {
             EFFECT_SET => self.seq(node, |_, _| true),
             STRING => self.string(node),
             INTERP => self.interp(node),
-            CALL_EXPR => self.call(node),
+            // `WorkerKv(binding: "KV")` in `with` and `layer` reads as a call.
+            CALL_EXPR | SUPPLY => self.call(node),
             BIN_EXPR => self.bin_chain(node),
             BLOCK_EXPR => self.block(node).assemble(false).group(),
             IF_EXPR => self.if_chain(node).group(),

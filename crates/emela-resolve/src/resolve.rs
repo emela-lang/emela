@@ -126,6 +126,7 @@ pub fn resolve(
                 name: data.name.clone(),
                 items: Vec::new(),
                 is_core: modules.is_core(module),
+                traits: Vec::new(),
             },
         );
         if let Some(file) = files.get(module) {
@@ -141,9 +142,14 @@ pub fn resolve(
             resolver.warn_prelude_shadowing(module);
         }
     }
+    for (module, _) in modules.iter() {
+        let traits = resolver.visible_traits(module);
+        resolver.program.modules[module].traits = traits;
+    }
     for pending in pending {
         crate::lower::lower_item(&mut resolver, pending);
     }
+    crate::lower::check_fn_field_names(&mut resolver);
     let Resolver {
         program,
         mut diagnostics,
@@ -297,8 +303,13 @@ impl<'a> Resolver<'a> {
                 ast::Item::Impl(_) => (DefKind::Impl, None, false, false),
             };
             if !matches!(item, ast::Item::Fn(_)) {
-                // A built-in effect (`Scope`, spec 11.2) is marked with `@intrinsic`.
-                let allowed = matches!(item, ast::Item::Effect(_));
+                // A built-in effect (`Scope`, spec 11.2) and a built-in type (`Bytes`,
+                // `[api.std.bytes]`) are marked with `@intrinsic`.
+                let allowed = match &item {
+                    ast::Item::Effect(_) => true,
+                    ast::Item::Type(it) => it.field_list().is_none(),
+                    _ => false,
+                };
                 self.check_intrinsic(module, &syntax, allowed);
             }
             let (name, range) = match &name_token {
@@ -388,8 +399,9 @@ impl<'a> Resolver<'a> {
         pending
     }
 
-    /// `@intrinsic` is allowed only on fns without a body and on effects (built-in effects such
-    /// as `Scope`, spec 8.1) in the bundled core sources. `allowed` tells whether `node` is one of
+    /// `@intrinsic` is allowed only on fns without a body, on effects (built-in effects such
+    /// as `Scope`, spec 8.1) and on types without fields (built-in types such as `Bytes`,
+    /// `[kw.annotation]`) in the bundled core sources. `allowed` tells whether `node` is one of
     /// those. Fns in traits, impls and handlers are checked too (never allowed), although the
     /// parser does not put annotations inside those bodies yet.
     pub(crate) fn check_intrinsic(&mut self, module: ModuleId, node: &SyntaxNode, allowed: bool) {
@@ -609,6 +621,19 @@ impl<'a> Resolver<'a> {
             .get(ns, name)
             .map(|e| e.target)
             .or_else(|| self.prelude[ns as usize].get(name).copied())
+    }
+
+    /// The traits that can be written unqualified in `module` ([`ModuleItems::traits`]).
+    fn visible_traits(&self, module: ModuleId) -> Vec<DefId> {
+        let mut traits: Vec<DefId> = self.scopes[module]
+            .names(Ns::Type)
+            .chain(self.prelude[Ns::Type as usize].keys())
+            .filter_map(|name| self.lookup(module, Ns::Type, name))
+            .filter(|&def| self.program.defs[def].kind == DefKind::Trait)
+            .collect();
+        traits.sort_by_key(|def| def.into_raw());
+        traits.dedup();
+        traits
     }
 
     /// "Did you mean" candidates: names in the module's namespaces and the Prelude.

@@ -67,6 +67,7 @@ fn narrow_snapshots() {
         "comments.emel",
         "decls.emel",
         "postfix_match.emel",
+        "handler_init_args.emel",
     ] {
         let (_, src) = inputs().into_iter().find(|(n, _)| n == name).unwrap();
         insta::assert_snapshot!(format!("{name}_40"), check(name, &src, 40));

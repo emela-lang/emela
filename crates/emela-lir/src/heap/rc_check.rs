@@ -203,7 +203,7 @@ impl Check<'_> {
                         self.deliver(head, &tokens);
                     }
                 }
-                Term::Return(_) | Term::Fail(_) | Term::Unwind | Term::Defect(_) => {
+                Term::Return(_) | Term::Fail(_) | Term::Unwind | Term::Defect(..) => {
                     self.deliver(None, &tokens)
                 }
                 Term::Unreachable => {}

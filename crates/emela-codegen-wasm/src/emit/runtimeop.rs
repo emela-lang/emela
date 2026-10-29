@@ -18,6 +18,7 @@ impl<'m> Builder<'m> {
             RuntimeOp::DebugPrint => "debug_print",
             RuntimeOp::Retire => "retire",
             RuntimeOp::Defect => "raise",
+            RuntimeOp::DefectAt => "raise_at",
             RuntimeOp::DefectTake => "defect_take",
             RuntimeOp::DefectResume => "defect_resume",
             // A fairness yield hands the scheduler a turn. The WASM backend has no fibers yet,

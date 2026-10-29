@@ -1,0 +1,21 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Clock {\n  suspend fn wait() -> Int\n  fn now() -> Int\n}\n\neffect Kv {\n  fn get(key: String) -> String\n}\n\nhandler Slow(ms: Int): Kv {\n  init(ms: Int) { Slow(ms:) }\n  fn get(key) { \"\" }\n}\n\nhandler Kept(k: fn(Int) -> ()): Kv {\n  init(k: fn(Int) -> ()) { Kept(k:) }\n  fn get(key) { \"\" }\n}\n\nhandler Fast: Kv {\n  fn get(key) { \"\" }\n}\n\nhandler Ticking: Clock {\n  suspend fn wait(resume) {\n    with Kept(k: resume), Fast { resume(1) }\n  }\n  fn now() {\n    (use Clock).wait()\n    with Slow(ms: (use Clock).wait()), Fast { (use Kv).get(\"a\") }\n    1\n  }\n}\n\"#)"
+---
+handler Slow: use {}
+handler Kept: use {}
+handler Fast: use {}
+handler Ticking: use Clock
+`(use Clock).wait()` SuspendingFnOp { op: "now", call: Op { effect: "Clock", op: "wait" } }
+--- R
+{     (use Clock).wait()     with Slow(ms: (use Clock).wait()), Fast { (use Kv).get("a") }     1   }: Clock
+(use Clock).wait(): Clock
+(use Clock).wait: Clock
+use Clock: Clock
+(use Clock).wait(): Clock
+(use Clock).wait: Clock
+use Clock: Clock
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv

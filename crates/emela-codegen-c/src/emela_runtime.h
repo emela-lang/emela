@@ -12,7 +12,9 @@
  * Every heap object starts with a 16-byte header:
  *
  *     offset 0: uint32_t rc     reference count; 0 marks static data, which is never counted
- *     offset 4: uint32_t aux    1 on a const's self-reference defect, 0 otherwise
+ *     offset 4: uint32_t aux    on a defect: bit 0 marks a const's self-reference defect, and
+ *                               the bits above it number the location of a failed assert
+ *                               (`em_raise_at`); 0 otherwise
  *     offset 8: em_desc *desc   what the object is: its kind, constructor tag, slot count and
  *                               which slots hold references
  *
@@ -133,6 +135,9 @@ extern em_ref em_failure;
 /* RuntimeOp::Defect: makes the message (borrowed) the pending defect. */
 void em_raise(em_ref msg);
 void em_raise_cstr(const char *msg);
+/* RuntimeOp::DefectAt: em_raise for a failed assert, whose defect carries the location `at` (a
+ * static String) outside its message (spec 13.2). */
+void em_raise_at(em_ref msg, em_ref at);
 /* RuntimeOp::DefectTake and DefectResume. */
 em_ref em_defect_take(void);
 void em_defect_resume(em_ref d);
@@ -247,6 +252,14 @@ em_ref em_string_join(em_ref parts, em_ref sep);
 em_ref em_string_trim(em_ref s);
 em_ref em_string_code_points(em_ref s);
 em_ref em_string_from_code_point(int32_t n);
+/* A Bytes (`[api.std.bytes]`) is an EM_KIND_STRING object whose bytes need not be UTF-8. */
+em_ref em_bytes_from_list(em_ref xs);
+em_ref em_bytes_to_list(em_ref b);
+em_ref em_bytes_get(em_ref b, int32_t index);
+em_ref em_bytes_slice(em_ref b, int32_t from, int32_t to);
+em_ref em_bytes_concat(em_ref parts);
+/* The same object, owned once more: `encode_utf8`, and `decode_utf8` of bytes already checked. */
+em_ref em_bytes_same(em_ref b);
 em_ref em_int_to_string(int32_t n);
 em_ref em_int_parse(em_ref s);
 em_ref em_int_checked_add(int32_t a, int32_t b);
@@ -359,7 +372,28 @@ void em_run(em_word (*entry)(void), int32_t repr);
 
 /* ---- The program ---- */
 
+/* Starts the runtime. Later calls do nothing: an exported function called before main starts it
+ * (`[target.c.export]`). */
 void em_start(int argc, char **argv);
+
+/* ---- Exported functions (`[target.c.export]`) ----
+ *
+ * The C function of an exported function calls `em_export_enter`, stores its arguments, runs a
+ * thunk with `em_run` (one launch) and then calls `em_export_leave`. The thunk converts the
+ * arguments, calls the Emela function and converts its value back, so a defect while converting
+ * is a defect of the launch. */
+
+/* A call while a launch is running on this thread is a defect, reported as main's defect is
+ * (`defect: ...`, exit code 101). Otherwise starts the runtime if it has not started. */
+void em_export_enter(const char *function);
+/* Ends the process as main's end does if the launch ended with a defect. */
+void em_export_leave(void);
+/* A String from a string the host owns (copied; invalid UTF-8 becomes U+FFFD). NULL is a defect
+ * naming the exported function, and returns NULL. */
+em_ref em_from_export_string(const char *s, const char *function);
+/* A `malloc`ed NUL-terminated copy of `s` for the host, consuming `s`. U+0000 is a defect, and
+ * returns NULL. */
+char *em_to_export_string(em_ref s);
 /* Reports how the test function that just returned ended, as a line of the test runner protocol
  * on stdout, and clears a pending defect or failure. */
 void em_test_result(const char *name);

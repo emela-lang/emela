@@ -14,7 +14,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "show_failure" => i32s(3), // desc, show, result
         "json_string" => i32s(3),  // i, byte, hex
-        "test_result" => i32s(3),  // kind, message, error
+        "test_result" => i32s(4),  // kind, message, error, location
         "finish" => i32s(1),       // shown
         _ => Vec::new(),
     }
@@ -41,6 +41,7 @@ const TEST_DEFECT: &[u8] = b",\"outcome\":\"defect\"";
 const TEST_ERROR: &[u8] = b",\"outcome\":\"error\"";
 const TEST_INTERRUPTED: &[u8] = b",\"outcome\":\"interrupted\"";
 const TEST_MESSAGE: &[u8] = b",\"message\":";
+const TEST_LOCATION: &[u8] = b",\"location\":";
 const TEST_TAIL: &[u8] = b"}\n";
 const TEST_DONE_LINE: &[u8] = b"\x1eemela-test {\"event\":\"done\"}\n";
 
@@ -257,6 +258,7 @@ fn test_result(b: &mut Builder, ins: &mut InstructionSink) {
     const KIND: u32 = 1;
     const MESSAGE: u32 = 2;
     const E: u32 = 3;
+    const LOCATION: u32 = 4;
     write_static(b, ins, 1, TEST_PREFIX);
     ins.local_get(0);
     ins.call(rt(b, "json_string"));
@@ -331,6 +333,22 @@ fn test_result(b: &mut Builder, ins: &mut InstructionSink) {
     write_static(b, ins, 1, TEST_MESSAGE);
     ins.local_get(MESSAGE);
     ins.call(rt(b, "json_string"));
+    // A failed assert's defect has its location in `aux` above bit 0 (see `defect`).
+    ins.local_get(KIND);
+    ins.i32_const(1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.local_get(MESSAGE);
+    ins.i32_load(mem(4, 4));
+    ins.i32_const(!1);
+    ins.i32_and();
+    ins.local_tee(LOCATION);
+    ins.if_(BlockType::Empty);
+    write_static(b, ins, 1, TEST_LOCATION);
+    ins.local_get(LOCATION);
+    ins.call(rt(b, "json_string"));
+    ins.end();
+    ins.end();
     ins.local_get(MESSAGE);
     ins.call(rt(b, "drop"));
     ins.end();

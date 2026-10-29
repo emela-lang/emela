@@ -304,6 +304,7 @@ impl<'a> Typer<'a> {
             Sig::Float => TypeId::FLOAT,
             Sig::Bool => TypeId::BOOL,
             Sig::String => TypeId::STRING,
+            Sig::Bytes => TypeId::BYTES,
             Sig::Unit => TypeId::UNIT,
             Sig::Never => TypeId::NEVER,
             Sig::List(t) => {
@@ -380,7 +381,7 @@ impl<'a> Typer<'a> {
                 self.intern(Type::Enum(kind, args))
             }
             FiberOp::CauseToString => TypeId::STRING,
-            FiberOp::CauseRaise => TypeId::NEVER,
+            FiberOp::CauseRaise { .. } => TypeId::NEVER,
         }
     }
 

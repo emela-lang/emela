@@ -18,6 +18,26 @@ pub struct Diagnostic {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticKind {
+    /// E0437. An `@export` fn that is not an entry adapter, or an `@entry`, outside the entry
+    /// module (`[ext.export]`, `[ext.entry]`). `attr` is `export` or `entry`.
+    ExportOutsideEntry { attr: &'static str },
+    /// E0439. The argument of `@entry` does not name an entry adapter (`[ext.entry]`). `name` is
+    /// the fn it names, `None` when it does not name a fn.
+    NotEntryAdapter { name: Option<SmolStr> },
+    /// E0438. Two exports with the same name for the same target (`[ext.export]`).
+    DuplicateExport { name: SmolStr, target: SmolStr },
+    /// E0436. A parameter (`ret` false) or the return value of an `@export` fn is not a boundary
+    /// type (`[ext.export]`, `[ext.boundary]`).
+    NotBoundary {
+        function: SmolStr,
+        ty: SmolStr,
+        ret: bool,
+    },
+    /// E0402. An `@export` fn whose E is not empty (`[ext.export]`).
+    ExportFails { function: SmolStr, errors: SmolStr },
+    /// E0440. The fn with `@entry` cannot be passed as the first argument of the entry adapter
+    /// (`[ext.entry]`).
+    EntryMismatch { entry: SmolStr, adapter: SmolStr },
     /// A type does not satisfy a trait (E0326, spec 10.1–10.3): a constraint at a call, or a
     /// supertrait at an impl. `ty` is displayed.
     NotImplemented { ty: SmolStr, trait_name: SmolStr },
@@ -82,16 +102,39 @@ pub enum DiagnosticKind {
     NotNumeric { found: Ty, integer: bool },
     /// E0311, spec 2.4.
     IntLiteralOutOfRange { literal: SmolStr, ty: Ty },
-    /// E0312. Used for field access and update.
+    /// A field the constructor does not have in an update (E0312, spec 5.3).
     NoField { ty: Ty, field: SmolStr },
-    /// Field access on a type without fields: enums, primitives, tuples, ... (E0313).
+    /// No field or function `name` for a field access or a method call (E0312, `[type.rules]`).
+    NoFieldOrFunction { ty: Ty, name: SmolStr },
+    /// A function found by a method lookup, written without a call (E0312, `[type.rules]`).
+    /// `receiver` is the name of x in `x.f`, when it is a variable.
+    MethodNotCalled {
+        ty: Ty,
+        name: SmolStr,
+        receiver: Option<SmolStr>,
+    },
+    /// A field access or a method call on a type without fields, where no function is found:
+    /// enums, primitives, tuples, ... (E0313).
     NoFields { ty: Ty, field: SmolStr },
-    /// Field access on a value whose type is not known yet (E0314). Needs a type annotation.
-    FieldOnUnknownType { field: SmolStr },
+    /// A field access, or a method call when `call`, on a value whose type is not known yet
+    /// (E0314). Needs a type annotation.
+    FieldOnUnknownType { field: SmolStr, call: bool },
+    /// More than one candidate for a method call (E0335, `[type.rules]`): a field when `field`,
+    /// and the functions `qualified` (`User.show`, `Show.show`). `receiver` is the name of x in
+    /// `x.f`, when it is a variable.
+    AmbiguousMethod {
+        ty: Ty,
+        name: SmolStr,
+        field: bool,
+        qualified: Vec<SmolStr>,
+        receiver: Option<SmolStr>,
+    },
     /// Field access on an opaque type outside its defining module (E0315, spec 4.4).
     OpaqueField { ty: Ty, field: SmolStr },
     /// A top-level fn parameter without a type (E0316, spec 6.1).
     MissingParamType { param: SmolStr },
+    /// A parameter of a handler's init without a type (E0316, `[effect.handler]`).
+    MissingInitParamType { handler: SmolStr, param: SmolStr },
     /// E0303, spec 6.5. `missing` holds examples of missing values (`Rect(_, _)`).
     NonExhaustiveMatch { missing: Vec<SmolStr> },
     /// A binding pattern that can fail (E0317, spec 6.3). `missing` holds examples of values that
@@ -106,6 +149,8 @@ pub enum DiagnosticKind {
     UnhandledErrors {
         errors: Vec<SmolStr>,
         declared: bool,
+        /// In the arguments of a layer item, which MUST be pure (`[effect.layer]`).
+        layer_arg: Option<LayerArg>,
     },
     /// A non-error value passed to `fail`, or a single-error type parameter instantiated with a
     /// non-error type (E0319, spec 7.2).
@@ -166,6 +211,16 @@ pub enum DiagnosticKind {
     HandlerCtorOutsideInit { handler: SmolStr },
     /// A handler with fields but no `init` (E0419, spec 8.4).
     MissingInit { handler: SmolStr },
+    /// A handler whose init takes parameters, written without arguments (E0434,
+    /// `[effect.handler]`). `params` are the parameters' names.
+    MissingInitArgs {
+        handler: SmolStr,
+        params: Vec<SmolStr>,
+    },
+    /// Arguments written for something that takes none (E0435, `[effect.handler]`): a handler
+    /// whose init takes no parameters (`with H()` included), a layer, or a label. `kind` names
+    /// what it is (`handler`, `layer`, `label`).
+    UnexpectedInitArgs { name: SmolStr, kind: &'static str },
     /// E0420, spec 8.4. `errors` lists the errors the release can raise.
     ReleaseFails {
         handler: SmolStr,
@@ -323,6 +378,18 @@ pub enum EffectContext {
     Main,
     /// A test function, whose R must be empty (spec 13.3).
     Test { name: SmolStr },
+    /// An `@export` fn, whose R must be empty except for Async (`[ext.export]`).
+    Export { name: SmolStr },
+    /// The arguments of a layer item, which MUST be pure (`[effect.layer]`).
+    LayerArg(LayerArg),
+}
+
+/// An item of a layer with arguments (`WorkerKv(binding: "KV")` in `layer AppLive`), where E and
+/// R MUST be empty (`[effect.layer]`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LayerArg {
+    pub layer: SmolStr,
+    pub handler: SmolStr,
 }
 
 impl DiagnosticKind {

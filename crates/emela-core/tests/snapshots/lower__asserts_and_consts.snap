@@ -3,23 +3,23 @@ source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
 export fn main() -> () {
-  let _%0: () = assert(LIMIT() ==[Int] 3, ty: Int, text: "LIMIT == 3")
-  let _%1: () = assert(classify(2) !=[String] "big", ty: String, text: "classify(2) != \"big\"")
-  let _%2: () = assert(ORIGIN() ==[Structural] (0, 0), ty: (Int, Int), text: "ORIGIN == (0, 0)")
-  let _%3: () = assert(List.length[()](EMPTY[()]()) ==[Int] 0, ty: Int, text: "List.length(EMPTY) == 0")
-  let _%4: () = assert(same[Int](1, 1), text: "same(1, 1)")
-  assert(is_small(LIMIT()), text: "is_small(LIMIT)")
+  let _%0: () = assert(LIMIT() ==[Int] 3, ty: Int, text: "LIMIT == 3", at: "src/main.emel:6:3")
+  let _%1: () = assert(classify(2) !=[String] "big", ty: String, text: "classify(2) != \"big\"", at: "src/main.emel:7:3")
+  let _%2: () = assert(ORIGIN() ==[Structural] (0, 0), ty: (Int, Int), text: "ORIGIN == (0, 0)", at: "src/main.emel:8:3")
+  let _%3: () = assert(List.length[()](EMPTY[()]()) ==[Int] 0, ty: Int, text: "List.length(EMPTY) == 0", at: "src/main.emel:9:3")
+  let _%4: () = assert(same[Int](1, 1), text: "same(1, 1)", at: "src/main.emel:10:3")
+  assert(is_small(LIMIT()), text: "is_small(LIMIT)", at: "src/main.emel:11:3")
 }
 
 const fn LIMIT() -> Int {
   3
 }
 
-fn classify(n%95: Int) -> String {
-  match n%95 {
-    c%96 if (c%96 ==[Int] LIMIT()) -> "limit"
+fn classify(n%110: Int) -> String {
+  match n%110 {
+    c%111 if (c%111 ==[Int] LIMIT()) -> "limit"
     0 -> "zero"
-    m%97 if (m%97 >[Int] 100) -> "big"
+    m%112 if (m%112 >[Int] 100) -> "big"
     _ -> "other"
   }
 }

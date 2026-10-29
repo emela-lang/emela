@@ -5,10 +5,13 @@
 // When inlined, the leading `export ` of each line is stripped, so write `export` only at the start of a line.
 
 // A defect (spec 16.5). An unrecoverable error, thrown with its own class.
+// `location` is where a failed assert is (`path:line:column`, spec 13.2), kept outside the message for the test
+// runner; undefined for other defects.
 export class $Defect extends Error {
-  constructor(message) {
+  constructor(message, location) {
     super(message);
     this.name = "Defect";
+    if (location !== undefined) this.location = location;
   }
 }
 
@@ -48,7 +51,8 @@ export function $constant(cell, name, init) {
       cell.state = 0;
       throw error;
     }
-    const defect = new $Defect(`while evaluating const ${name}: ${error.message}`);
+    // The remembered defect keeps the location of a failed assert.
+    const defect = new $Defect(`while evaluating const ${name}: ${error.message}`, error.location);
     cell.value = defect;
     cell.state = 3;
     throw defect;
@@ -454,6 +458,35 @@ export function $start(gen, done) {
   const main = new $Fiber(root, null);
   root.schedule(() => $step(root, main, gen, main.end, "next", undefined));
   return () => root.stalled();
+}
+
+// The stall functions (`$start`'s result) of the launches of exported functions that have not ended.
+const $exportLaunches = new Set();
+let $exportWatching = false;
+
+// Runs the generator `gen` of an exported function that may suspend as one launch (16.6.2), and returns a Promise of
+// its value. The Promise rejects with the defect or the interruption the launch ends with. When the host reports that
+// its event loop is empty (`beforeExit`, where the host has one), the launches that have not ended are stalled, as
+// the launcher does for main.
+export function $export(gen) {
+  return new Promise((resolve, reject) => {
+    let ended = false;
+    let stalled;
+    stalled = $start(gen, (ok, value) => {
+      ended = true;
+      $exportLaunches.delete(stalled);
+      if (ok) resolve(value);
+      else reject(value);
+    });
+    if (ended) return;
+    $exportLaunches.add(stalled);
+    if (!$exportWatching && typeof globalThis.process?.on === "function") {
+      $exportWatching = true;
+      globalThis.process.on("beforeExit", () => {
+        for (const stall of [...$exportLaunches]) stall();
+      });
+    }
+  });
 }
 
 // A continuation unwound while interrupted (11.4, 14.5). Thrown into a fiber when it is interrupted, by `$sync`
@@ -994,15 +1027,21 @@ export function $retire(handler, name) {
   for (const key of Object.keys(handler)) Object.defineProperty(handler, key, { value: used });
 }
 
-// A failed assert (spec 13.2). `text` is the source text of the expression and may be empty.
-export function $assertFail(text) {
-  throw new $Defect(text === "" ? "assertion failed" : `assertion failed: ${text}`);
+// A failed assert (spec 13.2). `text` is the source text of the expression and may be empty. `location` is where the
+// assert is, or undefined.
+export function $assertFail(text, location) {
+  throw new $Defect(text === "" ? "assertion failed" : `assertion failed: ${text}`, location);
 }
 
 // A failed comparison assert. Both sides are received as displayed strings (displayed only on failure).
-export function $assertCmp(text, op, left, right) {
+export function $assertCmp(text, op, left, right, location) {
   const head = text === "" ? `left ${op} right` : text;
-  throw new $Defect(`assertion failed: ${head}\n  left: ${left}\n right: ${right}`);
+  throw new $Defect(`assertion failed: ${head}\n  left: ${left}\n right: ${right}`, location);
+}
+
+// A failed assert whose message was built by the caller (sides shown through a written Show impl).
+export function $assertDefect(message, location) {
+  throw new $Defect(message, location);
 }
 
 // Division and remainder on Int (32-bit). Truncates toward zero; the remainder takes the sign of the dividend.
@@ -1197,6 +1236,81 @@ export function $strcodepoints(s) {
 export function $strfromcodepoint(n) {
   if (n < 0 || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff)) return $None;
   return { $tag: 0, $0: String.fromCodePoint(n) };
+}
+
+// ---- Bytes (`[api.std.bytes]`) ----
+//
+// A Bytes is a `Uint8Array` that nothing changes after it is made (`[target.js.value]`). The
+// functions that make one always allocate a new array, so a Bytes never shares a buffer with
+// another value or with the host.
+
+// None if an element is outside 0 to 255.
+export function $bytesFromList(xs) {
+  const items = [];
+  for (let p = xs; p !== null; p = p.t) {
+    if (p.h < 0 || p.h > 255) return $None;
+    items.push(p.h);
+  }
+  return { $tag: 0, $0: Uint8Array.from(items) };
+}
+
+export function $bytesToList(b) {
+  return $list(Array.from(b));
+}
+
+export function $bytesSize(b) {
+  return b.length;
+}
+
+export function $bytesGet(b, i) {
+  return i >= 0 && i < b.length ? { $tag: 0, $0: b[i] } : $None;
+}
+
+// Both ends are clamped to 0 to the size; empty if `from` is not less than `to`.
+export function $bytesSlice(b, from, to) {
+  const f = Math.min(Math.max(from, 0), b.length);
+  const t = Math.min(Math.max(to, 0), b.length);
+  return f < t ? b.slice(f, t) : new Uint8Array(0);
+}
+
+export function $bytesConcat(parts) {
+  let size = 0;
+  for (let p = parts; p !== null; p = p.t) size += p.h.length;
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (let p = parts; p !== null; p = p.t) {
+    out.set(p.h, at);
+    at += p.h.length;
+  }
+  return out;
+}
+
+const $utf8Encoder = new TextEncoder();
+// `ignoreBOM` keeps a leading BOM as U+FEFF. The input is already valid UTF-8 (`decode_utf8`
+// checks it in Emela), so nothing is replaced.
+const $utf8Decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+
+export function $bytesEncodeUtf8(s) {
+  return $utf8Encoder.encode(s);
+}
+
+export function $bytesDecodeValidUtf8(b) {
+  return $utf8Decoder.decode(b);
+}
+
+// The source form `Bytes.hex("89504e47")`, as the Show impl in `std/bytes.emel` writes it.
+export function $showBytes(b) {
+  let digits = "";
+  for (const x of b) digits += x.toString(16).padStart(2, "0");
+  return `Bytes.hex("${digits}")`;
+}
+
+// A Bytes received from the host (`[target.js.value]`): a `Uint8Array` (or a subclass such as
+// Node.js `Buffer`) of this realm, copied so that later changes to the host's buffer do not reach
+// it. Only the bytes the view shows are copied. `message` is the defect for any other value.
+export function $hostBytes(b, message) {
+  if (!(b instanceof Uint8Array)) throw new $Defect(message);
+  return new Uint8Array(b);
 }
 
 // ---- Numeric conversions (spec 16.1) ----

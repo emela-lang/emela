@@ -1,0 +1,115 @@
+import Std.Fiber.{Fiber}
+
+const EMPTY = { dbg("EMPTY")
+  []
+}
+const MISSING = { dbg("MISSING")
+  None
+}
+const IDENTITY = { dbg("IDENTITY")
+  (fn(value) { value }, ())
+}
+const APPLY = { dbg("APPLY")
+  (fn(callback) { callback() }, ())
+}
+const PACKED = { dbg("PACKED")
+  ([[]], Some([]))
+}
+
+fn integers(xs: List[Int], option: Option[Int], nested: (List[List[Int]], Option[List[Int]])) -> Int {
+  count = option match {
+    Some(n) -> n
+    None -> 0
+  }
+  (items, tail) = nested
+  List.length(xs) + count + List.length(items)
+}
+fn texts(xs: List[String], option: Option[String], nested: (List[List[String]], Option[List[String]])) -> Int {
+  count = option match {
+    Some(text) -> String.byte_size(text)
+    None -> 0
+  }
+  (items, tail) = nested
+  List.length(xs) + count + List.length(items)
+}
+
+pub fn integer() -> Int {
+  (identity, _) = IDENTITY
+  (apply, _) = APPLY
+  integers(EMPTY, MISSING, PACKED) + identity(20) + apply(fn() { 21 })
+}
+pub fn text() -> Int {
+  (identity, _) = IDENTITY
+  (apply, _) = APPLY
+  texts(EMPTY, MISSING, PACKED) + String.byte_size(identity("42")) + String.byte_size(apply(fn() { "42" })) + 37
+}
+
+effect Read { fn get() -> Int }
+handler Answer: Read { fn get() { 42 } }
+pub fn evidence() -> Int {
+  (apply, _) = APPLY
+  with Answer { apply(fn() { (use Read).get() }) }
+}
+error Boom
+pub fn failing(bad: Bool) -> Int fails Boom {
+  (apply, _) = APPLY
+  apply(fn() { if bad { fail Boom } else { 42 } })
+}
+
+const PICK = { dbg("PICK")
+  base = String.byte_size("42")
+  if base == 2 {
+    (fn(value) { (value, base) }, ())
+  } else {
+    (fn(value) { (value, 0) }, ())
+  }
+}
+const MATCHED = { dbg("MATCHED")
+  Some(2) match {
+    Some(base) -> (fn(value) { (value, base) }, ())
+    None -> (fn(value) { (value, 0) }, ())
+  }
+}
+fn identity[A](value: A) -> A { value }
+const REFERENCED = { dbg("REFERENCED")
+  (identity, ())
+}
+pub fn choice_integer() -> Int {
+  (pick, _) = PICK
+  (matched, _) = MATCHED
+  (referenced, _) = REFERENCED
+  (value, base) = pick(40)
+  (other, bonus) = matched(value)
+  referenced(other) + base + bonus - 2
+}
+pub fn choice_text() -> Int {
+  (pick, _) = PICK
+  (matched, _) = MATCHED
+  (referenced, _) = REFERENCED
+  (value, base) = pick("42")
+  (other, bonus) = matched(value)
+  String.byte_size(referenced(other)) + base + bonus + 36
+}
+
+enum Named[A] { Missing(String), Found(A) }
+const NAMED = { dbg("NAMED")
+  Missing("42")
+}
+fn named_int(value: Named[Int]) -> Int {
+  value match {
+    Missing(text) -> String.byte_size(text)
+    Found(n) -> n
+  }
+}
+fn named_text(value: Named[String]) -> Int {
+  value match {
+    Missing(text) -> String.byte_size(text)
+    Found(text) -> String.byte_size(text)
+  }
+}
+pub fn enum_integer() -> Int { named_int(NAMED) + 40 }
+pub fn enum_text() -> Int { named_text(NAMED) + 40 }
+
+pub fn caught() -> Int {
+  failing(True) escape { Boom -> 42 }
+}

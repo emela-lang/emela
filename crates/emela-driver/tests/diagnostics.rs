@@ -4,8 +4,8 @@ use std::path::Path;
 
 use emela_driver::{
     Analysis, Checked, CoreSource, Diagnostic, FileId, Frontend, Input, LexOnly, Location, Lower,
-    LowerTests, MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, Target,
-    Typecheck, check, render,
+    MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, Target, Typecheck, check,
+    render,
 };
 use emela_resolve::{Import, ModuleId, ModuleName};
 use emela_types::{InferCtx, Prim, Ty, TyCons};
@@ -816,10 +816,9 @@ fn reachable_external_without_target() {
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
 }
 
-/// An entry exporting fns with trait-bounded type parameters (appendix B). `label` and `pair` are
-/// reported; `same` too although it calls no trait function; `plain` (no bound) and `user_label`
-/// (concrete types) are exported.
-const CONSTRAINED_EXPORTS: &str = r#"type User(name: String)
+/// `pub` fns of the entry with trait-bounded type parameters. Only `@export` fns are exported
+/// (`[target.js.module]`), so they are not roots and build on every target (E0327 is unused).
+const CONSTRAINED_PUB_FNS: &str = r#"type User(name: String)
 
 impl User: Show {
   fn show(self) { "User(#{self.name})" }
@@ -829,33 +828,274 @@ pub fn label[A: Show](x: A) -> String { Show.show(x) }
 
 pub fn pair[A, B: Show + Eq](a: A, b: B) -> B { b }
 
-pub fn same[A: Show](x: A) -> A { x }
-
-pub fn plain[A](x: A) -> A { x }
-
-pub fn user_label(u: User) -> String { label(u) }
-
-fn hidden[A: Show](x: A) -> String { Show.show(x) }
-
-fn main() { dbg(hidden(User(name: "ann"))) }
+fn main() { dbg(label(User(name: "ann"))) }
 "#;
 
 #[test]
-fn constrained_export() {
-    // The JS build exports the entry's `pub` fns from main.mjs, so a trait bound is E0327.
-    let files = [("home/main.emel", CONSTRAINED_EXPORTS)];
-    let analysis = check_files(&files, "home/main.emel", &mut Lower::default());
-    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
-    // check and the LSP (up to type checking) choose no target, so they do not check.
+fn pub_fns_are_not_exported() {
+    let files = [("home/main.emel", CONSTRAINED_PUB_FNS)];
+    for frontend in [Lower::default(), Lower::default().with_target(Target::C)] {
+        let mut frontend = frontend;
+        let analysis = check_files(&files, "home/main.emel", &mut frontend);
+        assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+    }
+}
+
+fn export_diagnostics(files: &[(&str, &str)]) -> String {
+    let analysis = check_files(files, "home/main.emel", &mut Typecheck::default());
+    render(&analysis.diagnostics, &analysis.sources, false)
+}
+
+/// `[ext.export]`: the parameters and the return value are boundary types (E0436), E is empty and
+/// R is empty except for Async (E0402).
+#[test]
+fn export_types_and_effects() {
+    insta::assert_snapshot!(export_diagnostics(&[(
+        "home/main.emel",
+        r#"@external
+type Conn
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+error Oops
+
+@export(js, "ok")
+pub fn ok(a: Int, b: Int64, c: Float, d: Bool, e: String, f: (), g: Conn, h: fn(Int) -> String fails {} use {}) -> () {}
+
+@export(js, "callback")
+pub fn callback(h: fn(Int) -> String) -> String { h(1) }
+
+@export(js, "list")
+pub fn list(xs: List[Int]) -> Int { 0 }
+
+@export(js, "option")
+pub fn option() -> Option[Int] { None }
+
+@export(js, "generic")
+pub fn generic[A](x: A) -> Int { 0 }
+
+@export(js, "logs")
+pub fn logs() -> () { (use Log).info("x") }
+
+@export(js, "fails")
+pub fn fails() -> Int fails Oops { fail Oops }
+
+fn main() {}
+"#,
+    )]));
+}
+
+/// What each target cannot expose: an export that may suspend on `c` (E0441,
+/// `[target.c.export]`), a callback on `c` (not supported yet), and on `wasm` any `@export(wasm, ...)`
+/// a user writes (`[target.wasm.external]`), also through `@entry`. Each target reports only its
+/// own exports, and check (no target) reports none.
+#[test]
+fn export_target_errors() {
+    let files = [(
+        "home/main.emel",
+        r#"import Std.Clock.{Clock, SystemClock}
+
+@export(c, "wait")
+@export(js, "wait")
+fn wait(ms: Int) -> () {
+  with SystemClock { (use Clock).sleep(ms) }
+}
+
+@export(c, "apply")
+fn apply(x: Int, f: fn(Int) -> Int fails {} use {}) -> Int { f(x) }
+
+@export(wasm, "env", "add")
+@export(js, "add")
+fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(wasm, "wasi:http/handler@0.3.0", "handle")
+fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+
+@entry(serve)
+fn app(x: Int) -> Int { x }
+
+fn main() {}
+"#,
+    )];
+    let mut out = String::new();
+    for target in [Target::Js, Target::C, Target::Wasm] {
+        let analysis = check_files(
+            &files,
+            "home/main.emel",
+            &mut Lower::default().with_target(target),
+        );
+        out.push_str(&format!("== {}\n", target.name()));
+        out.push_str(&render(&analysis.diagnostics, &analysis.sources, false));
+    }
     let analysis = check_files(&files, "home/main.emel", &mut Typecheck::default());
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
-    // C exports only main, so the bounded fns are not roots.
-    let mut c = Lower::default().with_target(Target::C);
-    let analysis = check_files(&files, "home/main.emel", &mut c);
+    insta::assert_snapshot!(out);
+}
+
+/// `[lib.http-service]`: `@entry(Http.serve)` takes an fn from `Request` to `Response` whose E is
+/// anything and whose R is empty apart from Async (E0440 otherwise). The C target does not support
+/// HTTP services (E0442); an entry adapter of the program's own named `serve` in a module `Http`
+/// is not one. check (no target) reports nothing.
+#[test]
+fn http_service_targets() {
+    let files = [
+        (
+            "home/main.emel",
+            r#"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+
+error Teapot
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response fails Teapot {
+  if request.body == "tea" { fail Teapot } else { Response.new(200, request.url) }
+}
+"#,
+        ),
+        (
+            "other/main.emel",
+            r#"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+import Std.Console.{Console}
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response {
+  (use Console).print_line(request.url)
+  Response.new(200, "")
+}
+"#,
+        ),
+        (
+            "own/main.emel",
+            r#"import Http
+
+@entry(Http.serve)
+fn app(x: Int) -> Int { x }
+
+fn main() {}
+"#,
+        ),
+        (
+            "own/http.emel",
+            r#"@export(c, "serve")
+pub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+"#,
+        ),
+    ];
+    let mut out = String::new();
+    for entry in ["home/main.emel", "other/main.emel", "own/main.emel"] {
+        for target in [Target::Js, Target::C] {
+            let analysis = check_files(&files, entry, &mut Lower::default().with_target(target));
+            out.push_str(&format!("== {entry} {}\n", target.name()));
+            out.push_str(&render(&analysis.diagnostics, &analysis.sources, false));
+        }
+    }
+    let analysis = check_files(&files, "home/main.emel", &mut Typecheck::default());
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
-    // `emela test` lowers from the test functions and exports nothing.
-    let analysis = check_files(&files, "home/main.emel", &mut LowerTests::default());
-    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+    insta::assert_snapshot!(out);
+}
+
+/// `[ext.export]` and `[ext.entry]`: an `@export` fn that is not an entry adapter only in the
+/// entry module (E0437), `@entry` only in the entry module (E0437) and naming an entry adapter
+/// (E0439), and the same name exported twice for the same target (E0438).
+#[test]
+fn export_placement() {
+    insta::assert_snapshot!(export_diagnostics(&[
+        (
+            "home/main.emel",
+            r#"import Util
+
+@export(js, "add")
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(js, "add")
+@export(c, "add")
+pub fn add_again(a: Int, b: Int) -> Int { a + b }
+
+@entry(Util.serve)
+fn app(x: Int) -> Int { x }
+
+@entry(Util.serve)
+fn app_again(x: Int) -> Int { x }
+
+@entry(Util.helper)
+fn not_adapter(x: Int) -> Int { x }
+
+@entry
+fn no_name(x: Int) -> Int { x }
+
+fn main() {}
+"#,
+        ),
+        (
+            "home/util.emel",
+            r#"@export(js, "default", "fetch")
+pub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+
+@export(js, "helper")
+pub fn helper(x: Int) -> Int { x }
+
+@entry(serve)
+pub fn misplaced(x: Int) -> Int { x }
+"#,
+        ),
+    ]));
+}
+
+/// `[ext.entry]`: the fn with `@entry` MUST be accepted as the first argument of the adapter
+/// (E0440). A generic fn is instantiated. An adapter that lets the E or R of the fn through has
+/// them in its own E and R (E0402), and so does the fn made by `@entry` (E0440).
+#[test]
+fn entry_fits_the_adapter() {
+    insta::assert_snapshot!(export_diagnostics(&[(
+        "home/main.emel",
+        r#"effect Log {
+  fn info(msg: String) -> ()
+}
+
+error Oops
+
+@export(js, "default", "one")
+fn one(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+
+@export(js, "default", "two")
+fn two(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+
+@export(js, "default", "three")
+fn three(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+
+@export(js, "default", "open")
+fn open(app: fn(String) -> String, s: String) -> String { app(s) }
+
+@export(js, "default", "four")
+fn four(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+
+@entry(one)
+fn fits(s: String) -> String { s }
+
+@entry(two)
+fn generic[A](x: A) -> A { x }
+
+@entry(three)
+fn wrong_type(x: Int) -> Int { x }
+
+@entry(four)
+fn wrong_effects(s: String) -> String {
+  (use Log).info(s)
+  s
+}
+
+@entry(open)
+fn through(s: String) -> String fails Oops { fail Oops }
+
+fn main() {}
+"#,
+    )]));
 }
 
 /// A handler whose `sleep` has no JS `@external`. Only operations called somewhere reachable are
@@ -1000,5 +1240,290 @@ fn std_and_core_module_files_are_reserved() {
         "app",
         &mut Typecheck::default(),
     );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// The messages of the diagnostics on the arguments of handler init (E0434, E0435, E0316, and
+/// E0318 and E0402 in a layer; `[effect.handler]`, `[effect.layer]`).
+#[test]
+fn handler_init_argument_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"error Down
+
+effect Config {
+  fn url() -> String
+}
+
+effect Kv {
+  fn get(key: String) -> String
+}
+
+handler WorkerKv(binding: String): Kv {
+  init(binding: String, retries: Int) { WorkerKv(binding:) }
+  fn get(key) { self.binding }
+}
+
+handler FakeKv: Kv {
+  fn get(key) { "" }
+}
+
+handler Untyped(binding: String): Kv {
+  init(binding) { Untyped(binding:) }
+  fn get(key) { self.binding }
+}
+
+fn name() -> String fails Down { fail Down }
+
+layer Failing {
+  WorkerKv(binding: name(), retries: 1)
+}
+
+layer Reading {
+  WorkerKv(binding: (use Config).url(), retries: 1)
+}
+
+layer Unconfigured {
+  WorkerKv
+}
+
+fn main() {
+  with WorkerKv { (use Kv).get("a") }
+  with FakeKv() { (use Kv).get("a") }
+  with WorkerKv(binding: "a") { (use Kv).get("a") }
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// The diagnostics of method calls (`[type.rules]`, `[data.type]`): no field or function (E0312,
+/// also for a function written without a call), a type without fields (E0313), an undetermined
+/// type (E0314), a fn named like a field (E0334) and more than one candidate (E0335). A trait
+/// reached only as `Traits.Named` is not looked up, and a private fn is not found outside its
+/// module.
+#[test]
+fn method_call_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/traits.emel",
+                r#"pub trait Seq {
+  fn size(self) -> Int
+}
+
+pub trait Named {
+  fn label(self) -> String
+}
+"#,
+            ),
+            (
+                "app/src/shapes.emel",
+                r#"import Traits.{Seq, Named}
+
+pub type Square(side: Int)
+
+pub type Box(width: Int)
+
+pub fn area(s: Square) -> Int {
+  s.side * s.side
+}
+
+fn secret(s: Square) -> Int {
+  s.side
+}
+
+pub fn width(b: Box) -> Int {
+  b.width
+}
+
+impl Square: Seq {
+  fn size(self) { 4 }
+}
+
+impl Square: Named {
+  fn label(self) { "square" }
+}
+"#,
+            ),
+            (
+                "app/src/main.emel",
+                r#"import Shapes
+import Traits
+import Traits.{Seq}
+
+trait Big {
+  fn size(self) -> Int
+}
+
+type Point(x: Int)
+
+type Rec(size: Int)
+
+impl Point: Seq {
+  fn size(self) { 1 }
+}
+
+impl Rec: Seq {
+  fn size(self) { 2 }
+}
+
+impl Shapes.Square: Big {
+  fn size(self) { 3 }
+}
+
+fn size(p: Point) -> Int {
+  p.x
+}
+
+fn private(s: Shapes.Square) -> Int {
+  s.secret()
+}
+
+fn qualified_only(s: Shapes.Square) -> String {
+  s.label()
+}
+
+fn not_called(s: Shapes.Square) -> Int {
+  f = s.area
+  0
+}
+
+fn misspelled(s: Shapes.Square) -> Int {
+  s.aera()
+}
+
+fn no_fields(n: Int) -> Int {
+  n.nmae()
+}
+
+fn unknown() -> Int {
+  f = fn(x) { x.area() }
+  0
+}
+
+fn module_and_trait(p: Point) -> Int {
+  p.size()
+}
+
+fn field_and_trait(r: Rec) -> Int {
+  r.size()
+}
+
+fn two_traits(s: Shapes.Square) -> Int {
+  s.size()
+}
+"#,
+            ),
+        ],
+        "app",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// A method call needs no import of the module that defines the type (`[module.resolution]`),
+/// and finds the traits imported by name, defined in the module, and of the Prelude.
+#[test]
+fn method_calls_without_imports_check_cleanly() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/shapes.emel",
+                r#"pub type Square(side: Int)
+  derive Show
+
+pub fn area(s: Square) -> Int {
+  s.side * s.side
+}
+
+pub fn grow(s: Square, by: Int) -> Square {
+  Square(side: s.side + by)
+}
+"#,
+            ),
+            (
+                "app/src/factory.emel",
+                r#"import Shapes.{Square}
+
+pub fn unit() -> Square {
+  Square(side: 1)
+}
+"#,
+            ),
+            (
+                "app/src/main.emel",
+                r#"import Factory
+
+trait Doubled {
+  fn doubled(self) -> Int
+}
+
+impl Int: Doubled {
+  fn doubled(self) { self * 2 }
+}
+
+fn main() -> Int {
+  s = Factory.unit()
+  t = s.grow(by: 2)
+  label = t.show()
+  label.length() + t.area().doubled() + ["a", "b"].join(", ").length()
+}
+"#,
+            ),
+        ],
+        "app",
+        &mut frontend,
+    );
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+}
+
+/// `[api.std.bytes]`, compatibility: `Bytes` is reached only through `import Std.Bytes`, so a
+/// module `bytes.emel` and a user type named `Bytes` keep working. Outside `Std.Bytes`, a Bytes is
+/// made only by its functions: it has no constructor to call or match.
+#[test]
+fn bytes_names_stay_free() {
+    let files = [
+        ("app/Pome.toml", ""),
+        (
+            "app/src/bytes.emel",
+            "pub type Bytes(value: Int)\n\npub fn count(b: Bytes) -> Int { b.value }\n",
+        ),
+        (
+            "app/src/main.emel",
+            "import Bytes\n\nfn main() {\n  dbg(Bytes.count(Bytes.Bytes(value: 1)))\n}\n",
+        ),
+    ];
+    let analysis = check_files(&files, "app", &mut Typecheck::default());
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+
+    let files = [
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            r#"import Std.Bytes.{Bytes}
+
+fn size(b: Bytes) -> Int {
+  b match {
+    Bytes() -> 0
+  }
+}
+
+fn main() {
+  dbg(Bytes())
+}
+"#,
+        ),
+    ];
+    let analysis = check_files(&files, "app", &mut Typecheck::default());
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }

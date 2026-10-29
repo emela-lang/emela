@@ -307,6 +307,10 @@
       "required": false,
       "types": [
         {
+          "type": "annotation_path",
+          "named": true
+        },
+        {
           "type": "float",
           "named": true
         },
@@ -323,6 +327,32 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "annotation_path",
+    "named": true,
+    "fields": {
+      "module": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "type_identifier",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {

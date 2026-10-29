@@ -59,7 +59,7 @@ impl Emitter<'_> {
             FiberOp::Poll => ("$poll", Wait::No),
             FiberOp::CauseKind { .. } => ("$causeKind", Wait::No),
             FiberOp::CauseToString => ("$causeToString", Wait::No),
-            FiberOp::CauseRaise => ("$causeRaise", Wait::No),
+            FiberOp::CauseRaise { .. } => ("$causeRaise", Wait::No),
         };
         let call = format!("{}({vs})", self.rt(f));
         if waits != Wait::No {

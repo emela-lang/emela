@@ -335,7 +335,7 @@ impl Lowerer<'_> {
             FiberFn::DeferredAwait => simple(FiberOp::DeferredAwait),
             FiberFn::Poll => simple(FiberOp::Poll),
             FiberFn::CauseToString => simple(FiberOp::CauseToString),
-            FiberFn::CauseRaise => simple(FiberOp::CauseRaise),
+            FiberFn::CauseRaise => simple(FiberOp::CauseRaise { fails: call.fails }),
             FiberFn::Await => match self.ret_enum(&fn_ty) {
                 Some(exit) => simple(FiberOp::Await { exit }),
                 None => Some(Err(self.unsupported("Fiber.await", span))),

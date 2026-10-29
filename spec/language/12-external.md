@@ -68,7 +68,7 @@ An `@external type` with no fields is an opaque type that represents a host obje
 
 Only the following types can be used for the parameters and the return value of an external function.
 
-- Int, Int64, Float, Bool, String, `()`
+- Int, Int64, Float, Bool, String, Bytes (`Std.Bytes`), `()`
 - Types declared with `@external type`
 - Function types made only of the types above (callbacks)
 
@@ -76,6 +76,7 @@ List and user-defined types cannot be passed directly. They are converted inside
 
 - The parameters and return value of a function passed as a callback are treated the same as the parameters and return value of an external function (a String received from the host is normalized as in 12.5).
 - An external function that returns `()` discards the host's return value and returns `()`.
+- A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.
 
 On the `c` target, the types map to C types by the following table.
 
@@ -97,6 +98,7 @@ On the `c` target, the types map to C types by the following table.
 - A String received from C is copied into an Emela string, and freed with `free` right after the copy. Sequences that are not valid UTF-8 are replaced with the replacement character (U+FFFD) (the same idea as the normalization in 12.5). The replacement is one replacement character per maximal subpart of an invalid sequence. A returned NULL is a defect. The message is ``external function `f` returned NULL`` (`X` is the name of the external function).
 - A C type not in the table, such as `size_t` or `int`, is converted to a type in the table by a small function written on the C side. The compiler does not guess the width of integers.
 - The first version of the C target (0.21) does not support parameters and return values of function types. When the build target is `c` and an external function reachable from the entry point takes or returns a callback, it is a compile error (E0427). The form of callbacks (a pair of a function pointer and a context) and how long the C side can keep them are decided in 18.1 #38.
+- The C target does not support Bytes yet. When the build target is `c` and an external function reachable from the entry, or an exported fn, takes or returns Bytes, it is a compile error (E0443). The C form (a pointer and a length) is decided together with callbacks (18.1 #38).
 
 ## 12.5 Exceptions and failures `[ext.exception]`
 
@@ -154,3 +156,28 @@ void host_sleep(int32_t ms, em_task *task) {
 - When the event loop has no registered waits, only uncompleted `task`s remain, and every fiber has stopped, the continuations are treated as continuations discarded while suspended (14.5).
 - A host function that hands a task to another thread MUST keep the event loop waiting with its own registration (an `em_after` with a long deadline, for example). Tasks held by other threads alone do not keep the launch from being considered stalled (`[target.c.event-loop]`). The registration is removed on completion.
 - The types and the function signatures of `emela.h` can change between versions, like any other API.
+
+## 12.7 Exported functions `[ext.export]`
+
+```emel
+@export(c, "TIM2_IRQHandler")
+pub fn on_tick() -> () { ... }
+
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+```
+
+- `@export` is written on a top-level fn with a body. Writing it on any other declaration, or on a fn without a body, is E0146. Its arguments have the form `(target, "name")` or `(target, "interface", "name")`, as for `@external` (12.1). One `@export` is written per target name; a fn MAY have several for the same target. Malformed arguments are E0146, and an unknown target is E0140.
+- An `@export` fn exposes itself to the host under each name. Each call by the host is one launch, as main is.
+- The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402).
+- A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} use {}` (`f: fn(Int) -> String fails {} use {}`). Otherwise its E and R are not empty (E0402).
+- An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
+- Two exports with the same name for the same target, from `@export` or `@entry`, are a compile error (E0438).
+- How each target exposes the fn is in `[target.js.module]`, `[target.c.export]` and `[target.wasm.external]`.
+
+## 12.8 Entry adapters `[ext.entry]`
+
+- An `@export` fn whose first parameter has a function type is an entry adapter. An entry adapter is not exposed by itself, and MAY be in any module. Its first parameter need not be a boundary type; the other parameters and the return value are boundary types (E0436).
+- `@entry(T)` is written on a top-level fn `f` of the entry module. Writing it outside the entry module is E0437. Its one argument is a lower name (`serve`, a fn of the same module) or a `qualified` path (`Http.serve`) that names an entry adapter; anything else is E0439. `f` MUST be accepted as the first argument of `T` (E0440).
+- For each `@export` of `T`, the program exposes under the same name a fn that takes the remaining parameters of `T` and returns `T(f, ...)`. Each call is one launch.
+- `f` remains an ordinary fn. It can be called, including from tests.

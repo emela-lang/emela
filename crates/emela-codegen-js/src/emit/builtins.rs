@@ -51,6 +51,14 @@ pub(crate) fn runtime_name(op: Builtin) -> &'static str {
         Builtin::FloatCeil => "$fceil",
         Builtin::FloatRound => "$fround",
         Builtin::FloatTruncate => "$ftrunc",
+        Builtin::BytesFromList => "$bytesFromList",
+        Builtin::BytesToList => "$bytesToList",
+        Builtin::BytesSize => "$bytesSize",
+        Builtin::BytesGet => "$bytesGet",
+        Builtin::BytesSlice => "$bytesSlice",
+        Builtin::BytesConcat => "$bytesConcat",
+        Builtin::BytesEncodeUtf8 => "$bytesEncodeUtf8",
+        Builtin::BytesDecodeValidUtf8 => "$bytesDecodeValidUtf8",
         Builtin::Panic => "$panic",
         Builtin::Todo => "$todo",
         Builtin::Dbg => "$dbg",
@@ -60,6 +68,7 @@ pub(crate) fn runtime_name(op: Builtin) -> &'static str {
         Builtin::CellSet => "$cellSet",
         Builtin::ShowString => "$showString",
         Builtin::DebugPrint => "$debugPrint",
+        Builtin::AssertFail => "$assertDefect",
         Builtin::ShowNested => unreachable!("monomorphization replaces String.show_nested"),
     }
 }
@@ -77,6 +86,7 @@ mod tests {
             Builtin::CellSet,
             Builtin::ShowString,
             Builtin::DebugPrint,
+            Builtin::AssertFail,
         ];
         let replaced = [Builtin::ShowNested];
         for &op in Builtin::ALL

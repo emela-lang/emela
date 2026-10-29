@@ -733,7 +733,7 @@ impl Checker<'_> {
                     }
                 }
             }
-            Term::Defect(msg) => {
+            Term::Defect(msg, _) => {
                 self.stage_at_most(Stage::ClosuresConverted, "defect");
                 let r = self.operand(msg);
                 self.expect(r, Repr::Ref, "defect message");
@@ -1216,7 +1216,7 @@ impl Checker<'_> {
                     }
                     FiberOp::CauseKind { kind } => Expect::Exactly(enum_repr(self.core, kind)),
                     FiberOp::Complete => Expect::Exactly(Repr::I32),
-                    FiberOp::Interrupt | FiberOp::CauseRaise => Expect::Exactly(Repr::Void),
+                    FiberOp::Interrupt | FiberOp::CauseRaise { .. } => Expect::Exactly(Repr::Void),
                     FiberOp::Scope { .. } | FiberOp::Join | FiberOp::DeferredAwait => {
                         Expect::Unknown
                     }
@@ -1554,7 +1554,7 @@ fn sig_repr(s: Sig) -> Option<Repr> {
         Sig::Int64 => Repr::I64,
         Sig::Float => Repr::F64,
         // Option has a constructor with a field.
-        Sig::String | Sig::List(_) | Sig::Option(_) => Repr::Ref,
+        Sig::String | Sig::Bytes | Sig::List(_) | Sig::Option(_) => Repr::Ref,
         Sig::Unit | Sig::Never => Repr::Void,
         Sig::Param(_) => return None,
     })

@@ -87,6 +87,12 @@ pub fn try_lower_with(
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
     assert!(types.diags.is_empty(), "{:?}", types.diags);
+    // The files under `src`, as diagnostics would show them (the bundled sources have none).
+    let shown_paths = modules
+        .iter()
+        .filter(|(_, m)| m.file.starts_with("src"))
+        .map(|(id, m)| (id, m.file.display().to_string()))
+        .collect();
     let input = LowerInput {
         hir: &program,
         types: &types,
@@ -95,6 +101,7 @@ pub fn try_lower_with(
         entry: Some(entry),
         tests: Vec::new(),
         paths: Default::default(),
+        shown_paths,
         bundled_files,
         target: None,
     };
@@ -114,9 +121,11 @@ pub fn try_lower_with(
                     LowerError::MissingCoreFile { path, span } => {
                         (format!("missing core file {path}"), span)
                     }
-                    LowerError::ConstrainedExport { name, param, span } => {
-                        (format!("constrained export {name} [{param}]"), span)
+                    LowerError::SuspendingExport { name, span } => {
+                        (format!("suspending export {name}"), span)
                     }
+                    LowerError::WasmExport { name, span } => (format!("wasm export {name}"), span),
+                    LowerError::HttpServiceOnC { span } => ("HTTP service on c".to_owned(), span),
                 };
                 let Some(span) = span else {
                     return format!("<no span> {what}");

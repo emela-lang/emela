@@ -103,11 +103,13 @@ fn names_are_qualified_except_in_the_entry() {
     assert!(!enums.iter().any(|e| e.ends_with("Bool")), "{enums:?}");
 }
 
+/// The roots of a normal build are `main` and the `@export` fns (`[ext.export]`); a `pub` fn is not
+/// one (`[target.js.module]`). An exported fn carries its host names.
 #[test]
-fn entry_exports_pub_fns_and_main() {
+fn entry_exports_main_and_export_fns() {
     let m = lower_files(&[(
         "main.emel",
-        "fn main() { 0 }\n\npub fn api() -> Int { 1 }\n\nfn private() -> Int { 2 }\n",
+        "fn main() { 0 }\n\n@export(js, \"api\")\n@export(js, \"default\", \"api\")\npub fn api() -> Int { 1 }\n\npub fn other() -> Int { 2 }\n",
     )]);
     let exported: Vec<&str> = m
         .functions
@@ -116,6 +118,13 @@ fn entry_exports_pub_fns_and_main() {
         .map(|(_, f)| f.name.as_str())
         .collect();
     assert_eq!(exported, ["main", "api"]);
+    let (_, api) = m.functions.iter().find(|(_, f)| f.name == "api").unwrap();
+    let names: Vec<(Option<&str>, &str)> = api
+        .host_exports
+        .iter()
+        .map(|x| (x.interface.as_deref(), x.name.as_str()))
+        .collect();
+    assert_eq!(names, [(None, "api"), (Some("default"), "api")]);
 }
 
 #[test]
@@ -585,6 +594,63 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
+/// The arguments of handler init (`[effect.handler]`, `[dyn.with]`). init takes its parameters
+/// before the table. A `with` binds the arguments first, in the order the items are written and
+/// without release, then runs the inits in the order of the dependencies. The arguments of a
+/// handler a later item overrides are not bound. An argument written in a layer becomes a const
+/// (`AppLive$arg0`), called where the layer is expanded.
+#[test]
+fn handler_init_arguments() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Config {
+  fn url() -> String
+}
+
+effect Users {
+  fn find(id: Int) -> String
+}
+
+handler Env(url: String): Config {
+  init(url: String) { Env(url:) }
+  fn url() { self.url }
+}
+
+handler Pool(url: String): Users {
+  init(n: Int) { Pool(url: (use Config).url()) }
+  fn find(id) { self.url }
+}
+
+handler Spare: Users {
+  fn find(id) { \"spare\" }
+}
+
+fn port() -> Int { 5432 }
+
+layer AppLive {
+  Env(url: \"db\")
+}
+
+fn main() {
+  with Pool(n: port()), Env(url: \"a\") { dbg((use Users).find(1)) }
+  with AppLive, Pool(n: 2) { dbg((use Users).find(2)) }
+  with Pool(n: port()), Spare { dbg((use Users).find(3)) }
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| {
+            ["fn main(", "Pool$init", "Env$init", "AppLive"]
+                .iter()
+                .any(|k| f.contains(k))
+        })
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}
+
 /// State.run (spec 8.8) and effects with type arguments (spec 8.1). State.run creates a cell and a
 /// handler value that reads and writes it, adds it to the table under the key `State[S]`, and calls
 /// body. A generic fn body looks it up by its own type parameter's key (`State[$modify.0]`), and
@@ -897,4 +963,25 @@ fn main() {
         })
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
+}
+
+/// A method call is lowered as the call of the function it finds (`[type.rules]`): `x.f(a)` as
+/// `M.f(x, a)` and `x.g()` of a trait as `Trait.g(x)`, with the receiver evaluated first.
+#[test]
+fn method_calls_lower_as_calls() {
+    let module = |body: &str| {
+        let main = format!(
+            "type User(name: String)\n  derive Show\n\nfn rename(u: User, name: String) -> User {{ User(name:, ..u) }}\n\nfn main() {{\n  u = User(name: \"a\")\n  {body}\n}}\n"
+        );
+        let m = lower_files(&[("main.emel", &main)]);
+        emela_core::dump(&m)
+    };
+    assert_eq!(
+        module("u.rename(\"b\").show()"),
+        module("Show.show(rename(u, \"b\"))")
+    );
+    assert_eq!(
+        module("[u.show()].map(fn(s) { s.append(\"!\") }).join(\",\")"),
+        module("List.join(List.map([Show.show(u)], fn(s) { String.append(s, \"!\") }), \",\")")
+    );
 }

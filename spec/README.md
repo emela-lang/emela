@@ -28,7 +28,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | `library/15-stdlib.md` | 15. Scope of the standard library | `lib` |
 | `library/api.md` | The APIs of the bundled core and std | `api` |
 | `targets/16-targets.md` | 16. Targets | `target` |
-| `targets/js.md`, `targets/c.md`, `targets/wasm.md` | Observable behavior of each target | `target.js` and so on |
+| `targets/js.md`, `targets/c.md`, `targets/wasm.md`, `targets/c-embedded.md` | Observable behavior of each target | `target.js` and so on |
 | `grammar.md` | 17. Grammar | `grammar` |
 | `diagnostics.md` | Appendix A. Diagnostic codes | `diag` |
 | `tooling/` | Appendix B. Commands, the formatter, the language server, Pome, the test runner | `cmd` and so on |

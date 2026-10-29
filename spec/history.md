@@ -6,6 +6,46 @@ This is the record of changes to the specification. New entries are added at the
 
 - `[error.escape]`, `[type.rules]`, `[module.resolution]`, `[diag.list]`: An escape arm MAY be the wildcard `_`. It handles every error of the original expression, including the errors in opaque set variables, and removes all of them from E. It is meant for falling back to a default, doing nothing, or turning a failure into a defect. `_` cannot have a guard. A variable pattern stays a compile error, because a value of "one of E" cannot be typed (`[error.decl]`). Adopted in the proposal `escape-wildcard-arm` (#420).
 
+## 2026-10-29 (The embedded C target)
+
+- `[target]`, `[target.c-embedded]`, `[target.c-embedded.output]`, `[target.c-embedded.board]`, `[target.c-embedded.entry]`, `[target.c-embedded.project]`, `[target.c-embedded.config]`, `[module.pome]`, `[cmd]`, `[cmd.build]`, `[cmd.flash]`: Add the target `c-embedded`, which makes C for microcontrollers, and, with a board selected by `--board` or `[embedded].board`, a firmware image. `emela flash` writes the image of the last successful build after checking that its inputs and outputs have not changed. `[pome].targets` and `[build].target` can name `c-embedded`. The `[embedded]` table of `Pome.toml` and the runtime configuration file are added. This follows the pull request #387.
+
+## 2026-10-28 (Remove the compare functions that Ord already gives)
+
+- `[api.int]`, `[api.int64]`, `[api.std.duration]`, `[api.std.instant]`, `[target.number]`, `[open.list]`: `Int.compare`, `Int64.compare`, `Duration.compare` and `Instant.compare` are removed. These types satisfy Ord, and `Ord.compare` gives the same order. With method calls (`[type.rules]`), `n.compare(m)` finds both the fn of the module and the function of Ord, and is E0335. `Float.compare` stays: Float does not satisfy Ord. Adopted in the proposal `remove-compare` (#468).
+
+## 2026-10-27 (Method calls)
+
+- `[lex.name]`, `[data.type]`, `[type.rules]`, `[trait.call]`, `[module.resolution]`, `[api.list]`, `[api.string]`, `[api.std.http.request]`, `[api.std.http.response]`, `[api.std.http]`, `[lsp.completion]`, `[lsp.navigation]`, `[diag.list]`: `x.f(a)` can be written for `M.f(x, a)`, where M is the module that defines the type of x and f is a function of that module whose first parameter has that type at its head. The functions of a trait that the type implements can be called the same way, when the trait is visible by name. Functions are not marked. `String.join` moves to `List.join`, and the functions `Request.headers` and `Response.headers` are renamed to `header_values`. Adopted in the proposal `method-call` (#454).
+
+## 2026-10-27 (Bytes)
+
+- `[lib.layers]`, `[api.std.bytes]`, `[ext.boundary]`, `[target.js.value]`, `[diag.list]`: Add `Bytes`, an immutable sequence of bytes, to the value layer of std as `Std.Bytes`. It has functions to build, read, slice and join byte sequences, and to convert to and from UTF-8 text and hexadecimal. `Bytes` becomes a boundary type of external functions on the JS target, so that the platform layer can later pass binary data to and from the host. Adopted in the proposal `bytes` (#457).
+
+## 2026-10-25 (Requests of HTTP services on WASM)
+
+- `[lib.http-service]`, `[target.wasm.output]`: The headers that belong to the connection (`connection`, `keep-alive`, `proxy-authenticate`, `proxy-authorization`, `proxy-connection`, `transfer-encoding`, `upgrade`, `host`, `http2-settings`) are left out of a received request on every target, because hosts of `wasi:http` do not hand them over. On WASM a request without an authority has an empty authority, so `url` is `http:///<path-with-query>` under `wasmtime serve`. Decided while implementing the proposal `http-service` (#428).
+
+## 2026-10-25 (What the hosts of HTTP services allow)
+
+- `[lib.http-service]`: Headers of a response with different names are sent in an unspecified order, and values with the same name may be joined, because the Headers of the JS Fetch API keep no order between names. A response with a status outside 200 to 599, a body on 204, 205 or 304, or an invalid header becomes status 500 with one line `invalid response: <reason>` on standard error. On JS the `url` of a received request is normalized by the URL Standard, and may differ from WASM. A launch that ends with an interruption gives the host an error instead of status 500, because `Fiber.attempt` does not catch the interruption of the current fiber. Decided while implementing the proposal `http-service` (#428).
+
+## 2026-10-25 (HTTP services)
+
+- `[lib.layers]`, `[lib.http-service]`, `[api.std.http]`, `[api.std.http.request]`, `[api.std.http.response]`, `[target.js.module]`, `[target.wasm.output]`, `[target.wasm.run]`, `[target.c.unsupported]`, `[target.wasm.external]`, `[cmd.build]`, `[diag.list]`: Add `serve`, an entry adapter for HTTP services, to `Std.Http`. When an fn of the entry module has `@entry(Http.serve)`, the host calls that fn for every request it receives. On JS this is the `fetch` of the default export of `main.mjs`; on WASM it is `handle` of `wasi:http/handler@0.3.0`. `emela run` starts a server as it is. Adopted in the proposal `http-service` (#428).
+
+## 2026-10-24 (Exported functions and entries)
+
+- `[glossary.terms]`, `[kw.annotation]`, `[grammar.decl]`, `[ext]`, `[target.js.module]`, `[target.js.start]`, `[target.wasm.external]`, `[target.c]`, `[effect.with]`, `[module.pome]`, `[cmd.build]`, `[diag.list]`: `@export` declares a function that the host calls. It is the reverse of `@external`: it is written on a fn with a body and gives, for each target, the name the host sees. Its parameters and return value are boundary types. An `@export` fn whose first parameter is a function is an entry adapter, and is not exported by itself. Writing `@entry(adapter)` on a fn of the entry module creates an export that passes that fn to the entry adapter as its first argument. Entries at the everyday level (HTTP services and others) are made by pointing `@entry` at an entry adapter written at the foundation level. Adopted in the proposal `export` (#427).
+
+## 2026-10-24 (Separate the output of emela test for people at a terminal and for coding agents)
+
+- `[cmd.test.output]`, `[cmd.test.reporter]`, `[test.command]`: `emela test` displays its results with one of three reporters: `pretty` for a person reading a terminal, `plain` that keeps the current line format, and `agent` for a coding agent. `--reporter` selects one; when it is omitted, the environment decides. The layout of `pretty` is left to the implementation, not the specification. Adopted in the proposal `test-reporters` (#412).
+
+## 2026-10-24 (Show where a test failed)
+
+- `[cmd.test.output]`, `[cmd.test.outcome]`, `[test.assert]`: A defect from a failed assert carries the source location of the assert expression (the path, the line and the column). `emela test` shows that location in the details of the failure. Adopted in the proposal `test-failure-location` (#413).
+
 ## 2026-10-23 (The std hosts on WASM)
 
 - `[target.wasm.output]`, `[target.wasm.external]`: `SystemConsole`, `SystemEnv`, `SystemRandom` and `SystemClock.now` reach the WASI 0.3 hosts through the runtime, and the component imports `wasi:cli/environment`, `wasi:random/random` and `wasi:clocks/system-clock` (all `@0.3.0`) only when the entry reaches the std host function that uses each. A fn written by a user that names the same WASI function is still a compile error. This follows the pull request #403.

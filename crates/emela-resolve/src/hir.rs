@@ -414,9 +414,34 @@ pub enum ExprKind {
 pub struct WithItem {
     pub res: Res,
     pub span: Span,
+    /// The arguments written after `res` (`WorkerKv(binding: "KV")`). With `by`, they follow the
+    /// label, which takes none.
+    pub args: Option<SupplyArgs>,
     pub by: Option<(Res, Span)>,
     /// Type arguments of an effect right of `by` (`Counter by State[Int]`).
     pub by_args: Vec<TypeId>,
+    /// The arguments written after the right of `by` (`AuditLog by FileLog(path: "a.log")`).
+    pub by_init_args: Option<SupplyArgs>,
+}
+
+impl WithItem {
+    /// The handler or layer that supplies the item (the right of `by`, else `res`), with the
+    /// arguments written after it.
+    pub fn supplier(&self) -> (Res, Option<&SupplyArgs>) {
+        match self.by {
+            Some((by, _)) => (by, self.by_init_args.as_ref()),
+            None => (self.res, self.args.as_ref()),
+        }
+    }
+}
+
+/// The arguments of a handler's init written on an item of `with` or `layer`, or on the right of
+/// `by` (`WorkerKv(binding: "KV")`, `[effect.handler]`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupplyArgs {
+    pub args: Vec<Arg>,
+    /// The parenthesized list.
+    pub span: Span,
 }
 
 /// A call argument. Named arguments (with `label`) are not resolved, since that needs the callee's
@@ -507,6 +532,21 @@ pub struct FnItem {
     pub externals: Vec<ExternalAttr>,
     /// A built-in function of the bundled core sources.
     pub is_intrinsic: bool,
+    /// The arguments of `@export(js, "default", "fetch")` (spec 12.7), in source order, in the
+    /// same shape as [`FnItem::externals`]. Malformed ones are left out (E0146).
+    pub exports: Vec<ExternalAttr>,
+    /// The `@entry(Http.serve)` attributes (spec 12.8), in source order.
+    pub entries: Vec<EntryAttr>,
+}
+
+/// One `@entry(T)` on a fn (spec 12.8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryAttr {
+    /// What `T` names. `None` when the argument is not a single name or path (`@entry`,
+    /// `@entry(1)`, `@entry(a, b)`), which is reported as not naming an entry adapter (E0439).
+    pub adapter: Option<Res>,
+    /// The whole attribute.
+    pub span: Span,
 }
 
 /// The arguments of `@external(target, "a", "b")` (spec 12.1). `target` is the first argument's
@@ -517,15 +557,21 @@ pub struct FnItem {
 pub struct ExternalAttr {
     pub target: SmolStr,
     pub args: Vec<String>,
+    /// The whole attribute.
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeItem {
     pub type_params: Vec<TypeParam>,
-    /// The same-named constructor. Absent for an `@external` type without fields.
+    /// The same-named constructor. Absent for an `@external` or `@intrinsic` type without
+    /// fields.
     pub ctor: Option<DefId>,
     pub fields: Fields,
     pub derives: Vec<(Res, Span)>,
+    /// A built-in type of the bundled sources, marked with `@intrinsic` (`Std.Bytes.Bytes`,
+    /// `[kw.annotation]`). Its values are represented by the runtime.
+    pub is_intrinsic: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -597,6 +643,8 @@ pub struct HandlerItem {
     /// The constructor when there are fields, used in `init`.
     pub ctor: Option<DefId>,
     pub init: Option<ExprId>,
+    /// The parameters of init (`init(binding: String)`). Empty without them.
+    pub init_params: Vec<Param>,
     /// `release` and its implicit `self`.
     pub release: Option<(LocalId, ExprId)>,
     pub ops: Vec<HandlerOp>,
@@ -618,7 +666,15 @@ pub struct HandlerOp {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayerItem {
     /// Handlers or layers.
-    pub members: Vec<(Res, Span)>,
+    pub members: Vec<LayerMember>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LayerMember {
+    pub res: Res,
+    pub span: Span,
+    /// The arguments of the handler's init (`WorkerKv(binding: "KV")`).
+    pub args: Option<SupplyArgs>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -683,6 +739,10 @@ pub struct ModuleItems {
     /// A core module bundled with the compiler (`ModuleMap::is_core`). Its impls of the Prelude's
     /// traits for the Prelude's types are the built-in impls (spec 10.6).
     pub is_core: bool,
+    /// The traits that can be written unqualified in the module: its own, those imported by name
+    /// in braces, and the Prelude's it does not shadow. A method call looks up the functions of
+    /// these traits only (`[type.rules]`). Sorted by definition.
+    pub traits: Vec<DefId>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -701,6 +761,25 @@ pub struct Program {
     /// [`LocalData::span`]). Effect operations (`log.info`) are looked up by type inference, so
     /// they are not here either.
     pub refs: Vec<NameRef>,
+    /// The exports made by `@entry` (spec 12.8), added after name resolution by
+    /// `emela_types::add_entry_exports`, which knows the entry module. Empty until then.
+    pub entry_exports: Vec<EntryExport>,
+}
+
+/// The fn that `@entry(T)` on `f` exposes for each `@export` of `T` (spec 12.8): a top-level fn
+/// [`EntryExport::def`] in the entry module, with the parameters of `T` after the first and the
+/// body `T(f, ...)`. It has no name in scope and no span. Its expressions and parameters have an
+/// empty range at the end of the attribute, and a type error in it is reported at the attribute
+/// (E0440).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryExport {
+    pub def: DefId,
+    /// `f`.
+    pub entry: DefId,
+    /// `T`, an entry adapter.
+    pub adapter: DefId,
+    /// The `@entry(T)` attribute.
+    pub span: Span,
 }
 
 /// Used by type inference to look up built-in types and constructors.

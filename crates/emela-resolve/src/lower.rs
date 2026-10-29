@@ -14,6 +14,60 @@ use crate::resolve::{DotLeft, ModRef, Ns, Pending, Resolver, child_token, token_
 use crate::source::ModuleId;
 use crate::suggest::best_match;
 
+/// Reports an fn of the module of a type, whose first parameter has that type at its head and
+/// whose name is a field of that type (E0334, `[data.type]`). Types with fields are types,
+/// errors and handlers with fields. Runs after every item is lowered, since it reads the
+/// resolved type of the first parameter.
+pub(crate) fn check_fn_field_names(resolver: &mut Resolver<'_>) {
+    let program = &resolver.program;
+    let mut found = Vec::new();
+    for (def, item) in program.items.iter() {
+        let Item::Fn(f) = item else { continue };
+        let data = &program.defs[def];
+        let (DefModule::Source(module), Some(span)) = (&data.module, data.span) else {
+            continue;
+        };
+        let Some(ty) = f.sig.params.first().and_then(|p| p.ty) else {
+            continue;
+        };
+        let TypeKind::Path {
+            res: Res::Def(ty_def),
+            ..
+        } = program.types[ty].kind
+        else {
+            continue;
+        };
+        if program.defs[ty_def].module != data.module {
+            continue;
+        }
+        let fields = match program.item(ty_def) {
+            Some(Item::Type(t)) => &t.fields,
+            Some(Item::Error(e)) => &e.fields,
+            Some(Item::Handler(h)) => match h.ctor.and_then(|c| program.item(c)) {
+                Some(Item::Ctor(c)) => &c.fields,
+                _ => continue,
+            },
+            _ => continue,
+        };
+        let Fields::Named(fields) = fields else {
+            continue;
+        };
+        if fields.iter().any(|field| field.name == data.name) {
+            found.push((
+                *module,
+                span.range,
+                DiagnosticKind::FnNamedLikeField {
+                    name: data.name.clone(),
+                    ty: program.defs[ty_def].name.clone(),
+                },
+            ));
+        }
+    }
+    for (module, range, kind) in found {
+        resolver.error(module, range, kind);
+    }
+}
+
 pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
     let mut lower = Lower {
         r: resolver,
@@ -54,10 +108,16 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         ast::Item::Handler(h) => lower.handler_item(pending.def, pending.ctor, h),
         ast::Item::Layer(l) => {
             let members = l
-                .handlers()
-                .map(|p| {
+                .members()
+                .filter_map(|s| {
+                    let p = s.path()?;
                     let res = lower.resolve_type_ns(&p, Expected::HandlerOrLayer);
-                    (res, lower.span(p.syntax().text_range()))
+                    let args = lower.supply_args(&s, res);
+                    Some(LayerMember {
+                        res,
+                        span: lower.span(p.syntax().text_range()),
+                        args,
+                    })
                 })
                 .collect();
             Item::Layer(LayerItem { members })
@@ -286,12 +346,69 @@ impl Lower<'_, '_> {
         let body = f.body().map(|b| self.block(&b));
         self.pop_scope();
         self.pop_type_params();
+        let entries = f
+            .annotations()
+            .filter(|a| a.name().is_some_and(|n| n.text() == "entry"))
+            .map(|a| EntryAttr {
+                adapter: self.entry_adapter(&a),
+                span: self.span(a.syntax().text_range()),
+            })
+            .collect();
         FnItem {
             sig,
             body,
             is_external: f.has_annotation("external"),
-            externals: external_attrs(f),
+            externals: attrs(f, "external", self.module),
             is_intrinsic: f.has_annotation("intrinsic"),
+            exports: attrs(f, "export", self.module),
+            entries,
+        }
+    }
+
+    /// What the argument of `@entry(T)` names: a fn of this module (`serve`) or of another one
+    /// (`Http.serve`), looked up as a value. `None` if the argument is not one name or path.
+    fn entry_adapter(&mut self, annotation: &ast::Annotation) -> Option<Res> {
+        let args: Vec<SyntaxNode> = annotation
+            .args()
+            .filter(|a| a.kind() == ANNOT_ARG)
+            .collect();
+        let [arg] = args.as_slice() else {
+            return None;
+        };
+        if let Some(path) = arg.children().find(|c| c.kind() == ANNOT_PATH) {
+            let tokens: Vec<SyntaxToken> = path
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .filter(|t| matches!(t.kind(), TYPE_NAME | LOWER_NAME))
+                .collect();
+            let (last, prefix) = tokens.split_last()?;
+            if last.kind() != LOWER_NAME {
+                // `@entry(Http.)`: the parser reported it.
+                return Some(Res::Err);
+            }
+            let (name, range) = token_name(last);
+            let res = match self.resolve_prefix(prefix) {
+                Some(left) => match self.member_of_left(&left, Ns::Value, &name, range) {
+                    Some(def) => {
+                        self.refer(range, RefTarget::Def(def));
+                        Res::Def(def)
+                    }
+                    None => Res::Err,
+                },
+                None => Res::Err,
+            };
+            return Some(res);
+        }
+        let mut tokens = arg
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| !t.kind().is_trivia());
+        match (tokens.next(), tokens.next(), arg.first_child()) {
+            (Some(name), None, None) if name.kind() == LOWER_NAME => {
+                let (name, range) = token_name(&name);
+                Some(self.value(&name, range, LOWER_NAME))
+            }
+            _ => None,
         }
     }
 
@@ -476,6 +593,8 @@ impl Lower<'_, '_> {
             ctor,
             fields,
             derives,
+            // Outside the bundled sources, `@intrinsic` is E0224 and the type stays a user type.
+            is_intrinsic: t.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
         })
     }
 
@@ -576,8 +695,18 @@ impl Lower<'_, '_> {
             None => Res::Err,
         };
         let effect_args = self.type_arg_list(h.effect_type_args());
-        // `init` runs on entering `with` and builds the handler value; there is no `self` yet.
-        let init = h.init().map(|b| self.block(&b));
+        // `init` runs on entering `with` and builds the handler value; there is no `self` yet. Its
+        // parameters are in scope in its body only.
+        let (init_params, init) = match h.init() {
+            Some(b) => {
+                self.push_scope();
+                let params = self.params(h.init_params(), LocalKind::Param);
+                let body = self.block(&b);
+                self.pop_scope();
+                (params, Some(body))
+            }
+            None => (Vec::new(), None),
+        };
         let release = h.release().map(|b| {
             self.push_scope();
             let local = self.implicit_self(def);
@@ -624,6 +753,7 @@ impl Lower<'_, '_> {
             fields,
             ctor,
             init,
+            init_params,
             release,
             ops,
         })
@@ -1287,29 +1417,42 @@ impl Lower<'_, '_> {
                     .children()
                     .filter_map(|c| {
                         if c.kind() == WITH_BY {
-                            let mut paths = c.children().filter_map(ast::Path::cast);
-                            let label = paths.next()?;
-                            let res = self.resolve_type_ns(&label, Expected::Label);
-                            let by = paths.next().map(|p| {
+                            let mut supplies = c.children().filter_map(ast::Supply::cast);
+                            let label = supplies.next()?;
+                            let res = match label.path() {
+                                Some(p) => self.resolve_type_ns(&p, Expected::Label),
+                                None => Res::Err,
+                            };
+                            let args = self.supply_args(&label, res);
+                            let mut by_init_args = None;
+                            let by = supplies.next().and_then(|s| {
+                                let p = s.path()?;
                                 let res = self.resolve_type_ns(&p, Expected::HandlerOrEffect);
-                                (res, self.span(p.syntax().text_range()))
+                                by_init_args = self.supply_args(&s, res);
+                                Some((res, self.span(p.syntax().text_range())))
                             });
                             let by_args = self
                                 .type_arg_list(c.children().find(|n| n.kind() == TYPE_ARG_LIST));
                             return Some(WithItem {
                                 res,
                                 span: self.span(c.text_range()),
+                                args,
                                 by: Some(by.unwrap_or((Res::Err, self.span(c.text_range())))),
                                 by_args,
+                                by_init_args,
                             });
                         }
-                        let p = ast::Path::cast(c)?;
+                        let s = ast::Supply::cast(c)?;
+                        let p = s.path()?;
                         let res = self.resolve_type_ns(&p, Expected::WithItem);
+                        let args = self.supply_args(&s, res);
                         Some(WithItem {
                             res,
                             span: self.span(p.syntax().text_range()),
+                            args,
                             by: None,
                             by_args: Vec::new(),
+                            by_init_args: None,
                         })
                     })
                     .collect();
@@ -1568,53 +1711,84 @@ impl Lower<'_, '_> {
 
     fn call(&mut self, node: &SyntaxNode) -> ExprKind {
         let callee = self.child_expr(node, 0);
-        let mut args = Vec::new();
-        let mut spread = None;
-        if let Some(list) = node.children().find(|c| c.kind() == ARG_LIST) {
-            for arg in list.children() {
-                if arg.kind() == SPREAD_ARG {
-                    // A `..` without an expression is already reported by the syntax checks.
-                    if let Some(e) = arg.children().find(|c| is_expr(c.kind())) {
-                        spread = Some(self.expr(&e));
-                    }
-                    continue;
-                }
-                if arg.kind() == NAMED_ARG {
-                    let Some(token) = child_token(&arg, LOWER_NAME) else {
-                        continue;
-                    };
-                    let (name, range) = token_name(&token);
-                    let label = Label {
-                        name: name.clone(),
-                        span: self.span(range),
-                    };
-                    // `NotFound(id:)` is short for `id: id`.
-                    let (value, punned) = match arg.children().find(|c| is_expr(c.kind())) {
-                        Some(e) => (self.expr(&e), false),
-                        None => {
-                            let res = self.value(&name, range, LOWER_NAME);
-                            (self.alloc_expr(ExprKind::Path(res), range), true)
-                        }
-                    };
-                    args.push(Arg {
-                        label: Some(label),
-                        value,
-                        punned,
-                    });
-                } else if is_expr(arg.kind()) {
-                    let value = self.expr(&arg);
-                    args.push(Arg {
-                        label: None,
-                        value,
-                        punned: false,
-                    });
-                }
-            }
-        }
+        let (args, spread) = match node.children().find(|c| c.kind() == ARG_LIST) {
+            Some(list) => self.arg_list(&list),
+            None => (Vec::new(), None),
+        };
         match spread {
             Some(base) => self.update(callee, args, base),
             None => ExprKind::Call { callee, args },
         }
+    }
+
+    /// The arguments in an ARG_LIST, and the expression after a trailing `..`.
+    fn arg_list(&mut self, list: &SyntaxNode) -> (Vec<Arg>, Option<ExprId>) {
+        let mut args = Vec::new();
+        let mut spread = None;
+        for arg in list.children() {
+            if arg.kind() == SPREAD_ARG {
+                // A `..` without an expression is already reported by the syntax checks.
+                if let Some(e) = arg.children().find(|c| is_expr(c.kind())) {
+                    spread = Some(self.expr(&e));
+                }
+                continue;
+            }
+            if arg.kind() == NAMED_ARG {
+                let Some(token) = child_token(&arg, LOWER_NAME) else {
+                    continue;
+                };
+                let (name, range) = token_name(&token);
+                let label = Label {
+                    name: name.clone(),
+                    span: self.span(range),
+                };
+                // `NotFound(id:)` is short for `id: id`.
+                let (value, punned) = match arg.children().find(|c| is_expr(c.kind())) {
+                    Some(e) => (self.expr(&e), false),
+                    None => {
+                        let res = self.value(&name, range, LOWER_NAME);
+                        (self.alloc_expr(ExprKind::Path(res), range), true)
+                    }
+                };
+                args.push(Arg {
+                    label: Some(label),
+                    value,
+                    punned,
+                });
+            } else if is_expr(arg.kind()) {
+                let value = self.expr(&arg);
+                args.push(Arg {
+                    label: None,
+                    value,
+                    punned: false,
+                });
+            }
+        }
+        (args, spread)
+    }
+
+    /// The arguments of init written on an item of `with` or `layer` (`WorkerKv(binding: "KV")`,
+    /// `[effect.handler]`). `res` is what the item names. They are a call of init, not a
+    /// construction of the handler value, so a trailing `..` (a record update, spec 5.3) is
+    /// E0222.
+    fn supply_args(&mut self, supply: &ast::Supply, res: Res) -> Option<SupplyArgs> {
+        let list = supply.arg_list()?;
+        let (args, spread) = self.arg_list(&list);
+        if let Some(base) = spread {
+            let range = self.r.program.exprs[base].span.range;
+            let (name, found) = match res {
+                Res::Def(def) => {
+                    let data = &self.r.program.defs[def];
+                    (Some(data.name.clone()), data.kind.describe())
+                }
+                _ => (None, "expression"),
+            };
+            self.error(range, DiagnosticKind::InvalidUpdateTarget { name, found });
+        }
+        Some(SupplyArgs {
+            args,
+            span: self.span(list.text_range()),
+        })
     }
 
     /// A record update `C(f: e, ..base)` (spec 5.3). `C` must have a single constructor (a type,
@@ -2065,12 +2239,13 @@ fn pat_literal(node: &SyntaxNode) -> PatKind {
     PatKind::Lit(Literal::String(text))
 }
 
-/// The arguments of an fn's `@external(target, "a", "b")`. Skips annotations whose first argument
-/// is not a name (`@external("x")`), and non-string remaining arguments (`@external(js, 1)`,
-/// `@external(js, k: "v")`). The parser reports E0138 for both.
-fn external_attrs(f: &ast::FnDecl) -> Vec<ExternalAttr> {
+/// The arguments of an fn's `@external(target, "a", "b")` or `@export(target, "a", "b")`
+/// (`attr`). Skips annotations whose first argument is not a name (`@external("x")`), and
+/// non-string remaining arguments (`@external(js, 1)`, `@external(js, k: "v")`). The parser
+/// reports them (E0138, E0146).
+fn attrs(f: &ast::FnDecl, attr: &str, module: ModuleId) -> Vec<ExternalAttr> {
     f.annotations()
-        .filter(|a| a.name().is_some_and(|n| n.text() == "external"))
+        .filter(|a| a.name().is_some_and(|n| n.text() == attr))
         .filter_map(|a| {
             let mut args = a.args();
             let first = args.next()?;
@@ -2098,6 +2273,10 @@ fn external_attrs(f: &ast::FnDecl) -> Vec<ExternalAttr> {
             Some(ExternalAttr {
                 target: target.text().into(),
                 args,
+                span: Span {
+                    module,
+                    range: a.syntax().text_range(),
+                },
             })
         })
         .collect()

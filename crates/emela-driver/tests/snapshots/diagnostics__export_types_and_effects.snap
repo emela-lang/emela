@@ -1,0 +1,63 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "export_diagnostics(&[(\"home/main.emel\",\nr#\"@external\ntype Conn\n\neffect Log {\n  fn info(msg: String) -> ()\n}\n\nerror Oops\n\n@export(js, \"ok\")\npub fn ok(a: Int, b: Int64, c: Float, d: Bool, e: String, f: (), g: Conn, h: fn(Int) -> String fails {} use {}) -> () {}\n\n@export(js, \"callback\")\npub fn callback(h: fn(Int) -> String) -> String { h(1) }\n\n@export(js, \"list\")\npub fn list(xs: List[Int]) -> Int { 0 }\n\n@export(js, \"option\")\npub fn option() -> Option[Int] { None }\n\n@export(js, \"generic\")\npub fn generic[A](x: A) -> Int { 0 }\n\n@export(js, \"logs\")\npub fn logs() -> () { (use Log).info(\"x\") }\n\n@export(js, \"fails\")\npub fn fails() -> Int fails Oops { fail Oops }\n\nfn main() {}\n\"#,)])"
+---
+error[E0402]: exported function `callback` cannot fail with `E(h)`
+    ╭─[ main.emel:13:1 ]
+    │
+ 13 │ @export(js, "callback")
+    │ ───────────┬───────────  
+    │            ╰───────────── 
+────╯
+
+error[E0402]: effect `R(h)` is not provided in exported function `callback`
+    ╭─[ main.emel:14:51 ]
+    │
+ 14 │ pub fn callback(h: fn(Int) -> String) -> String { h(1) }
+    │                                                   ──┬─  
+    │                                                     ╰─── 
+────╯
+   = help: provide it with `with`
+
+error[E0436]: exported function `list` cannot take `List[Int]`
+    ╭─[ main.emel:16:1 ]
+    │
+ 16 │ @export(js, "list")
+    │ ─────────┬─────────  
+    │          ╰─────────── 
+────╯
+
+error[E0436]: exported function `option` cannot return `Option[Int]`
+    ╭─[ main.emel:19:1 ]
+    │
+ 19 │ @export(js, "option")
+    │ ──────────┬──────────  
+    │           ╰──────────── 
+────╯
+
+error[E0436]: exported function `generic` cannot take `A`
+    ╭─[ main.emel:22:1 ]
+    │
+ 22 │ @export(js, "generic")
+    │ ───────────┬──────────  
+    │            ╰──────────── 
+────╯
+
+error[E0402]: effect `Log` is not provided in exported function `logs`
+    ╭─[ main.emel:26:24 ]
+    │
+ 26 │ pub fn logs() -> () { (use Log).info("x") }
+    │                        ───┬───  
+    │                           ╰───── 
+────╯
+   = help: provide it with `with`
+
+error[E0402]: exported function `fails` cannot fail with `Oops`
+    ╭─[ main.emel:28:1 ]
+    │
+ 28 │ @export(js, "fails")
+    │ ──────────┬─────────  
+    │           ╰─────────── 
+────╯
+
+7 errors

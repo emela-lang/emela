@@ -1,0 +1,24 @@
+import Std.Fiber.{Fiber, Success, Failure}
+import Std.Cause.{Cause}
+@external(c, "host_wait")
+suspend fn wait(n: Int) -> Int
+error Boom(message: String) derive Show
+effect Wait { suspend fn get(n: Int) -> Int }
+handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
+effect Resource { fn read() -> Int }
+handler Res: Resource {
+  fn read() { 0 }
+  release { (use Wait).get(3) }
+}
+pub fn work(n: Int) -> String use Async {
+  with Waiting {
+    Fiber.attempt(fn() { Fiber.scope(fn() {
+      Fiber.fork(fn() { with Res { (use Wait).get(2) } })
+      Fiber.fork(fn() { fail Boom(message: Int.to_string(n)) })
+      (use Wait).get(1)
+    }) }) match {
+      Success(_) -> "unexpected"
+      Failure(c) -> Cause.raise(c) escape { Boom(message) -> message }
+    }
+  }
+}

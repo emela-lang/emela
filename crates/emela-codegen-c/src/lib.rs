@@ -45,7 +45,8 @@ pub enum Entry {
     /// Test functions (spec 13.4), called one by one in order. Each result is written to stdout
     /// as a line of [`TEST_EVENT_PREFIX`] and JSON, the protocol of the JS test runner: `{"event":
     /// "result", "name": …, "outcome": "ok" | "defect" | "error" | "interrupted", "message": …}`,
-    /// then `{"event": "done"}`.
+    /// then `{"event": "done"}`. The defect of a failed assert also has `"location"`
+    /// (`[test.assert]`).
     Tests(Vec<TestEntry>),
 }
 
@@ -88,6 +89,9 @@ pub enum CErrorKind {
     Unsupported,
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,
+    /// An external function reachable from the entry, or an exported fn, takes or returns Bytes
+    /// (E0443, `[ext.boundary]`).
+    Bytes,
     /// A bug in the compiler (the IR failed a verifier, ...).
     Internal,
 }
@@ -109,15 +113,37 @@ impl std::fmt::Display for CError {
 
 /// Compiles lowered Core IR (self tail calls loopified, as `emela_core::lower` leaves it) to C.
 pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<CError>> {
-    let roots: Vec<FnId> = match entry {
+    // With `Entry::Main`, main (if any) comes first, then the exported fns (`[target.c.export]`).
+    let mains: Vec<FnId> = match entry {
         Entry::Main => core
             .functions
             .iter()
-            .filter(|(_, f)| f.exported && f.name == "main")
+            .filter(|(_, f)| f.exported && f.name == "main" && f.host_exports.is_empty())
             .map(|(id, _)| id)
             .collect(),
         Entry::Tests(tests) => tests.iter().map(|t| t.function).collect(),
     };
+    let exports: Vec<(FnId, Vec<String>)> = match entry {
+        Entry::Main => core
+            .functions
+            .iter()
+            .filter_map(|(id, f)| {
+                let names: Vec<String> = f
+                    .host_exports
+                    .iter()
+                    .filter(|x| x.target == "c")
+                    .map(|x| x.name.clone())
+                    .collect();
+                (f.exported && !names.is_empty()).then_some((id, names))
+            })
+            .collect(),
+        Entry::Tests(_) => Vec::new(),
+    };
+    let roots: Vec<FnId> = mains
+        .iter()
+        .copied()
+        .chain(exports.iter().map(|(id, _)| *id))
+        .collect();
     // A generic root (a test whose inferred type has type parameters) is instantiated too. One
     // that cannot be (it takes arguments) is reported rather than skipped. `main` is taken from
     // the copies, not looked up by name: the copy of a generic `main` is not exported and its name
@@ -143,8 +169,13 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<
             }
         }
     }
+    let exported = copied[mains.len()..]
+        .iter()
+        .zip(exports)
+        .map(|(&copy, (_, names))| (copy, names))
+        .collect();
     let entry = match entry {
-        Entry::Main => emit::Run::Main(copied.first().copied()),
+        Entry::Main => emit::Run::Main(copied[..mains.len()].first().copied(), exported),
         Entry::Tests(tests) => emit::Run::Tests(
             tests
                 .iter()

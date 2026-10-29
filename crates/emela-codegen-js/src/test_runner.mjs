@@ -66,11 +66,14 @@ function $runTest(test, start) {
       const error = $testUnhandledError(v);
       finish(error === undefined ? { outcome: "ok" } : { outcome: "error", message: error });
     };
+    // A failed assert's defect has its location (13.2), shown apart from the message.
     const defect = (error) =>
       finish(
         error instanceof Error && error.name === "Interrupted"
           ? { outcome: "interrupted" }
-          : { outcome: "defect", message: $testDescribe(error) },
+          : error instanceof Error && error.name === "Defect" && typeof error.location === "string"
+            ? { outcome: "defect", message: $testDescribe(error), location: error.location }
+            : { outcome: "defect", message: $testDescribe(error) },
       );
     // Left suspended: unwind it through `stop`, which runs the releases of its open withs (14.5) and then
     // reports `$Interrupted` (or a defect a release raised) to `defect`.

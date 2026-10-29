@@ -53,7 +53,7 @@ fn run_c(name: &str, main: &str, backend: &mut CoreC) -> (Analysis, Option<RunOu
         &mut Lower::default().with_target(Target::C),
         backend,
         &options,
-        |_| {},
+        |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
     result
@@ -178,6 +178,81 @@ fn main() { take(fn(x) { x }) }
     );
 }
 
+/// An exported fn with a callback is not supported on C yet; it is not E0427, which is about
+/// external functions (`[target.c.export]`).
+#[test]
+fn exported_callbacks_are_rejected() {
+    let main = r##"@export(c, "apply")
+fn apply(x: Int, f: fn(Int) -> Int fails {} use {}) -> Int { f(x) }
+
+fn main() {}
+"##;
+    let (analysis, _) = run_c("export-callback", main, &mut CoreC::default());
+    assert_eq!(
+        codes(&analysis),
+        [(
+            None,
+            "exported function `apply` takes a callback, which target `c` does not support yet"
+        )]
+    );
+}
+
+/// `[ext.boundary]`: the C target does not support Bytes at the boundary yet. An external
+/// function reachable from the entry, or an exported fn, that takes or returns Bytes is E0443.
+#[test]
+fn bytes_at_the_boundary_are_e0443() {
+    let main = r##"import Std.Bytes.{Bytes}
+
+@external(c, "read_file")
+fn read_file(path: String) -> Bytes use {}
+
+@external(c, "write_file")
+fn write_file(data: Bytes) -> () use {}
+
+fn main() { write_file(read_file("a")) }
+"##;
+    let (analysis, output) = run_c("bytes-boundary", main, &mut CoreC::default());
+    assert!(output.is_none());
+    assert_eq!(
+        codes(&analysis),
+        [
+            (
+                Some("E0443"),
+                "external function `write_file` takes `Bytes`, which target `c` does not support yet"
+            ),
+            (
+                Some("E0443"),
+                "external function `read_file` returns `Bytes`, which target `c` does not support yet"
+            ),
+        ]
+    );
+    let main = r##"import Std.Bytes.{Bytes}
+
+@export(c, "size")
+fn size(b: Bytes) -> Int { Bytes.size(b) }
+
+@export(c, "empty")
+fn empty() -> Bytes { Bytes.empty() }
+
+fn main() {}
+"##;
+    let (analysis, output) = run_c("bytes-export", main, &mut CoreC::default());
+    assert!(output.is_none());
+    assert_eq!(
+        codes(&analysis),
+        [
+            (
+                Some("E0443"),
+                "exported function `size` takes `Bytes`, which target `c` does not support yet"
+            ),
+            (
+                Some("E0443"),
+                "exported function `empty` returns `Bytes`, which target `c` does not support yet"
+            ),
+        ]
+    );
+}
+
 #[test]
 fn cc_problems_are_e0907_and_e0908() {
     let main = "fn main() { dbg(1) }\n";
@@ -239,6 +314,8 @@ fn raises_a_defect() {
         node: PathBuf::from("node"),
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut out = Vec::new();
     let (analysis, report) = test(
@@ -333,6 +410,8 @@ fn without_show() {
             node: emela_driver::node_program(),
             filter: None,
             output: Output::Capture,
+            reporter: emela_driver::Reporter::Plain,
+            color: false,
         };
         let mut frontend = LowerTests::default().with_target(target);
         let mut out = Vec::new();
@@ -695,7 +774,7 @@ fn suspend_externals_complete_later() {
         &mut Lower::default().with_target(Target::C),
         &mut leak_checked(),
         &options,
-        |_| {},
+        |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(codes(&analysis), []);
@@ -721,6 +800,8 @@ fn suspend_externals_misbehaving() {
         node: PathBuf::from("node"),
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut out = Vec::new();
     let (analysis, report) = test(
@@ -769,4 +850,107 @@ fn suspend_externals_misbehaving() {
             ("after_the_others".to_owned(), TestOutcome::Passed),
         ]
     );
+}
+
+/// The host side of [`EXPORT_EMEL`]: a constructor calls the exports before main starts, so the
+/// first call starts the runtime, and `host_calls_back` calls one while main runs.
+const EXPORT_C: &str = r#"#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int32_t add(int32_t a, int32_t b);
+int32_t add_again(int32_t a, int32_t b);
+char *greet(const char *name);
+bool is_even(int32_t n);
+int64_t widen(int32_t n);
+void *keep(void *h);
+void tick(void);
+
+__attribute__((constructor)) static void before_main(void) {
+  printf("%d %d\n", add(2, 3), add_again(4, 5));
+  char *s = greet("c\xff");
+  printf("%s\n", s);
+  free(s);
+  int x = 7;
+  printf("%d %d %lld %d\n", is_even(3), is_even(4), (long long)widen(3), keep(&x) == &x);
+  fflush(stdout);
+  tick();
+}
+
+int32_t host_calls_back(int32_t n) { return add(n, 1); }
+"#;
+
+const EXPORT_EMEL: &str = r##"@external
+type Handle
+
+@export(c, "add")
+@export(c, "add_again")
+fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(c, "greet")
+fn greet(name: String) -> String { "hello, #{name}" }
+
+@export(c, "is_even")
+fn is_even(n: Int) -> Bool { n % 2 == 0 }
+
+@export(c, "widen")
+fn widen(n: Int) -> Int64 { Int64.from_int(n) }
+
+@export(c, "keep")
+fn keep(h: Handle) -> Handle { h }
+
+@export(c, "tick")
+fn tick() -> () {
+  dbg("tick")
+  ()
+}
+
+@external(c, "./host.c", "host_calls_back")
+fn host_calls_back(n: Int) -> Int use {}
+
+fn main() {
+  dbg("main")
+  dbg(host_calls_back(1))
+}
+"##;
+
+/// `[target.c.export]`: each `@export(c, "name")` is a function with external linkage and the
+/// prototype of `[ext.boundary]`. Called before main, the first call starts the runtime. Called
+/// while a launch is running on the same thread (here, from a host function main called), it is a
+/// defect.
+#[test]
+fn exported_functions_are_called_from_c() {
+    if !have_cc() {
+        return;
+    }
+    let dir = out_dir("export-project");
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("Pome.toml"), "").unwrap();
+    std::fs::write(dir.join("src/main.emel"), EXPORT_EMEL).unwrap();
+    std::fs::write(dir.join("src/host.c"), EXPORT_C).unwrap();
+    let input = Input::resolve(&OsFs, &dir).unwrap();
+    let options = RunOptions {
+        out_dir: dir.join("out"),
+        node: PathBuf::from("node"),
+        args: Vec::new(),
+        output: Output::Capture,
+    };
+    let (analysis, output) = run(
+        &OsFs,
+        &input,
+        &mut Lower::default().with_target(Target::C),
+        &mut leak_checked(),
+        &options,
+        |_, _| {},
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(codes(&analysis), []);
+    let output = output.unwrap();
+    assert_eq!(text(&output.stdout), "5 9\nhello, c\u{fffd}\n0 1 3 1\n");
+    assert_eq!(
+        text(&output.stderr),
+        "\"tick\"\n\"main\"\ndefect: exported function `add` was called while Emela code is running\n"
+    );
+    assert_eq!(output.code, 101);
 }

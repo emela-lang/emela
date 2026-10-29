@@ -150,7 +150,7 @@ fn control() {
         );
         b.term(Term::Yield(Some(v.into())));
     });
-    let other = b.seq(|b| b.term(Term::Defect(string("no color"))));
+    let other = b.seq(|b| b.term(Term::Defect(string("no color"), None)));
     b.switch(
         Some(c),
         SwitchOn::Lit(n),
@@ -661,7 +661,7 @@ fn closures_effects_fibers() {
     b.let_(
         None,
         Value::Fiber {
-            op: FiberOp::CauseRaise,
+            op: FiberOp::CauseRaise { fails: true },
             args: vec![cause.into()],
             on_fail: Some(OnFail::Propagate),
         },

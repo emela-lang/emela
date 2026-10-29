@@ -48,7 +48,7 @@ const SKIPPED: &[Skipped] = &[
     },
     Skipped {
         feature: "http",
-        reason: "Std.Http has no WASM host yet",
+        reason: "the client of Std.Http (SystemHttp) has no WASM host yet",
         expected_failures: &[
             "external function `host_request` has no `@external` for target `wasm`",
         ],
@@ -97,16 +97,23 @@ fn run_on(path: &Path, target: Target, name: &str) -> Result<Outcome, Box<Analys
     };
     let mut frontend = Lower::default().with_target(target);
     let (analysis, output) = with_program_timeout(PROGRAM_TIMEOUT, || match target {
-        Target::Js => run(&OsFs, &input, &mut frontend, &mut CoreJs, &options, |_| {}),
+        Target::Js => run(
+            &OsFs,
+            &input,
+            &mut frontend,
+            &mut CoreJs,
+            &options,
+            |_, _| {},
+        ),
         Target::Wasm => run(
             &OsFs,
             &input,
             &mut frontend,
             &mut CoreWasm,
             &options,
-            |_| {},
+            |_, _| {},
         ),
-        Target::C => unreachable!("this test compares js and wasm"),
+        Target::C | Target::CEmbedded => unreachable!("this test compares js and wasm"),
     });
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {
@@ -138,6 +145,8 @@ fn test_on(
         },
         filter: None,
         output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
     };
     let mut frontend = LowerTests::default().with_target(target);
     let mut out = Vec::new();
@@ -160,7 +169,7 @@ fn test_on(
             |_| {},
             &mut out,
         ),
-        Target::C => unreachable!("this test compares js and wasm"),
+        Target::C | Target::CEmbedded => unreachable!("this test compares js and wasm"),
     });
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match report {
@@ -185,6 +194,10 @@ fn examples() -> Vec<(String, PathBuf)> {
     dirs
 }
 
+/// Examples that are HTTP services: `emela run` starts a server that does not end, so only their
+/// `@test` results are compared here. `http_service.rs` compares the servers.
+const SERVICES: &[&str] = &["http-service"];
+
 fn skip_of(name: &str) -> Option<&'static Skipped> {
     SKIPPED.iter().find(|skip| skip.examples.contains(&name))
 }
@@ -198,6 +211,9 @@ fn examples_run_the_same_on_js_and_wasm() {
     for (name, dir) in examples() {
         if let Some(skip) = skip_of(&name) {
             eprintln!("skipping {name} ({}): {}", skip.feature, skip.reason);
+            continue;
+        }
+        if SERVICES.contains(&name.as_str()) {
             continue;
         }
         let js = in_temp_cwd(&format!("run-js-{name}"), || {

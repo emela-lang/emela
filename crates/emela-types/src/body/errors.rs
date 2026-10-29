@@ -34,8 +34,8 @@ use smol_str::SmolStr;
 
 use super::{BodyInfer, FnParts, fn_parts};
 use crate::coverage::Shapes;
-use crate::diagnostic::EffectContext;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
+use crate::diagnostic::{EffectContext, LayerArg};
 use crate::infer::{Origin, SetKind, Subset};
 use crate::row::{Row, RowElem, RowVar, Tag};
 use crate::ty::{Ty, TyParam};
@@ -101,6 +101,21 @@ impl BodyInfer<'_> {
                         } else {
                             let fails = self.handler_init_fails(def);
                             self.ctx.add_subset(row, fails, Origin::HandlerPart);
+                        }
+                    }
+                    continue;
+                }
+                // The arguments of a layer's items cannot fail (`[effect.layer]`).
+                Some(Item::Layer(item)) => {
+                    for (member, m) in item.members.iter().enumerate() {
+                        for arg in m.args.iter().flat_map(|a| &a.args) {
+                            let row = self.expr_row(arg.value);
+                            let origin = Origin::LayerArg {
+                                layer: def,
+                                member,
+                                arg: arg.value,
+                            };
+                            self.ctx.add_subset(row, Row::empty(), origin);
                         }
                     }
                     continue;
@@ -293,11 +308,24 @@ impl BodyInfer<'_> {
                 row.extend(&self.expr_row(*base));
                 row
             }
-            // The E of `with` is the body's E plus the init E of the listed handlers (spec 9.4).
+            // The E of `with` is the body's E plus the init E of the listed handlers and the E of
+            // the arguments of their inits (spec 9.4). The arguments of a handler a later item
+            // overrides are not evaluated (`[effect.with]`).
             ExprKind::With { handlers, body } => {
-                let mut row = self.expr_row(*body);
-                for entry in crate::layer::with_entries(program, self.sigs, self.ty_table, handlers)
-                {
+                let entries =
+                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers);
+                let mut row = Row::empty();
+                for (i, item) in handlers.iter().enumerate() {
+                    let initialized = crate::layer::item_initialized(&entries, i);
+                    for arg in crate::layer::item_args(item) {
+                        let arg_row = self.expr_row(arg);
+                        if initialized {
+                            row.extend(&arg_row);
+                        }
+                    }
+                }
+                row.extend(&self.expr_row(*body));
+                for entry in entries {
                     if let Some(h) = entry.handler() {
                         row.extend(&self.handler_init_fails(h));
                     }
@@ -512,6 +540,18 @@ impl BodyInfer<'_> {
                     };
                     self.report_unhandled_effects(*def, &missing, context);
                 }
+                (&Origin::LayerArg { layer, member, arg }, kind) => {
+                    let context = self.layer_arg(layer, member);
+                    match kind {
+                        SetKind::Errors => self.push_unhandled(arg, false, Some(context), &missing),
+                        SetKind::Effects => self.push_unhandled_effects(
+                            arg,
+                            &[],
+                            &missing,
+                            EffectContext::LayerArg(context),
+                        ),
+                    }
+                }
                 (Origin::Closed(def), _) => {
                     if let Some(context) = self.closed.get(def).cloned() {
                         self.report_unhandled_effects(*def, &missing, context);
@@ -600,7 +640,23 @@ impl BodyInfer<'_> {
                 _ => return,
             },
         };
-        self.push_unhandled(body, declared, missing);
+        self.push_unhandled(body, declared, None, missing);
+    }
+
+    /// The layer item whose arguments are being reported.
+    fn layer_arg(&self, layer: DefId, member: usize) -> LayerArg {
+        let program = self.program;
+        let handler = match program.item(layer) {
+            Some(Item::Layer(item)) => match item.members[member].res {
+                Res::Def(h) => program.defs[h].name.clone(),
+                _ => SmolStr::new("?"),
+            },
+            _ => SmolStr::new("?"),
+        };
+        LayerArg {
+            layer: program.defs[layer].name.clone(),
+            handler,
+        }
     }
 
     /// Errors of a handler operation body not contained in the effect operation's declared E
@@ -617,7 +673,7 @@ impl BodyInfer<'_> {
             Res::Def(op) => matches!(program.item(op), Some(Item::Op(o)) if o.sig.fails.is_some()),
             _ => false,
         };
-        self.push_unhandled(body, declared, missing);
+        self.push_unhandled(body, declared, None, missing);
     }
 
     /// E0420, spec 8.4. Grouped by the expression that raised each error.
@@ -650,7 +706,13 @@ impl BodyInfer<'_> {
     }
 
     /// Pushes E0318, grouped by the expression that raised each error.
-    fn push_unhandled(&mut self, body: ExprId, declared: bool, missing: &[RowElem]) {
+    fn push_unhandled(
+        &mut self,
+        body: ExprId,
+        declared: bool,
+        layer_arg: Option<LayerArg>,
+        missing: &[RowElem],
+    ) {
         // Handler operations have no type parameters.
         let params = self.current_params(body).unwrap_or_default();
         let rows = self.resolved_rows(SetKind::Errors);
@@ -665,7 +727,11 @@ impl BodyInfer<'_> {
                 .collect();
             self.diags.push(Diagnostic {
                 span: Some(self.program.exprs[origin].span),
-                kind: DiagnosticKind::UnhandledErrors { errors, declared },
+                kind: DiagnosticKind::UnhandledErrors {
+                    errors,
+                    declared,
+                    layer_arg: layer_arg.clone(),
+                },
             });
         }
     }
@@ -687,6 +753,17 @@ impl BodyInfer<'_> {
             },
         };
         let params = self.def_params(def);
+        self.push_unhandled_effects(body, &params, missing, context);
+    }
+
+    /// E0402 for the effects `missing` of `body`, grouped by the expression that required them.
+    fn push_unhandled_effects(
+        &mut self,
+        body: ExprId,
+        params: &[TyParam],
+        missing: &[RowElem],
+        context: EffectContext,
+    ) {
         let rows = self.resolved_rows(SetKind::Effects);
         let cons = &self.ty_table.cons;
         for (origin, elems) in self.group_by_origin(&rows, body, missing) {
@@ -694,7 +771,7 @@ impl BodyInfer<'_> {
                 .iter()
                 .map(|e| {
                     let row = Row::from_elems([e.clone()]);
-                    SmolStr::new(row.display_effects(cons, &params).to_string())
+                    SmolStr::new(row.display_effects(cons, params).to_string())
                 })
                 .collect();
             let scope = self.forked_from(origin, &elems);
@@ -867,7 +944,17 @@ impl BodyInfer<'_> {
                 out.extend(fields.iter().map(|f| f.value));
                 out.push(*base);
             }
-            ExprKind::With { body, .. } => out.push(*body),
+            // The arguments of a handler a later item overrides are not evaluated
+            // (`[effect.with]`), so no error or call in them is reported.
+            ExprKind::With { handlers, body } => {
+                out.extend(crate::layer::evaluated_args(
+                    self.program,
+                    self.sigs,
+                    self.ty_table,
+                    handlers,
+                ));
+                out.push(*body);
+            }
         }
         out
     }

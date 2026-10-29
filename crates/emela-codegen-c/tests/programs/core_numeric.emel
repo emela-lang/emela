@@ -1,7 +1,7 @@
 fn main() {
-  assert Int.compare((-2147483647 - 1), 2147483647) == Less
-  assert Int.compare(2, 1) == Greater
-  assert Int.compare(1, 1) == Equal
+  assert Ord.compare((-2147483647 - 1), 2147483647) == Less
+  assert Ord.compare(2, 1) == Greater
+  assert Ord.compare(1, 1) == Equal
   assert Int.min(-2, 3) == -2
   assert Int.max(-2, 3) == 3
   assert Int.abs(-3) == 3

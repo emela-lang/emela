@@ -452,6 +452,70 @@ fn main() {
     ));
 }
 
+/// 12.7 Exported functions: parameters and return values of boundary types, E empty.
+#[test]
+fn spec_12_7_exports() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+@export(c, "TIM2_IRQHandler")
+pub fn on_tick() -> () {}  # 補: the body
+
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+"#
+    ));
+}
+
+/// 2.3 `[lex.name]`, 5.3 `[data.type]` and 10.3 `[trait.call]`: method calls. `xs.map(f)` is
+/// `List.map(xs, f)`, `user.f(...)` calls a function of the module of User, and a trait function
+/// that takes `self` is `value.function()`.
+#[test]
+fn spec_method_calls() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type User(id: Int, name: String)
+  derive Show
+
+fn rename(user: User, name: String) -> User { User(name:, ..user) }  # 補
+
+fn names(xs: List[User], f: fn(User) -> String) -> List[String] {  # 補
+  xs.map(f)
+}
+
+fn shown(user: User) -> String {  # 補
+  Show.show(user) == user.show()
+  user.rename("b").name
+}
+"#
+    ));
+}
+
+/// `[api.std.bytes]`: a const of Bytes written with `Bytes.hex`, and the functions of
+/// `Std.Bytes` with their types, Eq and Ord.
+#[test]
+fn spec_api_std_bytes() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+import Std.Bytes.{Bytes}
+
+const PNG_SIGNATURE = Bytes.hex("89504e47")
+
+fn round_trip() -> Option[String] {
+  data = Bytes.append(PNG_SIGNATURE, Bytes.encode_utf8("hi"))
+  size = Bytes.size(data)
+  first = Bytes.get(data, 0)
+  hex = Bytes.to_hex(data)
+  parsed = Bytes.from_hex("not hex")
+  listed = Bytes.from_list([0x89, 0x50])
+  bytes = Bytes.to_list(Bytes.slice(data, 4, 6))
+  joined = Bytes.concat([data, Bytes.empty()])
+  same = data == PNG_SIGNATURE && data < joined && Bytes.is_empty(joined)
+  Bytes.decode_utf8(Bytes.slice(data, 4, 6))
+}
+"#
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Code the text declares to be errors
 

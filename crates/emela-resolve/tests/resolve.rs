@@ -782,7 +782,161 @@ fn length(s: String) -> Int
 type Handle(id: Int)
 
 @intrinsic
+pub opaque type Raw
+
+@intrinsic
 fn with_body() -> Int { 1 }
 "##,
     )]));
+}
+
+/// `[kw.annotation]`: in the bundled sources, `@intrinsic` may be put on a type without fields (a
+/// built-in type such as `Bytes`), not on one with fields (E0225).
+#[test]
+fn intrinsic_types_in_core() {
+    insta::assert_snapshot!(run_with_core(
+        &[("main.emel", "fn size(b: Raw.Raw) -> Raw.Raw { b }\n",)],
+        &[(
+            "raw.emel",
+            r##"@intrinsic
+pub opaque type Raw
+
+@intrinsic
+pub type Cooked(n: Int)
+"##,
+        )],
+    ));
+}
+
+/// `[effect.handler]`: the parameters of init are in scope in its body only. The arguments of
+/// `with`, `layer` and the right of `by` are resolved where the item is written.
+#[test]
+fn handler_init_arguments() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"pub effect Kv {
+  fn get(key: String) -> String
+}
+
+effect AuditKv of Kv
+
+const NAME: String = "KV"
+
+handler WorkerKv(binding: String): Kv {
+  init(binding: String, retries: Int) { WorkerKv(binding:) }
+  fn get(key) { self.binding }
+}
+
+layer AppLive {
+  WorkerKv(binding: NAME, retries: 3)
+}
+
+fn main() {
+  name = "KV"
+  with WorkerKv(binding: name, retries: 1) { (use Kv).get("a") }
+  with AppLive, AuditKv by WorkerKv(name, 2) { (use AuditKv).get("a") }
+}
+"##,
+    )]));
+}
+
+/// `H(...)` at a `with` is a call of init, not a construction of the handler value, so it is not
+/// a record update (E0222). The parameters of init are not seen outside it.
+#[test]
+fn handler_init_argument_errors() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"pub effect Kv {
+  fn get(key: String) -> String
+}
+
+handler WorkerKv(binding: String): Kv {
+  init(binding: String) { WorkerKv(binding:) }
+  fn get(key) { binding }
+}
+
+fn main(base: Int) {
+  with WorkerKv(binding: "a", ..base) { (use Kv).get("a") }
+  with WorkerKv(binding: missing) { (use Kv).get("a") }
+}
+"##,
+    )]));
+}
+
+/// `@export` and `@entry` (spec 12.7, 12.8): the export names are kept, and the argument of
+/// `@entry` is looked up as a value, in the module or through a module path.
+#[test]
+fn export_and_entry() {
+    insta::assert_snapshot!(run(&[
+        (
+            "main.emel",
+            r##"import Http
+
+@export(js, "add")
+@export(js, "default", "add")
+@export(c, "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+
+@export(js, "default", "run")
+fn local(app: fn(Int) -> Int, x: Int) -> Int { app(x) }
+
+@entry(local)
+@entry(Http.serve)
+fn app(x: Int) -> Int { x }
+
+@entry(missing)
+fn unknown(x: Int) -> Int { x }
+
+@entry(Http.missing)
+fn unknown_member(x: Int) -> Int { x }
+
+@entry
+fn no_arg(x: Int) -> Int { x }
+
+@entry("serve")
+fn string_arg(x: Int) -> Int { x }
+"##,
+        ),
+        (
+            "http.emel",
+            r##"@export(js, "default", "fetch")
+pub fn serve(app: fn(Int) -> Int, x: Int) -> Int { app(x) }
+"##,
+        ),
+    ]));
+}
+
+/// In the module of a type, an fn whose first parameter has that type at its head cannot have
+/// the name of one of its fields (E0334, `[data.type]`), so that a method call never finds both.
+/// A fn of another module, or whose first parameter has another type, may.
+#[test]
+fn fn_named_like_a_field() {
+    insta::assert_snapshot!(diagnostics(&[
+        (
+            "main.emel",
+            r#"pub type Request(headers: List[String], url: String)
+
+pub error NotFound(id: Int)
+
+pub type Pair[A](left: A, right: A)
+
+pub fn headers(req: Request, name: String) -> List[String] { req.headers }
+
+fn url(n: Int) -> Int { n }
+
+fn other(name: String, req: Request) -> Int { 0 }
+
+fn id(e: NotFound) -> Int { e.id }
+
+fn left[A](p: Pair[A]) -> A { p.left }
+"#,
+        ),
+        (
+            "other.emel",
+            r#"import Main.{Request}
+
+fn headers(req: Request) -> List[String] { req.headers }
+"#,
+        ),
+    ]));
 }

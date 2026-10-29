@@ -29,7 +29,7 @@ mod runtime;
 mod runtimeop;
 mod suspend;
 
-use emela_core::{EnumId, OPTION_NONE, OPTION_SOME, Type, TypeId};
+use emela_core::{EnumId, FiberOp, OPTION_NONE, OPTION_SOME, Type, TypeId};
 use emela_lir::{
     Callee, CaseKey, Const, FnId, Function, LabelId, Module, OnFail, Operand, PrimOp, PrimTy, Repr,
     SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of,
@@ -53,13 +53,17 @@ pub(crate) enum Run {
     Main(Option<FnId>),
     /// Test functions, with their names.
     Tests(Vec<(String, FnId)>),
+    /// The fn of an HTTP service that `@entry(Http.serve)` made (its monomorphized copy), called
+    /// by the exported `handle` of `wasi:http/handler@0.3.0` with the request
+    /// (`runtime/http.rs`).
+    Service(Option<FnId>),
 }
 
 impl Run {
     /// The functions the output calls first.
     pub(crate) fn roots(&self) -> Vec<FnId> {
         match self {
-            Run::Main(main) => main.iter().copied().collect(),
+            Run::Main(main) | Run::Service(main) => main.iter().copied().collect(),
             Run::Tests(tests) => tests.iter().map(|&(_, id)| id).collect(),
         }
     }
@@ -76,14 +80,18 @@ pub(crate) struct OutputImports {
     pub(crate) future_drop_readable: u32,
 }
 
-pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>> {
+pub(crate) fn emit(
+    m: &Module,
+    entry: &Run,
+    reach: &check::Reach,
+) -> Result<WasmOutput, Vec<WasmError>> {
     assert_eq!(
         m.stage,
         Stage::RefCounted,
         "the WASM emitter reads the Heap IR"
     );
     let mut b = Builder::new(m);
-    b.build(entry);
+    b.build(entry, reach);
     if !b.errors.is_empty() {
         return Err(b.errors);
     }
@@ -94,6 +102,7 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>
         clock: b.uses_clock(),
         monotonic_clock: b.uses_std_host(StdHost::is_monotonic),
         filesystem: b.uses_std_host(StdHost::is_fs),
+        service: b.service,
     };
     let module = crate::component::wrap(&core, optional).map_err(|e| {
         vec![WasmError {
@@ -222,6 +231,8 @@ pub(crate) struct Builder<'m> {
     const_cells: FxHashMap<FnId, u32>,
     pub(crate) errors: Vec<WasmError>,
     pub(crate) bodies: Vec<WasmFunction>,
+    /// The trapping bodies of the hosts the entry cannot reach, emitted after the IR functions.
+    traps: Vec<WasmFunction>,
     /// The external functions resolved to a supported WASI 0.3 host, with their runtime wrapper.
     std_hosts: Vec<(FnId, StdHost)>,
     /// The suspend runtime's cells and per-function entries, when the program suspends.
@@ -230,6 +241,10 @@ pub(crate) struct Builder<'m> {
     pub(crate) async_plan: Option<runtime::async_bridge::Plan>,
     /// The file system runtime's cells, when the program uses `Std.FileSystem`.
     pub(crate) fs_plan: Option<runtime::fs::Plan>,
+    pub(crate) http_plan: Option<runtime::http::Plan>,
+    /// Whether the output is an HTTP service ([`Run::Service`]): it exports `handle` of
+    /// `wasi:http/handler@0.3.0` instead of `run` of `wasi:cli/run@0.3.0`.
+    pub(crate) service: bool,
 }
 
 impl<'m> Builder<'m> {
@@ -263,10 +278,13 @@ impl<'m> Builder<'m> {
             const_cells: FxHashMap::default(),
             errors: Vec::new(),
             bodies: Vec::new(),
+            traps: Vec::new(),
             std_hosts: Vec::new(),
             sus: None,
             async_plan: None,
             fs_plan: None,
+            http_plan: None,
+            service: false,
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
@@ -494,6 +512,44 @@ impl<'m> Builder<'m> {
         self.ty(params, results)
     }
 
+    /// Reserves a trapping stub per wasm signature for the externals the entry cannot reach, and
+    /// points their indices at it.
+    ///
+    /// A handler constructor builds a closure for every operation of its effect, whether the
+    /// entry performs the operation or not, so the emitted bodies contain calls to those hosts.
+    /// Emitting the import would carry a host the program never uses, and the body of the call
+    /// cannot run because only performing the operation reaches it. The stub keeps the calls
+    /// valid without the import (spec `[target.wasm.output]`).
+    fn reserve_traps(&mut self, ids: &[FnId]) {
+        let mut traps: FxHashMap<u32, u32> = FxHashMap::default();
+        for &id in ids {
+            let (params, results) = {
+                let f = &self.m.functions[id];
+                (
+                    f.params
+                        .iter()
+                        .map(|&p| val(f.vars[p].repr))
+                        .collect::<Vec<_>>(),
+                    repr_val(self.repr(f.ret)).into_iter().collect::<Vec<_>>(),
+                )
+            };
+            let ty = self.ty(params, results);
+            let index = *traps.entry(ty).or_insert_with(|| {
+                let index = self.imports.len() as u32 + self.defs.len() as u32;
+                self.defs.push(ty);
+                let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+                {
+                    let ins = &mut func.instructions();
+                    ins.unreachable();
+                    ins.end();
+                }
+                self.traps.push(func);
+                index
+            });
+            self.fn_index[ix(id)] = index;
+        }
+    }
+
     fn imported(&self, id: FnId) -> bool {
         let f = &self.m.functions[id];
         f.external
@@ -501,16 +557,25 @@ impl<'m> Builder<'m> {
             .is_some_and(|e| e.binding("wasm").is_some())
     }
 
-    fn build(&mut self, entry: &Run) {
+    fn build(&mut self, entry: &Run, reach: &check::Reach) {
+        self.service = matches!(entry, Run::Service(_));
         // The imports (the WASI host and the externals with a wasm binding) take the lowest
         // indices. A supported `Std` host is a runtime wrapper instead; it is resolved after the
         // runtime functions have their indices.
+        let mut unreachable_hosts = Vec::new();
         for (id, f) in self.m.functions.iter() {
             if let Some(ext) = &f.external
                 && let Some(binding) = ext.binding("wasm")
             {
                 match crate::std_host::classify(f) {
-                    Some(host) => self.std_hosts.push((id, host)),
+                    Some(host) if reach.contains(id) => self.std_hosts.push((id, host)),
+                    // A host the entry cannot reach is in the module because a handler it builds
+                    // bundles the external (`Std.Platform` bundles every system handler). It is
+                    // never called, so neither its runtime wrapper nor its import is emitted
+                    // (spec `[target.wasm.output]`). The handler constructors still put calls to
+                    // it in their operation bodies, which are emitted whether the operation runs
+                    // or not, so it gets a trapping stub with its signature.
+                    Some(_) => unreachable_hosts.push(id),
                     None => self.external_import(id, f, binding),
                 }
             }
@@ -545,7 +610,11 @@ impl<'m> Builder<'m> {
         self.waitable_set_wait();
         self.waitable_set_drop();
         self.waitable_join();
-        self.task_return();
+        if self.service {
+            runtime::http::imports(self);
+        } else {
+            self.task_return();
+        }
         // The IR definitions, in arena order (the entries of the table are the IR functions). A
         // const gets two: the wrapper callers see, then its body (`_init`).
         for (id, f) in self.m.functions.iter() {
@@ -574,6 +643,10 @@ impl<'m> Builder<'m> {
             };
             self.error_shows.insert(enum_id, slot);
         }
+        // The stubs of the hosts the entry cannot reach. They are definitions like the IR
+        // functions (one per distinct signature), so the calls in the emitted handler bodies
+        // validate; the calls can never run.
+        self.reserve_traps(&unreachable_hosts);
         // The state machines of suspending functions: their extra definitions come right after
         // the IR functions, before the runtime (so the runtime indices do not move).
         if suspend::used(self) {
@@ -597,9 +670,15 @@ impl<'m> Builder<'m> {
         if suspend::used(self) {
             suspend::prepare(self);
         }
-        // The async-lifted `wasi:cli/run@0.3.0#run` export and its callback. Both return the
+        // The async-lifted `wasi:cli/run@0.3.0#run` export (or `handle` of
+        // `wasi:http/handler@0.3.0`, which takes the request) and its callback. Both return the
         // component-model status code.
-        let ty = self.ty(vec![], vec![ValType::I32]);
+        let params = if self.service {
+            vec![ValType::I32]
+        } else {
+            Vec::new()
+        };
+        let ty = self.ty(params, vec![ValType::I32]);
         self.entry_index = self.imports.len() as u32 + self.defs.len() as u32;
         self.defs.push(ty);
         let ty = self.ty(
@@ -883,13 +962,18 @@ impl<'m> Builder<'m> {
 
         let mut exports = ExportSection::new();
         exports.export("memory", ExportKind::Memory, 0);
+        let entry = if self.service {
+            "wasi:http/handler@0.3.0#handle"
+        } else {
+            "wasi:cli/run@0.3.0#run"
+        };
         exports.export(
-            "[async-lift]wasi:cli/run@0.3.0#run",
+            &format!("[async-lift]{entry}"),
             ExportKind::Func,
             self.entry_index,
         );
         exports.export(
-            "[callback][async-lift]wasi:cli/run@0.3.0#run",
+            &format!("[callback][async-lift]{entry}"),
             ExportKind::Func,
             self.callback_index,
         );
@@ -951,6 +1035,7 @@ impl<'m> Builder<'m> {
             };
             bodies.push(body);
         }
+        bodies.append(&mut self.traps);
         self.bodies = bodies;
     }
 
@@ -1122,8 +1207,39 @@ impl<'m> Builder<'m> {
                     }
                 }
                 Run::Main(None) => {}
+                Run::Service(service) => {
+                    // One request: the launch, then the response (`runtime/http.rs`). A
+                    // launch that ended interrupted leaves no response; its unwinding is not
+                    // carried to the next request.
+                    if let Some(id) = service {
+                        let index = self.fn_index(*id);
+                        let ret = self.repr(self.m.functions[*id].ret);
+                        // `Incoming` is a counted reference: the handle goes in a box.
+                        ins.local_get(0);
+                        ins.call(self.rt("http_box"));
+                        ins.call(index);
+                        self.drop_result(ins, ret);
+                        if self.sus.is_some() {
+                            let root = self.rt("root_run");
+                            ins.call(root);
+                        }
+                    }
+                    ins.i32_const(0);
+                    ins.global_set(G_DEFECT);
+                    ins.i32_const(0);
+                    ins.global_set(G_FAILURE);
+                    ins.call(self.rt("http_respond"));
+                }
                 Run::Tests(tests) => {
                     for (name, id) in tests {
+                        // Each test is a run of its own: the previous one may have stalled.
+                        if let Some(plan) = &self.sus
+                            && plan.unwinding != 0
+                        {
+                            ins.i32_const(plan.unwinding as i32);
+                            ins.i32_const(0);
+                            ins.i32_store(mem(0, 4));
+                        }
                         let index = self.fn_index(*id);
                         let ret = self.repr(self.m.functions[*id].ret);
                         ins.call(index);
@@ -1139,10 +1255,14 @@ impl<'m> Builder<'m> {
                     ins.call(self.rt("test_done"));
                 }
             }
-            ins.call(self.rt("finish"));
-            ins.call(self.rt("close_output"));
-            ins.i32_const(0);
-            ins.call(self.task_return());
+            // A service keeps its output open for the next request, and `http_respond` did the
+            // `task.return`.
+            if !self.service {
+                ins.call(self.rt("finish"));
+                ins.call(self.rt("close_output"));
+                ins.i32_const(0);
+                ins.call(self.task_return());
+            }
             // `0` is the component model's EXIT status: the async-lifted run finished
             // synchronously.
             ins.i32_const(0);
@@ -1372,7 +1492,7 @@ impl<'m> Builder<'m> {
             Term::Unreachable => {
                 ins.unreachable();
             }
-            Term::Defect(_) => self.internal(format!("defect left in {}", cx.f.name)),
+            Term::Defect(..) => self.internal(format!("defect left in {}", cx.f.name)),
         }
     }
 
@@ -1832,9 +1952,7 @@ impl<'m> Builder<'m> {
                     self.store_slot(cx, ins, d, i + 2, &Operand::Var(*o));
                 }
             }
-            Value::Fiber { .. } => {
-                self.internal(format!("fiber left in {}", cx.f.name));
-            }
+            Value::Fiber { op, args, .. } => self.fiber(cx, ins, dst, *op, args),
             Value::IsError { error, enum_id } => {
                 ins.local_get(cx.local(*error));
                 ins.i32_const(ix(*enum_id) as i32);
@@ -2235,6 +2353,123 @@ impl<'m> Builder<'m> {
         ins.end();
     }
 
+    /// `Fiber.attempt` and the operations of `Std.Cause` (spec 11.5), with the runtime of
+    /// `runtime::attempt`. The other concurrency operations are refused by `check` before this.
+    fn fiber(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        op: FiberOp,
+        args: &[Operand],
+    ) {
+        match op {
+            FiberOp::Attempt { suspends, .. } => {
+                let Some(Operand::Var(f)) = args.first() else {
+                    self.internal(format!("attempt without a function in {}", cx.f.name));
+                    return;
+                };
+                let ret = match self.core().ty(cx.f.vars[*f].ty) {
+                    Type::Fn(fty) => self.repr(fty.ret),
+                    _ => {
+                        self.internal(format!(
+                            "attempt of a value that is not a function in {}",
+                            cx.f.name
+                        ));
+                        return;
+                    }
+                };
+                // Call the function in place; its value goes to a word, as a slot stores it.
+                let word = cx.scratch(Repr::I64, 0);
+                let exit = cx.scratch(Repr::Ref, 0);
+                let ty = self.call_ty(&[Repr::Ref], ret);
+                ins.local_get(cx.local(*f));
+                ins.local_get(cx.local(*f));
+                ins.i32_load(mem(HDR, 4));
+                ins.call_indirect(0, ty);
+                match ret {
+                    Repr::I32 | Repr::Ref => {
+                        ins.i64_extend_i32_u();
+                    }
+                    Repr::I64 => {}
+                    Repr::F64 => {
+                        ins.i64_reinterpret_f64();
+                    }
+                    Repr::Void => {
+                        ins.i64_const(0);
+                    }
+                }
+                ins.local_set(word);
+                let success = runtime::attempt::success_desc(self, ret);
+                if suspends {
+                    // The function suspended: the attempt's frame goes after the callee's, and
+                    // makes the `Exit` when the continuation is resumed. The suspension edge of
+                    // the statement pushes the caller's frame next.
+                    let frame = runtime::attempt::frame_desc(self);
+                    let table = self.sus.as_ref().map_or(0, |p| p.attempt_table);
+                    ins.global_get(G_SUSPENDING);
+                    ins.if_(BlockType::Result(ValType::I32));
+                    ins.i32_const(frame as i32);
+                    ins.i32_const(table as i32);
+                    ins.i32_const(success as i32);
+                    ins.i32_const(0);
+                    let new = self.rt("frame_new");
+                    ins.call(new);
+                    let push = self.rt("frame_push");
+                    ins.call(push);
+                    ins.i32_const(0);
+                    ins.else_();
+                }
+                let caught = self.rt("attempt_caught");
+                ins.call(caught);
+                ins.local_tee(exit);
+                ins.if_(BlockType::Result(ValType::I32));
+                ins.local_get(exit);
+                ins.else_();
+                // Nothing caught: a value, or a defect that is not caught (then no value).
+                ins.global_get(G_DEFECT);
+                ins.if_(BlockType::Result(ValType::I32));
+                ins.i32_const(0);
+                ins.else_();
+                ins.i32_const(success as i32);
+                ins.local_get(word);
+                let make = self.rt("exit_success");
+                ins.call(make);
+                ins.end();
+                ins.end();
+                if suspends {
+                    ins.end();
+                }
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FiberOp::CauseKind { kind } => {
+                if enum_repr(self.core(), kind) != Repr::I32 {
+                    self.internal("`CauseKind` is not an enum of plain variants");
+                    return;
+                }
+                self.operand(cx, ins, &args[0]);
+                ins.i32_load(mem(4, 4));
+                self.assign(cx, ins, dst, Repr::I32);
+            }
+            FiberOp::CauseToString => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("cause_to_string");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FiberOp::CauseRaise { .. } => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("cause_raise");
+                ins.call(f);
+            }
+            _ => self.internal(format!(
+                "fiber operation `{}` left in {}",
+                op.name(),
+                cx.f.name
+            )),
+        }
+    }
+
     /// The resume function table index for an operation returning `ret`.
     fn resume_table(&mut self, ret: Repr) -> u32 {
         match &self.sus {
@@ -2313,7 +2548,7 @@ fn value_repr(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Repr {
 
 fn value_on_fail(v: &Value) -> Option<&OnFail> {
     match v {
-        Value::Call { on_fail, .. } => on_fail.as_ref(),
+        Value::Call { on_fail, .. } | Value::Fiber { on_fail, .. } => on_fail.as_ref(),
         _ => None,
     }
 }

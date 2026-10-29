@@ -219,7 +219,8 @@ impl Printer<'_> {
                 None => format!("break {}", self.label(*label)),
             },
             Term::Recur(args) => format!("recur({})", self.operands(args)),
-            Term::Defect(msg) => format!("defect({})", self.operand(msg)),
+            Term::Defect(msg, None) => format!("defect({})", self.operand(msg)),
+            Term::Defect(msg, Some(at)) => format!("defect({}) at {at:?}", self.operand(msg)),
             Term::Unwind => "unwind".to_owned(),
             Term::Unreachable => "unreachable".to_owned(),
         };
@@ -522,6 +523,7 @@ pub fn core_ty(core: &emela_core::Module, ty: TypeId) -> String {
         Type::Float => "Float".into(),
         Type::Bool => "Bool".into(),
         Type::String => "String".into(),
+        Type::Bytes => "Bytes".into(),
         Type::Unit => "()".into(),
         Type::Never => "Never".into(),
         Type::Tuple(ts) => format!("({})", list(ts)),

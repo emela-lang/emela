@@ -66,6 +66,7 @@ fn sort_keeps_length() {
 - When an assert that is not a comparison fails, the message is `assertion failed: <source text of the expression>`, and no values are shown.
 - A comparison assert shows both sides only when the comparison is False. When it is True, the functions that show the values are not called.
 - assert can also be used outside test functions. It is not removed in a normal build either.
+- A defect from a failed assert has the location of the assert expression: the path of the file, the line and the column. The location is shown by the test runner (`[cmd.test.outcome]`). It is not part of the defect message.
 
 ## 13.3 Constraints on test functions `[test.constraints]`
 
@@ -78,7 +79,7 @@ fn sort_keeps_length() {
 - `emela test [path] [filter]` runs the test functions of a program that passed checking, one at a time.
 - The name of a test in the entry module is just the function name. A test in another module has the module name in front (`Http.Client.gets`). Tests in modules of the test root also run, and are named the same way.
 - When a filter is given, only the tests whose names contain it as a substring (case-sensitive) run. In single-file mode, only the tests in modules reachable by import from the entry point run.
-- Results go to standard output: a line `test name ... ok` or `FAILED` for each test, and a summary line at the end (`test result: ok. 3 passed; 0 failed; 0 filtered out`).
+- Results go to standard output, in the form of the selected reporter (`[cmd.test.reporter]`).
 - The exit code is 1 if at least one test fails, and 0 otherwise (also 0 when there are no tests). When the program exits in the middle of a test, the running test is a failure.
 - A test that ends while suspended without being resumed is reported as an `interrupted` failure, and the remaining tests continue (14.5).
 - The output is written to `target/emela/test` and does not overwrite the output of a normal build.

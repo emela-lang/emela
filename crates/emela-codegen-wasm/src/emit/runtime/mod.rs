@@ -40,6 +40,8 @@ fn always(_: &Builder) -> bool {
 
 mod alloc;
 pub(super) mod async_bridge;
+pub(super) mod attempt;
+mod bytes;
 mod canon;
 mod clock;
 mod console;
@@ -49,6 +51,7 @@ mod env;
 mod float;
 pub(super) mod fs;
 mod host;
+pub(super) mod http;
 mod notes;
 mod numeric;
 mod option;
@@ -208,6 +211,28 @@ const MODULES: &[RuntimeModule] = &[
         emit: fs::emit,
         used: fs::used,
     },
+    RuntimeModule {
+        funcs: attempt::FUNCS,
+        locals: attempt::locals,
+        setup: no_setup,
+        emit: attempt::emit,
+        used: attempt::used,
+    },
+    RuntimeModule {
+        funcs: http::FUNCS,
+        locals: http::locals,
+        // The plan's cells are allocated by `http::prepare`, before the index space is assigned.
+        setup: no_setup,
+        emit: http::emit,
+        used: http::used,
+    },
+    RuntimeModule {
+        funcs: bytes::FUNCS,
+        locals: bytes::locals,
+        setup: no_setup,
+        emit: bytes::emit,
+        used: bytes::used,
+    },
 ];
 
 /// Reserves the runtime functions in the function index space.
@@ -217,6 +242,7 @@ pub(crate) fn register(b: &mut Builder) {
     }
     async_bridge::prepare(b);
     fs::prepare(b);
+    http::prepare(b);
     for module in MODULES {
         if !(module.used)(b) {
             continue;

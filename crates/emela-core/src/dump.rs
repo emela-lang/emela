@@ -479,7 +479,11 @@ impl Printer<'_> {
                     }
                     AssertCond::Bool(e) => self.expr(e),
                 }
-                write!(self.out, ", text: {:?})", a.text).unwrap();
+                write!(self.out, ", text: {:?}", a.text).unwrap();
+                if let Some(location) = &a.location {
+                    write!(self.out, ", at: {location:?}").unwrap();
+                }
+                self.out.push(')');
             }
             Expr::Fail(e) => {
                 self.out.push_str("fail ");
@@ -640,6 +644,7 @@ pub(crate) fn type_name(m: &Module, types: &TypeTable, ty: TypeId) -> String {
         Type::Float => "Float".into(),
         Type::Bool => "Bool".into(),
         Type::String => "String".into(),
+        Type::Bytes => "Bytes".into(),
         Type::Unit => "()".into(),
         Type::Never => "Never".into(),
         Type::Tuple(ts) => format!("({})", list(ts)),

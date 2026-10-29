@@ -1,6 +1,6 @@
 [package]
 name = "emela-driver"
-description = "The pipeline, diagnostic collection and rendering, and build configuration (emela.toml)"
+description = "The pipeline, diagnostic collection and rendering, and build configuration (Pome.toml)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,6 +13,7 @@ emela-types.workspace = true
 emela-core.workspace = true
 emela-codegen-js.workspace = true
 emela-codegen-c.workspace = true
+emela-codegen-emb.workspace = true
 emela-codegen-wasm.workspace = true
 la-arena.workspace = true
 smol_str.workspace = true

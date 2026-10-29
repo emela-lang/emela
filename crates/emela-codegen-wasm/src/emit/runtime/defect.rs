@@ -1,9 +1,15 @@
 //! Defects and retirement.
+//!
+//! A defect is a String. Its `aux` word holds what travels with it through `defect_take`, a note
+//! and `defect_resume`: bit 0 marks a const's self-reference defect (spec 5.6), and the bits above
+//! it are the address of the location of a failed assert (`raise_at`, spec 13.2), a static String,
+//! whose address is a multiple of 8.
 
 use super::*;
 
 pub(super) const FUNCS: &[Sig] = &[
     ("raise", &[ValType::I32], &[]),
+    ("raise_at", &[ValType::I32, ValType::I32], &[]),
     ("defect_take", &[], &[ValType::I32]),
     ("defect_resume", &[ValType::I32], &[]),
     ("retire", &[ValType::I32, ValType::I32], &[]),
@@ -12,6 +18,7 @@ pub(super) const FUNCS: &[Sig] = &[
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "raise" => i32s(2),
+        "raise_at" => i32s(1),
         "defect_take" => i32s(1),
         "defect_resume" => i32s(2),
         _ => Vec::new(),
@@ -21,6 +28,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
     match name {
         "raise" => raise(b, ins),
+        "raise_at" => raise_at(b, ins),
         "defect_take" => defect_take(b, ins),
         "defect_resume" => defect_resume(b, ins),
         "retire" => retire(b, ins),
@@ -82,6 +90,24 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(FIRST);
     ins.call(drop);
     ins.end();
+}
+
+/// `(message, location) -> ()`: raises a failed assert's defect, a copy of the message whose
+/// `aux` is the location, so that marking it cannot affect another use of the message.
+fn raise_at(b: &mut Builder, ins: &mut InstructionSink) {
+    const D: u32 = 2;
+    let empty = b.string_literal(b"");
+    ins.local_get(0);
+    ins.i32_const(empty as i32);
+    ins.call(rt(b, "str_append"));
+    ins.local_set(D);
+    ins.local_get(D);
+    ins.local_get(1);
+    ins.i32_store(mem(4, 4));
+    ins.local_get(D);
+    ins.call(rt(b, "raise"));
+    ins.local_get(D);
+    ins.call(rt(b, "drop"));
 }
 
 fn defect_take(b: &mut Builder, ins: &mut InstructionSink) {
