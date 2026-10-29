@@ -6,6 +6,10 @@ This is the record of changes to the specification. New entries are added at the
 
 - `[dyn.memory]`, `[target.unspecified]`, `[error.defect]`, `[fiber.cause]`, `[target.wasm.run]`: The specification does not say what happens when a program cannot obtain the memory it needs. This proposal leaves the result implementation-defined, including whether it is a defect (and therefore whether the releases run and whether the failure is observable at `Fiber.attempt`), what is written and the exit status. A program MUST NOT depend on any of these. A future proposal may fix them. Adopted in the proposal `memory-exhaustion` (#461).
 
+## 2026-10-29 (A wildcard arm for escape)
+
+- `[error.escape]`, `[type.rules]`, `[module.resolution]`, `[diag.list]`: An escape arm MAY be the wildcard `_`. It handles every error of the original expression, including the errors in opaque set variables, and removes all of them from E. It is meant for falling back to a default, doing nothing, or turning a failure into a defect. `_` cannot have a guard. A variable pattern stays a compile error, because a value of "one of E" cannot be typed (`[error.decl]`). Adopted in the proposal `escape-wildcard-arm` (#420).
+
 ## 2026-10-29 (The embedded C target)
 
 - `[target]`, `[target.c-embedded]`, `[target.c-embedded.output]`, `[target.c-embedded.board]`, `[target.c-embedded.entry]`, `[target.c-embedded.project]`, `[target.c-embedded.config]`, `[module.pome]`, `[cmd]`, `[cmd.build]`, `[cmd.flash]`: Add the target `c-embedded`, which makes C for microcontrollers, and, with a board selected by `--board` or `[embedded].board`, a firmware image. `emela flash` writes the image of the last successful build after checking that its inputs and outputs have not changed. `[pome].targets` and `[build].target` can name `c-embedded`. The `[embedded]` table of `Pome.toml` and the runtime configuration file are added. This follows the pull request #387.
