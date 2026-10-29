@@ -7,6 +7,25 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.26.0](https://github.com/emela-lang/emela/compare/v0.25.0...v0.26.0) - 2026-10-29
+
+### Added
+
+- CLIから組み込みCのビルドと書き込みを利用可能にする ([#387](https://github.com/emela-lang/emela/pull/387)) (by @aoi-netai)
+- Std.Bytes でバイト列を扱えるようにする ([#466](https://github.com/emela-lang/emela/pull/466)) (by @Allianaab2m)
+- x.f(a) でメソッド呼び出しを書ける ([#467](https://github.com/emela-lang/emela/pull/467)) (by @Allianaab2m)
+- STM32F4・ESP32-C3のボード実行基盤を追加 ([#386](https://github.com/emela-lang/emela/pull/386)) (by @aoi-netai)
+
+### Fixed
+
+- *(wasm)* import only the std hosts reached from the entry ([#442](https://github.com/emela-lang/emela/pull/442)) (by @isoshigi)
+
+### Other
+
+- 多数のプログラムを回すテストを並列にする ([#456](https://github.com/emela-lang/emela/pull/456)) (by @Allianaab2m)
+- update Cargo.toml dependencies
+- README と docs を 0.25 に合わせ，trait の例を足す ([#464](https://github.com/emela-lang/emela/pull/464)) (by @Allianaab2m)
+
 ## [0.25.0](https://github.com/emela-lang/emela/compare/v0.24.0...v0.25.0) - 2026-10-25
 
 ### Added
