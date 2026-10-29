@@ -1,10 +1,10 @@
 ---
 title: Behavior when memory is exhausted
 authors: [isoshigi]
-status: draft
+status: accepted
 pr: 461
 issue:
-decided:
+decided: 2026-10-29
 touches: [dyn.memory, target.unspecified, error.defect, fiber.cause, target.wasm.run]
 requires: []
 related: []
@@ -105,3 +105,5 @@ Managed runtimes commonly make allocation failure unrecoverable or only partly r
 ## Open questions
 
 ## Decision
+
+The specification said nothing about a program that cannot obtain the memory it needs, so each target behaved in a way no section described. C and WASM end the process abruptly, and JS does the same for a fatal heap exhaustion, but a JS size-limit error can be caught at Fiber.attempt and runs releases. Making allocation failure a defect everywhere is not possible, because building the defect and running releases may need memory that is not there. Returning an error would put it in every signature for a value that also needs memory. So the result stays implementation-defined, including whether it is a defect, whether releases run and whether Fiber.attempt observes it, and programs must not depend on it. The message and the exit status can be fixed by a later proposal.

@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-29 (Behavior when memory is exhausted)
+
+- `[dyn.memory]`, `[target.unspecified]`, `[error.defect]`, `[fiber.cause]`, `[target.wasm.run]`: The specification does not say what happens when a program cannot obtain the memory it needs. This proposal leaves the result implementation-defined, including whether it is a defect (and therefore whether the releases run and whether the failure is observable at `Fiber.attempt`), what is written and the exit status. A program MUST NOT depend on any of these. A future proposal may fix them. Adopted in the proposal `memory-exhaustion` (#461).
+
 ## 2026-10-27 (Bytes)
 
 - `[lib.layers]`, `[api.std.bytes]`, `[ext.boundary]`, `[target.js.value]`, `[diag.list]`: Add `Bytes`, an immutable sequence of bytes, to the value layer of std as `Std.Bytes`. It has functions to build, read, slice and join byte sequences, and to convert to and from UTF-8 text and hexadecimal. `Bytes` becomes a boundary type of external functions on the JS target, so that the platform layer can later pass binary data to and from the host. Adopted in the proposal `bytes` (#457).
