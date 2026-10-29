@@ -80,14 +80,18 @@ pub(crate) struct OutputImports {
     pub(crate) future_drop_readable: u32,
 }
 
-pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>> {
+pub(crate) fn emit(
+    m: &Module,
+    entry: &Run,
+    reach: &check::Reach,
+) -> Result<WasmOutput, Vec<WasmError>> {
     assert_eq!(
         m.stage,
         Stage::RefCounted,
         "the WASM emitter reads the Heap IR"
     );
     let mut b = Builder::new(m);
-    b.build(entry);
+    b.build(entry, reach);
     if !b.errors.is_empty() {
         return Err(b.errors);
     }
@@ -227,6 +231,8 @@ pub(crate) struct Builder<'m> {
     const_cells: FxHashMap<FnId, u32>,
     pub(crate) errors: Vec<WasmError>,
     pub(crate) bodies: Vec<WasmFunction>,
+    /// The trapping bodies of the hosts the entry cannot reach, emitted after the IR functions.
+    traps: Vec<WasmFunction>,
     /// The external functions resolved to a supported WASI 0.3 host, with their runtime wrapper.
     std_hosts: Vec<(FnId, StdHost)>,
     /// The suspend runtime's cells and per-function entries, when the program suspends.
@@ -272,6 +278,7 @@ impl<'m> Builder<'m> {
             const_cells: FxHashMap::default(),
             errors: Vec::new(),
             bodies: Vec::new(),
+            traps: Vec::new(),
             std_hosts: Vec::new(),
             sus: None,
             async_plan: None,
@@ -505,6 +512,44 @@ impl<'m> Builder<'m> {
         self.ty(params, results)
     }
 
+    /// Reserves a trapping stub per wasm signature for the externals the entry cannot reach, and
+    /// points their indices at it.
+    ///
+    /// A handler constructor builds a closure for every operation of its effect, whether the
+    /// entry performs the operation or not, so the emitted bodies contain calls to those hosts.
+    /// Emitting the import would carry a host the program never uses, and the body of the call
+    /// cannot run because only performing the operation reaches it. The stub keeps the calls
+    /// valid without the import (spec `[target.wasm.output]`).
+    fn reserve_traps(&mut self, ids: &[FnId]) {
+        let mut traps: FxHashMap<u32, u32> = FxHashMap::default();
+        for &id in ids {
+            let (params, results) = {
+                let f = &self.m.functions[id];
+                (
+                    f.params
+                        .iter()
+                        .map(|&p| val(f.vars[p].repr))
+                        .collect::<Vec<_>>(),
+                    repr_val(self.repr(f.ret)).into_iter().collect::<Vec<_>>(),
+                )
+            };
+            let ty = self.ty(params, results);
+            let index = *traps.entry(ty).or_insert_with(|| {
+                let index = self.imports.len() as u32 + self.defs.len() as u32;
+                self.defs.push(ty);
+                let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+                {
+                    let ins = &mut func.instructions();
+                    ins.unreachable();
+                    ins.end();
+                }
+                self.traps.push(func);
+                index
+            });
+            self.fn_index[ix(id)] = index;
+        }
+    }
+
     fn imported(&self, id: FnId) -> bool {
         let f = &self.m.functions[id];
         f.external
@@ -512,17 +557,25 @@ impl<'m> Builder<'m> {
             .is_some_and(|e| e.binding("wasm").is_some())
     }
 
-    fn build(&mut self, entry: &Run) {
+    fn build(&mut self, entry: &Run, reach: &check::Reach) {
         self.service = matches!(entry, Run::Service(_));
         // The imports (the WASI host and the externals with a wasm binding) take the lowest
         // indices. A supported `Std` host is a runtime wrapper instead; it is resolved after the
         // runtime functions have their indices.
+        let mut unreachable_hosts = Vec::new();
         for (id, f) in self.m.functions.iter() {
             if let Some(ext) = &f.external
                 && let Some(binding) = ext.binding("wasm")
             {
                 match crate::std_host::classify(f) {
-                    Some(host) => self.std_hosts.push((id, host)),
+                    Some(host) if reach.contains(id) => self.std_hosts.push((id, host)),
+                    // A host the entry cannot reach is in the module because a handler it builds
+                    // bundles the external (`Std.Platform` bundles every system handler). It is
+                    // never called, so neither its runtime wrapper nor its import is emitted
+                    // (spec `[target.wasm.output]`). The handler constructors still put calls to
+                    // it in their operation bodies, which are emitted whether the operation runs
+                    // or not, so it gets a trapping stub with its signature.
+                    Some(_) => unreachable_hosts.push(id),
                     None => self.external_import(id, f, binding),
                 }
             }
@@ -590,6 +643,10 @@ impl<'m> Builder<'m> {
             };
             self.error_shows.insert(enum_id, slot);
         }
+        // The stubs of the hosts the entry cannot reach. They are definitions like the IR
+        // functions (one per distinct signature), so the calls in the emitted handler bodies
+        // validate; the calls can never run.
+        self.reserve_traps(&unreachable_hosts);
         // The state machines of suspending functions: their extra definitions come right after
         // the IR functions, before the runtime (so the runtime indices do not move).
         if suspend::used(self) {
@@ -978,6 +1035,7 @@ impl<'m> Builder<'m> {
             };
             bodies.push(body);
         }
+        bodies.append(&mut self.traps);
         self.bodies = bodies;
     }
 

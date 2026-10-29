@@ -1,19 +1,16 @@
-//! The calls to `suspend fn` external functions the entry can reach.
-//!
-//! Suspending functions and `suspend fn` operations are compiled as state machines, but a
-//! `suspend fn` external needs a host callback that the target does not have yet (spec 12.6), so a
-//! reachable direct call to one without a `wasm` binding is unsupported. A function or closure
-//! whose type merely says it may suspend (because it uses an effect with a suspend operation) does
-//! not count; only what its body calls does.
+//! What the entry can reach.
 //!
 //! Reachability starts at the roots and follows direct calls and function references. A closure
 //! built in reachable code is reachable wherever it is called from (passed to another function,
 //! captured or aliased), except an operation of a handler value: its body is reachable only once
 //! some reachable code performs that operation of that effect. So the unused `sleep` of
-//! `SystemClock`, or of a handler that delegates `sleep` to an outer `Clock`, does not report in a
+//! `SystemClock`, or of a handler that delegates `sleep` to an outer `Clock`, is not reached by a
 //! program that only reads the time.
-
-use super::*;
+//!
+//! The entry's reachable functions decide which calls the target does not support yet (the
+//! suspending-call check) and which host interfaces the emitted component imports. For the std
+//! hosts the target supports, this is the implementation of `[target.wasm.output]`: an interface
+//! is imported only when the entry reaches a host function that uses it.
 
 use emela_core::EffectId;
 use emela_lir::{Callee, FnId, Function, Module, SeqId, Stmt, Value, VarId};
@@ -22,14 +19,38 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// A sequence of statements in a function: a function body or a closure body nested in it.
 type Body = (FnId, SeqId);
 
-pub(super) fn suspension_points(m: &Module, roots: &[FnId], found: &mut Found) {
+/// What the entry reaches.
+#[derive(Debug, Default)]
+pub(crate) struct Reach {
+    /// The functions whose body (or, for an external function, call site) is reachable.
+    functions: FxHashSet<FnId>,
+    /// The operations of handlers some reachable code performs.
+    performed: FxHashSet<(EffectId, usize)>,
+    /// `suspend fn` external functions with no `wasm` binding that reachable code calls, in the
+    /// order met.
+    suspending: Vec<FnId>,
+}
+
+impl Reach {
+    /// Whether reachable code can call `f`.
+    pub(crate) fn contains(&self, f: FnId) -> bool {
+        self.functions.contains(&f)
+    }
+
+    /// The `suspend fn` external functions with no `wasm` binding that reachable code calls.
+    pub(crate) fn suspending(&self) -> &[FnId] {
+        &self.suspending
+    }
+}
+
+/// The functions, handler operations and unsupported suspending calls reachable from `roots`.
+pub(crate) fn walk(m: &Module, roots: &[FnId]) -> Reach {
     let mut walk = Walk {
         m,
-        found,
+        reach: Reach::default(),
         handler_ops: FxHashMap::default(),
         seen: FxHashSet::default(),
         work: Vec::new(),
-        performed: FxHashSet::default(),
         waiting: FxHashMap::default(),
     };
     for &root in roots {
@@ -38,22 +59,21 @@ pub(super) fn suspension_points(m: &Module, roots: &[FnId], found: &mut Found) {
     while let Some((fid, seq)) = walk.work.pop() {
         walk.seq(fid, seq);
     }
+    walk.reach
 }
 
-struct Walk<'a, 'm> {
+struct Walk<'m> {
     m: &'m Module,
-    found: &'a mut Found,
+    reach: Reach,
     /// Per function, the variables that hold an operation of a handler value it builds.
     handler_ops: FxHashMap<FnId, FxHashMap<VarId, (EffectId, usize)>>,
     seen: FxHashSet<Body>,
     work: Vec<Body>,
-    /// The operations some reachable code performs.
-    performed: FxHashSet<(EffectId, usize)>,
     /// The bodies of handler operations not performed yet.
     waiting: FxHashMap<(EffectId, usize), Vec<Body>>,
 }
 
-impl Walk<'_, '_> {
+impl Walk<'_> {
     fn reach(&mut self, body: Body) {
         if self.seen.insert(body) {
             self.work.push(body);
@@ -61,13 +81,14 @@ impl Walk<'_, '_> {
     }
 
     fn reach_fn(&mut self, fid: FnId) {
+        self.reach.functions.insert(fid);
         if let Some(body) = self.m.functions[fid].body {
             self.reach((fid, body));
         }
     }
 
     fn perform(&mut self, op: (EffectId, usize)) {
-        if self.performed.insert(op) {
+        if self.reach.performed.insert(op) {
             for body in self.waiting.remove(&op).unwrap_or_default() {
                 self.reach(body);
             }
@@ -116,7 +137,7 @@ impl Walk<'_, '_> {
             Value::Closure(closure) => {
                 let body = (fid, closure.body);
                 match dst.and_then(|dst| self.handler_op(fid, dst)) {
-                    Some(op) if !self.performed.contains(&op) => {
+                    Some(op) if !self.reach.performed.contains(&op) => {
                         self.waiting.entry(op).or_default().push(body);
                     }
                     _ => self.reach(body),
@@ -132,11 +153,9 @@ impl Walk<'_, '_> {
                         && g.external
                             .as_ref()
                             .is_some_and(|e| e.binding("wasm").is_none())
+                        && !self.reach.suspending.contains(callee)
                     {
-                        self.found.suspending(format!(
-                            "a call to `{}`, a `suspend fn` external",
-                            display_name(&g.name)
-                        ));
+                        self.reach.suspending.push(*callee);
                     }
                     self.reach_fn(*callee);
                 }
