@@ -36,17 +36,14 @@ pub fn empty[K, V]() -> Map[K, V] {
 
 ## The map of the pairs. A key given twice takes its later value.
 pub fn from_list[K: Ord, V](pairs: List[(K, V)]) -> Map[K, V] {
-  List.fold(pairs, from: empty(), f: fn(m, (key, value)) { insert(m, key, value) })
+  pairs.fold(from: empty(), f: fn(m, (key, value)) { insert(m, key, value) })
 }
 
 ## `m` with `key` mapped to `value`, replacing its value if it is there.
 pub fn insert[K: Ord, V](m: Map[K, V], key: K, value: V) -> Map[K, V] {
   m match {
     Empty -> node(key, value, Empty, Empty)
-    Node(size:, key: node_key, value: node_value, left:, right:) -> Ord.compare(
-      key,
-      node_key,
-    ) match {
+    Node(size:, key: node_key, value: node_value, left:, right:) -> key.compare(node_key) match {
       Less    -> balance(node_key, node_value, insert(left, key, value), right)
       Greater -> balance(node_key, node_value, left, insert(right, key, value))
       Equal   -> Node(size:, key:, value:, left:, right:)
@@ -58,7 +55,7 @@ pub fn insert[K: Ord, V](m: Map[K, V], key: K, value: V) -> Map[K, V] {
 pub fn remove[K: Ord, V](m: Map[K, V], key: K) -> Map[K, V] {
   m match {
     Empty -> Empty
-    Node(key: node_key, value: node_value, left:, right:, ..) -> Ord.compare(key, node_key) match {
+    Node(key: node_key, value: node_value, left:, right:, ..) -> key.compare(node_key) match {
       Less    -> balance(node_key, node_value, remove(left, key), right)
       Greater -> balance(node_key, node_value, left, remove(right, key))
       Equal   -> glue(left, right)
@@ -79,7 +76,7 @@ pub fn update[K: Ord, V](m: Map[K, V], key: K, f: fn(Option[V]) -> Option[V]) ->
 pub fn get[K: Ord, V](m: Map[K, V], key: K) -> Option[V] {
   m match {
     Empty -> None
-    Node(key: node_key, value:, left:, right:, ..) -> Ord.compare(key, node_key) match {
+    Node(key: node_key, value:, left:, right:, ..) -> key.compare(node_key) match {
       Less    -> get(left, key)
       Greater -> get(right, key)
       Equal   -> Some(value)
@@ -89,7 +86,7 @@ pub fn get[K: Ord, V](m: Map[K, V], key: K) -> Option[V] {
 
 ## Whether `key` is in `m`.
 pub fn contains[K: Ord, V](m: Map[K, V], key: K) -> Bool {
-  get(m, key) |> Option.is_some
+  m.get(key).is_some()
 }
 
 ## The number of keys.
@@ -119,12 +116,12 @@ pub fn to_list[K, V](m: Map[K, V]) -> List[(K, V)] {
 
 ## The keys in order.
 pub fn keys[K, V](m: Map[K, V]) -> List[K] {
-  to_list(m) |> List.map(fn((key, _)) { key })
+  m.to_list().map(fn((key, _)) { key })
 }
 
 ## The values in key order.
 pub fn values[K, V](m: Map[K, V]) -> List[V] {
-  to_list(m) |> List.map(fn((_, value)) { value })
+  m.to_list().map(fn((_, value)) { value })
 }
 
 ## `f` on each value. The keys stay.
@@ -148,7 +145,7 @@ pub fn map_values[K, V, W](m: Map[K, V], f: fn(V) -> W) -> Map[K, W] {
 
 ## The pairs for which `f` is True.
 pub fn filter[K, V](m: Map[K, V], f: fn(K, V) -> Bool) -> Map[K, V] {
-  to_list(m) |> List.filter(fn((key, value)) { f(key, value) }) |> from_sorted
+  m.to_list().filter(fn((key, value)) { f(key, value) }) |> from_sorted
 }
 
 ## The keys of both. A key in both takes its value in `a` (as in Haskell's `Data.Map.union`).
@@ -163,7 +160,7 @@ impl Map[K: Eq, V: Eq]: Eq {
 
 ## `Map.from_list([(1, "a"), (2, "b")])`, which makes the map again.
 impl Map[K: Show, V: Show]: Show {
-  fn show(self) { "Map.from_list(#{Show.show(to_list(self))})" }
+  fn show(self) { "Map.from_list(#{self.to_list().show()})" }
 }
 
 # ---- Balancing ----
@@ -314,7 +311,7 @@ fn to_list_onto[K, V](m: Map[K, V], acc: List[(K, V)]) -> List[(K, V)] {
 
 ## The map of pairs already in strictly increasing key order, balanced.
 fn from_sorted[K, V](pairs: List[(K, V)]) -> Map[K, V] {
-  (m, _) = build(pairs, List.length(pairs))
+  (m, _) = build(pairs, pairs.length())
   m
 }
 
@@ -340,12 +337,12 @@ fn build[K, V](pairs: List[(K, V)], count: Int) -> (Map[K, V], List[(K, V)]) {
 ## `acc` and turned around at the end.
 fn union_onto[K: Ord, V](xs: List[(K, V)], ys: List[(K, V)], acc: List[(K, V)]) -> List[(K, V)] {
   (xs, ys) match {
-    ([], _) -> List.append(List.reverse(acc), ys)
-    (_, []) -> List.append(List.reverse(acc), xs)
+    ([], _) -> acc.reverse().append(ys)
+    (_, []) -> acc.reverse().append(xs)
     ([x, ..xs_rest], [y, ..ys_rest]) -> {
       (x_key, _) = x
       (y_key, _) = y
-      Ord.compare(x_key, y_key) match {
+      x_key.compare(y_key) match {
         Less    -> union_onto(xs_rest, ys, [x, ..acc])
         Greater -> union_onto(xs, ys_rest, [y, ..acc])
         Equal   -> union_onto(xs_rest, ys_rest, [x, ..acc])

@@ -8,7 +8,6 @@
 
 import Std.State.{State}
 import Std.Console.{Console, SystemConsole}
-import Std.Cause
 import Std.Fiber.{Fiber, Success, Failure}
 import Std.Http.Request.{Request, Method, Get, Head, Post, Put, Patch, Delete, Options}
 import Std.Http.Response.{Response, UnexpectedStatus}
@@ -138,7 +137,7 @@ fn method_name(method: Method) -> String {
 pub handler SystemHttp: Http {
   suspend fn send(request, resume) {
     start = host_request(method_name(request.method), request.url, request.body)
-    req = List.fold(request.headers, from: start, f: fn(req, (name, value)) {
+    req = request.headers.fold(from: start, f: fn(req, (name, value)) {
       host_with_header(req, name, value)
     })
     res = host_send(req)
@@ -147,7 +146,7 @@ pub handler SystemHttp: Http {
       2 -> fail ConnectionFailed(url: request.url, message: host_message(res))
       3 -> fail ResponseNotText(url: request.url)
       _ -> {
-        headers = List.map(List.range(0, host_header_count(res)), fn(i) {
+        headers = List.range(0, host_header_count(res)).map(fn(i) {
           (host_header_name(res, i), host_header_value(res, i))
         })
         resume(Response(status: host_status(res), headers:, body: host_body(res)))
@@ -174,9 +173,9 @@ pub handler TestHttp: Http {
   suspend fn send(request, resume) {
     st = use State[TestServer]
     server = st.get()
-    st.set(TestServer(sent: List.append(server.sent, [request]), ..server))
+    st.set(TestServer(sent: server.sent.append([request]), ..server))
     respond = server.respond
-    respond(request, List.length(server.sent)) match {
+    respond(request, server.sent.length()) match {
       Some(res) -> resume(res)
       None -> fail ConnectionFailed(url: request.url, message: "TestServer returned no response")
     }
@@ -204,10 +203,10 @@ pub fn serve[E](app: fn(Request) -> Response fails E use { Async }, incoming: In
   use { Async } {
   received = with SystemHostHttp { (use HostHttp).read(incoming) }
   response = received_request(received) match {
-    None          -> status_only(405) |> Response.add_header("allow", ALLOW)
+    None                                     -> status_only(405).add_header("allow", ALLOW)
     Some(_) if !host_received_text(received) -> status_only(400)
-    Some(request) if !well_formed(request) -> status_only(400)
-    Some(request) -> launch(app, request)
+    Some(request) if !well_formed(request)   -> status_only(400)
+    Some(request)                            -> launch(app, request)
   }
   to_outgoing(response)
 }
@@ -222,7 +221,7 @@ fn launch[E](app: fn(Request) -> Response fails E use { Async }, request: Reques
       None         -> with_content_type(res)
       Some(reason) -> failed("invalid response: #{reason}")
     }
-    Failure(cause) -> failed(Cause.to_string(cause))
+    Failure(cause) -> failed(cause.to_string())
   }
 }
 
@@ -239,7 +238,7 @@ fn status_only(status: Int) -> Response {
     405 -> "Method Not Allowed"
     _   -> "Internal Server Error"
   }
-  Response.new(status, name) |> Response.add_header("content-type", TEXT)
+  Response.new(status, name).add_header("content-type", TEXT)
 }
 
 const TEXT: String = "text/plain;charset=UTF-8"
@@ -247,10 +246,10 @@ const TEXT: String = "text/plain;charset=UTF-8"
 ## `res` with `content-type: text/plain;charset=UTF-8` added when it has a body and no
 ## content-type.
 fn with_content_type(res: Response) -> Response {
-  if res.body == "" || Response.header(res, "content-type") != None {
+  if res.body == "" || res.header("content-type") != None {
     res
   } else {
-    res |> Response.add_header("content-type", TEXT)
+    res.add_header("content-type", TEXT)
   }
 }
 
@@ -261,9 +260,9 @@ fn invalid_reason(res: Response) -> Option[String] {
   } else if (res.status == 204 || res.status == 205 || res.status == 304) && res.body != "" {
     Some("status #{res.status} cannot have a body")
   } else {
-    List.find(res.headers, fn((name, _)) { !is_token(name) }) match {
+    res.headers.find(fn((name, _)) { !is_token(name) }) match {
       Some((name, _)) -> Some("header name `#{name}`")
-      None -> List.find(res.headers, fn((_, value)) { !is_field_value(value) }) match {
+      None -> res.headers.find(fn((_, value)) { !is_field_value(value) }) match {
         Some((name, _)) -> Some("header value of `#{name}`")
         None            -> None
       }
@@ -274,17 +273,17 @@ fn invalid_reason(res: Response) -> Option[String] {
 ## A header name: ASCII letters, digits and ``!#$%&'*+-.^_`|~``, at least one.
 fn is_token(name: String) -> Bool {
   name != ""
-    && List.all(String.code_points(name), fn(c) {
+    && name.code_points().all(fn(c) {
       (c >= 0x30 && c <= 0x39)
         || (c >= 0x41 && c <= 0x5A)
         || (c >= 0x61 && c <= 0x7A)
-        || List.any(String.code_points("!#$%&'*+-.^_`|~"), fn(t) { t == c })
+        || "!#$%&'*+-.^_`|~".code_points().any(fn(t) { t == c })
     })
 }
 
 ## A header value: a tab and the printable ASCII characters.
 fn is_field_value(value: String) -> Bool {
-  List.all(String.code_points(value), fn(c) { c == 0x09 || (c >= 0x20 && c <= 0x7E) })
+  value.code_points().all(fn(c) { c == 0x09 || (c >= 0x20 && c <= 0x7E) })
 }
 
 ## Whether the path and the query of `request` percent-decode. `decode_query` fails exactly when
@@ -293,8 +292,8 @@ fn is_field_value(value: String) -> Bool {
 ## The query is the text after the first `?` of `url`: neither the scheme nor the authority can
 ## hold a `?`.
 fn well_formed(request: Request) -> Bool {
-  query = String.split(request.url, "?") |> List.drop(1) |> List.join("?")
-  decodes(Request.path(request)) && decodes(query)
+  query = request.url.split("?").drop(1).join("?")
+  decodes(request.path()) && decodes(query)
 }
 
 fn decodes(s: String) -> Bool {
@@ -318,8 +317,8 @@ fn received_request(received: Received) -> Option[Request] {
     "OPTIONS" -> Some(Options)
     _         -> None
   }
-  method |> Option.map(fn(method) {
-    headers = List.map(List.range(0, host_received_header_count(received)), fn(i) {
+  method.map(fn(method) {
+    headers = List.range(0, host_received_header_count(received)).map(fn(i) {
       (host_received_header_name(received, i), host_received_header_value(received, i))
     })
       |> normal_headers
@@ -334,8 +333,8 @@ fn received_request(received: Received) -> Option[Request] {
 ## hands them over as received.
 fn normal_headers(pairs: List[(String, String)]) -> List[(String, String)] {
   pairs
-    |> List.map(fn((name, value)) { (String.to_ascii_lowercase(name), value) })
-    |> List.filter(fn((name, _)) { !List.any(CONNECTION_HEADERS, fn(c) { c == name }) })
+    |> List.map(fn((name, value)) { (name.to_ascii_lowercase(), value) })
+    |> List.filter(fn((name, _)) { !CONNECTION_HEADERS.any(fn(c) { c == name }) })
     |> List.sort_by(fn((a, _), (b, _)) {
       if a < b { Less } else if a > b { Greater } else { Equal }
     })
@@ -367,7 +366,7 @@ const CONNECTION_HEADERS: List[String] = [
 
 ## The host's response for `res`, its headers in the written order.
 fn to_outgoing(res: Response) -> Outgoing {
-  draft = List.fold(res.headers, from: host_draft(res.status, res.body), f: fn(d, (name, value)) {
+  draft = res.headers.fold(from: host_draft(res.status, res.body), f: fn(d, (name, value)) {
     host_draft_header(d, name, value)
   })
   host_finish(draft)

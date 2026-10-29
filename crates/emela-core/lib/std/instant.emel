@@ -19,15 +19,15 @@ pub fn to_unix_milliseconds(t: Instant) -> Int64 {
 
 ## Earlier if `d` is negative.
 pub fn add(t: Instant, d: Duration) -> Instant {
-  Instant(milliseconds: t.milliseconds + Duration.to_milliseconds(d))
+  Instant(milliseconds: t.milliseconds + d.to_milliseconds())
 }
 
 pub fn subtract(t: Instant, d: Duration) -> Instant {
-  Instant(milliseconds: t.milliseconds - Duration.to_milliseconds(d))
+  Instant(milliseconds: t.milliseconds - d.to_milliseconds())
 }
 
 ## The duration from `earlier` to `t`; negative if `earlier` is later.
-## Reads as `now |> Instant.since(start)`.
+## Reads as `now.since(start)`.
 pub fn since(t: Instant, earlier: Instant) -> Duration {
   Duration.milliseconds(t.milliseconds - earlier.milliseconds)
 }
@@ -72,12 +72,12 @@ fn year_to_string(year: Int64) -> String {
 
 ## Zero-pads `n` to `width` digits. `n` must be non-negative.
 fn pad(n: Int64, width: Int) -> String {
-  pad_onto(Int64.to_string(n), width)
+  pad_onto(n.to_string(), width)
 }
 
 # Digits are ASCII, so bytes count them without the grapheme tables (which target c lacks).
 fn pad_onto(s: String, width: Int) -> String {
-  if String.byte_size(s) >= width { s } else { pad_onto("0#{s}", width) }
+  if s.byte_size() >= width { s } else { pad_onto("0#{s}", width) }
 }
 
 ## Shown as `to_string` writes it (`2025-10-12T03:04:05.678Z`).

@@ -12,51 +12,51 @@ pub fn empty[A]() -> Set[A] {
 
 ## The set of the values of `xs`.
 pub fn from_list[A: Ord](xs: List[A]) -> Set[A] {
-  List.fold(xs, from: empty(), f: insert)
+  xs.fold(from: empty(), f: insert)
 }
 
 ## `s` with `x`.
 pub fn insert[A: Ord](s: Set[A], x: A) -> Set[A] {
-  Set(inner: Map.insert(s.inner, x, ()))
+  Set(inner: s.inner.insert(x, ()))
 }
 
 ## `s` without `x`.
 pub fn remove[A: Ord](s: Set[A], x: A) -> Set[A] {
-  Set(inner: Map.remove(s.inner, x))
+  Set(inner: s.inner.remove(x))
 }
 
 ## Whether `x` is in `s`.
 pub fn contains[A: Ord](s: Set[A], x: A) -> Bool {
-  Map.contains(s.inner, x)
+  s.inner.contains(x)
 }
 
 ## The number of values.
 pub fn size[A](s: Set[A]) -> Int {
-  Map.size(s.inner)
+  s.inner.size()
 }
 
 pub fn is_empty[A](s: Set[A]) -> Bool {
-  Map.is_empty(s.inner)
+  s.inner.is_empty()
 }
 
 ## Folds the values in order, starting from `from`.
 pub fn fold[A, B](s: Set[A], from: B, f: fn(B, A) -> B) -> B {
-  Map.fold(s.inner, from: from, f: fn(acc, x, _) { f(acc, x) })
+  s.inner.fold(from: from, f: fn(acc, x, _) { f(acc, x) })
 }
 
 ## The values in order.
 pub fn to_list[A](s: Set[A]) -> List[A] {
-  Map.keys(s.inner)
+  s.inner.keys()
 }
 
 ## The values for which `f` is True.
 pub fn filter[A](s: Set[A], f: fn(A) -> Bool) -> Set[A] {
-  Set(inner: Map.filter(s.inner, fn(x, _) { f(x) }))
+  Set(inner: s.inner.filter(fn(x, _) { f(x) }))
 }
 
 ## The values of both.
 pub fn union[A: Ord](a: Set[A], b: Set[A]) -> Set[A] {
-  Set(inner: Map.union(a.inner, b.inner))
+  Set(inner: a.inner.union(b.inner))
 }
 
 # Equal when the values in order are equal.
@@ -66,5 +66,5 @@ impl Set[A: Eq]: Eq {
 
 ## `Set.from_list([1, 2])`, which makes the set again.
 impl Set[A: Show]: Show {
-  fn show(self) { "Set.from_list(#{Show.show(to_list(self))})" }
+  fn show(self) { "Set.from_list(#{self.to_list().show()})" }
 }
