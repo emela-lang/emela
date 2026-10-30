@@ -141,6 +141,29 @@ fn unbounded[A](x: A) -> Int {
     ));
 }
 
+/// A method call is ordered before only the fns that can be its callee: those whose first
+/// parameter has a type of their own module. `get` here takes a String, defined by the core
+/// module String, so `[f()].get(0)` (`List.get`) does not put it in a group with `run`, and its
+/// type is generalized before `main` uses it.
+#[test]
+fn a_method_call_does_not_order_before_fns_of_other_modules() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+fn run(f: fn() -> Int) -> Int {
+  [f()].get(0).or(0)
+}
+
+fn get(url: String) -> Int {
+  run(fn() { url.length() })
+}
+
+fn main() -> Int {
+  get("x")
+}
+"#
+    ));
+}
+
 /// Errors at a method call: a wrong number of arguments (E0305), a function written without a
 /// call (E0312), no field or function (E0312), a type without fields (E0313), and an undetermined
 /// type (E0314).
