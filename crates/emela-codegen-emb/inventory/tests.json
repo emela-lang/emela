@@ -1,0 +1,1224 @@
+{
+  "emela_lir::Value::Const": [
+    {
+      "target": "emit",
+      "name": "emits_c_for_a_function_returning_an_int_constant"
+    }
+  ],
+  "emela_lir::Value::Prim": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::Value::Call": [
+    {
+      "target": "emit",
+      "name": "compiles_direct_calls_to_internal_and_external_c_functions"
+    }
+  ],
+  "emela_lir::Value::Builtin": [
+    {
+      "target": "emit",
+      "name": "int_parse_accepts_decimal_signs_and_rejects_invalid_or_overflowing_text"
+    }
+  ],
+  "emela_lir::Value::Make": [
+    {
+      "target": "emit",
+      "name": "constructs_payload_and_unit_enum_variants_as_inline_values"
+    }
+  ],
+  "emela_lir::Value::Field": [
+    {
+      "target": "emit",
+      "name": "reads_generic_enum_fields_from_inline_values"
+    }
+  ],
+  "emela_lir::Value::Tag": [
+    {
+      "target": "emit",
+      "name": "reads_tags_from_payload_and_nullary_enums"
+    }
+  ],
+  "emela_lir::Value::Tuple": [
+    {
+      "target": "emit",
+      "name": "constructs_inline_tuples_and_keeps_unit_field_positions"
+    }
+  ],
+  "emela_lir::Value::TupleGet": [
+    {
+      "target": "emit",
+      "name": "reads_tuple_fields_and_ignores_unit_projections"
+    }
+  ],
+  "emela_lir::Value::List": [
+    {
+      "target": "emit",
+      "name": "allocates_and_releases_lists_in_the_fixed_heap"
+    }
+  ],
+  "emela_lir::Value::ListIsEmpty": [
+    {
+      "target": "emit",
+      "name": "emits_empty_list_and_checks_list_emptiness"
+    }
+  ],
+  "emela_lir::Value::ListHead": [
+    {
+      "target": "emit",
+      "name": "reads_list_heads_and_keeps_shared_tails_alive"
+    }
+  ],
+  "emela_lir::Value::ListTail": [
+    {
+      "target": "emit",
+      "name": "reads_list_heads_and_keeps_shared_tails_alive"
+    }
+  ],
+  "emela_lir::Value::FnRef": [
+    {
+      "target": "emit",
+      "name": "suspend::suspend_fnrefs_dispatch_to_external_tasks_and_internal_frames"
+    }
+  ],
+  "emela_lir::Value::Closure": [
+    {
+      "target": "lib",
+      "name": "compiler::separation_tests::common_closure_lowering_is_shared_and_native_managed_values_run"
+    }
+  ],
+  "emela_lir::Value::MakeClosure": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_values_and_reference_count_statements_at_flow_stage"
+    }
+  ],
+  "emela_lir::Value::EnvGet": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_values_and_reference_count_statements_at_flow_stage"
+    }
+  ],
+  "emela_lir::Value::EvLookup": [
+    {
+      "target": "emit",
+      "name": "value_audit::discarded::unused_dynamic_evidence_lookup_keeps_validation_and_the_callers_owner"
+    }
+  ],
+  "emela_lir::Value::EvExtend": [
+    {
+      "target": "emit",
+      "name": "value_audit::discarded::discarded_evidence_extensions_release_their_handler_references_immediately"
+    }
+  ],
+  "emela_lir::Value::Handler": [
+    {
+      "target": "emit",
+      "name": "value_audit::discarded::discarded_evidence_extensions_release_their_handler_references_immediately"
+    }
+  ],
+  "emela_lir::Value::Fiber": [
+    {
+      "target": "emit",
+      "name": "fiber::join::join_reuses_completed_results_without_yielding_and_waits_for_discarded_unit"
+    }
+  ],
+  "emela_lir::Value::IsError": [
+    {
+      "target": "emit",
+      "name": "fiber::function_aggregate::any_fields_nested_in_error_payloads_use_owned_boxes_and_indirect_failure_channels"
+    }
+  ],
+  "emela_lir::Value::AsError": [
+    {
+      "target": "emit",
+      "name": "fiber::failure::caught_failure_inside_suspending_release_does_not_replace_the_original_error"
+    }
+  ],
+  "emela_lir::Value::Runtime": [
+    {
+      "target": "emit",
+      "name": "builtin_audit::discarded_runtime_show_string_keeps_its_capacity_check"
+    }
+  ],
+  "emela_lir::Value::Coerce": [
+    {
+      "target": "emit",
+      "name": "suspend::sync_string_producers_coerced_to_suspend_values_keep_their_backing_and_small_buffer"
+    }
+  ],
+  "emela_lir::Stmt::Let": [
+    {
+      "target": "emit",
+      "name": "const_runtime::canonical_const_roots_include_dependency_specializations_until_they_reach_a_fixed_point"
+    }
+  ],
+  "emela_lir::Stmt::Protect": [
+    {
+      "target": "emit",
+      "name": "fiber::protect::suspend_cleanup_waits_for_an_external_task_before_publishing_the_result"
+    }
+  ],
+  "emela_lir::Stmt::Dup": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_values_and_reference_count_statements_at_flow_stage"
+    }
+  ],
+  "emela_lir::Stmt::Drop": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_values_and_reference_count_statements_at_flow_stage"
+    }
+  ],
+  "emela_core::Builtin::StringLength": [
+    {
+      "target": "emit",
+      "name": "string_length_uses_unicode_18_extended_grapheme_clusters"
+    }
+  ],
+  "emela_core::Builtin::StringByteSize": [
+    {
+      "target": "emit",
+      "name": "string_byte_size_counts_utf8_bytes_from_a_view"
+    }
+  ],
+  "emela_core::Builtin::StringAppend": [
+    {
+      "target": "emit",
+      "name": "statically_evaluates_string_append_in_const_functions"
+    },
+    {
+      "target": "emit",
+      "name": "string_append::literal_prefixes_are_copied_without_treating_readonly_bytes_as_writable_output"
+    }
+  ],
+  "emela_core::Builtin::StringContains": [
+    {
+      "target": "emit",
+      "name": "string_search_predicates_match_utf8_substrings_without_copying"
+    }
+  ],
+  "emela_core::Builtin::StringStartsWith": [
+    {
+      "target": "emit",
+      "name": "string_search_predicates_match_utf8_substrings_without_copying"
+    }
+  ],
+  "emela_core::Builtin::StringEndsWith": [
+    {
+      "target": "emit",
+      "name": "string_search_predicates_match_utf8_substrings_without_copying"
+    }
+  ],
+  "emela_core::Builtin::StringSplit": [
+    {
+      "target": "emit",
+      "name": "string_join_reads_split_views_into_a_bounded_stack_buffer"
+    }
+  ],
+  "emela_core::Builtin::StringChars": [
+    {
+      "target": "emit",
+      "name": "builtin_audit::discarded_string_chars_still_builds_and_releases_its_owned_list"
+    }
+  ],
+  "emela_core::Builtin::StringJoin": [
+    {
+      "target": "emit",
+      "name": "string_join_reads_split_views_into_a_bounded_stack_buffer"
+    }
+  ],
+  "emela_core::Builtin::StringTrim": [
+    {
+      "target": "lib",
+      "name": "compiler::separation_tests::string_plans_preserve_aliases_while_other_buffers_and_calls_are_live"
+    }
+  ],
+  "emela_core::Builtin::StringCodePoints": [
+    {
+      "target": "emit",
+      "name": "string_code_points_builds_and_releases_a_list_in_code_point_order"
+    }
+  ],
+  "emela_core::Builtin::StringFromCodePoint": [
+    {
+      "target": "emit",
+      "name": "dynamic_string_from_code_point_checks_capacity_before_writing"
+    }
+  ],
+  "emela_core::Builtin::ShowNested": [
+    {
+      "target": "flow",
+      "name": "rejects_source_builtins_that_must_lower_to_flow_control_or_runtime"
+    }
+  ],
+  "emela_core::Builtin::IntToString": [
+    {
+      "target": "lib",
+      "name": "compiler::separation_tests::common_entries_supply_dynamic_string_output_buffers"
+    }
+  ],
+  "emela_core::Builtin::IntParse": [
+    {
+      "target": "emit",
+      "name": "int_parse_accepts_decimal_signs_and_rejects_invalid_or_overflowing_text"
+    }
+  ],
+  "emela_core::Builtin::IntCheckedAdd": [
+    {
+      "target": "emit",
+      "name": "int_checked_add_returns_some_or_none_at_int_boundaries"
+    }
+  ],
+  "emela_core::Builtin::IntBitAnd": [
+    {
+      "target": "emit",
+      "name": "int_bitwise_builtins_match_signed_32_bit_semantics"
+    }
+  ],
+  "emela_core::Builtin::IntBitOr": [
+    {
+      "target": "emit",
+      "name": "int_bitwise_builtins_match_signed_32_bit_semantics"
+    }
+  ],
+  "emela_core::Builtin::IntBitXor": [
+    {
+      "target": "emit",
+      "name": "int_bitwise_builtins_match_signed_32_bit_semantics"
+    }
+  ],
+  "emela_core::Builtin::IntBitNot": [
+    {
+      "target": "emit",
+      "name": "int_bitwise_builtins_match_signed_32_bit_semantics"
+    }
+  ],
+  "emela_core::Builtin::IntShiftLeft": [
+    {
+      "target": "emit",
+      "name": "int_shift_builtins_handle_width_and_negative_amount_boundaries"
+    }
+  ],
+  "emela_core::Builtin::IntShiftRight": [
+    {
+      "target": "emit",
+      "name": "int_shift_builtins_handle_width_and_negative_amount_boundaries"
+    }
+  ],
+  "emela_core::Builtin::IntShiftRightUnsigned": [
+    {
+      "target": "emit",
+      "name": "int_shift_builtins_handle_width_and_negative_amount_boundaries"
+    }
+  ],
+  "emela_core::Builtin::Int64FromInt": [
+    {
+      "target": "emit",
+      "name": "int64_conversions_preserve_sign_and_keep_the_low_32_bits"
+    }
+  ],
+  "emela_core::Builtin::Int64ToString": [
+    {
+      "target": "emit",
+      "name": "int64_to_string_uses_twenty_byte_scratch_and_matches_decimal_output"
+    }
+  ],
+  "emela_core::Builtin::Int64ToInt": [
+    {
+      "target": "emit",
+      "name": "int64_conversions_preserve_sign_and_keep_the_low_32_bits"
+    }
+  ],
+  "emela_core::Builtin::Int64BitAnd": [
+    {
+      "target": "emit",
+      "name": "int64_bitwise_builtins_match_signed_64_bit_semantics"
+    }
+  ],
+  "emela_core::Builtin::Int64BitOr": [
+    {
+      "target": "emit",
+      "name": "int64_bitwise_builtins_match_signed_64_bit_semantics"
+    }
+  ],
+  "emela_core::Builtin::Int64BitXor": [
+    {
+      "target": "emit",
+      "name": "int64_bitwise_builtins_match_signed_64_bit_semantics"
+    }
+  ],
+  "emela_core::Builtin::Int64BitNot": [
+    {
+      "target": "emit",
+      "name": "int64_bitwise_builtins_match_signed_64_bit_semantics"
+    }
+  ],
+  "emela_core::Builtin::Int64ShiftLeft": [
+    {
+      "target": "emit",
+      "name": "int64_shift_builtins_handle_width_and_negative_amount_boundaries"
+    }
+  ],
+  "emela_core::Builtin::Int64ShiftRight": [
+    {
+      "target": "emit",
+      "name": "int64_shift_builtins_handle_width_and_negative_amount_boundaries"
+    }
+  ],
+  "emela_core::Builtin::Int64ShiftRightUnsigned": [
+    {
+      "target": "emit",
+      "name": "int64_shift_builtins_handle_width_and_negative_amount_boundaries"
+    }
+  ],
+  "emela_core::Builtin::FloatToString": [
+    {
+      "target": "emit",
+      "name": "float_to_string_constant_contributes_its_exact_append_bound"
+    },
+    {
+      "target": "emit",
+      "name": "dynamic_float_formatting_uses_a_bounded_runtime_and_float_parse_uses_the_bounded_parser"
+    }
+  ],
+  "emela_core::Builtin::FloatFromInt": [
+    {
+      "target": "emit",
+      "name": "float_from_int_converts_the_full_signed_range_exactly"
+    }
+  ],
+  "emela_core::Builtin::FloatParse": [
+    {
+      "target": "emit",
+      "name": "dynamic_float_formatting_uses_a_bounded_runtime_and_float_parse_uses_the_bounded_parser"
+    }
+  ],
+  "emela_core::Builtin::FloatFloor": [
+    {
+      "target": "emit",
+      "name": "builtin_audit::discarded_float_rounding_preserves_the_out_of_range_defect"
+    }
+  ],
+  "emela_core::Builtin::FloatCeil": [
+    {
+      "target": "emit",
+      "name": "float_rounding_builtins_match_spec_and_defect_out_of_range"
+    }
+  ],
+  "emela_core::Builtin::FloatRound": [
+    {
+      "target": "emit",
+      "name": "statically_evaluates_float_rounding_builtin"
+    }
+  ],
+  "emela_core::Builtin::FloatTruncate": [
+    {
+      "target": "emit",
+      "name": "float_rounding_builtins_match_spec_and_defect_out_of_range"
+    }
+  ],
+  "emela_core::Builtin::Panic": [
+    {
+      "target": "flow",
+      "name": "rejects_source_builtins_that_must_lower_to_flow_control_or_runtime"
+    }
+  ],
+  "emela_core::Builtin::Todo": [
+    {
+      "target": "flow",
+      "name": "rejects_source_builtins_that_must_lower_to_flow_control_or_runtime"
+    }
+  ],
+  "emela_core::Builtin::Dbg": [
+    {
+      "target": "flow",
+      "name": "rejects_source_builtins_that_must_lower_to_flow_control_or_runtime"
+    }
+  ],
+  "emela_core::Builtin::Inspect": [
+    {
+      "target": "flow",
+      "name": "rejects_source_builtins_that_must_lower_to_flow_control_or_runtime"
+    }
+  ],
+  "emela_core::Builtin::CellNew": [
+    {
+      "target": "emit",
+      "name": "cell::discarded_cell_construction_and_reads_release_their_owned_contents"
+    }
+  ],
+  "emela_core::Builtin::CellGet": [
+    {
+      "target": "emit",
+      "name": "cell::discarded_cell_construction_and_reads_release_their_owned_contents"
+    }
+  ],
+  "emela_core::Builtin::CellSet": [
+    {
+      "target": "emit",
+      "name": "cell::unit_cells_keep_a_shared_heap_identity_without_reading_a_void_payload"
+    }
+  ],
+  "emela_core::Builtin::ShowString": [
+    {
+      "target": "flow",
+      "name": "rejects_source_builtins_that_must_lower_to_flow_control_or_runtime"
+    }
+  ],
+  "emela_core::Builtin::DebugPrint": [
+    {
+      "target": "flow",
+      "name": "rejects_source_builtins_that_must_lower_to_flow_control_or_runtime"
+    }
+  ],
+  "emela_lir::Const::Int": [
+    {
+      "target": "emit",
+      "name": "emits_c_for_a_function_returning_an_int_constant"
+    }
+  ],
+  "emela_lir::Const::Int64": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int64_constants_at_the_signed_boundaries"
+    }
+  ],
+  "emela_lir::Const::Float": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_float_constants_including_non_finite_values"
+    }
+  ],
+  "emela_lir::Const::Bool": [
+    {
+      "target": "emit",
+      "name": "constructs_inline_tuples_and_keeps_unit_field_positions"
+    }
+  ],
+  "emela_lir::Const::String": [
+    {
+      "target": "emit",
+      "name": "emits_a_static_string_const_as_a_view"
+    }
+  ],
+  "emela_lir::Const::Unit": [
+    {
+      "target": "emit",
+      "name": "constructs_inline_tuples_and_keeps_unit_field_positions"
+    }
+  ],
+  "emela_lir::Operand::Var": [
+    {
+      "target": "emit",
+      "name": "constructs_payload_and_unit_enum_variants_as_inline_values"
+    }
+  ],
+  "emela_lir::Operand::Const": [
+    {
+      "target": "emit",
+      "name": "emits_c_for_a_function_returning_an_int_constant"
+    }
+  ],
+  "emela_lir::PrimOp::Add": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimOp::Sub": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimOp::Mul": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimOp::Div": [
+    {
+      "target": "emit",
+      "name": "int32_division_by_zero_calls_the_board_defect_hook"
+    }
+  ],
+  "emela_lir::PrimOp::Rem": [
+    {
+      "target": "emit",
+      "name": "emits_int32_division_and_remainder_with_emela_semantics"
+    }
+  ],
+  "emela_lir::PrimOp::Neg": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimOp::Not": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimOp::Eq": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimOp::Ne": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimOp::Lt": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimOp::Le": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimOp::Gt": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimOp::Ge": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimTy::I32": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimTy::I64": [
+    {
+      "target": "emit",
+      "name": "value_audit::discarded_integer_division_and_remainder_still_raise_defects_in_sync_and_suspend_code"
+    }
+  ],
+  "emela_lir::PrimTy::F64": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_float_primitive_operations"
+    }
+  ],
+  "emela_lir::PrimTy::String": [
+    {
+      "target": "emit",
+      "name": "string_comparison::all_constant_comparisons_match_runtime_order_without_emitting_the_helper"
+    }
+  ],
+  "emela_lir::Term::Yield": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_a_block_that_yields_a_value"
+    }
+  ],
+  "emela_lir::Term::Return": [
+    {
+      "target": "emit",
+      "name": "emits_c_for_a_function_returning_an_int_constant"
+    }
+  ],
+  "emela_lir::Term::Fail": [
+    {
+      "target": "emit",
+      "name": "propagates_failure_from_a_captured_closure_through_its_indirect_call"
+    }
+  ],
+  "emela_lir::Term::Break": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_break_to_an_enclosing_block"
+    }
+  ],
+  "emela_lir::Term::Recur": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_recur_with_multiple_loop_variables"
+    }
+  ],
+  "emela_lir::Term::Defect": [
+    {
+      "target": "emit",
+      "name": "sends_dynamic_defect_string_views_to_the_board_hook"
+    }
+  ],
+  "emela_lir::Term::Unwind": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_unwind_and_explicit_landing_edges_at_flow_stage"
+    }
+  ],
+  "emela_lir::Term::Unreachable": [
+    {
+      "target": "emit",
+      "name": "fiber::cause::compile_flow_keeps_rejecting_a_cause_failure_without_a_channel"
+    }
+  ],
+  "emela_lir::OnFail::Break": [
+    {
+      "target": "emit",
+      "name": "cell::cell_references_in_native_error_payloads_outlive_the_failing_frame"
+    }
+  ],
+  "emela_lir::OnFail::Propagate": [
+    {
+      "target": "emit",
+      "name": "propagates_failure_from_a_captured_closure_through_its_indirect_call"
+    }
+  ],
+  "emela_lir::OnFail::Handle": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_failure_handle_at_flow_stage"
+    }
+  ],
+  "emela_lir::RuntimeOp::ShowString": [
+    {
+      "target": "emit",
+      "name": "builtin_audit::discarded_runtime_show_string_keeps_its_capacity_check"
+    }
+  ],
+  "emela_lir::RuntimeOp::DebugPrint": [
+    {
+      "target": "emit",
+      "name": "debug_print_calls_the_board_hook_with_the_string_view"
+    }
+  ],
+  "emela_lir::RuntimeOp::Defect": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_runtime_operations_at_flow_stage"
+    }
+  ],
+  "emela_lir::RuntimeOp::DefectTake": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_runtime_operations_at_flow_stage"
+    }
+  ],
+  "emela_lir::RuntimeOp::DefectResume": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_runtime_operations_at_flow_stage"
+    }
+  ],
+  "emela_lir::RuntimeOp::Hold": [
+    {
+      "target": "flow",
+      "name": "isr_entries_reject_reachable_hold_and_unhold_in_direct_and_nested_calls"
+    }
+  ],
+  "emela_lir::RuntimeOp::Unhold": [
+    {
+      "target": "flow",
+      "name": "isr_entries_reject_reachable_hold_and_unhold_in_direct_and_nested_calls"
+    }
+  ],
+  "emela_lir::RuntimeOp::Yield": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_runtime_operations_at_flow_stage"
+    }
+  ],
+  "emela_lir::RuntimeOp::YieldPerform": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_runtime_operations_at_flow_stage"
+    }
+  ],
+  "emela_lir::Callee::Direct": [
+    {
+      "target": "emit",
+      "name": "compiles_direct_calls_to_internal_and_external_c_functions"
+    }
+  ],
+  "emela_lir::Callee::Indirect": [
+    {
+      "target": "emit",
+      "name": "propagates_failure_from_a_captured_closure_through_its_indirect_call"
+    }
+  ],
+  "emela_lir::Callee::Op": [
+    {
+      "target": "emit",
+      "name": "suspend::coerce_adapts_sync_and_suspend_function_values_to_a_suspend_evidence_abi"
+    }
+  ],
+  "emela_lir::Stage::Flow": [
+    {
+      "target": "flow",
+      "name": "lowers_and_verifies_core_as_flow_ir"
+    }
+  ],
+  "emela_lir::Stage::ClosuresConverted": [
+    {
+      "target": "flow",
+      "name": "rejects_every_heap_stage_before_codegen"
+    }
+  ],
+  "emela_lir::Stage::DefectsExplicit": [
+    {
+      "target": "flow",
+      "name": "rejects_every_heap_stage_before_codegen"
+    }
+  ],
+  "emela_lir::Stage::StateMachines": [
+    {
+      "target": "flow",
+      "name": "rejects_every_heap_stage_before_codegen"
+    }
+  ],
+  "emela_lir::Stage::RefCounted": [
+    {
+      "target": "flow",
+      "name": "rejects_every_heap_stage_before_codegen"
+    }
+  ],
+  "emela_lir::SwitchOn::Tag": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_exhaustive_payload_enum_switch_and_defects_on_invalid_tag"
+    }
+  ],
+  "emela_lir::SwitchOn::Lit": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_and_int64_literal_switches"
+    }
+  ],
+  "emela_lir::CaseKey::Variant": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_switches_on_nullary_enum_representations"
+    }
+  ],
+  "emela_lir::CaseKey::Lit": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int32_and_int64_literal_switches"
+    }
+  ],
+  "emela_core::FiberOp::Scope": [
+    {
+      "target": "emit",
+      "name": "fiber::aggregate_abi::scope_returns_string_enum_exits_after_success_or_interruption_and_frame_reuse"
+    }
+  ],
+  "emela_core::FiberOp::Fork": [
+    {
+      "target": "emit",
+      "name": "fiber::join::join_reuses_completed_results_without_yielding_and_waits_for_discarded_unit"
+    }
+  ],
+  "emela_core::FiberOp::Deferred": [
+    {
+      "target": "emit",
+      "name": "deferred::discarded_deferreds_reuse_one_slot_within_a_long_lived_scope"
+    }
+  ],
+  "emela_core::FiberOp::CauseRaise": [
+    {
+      "target": "emit",
+      "name": "fiber::cause::cause_raise_preserves_the_error_and_runs_native_cleanup_before_escape"
+    }
+  ],
+  "emela_core::Type::Tuple": [
+    {
+      "target": "emit",
+      "name": "stores_and_releases_list_references_inside_tuples_and_list_elements"
+    }
+  ],
+  "emela_core::Type::List": [
+    {
+      "target": "emit",
+      "name": "requires_fixed_heap_capacity_for_returned_list_aliases"
+    }
+  ],
+  "emela_core::Type::Param": [
+    {
+      "target": "emit",
+      "name": "fiber::function_aggregate::growing_generic_recursion_through_a_function_signature_uses_owned_lazy_payloads"
+    }
+  ],
+  "emela_core::Type::Fn": [
+    {
+      "target": "emit",
+      "name": "suspend::suspend_fnrefs_dispatch_to_external_tasks_and_internal_frames"
+    }
+  ],
+  "emela_core::Type::Handler": [
+    {
+      "target": "emit",
+      "name": "suspend::constructing_an_immediate_handler_does_not_emit_a_scheduler"
+    }
+  ],
+  "emela_core::Type::Cell": [
+    {
+      "target": "emit",
+      "name": "cell::discarded_cell_construction_and_reads_release_their_owned_contents"
+    }
+  ],
+  "emela_core::Type::Set": [
+    {
+      "target": "emit",
+      "name": "completion_types::finite_changing_recursive_enum_arguments_run_with_owned_back_edges"
+    }
+  ],
+  "emela_core::HostRef::Global": [
+    {
+      "target": "emit",
+      "name": "binding_metadata::imported_c_bindings_preserve_symbols_for_named_file_and_bundled_modules"
+    }
+  ],
+  "emela_lir::Stmt::If": [
+    {
+      "target": "emit",
+      "name": "compiles_if_statements_and_boolean_short_circuiting"
+    }
+  ],
+  "emela_lir::Stmt::Switch": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_exhaustive_payload_enum_switch_and_defects_on_invalid_tag"
+    }
+  ],
+  "emela_lir::Stmt::Loop": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_a_loop_with_an_initial_value_and_yield"
+    }
+  ],
+  "emela_lir::Stmt::Block": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_a_block_that_yields_a_value"
+    }
+  ],
+  "emela_lir::RuntimeOp::Retire": [
+    {
+      "target": "emit",
+      "name": "builtin_audit::retire::retired_handler_aliases_keep_the_active_check_in_native_and_suspend_callers"
+    }
+  ],
+  "emela_core::FiberOp::Join": [
+    {
+      "target": "emit",
+      "name": "fiber::join::join_results_own_strings_and_lists_after_scope_and_frame_reuse"
+    }
+  ],
+  "emela_core::FiberOp::Await": [
+    {
+      "target": "emit",
+      "name": "fiber::await_::await_returns_success_and_can_mix_with_repeated_join_without_yielding"
+    }
+  ],
+  "emela_core::FiberOp::Interrupt": [
+    {
+      "target": "emit",
+      "name": "fiber::interrupt::interrupt_waits_for_suspending_cleanup_and_ignores_old_task_notifications"
+    }
+  ],
+  "emela_core::FiberOp::Attempt": [
+    {
+      "target": "emit",
+      "name": "fiber::attempt::attempt_captures_sync_failure_and_returns_owned_cause"
+    }
+  ],
+  "emela_core::FiberOp::Complete": [
+    {
+      "target": "emit",
+      "name": "deferred::complete_copies_borrowed_string_and_poll_retains_it_past_scope_end"
+    }
+  ],
+  "emela_core::FiberOp::DeferredAwait": [
+    {
+      "target": "emit",
+      "name": "deferred::await_preserves_string_and_list_results_past_frame_and_scope_reuse"
+    }
+  ],
+  "emela_core::FiberOp::Poll": [
+    {
+      "target": "emit",
+      "name": "deferred::poll_observes_empty_and_first_value_for_scalar_and_unit_without_yielding"
+    }
+  ],
+  "emela_core::FiberOp::CauseKind": [
+    {
+      "target": "emit",
+      "name": "fiber::cause::cause_kind_reads_failure_without_consuming_the_cause"
+    }
+  ],
+  "emela_core::FiberOp::CauseToString": [
+    {
+      "target": "emit",
+      "name": "fiber::cause::cause_to_string_uses_error_show_and_caller_output_buffer"
+    }
+  ],
+  "emela_core::Type::Int": [
+    {
+      "target": "emit",
+      "name": "emits_c_for_a_function_returning_an_int_constant"
+    }
+  ],
+  "emela_core::Type::Int64": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int64_constants_at_the_signed_boundaries"
+    }
+  ],
+  "emela_core::Type::Float": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_float_constants_including_non_finite_values"
+    }
+  ],
+  "emela_core::Type::Bool": [
+    {
+      "target": "emit",
+      "name": "compiles_if_statements_and_boolean_short_circuiting"
+    }
+  ],
+  "emela_core::Type::String": [
+    {
+      "target": "emit",
+      "name": "emits_a_static_string_const_as_a_view"
+    }
+  ],
+  "emela_core::Type::Unit": [
+    {
+      "target": "emit",
+      "name": "constructs_inline_tuples_and_keeps_unit_field_positions"
+    }
+  ],
+  "emela_core::Type::Never": [
+    {
+      "target": "emit",
+      "name": "synchronous_exhaustive_matches_and_list_loops_accept_unreachable_terminators"
+    }
+  ],
+  "emela_core::Type::Enum": [
+    {
+      "target": "emit",
+      "name": "constructs_payload_and_unit_enum_variants_as_inline_values"
+    }
+  ],
+  "emela_core::Type::Evidence": [
+    {
+      "target": "emit",
+      "name": "adapts_a_function_value_to_effect_evidence_and_failure_call_abis"
+    }
+  ],
+  "emela_core::Type::FiberScope": [
+    {
+      "target": "emit",
+      "name": "fiber::aggregate_abi::scope_returns_string_enum_exits_after_success_or_interruption_and_frame_reuse"
+    }
+  ],
+  "emela_core::Type::Any": [
+    {
+      "target": "emit",
+      "name": "any_boxes_retain_managed_list_payloads_until_the_box_is_released"
+    }
+  ],
+  "emela_lir::Repr::I32": [
+    {
+      "target": "emit",
+      "name": "emits_c_for_a_function_returning_an_int_constant"
+    }
+  ],
+  "emela_lir::Repr::I64": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_int64_constants_at_the_signed_boundaries"
+    }
+  ],
+  "emela_lir::Repr::F64": [
+    {
+      "target": "emit",
+      "name": "emits_and_runs_float_constants_including_non_finite_values"
+    }
+  ],
+  "emela_lir::Repr::Ref": [
+    {
+      "target": "emit",
+      "name": "emits_a_static_string_const_as_a_view"
+    }
+  ],
+  "emela_lir::Repr::Void": [
+    {
+      "target": "emit",
+      "name": "constructs_inline_tuples_and_keeps_unit_field_positions"
+    }
+  ],
+  "emela_core::HostRef::Import": [
+    {
+      "target": "emit",
+      "name": "binding_metadata::imported_c_bindings_preserve_symbols_for_named_file_and_bundled_modules"
+    }
+  ],
+  "emela_core::HostModule::Named": [
+    {
+      "target": "emit",
+      "name": "binding_metadata::imported_c_bindings_preserve_symbols_for_named_file_and_bundled_modules"
+    }
+  ],
+  "emela_core::HostModule::File": [
+    {
+      "target": "emit",
+      "name": "binding_metadata::imported_c_bindings_preserve_symbols_for_named_file_and_bundled_modules"
+    }
+  ],
+  "emela_core::HostModule::Bundled": [
+    {
+      "target": "emit",
+      "name": "binding_metadata::imported_c_bindings_preserve_symbols_for_named_file_and_bundled_modules"
+    }
+  ],
+  "emela_core::VariantFields::Unit": [
+    {
+      "target": "emit",
+      "name": "constructs_payload_and_unit_enum_variants_as_inline_values"
+    }
+  ],
+  "emela_core::VariantFields::Positional": [
+    {
+      "target": "emit",
+      "name": "constructs_payload_and_unit_enum_variants_as_inline_values"
+    }
+  ],
+  "emela_core::VariantFields::Named": [
+    {
+      "target": "emit",
+      "name": "binding_metadata::named_enum_fields_preserve_payload_order_in_generated_c"
+    }
+  ],
+  "emela_core::Builtin::AssertFail": [
+    {
+      "target": "flow",
+      "name": "rejects_source_builtins_that_must_lower_to_flow_control_or_runtime"
+    }
+  ],
+  "emela_lir::RuntimeOp::DefectAt": [
+    {
+      "target": "flow",
+      "name": "rejects_heap_only_runtime_operations_at_flow_stage"
+    }
+  ],
+  "emela_core::Builtin::BytesFromList": [
+    {
+      "target": "emit",
+      "name": "bytes::bytes_std_corpus_matches_other_targets_including_const_traits_and_invalid_utf8"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::bytes_list_round_trips_and_invalid_elements_reclaim_every_allocation"
+    }
+  ],
+  "emela_core::Builtin::BytesToList": [
+    {
+      "target": "emit",
+      "name": "bytes::bytes_std_corpus_matches_other_targets_including_const_traits_and_invalid_utf8"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::bytes_list_round_trips_and_invalid_elements_reclaim_every_allocation"
+    }
+  ],
+  "emela_core::Builtin::BytesSize": [
+    {
+      "target": "emit",
+      "name": "bytes::bytes_size_and_get_are_heapless_and_keep_lengths_above_u16"
+    }
+  ],
+  "emela_core::Builtin::BytesGet": [
+    {
+      "target": "emit",
+      "name": "bytes::bytes_size_and_get_are_heapless_and_keep_lengths_above_u16"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::bytes_std_corpus_matches_other_targets_including_const_traits_and_invalid_utf8"
+    }
+  ],
+  "emela_core::Builtin::BytesSlice": [
+    {
+      "target": "emit",
+      "name": "bytes::bytes_dynamic_capacity_is_independent_of_string_capacity"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::bytes_survive_suspension_and_release_on_completion_and_cancellation"
+    }
+  ],
+  "emela_core::Builtin::BytesConcat": [
+    {
+      "target": "emit",
+      "name": "bytes::bytes_std_corpus_matches_other_targets_including_const_traits_and_invalid_utf8"
+    }
+  ],
+  "emela_core::Builtin::BytesEncodeUtf8": [
+    {
+      "target": "emit",
+      "name": "bytes::bytes_returns_lists_and_aliases_preserve_ownership_and_release_the_heap"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::bytes_require_a_fixed_heap_and_defect_when_its_capacity_is_exhausted"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::discarded_bytes_still_check_capacity_and_release_owned_results"
+    }
+  ],
+  "emela_core::Builtin::BytesDecodeValidUtf8": [
+    {
+      "target": "emit",
+      "name": "bytes::bytes_std_corpus_matches_other_targets_including_const_traits_and_invalid_utf8"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::bytes_decoding_checks_string_capacity_before_truncating_the_length"
+    }
+  ],
+  "emela_core::Type::Bytes": [
+    {
+      "target": "emit",
+      "name": "bytes::bytes_returns_lists_and_aliases_preserve_ownership_and_release_the_heap"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::bytes_captured_in_closures_and_state_keep_their_owners"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::bytes_finite_flow_derivations_compare_and_display_unsigned_bytes"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::bytes_external_adapters_snapshot_borrowed_data_and_transfer_owned_data"
+    },
+    {
+      "target": "emit",
+      "name": "bytes::bytes_external_tasks_snapshot_arguments_and_results_and_release_cancelled_contexts"
+    }
+  ]
+}

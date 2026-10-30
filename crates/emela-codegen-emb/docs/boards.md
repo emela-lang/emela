@@ -8,6 +8,7 @@ Flow IRコンパイラーと標準組み込みhandlerに、ボードpackage、C/
 | --- | --- |
 | [`boards.rs`](../src/boards.rs) | board IDからpackage資産を返す。資産はコンパイル時に同梱し、利用時にコンパイラーのsource checkoutを要求しない。 |
 | `Output.exports` | 生成した公開関数のEmela名、C symbol、suspend入口かどうかを返す。例ではentryのalias headerを作る。 |
+| [`emela_artifact.json`の契約](artifact-contract.md) | 生成C／headerの入力一覧と形式・ABIの版。BSPはEmela sourceやIRを読まず、この一覧から生成Cを選ぶ。 |
 | [`examples/board_probe.rs`](../examples/board_probe.rs) | source→Core/Flow→C生成、選択したBSPの展開を行うRust example。 |
 | [`boards/stm32/stm32f4`](../boards/stm32/stm32f4/README.md) | MCU/profile、vector、linker、startup、GPIO・Console・Clock等のSTM32F4実装。 |
 | [`boards/esp32c3`](../boards/esp32c3/README.md) | RISC-V startup、SRAMへloadされるFlash image、GPIO・Console・Clock等のESP32-C3実装。 |
@@ -74,7 +75,7 @@ python3 /tmp/emela-f446-probe/bsp/build.py build \
 ```text
 OUT/
   main.emel
-  generated/                 生成C、標準ABI header、entry alias header
+  generated/                 emela_artifact.json、生成C、標準ABI header、entry alias header
   bsp/                       選択したpackageのstartup・runtime・build script
   artifacts/                 firmware.elf/bin/map、firmware.json、resources.json、build log
 ```

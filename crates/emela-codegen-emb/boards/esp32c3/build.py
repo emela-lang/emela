@@ -13,6 +13,10 @@ import tempfile
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
+if not (HERE / "artifact_manifest.py").is_file():
+    sys.path.insert(0, str(HERE.parent))
+from artifact_manifest import include_directories, load_manifest
+
 BOARD = "esp32c3"
 ESPTOOL_VERSION = "4.8.1"
 ARTIFACTS = ["firmware.elf", "firmware.bin", "firmware.map", "resources.json"]
@@ -110,13 +114,15 @@ def build(args):
         (output / name).unlink(missing_ok=True)
     generated = args.generated_dir.resolve()
     project = args.project_dir.resolve()
+    inputs = load_manifest(generated, require_aliases=True)
     tools = toolchain()
     esp = esptool(output)
     flags = ["-march=rv32imc_zicsr_zifencei", "-mabi=ilp32", "-" + args.optimization, "-g3", "-std=c11",
              "-ffreestanding", "-fno-builtin", "-fno-pic", "-msmall-data-limit=0", "-ffunction-sections",
              "-fdata-sections", "-Wall", "-Wextra", "-Werror", "-fstack-usage",
              "-I", str(generated), "-I", str(project)]
-    sources = [generated / "emela_embedded.c", HERE / "board.c", HERE / "startup.S"]
+    flags += ["-I" + str(path) for path in sorted(include_directories(inputs) - {generated, project})]
+    sources = [*inputs["source"], HERE / "board.c", HERE / "startup.S"]
     for path in args.source:
         source = path.resolve()
         if not source.is_file() or source.suffix not in {".c", ".S", ".s"}:

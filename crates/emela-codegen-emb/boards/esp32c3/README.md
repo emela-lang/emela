@@ -4,6 +4,8 @@ Emela生成CとこのpackageをPythonの`build.py`でRISC-Vへcompileし、`firm
 
 ## 前提ツール
 
+生成directoryの`emela_artifact.json`からC入力を選ぶ。形式・ABIの版と全列挙ファイルをtoolchain起動前に検証し、未列挙の残存Cはcompileしない。独自の生成C／headerを`Output.files`へ追加するときは`refresh_manifest()`で一覧を更新する。[生成物の契約](../../docs/artifact-contract.md)を参照する。
+
 - Espressif RISC-V GCC。検証版は`esp-14.2.0_20241119`。`riscv32-esp-elf-gcc`をPATHへ置くか、toolchain rootを`EMELA_ESP32C3_TOOLCHAIN`へ指定する。
 - Python 3と公式`esptool==4.8.1`。buildを実行するPython環境へ`python3 -m pip install esptool==4.8.1`で導入する。別のPythonを使う場合は`EMELA_ESPTOOL_PYTHON`を指定する。
 - 実機への書き込み時だけ、UART download modeに入れるESP32-C3とserial portが必要。`--dry-run`はデバイスへ接続しない。

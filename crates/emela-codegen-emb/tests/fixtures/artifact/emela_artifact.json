@@ -1,0 +1,39 @@
+{
+  "schema_version": 2,
+  "abi_version": 2,
+  "files": [
+    {
+      "path": "module.c",
+      "role": "source"
+    },
+    {
+      "path": "support/value.c",
+      "role": "source"
+    },
+    {
+      "path": "emela_embedded.h",
+      "role": "public_header"
+    },
+    {
+      "path": "emela_board.h",
+      "role": "platform_header"
+    },
+    {
+      "path": "emela_embedded_exports.h",
+      "role": "aliases_header"
+    },
+    {
+      "path": "include/value.h",
+      "role": "header"
+    }
+  ],
+  "metadata": {
+    "entry": null,
+    "exports": [],
+    "services": [],
+    "external_symbols": [],
+    "isr_entries": [],
+    "isr_safe_symbols": [],
+    "task_capacity": 0
+  }
+}

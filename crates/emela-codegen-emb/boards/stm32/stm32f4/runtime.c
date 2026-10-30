@@ -334,3 +334,18 @@ int main(void) {
     board_app_completed = 1;
     for (;;) __asm volatile("wfi");
 }
+
+/* ABI 2 lifecycle for consumers of the common entry wrapper. */
+void emela_board_idle(void) {
+    uint32_t previous = interrupt_state();
+    __asm volatile("cpsid i" ::: "memory");
+    if (!emela_scheduler_ready()) __asm volatile("dsb\nwfi" ::: "memory");
+    __asm volatile("msr primask, %0" :: "r"(previous) : "memory");
+}
+void emela_board_debug(const char *bytes, uint16_t length) { uart_bytes(bytes, length); }
+void emela_platform_start(void (*program)(void)) {
+    init_uart();
+    SYSTICK_LOAD = 16000 - 1; SYSTICK_VALUE = 0; SYSTICK_CTRL = 7;
+    program();
+    for (;;) emela_board_idle();
+}

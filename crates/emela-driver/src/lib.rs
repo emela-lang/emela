@@ -85,3 +85,6 @@ pub use testing::{
 };
 pub use tokens::{SemanticToken, TokenKind};
 pub use wasm::{CoreWasm, WASM_ENTRY_FILE};
+
+mod embedded_connection;
+pub use embedded_connection::{ArtifactConnection, ConnectionOptimization, connect_artifact};
