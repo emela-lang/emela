@@ -21,17 +21,31 @@ impl<'m> Builder<'m> {
             RuntimeOp::DefectAt => "raise_at",
             RuntimeOp::DefectTake => "defect_take",
             RuntimeOp::DefectResume => "defect_resume",
-            // A fairness yield hands the scheduler a turn. The WASM backend has no fibers yet,
-            // so there is nobody to hand it to (and the state-machine pass still gives the value
-            // its suspension edge).
+            // A fairness yield hands the scheduler a turn (spec 11.1). Without fibers nobody can
+            // take it: the state-machine pass gives the value its suspension edge only then, so
+            // the yield is a no-op here as well.
             RuntimeOp::Yield | RuntimeOp::YieldPerform => {
+                if self.fiber_plan.is_some() && runtime::fiber::used(self) {
+                    let perform = i32::from(matches!(op, RuntimeOp::YieldPerform));
+                    ins.i32_const(perform);
+                    let f = self.rt("fb_yield");
+                    ins.call(f);
+                }
                 self.assign(cx, ins, dst, Repr::Void);
                 return;
             }
-            // `hold` / `unhold` keep a release that may suspend from being interrupted until it
-            // ends (spec 11.4). Interruption is only delivered at the end of a run here, and no
-            // fiber can interrupt another, so the release is never cut short and both are no-ops.
+            // `hold` / `unhold`: a release that may suspend is not interrupted until it ends
+            // (spec 11.4).
             RuntimeOp::Hold | RuntimeOp::Unhold => {
+                if self.fiber_plan.is_some() {
+                    let name = if matches!(op, RuntimeOp::Hold) {
+                        "fb_hold"
+                    } else {
+                        "fb_unhold"
+                    };
+                    let f = self.rt(name);
+                    ins.call(f);
+                }
                 self.assign(cx, ins, dst, Repr::Void);
                 return;
             }

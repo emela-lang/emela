@@ -58,6 +58,8 @@ pub(crate) struct Plan {
     pub(crate) resume_desc: u32,
     /// The static `interrupted` value (compared by pointer, like the C runtime).
     pub(crate) interrupted: u32,
+    /// The descriptor of an interruption (a static one, or one of a scope's body).
+    pub(crate) interrupted_desc: u32,
     /// The static pieces of the two resume diagnostics.
     pub(crate) twice_prefix: u32,
     pub(crate) after_prefix: u32,
@@ -173,6 +175,7 @@ pub(crate) fn reserve(b: &mut Builder<'_>) {
             perform_desc: 0,
             resume_desc: 0,
             interrupted: 0,
+            interrupted_desc: 0,
             twice_prefix: 0,
             after_prefix: 0,
             queue_full: 0,
@@ -227,7 +230,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         enum_id: -1,
         name: "interrupted".to_owned(),
         show: None,
-        refs: Vec::new(),
+        refs: vec![true],
     });
     let interrupted = b.nullary(interrupted_desc);
     let twice_prefix = b.string_literal(b"resume called twice in ");
@@ -279,6 +282,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     plan.perform_desc = perform_desc;
     plan.resume_desc = resume_desc;
     plan.interrupted = interrupted;
+    plan.interrupted_desc = interrupted_desc;
     plan.twice_prefix = twice_prefix;
     plan.after_prefix = after_prefix;
     plan.queue_full = queue_full;
@@ -628,6 +632,27 @@ fn emit_trampoline(b: &mut Builder<'_>, f: &Function, mp: MachinePlan) -> WasmFu
         ins.i32_store(mem(0, 4));
         ins.return_();
         ins.end();
+        // The run already ended: its result lives in `run_word` now, so a strand that finishes
+        // afterwards must not take it out of the pending-defect globals.
+        if let Some(fp) = &b.fiber_plan {
+            ins.i32_const(fp.run_over as i32);
+            ins.i32_load(mem(0, 4));
+            ins.if_(BlockType::Empty);
+            for global in [G_DEFECT, G_FAILURE] {
+                ins.global_get(global);
+                ins.if_(BlockType::Empty);
+                ins.global_get(global);
+                ins.call(b.rt("drop"));
+                ins.i32_const(0);
+                ins.global_set(global);
+                ins.end();
+            }
+            ins.i32_const(out_mode as i32);
+            ins.i32_const(0);
+            ins.i32_store(mem(0, 4));
+            ins.return_();
+            ins.end();
+        }
         ins.global_get(G_DEFECT);
         ins.if_(BlockType::Empty);
         ins.i32_const(out_mode as i32);
@@ -792,15 +817,17 @@ fn compile_stmt(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, id: StmtId) {
             on_defect,
             on_suspend,
         } => {
-            // A fairness yield has nobody to hand a turn to here (no fibers), so neither its
-            // suspension edge nor its defect landing can be taken: no state, no landing copy.
+            // A fairness yield is a suspension point only when the program uses fibers: without
+            // them there is nobody to hand a turn to, and the state machine would double its
+            // states for nothing (`runtime::fiber::used`).
             if matches!(
                 &value,
                 Value::Runtime {
                     op: RuntimeOp::Yield | RuntimeOp::YieldPerform,
                     ..
                 }
-            ) {
+            ) && !super::runtime::fiber::used(mcx.b)
+            {
                 debug_assert!(dst.is_none(), "a fairness yield has no destination");
                 return;
             }

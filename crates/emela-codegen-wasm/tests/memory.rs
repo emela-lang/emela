@@ -514,3 +514,235 @@ fn main() {
         run.stderr
     );
 }
+
+#[test]
+fn short_lived_fibers_reuse_their_records() {
+    // Fifty scopes of twenty children each: every child, its handle, its join request and its
+    // frames are freed when the scope ends, so a thousand fibers run in the fixed memory. The
+    // run below eight times this size fits the same six pages; a per-fiber leak makes it fail.
+    run_limited(
+        "memory-fibers",
+        r#"
+import Std.Fiber.{Fiber, Scope}
+
+fn round(i: Int) -> Int use { Async } {
+  Fiber.scope(fn() {
+    hs = List.map(List.range(0, 20), fn(j) { Fiber.fork(fn() { i + j }) })
+    List.fold(hs, 0, fn(acc, h) { acc + Fiber.join(h) })
+  })
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Async } {
+  if n == 0 { total } else { rounds(n - 1, total + round(n % 10)) }
+}
+
+fn main() -> () use { Async } {
+  dbg(rounds(50, 0))
+  ()
+}
+"#,
+        "14000\n",
+    );
+}
+
+#[test]
+fn many_short_lived_fibers_keep_the_same_bound() {
+    // Eight times the rounds of the test above with no growth in the bound: a fiber record, its
+    // join request and its frames are freed when the scope ends, so the run stays in six pages.
+    run_limited(
+        "memory-many-fibers",
+        r#"
+import Std.Fiber.{Fiber, Scope}
+
+fn round(i: Int) -> Int use { Async } {
+  Fiber.scope(fn() {
+    hs = List.map(List.range(0, 20), fn(j) { Fiber.fork(fn() { i + j }) })
+    List.fold(hs, 0, fn(acc, h) { acc + Fiber.join(h) })
+  })
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Async } {
+  if n == 0 { total } else { rounds(n - 1, total + round(n % 10)) }
+}
+
+fn main() -> () use { Async } {
+  dbg(rounds(400, 0))
+  ()
+}
+"#,
+        "112000\n",
+    );
+}
+
+#[test]
+fn suspended_children_reuse_their_records() {
+    // Every child suspends before it returns, so the begin job's reference to it is the one the
+    // suspension keeps alive; releasing it at the suspension keeps the run in the same six pages.
+    run_limited(
+        "memory-suspended-fibers",
+        r#"
+import Std.Fiber.{Fiber, Scope}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+fn round(i: Int) -> Int use { Async, Clock } {
+  Fiber.scope(fn() {
+    hs = List.map(List.range(0, 20), fn(j) {
+      Fiber.fork(fn() {
+        (use Clock).sleep(1)
+        i + j
+      })
+    })
+    List.fold(hs, 0, fn(acc, h) { acc + Fiber.join(h) })
+  })
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Async, Clock } {
+  if n == 0 { total } else { rounds(n - 1, total + round(n % 10)) }
+}
+
+fn main() -> () use { Async } {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, fn() {
+    with TestClock {
+      dbg(rounds(400, 0))
+      ()
+    }
+  })
+  ()
+}
+"#,
+        "112000\n",
+    );
+}
+
+#[test]
+fn a_failed_scope_releases_the_body_input() {
+    // The body fails after its child ended, so the scope records the body's failure as its first
+    // failure (`S_FIRST`) and the body input is released when the scope finishes.  A body input of
+    // mode 1 (failure) is a reference: the release must go through the reference-counting drop,
+    // not the wasm stack `drop`, or every scope keeps its error (and the error's fields) alive.
+    run_limited(
+        "memory-scope-body-failure",
+        r#"
+import Std.Fiber.{Fiber, Exit, Failure, Success}
+
+error Big(a: String, b: String, c: String, d: String, e: String, f: String, g: String, h: String, i: String, j: String)
+
+fn round(k: Int) -> () fails Big {
+  Fiber.scope(fn() {
+    h = Fiber.fork(fn() { 1 })
+    x = Fiber.await(h)
+    fail Big(a: "a", b: "b", c: "c", d: "d", e: "e", f: "f", g: "g", h: "h", i: "i", j: "j")
+  })
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Async } {
+  if n == 0 { total } else {
+    e = Fiber.attempt(fn() { round(n % 10) })
+    v = e match {
+      Success(_) -> 0
+      Failure(c) -> 0
+    }
+    rounds(n - 1, total + v)
+  }
+}
+
+fn main() -> () use { Async } {
+  dbg(rounds(3000, 0))
+  ()
+}
+"#,
+        "0\n",
+    );
+}
+
+#[test]
+fn a_resuspended_implementation_reuses_its_record() {
+    // The implementation sleeps, is woken, then sleeps again before it resumes the caller: each
+    // suspension settles the same perform record, and its reference is released when the
+    // continuation re-suspends.
+    run_limited(
+        "memory-resuspended-operation",
+        r#"
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+effect Retry {
+  suspend fn go() -> Int
+}
+
+handler Retrying: Retry {
+  suspend fn go(resume) {
+    (use Clock).sleep(1)
+    (use Clock).sleep(1)
+    resume(1)
+  }
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Retry } {
+  if n == 0 {
+    total
+  } else {
+    rounds(n - 1, total + (use Retry).go())
+  }
+}
+
+fn main() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, fn() {
+    with TestClock {
+      with Retrying {
+        dbg(rounds(4000, 0))
+      }
+    }
+  })
+}
+"#,
+        "4000\n",
+    );
+}
+
+#[test]
+fn a_closing_scope_releases_its_closer_wait() {
+    // The body returns while its child still sleeps, so the scope waits for the child on a
+    // closer wait; waking that wait must release the scope's own reference to it, or every
+    // closing scope keeps the wait (and the child fiber it names) alive.
+    run_limited(
+        "memory-scope-closer",
+        r#"
+import Std.Fiber.{Fiber, Scope}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+fn round(i: Int) -> Int use { Async, Clock } {
+  Fiber.scope(fn() {
+    h = Fiber.fork(fn() {
+      (use Clock).sleep(1)
+      1
+    })
+    0
+  })
+}
+
+fn rounds(n: Int, total: Int) -> Int use { Async, Clock } {
+  if n == 0 { total } else { rounds(n - 1, total + round(n % 10)) }
+}
+
+fn main() -> () use { Async } {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, fn() {
+    with TestClock {
+      dbg(rounds(3000, 0))
+      ()
+    }
+  })
+  ()
+}
+"#,
+        "0\n",
+    );
+}

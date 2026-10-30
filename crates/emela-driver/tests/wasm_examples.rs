@@ -37,24 +37,13 @@ struct Skipped {
 
 /// The examples whose feature the WASM target does not support yet.
 ///
-/// `fibers` and `http` also use Console, which is available now; they stay skipped for their own
-/// feature below.
-const SKIPPED: &[Skipped] = &[
-    Skipped {
-        feature: "fiber",
-        reason: "fibers are not supported on target `wasm` yet",
-        expected_failures: &["fibers are not supported on target `wasm` yet"],
-        examples: &["fibers"],
-    },
-    Skipped {
-        feature: "http",
-        reason: "the client of Std.Http (SystemHttp) has no WASM host yet",
-        expected_failures: &[
-            "external function `host_request` has no `@external` for target `wasm`",
-        ],
-        examples: &["http"],
-    },
-];
+/// `http` also uses Console, which is available now; it stays skipped for its own feature below.
+const SKIPPED: &[Skipped] = &[Skipped {
+    feature: "http",
+    reason: "the client of Std.Http (SystemHttp) has no WASM host yet",
+    expected_failures: &["external function `host_request` has no `@external` for target `wasm`"],
+    examples: &["http"],
+}];
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

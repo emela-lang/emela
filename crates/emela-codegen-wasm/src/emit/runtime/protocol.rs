@@ -12,10 +12,10 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "show_failure" => i32s(3), // desc, show, result
+        "show_failure" => i32s(5), // desc, show, result, notes, tmp
         "json_string" => i32s(3),  // i, byte, hex
         "test_result" => i32s(4),  // kind, message, error, location
-        "finish" => i32s(1),       // shown
+        "finish" => i32s(2),       // shown, tmp
         _ => Vec::new(),
     }
 }
@@ -46,27 +46,41 @@ const TEST_TAIL: &[u8] = b"}\n";
 const TEST_DONE_LINE: &[u8] = b"\x1eemela-test {\"event\":\"done\"}\n";
 
 /// `show_failure(e)`: the message of an error value, calling the `show` function of its descriptor
-/// (spec 10.6). An error whose type does not satisfy Show is shown by its name (spec 14.3):
-/// `from_core` gives every constructed error enum a show function — the derived `name$E`
-/// (`Derive::ErrorName`) when the type does not satisfy Show, and its Show otherwise — so the
-/// descriptor's show slot is never the sentinel for a language-produced error. Returns a null
-/// reference only when `e` is null or showing raises a defect.
+/// (spec 10.6) and appending the notes of the failures of the fibers of a scope (spec 11.2). An
+/// error whose type does not satisfy Show is shown by its name (spec 14.3): `from_core` gives
+/// every constructed error enum a show function — the derived `name$E` (`Derive::ErrorName`) when
+/// the type does not satisfy Show, and its Show otherwise — so the descriptor's show slot is never
+/// the sentinel for a language-produced error. Returns a null reference only when `e` is null or
+/// showing raises a defect.
 ///
 /// Showing can raise a defect (a `show` that panics, or a failed assert in it). This function
 /// leaves that defect in `G_DEFECT` and leaves the decision to its caller: `test_result` takes it
 /// and reports it for the running test; `cause_to_string` leaves it pending for the attempt frame
 /// to catch; `finish` reports the failure as an empty `error: ` line and exits with 1, leaving the
 /// defect pending, like the C runtime's `em_exit`.
+///
+/// `e` is borrowed: the caller keeps its reference and releases it itself.
 fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     const D: u32 = 1;
     const SHOW: u32 = 2;
     const RESULT: u32 = 3;
+    const NOTES: u32 = 4;
+    const TMP: u32 = 5;
     ins.local_get(0);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
     ins.i32_const(0);
     ins.return_();
     ins.end();
+    // Only a program that can record notes (a fiber program) has a notes cell; a suspending
+    // program without fibers has `notes == 0`, and address 0 is the scratch area.
+    let with_notes = b.fiber_plan.as_ref().is_some_and(|plan| plan.notes != 0);
+    if with_notes {
+        ins.local_get(0);
+        let f = b.rt("fb_notes_of");
+        ins.call(f);
+        ins.local_set(NOTES);
+    }
     ins.local_get(0);
     ins.i32_load(mem(8, 4));
     ins.local_set(D);
@@ -83,8 +97,49 @@ fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(RESULT);
     ins.call(rt(b, "drop"));
     ins.i32_const(0);
-    ins.return_();
+    ins.local_set(RESULT);
     ins.end();
+    if with_notes {
+        ins.local_get(NOTES);
+        ins.if_(BlockType::Empty);
+        // Showing raised a defect (or the descriptor has no `show`): the display is null and the
+        // notes must not turn it into a message while the defect is pending.
+        ins.local_get(RESULT);
+        ins.i32_eqz();
+        ins.if_(BlockType::Empty);
+        ins.local_get(NOTES);
+        ins.call(rt(b, "drop"));
+        ins.i32_const(0);
+        ins.return_();
+        ins.end();
+        let newline = b.string_literal(b"\n");
+        let empty = b.string_literal(b"");
+        let append = rt(b, "str_append");
+        ins.local_get(RESULT);
+        ins.if_(BlockType::Result(ValType::I32));
+        ins.local_get(RESULT);
+        ins.i32_const(newline as i32);
+        ins.call(append);
+        ins.else_();
+        ins.i32_const(empty as i32);
+        ins.i32_const(newline as i32);
+        ins.call(append);
+        ins.end();
+        ins.local_set(TMP);
+        // The appends borrow their arguments: the shown error and the intermediate string are
+        // released once the strings that kept them alive are built.
+        ins.local_get(RESULT);
+        ins.call(rt(b, "drop"));
+        ins.local_get(TMP);
+        ins.local_get(NOTES);
+        ins.call(append);
+        ins.local_set(RESULT);
+        ins.local_get(TMP);
+        ins.call(rt(b, "drop"));
+        ins.local_get(NOTES);
+        ins.call(rt(b, "drop"));
+        ins.end();
+    }
     ins.local_get(RESULT);
 }
 
@@ -271,11 +326,20 @@ fn test_result(b: &mut Builder, ins: &mut InstructionSink) {
     // A run unwound as interrupted has its own outcome (spec 14.5); without suspending code the
     // value cannot occur, so the other programs keep the same bytes.
     if let Some(plan) = &b.sus {
-        let interrupted = plan.interrupted;
-        ins.global_get(G_DEFECT);
-        ins.i32_const(interrupted as i32);
-        ins.i32_eq();
+        if b.fiber_plan.is_some() {
+            ins.global_get(G_DEFECT);
+            let f = b.rt("fb_is_interrupted");
+            ins.call(f);
+        } else {
+            let interrupted = plan.interrupted;
+            ins.global_get(G_DEFECT);
+            ins.i32_const(interrupted as i32);
+            ins.i32_eq();
+        }
         ins.if_(BlockType::Empty);
+        // The interruption is a counted value; release it before the outcome is reported.
+        ins.global_get(G_DEFECT);
+        ins.call(rt(b, "drop"));
         ins.i32_const(0);
         ins.global_set(G_DEFECT);
         ins.i32_const(3);
@@ -299,9 +363,12 @@ fn test_result(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_set(G_FAILURE);
     ins.i32_const(2);
     ins.local_set(KIND);
+    // `show_failure` borrows the error; release the failure after showing it.
     ins.local_get(E);
     ins.call(rt(b, "show_failure"));
     ins.local_set(MESSAGE);
+    ins.local_get(E);
+    ins.call(rt(b, "drop"));
     // Showing the error can raise a defect. Its display is then null; report the defect as this
     // test's error message and clear it here, like the C runtime's `em_test_result`, so that the
     // next test does not observe it (spec 13.4).
@@ -384,12 +451,19 @@ fn test_done(b: &mut Builder, ins: &mut InstructionSink) {
 /// this case.
 fn finish(b: &mut Builder, ins: &mut InstructionSink) {
     const SHOWN: u32 = 0;
+    const TMP: u32 = 1;
     // A run unwound as interrupted exits with 130 and the single line `interrupted` (spec 14.5).
     if let Some(plan) = &b.sus {
-        let interrupted = plan.interrupted;
-        ins.global_get(G_DEFECT);
-        ins.i32_const(interrupted as i32);
-        ins.i32_eq();
+        if b.fiber_plan.is_some() {
+            ins.global_get(G_DEFECT);
+            let f = b.rt("fb_is_interrupted");
+            ins.call(f);
+        } else {
+            let interrupted = plan.interrupted;
+            ins.global_get(G_DEFECT);
+            ins.i32_const(interrupted as i32);
+            ins.i32_eq();
+        }
         ins.if_(BlockType::Empty);
         write_static(b, ins, 2, b"interrupted\n");
         ins.i32_const(130);
@@ -417,8 +491,13 @@ fn finish(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.global_set(G_FAILURE);
     write_static(b, ins, 2, b"error: ");
+    // `show_failure` borrows the error; its message replaces it.
     ins.local_get(SHOWN);
     ins.call(rt(b, "show_failure"));
+    ins.local_set(TMP);
+    ins.local_get(SHOWN);
+    ins.call(rt(b, "drop"));
+    ins.local_get(TMP);
     ins.local_set(SHOWN);
     ins.local_get(SHOWN);
     ins.i32_eqz();

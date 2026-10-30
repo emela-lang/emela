@@ -145,6 +145,18 @@ fn repr_val(r: Repr) -> Option<ValType> {
     (r != Repr::Void).then(|| val(r))
 }
 
+/// The index of a representation in the runtime's thunk tables and the fiber operations' repr
+/// argument (the order of `emit::suspend::repr_index`).
+fn repr_code(r: Repr) -> i32 {
+    match r {
+        Repr::Void => 0,
+        Repr::I32 => 1,
+        Repr::I64 => 2,
+        Repr::F64 => 3,
+        Repr::Ref => 4,
+    }
+}
+
 // ---- global indices ----
 const G_HEAP: u32 = 0;
 const G_FREE: u32 = 1;
@@ -237,14 +249,14 @@ pub(crate) struct Builder<'m> {
     std_hosts: Vec<(FnId, StdHost)>,
     /// The suspend runtime's cells and per-function entries, when the program suspends.
     pub(crate) sus: Option<suspend::Plan>,
-    /// The asynchronous host bridge's cells, when the program sleeps.
-    pub(crate) async_plan: Option<runtime::async_bridge::Plan>,
     /// The file system runtime's cells, when the program uses `Std.FileSystem`.
     pub(crate) fs_plan: Option<runtime::fs::Plan>,
     pub(crate) http_plan: Option<runtime::http::Plan>,
     /// Whether the output is an HTTP service ([`Run::Service`]): it exports `handle` of
     /// `wasi:http/handler@0.3.0` instead of `run` of `wasi:cli/run@0.3.0`.
     pub(crate) service: bool,
+    /// The fiber scheduler's cells and descriptors, when the program suspends.
+    pub(crate) fiber_plan: Option<runtime::fiber::Plan>,
 }
 
 impl<'m> Builder<'m> {
@@ -281,10 +293,10 @@ impl<'m> Builder<'m> {
             traps: Vec::new(),
             std_hosts: Vec::new(),
             sus: None,
-            async_plan: None,
             fs_plan: None,
             http_plan: None,
             service: false,
+            fiber_plan: None,
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
@@ -669,6 +681,7 @@ impl<'m> Builder<'m> {
         }
         if suspend::used(self) {
             suspend::prepare(self);
+            runtime::fiber::prepare(self);
         }
         // The async-lifted `wasi:cli/run@0.3.0#run` export (or `handle` of
         // `wasi:http/handler@0.3.0`, which takes the request) and its callback. Both return the
@@ -1209,10 +1222,14 @@ impl<'m> Builder<'m> {
                 Run::Main(Some(id)) => {
                     let index = self.fn_index(*id);
                     let ret = self.repr(self.m.functions[*id].ret);
+                    if self.sus.is_some() {
+                        let begin = self.rt("fb_root_begin");
+                        ins.call(begin);
+                    }
                     ins.call(index);
                     self.drop_result(ins, ret);
                     if self.sus.is_some() {
-                        let root = self.rt("root_run");
+                        let root = self.rt("fb_root_run");
                         ins.call(root);
                     }
                 }
@@ -1227,13 +1244,23 @@ impl<'m> Builder<'m> {
                         // `Incoming` is a counted reference: the handle goes in a box.
                         ins.local_get(0);
                         ins.call(self.rt("http_box"));
+                        if self.sus.is_some() {
+                            let begin = self.rt("fb_root_begin");
+                            ins.call(begin);
+                        }
                         ins.call(index);
                         self.drop_result(ins, ret);
                         if self.sus.is_some() {
-                            let root = self.rt("root_run");
+                            let root = self.rt("fb_root_run");
                             ins.call(root);
                         }
                     }
+                    // The run's result is a counted value (`fb_finish_run` put it back into the
+                    // global). Release it before the next request starts.
+                    ins.global_get(G_DEFECT);
+                    ins.call(self.rt("drop"));
+                    ins.global_get(G_FAILURE);
+                    ins.call(self.rt("drop"));
                     ins.i32_const(0);
                     ins.global_set(G_DEFECT);
                     ins.i32_const(0);
@@ -1252,10 +1279,14 @@ impl<'m> Builder<'m> {
                         }
                         let index = self.fn_index(*id);
                         let ret = self.repr(self.m.functions[*id].ret);
+                        if self.sus.is_some() {
+                            let begin = self.rt("fb_root_begin");
+                            ins.call(begin);
+                        }
                         ins.call(index);
                         self.drop_result(ins, ret);
                         if self.sus.is_some() {
-                            let root = self.rt("root_run");
+                            let root = self.rt("fb_root_run");
                             ins.call(root);
                         }
                         let name = self.string_literal(name.as_bytes());
@@ -2334,6 +2365,7 @@ impl<'m> Builder<'m> {
             ins.i32_const(prefix as i32);
             ins.local_get(cx.local(handler));
             ins.i32_const(resume as i32);
+            ins.i32_const(repr_code(ret));
             let f = self.rt("perform_new");
             ins.call(f);
             ins.local_set(rs);
@@ -2363,8 +2395,8 @@ impl<'m> Builder<'m> {
         ins.end();
     }
 
-    /// `Fiber.attempt` and the operations of `Std.Cause` (spec 11.5), with the runtime of
-    /// `runtime::attempt`. The other concurrency operations are refused by `check` before this.
+    /// `Fiber.scope`, `fork`, `join`, `await`, `interrupt`, the Deferred operations and the
+    /// operations of `Std.Cause` (spec chapter 11), with the runtime of `runtime::fiber`.
     fn fiber(
         &mut self,
         cx: &mut FnCtx,
@@ -2374,6 +2406,102 @@ impl<'m> Builder<'m> {
         args: &[Operand],
     ) {
         match op {
+            FiberOp::Scope { .. } => {
+                let ret = self.operand_fn_ret(cx, &args[0]);
+                let repr = self.repr(ret);
+                let table = self.thunk1(repr);
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                ins.i32_const(table as i32);
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_scope");
+                ins.call(f);
+                self.assign_i64(cx, ins, dst, repr);
+            }
+            FiberOp::Fork => {
+                let ret = self.operand_fn_ret(cx, &args[1]);
+                let repr = self.repr(ret);
+                let table = self.thunk0(repr);
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                ins.i32_const(table as i32);
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_fork");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FiberOp::Deferred => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("fb_deferred");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FiberOp::Join => {
+                let repr = self.dst_repr(cx, dst);
+                self.operand(cx, ins, &args[0]);
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_join");
+                ins.call(f);
+                self.assign_i64(cx, ins, dst, repr);
+            }
+            FiberOp::Await { .. } => {
+                let repr = self.exit_value_repr(cx, dst);
+                self.operand(cx, ins, &args[0]);
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_await");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FiberOp::Interrupt => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("fb_interrupt");
+                ins.call(f);
+            }
+            FiberOp::Complete => {
+                let repr = self.operand_repr_of(cx, &args[1]);
+                self.operand(cx, ins, &args[0]);
+                // A value without representation is passed as the zero word (the C runtime's
+                // `em_deferred_complete`).
+                if repr == Repr::Void {
+                    ins.i64_const(0);
+                } else {
+                    self.operand(cx, ins, &args[1]);
+                    if repr == Repr::F64 {
+                        ins.i64_reinterpret_f64();
+                    } else if repr != Repr::I64 {
+                        ins.i64_extend_i32_u();
+                    }
+                }
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_complete");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::I32);
+            }
+            FiberOp::DeferredAwait => {
+                let repr = self.dst_repr(cx, dst);
+                self.operand(cx, ins, &args[0]);
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_deferred_await");
+                ins.call(f);
+                self.assign_i64(cx, ins, dst, repr);
+            }
+            FiberOp::Poll => {
+                let (some, none, repr) = match dst {
+                    Some(d) => self
+                        .option_parts(cx.f.vars[d].ty)
+                        .unwrap_or_else(|| panic!("Deferred.poll without an Option type")),
+                    None => return,
+                };
+                self.operand(cx, ins, &args[0]);
+                ins.i32_const(repr_code(repr));
+                ins.i32_const(some as i32);
+                ins.i32_const(none as i32);
+                let f = self.rt("fb_poll");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
             FiberOp::Attempt { suspends, .. } => {
                 let Some(Operand::Var(f)) = args.first() else {
                     self.internal(format!("attempt without a function in {}", cx.f.name));
@@ -2389,7 +2517,6 @@ impl<'m> Builder<'m> {
                         return;
                     }
                 };
-                // Call the function in place; its value goes to a word, as a slot stores it.
                 let word = cx.scratch(Repr::I64, 0);
                 let exit = cx.scratch(Repr::Ref, 0);
                 let ty = self.call_ty(&[Repr::Ref], ret);
@@ -2412,9 +2539,6 @@ impl<'m> Builder<'m> {
                 ins.local_set(word);
                 let success = runtime::attempt::success_desc(self, ret);
                 if suspends {
-                    // The function suspended: the attempt's frame goes after the callee's, and
-                    // makes the `Exit` when the continuation is resumed. The suspension edge of
-                    // the statement pushes the caller's frame next.
                     let frame = runtime::attempt::frame_desc(self);
                     let table = self.sus.as_ref().map_or(0, |p| p.attempt_table);
                     ins.global_get(G_SUSPENDING);
@@ -2436,7 +2560,6 @@ impl<'m> Builder<'m> {
                 ins.if_(BlockType::Result(ValType::I32));
                 ins.local_get(exit);
                 ins.else_();
-                // Nothing caught: a value, or a defect that is not caught (then no value).
                 ins.global_get(G_DEFECT);
                 ins.if_(BlockType::Result(ValType::I32));
                 ins.i32_const(0);
@@ -2472,12 +2595,93 @@ impl<'m> Builder<'m> {
                 let f = self.rt("cause_raise");
                 ins.call(f);
             }
-            _ => self.internal(format!(
-                "fiber operation `{}` left in {}",
-                op.name(),
-                cx.f.name
-            )),
         }
+    }
+
+    fn operand_fn_ret(&self, cx: &FnCtx<'_>, op: &Operand) -> TypeId {
+        match op {
+            Operand::Var(v) => match self.core().ty(cx.f.vars[*v].ty) {
+                Type::Fn(f) => f.ret,
+                _ => TypeId::UNIT,
+            },
+            Operand::Const(_) => TypeId::UNIT,
+        }
+    }
+
+    fn operand_repr_of(&self, cx: &FnCtx<'_>, op: &Operand) -> Repr {
+        match op {
+            Operand::Var(v) => self.repr(cx.f.vars[*v].ty),
+            Operand::Const(c) => match c {
+                emela_lir::Const::Int(_) | emela_lir::Const::Bool(_) => Repr::I32,
+                emela_lir::Const::Int64(_) => Repr::I64,
+                emela_lir::Const::Float(_) => Repr::F64,
+                emela_lir::Const::String(_) => Repr::Ref,
+                emela_lir::Const::Unit => Repr::Void,
+            },
+        }
+    }
+
+    /// The representation of a `join` or `Deferred.await` result. Without a destination the value
+    /// is unused; it is read as a reference and released.
+    fn dst_repr(&self, cx: &FnCtx<'_>, dst: Option<VarId>) -> Repr {
+        match dst {
+            Some(d) => self.repr(cx.f.vars[d].ty),
+            None => Repr::Ref,
+        }
+    }
+
+    /// The `A` of an `Exit[A, E]` destination (the value `Fiber.await` carries).
+    fn exit_value_repr(&self, cx: &FnCtx<'_>, dst: Option<VarId>) -> Repr {
+        let Some(d) = dst else { return Repr::Ref };
+        match self.core().ty(cx.f.vars[d].ty) {
+            Type::Enum(_, args) => match args.first() {
+                Some(&a) => self.repr(a),
+                None => Repr::Void,
+            },
+            _ => Repr::Ref,
+        }
+    }
+
+    /// The table index of the closure thunk for `repr` (`fn() -> A`).
+    fn thunk0(&self, repr: Repr) -> u32 {
+        let plan = self
+            .fiber_plan
+            .as_ref()
+            .expect("the fiber runtime for a forked fiber");
+        plan.call_table + repr_code(repr) as u32
+    }
+
+    /// The table index of the closure thunk for `repr` (`fn(Scope) -> A`).
+    fn thunk1(&self, repr: Repr) -> u32 {
+        let plan = self
+            .fiber_plan
+            .as_ref()
+            .expect("the fiber runtime for a scope");
+        plan.call1_table + repr_code(repr) as u32
+    }
+
+    /// Stores the `i64` word a fiber operation returned, as `repr`.
+    fn assign_i64(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        repr: Repr,
+    ) {
+        match repr {
+            Repr::I32 | Repr::Ref => {
+                ins.i32_wrap_i64();
+            }
+            Repr::I64 => {}
+            Repr::F64 => {
+                ins.f64_reinterpret_i64();
+            }
+            Repr::Void => {
+                ins.drop();
+                return;
+            }
+        }
+        self.assign(cx, ins, dst, repr);
     }
 
     /// The resume function table index for an operation returning `ret`.

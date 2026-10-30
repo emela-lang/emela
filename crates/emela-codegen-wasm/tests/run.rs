@@ -526,9 +526,9 @@ fn main() {
     );
 }
 
-// Notes added by fiber failures (`note: another fiber also failed: …`, 11.2) are not tested here:
-// fibers are not supported on target `wasm` yet (see `check::unsupported`), so only the defect
-// notes of 14.4 are reachable.
+// Notes added by fiber failures (`note: another fiber also failed: …`, 11.2) are tested in
+// `tests/fiber.rs` (`child_failure_notes_keep_the_first`); this file covers the defect notes of
+// 14.4.
 
 #[test]
 fn a_release_defect_becomes_a_note_of_the_first_defect() {

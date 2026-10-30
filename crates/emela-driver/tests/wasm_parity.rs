@@ -798,12 +798,9 @@ fn main() {
 ];
 
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops
-/// them (the WASM target's "not supported yet", which has no diagnostic code any more).
-const NOT_ON_WASM: &[(&str, &str, &str)] = &[(
-    "fibers",
-    "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
-    "fibers are not supported on target `wasm`",
-)];
+/// them. `[target.wasm.unsupported]` lists no construct, so the list is empty; it stays so a
+/// future unsupported construct is added here with its diagnostic.
+const NOT_ON_WASM: &[(&str, &str, &str)] = &[];
 
 /// The Unicode version of the Node used for the JS target (`process.versions.unicode`).
 fn node_unicode() -> Option<&'static str> {

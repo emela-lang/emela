@@ -41,35 +41,12 @@ struct Skipped {
 
 /// The corpus programs whose feature the WASM target does not support yet.
 const SKIPPED: &[Skipped] = &[
-    Skipped {
-        feature: "fiber",
-        reason: "fibers are not supported on target `wasm` yet",
-        expected_failures: &["fibers are not supported on target `wasm` yet"],
-        programs: &[
-            "fiber_deferred",
-            "fiber_failures",
-            "fiber_fairness",
-            "fiber_main_fails",
-            "fiber_notes",
-            "fiber_scope",
-            "fiber_unwinding",
-            "generic_main",
-            // The suspend state machine works, but these three reach it through `Fiber.fork` /
-            // `Deferred`, so the fiber check still stops them first.
-            "suspend_abandoned",
-            "suspend_after_resume",
-            "suspend_resume",
-        ],
-    },
     // The program's own `sleep` is a custom `suspend fn` external with no WASM host (the
     // `Std.Clock` host only covers the bundled handler), and its races need fibers.
     Skipped {
         feature: "custom sleep host and fiber",
         reason: "the program's `sleep` has no WASM host, and its races need fibers",
-        expected_failures: &[
-            "has no `@external` for target `wasm`",
-            "fibers are not supported",
-        ],
+        expected_failures: &["has no `@external` for target `wasm`"],
         programs: &["suspend_external"],
     },
 ];
