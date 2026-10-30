@@ -1830,3 +1830,31 @@ fn constants_are_evaluated_once() {
         r.stderr
     );
 }
+
+/// The entry's `main` is the launcher's export even when it also has a host export: the launcher
+/// calls `main`, and the host calls `run`.
+#[test]
+fn main_with_a_host_export_keeps_the_launcher_export() {
+    let mut m = Module::new();
+    let main = m.declare("main", true);
+    m.define(main, vec![], TypeId::INT, int(41));
+    m.functions[main].host_exports = vec![HostExport {
+        target: "js".into(),
+        interface: None,
+        name: "run".into(),
+    }];
+    tail::loopify(&mut m);
+    let r = run_with(
+        "main_with_host_export_keeps_the_launcher_export",
+        &m,
+        RuntimeMode::Import(None),
+    );
+    assert!(r.stderr.is_empty(), "{}", r.stderr);
+    assert_eq!(r.stdout, "41\n");
+    assert!(
+        r.js.contains("export { main, main$host as run };"),
+        "{}",
+        r.js
+    );
+    insta::assert_snapshot!("main_with_host_export_keeps_the_launcher_export", r.js);
+}

@@ -387,9 +387,14 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         let main = analysis
             .entry
             .filter(|_| !analysis.library_only)
-            .and_then(|entry| entry_main(&hir, entry));
+            .and_then(|entry| entry_main(&hir, entry))
+            // A `@test fn main` is a test, not the entry's main.
+            .filter(|def| !tests.iter().any(|t| t.def == *def));
         self.entry_main = analysis.entry.map(|_| main.is_some());
         let options = CheckOptions {
+            // A library-only build produces no `main.mjs`, so its launcher names cannot
+            // collide with an export.
+            entry: analysis.entry.filter(|_| !analysis.library_only),
             main,
             tests: tests.iter().map(|t| t.def).collect(),
         };

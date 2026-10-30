@@ -180,7 +180,13 @@ pub(crate) fn emit_module(m: &Module, opts: &Options, extra_exports: &[FnId]) ->
     let mut exports: Vec<String> = m
         .functions
         .iter()
-        .filter(|&(id, f)| exported(id, f) && f.host_exports.is_empty())
+        // The entry's `main` is the launcher's export even when it has host exports of its own
+        // (`@export(js, "run") fn main`); otherwise `emela run` would have nothing to call. The
+        // IR keeps the entry module's names, and among the roots only the entry's `main` is named
+        // `main`, so the name identifies it.
+        .filter(|&(id, f)| {
+            exported(id, f) && (f.host_exports.is_empty() || (f.exported && f.name == "main"))
+        })
         .map(|(id, f)| {
             let js = e.fn_js(id).to_owned();
             if js == f.name {

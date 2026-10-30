@@ -119,6 +119,10 @@ pub struct ProgramTypes {
 /// 13.3). The driver decides which is the entry's `main` and which are test functions.
 #[derive(Debug, Clone, Default)]
 pub struct CheckOptions {
+    /// The entry module. Its exports are checked against the names `main.mjs` already exports
+    /// (`main`, `$start`, `[target.js.module]`). `None` when no `main.mjs` is produced, as in a
+    /// library-only build, so that there is no launcher name to collide with.
+    pub entry: Option<emela_resolve::ModuleId>,
     /// The entry module's `main`.
     pub main: Option<DefId>,
     pub tests: Vec<DefId>,
@@ -263,7 +267,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types.diags.extend(body.diags);
     }
 
-    crate::export::check(program, &types.ty_table, &sigs, &mut types.diags);
+    crate::export::check(program, &types.ty_table, &sigs, options, &mut types.diags);
     crate::traits::unused_derives(program, &types.traits, &mut types.diags);
     types.layers = layer::check_layers(
         program,
