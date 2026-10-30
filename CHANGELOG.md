@@ -7,6 +7,12 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.26.1](https://github.com/emela-lang/emela/compare/v0.26.0...v0.26.1) - 2026-10-30
+
+### Fixed
+
+- *(types)* order a method call only before fns of the receiver type's module ([#480](https://github.com/emela-lang/emela/pull/480)) (by @Allianaab2m)
+
 ## [0.26.0](https://github.com/emela-lang/emela/compare/v0.25.0...v0.26.0) - 2026-10-29
 
 ### Added
