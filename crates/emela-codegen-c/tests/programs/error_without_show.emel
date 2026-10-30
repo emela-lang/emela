@@ -1,0 +1,17 @@
+# An error that reaches main and whose type does not satisfy Show prints only its name (spec
+# 14.3). Only the field-less `Nope` reaches main, so only its name is pinned here; the error with
+# a function field is caught by the escape below, and the value stays usable.
+
+error Nope
+error Retry(after: fn() -> Int)
+
+fn retry(n: Int) -> Int fails Retry {
+  if n > 0 { fail Retry(after: fn() { n }) }
+  n
+}
+
+fn main() {
+  dbg(retry(0))
+  dbg(retry(1) escape { Retry(_) -> -1 })
+  fail Nope
+}

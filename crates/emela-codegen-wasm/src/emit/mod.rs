@@ -787,6 +787,16 @@ impl<'m> Builder<'m> {
     }
 
     pub(crate) fn desc(&mut self, key: DescKey) -> u32 {
+        // `from_core` gives every constructed error enum a show function (its Show, or the
+        // derived name when the type does not satisfy Show), so a language-produced error's
+        // descriptor never carries the sentinel. `show_failure` relies on that: a descriptor
+        // without a show would call `call_indirect(u32::MAX)` instead of showing the name.
+        debug_assert!(
+            key.enum_id < 0 || key.show.is_some_and(|show| show != u32::MAX),
+            "the error `{}` has no show function; `from_core` must give every constructed error \
+             enum one (`Derive::ErrorName` when its type does not satisfy Show)",
+            key.name
+        );
         if let Some(&o) = self.descs.get(&key) {
             return o;
         }

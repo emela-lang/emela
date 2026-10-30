@@ -331,7 +331,9 @@ fn cause_to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_tee(SHOWN);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    // An error value without a display shows as nothing (spec 14.3, the same as `main`'s).
+    // In a failure cause, `show_failure` is null only when showing raised a defect; the cause
+    // then shows as `error: ` and the defect stays pending for the attempt frame to catch
+    // (`attempt_caught`), unlike a test result, which reports and clears it.
     ins.i32_const(error as i32);
     ins.return_();
     ins.end();
