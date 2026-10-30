@@ -43,7 +43,9 @@ static EmelaFiber start(uint32_t depth, int *out) {
 int main(void) {
   static int a, b;
   static EmelaFiber first, second;
+  assert(!emela_scheduler_ready());
   first = start(20, &a); second = start(3, &b);
+  assert(emela_scheduler_ready() && calls == 0);
   assert(emela_scheduler_run(0) == 0 && calls == 0);
   assert(emela_scheduler_run(4) == 4 && calls == 4);
   assert(order[0] == first.slot && order[1] == second.slot);

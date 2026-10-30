@@ -75,7 +75,8 @@ pub struct Resolve<B = NoBuiltins> {
     core: Vec<CoreSource>,
 }
 
-/// Reads the bundled core sources (`emela_core::core_sources()`). The compiler's default.
+/// Reads core/std and backend-provided embedded sources ([`CoreSource::bundled`]).
+/// The compiler's default frontend.
 impl Default for Resolve<NoBuiltins> {
     fn default() -> Self {
         Resolve::new(NoBuiltins).with_core(CoreSource::bundled())

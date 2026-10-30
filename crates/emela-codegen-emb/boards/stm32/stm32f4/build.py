@@ -11,6 +11,10 @@ import tempfile
 import subprocess
 
 HERE = Path(__file__).resolve().parent
+if not (HERE / "artifact_manifest.py").is_file():
+    sys.path.insert(0, str(HERE.parents[1]))
+from artifact_manifest import include_directories, load_manifest
+
 if not (HERE / "stm32_common.py").is_file() and (HERE.parent / "common").is_dir():
     sys.path.insert(0, str(HERE.parent / "common"))
 from stm32_common import atomic_json, digest, flash, resolve_tool, run
@@ -94,10 +98,10 @@ def build(args, profile, chip):
     configure(output, profile, chip)
     generated = args.generated_dir.resolve()
     project = args.project_dir.resolve()
-    required = [generated / "emela_embedded.c", generated / "emela_embedded_exports.h"]
-    sources = [HERE / "runtime.c", HERE / "validation_stack.c", HERE / "startup.S", required[0]]
+    inputs = load_manifest(generated, require_aliases=True)
+    sources = [HERE / "runtime.c", HERE / "validation_stack.c", HERE / "startup.S", *inputs["source"]]
     sources += [source.resolve() for source in args.source]
-    for source in sources + required:
+    for source in sources:
         if not source.is_file():
             raise ValueError(f"build input not found: {source}")
     toolchain = args.toolchain or os.environ.get("ARM_TOOLCHAIN_PATH")
@@ -105,7 +109,7 @@ def build(args, profile, chip):
     arch = ["-mcpu=" + profile["cpu"], "-mthumb", "-mfpu=" + profile["fpu"], "-mfloat-abi=" + profile["float_abi"]]
     flags = arch + ["-" + args.optimization, "-g3", "-std=c11", "-ffunction-sections",
                     "-fdata-sections", "-Wall", "-Wextra", "-Werror", "-fstack-usage"]
-    includes = {HERE, generated, project, *[source.parent for source in sources]}
+    includes = {HERE, generated, project, *[source.parent for source in sources], *include_directories(inputs)}
     flags += ["-I" + str(output)] + ["-I" + str(path) for path in sorted(includes - {output})]
     object_dir = output / "objects"
     object_dir.mkdir(exist_ok=True)

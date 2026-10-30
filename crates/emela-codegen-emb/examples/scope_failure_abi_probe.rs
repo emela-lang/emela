@@ -2,7 +2,7 @@ use emela_codegen_emb::{Options, compile};
 use emela_core::Roots;
 use std::{fs, path::PathBuf};
 
-#[path = "../../emela-core/tests/support/mod.rs"]
+#[path = "../tests/support/embedded_sources.rs"]
 mod support;
 
 fn main() {

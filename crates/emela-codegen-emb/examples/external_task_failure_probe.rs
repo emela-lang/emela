@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf};
 
 #[path = "support/external_task_failure_flow.rs"]
 mod fixture;
-#[path = "../../emela-core/tests/support/mod.rs"]
+#[path = "../tests/support/embedded_sources.rs"]
 mod support;
 
 fn main() {

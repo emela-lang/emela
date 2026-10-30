@@ -1,7 +1,7 @@
 use emela_codegen_emb::flow_from_core;
 use emela_core::Roots;
 
-#[path = "../../emela-core/tests/support/mod.rs"]
+#[path = "../tests/support/embedded_sources.rs"]
 mod support;
 
 fn main() {

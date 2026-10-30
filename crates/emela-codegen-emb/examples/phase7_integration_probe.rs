@@ -5,7 +5,7 @@ use std::{fs, path::PathBuf};
 mod fixture;
 #[path = "support/gc_anchor.rs"]
 mod gc_anchor;
-#[path = "../../emela-core/tests/support/mod.rs"]
+#[path = "../tests/support/embedded_sources.rs"]
 mod support;
 
 fn main() {

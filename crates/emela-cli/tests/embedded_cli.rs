@@ -68,6 +68,7 @@ fn c_only_build_emits_headers_and_aliases_without_a_main_or_native_compiler() {
             "emela_embedded.h",
             "emela_board.h",
             "emela_embedded_exports.h",
+            "emela_artifact.json",
         ] {
             assert!(output.join(file).is_file(), "{file}");
         }
@@ -80,6 +81,74 @@ fn c_only_build_emits_headers_and_aliases_without_a_main_or_native_compiler() {
         assert!(!output.join("firmware").exists());
         assert!(!output.join("bsp").exists());
     }
+}
+
+#[test]
+fn generated_artifact_builds_without_the_original_emela_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(root, "Pome.toml", "");
+    write(
+        root,
+        "src/main.emel",
+        "@export(c, \"answer\")\npub fn answer() -> Int { 42 }\n",
+    );
+    write(
+        root,
+        "embedded.toml",
+        "[exports]\nboard_answer = \"answer\"\n",
+    );
+    succeeds(
+        root,
+        &[
+            "build",
+            "--target",
+            "c-embedded",
+            "--embedded-config",
+            "embedded.toml",
+        ],
+    );
+    std::fs::remove_dir_all(root.join("src")).unwrap();
+    write(
+        root,
+        "consumer.c",
+        "#include \"emela_embedded_exports.h\"\nint main(void) { return board_answer() == INT32_C(42) ? 0 : 1; }\n",
+    );
+    let reader = Path::new(env!("CARGO_MANIFEST_DIR")).join("../emela-codegen-emb/boards");
+    let result = Command::new("python3")
+        .args([
+            "-B",
+            "-c",
+            r#"
+from pathlib import Path
+import subprocess
+import sys
+sys.path.insert(0, sys.argv[1])
+from artifact_manifest import include_directories, load_manifest
+generated, project = map(Path, sys.argv[2:])
+inputs = load_manifest(generated, require_aliases=True)
+assert inputs['aliases_header'] == [generated / 'emela_embedded_exports.h']
+for optimization in ['O0', 'O2']:
+    executable = project / ('consumer-' + optimization)
+    subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-' + optimization,
+                    *['-I' + str(path) for path in sorted(include_directories(inputs))],
+                    *inputs['source'], project / 'consumer.c', '-lm', '-o', executable],
+                   check=True, timeout=30)
+    subprocess.run([executable], check=True, timeout=5)
+"#,
+        ])
+        .arg(reader)
+        .arg(root.join("target/emela/c-embedded"))
+        .arg(root)
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
 }
 
 #[test]
@@ -111,7 +180,11 @@ fn embedded_configuration_reports_invalid_fields_ranges_and_export_names() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
         write(root, "Pome.toml", "");
-        write(root, "src/main.emel", "pub fn answer() -> Int { 42 }\n");
+        write(
+            root,
+            "src/main.emel",
+            "@export(c, \"answer\")\npub fn answer() -> Int { 42 }\n",
+        );
         write(root, "embedded.toml", config);
         fails(
             root,
@@ -325,6 +398,100 @@ fn host_library_builds_ignore_unused_embedded_runtime_and_module_paths() {
     for target in ["js", "c", "wasm"] {
         succeeds(root, &["build", "--target", target]);
         assert!(!root.join("target").exists(), "library-only {target}");
+    }
+}
+
+#[test]
+fn connect_builds_a_frozen_artifact_after_removing_the_emela_project() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(root, "Pome.toml", "[build]\ntarget = \"c-embedded\"\n");
+    write(root, "src/main.emel", "pub fn main() -> Int { 42 }\n");
+    succeeds(root, &["build"]);
+    let artifact = root.join("target/emela/c-embedded");
+    let before: Vec<_> = std::fs::read_dir(&artifact)
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            (path.clone(), std::fs::read(path).unwrap())
+        })
+        .collect();
+    std::fs::remove_dir_all(root.join("src")).unwrap();
+    std::fs::remove_file(root.join("Pome.toml")).unwrap();
+    for optimization in ["O0", "O2"] {
+        succeeds(
+            root,
+            &[
+                "connect",
+                "target/emela/c-embedded",
+                "--out-dir",
+                "connected",
+                "--optimization",
+                optimization,
+            ],
+        );
+        assert!(
+            Command::new(root.join("connected/out/program"))
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(root.join("connected/connection-success.json").is_file());
+        for (path, bytes) in &before {
+            assert_eq!(std::fs::read(path).unwrap(), *bytes);
+        }
+    }
+    fails(
+        root,
+        &[
+            "connect",
+            "target/emela/c-embedded",
+            "--out-dir",
+            "mcu-build",
+            "--platform",
+            "stm32f446re",
+            "--compiler",
+            "missing-cross-compiler",
+        ],
+        "not supported yet; use `emela build --board stm32f446re` with the original project",
+    );
+    assert!(!root.join("mcu-build").exists());
+}
+
+#[test]
+fn generated_bytes_match_across_processes_and_working_directories() {
+    let mut expected = None;
+    for _ in 0..3 {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        write(root, "Pome.toml", "[build]\ntarget = \"c-embedded\"\n");
+        write(
+            root,
+            "src/main.emel",
+            "@export(c, \"compute\")\npub fn compute(x: Int) -> String { add = fn(n: Int) { x + n }\n Int.to_string(add(2)) }\n",
+        );
+        write(
+            root,
+            "embedded.toml",
+            "heap_bytes = 4096\nstring_capacity = 64\n",
+        );
+        succeeds(root, &["build", "--embedded-config", "embedded.toml"]);
+        let artifact = root.join("target/emela/c-embedded");
+        let actual: std::collections::BTreeMap<_, _> = std::fs::read_dir(artifact)
+            .unwrap()
+            .map(|entry| {
+                let path = entry.unwrap().path();
+                (
+                    path.file_name().unwrap().to_owned(),
+                    std::fs::read(path).unwrap(),
+                )
+            })
+            .collect();
+        if let Some(expected) = &expected {
+            assert_eq!(&actual, expected);
+        } else {
+            expected = Some(actual);
+        }
     }
 }
 

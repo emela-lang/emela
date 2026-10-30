@@ -11,6 +11,8 @@ from unittest import mock
 sys.dont_write_bytecode = True
 
 SCRIPT = Path(__file__).resolve().parents[1] / "boards/build_state.py"
+ARTIFACT_READER = SCRIPT.with_name("artifact_manifest.py")
+sys.path.insert(0, str(SCRIPT.parent))
 
 
 class BuildStateTests(unittest.TestCase):
@@ -37,9 +39,14 @@ class BuildStateTests(unittest.TestCase):
             self.dependency / "src/native.c": "int value(void) { return 42; }\n",
             self.dependency / "src/include/value.h": "int value(void);\n",
             self.output / "bsp/build.py": "# Fixture BSP; not executed.\n",
+            self.output / "bsp/artifact_manifest.py": ARTIFACT_READER.read_text(),
             self.output / "bsp/profile.json": "{}\n",
             self.output / "generated/emela_embedded.c": "/* Fixture C; not compiled. */\n",
             self.output / "generated/emela_embedded.h": "/* Fixture header. */\n",
+            self.output / "generated/emela_board.h": "/* Fixture platform. */\n",
+            self.output / "generated/emela_embedded_exports.h": "/* Fixture aliases. */\n",
+            self.output / "generated/nested/adapter.c": "/* Fixture adapter. */\n",
+            self.output / "generated/nested/value.h": "/* Fixture nested header. */\n",
             self.output / "firmware/firmware.elf": "fixture ELF bytes\n",
             self.output / "firmware/firmware.bin": "fixture flash bytes\n",
             self.output / "firmware/firmware.map": "fixture map\n",
@@ -47,6 +54,16 @@ class BuildStateTests(unittest.TestCase):
         }
         for path, text in inputs.items():
             self.write(path, text)
+        self.artifact_path = self.output / "generated/emela_artifact.json"
+        self.artifact = {"schema_version": 2, "abi_version": 2, "files": [
+            {"path": name, "role": role} for name, role in [
+                ("emela_embedded.c", "source"), ("emela_embedded.h", "public_header"),
+                ("emela_board.h", "platform_header"), ("emela_embedded_exports.h", "aliases_header"),
+                ("nested/adapter.c", "source"), ("nested/value.h", "header")]],
+            "metadata": {"entry": None, "exports": [], "services": [],
+                         "external_symbols": [], "isr_entries": [],
+                         "isr_safe_symbols": [], "task_capacity": 0}}
+        self.write(self.artifact_path, json.dumps(self.artifact))
         self.firmware_path = self.output / "firmware/firmware.json"
         self.firmware = {
             "schema_version": 1,
@@ -69,7 +86,7 @@ class BuildStateTests(unittest.TestCase):
                 "name": "github.com/acme/value", "directory": str(self.dependency),
                 "version": "v0.1.0",
             }],
-            "bsp_files": ["build.py", "profile.json"],
+            "bsp_files": ["build.py", "profile.json", "artifact_manifest.py"],
         }
         self.write(self.spec_path, json.dumps(self.spec))
         self.prepare()
@@ -111,6 +128,8 @@ class BuildStateTests(unittest.TestCase):
         for path in [self.source, self.dependency / "src/lib.emel",
                      self.project / "include/native.h", self.dependency / "Pome.toml",
                      self.output / "generated/emela_embedded.h",
+                     self.artifact_path, self.output / "generated/nested/adapter.c",
+                     self.output / "generated/nested/value.h",
                      self.output / "bsp/build.py", self.output / "firmware/firmware.bin"]:
             with self.subTest(path=path):
                 self.assertEqual(len(state["sha256"][str(path)]), 64)
@@ -123,6 +142,7 @@ class BuildStateTests(unittest.TestCase):
                  self.dependency / "src/include/value.h",
                  self.output / "generated/emela_embedded.c",
                  self.output / "generated/emela_embedded.h", self.output / "bsp/build.py",
+                 self.output / "generated/nested/adapter.c", self.output / "generated/nested/value.h",
                  self.output / "firmware/firmware.bin", self.output / "firmware/firmware.map"]
         for path in paths:
             with self.subTest(path=path):
@@ -226,9 +246,30 @@ class BuildStateTests(unittest.TestCase):
     def test_ignored_source_directories_and_non_input_artifacts_do_not_change_the_state(self):
         for path in [self.project / "src/.git/ignored.emel",
                      self.project / "src/.cache/ignored.emel",
-                     self.output / "build.log", self.output / "generated/notes.txt"]:
+                     self.output / "build.log", self.output / "generated/notes.txt",
+                     self.output / "generated/stale.c"]:
             self.write(path, "unrelated\n")
         self.verify()
+
+    def test_artifact_manifest_changes_and_declared_file_deletion_invalidate_firmware(self):
+        original = self.artifact_path.read_text()
+        self.artifact_path.write_text(original + "\n")
+        self.verify(expected="inputs changed")
+        self.artifact_path.write_text(original)
+        self.verify()
+        for path in [self.artifact_path, self.output / "generated/nested/value.h"]:
+            with self.subTest(path=path):
+                contents = path.read_bytes()
+                path.unlink()
+                self.verify(expected="invalid generated artifact")
+                path.write_bytes(contents)
+                self.verify()
+        extra = self.output / "generated/new.c"
+        self.write(extra, "/* new declared source */\n")
+        metadata = json.loads(original)
+        metadata["files"].append({"path": "new.c", "role": "source"})
+        self.artifact_path.write_text(json.dumps(metadata))
+        self.verify(expected="inputs changed")
 
     def test_source_target_directory_is_part_of_the_module_inventory(self):
         source = self.project / "src/target/device.emel"

@@ -1,0 +1,882 @@
+{
+  "schema_version": 1,
+  "targets": [
+    {
+      "owner": "emela_lir::Value",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "representation_owner": "crate::contract::ir::Value"
+    },
+    {
+      "owner": "emela_lir::Stmt",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "representation_owner": "crate::contract::ir::Stmt"
+    },
+    {
+      "owner": "emela_lir::Term",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "representation_owner": "crate::contract::ir::Term"
+    },
+    {
+      "owner": "emela_lir::Callee",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "representation_owner": "crate::contract::ir::Callee"
+    },
+    {
+      "owner": "emela_lir::OnFail",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "representation_owner": "crate::contract::ir::OnFail"
+    },
+    {
+      "owner": "emela_lir::SwitchOn",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "representation_owner": "crate::contract::ir::SwitchOn"
+    },
+    {
+      "owner": "emela_lir::CaseKey",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "representation_owner": "crate::contract::ir::CaseKey"
+    },
+    {
+      "owner": "emela_lir::Const",
+      "contexts": [
+        "common"
+      ],
+      "representation_owner": "crate::contract::ir::Const"
+    },
+    {
+      "owner": "emela_lir::Operand",
+      "contexts": [
+        "common"
+      ],
+      "representation_owner": "crate::contract::ir::Operand"
+    },
+    {
+      "owner": "emela_lir::PrimOp",
+      "contexts": [
+        "common"
+      ],
+      "representation_owner": "crate::contract::ir::PrimOp"
+    },
+    {
+      "owner": "emela_lir::PrimTy",
+      "contexts": [
+        "common"
+      ],
+      "representation_owner": "crate::contract::ir::PrimTy"
+    },
+    {
+      "owner": "emela_lir::RuntimeOp",
+      "contexts": [
+        "common"
+      ],
+      "representation_owner": "crate::contract::ir::RuntimeOp"
+    },
+    {
+      "owner": "emela_lir::Repr",
+      "contexts": [
+        "common"
+      ],
+      "representation_owner": "crate::contract::ir::Repr"
+    },
+    {
+      "owner": "emela_lir::Stage",
+      "contexts": [
+        "input"
+      ]
+    },
+    {
+      "owner": "emela_core::Builtin",
+      "contexts": [
+        "common"
+      ],
+      "representation_owner": "crate::contract::ir::Builtin"
+    },
+    {
+      "owner": "emela_core::FiberOp",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "representation_owner": "crate::contract::ir::FiberOp"
+    }
+  ],
+  "routes": [
+    {
+      "id": "reject-runtime",
+      "path": "crates/emela-codegen-emb/src/input/upstream/verify.rs",
+      "symbol": "verify_flow",
+      "owner": "emela_lir::RuntimeOp",
+      "selector": "match",
+      "expression": "value",
+      "contexts": [
+        "input"
+      ],
+      "role": "reject",
+      "note": "Flow入口でHeap runtimeを拒否する分岐。役割は設定の宣言。",
+      "only_variants": [
+        "Defect",
+        "DefectTake",
+        "DefectResume",
+        "Yield",
+        "YieldPerform",
+        "DefectAt"
+      ]
+    },
+    {
+      "id": "reject-builtin",
+      "path": "crates/emela-codegen-emb/src/input/upstream/verify.rs",
+      "symbol": "verify_flow",
+      "owner": "emela_core::Builtin",
+      "selector": "match",
+      "expression": "value",
+      "contexts": [
+        "input"
+      ],
+      "role": "reject",
+      "note": "未lowerのsource builtinをFlow入口で拒否する分岐。",
+      "only_variants": [
+        "Panic",
+        "Todo",
+        "Dbg",
+        "Inspect",
+        "ShowNested",
+        "ShowString",
+        "DebugPrint",
+        "AssertFail"
+      ]
+    },
+    {
+      "id": "reject-heap-value",
+      "path": "crates/emela-lir/src/verify.rs",
+      "symbol": "Checker::value",
+      "owner": "emela_lir::Value",
+      "selector": "match",
+      "expression": "v",
+      "contexts": [
+        "input"
+      ],
+      "role": "reject",
+      "note": "compile_flowから呼ぶ共通LIR verifierのstage検査。stage_at_least呼出しの存在も要求する。",
+      "only_variants": [
+        "MakeClosure",
+        "EnvGet"
+      ],
+      "required_calls": [
+        ".stage_at_least"
+      ],
+      "top_level": true
+    },
+    {
+      "id": "reject-heap-stmt",
+      "path": "crates/emela-lir/src/verify.rs",
+      "symbol": "Checker::stmt",
+      "owner": "emela_lir::Stmt",
+      "selector": "match",
+      "expression": "s",
+      "contexts": [
+        "input"
+      ],
+      "role": "reject",
+      "note": "compile_flowから呼ぶ共通LIR verifierのstage検査。stage_at_least呼出しの存在も要求する。",
+      "only_variants": [
+        "Dup",
+        "Drop"
+      ],
+      "required_calls": [
+        ".stage_at_least"
+      ]
+    },
+    {
+      "id": "reject-heap-term",
+      "path": "crates/emela-lir/src/verify.rs",
+      "symbol": "Checker::term",
+      "owner": "emela_lir::Term",
+      "selector": "match",
+      "expression": "t",
+      "contexts": [
+        "input"
+      ],
+      "role": "reject",
+      "note": "compile_flowから呼ぶ共通LIR verifierのstage検査。stage_at_least呼出しの存在も要求する。",
+      "only_variants": [
+        "Unwind"
+      ],
+      "required_calls": [
+        ".stage_at_least"
+      ]
+    },
+    {
+      "id": "reject-heap-failure",
+      "path": "crates/emela-lir/src/verify.rs",
+      "symbol": "Checker::on_fail",
+      "owner": "emela_lir::OnFail",
+      "selector": "match",
+      "expression": "on_fail",
+      "contexts": [
+        "input"
+      ],
+      "role": "reject",
+      "note": "compile_flowから呼ぶ共通LIR verifierのstage検査。stage_at_least呼出しの存在も要求する。",
+      "only_variants": [
+        "Handle"
+      ],
+      "required_calls": [
+        ".stage_at_least"
+      ]
+    },
+    {
+      "id": "sync-stmt",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/statements/mod.rs",
+      "symbol": "emit",
+      "owner": "emela_lir::Stmt",
+      "selector": "match",
+      "expression": "statement",
+      "contexts": [
+        "sync"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Stmt"
+    },
+    {
+      "id": "sync-term",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/terms/mod.rs",
+      "symbol": "emit",
+      "owner": "emela_lir::Term",
+      "selector": "match",
+      "expression": "term",
+      "contexts": [
+        "sync"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Term"
+    },
+    {
+      "id": "sync-failure",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/failures.rs",
+      "symbol": "emit",
+      "owner": "emela_lir::OnFail",
+      "selector": "match",
+      "expression": "edge",
+      "contexts": [
+        "sync"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::OnFail"
+    },
+    {
+      "id": "suspend-stmt",
+      "path": "crates/emela-codegen-emb/src/compiler/plan/operations/statements/mod.rs",
+      "symbol": "lower",
+      "owner": "emela_lir::Stmt",
+      "selector": "match",
+      "expression": "statement",
+      "contexts": [
+        "suspend"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Stmt"
+    },
+    {
+      "id": "suspend-term",
+      "path": "crates/emela-codegen-emb/src/compiler/plan/operations/terms/mod.rs",
+      "symbol": "lower",
+      "owner": "emela_lir::Term",
+      "selector": "match",
+      "expression": "term",
+      "contexts": [
+        "suspend"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Term"
+    },
+    {
+      "id": "suspend-failure",
+      "path": "crates/emela-codegen-emb/src/compiler/plan/operations/failures.rs",
+      "symbol": "lower",
+      "owner": "emela_lir::OnFail",
+      "selector": "match",
+      "expression": "edge",
+      "contexts": [
+        "suspend"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::OnFail"
+    },
+    {
+      "id": "value",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/values/mod.rs",
+      "symbol": "emit",
+      "owner": "emela_lir::Value",
+      "selector": "match",
+      "expression": "value",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Value"
+    },
+    {
+      "id": "callee",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/values/call.rs",
+      "symbol": "emit",
+      "owner": "emela_lir::Callee",
+      "selector": "match",
+      "expression": "callee",
+      "contexts": [
+        "sync"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Callee"
+    },
+    {
+      "id": "suspend-callee-direct",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/values/call.rs",
+      "symbol": "emit_suspend_direct",
+      "owner": "emela_lir::Callee",
+      "selector": "if",
+      "expression": "statement",
+      "contexts": [
+        "suspend"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Callee"
+    },
+    {
+      "id": "suspend-callee-indirect",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/values/call.rs",
+      "symbol": "emit_suspend_indirect",
+      "owner": "emela_lir::Callee",
+      "selector": "if",
+      "expression": "statement",
+      "contexts": [
+        "suspend"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Callee"
+    },
+    {
+      "id": "suspend-callee-op",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/values/call.rs",
+      "symbol": "emit_suspend_op",
+      "owner": "emela_lir::Callee",
+      "selector": "if",
+      "expression": "statement",
+      "contexts": [
+        "suspend"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Callee"
+    },
+    {
+      "id": "fiber",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/fibers/mod.rs",
+      "symbol": "emit",
+      "owner": "emela_core::FiberOp",
+      "selector": "match",
+      "expression": "op",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::FiberOp"
+    },
+    {
+      "id": "closure-lowering",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/closure.rs",
+      "symbol": "lower",
+      "owner": "emela_lir::Value",
+      "selector": "let_else",
+      "expression": "stmt",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "lower",
+      "note": "本体backendの明示的な担当へのdispatch。構文上の根拠であり動作保証ではない。",
+      "only_variants": [
+        "Closure"
+      ]
+    },
+    {
+      "id": "builtin",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/builtins/mod.rs",
+      "symbol": "emit",
+      "owner": "emela_core::Builtin",
+      "selector": "match",
+      "expression": "op",
+      "contexts": [
+        "common"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Builtin"
+    },
+    {
+      "id": "runtime",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/runtime.rs",
+      "symbol": "emit",
+      "owner": "emela_lir::RuntimeOp",
+      "selector": "match",
+      "expression": "op",
+      "contexts": [
+        "common"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::RuntimeOp"
+    },
+    {
+      "id": "constant",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/constants.rs",
+      "symbol": "dispatch",
+      "owner": "emela_lir::Const",
+      "selector": "match",
+      "expression": "value",
+      "contexts": [
+        "common"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Const"
+    },
+    {
+      "id": "operand",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/operands.rs",
+      "symbol": "dispatch",
+      "owner": "emela_lir::Operand",
+      "selector": "match",
+      "expression": "operand",
+      "contexts": [
+        "common"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Operand"
+    },
+    {
+      "id": "primitive-type",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/primitive_types.rs",
+      "symbol": "emit",
+      "owner": "emela_lir::PrimTy",
+      "selector": "match",
+      "expression": "ty",
+      "contexts": [
+        "common"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::PrimTy"
+    },
+    {
+      "id": "primitive",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/primitive_operations.rs",
+      "symbol": "emit",
+      "owner": "emela_lir::PrimOp",
+      "selector": "match",
+      "expression": "op",
+      "contexts": [
+        "common"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::PrimOp"
+    },
+    {
+      "id": "representation",
+      "path": "crates/emela-codegen-emb/src/semantics/representations.rs",
+      "symbol": "dispatch",
+      "owner": "emela_lir::Repr",
+      "selector": "match",
+      "expression": "repr",
+      "contexts": [
+        "common"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::Repr"
+    },
+    {
+      "id": "stage",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/stages.rs",
+      "symbol": "verify",
+      "owner": "emela_lir::Stage",
+      "selector": "match",
+      "expression": "stage",
+      "contexts": [
+        "input"
+      ],
+      "role": "emit",
+      "note": "本体backendの明示的な担当へのdispatch。構文上の根拠であり動作保証ではない。"
+    },
+    {
+      "id": "switch",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/switches.rs",
+      "symbol": "scrutinee",
+      "owner": "emela_lir::SwitchOn",
+      "selector": "match",
+      "expression": "on",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::SwitchOn"
+    },
+    {
+      "id": "case-key",
+      "path": "crates/emela-codegen-emb/src/compiler/emit/features/case_keys.rs",
+      "symbol": "label",
+      "owner": "emela_lir::CaseKey",
+      "selector": "match",
+      "expression": "key",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "emit",
+      "note": "上流variant IDから独立contractへの明示adapterを経由した担当。生成側の型はrepresentation_ownerに記録する。",
+      "representation_owner": "crate::contract::ir::CaseKey"
+    },
+    {
+      "id": "upstream-adapter-value",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_value",
+      "owner": "emela_lir::Value",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-stmt",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_stmt",
+      "owner": "emela_lir::Stmt",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-term",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_term",
+      "owner": "emela_lir::Term",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-callee",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_callee",
+      "owner": "emela_lir::Callee",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-onfail",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_on_fail",
+      "owner": "emela_lir::OnFail",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-switchon",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_switch_on",
+      "owner": "emela_lir::SwitchOn",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-casekey",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_case_key",
+      "owner": "emela_lir::CaseKey",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-const",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_const",
+      "owner": "emela_lir::Const",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "common"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-operand",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_operand",
+      "owner": "emela_lir::Operand",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "common"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-primop",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_prim_op",
+      "owner": "emela_lir::PrimOp",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "common"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-primty",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_prim_ty",
+      "owner": "emela_lir::PrimTy",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "common"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-runtimeop",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_runtime_op",
+      "owner": "emela_lir::RuntimeOp",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "common"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-repr",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_repr",
+      "owner": "emela_lir::Repr",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "common"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-builtin",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_builtin",
+      "owner": "emela_core::Builtin",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "common"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    },
+    {
+      "id": "upstream-adapter-fiberop",
+      "path": "crates/emela-codegen-emb/src/compiler/lower/adapter.rs",
+      "symbol": "adapt_fiber_op",
+      "owner": "emela_core::FiberOp",
+      "selector": "match",
+      "expression": "source",
+      "contexts": [
+        "sync",
+        "suspend"
+      ],
+      "role": "lower",
+      "note": "上流型を独立contractへ写す網羅的なvariant変換。rendererの構文根拠とは別に記録する。"
+    }
+  ],
+  "exclusions": [
+    {
+      "id": "emela_lir::RuntimeOp::Defect",
+      "route": "reject-runtime",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_lir::RuntimeOp::DefectTake",
+      "route": "reject-runtime",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_lir::RuntimeOp::DefectResume",
+      "route": "reject-runtime",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_lir::RuntimeOp::Yield",
+      "route": "reject-runtime",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_lir::RuntimeOp::YieldPerform",
+      "route": "reject-runtime",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_core::Builtin::Panic",
+      "route": "reject-builtin",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_core::Builtin::Todo",
+      "route": "reject-builtin",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_core::Builtin::Dbg",
+      "route": "reject-builtin",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_core::Builtin::Inspect",
+      "route": "reject-builtin",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_core::Builtin::ShowNested",
+      "route": "reject-builtin",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_core::Builtin::ShowString",
+      "route": "reject-builtin",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_core::Builtin::DebugPrint",
+      "route": "reject-builtin",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_lir::Value::MakeClosure",
+      "route": "reject-heap-value",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_lir::Value::EnvGet",
+      "route": "reject-heap-value",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_lir::Stmt::Dup",
+      "route": "reject-heap-stmt",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_lir::Stmt::Drop",
+      "route": "reject-heap-stmt",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_lir::Term::Unwind",
+      "route": "reject-heap-term",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_lir::OnFail::Handle",
+      "route": "reject-heap-failure",
+      "reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。"
+    },
+    {
+      "id": "emela_core::Builtin::AssertFail",
+      "route": "reject-builtin",
+      "reason": "Flow input validation rejects this upstream operation before adaptation."
+    },
+    {
+      "id": "emela_lir::RuntimeOp::DefectAt",
+      "route": "reject-runtime",
+      "reason": "Flow input validation rejects this upstream operation before adaptation."
+    }
+  ]
+}

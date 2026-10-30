@@ -3,9 +3,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use emela_codegen_emb::{
-    ErrorKind, ExportedFunction, ExternalAdapter, ExternalResult, Options, compile,
-};
+use emela_codegen_emb::{ErrorKind, ExternalAdapter, ExternalResult, Options, compile};
 use serde::Deserialize;
 
 use crate::diagnostic::{Diagnostic, Location};
@@ -16,7 +14,7 @@ use crate::source::FileSystem;
 /// The generated C translation unit, compiled separately by the board toolchain.
 pub const EMBEDDED_ENTRY_FILE: &str = "emela_embedded.c";
 /// Stable board-facing aliases for selected generated public entry points.
-pub const EMBEDDED_EXPORTS_FILE: &str = "emela_embedded_exports.h";
+pub const EMBEDDED_EXPORTS_FILE: &str = emela_codegen_emb::artifact::ALIASES_HEADER;
 
 /// Optional TOML settings for the embedded C backend; omitted values use backend defaults.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -207,20 +205,25 @@ impl EmbeddedConfig {
         for symbol in &self.isr_safe_externals {
             options = options.with_isr_safe_external(symbol);
         }
+        for (alias, target) in &self.exports {
+            options = options.with_export_alias(alias, target);
+        }
+        if let Some(entry) = &self.board_entry {
+            options = options.with_entry(entry);
+        }
         options
     }
 
-    fn exports_header(
-        &self,
-        module: &emela_core::Module,
-        exports: &[ExportedFunction],
-    ) -> Result<String, Diagnostic> {
+    fn validate_entry(&self, module: &emela_core::Module) -> Result<(), Diagnostic> {
         if let Some(entry) = &self.board_entry {
             let candidates = module
                 .functions
                 .iter()
                 .filter(|(_, function)| function.exported && &function.name == entry)
                 .collect::<Vec<_>>();
+            if candidates.len() == 1 && !candidates[0].1.params.is_empty() {
+                return Err(self.error("an embedded main function with parameters is unsupported"));
+            }
             let valid = candidates.len() == 1
                 && candidates.first().is_some_and(|(_, function)| {
                     function.params.is_empty()
@@ -234,61 +237,7 @@ impl EmbeddedConfig {
                 return Err(self.error(format!("board entry `{entry}` must be a public, non-generic, argument-free `fn() -> Int use Async` without unhandled failures or effects")));
             }
         }
-        let mut board_symbols: HashSet<&str> = self
-            .task_adapters
-            .iter()
-            .flat_map(|(source, adapter)| [source.as_str(), adapter.as_str()])
-            .chain(
-                self.external_adapters
-                    .iter()
-                    .flat_map(|(source, adapter)| [source.as_str(), adapter.symbol.as_str()]),
-            )
-            .collect();
-        for (_, function) in module.functions.iter() {
-            if let Some(binding) = function.external.as_ref().and_then(|e| e.binding("c")) {
-                let (emela_core::HostRef::Global(symbol)
-                | emela_core::HostRef::Import { name: symbol, .. }) = &binding.host;
-                board_symbols.insert(symbol);
-            }
-        }
-        let mut header = String::from(
-            "#ifndef EMELA_EMBEDDED_EXPORTS_H\n#define EMELA_EMBEDDED_EXPORTS_H\n\n#include \"emela_embedded.h\"\n",
-        );
-        for (alias, target) in &self.exports {
-            if board_symbols.contains(alias.as_str()) {
-                return Err(self.error(format!(
-                    "export alias `{alias}` conflicts with a board external symbol"
-                )));
-            }
-            let mut matches = exports
-                .iter()
-                .filter(|export| &export.source_name == target);
-            let Some(export) = matches.next() else {
-                return Err(self
-                    .error(format!(
-                        "export alias `{alias}` refers to unknown public function `{target}`"
-                    ))
-                    .with_note(format!(
-                        "generated public functions: {}",
-                        exports
-                            .iter()
-                            .map(|export| export.source_name.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )));
-            };
-            if matches.next().is_some() {
-                return Err(self.error(format!(
-                    "export alias `{alias}` refers to ambiguous public function `{target}`"
-                )));
-            }
-            header.push_str(&format!(
-                "\n#ifdef {alias}\n#error \"embedded export alias {alias} conflicts with an existing macro\"\n#endif\n#define {alias} {}\n",
-                export.c_symbol
-            ));
-        }
-        header.push_str("\n#endif\n");
-        Ok(header)
+        Ok(())
     }
 }
 
@@ -311,6 +260,9 @@ impl Backend<emela_core::Module> for CoreEmbedded {
         _: &Analysis,
     ) -> Result<BuildOutput, Vec<Diagnostic>> {
         self.config.validate().map_err(|error| vec![error])?;
+        self.config
+            .validate_entry(module)
+            .map_err(|error| vec![error])?;
         let output = compile(module, &self.config.options()).map_err(|errors| {
             errors
                 .into_iter()
@@ -320,16 +272,11 @@ impl Backend<emela_core::Module> for CoreEmbedded {
                 })
                 .collect::<Vec<_>>()
         })?;
-        let aliases = self
-            .config
-            .exports_header(module, &output.exports)
-            .map_err(|error| vec![error])?;
-        let mut files: Vec<_> = output
+        let files = output
             .files
             .into_iter()
             .map(|file| OutputFile::new(file.path, file.contents))
             .collect();
-        files.push(OutputFile::new(EMBEDDED_EXPORTS_FILE, aliases));
         Ok(BuildOutput {
             files,
             entry: EMBEDDED_ENTRY_FILE.into(),

@@ -1,0 +1,3696 @@
+{
+  "schema_version": 2,
+  "inventory_kind": "coverage_comparison",
+  "audit_level": "explicit_variant_syntax_only",
+  "targets": [
+    {
+      "owner": "emela_lir::Value",
+      "representation_owner": "crate::contract::ir::Value",
+      "contexts": [
+        "sync",
+        "suspend"
+      ]
+    },
+    {
+      "owner": "emela_lir::Stmt",
+      "representation_owner": "crate::contract::ir::Stmt",
+      "contexts": [
+        "sync",
+        "suspend"
+      ]
+    },
+    {
+      "owner": "emela_lir::Term",
+      "representation_owner": "crate::contract::ir::Term",
+      "contexts": [
+        "sync",
+        "suspend"
+      ]
+    },
+    {
+      "owner": "emela_lir::Callee",
+      "representation_owner": "crate::contract::ir::Callee",
+      "contexts": [
+        "sync",
+        "suspend"
+      ]
+    },
+    {
+      "owner": "emela_lir::OnFail",
+      "representation_owner": "crate::contract::ir::OnFail",
+      "contexts": [
+        "sync",
+        "suspend"
+      ]
+    },
+    {
+      "owner": "emela_lir::SwitchOn",
+      "representation_owner": "crate::contract::ir::SwitchOn",
+      "contexts": [
+        "sync",
+        "suspend"
+      ]
+    },
+    {
+      "owner": "emela_lir::CaseKey",
+      "representation_owner": "crate::contract::ir::CaseKey",
+      "contexts": [
+        "sync",
+        "suspend"
+      ]
+    },
+    {
+      "owner": "emela_lir::Const",
+      "representation_owner": "crate::contract::ir::Const",
+      "contexts": [
+        "common"
+      ]
+    },
+    {
+      "owner": "emela_lir::Operand",
+      "representation_owner": "crate::contract::ir::Operand",
+      "contexts": [
+        "common"
+      ]
+    },
+    {
+      "owner": "emela_lir::PrimOp",
+      "representation_owner": "crate::contract::ir::PrimOp",
+      "contexts": [
+        "common"
+      ]
+    },
+    {
+      "owner": "emela_lir::PrimTy",
+      "representation_owner": "crate::contract::ir::PrimTy",
+      "contexts": [
+        "common"
+      ]
+    },
+    {
+      "owner": "emela_lir::RuntimeOp",
+      "representation_owner": "crate::contract::ir::RuntimeOp",
+      "contexts": [
+        "common"
+      ]
+    },
+    {
+      "owner": "emela_lir::Repr",
+      "representation_owner": "crate::contract::ir::Repr",
+      "contexts": [
+        "common"
+      ]
+    },
+    {
+      "owner": "emela_lir::Stage",
+      "representation_owner": null,
+      "contexts": [
+        "input"
+      ]
+    },
+    {
+      "owner": "emela_core::Builtin",
+      "representation_owner": "crate::contract::ir::Builtin",
+      "contexts": [
+        "common"
+      ]
+    },
+    {
+      "owner": "emela_core::FiberOp",
+      "representation_owner": "crate::contract::ir::FiberOp",
+      "contexts": [
+        "sync",
+        "suspend"
+      ]
+    }
+  ],
+  "summary": {
+    "candidate_found": 206,
+    "rejection_evidence": 20
+  },
+  "items": [
+    {
+      "id": "emela_lir::Stage::Flow",
+      "definition_sha256": "4fc8e0630304a3681209de174e858332cf2b0a37f27dc9128f0557b5874c5207",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "candidate_found",
+          "routes": [
+            "stage"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stage::ClosuresConverted",
+      "definition_sha256": "403e0026d92cca8aa808eaff7bcb2f59124ecc75daa2170272da47e2e57733fb",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "candidate_found",
+          "routes": [
+            "stage"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stage::DefectsExplicit",
+      "definition_sha256": "e0c6227707e80f926b3f7e845acfe2b790e9eb3843e7b20556e67ca1cf591b37",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "candidate_found",
+          "routes": [
+            "stage"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stage::StateMachines",
+      "definition_sha256": "6e276fdd1fd5bd8372eb62cd1e569eba19e14657ccef9336cbecb9c367d83643",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "candidate_found",
+          "routes": [
+            "stage"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stage::RefCounted",
+      "definition_sha256": "ef0ac75ad8717246a8313ee6cf681e908c61719c634ecb10a2b01c720fd352c2",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "candidate_found",
+          "routes": [
+            "stage"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Term::Yield",
+      "definition_sha256": "a8e05559fbc7d000fd1468f79532e44b737c33cf9641e798dbd070b525d7455e",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-term",
+            "upstream-adapter-term"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-term",
+            "upstream-adapter-term"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Term::Return",
+      "definition_sha256": "4d821c374f3eee735eeaeedf09044d7f7f2aca9f660d4581574855b9789ee3f4",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-term",
+            "upstream-adapter-term"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-term",
+            "upstream-adapter-term"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Term::Fail",
+      "definition_sha256": "06c172b6b008582be4311e061319f61cbd3f6279e531c4399a83956009dac3bf",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-term",
+            "upstream-adapter-term"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-term",
+            "upstream-adapter-term"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Term::Break",
+      "definition_sha256": "6cb86d772e9d7d39b45296a532f794cd656180709337ac32952196d87c30c203",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-term",
+            "upstream-adapter-term"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-term",
+            "upstream-adapter-term"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Term::Recur",
+      "definition_sha256": "8ab0afd01fcdc94e1aa928dc1e74a2678e8064e7d6f6098a02a2ece40cb411c0",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-term",
+            "upstream-adapter-term"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-term",
+            "upstream-adapter-term"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Term::Defect",
+      "definition_sha256": "2335c83d9b4fbe519684ccb99bfd8c218532931b2927aa77c988afd2f5a4161c",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-term",
+            "upstream-adapter-term"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-term",
+            "upstream-adapter-term"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Term::Unwind",
+      "definition_sha256": "fc70764bf2c5150b60b6d903c7086d969e7999e519ccd976c5de306800f96802",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-heap-term"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Term::Unreachable",
+      "definition_sha256": "454aba02e41e96f6845aec12970b00c3f992d939b615bc5c8678deb7b0d0eaec",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-term",
+            "upstream-adapter-term"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-term",
+            "upstream-adapter-term"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stmt::Let",
+      "definition_sha256": "64b2358c1b4e1d1b0f2125a23b36703c2c4ea522b384cf276edfb859108dfa34",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-stmt",
+            "upstream-adapter-stmt"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-stmt",
+            "upstream-adapter-stmt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stmt::If",
+      "definition_sha256": "4dbd821145b8aff50af2ebeb59167749293e2ba38ee6f90e6bef77bf287aa178",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-stmt",
+            "upstream-adapter-stmt"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-stmt",
+            "upstream-adapter-stmt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stmt::Switch",
+      "definition_sha256": "bba254892b19488d795130df79c97bdaf513222529f827372e5151ed1cd9e856",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-stmt",
+            "upstream-adapter-stmt"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-stmt",
+            "upstream-adapter-stmt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stmt::Loop",
+      "definition_sha256": "4a090977873d630e844863a5fdebf4894d73228a786448e382e5b2008f9db687",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-stmt",
+            "upstream-adapter-stmt"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-stmt",
+            "upstream-adapter-stmt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stmt::Block",
+      "definition_sha256": "6d7973348b96f39d8c647f4bcd75d1b17ae42cf76482cecc67a2bbcad86fe88f",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-stmt",
+            "upstream-adapter-stmt"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-stmt",
+            "upstream-adapter-stmt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stmt::Protect",
+      "definition_sha256": "59fcdb38ec0c4024235dbd11b975267abcaefc9abe709de3a72cfd564fc8f9c2",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-stmt",
+            "upstream-adapter-stmt"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-stmt",
+            "upstream-adapter-stmt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stmt::Dup",
+      "definition_sha256": "73a90429897d744dec9597c2b542c739a74402cbaf69a569f7ffc0140006812e",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-heap-stmt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Stmt::Drop",
+      "definition_sha256": "05476af695893a287517d67a5d1c02b70b85c8413c0e68a0d49b37059bb8cb86",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-heap-stmt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::SwitchOn::Tag",
+      "definition_sha256": "b4653a8b06483d40d3d1ff773926f0aad488acf3c08c2490118a9d819ecf4fd1",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "switch",
+            "upstream-adapter-switchon"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "switch",
+            "upstream-adapter-switchon"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::SwitchOn::Lit",
+      "definition_sha256": "db9a6d617f24f2c1c28996b44f5cbaee108cf6475a071aebb4444cd9225789f4",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "switch",
+            "upstream-adapter-switchon"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "switch",
+            "upstream-adapter-switchon"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::CaseKey::Variant",
+      "definition_sha256": "f9e95d89d5ab55887d2f19dc4b65d5da020f93b3632252f092ab55ba0ccdd1e7",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "case-key",
+            "upstream-adapter-casekey"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "case-key",
+            "upstream-adapter-casekey"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::CaseKey::Lit",
+      "definition_sha256": "096c264c782608a7dbd09b92d64af0645101d815da32c12e5b59e339747f5bef",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "case-key",
+            "upstream-adapter-casekey"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "case-key",
+            "upstream-adapter-casekey"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Operand::Var",
+      "definition_sha256": "8ff08816e296ebab839153c104a61636e6f51ea8d7a0c95fa5df4d2e52ffa36d",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "operand",
+            "upstream-adapter-operand"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Operand::Const",
+      "definition_sha256": "c0547829dd64c801fe0931e4b7d4e3986e9302257cd7c0fc9525fcfe5ba407a6",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "operand",
+            "upstream-adapter-operand"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Const::Int",
+      "definition_sha256": "888bf61bfaa0b947b252c1939b6f7a4ffc3618e29757d17a4823e99047b61f02",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "constant",
+            "upstream-adapter-const"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Const::Int64",
+      "definition_sha256": "742c0c04b8725171f1c15ba037c617e5929123f0180ec3f23f66d3ed73c7dfd4",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "constant",
+            "upstream-adapter-const"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Const::Float",
+      "definition_sha256": "2809b6fc68444a6319750c2608c18e86c201d8a81b356db21df048577cc4f730",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "constant",
+            "upstream-adapter-const"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Const::Bool",
+      "definition_sha256": "65e6410ea382396b2028548eced6d8651cd554437e6327dd1426ac85f3601dbf",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "constant",
+            "upstream-adapter-const"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Const::String",
+      "definition_sha256": "b57410b53a49183d4b71fe6a1ddc4451f8423484278ce93c909fdf8626a8f2bb",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "constant",
+            "upstream-adapter-const"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Const::Unit",
+      "definition_sha256": "e2762919af4574ec8ab44a54d31934ff16ad558f6f624ad05095440aa33d4631",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "constant",
+            "upstream-adapter-const"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Const",
+      "definition_sha256": "c0547829dd64c801fe0931e4b7d4e3986e9302257cd7c0fc9525fcfe5ba407a6",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Prim",
+      "definition_sha256": "f5d45a64d6a36f903852166fbf2a3159a8fa5999fb99817f0aa0c4d99a7f9f0c",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Call",
+      "definition_sha256": "24876d8410f87176055bb58a865bbd13f95824194d2b1bd703ac3fc28e2fa18f",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Builtin",
+      "definition_sha256": "77c50bcd92cd37378b615e395bdf09b95acc76d6dd5100bda0a2b573293e7e7c",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Make",
+      "definition_sha256": "3d59192047ff136c8a4337397baed91fd2e3a923b3484d522dd838890532635d",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Field",
+      "definition_sha256": "bee771fd10ff33d0d36feae22b4912bbdcfad242c60db05bedd823fb13753303",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Tag",
+      "definition_sha256": "b4653a8b06483d40d3d1ff773926f0aad488acf3c08c2490118a9d819ecf4fd1",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Tuple",
+      "definition_sha256": "6e352d00da5eb72eb5587366dad094e9cdcaae48d52ac8349892d2d06f7121b1",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::TupleGet",
+      "definition_sha256": "5c9e0a46f65e0c1de93893f4d4a4eb45b069bcc3c0ad42e9973bd66dc74d6d7f",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::List",
+      "definition_sha256": "53b1cba3dc25fb436571a098260ebf4ed22ead3f754a177c893e8efa5d937973",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::ListIsEmpty",
+      "definition_sha256": "6854a16a9a43ab791463ea3a5f8467eef71b18744be6551dfbc1d9b5d4708f34",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::ListHead",
+      "definition_sha256": "6bb2b66255a0d7b95e7f337956987c58514b38fa376058d4bc74a11c6a4a6fd5",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::ListTail",
+      "definition_sha256": "4dadcef0ae0108e0bab3f85f4312e090c879e21db1c8d81f871271c4ce2fe900",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::FnRef",
+      "definition_sha256": "274f9d471018a631ac0dd8f8f316f730d03c65d998bda8f6ea6c3f8f600f40bb",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Closure",
+      "definition_sha256": "fb0269c376667977147fe99af8eaefb9177031db73076cf6c5b29c941b179392",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "closure-lowering",
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "closure-lowering",
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::MakeClosure",
+      "definition_sha256": "ecfb3b6d6015c5f498588aee801ee4abdc345bc1c76cd19d0812ecc1505f1fb2",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-heap-value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::EnvGet",
+      "definition_sha256": "c2c59aa66c6ebd3b861e281c9b44785e0e3d0e45f18ec33e48dbb5f313bc6a6c",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-heap-value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::EvLookup",
+      "definition_sha256": "7b3fdd8099a5eadf98f5fa60ca951d52a48fe2b1306118934a57e212ae1b007b",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::EvExtend",
+      "definition_sha256": "8c26d028d3eb65e44afbb5ce00051ab2796edb6e250b6a8221d3728473d318ae",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Handler",
+      "definition_sha256": "e2ea9ddc47bbd77fa962292055d73492641fedd84206950e2a84f8a469177f54",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Fiber",
+      "definition_sha256": "8bb4bf424c2f573ded807c3aca5b3a96c7a0fecd6c9b715c792454ee57ebe08c",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::IsError",
+      "definition_sha256": "c6332ae5f679882e882e9c02dab0f86ab6eac614e038aa810862cc3855025152",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::AsError",
+      "definition_sha256": "a8a001470b08e8cde9e1c0fcb78238b374e15fdf79d334cf09be56d0b9e81d2c",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Runtime",
+      "definition_sha256": "be4760ab1aa2b2f38328a670faf9f2f3762f6064f0f586e8d5d5423f235907b9",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Value::Coerce",
+      "definition_sha256": "6539982390a7b9ff62dfc98b19c8061a01ad82d42411818dcd4143e12d6e271d",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "upstream-adapter-value",
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::ShowString",
+      "definition_sha256": "7df0fc090bb0d6b3b6d0004f5d84f47cea507419000e545bf01ce9a92dd36a01",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "runtime",
+            "upstream-adapter-runtimeop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::DebugPrint",
+      "definition_sha256": "f76747feb8ea5e8c4f01ed030e54b06fcd6d87433cf2f3b6ba33215e6e897238",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "runtime",
+            "upstream-adapter-runtimeop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::Retire",
+      "definition_sha256": "7f871d84db5a285d59b68d6980a51ac972bdfcd561147fe7c92a11bc6298cccc",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "runtime",
+            "upstream-adapter-runtimeop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::Defect",
+      "definition_sha256": "4a6fdab8e11fe56a0257648aeb1939bdce04f93f604d72fa1bc6fa55c3f2bab1",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-runtime"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::DefectAt",
+      "definition_sha256": "7fb26290e755406510edd206621365b037b92db7dfe45c49949ff4958ba06787",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flow input validation rejects this upstream operation before adaptation.",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-runtime"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::DefectTake",
+      "definition_sha256": "ce39da3b46a4aa54433016766732c345189906bfc85b578baf062762a865bd5a",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-runtime"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::DefectResume",
+      "definition_sha256": "5b06e1dafb8290b78b8b26ccadae9b2e9fafdc3442a5b3322ba2f41659c53a9f",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-runtime"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::Hold",
+      "definition_sha256": "7b14b7860f0e1fb1528ebd8ff96bc2afd7c79e92011bcc73a4293e37894bf64e",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "runtime",
+            "upstream-adapter-runtimeop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::Unhold",
+      "definition_sha256": "6501ae3dd2c432c83f851816587db21397646127d08433c459534b8eb2bc5d23",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "runtime",
+            "upstream-adapter-runtimeop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::Yield",
+      "definition_sha256": "cfc4ec3065f34d8cc8d05df33124ca621f2763fa85edc9b718a1bad9df5a03fd",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-runtime"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::RuntimeOp::YieldPerform",
+      "definition_sha256": "40d678127ec786eff8c2599dd3f7cda2c0b6afbc38277846e085ff0efed93afd",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-runtime"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Callee::Direct",
+      "definition_sha256": "ffa25d531215fb7a026ae36e398c49b9dadbfb830d852ec421c4050762003a1e",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "callee",
+            "upstream-adapter-callee"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-callee-direct",
+            "upstream-adapter-callee"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Callee::Indirect",
+      "definition_sha256": "fb1a9737dda00b9ed3e43f2764abbe21ee822ba6dab5d57108a63979510882c3",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "callee",
+            "upstream-adapter-callee"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-callee-indirect",
+            "upstream-adapter-callee"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Callee::Op",
+      "definition_sha256": "e2f6537a5de2cf54a601be3f92a9bd3756504e05b2c851484f2cdb1159883913",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "callee",
+            "upstream-adapter-callee"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-callee-op",
+            "upstream-adapter-callee"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::OnFail::Break",
+      "definition_sha256": "8ace68d4be9e49f22945174e7864f3296be8998a12113c8a48ef401106590719",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-failure",
+            "upstream-adapter-onfail"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-failure",
+            "upstream-adapter-onfail"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::OnFail::Propagate",
+      "definition_sha256": "c87694d3174f830ba0203555335b96d81491d51ae8cbf8cd083f765f3ca34408",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "sync-failure",
+            "upstream-adapter-onfail"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "suspend-failure",
+            "upstream-adapter-onfail"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::OnFail::Handle",
+      "definition_sha256": "4a3671e7654fa375558aae5cf75e9cb6debc897da1d8eee419dbdf1ffed662fa",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-heap-failure"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Add",
+      "definition_sha256": "ef2a2a63693b384db3262fa9541a2f92707051c72fc69a2da1c034e77a753952",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Sub",
+      "definition_sha256": "e69ae493daac72257fc2c2e4004dc8dc21c2ee33be91041ccde7fe25a4aec66f",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Mul",
+      "definition_sha256": "96fa0e97a5048bd60ddd33f419aa85725584688b9a0bc3a013e6d8d0f6354525",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Div",
+      "definition_sha256": "81e62a583ef1a1bd4f4ad9aa5ddc2c8b6d182ebfa18d2fe3fc4838672ac04276",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Rem",
+      "definition_sha256": "a738b2fc2f02083e8e24c747a25d7656007cbdffd22392f70a06569e2fb1cd44",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Neg",
+      "definition_sha256": "da5d85c6a401f8cbe70224758df5c2e83445934f1d7f494941ec864999b2264c",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Not",
+      "definition_sha256": "3250d140092c0e20b9b46bd452525e1eb29e2a15e29a79d0898c9ddfc2cc96ca",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Eq",
+      "definition_sha256": "b7a87a539dabac940e4d1bd2a5702fba2cd6d2bbb2fed75c90454a718cae5dee",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Ne",
+      "definition_sha256": "6b8c8b062beb8fe51f4fb93efc186305160a6d14efdb1967f5483548de00c247",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Lt",
+      "definition_sha256": "953742403350c9e951b5efe74e82e5b3e251534faf5dd47498096031d3a748e0",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Le",
+      "definition_sha256": "f60c91aa4e0dd517ea3f44053742bb1f77d770d459bf5810669031b4480952eb",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Gt",
+      "definition_sha256": "aa09bf20c19989ef496ee5c027acd8027a0eb5aaa373ec5eb5bf36148488a632",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimOp::Ge",
+      "definition_sha256": "ca3c75d80d24305a8778eacd3d3405720d9bb666e5ef44bb82a56462a9dd2278",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive",
+            "upstream-adapter-primop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimTy::I32",
+      "definition_sha256": "967d4f3fd5b4f155358ed5a9fe55e7df4a2ccafe8fb7ac51db1e160247ff86d8",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive-type",
+            "upstream-adapter-primty"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimTy::I64",
+      "definition_sha256": "9cbcac49ac9afeb2c9eed53b0d05591bf85c4f8228407e33527f1c36745321e9",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive-type",
+            "upstream-adapter-primty"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimTy::F64",
+      "definition_sha256": "1e0df7f879cb3005951cc9b62e9ffd5dfcce85809710a0778bffdbe6ab66fdd3",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive-type",
+            "upstream-adapter-primty"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::PrimTy::String",
+      "definition_sha256": "656f5604735f7d4014fa3281d6304a8ebd647156644bb6f8ecf8a86765d1fd08",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "primitive-type",
+            "upstream-adapter-primty"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Repr::I32",
+      "definition_sha256": "967d4f3fd5b4f155358ed5a9fe55e7df4a2ccafe8fb7ac51db1e160247ff86d8",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "representation",
+            "upstream-adapter-repr"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Repr::I64",
+      "definition_sha256": "9cbcac49ac9afeb2c9eed53b0d05591bf85c4f8228407e33527f1c36745321e9",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "representation",
+            "upstream-adapter-repr"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Repr::F64",
+      "definition_sha256": "1e0df7f879cb3005951cc9b62e9ffd5dfcce85809710a0778bffdbe6ab66fdd3",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "representation",
+            "upstream-adapter-repr"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Repr::Ref",
+      "definition_sha256": "f395c7ee6bb623b01ca9eeb35d5b825084958313e9938ba8fec885f78bb8342a",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "representation",
+            "upstream-adapter-repr"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_lir::Repr::Void",
+      "definition_sha256": "f8ad6ec74eea05412b9b8e877c4ed924a05870fd824ff8c2867b628f423357b7",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "representation",
+            "upstream-adapter-repr"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringLength",
+      "definition_sha256": "eab368034301c67d8bd384fec781b2b881ab21ce9af23dd483931f0efc907d23",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringByteSize",
+      "definition_sha256": "6bea2fb52a5661ea75dcf34d313b691a47e6f22b5a57baa115209843fbfe6606",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringAppend",
+      "definition_sha256": "2ef5fa406f09faa07586b8ebd43135fb93ccf8abcbbebca8483dd09926c4a9bf",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringContains",
+      "definition_sha256": "f13f3f8627733a2b5e3d4ac2cdacaa304bb7250363138c669ba06bb8f26fbc8f",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringStartsWith",
+      "definition_sha256": "d2a5ae97da5d5ac60d189f1166d90a1e917bc0763e5d05fe1d4f9fd9f373d843",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringEndsWith",
+      "definition_sha256": "6ec1d21c787fe2e613160de7309e444bed9a736dc7791208ed971e1724018977",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringSplit",
+      "definition_sha256": "dc5041bcd85c105381e12595f756310a9dc7d9c2336992bf4c67f196d96b5896",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringChars",
+      "definition_sha256": "15ce8f64d0b5d07498aece0f4fb91956e09908aa180f44be148abe4c5d4e0d7a",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringJoin",
+      "definition_sha256": "bce5224bd7a2d6a3dacd2ff66fa13346c3f617a08f517f381298e3988055916a",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringTrim",
+      "definition_sha256": "78e274d9d336a6be3ad342f8c2d30936fbe4c3b572bc6792ed0c68ac4bfa705c",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringCodePoints",
+      "definition_sha256": "e5387b09fe8b97059b7dc9038fad96eca0c0632979d82650166557a18ced6dde",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::StringFromCodePoint",
+      "definition_sha256": "1cc75e4a9c258a61e4ea9c8f01c30c932c55294125fc40c601a2bf9804242f1a",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::ShowNested",
+      "definition_sha256": "e63139e5eb7dd0cc8a51033f23f2f4238d2d162cace8aa0507bd2dea1250980d",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::IntToString",
+      "definition_sha256": "31c16c6d16a6a940c9a6a4e9f21e1bba7d986b75c4abc839ca0f2f9452810b77",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::IntParse",
+      "definition_sha256": "46067913206b602807d1f8ebddc01504bddbee500f6e821e82493da3880d8e50",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::IntCheckedAdd",
+      "definition_sha256": "0c7bf8177550e68674cbb0c09bacf3ab83445f70dcf70db39a8eba8da45f3ef0",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::IntBitAnd",
+      "definition_sha256": "4a68464cdef0b23013fc064eca771f73ccf66f7f1b72d49a1bd934fb70843ac2",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::IntBitOr",
+      "definition_sha256": "8a4ad2ed66ac0bdad3279f84cef8603c01761d2a0ca0c66c71eda85477a82988",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::IntBitXor",
+      "definition_sha256": "acae3d8ebae256360cea56fdbb1148f8a9caabe22509a46fe24026d807a19c59",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::IntBitNot",
+      "definition_sha256": "f78a5506d44481f38d5d4e933d52a1b50a256060030d4e0b6e166db422e48539",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::IntShiftLeft",
+      "definition_sha256": "fe75bc5193e4015aa34045a46368c9440beb3b8da1e285e228261e5f8b3b2bb2",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::IntShiftRight",
+      "definition_sha256": "68fd61e218dd726c0acc352e9c147aa093e350b09898789aa0869c4be56648a5",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::IntShiftRightUnsigned",
+      "definition_sha256": "7826da2a6c903356ac9ae0d189d30bdeef0d866dbdd078f265a09d7a3a689c6a",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Int64FromInt",
+      "definition_sha256": "60998cc2148a85888c7ad78f513a6744ceb25ef91a4f388cc9beadf48274bbae",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Int64ToString",
+      "definition_sha256": "affaae8cc14baa9291354384e906163241bc831242d26738feb6fb192b22dc93",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Int64ToInt",
+      "definition_sha256": "e9151a30fb8347c68ea4242eee065f2efaa324221e216b65a242a92ba00d9587",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Int64BitAnd",
+      "definition_sha256": "81ba5f15833932ae422e588a3e231a7e9e6d2da299bdf78687495a13f7e79db7",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Int64BitOr",
+      "definition_sha256": "01e1f20e1edd75fd7ea218e987821aeaf266b621ab4a24cbd4903bcee4d64f3d",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Int64BitXor",
+      "definition_sha256": "9c894cf8ec92dcf975f1e43860c9f024cffbcb9225fdf4b5eb3b758cd2f0b0d7",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Int64BitNot",
+      "definition_sha256": "2408b9e07208828a755f7550669a486841f451e23f438f220594378ff84b496b",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Int64ShiftLeft",
+      "definition_sha256": "fa4e44b4e7e4e895b01a9aba92310a86c220e31d4199eb683018aca473c29d61",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Int64ShiftRight",
+      "definition_sha256": "7ff31d20874fef0124e7821f1580d9dd14abe61dc73e09e8b6c510f7b05dfb92",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Int64ShiftRightUnsigned",
+      "definition_sha256": "6f2d7cfe1a82894f0b6f11e29ae5c3bc6562905c0fd7e0d02edf8fddd0b73fc4",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::FloatToString",
+      "definition_sha256": "de84e39bee01192cc67a2600e56f3799517d95993d31de1c9c58851ef7d9a9bc",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::FloatFromInt",
+      "definition_sha256": "0f706992173a9fd088f9bbf7a7ee66c47b23ab4740a13bf5dc0191bda3de3c51",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::FloatParse",
+      "definition_sha256": "b3a836e9bd1936c50ec16e856fe1bb22d67425c43f0ddba50b2776b8a89f93a7",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::FloatFloor",
+      "definition_sha256": "56cede794b5c7ce942f7d814630297d8eaeb50c2a120503874c8d4a988e041f0",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::FloatCeil",
+      "definition_sha256": "55695845d8333e587b28ade93a0ac00cdd15b2d4362a342aada20404264cd62e",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::FloatRound",
+      "definition_sha256": "810de578dcd5fa11ce5c936019c6edbf1e16ce8c8b4bd2ad6a876f2f003e4ca1",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::FloatTruncate",
+      "definition_sha256": "635aaea25b67ee809de6f71b472d3bb1a9bc4ad26e60aaaa618718d0dff3081d",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::BytesFromList",
+      "definition_sha256": "b469b84750fdd9d9e567466cf9756cb81de9bb685ed13478deebf894d2e729be",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::BytesToList",
+      "definition_sha256": "3ddc9a3768ecd52a9de8bf79f27133df4336285d92ee33e5ac451285cd28b6d9",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::BytesSize",
+      "definition_sha256": "e79af588953e56c56d885e29c891a74b01067e415c76cbecb4421bfd9b259c31",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::BytesGet",
+      "definition_sha256": "b0559f6b830f55538fc951c9bc588996e52695ab01a34ef94b5ad5bc8673e42e",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::BytesSlice",
+      "definition_sha256": "15227d0f30d01f13af195d570c1c4a2ff86e691ca191d305c0065e127c306bea",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::BytesConcat",
+      "definition_sha256": "f94c72ae28f14a459b184dc957ec60ec515bb4a1dd2fdd110830169d6a6c9bdd",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::BytesEncodeUtf8",
+      "definition_sha256": "bd4f809da786105b4fd00b340a6c05fcfe67583326cd904cb092f65c023e35c7",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::BytesDecodeValidUtf8",
+      "definition_sha256": "41fa02a9421bdf780984da0beb91509d066ce89c4d799ee6e2cb337fc9ab46ea",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Panic",
+      "definition_sha256": "26e2b822d3c8af65be239766aa06e3a2ddbf7a6582f9ec05297d9cdd394eb028",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Todo",
+      "definition_sha256": "fa1f2c986961adb5d0ff8f72f3ff1ecdf8c7a85b33ac3a02d3a16727e8742155",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Dbg",
+      "definition_sha256": "f38a8012385c9740ecb340756fbde482a93487480b3444ae0954461a927479b1",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::Inspect",
+      "definition_sha256": "334b0a656b400514c8415f1a2e508dc78a35e1f9dcaf02d4cf414bfee28504e9",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::CellNew",
+      "definition_sha256": "38e2b40c3995a773684ff000b929f2d088cfe0fee5f3cf7294f84f01d811cb73",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::CellGet",
+      "definition_sha256": "a74ed1b5e0d36a6dd9389de4ae3407a4ea2a42b12fe75cc1fb41e2180ff1802a",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::CellSet",
+      "definition_sha256": "46622d7f50662995fbcb2cb9ac7aff2a6b7c9208c5fe7d98f902dd841e22eecf",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "common",
+          "status": "candidate_found",
+          "routes": [
+            "builtin",
+            "upstream-adapter-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::ShowString",
+      "definition_sha256": "7df0fc090bb0d6b3b6d0004f5d84f47cea507419000e545bf01ce9a92dd36a01",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::DebugPrint",
+      "definition_sha256": "f76747feb8ea5e8c4f01ed030e54b06fcd6d87433cf2f3b6ba33215e6e897238",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flowでは禁止するとの設定。指定した拒否分岐の構文上の根拠を要求する。",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::Builtin::AssertFail",
+      "definition_sha256": "912be595508f4a3f461d5a4c53cfe78534120e0d88b00961adcfbed6ab2012f9",
+      "flow_input": "forbidden_by_config",
+      "exclusion_reason": "Flow input validation rejects this upstream operation before adaptation.",
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "input",
+          "status": "rejection_evidence",
+          "routes": [
+            "reject-builtin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::Scope",
+      "definition_sha256": "b400d11b45749ee21061ef2b9db6fb9b1a2fbde13ae7572d305992ff35f91ba2",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::Fork",
+      "definition_sha256": "f3d5df3a7c29b74f932115cb3cd11212daeb044ca60556220cf3856306468ed8",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::Deferred",
+      "definition_sha256": "30df0f4f806b2fb687959c02957fffc27b189d70ceb464df74e3e1193ec52bfa",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::Join",
+      "definition_sha256": "d9ded8f8eb757b6bbf2a5f1249f58cc039a977c0406e184a7439e4248c38272e",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::Await",
+      "definition_sha256": "931d68a9cd0278879a818cb11b6b27cd8e869f4ac7f39eedb4eb425d6e0eb96e",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::Interrupt",
+      "definition_sha256": "25cc4d9eaf26e8b026a8ef63e8e1a804e287c01e5433a09bc7c11129484c6a07",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::Attempt",
+      "definition_sha256": "fa8a3e212deb5d37f9c5f36a18ad8053f396236b350c8e1d7cb852ba5922c918",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::Complete",
+      "definition_sha256": "e41fecd3f2e338e7b275cf6a843094b6db03d7b586216772183dc46a8f29415e",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::DeferredAwait",
+      "definition_sha256": "3cfd7f5b7e715a49fee36e97406e6418d8159aad2bbc4fbf936551f13709bcff",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::Poll",
+      "definition_sha256": "968305dd03c61212edd0a260054b53d545fc51cdb0dc229b053d9c6beb4d002a",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::CauseKind",
+      "definition_sha256": "a65886342b521994e9699e3ab9604311f6cef97783bfef2549725d7fe0b5992e",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::CauseToString",
+      "definition_sha256": "47db4857aeaebba751e3f871623f4ddd335389e5d00cbf49be7d6009708f2dc0",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emela_core::FiberOp::CauseRaise",
+      "definition_sha256": "b686ace922a0cd4a23be71458706ed4e5fb1da079af24ab30686afbeefb1d6f6",
+      "flow_input": "unreviewed",
+      "exclusion_reason": null,
+      "review_status": "unreviewed",
+      "contexts": [
+        {
+          "context": "sync",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        },
+        {
+          "context": "suspend",
+          "status": "candidate_found",
+          "routes": [
+            "fiber",
+            "upstream-adapter-fiberop"
+          ]
+        }
+      ]
+    }
+  ],
+  "orphan_evidence": [],
+  "unconfigured_enums": [],
+  "out_of_scope": [
+    "emela_lir::FnId",
+    "emela_lir::VarId",
+    "emela_lir::StmtId",
+    "emela_lir::SeqId",
+    "emela_lir::LabelId",
+    "emela_lir::Module",
+    "emela_lir::Module.core",
+    "emela_lir::Module.functions",
+    "emela_lir::Module.stage",
+    "emela_lir::Module.error_shows",
+    "emela_lir::Stage",
+    "emela_lir::Function",
+    "emela_lir::Function.name",
+    "emela_lir::Function.exported",
+    "emela_lir::Function.params",
+    "emela_lir::Function.ret",
+    "emela_lir::Function.fails",
+    "emela_lir::Function.suspends",
+    "emela_lir::Function.constant",
+    "emela_lir::Function.external",
+    "emela_lir::Function.env",
+    "emela_lir::Function.defects",
+    "emela_lir::Function.body",
+    "emela_lir::Function.vars",
+    "emela_lir::Function.stmts",
+    "emela_lir::Function.seqs",
+    "emela_lir::Function.labels",
+    "emela_lir::VarData",
+    "emela_lir::VarData.hint",
+    "emela_lir::VarData.repr",
+    "emela_lir::VarData.ty",
+    "emela_lir::LabelData",
+    "emela_lir::LabelData.hint",
+    "emela_lir::Seq",
+    "emela_lir::Seq.stmts",
+    "emela_lir::Seq.term",
+    "emela_lir::Term",
+    "emela_lir::Term::Yield.0",
+    "emela_lir::Term::Return.0",
+    "emela_lir::Term::Fail.0",
+    "emela_lir::Term::Break.label",
+    "emela_lir::Term::Break.value",
+    "emela_lir::Term::Recur.0",
+    "emela_lir::Term::Defect.0",
+    "emela_lir::Term::Defect.1",
+    "emela_lir::Stmt",
+    "emela_lir::Stmt::Let.dst",
+    "emela_lir::Stmt::Let.value",
+    "emela_lir::Stmt::Let.on_defect",
+    "emela_lir::Stmt::Let.on_suspend",
+    "emela_lir::Stmt::If.dst",
+    "emela_lir::Stmt::If.cond",
+    "emela_lir::Stmt::If.then",
+    "emela_lir::Stmt::If.else_",
+    "emela_lir::Stmt::Switch.dst",
+    "emela_lir::Stmt::Switch.on",
+    "emela_lir::Stmt::Switch.cases",
+    "emela_lir::Stmt::Switch.default",
+    "emela_lir::Stmt::Loop.dst",
+    "emela_lir::Stmt::Loop.vars",
+    "emela_lir::Stmt::Loop.inits",
+    "emela_lir::Stmt::Loop.body",
+    "emela_lir::Stmt::Block.dst",
+    "emela_lir::Stmt::Block.label",
+    "emela_lir::Stmt::Block.body",
+    "emela_lir::Stmt::Protect.dst",
+    "emela_lir::Stmt::Protect.body",
+    "emela_lir::Stmt::Protect.cleanup",
+    "emela_lir::Stmt::Dup.0",
+    "emela_lir::Stmt::Drop.0",
+    "emela_lir::Suspend",
+    "emela_lir::Suspend.state",
+    "emela_lir::Suspend.saved",
+    "emela_lir::SwitchOn",
+    "emela_lir::SwitchOn::Tag.0",
+    "emela_lir::SwitchOn::Lit.0",
+    "emela_lir::Case",
+    "emela_lir::Case.key",
+    "emela_lir::Case.body",
+    "emela_lir::CaseKey",
+    "emela_lir::CaseKey::Variant.0",
+    "emela_lir::CaseKey::Lit.0",
+    "emela_lir::Operand",
+    "emela_lir::Operand::Var.0",
+    "emela_lir::Operand::Const.0",
+    "emela_lir::Const",
+    "emela_lir::Const::Int.0",
+    "emela_lir::Const::Int64.0",
+    "emela_lir::Const::Float.0",
+    "emela_lir::Const::Bool.0",
+    "emela_lir::Const::String.0",
+    "emela_lir::Value",
+    "emela_lir::Value::Const.0",
+    "emela_lir::Value::Prim.op",
+    "emela_lir::Value::Prim.ty",
+    "emela_lir::Value::Prim.args",
+    "emela_lir::Value::Call.callee",
+    "emela_lir::Value::Call.args",
+    "emela_lir::Value::Call.suspends",
+    "emela_lir::Value::Call.on_fail",
+    "emela_lir::Value::Builtin.op",
+    "emela_lir::Value::Builtin.args",
+    "emela_lir::Value::Make.ctor",
+    "emela_lir::Value::Make.args",
+    "emela_lir::Value::Field.base",
+    "emela_lir::Value::Field.ctor",
+    "emela_lir::Value::Field.index",
+    "emela_lir::Value::Tag.0",
+    "emela_lir::Value::Tuple.0",
+    "emela_lir::Value::TupleGet.base",
+    "emela_lir::Value::TupleGet.index",
+    "emela_lir::Value::List.elems",
+    "emela_lir::Value::List.tail",
+    "emela_lir::Value::ListIsEmpty.0",
+    "emela_lir::Value::ListHead.0",
+    "emela_lir::Value::ListTail.0",
+    "emela_lir::Value::FnRef.0",
+    "emela_lir::Value::Closure.0",
+    "emela_lir::Value::MakeClosure.function",
+    "emela_lir::Value::MakeClosure.captures",
+    "emela_lir::Value::EnvGet.env",
+    "emela_lir::Value::EnvGet.index",
+    "emela_lir::Value::EvLookup.ev",
+    "emela_lir::Value::EvLookup.effect",
+    "emela_lir::Value::EvExtend.base",
+    "emela_lir::Value::EvExtend.bindings",
+    "emela_lir::Value::Handler.name",
+    "emela_lir::Value::Handler.effect",
+    "emela_lir::Value::Handler.ops",
+    "emela_lir::Value::Fiber.op",
+    "emela_lir::Value::Fiber.args",
+    "emela_lir::Value::Fiber.on_fail",
+    "emela_lir::Value::IsError.error",
+    "emela_lir::Value::IsError.enum_id",
+    "emela_lir::Value::AsError.error",
+    "emela_lir::Value::AsError.enum_id",
+    "emela_lir::Value::Runtime.op",
+    "emela_lir::Value::Runtime.args",
+    "emela_lir::Value::Coerce.0",
+    "emela_lir::RuntimeOp",
+    "emela_lir::Closure",
+    "emela_lir::Closure.params",
+    "emela_lir::Closure.captures",
+    "emela_lir::Closure.body",
+    "emela_lir::Closure.suspends",
+    "emela_lir::Callee",
+    "emela_lir::Callee::Direct.0",
+    "emela_lir::Callee::Indirect.0",
+    "emela_lir::Callee::Op.handler",
+    "emela_lir::Callee::Op.effect",
+    "emela_lir::Callee::Op.op",
+    "emela_lir::OnFail",
+    "emela_lir::OnFail::Break.0",
+    "emela_lir::OnFail::Handle.error",
+    "emela_lir::OnFail::Handle.body",
+    "emela_lir::PrimOp",
+    "emela_lir::PrimTy",
+    "emela_lir::Repr",
+    "emela_core::Builtin",
+    "emela_core::External",
+    "emela_core::External.bindings",
+    "emela_core::ExternalBinding",
+    "emela_core::ExternalBinding.target",
+    "emela_core::ExternalBinding.host",
+    "emela_core::HostRef",
+    "emela_core::HostRef::Global",
+    "emela_core::HostRef::Global.0",
+    "emela_core::HostRef::Import",
+    "emela_core::HostRef::Import.module",
+    "emela_core::HostRef::Import.name",
+    "emela_core::HostModule",
+    "emela_core::HostModule::Named",
+    "emela_core::HostModule::Named.0",
+    "emela_core::HostModule::File",
+    "emela_core::HostModule::File.0",
+    "emela_core::HostModule::Bundled",
+    "emela_core::HostModule::Bundled.0",
+    "emela_core::EffectDef",
+    "emela_core::EffectDef.name",
+    "emela_core::EffectDef.decl",
+    "emela_core::EffectDef.args",
+    "emela_core::EffectDef.ops",
+    "emela_core::EffectDef.label_of",
+    "emela_core::OpDef",
+    "emela_core::OpDef.name",
+    "emela_core::OpDef.suspend",
+    "emela_core::OpDef.type_params",
+    "emela_core::OpDef.params",
+    "emela_core::OpDef.ret",
+    "emela_core::OpDef.fails",
+    "emela_core::EnumDef",
+    "emela_core::EnumDef.name",
+    "emela_core::EnumDef.params",
+    "emela_core::EnumDef.variants",
+    "emela_core::EnumDef.error",
+    "emela_core::EnumDef.external",
+    "emela_core::VariantDef",
+    "emela_core::VariantDef.name",
+    "emela_core::VariantDef.fields",
+    "emela_core::VariantDef.tys",
+    "emela_core::Type",
+    "emela_core::Type::Int",
+    "emela_core::Type::Int64",
+    "emela_core::Type::Float",
+    "emela_core::Type::Bool",
+    "emela_core::Type::String",
+    "emela_core::Type::Bytes",
+    "emela_core::Type::Unit",
+    "emela_core::Type::Never",
+    "emela_core::Type::Tuple",
+    "emela_core::Type::Tuple.0",
+    "emela_core::Type::List",
+    "emela_core::Type::List.0",
+    "emela_core::Type::Enum",
+    "emela_core::Type::Enum.0",
+    "emela_core::Type::Enum.1",
+    "emela_core::Type::Param",
+    "emela_core::Type::Param.0",
+    "emela_core::Type::Fn",
+    "emela_core::Type::Fn.0",
+    "emela_core::Type::Handler",
+    "emela_core::Type::Handler.0",
+    "emela_core::Type::Evidence",
+    "emela_core::Type::Cell",
+    "emela_core::Type::Cell.0",
+    "emela_core::Type::FiberScope",
+    "emela_core::Type::Any",
+    "emela_core::Type::Set",
+    "emela_core::Type::Set.0",
+    "emela_core::SetSummary",
+    "emela_core::SetSummary.fails",
+    "emela_core::SetSummary.suspends",
+    "emela_core::SetSummary.ev",
+    "emela_core::SetSummary.params",
+    "emela_core::FnSets",
+    "emela_core::FnSets.errors",
+    "emela_core::FnSets.effects",
+    "emela_core::FnType",
+    "emela_core::FnType.params",
+    "emela_core::FnType.ret",
+    "emela_core::FnType.fails",
+    "emela_core::FnType.suspends",
+    "emela_core::FnType.ev",
+    "emela_core::FnType.sets",
+    "emela_core::VariantFields",
+    "emela_core::VariantFields::Unit",
+    "emela_core::VariantFields::Positional",
+    "emela_core::VariantFields::Positional.0",
+    "emela_core::VariantFields::Named",
+    "emela_core::VariantFields::Named.0",
+    "emela_core::CtorRef",
+    "emela_core::CtorRef.enum_id",
+    "emela_core::CtorRef.variant",
+    "emela_core::FiberOp",
+    "emela_core::FiberOp::Scope.fails",
+    "emela_core::FiberOp::Await.exit",
+    "emela_core::FiberOp::Attempt.exit",
+    "emela_core::FiberOp::Attempt.suspends",
+    "emela_core::FiberOp::CauseKind.kind",
+    "emela_core::FiberOp::CauseRaise.fails"
+  ],
+  "representation_gaps": [],
+  "route_errors": []
+}

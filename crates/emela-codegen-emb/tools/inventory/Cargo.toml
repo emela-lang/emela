@@ -1,0 +1,32 @@
+[package]
+name = "emela-emb-inventory"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+# Audits source even when the compiler workspace does not build.
+[workspace]
+
+[dependencies]
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+syn = { version = "2", features = ["full", "visit"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[test]]
+name = "definitions"
+path = "../../tests/feature_inventory.rs"
+
+[[test]]
+name = "implementation"
+path = "../../tests/implementation_inventory.rs"
+
+[[test]]
+name = "test_catalog"
+path = "../../tests/test_inventory.rs"

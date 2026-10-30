@@ -58,10 +58,6 @@ error enum Std.FileSystem.FileSystemFailure {
   FileSystemFailure(path: String, message: String)
 }
 
-error enum Std.Embedded.Peripheral.PeripheralError {
-  PeripheralError(code: Int)
-}
-
 export fn main() -> Int fails {
   let a%1: Int = {
     find(1)?

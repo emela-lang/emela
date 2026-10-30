@@ -175,9 +175,12 @@ impl EmbeddedProject {
                     && path
                         .file_name()
                         .is_some_and(|name| name.to_string_lossy().starts_with("emela_"))
-                    && path
-                        .extension()
-                        .is_some_and(|extension| extension == "c" || extension == "h")
+                    && (path
+                        .file_name()
+                        .is_some_and(|name| name == emela_codegen_emb::artifact::MANIFEST_FILE)
+                        || path
+                            .extension()
+                            .is_some_and(|extension| extension == "c" || extension == "h"))
                 {
                     std::fs::remove_file(path).map_err(io_diagnostic)?;
                 }

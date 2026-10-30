@@ -17,6 +17,8 @@ boards/stm32/stm32f4/
 
 ## 選択できる対象
 
+生成directoryの`emela_artifact.json`からC入力を選ぶ。形式・ABIの版と全列挙ファイルをtoolchain起動前に検証し、未列挙の残存Cはcompileしない。独自の生成C／headerを`Output.files`へ追加するときは`refresh_manifest()`で一覧を更新する。[生成物の契約](../../../docs/artifact-contract.md)を参照する。
+
 | Rust APIのboard ID | MCU | Flash | 通常SRAM | Console TX/RX |
 | --- | --- | ---: | ---: | --- |
 | `stm32f407vg` | STM32F407VG、LQFP100 | 1 MiB | 128 KiB | USART2、PA2/PA3、AF7 |

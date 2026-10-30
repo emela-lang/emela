@@ -93,131 +93,46 @@ pub fn enum_variants(source: &str, name: &str) -> Result<BTreeSet<String>, Strin
     Err(format!("enum {name} has no closing brace"))
 }
 
-pub fn check_document(
-    name: &str,
+pub fn check_inventory(
+    owner: &str,
     expected: &BTreeSet<String>,
-    document: &str,
+    inventory: &serde_json::Value,
 ) -> Result<(), String> {
-    let prefix = format!("<!-- flow-audit:{name} ");
-    let lines: Vec<_> = document
-        .lines()
-        .filter_map(|line| line.strip_prefix(&prefix))
-        .collect();
-    if lines.len() != 1 {
+    let items = inventory["items"]
+        .as_array()
+        .ok_or("missing inventory items")?;
+    let prefix = format!("{owner}::");
+    let mut listed = BTreeSet::new();
+    for item in items
+        .iter()
+        .filter(|item| item["kind"] == "variant" && item["parent"] == owner)
+    {
+        let id = item["id"].as_str().ok_or("missing variant ID")?;
+        let variant = id
+            .strip_prefix(&prefix)
+            .filter(|name| !name.is_empty() && !name.contains("::"))
+            .ok_or_else(|| format!("{owner}: invalid variant ID {id}"))?;
+        if !listed.insert(variant.to_owned()) {
+            return Err(format!("{owner}: duplicated inventory entry {id}"));
+        }
+    }
+    if &listed != expected {
         return Err(format!(
-            "{name}: expected one inventory marker, got {}",
-            lines.len()
+            "{owner}: missing {:?}; extra {:?}",
+            expected.difference(&listed).collect::<Vec<_>>(),
+            listed.difference(expected).collect::<Vec<_>>()
         ));
     }
-    let marker = lines[0]
-        .strip_suffix(" -->")
-        .ok_or_else(|| format!("{name}: malformed inventory marker"))?;
-    let listed: Vec<_> = marker.split_whitespace().map(str::to_owned).collect();
-    let listed_set: BTreeSet<_> = listed.iter().cloned().collect();
-    if listed_set.len() != listed.len() {
-        return Err(format!("{name}: duplicated inventory entries"));
-    }
-    if &listed_set != expected {
-        return Err(format!(
-            "{name}: missing {:?}; extra {:?}",
-            expected.difference(&listed_set).collect::<Vec<_>>(),
-            listed_set.difference(expected).collect::<Vec<_>>()
-        ));
-    }
-    for variant in expected {
-        let qualified = format!("`{name}::{variant}`");
-        if !document.contains(&qualified) {
-            return Err(format!("{name}: {qualified} has no rendered audit entry"));
-        }
-    }
     Ok(())
-}
-
-fn test_functions(directory: &Path, names: &mut BTreeSet<String>) -> Result<(), String> {
-    for entry in fs::read_dir(directory).map_err(|e| format!("{}: {e}", directory.display()))? {
-        let path = entry.map_err(|e| e.to_string())?.path();
-        if path.is_dir() {
-            test_functions(&path, names)?;
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
-            let source = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-            // Test fixtures contain large raw strings; only inspect the synchronous test
-            // declaration immediately following the attribute, rather than lexing their bodies.
-            for declaration in source.split("#[test]").skip(1) {
-                if let Some(rest) = declaration.trim_start().strip_prefix("fn ") {
-                    let name: String = rest
-                        .chars()
-                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-                        .collect();
-                    if !name.is_empty() {
-                        names.insert(name);
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn table_cells(line: &str) -> Vec<String> {
-    let mut cells = vec![String::new()];
-    let mut quoted = false;
-    for ch in line.trim_matches('|').chars() {
-        if ch == '`' {
-            quoted = !quoted;
-        }
-        if ch == '|' && !quoted {
-            cells.push(String::new());
-        } else {
-            cells.last_mut().unwrap().push(ch);
-        }
-    }
-    cells
-}
-
-pub fn check_test_references(document: &str, names: &BTreeSet<String>) -> Result<usize, String> {
-    let mut column = None;
-    let mut references = 0;
-    for line in document.lines() {
-        if !line.starts_with('|') {
-            column = None;
-            continue;
-        }
-        let cells = table_cells(line);
-        if let Some(index) = cells
-            .iter()
-            .position(|cell| cell.contains("試験") || cell.contains("テスト"))
-        {
-            column = Some(index);
-            continue;
-        }
-        let Some(cell) = column.and_then(|index| cells.get(index)) else {
-            continue;
-        };
-        for reference in cell.split('`').skip(1).step_by(2) {
-            let function = reference.rsplit("::").next().unwrap();
-            if function.starts_with(|c: char| c.is_ascii_lowercase())
-                && function.contains('_')
-                && reference
-                    .split("::")
-                    .all(|part| part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
-            {
-                if !names.contains(function) {
-                    return Err(format!("audit refers to nonexistent test `{reference}`"));
-                }
-                references += 1;
-            }
-        }
-    }
-    if references == 0 {
-        return Err("audit has no checked test references".into());
-    }
-    Ok(references)
 }
 
 pub fn check(crate_root: &Path) -> Result<Vec<(String, usize)>, String> {
-    let document_path = "docs/implementation.md";
-    let document = fs::read_to_string(crate_root.join(document_path))
-        .map_err(|e| format!("{document_path}: {e}"))?;
+    let inventory_path = "docs/generated/flow-ir-inventory.json";
+    let inventory: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(crate_root.join(inventory_path))
+            .map_err(|e| format!("{inventory_path}: {e}"))?,
+    )
+    .map_err(|e| format!("{inventory_path}: {e}"))?;
     let definitions = [
         ("Value", "../emela-lir/src/ir.rs"),
         ("Const", "../emela-lir/src/ir.rs"),
@@ -240,7 +155,12 @@ pub fn check(crate_root: &Path) -> Result<Vec<(String, usize)>, String> {
         let source =
             fs::read_to_string(crate_root.join(source)).map_err(|e| format!("{source}: {e}"))?;
         let expected = enum_variants(&source, name)?;
-        check_document(name, &expected, &document)?;
+        let namespace = if matches!(name, "FiberOp" | "Builtin") {
+            "emela_core"
+        } else {
+            "emela_lir"
+        };
+        check_inventory(&format!("{namespace}::{name}"), &expected, &inventory)?;
         if name == "Builtin" {
             // Lowering-only cell/display builtins are absent from the public ALL table.
             let public: BTreeSet<_> = emela_core::Builtin::ALL
@@ -267,8 +187,5 @@ pub fn check(crate_root: &Path) -> Result<Vec<(String, usize)>, String> {
         }
         counts.push((name.to_owned(), expected.len()));
     }
-    let mut tests = BTreeSet::new();
-    test_functions(&crate_root.join("tests"), &mut tests)?;
-    check_test_references(&document, &tests).map_err(|e| format!("{document_path}: {e}"))?;
     Ok(counts)
 }

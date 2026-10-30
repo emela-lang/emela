@@ -56,16 +56,17 @@ pub const CORE_DIR: &str = "<core>";
 /// [`Frontend::core_sources`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreSource {
-    /// The module name (`List`, `Prelude`), as given by `emela_core::core_sources()`.
+    /// The module name (`List`, `Prelude`, `Std.Embedded.Gpio`).
     pub module: String,
     pub text: String,
 }
 
 impl CoreSource {
-    /// All of `emela_core::core_sources()` (the Prelude and core modules).
+    /// Bundled core/std sources and all modules supplied by the embedded backend.
     pub fn bundled() -> Vec<CoreSource> {
         emela_core::core_sources()
             .iter()
+            .chain(emela_codegen_emb::bundled_sources())
             .map(|(module, text)| CoreSource {
                 module: (*module).to_owned(),
                 text: (*text).to_owned(),
@@ -955,6 +956,47 @@ fn same_path(a: &Path, b: &Path) -> bool {
 mod tests {
     use super::*;
     use crate::source::MemoryFiles;
+
+    #[test]
+    fn backend_board_handlers_resolve_typecheck_and_lower_with_the_default_frontend() {
+        let fs = MemoryFiles::new([
+            ("app/Pome.toml", ""),
+            (
+                "app/src/main.emel",
+                r#"
+import Std.Embedded.Board.{BoardClock, BoardConsole}
+import Std.Clock.{Clock}
+import Std.Console.{Console}
+pub fn main() -> Int use Async {
+  with BoardClock, BoardConsole {
+    (use Clock).sleep(0)
+    (use Console).print_line("board sources")
+    42
+  }
+}
+"#,
+            ),
+        ]);
+        let input = Input::resolve(&fs, Path::new("app")).unwrap();
+        let (analysis, _) = check(&fs, &input, &mut crate::Typecheck::default());
+        assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+        let (analysis, core) = check(
+            &fs,
+            &input,
+            &mut crate::Lower::default().with_target(Target::CEmbedded),
+        );
+        assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+        let output = emela_codegen_emb::compile(
+            &core.unwrap(),
+            &emela_codegen_emb::Options::default()
+                .with_heap_bytes(4096)
+                .with_frame_bytes(2048),
+        )
+        .unwrap();
+        for name in ["emela_clock.h", "emela_console.h"] {
+            assert!(output.files.iter().any(|file| file.path == name));
+        }
+    }
 
     fn input(files: &[&str], path: &str) -> Result<Input, Diagnostic> {
         let fs = MemoryFiles::new(files.iter().map(|f| (*f, "")));

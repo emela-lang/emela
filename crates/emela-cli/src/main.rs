@@ -29,6 +29,26 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Build a saved C artifact without reading Emela source or running the frontend
+    Connect {
+        artifact: PathBuf,
+        #[arg(long)]
+        out_dir: PathBuf,
+        /// Built-in connection platform (currently only native)
+        #[arg(long, default_value = "native")]
+        platform: String,
+        /// Custom package JSON (contains its C files, capabilities and build flags)
+        #[arg(long)]
+        package: Option<PathBuf>,
+        /// Compiler executable used for the selected package
+        #[arg(long, default_value = "cc")]
+        compiler: PathBuf,
+        #[arg(long,default_value="O2",value_parser=["O0","O2"])]
+        optimization: String,
+        /// Package supplies main/reset startup
+        #[arg(long)]
+        no_main: bool,
+    },
     /// Create a new Pome in a new directory
     New {
         /// A name (`hello`) or a source path (`github.com/alice/hello`, `github:alice/hello`)
@@ -204,6 +224,38 @@ const DIAGNOSTIC_FAILURE: u8 = 1;
 
 fn main() -> ExitCode {
     match Cli::parse().command {
+        Command::Connect {
+            artifact,
+            out_dir,
+            platform,
+            package,
+            compiler,
+            optimization,
+            no_main,
+        } => {
+            match emela_driver::connect_artifact(emela_driver::ArtifactConnection {
+                artifact: &artifact,
+                output: &out_dir,
+                platform: &platform,
+                package: package.as_deref(),
+                compiler: &compiler,
+                optimization: if optimization == "O0" {
+                    emela_driver::ConnectionOptimization::O0
+                } else {
+                    emela_driver::ConnectionOptimization::O2
+                },
+                main: !no_main,
+            }) {
+                Ok(path) => {
+                    eprintln!("Built {}", path.display());
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    ExitCode::from(DIAGNOSTIC_FAILURE)
+                }
+            }
+        }
         Command::New { name, lib } => new_pome(&name, lib),
         Command::Check { path, board } => check(&path_or_current(path), board),
         Command::Build {

@@ -188,3 +188,56 @@ fn a_failed_mock_board_rebuild_cannot_flash_the_previous_success() {
     assert_eq!(project.calls(), "build\nbuild\n");
     assert!(!project.trace.join("flash-argv").exists());
 }
+
+#[test]
+fn generated_contract_and_its_inputs_are_verified_before_the_flasher() {
+    let project = Project::new();
+    project.succeeds("build", &[]);
+    for name in [
+        "generated/emela_artifact.json",
+        "generated/emela_embedded.c",
+        "generated/emela_embedded_exports.h",
+        "bsp/artifact_manifest.py",
+    ] {
+        let path = project.output.join(name);
+        let original = std::fs::read(&path).unwrap();
+        let mut changed = original.clone();
+        changed.push(b'\n');
+        std::fs::write(&path, changed).unwrap();
+        let rejected = project.emela("flash", &["--dry-run"]);
+        assert_eq!(rejected.status.code(), Some(1), "{name}");
+        assert!(
+            String::from_utf8_lossy(&rejected.stderr).contains("inputs changed"),
+            "{name}: {}",
+            String::from_utf8_lossy(&rejected.stderr)
+        );
+        assert_eq!(
+            project.calls(),
+            "build\n",
+            "must reject before calling BSP flash"
+        );
+        std::fs::write(path, original).unwrap();
+    }
+    let reader = project.output.join("bsp/artifact_manifest.py");
+    let original = std::fs::read(&reader).unwrap();
+    let marker = project.trace.join("unverified-reader-ran");
+    std::fs::write(
+        &reader,
+        format!("from pathlib import Path\nPath({marker:?}).write_text('executed')\nraise RuntimeError('unverified reader must not be imported')\n"),
+    ).unwrap();
+    let rejected = project.emela("flash", &["--dry-run"]);
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains("inputs changed"),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    assert!(
+        !marker.exists(),
+        "verification must use the CLI's bundled reader"
+    );
+    assert_eq!(project.calls(), "build\n");
+    std::fs::write(reader, original).unwrap();
+    project.succeeds("flash", &["--dry-run"]);
+    assert_eq!(project.calls(), "build\nflash\n");
+}

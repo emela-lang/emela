@@ -9,8 +9,15 @@ license.workspace = true
 emela-core.workspace = true
 emela-lir.workspace = true
 la-arena.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 emela-resolve.workspace = true
 emela-syntax.workspace = true
 emela-types.workspace = true
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+syn = { version = "2", features = ["full", "visit"] }
+tempfile.workspace = true
