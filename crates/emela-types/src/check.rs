@@ -8,8 +8,8 @@
 //! recursion between definitions without declared types is not polymorphic.
 
 use emela_resolve::hir::{
-    Block, DefId, DefKind, ExprId, ExprKind, Item, LocalId, PatId, PatKind, Program, Res, Span,
-    Stmt, StrPart, TypeKind,
+    Block, DefId, DefKind, DefModule, ExprId, ExprKind, Item, LocalId, PatId, PatKind, Program,
+    Res, Span, Stmt, StrPart, TypeKind,
 };
 use la_arena::ArenaMap;
 use rustc_hash::FxHashMap;
@@ -303,9 +303,9 @@ fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
     // A method call `x.f(...)` calls a fn found from the type of x (`[type.rules]`), which is
     // known only during inference. A fn without a declared type has to be inferred before its
     // callers, so a method call gets an edge to every such fn named f that can be called as a
-    // method (its first parameter is written as a named type). This can put definitions that do
-    // not call each other into one group, inferred together and not generalized between them:
-    // the cost of not knowing the callee before inference.
+    // method (its first parameter is written as a named type of its own module). This can put
+    // definitions that do not call each other into one group, inferred together and not
+    // generalized between them: the cost of not knowing the callee before inference.
     let mut methods: FxHashMap<&SmolStr, Vec<DefId>> = FxHashMap::default();
     for &def in &nodes {
         if sigs.get(def).is_none() && may_be_method(program, def) {
@@ -344,8 +344,10 @@ fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
     strongly_connected(&nodes, &edges)
 }
 
-/// A top-level fn whose first parameter is written as a named type (not a type parameter), so
-/// that a method call can find it.
+/// A top-level fn whose first parameter is written as a named type (not a type parameter)
+/// defined by the fn's own module, so that a method call can find it. A method call looks only
+/// in the module that defines the type (`[type.rules]`): `fn get(url: String)` outside the core
+/// module String is never a method.
 fn may_be_method(program: &Program, def: DefId) -> bool {
     let Some(Item::Fn(item)) = program.item(def) else {
         return false;
@@ -353,10 +355,15 @@ fn may_be_method(program: &Program, def: DefId) -> bool {
     let Some(ty) = item.sig.params.first().and_then(|p| p.ty) else {
         return false;
     };
-    matches!(
-        program.types[ty].kind,
-        TypeKind::Path { res: Res::Def(d), .. } if program.defs[d].kind != DefKind::TypeParam
-    )
+    let TypeKind::Path {
+        res: Res::Def(d), ..
+    } = program.types[ty].kind
+    else {
+        return false;
+    };
+    program.defs[d].kind != DefKind::TypeParam
+        && matches!(program.defs[def].module, DefModule::Source(m)
+            if crate::methods::defining_module(program, d) == Some(m))
 }
 
 /// The strongly connected components of the graph, each sorted in definition order. A component

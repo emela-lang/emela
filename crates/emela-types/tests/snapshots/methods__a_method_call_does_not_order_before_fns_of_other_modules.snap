@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/methods.rs
+expression: "render_bodies(r#\"\nfn run(f: fn() -> Int) -> Int {\n  [f()].get(0).or(0)\n}\n\nfn get(url: String) -> Int {\n  run(fn() { url.length() })\n}\n\nfn main() -> Int {\n  get(\"x\")\n}\n\"#)"
+---
+run: ∀ E(f), R(f). fn(fn() -> Int fails E(f) use R(f)) -> Int fails E(f) use R(f)
+  f: fn() -> Int fails '0 use '1
+get: fn(String) -> Int
+  url: String
+main: fn() -> Int
