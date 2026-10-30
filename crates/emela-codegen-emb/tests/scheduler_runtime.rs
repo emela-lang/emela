@@ -7,7 +7,7 @@ fn fixed_scheduler_bounds_work_reuses_pools_and_rejects_stale_handles() {
     let compiled = Command::new("cc")
         .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
         .arg("-I")
-        .arg(root.join("src/runtime"))
+        .arg(root.join("src/compiler/emit/runtime"))
         .arg(root.join("tests/runtime/scheduler.c"))
         .arg("-o")
         .arg(&output)

@@ -8,6 +8,12 @@ import os
 from pathlib import Path
 import sys
 
+# The CLI prepends its bundled reader before executing this script inline. Never
+# import a helper from the output BSP before verifying that BSP's recorded hash.
+# Direct standalone execution uses the reader beside this script instead.
+if "load_manifest" not in globals():
+    from artifact_manifest import MANIFEST_FILE, load_manifest
+
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -49,10 +55,18 @@ def snapshot(spec, artifacts=True):
                 if header.suffix == ".h":
                     add(header)
     if artifacts:
+        # The C builder and freshness verifier use the same declared input set.
         for name in spec["bsp_files"]:
             add(output / "bsp" / name)
-        for path in (output / "generated").iterdir():
-            if path.is_file() and path.suffix in (".c", ".h"):
+        generated = output / "generated"
+        add(generated / MANIFEST_FILE)
+        for declared in load_manifest(generated, require_aliases=True).values():
+            for path in declared:
+                add(path)
+        # Include lookup can use an undeclared header or acquire a new shadowing
+        # header. Track the header inventory conservatively, as for user C sources.
+        for path in walk_inputs(generated):
+            if path.suffix == ".h":
                 add(path)
         metadata = firmware(spec)
         add(output / "firmware/firmware.json")
@@ -61,7 +75,7 @@ def snapshot(spec, artifacts=True):
     return {str(path): digest(path) for path in sorted(paths)}
 
 
-def walk_inputs(root, output):
+def walk_inputs(root, output=None):
     def fail(error):
         raise error
 
@@ -70,7 +84,8 @@ def walk_inputs(root, output):
         if path.resolve() in {parent.resolve() for parent in path.parents}:
             raise ValueError(f"cyclic input directory: {path}")
         # Source discovery skips hidden directories, but names such as target are modules.
-        children[:] = [name for name in children if not name.startswith(".") and not inside((path / name).resolve(), output)]
+        children[:] = [name for name in children if not name.startswith(".")
+                       and (output is None or not inside((path / name).resolve(), output))]
         for name in files:
             yield path / name
 

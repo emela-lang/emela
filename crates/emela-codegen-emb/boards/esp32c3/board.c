@@ -371,3 +371,16 @@ void board_main(void) {
     irq_disable();
     for (;;) __asm volatile("wfi");
 }
+
+/* ABI 2 lifecycle for consumers of the common entry wrapper. */
+void emela_board_idle(void) {
+    uint32_t previous = irq_disable();
+    if (!emela_scheduler_ready()) __asm volatile("fence iorw, iorw\nwfi" ::: "memory");
+    irq_restore(previous);
+}
+void emela_board_debug(const char *bytes, uint16_t length) { uart_bytes(bytes, length); }
+void emela_platform_start(void (*program)(void)) {
+    board_init();
+    program();
+    for (;;) emela_board_idle();
+}

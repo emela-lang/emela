@@ -30,33 +30,30 @@ pub enum Example {
 }
 
 #[test]
-fn audit_inventory_rejects_missing_extra_duplicated_and_undocumented_entries() {
+fn audit_inventory_rejects_missing_extra_duplicated_and_malformed_entries() {
     let expected = ["First", "Second"].map(str::to_owned).into_iter().collect();
-    let complete = "<!-- flow-audit:Example First Second -->\n`Example::First` `Example::Second`";
-    inventory::check_document("Example", &expected, complete).unwrap();
+    let entry = |name: &str| {
+        serde_json::json!({
+            "id": format!("fixture::Example::{name}"),
+            "kind": "variant",
+            "parent": "fixture::Example"
+        })
+    };
+    let complete = serde_json::json!({"items": [entry("First"), entry("Second")]});
+    inventory::check_inventory("fixture::Example", &expected, &complete).unwrap();
+    let mut wrong_parent = complete.clone();
+    wrong_parent["items"][1]["parent"] = "other::Example".into();
+    let mut malformed_id = complete.clone();
+    malformed_id["items"][1]["id"] = "other::Example::Second".into();
     for invalid in [
-        complete.replace("First Second -->", "First -->"),
-        complete.replace("First Second -->", "First Second Third -->"),
-        complete.replace("First Second -->", "First First Second -->"),
-        complete.replace("`Example::Second`", ""),
-        format!("{complete}\n{complete}"),
+        serde_json::json!({"items": [entry("First")]}),
+        serde_json::json!({"items": [entry("First"), entry("Second"), entry("Third")]}),
+        serde_json::json!({"items": [entry("First"), entry("First"), entry("Second")]}),
+        serde_json::json!({"items": [entry("First"), entry("")]}),
+        serde_json::json!({}),
+        wrong_parent,
+        malformed_id,
     ] {
-        assert!(inventory::check_document("Example", &expected, &invalid).is_err());
+        assert!(inventory::check_inventory("fixture::Example", &expected, &invalid).is_err());
     }
-}
-
-#[test]
-fn audit_test_references_must_name_existing_rust_tests() {
-    let names = ["existing_test"].map(str::to_owned).into_iter().collect();
-    let document =
-        "| variant | 試験 |\n| --- | --- |\n| `Value::Const` | `fixture::existing_test` |";
-    assert_eq!(
-        inventory::check_test_references(document, &names).unwrap(),
-        1
-    );
-    assert!(
-        inventory::check_test_references(&document.replace("existing_test", "old_test"), &names)
-            .is_err()
-    );
-    assert!(inventory::check_test_references("no references", &names).is_err());
 }

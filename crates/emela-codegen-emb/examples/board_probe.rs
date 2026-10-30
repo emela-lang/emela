@@ -148,7 +148,8 @@ fn run() -> Result<(), String> {
         .with_frame_bytes(512)
         .with_task_capacity(2)
         .with_event_capacity(2)
-        .with_deferred_capacity(1);
+        .with_deferred_capacity(1)
+        .with_export_alias("board_main_start", "main");
     let output = compile(&core, &options).map_err(|errors| {
         errors
             .iter()
@@ -156,15 +157,6 @@ fn run() -> Result<(), String> {
             .collect::<Vec<_>>()
             .join("\n")
     })?;
-    let main = output
-        .exports
-        .iter()
-        .find(|entry| entry.source_name == "main" && entry.suspends)
-        .ok_or("the board probe must export a suspending main entry")?;
-    let aliases = format!(
-        "#ifndef EMELA_EMBEDDED_EXPORTS_H\n#define EMELA_EMBEDDED_EXPORTS_H\n#include \"emela_embedded.h\"\n#define board_main_start {}\n#endif\n",
-        main.c_symbol
-    );
     let parent = arguments
         .output
         .parent()
@@ -184,7 +176,6 @@ fn run() -> Result<(), String> {
     for file in output.files {
         write(&generated, &file.path, file.contents.as_bytes())?;
     }
-    write(&generated, "emela_embedded_exports.h", aliases.as_bytes())?;
     for asset in package.assets {
         write(&bsp, asset.name, asset.contents)?;
     }

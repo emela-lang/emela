@@ -211,7 +211,7 @@ board選択時の出力は次の構成になる。
 
 ```text
 target/emela/c-embedded/<board>/
-  generated/                 # C、公開header、exports alias、必要な標準bridge header
+  generated/                 # emela_artifact.json、C、公開header、exports alias、標準bridge header
   bsp/                       # 同梱startup・runtime・linker・build.py・build_state.py等
   firmware/                  # firmware.elf、.bin、.map、.json、resources.json等
   board-inputs.json
@@ -221,11 +221,13 @@ target/emela/c-embedded/<board>/
 
 CLIはbuild開始時に以前の`board-build.json`を無効にし、lowering前の入力を記録する。C生成とBSP buildが成功し、入力が途中で変わっていないことを確認した場合だけ、新しい成功記録を作る。失敗した再build後に以前のfirmwareを書き込むことはできない。
 
+生成とビルドの入力は[`emela_artifact.json`の契約](artifact-contract.md)で分ける。BSPはmanifestに列挙された生成Cだけをcompileし、Emela sourceやIRを読まない。C-only出力にもmanifestを含める。従来のC／headerだけの出力は一式を再生成する。
+
 `emela flash`は再buildせず、選択したproject・board・設定・出力先と、記録されたSHA-256を照合する。現在のCLIに同梱した照合処理を先に実行し、合格してから出力directory内のBSP scriptへ処理を渡す。照合対象は次のとおり。
 
 - projectと依存Pomeのsource一覧・内容（`.emel`・`.c`・`.h`・`.S`・`.s`・`.toml`）。moduleの追加・削除も検出し、symlink経由の入力はmoduleのpathと実体の両方を記録する。単独ファイル入力は同じdirectoryの一覧が対象になる。
 - project／依存のmanifest、存在する`Pome.lock`、runtime設定、置換module、明示した追加C／assemblyとそのdirectory以下のheader。
-- 生成C／header、展開したBSP、firmware manifestに列挙された成果物。
+- 生成manifest自身と列挙された全C／header（nested pathを含む）、生成先のheader一覧、展開したBSP、firmware manifestに列挙された成果物。未列挙の残存CはBSPが入力に使わないため対象外とする。
 
 source・依存・設定・生成物の変更、別project／boardの指定、出力先の移動があればbuildをやり直す。build時に`--embedded-config`や`--out-dir`を指定した場合、flash時も同じ指定を使う。`--dry-run`でも同じ照合を行い、その後の書き込みtoolのargvを表示する。デバイスへの接続は行わない。
 

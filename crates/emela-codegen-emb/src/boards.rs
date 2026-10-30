@@ -25,6 +25,7 @@ macro_rules! stm32f4_assets {
     ($profile:literal, $chip:literal) => {
         &[
             asset!("stm32/stm32f4", "build.py"),
+            asset!(".", "artifact_manifest.py"),
             asset!("stm32/common", "stm32_common.py"),
             asset!("stm32/stm32f4", "startup.S"),
             asset!("stm32/stm32f4", "firmware.ld.in"),
@@ -60,8 +61,13 @@ pub const BOARD_NAMES: &[&str] = &[
     "esp32c3",
 ];
 
-/// Verifies build inputs and images before invoking a board flasher.
-pub const BUILD_STATE_SCRIPT: &str = include_str!("../boards/build_state.py");
+/// Verifies build inputs and images using the bundled reader, before executing
+/// any code from the output BSP. Also works before a BSP has been installed.
+pub const BUILD_STATE_SCRIPT: &str = concat!(
+    include_str!("../boards/artifact_manifest.py"),
+    "\n",
+    include_str!("../boards/build_state.py"),
+);
 
 /// Returns a package without depending on the compiler's source checkout at runtime.
 pub fn package(id: &str) -> Option<BoardPackage> {
@@ -83,6 +89,7 @@ pub fn package(id: &str) -> Option<BoardPackage> {
             "esp32c3",
             &[
                 asset!("esp32c3", "build.py"),
+                asset!(".", "artifact_manifest.py"),
                 asset!("esp32c3", "board.c"),
                 asset!("esp32c3", "startup.S"),
                 asset!("esp32c3", "firmware.ld"),
