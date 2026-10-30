@@ -39,7 +39,7 @@ pub handler SystemConsole: Console {
 ## `print_line` appends the line in the printed order. `print_error_line` drops the line.
 pub handler TestConsole: Console {
   fn print_line(text) {
-    (use State[List[String]]).update(fn(lines) { List.append(lines, [text]) })
+    (use State[List[String]]).update(fn(lines) { lines.append([text]) })
   }
   fn print_error_line(text) { () }
 }

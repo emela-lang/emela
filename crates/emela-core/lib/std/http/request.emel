@@ -25,21 +25,19 @@ pub fn new(method: Method, url: String) -> Request {
 
 ## Adds a header after the ones already in `req`.
 pub fn add_header(req: Request, name: String, value: String) -> Request {
-  Request(headers: List.append(req.headers, [(name, value)]), ..req)
+  Request(headers: req.headers.append([(name, value)]), ..req)
 }
 
 ## The first value of the header `name`, compared without case.
 pub fn header(req: Request, name: String) -> Option[String] {
-  List.head(header_values(req, name))
+  req.header_values(name).head()
 }
 
 ## All values of the header `name` in order, compared without case. Not named `headers`, the
 ## field (E0334).
 pub fn header_values(req: Request, name: String) -> List[String] {
-  key = String.to_ascii_lowercase(name)
-  req.headers
-    |> List.filter(fn((n, _)) { String.to_ascii_lowercase(n) == key })
-    |> List.map(fn((_, value)) { value })
+  key = name.to_ascii_lowercase()
+  req.headers.filter(fn((n, _)) { n.to_ascii_lowercase() == key }).map(fn((_, value)) { value })
 }
 
 ## The path of `url` without the query, as written: `"/api/a%20b"` for
@@ -52,28 +50,23 @@ pub fn path(req: Request) -> String {
 ## The non-empty segments of the path, each percent-decoded: `["api", "a b"]` for `"/api/a%20b"`.
 ## A segment that does not decode is kept as written.
 pub fn segments(req: Request) -> List[String] {
-  String.split(path(req), "/")
-    |> List.filter(fn(segment) { segment != "" })
-    |> List.map(fn(segment) { Option.or(percent_decode(segment), segment) })
+  req.path().split("/").filter(fn(segment) { segment != "" }).map(fn(segment) {
+    percent_decode(segment).or(segment)
+  })
 }
 
 ## The pairs of the query of `url`, read as `decode_query` reads them. Empty without a `?`. A pair
 ## that does not decode is kept as written.
 pub fn query(req: Request) -> List[(String, String)] {
   (_, query) = split_target(req.url)
-  query_pairs(query)
-    |> List.map(fn((name, value)) {
-      Option.or(decode_pair(name, value), (name, value))
-    })
+  query_pairs(query).map(fn((name, value)) { decode_pair(name, value).or((name, value)) })
 }
 
 ## The query string of `pairs`, each part percent-encoded (`q=%E6%9D%B1&page=2`). Every byte of the
 ## UTF-8 of a name or a value is written as `%` and two upper-case hexadecimal digits, except ASCII
 ## letters, digits and `-_.!~*'()`.
 pub fn encode_query(pairs: List[(String, String)]) -> String {
-  pairs
-    |> List.map(fn((name, value)) { "#{percent_encode(name)}=#{percent_encode(value)}" })
-    |> List.join("&")
+  pairs.map(fn((name, value)) { "#{percent_encode(name)}=#{percent_encode(value)}" }).join("&")
 }
 
 ## The pairs of the query string `s`, the inverse of `encode_query`: split at `&`, then at the first
@@ -81,24 +74,23 @@ pub fn encode_query(pairs: List[(String, String)]) -> String {
 ## percent-decoded. Fails with ParseError if a `%` is not followed by two hexadecimal digits or the
 ## decoded bytes are not UTF-8. `""` has no pairs.
 pub fn decode_query(s: String) -> List[(String, String)] fails ParseError {
-  query_pairs(s)
-    |> List.map(fn((name, value)) {
-      decode_pair(name, value) |> Option.or_fail(ParseError(input: s))
-    })
+  query_pairs(s).map(fn((name, value)) {
+    decode_pair(name, value).or_fail(ParseError(input: s))
+  })
 }
 
 ## `url` without its scheme and authority, split at the first `?` into the path and the query.
 ## `("/a", "x=1")` for `"https://example.com/a?x=1"`; the query is `""` without a `?`. A URL that
 ## does not start with a scheme and `://` is all path and query.
 fn split_target(url: String) -> (String, String) {
-  target = String.split(url, "://") match {
+  target = url.split("://") match {
     [scheme, first, ..rest] if scheme != ""
-      && !String.contains(scheme, "/")
-      && !String.contains(scheme, "?") -> after_authority(List.join([first, ..rest], "://"))
+      && !scheme.contains("/")
+      && !scheme.contains("?") -> after_authority([first, ..rest].join("://"))
     _ -> url
   }
-  String.split(target, "?") match {
-    [path, query, ..rest] -> (path, List.join([query, ..rest], "?"))
+  target.split("?") match {
+    [path, query, ..rest] -> (path, [query, ..rest].join("?"))
     _                     -> (target, "")
   }
 }
@@ -106,15 +98,15 @@ fn split_target(url: String) -> (String, String) {
 ## The part of `s` (a URL after `scheme://`) from the first `/` or `?`, which ends the authority.
 ## Works on code points, as grapheme clusters are not needed (and not on every target).
 fn after_authority(s: String) -> String {
-  cs = String.code_points(s)
-  List.find_index(cs, fn(c) { c == 0x2F || c == 0x3F }) match {
+  cs = s.code_points()
+  cs.find_index(fn(c) { c == 0x2F || c == 0x3F }) match {
     None    -> ""
-    Some(i) -> from_code_points(List.drop(cs, i))
+    Some(i) -> from_code_points(cs.drop(i))
   }
 }
 
 fn from_code_points(cs: List[Int]) -> String {
-  String.concat(List.filter_map(cs, String.from_code_point))
+  cs.filter_map(String.from_code_point).join("")
 }
 
 ## The raw pairs of a query string: split at `&`, then at the first `=`. `""` has none.
@@ -122,52 +114,48 @@ fn query_pairs(s: String) -> List[(String, String)] {
   if s == "" {
     []
   } else {
-    String.split(s, "&")
-      |> List.map(fn(pair) {
-        String.split(pair, "=") match {
-          []             -> ("", "")
-          [name]         -> (name, "")
-          [name, ..rest] -> (name, List.join(rest, "="))
-        }
-      })
+    s.split("&").map(fn(pair) {
+      pair.split("=") match {
+        []             -> ("", "")
+        [name]         -> (name, "")
+        [name, ..rest] -> (name, rest.join("="))
+      }
+    })
   }
 }
 
 ## A raw pair with `+` read as a space and then percent-decoded, or `None` if either part does not
 ## decode.
 fn decode_pair(name: String, value: String) -> Option[(String, String)] {
-  percent_decode(plus_as_space(name)) |> Option.and_then(fn(n) {
-    percent_decode(plus_as_space(value)) |> Option.map(fn(v) { (n, v) })
+  percent_decode(plus_as_space(name)).and_then(fn(n) {
+    percent_decode(plus_as_space(value)).map(fn(v) { (n, v) })
   })
 }
 
 fn plus_as_space(s: String) -> String {
-  List.join(String.split(s, "+"), " ")
+  s.split("+").join(" ")
 }
 
 ## Every byte of the UTF-8 of `s` as `%XX`, except ASCII letters, digits and `-_.!~*'()`.
 fn percent_encode(s: String) -> String {
-  String.code_points(s)
-    |> List.flat_map(utf8_bytes)
-    |> List.map(fn(byte) {
-      if unreserved(byte) {
-        Option.or(String.from_code_point(byte), "")
-      } else {
-        "%#{hex_digit(Int.shift_right(byte, 4))}#{hex_digit(Int.bit_and(byte, 15))}"
-      }
-    })
-    |> String.concat
+  s.code_points().flat_map(utf8_bytes).map(fn(byte) {
+    if unreserved(byte) {
+      String.from_code_point(byte).or("")
+    } else {
+      "%#{hex_digit(byte.shift_right(4))}#{hex_digit(byte.bit_and(15))}"
+    }
+  }).join("")
 }
 
 fn unreserved(byte: Int) -> Bool {
   (byte >= 0x41 && byte <= 0x5A)
     || (byte >= 0x61 && byte <= 0x7A)
     || (byte >= 0x30 && byte <= 0x39)
-    || List.any([0x2D, 0x5F, 0x2E, 0x21, 0x7E, 0x2A, 0x27, 0x28, 0x29], fn(c) { c == byte })
+    || [0x2D, 0x5F, 0x2E, 0x21, 0x7E, 0x2A, 0x27, 0x28, 0x29].any(fn(c) { c == byte })
 }
 
 fn hex_digit(n: Int) -> String {
-  Option.or(String.from_code_point(if n < 10 { 0x30 + n } else { 0x41 + n - 10 }), "")
+  String.from_code_point(if n < 10 { 0x30 + n } else { 0x41 + n - 10 }).or("")
 }
 
 ## The UTF-8 bytes of the code point `c`.
@@ -175,12 +163,12 @@ fn utf8_bytes(c: Int) -> List[Int] {
   if c < 0x80 {
     [c]
   } else if c < 0x800 {
-    [Int.bit_or(0xC0, Int.shift_right(c, 6)), continuation(c, 0)]
+    [Int.bit_or(0xC0, c.shift_right(6)), continuation(c, 0)]
   } else if c < 0x10000 {
-    [Int.bit_or(0xE0, Int.shift_right(c, 12)), continuation(c, 6), continuation(c, 0)]
+    [Int.bit_or(0xE0, c.shift_right(12)), continuation(c, 6), continuation(c, 0)]
   } else {
     [
-      Int.bit_or(0xF0, Int.shift_right(c, 18)),
+      Int.bit_or(0xF0, c.shift_right(18)),
       continuation(c, 12),
       continuation(c, 6),
       continuation(c, 0),
@@ -190,18 +178,16 @@ fn utf8_bytes(c: Int) -> List[Int] {
 
 ## The continuation byte holding the six bits of `c` from bit `shift`.
 fn continuation(c: Int, shift: Int) -> Int {
-  Int.bit_or(0x80, Int.bit_and(Int.shift_right(c, shift), 0x3F))
+  Int.bit_or(0x80, c.shift_right(shift).bit_and(0x3F))
 }
 
 ## `s` with each `%XX` replaced by the byte it stands for, or `None` if a `%` is not followed by two
 ## hexadecimal digits or the bytes are not UTF-8. The other characters stay as they are.
 fn percent_decode(s: String) -> Option[String] {
-  if !String.contains(s, "%") {
+  if !s.contains("%") {
     Some(s)
   } else {
-    to_bytes(String.code_points(s), [])
-      |> Option.and_then(fn(bytes) { from_utf8(bytes, []) })
-      |> Option.map(String.concat)
+    to_bytes(s.code_points(), []).and_then(fn(bytes) { from_utf8(bytes, []) }).map(String.concat)
   }
 }
 
@@ -209,7 +195,7 @@ fn percent_decode(s: String) -> Option[String] {
 ## and then put back in order. `None` for a `%` without two hexadecimal digits.
 fn to_bytes(cs: List[Int], acc: List[Int]) -> Option[List[Int]] {
   cs match {
-    []          -> Some(List.reverse(acc))
+    []          -> Some(acc.reverse())
     [0x25, hi, lo, ..rest] -> hex_value(hi) match {
       None -> None
       Some(h) -> hex_value(lo) match {
@@ -218,7 +204,7 @@ fn to_bytes(cs: List[Int], acc: List[Int]) -> Option[List[Int]] {
       }
     }
     [0x25, ..]  -> None
-    [c, ..rest] -> to_bytes(rest, List.append(List.reverse(utf8_bytes(c)), acc))
+    [c, ..rest] -> to_bytes(rest, utf8_bytes(c).reverse().append(acc))
   }
 }
 
@@ -239,11 +225,11 @@ fn hex_value(c: Int) -> Option[Int] {
 ## value above 10FFFF.
 fn from_utf8(bytes: List[Int], acc: List[String]) -> Option[List[String]] {
   bytes match {
-    []                                    -> Some(List.reverse(acc))
+    []                                    -> Some(acc.reverse())
     [b, ..rest] if b < 0x80               -> push(b, rest, acc)
-    [b, ..rest] if b >= 0xC2 && b <= 0xDF -> sequence(Int.bit_and(b, 0x1F), 1, 0x80, rest, acc)
-    [b, ..rest] if b >= 0xE0 && b <= 0xEF -> sequence(Int.bit_and(b, 0x0F), 2, 0x800, rest, acc)
-    [b, ..rest] if b >= 0xF0 && b <= 0xF4 -> sequence(Int.bit_and(b, 0x07), 3, 0x10000, rest, acc)
+    [b, ..rest] if b >= 0xC2 && b <= 0xDF -> sequence(b.bit_and(0x1F), 1, 0x80, rest, acc)
+    [b, ..rest] if b >= 0xE0 && b <= 0xEF -> sequence(b.bit_and(0x0F), 2, 0x800, rest, acc)
+    [b, ..rest] if b >= 0xF0 && b <= 0xF4 -> sequence(b.bit_and(0x07), 3, 0x10000, rest, acc)
     _                                     -> None
   }
 }
@@ -261,8 +247,8 @@ fn sequence(
     if value < min { None } else { push(value, bytes, acc) }
   } else {
     bytes match {
-      [b, ..rest] if Int.bit_and(b, 0xC0) == 0x80 -> sequence(
-        Int.bit_or(Int.shift_left(value, 6), Int.bit_and(b, 0x3F)),
+      [b, ..rest] if b.bit_and(0xC0) == 0x80 -> sequence(
+        value.shift_left(6).bit_or(b.bit_and(0x3F)),
         count - 1,
         min,
         rest,

@@ -1,5 +1,5 @@
 # Functions on Option. Option itself is the Prelude enum (prelude.emel).
-# The Option comes first as `opt`, so calls read as `opt |> Option.map(f)`.
+# The Option comes first as `opt`, so calls read as `opt.map(f)`.
 
 pub fn map[A, B](opt: Option[A], f: fn(A) -> B) -> Option[B] {
   opt match {
@@ -38,7 +38,7 @@ pub fn is_none[A](opt: Option[A]) -> Bool {
 }
 
 ## Fails with `err` if `None` (spec 7.2). Turns an Option into a failure, as in
-## `users.find(id) |> Option.or_fail(NotFound(id:))`.
+## `users.find(id).or_fail(NotFound(id:))`.
 pub fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
   opt match {
     Some(x) -> x
@@ -52,7 +52,7 @@ pub fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
 impl Option[A: Eq]: Eq {
   fn eq(self, other) {
     (self, other) match {
-      (Some(x), Some(y)) -> Eq.eq(x, y)
+      (Some(x), Some(y)) -> x.eq(y)
       (None, None)       -> True
       _                  -> False
     }
@@ -62,7 +62,7 @@ impl Option[A: Eq]: Eq {
 impl Option[A: Ord]: Ord {
   fn compare(self, other) {
     (self, other) match {
-      (Some(x), Some(y)) -> Ord.compare(x, y)
+      (Some(x), Some(y)) -> x.compare(y)
       (Some(_), None)    -> Greater
       (None, Some(_))    -> Less
       (None, None)       -> Equal

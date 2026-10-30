@@ -115,23 +115,23 @@ fn continues(b: Bytes, i: Int, low: Int, high: Int) -> Bool {
 
 ## Two lowercase hexadecimal digits per byte, with no separator (`"89504e47"`).
 pub fn to_hex(b: Bytes) -> String {
-  String.concat(List.map(to_list(b), fn(x) { "#{hex_digit(x / 16)}#{hex_digit(x % 16)}" }))
+  b.to_list().map(fn(x) { "#{hex_digit(x / 16)}#{hex_digit(x % 16)}" }).join("")
 }
 
 fn hex_digit(n: Int) -> String {
-  Option.or(String.from_code_point(if n < 10 { 0x30 + n } else { 0x61 + n - 10 }), "")
+  String.from_code_point(if n < 10 { 0x30 + n } else { 0x61 + n - 10 }).or("")
 }
 
 ## The inverse of `to_hex`. Accepts uppercase and lowercase digits. `None` for an odd number of
 ## digits or any other character, including whitespace.
 pub fn from_hex(s: String) -> Option[Bytes] {
-  from_hex_digits(String.code_points(s), [])
+  from_hex_digits(s.code_points(), [])
 }
 
 # `acc` holds the bytes read so far, last first.
 fn from_hex_digits(digits: List[Int], acc: List[Int]) -> Option[Bytes] {
   digits match {
-    [] -> from_list(List.reverse(acc))
+    [] -> from_list(acc.reverse())
     [hi, lo, ..rest] -> (hex_value(hi), hex_value(lo)) match {
       (Some(h), Some(l)) -> from_hex_digits(rest, [h * 16 + l, ..acc])
       _                  -> None

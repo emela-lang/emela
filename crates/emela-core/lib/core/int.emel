@@ -24,7 +24,7 @@ fn parse_or_none(s: String) -> Option[Int]
 @intrinsic
 pub fn checked_add(a: Int, b: Int) -> Option[Int]
 
-## Reads as `flags |> Int.bit_and(MASK)`.
+## Reads as `flags.bit_and(MASK)`.
 @intrinsic
 pub fn bit_and(a: Int, b: Int) -> Int
 
@@ -54,7 +54,7 @@ pub fn shift_right_unsigned(n: Int, by: Int) -> Int
 
 ## Returns the larger value, or `a` when equal.
 pub fn max(a: Int, b: Int) -> Int {
-  Ord.compare(a, b) match {
+  a.compare(b) match {
     Less    -> b
     Greater -> a
     Equal   -> a
@@ -63,7 +63,7 @@ pub fn max(a: Int, b: Int) -> Int {
 
 ## Returns the smaller value, or `a` when equal.
 pub fn min(a: Int, b: Int) -> Int {
-  Ord.compare(a, b) match {
+  a.compare(b) match {
     Less    -> a
     Greater -> b
     Equal   -> a
