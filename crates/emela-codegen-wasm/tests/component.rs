@@ -123,7 +123,7 @@ fn exit_codes_are_zero_one_and_101() {
     assert_eq!(failure.code, 1);
     assert_eq!(failure.stderr, "error: Nope(why: \"no\")\n");
 
-    // Without Show, only the name of the error is shown (spec 14.3); the process outcome is the
+    // Without Show, only the name of the error is shown ([dyn.error]); the process outcome is the
     // same.
     let Some(named) = run(
         "exit-1-name",

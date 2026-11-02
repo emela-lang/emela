@@ -46,17 +46,17 @@ const TEST_TAIL: &[u8] = b"}\n";
 const TEST_DONE_LINE: &[u8] = b"\x1eemela-test {\"event\":\"done\"}\n";
 
 /// `show_failure(e)`: the message of an error value, calling the `show` function of its descriptor
-/// (spec 10.6). An error whose type does not satisfy Show is shown by its name (spec 14.3):
-/// `from_core` gives every constructed error enum a show function — the derived `name$E`
-/// (`Derive::ErrorName`) when the type does not satisfy Show, and its Show otherwise — so the
-/// descriptor's show slot is never the sentinel for a language-produced error. Returns a null
-/// reference only when `e` is null or showing raises a defect.
+/// ([trait.builtin]). An error whose type does not satisfy Show is shown by its name
+/// ([dyn.error]): `from_core` gives every constructed error enum a show function — the derived
+/// `name$E` (`Derive::ErrorName`) when the type does not satisfy Show, and its Show otherwise — so
+/// a language-produced error's descriptor always has one. Returns a null reference only when `e`
+/// is null or showing raises a defect.
 ///
 /// Showing can raise a defect (a `show` that panics, or a failed assert in it). This function
 /// leaves that defect in `G_DEFECT` and leaves the decision to its caller: `test_result` takes it
-/// and reports it for the running test; `cause_to_string` leaves it pending for the attempt frame
-/// to catch; `finish` reports the failure as an empty `error: ` line and exits with 1, leaving the
-/// defect pending, like the C runtime's `em_exit`.
+/// and reports it for the running test; `cause_to_string` leaves it pending, so the program
+/// reports it as a defect at the end; `finish` reports the failure as an empty `error: ` line and
+/// exits with 1, leaving that defect pending, like the C runtime's `em_exit`.
 fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     const D: u32 = 1;
     const SHOW: u32 = 2;
@@ -304,7 +304,7 @@ fn test_result(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_set(MESSAGE);
     // Showing the error can raise a defect. Its display is then null; report the defect as this
     // test's error message and clear it here, like the C runtime's `em_test_result`, so that the
-    // next test does not observe it (spec 13.4).
+    // next test does not observe it ([test.command]).
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
     ins.global_get(G_DEFECT);
@@ -374,7 +374,7 @@ fn test_done(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 /// Reports a pending defect (exit 101) or failure (exit 1) at the end of the program, like the C
-/// runtime's `em_exit` (spec 14.3).
+/// runtime's `em_exit` ([dyn.error]).
 ///
 /// A defect raised while showing the failure is not reported: the line is then `error: ` with
 /// nothing after the prefix, the defect is left pending, and the exit code stays 1. The process

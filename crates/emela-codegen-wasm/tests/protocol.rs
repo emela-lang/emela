@@ -1,5 +1,5 @@
-//! A `Show` that itself raises a defect (spec 13.4, 14.3): the test result protocol and the end
-//! of `main`.
+//! A `Show` that itself raises a defect ([test.command], [dyn.error]): the test result protocol
+//! and the end of `main`.
 
 mod common;
 
@@ -19,7 +19,7 @@ impl Evil: Show {
 #[test]
 fn a_show_defect_is_reported_for_its_test_and_cleared() {
     // Showing the error of a test raises a defect. The defect is the message of that test's
-    // result and is cleared there, so the next test is not reported as a defect (spec 13.4).
+    // result and is cleared there, so the next test is not reported as a defect ([test.command]).
     let Some(_) = wasmtime() else { return };
     let src = format!(
         "{SHOW_DEFECTS}{}",
@@ -78,4 +78,34 @@ fn main() {
     assert_eq!(run.code, 1, "{}", run.stderr);
     assert_eq!(run.stdout, "");
     assert_eq!(run.stderr, "error: \n");
+}
+
+#[test]
+fn a_show_defect_while_showing_a_cause_is_reported_at_the_end() {
+    // `Cause.to_string` is called after the attempt has ended, so no attempt frame catches the
+    // defect its `show` raises. The cause shows as `error: ` and the defect stays pending, so the
+    // program reports it as a `defect:` line and exits with 101 ([api.std.cause], [dyn.error]).
+    let Some(run) = run(
+        "show-defect-cause",
+        &format!(
+            "{}{SHOW_DEFECTS}{}",
+            r#"
+import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Cause.{Cause}
+"#,
+            r#"
+fn main() {
+  Fiber.attempt(fn() { fail Evil }) match {
+    Success(_) -> dbg("success")
+    Failure(c) -> dbg(Cause.to_string(c))
+  }
+}
+"#
+        ),
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101, "{}", run.stderr);
+    assert_eq!(run.stdout, "");
+    assert_eq!(run.stderr, "\"error: \"\ndefect: show failed\n");
 }

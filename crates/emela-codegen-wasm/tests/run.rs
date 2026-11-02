@@ -191,7 +191,7 @@ fn main() {
 
 #[test]
 fn an_error_without_show_reaching_main_shows_its_name() {
-    // An error whose type does not satisfy Show is shown by its name only (spec 14.3), and the
+    // An error whose type does not satisfy Show is shown by its name only ([dyn.error]), and the
     // program still exits with 1 rather than trapping.
     let Some(run) = run(
         "error-name",
@@ -215,7 +215,7 @@ fn main() {
 #[test]
 fn an_error_without_show_shows_only_its_name() {
     // The fields of an error whose type does not satisfy Show are not shown; only the name is
-    // (spec 14.3).
+    // ([dyn.error]).
     let Some(run) = run(
         "error-name-fields",
         r#"
@@ -236,7 +236,8 @@ fn main() {
 
 #[test]
 fn an_error_with_show_reaching_main_keeps_its_display() {
-    // An error whose type satisfies Show is shown the same way as by inspect (spec 10.6, 14.3).
+    // An error whose type satisfies Show is shown the same way as by inspect ([trait.builtin],
+    // [dyn.error]).
     let Some(run) = run(
         "error-name-show",
         r#"

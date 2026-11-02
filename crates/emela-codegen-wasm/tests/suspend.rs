@@ -258,7 +258,7 @@ fn main() {
 
 #[test]
 fn cause_to_string_shows_the_name_of_an_error_without_show() {
-    // `Cause.to_string` uses the display of an error reaching main (spec 14.3,
+    // `Cause.to_string` uses the display of an error reaching main ([dyn.error],
     // `[api.std.cause]`): the name only when the error's type does not satisfy Show, and the
     // inspect display when it does.
     let Some(run) = run_code(
