@@ -1,4 +1,4 @@
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 @external(js, "console.log")
@@ -38,7 +38,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
 ## attempt does not catch the interruption (spec 11.5).
 fn main() {
   with Parked {
-    r = Fiber.attempt(fn() {
+    r = Exit.attempt(fn() {
       with Res {
         n = (use Wait).wait()
         print("not resumed #{n}")

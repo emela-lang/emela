@@ -1,5 +1,5 @@
 //! Fibers (spec chapter 11): the built-in effect `Scope[E, R]`, `Fiber.scope`, the combinators of
-//! `Std.Fiber`, `Std.Cause` and `Std.Deferred`.
+//! `Std.Fiber`, `Std.Exit`, `Std.Cause` and `Std.Deferred`.
 //!
 //! Checks that the bundled sources type-check with the types of spec 11.2 to 11.7, that the
 //! examples of chapter 11 pass, and that the programs the chapter rejects stop: E0402 with the
@@ -66,8 +66,8 @@ fn render(src: &str) -> String {
     out
 }
 
-/// The declared types of `Std.Fiber`, `Std.Cause` and `Std.Deferred` and the operations of
-/// `Scope`, as spec 11.2 to 11.7 write them. The bundled sources have no diagnostics (the
+/// The declared types of `Std.Fiber`, `Std.Exit`, `Std.Cause` and `Std.Deferred` and the
+/// operations of `Scope`, as spec 11.2 to 11.7 write them. The bundled sources have no diagnostics (the
 /// combinators `all`, `race`, `both` and `map` are written in Emela and type-check).
 #[test]
 fn fiber_sources_typecheck() {
@@ -84,7 +84,12 @@ fn fiber_sources_typecheck() {
             .map(|(_, d)| d.module.clone())
             .unwrap()
     };
-    let modules = [module_of("scope"), module_of("raise"), module_of("poll")];
+    let modules = [
+        module_of("scope"),
+        module_of("attempt"),
+        module_of("raise"),
+        module_of("poll"),
+    ];
     let scope = program
         .defs
         .iter()
@@ -232,7 +237,8 @@ fn outer_scope() {
 fn exits_and_causes() {
     insta::assert_snapshot!(render(
         r#"
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
 
 error Boom
@@ -244,14 +250,14 @@ effect Log {
 fn boom() -> Int fails Boom { fail Boom }
 
 fn guarded() -> () use { Log } {
-  Fiber.attempt(fn() { boom() }) match {
+  Exit.attempt(fn() { boom() }) match {
     Success(_) -> ()
     Failure(cause) -> (use Log).info(Cause.to_string(cause))
   }
 }
 
 fn reraise() {
-  Fiber.attempt(fn() { boom() }) match {
+  Exit.attempt(fn() { boom() }) match {
     Success(n) -> n
     Failure(cause) -> Cause.raise(cause)
   }

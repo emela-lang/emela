@@ -33,7 +33,7 @@ Within std, modules are divided into four layers by their nature.
 | Layer | Nature | Contents |
 |---|---|---|
 | value | Pure and independent of the host | Instant, Duration, Path, Bytes. Collections (Map, Set, Array) in 0.24 |
-| effect | Concurrency and state | State, Fiber, Cause, Deferred (0.20). Queue, Semaphore, Schedule, Stream (later versions. A limit on the number of tasks running at the same time comes before Http) |
+| effect | Concurrency and state | State, Fiber, Exit, Cause, Deferred (0.20). Queue, Semaphore, Schedule, Stream (later versions. A limit on the number of tasks running at the same time comes before Http) |
 | platform | Effect declarations and the host handlers | Console, Clock, Random, Env, FileSystem, Http |
 | test | Replacements for testing | Handlers such as TestClock and TestConsole. They keep their state in State (8.8), so they are used inside `State.run`. Value comparison helpers, generators, and property testing are not placed in std (below) |
 

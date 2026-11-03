@@ -430,7 +430,7 @@ impl Kit {
         )
     }
 
-    /// `Fiber.attempt(fn() { body })`．
+    /// `Exit.attempt(fn() { body })`．
     fn attempt(&self, suspends: bool, body: Expr) -> Expr {
         let ty = self.thunk_ty[usize::from(suspends)];
         let f = if suspends {

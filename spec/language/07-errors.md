@@ -136,7 +136,7 @@ A defect represents a mistake in the program or an unrecoverable abnormal condit
 The wording of the messages, like the diagnostics in Appendix A, is not part of the specification and MAY change for improvement.
 
 - Even when a defect happens, the release of handlers runs (Chapter 14).
-- A defect can be observed only at a boundary. A boundary is the top level of the program, the test runner, or `Fiber.attempt` (11.5).
+- A defect can be observed only at a boundary. A boundary is the top level of the program, the test runner, or `Exit.attempt` (11.5).
 - To turn an expected error into a defect, call panic in an escape arm. The conversion in the other direction is possible only at a boundary.
 - When a defect reaches the top level of the program, `emela run` prints one line `defect: <message>` to standard error and exits with exit code 101.
 

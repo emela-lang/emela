@@ -1,4 +1,4 @@
-//! `Fiber.attempt` and the operations of `Std.Cause` (spec 11.5).
+//! `Exit.attempt` and the operations of `Std.Cause` (spec 11.5).
 //!
 //! `attempt` runs its function on the current fiber, so it needs no fiber of its own: the call is
 //! an indirect call, and what it left (a value, a pending failure or a pending defect) becomes an
@@ -62,7 +62,7 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
     true
 }
 
-/// Whether the program uses `Fiber.attempt` or an operation of `Std.Cause`, the only concurrency
+/// Whether the program uses `Exit.attempt` or an operation of `Std.Cause`, the only concurrency
 /// operations the target supports (`check::value`).
 pub(crate) fn used(b: &Builder) -> bool {
     b.m.functions.iter().any(|(_, f)| {
@@ -78,7 +78,7 @@ pub(crate) fn used(b: &Builder) -> bool {
     })
 }
 
-/// Whether some `Fiber.attempt` runs a function that may suspend, so the scheduler needs the
+/// Whether some `Exit.attempt` runs a function that may suspend, so the scheduler needs the
 /// resume function of its frame.
 pub(crate) fn suspends(b: &Builder) -> bool {
     b.m.functions.iter().any(|(_, f)| {

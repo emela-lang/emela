@@ -10,26 +10,21 @@
 #     Fiber.join(a)
 #   })
 #
-# `Scope`, `scope`, `join`, `await`, `interrupt` and `attempt` are built in (the runtime
-# schedules the fibers; `@intrinsic` on an effect marks a built-in effect). The combinators
-# `all`, `race`, `both`, `map` and `timeout` are written in Emela on top of them (spec 11.3).
+# `Scope`, `scope`, `join`, `await` and `interrupt` are built in (the runtime schedules the
+# fibers; `@intrinsic` on an effect marks a built-in effect). The combinators `all`, `race`,
+# `both`, `map` and `timeout` are written in Emela on top of them (spec 11.3).
+#
+# How a fiber ended is an `Exit` of `Std.Exit`. `Exit.attempt`, which turns errors and defects
+# into an `Exit` without starting a fiber, is there too.
 
-import Std.Cause.{Cause}
 import Std.Clock.{Clock}
 import Std.Deferred.{Deferred}
+import Std.Exit.{Exit}
 
 ## The handle of a fiber that produces a value of type `A`. Held by the runtime. It cannot leave
 ## the `Fiber.scope` that started it (spec 11.8).
 @external
 pub type Fiber[A]
-
-## How a fiber ended (spec 11.5).
-pub enum Exit[A, E] {
-  ## Ended with a value.
-  Success(A)
-  ## Ended with an error, a defect or an interruption.
-  Failure(Cause[E])
-}
 
 ## The capability to start fibers in a scope. `E` and `R` are the `fails` and `use` of the
 ## children. Only `Fiber.scope` provides it: a handler cannot implement it (spec 11.2).
@@ -80,11 +75,6 @@ pub fn await[A](fiber: Fiber[A]) -> Exit[A, {}] use Async
 ## fiber that has ended.
 @intrinsic
 pub fn interrupt[A](fiber: Fiber[A]) -> () use Async
-
-## Runs `f` here and turns its errors and defects into values. An interruption of the current
-## fiber is not caught.
-@intrinsic
-pub fn attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R
 
 ## Runs all of `fs` concurrently and returns their values in order. If one fails, the others are
 ## interrupted and `all` fails.

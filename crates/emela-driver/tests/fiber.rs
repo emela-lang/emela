@@ -159,7 +159,8 @@ fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutc
 /// `n * 10`. `Res` is a handler that prints on init and release.
 const PRELUDE: &str = r##"import Std.Console.{Console, SystemConsole}
 import Std.Clock.{Clock, SystemClock}
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
 import Std.Deferred.{Deferred}
 
@@ -461,20 +462,20 @@ fn attempt_and_await() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    say(show(Fiber.attempt(fn() { boom() })))
-    say(show(Fiber.attempt(fn() { panic("bad") })))
-    say(show(Fiber.attempt(fn() { fetch(1, 1) })))
+    say(show(Exit.attempt(fn() { boom() })))
+    say(show(Exit.attempt(fn() { panic("bad") })))
+    say(show(Exit.attempt(fn() { fetch(1, 1) })))
     Fiber.scope(fn() {
       h = Fiber.fork(fn() { with Res { (use Clock).sleep(1000) } })
       (use Clock).sleep(10)
       Fiber.interrupt(h)
       say("await #{show(Fiber.await(h))}")
-      say("join #{show(Fiber.attempt(fn() { Fiber.join(h) }))}")
+      say("join #{show(Exit.attempt(fn() { Fiber.join(h) }))}")
       ok = Fiber.fork(fn() { 7 })
       say("await #{show(Fiber.await(ok))}")
     })
     r = Fiber.scope(fn() {
-      Fiber.attempt(fn() { boom() }) match {
+      Exit.attempt(fn() { boom() }) match {
         Success(v) -> v
         Failure(c) -> Cause.raise(c)
       }
@@ -543,12 +544,12 @@ fn main() {
       h = Fiber.fork(fn() { 1 })
       fn() { Fiber.join(h) }
     })
-    say(show(Fiber.attempt(fn() { join_later() })))
+    say(show(Exit.attempt(fn() { join_later() })))
     complete_later = Fiber.scope(fn() {
       d = Fiber.deferred()
       fn() { Deferred.complete(d, 1) }
     })
-    say(show(Fiber.attempt(fn() { complete_later() })))
+    say(show(Exit.attempt(fn() { complete_later() })))
     poll_later = Fiber.scope(fn() {
       d = Fiber.deferred()
       fn() { Deferred.poll(d) }

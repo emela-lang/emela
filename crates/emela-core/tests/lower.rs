@@ -694,7 +694,8 @@ fn fiber_scope_fork_and_attempt() {
     let m = lower_files(&[(
         "main.emel",
         "\
-import Std.Fiber.{Fiber, Scope, Exit}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 effect Log { fn info(msg: String) -> () }
@@ -707,7 +708,7 @@ fn main() -> Int use { Log, Async } {
     d = s.deferred()
     Deferred.complete(d, 1)
     Fiber.join(a)
-    e = Fiber.attempt(fn() { (use Log).info(\"e\") })
+    e = Exit.attempt(fn() { (use Log).info(\"e\") })
     Fiber.join(b) + Deferred.await(d)
   })
 }

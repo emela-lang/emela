@@ -496,7 +496,7 @@ function $export(gen) {
 
 // A continuation unwound while interrupted (11.4, 14.5). Thrown into a fiber when it is interrupted, by `$sync`
 // when a suspend operation inside a non-suspending function is not resumed in place, and by `Cause.raise` of an
-// Interrupt. It unwinds like a defect, but `Fiber.attempt` does not catch it. `scope` is the scope whose body is
+// Interrupt. It unwinds like a defect, but `Exit.attempt` does not catch it. `scope` is the scope whose body is
 // being interrupted, or null when the whole fiber is. The launcher and the test runner report it as `interrupted`.
 class $Interrupted extends Error {
   constructor(scope = null) {
@@ -860,7 +860,7 @@ function $interrupt(h) {
   });
 }
 
-// `Fiber.attempt(f)` (11.5). Turns a Fail or a Die of `f` into `Failure(cause)`. An interruption is not caught.
+// `Exit.attempt(f)` (11.5). Turns a Fail or a Die of `f` into `Failure(cause)`. An interruption is not caught.
 // Returns a generator when `f` returned one.
 function $attempt(f) {
   let r;

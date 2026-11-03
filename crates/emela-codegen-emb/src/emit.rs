@@ -9411,7 +9411,7 @@ impl<'a> TypeLayouts<'a> {
         states: &mut HashMap<TypeId, u8>,
     ) -> Result<(), Vec<Error>> {
         if let Type::Enum(id, args) = self.types[ty].clone()
-            && self.core.enums[id].name == "Std.Fiber.Exit"
+            && self.core.enums[id].name == "Std.Exit.Exit"
             && args
                 .iter()
                 .any(|&arg| matches!(self.types[arg], Type::Set(_)))

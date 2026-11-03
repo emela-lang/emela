@@ -1418,14 +1418,14 @@ fn agent_failures_show_where_the_assert_is() {
 }
 
 /// Each test is a run of its own: after a test that stalls and unwinds as interrupted, the next
-/// test's `Fiber.attempt` catches a defect again (`[fiber.cause]`). The same on every target.
+/// test's `Exit.attempt` catches a defect again (`[fiber.cause]`). The same on every target.
 #[test]
 fn an_attempt_after_a_stalled_test_catches_a_defect() {
     let fs = MemoryFiles::new([
         ("app/Pome.toml", ""),
         (
             "app/src/main.emel",
-            r#"import Std.Fiber.{Fiber, Success, Failure}
+            r#"import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 
 effect Wait {
@@ -1443,7 +1443,7 @@ fn stalls() -> () use { Async } {
 
 @test
 fn catches() -> () use { Async } {
-  Fiber.attempt(fn() { panic("caught") }) match {
+  Exit.attempt(fn() { panic("caught") }) match {
     Success(_) -> assert False
     Failure(c) -> assert Cause.to_string(c) == "defect: caught"
   }

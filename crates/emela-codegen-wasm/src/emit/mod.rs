@@ -2353,7 +2353,7 @@ impl<'m> Builder<'m> {
         ins.end();
     }
 
-    /// `Fiber.attempt` and the operations of `Std.Cause` (spec 11.5), with the runtime of
+    /// `Exit.attempt` and the operations of `Std.Cause` (spec 11.5), with the runtime of
     /// `runtime::attempt`. The other concurrency operations are refused by `check` before this.
     fn fiber(
         &mut self,

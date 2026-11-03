@@ -353,15 +353,13 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
 | `Fiber` | `@external type Fiber[A]` | runtime | A handle to a fiber. Cannot be leaked out of the scope (`[fiber.escape]`) |
-| `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | How a fiber ended |
 | `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E use R) -> Fiber[A]; fn deferred[A]() -> Deferred[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
 | `scope` | `scope[A, E, R](body: fn() -> A fails E use { Scope[E, R], Async, R }) -> A fails E use { Async, R }` | intrinsic | Runs the body and returns the value after all children have finished. Children use the handlers in effect where `scope` was called |
 | `fork` | `fork[A, E, R](f: fn() -> A fails E use R) -> Fiber[A] use Scope[E, R]` | Emela | `(use Scope).fork(f)` |
 | `deferred` | `deferred[A, E, R]() -> Deferred[A] use Scope[E, R]` | Emela | `(use Scope).deferred()` |
 | `join` | `join[A](fiber: Fiber[A]) -> A use Async` | intrinsic | Waits for the child to finish and returns its value. A defect if the child was interrupted |
-| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] use Async` | intrinsic | Waits for the child to finish and returns how it ended |
+| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] use Async` | intrinsic | Waits for the child to finish and returns how it ended (`Exit` of `Std.Exit`) |
 | `interrupt` | `interrupt[A](fiber: Fiber[A]) -> () use Async` | intrinsic | Interrupts the child and waits until its unwinding finishes |
-| `attempt` | `attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R` | intrinsic | Runs `f` in place and turns Fail and Die into values. Does not catch an interruption of the calling fiber itself |
 | `all` | `all[A, E, R](fs: List[fn() -> A fails E use R]) -> List[A] fails E use { Async, R }` | Emela | Runs all of them concurrently and collects the results in the original order |
 | `race` | `race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async, R }` | Emela | Takes the first one to finish and interrupts the rest |
 | `both` | `both[A, B, E, R](f: fn() -> A fails E use R, g: fn() -> B fails E use R) -> (A, B) fails E use { Async, R }` | Emela | Runs the two concurrently and returns a pair |
@@ -370,6 +368,15 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 
 - `all` and `map` launch all children first, then join them in the original order.
 - `timeout` launches a child that puts `Some(f())` into a Deferred and a child that waits ms with Clock and then puts None, and returns whichever was put first. Time is measured with the Clock handler at the call site, so inside TestClock it is measured in virtual time.
+
+### Std.Exit (`std/exit.emel`) `[api.std.exit]`
+
+How a computation ended, and `attempt`, which turns errors and defects into that value (`[fiber.cause]`). Used with `import Std.Exit.{Success, Failure}`.
+
+| Declaration | Signature | Implementation | Description |
+|---|---|---|---|
+| `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | How a computation ended |
+| `attempt` | `attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R` | intrinsic | Runs `f` in place and turns Fail and Die into values. Starts no fiber. Does not catch an interruption of the calling fiber itself |
 
 ### Std.Cause (`std/cause.emel`) `[api.std.cause]`
 
@@ -381,7 +388,7 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 | `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`, `defect: …`, `interrupted` |
 | `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | Raises it again. Fail fails, Die is a defect, and Interrupt unwinds as an interruption |
 
-impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions, so it does not satisfy Eq, Ord, or Show (display it with `to_string` or dbg). For the same reason, Exit of Std.Fiber does not satisfy them either.
+impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions, so it does not satisfy Eq, Ord, or Show (display it with `to_string` or dbg). For the same reason, Exit of Std.Exit does not satisfy them either.
 
 ### Std.Deferred (`std/deferred.emel`) `[api.std.deferred]`
 

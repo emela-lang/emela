@@ -138,12 +138,12 @@ enum Std.Cause.CauseKind {
 external enum Std.Deferred.Deferred[A] {
 }
 
-external enum Std.Fiber.Fiber[A] {
-}
-
-enum Std.Fiber.Exit[A, B] {
+enum Std.Exit.Exit[A, B] {
   Success(A)
   Failure(Std.Cause.Cause[{B}])
+}
+
+external enum Std.Fiber.Fiber[A] {
 }
 
 error enum Std.Embedded.Peripheral.PeripheralError {

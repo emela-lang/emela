@@ -1,4 +1,5 @@
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
@@ -12,7 +13,7 @@ handler Res: Resource {
 }
 pub fn work(n: Int) -> String use Async {
   with Waiting {
-    Fiber.attempt(fn() { Fiber.scope(fn() {
+    Exit.attempt(fn() { Fiber.scope(fn() {
       Fiber.fork(fn() { with Res { (use Wait).get(2) } })
       Fiber.fork(fn() { fail Boom(message: Int.to_string(n)) })
       (use Wait).get(1)

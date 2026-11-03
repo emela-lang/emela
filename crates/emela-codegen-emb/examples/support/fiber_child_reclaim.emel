@@ -1,4 +1,5 @@
-import Std.Fiber.{Fiber, Scope, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Success, Failure}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 effect Wait { suspend fn get(n: Int) -> Int }

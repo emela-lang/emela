@@ -103,7 +103,8 @@ int main(void) {
 #[test]
 fn failures_from_cancelled_nested_scopes_become_notes_of_the_outer_first_failure() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
@@ -114,7 +115,7 @@ fn late(n: Int) -> Int fails Boom use Wait { (use Wait).get(n)
  fail Boom(n: n)
 }
 pub fn work() -> Cause[Boom] use Async {
- with Waiting { Fiber.attempt(fn() { Fiber.scope(fn() {
+ with Waiting { Exit.attempt(fn() { Fiber.scope(fn() {
   Fiber.fork(fn() { Fiber.scope(fn() { Fiber.scope(fn() {
    Fiber.fork(fn() { late(1) })
    (use Wait).get(2)
@@ -195,7 +196,8 @@ int main(void) {
 #[test]
 fn settled_nested_scope_failures_keep_their_notes_when_cleanup_raises_interrupt() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
@@ -229,7 +231,7 @@ pub fn make() -> Cause[{}] use Async { with Waiting { Fiber.scope(fn() {
  }
 }) } }
 pub fn work(c: Cause[{}]) -> Cause[Boom] use Async { with Waiting {
- Fiber.attempt(fn() { Fiber.scope(fn() {
+ Exit.attempt(fn() { Fiber.scope(fn() {
   child=Fiber.fork(fn() { Fiber.scope(fn() {
    Fiber.fork(fn() { late(1) })
    Fiber.scope(fn() {

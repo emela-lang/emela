@@ -3,10 +3,10 @@ use super::*;
 #[test]
 fn attempt_captures_sync_failure_and_returns_owned_cause() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Exit.{Success, Failure}
 error Boom(n: Int)
 pub fn attempt(n: Int) -> Int {
- a = Fiber.attempt(fn() { if n == 0 { 41 } else { fail Boom(n: n) } })
+ a = Exit.attempt(fn() { if n == 0 { 41 } else { fail Boom(n: n) } })
  a match { Success(v) -> v + 1
   Failure(_) -> 42
  }
@@ -30,7 +30,7 @@ int main(void) { for(int i=0;i<1000;i++) assert(emela_export_attempt_0(i%2)==42)
 #[test]
 fn attempt_waits_for_async_cleanup_before_catching_failure() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Exit.{Success, Failure}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
@@ -48,7 +48,7 @@ handler Res: Resource {
 }
 pub fn attempt(n: Int) -> Int use Async {
  with Waiting {
-  a = Fiber.attempt(fn() { with Res {
+  a = Exit.attempt(fn() { with Res {
    x = (use Wait).get(1)
    if n == 0 { x } else { fail Boom(n: n) }
   } })
@@ -96,12 +96,12 @@ int main(void) {
 #[test]
 fn attempt_owns_managed_success_and_releases_discarded_results() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Exit.{Success, Failure}
 error Boom
 pub fn attempt(n: Int) -> Int {
- Fiber.attempt(fn() { fail Boom })
- Fiber.attempt(fn() { [n, n+1] })
- a = Fiber.attempt(fn() { [n, n+1] })
+ Exit.attempt(fn() { fail Boom })
+ Exit.attempt(fn() { [n, n+1] })
+ a = Exit.attempt(fn() { [n, n+1] })
  a match { Success(xs) -> List.length(xs) + 40
   Failure(_) -> -1
  }
@@ -125,7 +125,7 @@ int main(void) { for(int i=0;i<1000;i++) assert(emela_export_attempt_0(42)==42);
 #[test]
 fn attempt_keeps_the_embedded_policy_of_stopping_immediately_on_defect() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Exit.{Success, Failure}
 @external(c, "mark")
 fn mark(n: Int) -> () use {}
 effect Resource { fn read() -> Int }
@@ -133,7 +133,7 @@ handler Res: Resource { fn read() { 0 }
  release { mark(99) }
 }
 pub fn stopped() -> Int {
- Fiber.attempt(fn() { with Res { panic("test defect") } }) match {
+ Exit.attempt(fn() { with Res { panic("test defect") } }) match {
   Success(_) -> 1
   Failure(_) -> 2
  }

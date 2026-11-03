@@ -1,4 +1,5 @@
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 import Std.Deferred.{Deferred}
 
@@ -92,10 +93,10 @@ fn main() -> () use { Async } {
       Fiber.interrupt(h)
       print("interrupted #{show(Fiber.await(h))}")
     })
-    bad = Fiber.attempt(fn() {
+    bad = Exit.attempt(fn() {
       Fiber.scope(fn() {
         h = Fiber.fork(fn() {
-          Fiber.attempt(fn() {
+          Exit.attempt(fn() {
             with BadRes {
               spin(100000)
             }

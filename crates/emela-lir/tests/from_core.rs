@@ -284,7 +284,8 @@ fn main() {
 fn fibers() {
     let m = program(
         "\
-import Std.Fiber.{Fiber, Scope, Exit}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 fn main() -> Int use { Async } {
@@ -293,7 +294,7 @@ fn main() -> Int use { Async } {
     a = s.fork(fn() { [1] })
     d = s.deferred()
     Deferred.complete(d, ())
-    e = Fiber.attempt(fn() { 3 })
+    e = Exit.attempt(fn() { 3 })
     List.length(Fiber.join(a))
   })
 }

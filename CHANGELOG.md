@@ -7,6 +7,10 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+### Breaking
+
+- `attempt` と `Exit`（`Success`，`Failure`）を `Std.Fiber` から新しい `Std.Exit` に移す．`Fiber.attempt(f)` は `Exit.attempt(f)` に，`import Std.Fiber.{Exit, Success, Failure}` は `import Std.Exit.{Exit, Success, Failure}` に書き換える．古い名前は残さない（`proposals/std-exit.md`）
+
 ## [0.26.1](https://github.com/emela-lang/emela/compare/v0.26.0...v0.26.1) - 2026-10-30
 
 ### Fixed

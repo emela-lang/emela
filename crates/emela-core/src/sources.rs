@@ -51,6 +51,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Platform", include_str!("../lib/std/platform.emel")),
     ("Std.Cause", include_str!("../lib/std/cause.emel")),
     ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
+    ("Std.Exit", include_str!("../lib/std/exit.emel")),
     ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
     (
         "Std.Embedded.Peripheral",
@@ -198,7 +199,7 @@ mod tests {
         ("Std.Fiber", "join"),
         ("Std.Fiber", "await"),
         ("Std.Fiber", "interrupt"),
-        ("Std.Fiber", "attempt"),
+        ("Std.Exit", "attempt"),
         ("Std.Cause", "kind"),
         ("Std.Cause", "to_string"),
         ("Std.Cause", "raise"),
