@@ -2,7 +2,7 @@
 title: Rename the effect clause to uses
 authors: [Alliana]
 status: draft
-pr:
+pr: 488
 issue:
 decided:
 touches: [lex.continuation, kw.contextual, glossary.terms, grammar.decl, grammar.type, type.fn, type.inference, type.rules, type.effect-bound, effect.decl, effect.use, effect.with, effect.handler, effect.async, effect.state, effect.label, error.fails, fn.decl, fn.operator, data.tuple, intro.layers, module.pub-signature, module.resolution, module.pome, trait.effects, trait.not, fiber.scope, fiber.combinators, fiber.interrupt, fiber.cause, fiber.deferred, ext.decl, ext.call, ext.boundary, ext.c-host, ext.export, lib.layers, api.prelude, api.std.state, api.std.fiber, api.std.deferred, api.std.http, target.js, target.c-embedded.entry, fmt.signature, lsp.hover, lsp.completion, lsp.code-action, lsp.inlay-hint, open.list, diag.list]
