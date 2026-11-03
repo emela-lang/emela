@@ -2,7 +2,7 @@
 title: Local functions
 authors: [Alliana]
 status: draft
-pr:
+pr: 490
 issue:
 decided:
 touches: [fn.decl, fn.local (new), fn.args, fn.block, fn.loop, lex.comment, module.resolution, type.inference, type.rules, effect.use, effect.with, effect.escape, grammar.expr, diag.list]
