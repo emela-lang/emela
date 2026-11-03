@@ -244,7 +244,7 @@ No prototype yet.
   - "No new contextual keyword." `uses` works exactly as `fails` does: one more row in `[kw.contextual]`, no reserved word, and identifiers named `uses` keep working.
   - "Shorter." One character.
 - Reserve `uses`. Rejected: it would break identifiers named `uses` for no gain, since the clause position is already unambiguous.
-- Keep rule 4 limited to signatures and only rename. Possible, and this proposal can be adopted without the change to rule 4. The token rule is chosen because it removes state and an exception from the lexer, and it was impossible only because of the `use` expression.
+- Rename only, keep rule 4 limited to signatures, and change rule 4 in a later proposal. Rejected: the rename is what makes the token rule possible (it was impossible only because of the `use` expression), and doing both at once changes the lexer and the editor definitions (the tree-sitter scanner among them) once instead of twice.
 - A different word (`with`, `needs`, `effects`, `requires`). `with` is the expression that provides effects. `needs` and `requires` say the same as `uses` with no pair to `fails`. `effects` is a noun and breaks the pattern of `fails`.
 - Handle in the same proposal:
   - The two forms of a one-element set (`use { Sql }` and `use PomeIndex`; both appear in pkgs-api, and `emela fmt` keeps whichever was written). Separate: it is a question of the canonical form of an effect set, which also covers set type arguments (`Handler[E, Db]`) and does not depend on the keyword. If it is decided, doing it in the same rewrite as this proposal saves touching every clause twice.
@@ -258,7 +258,6 @@ No prototype yet.
 
 ## Open questions
 
-- Whether to include the token-based rule 4, or only rename and keep rule 4 limited to signatures.
 - Whether `emela fmt` rewrites the old clause as a migration aid, instead of only the E0147 quickfix in the LSP.
 - Whether the canonical form of a one-element set is decided before this proposal is implemented, so that the sources are rewritten once.
 
