@@ -20,21 +20,19 @@ pub fn new(status: Int, body: String) -> Response {
 
 ## Adds a header after the ones already in `res`.
 pub fn add_header(res: Response, name: String, value: String) -> Response {
-  Response(headers: List.append(res.headers, [(name, value)]), ..res)
+  Response(headers: res.headers.append([(name, value)]), ..res)
 }
 
 ## The first value of the header `name`, compared without case.
 pub fn header(res: Response, name: String) -> Option[String] {
-  List.head(header_values(res, name))
+  res.header_values(name).head()
 }
 
 ## All values of the header `name` in order, compared without case. Not named `headers`, the
 ## field (E0334).
 pub fn header_values(res: Response, name: String) -> List[String] {
-  key = String.to_ascii_lowercase(name)
-  res.headers
-    |> List.filter(fn((n, _)) { String.to_ascii_lowercase(n) == key })
-    |> List.map(fn((_, value)) { value })
+  key = name.to_ascii_lowercase()
+  res.headers.filter(fn((n, _)) { n.to_ascii_lowercase() == key }).map(fn((_, value)) { value })
 }
 
 ## `res` if its status is 2xx, otherwise fails with UnexpectedStatus.

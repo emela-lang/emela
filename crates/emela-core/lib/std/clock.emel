@@ -63,10 +63,10 @@ pub handler SystemClock: Clock {
 pub handler TestClock: Clock {
   suspend fn sleep(ms, resume) {
     st = use State[Instant]
-    at = Instant.add(st.get(), Duration.milliseconds(Int64.from_int(if ms < 0 { 0 } else { ms })))
-    when_stalled(Instant.to_unix_milliseconds(at))
+    at = st.get().add(Duration.milliseconds(Int64.from_int(if ms < 0 { 0 } else { ms })))
+    when_stalled(at.to_unix_milliseconds())
     st.update(fn(t) {
-      Ord.compare(t, at) match {
+      t.compare(at) match {
         Less -> at
         _    -> t
       }
