@@ -297,19 +297,19 @@ pub handler TestFileSystem: FileSystem {
   }
   suspend fn append_text(path, text, resume) {
     st = use State[TestFiles]
-    st.set(put_file(st.get(), path, fn(old) { String.append(Option.or(old, ""), text) }))
+    st.set(put_file(st.get(), path, fn(old) { old.or("").append(text) }))
     resume(())
   }
   suspend fn exists(path, resume) {
     files = (use State[TestFiles]).get()
-    resume(Option.is_some(file_text(files, path)) || is_dir(files, path))
+    resume(file_text(files, path).is_some() || is_dir(files, path))
   }
   suspend fn is_directory(path, resume) { resume(is_dir((use State[TestFiles]).get(), path)) }
   suspend fn list_directory(path, resume) {
     files = (use State[TestFiles]).get()
     if is_dir(files, path) {
       resume(children(files, path))
-    } else if Option.is_some(file_text(files, path)) || has_file_ancestor(files, path) {
+    } else if file_text(files, path).is_some() || has_file_ancestor(files, path) {
       fail NotADirectory(path:)
     } else {
       fail FileNotFound(path:)
@@ -318,13 +318,13 @@ pub handler TestFileSystem: FileSystem {
   suspend fn create_directory(path, resume) {
     st = use State[TestFiles]
     files = st.get()
-    if Option.is_some(file_text(files, path)) || has_file_ancestor(files, path) {
+    if file_text(files, path).is_some() || has_file_ancestor(files, path) {
       fail NotADirectory(path:)
     }
     TestFiles(files: fs, directories: dirs) = files
     # Only the missing ones, so that creating an existing directory changes nothing.
-    missing = List.filter(lineage(path), fn(d) { !is_dir(files, d) })
-    st.set(TestFiles(files: fs, directories: List.fold(missing, from: dirs, f: insert)))
+    missing = lineage(path).filter(fn(d) { !is_dir(files, d) })
+    st.set(TestFiles(files: fs, directories: missing.fold(from: dirs, f: insert)))
     resume(())
   }
   suspend fn remove(path, resume) {
@@ -332,12 +332,12 @@ pub handler TestFileSystem: FileSystem {
     files = st.get()
     TestFiles(files: fs, directories: dirs) = files
     # The ancestors stay, as they would on a real file system.
-    kept = List.fold(ancestors(path), from: dirs, f: insert)
-    if Option.is_some(file_text(files, path)) {
-      st.set(TestFiles(files: List.filter(fs, fn(e) { path_of(e) != path }), directories: kept))
+    kept = ancestors(path).fold(from: dirs, f: insert)
+    if file_text(files, path).is_some() {
+      st.set(TestFiles(files: fs.filter(fn(e) { path_of(e) != path }), directories: kept))
     } else if is_dir(files, path) {
-      if !List.is_empty(children(files, path)) { fail DirectoryNotEmpty(path:) }
-      st.set(TestFiles(files: fs, directories: List.filter(kept, fn(d) { d != path })))
+      if !children(files, path).is_empty() { fail DirectoryNotEmpty(path:) }
+      st.set(TestFiles(files: fs, directories: kept.filter(fn(d) { d != path })))
     } else {
       fail FileNotFound(path:)
     }
@@ -356,14 +356,14 @@ fn put_file(files: TestFiles, path: String, f: fn(Option[String]) -> String) -> 
   }
   TestFiles(files: fs, directories:) = files
   text = f(file_text(files, path))
-  others = List.filter(fs, fn(e) { path_of(e) != path })
-  (before, after) = List.partition(others, fn(e) { path_of(e) < path })
-  TestFiles(files: List.flatten([before, [(path, text)], after]), directories:)
+  others = fs.filter(fn(e) { path_of(e) != path })
+  (before, after) = others.partition(fn(e) { path_of(e) < path })
+  TestFiles(files: [before, [(path, text)], after].flatten(), directories:)
 }
 
 fn file_text(files: TestFiles, path: String) -> Option[String] {
   TestFiles(files: fs, ..) = files
-  List.find(fs, fn(e) { path_of(e) == path }) |> Option.map(fn((_, text)) { text })
+  fs.find(fn(e) { path_of(e) == path }).map(fn((_, text)) { text })
 }
 
 fn path_of(entry: (String, String)) -> String {
@@ -374,33 +374,30 @@ fn path_of(entry: (String, String)) -> String {
 ## Every path in `files` and `directories`, with all its ancestors.
 fn all_paths(files: TestFiles) -> List[String] {
   TestFiles(files: fs, directories:) = files
-  List.append(List.map(fs, path_of), directories)
-    |> List.map(lineage)
-    |> List.flatten
+  fs.map(path_of).append(directories).map(lineage).flatten()
 }
 
 fn is_dir(files: TestFiles, path: String) -> Bool {
   TestFiles(files: fs, directories:) = files
   path == "/"
-    || List.any(directories, fn(d) { d == path })
-    || List.any(all_paths(files), fn(p) { Path.parent(p) == Some(path) })
+    || directories.any(fn(d) { d == path })
+    || all_paths(files).any(fn(p) { Path.parent(p) == Some(path) })
 }
 
 ## Whether a file is at one of the ancestors of `path`.
 fn has_file_ancestor(files: TestFiles, path: String) -> Bool {
-  List.any(ancestors(path), fn(a) { Option.is_some(file_text(files, a)) })
+  ancestors(path).any(fn(a) { file_text(files, a).is_some() })
 }
 
 ## The names of the entries directly in `dir`, in name order without duplicates.
 fn children(files: TestFiles, dir: String) -> List[String] {
-  all_paths(files)
-    |> List.filter(fn(p) { Path.parent(p) == Some(dir) })
-    |> List.fold(from: [], f: fn(names, p) {
-      Path.file_name(p) match {
-        Some(name) -> insert(names, name)
-        None       -> names
-      }
-    })
+  paths = all_paths(files).filter(fn(p) { Path.parent(p) == Some(dir) })
+  paths.fold(from: [], f: fn(names, p) {
+    Path.file_name(p) match {
+      Some(name) -> insert(names, name)
+      None       -> names
+    }
+  })
 }
 
 ## `path` and its ancestors.
@@ -410,7 +407,7 @@ fn lineage(path: String) -> List[String] {
 
 ## The ancestors of `path`, nearest first.
 fn ancestors(path: String) -> List[String] {
-  List.reverse(ancestors_onto(path, []))
+  ancestors_onto(path, []).reverse()
 }
 
 fn ancestors_onto(path: String, acc: List[String]) -> List[String] {
@@ -422,10 +419,10 @@ fn ancestors_onto(path: String, acc: List[String]) -> List[String] {
 
 ## Inserts `x` into the sorted `xs`, unless it is already there.
 fn insert(xs: List[String], x: String) -> List[String] {
-  if List.any(xs, fn(y) { y == x }) {
+  if xs.any(fn(y) { y == x }) {
     xs
   } else {
-    (before, after) = List.partition(xs, fn(y) { y < x })
-    List.flatten([before, [x], after])
+    (before, after) = xs.partition(fn(y) { y < x })
+    [before, [x], after].flatten()
   }
 }

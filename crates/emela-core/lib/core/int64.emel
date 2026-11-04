@@ -39,7 +39,7 @@ pub fn shift_right_unsigned(n: Int64, by: Int) -> Int64
 
 ## The first argument if they are equal.
 pub fn min(a: Int64, b: Int64) -> Int64 {
-  Ord.compare(a, b) match {
+  a.compare(b) match {
     Greater -> b
     _       -> a
   }
@@ -47,7 +47,7 @@ pub fn min(a: Int64, b: Int64) -> Int64 {
 
 ## The first argument if they are equal.
 pub fn max(a: Int64, b: Int64) -> Int64 {
-  Ord.compare(a, b) match {
+  a.compare(b) match {
     Less -> b
     _    -> a
   }

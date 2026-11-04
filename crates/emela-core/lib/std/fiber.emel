@@ -7,7 +7,7 @@
 #
 #   Fiber.scope(fn() {
 #     a = Fiber.fork(fn() { fetch_user(1) })
-#     Fiber.join(a)
+#     a.join()
 #   })
 #
 # `Scope`, `scope`, `join`, `await`, `interrupt` and `attempt` are built in (the runtime
@@ -90,8 +90,8 @@ pub fn attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R
 ## interrupted and `all` fails.
 pub fn all[A, E, R](fs: List[fn() -> A fails E use R]) -> List[A] fails E use { Async, R } {
   scope(fn() {
-    fibers = List.map(fs, fn(f) { fork(f) })
-    List.map(fibers, fn(fiber) { join(fiber) })
+    fibers = fs.map(fn(f) { fork(f) })
+    fibers.map(fn(fiber) { join(fiber) })
   })
 }
 
@@ -101,8 +101,8 @@ pub fn race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async
   scope(fn() {
     s = use Scope
     d = s.deferred()
-    List.map(fs, fn(f) { s.fork(fn() { Deferred.complete(d, f()) }) })
-    Deferred.await(d)
+    fs.map(fn(f) { s.fork(fn() { d.complete(f()) }) })
+    d.await()
   })
 }
 
@@ -124,8 +124,8 @@ pub fn map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E use R) -> List[B]
   fails E
   use { Async, R } {
   scope(fn() {
-    fibers = List.map(xs, fn(x) { fork(fn() { f(x) }) })
-    List.map(fibers, fn(fiber) { join(fiber) })
+    fibers = xs.map(fn(x) { fork(fn() { f(x) }) })
+    fibers.map(fn(fiber) { join(fiber) })
   })
 }
 
@@ -138,11 +138,11 @@ pub fn timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A]
   scope(fn() {
     s = use Scope
     d = s.deferred()
-    s.fork(fn() { Deferred.complete(d, Some(f())) })
+    s.fork(fn() { d.complete(Some(f())) })
     s.fork(fn() {
       (use Clock).sleep(ms)
-      Deferred.complete(d, None)
+      d.complete(None)
     })
-    Deferred.await(d)
+    d.await()
   })
 }
