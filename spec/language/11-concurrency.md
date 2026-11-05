@@ -141,6 +141,8 @@ When a fiber does not end normally, the cause is one of the following three. The
 | Die | defect | No |
 | Interrupt | interruption | No |
 
+Whether an allocation failure is observable as a `Die` cause is implementation-defined (`[dyn.memory]`).
+
 A cause is represented by `Cause[E]` in `Std.Cause`. As in 7.1, no type can be made for a value that is "one of E", so Cause is an opaque type from which the error value inside cannot be taken out. It can only be inspected for its kind and raised again. After raising it again, the caller can receive it as a concrete error by writing escape.
 
 ```emel
