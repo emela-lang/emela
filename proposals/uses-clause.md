@@ -1,10 +1,10 @@
 ---
 title: Rename the effect clause to uses
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 488
 issue:
-decided:
+decided: 2026-11-06
 touches: [fmt.io, fmt.space, lex.continuation, kw.contextual, glossary.terms, grammar.decl, grammar.type, type.fn, type.inference, type.rules, type.effect-bound, effect.decl, effect.use, effect.with, effect.handler, effect.async, effect.state, effect.label, error.fails, fn.decl, fn.operator, data.tuple, intro.layers, module.pub-signature, module.resolution, module.pome, trait.effects, trait.not, fiber.scope, fiber.combinators, fiber.interrupt, fiber.cause, fiber.deferred, ext.decl, ext.call, ext.boundary, ext.c-host, ext.export, lib.layers, api.prelude, api.std.state, api.std.fiber, api.std.deferred, api.std.http, target.js, target.c-embedded.entry, fmt.signature, lsp.hover, lsp.completion, lsp.code-action, lsp.inlay-hint, open.list, diag.list]
 requires: []
 related: []
@@ -283,6 +283,6 @@ No prototype yet.
 
 ## Open questions
 
-None.
-
 ## Decision
+
+`use` did two jobs: the expression `use X` gives the value of one capability, and the clause declares the set of effects of a function. Errors already separate the same two jobs with `fail` and `fails`, so the clause becomes `uses`, a contextual keyword like `fails`, and no reserved word is added. The rename also removes the reason rule 4 of line continuation had to track signatures, because a line that starts with `uses` followed by a name or `{` can no longer be a statement; the two changes go together so that the lexer and the editor definitions change once. The canonical form of a clause always has braces (`uses { Db }`), because sets of two items or none have them in any case and the bare form looks like the capability `use Db`. It is decided here so that every clause is rewritten once. `emela fmt` rewrites the old clause and adds the braces, because the position needs no judgment and every repository that writes a clause needs the rewrite. The form without braces stays valid, since a diagnostic would add nothing the formatter does not already do. Set type arguments stay out of scope, because the formatter cannot tell a set from an ordinary type argument there.
