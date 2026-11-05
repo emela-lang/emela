@@ -2,7 +2,7 @@
 title: Closure syntax for anonymous functions
 authors: [Alliana]
 status: draft
-pr:
+pr: 492
 issue:
 decided:
 touches: [fn.decl, fn.block, lex.continuation, grammar.expr, type.fn, type.inference, type.rules, fiber.combinators, fmt.wrap, fmt.closure (new), fmt.io, diag.list]
