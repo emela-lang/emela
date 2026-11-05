@@ -23,7 +23,7 @@ effect Clock {
 - An operation states the types of its parameters and its return value.
 - If an operation can fail, its declaration has `fails`. Without it, the operation does not fail. A handler cannot fail beyond the declared range. As a result, replacing the handler does not change the caller's E.
 - An effect can have type parameters (`effect State[S]`). Type parameters are limited to ordinary types. Effects with different type arguments are treated as different effects, and in R, `State[Int]` and `State[String]` are distinct. Type arguments cannot be omitted, as in `use State[Int]`. Omitting the type arguments is a compile error (E0423), and a wrong number of them is a compile error (E0304). A type parameter written only in the fails or use of a function type in an operation's parameters or return value would be a set, so it is a compile error (E0424), but the operation's own `fails S` is accepted as a single error type (7.2), as for fn. In a function type inside a type argument of an effect, omitted fails and use are empty (as inside declarations in 9.2). However, built-in effects (effects marked `@intrinsic` in the bundled sources; Scope, 11.2) can have set type parameters and type parameters on the operations themselves (`fn fork[A](...)`). Writing type parameters on an operation of a user effect is a compile error (E0426; the diagnostic points at the first type parameter). Users cannot write handlers for built-in effects, so no check is needed for handlers that implement polymorphic operations. The type argument of `use State[S]` can be a type parameter of the enclosing fn. Whether an effect is Immediate is determined by the effect's definition and does not depend on its type arguments.
-- Whether two effects in R are the same is decided by comparing them including their type arguments. If a type argument is not yet determined, they are compared by unification, so in `State.run([], fn() { with TestConsole { greet(1) } })` the state type is determined from `State[List[String]]` in the body's R. The with rule "a later handler for the same effect takes precedence" and layer duplication (E0421) also count only effects that are the same including type arguments. Type variables left in R are generalized (`fn peek() { modify(fn(x) { x }) }` is `∀ A. fn() -> A use State[A]`).
+- Whether two effects in R are the same is decided by comparing them including their type arguments. If a type argument is not yet determined, they are compared by unification, so in `State.run([], || with TestConsole { greet(1) })` the state type is determined from `State[List[String]]` in the body's R. The with rule "a later handler for the same effect takes precedence" and layer duplication (E0421) also count only effects that are the same including type arguments. Type variables left in R are generalized (`fn peek() { modify(|x| x) }` is `∀ A. fn() -> A use State[A]`).
 - A handler that implements an effect with type parameters states concrete types (`handler Fixed: State[Int]`). There are no generic handlers that implement the effect for every type.
 - An operation cannot have a `use` clause (op_sig in 17.3; writing one is a compile error (E0137), and the diagnostic points at the range of the use clause). When the implementation of an operation uses another effect, that effect is a requirement of the handler (requires(H) in 9.4) and is satisfied at the with. As a result, replacing the handler does not change the caller's R. A function type in the declaration of an operation is pure unless written otherwise (9.2), and a user effect cannot have a set type parameter (E0424), so an operation cannot take a function that uses other effects. To use a different capability, provide a different handler at the with.
 - The body of the implementation of a fn operation (one that is not a suspend fn) MUST satisfy one of the following (E0417). Either one alone guarantees that the body does not suspend.
@@ -32,7 +32,7 @@ effect Clock {
 - When the R of the body is not Immediate, E0417 is reported for each call that may suspend, at the position of that call. The search covers the subexpressions of the body, excluding the bodies of anonymous functions. A call inside an anonymous function counts as a call of a function value where that anonymous function is called.
 - Whether a call may suspend is determined as follows.
   - A call of an operation (`clock.now()`, `(use Clock).now()`) is determined by the declaration of the operation. If it is a `suspend fn`, the call may suspend.
-  - A call of a function or a function value is determined by the R of the callee's type. If that R is not Immediate, the call may suspend. Calling a closure that captures a capability (`f = fn() { clock.now() }`) or an operation taken out as a value (`g = clock.now`) is also a call of a function value.
+  - A call of a function or a function value is determined by the R of the callee's type. If that R is not Immediate, the call may suspend. Calling a closure that captures a capability (`f = || clock.now()`) or an operation taken out as a value (`g = clock.now`) is also a call of a function value.
   - A call of an `@external suspend fn` may suspend.
 - If the body contains no call that may suspend, its R is not restricted. The R of `fn now() { (use Clock).now() }` contains Clock, which becomes a requirement of the handler. Mixing `now` of the outer Clock and `sleep` inside an inner `with InstantClock` in the same body satisfies neither condition and is a compile error (E0417). Accepting it would require looking, for each call, at the innermost with that provides its effect, which makes the rule heavier, so this is not done. A call through a function is treated as possibly suspending even if that function calls only fn operations (`fn now() { stamp() }`, which calls `fn stamp() -> Instant use { Clock }`, is a compile error (E0417)). That a function does not suspend is not inferred from its body. The implementations of fn operations in every handler are bound by the same rule, so a call of a fn operation does not suspend whichever handler it reaches.
 - An operation that involves waiting (waiting on an `@external suspend fn`, calling a suspend operation) MUST be declared as a suspend fn on the effect side. Otherwise its implementation is a compile error (E0417). This is because the caller can learn whether a call suspends only from the effect's declaration. Only operation declarations of effects carry a mark of whether they suspend. Function signatures (`use Http`) and calls do not.
@@ -76,7 +76,7 @@ with PrimaryDb {
   primary = use Db
   with ReplicaDb {
     replica = use Db
-    copy(fn() { replica.query("...") }, fn(rows) { primary.execute(rows) })
+    copy(|| replica.query("..."), |rows| primary.execute(rows))
   }
 }
 ```
@@ -141,7 +141,7 @@ handler PostgresUsers(conn: Connection): Users {
 
 handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
-    set_timeout(ms, fn() { resume(()) })
+    set_timeout(ms, || resume(()))
   }
   fn now() { date_now() }
 }
@@ -197,7 +197,7 @@ A capability value, and closures that capture it, cannot leave the with that pro
 fn make_greeter() {
   with ConsoleLogger {
     log = use Logger
-    fn() { log.info("hi") } # compile error: leaves the with while holding log
+    || log.info("hi") # compile error: leaves the with while holding log
   }
 }
 ```
@@ -206,7 +206,7 @@ fn make_greeter() {
 - If the value of a with body holds a capability provided by that with, it is a compile error.
 - Until the capture set check is added (0.22), the check is done at run time. Calling an operation of a handler that has already been released is a defect (`handler PostgresUsers was used after release`). This check applies only to handlers that have fields, init, or release. A handler without state keeps working as before even if it is taken out of the with.
 - The capture set is inferred and is not written in source. Users see only error messages.
-- A closure that is used up inside the with (`List.map(names, fn(n) { log.info(n) })`) is fine.
+- A closure that is used up inside the with (`List.map(names, |n| log.info(n))`) is fine.
 - Leaking Scope capabilities, fiber handles, and Deferreds is prevented by the same idea. The table in 11.8 summarizes what can be checked in 0.20 and 0.22.
 
 ## 8.7 Async `[effect.async]`
@@ -254,7 +254,7 @@ handler TestConsole: Console {
 
 @test
 fn greets() {
-  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+  (_, lines) = State.run([], || with TestConsole { greet(1) })
   assert lines == ["Hello, alice!"]
 }
 ```
