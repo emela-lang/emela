@@ -1,10 +1,10 @@
 ---
 title: Closure syntax for anonymous functions
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 492
 issue:
-decided:
+decided: 2026-11-05
 touches: [fn.decl, fn.block, lex.continuation, grammar.expr, type.fn, type.inference, type.rules, fiber.combinators, fmt.wrap, fmt.closure (new), fmt.io, diag.list]
 requires: []
 related: []
@@ -306,6 +306,6 @@ No prototype yet.
 
 ## Open questions
 
-None.
-
 ## Decision
+
+An anonymous function cost `fn() { ... }` even when its body was one expression, and Emela's direct style makes such wrappings unavoidable: 274 of the 649 anonymous functions in the organization take no parameters, and 346 fit on one line. `|x| e` and `|| e` make them light, and a body of several statements stays a block. The value comes from the body without braces; keeping braces mandatory would save two characters and keep every conflict, and `fn(x) e` reads a parenthesized body as a second parameter list. `||` is already the logical or, so a line that starts with `||` now starts an anonymous function, as `-` starts a unary minus, and a chain of `||` that spans lines is enclosed in parentheses, where they group an expression. Writing `(|| e)` at the start of a statement was rejected because those parentheses would look like grouping while only working around the line break. An anonymous function as a statement that is not the last of its block is an error, so old code that continued a line with `||` stops compiling instead of changing its meaning. An error set of two or more items in a parameter type takes parentheses rather than depending on the case of the next token. The old form is rewritten by `emela fmt` and kept as a diagnostic with no end date, as the prefix match is.
