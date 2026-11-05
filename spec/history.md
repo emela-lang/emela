@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-05 (The JavaScript launcher names)
+
+- `[target.js.module]`, `[ext.export]`, `[diag.list]`: `main.mjs` exports `main` and `$start` for the launcher in addition to the host exports. A two-argument `@export(js, "name")` that would duplicate one of them is E0438. The rule is conditional on the name being exported: `main` when the entry has a `main`, and `$start` when the entry's `main` or a host export of the `js` target may suspend. Adopted in the proposal `js-launcher-names` (#462).
+
 ## 2026-11-05 (Closure syntax for anonymous functions)
 
 - `[fn.decl]`, `[fn.block]`, `[lex.continuation]`, `[grammar.expr]`, `[type.fn]`, `[type.inference]`, `[type.rules]`, `[fiber.combinators]`, `[fmt.wrap]`, `[fmt.closure]`, `[fmt.io]`, `[diag.list]`: An anonymous function is written `|x| e`, `|a, b| e` or `|| e`. The body is one expression and extends as far to the right as possible; a body of several statements is a block, `|x| { ... }`. The form `fn(x) { e }` is removed from expressions, and `fn` is used only for declarations and function types. Existing code is rewritten mechanically by `emela fmt`. Adopted in the proposal `closure-syntax` (#492).
