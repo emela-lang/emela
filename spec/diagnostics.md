@@ -91,6 +91,8 @@ error[E0204]: duplicate module `Http.Client`
 | E0144 | An impl written in the form `impl Trait for Type` or `impl[...] Type: Trait` (10.2) | ``write `impl User: Show` instead of `impl Show for User` `` |
 | E0145 | A handler written with `implements` (8.4) | ``write `handler ConsoleLogger: Logger` instead of `implements` `` |
 | E0146 | Malformed arguments of `@export` (12.7). On the `js` target, also a three-argument form whose middle argument is not `"default"`, and a two-argument form whose name is `"default"` (16.6.2); on the `c` target, the three-argument form (16.7.6). `@export` on something other than a top-level fn with a body is also E0146, with the message ``` `@export` is written on a top-level fn with a body ``` | ``expected `@export(target, "name")` `` |
+| E0148 | `fn(...)` written as an expression (6.1) | ``anonymous functions are written `\|x\| body` `` with ``= help: write `\|x\| ...` `` showing the rewrite. The language server offers the rewrite as a quick fix |
+| E0149 | An anonymous function written as a statement that is not the last statement of its block (6.3). When the statement starts with `\|\|` at the start of a line, the help is added. The same help is added to E0301 when such an anonymous function is the last statement of a block and its type does not match | ``this anonymous function is never used`` with ``= help: a line that starts with `\|\|` starts an anonymous function; to continue the previous line with `\|\|`, enclose the expression in parentheses`` |
 | E0143 and up | Syntax errors | Assigned in the parser and added to this table |
 | E0201 | A file name does not form a module name (4.1) | ``file name `Foo` cannot be a module name: not lower snake_case`` |
 | E0202 | A directory name does not form a module name | ``directory name `My-Dir` cannot be a module name: not lower snake_case`` |
@@ -212,7 +214,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0435 | Arguments are written for something that takes none: a handler whose init takes no parameters (including `H()`), a layer, or a label (8.4). The help is ``= help: write `FakeKv` without parentheses`` | ``handler `FakeKv` takes no arguments`` |
 | E0436 | A parameter or the return value of an `@export` fn is not a boundary type (12.7, 12.8) | ``exported function `f` cannot take `List[Int]` `` |
 | E0437 | An `@export` fn that is not an entry adapter, or an `@entry`, outside the entry module (12.7, 12.8) | `` `@export` is only allowed in the entry module `` / `` `@entry` is only allowed in the entry module `` |
-| E0438 | Two exports with the same name for the same target (12.7) | `` `fetch` is exported twice for target `js` `` |
+| E0438 | Two exports with the same name for the same target (12.7, 16.6.2) | `` `fetch` is exported twice for target `js` `` |
 | E0439 | The argument of `@entry` is not an entry adapter (12.8). When the argument is not one name or path, the message is ``the argument of `@entry` must name an entry adapter`` | `` `Http.get` is not an entry adapter `` |
 | E0440 | The fn cannot be passed as the first argument of the entry adapter (12.8) | `` `app` does not fit `Http.serve` `` |
 | E0441 | An exported fn that may suspend on the `c` target (16.7.6) | ``exported function `f` may suspend, which target `c` does not support`` |
