@@ -172,7 +172,7 @@ pub fn add(a: Int, b: Int) -> Int { a + b }
 - The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402).
 - A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} use {}` (`f: fn(Int) -> String fails {} use {}`). Otherwise its E and R are not empty (E0402).
 - An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
-- Two exports with the same name for the same target, from `@export` or `@entry`, are a compile error (E0438).
+- Two exports with the same name for the same target, from `@export`, `@entry` or the launcher of `main.mjs` (`[target.js.module]`), are a compile error (E0438).
 - How each target exposes the fn is in `[target.js.module]`, `[target.c.export]` and `[target.wasm.external]`.
 
 ## 12.8 Entry adapters `[ext.entry]`
