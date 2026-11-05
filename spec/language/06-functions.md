@@ -16,10 +16,14 @@ pub fn find(id: Int) -> User fails NotFound use Users { ... }
 
 - In a top-level fn, the parameter types are written (omitting them is a compile error (E0316)). In an anonymous function they can be omitted. The return type, `fails`, and `use` can be omitted. The meaning when they are omitted is defined in 7.4 and 9.3.
 - The body is a block, and the value of the last expression is the return value. There is no `return`.
-- Anonymous functions have one form only, `fn(x) { x + 1 }`, with no shorthand. Parameter types can be omitted.
-- A parameter of an anonymous function can be a pattern instead of a name (`fn((key, value)) { ... }`, `fn(acc, _) { acc }`, `fn(Request(url:, ..)) { url }`). A type, when written, comes after the pattern (`fn((a, b): (Int, Int)) { a + b }`).
+- An anonymous function is written `|x| x + 1`. The parameters are written between `|` and `|`, separated by `,` (`|acc, x| acc + x`). An anonymous function without parameters is written with the token `||` (`|| fetch(1)`). Parameter types can be omitted. There is no annotation of the return type.
+- The body is one expression and extends as far to the right as possible: it includes `|>`, binary operators, and postfix `match` and `escape`. It ends where an expression ends: at a `,` or a closing bracket, at the end of a statement, and at the end of an arm. A body of several statements is a block, `|x| { ... }`. A `{` after the parameter list always starts a block, because records and constructors are written with parentheses (5.1).
+- Since the body takes everything to its right, an anonymous function that is called, piped, or used as the left operand of an operator is enclosed in parentheses (`(|x| x + 1)(2)`).
+- `fn` is written only in declarations and in function types. `fn(...)` in an expression is a compile error (E0148).
+- A parameter of an anonymous function can be a pattern instead of a name (`|(key, value)| ...`, `|acc, _| acc`, `|Request(url:, ..)| url`). A type, when written, comes after the pattern (`|(a, b): (Int, Int)| a + b`).
   - A parameter pattern is limited, as for bindings, to patterns that always match (6.3, E0317).
-  - `fn(p) { body }` means the same as `fn(t) { p = t; body }`. Parameters are matched from left to right. Binding the same name in two parameters is a compile error (E0220).
+  - `|p| body` means the same as `|t| { p = t; body }`. Parameters are matched from left to right. Binding the same name in two parameters is a compile error (E0220).
+  - Inside the parameter list, a `|` at bracket depth zero closes the list. A parameter type whose error set has two or more items is enclosed in parentheses (`|f: (fn() -> Int fails Timeout | Refused)| f()`).
   - The parameters of top-level fns, fns in impls and handlers, and operations of traits and effects are limited to names. This is because a parameter name also serves as the label of a named argument (6.2) and as the link to the declaration. Values of anonymous functions have no parameter names and are called by position only (6.2), so making a parameter a pattern loses nothing.
 
 - A top-level fn and a constructor with fields become function values when their names are written without calling them (`List.map(xs, Some)`).
@@ -57,6 +61,8 @@ pairs: List[(String, Int)] = List.zip(names, scores)
 - A binding pattern is limited to patterns that always match. The same holds for parameter patterns of anonymous functions (6.1). Matching that can fail is written with match. The check is the same as the exhaustiveness check (6.5), and the error shows examples of the missing patterns.
 - The value of a block `{ ... }` is the value of its last expression.
 - Bindings inside a block are not generalized. Only top-level functions and consts are polymorphic.
+- A binding of an anonymous function (`f = |x| x + 1`) is not generalized, is called with positional arguments only (6.2), and cannot refer to itself, because the name is visible only after the binding.
+- An anonymous function written as a statement that is not the last statement of its block is a compile error (E0149). Its value is always discarded, so it is never useful. A line that starts with `||` starts such an anonymous function (2.5), so the rule also keeps `x = a⏎|| b`, which once bound `a || b`, from binding `a` and dropping `|| b`.
 
 ## 6.4 if `[fn.if]`
 
@@ -84,7 +90,7 @@ shape match {
 - match is postfix and is written `expr match { arms }`. It has the same form as escape (7.3) and the same precedence, the weakest level (6.6). Even when branching on the result of a pipe, the reading direction stays left to right. Because match is an expression, it can also be written on the right-hand side of a binding.
 
 ```emel
-name = users |> List.find(fn(u) { u.id == id }) match {
+name = users |> List.find(|u| u.id == id) match {
   Some(u) -> u.name
   None -> "guest"
 }

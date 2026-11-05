@@ -125,7 +125,7 @@ fn unreserved(byte: Int) -> Bool {
 }
 ```
 
-- An anonymous function written as a statement that is not the last statement of its block is a compile error (E01yy). Its value is always discarded, so it is never useful, and the rule keeps old code from silently changing its meaning: `x = a⏎|| b`, which used to bind `a || b`, would otherwise bind `a` and drop `|| b`.
+- An anonymous function written as a statement that is not the last statement of its block is a compile error (E0149). Its value is always discarded, so it is never useful, and the rule keeps old code from silently changing its meaning: `x = a⏎|| b`, which used to bind `a || b`, would otherwise bind `a` and drop `|| b`.
 - The body starts on the line of the parameter list. Outside brackets, a newline right after the parameter list ends the statement.
 
 ### Meaning
@@ -147,7 +147,7 @@ Replace the item "Anonymous functions have one form only, ..." and the item that
 - An anonymous function is written `|x| x + 1`. The parameters are written between `|` and `|`, separated by `,` (`|acc, x| acc + x`). An anonymous function without parameters is written with the token `||` (`|| fetch(1)`). Parameter types can be omitted. There is no annotation of the return type.
 - The body is one expression and extends as far to the right as possible: it includes `|>`, binary operators, and postfix `match` and `escape`. It ends where an expression ends: at a `,` or a closing bracket, at the end of a statement, and at the end of an arm. A body of several statements is a block, `|x| { ... }`. A `{` after the parameter list always starts a block, because records and constructors are written with parentheses (5.1).
 - Since the body takes everything to its right, an anonymous function that is called, piped, or used as the left operand of an operator is enclosed in parentheses (`(|x| x + 1)(2)`).
-- `fn` is written only in declarations and in function types. `fn(...)` in an expression is a compile error (E01xx).
+- `fn` is written only in declarations and in function types. `fn(...)` in an expression is a compile error (E0148).
 - A parameter of an anonymous function can be a pattern instead of a name (`|(key, value)| ...`, `|acc, _| acc`, `|Request(url:, ..)| url`). A type, when written, comes after the pattern (`|(a, b): (Int, Int)| a + b`).
   - A parameter pattern is limited, as for bindings, to patterns that always match (6.3, E0317).
   - `|p| body` means the same as `|t| { p = t; body }`. Parameters are matched from left to right. Binding the same name in two parameters is a compile error (E0220).
@@ -233,7 +233,7 @@ Add to `spec/tooling/fmt.md` after `[fmt.wrap]`:
 - Nested anonymous functions are separated by a space (`|x| |y| x`).
 - An anonymous function that is the right operand of a binary operator or `|>`, or the operand of a unary operator, is enclosed in parentheses (`a || (|| b)`).
 - When the whole body is a block that was written on one line with one expression, the braces are removed (`|x| { x + 1 }` becomes `|x| x + 1`). A block written over several lines keeps its braces, even with one expression, as the body of an if does: the line breaks are taken as the writer's intent.
-- The formatter rewrites `fn(params) { body }` in an expression (E01xx) as an anonymous function: `|params| e` when the block has one expression on one line, and `|params| { ... }` otherwise. It adds the parentheses that the extent of the body requires (`fn(x) { x }(1)` becomes `(|x| x)(1)`).
+- The formatter rewrites `fn(params) { body }` in an expression (E0148) as an anonymous function: `|params| e` when the block has one expression on one line, and `|params| { ... }` otherwise. It adds the parentheses that the extent of the body requires (`fn(x) { x }(1)` becomes `(|x| x)(1)`).
 
 ### `[fmt.wrap]`
 
@@ -247,12 +247,12 @@ Replace "The formatter does not break before `-`, because a `-` at the start of 
 
 Replace "A file with a syntax error is not formatted." with:
 
-- A file with a syntax error is not formatted. E01xx (`fn(...)` in an expression) is not a syntax error here: the formatter rewrites it (`[fmt.closure]`).
+- A file with a syntax error is not formatted. E0148 (`fn(...)` in an expression) is not a syntax error here: the formatter rewrites it (`[fmt.closure]`).
 
 ### `[diag.list]`
 
-- E01xx: "`fn(...)` written as an expression (6.1)". Message ``anonymous functions are written `|x| body` ``, with ``= help: write `|x| ...` `` showing the rewrite. The language server offers the rewrite as a quick fix.
-- E01yy: "An anonymous function written as a statement that is not the last statement of its block (6.3)". Message ``this anonymous function is never used``. When the statement starts with `||` at the start of a line, it adds ``= help: a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses``.
+- E0148: "`fn(...)` written as an expression (6.1)". Message ``anonymous functions are written `|x| body` ``, with ``= help: write `|x| ...` `` showing the rewrite. The language server offers the rewrite as a quick fix.
+- E0149: "An anonymous function written as a statement that is not the last statement of its block (6.3)". Message ``this anonymous function is never used``. When the statement starts with `||` at the start of a line, it adds ``= help: a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses``.
 - When an anonymous function that starts a line with `||` is the last statement of a block and its type does not match the expected type (E0301), the same help is added.
 
 ### Examples in the rest of the specification
@@ -261,24 +261,24 @@ Every example in `spec/` that writes an anonymous function is rewritten with `em
 
 ## Diagnostics
 
-- [ ] E01xx: `fn(...)` written as an expression (code to be assigned), with a help and a quick fix
+- [ ] E0148: `fn(...)` written as an expression (code to be assigned), with a help and a quick fix
 - [ ] Syntax error for a newline right after the parameter list outside brackets (the existing message for an expression that is missing)
-- [ ] E01yy: an anonymous function as a statement that is not the last of its block, with the help for a line that starts with `||`
+- [ ] E0149: an anonymous function as a statement that is not the last of its block, with the help for a line that starts with `||`
 - [ ] The same help on E0301 when the last statement of a block is an anonymous function that starts a line with `||`
 
 ## Compatibility
 
-Every program that writes an anonymous function stops compiling. There is no migration period, following the decision to make match postfix (`spec/history.md`, 2026-10-13): from the release that implements this proposal, only the new form exists. `emela fmt` rewrites the old form, so a project migrates by running it once. The compiler keeps reading the old form to report E01xx with its quick fix, and the formatter keeps rewriting it, with no end date, as the prefix match (E0142) is kept. Old code stays around in published Pomes, articles and the training data of coding agents, and removing the rewrite after 1.0 would itself narrow the accepted input. The repository (the standard library, examples, tests and the examples of `spec/`) is rewritten in the implementation pull request.
+Every program that writes an anonymous function stops compiling. There is no migration period, following the decision to make match postfix (`spec/history.md`, 2026-10-13): from the release that implements this proposal, only the new form exists. `emela fmt` rewrites the old form, so a project migrates by running it once. The compiler keeps reading the old form to report E0148 with its quick fix, and the formatter keeps rewriting it, with no end date, as the prefix match (E0142) is kept. Old code stays around in published Pomes, articles and the training data of coding agents, and removing the rewrite after 1.0 would itself narrow the accepted input. The repository (the standard library, examples, tests and the examples of `spec/`) is rewritten in the implementation pull request.
 
 The meaning of a program does not change after the rewrite.
 
-A program that continues a line with `||` at the start of the next line, outside brackets, also stops compiling. Each such line now starts an anonymous function, and the program is reported by E01yy (when it is not the last statement of its block), by E0301 with the help above (when it is), or by a syntax error (inside the condition of an if, or between the arms of a match). It never compiles with another meaning. The formatter does not rewrite these lines, because it cannot tell them from an anonymous function; the help names the fix. The organization has 11 such lines (`std/http.emel`, `std/http/request.emel`, `std/file_system.emel`, `x/shape`), which the implementation pull request rewrites by hand.
+A program that continues a line with `||` at the start of the next line, outside brackets, also stops compiling. Each such line now starts an anonymous function, and the program is reported by E0149 (when it is not the last statement of its block), by E0301 with the help above (when it is), or by a syntax error (inside the condition of an if, or between the arms of a match). It never compiles with another meaning. The formatter does not rewrite these lines, because it cannot tell them from an anonymous function; the help names the fix. The organization has 11 such lines (`std/http.emel`, `std/http/request.emel`, `std/file_system.emel`, `x/shape`), which the implementation pull request rewrites by hand.
 
 ## Implementation
 
-- emela-syntax: lex `|` and `||` as today; parse `lambda` at `unary`, with the parameter list closed by `|` at depth zero and the body as `expr`. Read `fn(...)` in an expression into the same node and report E01xx. Move `PIPE` from `starts_continuation` (rule 3) to the signature rule (rule 4), and take `||` out of the operators that continue a line (rule 1).
+- emela-syntax: lex `|` and `||` as today; parse `lambda` at `unary`, with the parameter list closed by `|` at depth zero and the body as `expr`. Read `fn(...)` in an expression into the same node and report E0148. Move `PIPE` from `starts_continuation` (rule 3) to the signature rule (rule 4), and take `||` out of the operators that continue a line (rule 1).
 - emela-fmt: `[fmt.closure]`, hugging for `|x| {`, and the rewrite of the old form.
-- emela-lsp: the quick fix for E01xx. Inlay hints on parameters of anonymous functions keep working on the new node (`|x: Int|`).
+- emela-lsp: the quick fix for E0148. Inlay hints on parameters of anonymous functions keep working on the new node (`|x: Int|`).
 - Editors and `docs/syntax-highlight.md`: the TextMate grammar (VS Code), `editors/emela.sublime-syntax`, `editors/nvim/syntax/emela.vim` and `editors/tree-sitter-emela` (grammar, highlight, fold and indent queries) learn the closure form and highlight its parameters as parameters.
 - No change in emela-resolve, emela-types or the backends beyond the node they read.
 

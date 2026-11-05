@@ -288,12 +288,12 @@ import Std.State.{State}
 
 fn count() -> Int use { State[Int] } {
   st = use State[Int]
-  st.update(fn(n) { n + 1 })
+  st.update(|n| n + 1)
   st.get()
 }
 
 fn main() {
-  (n, last) = State.run(0, fn() { count() })
+  (n, last) = State.run(0, || count())
 }
 ```
 
@@ -428,8 +428,8 @@ import Std.State.{State}
 
 @test
 fn fetches() {
-  server = TestServer(respond: fn(req, n) { Some(Response.new(200, "ok")) }, sent: [])
-  (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
+  server = TestServer(respond: |req, n| Some(Response.new(200, "ok")), sent: [])
+  (res, after) = State.run(server, || with TestHttp { Http.get("https://example.com") })
   assert res.body == "ok"
   assert List.length(after.sent) == 1
 }
@@ -549,14 +549,14 @@ import Std.State.{State}
 
 @test
 fn greets() {
-  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+  (_, lines) = State.run([], || with TestConsole { greet(1) })
   assert lines == ["Hello, 1!"]
 }
 
 @test
 fn waits() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() { with TestClock { (use Clock).sleep(1000) } })
+  (_, end) = State.run(start, || with TestClock { (use Clock).sleep(1000) })
   assert Instant.to_unix_milliseconds(end) == Int64.from_int(1000)
 }
 ```
