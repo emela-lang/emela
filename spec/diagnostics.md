@@ -214,7 +214,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0435 | Arguments are written for something that takes none: a handler whose init takes no parameters (including `H()`), a layer, or a label (8.4). The help is ``= help: write `FakeKv` without parentheses`` | ``handler `FakeKv` takes no arguments`` |
 | E0436 | A parameter or the return value of an `@export` fn is not a boundary type (12.7, 12.8) | ``exported function `f` cannot take `List[Int]` `` |
 | E0437 | An `@export` fn that is not an entry adapter, or an `@entry`, outside the entry module (12.7, 12.8) | `` `@export` is only allowed in the entry module `` / `` `@entry` is only allowed in the entry module `` |
-| E0438 | Two exports with the same name for the same target (12.7) | `` `fetch` is exported twice for target `js` `` |
+| E0438 | Two exports with the same name for the same target (12.7, 16.6.2) | `` `fetch` is exported twice for target `js` `` |
 | E0439 | The argument of `@entry` is not an entry adapter (12.8). When the argument is not one name or path, the message is ``the argument of `@entry` must name an entry adapter`` | `` `Http.get` is not an entry adapter `` |
 | E0440 | The fn cannot be passed as the first argument of the entry adapter (12.8) | `` `app` does not fit `Http.serve` `` |
 | E0441 | An exported fn that may suspend on the `c` target (16.7.6) | ``exported function `f` may suspend, which target `c` does not support`` |
