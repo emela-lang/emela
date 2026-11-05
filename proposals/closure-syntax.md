@@ -108,7 +108,24 @@ A single item (`|f: fn() -> Int fails Timeout| f()`) and an error set inside typ
 ### Line breaks
 
 - A line that starts with `|` continues the previous line only inside a signature (rule 4 of `[lex.continuation]`), where a multi-line error set is written. Inside a body, a line that starts with `|` starts a new statement. Error sets written inside parentheses continue by rule 2 as before.
-- A line that starts with `||` continues the previous line, as before (rule 1). An anonymous function without parameters cannot start a statement on its own line; it is enclosed in parentheses, `(|| e)`.
+- A line that starts with `||` starts a new statement: an anonymous function without parameters. It no longer continues the previous line as the logical or operator. `||` is treated as `-` already is: a token that can start an operand does not continue the previous line. A chain of `||` that spans lines is enclosed in parentheses, where a line break continues by rule 2 and `||` after an operand is the operator.
+
+```emel
+fn make(n: Int) -> fn() -> Int {
+  m = n * 2
+  || m
+}
+
+fn unreserved(byte: Int) -> Bool {
+  (
+    (byte >= 0x41 && byte <= 0x5A)
+      || (byte >= 0x61 && byte <= 0x7A)
+      || (byte >= 0x30 && byte <= 0x39)
+  )
+}
+```
+
+- An anonymous function written as a statement that is not the last statement of its block is a compile error (E01yy). Its value is always discarded, so it is never useful, and the rule keeps old code from silently changing its meaning: `x = a⏎|| b`, which used to bind `a || b`, would otherwise bind `a` and drop `|| b`.
 - The body starts on the line of the parameter list. Outside brackets, a newline right after the parameter list ends the statement.
 
 ### Meaning
@@ -158,10 +175,11 @@ Replace rule 4 with:
 Add to the list of tokens that always start a new statement:
 
 - `|`, outside a signature: it starts an anonymous function.
+- `||`: it starts an anonymous function without parameters, and is not read as the logical or operator continuing the previous line (an exception to rule 1, as for `-`).
 
-Add to the supplementary notes:
+Replace "To continue the previous line with a binary operator, place an operator other than `-` at the start of the next line. To write the right-hand side of a subtraction on the next line, enclose the expression in parentheses." with:
 
-- A line that starts with `||` continues the previous line by rule 1 (`||` is a binary operator). An anonymous function without parameters at the start of a statement is enclosed in parentheses (`(|| e)`).
+- To continue the previous line with a binary operator, place an operator other than `-` and `||` at the start of the next line. To write the right-hand side of a subtraction or of a logical or on the next line, enclose the expression in parentheses.
 
 Replace the example in the note on rule 2 with `f(|x| {⏎a⏎b⏎})`.
 
@@ -214,12 +232,16 @@ Add to `spec/tooling/fmt.md` after `[fmt.wrap]`:
 - No space is placed inside the parameter list (`|x|`, `|a, b|`, `||`). One space is placed after it.
 - Nested anonymous functions are separated by a space (`|x| |y| x`).
 - An anonymous function that is the right operand of a binary operator or `|>`, or the operand of a unary operator, is enclosed in parentheses (`a || (|| b)`).
-- When the whole body is a block that was written on one line with one expression, the braces are removed (`|x| { x + 1 }` becomes `|x| x + 1`).
+- When the whole body is a block that was written on one line with one expression, the braces are removed (`|x| { x + 1 }` becomes `|x| x + 1`). A block written over several lines keeps its braces, even with one expression, as the body of an if does: the line breaks are taken as the writer's intent.
 - The formatter rewrites `fn(params) { body }` in an expression (E01xx) as an anonymous function: `|params| e` when the block has one expression on one line, and `|params| { ... }` otherwise. It adds the parentheses that the extent of the body requires (`fn(x) { x }(1)` becomes `(|x| x)(1)`).
 
 ### `[fmt.wrap]`
 
 Replace `f(xs, fn(x) {` with `f(xs, |x| {` and `xs |> List.map(fn(x) {` with `xs |> List.map(|x| {`. "An anonymous function with a block" stays.
+
+Replace "The formatter does not break before `-`, because a `-` at the start of a line starts a new statement as unary minus (`[lex.continuation]`)." with:
+
+- The formatter does not break before `-` or `||` outside brackets, because a `-` at the start of a line starts a new statement as unary minus and a `||` as an anonymous function (`[lex.continuation]`). A chain of `||` that does not fit outside brackets is enclosed in parentheses, and broken before each `||` inside them. A chain already inside brackets is broken without adding parentheses.
 
 ### `[fmt.io]`
 
@@ -230,6 +252,8 @@ Replace "A file with a syntax error is not formatted." with:
 ### `[diag.list]`
 
 - E01xx: "`fn(...)` written as an expression (6.1)". Message ``anonymous functions are written `|x| body` ``, with ``= help: write `|x| ...` `` showing the rewrite. The language server offers the rewrite as a quick fix.
+- E01yy: "An anonymous function written as a statement that is not the last statement of its block (6.3)". Message ``this anonymous function is never used``. When the statement starts with `||` at the start of a line, it adds ``= help: a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses``.
+- When an anonymous function that starts a line with `||` is the last statement of a block and its type does not match the expected type (E0301), the same help is added.
 
 ### Examples in the rest of the specification
 
@@ -239,16 +263,20 @@ Every example in `spec/` that writes an anonymous function is rewritten with `em
 
 - [ ] E01xx: `fn(...)` written as an expression (code to be assigned), with a help and a quick fix
 - [ ] Syntax error for a newline right after the parameter list outside brackets (the existing message for an expression that is missing)
+- [ ] E01yy: an anonymous function as a statement that is not the last of its block, with the help for a line that starts with `||`
+- [ ] The same help on E0301 when the last statement of a block is an anonymous function that starts a line with `||`
 
 ## Compatibility
 
-Every program that writes an anonymous function stops compiling. There is no migration period, following the decision to make match postfix (`spec/history.md`, 2026-10-13): from the release that implements this proposal, only the new form exists. `emela fmt` rewrites the old form, so a project migrates by running it once. The repository (the standard library, examples, tests and the examples of `spec/`) is rewritten in the implementation pull request.
+Every program that writes an anonymous function stops compiling. There is no migration period, following the decision to make match postfix (`spec/history.md`, 2026-10-13): from the release that implements this proposal, only the new form exists. `emela fmt` rewrites the old form, so a project migrates by running it once. The compiler keeps reading the old form to report E01xx with its quick fix, and the formatter keeps rewriting it, with no end date, as the prefix match (E0142) is kept. Old code stays around in published Pomes, articles and the training data of coding agents, and removing the rewrite after 1.0 would itself narrow the accepted input. The repository (the standard library, examples, tests and the examples of `spec/`) is rewritten in the implementation pull request.
 
 The meaning of a program does not change after the rewrite.
 
+A program that continues a line with `||` at the start of the next line, outside brackets, also stops compiling. Each such line now starts an anonymous function, and the program is reported by E01yy (when it is not the last statement of its block), by E0301 with the help above (when it is), or by a syntax error (inside the condition of an if, or between the arms of a match). It never compiles with another meaning. The formatter does not rewrite these lines, because it cannot tell them from an anonymous function; the help names the fix. The organization has 11 such lines (`std/http.emel`, `std/http/request.emel`, `std/file_system.emel`, `x/shape`), which the implementation pull request rewrites by hand.
+
 ## Implementation
 
-- emela-syntax: lex `|` and `||` as today; parse `lambda` at `unary`, with the parameter list closed by `|` at depth zero and the body as `expr`. Read `fn(...)` in an expression into the same node and report E01xx. Move `PIPE` from `starts_continuation` (rule 3) to the signature rule (rule 4).
+- emela-syntax: lex `|` and `||` as today; parse `lambda` at `unary`, with the parameter list closed by `|` at depth zero and the body as `expr`. Read `fn(...)` in an expression into the same node and report E01xx. Move `PIPE` from `starts_continuation` (rule 3) to the signature rule (rule 4), and take `||` out of the operators that continue a line (rule 1).
 - emela-fmt: `[fmt.closure]`, hugging for `|x| {`, and the rewrite of the old form.
 - emela-lsp: the quick fix for E01xx. Inlay hints on parameters of anonymous functions keep working on the new node (`|x: Int|`).
 - Editors and `docs/syntax-highlight.md`: the TextMate grammar (VS Code), `editors/emela.sublime-syntax`, `editors/nvim/syntax/emela.vim` and `editors/tree-sitter-emela` (grammar, highlight, fold and indent queries) learn the closure form and highlight its parameters as parameters.
@@ -262,6 +290,10 @@ No prototype yet.
 - A trailing block, `f(a) { ... }`, passed as the last argument. Rejected: only the thunk in the last position gets shorter, so it does nothing for functions that take two thunks, such as `Fiber.both`. In the condition of an if (`if f(a) { ... }`), the block is ambiguous.
 - Making the rest of the block a callback (a `use`-style binding). Rejected: the extent of the callback is not visible. It applies only to APIs that wrap "the rest", and in Emela that role belongs to `with`: deep nesting comes from APIs that take a thunk where a handler could be used. `use` is also already the keyword that takes a capability (`[effect.use]`).
 - By-name parameters, evaluated each time the parameter is used. Rejected: a call in Emela carries no mark of effects (`[effect.use]`), so the reader could not tell when an argument is evaluated.
+- Reading `|` in the type of a parameter as an error-set separator when the token after it is an upper name, so that `|f: fn() -> Int fails Timeout | Refused| f()` needs no parentheses. Rejected: the reading of `|x: fn() -> A fails E| B` would depend on the case of the token after `|`. The form is rare: of the 12 anonymous functions in the organization that annotate a parameter, none has a function type with an error set.
+- Keeping `||` at the start of a line as a continuation, and writing an anonymous function without parameters at the start of a statement in parentheses, `(|| e)`. Rejected: parentheses read as grouping, so `(|| m)` looks like it changes how the expression is grouped, when it only works around the line break. Making a multi-line chain of `||` take parentheses instead puts them where they do group an expression, and follows the existing treatment of `-`. In the organization, 6 statements start with a parameterless anonymous function (all in tests), and 11 lines start with `||`.
+- Braces kept mandatory (`|x| { e }`). Rejected: it saves two characters over `fn(x) { e }` and keeps both conflicts of `|` and `||`. The value of the proposal comes from a one-expression body without braces.
+- `fn(x) e`, the current form with the braces made optional. Rejected: it keeps `fn` and avoids the conflicts of `|`, but a body that starts with a parenthesis reads like a second parameter list or a call (`fn(params) (r, params)`), and a thunk stays at `fn() `.
 - Keeping `fn(x) { e }` beside the new form. Rejected: two ways of writing the same thing are not offered side by side (the decision on postfix match).
 
 ## Prior art
@@ -274,9 +306,6 @@ No prototype yet.
 
 ## Open questions
 
-- A parameterless anonymous function at the start of a statement is written `(|| e)`, because `||` at the start of a line continues the previous line. The alternative is to make `||` at the start of a line inside a body start a new statement, which breaks the formatter's way of breaking a chain of `||` (`[fmt.wrap]`). Is the parenthesis acceptable?
-- Should the formatter remove the braces of a one-line block body with one expression (`|x| { x + 1 }` to `|x| x + 1`)? Removing them gives one way to write it; keeping them leaves the choice to the writer.
-- Does the formatter keep rewriting the old form indefinitely, or only for a fixed number of releases?
-- Requiring parentheses for an error set of two or more items in a parameter type, versus reading `|` there as an error-set separator when the token after it is an upper name. The latter needs no parentheses but makes `|x: fn() -> A fails E| B` depend on the case of the next token.
+None.
 
 ## Decision
