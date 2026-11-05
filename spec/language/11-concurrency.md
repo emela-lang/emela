@@ -24,10 +24,10 @@ Adding a way to discard continuations or receive defects to the language would l
 ```emel
 import Std.Fiber.{Fiber, Scope}
 
-profile = Fiber.scope(fn() {
+profile = Fiber.scope(|| {
   s = use Scope
-  a = s.fork(fn() { fetch_user(1) })
-  b = s.fork(fn() { fetch_orders(1) })
+  a = s.fork(|| fetch_user(1))
+  b = s.fork(|| fetch_orders(1))
   Profile(user: Fiber.join(a), orders: Fiber.join(b))
 })
 ```
@@ -67,14 +67,14 @@ pub fn deferred[A, E, R]() -> Deferred[A] use Scope[E, R] { (use Scope).deferred
 - For E0402 about a missing effect, if the expression it comes from is a call to Fiber.scope and the effect is not a top-level element of the R of the function type of the scope body, the effect is treated as coming from a forked child, and a note and help are added (suggesting to write the with outside Fiber.scope). They are not added for an effect the body uses itself. They are not added for one that comes from a Fiber.scope called inside a helper function, because the expression it comes from is then the call to the helper function.
 
 ```emel
-Fiber.scope(fn() {
+Fiber.scope(|| {
   s = use Scope
   with PostgresUsers {
-    s.fork(fn() { (use Users).find(1) }) # error[E0402]: effect `Users` is not provided
+    s.fork(|| (use Users).find(1)) # error[E0402]: effect `Users` is not provided
   }
   ()
 })
-# Fix: with PostgresUsers { Fiber.scope(fn() { ... }) }
+# Fix: with PostgresUsers { Fiber.scope(|| { ... }) }
 ```
 
 - With this rule, the types prevent a child from using the handler of a with that ends before the child. The exception is when the same effect is also provided outside the scope, and a closure created inside a with in the scope body (or a capability value taken out there) is passed to a child. The child then uses the inner handler, and if that with ends first, it is a defect by the run-time check of 8.6 (capture sets in 0.22 stop it statically).
@@ -98,10 +98,10 @@ The combinators are written in plain Emela on top of Fiber.scope as part of the 
 
 ```emel
 pub fn race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async, R } {
-  scope(fn() {
+  scope(|| {
     s = use Scope
     d = s.deferred()
-    List.map(fs, fn(f) { s.fork(fn() { Deferred.complete(d, f()) }) })
+    List.map(fs, |f| s.fork(|| Deferred.complete(d, f())))
     Deferred.await(d)
   })
 }
@@ -110,11 +110,11 @@ pub fn race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async
 - Everyday code needs only the combinators. scope and fork appear only in more involved forms, such as joining partway or using a Deferred.
 
 ```emel
-(user, orders) = Fiber.both(fn() { fetch_user(1) }, fn() { fetch_orders(1) })
-users = Fiber.map(ids, fn(id) { fetch(id) })
+(user, orders) = Fiber.both(|| fetch_user(1), || fetch_orders(1))
+users = Fiber.map(ids, |id| fetch(id))
 ```
 
-- Something to run later is wrapped in `fn() { ... }` and passed. The style is direct and does not make the computation itself a value, so the wrapping cannot be avoided. There is no short syntax for functions without parameters.
+- Something to run later is wrapped in `|| ...` and passed. The style is direct and does not make the computation itself a value, so the wrapping cannot be avoided. The syntax of anonymous functions keeps it short (6.1).
 - A version that takes the first success (ignoring children that fail, and failing with the last cause if all of them fail) can be written on top of `attempt` (11.5) and Deferred.
 - A limit on how many run at the same time ("1000 items, at most 10 concurrently") will be added together with Queue or Semaphore (15.2).
 
@@ -172,8 +172,8 @@ There are four ways to receive a result.
 - To keep a child's error from propagating to the scope, wrap it with attempt inside the child. There are no additional kinds of fork.
 
 ```emel
-s.fork(fn() {
-  Fiber.attempt(fn() { handle(conn) }) match {
+s.fork(|| {
+  Fiber.attempt(|| handle(conn)) match {
     Success(_) -> ()
     Failure(cause) -> (use Console).print_error_line(Cause.to_string(cause))
   }

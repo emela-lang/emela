@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-05 (Closure syntax for anonymous functions)
+
+- `[fn.decl]`, `[fn.block]`, `[lex.continuation]`, `[grammar.expr]`, `[type.fn]`, `[type.inference]`, `[type.rules]`, `[fiber.combinators]`, `[fmt.wrap]`, `[fmt.closure]`, `[fmt.io]`, `[diag.list]`: An anonymous function is written `|x| e`, `|a, b| e` or `|| e`. The body is one expression and extends as far to the right as possible; a body of several statements is a block, `|x| { ... }`. The form `fn(x) { e }` is removed from expressions, and `fn` is used only for declarations and function types. Existing code is rewritten mechanically by `emela fmt`. Adopted in the proposal `closure-syntax` (#492).
+
 ## 2026-10-29 (Behavior when memory is exhausted)
 
 - `[dyn.memory]`, `[target.unspecified]`, `[error.defect]`, `[fiber.cause]`, `[target.wasm.run]`: The specification does not say what happens when a program cannot obtain the memory it needs. This proposal leaves the result implementation-defined, including whether it is a defect (and therefore whether the releases run and whether the failure is observable at `Fiber.attempt`), what is written and the exit status. A program MUST NOT depend on any of these. A future proposal may fix them. Adopted in the proposal `memory-exhaustion` (#461).
