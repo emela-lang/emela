@@ -1,10 +1,10 @@
 ---
 title: The JavaScript launcher names
 authors: [isoshigi]
-status: draft
+status: accepted
 pr: 462
 issue:
-decided:
+decided: 2026-11-05
 touches: [target.js.module, ext.export, diag.list]
 requires: []
 related: []
@@ -117,3 +117,5 @@ An ECMAScript module has a single export name space: two `export` declarations w
 ## Open questions
 
 ## Decision
+
+The launcher's `main` and `$start` are already exports of `main.mjs`, so a user export that takes one of them is a duplicate, and the compiler should report it instead of writing an invalid module. Reserving the names unconditionally would reject programs whose module never exports them, so the rule follows what the build actually emits. Renaming the launcher's exports would keep the user namespace free, but it changes the launcher and test-runner contract and can be done by a later proposal. Always exporting the launcher's `main` also fixes `@export(js, "run") fn main`, which currently does nothing under `emela run`.

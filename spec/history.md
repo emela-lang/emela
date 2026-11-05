@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-05 (The JavaScript launcher names)
+
+- `[target.js.module]`, `[ext.export]`, `[diag.list]`: `main.mjs` exports `main` and `$start` for the launcher in addition to the host exports. A two-argument `@export(js, "name")` that would duplicate one of them is E0438. The rule is conditional on the name being exported: `main` when the entry has a `main`, and `$start` when the entry's `main` or a host export of the `js` target may suspend. Adopted in the proposal `js-launcher-names` (#462).
+
 ## 2026-10-27 (Bytes)
 
 - `[lib.layers]`, `[api.std.bytes]`, `[ext.boundary]`, `[target.js.value]`, `[diag.list]`: Add `Bytes`, an immutable sequence of bytes, to the value layer of std as `Std.Bytes`. It has functions to build, read, slice and join byte sequences, and to convert to and from UTF-8 text and hexadecimal. `Bytes` becomes a boundary type of external functions on the JS target, so that the platform layer can later pass binary data to and from the host. Adopted in the proposal `bytes` (#457).
