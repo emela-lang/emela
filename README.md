@@ -1,4 +1,4 @@
-# Emela
+![Emela](assets/icons/emela-logo-wide.png)
 
 Emela is a functional language with typed errors and typed effects, compiling to
 JavaScript, WebAssembly and C.
