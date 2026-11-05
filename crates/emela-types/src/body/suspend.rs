@@ -203,10 +203,7 @@ impl BodyInfer<'_> {
                 op: data.name.clone(),
             });
         }
-        let named = match program.exprs[callee].kind {
-            ExprKind::Path(Res::Def(def)) => Some(def),
-            _ => None,
-        };
+        let named = self.callee_def(callee);
         if let Some(def) = named
             && let Some(Item::Fn(f)) = program.item(def)
             && f.is_external
@@ -235,9 +232,10 @@ impl BodyInfer<'_> {
             return None;
         }
         let callee = match program.exprs[callee].kind {
-            ExprKind::Path(Res::Def(def)) => Some(program.defs[def].name.clone()),
             ExprKind::Path(Res::Local(l)) => Some(program.locals[l].name.clone()),
-            _ => None,
+            _ => self
+                .callee_def(callee)
+                .map(|def| program.defs[def].name.clone()),
         };
         Some(SuspendingCall::Fn { callee, effects })
     }

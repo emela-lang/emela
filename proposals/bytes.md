@@ -1,7 +1,7 @@
 ---
 title: Bytes
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 457
 issue:
 decided: 2026-10-27

@@ -33,7 +33,7 @@ The kind of a name is determined by case, and the end of a statement is determin
 From these rules, the meaning of `.` is clear from its left-hand side.
 
 - Type name on the left: a static reference (a function of a module, a method of a Trait). Example: `List.map`
-- Lowercase name or uppercase name on the left: access to a value (a field, an operation of a capability obtained with `use`). Examples: `user.name`, `log.info`, `DEFAULT_CONFIG.port`
+- Lowercase name or uppercase name on the left: access to a value (a field, an operation of a capability obtained with `use`, or a method call, `[type.rules]`). Examples: `user.name`, `log.info`, `DEFAULT_CONFIG.port`, `xs.map(f)`
 
 ## 2.4 Literals `[lex.literal]`
 
@@ -86,8 +86,8 @@ A line break ends a statement. In the following cases, however, the previous lin
 
 1. The next line starts with a binary operator, `.`, `escape`, or `match`. `match` continues the line only when the next meaningful token is `{` (a postfix match is always `match {`, so the reading of a correct program does not change. Any other line is read as a new statement with a prefix match, and E0142 is reported).
 2. An opened `(` or `[` is not yet closed.
-3. The next line starts with `else`, `->`, or `|`. None of these ever starts a statement, so treating them as continuations creates no ambiguity. The formatter aligns them into `} else {`.
-4. Inside a signature, the next line starts with `fails` or `use`. Inside a signature means before the body's `{` of a fn declaration, and in the declaration of an effect operation. No statement starts there, so there is no ambiguity. Inside a body, `fails` can be used as an ordinary identifier and `use` starts an expression, so they start a new statement as before. The body's `{` is written on the last line of the signature. The signature of a declaration without a body (an effect operation, an `@external` fn) closes at the end of its line, so `fails` and `use` at the start of the next declaration's line do not continue it.
+3. The next line starts with `else` or `->`. Neither ever starts a statement, so treating them as continuations creates no ambiguity. The formatter aligns `else` into `} else {`.
+4. Inside a signature, the next line starts with `fails`, `use`, or `|`. Inside a signature means before the body's `{` of a fn declaration, and in the declaration of an effect operation. No statement starts there, so there is no ambiguity. Inside a body, `fails` can be used as an ordinary identifier, `use` starts an expression, and `|` starts an anonymous function, so they start a new statement. The body's `{` is written on the last line of the signature. The signature of a declaration without a body (an effect operation, an `@external` fn) closes at the end of its line, so `fails`, `use` and `|` at the start of the next declaration's line do not continue it.
 
 ```emel
 pub fn get(url: String) -> Response
@@ -101,13 +101,15 @@ A line that starts with one of the following tokens always starts a new statemen
 
 - `(` and `[`: write the opening bracket of a function call or a type argument list on the same line as the name.
 - `-`: at the start of a line it is read as a unary minus. A `-` at the start of a line does not continue the previous line and starts a new statement.
+- `|`, outside a signature: it starts an anonymous function.
+- `||`: it starts an anonymous function without parameters, and is not read as the logical or operator continuing the previous line (an exception to rule 1, as for `-`).
 
-Outside brackets, a binary operator at the end of a line does not continue onto the next line. To continue the previous line with a binary operator, place an operator other than `-` at the start of the next line. To write the right-hand side of a subtraction on the next line, enclose the expression in parentheses. A line break inside parentheses continues by rule 2.
+Outside brackets, a binary operator at the end of a line does not continue onto the next line. To continue the previous line with a binary operator, place an operator other than `-` and `||` at the start of the next line. To write the right-hand side of a subtraction or of a logical or on the next line, enclose the expression in parentheses. A line break inside parentheses continues by rule 2.
 
 Supplementary notes:
 
 - Continuation is decided by the "meaningful token" after the line break. Whitespace, comment-only lines, and empty lines in between are skipped.
-- The "opened bracket" in rule 2 is decided by the innermost level of bracket nesting. Even inside `(`, a line break separates statements if a `{` is open further inside (`f(fn(x) {⏎a⏎b⏎})`).
+- The "opened bracket" in rule 2 is decided by the innermost level of bracket nesting. Even inside `(`, a line break separates statements if a `{` is open further inside (`f(|x| {⏎a⏎b⏎})`).
 - A line break inside a string interpolation `#{ }` is a continuation, the same as inside `(`.
 
 ```emel

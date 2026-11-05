@@ -36,6 +36,7 @@ type Todo(id: Int, title: String, completed: Bool)
 
 - A type defines a type and one constructor with the same name. It is constructed and matched in patterns in the same way as an enum with one variant. Unlike an enum, its fields can be accessed with `.`.
 - Construction is written `User(id: 1, name: "a")`, and field access is written `user.name`.
+- A function of the module that defines a type, whose first parameter has that type, can also be called as `user.f(...)` (`[type.rules]`). Such a function MUST NOT have the name of a field of that type (E0334).
 - Fields can be accessed only on values of a type, an error, or a handler with fields. Fields of an enum value cannot be accessed, even when the enum has only one variant. The contents are taken out with match (E0313).
 - Types are distinguished by name (nominal). Two types with the same fields but different names are different types.
 - There are no anonymous record types.

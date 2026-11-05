@@ -35,6 +35,7 @@ use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
 mod capabilities;
 mod effects;
 mod errors;
+mod methods;
 mod suspend;
 
 /// The result of inferring one group of definitions. Types have unification bindings followed.
@@ -66,6 +67,8 @@ pub(crate) struct BodyTypes {
     /// References to capability operations (the `Field` expression of `log.info`) → the effect
     /// operation's definition.
     pub(crate) ops: SparseMap<ExprId, DefId>,
+    /// Method calls (the `Field` callee of `x.f(a)`) → the function they call.
+    pub(crate) methods: SparseMap<ExprId, DefId>,
     /// Dependencies of the group's handlers (the union of the R of init, release and the
     /// operation bodies).
     pub(crate) handler_uses: Vec<(DefId, Row)>,
@@ -192,6 +195,8 @@ pub(crate) struct BodyInfer<'a> {
     expr_effects: SparseMap<ExprId, Row>,
     /// References to capability operations → effect operations.
     ops: SparseMap<ExprId, DefId>,
+    /// Method calls (the `Field` callee) → the fn or trait function called (`[type.rules]`).
+    methods: SparseMap<ExprId, DefId>,
     /// `with` expressions with their listed handlers (layers expanded) and dependencies. The
     /// initialization order and dependency cycles are decided after sets are solved
     /// (`body/effects.rs`).
@@ -302,6 +307,7 @@ impl<'a> BodyInfer<'a> {
             escapes: Vec::new(),
             expr_effects: SparseMap::new(),
             ops: SparseMap::new(),
+            methods: SparseMap::new(),
             withs: Vec::new(),
             with_handlers: SparseMap::new(),
             with_args: SparseMap::new(),
@@ -893,6 +899,7 @@ impl<'a> BodyInfer<'a> {
             errors,
             effects,
             ops: self.ops,
+            methods: self.methods,
             handler_uses,
             handler_fails,
             with_handlers: self.with_handlers,
@@ -1400,7 +1407,24 @@ impl<'a> BodyInfer<'a> {
             ),
             _ => (None, None),
         };
-        let callee_ty = self.infer_expr(callee);
+        // `x.f(a)` may be a method call (`[type.rules]`).
+        let callee_ty = match &program.exprs[callee].kind {
+            ExprKind::Field { base, name } => {
+                let base_ty = self.infer_expr(*base);
+                match self.infer_dot(callee, *base, &base_ty, name, true) {
+                    methods::Dot::Method(def) => {
+                        return self.infer_method_call(
+                            expr, callee, *base, &base_ty, def, name, args, span,
+                        );
+                    }
+                    methods::Dot::Value(ty) => {
+                        self.exprs.insert(callee, ty.clone());
+                        ty
+                    }
+                }
+            }
+            _ => self.infer_expr(callee),
+        };
         // Capability operations (`log.info(...)`) use the declared operation's parameter names as
         // labels.
         let (callee_name, labels) = match (callee_name, self.ops.get(callee)) {
@@ -1681,74 +1705,14 @@ impl<'a> BodyInfer<'a> {
         ty
     }
 
-    /// The type of field access `x.name`, looked up in the declaration of the base type (type or
-    /// error). The base type must be known by now; it is not inferred backwards from the name.
+    /// The type of `x.name` when it is not called: a field, looked up in the declaration of the
+    /// base type (type or error), or an operation of a capability value. The base type must be
+    /// known by now; it is not inferred backwards from the name.
     fn infer_field(&mut self, expr: ExprId, base: ExprId, name: &Label) -> Ty {
         let base_ty = self.infer_expr(base);
-        let base_ty = self.ctx.shallow_resolve(&base_ty);
-        let (id, args) = match &base_ty {
-            Ty::Named(id, args) => (*id, args),
-            Ty::Cap(effect) => return self.infer_op(expr, effect, name),
-            Ty::Error | Ty::Never => return Ty::Error,
-            Ty::Var(_) => {
-                return self.field_error(
-                    name,
-                    DiagnosticKind::FieldOnUnknownType {
-                        field: name.name.clone(),
-                    },
-                );
-            }
-            _ => {
-                let ty = self.ctx.resolve(&base_ty);
-                return self.field_error(
-                    name,
-                    DiagnosticKind::NoFields {
-                        ty,
-                        field: name.name.clone(),
-                    },
-                );
-            }
-        };
-
-        let program = self.program;
-        let type_def = self.ty_table.def(id);
-        let data = &program.defs[type_def];
-        if data.is_opaque && data.module != self.module {
-            let ty = self.ctx.resolve(&base_ty);
-            return self.field_error(
-                name,
-                DiagnosticKind::OpaqueField {
-                    ty,
-                    field: name.name.clone(),
-                },
-            );
-        }
-
-        match self.field_ty(type_def, args, &name.name) {
-            FieldTy::Found(index, ty) => {
-                self.fields.insert(expr, index);
-                ty
-            }
-            FieldTy::NoSuchField => {
-                let ty = self.ctx.resolve(&base_ty);
-                self.field_error(
-                    name,
-                    DiagnosticKind::NoField {
-                        ty,
-                        field: name.name.clone(),
-                    },
-                )
-            }
-            FieldTy::NotARecord => {
-                let ty = self.ctx.resolve(&base_ty);
-                self.field_error(
-                    name,
-                    DiagnosticKind::NoFields {
-                        ty,
-                        field: name.name.clone(),
-                    },
-                )
-            }
+        match self.infer_dot(expr, base, &base_ty, name, false) {
+            methods::Dot::Value(ty) => ty,
+            methods::Dot::Method(_) => unreachable!("a method is found only for a call"),
         }
     }
 

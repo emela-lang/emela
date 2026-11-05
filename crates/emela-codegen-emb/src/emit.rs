@@ -8,7 +8,7 @@ use emela_lir::{
 
 use crate::const_eval::{self, Outcome as ConstOutcome};
 use crate::writer::Writer;
-use crate::{Error, ErrorKind, GeneratedFile, Options, Output};
+use crate::{Error, ErrorKind, ExportedFunction, GeneratedFile, Options, Output};
 
 #[path = "cause.rs"]
 mod cause;
@@ -1138,6 +1138,20 @@ pub(crate) fn emit(flow: &emela_lir::Module, options: &Options) -> Result<Output
     }
 
     Ok(Output {
+        exports: flow
+            .functions
+            .iter()
+            .filter(|(id, function)| emitted_functions.contains(id) && function.exported)
+            .map(|(id, function)| ExportedFunction {
+                source_name: function.name.clone(),
+                c_symbol: if function.suspends {
+                    format!("{}_start", public_names[&id])
+                } else {
+                    public_names[&id].clone()
+                },
+                suspends: function.suspends,
+            })
+            .collect(),
         files: vec![
             GeneratedFile {
                 path: HEADER_FILE.to_owned(),

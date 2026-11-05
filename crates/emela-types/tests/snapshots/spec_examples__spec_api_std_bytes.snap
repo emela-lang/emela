@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nimport Std.Bytes.{Bytes}\n\nconst PNG_SIGNATURE = Bytes.hex(\"89504e47\")\n\nfn round_trip() -> Option[String] {\n  data = Bytes.append(PNG_SIGNATURE, Bytes.encode_utf8(\"hi\"))\n  size = Bytes.size(data)\n  first = Bytes.get(data, 0)\n  hex = Bytes.to_hex(data)\n  parsed = Bytes.from_hex(\"not hex\")\n  listed = Bytes.from_list([0x89, 0x50])\n  bytes = Bytes.to_list(Bytes.slice(data, 4, 6))\n  joined = Bytes.concat([data, Bytes.empty()])\n  same = data == PNG_SIGNATURE && data < joined && Bytes.is_empty(joined)\n  Bytes.decode_utf8(Bytes.slice(data, 4, 6))\n}\n\"#)"
+---
+round_trip: fn() -> Option[String]
+  data: Bytes
+  size: Int
+  first: Option[Int]
+  hex: String
+  parsed: Option[Bytes]
+  listed: Option[Bytes]
+  bytes: List[Int]
+  joined: Bytes
+  same: Bool

@@ -16,29 +16,41 @@ pub enum Target {
     Js,
     /// C compiled with cc to a native executable (Tier 2).
     C,
+    /// C sources for an embedded board and its runtime configuration.
+    CEmbedded,
     /// WebAssembly (WASI) run with `wasmtime` (Tier 1).
     Wasm,
 }
 
 impl Target {
     /// The names `--target` and `[build].target` accept.
-    pub const NAMES: [&'static str; 3] = ["js", "c", "wasm"];
+    pub const NAMES: [&'static str; 4] = ["js", "c", "c-embedded", "wasm"];
 
     pub fn parse(name: &str) -> Option<Target> {
         match name {
             "js" => Some(Target::Js),
             "c" => Some(Target::C),
+            "c-embedded" => Some(Target::CEmbedded),
             "wasm" => Some(Target::Wasm),
             _ => None,
         }
     }
 
-    /// The name used in `@external(<name>, ...)`.
+    /// The name used by the CLI and `[build].target`.
     pub fn name(self) -> &'static str {
         match self {
             Target::Js => "js",
             Target::C => "c",
+            Target::CEmbedded => "c-embedded",
             Target::Wasm => "wasm",
+        }
+    }
+
+    /// The external ABI shared by the native and embedded C backends.
+    pub fn external_target(self) -> &'static str {
+        match self {
+            Target::CEmbedded => "c",
+            target => target.name(),
         }
     }
 }

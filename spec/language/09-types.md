@@ -45,7 +45,7 @@ To hold an effectful function inside a declaration, make it explicit with type p
 type Handler[E, R](run: fn(Request) -> Response fails E use R)
 
 fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
-  fn(x) { g(f(x)) } # the returned function is inferred to have the errors and effects of f and g
+  |x| g(f(x)) # the returned function is inferred to have the errors and effects of f and g
 }
 ```
 
@@ -70,7 +70,7 @@ An effect not included in the declared R is a compile error (E0402). The diagnos
 Definitions whose types are inferred (a fn without a return type, a fn whose return type contains a function type with omitted clauses, a fn without a use clause, a const without a type) are inferred for each group of mutually referencing definitions, starting from the groups that are referenced.
 
 - Within a group, references use monomorphic types, and the group is generalized after its inference finishes. Using the same definition at different types within a group is a type mismatch (there is no polymorphic recursion). For a fn without a use clause, T and E are as declared, and only R follows this rule.
-- When generalizing, set variables in the E and R of parameter function types that have neither a lower bound nor an upper bound are quantified as set type parameters (`fn caller() { fn(g) { g() } }` is `∀ A, E. fn() -> fn(fn() -> A fails E) -> A fails E`). Other set variables are fixed to the smallest set that satisfies the constraints.
+- When generalizing, set variables in the E and R of parameter function types that have neither a lower bound nor an upper bound are quantified as set type parameters (`fn caller() { |g| g() }` is `∀ A, E. fn() -> fn(fn() -> A fails E) -> A fails E`). Other set variables are fixed to the smallest set that satisfies the constraints.
 
 Types are displayed as follows.
 
@@ -91,12 +91,13 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | Literal, variable, const | Its type | {} | {} |
 | `[e1, ..., en]` / `[e1, ..., en, ..r]` | `List[T]` (each ei is T, and r is `List[T]`) | E1 ∪ … ∪ En ∪ Er | R1 ∪ … ∪ Rn ∪ Rr |
 | `f(a)` | The return type of f | Ef ∪ Ea | Rf ∪ Ra |
+| `x.f(a)` (method call) | The return type of the function found, called as `M.f(x, a)` | Ex ∪ Ef ∪ Ea | Rx ∪ Rf ∪ Ra |
 | `C(fi: ei, ..r)` | The type of C (type arguments are determined from ei and the fields carried over from r) | Ei ∪ Er | Ri ∪ Rr |
 | `fail e` | Never | { the tag of e } | {} |
 | `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. 7.3) | Re ∪ Rei |
 | `use X` | The capability of X | {} | { X } |
 | `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H)) ∪ requires(H) ∪ (R of the arguments of init) |
-| `fn(x) { e }` | `fn(..) -> T fails Ee use Re` | {} | {} |
+| `\|x\| e` | `fn(..) -> T fails Ee use Re` | {} | {} |
 | `if c { a } else { b }` | The common type of a and b | Ec ∪ Ea ∪ Eb | Rc ∪ Ra ∪ Rb |
 | `e match { pi -> ei }` | The common type of the arms | Ee ∪ Eei | Re ∪ Rei |
 
@@ -104,7 +105,11 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 - Never can form a common type with any type. Even if one branch of an if or a match is a fail, the type of the whole is the type of the other branch.
 - When there is no expected type and the types of the branches do not match, the type of the first branch is reported as the expected type and the type of a later branch as the actual type (E0301), and checking continues with the type of the first branch as the type of the whole.
 - For a field access `x.name`, the type of x MUST already be determined to be a named type when checking reaches it. Otherwise it is a compile error (E0314). The type is not worked out backward from the field name (there is no row polymorphism).
-- The arguments of a call are checked in parameter order. At a position with an expected type (an argument, the return type, the type annotation of a binding), that type is passed first to the last expression of a block, each branch of if and match, list elements, and the parameters and body of an anonymous function. In `List.map(users, fn(u) { u.name })`, the type of u is determined from users, which is checked first.
+- A method call `x.f(a1, ..., an)` applies when the type of x has a named type T at its head and x is not a capability value. f is looked up among: (1) the fields of T; (2) the fns of the module that defines T whose first parameter has T at the head of its type (only pub fns outside that module), without looking at the scope; and (3) the functions that take `self` of the traits that T implements, among the traits visible by name in the calling module (the traits of the Prelude, the traits imported by name in braces, and the traits defined in that module; a trait reached only as `L.Trait` is not looked up). When x has a type parameter A, only the functions of the bounds of A are looked up. A field is called as a value of function type. A function is called as `M.f(x, a1, ..., an)`, with the same named arguments, order of evaluation, E and R. Only the head of the type of x is needed: the type arguments are checked as for the first argument of that call.
+- When more than one candidate is found, it is a compile error (E0335). A field and a function of the module cannot both be found, because declaring them is E0334. When none is found, it is E0312 (E0313 for a type without fields).
+- `x.f` without a call, where f is a function found by (2) or (3) and not a field, is E0312 with ``= help: call it as `x.f(...)` ``. It does not make a function value.
+- The head of the type of x MUST already be determined when checking reaches the method call (E0314), as for a field access.
+- The arguments of a call are checked in parameter order. At a position with an expected type (an argument, the return type, the type annotation of a binding), that type is passed first to the last expression of a block, each branch of if and match, list elements, and the parameters and body of an anonymous function. In `List.map(users, |u| u.name)`, the type of u is determined from users, which is checked first.
 - Never is treated as another type only at branch joins and at the top level of a position with an expected type. `List[Never]` and `List[Int]` do not match.
 - provides(H) is the effects that H implements, and requires(H) is the union of the Rs of the init, the release, and the operation bodies of H. The provision and requirements of label items (`L`, `L by P`) and the provision of `default` labels are defined in 8.9.
 - The E of a function value only needs to be contained in the E of the expected function type. A function with a smaller E can be used as a function with a larger E. When functions with different Es are put together at a branch join or as list elements, the E is their union. The direction of containment is reversed inside the parameters of function types, and goes both ways (equality) inside the type arguments of named types.

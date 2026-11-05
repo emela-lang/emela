@@ -74,12 +74,12 @@ export fn main() -> Int fails {
   @dbg[Int](c%3)
 }
 
-fn find(id%70: Int) -> Int fails {
-  if (id%70 >[Int] 0) {
-    id%70
+fn find(id%77: Int) -> Int fails {
+  if (id%77 >[Int] 0) {
+    id%77
   } else {
-    if (id%70 ==[Int] 0) {
-      fail NotFound.NotFound(id: id%70)
+    if (id%77 ==[Int] 0) {
+      fail NotFound.NotFound(id: id%77)
     } else {
       fail Unauthorized.Unauthorized
     }

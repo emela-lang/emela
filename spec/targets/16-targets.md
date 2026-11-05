@@ -2,9 +2,11 @@
 
 The same program MUST give the same observable results on every target. To make this possible, the meaning of numbers and strings is defined independently of the targets.
 
-There are three targets: JS, WASM and C. JS and WASM are Tier 1, and C is Tier 2. A Tier 2 target has the same meaning as Tier 1, meets every rule in this chapter, and passes the same test suite. However, new features MAY arrive later than on Tier 1.
+There are three targets: JS, WASM and C, and an embedded C target outside the tiers. JS and WASM are Tier 1, and C is Tier 2. A Tier 2 target has the same meaning as Tier 1, meets every rule in this chapter, and passes the same test suite. However, new features MAY arrive later than on Tier 1.
 
 The C target compiles the emitted C with cc into a native executable. It targets macOS (arm64) and Linux (x86_64), and assumes a C11 compiler. Windows is left for a later version (18.1 #39). The constructs that the C target does not support yet are in `[target.c.unsupported]`, and using them is a compile error. The observable behavior of each target is in `[target.js]`, `[target.wasm]` and `[target.c]`.
+
+The embedded C target (`c-embedded`) makes C and firmware for microcontrollers (`[target.c-embedded]`). It is outside the tiers: it only builds, so it does not run the test suite, and the constructs it supports are a subset that is implementation-defined for now.
 
 The JS target assumes a host that runs on a server (Node 18 or later, and Deno and Bun with `node:` modules and `fetch`). Browsers are not a target. The platform handlers (15.2) do not specify how they behave in a browser.
 
@@ -24,7 +26,7 @@ The JS target assumes a host that runs on a server (Node 18 or later, and Deno a
 
 To detect overflow, use functions such as `Int.checked_add`. Dividing the minimum value by -1 (`-2147483648 / -1`) also overflows and wraps around.
 
-The comparison functions (`Int.compare`, `Float.compare` and so on), and `min` and `max` built on them, compare by a total order, unlike the operator `<`. `Float.compare` treats NaN as the largest value, two NaNs as Equal, and `0.0` and `-0.0` as Equal. `min` and `max` choose by this order, and return the first argument when the values are equal. Because NaN is the largest value, `Float.min` returns the other argument when exactly one is NaN (`Float.min(NaN, 1.0)` is `1.0`), and `Float.max` returns NaN (`Float.max(NaN, 1.0)` is NaN). `abs` wraps around at the minimum value and returns the minimum value.
+`Float.compare`, and `min` and `max` of Int, Int64 and Float, compare by a total order. For Float, this order differs from the operator `<`. `Float.compare` treats NaN as the largest value, two NaNs as Equal, and `0.0` and `-0.0` as Equal. `min` and `max` choose by this order, and return the first argument when the values are equal. Because NaN is the largest value, `Float.min` returns the other argument when exactly one is NaN (`Float.min(NaN, 1.0)` is `1.0`), and `Float.max` returns NaN (`Float.max(NaN, 1.0)` is NaN). `abs` wraps around at the minimum value and returns the minimum value.
 
 ## 16.2 Strings `[target.string]`
 

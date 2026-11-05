@@ -18,4 +18,4 @@ f: fn() -> Int
 `"s"` mismatch: expected `Int`, found `String`
 `fn(n, m) { n }` mismatch: expected `fn(Int) -> Int`, found `fn(?5, ?6) -> ?5`
 `n` mismatch: expected `Int`, found `String`
-`name` FieldOnUnknownType { field: "name" }
+`name` FieldOnUnknownType { field: "name", call: false }

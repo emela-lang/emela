@@ -555,6 +555,122 @@ await m.late_boom(0).catch((e) => console.log(e.name, e.message));
     );
 }
 
+/// `[target.js.value]`, `[ext.boundary]`: a Bytes crosses as a `Uint8Array`. One from JS (a return
+/// value, a value a suspend fn resolves to, an argument of a callback or of an exported fn) is
+/// copied, only the bytes its view shows; a subclass (`Buffer`) is accepted, and any other value,
+/// including a `Uint8Array` of another realm, is a defect.
+#[test]
+fn js_bytes_cross_as_uint8_array() {
+    let main = r##"import Std.Bytes.{Bytes}
+
+@external(js, "globalThis.hostBytes")
+fn host_bytes() -> Bytes use {}
+
+@external(js, "globalThis.laterBytes")
+suspend fn later_bytes() -> Bytes
+
+@external(js, "globalThis.mutate")
+fn mutate() -> () use {}
+
+@external(js, "globalThis.apply")
+fn apply(f: fn(Bytes) -> Int) -> Int use {}
+
+effect Source {
+  suspend fn next() -> Bytes
+}
+
+handler HostSource: Source {
+  suspend fn next(resume) { resume(later_bytes()) }
+}
+
+@export(js, "size")
+fn size(b: Bytes) -> Int { Bytes.size(b) }
+
+@export(js, "echo")
+fn echo(b: Bytes) -> Bytes { Bytes.append(b, Bytes.hex("ff")) }
+
+@export(js, "fromHost")
+fn from_host() -> String { Bytes.to_hex(host_bytes()) }
+
+@export(js, "copied")
+fn copied() -> String {
+  b = host_bytes()
+  mutate()
+  Bytes.to_hex(b)
+}
+
+@export(js, "later")
+fn later() -> String { with HostSource { Bytes.to_hex((use Source).next()) } }
+
+@export(js, "applied")
+fn applied() -> Int { apply(Bytes.size) }
+
+fn main() { dbg(size(Bytes.empty())) }
+"##;
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let dir = out_dir("js-bytes");
+    let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    assert!(entry.is_some());
+    let harness = r#"import vm from "node:vm";
+import * as m from "./main.mjs";
+const show = (f) => { try { console.log(f()); } catch (e) { console.log(e.name, e.message); } };
+const buf = new Uint8Array([0, 1, 2, 3, 4, 5]);
+globalThis.hostBytes = () => buf.subarray(2, 4);
+globalThis.mutate = () => { buf[2] = 99; };
+show(() => m.fromHost());
+show(() => m.copied());
+globalThis.hostBytes = () => Buffer.from([0xab]);
+show(() => m.fromHost());
+const out = m.echo(new Uint8Array([1, 2]));
+console.log(out instanceof Uint8Array, Array.from(out).join(","));
+show(() => m.size(Buffer.from("abc")));
+show(() => m.size(new ArrayBuffer(2)));
+show(() => m.size([1, 2]));
+show(() => m.size(new Int8Array(2)));
+show(() => m.size(vm.runInNewContext("new Uint8Array(2)")));
+globalThis.hostBytes = () => "0203";
+show(() => m.fromHost());
+globalThis.apply = (f) => f(new Uint8Array(3));
+show(() => m.applied());
+globalThis.apply = (f) => f(new DataView(new ArrayBuffer(3)));
+show(() => m.applied());
+globalThis.laterBytes = async () => new Uint8Array([7]);
+console.log(await m.later());
+globalThis.laterBytes = async () => 7;
+await m.later().catch((e) => console.log(e.name, e.message));
+"#;
+    std::fs::write(dir.join("harness.mjs"), harness).unwrap();
+    let out = std::process::Command::new("node")
+        .arg("harness.mjs")
+        .current_dir(&dir)
+        .output()
+        .expect("cannot start node");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        (text(&out.stdout), text(&out.stderr)),
+        (
+            "0203\n0203\nab\ntrue 1,2,255\n3\n\
+             Defect argument `b` of `size` is not a `Uint8Array`\n\
+             Defect argument `b` of `size` is not a `Uint8Array`\n\
+             Defect argument `b` of `size` is not a `Uint8Array`\n\
+             Defect argument `b` of `size` is not a `Uint8Array`\n\
+             Defect external function `host_bytes` returned a value that is not a `Uint8Array`\n\
+             3\n\
+             Defect argument `1` of `apply` is not a `Uint8Array`\n\
+             07\n\
+             Defect external function `later_bytes` returned a value that is not a `Uint8Array`\n",
+            ""
+        )
+    );
+}
+
 #[test]
 fn source_runs_through_lowering() {
     let output = run_source("lower-dbg", "fn main() {\n  dbg(1 + 2)\n}\n");
@@ -1101,7 +1217,7 @@ fn lists_strings_and_int64_run_through_core() {
   dbg(String.to_ascii_uppercase("Hello, äb 東 @[`{"))
   big = Int64.from_int(2147483647) * Int64.from_int(4)
   one = Int64.from_int(1)
-  dbg((Int64.compare(big, one), Int64.min(big, one), Int64.max(big, one), Int64.abs(-big)))
+  dbg((big.compare(one), Int64.min(big, one), Int64.max(big, one), Int64.abs(-big)))
 }
 "##,
     );
@@ -1148,14 +1264,14 @@ fn main() {
     c.print_line(Duration.to_string(d))
     c.print_line(Int64.to_string(Duration.to_seconds(Duration.milliseconds(-1500))))
     c.print_line(Duration.to_string(Duration.subtract(Duration.hours(1), Duration.minutes(61))))
-    c.print_line(show(Duration.compare(Duration.seconds(1), Duration.milliseconds(1000))))
+    c.print_line(show(Duration.seconds(1).compare(Duration.milliseconds(1000))))
     c.print_line(if Duration.seconds(1) == Duration.milliseconds(1000) { "eq" } else { "ne" })
     start = Instant.from_unix_milliseconds(1760238245678)
     later = start |> Instant.add(Duration.hours(25))
     c.print_line(Instant.to_string(start))
     c.print_line(Instant.to_string(later))
     c.print_line(Duration.to_string(later |> Instant.since(start)))
-    c.print_line(show(Instant.compare(start, later)))
+    c.print_line(show(start.compare(later)))
     c.print_line(Int64.to_string(Instant.to_unix_milliseconds(Instant.subtract(start, Duration.milliseconds(678)))))
     c.print_line(Instant.to_string(Instant.from_unix_milliseconds(0)))
     c.print_line(Instant.to_string(Instant.from_unix_milliseconds(-1)))
@@ -1778,7 +1894,7 @@ fn main() {
       c = "#{Http.get("https://example.com/c").status}" escape {
         ConnectionFailed(url:, message:) -> "failed #{url}"
       }
-      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Response.header(a, "x-A")} #{Response.headers(b, "X-a")} #{Response.header(a, "none")}"
+      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Response.header(a, "x-A")} #{Response.header_values(b, "X-a")} #{Response.header(a, "none")}"
     }
   })
   with SystemConsole {

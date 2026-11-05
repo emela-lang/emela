@@ -113,7 +113,7 @@ fn run_on(path: &Path, target: Target, name: &str) -> Result<Outcome, Box<Analys
             &options,
             |_, _| {},
         ),
-        Target::C => unreachable!("this test compares js and wasm"),
+        Target::C | Target::CEmbedded => unreachable!("this test compares js and wasm"),
     });
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {
@@ -169,7 +169,7 @@ fn test_on(
             |_| {},
             &mut out,
         ),
-        Target::C => unreachable!("this test compares js and wasm"),
+        Target::C | Target::CEmbedded => unreachable!("this test compares js and wasm"),
     });
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match report {

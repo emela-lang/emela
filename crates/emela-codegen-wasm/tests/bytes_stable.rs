@@ -47,7 +47,7 @@ fn main() {
 }
 "#,
         13426,
-        0xcc95_25bc_9fc0_e058,
+        0xa983_3558_3b4f_6c8f,
     ),
     (
         "lists_enums_strings",
@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        23604,
-        0x6382_92bd_4842_1063,
+        23637,
+        0xf5cb_3ea8_0313_810f,
     ),
     (
         "floats",
@@ -97,7 +97,22 @@ fn main() {
 }
 "#,
         22698,
-        0x28fa_43ce_d217_d4f8,
+        0x7595_cfd1_d6e7_46b1,
+    ),
+    (
+        "platform_console",
+        r#"
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+
+fn main() {
+  with Platform {
+    (use Console).print_line("platform")
+  }
+}
+"#,
+        31444,
+        0xd831_f098_ae96_503b,
     ),
     (
         "state_and_options",
@@ -117,7 +132,7 @@ fn main() {
 }
 "#,
         15625,
-        0x0592_a9c2_5250_28f7,
+        0xbff9_10b0_9ed0_c314,
     ),
     (
         "numeric",
@@ -144,7 +159,7 @@ fn main() {
 }
 "#,
         13713,
-        0x1c72_aa6b_1ffb_d911,
+        0xefa4_c61e_eee7_8862,
     ),
 ];
 
@@ -164,7 +179,7 @@ pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
     13511,
-    0xefa3_dee0_525d_1103,
+    0xbe7b_c3d9_ff83_4648,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new

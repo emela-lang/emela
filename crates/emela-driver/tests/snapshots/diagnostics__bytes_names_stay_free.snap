@@ -1,0 +1,21 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0217]: expected constructor, found type `Bytes`
+   ╭─[ src/main.emel:5:5 ]
+   │
+ 5 │     Bytes() -> 0
+   │     ──┬──  
+   │       ╰──── 
+───╯
+
+error[E0217]: expected constructor, found type `Bytes`
+    ╭─[ src/main.emel:10:7 ]
+    │
+ 10 │   dbg(Bytes())
+    │       ──┬──  
+    │         ╰──── 
+────╯
+
+2 errors

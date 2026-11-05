@@ -99,7 +99,7 @@ The following restrictions apply outside the grammar.
 - A `qualified` annot_arg is allowed only as the argument of `@entry`.
 - `opaque` can be applied only to type and enum.
 - Each parameter of init is a lower_name with a type (8.4).
-- A type_decl without fields is allowed only when it has `@external`.
+- A type_decl without fields is allowed only when it has `@external` (or `@intrinsic` in the bundled sources, 3.5).
 - An enum_decl has at least one variant. Never is the only type with no values.
 - When `derive` follows the newline right after a type_decl, enum_decl, or error_decl, that newline is not a terminator, and the derive continues the declaration (as written in the examples in 10.5). Blank lines and comment-only lines in between are skipped (as in the line continuation check in 2.5). Because `derive` is a contextual keyword, it is not part of the lexical line continuation rules in 2.5, and it is handled only at the position of a declaration.
 
@@ -146,6 +146,7 @@ add_expr   = mul_expr { ( "+" | "-" ) mul_expr }
 mul_expr   = unary    { ( "*" | "/" | "%" ) unary }
 unary      = ( "!" | "-" ) unary
            | "use" type_ref [ "[" type { "," type } "]" ]
+           | lambda
            | postfix
 postfix    = primary { "(" [ args ] ")" | "." lower_name }
 
@@ -154,7 +155,7 @@ primary    = literal | lower_name | upper_name | type_ref | "self"
            | "(" expr ")"
            | "(" expr "," expr { "," expr } ")"
            | "[" [ expr { "," expr } [ "," ".." expr ] ] "]"
-           | block | if_expr | with_expr | lambda
+           | block | if_expr | with_expr
 
 args       = arg { "," arg } [ "," ".." expr ]
            | ".." expr
@@ -165,9 +166,13 @@ arm        = pattern [ "if" expr ] "->" expr
 with_expr  = "with" with_item { "," with_item } block
 with_item  = supply [ "by" by_right ]                                   (* by is in 8.9 *)
 by_right   = type_ref [ "[" type { "," type } "]" | "(" [ args ] ")" ]
-lambda     = "fn" "(" [ lambda_param { "," lambda_param } ] ")" block
+lambda     = ( "||" | "|" [ lambda_param { "," lambda_param } ] "|" ) expr
 lambda_param = pattern [ ":" type ]
 ```
+
+- The body of a lambda is an `expr`, so it extends as far to the right as possible. A lambda is never followed by anything in the same expression; to call it or apply an operator to it, it is enclosed in parentheses.
+- Inside the parameter list of a lambda, a `|` at bracket depth zero closes the list, and the `error_set` of a function type there has one item. Two or more items are written inside parentheses (`"(" type ")"`).
+- `||` in operand position is a lambda without parameters; after an operand it is the operator of `or_expr`.
 
 - When the last statement of a block is an expression, its value is the value of the block. When the last statement is a binding, the value of the block is `()`.
 - Whether a statement is a binding or an expression is decided by whether a sequence that reads as a pattern is immediately followed by `=` or `:`.

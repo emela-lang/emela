@@ -1,7 +1,8 @@
 //! Name navigation (LSP go to definition, find references, document symbols).
 //!
 //! Go to definition and find references look up the resolver's reference table
-//! (`Program::refs`) and the type checker's operation table (`ProgramTypes::ops`). Document
+//! (`Program::refs`) and the type checker's tables of operations and method calls
+//! (`ProgramTypes::ops`, `ProgramTypes::methods`). Document
 //! symbols come from the syntax tree alone.
 
 use emela_resolve::ModuleId;
@@ -203,13 +204,15 @@ fn occurrences(program: &TypedProgram, symbol: Symbol, declaration: bool) -> Vec
         .filter(|r| same(to_symbol(r.target)))
         .map(|r| r.span)
         .collect();
-    // Effect operations (the `info` of `log.info`).
+    // Effect operations (the `info` of `log.info`) and the functions of method calls (the `map`
+    // of `xs.map(f)`, `[lsp.navigation]`).
     spans.extend(
         program
             .types
             .ops
             .iter()
-            .filter(|&(_, &op)| same(Symbol::Def(op)))
+            .chain(program.types.methods.iter())
+            .filter(|&(_, &def)| same(Symbol::Def(def)))
             .filter_map(|(expr, _)| match &hir.exprs[expr].kind {
                 ExprKind::Field { name, .. } => Some(name.span),
                 _ => None,
@@ -406,9 +409,9 @@ fn symbol_at(program: &TypedProgram, module: ModuleId, offset: TextSize) -> Opti
     for r in &hir.refs {
         add(r.span, to_symbol(r.target));
     }
-    for (expr, &op) in program.types.ops.iter() {
+    for (expr, &def) in program.types.ops.iter().chain(program.types.methods.iter()) {
         if let ExprKind::Field { name, .. } = &hir.exprs[expr].kind {
-            add(name.span, Symbol::Def(op));
+            add(name.span, Symbol::Def(def));
         }
     }
     for (def, data) in hir.defs.iter() {

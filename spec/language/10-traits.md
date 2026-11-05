@@ -71,7 +71,7 @@ user |> Show.show
 fn largest[A: Ord](xs: List[A]) -> Option[A] { ... }
 ```
 
-- A trait function is called in the form `Trait.function(value)`. There is no method call syntax such as `user.show()`.
+- A trait function is called in the form `Trait.function(value)`. A function that takes `self` can also be called as `value.function()` when the trait is visible by name in the calling module (`[type.rules]`).
 - A bound is written `[A: Ord]`. Multiple bounds are written `[A: Ord + Show]`. Supertraits are also written `trait A: B + C`.
 - Where a definition with a bounded type parameter is referred to, the compiler checks that the instantiated type satisfies the bound. If not, E0326 is reported at the reference. The same applies when the definition is referred to as a value, not called.
 - A bound includes its supertraits. Inside a function with `[A: Ord]`, `==` can be used on values of `A`. There is no need to also write `[A: Ord + Eq]`.

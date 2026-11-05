@@ -1,30 +1,27 @@
 # Emela
 
 Emela is a functional language with typed errors and typed effects, compiling to
-JavaScript and WebAssembly.
+JavaScript, WebAssembly and C.
 
 ## Status
 
-This branch is the 0.20 rebuild. The current release is **0.20.0**:
-the pure subset, typed errors and effects, suspending effects, handlers with
-state, fibers, files and an HTTP client compile to JavaScript and run on
-Node.js. The 0.11 compiler lives on the [`legacy`](https://github.com/emela-lang/emela/tree/legacy)
-branch.
+The current release is **0.25.0**. Each release is listed in
+[`CHANGELOG.md`](CHANGELOG.md). The 0.11 compiler lives on the
+[`legacy`](https://github.com/emela-lang/emela/tree/legacy) branch.
 
-| Release        | Adds                                                                                                                       |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| 0.20.0-alpha.1 | Functions, records, enums, `opaque` types, pattern matching, tail calls, pipes, `List` / `Option`, modules, `@test`, `dbg` |
-| 0.20.0-alpha.2 | Typed errors and effects: `error`, `fail`, `escape`, `effect`, `handler`, `use`, `with`, `@external`, `Console`            |
-| 0.20.0-alpha.3 | `suspend fn`, `Async`, `Immediate`, `Clock`, `Random`, `Env`, `Instant` / `Duration`                                       |
-| 0.20.0-alpha.4 | Handlers with fields, `init` and `release`, `layer`, `State`, the `Std` namespace, `Platform`                              |
-| 0.20.0-alpha.5 | Fibers (`Std.Fiber`, `Std.Cause`, `Std.Deferred`), `FileSystem`, `Std.Path`, the `Http` client                             |
-| 0.20.0         | Postfix `match`, `const` evaluated once on first use, E0208 for a directory outside the source root, English diagnostics   |
-| 0.21 and later | `trait`, `impl`, `derive`, `Map` / `Set` / `Array`, JSON, `Semaphore`, `Queue`, an `Http` server, WebAssembly output       |
+| Release | Adds                                                                                                                                                |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.20    | The language: data, pattern matching, modules, typed errors and effects, `suspend fn`, handlers with state, fibers, files, an `Http` client, `@test` |
+| 0.21    | The WebAssembly and C targets, `emela doc`, effect labels                                                                                           |
+| 0.22    | Dependencies (`emela pome`), `@external` files copied to the output                                                                                 |
+| 0.23    | The test root `test/` and `[dev-dependencies]`, more of the language server                                                                         |
+| 0.24    | `trait`, `impl`, `derive` (`Eq`, `Ord`, `Show`), `Std.Map`, `Std.Set`; test helpers move to the Pome [`brix`](https://github.com/emela-lang/brix)  |
+| 0.25    | HTTP services (`@entry(Http.serve)`), `@export`, handler `init` arguments, every construct on WASM, `emela test --reporter`, `emela new`            |
 
-The 0.20 language specification is in [`spec/`](spec/README.md).
-Changes to it are proposed in [`proposals/`](proposals/README.md). The
+The language specification is in [`spec/`](spec/README.md). Changes to it are
+proposed in [`proposals/`](proposals/README.md). The
 [`emela-lang/specification`](https://github.com/emela-lang/specification)
-repository describes the 0.1x language, not 0.20.
+repository describes the 0.1x language, not the 0.20 series.
 
 ## Install
 
@@ -41,7 +38,11 @@ emela --version
 
 This installs the latest release into `$HOME/.emela/bin`; set
 `EMELA_INSTALL_DIR` to change the directory, or `EMELA_VERSION` (for example
-`v0.20.0-alpha.5`) to pick a version.
+`v0.24.0`) to pick a version.
+
+Syntax highlighting and language server setups for VS Code, Neovim, Zed and
+`bat` are under [`editors/`](editors); see
+[`docs/syntax-highlight.md`](docs/syntax-highlight.md).
 
 ## A tour
 
@@ -160,23 +161,30 @@ Each command takes a project directory or an entry file, and defaults to `.`.
 `run`, `build` and `test` take `--target js` (the default), `--target c`, which
 compiles to C and builds a native executable with `cc`, or `--target wasm`, which
 writes a WASI 0.3 component `main.wasm` (`target/emela/wasm`) and runs it with `wasmtime`;
-`[build] target = "..."` in `Pome.toml` changes the default. The C target does
-not run suspending code, fibers or `String.length` yet; the WASM target does not
-run suspending code, fibers, `Float` operations or host callbacks either.
+`[build] target = "..."` in `Pome.toml` changes the default. JS and WASM run
+every construct of the language. The C target does not have `String.length`,
+`String.chars`, callbacks across `@external` or HTTP services yet
+([`[target.c.unsupported]`](spec/targets/c.md)).
 
-| Command       | Does                                                    |
-| ------------- | ------------------------------------------------------- |
-| `emela new`   | Creates a new Pome in a new directory; `--lib` creates a library |
-| `emela check` | Reports diagnostics without compiling                   |
+| Command       | Does                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------- |
+| `emela new`   | Creates a new Pome in a new directory; `--lib` creates a library                       |
+| `emela check` | Reports diagnostics without compiling                                                  |
 | `emela run`   | Compiles and runs: JavaScript on Node.js, a native executable, or WASM with `wasmtime` |
-| `emela build` | Compiles under `target/emela/js` (JS), a native executable (C), or `main.wasm` (WASM) |
-| `emela test`  | Runs the functions marked `@test`; `--reporter pretty\|plain\|agent` picks the output |
-| `emela fmt`   | Formats the sources in place; `--check` only lists them |
-| `emela lsp`   | Starts the language server over stdio                   |
+| `emela build` | Compiles under `target/emela/js` (JS), a native executable (C), or `main.wasm` (WASM)  |
+| `emela test`  | Runs the functions marked `@test`; `--reporter pretty\|plain\|agent` picks the output  |
+| `emela fmt`   | Formats the sources in place; `--check` only lists them                                |
+| `emela doc`   | Writes the docs of the `pub` declarations as HTML (or `--format md`); `--std` for std  |
+| `emela pome`  | Manages dependencies: `add`, `remove`, `install`, `update`, `list`, `verify`           |
+| `emela lsp`   | Starts the language server over stdio                                                  |
 
-The language server reports diagnostics and offers hover (types, `fails`, `use`),
-inlay hints, completion, go to definition, references, rename, signature help,
-formatting, and a code action that writes inferred annotations.
+The language server reports diagnostics with quick fixes and offers hover
+(types, `fails`, `use` and `##` doc comments), inlay hints, completion,
+signature help, go to definition, type definition and implementation,
+references, rename, symbols, folding and selection ranges, semantic tokens,
+formatting, and code actions that write inferred annotations or impl stubs.
+
+## Errors and effects
 
 Programs print with `dbg`, which writes to stderr. The value `main` returns is
 not printed.
@@ -340,15 +348,20 @@ $ emela run
 liftoff
 ```
 
+## The standard library
+
 The bundled std lives under `Std` and is imported: the platform effects
 `Std.Console`, `Std.Clock`, `Std.Random`, `Std.Env`, `Std.FileSystem` and
 `Std.Http`, each with its host handler (`SystemConsole`, `SystemClock`,
 `SystemRandom`, `SystemEnv`, `SystemFileSystem`, `SystemHttp`), the layer
 `Std.Platform.Platform` that bundles them, `Std.State`, `Std.Fiber`,
-`Std.Cause`, `Std.Deferred`, `Std.Path`, `Std.Instant` and `Std.Duration`. The
-test handlers `TestConsole`, `TestClock`, `TestFileSystem` and `TestHttp` keep
-their state in `State`. The core modules (`List`, `Option`, `String`, `Int`, `Int64`,
-`Float`) need no import.
+`Std.Cause`, `Std.Deferred`, the values `Std.Map`, `Std.Set`, `Std.Path`,
+`Std.Instant` and `Std.Duration`, and `Std.Http.Request` and
+`Std.Http.Response`. The test handlers `TestConsole`, `TestClock`,
+`TestFileSystem` and `TestHttp` keep their state in `State`. The core modules
+(`List`, `Option`, `String`, `Int`, `Int64`, `Float`, `Bool`) need no import.
+Every function is listed in [`spec/library/api.md`](spec/library/api.md);
+`emela doc --std` writes the same as HTML.
 
 Handlers can hold state: `init` runs when a `with` is entered and builds the
 handler's value, and `release` runs when the `with` is left, however its body
@@ -470,7 +483,7 @@ fn first_result(query: String) {
 
 @test
 fn a_404_is_not_a_failure() {
-  server = TestServer(respond: fn(req, n) { Some(Response.new(404, "")) }, sent: [])
+  server = TestServer(respond: fn(_, _) { Some(Response.new(404, "")) }, sent: [])
   (text, after) = State.run(server, fn() { with TestHttp { first_result("x") } })
   assert text == "status 404"
   assert List.length(after.sent) == 1
@@ -480,6 +493,8 @@ fn a_404_is_not_a_failure() {
 With `with Platform { ... }`, the same code sends real requests through
 `fetch`. For a deadline, wrap the call in `Fiber.timeout`; interrupting a fiber
 that waits on `send` aborts the request.
+
+## HTTP services
 
 An HTTP service is an fn with `@entry(Http.serve)`: the host calls it once for
 each request, and it is still an ordinary fn that tests call directly. From
@@ -502,45 +517,129 @@ and `PORT`). The same `main.mjs` is the `fetch` of its default export, so
 `emela run` serves it with `wasmtime serve`. An error or a defect becomes a 500
 whose cause goes only to standard error.
 
+## Traits and collections
+
+A trait lists functions that a type provides; an `impl` provides them, and a
+bound such as `[A: Describe]` asks for them. `derive` writes the impls of
+`Eq`, `Ord` and `Show` from the shape of a type. `==` uses `Eq`, `<` and `>`
+use `Ord`, and `#{...}` uses `Show`, so a type without them cannot be compared
+or interpolated. `Std.Map` and `Std.Set` keep their keys in `Ord` order. This
+is [`examples/traits`](examples/traits):
+
+```emela
+# Traits, derive and the collections in std. `==`, `<` and `#{}` go through the
+# Eq, Ord and Show impls of the type.
+import Std.Map.{Map}
+import Std.Set.{Set}
+
+# The derived Ord orders variants by their order of declaration.
+enum Priority {
+  Low
+  High
+} derive Eq, Ord, Show
+
+type Task(title: String, priority: Priority)
+  derive Eq
+
+trait Describe {
+  fn describe(self) -> String
+}
+
+impl Task: Describe {
+  fn describe(self) { "#{self.title} (#{self.priority})" }
+}
+
+fn describe_all[A: Describe](xs: List[A]) -> List[String] {
+  List.map(xs, Describe.describe)
+}
+
+fn main() {
+  tasks = [
+    Task(title: "write docs", priority: Low),
+    Task(title: "fix build", priority: High),
+    Task(title: "review", priority: High),
+  ]
+  dbg(describe_all(tasks)) # ["write docs (Low)", "fix build (High)", "review (High)"]
+
+  urgent = List.filter(tasks, fn(t) { t.priority > Low })
+  dbg(List.length(urgent)) # 2
+
+  # A Map keeps its keys in Ord order.
+  by_priority = List.fold(tasks, from: Map.empty(), f: fn(m, t) {
+    Map.update(m, t.priority, fn(n) { Some(Option.or(n, 0) + 1) })
+  })
+  dbg(by_priority) # Map.from_list([(Low, 1), (High, 2)])
+
+  dbg(Set.from_list(["b", "a", "b"])) # Set.from_list(["a", "b"])
+}
+
+@test
+fn tasks_compare_by_contents() {
+  assert Task(title: "x", priority: Low) == Task(title: "x", priority: Low)
+  assert High > Low
+}
+```
+
+```console
+$ emela run
+["write docs (Low)", "fix build (High)", "review (High)"]
+2
+Map.from_list([(Low, 1), (High, 2)])
+Set.from_list(["a", "b"])
+```
+
 ## Known limitations
 
 - No binary data: there is no `Bytes`, so `FileSystem` and `Http` handle UTF-8
   text only.
-- No JSON yet; it comes in 0.21 with traits.
+- No JSON, no `Array`, and no limit on how many fibers run at once
+  (`Semaphore`) or `Queue` yet.
+- Only `Eq`, `Ord` and `Show` can be derived.
 - The JavaScript target assumes a server host: Node.js 18 or later, Deno, or
-  Bun. Browsers are not supported in 0.20.
-- No limit on how many fibers run at once (`Semaphore`), no `Queue` and no
-  `Http` server yet; they come in 0.21.
-- Some checks that scopes, fiber handles, `Deferred` values and handler
-  capabilities do not escape run at run time in 0.20 (a defect such as
-  `fiber scope was used after it ended`). 0.22 makes them all static.
+  Bun. Browsers are not a target.
+- Some checks that scopes, fiber handles and `Deferred` values do not escape
+  run at run time (a defect such as `fiber scope was used after it ended`).
+- The C target runs on macOS (arm64) and Linux (x86_64) only, and lacks the
+  constructs listed under [Commands](#commands).
+- The questions still open are in [`spec/open-questions.md`](spec/open-questions.md).
 
 ## Crates
 
-| Crate                | Role                                                                     |
-| -------------------- | ------------------------------------------------------------------------ |
-| `emela-syntax`       | Lexer, parser, lossless syntax tree, error recovery                      |
-| `emela-fmt`          | Formatter                                                                |
-| `emela-resolve`      | Module loading, imports, name resolution, `pub` / `opaque`, naming rules |
-| `emela-types`        | Type inference, `fails` / `use` inference, traits, exhaustiveness        |
-| `emela-core`         | Core IR and lowering: `derive`, tail-call loops, `layer` wiring          |
-| `emela-lir`          | Low IR below the Core IR: the Flow IR (structured ANF) and the conversion from monomorphized Core, later the Heap IR |
-| `emela-codegen-js`   | JavaScript output and the embedded JS runtime                            |
-| `emela-codegen-wasm` | WebAssembly output and the embedded WASM runtime                         |
-| `emela-driver`       | Pipeline, diagnostics, `Pome.toml`                                       |
-| `emela-lsp`          | Language server                                                          |
-| `emela-cli`          | The `emela` binary                                                       |
+| Crate                | Role                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `emela-syntax`       | Lexer, parser, lossless syntax tree, error recovery                                        |
+| `emela-fmt`          | Formatter                                                                                  |
+| `emela-resolve`      | Module loading, imports, name resolution, `pub` / `opaque`, naming rules                   |
+| `emela-types`        | Type inference, `fails` / `use` inference, traits, exhaustiveness                          |
+| `emela-core`         | Core IR and lowering: `derive`, tail-call loops, `layer` wiring; the bundled core and std  |
+| `emela-lir`          | The IRs below Core: the Flow IR (structured ANF) and the Heap IR (closures, RC, suspension) |
+| `emela-codegen-js`   | JavaScript output and the embedded JS runtime                                              |
+| `emela-codegen-wasm` | WebAssembly (WASI 0.3 component) output and the embedded WASM runtime                      |
+| `emela-codegen-c`    | C11 output and the embedded C runtime                                                      |
+| `emela-codegen-emb`  | C for embedded boards from the Flow IR (not yet wired into the CLI)                        |
+| `emela-pome`         | Pomes: source paths, versions, `Pome.toml` / `Pome.lock`, checksum database                |
+| `emela-driver`       | Pipeline, diagnostics, build configuration                                                 |
+| `emela-lsp`          | Language server                                                                            |
+| `emela-cli`          | The `emela` binary                                                                         |
 
 ```
-syntax → resolve → types → core ──────→ codegen-js ───┐
-   ↓                         └─→ lir → codegen-wasm ──┤
-  fmt                                                 ↓
-                                        driver → lsp → cli
+syntax → resolve → types → core ─────────────→ codegen-js ───┐
+   ↓                         └─→ lir ─┬─→ codegen-wasm ─────┤
+  fmt                                 ├─→ codegen-c ────────┤
+                                      └─→ codegen-emb       ↓
+                                     pome → driver → lsp → cli
 ```
 
-## Building
+## Contributing
 
 ```sh
 cargo build
 cargo test
 ```
+
+The tests of the C and WASM targets need `cc` and Wasmtime 49 or later; without
+them, those tests are skipped. The language, the standard library, the targets
+and the tools are specified in [`spec/`](spec/README.md), and a change of
+meaning goes through a proposal ([`proposals/README.md`](proposals/README.md)).
+[`AGENTS.md`](AGENTS.md) is the entry point for coding agents. The release
+steps are in [`docs/release.md`](docs/release.md).

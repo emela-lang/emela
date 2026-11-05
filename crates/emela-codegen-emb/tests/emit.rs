@@ -5290,7 +5290,7 @@ fn emits_and_runs_int32_primitive_operations() {
         ),
     ];
 
-    for (op, args, result_type, expected) in cases {
+    for_each_in_parallel(cases, |(op, args, result_type, expected)| {
         let core = emela_core::Module::new();
         let mut builder = FnBuilder::new(&core, "probe");
         builder.set_ret(result_type).set_exported();
@@ -5313,7 +5313,7 @@ fn emits_and_runs_int32_primitive_operations() {
             "#include \"emela_embedded.h\"\nint main(void) {{ return emela_export_probe_0() == {expected} ? 0 : 1; }}\n"
         );
         compile_and_run(output, &harness);
-    }
+    });
 }
 
 #[test]
@@ -5405,13 +5405,13 @@ fn emits_and_runs_int64_primitive_operations_with_wrapping_semantics() {
         ),
     ];
 
-    for (op, args, result_type, expected) in cases {
+    for_each_in_parallel(cases, |(op, args, result_type, expected)| {
         let output = compile_i64_prim(op, args, result_type);
         let harness = format!(
             "#include <stdint.h>\n#include <stdlib.h>\n#include \"emela_embedded.h\"\n#include \"emela_board.h\"\n_Noreturn void emela_board_defect(EmelaDefectKind kind, const char *message, uint16_t length) {{ (void)kind; (void)message; (void)length; exit(1); }}\nint main(void) {{ return emela_export_probe_0() == {expected} ? 0 : 1; }}\n"
         );
         compile_and_run(output, &harness);
-    }
+    });
 }
 
 #[test]
@@ -5516,7 +5516,7 @@ fn emits_and_runs_float_primitive_operations() {
         ),
     ];
 
-    for (op, args, result_type, expected) in cases {
+    for_each_in_parallel(cases, |(op, args, result_type, expected)| {
         let output = compile_f64_prim(op, args, result_type);
         let actual_type = if result_type == TypeId::FLOAT {
             "double"
@@ -5527,7 +5527,7 @@ fn emits_and_runs_float_primitive_operations() {
             "#include <math.h>\n#include <stdint.h>\n#include \"emela_embedded.h\"\nint main(void) {{ {actual_type} actual = emela_export_probe_0(); return ({expected}) ? 0 : 1; }}\n"
         );
         compile_and_run(output, &harness);
-    }
+    });
 }
 
 #[test]
@@ -5902,6 +5902,26 @@ fn compile_constant_function(name: &str, return_type: TypeId, value: Const) -> O
     let mut flow = Module::new(core);
     flow.add(function);
     compile_flow(&flow, &Options::default()).expect("emit scalar constant")
+}
+
+/// Calls `f` on every item from as many threads as there are CPUs. The items of a test that builds
+/// and runs a C program for each run in parallel this way; a panic fails the test once every
+/// thread has finished.
+fn for_each_in_parallel<T: Send>(items: impl IntoIterator<Item = T>, f: impl Fn(T) + Sync) {
+    let items = std::sync::Mutex::new(items.into_iter().collect::<Vec<_>>().into_iter());
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    std::thread::scope(|s| {
+        for _ in 0..threads {
+            s.spawn(|| {
+                loop {
+                    let Some(item) = items.lock().unwrap_or_else(|e| e.into_inner()).next() else {
+                        break;
+                    };
+                    f(item);
+                }
+            });
+        }
+    });
 }
 
 fn compile_and_run(output: Output, harness_source: &str) {

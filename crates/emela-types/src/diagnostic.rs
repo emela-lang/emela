@@ -102,12 +102,33 @@ pub enum DiagnosticKind {
     NotNumeric { found: Ty, integer: bool },
     /// E0311, spec 2.4.
     IntLiteralOutOfRange { literal: SmolStr, ty: Ty },
-    /// E0312. Used for field access and update.
+    /// A field the constructor does not have in an update (E0312, spec 5.3).
     NoField { ty: Ty, field: SmolStr },
-    /// Field access on a type without fields: enums, primitives, tuples, ... (E0313).
+    /// No field or function `name` for a field access or a method call (E0312, `[type.rules]`).
+    NoFieldOrFunction { ty: Ty, name: SmolStr },
+    /// A function found by a method lookup, written without a call (E0312, `[type.rules]`).
+    /// `receiver` is the name of x in `x.f`, when it is a variable.
+    MethodNotCalled {
+        ty: Ty,
+        name: SmolStr,
+        receiver: Option<SmolStr>,
+    },
+    /// A field access or a method call on a type without fields, where no function is found:
+    /// enums, primitives, tuples, ... (E0313).
     NoFields { ty: Ty, field: SmolStr },
-    /// Field access on a value whose type is not known yet (E0314). Needs a type annotation.
-    FieldOnUnknownType { field: SmolStr },
+    /// A field access, or a method call when `call`, on a value whose type is not known yet
+    /// (E0314). Needs a type annotation.
+    FieldOnUnknownType { field: SmolStr, call: bool },
+    /// More than one candidate for a method call (E0335, `[type.rules]`): a field when `field`,
+    /// and the functions `qualified` (`User.show`, `Show.show`). `receiver` is the name of x in
+    /// `x.f`, when it is a variable.
+    AmbiguousMethod {
+        ty: Ty,
+        name: SmolStr,
+        field: bool,
+        qualified: Vec<SmolStr>,
+        receiver: Option<SmolStr>,
+    },
     /// Field access on an opaque type outside its defining module (E0315, spec 4.4).
     OpaqueField { ty: Ty, field: SmolStr },
     /// A top-level fn parameter without a type (E0316, spec 6.1).
