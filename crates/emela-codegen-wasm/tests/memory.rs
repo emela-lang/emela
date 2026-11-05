@@ -4,7 +4,8 @@
 //!
 //! In this backend a program that exhausts its memory ends abruptly. The runtime checks the
 //! result of `memory.grow` and traps before moving the bump pointer, so the end of the program is
-//! not an out-of-bounds store past the memory.
+//! not an out-of-bounds store past the memory. A reservation made from `cabi_realloc` traps
+//! without writing its line, because the host can forbid a blocking call inside the callback.
 
 mod common;
 
@@ -292,7 +293,19 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
     // In this backend an allocation failure is an abrupt end of the program, not a defect. The
     // bump pointer must not move past the end of the memory, or the next store traps with an
     // unrelated out-of-bounds error instead of the runtime's own trap.
-    let output = to_output("fn main() { dbg(1) }\n");
+    // `Env` emits `cabi_realloc`, so both reservations (the writing one and the quiet one) are in
+    // the module.
+    let output = to_output(
+        r#"
+import Std.Env.{Env, SystemEnv}
+
+fn main() {
+  with SystemEnv {
+    dbg((use Env).get("EMELA_TEST"))
+  }
+}
+"#,
+    );
     wasmparser::validate(&output.module).expect("the module is valid");
     let core = core_module(&output.module);
     let heap_body = core
@@ -304,6 +317,7 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
         })
         .expect("the runtime reserves the heap with `memory.grow`");
     let ops = &core.bodies[heap_body];
+    let heap_index = core.imports.len() as u32 + u32::try_from(heap_body).unwrap();
 
     // `write_stderr` is the function that calls the stderr stream's `write-via-stream`.
     let stderr_write = core
@@ -365,7 +379,7 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
     assert_eq!(ops.get(size + 3), Some(&Operator::I64Mul));
     assert_eq!(
         ops.get(size + 4),
-        Some(&Operator::LocalSet { local_index: 1 })
+        Some(&Operator::LocalSet { local_index: 2 })
     );
     assert_eq!(
         ops.get(size + 5),
@@ -373,7 +387,7 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
     );
     assert_eq!(
         ops.get(size + 6),
-        Some(&Operator::LocalGet { local_index: 1 })
+        Some(&Operator::LocalGet { local_index: 2 })
     );
     assert_eq!(
         ops.get(size + 7),
@@ -394,16 +408,32 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
     assert_eq!(ops.get(grow + 2), Some(&Operator::I32Eq));
     assert!(matches!(ops.get(grow + 3), Some(Operator::If { .. })));
 
-    // The failure branch writes the message through `write_stderr(ptr, len)`.
-    let (ptr, len, callee) = match (ops.get(grow + 4), ops.get(grow + 5), ops.get(grow + 6)) {
-        (
-            Some(Operator::I32Const { value: ptr }),
-            Some(Operator::I32Const { value: len }),
-            Some(Operator::Call { function_index }),
-        ) => (*ptr, *len, *function_index),
+    // The failure branch first checks `quiet`: a reservation from `cabi_realloc` traps without
+    // writing, because a blocking call can be forbidden inside the host's callback.
+    let quiet = grow + 4;
+    assert_eq!(
+        ops.get(quiet),
+        Some(&Operator::LocalGet { local_index: 1 }),
+        "the failed grow does not check the quiet flag"
+    );
+    assert!(matches!(ops.get(quiet + 1), Some(Operator::If { .. })));
+    assert_eq!(ops.get(quiet + 2), Some(&Operator::Unreachable));
+    assert_eq!(ops.get(quiet + 3), Some(&Operator::End));
+
+    // With `quiet` zero the failure writes the message through `write_stderr(ptr, len)` and then
+    // traps.
+    let written = (quiet..)
+        .find(|&i| {
+            matches!(ops.get(i), Some(Operator::Call { function_index }) if *function_index == write_stderr)
+        })
+        .expect("the failure does not write the message");
+    let (ptr, len) = match (ops.get(written - 2), ops.get(written - 1)) {
+        (Some(Operator::I32Const { value: ptr }), Some(Operator::I32Const { value: len })) => {
+            (*ptr, *len)
+        }
         other => panic!("the failed grow does not write the message: {other:?}"),
     };
-    assert_eq!(callee, write_stderr, "the failure is not written to stderr");
+    assert_eq!(ops.get(written + 1), Some(&Operator::Unreachable));
     assert_eq!(
         usize::try_from(len).expect("the length is not negative"),
         b"emela: out of memory\n".len()
@@ -415,13 +445,8 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
         "the message is not at the pointer the failure passes"
     );
 
-    let trap = grow
-        + 4
-        + ops[grow + 4..]
-            .iter()
-            .position(|op| matches!(op, Operator::Unreachable))
-            .expect("a failed grow traps");
-    // `G_HEAP` is the global initialised to `heap_base`.
+    // `G_HEAP` is the global initialised to `heap_base`. Neither failure path moves it; the only
+    // set after `memory.grow` is the successful reservation at the end.
     let heap_global = u32::try_from(
         core.globals
             .iter()
@@ -429,13 +454,7 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
             .expect("a global holds `heap_base`"),
     )
     .unwrap();
-    assert!(
-        ops[grow..trap]
-            .iter()
-            .all(|op| !matches!(op, Operator::GlobalSet { .. })),
-        "a global moves in the failed grow path: {ops:?}"
-    );
-    let sets: Vec<u32> = ops[trap..]
+    let sets: Vec<u32> = ops[grow..]
         .iter()
         .filter_map(|op| match op {
             Operator::GlobalSet { global_index } => Some(*global_index),
@@ -445,7 +464,28 @@ fn heap_reservation_checks_the_grow_and_traps_before_moving_the_heap() {
     assert_eq!(
         sets,
         vec![heap_global],
-        "the reservation moves a different global after the trap: {ops:?}"
+        "the reservation moves a different global after the grow: {ops:?}"
+    );
+
+    // `alloc` asks for the line (quiet = 0); `cabi_realloc` asks for the quiet trap (quiet = 1).
+    let mut quiet_args = Vec::new();
+    for body in &core.bodies {
+        for (i, op) in body.iter().enumerate() {
+            if matches!(op, Operator::Call { function_index } if *function_index == heap_index) {
+                quiet_args.push(match body.get(i - 1) {
+                    Some(Operator::I32Const { value }) => *value,
+                    other => {
+                        panic!("the reservation does not get a constant quiet flag: {other:?}")
+                    }
+                });
+            }
+        }
+    }
+    quiet_args.sort_unstable();
+    assert_eq!(
+        quiet_args,
+        vec![0, 1],
+        "the reservations do not ask for both the line and the quiet trap"
     );
 }
 
@@ -511,6 +551,59 @@ fn main() {
     assert!(
         !run.stderr.contains("after"),
         "the attempt let the program continue: {}",
+        run.stderr
+    );
+}
+
+#[test]
+fn an_allocation_failure_in_cabi_realloc_traps_without_writing() {
+    let Some(_) = wasmtime() else { return };
+    // `get-environment` makes the host copy every variable into the guest through `cabi_realloc`.
+    // The host can forbid a blocking call inside that callback, so a failed reservation there
+    // traps without writing the out-of-memory line. The program must not continue either way.
+    let bytes = compile_checked(
+        r#"
+import Std.Env.{Env, SystemEnv}
+
+fn main() {
+  dbg("before")
+  with SystemEnv {
+    dbg((use Env).get("EMELA_TEST_HUGE_0"))
+  }
+  dbg("after")
+}
+"#,
+    );
+    let env: Vec<String> = (0..20)
+        .map(|i| format!("EMELA_TEST_HUGE_{i}={}", "x".repeat(40 * 1024)))
+        .collect();
+    let run = run_bytes_with_command(
+        &out_dir("memory-exhaustion-cabi-realloc"),
+        &bytes,
+        |command| {
+            command.arg("-W").arg("max-memory-size=524288");
+            command.arg("-W").arg("trap-on-grow-failure=n");
+            for entry in &env {
+                command.arg("--env").arg(entry);
+            }
+        },
+    );
+    // The exit code and the trap text are implementation-defined. The quiet path must not write
+    // the line, and the program must not finish.
+    assert_ne!(run.code, 0, "the program finished: {}", run.stderr);
+    assert!(
+        run.stderr.contains("before"),
+        "the component did not start, or the failure came before the host call: {}",
+        run.stderr
+    );
+    assert!(
+        !run.stderr.contains("emela: out of memory"),
+        "the quiet reservation wrote the line: {}",
+        run.stderr
+    );
+    assert!(
+        !run.stderr.contains("Some(") && !run.stderr.contains("after"),
+        "the program continued after the failed allocation: {}",
         run.stderr
     );
 }

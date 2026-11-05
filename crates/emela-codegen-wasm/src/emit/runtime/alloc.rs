@@ -3,15 +3,15 @@
 use super::*;
 
 /// The line written to standard error before a failed heap reservation traps. It is best effort:
-/// the specification does not require an allocation failure to write anything, and the write can
-/// be lost when the host forbids a blocking call from inside `cabi_realloc`.
+/// the specification does not require an allocation failure to write anything, and a reservation
+/// made from `cabi_realloc` does not write it at all ([`heap_reserve`]).
 const OOM_MESSAGE: &[u8] = b"emela: out of memory\n";
 /// Where [`setup`] records the offset of [`OOM_MESSAGE`] in `Builder::rt_data`.
 const OOM_MESSAGE_KEY: &str = "alloc.oom_message";
 
 pub(super) const FUNCS: &[Sig] = &[
     ("alloc", &[ValType::I32, ValType::I32], &[ValType::I32]),
-    ("heap_reserve", &[ValType::I64], &[]),
+    ("heap_reserve", &[ValType::I64, ValType::I32], &[]),
     ("dup", &[ValType::I32], &[]),
     ("drop", &[ValType::I32], &[]),
     ("tag", &[ValType::I32], &[ValType::I32]),
@@ -22,7 +22,7 @@ pub(super) const FUNCS: &[Sig] = &[
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "alloc" => i32s(5),                        // need, cur, prev, next, p
-        "heap_reserve" => vec![(1, ValType::I64)], // memory bytes
+        "heap_reserve" => vec![(1, ValType::I64)], // memory bytes, after the parameters
         "dup" => i32s(1),                          // rc
         "drop" => i32s(12),                        // rc..size
         "ev_lookup" => i32s(3),                    // count, i, e
@@ -132,6 +132,8 @@ fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(ALLOC_NEED);
     ins.i64_extend_i32_u();
     ins.i64_add();
+    // `alloc` does not run inside a host callback, so its failure writes the line.
+    ins.i32_const(0);
     ins.call(rt(b, "heap_reserve"));
     ins.local_get(ALLOC_P);
     ins.local_get(ALLOC_NEED);
@@ -145,8 +147,8 @@ fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(ALLOC_P);
 }
 
-/// `heap_reserve(end)`: moves the bump pointer to `end`, growing the memory by whole pages when
-/// `end` is past it. Shared by `alloc` and `cabi_realloc`.
+/// `heap_reserve(end, quiet)`: moves the bump pointer to `end`, growing the memory by whole pages
+/// when `end` is past it. Shared by `alloc` and `cabi_realloc`.
 ///
 /// `end` is the sum of two u32 offsets (`alloc`: the aligned heap pointer and the block size;
 /// `cabi_realloc`: the aligned heap pointer and the new size), so it is taken as an i64: the sum
@@ -155,15 +157,18 @@ fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
 /// `memory.size * PAGE` also needs 2^32 at 65536 pages, or (b) moving `G_HEAP` back to 0 and
 /// storing over the beginning of the heap.
 ///
-/// A failed `memory.grow` returns `-1`. The program then ends abruptly: it writes a line to
-/// standard error and traps (`unreachable`), and `G_HEAP` keeps its old value, so no store is
-/// made past the end of the memory. In this backend an allocation failure is not a defect: it
-/// does not set `G_DEFECT`, does not run releases, and cannot be observed at `Fiber.attempt`. The
-/// classification, the message and the trap are implementation-defined. The line is best effort:
-/// when the reservation comes from `cabi_realloc` inside a host call, the host may forbid a
-/// blocking call and the write (and the trap) may be lost.
+/// A failed `memory.grow` returns `-1`. The program then ends abruptly: it traps
+/// (`unreachable`), and `G_HEAP` keeps its old value, so no store is made past the end of the
+/// memory. In this backend an allocation failure is not a defect: it does not set `G_DEFECT`,
+/// does not run releases, and cannot be observed at `Fiber.attempt`. The classification, the
+/// message and the trap are implementation-defined.
+///
+/// `quiet` is non-zero for `cabi_realloc`, which runs inside a host call: a blocking write from
+/// there can be forbidden by the host, so the reservation traps without writing the line. With
+/// `quiet` zero, the trap writes [`OOM_MESSAGE`] first, best effort.
 fn heap_reserve(b: &mut Builder, ins: &mut InstructionSink) {
-    const BYTES: u32 = 1;
+    // Parameters 0 (`end`) and 1 (`quiet`); locals start at 2.
+    const BYTES: u32 = 2;
     // Past the last address a wasm32 pointer can hold.
     ins.local_get(0);
     ins.i64_const(u32::MAX as i64);
@@ -171,8 +176,7 @@ fn heap_reserve(b: &mut Builder, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     out_of_memory(b, ins);
     ins.end();
-    // The heap only grows, so an `end` below `G_HEAP` means the caller's rounding or addition
-    // wrapped.
+    // The heap only grows, so an `end` below `G_HEAP` means the caller's rounding wrapped.
     ins.local_get(0);
     ins.global_get(G_HEAP);
     ins.i64_extend_i32_u();
@@ -210,9 +214,15 @@ fn heap_reserve(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_set(G_HEAP);
 }
 
-/// Ends the program after a reservation cannot be made: writes the line and traps. The caller
-/// must keep `G_HEAP` at its old value.
+/// Ends the program after a reservation cannot be made: traps, after writing the line unless the
+/// reservation is quiet. The caller must keep `G_HEAP` at its old value.
+///
+/// The quiet flag is parameter 1 of [`heap_reserve`].
 fn out_of_memory(b: &Builder, ins: &mut InstructionSink) {
+    ins.local_get(1);
+    ins.if_(BlockType::Empty);
+    ins.unreachable();
+    ins.end();
     let message = *b
         .rt_data
         .get(OOM_MESSAGE_KEY)
