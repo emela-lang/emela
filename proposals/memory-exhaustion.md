@@ -1,7 +1,7 @@
 ---
 title: Behavior when memory is exhausted
 authors: [isoshigi]
-status: accepted
+status: implemented
 pr: 461
 issue:
 decided: 2026-10-29
@@ -84,8 +84,8 @@ No program that compiles now stops compiling. The specification does not current
 
 ## Implementation
 
-- `crates/emela-codegen-wasm/src/emit/runtime/alloc.rs`: `setup` writes the out-of-memory line into static data. `heap_reserve` takes the end offset as an i64 so that the sum of two u32 offsets cannot wrap at 4 GiB; it rejects an end past `u32::MAX` and an end below `G_HEAP`, compares `memory.size * PAGE` as an i64, and on a failed `memory.grow` calls `write_stderr` with the line (best effort) and traps before changing `G_HEAP`. In this backend the failure does not set `G_DEFECT`, does not run `finish`, and does not run releases.
-- `crates/emela-codegen-wasm/tests/memory.rs`: structural tests check the grow result comparison, the i64 arithmetic and the guards, the `write_stderr` callee and the data segment, and that `G_HEAP` is not moved on the failure path; runtime tests use `-W max-memory-size` and `-W trap-on-grow-failure=n` and check that the program does not continue, including inside `Fiber.attempt`.
+- `crates/emela-codegen-wasm/src/emit/runtime/alloc.rs`: `setup` writes the out-of-memory line into static data. `heap_reserve` takes the end offset as an i64 so that the sum of two u32 offsets cannot wrap at 4 GiB; it rejects an end past `u32::MAX` and an end below `G_HEAP`, compares `memory.size * PAGE` as an i64, and on a failed `memory.grow` traps before changing `G_HEAP`. It writes the line first when the reservation comes from `alloc`, and traps without writing it when the reservation comes from `cabi_realloc`, where the host can forbid a blocking call. In this backend the failure does not set `G_DEFECT`, does not run `finish`, and does not run releases.
+- `crates/emela-codegen-wasm/tests/memory.rs`: structural tests check the grow result comparison, the i64 arithmetic and the guards, the quiet flag and its call sites, the `write_stderr` callee and the data segment, and that `G_HEAP` is not moved on the failure path; runtime tests use `-W max-memory-size` and `-W trap-on-grow-failure=n` and check that the program does not continue, including inside `Fiber.attempt` and when the host's `cabi_realloc` cannot reserve.
 - `crates/emela-codegen-wasm/tests/bytes_stable.rs`: the pinned component sizes and hashes are updated.
 - C and JS are not changed.
 
