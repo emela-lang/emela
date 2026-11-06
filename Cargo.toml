@@ -38,7 +38,7 @@ indexmap = "2"
 # Wadler 式の整形コンビネータ（fmt）．
 pretty = "0.12"
 # WASM バイナリの直接出力．検査は wasmparser で行う．
-wasm-encoder = "0.261"
+wasm-encoder = "0.263"
 wasmparser = "0.261"
 # WASI 0.3 の component 化: WIT の解決と core module の wrapping．
 wit-parser = "0.261"
