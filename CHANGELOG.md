@@ -7,6 +7,18 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.26.2](https://github.com/emela-lang/emela/compare/v0.26.1...v0.26.2) - 2026-11-06
+
+### Fixed
+
+- *(wasm)* show the name of an error without Show ([#443](https://github.com/emela-lang/emela/pull/443)) (by @isoshigi)
+
+### Other
+
+- update Cargo.lock dependencies
+- *(std)* 同梱の core と std を x.f(a) のメソッド呼び出しで書き直す ([#477](https://github.com/emela-lang/emela/pull/477)) (by @Allianaab2m)
+- update Cargo.toml dependencies
+
 ## [0.26.1](https://github.com/emela-lang/emela/compare/v0.26.0...v0.26.1) - 2026-10-30
 
 ### Fixed

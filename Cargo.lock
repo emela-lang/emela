@@ -455,7 +455,7 @@ dependencies = [
 
 [[package]]
 name = "emela-cli"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "clap",
  "emela-driver",
@@ -467,7 +467,7 @@ dependencies = [
 
 [[package]]
 name = "emela-codegen-c"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "emela-core",
  "emela-lir",
@@ -481,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "emela-codegen-emb"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "emela-core",
  "emela-lir",
@@ -493,7 +493,7 @@ dependencies = [
 
 [[package]]
 name = "emela-codegen-js"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "emela-core",
  "insta",
@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "emela-codegen-wasm"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "emela-core",
  "emela-lir",
@@ -519,7 +519,7 @@ dependencies = [
 
 [[package]]
 name = "emela-core"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "emela-resolve",
  "emela-syntax",
@@ -531,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "emela-driver"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "ariadne",
  "emela-codegen-c",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "emela-fmt"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "emela-syntax",
  "insta",
@@ -567,7 +567,7 @@ dependencies = [
 
 [[package]]
 name = "emela-lir"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "emela-core",
  "emela-resolve",
@@ -580,7 +580,7 @@ dependencies = [
 
 [[package]]
 name = "emela-lsp"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "emela-driver",
  "emela-pome",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "emela-pome"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -611,7 +611,7 @@ dependencies = [
 
 [[package]]
 name = "emela-resolve"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "emela-syntax",
  "indexmap",
@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "emela-syntax"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "insta",
  "logos",
@@ -634,7 +634,7 @@ dependencies = [
 
 [[package]]
 name = "emela-types"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "emela-core",
  "emela-resolve",
