@@ -133,6 +133,8 @@ A defect represents a mistake in the program or an unrecoverable abnormal condit
 | A second resume | The same continuation was resumed twice | ``resume called twice in operation `sleep` of handler `SystemClock` `` (`[dyn.suspend]`) |
 | A call to an external function without a target annotation | An external function reached from a public fn | ``external function `console_log` is not available on this target`` (`[ext.decl]`) |
 
+Whether resource exhaustion is a defect is implementation-defined (`[dyn.memory]`); programs MUST NOT depend on its classification.
+
 The wording of the messages, like the diagnostics in Appendix A, is not part of the specification and MAY change for improvement.
 
 - Even when a defect happens, the release of handlers runs (Chapter 14).
