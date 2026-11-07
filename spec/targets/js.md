@@ -41,6 +41,7 @@ The parameters and return values of external functions (`[ext.boundary]`) and of
 | Bool | boolean |
 | String | string |
 | Bytes | `Uint8Array` |
+| `Array[A]` | A JS `Array` whose elements are represented by this table |
 | `()` | `undefined` |
 | `@external type` | The host object itself |
 | Function type | A JS function. Its parameters and return value are converted by this table |
@@ -48,6 +49,8 @@ The parameters and return values of external functions (`[ext.boundary]`) and of
 - A String received from the host is normalized as in `[ext.exception]`. The same applies to a String received as an argument of a callback.
 - Where Bytes is expected from JS (the return value of an external function, a value resolved by an external suspend fn, an argument of a callback, and an argument of an exported fn), the value MUST satisfy `instanceof Uint8Array`. Subclasses are accepted (a Node.js `Buffer`). Any other value, including an `ArrayBuffer`, another typed array, a `DataView` and a `Uint8Array` from another realm, is a defect with the message ``external function `f` returned a value that is not a `Uint8Array` `` (for an argument of a callback or of an exported fn, ``argument `x` of `f` is not a `Uint8Array` ``). Wrap other values with `new Uint8Array(...)` in the host code.
 - Only the bytes visible through the `Uint8Array` (from `byteOffset`, `byteLength` bytes) are copied, not the whole underlying `ArrayBuffer`.
+- Where an Array is expected from JS (the same places as for Bytes), the value MUST satisfy `Array.isArray`. Any other value, including a typed array and an object with a `length`, is a defect with the message ``external function `f` returned a value that is not an array`` (for an argument of a callback or of an exported fn, ``argument `x` of `f` is not an array``). Each element is then converted by this table; an element that is not a value of `A` is a defect as it would be for a single value of `A`.
+- A sparse JS array is read as if each hole held `undefined`.
 - The JS representation of values of other types is unspecified (`[target.unspecified]`).
 
 ## 16.6.4 How outcomes appear `[target.js.outcome]`
