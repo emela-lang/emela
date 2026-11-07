@@ -19,7 +19,7 @@ fn literals(f: (fn(Int) -> String), g: List[(fn() -> Int)]) -> (fn(Int) -> Int) 
   interp = "外 #{ g("""
     補間の中の複数行
     """) } 外"
-  fn(x) { x }
+  |x| x
 }
 
 fn updates(user: User) {

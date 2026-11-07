@@ -19,7 +19,7 @@
 //! - In the type of a definition being generalized, a set variable in a negative position (the E
 //!   of a function-typed parameter) with neither lower nor upper bounds is generalized into a set
 //!   type parameter instead of becoming empty. Other set variables take the least solution.
-//!   A negative-position set variable that does have a lower bound (`fn(g) { if c { g } else
+//!   A negative-position set variable that does have a lower bound (`|g| { if c { g } else
 //!   { f } }`) is not generalized, so the type is not the most general one (an approximation).
 //!
 //! Constraints on effect sets R (`body/effects.rs`) go into the same table and are solved here

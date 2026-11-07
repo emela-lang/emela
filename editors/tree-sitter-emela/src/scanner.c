@@ -86,16 +86,22 @@ static bool equals(const char *a, const char *b) {
 static bool continues_line(TSLexer *lexer, const bool *valid_symbols) {
   int32_t c = lexer->lookahead;
   switch (c) {
-    // Rule 1: binary operators (except `-`) and `.`. Rule 3: `|`.
+    // Rule 1: binary operators (except `-` and `||`) and `.`.
     case '*':
     case '/':
     case '%':
     case '+':
     case '<':
     case '>':
-    case '|':
     case '.':
       return true;
+    // `|>` continues (rule 1). `||` starts a lambda without parameters, and `|` a lambda,
+    // except inside a signature, where `|` continues an error set (rule 4).
+    case '|':
+      advance(lexer);
+      if (lexer->lookahead == '>') return true;
+      if (lexer->lookahead == '|') return false;
+      return valid_symbols[SIGNATURE_CONTINUES];
     case '=':
     case '!':
       advance(lexer);

@@ -5,10 +5,7 @@
     "}")) @function.around
 
 (lambda
-  body: (block
-    "{"
-    (_)* @function.inside
-    "}")) @function.around
+  body: (_) @function.inside) @function.around
 
 (operation) @function.around
 

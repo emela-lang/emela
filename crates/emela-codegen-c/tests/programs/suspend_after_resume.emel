@@ -30,7 +30,7 @@ handler Res: Name {
 }
 
 fn main() -> () use { Async } {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     with Res, FailsLate {
       r = (use Late).late() escape { Nope -> -1 }
       print("got #{r}")

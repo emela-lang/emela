@@ -46,7 +46,7 @@ fn main() {
   dbg(twice)
   n = dbg(Button(label: Name(value: "dbg"), on_click: twice))
   print(n.label.value)
-  dbg([(1, fn(x: Int) { x + 1 })])
+  dbg([(1, |x: Int| x + 1)])
   dbg_any([Button(label: Name(value: "g"), on_click: twice)])
   dbg((Name(value: "t"), "s", twice))
   dbg(Name(value: "shown"))

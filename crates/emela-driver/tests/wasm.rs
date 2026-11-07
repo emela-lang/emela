@@ -106,7 +106,7 @@ import Std.Clock.{Clock, SystemClock}
 
 fn main() {
   with SystemClock {
-    nap = fn() { (use Clock).sleep(1) }
+    nap = || (use Clock).sleep(1)
     nap()
     dbg("slept")
   }
@@ -392,7 +392,7 @@ fn the_test_protocol_escapes_messages() {
 fn unsupported_features_are_diagnostics() {
     let (analysis, output) = run_wasm(
         "unsupported",
-        "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
+        "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(|| ())\n}\n",
     );
     assert!(analysis.has_errors());
     assert!(output.is_none());

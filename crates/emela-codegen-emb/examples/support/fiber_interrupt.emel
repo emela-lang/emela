@@ -13,8 +13,8 @@ handler Resource: Marker { fn read() { 1 }
     mark(4) } }
 pub fn work() -> Int use Async {
   with Waiting {
-    Fiber.scope(fn() {
-      child = Fiber.fork(fn() { with Resource { mark(1)
+    Fiber.scope(|| {
+      child = Fiber.fork(|| { with Resource { mark(1)
         (use Wait).get(1) } })
       result = (use Wait).get(2)
       mark(2)

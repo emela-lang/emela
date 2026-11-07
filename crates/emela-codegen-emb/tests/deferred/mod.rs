@@ -14,7 +14,7 @@ fn deferred_constructor_reuses_slots_and_scope_only_programs_omit_the_pool() {
     let core = support::try_lower(
         &[(
             "main.emel",
-            "import Std.Fiber.{Fiber, Scope}\nimport Std.Deferred.{Deferred}\npub fn work() -> () use Async {\n  Fiber.scope(fn() {\n    d: Deferred[Int] = (use Scope).deferred()\n    ()\n  })\n}\n",
+            "import Std.Fiber.{Fiber, Scope}\nimport Std.Deferred.{Deferred}\npub fn work() -> () use Async {\n  Fiber.scope(|| {\n    d: Deferred[Int] = (use Scope).deferred()\n    ()\n  })\n}\n",
         )],
         Roots::Public,
     )
@@ -45,7 +45,14 @@ int main(void) {
             .iter()
             .any(|e| e.kind == ErrorKind::InvalidOptions)
     );
-    let scope = support::try_lower(&[("main.emel", "import Std.Fiber.{Fiber}\npub fn work() -> Int use Async { Fiber.scope(fn() { 1 }) }\n")], Roots::Public).unwrap();
+    let scope = support::try_lower(
+        &[(
+            "main.emel",
+            "import Std.Fiber.{Fiber}\npub fn work() -> Int use Async { Fiber.scope(|| 1) }\n",
+        )],
+        Roots::Public,
+    )
+    .unwrap();
     let output = compile(&scope, &options().with_deferred_capacity(0)).unwrap();
     assert!(
         !output.files.iter().any(|f| f.path == "emela_embedded.c"
@@ -147,7 +154,7 @@ fn complete_stores_once_and_scope_end_breaks_cycles_through_captured_deferreds()
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 pub fn once(n: Int) -> Bool use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[Int] = (use Scope).deferred()
     first = Deferred.complete(d, n)
     second = Deferred.complete(d, n + 1)
@@ -155,9 +162,9 @@ pub fn once(n: Int) -> Bool use Async {
   })
 }
 pub fn cycle() -> Bool use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[fn() -> Bool] = (use Scope).deferred()
-    callback = fn() { Deferred.complete(d, fn() { False }) }
+    callback = || Deferred.complete(d, || False)
     Deferred.complete(d, callback)
   })
 }
@@ -199,9 +206,9 @@ fn leaked_complete_callback_checks_scope_before_recycled_slot() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 pub fn leak() -> (fn() -> Bool) use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[Int] = (use Scope).deferred()
-    fn() { Deferred.complete(d, 42) }
+    || Deferred.complete(d, 42)
   })
 }
 "#,
@@ -261,8 +268,8 @@ import Std.Deferred.{Deferred}
 @external(c, "mark")
 fn mark(n: Int) -> () use {}
 pub fn poll(n: Int) -> Int use Async {
-  Fiber.scope(fn() {
-    Fiber.fork(fn() { mark(99) })
+  Fiber.scope(|| {
+    Fiber.fork(|| mark(99))
     d: Deferred[Int] = (use Scope).deferred()
     empty = Deferred.poll(d) match {
       None -> True
@@ -333,7 +340,7 @@ fn peek(d: Deferred[String]) -> String {
   }
 }
 pub fn text(n: Int) -> String use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[String] = (use Scope).deferred()
     save(d, n)
     Int.to_string(n + 1)
@@ -383,21 +390,21 @@ import Std.Deferred.{Deferred}
 @external(c, "mark")
 fn mark(n: Int) -> () use {}
 pub fn work() -> Int use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[Int] = (use Scope).deferred()
     a: Deferred[()] = (use Scope).deferred()
     b: Deferred[()] = (use Scope).deferred()
-    Fiber.fork(fn() {
+    Fiber.fork(|| {
       x = Deferred.await(d)
       mark(x + 1)
       Deferred.complete(a, ())
     })
-    Fiber.fork(fn() {
+    Fiber.fork(|| {
       x = Deferred.await(d)
       mark(x + 2)
       Deferred.complete(b, ())
     })
-    Fiber.fork(fn() {
+    Fiber.fork(|| {
       mark(30)
       Deferred.complete(d, 10)
       mark(31)
@@ -447,16 +454,16 @@ fn await_preserves_string_and_list_results_past_frame_and_scope_reuse() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 pub fn text(n: Int) -> String use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[String] = (use Scope).deferred()
-    Fiber.fork(fn() { Deferred.complete(d, Int.to_string(n)) })
+    Fiber.fork(|| Deferred.complete(d, Int.to_string(n)))
     Deferred.await(d)
   })
 }
 pub fn list(n: Int) -> List[Int] use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[List[Int]] = (use Scope).deferred()
-    Fiber.fork(fn() { Deferred.complete(d, [n, n + 1]) })
+    Fiber.fork(|| Deferred.complete(d, [n, n + 1]))
     Deferred.await(d)
   })
 }
@@ -509,22 +516,22 @@ effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
 pub fn cancel(early: Bool) -> Int use Async {
   with Waiting {
-    Fiber.scope(fn() {
+    Fiber.scope(|| {
       d: Deferred[Int] = (use Scope).deferred()
-      Fiber.scope(fn() {
+      Fiber.scope(|| {
         a: Deferred[()] = (use Scope).deferred()
         b: Deferred[()] = (use Scope).deferred()
-        Fiber.fork(fn() {
+        Fiber.fork(|| {
           Deferred.await(a)
           Deferred.await(d)
           mark(99)
         })
-        Fiber.fork(fn() {
+        Fiber.fork(|| {
           Deferred.await(b)
           Deferred.await(d)
           mark(99)
         })
-        Fiber.fork(fn() {
+        Fiber.fork(|| {
           Deferred.complete(a, ())
           Deferred.complete(b, ())
           Deferred.await(d)
@@ -586,9 +593,9 @@ fn deferred_round_trips_int64_and_float_bits_through_await_and_poll() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 pub fn wide(n: Int64) -> Int64 use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[Int64] = (use Scope).deferred()
-    Fiber.fork(fn() { Deferred.complete(d, n) })
+    Fiber.fork(|| Deferred.complete(d, n))
     first = Deferred.await(d)
     Deferred.poll(d) match {
       Some(x) -> x
@@ -597,9 +604,9 @@ pub fn wide(n: Int64) -> Int64 use Async {
   })
 }
 pub fn real(n: Float) -> Float use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[Float] = (use Scope).deferred()
-    Fiber.fork(fn() { Deferred.complete(d, n) })
+    Fiber.fork(|| Deferred.complete(d, n))
     first = Deferred.await(d)
     Deferred.poll(d) match {
       Some(x) -> x
@@ -655,9 +662,9 @@ handler Gated: Gate {
   }
 }
 pub fn boundary() -> Int use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[Int] = (use Scope).deferred()
-    Fiber.fork(fn() { mark(2) })
+    Fiber.fork(|| mark(2))
     result = with Gated { (use Gate).go(d) }
     mark(3)
     result
@@ -700,7 +707,7 @@ fn deferred_pool_exhaustion_uses_the_defined_defect() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 pub fn full() -> Bool use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     a: Deferred[Int] = (use Scope).deferred()
     b: Deferred[Int] = (use Scope).deferred()
     Deferred.complete(a, 1) && Deferred.complete(b, 2)
@@ -747,9 +754,9 @@ fn ended_deferred_poll_and_await_reject_leaked_callbacks_after_slot_reuse() {
 import Std.Fiber.{{Fiber, Scope}}
 import Std.Deferred.{{Deferred}}
 pub fn leak() -> (fn() -> {ret}) use Async {{
-  Fiber.scope(fn() {{
+  Fiber.scope(|| {{
     d: Deferred[Int] = (use Scope).deferred()
-    fn() {{ {operation} }}
+    || {operation}
   }})
 }}
 {invoke}
@@ -815,17 +822,17 @@ fn deferred_transfers_tuple_values_and_boolean_flags() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 pub fn pair(n: Int) -> Int use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[(Int, Int)] = (use Scope).deferred()
-    Fiber.fork(fn() { Deferred.complete(d, (n, n + 1)) })
+    Fiber.fork(|| Deferred.complete(d, (n, n + 1)))
     (a, b) = Deferred.await(d)
     a + b
   })
 }
 pub fn flag(n: Bool) -> Bool use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[Bool] = (use Scope).deferred()
-    Fiber.fork(fn() { Deferred.complete(d, n) })
+    Fiber.fork(|| Deferred.complete(d, n))
     Deferred.await(d)
   })
 }

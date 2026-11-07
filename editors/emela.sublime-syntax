@@ -31,6 +31,7 @@ contexts:
     - include: keywords
     - include: types
     - include: functions
+    - include: closures
     - include: operators
     - include: punctuation
 
@@ -231,6 +232,32 @@ contexts:
       captures:
         1: variable.parameter.emela
         2: punctuation.separator.colon.emela
+
+  # The parameters of an anonymous function, `|x, (a, b): T|` and `||` ([grammar.expr]). `|` and
+  # `||` start one in operand position: at the start of a line or after a bracket, a separator or
+  # an operator, not after a name, a number, `)` or `]`.
+  closures:
+    - match: '(?:^|(?<=[(\[{,=:!+\-*/%<>|]))\s*(\|\|)'
+      captures:
+        1: punctuation.definition.parameters.emela
+    - match: '(?:^|(?<=[(\[{,=:!+\-*/%<>|]))\s*(\|)(?![|>])'
+      captures:
+        1: punctuation.definition.parameters.begin.emela
+      push: closure_parameters
+
+  closure_parameters:
+    - meta_scope: meta.parameters.emela
+    - match: '\|'
+      scope: punctuation.definition.parameters.end.emela
+      pop: true
+    - match: '$'
+      pop: true
+    - include: comments
+    - include: keywords
+    - include: types
+    - match: '\b{{ident}}\b'
+      scope: variable.parameter.emela
+    - include: punctuation
 
   operators:
     - match: '->'

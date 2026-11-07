@@ -47,7 +47,7 @@ effect Wait {
 handler Parked: Wait {
   suspend fn wait(label, resume) {
     print("parked #{label}")
-    (use State[List[fn(String) -> ()]]).update(fn(rs) { [resume, ..rs] })
+    (use State[List[fn(String) -> ()]]).update(|rs| [resume, ..rs])
   }
 }
 
@@ -89,13 +89,13 @@ fn show[A, E](e: Exit[A, E]) -> String {
 
 fn main() -> () use { Async } {
   with Ticks, Slowly {
-    Fiber.scope(fn() {
-      a = Fiber.fork(fn() {
+    Fiber.scope(|| {
+      a = Fiber.fork(|| {
         v = (use Slow).slow(1500)
         print("caller got #{v}")
         v
       })
-      b = Fiber.fork(fn() {
+      b = Fiber.fork(|| {
         spin(500)
         print("other fiber")
         1
@@ -103,12 +103,12 @@ fn main() -> () use { Async } {
       print("joined #{Fiber.join(a) + Fiber.join(b)}")
     })
   }
-  (_, left) = State.run([], fn() {
+  (_, left) = State.run([], || {
     with Parked {
-      Fiber.scope(fn() {
-        x = Fiber.fork(fn() { print("x woke with #{(use Wait).wait("x")}") })
-        y = Fiber.fork(fn() { print("y woke with #{(use Wait).wait("y")}") })
-        Fiber.fork(fn() {
+      Fiber.scope(|| {
+        x = Fiber.fork(|| print("x woke with #{(use Wait).wait("x")}"))
+        y = Fiber.fork(|| print("y woke with #{(use Wait).wait("y")}"))
+        Fiber.fork(|| {
           wake_all((use State[List[fn(String) -> ()]]).get(), "hello")
           print("woke all")
         })
@@ -123,6 +123,6 @@ fn main() -> () use { Async } {
     print("failed early #{r}")
   }
   with TwiceResumer {
-    print(show(Exit.attempt(fn() { (use Twice).twice() })))
+    print(show(Exit.attempt(|| (use Twice).twice())))
   }
 }

@@ -127,9 +127,13 @@ impl Diagnostic {
 
     /// The code (E01xx) and English message come from emela-syntax.
     pub fn from_syntax(file: FileId, diagnostic: &emela_syntax::Diagnostic) -> Self {
-        Diagnostic::error(&diagnostic.message)
+        let out = Diagnostic::error(&diagnostic.message)
             .with_code(diagnostic.code.as_str())
-            .with_span(Span::new(file, diagnostic.range))
+            .with_span(Span::new(file, diagnostic.range));
+        match &diagnostic.help {
+            Some(help) => out.with_help(help),
+            None => out,
+        }
     }
 
     /// Points to a file by ID if its path is in the source table, otherwise keeps the path.

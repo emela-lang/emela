@@ -13,9 +13,9 @@ fn request(n: Int) -> Int fails Boom use Async {
 fn rounds(n: Int, total: Int) -> Int fails Boom use {Scope[Boom, {State[String], Async}], State[String], Async} {
   if n == 0 { total } else {
     state = use State[String]
-    Fiber.fork(fn() { state.get()
+    Fiber.fork(|| { state.get()
       () })
-    child = Fiber.fork(fn() {
+    child = Fiber.fork(|| {
       value = request(n)
       state.set(Int.to_string(value))
       value
@@ -28,8 +28,8 @@ fn rounds(n: Int, total: Int) -> Int fails Boom use {Scope[Boom, {State[String],
   }
 }
 pub fn work(n: Int) -> Int use Async {
-  (answer, final) = State.run("initial", fn() {
-    Fiber.scope(fn() { rounds(n, 0) }) escape {
+  (answer, final) = State.run("initial", || {
+    Fiber.scope(|| rounds(n, 0)) escape {
       Boom(message, parts) -> if String.starts_with(message, "a") {
         String.byte_size(message) + List.length(parts)
       } else { -1000 }

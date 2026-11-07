@@ -2549,7 +2549,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Turns a reference (`id`) to a builtin or constructor into a lambda that just calls it:
-    /// `List.map(xs, Some)` becomes `List.map(xs, fn(x) { Some(x) })`. The arity comes from the
+    /// `List.map(xs, Some)` becomes `List.map(xs, |x| Some(x))`. The arity comes from the
     /// reference's type.
     ///
     /// If the reference type's R needs an evidence table, the lambda takes the table as its last

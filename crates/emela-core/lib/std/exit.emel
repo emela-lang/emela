@@ -3,7 +3,7 @@
 #
 # Import it with `import Std.Exit.{Success, Failure}`:
 #
-#   Exit.attempt(fn() { load(id) }) match {
+#   Exit.attempt(|| load(id)) match {
 #     Success(user) -> user
 #     Failure(cause) -> fallback(Cause.to_string(cause))
 #   }

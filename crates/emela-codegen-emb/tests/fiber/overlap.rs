@@ -23,13 +23,13 @@ fn late() -> Int fails Boom use Wait { (use Wait).get(1)
  fail Boom(n: 42)
 }
 fn nested() -> Int fails Boom use {Wait,Async} {
- with Res { Fiber.scope(fn() { Fiber.scope(fn() {
+ with Res { Fiber.scope(|| { Fiber.scope(|| {
   Fiber.fork(late)
   (use Wait).get(2)
  }) }) }
 }
 pub fn work() -> Int use Async {
- with Waiting { Fiber.scope(fn() {
+ with Waiting { Fiber.scope(|| {
   child = Fiber.fork(nested)
   (use Wait).get(3)
   Fiber.interrupt(child)
@@ -115,12 +115,12 @@ fn late(n: Int) -> Int fails Boom use Wait { (use Wait).get(n)
  fail Boom(n: n)
 }
 pub fn work() -> Cause[Boom] use Async {
- with Waiting { Exit.attempt(fn() { Fiber.scope(fn() {
-  Fiber.fork(fn() { Fiber.scope(fn() { Fiber.scope(fn() {
-   Fiber.fork(fn() { late(1) })
+ with Waiting { Exit.attempt(|| { Fiber.scope(|| {
+  Fiber.fork(|| { Fiber.scope(|| { Fiber.scope(|| {
+   Fiber.fork(|| late(1))
    (use Wait).get(2)
   }) }) })
-  Fiber.fork(fn() { late(3) })
+  Fiber.fork(|| late(3))
   (use Wait).get(4)
  }) }) match { Success(_) -> panic("unexpected")
   Failure(c) -> c
@@ -222,8 +222,8 @@ fn protected(c: Cause[{}]) -> Int use Wait { with Res {
 fn late(n: Int) -> Int fails Boom use Wait { (use Wait).get(n)
  fail Boom(n: n)
 }
-pub fn make() -> Cause[{}] use Async { with Waiting { Fiber.scope(fn() {
- child=Fiber.fork(fn() { (use Wait).get(4) })
+pub fn make() -> Cause[{}] use Async { with Waiting { Fiber.scope(|| {
+ child=Fiber.fork(|| (use Wait).get(4))
  (use Wait).get(5)
  Fiber.interrupt(child)
  Fiber.await(child) match { Success(_) -> panic("unexpected")
@@ -231,11 +231,11 @@ pub fn make() -> Cause[{}] use Async { with Waiting { Fiber.scope(fn() {
  }
 }) } }
 pub fn work(c: Cause[{}]) -> Cause[Boom] use Async { with Waiting {
- Exit.attempt(fn() { Fiber.scope(fn() {
-  child=Fiber.fork(fn() { Fiber.scope(fn() {
-   Fiber.fork(fn() { late(1) })
-   Fiber.scope(fn() {
-    Fiber.fork(fn() { late(2) })
+ Exit.attempt(|| { Fiber.scope(|| {
+  child=Fiber.fork(|| { Fiber.scope(|| {
+   Fiber.fork(|| late(1))
+   Fiber.scope(|| {
+    Fiber.fork(|| late(2))
     protected(c)
    })
   }) })

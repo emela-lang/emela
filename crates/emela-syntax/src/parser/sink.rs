@@ -137,6 +137,7 @@ pub(crate) fn build(
                     range,
                     code,
                     message,
+                    help: None,
                 });
             }
             Event::Tombstone => {}

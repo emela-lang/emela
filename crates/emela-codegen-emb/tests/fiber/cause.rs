@@ -7,7 +7,7 @@ import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
 error Boom(n: Int) derive Show
 pub fn kind(n: Int) -> Int {
- Exit.attempt(fn() { fail Boom(n: n) }) match {
+ Exit.attempt(|| fail Boom(n: n)) match {
   Success(_) -> 0
   Failure(c) -> {
    Cause.kind(c)
@@ -40,7 +40,7 @@ import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 error Boom(n: Int) derive Show
 pub fn make(n: Int) -> Cause[Boom] {
- Exit.attempt(fn() { fail Boom(n: n) }) match { Success(_) -> panic("unexpected")
+ Exit.attempt(|| fail Boom(n: n)) match { Success(_) -> panic("unexpected")
   Failure(c) -> c
  }
 }
@@ -85,7 +85,7 @@ handler Res: Resource { fn read() { 0 }
 }
 fn retry(c: Cause[Boom]) -> Int fails Boom { with Res { Cause.raise(c) } }
 pub fn rethrow(n: Int) -> Int {
- Exit.attempt(fn() { fail Boom(n: n) }) match {
+ Exit.attempt(|| fail Boom(n: n)) match {
   Success(_) -> 0
   Failure(c) -> retry(c) escape { Boom(n) -> n }
  }
@@ -130,8 +130,8 @@ handler Outer: Resource { fn read() { 0 }
 fn bounce(c: Cause[{}]) -> Int { with Inner { Cause.raise(c) } }
 pub fn make() -> Cause[{}] use Async {
  with Waiting {
-  Fiber.scope(fn() {
-   first = Fiber.fork(fn() { (use Wait).get(1) })
+  Fiber.scope(|| {
+   first = Fiber.fork(|| (use Wait).get(1))
    (use Wait).get(2)
    Fiber.interrupt(first)
    Fiber.await(first) match {
@@ -142,11 +142,11 @@ pub fn make() -> Cause[{}] use Async {
  }
 }
 pub fn raised(c: Cause[{}], asynchronous: Bool) -> Int use Async {
- with Waiting { Fiber.scope(fn() {
-     second = Fiber.fork(fn() { with Outer {
-      if asynchronous { Exit.attempt(fn() { (use Wait).get(3)
+ with Waiting { Fiber.scope(|| {
+     second = Fiber.fork(|| { with Outer {
+      if asynchronous { Exit.attempt(|| { (use Wait).get(3)
        bounce(c)
-      }) } else { Exit.attempt(fn() { bounce(c) }) }
+      }) } else { Exit.attempt(|| bounce(c)) }
       mark(99)
       0
      } })
@@ -268,8 +268,8 @@ fn protected(child: Fiber[Int], asynchronous: Bool) -> Int use {Async, Wait} {
  0
 }
 pub fn work(asynchronous: Bool) -> Int use Async {
- with Waiting { Fiber.scope(fn() {
-  child = Fiber.fork(fn() { (use Wait).get(1)
+ with Waiting { Fiber.scope(|| {
+  child = Fiber.fork(|| { (use Wait).get(1)
    fail Boom(n: 42)
   })
   protected(child, asynchronous)
@@ -360,8 +360,8 @@ fn cleanup(c: Cause[{{}}]) -> () {{ mark(1)
  mark(99)
 }}
 {protected}
-pub fn make() -> Cause[{{}}] use Async {{ with Waiting {{ Fiber.scope(fn() {{
- child = Fiber.fork(fn() {{ (use Wait).get(1) }})
+pub fn make() -> Cause[{{}}] use Async {{ with Waiting {{ Fiber.scope(|| {{
+ child = Fiber.fork(|| (use Wait).get(1))
  (use Wait).get(2)
  Fiber.interrupt(child)
  Fiber.await(child) match {{ Success(_) -> panic("unexpected")
@@ -369,9 +369,9 @@ pub fn make() -> Cause[{{}}] use Async {{ with Waiting {{ Fiber.scope(fn() {{
  }}
 }}) }} }}
 pub fn work(c: Cause[{{}}], failing: Bool) -> Int use Async {{ with Waiting {{
- Fiber.scope(fn() {{
+ Fiber.scope(|| {{
   if failing {{ fail Boom(n: 0) }}
-  child = Fiber.fork(fn() {{ protected(c) }})
+  child = Fiber.fork(|| protected(c))
   Fiber.await(child) match {{ Success(n) -> n
    Failure(again) -> Cause.kind(again) match {{ Interrupt -> 42
     Fail -> -2

@@ -66,16 +66,20 @@ fn postfix_match_follows(tokens: &[Token], i: usize) -> bool {
         && rest.next().is_some_and(|t| t.kind == SyntaxKind::L_BRACE)
 }
 
-/// Rule 4 of spec 2.5: inside a signature, a line starting with `fails` or `use` continues it.
-/// `fails` is a contextual word, lexed as a lower name.
+/// Rule 4 of `[lex.continuation]`: inside a signature, a line starting with `fails`, `use` or `|`
+/// continues it. `fails` is a contextual word, lexed as a lower name. Outside a signature, `|`
+/// starts an anonymous function.
 fn continues_signature(src: &str, token: Token) -> bool {
     match token.kind {
-        SyntaxKind::USE_KW => true,
+        SyntaxKind::USE_KW | SyntaxKind::PIPE => true,
         SyntaxKind::LOWER_NAME => &src[token.range] == "fails",
         _ => false,
     }
 }
 
+/// Rules 1 and 3 of `[lex.continuation]`. `-` and `||` are binary operators that can also start
+/// an operand (a unary minus, an anonymous function without parameters), so a line starting with
+/// them starts a new statement.
 fn starts_continuation(kind: SyntaxKind) -> bool {
     use SyntaxKind::*;
     matches!(
@@ -90,13 +94,11 @@ fn starts_continuation(kind: SyntaxKind) -> bool {
             | GT
             | GTEQ
             | AMP2
-            | PIPE2
             | PIPE_GT
             | DOT
             | ESCAPE_KW
             | ELSE_KW
             | THIN_ARROW
-            | PIPE
     )
 }
 
@@ -119,7 +121,7 @@ mod tests {
     fn 二項演算子とドットと_escape_で始まる行は続き() {
         assert_eq!(newlines("a\n|> f"), [NEWLINE_CONT]);
         assert_eq!(newlines("a\n  + b\n  * c"), [NEWLINE_CONT, NEWLINE_CONT]);
-        assert_eq!(newlines("a\n&& b\n|| c\n== d"), [NEWLINE_CONT; 3]);
+        assert_eq!(newlines("a\n&& b\n== d"), [NEWLINE_CONT; 2]);
         assert_eq!(newlines("users\n  .find(id)"), [NEWLINE_CONT]);
         assert_eq!(newlines("load(id)\nescape {\n}"), [NEWLINE_CONT, NEWLINE]);
     }
@@ -150,6 +152,17 @@ mod tests {
     }
 
     #[test]
+    fn 縦棒と二本の縦棒で始まる行は新しい文() {
+        // `||` at the start of a line starts an anonymous function, not the logical or.
+        assert_eq!(newlines("x = a\n|| b"), [NEWLINE]);
+        assert_eq!(newlines("{\n  m\n  || m\n}"), [NEWLINE; 3]);
+        // `|` outside a signature starts an anonymous function.
+        assert_eq!(newlines("{\n  a\n  |x| x\n}"), [NEWLINE; 3]);
+        // Inside parentheses, a line break continues by rule 2.
+        assert_eq!(newlines("(\n  a\n  || b\n)"), [NEWLINE_CONT; 3]);
+    }
+
+    #[test]
     fn 丸括弧と角括弧の中は続き() {
         assert_eq!(newlines("f(\n  a,\n  b,\n)"), [NEWLINE_CONT; 3]);
         assert_eq!(newlines("[\n1\n]"), [NEWLINE_CONT; 2]);
@@ -159,7 +172,7 @@ mod tests {
     #[test]
     fn 波括弧の中は区切り() {
         // If the innermost bracket is `{`, newlines separate statements even inside parentheses
-        assert_eq!(newlines("f(fn(x) {\na\nb\n})"), [NEWLINE; 3]);
+        assert_eq!(newlines("f(|x| {\na\nb\n})"), [NEWLINE; 3]);
         assert_eq!(newlines("{\na\n|> f\n}"), [NEWLINE, NEWLINE_CONT, NEWLINE]);
     }
 
@@ -188,10 +201,19 @@ mod tests {
     }
 
     #[test]
-    fn 行頭の縦棒は続き() {
+    fn シグネチャの中の行頭の縦棒は続き() {
         assert_eq!(
             newlines("fn load(id: Int) -> User fails NotFound\n  | DbError"),
             [NEWLINE_CONT]
+        );
+        assert_eq!(
+            newlines("effect E {\n  fn get() -> Int\n    fails A\n    | B\n}"),
+            [NEWLINE, NEWLINE_CONT, NEWLINE_CONT, NEWLINE]
+        );
+        // The signature of a declaration without a body closes at the end of its line.
+        assert_eq!(
+            newlines("effect E {\n  fn get() -> Int\n}\n|x| x"),
+            [NEWLINE, NEWLINE, NEWLINE]
         );
     }
 
@@ -226,7 +248,7 @@ mod tests {
         );
         // After the signature ends at the body, and in lambdas.
         assert_eq!(
-            newlines("fn f() -> Int {\n  g(fn() {\n    a\n    use Log\n  })\n}"),
+            newlines("fn f() -> Int {\n  g(|| {\n    a\n    use Log\n  })\n}"),
             [NEWLINE, NEWLINE, NEWLINE, NEWLINE, NEWLINE]
         );
         // A declaration without a body ends at its newline.

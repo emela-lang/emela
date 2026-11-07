@@ -41,8 +41,8 @@ fn show[A, E](e: Exit[A, E]) -> String {
 ## `[fiber.cause]`).
 fn main() -> () use { Async } {
   with Ticks {
-    Fiber.scope(fn() {
-      h = Fiber.fork(fn() { fail_late() escape { _ -> "caught" } })
+    Fiber.scope(|| {
+      h = Fiber.fork(|| fail_late() escape { _ -> "caught" })
       spin(1000)
       Fiber.interrupt(h)
       print("await #{show(Fiber.await(h))}")

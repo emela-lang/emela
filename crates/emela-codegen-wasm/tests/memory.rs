@@ -37,8 +37,8 @@ fn dropping_a_closure_frees_what_it_captured() {
         "memory-closure",
         r#"
 fn make(n: Int) -> fn() -> Int {
-  xs = List.map(List.range(0, n), fn(i) { i * 2 })
-  fn() { List.length(xs) }
+  xs = List.map(List.range(0, n), |i| i * 2)
+  || List.length(xs)
 }
 
 fn rounds(n: Int, total: Int) -> Int {
@@ -129,7 +129,7 @@ fn rounds(n: Int, total: Int) -> Int use { Retry } {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  State.run(start, fn() {
+  State.run(start, || {
     with TestClock {
       with Retrying {
         dbg(rounds(4000, 0))
@@ -165,14 +165,14 @@ fn length[A, E](e: Exit[A, E]) -> Int {
 }
 
 fn round(i: Int) -> Int use { Clock } {
-  a = length(Exit.attempt(fn() { "value #{i}" }))
-  b = length(Exit.attempt(fn() { fail Boom(text: "boom #{i}") }))
-  c = length(Exit.attempt(fn() { panic("bad #{i}") }))
-  d = length(Exit.attempt(fn() {
+  a = length(Exit.attempt(|| "value #{i}"))
+  b = length(Exit.attempt(|| fail Boom(text: "boom #{i}")))
+  c = length(Exit.attempt(|| panic("bad #{i}")))
+  d = length(Exit.attempt(|| {
     (use Clock).sleep(1)
     fail Boom(text: "late #{i}")
   }))
-  e = Exit.attempt(fn() { fail Boom(text: "again #{i}") }) match {
+  e = Exit.attempt(|| fail Boom(text: "again #{i}")) match {
     Success(_) -> 0
     Failure(cause) -> Cause.raise(cause)
   } escape { Boom(text) -> String.length(text) }
@@ -185,7 +185,7 @@ fn rounds(n: Int, total: Int) -> Int use { Clock } {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  State.run(start, fn() {
+  State.run(start, || {
     with TestClock {
       dbg(rounds(3000, 0))
     }
@@ -530,7 +530,7 @@ fn exit_attempt_does_not_catch_an_allocation_failure() {
 import Std.Exit
 
 fn main() {
-  e = Exit.attempt(fn() {
+  e = Exit.attempt(|| {
     xs = List.range(0, 1000000)
     dbg(List.length(xs))
   })

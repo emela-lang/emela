@@ -233,7 +233,7 @@ fn calls(xs: List[Int], scores: Map[String, Int]) {
   total = xs
     |> List.filter(is_even)
     |> List.fold(from: 0, f: add)
-  doubled = List.map(xs, fn(x) { x * 2 })
+  doubled = List.map(xs, |x| x * 2)
   "#{label}: #{total}"
 }
 
@@ -463,8 +463,8 @@ error NotFound(id: Int)
 fn f(count: Int) -> Strng {
   x = cout + 1
   y = Usr(id: 1)
-  z = Lisst.map([], fn(a) { a })
-  w = List.mapp([], fn(a) { a })
+  z = Lisst.map([], |a| a)
+  w = List.mapp([], |a| a)
   v = Show.shw(1)
   u = Undefined
   x match {
@@ -506,7 +506,7 @@ fn lambda_param_patterns() {
     insta::assert_snapshot!(run(&[(
         "main.emel",
         r##"fn f(xs: List[(Int, Int)]) -> Int {
-  List.fold(xs, from: 0, f: fn(acc, (a, _): (Int, Int)) { acc + a })
+  List.fold(xs, from: 0, f: |acc, (a, _): (Int, Int)| acc + a)
 }
 "##,
     )]));
@@ -518,9 +518,9 @@ fn lambda_param_duplicates() {
     insta::assert_snapshot!(diagnostics(&[(
         "main.emel",
         r##"fn f() {
-  g = fn(x, x) { x }
-  h = fn(x, (x, y)) { y }
-  k = fn((a, b), [a, ..]) { b }
+  g = |x, x| x
+  h = |x, (x, y)| y
+  k = |(a, b), [a, ..]| b
 }
 "##,
     )]));

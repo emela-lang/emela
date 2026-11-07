@@ -36,11 +36,11 @@ fn run_cases[A: Show, E, R](
   if index < config.cases {
     size = index % (config.max_size + 1)
     info = context(config, seed, index, size)
-    (tree, rest) = Exit.attempt(fn() { Gen.sample(gen, seed, size) }) match {
+    (tree, rest) = Exit.attempt(|| Gen.sample(gen, seed, size)) match {
       Success(value) -> value
       Failure(cause) -> panic("Property generator failed (#{info}): #{Cause.to_string(cause)}")
     }
-    Exit.attempt(fn() { f(tree.value) }) match {
+    Exit.attempt(|| f(tree.value)) match {
       Success(_) -> run_cases(gen, config, f, rest, index + 1)
       Failure(cause) -> {
         (smallest, reason, tried) = shrink(
@@ -70,7 +70,7 @@ fn shrink[A, E, R](
   if budget == 0 {
     (tree, reason, tried)
   } else {
-    children = Exit.attempt(fn() { (tree.children)() }) match {
+    children = Exit.attempt(|| (tree.children)()) match {
       Success(value) -> value
       Failure(cause) -> panic(
         "Property generator failed during shrinking (#{info}): #{Cause.to_string(cause)}",
@@ -94,7 +94,7 @@ fn search[A, E, R](
   } else {
     children match {
       [] -> (best, reason, tried)
-      [child, ..rest] -> Exit.attempt(fn() { f(child.value) }) match {
+      [child, ..rest] -> Exit.attempt(|| f(child.value)) match {
         Success(_)     -> search(rest, best, reason, f, budget - 1, tried + 1, info)
         Failure(cause) -> shrink(child, Cause.to_string(cause), f, budget - 1, tried + 1, info)
       }

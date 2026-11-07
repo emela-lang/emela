@@ -23,9 +23,9 @@ error[E0318]: error `NotFound` is not declared in `fails`
 error[E0321]: error set mismatch: expected `fails {}`, found `fails Timeout`
     ╭─[ src/main.emel:18:23 ]
     │
- 18 │ fn bad() -> Int { run(fn() { fail Timeout }) }
-    │                       ──────────┬──────────  
-    │                                 ╰──────────── 
+ 18 │ fn bad() -> Int { run(|| fail Timeout) }
+    │                       ───────┬───────  
+    │                              ╰───────── 
 ────╯
 
 warning[W0302]: error `Timeout` is never raised here

@@ -64,9 +64,9 @@ fn show[A, E](e: Exit[A, E]) -> String {
 
 fn main() -> () use { Async } {
   with Ticks {
-    r = Fiber.scope(fn() {
-      Fiber.fork(fn() { with Res { spin(100000) } })
-      Fiber.fork(fn() {
+    r = Fiber.scope(|| {
+      Fiber.fork(|| with Res { spin(100000) })
+      Fiber.fork(|| {
         spin(1000)
         boom()
       })
@@ -75,42 +75,42 @@ fn main() -> () use { Async } {
       1
     }) escape { Boom -> -1 }
     print("scope #{r}")
-    v = Fiber.scope(fn() {
-      Fiber.fork(fn() { with Res { spin(100000) } })
+    v = Fiber.scope(|| {
+      Fiber.fork(|| with Res { spin(100000) })
       spin(1000)
       2
     })
     print("value #{v}")
-    print(show(Exit.attempt(fn() { boom() })))
-    print(show(Exit.attempt(fn() { panic("bad") })))
-    print(show(Exit.attempt(fn() { fetch(1, 1) })))
-    Fiber.scope(fn() {
-      h = Fiber.fork(fn() { with Res { spin(100000) } })
+    print(show(Exit.attempt(|| boom())))
+    print(show(Exit.attempt(|| panic("bad"))))
+    print(show(Exit.attempt(|| fetch(1, 1))))
+    Fiber.scope(|| {
+      h = Fiber.fork(|| with Res { spin(100000) })
       spin(1000)
       Fiber.interrupt(h)
       print("await #{show(Fiber.await(h))}")
-      print("join #{show(Exit.attempt(fn() { Fiber.join(h) }))}")
-      ok = Fiber.fork(fn() { 7 })
+      print("join #{show(Exit.attempt(|| Fiber.join(h)))}")
+      ok = Fiber.fork(|| 7)
       print("await #{show(Fiber.await(ok))}")
     })
-    raised = Fiber.scope(fn() {
-      Exit.attempt(fn() { boom() }) match {
+    raised = Fiber.scope(|| {
+      Exit.attempt(|| boom()) match {
         Success(v) -> v
         Failure(c) -> Cause.raise(c)
       }
     }) escape { Boom -> -2 }
     print("raise #{raised}")
-    e = Exit.attempt(fn() {
-      Fiber.scope(fn() {
-        Fiber.fork(fn() {
+    e = Exit.attempt(|| {
+      Fiber.scope(|| {
+        Fiber.fork(|| {
           spin(500)
           fail NotFound(id: 1)
         })
-        Fiber.fork(fn() {
+        Fiber.fork(|| {
           spin(1000)
           panic("second")
         })
-        Fiber.fork(fn() {
+        Fiber.fork(|| {
           spin(1500)
           boom()
         })
@@ -119,14 +119,14 @@ fn main() -> () use { Async } {
       })
     })
     print(show(e))
-    d = Exit.attempt(fn() {
-      Fiber.scope(fn() {
-        Fiber.fork(fn() {
+    d = Exit.attempt(|| {
+      Fiber.scope(|| {
+        Fiber.fork(|| {
           spin(500)
           panic("first")
         })
-        Fiber.fork(fn() { with Res { spin(100000) } })
-        Fiber.fork(fn() {
+        Fiber.fork(|| with Res { spin(100000) })
+        Fiber.fork(|| {
           spin(1000)
           fail NotFound(id: 2)
         })
@@ -135,15 +135,15 @@ fn main() -> () use { Async } {
       })
     })
     print(show(d))
-    Fiber.scope(fn() {
+    Fiber.scope(|| {
       dd = Fiber.deferred()
-      waiting = Fiber.fork(fn() { Deferred.await(dd) })
+      waiting = Fiber.fork(|| Deferred.await(dd))
       spin(1000)
       Fiber.interrupt(waiting)
       print("interrupted waiter #{show(Fiber.await(waiting))}")
-      me = Fiber.fork(fn() {
+      me = Fiber.fork(|| {
         print("before self interrupt")
-        Fiber.interrupt(Fiber.fork(fn() { 0 }))
+        Fiber.interrupt(Fiber.fork(|| 0))
         3
       })
       print("child #{show(Fiber.await(me))}")

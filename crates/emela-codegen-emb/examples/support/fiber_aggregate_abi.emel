@@ -14,10 +14,10 @@ fn packet(n: Int) -> Packet {
 pub fn both(n: Int) -> ((String, Option[String]), Option[String]) use Async {
   with Waiting {
     text = Int.to_string(n)
-    Fiber.both(fn() {
+    Fiber.both(|| {
       (use Wait).get(10)
       (text, Some(text))
-    }, fn() {
+    }, || {
       (use Wait).get(20)
       Some(Int.to_string(n + 1))
     })
@@ -25,8 +25,8 @@ pub fn both(n: Int) -> ((String, Option[String]), Option[String]) use Async {
 }
 pub fn terminal(n: Int, cancel: Bool) -> Exit[Packet, {}] use Async {
   with Waiting {
-    Fiber.scope(fn() {
-      child = Fiber.fork(fn() {
+    Fiber.scope(|| {
+      child = Fiber.fork(|| {
         (use Wait).get(30)
         packet(n)
       })

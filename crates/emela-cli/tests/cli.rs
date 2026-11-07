@@ -711,7 +711,7 @@ fn check_resolves_bundled_core() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x * 2 })\n  Option.or(List.head(xs), 0) + String.length(\"abc\")\n}\n",
+                "fn main() -> Int {\n  xs = List.map([1, 2], |x| x * 2)\n  Option.or(List.head(xs), 0) + String.length(\"abc\")\n}\n",
             ),
         ],
     );
@@ -730,7 +730,7 @@ fn check_reports_error_set_errors() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "error NotFound(id: Int)\nerror Timeout\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn strict() -> Int {\n  find(1)\n}\n\nfn wrong() -> Int fails Timeout {\n  find(1)\n}\n\nfn run(f: fn() -> Int fails {}) -> Int { f() }\n\nfn bad() -> Int { run(fn() { fail Timeout }) }\n\nfn never() -> Int { strict() escape { Timeout -> 0 } }\n\nfn not_error() { fail 1 }\n\nfn catch_variable() -> Int { find(1) escape { e -> 0 } }\n\n# main の E は空でなくてよい（14.3）\nfn main() {\n  find(1)\n}\n",
+                "error NotFound(id: Int)\nerror Timeout\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn strict() -> Int {\n  find(1)\n}\n\nfn wrong() -> Int fails Timeout {\n  find(1)\n}\n\nfn run(f: fn() -> Int fails {}) -> Int { f() }\n\nfn bad() -> Int { run(|| fail Timeout) }\n\nfn never() -> Int { strict() escape { Timeout -> 0 } }\n\nfn not_error() { fail 1 }\n\nfn catch_variable() -> Int { find(1) escape { e -> 0 } }\n\n# main の E は空でなくてよい（14.3）\nfn main() {\n  find(1)\n}\n",
             ),
         ],
     );

@@ -22,7 +22,7 @@ pub fn delayed(pair: (String, Option[String]), keep: Bool) -> (String, Option[St
 pub fn maker(s: String, n: Int) -> (fn() -> String) {
   pair = (s, Some(Int.to_string(n)))
   xs = [s, Int.to_string(n + 1)]
-  fn() {
+  || {
     (text, note) = pair
     suffix = note match { Some(value) -> value
       None -> "" }
@@ -31,10 +31,10 @@ pub fn maker(s: String, n: Int) -> (fn() -> String) {
 }
 pub fn scoped(n: Int, cancel: Bool) -> (String, Option[String]) use Async {
   with Waiting {
-    xs = Fiber.scope(fn() {
+    xs = Fiber.scope(|| {
       pair = (Int.to_string(n), Some(Int.to_string(n + 1)))
       parts = [Int.to_string(n + 2)]
-      child = Fiber.fork(fn() {
+      child = Fiber.fork(|| {
         (use Wait).get(1)
         (text, note) = pair
         parts match {

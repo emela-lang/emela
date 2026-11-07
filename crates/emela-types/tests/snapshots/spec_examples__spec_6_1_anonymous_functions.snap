@@ -1,0 +1,40 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nerror Timeout\nerror Refused\ntype Request(url: String, method: String)  # 補\n\nfn fetch(n: Int) -> Int { n }  # 補\n\nfn closures(xs: List[Int], pairs: List[(String, Int)], reqs: List[Request]) -> Int {\n  ys = xs |> List.map(|x| x + 1)\n  total = List.fold(ys, 0, |acc, x| acc + x)\n  thunk = || fetch(1)\n  keys = List.map(pairs, |(key, _)| key)\n  first = |acc, _| acc\n  urls = List.map(reqs, |Request(url:, ..)| url)\n  sum = |(a, b): (Int, Int)| a + b\n  run = |f: (fn() -> Int fails Timeout | Refused)| f()\n  f = |x| x + 1\n  n = (|x| x + 1)(2)\n  m = List.map(ys, |x| x match {\n    0 -> 1\n    _ -> x\n  })\n  total + thunk() + sum((1, 2)) + f(n) + first(1, \"a\")\n}\n\nfn make(n: Int) -> fn() -> Int {\n  m = n * 2\n  || m\n}\n\"#)"
+---
+fetch: fn(Int) -> Int
+  n: Int
+closures: fn(List[Int], List[(String, Int)], List[Request]) -> Int
+  xs: List[Int]
+  pairs: List[(String, Int)]
+  reqs: List[Request]
+  x: Int
+  ys: List[Int]
+  acc: Int
+  x: Int
+  total: Int
+  thunk: fn() -> Int
+  key: String
+  (key, _): (String, Int)
+  keys: List[String]
+  acc: Int
+  _: String
+  first: fn(Int, String) -> Int
+  url: String
+  Request(url:, ..): Request
+  urls: List[String]
+  a: Int
+  b: Int
+  (a, b): (Int, Int)
+  sum: fn((Int, Int)) -> Int
+  f: fn() -> Int fails Timeout | Refused
+  run: fn(fn() -> Int fails Timeout | Refused use {}) -> Int fails Timeout | Refused
+  x: Int
+  f: fn(Int) -> Int
+  x: Int
+  n: Int
+  x: Int
+  m: List[Int]
+make: fn(Int) -> fn() -> Int
+  n: Int
+  m: Int

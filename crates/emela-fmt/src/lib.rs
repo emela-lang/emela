@@ -5,14 +5,16 @@
 //! `pretty` (Wadler-style).
 //!
 //! Files with syntax errors are not formatted: the contents of an ERROR node do not follow the
-//! grammar, so reprinting them could break the file.
+//! grammar, so reprinting them could break the file. The old form of an anonymous function
+//! (E0148) is not a syntax error here: it is printed in the new form (`[fmt.io]`,
+//! `[fmt.closure]`).
 
 mod comments;
 mod printer;
 
 use std::fmt;
 
-use emela_syntax::{Diagnostic, SyntaxKind, SyntaxNode, SyntaxToken};
+use emela_syntax::{Diagnostic, DiagnosticCode, SyntaxKind, SyntaxNode, SyntaxToken};
 
 pub const DEFAULT_WIDTH: usize = 100;
 
@@ -51,8 +53,14 @@ pub fn format(src: &str) -> Result<String, FormatError> {
 /// strings) exceed it.
 pub fn format_with_width(src: &str, width: usize) -> Result<String, FormatError> {
     let parse = emela_syntax::parse(src);
-    if !parse.diagnostics().is_empty() {
-        return Err(FormatError::Syntax(parse.diagnostics().to_vec()));
+    let errors: Vec<Diagnostic> = parse
+        .diagnostics()
+        .iter()
+        .filter(|d| d.code != DiagnosticCode::OldLambda)
+        .cloned()
+        .collect();
+    if !errors.is_empty() {
+        return Err(FormatError::Syntax(errors));
     }
     let root = parse.syntax();
     let mut printer = printer::Printer::new(&root, width);
@@ -139,17 +147,17 @@ fn verify(before: &SyntaxNode, out: &str) -> Result<(), FormatError> {
 ///   and at the start and end of the input; consecutive newlines are collapsed into one
 /// - newlines that do not separate anything (after an annotation, before `derive`, ...)
 /// - the remaining newlines become `,` (enum variants and the like accept either)
+/// - the form of an anonymous function (`[fmt.closure]`): its parameter list is `|`, the
+///   parameters and `|` whichever form it was written in, a body block with one expression is
+///   that expression, and the function is enclosed in markers instead of any parentheses around
+///   it. The parentheses around a parameter type, and around a chain of `||` (`[fmt.wrap]`), are
+///   dropped too: the formatter only adds them, and adding parentheses around a node does not
+///   change what it means.
 #[doc(hidden)]
 pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
     use SyntaxKind::*;
-    let tokens: Vec<_> = root
-        .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| !t.kind().is_trivia())
-        .filter(|t| t.kind() != NEWLINE || separates(t))
-        // A `\r\n` inside a multiline string compares equal to `\n`.
-        .map(|t| (t.kind(), t.text().replace("\r\n", "\n")))
-        .collect();
+    let mut tokens = Vec::new();
+    meaningful_tokens(root, &mut tokens);
     let mut out: Vec<(SyntaxKind, String)> = Vec::new();
     for (i, (kind, text)) in tokens.iter().enumerate() {
         let next = tokens[i + 1..]
@@ -172,6 +180,88 @@ pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
         }
     }
     out
+}
+
+/// The tokens of `node` that carry meaning, in order, with the forms of anonymous functions made
+/// one (see [`normalized_tokens`]).
+fn meaningful_tokens(node: &SyntaxNode, out: &mut Vec<(SyntaxKind, String)>) {
+    use SyntaxKind::*;
+    for child in node.children_with_tokens() {
+        match child {
+            rowan::NodeOrToken::Token(t) => {
+                if t.kind().is_trivia() || (t.kind() == NEWLINE && !separates(&t)) {
+                    continue;
+                }
+                // A `\r\n` inside a multiline string compares equal to `\n`.
+                out.push((t.kind(), t.text().replace("\r\n", "\n")));
+            }
+            rowan::NodeOrToken::Node(n) => single_node_tokens(&n, out),
+        }
+    }
+}
+
+fn drops_parens(node: &SyntaxNode) -> bool {
+    use SyntaxKind::*;
+    let mut inner = node.children();
+    let (Some(only), None) = (inner.next(), inner.next()) else {
+        return false;
+    };
+    match node.kind() {
+        PAREN_EXPR => {
+            only.kind() == LAMBDA_EXPR
+                || (only.kind() == BIN_EXPR
+                    && only.children_with_tokens().any(|e| e.kind() == PIPE2))
+        }
+        // The type of a parameter of an anonymous function.
+        _ => node.parent().is_some_and(|p| {
+            p.kind() == PARAM
+                && p.parent()
+                    .and_then(|l| l.parent())
+                    .is_some_and(|l| l.kind() == LAMBDA_EXPR)
+        }),
+    }
+}
+
+fn lambda_tokens(node: &SyntaxNode, out: &mut Vec<(SyntaxKind, String)>) {
+    use SyntaxKind::*;
+    out.push((LAMBDA_EXPR, "<".to_owned()));
+    for child in node.children() {
+        if child.kind() == PARAM_LIST {
+            out.push((PIPE, "|".to_owned()));
+            let params: Vec<SyntaxNode> = child.children().filter(|n| n.kind() == PARAM).collect();
+            for (i, param) in params.iter().enumerate() {
+                if i > 0 {
+                    out.push((COMMA, ",".to_owned()));
+                }
+                meaningful_tokens(param, out);
+            }
+            out.push((PIPE, "|".to_owned()));
+        } else {
+            let mut body = child;
+            while body.kind() == BLOCK_EXPR {
+                let mut stmts = body.children().filter(|n| n.kind() != ERROR);
+                match (stmts.next(), stmts.next()) {
+                    (Some(only), None) if only.kind() != BINDING => body = only,
+                    _ => break,
+                }
+            }
+            single_node_tokens(&body, out);
+        }
+    }
+    out.push((LAMBDA_EXPR, ">".to_owned()));
+}
+
+/// The tokens of `node` itself, as [`meaningful_tokens`] gives those of its children.
+fn single_node_tokens(node: &SyntaxNode, out: &mut Vec<(SyntaxKind, String)>) {
+    match node.kind() {
+        SyntaxKind::PAREN_EXPR | SyntaxKind::PAREN_TYPE if drops_parens(node) => {
+            if let Some(inner) = node.children().next() {
+                single_node_tokens(&inner, out);
+            }
+        }
+        SyntaxKind::LAMBDA_EXPR => lambda_tokens(node, out),
+        _ => meaningful_tokens(node, out),
+    }
 }
 
 /// Only newlines in a file, block, arm list or declaration body separate anything. The parser

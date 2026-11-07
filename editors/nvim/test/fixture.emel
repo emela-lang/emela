@@ -71,5 +71,5 @@ fn literals() {
     Some(user) -> user.name
     None -> "guest"
   }
-  first = users |> List.find(fn(u) { u.id == id }) match { Some(u) -> u None -> guest }
+  first = users |> List.find(|u| u.id == id) match { Some(u) -> u None -> guest }
 }

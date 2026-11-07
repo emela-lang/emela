@@ -30,7 +30,7 @@ pub fn snapshot(s: String) -> String {
 }
 pub fn captured(s: String) -> Int {
   err = ParseError(input: s)
-  read = fn() { err match {
+  read = || { err match {
     ParseError(input) -> if String.contains(input, "a") { 42 } else { -1 }
   } }
   mutate()

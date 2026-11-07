@@ -108,9 +108,9 @@ fn closures_with_captures() {
     let m = program(
         "\
 fn adder(base: Int) -> fn(Int) -> (fn(Int) -> Int) {
-  fn(x) {
+  |x| {
     y = x * 2
-    fn(z) { base + y + z }
+    |z| base + y + z
   }
 }
 
@@ -123,7 +123,7 @@ fn main() {
   g = f(2)
   dbg(g(3))
   dbg(twice(inc, 1))
-  dbg(List.map([1, 2], fn(x) { x * 10 }))
+  dbg(List.map([1, 2], |x| x * 10))
 }
 ",
     );
@@ -266,7 +266,7 @@ import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 
 fn again() -> Int {
-  Exit.attempt(fn() { panic(\"bad\") }) match {
+  Exit.attempt(|| panic(\"bad\")) match {
     Success(v) -> v
     Failure(c) -> Cause.raise(c)
   }
@@ -354,7 +354,7 @@ fn twice(f: fn() -> Int use Clock) -> Int use Clock {
 
 fn main() {
   label = \"a\"
-  with InstantClock { dbg(twice(fn() { nap(count(2, 0), label) })) }
+  with InstantClock { dbg(twice(|| nap(count(2, 0), label))) }
 }
 ",
     );

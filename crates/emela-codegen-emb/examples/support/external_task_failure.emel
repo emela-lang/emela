@@ -26,14 +26,14 @@ pub fn caught(n: Int) -> Int use Async {
   }
 }
 pub fn attempted(n: Int) -> String use Async {
-  Exit.attempt(fn() { request(n) }) match {
+  Exit.attempt(|| request(n)) match {
     Success(value) -> Int.to_string(value)
     Failure(cause) -> Cause.to_string(cause)
   }
 }
 pub fn scoped(n: Int) -> Int use Async {
-  Fiber.scope(fn() {
-    child = Fiber.fork(fn() { request(n) })
+  Fiber.scope(|| {
+    child = Fiber.fork(|| request(n))
     Fiber.join(child)
   }) escape { Boom(message, _) -> String.byte_size(message) }
 }

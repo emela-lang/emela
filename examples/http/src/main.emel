@@ -46,14 +46,14 @@ fn respond(req: Request, n: Int) -> Option[Response] {
 fn main() {
   with Platform {
     console = use Console
-    (_, server) = State.run(TestServer(respond:, sent: []), fn() {
+    (_, server) = State.run(TestServer(respond:, sent: []), || {
       with TestHttp {
         console.print_line(first_result("emela"))
         console.print_line(first_result("東京"))
         console.print_line(first_result("again"))
       }
     })
-    List.map(server.sent, fn(req) { console.print_line("sent #{req.url}") })
+    List.map(server.sent, |req| console.print_line("sent #{req.url}"))
   }
 }
 
@@ -66,8 +66,8 @@ fn the_query_is_encoded() {
 
 @test
 fn a_404_is_not_a_failure() {
-  server = TestServer(respond: fn(_, _) { Some(Response.new(404, "")) }, sent: [])
-  (text, after) = State.run(server, fn() { with TestHttp { first_result("x") } })
+  server = TestServer(respond: |_, _| Some(Response.new(404, "")), sent: [])
+  (text, after) = State.run(server, || with TestHttp { first_result("x") })
   assert text == "status 404"
   assert List.length(after.sent) == 1
 }

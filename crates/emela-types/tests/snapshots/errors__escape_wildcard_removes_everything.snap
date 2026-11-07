@@ -1,6 +1,7 @@
 ---
 source: crates/emela-types/tests/errors.rs
-expression: "render_errors(r#\"\nerror NotFound(id: Int)\nerror DbError\nerror Other\n\nfn load(id: Int) -> Int fails NotFound | DbError { fail DbError }\n\nfn all() {\n  load(1) escape { _ -> 0 }\n}\n\nfn after_ctor() {\n  load(1) escape {\n    NotFound(id: 1) -> 1\n    _ -> 0\n  }\n}\n\nfn arm_fails() {\n  load(1) escape { _ -> fail Other }\n}\n\nfn or_else[A, E](f: fn() -> A fails E, default: A) -> A {\n  f() escape { _ -> default }\n}\n\nfn hidden[A](f: fn() -> A, default: A) -> A {\n  f() escape { _ -> default }\n}\n\nfn set_param[E](f: fn() -> Int fails E) -> Int {\n  f() escape { _ -> 0 }\n}\n\nfn error_param[E](err: E) -> Int {\n  { fail err } escape { _ -> 0 }\n}\n\nfn inferred() {\n  fn(g) { g() escape { _ -> 0 } }\n}\n\nfn local() {\n  f = fn() { load(2) }\n  f() escape { _ -> 0 }\n}\n\nfn caller() -> Int {\n  or_else(fn() { load(3) }, 0) + set_param(fn() { load(4) }) + inferred()(fn() { load(5) })\n}\n\nfn hidden_caller() {\n  hidden(fn() { load(6) }, 0)\n}\n\"#)"
+assertion_line: 230
+expression: "render_errors(r#\"\nerror NotFound(id: Int)\nerror DbError\nerror Other\n\nfn load(id: Int) -> Int fails NotFound | DbError { fail DbError }\n\nfn all() {\n  load(1) escape { _ -> 0 }\n}\n\nfn after_ctor() {\n  load(1) escape {\n    NotFound(id: 1) -> 1\n    _ -> 0\n  }\n}\n\nfn arm_fails() {\n  load(1) escape { _ -> fail Other }\n}\n\nfn or_else[A, E](f: fn() -> A fails E, default: A) -> A {\n  f() escape { _ -> default }\n}\n\nfn hidden[A](f: fn() -> A, default: A) -> A {\n  f() escape { _ -> default }\n}\n\nfn set_param[E](f: fn() -> Int fails E) -> Int {\n  f() escape { _ -> 0 }\n}\n\nfn error_param[E](err: E) -> Int {\n  { fail err } escape { _ -> 0 }\n}\n\nfn inferred() {\n  |g| g() escape { _ -> 0 }\n}\n\nfn local() {\n  f = || load(2)\n  f() escape { _ -> 0 }\n}\n\nfn caller() -> Int {\n  or_else(|| load(3), 0) + set_param(|| load(4)) + inferred()(|| load(5))\n}\n\nfn hidden_caller() {\n  hidden(|| load(6), 0)\n}\n\"#)"
 ---
 load: fn(Int) -> Int fails NotFound | DbError
   id: Int
@@ -38,16 +39,11 @@ f(): '0
 { fail err }: '0
 fail err: '0
 g(): ?e2
-{ load(2) }: NotFound | DbError
 load(2): NotFound | DbError
 f(): NotFound | DbError
-{ load(3) }: NotFound | DbError
 load(3): NotFound | DbError
-{ load(4) }: NotFound | DbError
 load(4): NotFound | DbError
-{ load(5) }: NotFound | DbError
 load(5): NotFound | DbError
-{   hidden(fn() { load(6) }, 0) }: NotFound | DbError
-hidden(fn() { load(6) }, 0): NotFound | DbError
-{ load(6) }: NotFound | DbError
+{   hidden(|| load(6), 0) }: NotFound | DbError
+hidden(|| load(6), 0): NotFound | DbError
 load(6): NotFound | DbError

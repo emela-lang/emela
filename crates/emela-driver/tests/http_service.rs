@@ -460,8 +460,8 @@ import Std.State.{State}
 
 @test
 fn fetches() {
-  server = TestServer(respond: fn(req, n) { Some(Response.new(200, "ok")) }, sent: [])
-  (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
+  server = TestServer(respond: |req, n| Some(Response.new(200, "ok")), sent: [])
+  (res, after) = State.run(server, || with TestHttp { Http.get("https://example.com") })
   assert res.body == "ok"
   assert List.length(after.sent) == 1
 }

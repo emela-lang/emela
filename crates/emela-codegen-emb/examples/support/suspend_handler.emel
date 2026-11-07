@@ -9,8 +9,8 @@ handler Waiting: Wait {
 
 pub fn work(n: Int) -> Int {
   with Waiting {
-    outer = fn(offset: Int) {
-      inner = fn() { (use Wait).get(n) + offset }
+    outer = |offset: Int| {
+      inner = || (use Wait).get(n) + offset
       inner()
     }
     outer(1)

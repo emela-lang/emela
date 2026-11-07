@@ -105,18 +105,18 @@ fn directories() {
 fn errors_are_classified_like_js_and_c() {
     let body = r#"    fs.create_directory("e/sub")
     fs.write_text("e/f.txt", "f")
-    dbg(outcome(fn() { _ = fs.read_text("e/missing.txt") }))
-    dbg(outcome(fn() { _ = fs.read_text("e/sub") }))
-    dbg(outcome(fn() { _ = fs.read_text("e/f.txt/x") }))
-    dbg(outcome(fn() { fs.write_text("e/nowhere/x.txt", "x") }))
-    dbg(outcome(fn() { fs.write_text("e/sub", "x") }))
-    dbg(outcome(fn() { fs.append_text("e/nowhere/x.txt", "x") }))
-    dbg(outcome(fn() { _ = fs.list_directory("e/missing") }))
-    dbg(outcome(fn() { _ = fs.list_directory("e/f.txt") }))
-    dbg(outcome(fn() { fs.create_directory("e/f.txt") }))
-    dbg(outcome(fn() { fs.create_directory("e/f.txt/x") }))
-    dbg(outcome(fn() { fs.remove("e/missing") }))
-    dbg(outcome(fn() { fs.remove("e") }))"#;
+    dbg(outcome(|| { _ = fs.read_text("e/missing.txt") }))
+    dbg(outcome(|| { _ = fs.read_text("e/sub") }))
+    dbg(outcome(|| { _ = fs.read_text("e/f.txt/x") }))
+    dbg(outcome(|| fs.write_text("e/nowhere/x.txt", "x")))
+    dbg(outcome(|| fs.write_text("e/sub", "x")))
+    dbg(outcome(|| fs.append_text("e/nowhere/x.txt", "x")))
+    dbg(outcome(|| { _ = fs.list_directory("e/missing") }))
+    dbg(outcome(|| { _ = fs.list_directory("e/f.txt") }))
+    dbg(outcome(|| fs.create_directory("e/f.txt")))
+    dbg(outcome(|| fs.create_directory("e/f.txt/x")))
+    dbg(outcome(|| fs.remove("e/missing")))
+    dbg(outcome(|| fs.remove("e")))"#;
     let src = format!(
         "import Std.FileSystem.{{FileSystem, SystemFileSystem, FileNotFound, IsADirectory, NotADirectory, DirectoryNotEmpty}}\n\nfn outcome[E](body: fn() -> () fails E use {{ FileSystem }}) -> String fails E use {{ FileSystem }} {{\n  {{\n    body()\n    \"ok\"\n  }} escape {{\n    FileNotFound(..)      -> \"FileNotFound\"\n    IsADirectory(..)      -> \"IsADirectory\"\n    NotADirectory(..)     -> \"NotADirectory\"\n    DirectoryNotEmpty(..) -> \"DirectoryNotEmpty\"\n  }}\n}}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n{body}\n  }}\n}}\n"
     );
@@ -135,7 +135,7 @@ fn errors_are_classified_like_js_and_c() {
 #[test]
 fn invalid_text_and_bom() {
     // `invalid.bin` is not UTF-8; `bom.txt` starts with a UTF-8 BOM, which is kept in the text.
-    let body = r#"    dbg(outcome(fn() { _ = fs.read_text("invalid.bin") }))
+    let body = r#"    dbg(outcome(|| { _ = fs.read_text("invalid.bin") }))
     dbg(String.code_points(fs.read_text("bom.txt")))"#;
     let src = format!(
         "import Std.FileSystem.{{FileSystem, SystemFileSystem, InvalidText}}\n\nfn outcome[E](body: fn() -> () fails E use {{ FileSystem }}) -> String fails E use {{ FileSystem }} {{\n  {{\n    body()\n    \"ok\"\n  }} escape {{\n    InvalidText(..) -> \"InvalidText\"\n  }}\n}}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n{body}\n  }}\n}}\n"
@@ -163,7 +163,7 @@ fn absolute_paths_are_denied() {
     let name = "fs-absolute";
     let dir = std::path::absolute(out_dir(name)).unwrap();
     let src = format!(
-        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(fn() {{ _ = fs.read_text({abs_secret}) }}))\n    dbg((use FileSystem).exists({abs_secret}))\n    dbg((use FileSystem).is_directory({abs_dir}))\n  }}\n}}\n",
+        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(|| {{ _ = fs.read_text({abs_secret}) }}))\n    dbg((use FileSystem).exists({abs_secret}))\n    dbg((use FileSystem).is_directory({abs_dir}))\n  }}\n}}\n",
         abs_secret = emela_path(&dir.join("secret.txt")),
         abs_dir = emela_path(&dir),
     );
@@ -191,7 +191,7 @@ fn dot_dot_cannot_leave_the_preopen() {
     let _ = std::fs::remove_file(&escape_write);
 
     let src = format!(
-        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(fn() {{ _ = fs.read_text(\"../{name}-outside.txt\") }}))\n    dbg(error_name(fn() {{ fs.write_text(\"../{name}-written.txt\", \"x\") }}))\n    dbg(error_name(fn() {{ fs.remove(\"..\") }}))\n  }}\n}}\n"
+        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(|| {{ _ = fs.read_text(\"../{name}-outside.txt\") }}))\n    dbg(error_name(|| {{ fs.write_text(\"../{name}-written.txt\", \"x\") }}))\n    dbg(error_name(|| {{ fs.remove(\"..\") }}))\n  }}\n}}\n"
     );
     let Some((run, _)) = run_fs_prepared(
         name,
@@ -226,7 +226,7 @@ fn a_symlink_out_of_the_preopen_is_denied() {
     let outside = dir.with_file_name(format!("{name}-outside"));
     let _ = std::fs::remove_dir_all(&outside);
     let src = format!(
-        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(fn() {{ _ = fs.read_text(\"escape/secret.txt\") }}))\n    dbg(error_name(fn() {{ fs.write_text(\"escape/pwn.txt\", \"x\") }}))\n    dbg(error_name(fn() {{ _ = fs.list_directory(\"escape\") }}))\n    dbg((use FileSystem).exists(\"escape/secret.txt\"))\n    dbg(error_name(fn() {{ fs.remove(\"escape\") }}))\n  }}\n}}\n"
+        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(|| {{ _ = fs.read_text(\"escape/secret.txt\") }}))\n    dbg(error_name(|| {{ fs.write_text(\"escape/pwn.txt\", \"x\") }}))\n    dbg(error_name(|| {{ _ = fs.list_directory(\"escape\") }}))\n    dbg((use FileSystem).exists(\"escape/secret.txt\"))\n    dbg(error_name(|| {{ fs.remove(\"escape\") }}))\n  }}\n}}\n"
     );
     let Some((run, dir)) = run_fs_prepared(
         name,
@@ -264,7 +264,7 @@ fn removing_a_symlink_removes_the_link() {
     use std::os::unix::fs::symlink;
 
     let src = format!(
-        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(fn() {{ fs.remove(\"linkdir\") }}))\n    dbg(error_name(fn() {{ fs.remove(\"dangling\") }}))\n    dbg(error_name(fn() {{ fs.remove(\"linkfile\") }}))\n  }}\n}}\n"
+        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(|| {{ fs.remove(\"linkdir\") }}))\n    dbg(error_name(|| {{ fs.remove(\"dangling\") }}))\n    dbg(error_name(|| {{ fs.remove(\"linkfile\") }}))\n  }}\n}}\n"
     );
     let Some((run, dir)) = run_fs_prepared(
         "fs-symlink-remove",
@@ -327,7 +327,7 @@ fn component_imports(bytes: &[u8]) -> Vec<String> {
 #[test]
 fn a_large_text_grows_the_read_buffer() {
     // One 50 KB file exercises the growing buffer and several stream reads.
-    let src = "import Std.FileSystem.{FileSystem, SystemFileSystem}\n\nfn main() {\n  with SystemFileSystem {\n    fs = use FileSystem\n    text = String.join(List.map(List.range(0, 5000), fn(_) { \"0123456789\" }), \"\")\n    fs.write_text(\"big.txt\", text)\n    dbg(String.length(fs.read_text(\"big.txt\")))\n    dbg(String.length(text))\n  }\n}\n";
+    let src = "import Std.FileSystem.{FileSystem, SystemFileSystem}\n\nfn main() {\n  with SystemFileSystem {\n    fs = use FileSystem\n    text = String.join(List.map(List.range(0, 5000), |_| \"0123456789\"), \"\")\n    fs.write_text(\"big.txt\", text)\n    dbg(String.length(fs.read_text(\"big.txt\")))\n    dbg(String.length(text))\n  }\n}\n";
     let Some(run) = run_fs("fs-large", &[], src) else {
         return;
     };
@@ -338,7 +338,7 @@ fn a_large_text_grows_the_read_buffer() {
 #[test]
 fn a_long_listing_reads_several_chunks() {
     // 40 entries do not fit one `read-directory` chunk (16 records), so the loop reads again.
-    let src = "import Std.FileSystem.{FileSystem, SystemFileSystem}\n\nfn main() {\n  with SystemFileSystem {\n    fs = use FileSystem\n    fs.create_directory(\"m\")\n    List.fold(List.range(0, 40), from: (), f: fn(_, i) { fs.write_text(\"m/#{i}.txt\", \"\") })\n    names = fs.list_directory(\"m\")\n    dbg(List.length(names))\n    dbg(List.all(names, fn(n) { String.ends_with(n, \".txt\") }))\n  }\n}\n";
+    let src = "import Std.FileSystem.{FileSystem, SystemFileSystem}\n\nfn main() {\n  with SystemFileSystem {\n    fs = use FileSystem\n    fs.create_directory(\"m\")\n    List.fold(List.range(0, 40), from: (), f: |_, i| fs.write_text(\"m/#{i}.txt\", \"\"))\n    names = fs.list_directory(\"m\")\n    dbg(List.length(names))\n    dbg(List.all(names, |n| String.ends_with(n, \".txt\")))\n  }\n}\n";
     let Some(run) = run_fs("fs-many", &[], src) else {
         return;
     };

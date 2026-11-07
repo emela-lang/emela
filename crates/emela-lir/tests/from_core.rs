@@ -289,12 +289,12 @@ import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 fn main() -> Int use { Async } {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     s = use Scope
-    a = s.fork(fn() { [1] })
+    a = s.fork(|| [1])
     d = s.deferred()
     Deferred.complete(d, ())
-    e = Exit.attempt(fn() { 3 })
+    e = Exit.attempt(|| 3)
     List.length(Fiber.join(a))
   })
 }
@@ -323,9 +323,9 @@ handler Later: Wait {
 
 fn main() -> Int use { Async, Wait } {
   with Later { () }
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     s = use Scope
-    a = s.fork(fn() { 1 })
+    a = s.fork(|| 1)
     Fiber.join(a)
   })
 }
@@ -339,9 +339,9 @@ fn closures_with_captures() {
     let m = program(
         "\
 fn adder(base: Int) -> fn(Int) -> (fn(Int) -> Int) {
-  fn(x) {
+  |x| {
     y = x * 2
-    fn(z) { base + y + z }
+    |z| base + y + z
   }
 }
 

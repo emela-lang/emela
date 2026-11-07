@@ -110,7 +110,8 @@ fn paren_type(p: &mut Parser<'_>) {
     let mut trailing_comma = false;
     while !p.at(R_PAREN) && !p.at_eof() {
         count += 1;
-        type_(p);
+        // `|f: (fn() -> A fails B | C)| ...`: inside parentheses `|` joins an error set again.
+        p.with_closure_params(false, type_);
         trailing_comma = p.eat(COMMA);
         if !trailing_comma {
             break;
@@ -180,6 +181,8 @@ pub(crate) fn effects_and_errors(p: &mut Parser<'_>) {
 /// `"{" "}" | error_item { "|" error_item }`．`error_item = type_ref | upper_name`
 ///
 /// Error tags (`NotFound`) and set type parameters (`E`) may be mixed (`Timeout | E`, spec 7.4).
+/// In the parameter list of an anonymous function, a `|` outside brackets closes the list, so the
+/// set has one item there (`[grammar.expr]`).
 fn error_set(p: &mut Parser<'_>) {
     let m = p.start();
     if p.at(L_BRACE) {
@@ -187,7 +190,7 @@ fn error_set(p: &mut Parser<'_>) {
         p.expect(R_BRACE);
     } else {
         set_element(p);
-        while p.eat(PIPE) {
+        while !p.in_closure_params && p.eat(PIPE) {
             set_element(p);
         }
     }

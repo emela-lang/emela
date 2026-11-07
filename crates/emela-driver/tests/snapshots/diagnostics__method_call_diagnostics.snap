@@ -1,6 +1,5 @@
 ---
 source: crates/emela-driver/tests/diagnostics.rs
-assertion_line: 1429
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
 error[E0334]: function `width` has the same name as a field of `Box`
@@ -53,11 +52,11 @@ error[E0313]: type `Int` has no field or function `nmae`
 ────╯
 
 error[E0314]: the type of this value must be known to call `area`
-    ╭─[ src/main.emel:51:17 ]
+    ╭─[ src/main.emel:51:13 ]
     │
- 51 │   f = fn(x) { x.area() }
-    │                 ──┬─  
-    │                   ╰─── 
+ 51 │   f = |x| x.area()
+    │             ──┬─  
+    │               ╰─── 
 ────╯
    = help: add a type annotation
 

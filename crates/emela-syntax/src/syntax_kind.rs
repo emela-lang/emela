@@ -379,7 +379,7 @@ pub enum SyntaxKind {
     SUPPLY,
     /// `find(id) escape { NotFound(_) -> guest() }`
     ESCAPE_EXPR,
-    /// `fn(n) { n + 1 }`
+    /// `|n| n + 1`
     LAMBDA_EXPR,
     /// `(x: Int, f)`
     PARAM_LIST,

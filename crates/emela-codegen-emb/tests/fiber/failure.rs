@@ -81,7 +81,7 @@ handler Res: Resource {
 fn invoke(f: fn() -> Int fails Boom use Wait) -> Int fails Boom use Wait { f() }
 pub fn caught(n: Int) -> Int use Async {
   with Waiting {
-    invoke(fn() {
+    invoke(|| {
       with Res {
         (use Wait).get(1)
         mark(1)
@@ -196,9 +196,9 @@ handler Res: Resource {
 }
 pub fn caught(mode: Int) -> Int use Async {
  with Waiting {
-  Fiber.scope(fn() {
-   Fiber.fork(fn() { with Res { (use Wait).get(2) } })
-   Fiber.fork(fn() { if mode == 0 { fail Boom(n: 42) } else { 0 } })
+  Fiber.scope(|| {
+   Fiber.fork(|| with Res { (use Wait).get(2) })
+   Fiber.fork(|| if mode == 0 { fail Boom(n: 42) } else { 0 })
    (use Wait).get(1)
    if mode != 0 { fail Boom(n: 42) }
    mark(99)
@@ -365,8 +365,8 @@ fn protected(child: Fiber[Int], joined: Bool) -> Int use {Async, Wait} {
 }
 pub fn work(joined: Bool) -> Int use Async {
  with Waiting {
-  Fiber.scope(fn() {
-   child = Fiber.fork(fn() { (use Wait).get(1)
+  Fiber.scope(|| {
+   child = Fiber.fork(|| { (use Wait).get(1)
     fail Boom(n: 42)
    })
    protected(child, joined)

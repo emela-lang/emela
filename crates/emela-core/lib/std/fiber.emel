@@ -3,10 +3,10 @@
 #
 # Import it with `import Std.Fiber.{Fiber, Scope}`:
 #
-#   (user, orders) = Fiber.both(fn() { fetch_user(1) }, fn() { fetch_orders(1) })
+#   (user, orders) = Fiber.both(|| fetch_user(1), || fetch_orders(1))
 #
-#   Fiber.scope(fn() {
-#     a = Fiber.fork(fn() { fetch_user(1) })
+#   Fiber.scope(|| {
+#     a = Fiber.fork(|| fetch_user(1))
 #     a.join()
 #   })
 #
@@ -79,19 +79,19 @@ pub fn interrupt[A](fiber: Fiber[A]) -> () use Async
 ## Runs all of `fs` concurrently and returns their values in order. If one fails, the others are
 ## interrupted and `all` fails.
 pub fn all[A, E, R](fs: List[fn() -> A fails E use R]) -> List[A] fails E use { Async, R } {
-  scope(fn() {
-    fibers = fs.map(fn(f) { fork(f) })
-    fibers.map(fn(fiber) { join(fiber) })
+  scope(|| {
+    fibers = fs.map(|f| fork(f))
+    fibers.map(|fiber| join(fiber))
   })
 }
 
 ## Runs all of `fs` concurrently and takes the first to end; the others are interrupted. If the
 ## first to end fails, `race` fails with that error.
 pub fn race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async, R } {
-  scope(fn() {
+  scope(|| {
     s = use Scope
     d = s.deferred()
-    fs.map(fn(f) { s.fork(fn() { d.complete(f()) }) })
+    fs.map(|f| s.fork(|| d.complete(f())))
     d.await()
   })
 }
@@ -101,7 +101,7 @@ pub fn race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async
 pub fn both[A, B, E, R](f: fn() -> A fails E use R, g: fn() -> B fails E use R) -> (A, B)
   fails E
   use { Async, R } {
-  scope(fn() {
+  scope(|| {
     a = fork(f)
     b = fork(g)
     (join(a), join(b))
@@ -113,9 +113,9 @@ pub fn both[A, B, E, R](f: fn() -> A fails E use R, g: fn() -> B fails E use R) 
 pub fn map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E use R) -> List[B]
   fails E
   use { Async, R } {
-  scope(fn() {
-    fibers = xs.map(fn(x) { fork(fn() { f(x) }) })
-    fibers.map(fn(fiber) { join(fiber) })
+  scope(|| {
+    fibers = xs.map(|x| fork(|| f(x)))
+    fibers.map(|fiber| join(fiber))
   })
 }
 
@@ -125,11 +125,11 @@ pub fn map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E use R) -> List[B]
 pub fn timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A]
   fails E
   use { Clock, Async, R } {
-  scope(fn() {
+  scope(|| {
     s = use Scope
     d = s.deferred()
-    s.fork(fn() { d.complete(Some(f())) })
-    s.fork(fn() {
+    s.fork(|| d.complete(Some(f())))
+    s.fork(|| {
       (use Clock).sleep(ms)
       d.complete(None)
     })

@@ -13,9 +13,9 @@ handler Res: Resource {
 }
 pub fn work(n: Int) -> String use Async {
   with Waiting {
-    Exit.attempt(fn() { Fiber.scope(fn() {
-      Fiber.fork(fn() { with Res { (use Wait).get(2) } })
-      Fiber.fork(fn() { fail Boom(message: Int.to_string(n)) })
+    Exit.attempt(|| { Fiber.scope(|| {
+      Fiber.fork(|| with Res { (use Wait).get(2) })
+      Fiber.fork(|| fail Boom(message: Int.to_string(n)))
       (use Wait).get(1)
     }) }) match {
       Success(_) -> "unexpected"

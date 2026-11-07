@@ -364,6 +364,33 @@ fn multiple_errors_are_filtered_by_file_range_and_code() {
 }
 
 #[test]
+fn old_lambdas_are_rewritten() {
+    let text = "fn f(xs: List[Int]) -> List[Int] {\n  List.map(xs, fn(x) { x + 1 })\n}\n";
+    let actions = fixes(text, "fn(x)", &[]);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Rewrite as `|x| ...`");
+    assert_eq!(actions[0].diagnostics[0].code, Some("E0148"));
+    let edited = apply(text, &actions[0]);
+    assert!(edited.contains("List.map(xs, |x| x + 1)"), "{edited}");
+    assert_clean(&edited, &[]);
+
+    // A block over several lines is kept; a callee is parenthesized.
+    let text = "fn f() -> Int {\n  g = fn(x) {\n    y = x\n    y\n  }\n  fn(x) { x }(g(1))\n}\n";
+    let actions = fixes(text, "fn(x) {\n", &[]);
+    assert_eq!(actions.len(), 1);
+    let edited = apply(text, &actions[0]);
+    assert!(
+        edited.contains("g = |x| {\n    y = x\n    y\n  }"),
+        "{edited}"
+    );
+    let actions = fixes(&edited, "fn(x) { x }", &[]);
+    assert_eq!(actions.len(), 1);
+    let edited = apply(&edited, &actions[0]);
+    assert!(edited.contains("(|x| x)(g(1))"), "{edited}");
+    assert_clean(&edited, &[]);
+}
+
+#[test]
 fn old_impl_and_handler_heads_are_rewritten() {
     let text = "type User(id: Int)\ntrait Label {\n  fn label(self) -> String\n}\nimpl Label for User {\n  fn label(self) { \"user\" }\n}\n";
     let actions = fixes(text, "for User", &[]);

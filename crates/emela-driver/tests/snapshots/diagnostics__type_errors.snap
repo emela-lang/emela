@@ -20,11 +20,11 @@ error[E0301]: type mismatch: expected `List[Int]`, found `List[String]`
    = note: the mismatch is between `Int` and `String`
 
 error[E0302]: infinite type: `?0` occurs in `fn(?0) -> Int`
-   ╭─[ src/main.emel:3:19 ]
+   ╭─[ src/main.emel:3:13 ]
    │
- 3 │ let f = fn(x) { x(x) }
-   │                   ──┬─  
-   │                     ╰─── 
+ 3 │ let f = |x| x(x)
+   │             ──┬─  
+   │               ╰─── 
 ───╯
    = note: expected `?0`, found `fn(?0) -> Int`
 

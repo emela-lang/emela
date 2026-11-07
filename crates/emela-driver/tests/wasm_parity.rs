@@ -33,7 +33,7 @@ fn next(seed: Int) -> Int {
 fn main() {
   seeds = [0, 1, -1, 8, 20261013, 0 - 2147483647 - 1, 2147483647]
   dbg(List.map(seeds, next))
-  dbg(List.map(seeds, fn(seed) { next(next(next(seed))) % 1000 }))
+  dbg(List.map(seeds, |seed| next(next(next(seed))) % 1000))
 }
 "#,
     ),
@@ -108,7 +108,7 @@ fn main() {
         "closures",
         r#"
 fn adder(a: Int) -> fn(Int) -> Int {
-  fn(b: Int) { a + b }
+  |b: Int| a + b
 }
 fn main() {
   add2 = adder(2)
@@ -216,8 +216,8 @@ fn convert(id: Int) -> Int fails Converted {
 
 fn main() {
   dbg(List.map([1, 3, 4, 9, 0], describe))
-  dbg(or_else(fn() { find(2) }, -2))
-  dbg(or_else(fn() { find(0) }, -2))
+  dbg(or_else(|| find(2), -2))
+  dbg(or_else(|| find(0), -2))
   dbg(convert(0) escape { Converted -> -3 })
 }
 "#,
@@ -229,7 +229,7 @@ error Nope
 error Retry(after: fn() -> Int)
 
 fn retry(n: Int) -> Int fails Retry {
-  if n > 0 { fail Retry(after: fn() { n }) }
+  if n > 0 { fail Retry(after: || n) }
   n
 }
 
@@ -250,7 +250,7 @@ fn bump(lines: List[String]) -> List[String] {
 }
 
 fn main() {
-  (_, final) = State.run([], fn() {
+  (_, final) = State.run([], || {
     st = use State[List[String]]
     st.update(bump)
     st.update(bump)
@@ -319,7 +319,7 @@ effect Hits of State[Int]
 effect Misses of State[Int]
 
 fn count(hit: Bool) {
-  if hit { (use Hits).update(fn(n) { n + 1 }) } else { (use Misses).update(fn(n) { n + 1 }) }
+  if hit { (use Hits).update(|n| n + 1) } else { (use Misses).update(|n| n + 1) }
 }
 
 fn tally() -> (Int, Int) use { Hits, Misses } {
@@ -337,9 +337,9 @@ fn main() {
   with PrintLog, Audit by AuditLog {
     with Tagged { c() }
   }
-  (_, misses) = State.run(0, fn() {
+  (_, misses) = State.run(0, || {
     with Misses by State[Int] {
-      (counts, hits) = State.run(0, fn() { with Hits by State[Int] { tally() } })
+      (counts, hits) = State.run(0, || with Hits by State[Int] { tally() })
       (h, m) = counts
       _ = dbg("tally #{h} #{m}, hits #{hits}")
     }
@@ -617,7 +617,7 @@ fn main() {
   dbg(show_any([Some(Name(value: "n"))]))
   dbg(twice)
   dbg(Button(label: Name(value: "dbg"), on_click: twice))
-  dbg_any([(1, fn(x: Int) { x + 1 })])
+  dbg_any([(1, |x: Int| x + 1)])
   dbg_any([Button(label: Name(value: "g"), on_click: twice)])
   dbg("top")
 }
@@ -645,7 +645,7 @@ impl Box[A: Size]: Size {
   fn double(self) { 0 }
 }
 
-fn total[A: Size](xs: List[A]) -> Int { List.fold(xs, 0, fn(acc, x) { acc + Size.size(x) }) }
+fn total[A: Size](xs: List[A]) -> Int { List.fold(xs, 0, |acc, x| acc + Size.size(x)) }
 
 fn main() {
   p = Point(x: 1, y: 2)
@@ -663,7 +663,7 @@ fn main() {
 error Retry(after: fn() -> Int)
 
 fn attempt(n: Int) -> Int fails Retry {
-  if n > 1 { fail Retry(after: fn() { n }) }
+  if n > 1 { fail Retry(after: || n) }
   n
 }
 
@@ -802,20 +802,20 @@ fn cause[A, E](e: Exit[A, E]) {
 }
 
 fn main() {
-  dbg(Exit.attempt(fn() { 40 + 2 }))
-  dbg(Exit.attempt(fn() { "text" }))
-  dbg(Exit.attempt(fn() { 0.5 }))
-  dbg(Exit.attempt(fn() { () }))
-  dbg(Exit.attempt(fn() { boom() }))
-  cause(Exit.attempt(fn() { boom() }))
-  cause(Exit.attempt(fn() { fail NotFound(id: 7) }))
-  cause(Exit.attempt(fn() { panic("bad") }))
-  dbg(Exit.attempt(fn() { boom() }) match {
+  dbg(Exit.attempt(|| 40 + 2))
+  dbg(Exit.attempt(|| "text"))
+  dbg(Exit.attempt(|| 0.5))
+  dbg(Exit.attempt(|| ()))
+  dbg(Exit.attempt(|| boom()))
+  cause(Exit.attempt(|| boom()))
+  cause(Exit.attempt(|| fail NotFound(id: 7)))
+  cause(Exit.attempt(|| panic("bad")))
+  dbg(Exit.attempt(|| boom()) match {
     Success(v) -> v
     Failure(c) -> Cause.raise(c)
   } escape { Boom -> -1 })
-  cause(Exit.attempt(fn() {
-    Exit.attempt(fn() { panic("again") }) match {
+  cause(Exit.attempt(|| {
+    Exit.attempt(|| panic("again")) match {
       Success(v) -> v
       Failure(c) -> Cause.raise(c)
     }
@@ -851,7 +851,7 @@ fn main() {
 /// them (the WASM target's "not supported yet", which has no diagnostic code any more).
 const NOT_ON_WASM: &[(&str, &str, &str)] = &[(
     "fibers",
-    "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
+    "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(|| ())\n}\n",
     "fibers are not supported on target `wasm`",
 )];
 

@@ -25,13 +25,13 @@ fn types(xs: List[ # 型引数の中
   (a
     # 行だけの引き算の前
     - b)
-  f(fn(x) # ブロックの前
+  f(|x| # ブロックの前
     { x })
   f(if a # 条件の後ろ
     { b } else { c })
   g( # 開き括弧の後ろ
     a)
-  xs |> List.map(fn(x) { # 本体の先頭
+  xs |> List.map(|x| { # 本体の先頭
     x
   })
   x match { A -> 1 # 最後の腕

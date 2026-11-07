@@ -68,7 +68,7 @@ fn core_functions_are_methods() {
     insta::assert_snapshot!(render_bodies(
         r#"
 fn lengths(xs: List[String]) {
-  xs.map(fn(s) { s.length() }).fold(from: 0, f: fn(a, b) { a + b })
+  xs.map(|s| s.length()).fold(from: 0, f: |a, b| a + b)
 }
 
 fn first_line(s: String) {
@@ -127,7 +127,7 @@ fn traits(s: Square) {
 }
 
 fn total[A: Area](xs: List[A]) -> Int {
-  xs.fold(from: 0, f: fn(n, x) { n + x.area() })
+  xs.fold(from: 0, f: |n, x| n + x.area())
 }
 
 fn through_super[A: Shape](x: A) -> Int {
@@ -154,7 +154,7 @@ fn run(f: fn() -> Int) -> Int {
 }
 
 fn get(url: String) -> Int {
-  run(fn() { url.length() })
+  run(|| url.length())
 }
 
 fn main() -> Int {
@@ -194,7 +194,7 @@ fn tuple(p: (Int, Int)) {
 }
 
 fn unknown() {
-  fn(x) { x.rename("a") }
+  |x| x.rename("a")
 }
 "#
     ));

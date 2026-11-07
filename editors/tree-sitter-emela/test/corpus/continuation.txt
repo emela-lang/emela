@@ -112,7 +112,7 @@ fn f() {
 Braces inside parentheses separate statements
 ==================
 fn f() {
-  g(fn(x) {
+  g(|x| {
     a
     b
   })
@@ -395,3 +395,79 @@ derive Eq
     (derive_clause
       (type_reference
         (type_identifier)))))
+
+==================
+Lines that start with || or | start a lambda
+==================
+fn make(n: Int) -> fn() -> Int {
+  m = n * 2
+  || m
+}
+
+fn f(a: Bool, b: Bool) -> Bool {
+  (
+    a
+      || b
+  )
+}
+
+fn g() -> Int
+  fails A
+  | B {
+  1
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (function_type
+      (parameter_types)
+      (type_reference
+        (type_identifier)))
+    (block
+      (binding
+        (identifier)
+        (binary_expression
+          (identifier)
+          (integer)))
+      (lambda
+        (lambda_parameters)
+        (identifier))))
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier)))
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (type_reference
+      (type_identifier))
+    (block
+      (parenthesized_expression
+        (binary_expression
+          (identifier)
+          (identifier)))))
+  (function_declaration
+    (identifier)
+    (parameters)
+    (type_reference
+      (type_identifier))
+    (fails_clause
+      (error_set
+        (type_variable
+          (constant_identifier))
+        (type_variable
+          (constant_identifier))))
+    (block
+      (integer))))

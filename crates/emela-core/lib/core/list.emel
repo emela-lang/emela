@@ -6,12 +6,12 @@
 #   a result from the front accumulate it in reverse and then `reverse` it.
 
 pub fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {
-  xs.fold(from: [], f: fn(acc, x) { [f(x), ..acc] }).reverse()
+  xs.fold(from: [], f: |acc, x| [f(x), ..acc]).reverse()
 }
 
 ## Keeps the order.
 pub fn filter[A](xs: List[A], f: fn(A) -> Bool) -> List[A] {
-  xs.fold(from: [], f: fn(acc, x) { if f(x) { [x, ..acc] } else { acc } }).reverse()
+  xs.fold(from: [], f: |acc, x| if f(x) { [x, ..acc] } else { acc }).reverse()
 }
 
 ## Folds from the front: `f(f(f(from, x0), x1), x2)`.
@@ -88,13 +88,13 @@ pub fn join(xs: List[String], sep: String) -> String
 
 ## Flattens a list of lists, keeping the order.
 pub fn flatten[A](xss: List[List[A]]) -> List[A] {
-  xss.reverse().fold(from: [], f: fn(acc, xs) { xs.append(acc) })
+  xss.reverse().fold(from: [], f: |acc, xs| xs.append(acc))
 }
 
 ## Splits into the elements where `f` is True and those where it is False, both in order.
 ## `(evens, odds) = xs.partition(is_even)`．
 pub fn partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A]) {
-  (yes, no) = fold(xs, from: ([], []), f: fn((ys, ns), x) {
+  (yes, no) = fold(xs, from: ([], []), f: |(ys, ns), x| {
     if f(x) { ([x, ..ys], ns) } else { (ys, [x, ..ns]) }
   })
   (reverse(yes), reverse(no))
@@ -223,14 +223,14 @@ pub fn enumerate[A](xs: List[A]) -> List[(Int, A)] {
 
 ## The first and second of each pair, as two lists.
 pub fn unzip[A, B](xys: List[(A, B)]) -> (List[A], List[B]) {
-  xys.reverse().fold(from: ([], []), f: fn((xs, ys), (x, y)) {
+  xys.reverse().fold(from: ([], []), f: |(xs, ys), (x, y)| {
     ([x, ..xs], [y, ..ys])
   })
 }
 
 ## Sorted by `f`, a merge sort. Stable: elements that `f` finds Equal keep their order.
 pub fn sort_by[A](xs: List[A], f: fn(A, A) -> Ordering) -> List[A] {
-  merge_all(xs.map(fn(x) { [x] }), f)
+  merge_all(xs.map(|x| [x]), f)
 }
 
 fn merge_all[A](runs: List[List[A]], f: fn(A, A) -> Ordering) -> List[A] {
@@ -307,6 +307,6 @@ fn compare_lists[A: Ord](xs: List[A], ys: List[A]) -> Ordering {
 ## `[1, 2, 3]`. A String element is quoted (`["a"]`).
 impl List[A: Show]: Show {
   fn show(self) {
-    "[#{self.map(fn(x) { String.show_nested(x) }).join(", ")}]"
+    "[#{self.map(|x| String.show_nested(x)).join(", ")}]"
   }
 }

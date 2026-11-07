@@ -161,8 +161,8 @@ handler Inner: SecondResource { fn read() { 2 }
   release { mark(2) } }
 pub fn work() -> Int use Async {
   with Waiting {
-    result = Fiber.scope(fn() {
-      Fiber.fork(fn() { with Outer, Inner { mark(1)
+    result = Fiber.scope(|| {
+      Fiber.fork(|| { with Outer, Inner { mark(1)
         (use Wait).get(1) } })
       (use Wait).get(2)
     })
@@ -226,8 +226,8 @@ handler Resource: Marker { fn read() { 1 }
     mark(3) } }
 pub fn work() -> Int use Async {
   with Waiting {
-    result = Fiber.scope(fn() {
-      Fiber.fork(fn() { with Resource { mark(1)
+    result = Fiber.scope(|| {
+      Fiber.fork(|| { with Resource { mark(1)
         (use Wait).get(1) } })
       (use Wait).get(2)
     })

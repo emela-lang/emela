@@ -36,7 +36,7 @@ pub fn empty[K, V]() -> Map[K, V] {
 
 ## The map of the pairs. A key given twice takes its later value.
 pub fn from_list[K: Ord, V](pairs: List[(K, V)]) -> Map[K, V] {
-  pairs.fold(from: empty(), f: fn(m, (key, value)) { insert(m, key, value) })
+  pairs.fold(from: empty(), f: |m, (key, value)| insert(m, key, value))
 }
 
 ## `m` with `key` mapped to `value`, replacing its value if it is there.
@@ -116,12 +116,12 @@ pub fn to_list[K, V](m: Map[K, V]) -> List[(K, V)] {
 
 ## The keys in order.
 pub fn keys[K, V](m: Map[K, V]) -> List[K] {
-  m.to_list().map(fn((key, _)) { key })
+  m.to_list().map(|(key, _)| key)
 }
 
 ## The values in key order.
 pub fn values[K, V](m: Map[K, V]) -> List[V] {
-  m.to_list().map(fn((_, value)) { value })
+  m.to_list().map(|(_, value)| value)
 }
 
 ## `f` on each value. The keys stay.
@@ -145,7 +145,7 @@ pub fn map_values[K, V, W](m: Map[K, V], f: fn(V) -> W) -> Map[K, W] {
 
 ## The pairs for which `f` is True.
 pub fn filter[K, V](m: Map[K, V], f: fn(K, V) -> Bool) -> Map[K, V] {
-  m.to_list().filter(fn((key, value)) { f(key, value) }) |> from_sorted
+  m.to_list().filter(|(key, value)| f(key, value)) |> from_sorted
 }
 
 ## The keys of both. A key in both takes its value in `a` (as in Haskell's `Data.Map.union`).
