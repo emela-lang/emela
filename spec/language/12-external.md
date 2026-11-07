@@ -13,7 +13,7 @@ fn console_log(msg: String) -> ()
 @external(js, "Math.sin")
 @external(wasm, "env", "sin")
 @external(c, "sin")
-fn sin(x: Float) -> Float use {}
+fn sin(x: Float) -> Float uses {}
 
 @external(js, "./http_ffi.mjs", "fetchText")
 @external(wasm, "wasi:http/client", "fetch")
@@ -39,14 +39,14 @@ suspend fn fetch_text(url: String) -> String
 
 | Declaration | Meaning | Where it can be called |
 |---|---|---|
-| `use {}` written explicitly | Declares that the function is pure | Anywhere |
-| `use` omitted | Has host side effects | Only inside the init, the release and the operation bodies of a handler |
+| `uses {}` written explicitly | Declares that the function is pure | Anywhere |
+| `uses` omitted | Has host side effects | Only inside the init, the release and the operation bodies of a handler |
 | `suspend fn` | Needs to wait for completion. Requires Async | Only inside a handler |
 
-- The compiler cannot verify that a `use {}` declaration is correct. The person who declares it is responsible for it.
-- The restriction on where a function can be called applies to references, not only to calls. An external function with `use` omitted cannot be carried out of a handler as a function value either. The inside of an anonymous function inside an operation body of a handler counts as inside.
-- An external function declared as `suspend fn` can be used only inside a handler, even when `use {}` is written (E0407).
-- The host side effects of an external function are not put in R. The R of an external function with `use` omitted is empty, and its side effects are handled by the restriction on where it can be called.
+- The compiler cannot verify that a `uses {}` declaration is correct. The person who declares it is responsible for it.
+- The restriction on where a function can be called applies to references, not only to calls. An external function with `uses` omitted cannot be carried out of a handler as a function value either. The inside of an anonymous function inside an operation body of a handler counts as inside.
+- An external function declared as `suspend fn` can be used only inside a handler, even when `uses {}` is written (E0407).
+- The host side effects of an external function are not put in R. The R of an external function with `uses` omitted is empty, and its side effects are handled by the restriction on where it can be called.
 - An external function declared as `suspend fn` corresponds to a function that returns a Promise in JS, and to an async import in WASI. The calling fiber suspends until completion.
 - In JS, the runtime adds an `AbortSignal` as the last argument of an external function declared as `suspend fn`. It aborts when the waiting fiber is interrupted. When an implementation of a suspend fn operation is waiting on an external function and the caller is interrupted before resume, the runtime also unwinds the implementation and aborts. This is for stopping network requests and timers (without it, even if the result is discarded, the requests and timers stay in the host event loop and the process does not exit). A function that does not use the signal MAY ignore it. Interruption stops only waits of this form. A handler that resumes later from a callback is not stopped (discarded continuations in 14.5). The bundled handlers (including `sleep` of SystemClock) are written in this form.
 - In JS, a returned value that is not a Promise is treated as a resolved value. A rejected Promise is a defect, the same as an exception thrown by the call (12.5).
@@ -170,7 +170,7 @@ pub fn add(a: Int, b: Int) -> Int { a + b }
 - `@export` is written on a top-level fn with a body. Writing it on any other declaration, or on a fn without a body, is E0146. Its arguments have the form `(target, "name")` or `(target, "interface", "name")`, as for `@external` (12.1). One `@export` is written per target name; a fn MAY have several for the same target. Malformed arguments are E0146, and an unknown target is E0140.
 - An `@export` fn exposes itself to the host under each name. Each call by the host is one launch, as main is.
 - The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402).
-- A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} use {}` (`f: fn(Int) -> String fails {} use {}`). Otherwise its E and R are not empty (E0402).
+- A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} uses {}` (`f: fn(Int) -> String fails {} uses {}`). Otherwise its E and R are not empty (E0402).
 - An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
 - Two exports with the same name for the same target, from `@export`, `@entry` or the launcher of `main.mjs` (`[target.js.module]`), are a compile error (E0438).
 - How each target exposes the fn is in `[target.js.module]`, `[target.c.export]` and `[target.wasm.external]`.

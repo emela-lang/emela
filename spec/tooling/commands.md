@@ -149,12 +149,12 @@ Comparing the public API:
 - The version compared against (the previous version) is the largest version in the proxy's `@v/list` that has the same major and is smaller than the current version. Prerelease versions are included. If there is no previous version, no comparison is made. The previous version is fetched by the same path as dependencies and verified with the sumdb.
 - The following changes are treated as incompatible.
   - Removing a pub definition or module, making it non-pub, or renaming it.
-  - Changing the number, types, or names (6.2) of a function's parameters, or its return type. Adding an error to fails. Adding an effect to use. Adding a bound to a type parameter.
+  - Changing the number, types, or names (6.2) of a function's parameters, or its return type. Adding an error to fails. Adding an effect to uses. Adding a bound to a type parameter.
   - Adding, removing, or changing fields of a type or error. Making it opaque (4.4).
   - Adding, removing, or changing variants of an enum (this breaks exhaustive matches in dependents).
   - Adding, removing, or changing operations of an effect or methods of a trait (this breaks implementers).
   - Changing the type of a const.
-- Adding pub definitions or modules, and making something no longer opaque, are treated as compatible additions. Removing errors from fails and effects from use are treated as compatible (18.1 #41).
+- Adding pub definitions or modules, and making something no longer opaque, are treated as compatible additions. Removing errors from fails and effects from uses are treated as compatible (18.1 #41).
 - The required bump is major if there are incompatible changes, minor if there are only compatible additions, and patch if the public API does not change. While at v0, each is shifted down by one: incompatible changes require minor, and compatible additions require patch. `v0.0.z` and prerelease versions are not compared.
 - Behavior changes that do not change types are not examined.
 

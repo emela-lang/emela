@@ -281,12 +281,12 @@ The mutable state of `[effect.state]`. `run` is a handler provided by the runtim
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
 | `State` | `effect State[S] { fn get() -> S; fn set(value: S) -> (); fn update(f: fn(S) -> S) -> () }` | Emela | Reads and writes a state of type `S` |
-| `run` | `run[S, A, E, R](initial: S, body: fn() -> A fails E use { State[S], R }) -> (A, S) fails E use R` | runtime | Runs `body` with a state whose initial value is `initial`, and returns the value and the final state. On failure, the state is discarded |
+| `run` | `run[S, A, E, R](initial: S, body: fn() -> A fails E uses { State[S], R }) -> (A, S) fails E uses { R }` | runtime | Runs `body` with a state whose initial value is `initial`, and returns the value and the final state. On failure, the state is discarded |
 
 ```emel
 import Std.State.{State}
 
-fn count() -> Int use { State[Int] } {
+fn count() -> Int uses { State[Int] } {
   st = use State[Int]
   st.update(|n| n + 1)
   st.get()
@@ -354,19 +354,19 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 |---|---|---|---|
 | `Fiber` | `@external type Fiber[A]` | runtime | A handle to a fiber. Cannot be leaked out of the scope (`[fiber.escape]`) |
 | `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | How a fiber ended |
-| `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E use R) -> Fiber[A]; fn deferred[A]() -> Deferred[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
-| `scope` | `scope[A, E, R](body: fn() -> A fails E use { Scope[E, R], Async, R }) -> A fails E use { Async, R }` | intrinsic | Runs the body and returns the value after all children have finished. Children use the handlers in effect where `scope` was called |
-| `fork` | `fork[A, E, R](f: fn() -> A fails E use R) -> Fiber[A] use Scope[E, R]` | Emela | `(use Scope).fork(f)` |
-| `deferred` | `deferred[A, E, R]() -> Deferred[A] use Scope[E, R]` | Emela | `(use Scope).deferred()` |
-| `join` | `join[A](fiber: Fiber[A]) -> A use Async` | intrinsic | Waits for the child to finish and returns its value. A defect if the child was interrupted |
-| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] use Async` | intrinsic | Waits for the child to finish and returns how it ended |
-| `interrupt` | `interrupt[A](fiber: Fiber[A]) -> () use Async` | intrinsic | Interrupts the child and waits until its unwinding finishes |
-| `attempt` | `attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R` | intrinsic | Runs `f` in place and turns Fail and Die into values. Does not catch an interruption of the calling fiber itself |
-| `all` | `all[A, E, R](fs: List[fn() -> A fails E use R]) -> List[A] fails E use { Async, R }` | Emela | Runs all of them concurrently and collects the results in the original order |
-| `race` | `race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async, R }` | Emela | Takes the first one to finish and interrupts the rest |
-| `both` | `both[A, B, E, R](f: fn() -> A fails E use R, g: fn() -> B fails E use R) -> (A, B) fails E use { Async, R }` | Emela | Runs the two concurrently and returns a pair |
-| `map` | `map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E use R) -> List[B] fails E use { Async, R }` | Emela | Applies `f` to each element concurrently |
-| `timeout` | `timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A] fails E use { Clock, Async, R }` | Emela | Waits up to `ms` milliseconds. If `f` does not finish in time, interrupts it and returns `None` |
+| `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]; fn deferred[A]() -> Deferred[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
+| `scope` | `scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) -> A fails E uses { Async, R }` | intrinsic | Runs the body and returns the value after all children have finished. Children use the handlers in effect where `scope` was called |
+| `fork` | `fork[A, E, R](f: fn() -> A fails E uses { R }) -> Fiber[A] uses { Scope[E, R] }` | Emela | `(use Scope).fork(f)` |
+| `deferred` | `deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] }` | Emela | `(use Scope).deferred()` |
+| `join` | `join[A](fiber: Fiber[A]) -> A uses { Async }` | intrinsic | Waits for the child to finish and returns its value. A defect if the child was interrupted |
+| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | intrinsic | Waits for the child to finish and returns how it ended |
+| `interrupt` | `interrupt[A](fiber: Fiber[A]) -> () uses { Async }` | intrinsic | Interrupts the child and waits until its unwinding finishes |
+| `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | intrinsic | Runs `f` in place and turns Fail and Die into values. Does not catch an interruption of the calling fiber itself |
+| `all` | `all[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[A] fails E uses { Async, R }` | Emela | Runs all of them concurrently and collects the results in the original order |
+| `race` | `race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }` | Emela | Takes the first one to finish and interrupts the rest |
+| `both` | `both[A, B, E, R](f: fn() -> A fails E uses { R }, g: fn() -> B fails E uses { R }) -> (A, B) fails E uses { Async, R }` | Emela | Runs the two concurrently and returns a pair |
+| `map` | `map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E uses { R }) -> List[B] fails E uses { Async, R }` | Emela | Applies `f` to each element concurrently |
+| `timeout` | `timeout[A, E, R](ms: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { Clock, Async, R }` | Emela | Waits up to `ms` milliseconds. If `f` does not finish in time, interrupts it and returns `None` |
 
 - `all` and `map` launch all children first, then join them in the original order.
 - `timeout` launches a child that puts `Some(f())` into a Deferred and a child that waits ms with Clock and then puts None, and returns whichever was put first. Time is measured with the Clock handler at the call site, so inside TestClock it is measured in virtual time.
@@ -389,7 +389,7 @@ impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions,
 |---|---|---|---|
 | `Deferred` | `@external type Deferred[A]` | runtime | A container that can be filled with a value only once. Only `deferred` of Scope can create one |
 | `complete` | `complete[A](d: Deferred[A], value: A) -> Bool` | intrinsic | Puts in the value and returns True only the first time. False from the second time on |
-| `await` | `await[A](d: Deferred[A]) -> A use Async` | intrinsic | Waits until a value is put in |
+| `await` | `await[A](d: Deferred[A]) -> A uses { Async }` | intrinsic | Waits until a value is put in |
 | `poll` | `poll[A](d: Deferred[A]) -> Option[A]` | intrinsic | `Some` if a value is in. Does not wait |
 
 ### Std.Http (`std/http.emel`, `std/http.mjs`) `[api.std.http]`
@@ -402,14 +402,14 @@ The client effect, its errors, and the entry adapter for HTTP services. Requests
 | `ConnectionFailed` | `error ConnectionFailed(url: String, message: String)` | No response could be received (name resolution, connection, TLS, exceeding the redirect limit). The cause is in `message` |
 | `ResponseNotText` | `error ResponseNotText(url: String)` | The response body cannot be read as UTF-8 |
 | `Http` | `effect Http { suspend fn send(request: Request) -> Response fails InvalidUrl \| ConnectionFailed \| ResponseNotText }` | Sends a request. 4xx and 5xx are not failures |
-| `get` | `get(url: String) -> Response fails ... use Http` | Sends a GET |
-| `post` | `post(url: String, body: String) -> Response fails ... use Http` | Sends a POST with a body |
+| `get` | `get(url: String) -> Response fails ... uses { Http }` | Sends a GET |
+| `post` | `post(url: String, body: String) -> Response fails ... uses { Http }` | Sends a POST with a body |
 | `SystemHttp` | `handler SystemHttp: Http` | JS `fetch`. Follows redirects and does not store cookies. Requires Async |
 | `TestServer` | `type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Request])` | The counterpart of TestHttp. `respond` takes a request and its count (from 0) |
 | `TestHttp` | `handler TestHttp: Http` | The state is `State[TestServer]`. Appends the request to `sent` and resumes immediately with the response from `respond`. `None` means ConnectionFailed |
 | `Incoming` | `@external type Incoming` | The request as the host handed it over. Used only when writing an export by hand |
 | `Outgoing` | `@external type Outgoing` | The response for the host to send |
-| `serve` | `serve[E](app: fn(Request) -> Response fails E use { Async }, incoming: Incoming) -> Outgoing use { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
+| `serve` | `serve[E](app: fn(Request) -> Response fails E uses { Async }, incoming: Incoming) -> Outgoing uses { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
 
 - `request`, `add_header`, `header`, `headers`, `encode_query`, `require_ok`, and `response` remain for one minor version with `@deprecated`, pointing to their new places (`Request.new`, `Request.add_header`, `Response.header`, `Response.header_values`, `Request.encode_query`, `Response.require_ok`, `Response.new`).
 - The message of ConnectionFailed is the text of the host's exception. If cause information is available, the cause's code and text, joined by a space, are appended after `: ` (`fetch failed: ECONNREFUSED connect ECONNREFUSED 127.0.0.1:1234`). The text depends on the host.

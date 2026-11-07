@@ -5,7 +5,7 @@ This chapter is the first version that turns the decisions so far into EBNF. Amb
 ## 17.1 Notation `[grammar.notation]`
 
 - `{ x }` is zero or more repetitions, `[ x ]` is optional, and `|` is a choice. Quoted items are terminal symbols.
-- NL is a newline that acts as a statement terminator (2.5). Newlines judged to be line continuations, newlines inside `(` and `[`, and newlines inside the braces of an effect set (`use { ... }`) are removed during lexical analysis.
+- NL is a newline that acts as a statement terminator (2.5). Newlines judged to be line continuations, newlines inside `(` and `[`, and newlines inside the braces of an effect set (`uses { ... }`) are removed during lexical analysis.
 - A trailing comma in a list is allowed everywhere. The rules omit it.
 
 ## 17.2 Lexical grammar `[grammar.lex]`
@@ -52,7 +52,7 @@ qualified    = type_name { "." type_name } "." lower_name
 
 fn_decl      = [ "suspend" ] "fn" lower_name [ type_params ]
                "(" [ params ] ")" [ signature ] [ block ]
-signature    = [ "->" type [ "fails" error_set ] ] [ "use" effect_set ]
+signature    = [ "->" type [ "fails" error_set ] ] [ "uses" effect_set ]
 params       = param { "," param }
 param        = "self" | lower_name [ ":" type ]
 
@@ -96,6 +96,7 @@ impl_item    = "fn" lower_name "(" [ params ] ")" block
 The following restrictions apply outside the grammar.
 
 - An fn_decl without a body, and a top-level suspend fn, are allowed only when they have `@external`. A trait_item fn does not need a default implementation, and this restriction does not apply to it.
+- `fails` and `uses` are contextual keywords (3.2). Writing `use` in the place of `uses` is a compile error (E0147), and the diagnostic shows the rewrite.
 - A `qualified` annot_arg is allowed only as the argument of `@entry`.
 - `opaque` can be applied only to type and enum.
 - Each parameter of init is a lower_name with a type (8.4).
@@ -114,7 +115,7 @@ type       = type_ref [ "[" type_arg { "," type_arg } "]" ]
            | "(" type ")"                                     (* parentheses *)
            | "(" type "," type { "," type } ")"               (* tuple *)
            | "fn" "(" [ type { "," type } ] ")" "->" type
-             [ "fails" error_set ] [ "use" effect_set ]
+             [ "fails" error_set ] [ "uses" effect_set ]
 type_ref   = [ module_path "." ] type_name
 
 type_arg   = type

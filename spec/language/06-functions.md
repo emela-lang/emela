@@ -11,10 +11,10 @@ fn add(x: Int, y: Int) -> Int {
 
 fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { ... }
 
-pub fn find(id: Int) -> User fails NotFound use Users { ... }
+pub fn find(id: Int) -> User fails NotFound uses { Users } { ... }
 ```
 
-- In a top-level fn, the parameter types are written (omitting them is a compile error (E0316)). In an anonymous function they can be omitted. The return type, `fails`, and `use` can be omitted. The meaning when they are omitted is defined in 7.4 and 9.3.
+- In a top-level fn, the parameter types are written (omitting them is a compile error (E0316)). In an anonymous function they can be omitted. The return type, `fails`, and `uses` can be omitted. The meaning when they are omitted is defined in 7.4 and 9.3.
 - The body is a block, and the value of the last expression is the return value. There is no `return`.
 - An anonymous function is written `|x| x + 1`. The parameters are written between `|` and `|`, separated by `,` (`|acc, x| acc + x`). An anonymous function without parameters is written with the token `||` (`|| fetch(1)`). Parameter types can be omitted. There is no annotation of the return type.
 - The body is one expression and extends as far to the right as possible: it includes `|>`, binary operators, and postfix `match` and `escape`. It ends where an expression ends: at a `,` or a closing bracket, at the end of a statement, and at the end of an arm. A body of several statements is a block, `|x| { ... }`. A `{` after the parameter list always starts a block, because records and constructors are written with parentheses (5.1).

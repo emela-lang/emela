@@ -81,7 +81,7 @@ fn largest[A: Ord](xs: List[A]) -> Option[A] { ... }
 ## 10.4 Errors and effects of trait functions `[trait.effects]`
 
 - Trait functions are pure by default.
-- If the declaration has `fails E` or `use R`, implementations can have errors and effects within that range. An implementation cannot go beyond the declared range.
+- If the declaration has `fails E` or `uses { R }`, implementations can have errors and effects within that range. An implementation cannot go beyond the declared range.
 - So the E and R of a function that uses `[A: Decode]` are determined by the trait declaration alone.
 
 ## 10.5 derive `[trait.derive]`

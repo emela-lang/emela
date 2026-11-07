@@ -79,7 +79,7 @@ enum Option[A] {
 
 - The type is written `(Int, String)`, the value `(1, "a")`, and the pattern `(n, s)`.
 - The tuple with zero elements, `()`, is Unit. There is no tuple with one element; `(x)` in an expression and `(T)` in a type are just parentheses. The pattern `(a)` cannot be written (E0112). The type `(Int,)` and the expression and pattern `(a,)` are also E0112, and the implementation reads them as tuples and continues checking.
-- Parentheses in types are used in function types that return functions, to say which `fn` the fails and use clauses belong to. In `fn make() -> (fn(Int) -> String) fails ParseError`, the fails clause belongs to make. Without the parentheses it belongs to the inner `fn`.
+- Parentheses in types are used in function types that return functions, to say which `fn` the fails and uses clauses belong to. In `fn make() -> (fn(Int) -> String) fails ParseError`, the fails clause belongs to make. Without the parentheses it belongs to the inner `fn`.
 
 ## 5.6 const `[data.const]`
 
