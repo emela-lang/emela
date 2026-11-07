@@ -16,7 +16,7 @@ Every expression has a triple: the value type T, the error set E, and the effect
 ## 9.2 Function types `[type.fn]`
 
 ```
-fn(A, B) -> C fails E use R
+fn(A, B) -> C fails E uses { R }
 ```
 
 In a function type written in a parameter position, an omitted clause means "anything, and it propagates to the caller".
@@ -25,9 +25,9 @@ In a function type written in a parameter position, an omitted clause means "any
 |---|---|
 | `fn(A) -> B` | Functions with any errors and effects. They are added to the E and R of the side that calls the received function |
 | `fn(A) -> B fails {}` | Only functions that do not fail |
-| `fn(A) -> B use {}` | Only functions without effects |
-| `fn(A) -> B fails {} use {}` | Only pure functions |
-| `fn(A) -> B use R` (R is a type parameter) | Names the effects so that constraints can be put on them (9.5) |
+| `fn(A) -> B uses {}` | Only functions without effects |
+| `fn(A) -> B fails {} uses {}` | Only pure functions |
+| `fn(A) -> B uses { R }` (R is a type parameter) | Names the effects so that constraints can be put on them (9.5) |
 
 By this rule, `List.map(xs, f)` passes on the errors and effects of f as they are. There is no need to provide both a pure version and an effectful version.
 
@@ -42,7 +42,7 @@ The meaning of an omitted clause in a function type depends on where the type is
 To hold an effectful function inside a declaration, make it explicit with type parameters.
 
 ```emel
-type Handler[E, R](run: fn(Request) -> Response fails E use R)
+type Handler[E, R](run: fn(Request) -> Response fails E uses { R })
 
 fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
   |x| g(f(x)) # the returned function is inferred to have the errors and effects of f and g
@@ -50,8 +50,8 @@ fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
 ```
 
 - Inside declarations, an omitted clause is empty so that no set variable is created that does not appear in the type's name. That `Handler` can have effects is visible in its type parameters, as `Handler[E, R]`.
-- Whether a type parameter is an ordinary type, an error set, or an effect set is inferred from the position where it is used (`fails E`, `use R`). There is no syntax for writing kinds. A type parameter passed to a set type parameter position of a named type (E in `type Server[E](inner: Handler[E, Db])`, E and R in `fn serve[E, R](h: Handler[E, R])`) and a type parameter in a set type parameter position of a built-in effect written in a use clause (`use Scope[E, R]`) are also sets.
-- A set can be passed to a set type parameter of a named type. The notation matches the fails clause (`A | B`) and the use clause (`{ A, B }`): `Handler[NotFound | Timeout, { Db, Log }]`, `Handler[{}, {}]`, `Handler[E | Timeout, { R, Log }]`.
+- Whether a type parameter is an ordinary type, an error set, or an effect set is inferred from the position where it is used (`fails E`, `uses { R }`). There is no syntax for writing kinds. A type parameter passed to a set type parameter position of a named type (E in `type Server[E](inner: Handler[E, Db])`, E and R in `fn serve[E, R](h: Handler[E, R])`) and a type parameter in a set type parameter position of a built-in effect written in a uses clause (`uses { Scope[E, R] }`) are also sets.
+- A set can be passed to a set type parameter of a named type. The notation matches the fails clause (`A | B`) and the uses clause (`{ A, B }`): `Handler[NotFound | Timeout, { Db, Log }]`, `Handler[{}, {}]`, `Handler[E | Timeout, { R, Log }]`.
 - A single element can be written without enclosing it (`Handler[NotFound, Db]`). Syntactically, it is read as a type. An empty `{}` can also be written in an error set position (the same as `fails {}`).
 - Which type parameters accept sets is not decided by the grammar but checked by type checking. A set of the wrong kind or an element that is not a set is a compile error (E0323), and a set in a type parameter position that is not for sets (`List[{}]`) is a compile error (E0324).
 
@@ -61,24 +61,24 @@ fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
 |---|---|---|
 | Return type | T and E are inferred | T is checked, and E is enforced to match the fails clause (7.4) |
 | fails clause | "No errors" if there is a return type | Enforces exactly that set |
-| use clause | R is always inferred (even when a return type is written) | Enforces exactly that set. The effects of calling parameter functions (hidden set variables) are added (as for E in 7.4) |
+| uses clause | R is always inferred (even when a return type is written) | Enforces exactly that set. The effects of calling parameter functions (hidden set variables) are added (as for E in 7.4) |
 
 E and R usually do not appear in source. The LSP displays them.
 
 An effect not included in the declared R is a compile error (E0402). The diagnostic points, for each effect, at the first expression (`use` or a call) that requires it. The first expression is determined in the same way as for E0318 (7.4).
 
-Definitions whose types are inferred (a fn without a return type, a fn whose return type contains a function type with omitted clauses, a fn without a use clause, a const without a type) are inferred for each group of mutually referencing definitions, starting from the groups that are referenced.
+Definitions whose types are inferred (a fn without a return type, a fn whose return type contains a function type with omitted clauses, a fn without a uses clause, a const without a type) are inferred for each group of mutually referencing definitions, starting from the groups that are referenced.
 
-- Within a group, references use monomorphic types, and the group is generalized after its inference finishes. Using the same definition at different types within a group is a type mismatch (there is no polymorphic recursion). For a fn without a use clause, T and E are as declared, and only R follows this rule.
+- Within a group, references use monomorphic types, and the group is generalized after its inference finishes. Using the same definition at different types within a group is a type mismatch (there is no polymorphic recursion). For a fn without a uses clause, T and E are as declared, and only R follows this rule.
 - When generalizing, set variables in the E and R of parameter function types that have neither a lower bound nor an upper bound are quantified as set type parameters (`fn caller() { |g| g() }` is `∀ A, E. fn() -> fn(fn() -> A fails E) -> A fails E`). Other set variables are fixed to the smallest set that satisfies the constraints.
 
 Types are displayed as follows.
 
 - Generalized type parameters are named `A`, `B`, …, `Z` in order of appearance, and then `T26`, `T27`, …, and constraints are written on the quantifier in the form `∀ A: Ord + Show, B. T`.
 - Generalized set type parameters are named `E`, `E1`, … (errors) and `R`, `R1`, … (effects), and are listed after ordinary type parameters. A hidden set in a parameter type is displayed by the parameter name as `E(f)` and `R(f)`, and the second and later ones of the same parameter as `E(f, 2)`.
-- Empty E and R are omitted. However, inside the parameter types of a function type, omitting them would read as "anything", so `fails {}` and `use {}` are written.
-- An effect set is written as is when it has one element, as `{ A, B }` when it has two or more, and as `{}` when it is empty, with effects first and set type parameters after them. The `use` clause is written after the `fails` clause.
-- If the return type of a function type with outer clauses is a function type, the return type is enclosed in parentheses (5.5). The type of a capability value is displayed as `use Logger`.
+- Empty E and R are omitted. However, inside the parameter types of a function type, omitting them would read as "anything", so `fails {}` and `uses {}` are written.
+- An effect set in a uses clause is always written with braces (`uses { A }`, `uses { A, B }`, `uses {}`), with effects first and set type parameters after them. In a set type argument of a named type, a set of one element is written as is (`Handler[E, Db]`). The `uses` clause is written after the `fails` clause.
+- If the return type of a function type with outer clauses is a function type, the return type is enclosed in parentheses (5.5). The type of a capability value is displayed as `use Logger`. `use` here names one capability value, and `uses` names a set; the two are not interchangeable.
 - Diagnostics for type mismatches do not show set variables that are not yet determined.
 - A type that could not be checked (a type that could not be read, or a type whose name could not be resolved) is displayed as `{unknown}`. This type is treated as matching every type, so that errors do not pile up.
 
@@ -94,10 +94,10 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `x.f(a)` (method call) | The return type of the function found, called as `M.f(x, a)` | Ex ∪ Ef ∪ Ea | Rx ∪ Rf ∪ Ra |
 | `C(fi: ei, ..r)` | The type of C (type arguments are determined from ei and the fields carried over from r) | Ei ∪ Er | Ri ∪ Rr |
 | `fail e` | Never | { the tag of e } | {} |
-| `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. 7.3) | Re ∪ Rei |
+| `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. When there is an arm `_`, the E is Eei alone. 7.3) | Re ∪ Rei |
 | `use X` | The capability of X | {} | { X } |
 | `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H)) ∪ requires(H) ∪ (R of the arguments of init) |
-| `\|x\| e` | `fn(..) -> T fails Ee use Re` | {} | {} |
+| `\|x\| e` | `fn(..) -> T fails Ee uses { Re }` | {} | {} |
 | `if c { a } else { b }` | The common type of a and b | Ec ∪ Ea ∪ Eb | Rc ∪ Ra ∪ Rb |
 | `e match { pi -> ei }` | The common type of the arms | Ee ∪ Eei | Re ∪ Rei |
 
@@ -113,7 +113,7 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 - Never is treated as another type only at branch joins and at the top level of a position with an expected type. `List[Never]` and `List[Int]` do not match.
 - provides(H) is the effects that H implements, and requires(H) is the union of the Rs of the init, the release, and the operation bodies of H. The provision and requirements of label items (`L`, `L by P`) and the provision of `default` labels are defined in 8.9.
 - The E of a function value only needs to be contained in the E of the expected function type. A function with a smaller E can be used as a function with a larger E. When functions with different Es are put together at a branch join or as list elements, the E is their union. The direction of containment is reversed inside the parameters of function types, and goes both ways (equality) inside the type arguments of named types.
-- When a function is passed to a parameter whose function type has two or more set type parameters in its fails (`fails E1 | E2`), the errors of the passed function that are not among the written-out tags go into the first set type parameter. This is an approximation, and later checks can report a compile error. The same applies to the use clause (`use { Quiet, R1, R2 }`).
+- When a function is passed to a parameter whose function type has two or more set type parameters in its fails (`fails E1 | E2`), the errors of the passed function that are not among the written-out tags go into the first set type parameter. This is an approximation, and later checks can report a compile error. The same applies to the uses clause (`uses { Quiet, R1, R2 }`).
 - E is represented as a union of tags and set variables. `∖ {Ti}` acts only on the tag part and leaves set variables as they are. Even if a set variable is later determined to be a concrete set, tags are not removed from it retroactively (an approximation that errs on the safe side).
 
 ## 9.5 Constraints on effects `[type.effect-bound]`
@@ -122,7 +122,7 @@ Effect sets can be written as type parameters, and constraints can be put on the
 
 ```emel
 @external(js, "./dom.mjs", "onClick")
-fn on_click[R: Immediate](id: String, handler: fn() -> () use R) -> ()
+fn on_click[R: Immediate](id: String, handler: fn() -> () uses { R }) -> ()
 ```
 
 Immediate is a built-in constraint that means "does not suspend, and completes on the spot when called". The compiler determines it automatically from declarations, and users never write implementations of it.
@@ -132,10 +132,10 @@ Immediate is a built-in constraint that means "does not suspend, and completes o
 
 Only the places where suspension would cause problems (such as callbacks passed to external functions) require this constraint. Instead of marking call sites, type checking forbids suspension there.
 
-- Immediate can be put only on type parameters written in a use clause (effect sets). Putting it on an ordinary type parameter or an error set type parameter is a compile error (E0322). Trait constraints cannot be put on effect set type parameters (in 0.20, this produces a "not supported yet" diagnostic).
+- Immediate can be put only on type parameters written in a uses clause (effect sets). Putting it on an ordinary type parameter or an error set type parameter is a compile error (E0322). Trait constraints cannot be put on effect set type parameters (in 0.20, this produces a "not supported yet" diagnostic).
 - An `R: Immediate` constraint is checked against the instantiated set where the definition (a fn or a constructor) is referenced (E0416). The diagnostic is reported at the reference (the name of the callee), and the missing elements in the same reference are combined into one diagnostic. It is not checked in type annotations (`Ticker[Clock]`), because values can be made only by constructors.
 - A hidden effect set in a parameter type has no Immediate constraint, so it cannot be passed to an `R: Immediate` parameter. When the constraint is needed, write `: Immediate` on a named type parameter.
-- A hidden effect set in a parameter type of an external function has the Immediate constraint. A use clause written in a function type of a parameter of an external function declaration is a compile error unless it is Immediate.
+- A hidden effect set in a parameter type of an external function has the Immediate constraint. A uses clause written in a function type of a parameter of an external function declaration is a compile error unless it is Immediate.
 - In a definition whose type is inferred, when a set variable passed to a position that requires Immediate is generalized, that type parameter gets the Immediate constraint.
 - Whether an effect is Immediate is determined only by its declaration and does not depend on handlers. In the implementation of a fn operation, the body's R is Immediate or the body contains no call that may suspend (8.1, E0417), so a call of a fn operation does not suspend whichever handler it reaches, and an operation of an Immediate effect never suspends.
 

@@ -30,7 +30,7 @@ The embedded C target maps a program to C for microcontrollers. Passing `--targe
 
 ## 16.9.3 The entry `[target.c-embedded.entry]`
 
-- With a board, the firmware starts the fn named by `entry` in `[embedded]` (`main` if omitted). It MUST be a pub, non-generic fn of the form `fn() -> Int use Async` that leaves no failure or other effect unhandled. Otherwise it is an error (``board entry `<name>` must be a public, non-generic, argument-free `fn() -> Int use Async` without unhandled failures or effects``), reported before any cross compiler is started.
+- With a board, the firmware starts the fn named by `entry` in `[embedded]` (`main` if omitted). It MUST be a pub, non-generic fn of the form `fn() -> Int uses { Async }` that leaves no failure or other effect unhandled. Otherwise it is an error (``board entry `<name>` must be a public, non-generic, argument-free `fn() -> Int uses { Async }` without unhandled failures or effects``), reported before any cross compiler is started.
 - The entry is given the C alias `board_main_start`. An alias in `[exports]` of the runtime configuration that names `board_main_start` for a different fn is an error.
 
 ## 16.9.4 The project's `[embedded]` table `[target.c-embedded.project]`

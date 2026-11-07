@@ -22,10 +22,10 @@ effect Clock {
 
 - An operation states the types of its parameters and its return value.
 - If an operation can fail, its declaration has `fails`. Without it, the operation does not fail. A handler cannot fail beyond the declared range. As a result, replacing the handler does not change the caller's E.
-- An effect can have type parameters (`effect State[S]`). Type parameters are limited to ordinary types. Effects with different type arguments are treated as different effects, and in R, `State[Int]` and `State[String]` are distinct. Type arguments cannot be omitted, as in `use State[Int]`. Omitting the type arguments is a compile error (E0423), and a wrong number of them is a compile error (E0304). A type parameter written only in the fails or use of a function type in an operation's parameters or return value would be a set, so it is a compile error (E0424), but the operation's own `fails S` is accepted as a single error type (7.2), as for fn. In a function type inside a type argument of an effect, omitted fails and use are empty (as inside declarations in 9.2). However, built-in effects (effects marked `@intrinsic` in the bundled sources; Scope, 11.2) can have set type parameters and type parameters on the operations themselves (`fn fork[A](...)`). Writing type parameters on an operation of a user effect is a compile error (E0426; the diagnostic points at the first type parameter). Users cannot write handlers for built-in effects, so no check is needed for handlers that implement polymorphic operations. The type argument of `use State[S]` can be a type parameter of the enclosing fn. Whether an effect is Immediate is determined by the effect's definition and does not depend on its type arguments.
-- Whether two effects in R are the same is decided by comparing them including their type arguments. If a type argument is not yet determined, they are compared by unification, so in `State.run([], || with TestConsole { greet(1) })` the state type is determined from `State[List[String]]` in the body's R. The with rule "a later handler for the same effect takes precedence" and layer duplication (E0421) also count only effects that are the same including type arguments. Type variables left in R are generalized (`fn peek() { modify(|x| x) }` is `∀ A. fn() -> A use State[A]`).
+- An effect can have type parameters (`effect State[S]`). Type parameters are limited to ordinary types. Effects with different type arguments are treated as different effects, and in R, `State[Int]` and `State[String]` are distinct. Type arguments cannot be omitted, as in `use State[Int]`. Omitting the type arguments is a compile error (E0423), and a wrong number of them is a compile error (E0304). A type parameter written only in the fails or uses of a function type in an operation's parameters or return value would be a set, so it is a compile error (E0424), but the operation's own `fails S` is accepted as a single error type (7.2), as for fn. In a function type inside a type argument of an effect, omitted fails and uses are empty (as inside declarations in 9.2). However, built-in effects (effects marked `@intrinsic` in the bundled sources; Scope, 11.2) can have set type parameters and type parameters on the operations themselves (`fn fork[A](...)`). Writing type parameters on an operation of a user effect is a compile error (E0426; the diagnostic points at the first type parameter). Users cannot write handlers for built-in effects, so no check is needed for handlers that implement polymorphic operations. The type argument of `use State[S]` can be a type parameter of the enclosing fn. Whether an effect is Immediate is determined by the effect's definition and does not depend on its type arguments.
+- Whether two effects in R are the same is decided by comparing them including their type arguments. If a type argument is not yet determined, they are compared by unification, so in `State.run([], || with TestConsole { greet(1) })` the state type is determined from `State[List[String]]` in the body's R. The with rule "a later handler for the same effect takes precedence" and layer duplication (E0421) also count only effects that are the same including type arguments. Type variables left in R are generalized (`fn peek() { modify(|x| x) }` is `∀ A. fn() -> A uses { State[A] }`).
 - A handler that implements an effect with type parameters states concrete types (`handler Fixed: State[Int]`). There are no generic handlers that implement the effect for every type.
-- An operation cannot have a `use` clause (op_sig in 17.3; writing one is a compile error (E0137), and the diagnostic points at the range of the use clause). When the implementation of an operation uses another effect, that effect is a requirement of the handler (requires(H) in 9.4) and is satisfied at the with. As a result, replacing the handler does not change the caller's R. A function type in the declaration of an operation is pure unless written otherwise (9.2), and a user effect cannot have a set type parameter (E0424), so an operation cannot take a function that uses other effects. To use a different capability, provide a different handler at the with.
+- An operation cannot have a `uses` clause (op_sig in 17.3; writing one is a compile error (E0137), and the diagnostic points at the range of the uses clause). When the implementation of an operation uses another effect, that effect is a requirement of the handler (requires(H) in 9.4) and is satisfied at the with. As a result, replacing the handler does not change the caller's R. A function type in the declaration of an operation is pure unless written otherwise (9.2), and a user effect cannot have a set type parameter (E0424), so an operation cannot take a function that uses other effects. To use a different capability, provide a different handler at the with.
 - The body of the implementation of a fn operation (one that is not a suspend fn) MUST satisfy one of the following (E0417). Either one alone guarantees that the body does not suspend.
   - The R of the body is Immediate. A body that calls a suspend fn operation inside the with of a handler that resumes on the spot (`fn now() { with InstantClock { (use Clock).sleep(1) } ... }`) passes by this condition.
   - The body contains no call that may suspend.
@@ -34,8 +34,8 @@ effect Clock {
   - A call of an operation (`clock.now()`, `(use Clock).now()`) is determined by the declaration of the operation. If it is a `suspend fn`, the call may suspend.
   - A call of a function or a function value is determined by the R of the callee's type. If that R is not Immediate, the call may suspend. Calling a closure that captures a capability (`f = || clock.now()`) or an operation taken out as a value (`g = clock.now`) is also a call of a function value.
   - A call of an `@external suspend fn` may suspend.
-- If the body contains no call that may suspend, its R is not restricted. The R of `fn now() { (use Clock).now() }` contains Clock, which becomes a requirement of the handler. Mixing `now` of the outer Clock and `sleep` inside an inner `with InstantClock` in the same body satisfies neither condition and is a compile error (E0417). Accepting it would require looking, for each call, at the innermost with that provides its effect, which makes the rule heavier, so this is not done. A call through a function is treated as possibly suspending even if that function calls only fn operations (`fn now() { stamp() }`, which calls `fn stamp() -> Instant use { Clock }`, is a compile error (E0417)). That a function does not suspend is not inferred from its body. The implementations of fn operations in every handler are bound by the same rule, so a call of a fn operation does not suspend whichever handler it reaches.
-- An operation that involves waiting (waiting on an `@external suspend fn`, calling a suspend operation) MUST be declared as a suspend fn on the effect side. Otherwise its implementation is a compile error (E0417). This is because the caller can learn whether a call suspends only from the effect's declaration. Only operation declarations of effects carry a mark of whether they suspend. Function signatures (`use Http`) and calls do not.
+- If the body contains no call that may suspend, its R is not restricted. The R of `fn now() { (use Clock).now() }` contains Clock, which becomes a requirement of the handler. Mixing `now` of the outer Clock and `sleep` inside an inner `with InstantClock` in the same body satisfies neither condition and is a compile error (E0417). Accepting it would require looking, for each call, at the innermost with that provides its effect, which makes the rule heavier, so this is not done. A call through a function is treated as possibly suspending even if that function calls only fn operations (`fn now() { stamp() }`, which calls `fn stamp() -> Instant uses { Clock }`, is a compile error (E0417)). That a function does not suspend is not inferred from its body. The implementations of fn operations in every handler are bound by the same rule, so a call of a fn operation does not suspend whichever handler it reaches.
+- An operation that involves waiting (waiting on an `@external suspend fn`, calling a suspend operation) MUST be declared as a suspend fn on the effect side. Otherwise its implementation is a compile error (E0417). This is because the caller can learn whether a call suspends only from the effect's declaration. Only operation declarations of effects carry a mark of whether they suspend. Function signatures (`uses { Http }`) and calls do not.
 
 ## 8.2 use `[effect.use]`
 
@@ -68,7 +68,7 @@ fn greet(id: Int) {
 - To let a function use the capability of a specific handler, pass a closure that captures that capability. Passing a closure to a called function inside the with is fine (8.6).
 
 ```emel
-fn copy(read: fn() -> Rows use { Db }, write: fn(Rows) -> () use { Db }) {
+fn copy(read: fn() -> Rows uses { Db }, write: fn(Rows) -> () uses { Db }) {
   write(read())
 }
 
@@ -93,10 +93,10 @@ with AppTest, FixedClock { greet(1) }
 
 - `with H { body }` provides the effects that H implements within the body. Its value is the value of the body.
 - Provided effects are removed from the R of the body. However, as with escape, they are not removed from opaque effect sets (such as the hidden set of a parameter's function type). The R of `fn run(f: fn() -> ()) { with ConsoleLogger { f() } }` remains the effect set of f (7.3).
-- To remove an effect precisely in the types as well, write the provided effect out in the function type (`use { Logger, R }`; the same as `fails Timeout | E` for errors). An effect written out is outside the set variable, so with removes it.
+- To remove an effect precisely in the types as well, write the provided effect out in the function type (`uses { Logger, R }`; the same as `fails Timeout | E` for errors). An effect written out is outside the set variable, so with removes it.
 
 ```emel
-fn run[R](f: fn() -> () use { Logger, R }) -> () use R {
+fn run[R](f: fn() -> () uses { Logger, R }) -> () uses { R } {
   with ConsoleLogger { f() } # R is just R. Logger is removed
 }
 ```
@@ -106,7 +106,7 @@ fn run[R](f: fn() -> () use { Logger, R }) -> () use R {
 - `use X` refers to the handler provided by the innermost with as seen from the position where it is written. If the same function has no such with, it refers to the one passed from the caller.
 - `use X` inside an anonymous function first looks at the withs that enclose the anonymous function (in the same top-level function). If there is none, it refers to the one passed from the side that calls the anonymous function. This is because the R of an anonymous function is enclosed in the anonymous function's type (9.4) and does not appear in the R of the enclosing function.
 - A capability value taken out on the outer side keeps referring to the outer handler even if an inner with overrides the same effect.
-- The R of main MUST be empty except for Async. main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E0230). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a use clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
+- The R of main MUST be empty except for Async. main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E0230). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a uses clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
 
 ```emel
 with PrimaryDb {
@@ -160,7 +160,7 @@ handler SystemClock: Clock {
 - `release` runs once when leaving the with. It runs in every case: normal completion, error, defect, or interruption.
 - The E of release MUST be empty (E0420, reported for each expression that can raise an error). Cleanup that can fail escapes inside release or turns the failure into a defect with panic. The value of release is discarded, so its type does not matter. release MAY call suspend operations (it is not interrupted; 11.4). release is not a fn operation, so the E0417 check does not apply to it.
 - The implementation of a suspend fn receives `resume` as its last parameter. Calling `resume(v)` resumes the suspended caller, and the return value of the operation is `v`.
-- The implementation of a suspend fn has the parameters of the operation plus one for resume (the count for E0406 also includes resume). The last parameter is resume, and its name does not matter. The type of resume is `fn(T) -> () fails {} use {}` (T is the return type of the operation). The value of the implementation body is discarded, so the type of the body MUST be `()`.
+- The implementation of a suspend fn has the parameters of the operation plus one for resume (the count for E0406 also includes resume). The last parameter is resume, and its name does not matter. The type of resume is `fn(T) -> () fails {} uses {}` (T is the return type of the operation). The value of the implementation body is discarded, so the type of the body MUST be `()`.
 - `resume` MUST NOT be called more than once. A second call is a defect (`[dyn.suspend]`). It can be called on the spot or later in a callback.
 
 ## 8.5 layer `[effect.layer]`
@@ -212,7 +212,7 @@ fn make_greeter() {
 ## 8.7 Async `[effect.async]`
 
 - Async is a built-in effect that represents "being resumed later". Only the runtime can provide it, and users cannot write handlers for it. `handler H: Async` is a compile error (E0413), and that handler provides nothing even when written in a with.
-- Async has no operations, so the expression `use Async` is a compile error (E0414). Async can be written in a use clause (`fn f() use Async`).
+- Async has no operations, so the expression `use Async` is a compile error (E0414). Async can be written in a uses clause (`fn f() uses { Async }`).
 - The means of calling `resume` later (callbacks of external functions, `@external suspend fn`, fork) require Async. Therefore SystemClock requires Async, and Async remains in the R of `with SystemClock { ... }`.
 - When the body of a suspend fn implementation uses `resume` in any way other than calling it directly (`resume(v)`), the compiler assumes that resume may be called later and adds Async to the handler's requirements. Uses other than direct calls include storing it in a variable, capturing it in a closure, and passing it as an argument. Calling an `@external suspend fn` also adds Async. This decision is purely syntactic and errs on the safe side.
 - A handler that resumes on the spot (such as the test handler InstantClock) does not require Async. `with InstantClock { ... }` does not actually suspend, and Async does not appear in the types either.
@@ -231,8 +231,8 @@ pub effect State[S] {
 
 pub fn run[S, A, E, R](
   initial: S,
-  body: fn() -> A fails E use { State[S], R },
-) -> (A, S) fails E use R
+  body: fn() -> A fails E uses { State[S], R },
+) -> (A, S) fails E uses { R }
 ```
 
 - `State.run(initial, body)` provides a state whose initial value is initial, runs body, and returns the pair of the value of body and the final state. State[S] is removed from the R of body, so from outside it looks pure.
@@ -267,7 +267,7 @@ To provide the same effect with different handlers in different places, use labe
 effect AuditLog of Console # must be provided
 effect DebugLog of Console default # provided together by a with that provides Console
 
-fn report() -> () use { AuditLog, DebugLog } {
+fn report() -> () uses { AuditLog, DebugLog } {
   with AuditLog { audit() } # AuditLog serves the Console inside audit
   with DebugLog { debug() }
 }
@@ -289,7 +289,7 @@ fn main() {
 - Writing an effect that is not a label in a with or on the left of `by` is a compile error (E0430). Writing `by` twice for the same label in the same with is also a compile error (E0432).
 - A label with `default` is provided together by a with that provides E. This is the same as implicitly adding `L by E` to the item that serves E (a handler, or a label item such as `M`), and L falls to the provider of the innermost with that provides E. If the same with has `L by P`, that item takes precedence regardless of order (8.3). L is removed only from the R of the body, and it does not satisfy the requirements of other handlers in the same with. L inside a hidden set is not removed (8.3).
 - If a label without `default` is not provided, R is not empty in main and tests, which is a compile error (E0402). This prevents an audit log from silently mixing into standard output. To mix them, the caller writes `L by E` explicitly.
-- Function signatures write the label as is (`use { AuditLog, DebugLog }`). Whether it falls to E is decided by the caller, so E is not written. The LSP also shows types with the label as is, and on the name of a label it shows the declaration (`effect DebugLog of Console default`).
+- Function signatures write the label as is (`uses { AuditLog, DebugLog }`). Whether it falls to E is decided by the caller, so E is not written. The LSP also shows types with the label as is, and on the name of a label it shows the declaration (`effect DebugLog of Console default`).
 - A label item (`L`, `L by P`) that appears neither in the R of the body nor in the requirements of other items in the same with produces a warning (W0401). No warning is produced when the R of the body includes a hidden set.
 - A label has no body. Writing `{ ... }` after the declaration is a compile error (E0122).
 - Labels are distinguished by name (nominal). Two separately declared labels are different effects even if their underlying effect is the same, and labels with the same name in different modules are also different.

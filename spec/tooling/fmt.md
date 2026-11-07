@@ -5,8 +5,8 @@ This section defines the shape of the source the formatter outputs. The formatte
 ## Input and output `[fmt.io]`
 
 - The line width is 100. Width is counted as display width, and a full-width character counts as 2. A line that does not fit because a string or name is long can exceed the width.
-- A file with a syntax error is not formatted. E0148 (`fn(...)` in an expression) is not a syntax error here: the formatter rewrites it (`[fmt.closure]`).
-- The formatter re-reads the formatted result and confirms that it has no syntax error and that its token sequence and order of comments match the input. If they do not match, it is an internal error, and the input is not rewritten.
+- A file with a syntax error is not formatted. E0147 (`use` in the place of the uses clause) and E0148 (`fn(...)` in an expression) are not syntax errors here: the formatter rewrites them (`[fmt.signature]`, `[fmt.closure]`).
+- The formatter re-reads the formatted result and confirms that it has no syntax error and that its token sequence and order of comments match the input, apart from these rewrites. If they do not match, it is an internal error, and the input is not rewritten.
 - Line endings are normalized to LF, trailing whitespace is removed, and the file ends with a single newline. An empty file is output empty.
 - The indentation and width cannot be changed. The formatting options the language server receives (`[lsp.formatting]`) do not change them either.
 
@@ -15,7 +15,7 @@ This section defines the shape of the source the formatter outputs. The formatte
 - Indentation is two spaces.
 - Consecutive blank lines are collapsed into one. Blank lines at the start and end of a file, a block, or a sequence of arms are removed. Blank lines inside sequences such as arguments are also removed.
 - Blank lines between top-level declarations are kept as in the original source (0 or 1). No blank lines are added.
-- One space is placed before and after operators, after `,`, and after `:`. No space is placed before `:`, inside parentheses, or before and after `.` and `..`. Only the braces of an effect set get spaces inside (`use { Io, Clock }`).
+- One space is placed before and after operators, after `,`, and after `:`. No space is placed before `:`, inside parentheses, or before and after `.` and `..`. Only the braces of an effect set get spaces inside (`uses { Io, Clock }`).
 - The space between `-` and a number in a pattern is removed (`[fn.match]`).
 - The shorthand of named arguments and field patterns (`id:`) is kept as is. `id: id` is not rewritten to the shorthand either.
 - The `=` of bindings is not aligned, because adding one line would make the surrounding lines part of the diff.
@@ -54,16 +54,17 @@ This section defines the shape of the source the formatter outputs. The formatte
 The signatures of fn declarations and effect operations are formatted as follows.
 
 - In a function declaration, only the parameter sequence is broken by width. `->` is not broken and is placed on the same line as `)`.
-- The `fails` and `use` clauses (rule 4 of `[lex.continuation]`) form a single group placed after the parameter sequence. If they do not fit on the line, both are placed on the next line, indented one level (the form in the example of `[lex.continuation]`). If the first line still does not fit, the parameter sequence is broken.
+- The `fails` and `uses` clauses (rule 4 of `[lex.continuation]`) form a single group placed after the parameter sequence. If they do not fit on the line, both are placed on the next line, indented one level (the form in the example of `[lex.continuation]`). If the first line still does not fit, the parameter sequence is broken.
 - When the parameter sequence is broken, the clauses stay on the `)` line as long as they fit there.
 - The `{` of the body is attached to the last line of the signature.
-- The inside of a clause (the `|` sequence of `fails`, the set of `use`) is not broken, except for things that force a line break, such as a comment inside `use { ... }`.
+- The inside of a clause (the `|` sequence of `fails`, the set of `uses`) is not broken, except for things that force a line break, such as a comment inside `uses { ... }`.
+- A uses clause always has braces. The formatter adds them around a bare name (`uses Db` becomes `uses { Db }`, `uses R` becomes `uses { R }`), and rewrites the old clause (E0147: `use Db` becomes `uses { Db }`). Set type arguments of named types are not changed.
 - A signature that fits is put on one line. However, if the original source wrote the clauses on the next line, they stay on the next line even if they fit. If either clause is on the next line, the whole group is broken, so both are lined up on the next line. Line breaks in the parameter sequence of the original source are not kept.
 
 ```emel
 pub fn get(url: String) -> Response
   fails InvalidUrl | ConnectionFailed | ResponseNotText
-  use Http {
+  uses { Http } {
   ...
 }
 ```

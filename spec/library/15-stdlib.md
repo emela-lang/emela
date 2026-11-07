@@ -170,8 +170,8 @@ pub effect Http {
   suspend fn send(request: Request) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText
 }
 
-pub fn get(url: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText use Http
-pub fn post(url: String, body: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText use Http
+pub fn get(url: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText uses { Http }
+pub fn post(url: String, body: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText uses { Http }
 ```
 
   - Bodies are text only. A body is sent as UTF-8 and received by reading it as UTF-8; if it cannot be read, send fails with ResponseNotText (the same approach as InvalidText in FileSystem). A BOM at the start of the body is removed (FileSystem keeps the BOM so that reading and writing back does not change a file). If no content-type is written, it is `text/plain;charset=UTF-8`. The whole body is read before returning (streams are for a later version).
