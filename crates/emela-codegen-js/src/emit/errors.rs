@@ -141,9 +141,21 @@ impl Emitter<'_> {
         self.line(&format!("const {error} = {cell}.error;"));
         // Errors fully caught by earlier arms; later arms for the same error never see them.
         let mut total: Vec<EnumId> = Vec::new();
+        let mut wildcard = false;
         for arm in arms {
-            let Pat::Ctor { ctor, .. } = &arm.pat else {
-                panic!("invalid IR: an escape arm's pattern is not an error constructor");
+            let ctor = match &arm.pat {
+                Pat::Ctor { ctor, .. } => ctor,
+                // `_` takes every error that gets this far; the arms below it are never tried and
+                // nothing propagates (`[error.escape]`).
+                Pat::Wild if arm.guard.is_none() => {
+                    self.stmt(&arm.body, &Dest::Assign(result.clone()));
+                    self.line(&format!("break {done};"));
+                    wildcard = true;
+                    break;
+                }
+                _ => {
+                    panic!("invalid IR: an escape arm's pattern is not an error constructor or `_`")
+                }
             };
             assert!(
                 self.m.enums[ctor.enum_id].error,
@@ -185,8 +197,10 @@ impl Emitter<'_> {
         }
         // A failure no arm matched (an error with no arm, or a value that partial arms did not
         // match) propagates outward (spec 7.3).
-        let propagate = self.propagate_stmt(&cell);
-        self.line(&propagate);
+        if !wildcard {
+            let propagate = self.propagate_stmt(&cell);
+            self.line(&propagate);
+        }
 
         self.indent -= 1;
         self.line("}");

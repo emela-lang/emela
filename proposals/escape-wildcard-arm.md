@@ -1,7 +1,7 @@
 ---
 title: A wildcard arm for escape
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 420
 issue:
 decided: 2026-10-29
@@ -37,7 +37,7 @@ fn outcome[E](body: fn() -> () fails E use { FileSystem }) -> String fails E use
 
 - When the arms all do the same thing (a default value, a fallback, a log line), listing the errors adds length and nothing else.
 - The list has to follow the callee. Adding an error to a callee breaks every escape that meant "recover from anything" (E0318 at the caller).
-- A function that recovers from every error of a function it receives cannot be written. The errors of `f` are an opaque set variable, and escape removes nothing from it (`[error.escape]`). `fn or_else[A](f: fn() -> A, default: A) -> A` is impossible today.
+- A function that recovers from every error of a function it receives cannot be written. The errors of `f` are an opaque set variable, and escape removes nothing from it (`[error.escape]`). `fn or_else[A, E](f: fn() -> A fails E, default: A) -> A` is impossible today.
 
 The only workaround is `Fiber.attempt` (`[fiber.cause]`), which also turns defects into values. A program that only wants to recover from errors then silently swallows bugs.
 
@@ -68,12 +68,12 @@ No change. `arm = pattern [ "if" expr ] "->" expr` already admits `_`.
 - A variable pattern is still E0320. A value of one of several errors has no type (`[error.decl]`).
 
 ```emel
-fn or_else[A](f: fn() -> A, default: A) -> A {
+fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
   f() escape { _ -> default }
 }
 ```
 
-The type of `or_else` is `∀ A, ε. fn(fn() -> A fails ε, A) -> A`, and a call has no errors.
+The type of `or_else` is `∀ A, E. fn(fn() -> A fails E, A) -> A`, and a call has no errors. E is written as a set type parameter: with `f: fn() -> A`, the hidden set variable of `f` stays in the E of `or_else` whatever its body does (`[error.fails]`).
 
 ## Specification changes
 
@@ -103,7 +103,8 @@ config = load_config(path) escape {
 }
 
 # Fall back on any error of a function received as an argument
-fn or_else[A](f: fn() -> A, default: A) -> A {
+# E is written: the hidden set variable of `fn() -> A` would stay in the E of or_else (7.4)
+fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
   f() escape { _ -> default }
 }
 ```
@@ -125,10 +126,10 @@ Replace the E cell of the escape row with:
 
 ## Diagnostics
 
-- [ ] E0320 narrowed to variables, message changed
-- [ ] E0320 for `_` with a guard
-- [ ] W0302 for `_` on an expression that raises nothing
-- [ ] W0301 for arms below `_`
+- [x] E0320 narrowed to variables, message changed
+- [x] E0320 for `_` with a guard
+- [x] W0302 for `_` on an expression that raises nothing
+- [x] W0301 for arms below `_`
 
 ## Compatibility
 

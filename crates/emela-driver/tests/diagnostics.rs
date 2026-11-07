@@ -494,6 +494,37 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// The diagnostics of an escape arm `_` and of a variable arm (E0320, W0301, W0302,
+/// `[error.escape]`).
+#[test]
+fn escape_wildcard_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"error Boom
+
+fn steady() -> Int { 1 }
+fn boom() -> Int fails Boom { fail Boom }
+
+fn main() {
+  a = steady() escape { _ -> 0 }
+  b = boom() escape {
+    _ -> 0
+    Boom -> 1
+  }
+  c = boom() escape { _ if a > 0 -> 0 }
+  d = boom() escape { e -> 0 }
+  dbg((a, b, c, d))
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// The messages of effect diagnostics (E04xx). The driver also passes main and test functions to
 /// inference to check that their R is empty (spec 8.3, 13.3).
 #[test]

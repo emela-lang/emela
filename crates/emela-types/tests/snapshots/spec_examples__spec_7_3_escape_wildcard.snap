@@ -1,0 +1,18 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\ntype Config(name: String)  # 補\nerror NotFound  # 補\nerror InvalidText  # 補\n\nfn load_config(path: String) -> Config fails NotFound | InvalidText { fail NotFound }  # 補\nfn default_config() -> Config { Config(name: \"default\") }  # 補\n\nfn fallback(path: String) -> Config {  # 補\n  config = load_config(path) escape {\n    _ -> default_config()\n  }\n  config\n}\n\nfn bundled(path: String) -> Config {  # 補\n  config = load_config(path) escape {\n    _ -> panic(\"the bundled config must load\")\n  }\n  config\n}\n\nfn or_else[A, E](f: fn() -> A fails E, default: A) -> A {\n  f() escape { _ -> default }\n}\n\nfn callers(path: String) -> Config {  # 補\n  or_else(fn() { load_config(path) }, default_config())\n}\n\"#)"
+---
+load_config: fn(String) -> Config fails NotFound | InvalidText
+  path: String
+default_config: fn() -> Config
+fallback: fn(String) -> Config
+  path: String
+  config: Config
+bundled: fn(String) -> Config
+  path: String
+  config: Config
+or_else: ∀ A, E, R(f). fn(fn() -> A fails E use R(f), A) -> A use R(f)
+  f: fn() -> '0 fails '1 use '2
+  default: '0
+callers: fn(String) -> Config
+  path: String

@@ -145,13 +145,15 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
         DiagnosticKind::NotAnError { found } => {
             format!("`{text}` not an error type: `{}`", found.display(cons))
         }
-        DiagnosticKind::EscapeArmNotError => format!("`{text}` escape arm is not an error"),
+        DiagnosticKind::EscapeArmNotError => format!("`{text}` escape arm is not an error or `_`"),
+        DiagnosticKind::EscapeWildcardGuard => format!("`{text}` `_` escape arm has a guard"),
         DiagnosticKind::ErrorSetMismatch { expected, found } => format!(
             "`{text}` error set mismatch: expected `fails {expected}`, found `fails {found}`"
         ),
         DiagnosticKind::UnraisedError { error } => {
             format!("`{text}` warning: `{error}` is never raised here")
         }
+        DiagnosticKind::NoErrorRaised => format!("`{text}` warning: no error is raised here"),
         DiagnosticKind::UnhandledEffects {
             effects,
             context,

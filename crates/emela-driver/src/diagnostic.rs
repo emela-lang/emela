@@ -747,8 +747,13 @@ impl Diagnostic {
             ),
             TypeDiagnosticKind::EscapeArmNotError => (
                 Severity::Error,
-                Some(code::ESCAPE_ARM_NOT_ERROR),
-                "escape arms must match an error constructor".to_owned(),
+                Some(code::INVALID_ESCAPE_ARM),
+                "escape arms must match an error constructor or `_`".to_owned(),
+            ),
+            TypeDiagnosticKind::EscapeWildcardGuard => (
+                Severity::Error,
+                Some(code::INVALID_ESCAPE_ARM),
+                "a `_` escape arm cannot have a guard".to_owned(),
             ),
             TypeDiagnosticKind::ErrorSetMismatch { expected, found } => (
                 Severity::Error,
@@ -759,6 +764,11 @@ impl Diagnostic {
                 Severity::Warning,
                 Some(code::UNRAISED_ERROR),
                 format!("error `{error}` is never raised here"),
+            ),
+            TypeDiagnosticKind::NoErrorRaised => (
+                Severity::Warning,
+                Some(code::UNRAISED_ERROR),
+                "no error is raised here".to_owned(),
             ),
             TypeDiagnosticKind::UnusedLabelProvider { label } => (
                 Severity::Warning,

@@ -428,6 +428,8 @@ impl<'a> Verifier<'a> {
                                 let ty = self.t.intern(Type::Enum(ctor.enum_id, Vec::new()));
                                 self.pat(&arm.pat, ty);
                             }
+                            Pat::Wild if arm.guard.is_none() => {}
+                            Pat::Wild => self.error("an escape arm `_` with a guard".to_owned()),
                             _ => self.error("an escape arm not matching an error".to_owned()),
                         }
                         let t = self.arm(arm);

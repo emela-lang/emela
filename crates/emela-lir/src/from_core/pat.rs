@@ -131,9 +131,19 @@ impl Lower<'_> {
         // Errors fully caught by an earlier arm; later arms for them are never tried (as in JS).
         let mut total: Vec<EnumId> = Vec::new();
         for (i, arm) in arms.iter().enumerate() {
-            let Pat::Ctor { ctor, fields } = &arm.pat else {
-                self.error("an escape arm's pattern is not an error constructor".into());
-                continue;
+            let (ctor, fields) = match &arm.pat {
+                Pat::Ctor { ctor, fields } => (ctor, fields),
+                // `_` takes every error that gets this far; the arms below it are never tried and
+                // nothing propagates (`[error.escape]`).
+                Pat::Wild if arm.guard.is_none() => {
+                    self.arm_body(&arm.body, &mut target);
+                    let body = self.close();
+                    return self.end_block(done, body, target.ty);
+                }
+                _ => {
+                    self.error("an escape arm's pattern is not an error constructor or `_`".into());
+                    continue;
+                }
             };
             let enum_id = ctor.enum_id;
             if total.contains(&enum_id) {
