@@ -2,7 +2,7 @@
 title: Array
 authors: [Alliana]
 status: draft
-pr:
+pr: 508
 issue:
 decided:
 touches: [lib.layers, api.std.array (new), ext.boundary, target.js.value, target.impl-hint, diag.list]
