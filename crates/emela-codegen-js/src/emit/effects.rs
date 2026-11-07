@@ -402,9 +402,11 @@ impl Emitter<'_> {
 
     /// The JS expression converting `v` (a JS expression, used once) of type `ty` across the
     /// boundary in direction `dir` (spec 12.4, 12.5). Strings from the host are made well formed,
-    /// Bytes from the host are checked and copied (`[target.js.value]`), and callbacks are wrapped
-    /// to convert their arguments and results; other values pass as is. `site` says what `v` is,
-    /// for the defect message of a value that is not a `Uint8Array`.
+    /// Bytes and Arrays from the host are checked and copied, an Array's elements converted one by
+    /// one (`[target.js.value]`), and callbacks are wrapped to convert their arguments and
+    /// results; other values pass as is. `site` says what `v` is, for the defect message of a
+    /// value that is not a `Uint8Array` or not an array (also when it is an element of an
+    /// Array).
     fn convert(&mut self, ty: TypeId, v: &str, dir: Dir, depth: usize, site: &Site<'_>) -> String {
         let m = self.m;
         match (m.ty(ty), dir) {
@@ -418,6 +420,29 @@ impl Emitter<'_> {
                 };
                 format!("{}({v}, {})", self.rt("$hostBytes"), js_string(&message))
             }
+            (Type::Array(elem), Dir::FromHost) => {
+                let message = match site {
+                    Site::Return(f) => {
+                        format!("external function `{f}` returned a value that is not an array")
+                    }
+                    Site::Arg(f, x) => format!("argument `{x}` of `{f}` is not an array"),
+                };
+                let x = format!("$e{depth}");
+                let element = self.convert(*elem, &x, dir, depth + 1, site);
+                let convert = if element == x {
+                    "null".to_owned()
+                } else {
+                    format!("(({x}) => {element})")
+                };
+                format!(
+                    "{}({v}, {}, {convert})",
+                    self.rt("$hostArray"),
+                    js_string(&message)
+                )
+            }
+            // The elements of an Array passed to the host are boundary types other than
+            // functions, which pass as they are, so the Array does too (the host does not modify
+            // it, `[ext.boundary]`).
             (Type::Fn(f), _) => {
                 let (params, ret) = (&f.params, f.ret);
                 // Callback arguments convert the opposite way; return values the same way.

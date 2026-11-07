@@ -1,0 +1,36 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r##\"\nimport Std.Array.{Array}\n\n@external(js, \"./host.mjs\", \"sum\")\nfn sum(xs: Array[Int]) -> Int\n\nfn histogram(bytes: List[Int], counts: Array[Int]) -> Array[Int] {\n  bytes match {\n    [] -> counts\n    [b, ..rest] -> {\n      n = Array.get(counts, b) |> Option.or(0)\n      histogram(rest, Array.set(counts, b, n + 1))\n    }\n  }\n}\n\nfn bump_twice(counts: Array[Int], b: Int) -> (Array[Int], Array[Int]) {\n  (Array.set(counts, b, 1), counts)\n}\n\nfn basics() -> Option[Int] {\n  a = Array.from_list([30, 10, 20])\n  size = Array.size(a)\n  first = Array.get(a, 1)\n  b = Array.set(a, 0, 31)\n  sorted = Array.sort(a)\n  listed = Array.to_list(sorted)\n  part = Array.slice(a, 1, 9)\n  text = inspect(a)\n  joined = Array.concat([a, Array.empty(), Array.append(a, b)])\n  names = Array.map(a, fn(x) { \"#{x}\" })\n  total = Array.fold(a, 0, fn(acc, x) { acc + x })\n  at = Array.find_index(names, fn(x) { x == \"10\" })\n  by = Array.sort_by(Array.reverse(a), fn(x, y) { Ord.compare(y, x) })\n  low = Array.lower_bound(sorted, 15)\n  same = a == b && a < b && Array.is_empty(Array.repeat(\"x\", 0))\n  Array.binary_search(sorted, 20)\n}\n\"##)"
+---
+sum: fn(Array[Int]) -> Int
+histogram: fn(List[Int], Array[Int]) -> Array[Int]
+  bytes: List[Int]
+  counts: Array[Int]
+  b: Int
+  rest: List[Int]
+  n: Int
+bump_twice: fn(Array[Int], Int) -> (Array[Int], Array[Int])
+  counts: Array[Int]
+  b: Int
+basics: fn() -> Option[Int]
+  a: Array[Int]
+  size: Int
+  first: Option[Int]
+  b: Array[Int]
+  sorted: Array[Int]
+  listed: List[Int]
+  part: Array[Int]
+  text: String
+  joined: Array[Int]
+  x: Int
+  names: Array[String]
+  acc: Int
+  x: Int
+  total: Int
+  x: String
+  at: Option[Int]
+  x: Int
+  y: Int
+  by: Array[Int]
+  low: Int
+  same: Bool

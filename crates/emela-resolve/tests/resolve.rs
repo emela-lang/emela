@@ -829,6 +829,24 @@ pub type Cooked(n: Int)
     ));
 }
 
+/// `[kw.annotation]`, `[api.std.array]`: a built-in type of the bundled sources may take type
+/// parameters (`Array[A]`).
+#[test]
+fn intrinsic_types_with_parameters_in_core() {
+    insta::assert_snapshot!(run_with_core(
+        &[(
+            "main.emel",
+            "fn first(s: Seq.Seq[Int]) -> Seq.Seq[Int] { s }\n",
+        )],
+        &[(
+            "seq.emel",
+            r##"@intrinsic
+pub opaque type Seq[A]
+"##,
+        )],
+    ));
+}
+
 /// `[effect.handler]`: the parameters of init are in scope in its body only. The arguments of
 /// `with`, `layer` and the right of `by` are resolved where the item is written.
 #[test]

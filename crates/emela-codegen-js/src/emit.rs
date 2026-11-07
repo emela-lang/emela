@@ -546,6 +546,12 @@ impl Emitter<'_> {
                 let f = self.show_fn(elem);
                 format!("{}({v}, {f})", self.rt("$showList"))
             }
+            // Monomorphization shows an Array through its written Show impl; this is the same
+            // text.
+            Type::Array(elem) => {
+                let f = self.show_fn(elem);
+                format!("{}({v}, {f})", self.rt("$showArray"))
+            }
             Type::Tuple(items) => {
                 let fs: Vec<String> = items.iter().map(|t| self.show_fn(t)).collect();
                 format!("{}({v}, [{}])", self.rt("$showTuple"), fs.join(", "))
@@ -587,7 +593,7 @@ impl Emitter<'_> {
                 format!("$a{i}")
             }
             Type::Enum(id, args) if args.is_empty() => self.show_enum(*id),
-            Type::List(_) | Type::Tuple(_) | Type::Enum(..) => {
+            Type::List(_) | Type::Array(_) | Type::Tuple(_) | Type::Enum(..) => {
                 let body = self.show_call(ty, "$x");
                 format!("(($x) => {body})")
             }

@@ -671,6 +671,178 @@ await m.later().catch((e) => console.log(e.name, e.message));
     );
 }
 
+/// `[target.js.value]`, `[ext.boundary]`: an Array crosses as a JS `Array` whose elements are
+/// represented by the same table. One from JS (a return value, a value a suspend fn resolves to, an
+/// argument of a callback or of an exported fn) must satisfy `Array.isArray`; it is copied, each
+/// element converted as a single value would be (a String normalized, a nested Array and a Bytes
+/// checked and copied), and a hole read as `undefined`. An Array passed to JS is a JS `Array`.
+#[test]
+fn js_arrays_cross_as_js_arrays() {
+    let main = r##"import Std.Array.{Array}
+import Std.Bytes.{Bytes}
+
+@external(js, "globalThis.hostRows")
+fn host_rows() -> Array[String] use {}
+
+@external(js, "globalThis.hostGrid")
+fn host_grid() -> Array[Array[Int]] use {}
+
+@external(js, "globalThis.hostChunks")
+fn host_chunks() -> Array[Bytes] use {}
+
+@external(js, "globalThis.hostUnits")
+fn host_units() -> Array[()] use {}
+
+@external(js, "globalThis.laterRows")
+suspend fn later_rows() -> Array[String]
+
+@external(js, "globalThis.mutate")
+fn mutate() -> () use {}
+
+@external(js, "globalThis.sum")
+fn sum(xs: Array[Int]) -> Int use {}
+
+@external(js, "globalThis.apply")
+fn apply(f: fn(Array[Int]) -> Int) -> Int use {}
+
+effect Source {
+  suspend fn next() -> Array[String]
+}
+
+handler HostSource: Source {
+  suspend fn next(resume) { resume(later_rows()) }
+}
+
+@export(js, "size")
+fn size(a: Array[Int]) -> Int { Array.size(a) }
+
+@export(js, "echo")
+fn echo(a: Array[Array[String]]) -> Array[Array[String]] {
+  Array.append(a, Array.from_list([Array.from_list(["end"])]))
+}
+
+@export(js, "rows")
+fn rows() -> String { "#{host_rows()}" }
+
+@export(js, "copied")
+fn copied() -> String {
+  a = host_rows()
+  mutate()
+  "#{a}"
+}
+
+@export(js, "grid")
+fn grid() -> String { "#{host_grid()}" }
+
+@export(js, "chunks")
+fn chunks() -> Int { Array.size(host_chunks()) }
+
+@export(js, "units")
+fn units() -> Int { Array.size(host_units()) }
+
+@export(js, "summed")
+fn summed() -> Int { sum(Array.from_list([1, 2, 3])) }
+
+@export(js, "later")
+fn later() -> String { with HostSource { "#{(use Source).next()}" } }
+
+@export(js, "applied")
+fn applied() -> Int { apply(Array.size) }
+
+fn main() { dbg(size(Array.empty())) }
+"##;
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let dir = out_dir("js-array");
+    let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    assert!(entry.is_some());
+    let harness = r#"import * as m from "./main.mjs";
+const show = (f) => { try { console.log(f()); } catch (e) { console.log(e.name, e.message); } };
+const rows = ["a", "b\uD800"];
+globalThis.hostRows = () => rows;
+globalThis.mutate = () => { rows[0] = "changed"; rows.push("more"); };
+show(() => m.rows());
+show(() => m.copied());
+globalThis.hostRows = () => new Int32Array(2);
+show(() => m.rows());
+globalThis.hostRows = () => ({ length: 1, 0: "a" });
+show(() => m.rows());
+globalThis.hostRows = () => "ab";
+show(() => m.rows());
+globalThis.hostGrid = () => [[1, 2], [], [3]];
+show(() => m.grid());
+globalThis.hostGrid = () => [[1], 2];
+show(() => m.grid());
+globalThis.hostGrid = () => [[1], , [2]];
+show(() => m.grid());
+globalThis.hostChunks = () => [new Uint8Array(1), Buffer.from("ab")];
+show(() => m.chunks());
+globalThis.hostChunks = () => [new Uint8Array(1), [1]];
+show(() => m.chunks());
+globalThis.hostUnits = () => new Array(3);
+show(() => m.units());
+show(() => m.size([1, 2, 3]));
+show(() => m.size([]));
+show(() => m.size(new Int32Array(2)));
+show(() => m.size("abc"));
+const out = m.echo([["x"], ["y", "z"]]);
+console.log(Array.isArray(out), Array.isArray(out[0]), JSON.stringify(out));
+show(() => m.echo([["x"], "y"]));
+globalThis.sum = (xs) => { console.log(Array.isArray(xs)); return xs.reduce((a, b) => a + b, 0); };
+show(() => m.summed());
+globalThis.apply = (f) => f([4, 5]);
+show(() => m.applied());
+globalThis.apply = (f) => f(new Set([1]));
+show(() => m.applied());
+globalThis.laterRows = async () => ["later"];
+console.log(await m.later());
+globalThis.laterRows = async () => "later";
+await m.later().catch((e) => console.log(e.name, e.message));
+"#;
+    std::fs::write(dir.join("harness.mjs"), harness).unwrap();
+    let out = std::process::Command::new("node")
+        .arg("harness.mjs")
+        .current_dir(&dir)
+        .output()
+        .expect("cannot start node");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        (text(&out.stdout), text(&out.stderr)),
+        (
+            "Array.from_list([\"a\", \"b\u{FFFD}\"])\n\
+             Array.from_list([\"a\", \"b\u{FFFD}\"])\n\
+             Defect external function `host_rows` returned a value that is not an array\n\
+             Defect external function `host_rows` returned a value that is not an array\n\
+             Defect external function `host_rows` returned a value that is not an array\n\
+             Array.from_list([Array.from_list([1, 2]), Array.from_list([]), Array.from_list([3])])\n\
+             Defect external function `host_grid` returned a value that is not an array\n\
+             Defect external function `host_grid` returned a value that is not an array\n\
+             2\n\
+             Defect external function `host_chunks` returned a value that is not a `Uint8Array`\n\
+             3\n\
+             3\n\
+             0\n\
+             Defect argument `a` of `size` is not an array\n\
+             Defect argument `a` of `size` is not an array\n\
+             true true [[\"x\"],[\"y\",\"z\"],[\"end\"]]\n\
+             Defect argument `a` of `echo` is not an array\n\
+             true\n\
+             6\n\
+             2\n\
+             Defect argument `1` of `apply` is not an array\n\
+             Array.from_list([\"later\"])\n\
+             Defect external function `later_rows` returned a value that is not an array\n",
+            ""
+        )
+    );
+}
+
 #[test]
 fn source_runs_through_lowering() {
     let output = run_source("lower-dbg", "fn main() {\n  dbg(1 + 2)\n}\n");

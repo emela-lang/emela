@@ -253,6 +253,75 @@ fn main() {}
     );
 }
 
+/// `[ext.boundary]`: the C target does not support Array at the boundary yet either. An external
+/// function reachable from the entry, or an exported fn, that takes or returns a type that is an
+/// Array (of any element type, Bytes and nested arrays included) is E0443.
+#[test]
+fn arrays_at_the_boundary_are_e0443() {
+    let main = r##"import Std.Array.{Array}
+import Std.Bytes.{Bytes}
+
+@external(c, "rows")
+fn rows() -> Array[String] use {}
+
+@external(c, "sum")
+fn sum(xs: Array[Int]) -> Int use {}
+
+@external(c, "chunks")
+fn chunks(xs: Array[Array[Bytes]]) -> () use {}
+
+fn main() {
+  dbg(sum(Array.from_list([1])))
+  dbg(rows())
+  chunks(Array.empty())
+}
+"##;
+    let (analysis, output) = run_c("array-boundary", main, &mut CoreC::default());
+    assert!(output.is_none());
+    assert_eq!(
+        codes(&analysis),
+        [
+            (
+                Some("E0443"),
+                "external function `sum` takes `Array[Int]`, which target `c` does not support yet"
+            ),
+            (
+                Some("E0443"),
+                "external function `rows` returns `Array[String]`, which target `c` does not support yet"
+            ),
+            (
+                Some("E0443"),
+                "external function `chunks` takes `Array[Array[Bytes]]`, which target `c` does not support yet"
+            ),
+        ]
+    );
+    let main = r##"import Std.Array.{Array}
+
+@export(c, "size")
+fn size(a: Array[Int]) -> Int { Array.size(a) }
+
+@export(c, "names")
+fn names() -> Array[String] { Array.empty() }
+
+fn main() {}
+"##;
+    let (analysis, output) = run_c("array-export", main, &mut CoreC::default());
+    assert!(output.is_none());
+    assert_eq!(
+        codes(&analysis),
+        [
+            (
+                Some("E0443"),
+                "exported function `size` takes `Array[Int]`, which target `c` does not support yet"
+            ),
+            (
+                Some("E0443"),
+                "exported function `names` returns `Array[String]`, which target `c` does not support yet"
+            ),
+        ]
+    );
+}
+
 #[test]
 fn cc_problems_are_e0907_and_e0908() {
     let main = "fn main() { dbg(1) }\n";

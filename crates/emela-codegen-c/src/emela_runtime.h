@@ -25,6 +25,7 @@
  *
  * Strings are UTF-8 with their length in slot 0 and the bytes (with a terminating NUL that is
  * not part of the string) from slot 1. Lists are cons cells (slot 0 the head, slot 1 the tail).
+ * Arrays have their length in slot 0 and an element per slot from slot 1.
  * Closures are `{function pointer, captures...}`. Handlers are `{retired flag, operations...}`.
  *
  * Single-threaded (only the completions of `emela.h` may come from other threads, through a locked
@@ -70,6 +71,9 @@ enum {
   /* An object of the runtime (a fiber, a scope, a Deferred, a resume): `fin` releases what it
    * holds before it is freed. */
   EM_KIND_RUNTIME = 4,
+  /* An Array (`[api.std.array]`): slot 0 the length n, then the n elements. `refs[0]` is 1 if
+   * the elements are references. */
+  EM_KIND_ARRAY = 5,
 };
 
 typedef struct em_desc {
@@ -260,6 +264,17 @@ em_ref em_bytes_slice(em_ref b, int32_t from, int32_t to);
 em_ref em_bytes_concat(em_ref parts);
 /* The same object, owned once more: `encode_utf8`, and `decode_utf8` of bytes already checked. */
 em_ref em_bytes_same(em_ref b);
+/* Arrays (`[api.std.array]`). `ref` tells whether the elements are references, for the functions
+ * that may make an array without reading one. Every function borrows its arguments except
+ * `em_array_set`, which consumes the array: it writes in place when that was the last reference
+ * (a count of 1), and copies otherwise. */
+em_ref em_array_from_list(em_ref xs, bool ref);
+em_ref em_array_to_list(em_ref a);
+int32_t em_array_size(em_ref a);
+em_ref em_array_get(em_ref a, int32_t index);
+em_ref em_array_set(em_ref a, int32_t index, em_word value);
+em_ref em_array_slice(em_ref a, int32_t from, int32_t to);
+em_ref em_array_concat(em_ref parts, bool ref);
 em_ref em_int_to_string(int32_t n);
 em_ref em_int_parse(em_ref s);
 em_ref em_int_checked_add(int32_t a, int32_t b);

@@ -39,6 +39,7 @@ fn always(_: &Builder) -> bool {
 }
 
 mod alloc;
+pub(crate) mod array;
 pub(super) mod async_bridge;
 pub(super) mod attempt;
 mod bytes;
@@ -232,6 +233,13 @@ const MODULES: &[RuntimeModule] = &[
         setup: no_setup,
         emit: bytes::emit,
         used: bytes::used,
+    },
+    RuntimeModule {
+        funcs: array::FUNCS,
+        locals: array::locals,
+        setup: no_setup,
+        emit: array::emit,
+        used: array::used,
     },
 ];
 

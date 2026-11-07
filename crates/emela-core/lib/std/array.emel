@@ -1,0 +1,198 @@
+# Immutable sequences of fixed length, read by position (`[api.std.array]`). Positions are 0-based.
+#
+# `Array` is a built-in type: `@intrinsic` on the declaration names the type the runtime
+# represents (a length and a flat block of elements), so a user's own type named `Array` stays a
+# different type. Its values are made only by the functions here.
+#
+# The intrinsics are the operations that need the representation: building from and reading out
+# the elements, the size, reading and replacing one element, slicing and joining. The rest is
+# written in Emela over them, so it behaves the same on every target. Loops are self tail calls
+# over positions (spec 6.8), so long arrays do not use the stack.
+
+## An immutable sequence of values of type `A`, of fixed length, read by position.
+@intrinsic
+pub opaque type Array[A]
+
+## The array of no elements.
+pub fn empty[A]() -> Array[A] {
+  from_list([])
+}
+
+## The elements in the order of `xs`.
+@intrinsic
+pub fn from_list[A](xs: List[A]) -> Array[A]
+
+## The elements in order.
+@intrinsic
+pub fn to_list[A](a: Array[A]) -> List[A]
+
+## `count` copies of `value`. Empty if `count` is not positive.
+pub fn repeat[A](value: A, count: Int) -> Array[A] {
+  from_list(repeat_onto(value, count, []))
+}
+
+fn repeat_onto[A](value: A, count: Int, acc: List[A]) -> List[A] {
+  if count <= 0 { acc } else { repeat_onto(value, count - 1, [value, ..acc]) }
+}
+
+## The number of elements.
+@intrinsic
+pub fn size[A](a: Array[A]) -> Int
+
+## Whether there are no elements.
+pub fn is_empty[A](a: Array[A]) -> Bool {
+  size(a) == 0
+}
+
+## The element at `index`. `None` if out of range or negative.
+@intrinsic
+pub fn get[A](a: Array[A], index: Int) -> Option[A]
+
+## The elements of `a` with the one at `index` replaced by `value`. A defect if `index` is out of
+## range or negative. On WASM and C, it updates `a` in place when `a` is referred to from nowhere
+## else.
+@intrinsic
+pub fn set[A](a: Array[A], index: Int, value: A) -> Array[A]
+
+## The elements from `from` inclusive to `to` exclusive. Both are clamped to 0 to `size(a)`; empty
+## if `from` is not less than `to`.
+@intrinsic
+pub fn slice[A](a: Array[A], from: Int, to: Int) -> Array[A]
+
+## The elements of `a`, then those of `b`.
+pub fn append[A](a: Array[A], b: Array[A]) -> Array[A] {
+  concat([a, b])
+}
+
+## The elements of all of them in order.
+@intrinsic
+pub fn concat[A](parts: List[Array[A]]) -> Array[A]
+
+## The elements in reverse order.
+pub fn reverse[A](a: Array[A]) -> Array[A] {
+  from_list(prepend_from(a, 0, []))
+}
+
+# Prepends the elements from `i` to `acc`, so the first one ends up last.
+fn prepend_from[A](a: Array[A], i: Int, acc: List[A]) -> List[A] {
+  get(a, i) match {
+    Some(x) -> prepend_from(a, i + 1, [x, ..acc])
+    None    -> acc
+  }
+}
+
+## Applies `f` to each element, from the first.
+pub fn map[A, B](a: Array[A], f: fn(A) -> B) -> Array[B] {
+  from_list(map_from(a, f, 0, []).reverse())
+}
+
+# `acc` holds the results so far, last first.
+fn map_from[A, B](a: Array[A], f: fn(A) -> B, i: Int, acc: List[B]) -> List[B] {
+  get(a, i) match {
+    Some(x) -> map_from(a, f, i + 1, [f(x), ..acc])
+    None    -> acc
+  }
+}
+
+## Folds from the first element: `f(f(f(from, a0), a1), a2)`.
+pub fn fold[A, B](a: Array[A], from: B, f: fn(B, A) -> B) -> B {
+  fold_from(a, from, f, 0)
+}
+
+fn fold_from[A, B](a: Array[A], acc: B, f: fn(B, A) -> B, i: Int) -> B {
+  get(a, i) match {
+    Some(x) -> fold_from(a, f(acc, x), f, i + 1)
+    None    -> acc
+  }
+}
+
+## The position of the first element that gives True.
+pub fn find_index[A](a: Array[A], f: fn(A) -> Bool) -> Option[Int] {
+  find_index_from(a, f, 0)
+}
+
+fn find_index_from[A](a: Array[A], f: fn(A) -> Bool, i: Int) -> Option[Int] {
+  get(a, i) match {
+    Some(x) -> if f(x) { Some(i) } else { find_index_from(a, f, i + 1) }
+    None    -> None
+  }
+}
+
+## Sorts in the order of `f`. Stable, with the same result as `List.sort_by`.
+pub fn sort_by[A](a: Array[A], f: fn(A, A) -> Ordering) -> Array[A] {
+  from_list(to_list(a).sort_by(f))
+}
+
+## Sorts in the Ord order. Stable.
+pub fn sort[A: Ord](a: Array[A]) -> Array[A] {
+  sort_by(a, Ord.compare)
+}
+
+## In an array sorted in the Ord order, the smallest position whose element is not less than
+## `value`: the position where `value` would be inserted to keep the order. `size(a)` if every
+## element is less. The bisection is fixed, so the result is the same on every target even when
+## `a` is not sorted.
+pub fn lower_bound[A: Ord](a: Array[A], value: A) -> Int {
+  bisect(a, value, 0, size(a))
+}
+
+fn bisect[A: Ord](a: Array[A], value: A, low: Int, high: Int) -> Int {
+  if low < high {
+    mid = (low + high) / 2
+    get(a, mid) match {
+      Some(x) if x < value -> bisect(a, value, mid + 1, high)
+      _                    -> bisect(a, value, low, mid)
+    }
+  } else {
+    low
+  }
+}
+
+## In an array sorted in the Ord order, the smallest position whose element is equal to `value`.
+## `None` if there is none.
+pub fn binary_search[A: Ord](a: Array[A], value: A) -> Option[Int] {
+  i = lower_bound(a, value)
+  get(a, i) match {
+    Some(x) if x == value -> Some(i)
+    _                     -> None
+  }
+}
+
+# Eq and Ord walk the elements through `eq_from` and `compare_from`, self tail calls; a call
+# through a trait function would not be one.
+
+## Equal elements in the same order.
+impl Array[A: Eq]: Eq {
+  fn eq(self, other) { size(self) == size(other) && eq_from(self, other, 0) }
+}
+
+fn eq_from[A: Eq](a: Array[A], b: Array[A], i: Int) -> Bool {
+  (get(a, i), get(b, i)) match {
+    (Some(x), Some(y)) -> x == y && eq_from(a, b, i + 1)
+    (None, None)       -> True
+    _                  -> False
+  }
+}
+
+## Lexicographic: if the common prefix is equal, the shorter one is smaller.
+impl Array[A: Ord]: Ord {
+  fn compare(self, other) { compare_from(self, other, 0) }
+}
+
+fn compare_from[A: Ord](a: Array[A], b: Array[A], i: Int) -> Ordering {
+  (get(a, i), get(b, i)) match {
+    (Some(x), Some(y)) -> x.compare(y) match {
+      Equal -> compare_from(a, b, i + 1)
+      order -> order
+    }
+    (Some(_), None) -> Greater
+    (None, Some(_)) -> Less
+    (None, None)    -> Equal
+  }
+}
+
+## The source form `Array.from_list([1, 2, 3])`, which can be pasted back as an expression. A
+## String element is quoted.
+impl Array[A: Show]: Show {
+  fn show(self) { "Array.from_list(#{to_list(self).show()})" }
+}
