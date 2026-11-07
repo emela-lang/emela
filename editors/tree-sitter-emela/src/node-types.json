@@ -1496,7 +1496,7 @@
         "required": true,
         "types": [
           {
-            "type": "block",
+            "type": "_expression",
             "named": true
           }
         ]
@@ -1536,7 +1536,35 @@
         "required": false,
         "types": [
           {
-            "type": "_type",
+            "type": "function_type",
+            "named": true
+          },
+          {
+            "type": "generic_type",
+            "named": true
+          },
+          {
+            "type": "parenthesized_type",
+            "named": true
+          },
+          {
+            "type": "self_type",
+            "named": true
+          },
+          {
+            "type": "tuple_type",
+            "named": true
+          },
+          {
+            "type": "type_reference",
+            "named": true
+          },
+          {
+            "type": "type_variable",
+            "named": true
+          },
+          {
+            "type": "unit_type",
             "named": true
           }
         ]

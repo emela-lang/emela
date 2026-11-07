@@ -97,6 +97,18 @@ syntax match emelaAnnotation "@\%(external\|test\|intrinsic\|internal\|deprecate
 
 syntax match emelaOperator "|>\|||\|->\|\.\.\|[=!<>]=\|&&\|[-+*/%!<>=|]"
 
+" The parameters of an anonymous function, `|x, (a, b): T|` (spec 6.1, 17.5). `|` and `||` start
+" one in operand position: not after a name, a number, `)` or `]`, which is where `|` joins an
+" error set and `||` is the logical or. The list ends at the next `|` on the line, so an error set
+" written in parentheses inside it (`|f: (fn() -> A fails B | C)|`) ends it early.
+syntax region emelaClosureParams matchgroup=emelaDelimiter
+      \ start="\%(\w\s*\|)\s*\|]\s*\)\@<!|[|>]\@!" end="|" oneline
+      \ contains=emelaClosureParam,emelaType,emelaConstant,emelaTypeParam,emelaConstructor,
+      \emelaKeyword,emelaSelf,emelaBoolean,emelaPreludeConstructor,emelaUnit,emelaOperator,
+      \emelaNumber
+syntax match emelaClosureParam "\<[a-z_]\w*\>" contained
+syntax match emelaDelimiter "\%(\w\s*\|)\s*\|]\s*\)\@<!||"
+
 " ---------------------------------------------------------------------------
 " Numbers (spec 2.4, 17.2)
 
@@ -144,7 +156,7 @@ syntax cluster emelaCode contains=emelaNameError,emelaType,emelaConstant,emelaTy
       \emelaStructure,emelaEffectDecl,emelaConditional,emelaException,emelaEffect,emelaStatement,
       \emelaSelf,emelaReserved,emelaContextual,emelaBoolean,emelaPreludeConstructor,emelaUnit,
       \emelaOperator,emelaNumber,emelaNumberError,emelaFloat,emelaString,emelaComment,
-      \emelaDocComment
+      \emelaDocComment,emelaClosureParams,emelaDelimiter
 
 " Multiline strings and interpolations can open far above; read from the start of the file.
 syntax sync fromstart
@@ -171,6 +183,7 @@ highlight default link emelaConstDecl          Constant
 highlight default link emelaTypeDecl           Typedef
 highlight default link emelaTypeParamDecl      emelaTypeParam
 highlight default link emelaDelimiter          Delimiter
+highlight default link emelaClosureParam       Identifier
 
 highlight default link emelaConditional        Conditional
 highlight default link emelaException          Exception

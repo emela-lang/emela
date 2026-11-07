@@ -15,6 +15,7 @@
         { "include": "#keywords" },
         { "include": "#types" },
         { "include": "#functions" },
+        { "include": "#closures" },
         { "include": "#operators" },
         { "include": "#punctuation" }
       ]
@@ -292,6 +293,32 @@
           "captures": {
             "1": { "name": "variable.parameter.emela" }
           }
+        }
+      ]
+    },
+    "closures": {
+      "comment": "The parameters of an anonymous function, `|x, (a, b): T|` and `||` ([grammar.expr]). `|` and `||` start one in operand position: at the start of a line or after a bracket, a separator or an operator, not after a name, a number, `)` or `]`.",
+      "patterns": [
+        {
+          "match": "(?:^|(?<=[(\\[{,=:!+\\-*/%<>|]))\\s*(\\|\\|)",
+          "captures": { "1": { "name": "punctuation.definition.parameters.emela" } }
+        },
+        {
+          "begin": "(?:^|(?<=[(\\[{,=:!+\\-*/%<>|]))\\s*(\\|)(?![|>])",
+          "beginCaptures": { "1": { "name": "punctuation.definition.parameters.begin.emela" } },
+          "end": "(\\|)|$",
+          "endCaptures": { "1": { "name": "punctuation.definition.parameters.end.emela" } },
+          "name": "meta.parameters.emela",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#keywords" },
+            { "include": "#types" },
+            {
+              "match": "\\b[a-z_][A-Za-z0-9_]*\\b",
+              "name": "variable.parameter.emela"
+            },
+            { "include": "#punctuation" }
+          ]
         }
       ]
     },

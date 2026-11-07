@@ -3,7 +3,7 @@
 Emela source files use the `.emel` extension. Editors don't share one
 highlighting format, so this repository ships several definitions under
 `editors/`, each covering comments, strings, numbers, keywords, built-in types,
-and operators:
+operators, and the parameters of anonymous functions (`|x, y| ...`):
 
 - [`editors/emela.sublime-syntax`](../editors/emela.sublime-syntax) — a Sublime
   Text definition, also read by any [syntect](https://github.com/trishume/syntect)-based

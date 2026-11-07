@@ -16,12 +16,13 @@ fi
 
 tree-sitter test
 
-# The compiler's error cases and the statement-level lexer inputs are not whole files that it
-# accepts.
+# The compiler's error cases, the statement-level lexer inputs, and the formatter's input in the
+# old form of anonymous functions (E0148) are not whole files that it accepts.
 list=$(mktemp)
 trap 'rm -f "$list"' EXIT
 find "$root/examples" "$root/crates" "$root/tests" -name '*.emel' \
-  -not -path '*/test_data/parser/err/*' -not -path '*/test_data/lexer/*' > "$list"
+  -not -path '*/test_data/parser/err/*' -not -path '*/test_data/lexer/*' \
+  -not -path '*/emela-fmt/test_data/old_lambdas.emel' > "$list"
 tree-sitter parse --quiet --stat --paths "$list"
 
 "$root/editors/zed/sync-queries.sh" --check

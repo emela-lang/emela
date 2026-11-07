@@ -250,6 +250,13 @@
   "}"
 ] @punctuation.bracket
 
+; The bars around the parameters of a lambda (`|x|`, `||`) are brackets, not operators.
+(lambda_parameters
+  [
+    "|"
+    "||"
+  ] @punctuation.bracket)
+
 (interpolation
   [
     "#{"
