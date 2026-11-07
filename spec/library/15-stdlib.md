@@ -32,7 +32,7 @@ Within std, modules are divided into four layers by their nature.
 
 | Layer | Nature | Contents |
 |---|---|---|
-| value | Pure and independent of the host | Instant, Duration, Path, Bytes. Collections (Map, Set, Array) in 0.24 |
+| value | Pure and independent of the host | Instant, Duration, Path, Bytes, Array. Collections (Map, Set) in 0.24 |
 | effect | Concurrency and state | State, Fiber, Exit, Cause, Deferred (0.20). Queue, Semaphore, Schedule, Stream (later versions. A limit on the number of tasks running at the same time comes before Http) |
 | platform | Effect declarations and the host handlers | Console, Clock, Random, Env, FileSystem, Http |
 | test | Replacements for testing | Handlers such as TestClock and TestConsole. They keep their state in State (8.8), so they are used inside `State.run`. Value comparison helpers, generators, and property testing are not placed in std (below) |
@@ -54,7 +54,7 @@ fn main() {
   }
 }
 ```
-- Collections (Map, Set, Array) are placed in 0.24 as `Std.Map`, `Std.Set`, and `Std.Array`, on top of the traits (Eq, Ord, Show). This is because with the trait-less `==` and display of 0.20, comparison and display could vary with how a value was built even when the contents are the same. The form of the implementation and the ordering are in 18.1 #36.
+- Collections (Map, Set) are placed in 0.24 as `Std.Map` and `Std.Set`, on top of the traits (Eq, Ord, Show). This is because with the trait-less `==` and display of 0.20, comparison and display could vary with how a value was built even when the contents are the same. The form of the implementation and the ordering are in 18.1 #36.
 - Collections are immutable.
 - A Map (`Std.Map`) maps keys to values, and a Set (`Std.Set`) is a collection of values. Both are ordered by key (the Ord order) and require `K: Ord` for keys. The contents are a balanced tree written in pure Emela, and the types are opaque. to_list, fold, keys, values, and display are in ascending key order, regardless of the order of construction or the shape of the tree.
 
@@ -100,6 +100,7 @@ pub fn union[A: Ord](a: Set[A], b: Set[A]) -> Set[A]
   - With n the number of elements, the Map and Set operations get, insert, remove, update, and contains are O(log n), from_list and union are O(n log n) or less, and the others are O(n). The depth of the tree is kept at O(log n), so even a large Map does not use deep stack.
 - A point in time is represented by Instant, and a length of time by Duration. Both are opaque types whose contents are an Int64. An Instant is milliseconds since the Unix epoch (1970-01-01T00:00:00Z), and a Duration is a length in milliseconds that can also be negative. Leap seconds are not counted. An Instant can be created with `Instant.from_unix_milliseconds(ms: Int64)` (to fix the time in a test, or when a user writes a Clock handler). Instant has no invariant to maintain. It is opaque to prevent confusing it with Int64 or Duration and to hide the unit.
 - A byte sequence is represented by Bytes (`Std.Bytes`), an immutable and opaque type. Each byte is an `Int` from 0 to 255. Bytes is the type through which the platform layer passes binary data, and it is a boundary type of external functions (12.4). Its declarations are in `[api.std.bytes]`.
+- A sequence read by position is represented by Array (`Std.Array`), an immutable and opaque type of fixed length with O(1) access by position. Its contents are a flat block of elements that the runtime represents, so it is an intrinsic. A List is read from the front and built a little at a time; an Array is built from a List (`Array.from_list`) and then read by position. Array is a boundary type of external functions (12.4). Its declarations are in `[api.std.array]`.
 - Console has two operations, `print_line(text: String) -> ()` (standard output) and `print_error_line(text: String) -> ()` (standard error). Both write with a trailing newline and do not fail. The system handler is `SystemConsole`.
 - Random has two operations, `int() -> Int` (uniform over the whole range of Int) and `float() -> Float` (uniform over 0 inclusive to 1 exclusive), and they do not fail. The system handler SystemRandom draws from a cryptographically secure random source on JS (`crypto.getRandomValues`). Values in a range are provided separately as ordinary functions written on top of `int()`, and seedable pseudo-random numbers as pure values and functions.
 - Env has only the operation `get(name: String) -> Option[String]`, and it does not fail. An empty value (`NAME=`) is `Some("")`, and an unset variable is `None`.
@@ -169,8 +170,8 @@ pub effect Http {
   suspend fn send(request: Request) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText
 }
 
-pub fn get(url: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText use Http
-pub fn post(url: String, body: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText use Http
+pub fn get(url: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText uses { Http }
+pub fn post(url: String, body: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText uses { Http }
 ```
 
   - Bodies are text only. A body is sent as UTF-8 and received by reading it as UTF-8; if it cannot be read, send fails with ResponseNotText (the same approach as InvalidText in FileSystem). A BOM at the start of the body is removed (FileSystem keeps the BOM so that reading and writing back does not change a file). If no content-type is written, it is `text/plain;charset=UTF-8`. The whole body is read before returning (streams are for a later version).
@@ -220,7 +221,7 @@ pub fn app(request: Request) -> Response {
 Functions in the standard library (core and std) are named according to the following conventions. Conventions are added starting from those decided in 18.1 #34.
 
 - The subject is the first argument, so the function can be written with a pipe, as in `xs |> List.map(f)`.
-- An argument that takes a function is named `f` and is passed by position, not by name (`List.map(xs, fn(x) { ... })`). The proposal to use `with` and `where` as argument names was not adopted: both are reserved words (3.1, 3.3) and cannot be used as parameter names, and the case is not strong enough to add syntax that separates the external argument name from the internal name.
+- An argument that takes a function is named `f` and is passed by position, not by name (`List.map(xs, |x| ...)`). The proposal to use `with` and `where` as argument names was not adopted: both are reserved words (3.1, 3.3) and cannot be used as parameter names, and the case is not strong enough to add syntax that separates the external argument name from the internal name.
 - A function that joins two values is `append` (`List.append(xs, ys)`, `String.append(a, b)`), a function that flattens a sequence is `List.flatten(xss)` or `String.concat(parts)`, and a function that joins with a separator in between is `join` (`List.join(parts, sep)`).
 - The argument for the initial value of a fold is named `from` (`List.fold(xs, from: 0, f: add)`).
 - How a function reports that something did not work depends on the situation.

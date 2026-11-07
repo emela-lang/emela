@@ -88,7 +88,7 @@ From other modules, a value can be created only through `Email.parse(...)`. Havi
 
 ## 4.5 Type annotations on public functions `[module.pub-signature]`
 
-The return type, fails, and use annotations on a public function are optional (parameter types are required by 6.1). When they are omitted, the linter warns, and an LSP code action can insert the inferred result.
+The return type, fails, and uses annotations on a public function are optional (parameter types are required by 6.1). When they are omitted, the linter warns, and an LSP code action can insert the inferred result.
 
 ## 4.6 Name resolution `[module.resolution]`
 
@@ -115,12 +115,12 @@ The names in a module are split into three namespaces (types, constructors, and 
 - The modules of the bundled core go into the same table as the source modules and are always read, even in single-file mode. Being writable on the left of `.` without an import, and resolving a name in a type position to a core type, apply only to core modules whose name has a single segment.
 - Binding the same name twice in one pattern or one parameter list is a compile error (E0220). In a binding, the right-hand side is resolved first, and then the names of the pattern are added.
 - `self` is visible inside the operations and the release of a handler. It is not visible inside init (because init is the side that creates the handler value). A handler with fields has a constructor with the same name, and init can write `PostgresUsers(conn: ...)`.
-- The top-level constructor pattern of an escape arm is limited to errors (E0217). `_` and variables pass name resolution but are compile errors in type checking (E0320, 7.3).
+- The top-level constructor pattern of an escape arm is limited to errors (E0217). `_` is allowed (7.3). A variable passes name resolution but is a compile error in type checking (E0320, 7.3).
 - If a name in an import list is not found, it is E0212. If it is found but none of the definitions are pub, it is E0214.
 - Importing two different definitions with the same name is E0213.
 - When `M.x` looks up a definition that is not pub, E0214 is reported, and checking continues as if the name resolved to that definition.
 - Writing a module name in a type position is E0217, "a module, not a type" (for example, writing `fn f(e: Email)` with only `import Email`).
-- Writing a handler, layer, or trait in a type position is E0217, and writing an effect there is E0221. A `fails` clause accepts only errors and type parameters. A `use` clause accepts only effects and type parameters. A `use X` expression accepts only effects. `with` and the contents of a layer accept only handlers or layers (and label items, `[effect.label]`). Constraints, derive, impl, and supertraits accept only traits. Anything else is E0217.
+- Writing a handler, layer, or trait in a type position is E0217, and writing an effect there is E0221. A `fails` clause accepts only errors and type parameters. A `uses` clause accepts only effects and type parameters. A `use X` expression accepts only effects. `with` and the contents of a layer accept only handlers or layers (and label items, `[effect.label]`). Constraints, derive, impl, and supertraits accept only traits. Anything else is E0217.
 - Inside the modules of the bundled core, the warning for shadowing the Prelude (W0202) is not reported.
 
 ## 4.7 Pome `[module.pome]`
@@ -199,7 +199,7 @@ targets = ["js"]
 - E0233 is reported only on the first `@external` of each module of a Pome that is not allowed. This is because allowing the Pome makes all `@external` in that module usable at once.
 - Like `[replace]`, `[external]` takes effect only when building that Pome and is ignored when the Pome is depended on. This ensures that dependencies that run host code always appear as a list in the app's `Pome.toml`.
 - A source path in `allow` that is not in the dependency graph produces a warning (W0204).
-- An `@external` fn in a dependency cannot be pub (E0237). The path to the host goes through that Pome's handlers. External functions with use omitted and external functions that are suspend fns can be used only inside handlers in the first place (12.2), so the only path to the host visible from the depending side is effects. An external function with an explicit `use {}` can be called from anywhere inside that Pome. An `@external` type MAY be pub (it is a value whose contents cannot be opened, and only passing it around does not touch the host).
+- An `@external` fn in a dependency cannot be pub (E0237). The path to the host goes through that Pome's handlers. External functions with uses omitted and external functions that are suspend fns can be used only inside handlers in the first place (12.2), so the only path to the host visible from the depending side is effects. An external function with an explicit `uses {}` can be called from anywhere inside that Pome. An `@external` type MAY be pub (it is a value whose contents cannot be opened, and only passing it around does not touch the host).
 - `targets` in `[pome]` declares the targets the Pome runs on (`js`, `wasm`, `c`, `c-embedded`). `c` and `c-embedded` are different targets: a Pome with `targets = ["c"]` is E0238 when building for `c-embedded`. If omitted, it is considered to cover all targets. If the `targets` of a Pome in the dependency graph does not include the build target, it is a compile error (E0238). A Pome without `@external` does not need to write it. `check` and the LSP do not decide a target, so they do not perform this check. Even if the declaration and the actual `@external` bindings disagree, the check of reachable external functions in 12.1 (E0412) is still performed.
 - E0238 is reported in the `Pome.toml` of the Pome that declared the targets. The note shows the Pomes that depend on that Pome (`this Pome` if the Pome being built depends on it directly).
 - Target-specific parts are confined to effect handlers, and the entry decides which handlers to provide. For this reason, splitting into a Pome with only effects (usable on all targets), target-specific Pomes with handlers and `@external`, and per-target entry Pomes is recommended. There is no way to write per-target dependencies.
@@ -207,7 +207,7 @@ targets = ["js"]
 ```
 github.com/emela-lang/x/kv                    only effect Kv. no targets
 github.com/emela-lang/x/platform-cloudflare   handler WorkerKv. targets = ["js"]
-github.com/me/app                             logic. depends only on x/kv and is written with use { Kv }
+github.com/me/app                             logic. depends only on x/kv and is written with uses { Kv }
 github.com/me/app/worker                      JS entry. depends on app and platform-cloudflare, allows it in [external]
 ```
 

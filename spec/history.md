@@ -2,6 +2,26 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-07 (Array)
+
+- `[lib.layers]`, `[api.std.array]`, `[ext.boundary]`, `[target.js.value]`, `[target.impl-hint]`, `[diag.list]`: Add `Array[A]`, an immutable sequence of fixed length with O(1) access by position, to the value layer of std as `Std.Array`. Its representation is a flat block of elements. `set` returns a new array; on WASM and C, it updates the array in place when the argument is the last reference to it, so a loop that threads one array through `set` runs in O(1) per step there. A sequence is built as a List and turned into an Array; Array has no operation that grows an array. `Array[A]` becomes a boundary type of external functions on the JS target, where it is a JS `Array`. Adopted in the proposal `array` (#508).
+
+## 2026-11-07 (Line continuation of error sets)
+
+- `[lex.continuation]`: Rule 5 continues a line that starts with `|` when the previous line ends inside the error set of a fails clause. The proposal `closure-syntax` (#492) had kept `|` in rule 4, which applied only inside a signature, so that an error set could be written over several lines; the proposal `uses-clause` (#488) replaced rule 4 with a rule on `fails` and `uses` alone and dropped the signature. `|` cannot follow that rule, because a line that starts with `|` can start an anonymous function. A line that ends inside the error set of a fails clause is never a complete statement, and `fails` followed by a name is always a clause, so the previous line decides it without tracking the signature. The reading of correct programs does not change. Decided by the author while applying `uses-clause`.
+
+## 2026-11-06 (Rename the effect clause to uses)
+
+- `[fmt.io]`, `[fmt.space]`, `[lex.continuation]`, `[kw.contextual]`, `[glossary.terms]`, `[grammar.decl]`, `[grammar.type]`, `[type.fn]`, `[type.inference]`, `[type.rules]`, `[type.effect-bound]`, `[effect.decl]`, `[effect.use]`, `[effect.with]`, `[effect.handler]`, `[effect.async]`, `[effect.state]`, `[effect.label]`, `[error.fails]`, `[fn.decl]`, `[fn.operator]`, `[data.tuple]`, `[intro.layers]`, `[module.pub-signature]`, `[module.resolution]`, `[module.pome]`, `[trait.effects]`, `[trait.not]`, `[fiber.scope]`, `[fiber.combinators]`, `[fiber.interrupt]`, `[fiber.cause]`, `[fiber.deferred]`, `[ext.decl]`, `[ext.call]`, `[ext.boundary]`, `[ext.c-host]`, `[ext.export]`, `[lib.layers]`, `[api.prelude]`, `[api.std.state]`, `[api.std.fiber]`, `[api.std.deferred]`, `[api.std.http]`, `[target.js]`, `[target.c-embedded.entry]`, `[fmt.signature]`, `[lsp.hover]`, `[lsp.completion]`, `[lsp.code-action]`, `[lsp.inlay-hint]`, `[open.list]`, `[diag.list]`: The clause that writes the effect set R of a function signature or a function type is renamed from `use` to `uses` (`fn f() -> A fails E uses { R }`, `fn(A) -> B fails {} uses {}`). `uses` is a contextual keyword, as `fails` is, so no reserved word is added. The expression `use X`, the display of a capability type `use Logger`, and `use` inside init stay as they are. The old clause is a compile error that shows the rewrite (E0147). Because a line starting with `uses` can no longer be mistaken for a `use` expression, rule 4 of `[lex.continuation]` is decided by tokens alone and no longer only inside signatures. The canonical form of a clause always has braces (`uses { Db }`), and `emela fmt` rewrites both the old clause and the form without braces. Adopted in the proposal `uses-clause` (#488).
+
+## 2026-11-05 (The JavaScript launcher names)
+
+- `[target.js.module]`, `[ext.export]`, `[diag.list]`: `main.mjs` exports `main` and `$start` for the launcher in addition to the host exports. A two-argument `@export(js, "name")` that would duplicate one of them is E0438. The rule is conditional on the name being exported: `main` when the entry has a `main`, and `$start` when the entry's `main` or a host export of the `js` target may suspend. Adopted in the proposal `js-launcher-names` (#462).
+
+## 2026-11-05 (Closure syntax for anonymous functions)
+
+- `[fn.decl]`, `[fn.block]`, `[lex.continuation]`, `[grammar.expr]`, `[type.fn]`, `[type.inference]`, `[type.rules]`, `[fiber.combinators]`, `[fmt.wrap]`, `[fmt.closure]`, `[fmt.io]`, `[diag.list]`: An anonymous function is written `|x| e`, `|a, b| e` or `|| e`. The body is one expression and extends as far to the right as possible; a body of several statements is a block, `|x| { ... }`. The form `fn(x) { e }` is removed from expressions, and `fn` is used only for declarations and function types. Existing code is rewritten mechanically by `emela fmt`. Adopted in the proposal `closure-syntax` (#492).
+
 ## 2026-10-29 (Behavior when memory is exhausted)
 
 - `[dyn.memory]`, `[target.unspecified]`, `[error.defect]`, `[fiber.cause]`, `[target.wasm.run]`: The specification does not say what happens when a program cannot obtain the memory it needs. This proposal leaves the result implementation-defined, including whether it is a defect (and therefore whether the releases run and whether the failure is observable at `Fiber.attempt`), what is written and the exit status. A program MUST NOT depend on any of these. A future proposal may fix them. Adopted in the proposal `memory-exhaustion` (#461).

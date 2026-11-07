@@ -749,6 +749,40 @@ fn escapes() {
 }
 
 #[test]
+fn an_error_without_show_is_named_in_a_test_result() {
+    // The display of an error in a test result is the same as for an error reaching main
+    // (`[cmd.test.outcome]`, `[dyn.error]`): the name only when the type does not satisfy Show.
+    // Every target shows the same.
+    let sources = &[
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "\
+error Nope
+
+@test
+fn fails() {
+  fail Nope
+}
+
+@test
+fn passes() {
+  assert 1 + 1 == 2
+}
+",
+        ),
+    ];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let (out, _) = run_everywhere("error-name", &fs, &input);
+    assert!(out.contains("---- fails ----\nerror: Nope\n"), "{out}");
+    assert!(
+        out.contains("test result: FAILED. 1 passed; 1 failed"),
+        "{out}"
+    );
+}
+
+#[test]
 fn tests_provide_effects_with_handlers() {
     // A test function's R is empty, so handlers are provided with `with` (spec 13.3). A failure in
     // the body of a swapped-in handler's operation propagates to the operation's caller.

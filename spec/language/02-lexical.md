@@ -86,13 +86,14 @@ A line break ends a statement. In the following cases, however, the previous lin
 
 1. The next line starts with a binary operator, `.`, `escape`, or `match`. `match` continues the line only when the next meaningful token is `{` (a postfix match is always `match {`, so the reading of a correct program does not change. Any other line is read as a new statement with a prefix match, and E0142 is reported).
 2. An opened `(` or `[` is not yet closed.
-3. The next line starts with `else`, `->`, or `|`. None of these ever starts a statement, so treating them as continuations creates no ambiguity. The formatter aligns them into `} else {`.
-4. Inside a signature, the next line starts with `fails` or `use`. Inside a signature means before the body's `{` of a fn declaration, and in the declaration of an effect operation. No statement starts there, so there is no ambiguity. Inside a body, `fails` can be used as an ordinary identifier and `use` starts an expression, so they start a new statement as before. The body's `{` is written on the last line of the signature. The signature of a declaration without a body (an effect operation, an `@external` fn) closes at the end of its line, so `fails` and `use` at the start of the next declaration's line do not continue it.
+3. The next line starts with `else` or `->`. Neither ever starts a statement, so treating them as continuations creates no ambiguity. The formatter aligns `else` into `} else {`.
+4. The next line starts with `fails` or `uses`, and the next token on that line is a type name, an uppercase name, or `{`. The fails clause and the uses clause always have this form, because a set follows the keyword. No statement has it: as ordinary identifiers, `fails` and `uses` are never followed by a name or `{`. The rule therefore applies anywhere, including after the signature of a declaration without a body (an effect operation, an `@external` fn) and in the type annotation of a binding. The body's `{` is written on the last line of the signature.
+5. The next line starts with `|`, and the previous line ends inside the error set of a fails clause: `fails` followed by an error item (`[grammar.type]`), then zero or more `|` and error items, and nothing else before the line break (the `fails` may be on an earlier line that rule 4 or this rule continued). A line that ends this way is never a complete statement, so the `|` continues the error set. Otherwise a `|` at the start of a line starts an anonymous function.
 
 ```emel
 pub fn get(url: String) -> Response
   fails InvalidUrl | ConnectionFailed | ResponseNotText
-  use Http {
+  uses { Http } {
   ...
 }
 ```
@@ -101,13 +102,15 @@ A line that starts with one of the following tokens always starts a new statemen
 
 - `(` and `[`: write the opening bracket of a function call or a type argument list on the same line as the name.
 - `-`: at the start of a line it is read as a unary minus. A `-` at the start of a line does not continue the previous line and starts a new statement.
+- `|`, except by rule 5: it starts an anonymous function.
+- `||`: it starts an anonymous function without parameters, and is not read as the logical or operator continuing the previous line (an exception to rule 1, as for `-`).
 
-Outside brackets, a binary operator at the end of a line does not continue onto the next line. To continue the previous line with a binary operator, place an operator other than `-` at the start of the next line. To write the right-hand side of a subtraction on the next line, enclose the expression in parentheses. A line break inside parentheses continues by rule 2.
+Outside brackets, a binary operator at the end of a line does not continue onto the next line. To continue the previous line with a binary operator, place an operator other than `-` and `||` at the start of the next line. To write the right-hand side of a subtraction or of a logical or on the next line, enclose the expression in parentheses. A line break inside parentheses continues by rule 2.
 
 Supplementary notes:
 
 - Continuation is decided by the "meaningful token" after the line break. Whitespace, comment-only lines, and empty lines in between are skipped.
-- The "opened bracket" in rule 2 is decided by the innermost level of bracket nesting. Even inside `(`, a line break separates statements if a `{` is open further inside (`f(fn(x) {⏎a⏎b⏎})`).
+- The "opened bracket" in rule 2 is decided by the innermost level of bracket nesting. Even inside `(`, a line break separates statements if a `{` is open further inside (`f(|x| {⏎a⏎b⏎})`).
 - A line break inside a string interpolation `#{ }` is a continuation, the same as inside `(`.
 
 ```emel

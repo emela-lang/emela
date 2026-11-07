@@ -186,6 +186,24 @@ fn main() {
 "#,
     ),
     (
+        "error_without_show",
+        r#"
+error Nope
+error Retry(after: fn() -> Int)
+
+fn retry(n: Int) -> Int fails Retry {
+  if n > 0 { fail Retry(after: fn() { n }) }
+  n
+}
+
+fn main() {
+  dbg(retry(0))
+  dbg(retry(1) escape { Retry(_) -> -1 })
+  fail Nope
+}
+"#,
+    ),
+    (
         "state",
         r#"
 import Std.State.{State}

@@ -2,10 +2,10 @@
 title: Move attempt and Exit to Std.Exit
 authors: [Alliana]
 status: draft
-pr: 489
+pr: 501
 issue:
 decided:
-touches: [fiber, fiber.cause, error.defect, lib.layers, api.std.fiber, api.std.exit (new), api.std.cause, target.c.unsupported]
+touches: [fiber, fiber.cause, error.defect, lib.layers, api.std.fiber, api.std.exit (new), api.std.cause, target.c.unsupported, dyn.memory, target.unspecified]
 requires: []
 related: []
 ---
@@ -24,7 +24,7 @@ related: []
 import Std.Cause
 import Std.Fiber.{Fiber, Success, Failure}
 
-fn transaction[A, E](body: fn() -> A fails E use { Sql }) -> A fails E use { Sql } {
+fn transaction[A, E](body: fn() -> A fails E uses { Sql }) -> A fails E uses { Sql } {
   (use Sql).execute("BEGIN")
   Fiber.attempt(body) match {
     Success(value) -> {
@@ -49,7 +49,7 @@ The dependency between the modules also points the wrong way. `Exit` describes h
 import Std.Cause
 import Std.Exit.{Success, Failure}
 
-fn transaction[A, E](body: fn() -> A fails E use { Sql }) -> A fails E use { Sql } {
+fn transaction[A, E](body: fn() -> A fails E uses { Sql }) -> A fails E uses { Sql } {
   (use Sql).execute("BEGIN")
   Exit.attempt(body) match {
     Success(value) -> {
@@ -70,7 +70,7 @@ No change.
 
 ### Meaning
 
-- The new module `Std.Exit` declares `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` and the intrinsic `attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R`. Their meaning does not change.
+- The new module `Std.Exit` declares `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` and the intrinsic `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }`. Their meaning does not change.
 - `Std.Fiber` no longer declares `Exit` or `attempt`. `Fiber.await` returns `Exit[A, {}]` of `Std.Exit`.
 - `import Std.Exit.{Success, Failure}` brings the module `Exit` into scope as well (`[module.resolution]`), so `Exit.attempt` needs no other import.
 
@@ -104,9 +104,9 @@ pub fn raise[A, E](c: Cause[E]) -> A fails E # Fail fails, Die is a defect, Inte
 
 In the table of the four ways to receive a result, the row of `attempt` becomes:
 
-> | `Exit.attempt` | `attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R` | Runs f in place and turns Fail and Die into values. It starts no fiber |
+> | `Exit.attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | Runs f in place and turns Fail and Die into values. It starts no fiber |
 
-In the example, replace `Fiber.attempt(fn() { handle(conn) })` with `Exit.attempt(fn() { handle(conn) })`.
+In the example, replace `Fiber.attempt(|| handle(conn))` with `Exit.attempt(|| handle(conn))`.
 
 ### `[error.defect]`
 
@@ -120,7 +120,7 @@ In the row of the effect layer, the contents become "State, Fiber, Exit, Cause, 
 
 Remove the rows `Exit` and `attempt`. The row of `await` becomes:
 
-> | `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] use Async` | intrinsic | Waits for the child to finish and returns how it ended (`Exit` of `Std.Exit`) |
+> | `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | intrinsic | Waits for the child to finish and returns how it ended (`Exit` of `Std.Exit`) |
 
 ### `[api.std.exit]` (new)
 
@@ -133,7 +133,7 @@ Placed between `[api.std.fiber]` and `[api.std.cause]`:
 > | Declaration | Signature | Implementation | Description |
 > |---|---|---|---|
 > | `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | How a computation ended |
-> | `attempt` | `attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R` | intrinsic | Runs `f` in place and turns Fail and Die into values. Starts no fiber. Does not catch an interruption of the calling fiber itself |
+> | `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | intrinsic | Runs `f` in place and turns Fail and Die into values. Starts no fiber. Does not catch an interruption of the calling fiber itself |
 
 ### `[api.std.cause]`
 
@@ -142,6 +142,14 @@ Placed between `[api.std.fiber]` and `[api.std.cause]`:
 ### `[target.c.unsupported]`
 
 > ... This defect can be caught with `Exit.attempt`, and the releases of the withs on the way also run.
+
+### `[dyn.memory]`
+
+In the bullet on a program that cannot obtain the memory it needs, `Fiber.attempt` becomes `Exit.attempt`.
+
+### `[target.unspecified]`
+
+In the bullet on a program that cannot obtain the memory it needs, `Fiber.attempt` becomes `Exit.attempt`.
 
 ## Diagnostics
 

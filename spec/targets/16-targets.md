@@ -54,6 +54,7 @@ The following points are implementation-defined, and programs MUST NOT depend on
 - How traits are implemented (dictionary passing or a copy per type)
 - How continuations are implemented
 - The order of execution when several fibers can run
+- The result of a program that cannot obtain the memory it needs, including whether it is a defect, whether releases run, whether the failure can be observed at `Exit.attempt`, what, if anything, is written, and the exit status
 
 ## 16.5 Informative: intended implementation `[target.impl-hint]`
 
@@ -69,4 +70,5 @@ Informative.
 | Errors | Returned as return values | Same | Same |
 | defect | An exception of a dedicated class | Propagated explicitly through return values (no exceptions) | Same |
 | Memory management | The host's GC | Reference counting in linear memory (Perceus style) | Reference counting (Perceus style) |
+| `Array.set` (`[api.std.array]`) | Copies | Updates in place when the reference count of the argument is 1 | Same as WASM |
 | Runtime | The compiler writes it to the output directory | Linked into the emitted module | Compiled as C source together with the output |
