@@ -1,5 +1,5 @@
 @external(c, "mutate")
-fn mutate() -> () use {}
+fn mutate() -> () uses {}
 effect Resource { fn read() -> Int }
 handler Res: Resource {
   fn read() { 0 }

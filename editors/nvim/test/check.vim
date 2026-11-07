@@ -115,15 +115,15 @@ call s:Expect('layer AppLive', 'ConsoleLogger', 'emelaType')
 call s:Expect('impl Shape', 'impl', 'emelaKeyword')
 call s:Expect('impl Shape', 'Show', 'emelaType')
 
-" fails A | B and use { A, R }
+" fails A | B and uses { A, R }
 call s:Expect('fn run[', 'run', 'emelaFuncDecl')
 call s:Expect('fn run[', 'R', 'emelaTypeParamDecl')
 call s:Expect('fn run[', 'fn', 'emelaKeyword', 2)
 call s:Expect('fn run[', 'fails', 'emelaContextual')
 call s:Expect('fn run[', 'A |', 'emelaTypeParam')
 call s:Expect('fn run[', '| B', 'emelaOperator')
-call s:Expect('fn run[', 'B use', 'emelaTypeParam')
-call s:Expect('fn run[', 'use', 'emelaEffect')
+call s:Expect('fn run[', 'B uses', 'emelaTypeParam')
+call s:Expect('fn run[', 'uses', 'emelaContextual')
 call s:Expect('fn run[', 'A, R }', 'emelaTypeParam')
 call s:Expect('fn run[', 'R }', 'emelaTypeParam')
 call s:Expect('fn run[', '->', 'emelaOperator')

@@ -11,7 +11,7 @@ fn packet(n: Int) -> Packet {
   text = Int.to_string(n)
   Data((text, Some(text)), [text])
 }
-pub fn both(n: Int) -> ((String, Option[String]), Option[String]) use Async {
+pub fn both(n: Int) -> ((String, Option[String]), Option[String]) uses { Async } {
   with Waiting {
     text = Int.to_string(n)
     Fiber.both(|| {
@@ -23,7 +23,7 @@ pub fn both(n: Int) -> ((String, Option[String]), Option[String]) use Async {
     })
   }
 }
-pub fn terminal(n: Int, cancel: Bool) -> Exit[Packet, {}] use Async {
+pub fn terminal(n: Int, cancel: Bool) -> Exit[Packet, {}] uses { Async } {
   with Waiting {
     Fiber.scope(|| {
       child = Fiber.fork(|| {
@@ -43,7 +43,7 @@ handler Echoing: Echo {
     resume(value)
   }
 }
-pub fn echoed(n: Int) -> Packet use Async {
+pub fn echoed(n: Int) -> Packet uses { Async } {
   with Waiting {
     with Echoing {
       value = (use Echo).echo(packet(n))

@@ -148,7 +148,7 @@ handler Hi: Greet {
   fn hello(name) { "hi #{name}" }
 }
 
-fn greet(name: String) -> String use Greet {
+fn greet(name: String) -> String uses { Greet } {
   (use Greet).hello(name)
 }
 

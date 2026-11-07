@@ -8,8 +8,8 @@ fy: fn(Int) -> Int fails Bad
 nothing_raised: fn() -> Int
 below_on_nothing: fn() -> Int
 below: fn() -> Int
-below_opaque: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) use R(f)) -> A fails E(f) use R(f)
-  f: fn() -> '0 fails '1 use '2
+below_opaque: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) uses { R(f) }) -> A fails E(f) uses { R(f) }
+  f: fn() -> '0 fails '1 uses { '2 }
 after_total: fn() -> Int
 guarded: fn(Bool) -> Int
   c: Bool

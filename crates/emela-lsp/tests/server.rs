@@ -887,7 +887,7 @@ fn hover_shows_types_and_errors() {
     // of function arguments.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 8)),
-        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) use R(f)) -> List[B] fails E(f) use R(f)\n```"
+        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n```"
     );
     // A position with nothing there.
     assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);
@@ -902,7 +902,7 @@ fn hover_shows_types_and_errors() {
 /// showing the label itself.
 #[test]
 fn hover_on_labels() {
-    let src = "effect Log {\n  fn log(msg: String) -> ()\n}\n\neffect Debug of Log default\n\nfn b() -> () use { Debug } {\n  with Debug { (use Log).log(\"b\") }\n}\n";
+    let src = "effect Log {\n  fn log(msg: String) -> ()\n}\n\neffect Debug of Log default\n\nfn b() -> () uses { Debug } {\n  with Debug { (use Log).log(\"b\") }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -911,12 +911,12 @@ fn hover_on_labels() {
     };
     let decl = "```emela\neffect Debug of Log default\n```";
     assert_eq!(text(client.hover("/app/src/main.emel", 4, 8)), decl);
-    // In the `use` clause, and in `with`.
+    // In the `uses` clause, and in `with`.
     assert_eq!(text(client.hover("/app/src/main.emel", 6, 20)), decl);
     assert_eq!(text(client.hover("/app/src/main.emel", 7, 8)), decl);
     assert_eq!(
         text(client.hover("/app/src/main.emel", 6, 3)),
-        "```emela\nb: fn() -> () use Debug\n```"
+        "```emela\nb: fn() -> () uses { Debug }\n```"
     );
     client.shutdown();
 }
@@ -964,7 +964,7 @@ fn hover_shows_effects() {
     // Inferred R.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 4)),
-        "```emela\ngreet: fn() -> () use Logger\n```"
+        "```emela\ngreet: fn() -> () uses { Logger }\n```"
     );
     // A local variable holding a capability.
     assert_eq!(
@@ -974,12 +974,12 @@ fn hover_shows_effects() {
     // An operation call expression shows its type and R.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 10, 16)),
-        "```emela\n()\nuse Logger\n```"
+        "```emela\n()\nuses { Logger }\n```"
     );
     // A call inside `with` shows R; outside it does not.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 14, 21)),
-        "```emela\n()\nuse Logger\n```"
+        "```emela\n()\nuses { Logger }\n```"
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 14, 3)),
@@ -1009,7 +1009,7 @@ fn hover_shows_suspend_and_async() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 7, 10)),
-        "```emela\nhandler JsClock: Clock\nuse Async\n```"
+        "```emela\nhandler JsClock: Clock\nuses { Async }\n```"
     );
     // `resume` takes the operation's return type and returns `()`.
     assert_eq!(
@@ -1018,12 +1018,12 @@ fn hover_shows_suspend_and_async() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 14, 31)),
-        "```emela\nsuspend fn(Int) -> () use Clock\nuse Clock\n```"
+        "```emela\nsuspend fn(Int) -> () uses { Clock }\nuses { Clock }\n```"
     );
     // Async may remain in main's R (spec 8.3).
     assert_eq!(
         text(client.hover("/app/src/main.emel", 13, 4)),
-        "```emela\nmain: fn() -> () use Async\n```"
+        "```emela\nmain: fn() -> () uses { Async }\n```"
     );
     client.shutdown();
 }
@@ -1042,7 +1042,7 @@ fn hover_shows_stateful_handlers_and_layers() {
     };
     assert_eq!(
         text(client.hover("/app/src/main.emel", 12, 10)),
-        "```emela\nhandler DbUsers(conn: String): Users\ninit fails Down\nuse Config\n```"
+        "```emela\nhandler DbUsers(conn: String): Users\ninit fails Down\nuses { Config }\n```"
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 14, 16)),
@@ -1050,7 +1050,7 @@ fn hover_shows_stateful_handlers_and_layers() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 17, 7)),
-        "```emela\nlayer App { DbUsers }\nuse Config\n```"
+        "```emela\nlayer App { DbUsers }\nuses { Config }\n```"
     );
     client.shutdown();
 }
@@ -1086,7 +1086,7 @@ fn handler_init_arguments() {
 /// capability shows `use Cell[Int]`, and an operation shows its type with the arguments substituted.
 #[test]
 fn hover_shows_effect_type_args() {
-    let src = "effect Cell[S] {\n  fn get() -> S\n}\n\nhandler Zero: Cell[Int] {\n  fn get() { 0 }\n}\n\nfn read() -> Int use Cell[Int] {\n  cell = use Cell[Int]\n  cell.get()\n}\n";
+    let src = "effect Cell[S] {\n  fn get() -> S\n}\n\nhandler Zero: Cell[Int] {\n  fn get() { 0 }\n}\n\nfn read() -> Int uses { Cell[Int] } {\n  cell = use Cell[Int]\n  cell.get()\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -1103,16 +1103,16 @@ fn hover_shows_effect_type_args() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 10, 8)),
-        "```emela\nfn() -> Int use Cell[Int]\n```"
+        "```emela\nfn() -> Int uses { Cell[Int] }\n```"
     );
     client.shutdown();
 }
 
-/// A use clause mixing effects and set type parameters (spec 8.3). Inside `with` the listed effect
+/// A uses clause mixing effects and set type parameters (spec 8.3). Inside `with` the listed effect
 /// is visible; outside it only the set type parameter remains.
 #[test]
 fn hover_shows_mixed_effect_sets() {
-    let src = "effect Quiet {\n  fn hush() -> ()\n}\n\nhandler Silent: Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () use { Quiet, R }) -> () use R {\n  with Silent { f() }\n}\n";
+    let src = "effect Quiet {\n  fn hush() -> ()\n}\n\nhandler Silent: Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () uses { Quiet, R }) -> () uses { R } {\n  with Silent { f() }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -1121,17 +1121,17 @@ fn hover_shows_mixed_effect_sets() {
     };
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 4)),
-        "```emela\nrun: ∀ R, E(f). fn(fn() -> () fails E(f) use { Quiet, R }) -> () fails E(f) use R\n```"
+        "```emela\nrun: ∀ R, E(f). fn(fn() -> () fails E(f) uses { Quiet, R }) -> () fails E(f) uses { R }\n```"
     );
     // The call expression's R includes the set type parameter.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 17)),
-        "```emela\n()\nfails E(f)\nuse { Quiet, R }\n```"
+        "```emela\n()\nfails E(f)\nuses { Quiet, R }\n```"
     );
     // Outside `with`, Quiet is gone.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 3)),
-        "```emela\n()\nfails E(f)\nuse R\n```"
+        "```emela\n()\nfails E(f)\nuses { R }\n```"
     );
     client.shutdown();
 }
@@ -1506,7 +1506,7 @@ fn definition_of_names() {
 #[test]
 fn definition_of_an_entry_adapter() {
     let main = "import Http\n\n@entry(Http.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() {}\n";
-    let http = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }\n";
+    let http = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }\n";
     let files = [
         ("/app/Pome.toml", ""),
         ("/app/src/main.emel", main),
@@ -1781,6 +1781,17 @@ fn completion_of_names_in_scope() {
     );
     let items = client.complete(MAIN, 19, 7).unwrap();
     assert_eq!(labels(&items), ["Quiet"]);
+    // Only effects right after `uses` too (`[lsp.completion]`).
+    let src = format!("{NAV_MAIN}\nfn later() -> () uses L\n");
+    client.open(MAIN, 2, &src);
+    let items = client.complete(MAIN, 22, 23).unwrap();
+    assert!(labels(&items).contains(&"Logger"), "{items:?}");
+    assert!(
+        items
+            .iter()
+            .all(|i| i.1 == lsp::CompletionItemKind::INTERFACE),
+        "{items:?}"
+    );
     drain(&client);
     client.shutdown();
 }
@@ -1888,11 +1899,11 @@ fn signature_help_on_the_right_of_a_pipe() {
     };
     // The left side fills the first parameter, so it is left out.
     let add_b = s("add(b: Int) -> Int", &["b: Int"], Some(0));
-    let f = "f: fn(A) -> B fails E(f) use R(f)";
+    let f = "f: fn(A) -> B fails E(f) uses { R(f) }";
     assert_eq!(
         client.signature(MAIN, 18, 22),
         s(
-            &format!("map({f}) -> List[B] fails E(f) use R(f)"),
+            &format!("map({f}) -> List[B] fails E(f) uses {{ R(f) }}"),
             &[f],
             Some(0)
         )
@@ -1900,8 +1911,8 @@ fn signature_help_on_the_right_of_a_pipe() {
     // Nested in a lambda on the right of another pipe.
     assert_eq!(client.signature(MAIN, 18, 35), add_b);
     // The other parameters given by name.
-    let f = "f: fn(B, A) -> B fails E(f) use R(f)";
-    let fold = format!("fold(from: B, {f}) -> B fails E(f) use R(f)");
+    let f = "f: fn(B, A) -> B fails E(f) uses { R(f) }";
+    let fold = format!("fold(from: B, {f}) -> B fails E(f) uses {{ R(f) }}");
     for (col, active) in [(22, 0), (32, 1), (34, 1)] {
         assert_eq!(
             client.signature(MAIN, 19, col),
@@ -2088,15 +2099,19 @@ fn apply[A](f: fn() -> A) {
     assert_eq!(
         client.code_actions(MAIN, (11, 0), (11, 0)),
         action(
-            "Add inferred `-> () use Logger`",
+            "Add inferred `-> () uses { Logger }`",
             (11, 10),
-            " -> () use Logger"
+            " -> () uses { Logger }"
         )
     );
     // With a return type present, only `use` is added, after the return type.
     assert_eq!(
         client.code_actions(MAIN, (16, 5), (16, 5)),
-        action("Add inferred `use Logger`", (16, 23), " use Logger")
+        action(
+            "Add inferred `uses { Logger }`",
+            (16, 23),
+            " uses { Logger }"
+        )
     );
     // Errors that cannot be written unqualified are not added.
     assert_eq!(client.code_actions(MAIN, (21, 4), (21, 4)), Some(vec![]));
@@ -2249,7 +2264,7 @@ fn impl_stubs_are_quickfixes_linked_to_published_diagnostics() {
 
 #[test]
 fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
-    let main = "error Missing\neffect Log { fn log() -> () }\nfn io() -> () { Io.print(\"hi\") }\nfn fails() -> () use {} { fail Missing }\nfn effects() -> () use {} { (use Log).log() }\n";
+    let main = "error Missing\neffect Log { fn log() -> () }\nfn io() -> () { Io.print(\"hi\") }\nfn fails() -> () uses {} { fail Missing }\nfn effects() -> () uses {} { (use Log).log() }\n";
     let files = [
         ("/app/Pome.toml", ""),
         (MAIN, main),
@@ -2262,8 +2277,8 @@ fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
     assert_eq!(codes(&published), ["E0211", "E0318", "E0402"]);
     for (at, code, inserted) in [
         ((2, 16), "E0211", "import Io\n"),
-        ((3, 26), "E0318", " fails Missing"),
-        ((4, 29), "E0402", "use Log"),
+        ((3, 27), "E0318", " fails Missing"),
+        ((4, 30), "E0402", "uses { Log }"),
     ] {
         let actions = client.quickfixes(MAIN, at, at);
         assert_eq!(actions.len(), 1, "at {at:?}: {actions:?}");
@@ -2319,9 +2334,9 @@ fn main() {
             // Parameter types of a handler operation.
             hint(11, 13, ": String", false),
             // An omitted annotation, including invisible sets.
-            hint(14, 10, "-> List[Int] fails NotFound use Logger", true),
+            hint(14, 10, "-> List[Int] fails NotFound uses { Logger }", true),
             // E and R of a call in statement position.
-            hint(16, 16, "use Logger", true),
+            hint(16, 16, "uses { Logger }", true),
             // The type of a binding (not shown for the capability `log`).
             hint(17, 3, ": Int", false),
             hint(17, 13, "fails NotFound", true),
@@ -2330,7 +2345,7 @@ fn main() {
             hint(18, 18, ": Int", false),
             hint(21, 9, "-> List[Int] fails NotFound", true),
             // A call inside `with` shows R.
-            hint(22, 22, "fails NotFound use Logger", true),
+            hint(22, 22, "fails NotFound uses { Logger }", true),
         ]
     );
     // Written annotations get no hints. Frontends without types give none.

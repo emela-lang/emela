@@ -368,14 +368,14 @@ handler Ignores: Wait {
   suspend fn wait(resume) { () }
 }
 
-fn spin(n: Int) -> () use { Tick } {
+fn spin(n: Int) -> () uses { Tick } {
   if n == 0 { () } else {
     (use Tick).tick()
     spin(n - 1)
   }
 }
 
-fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
+fn fetch(n: Int, ticks: Int) -> Int uses { Tick } {
   spin(ticks * 100)
   n * 10
 }

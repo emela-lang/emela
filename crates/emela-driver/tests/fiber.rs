@@ -187,11 +187,11 @@ handler Res: Name {
   release { (use Console).print_line("release res") }
 }
 
-fn say(text: String) -> () use { Console } {
+fn say(text: String) -> () uses { Console } {
   (use Console).print_line(text)
 }
 
-fn fetch(n: Int, ms: Int) -> Int use { Clock, Console } {
+fn fetch(n: Int, ms: Int) -> Int uses { Clock, Console } {
   (use Clock).sleep(ms)
   say("fetched #{n}")
   n * 10
@@ -645,7 +645,7 @@ fn test_clock_runs_on_virtual_time() {
             "import Std.Clock.{TestClock}\nimport Std.Console.{TestConsole}\n\
              import Std.State.{State}\nimport Std.Instant.{Instant}\n",
             r##"
-fn at(text: String) -> () use { Clock, Console } {
+fn at(text: String) -> () uses { Clock, Console } {
   ms = Instant.to_unix_milliseconds((use Clock).now())
   say("#{text} at #{ms}")
 }

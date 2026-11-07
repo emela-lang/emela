@@ -3,7 +3,7 @@
 //! A [`BodyInfer`] is created per group of mutually referring definitions (a strongly connected
 //! component of the call graph), and expressions are inferred bottom-up. On a type mismatch, a
 //! diagnostic with the expression's span is pushed and inference continues. Definitions without
-//! a declared type (fns without a return type or `use` clause, consts without a type) are
+//! a declared type (fns without a return type or `uses` clause, consts without a type) are
 //! referred to monomorphically within the group and generalized once the group is inferred
 //! ([`crate::check`]). Handlers are definitions in the group too: their operation bodies are
 //! inferred and their dependencies (the R of the operation bodies) computed.
@@ -160,7 +160,7 @@ pub(crate) struct BodyInfer<'a> {
     ///
     /// Such a reference replaces the written type parameters, and the parts not yet known, with
     /// fresh type variables. Unifying with the definition's type directly would leak its type
-    /// parameters into the other definitions. The `R` of a referenced fn without a `use` clause
+    /// parameters into the other definitions. The `R` of a referenced fn without a `uses` clause
     /// goes through the same check.
     deferred: Vec<DeferredRef>,
     locals: SparseMap<LocalId, Ty>,
@@ -410,7 +410,7 @@ impl<'a> BodyInfer<'a> {
                     }
                     None => (self.ctx.new_var(), Row::var(self.ctx.new_row_var())),
                 };
-                // Without a `use` clause, R is inferred from the body (spec 9.3).
+                // Without a `uses` clause, R is inferred from the body (spec 9.3).
                 let uses = match item.sig.uses {
                     Some(_) => {
                         fn_params.declared_uses(program, self.ty_table, &item.sig, &mut self.diags)
@@ -1158,7 +1158,7 @@ impl<'a> BodyInfer<'a> {
         });
     }
 
-    /// An `@external` fn with `use` omitted and an `@external suspend fn` can only be used inside
+    /// An `@external` fn with `uses` omitted and an `@external suspend fn` can only be used inside
     /// handler operation bodies (spec 12.2). Checked on every reference, not only calls, so they
     /// cannot be smuggled out as function values.
     fn check_external(&mut self, def: DefId, span: Span) {

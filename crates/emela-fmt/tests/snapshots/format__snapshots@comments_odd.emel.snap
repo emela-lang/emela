@@ -12,7 +12,7 @@ fn types(
 -> Int
   fails NotFound # エラーの間
   | DbError
-  use { # 効果の集合の中
+  uses { # 効果の集合の中
     Io, # 要素の後ろ
     # 要素の前
     Clock,

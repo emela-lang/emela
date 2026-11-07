@@ -164,7 +164,7 @@ fn main() {
 #[test]
 fn callbacks_are_rejected() {
     let main = r##"@external(c, "take")
-fn take(f: fn(Int) -> Int) -> () use {}
+fn take(f: fn(Int) -> Int) -> () uses {}
 
 fn main() { take(|x| x) }
 "##;
@@ -183,7 +183,7 @@ fn main() { take(|x| x) }
 #[test]
 fn exported_callbacks_are_rejected() {
     let main = r##"@export(c, "apply")
-fn apply(x: Int, f: fn(Int) -> Int fails {} use {}) -> Int { f(x) }
+fn apply(x: Int, f: fn(Int) -> Int fails {} uses {}) -> Int { f(x) }
 
 fn main() {}
 "##;
@@ -204,10 +204,10 @@ fn bytes_at_the_boundary_are_e0443() {
     let main = r##"import Std.Bytes.{Bytes}
 
 @external(c, "read_file")
-fn read_file(path: String) -> Bytes use {}
+fn read_file(path: String) -> Bytes uses {}
 
 @external(c, "write_file")
-fn write_file(data: Bytes) -> () use {}
+fn write_file(data: Bytes) -> () uses {}
 
 fn main() { write_file(read_file("a")) }
 "##;
@@ -262,13 +262,13 @@ fn arrays_at_the_boundary_are_e0443() {
 import Std.Bytes.{Bytes}
 
 @external(c, "rows")
-fn rows() -> Array[String] use {}
+fn rows() -> Array[String] uses {}
 
 @external(c, "sum")
-fn sum(xs: Array[Int]) -> Int use {}
+fn sum(xs: Array[Int]) -> Int uses {}
 
 @external(c, "chunks")
-fn chunks(xs: Array[Array[Bytes]]) -> () use {}
+fn chunks(xs: Array[Array[Bytes]]) -> () uses {}
 
 fn main() {
   dbg(sum(Array.from_list([1])))
@@ -976,7 +976,7 @@ fn tick() -> () {
 }
 
 @external(c, "./host.c", "host_calls_back")
-fn host_calls_back(n: Int) -> Int use {}
+fn host_calls_back(n: Int) -> Int uses {}
 
 fn main() {
   dbg("main")

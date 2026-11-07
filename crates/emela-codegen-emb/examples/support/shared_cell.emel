@@ -19,7 +19,7 @@ pub fn escaped_result(n: Int) -> Int {
   reader = escaped(n)
   reader() + reader()
 }
-pub fn shared(n: Int) -> String use Async {
+pub fn shared(n: Int) -> String uses { Async } {
   with Waiting {
   (result, final) = State.run(Int.to_string(n), || {
     state = use State[String]
@@ -38,7 +38,7 @@ pub fn shared(n: Int) -> String use Async {
   }
 }
 error Boom(message: String) derive Show
-pub fn failed(n: Int, bad: Bool) -> String use Async {
+pub fn failed(n: Int, bad: Bool) -> String uses { Async } {
   with Waiting {
     (value, _) = State.run(Int.to_string(n), || {
         state = use State[String]

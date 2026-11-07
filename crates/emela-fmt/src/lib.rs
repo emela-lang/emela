@@ -5,8 +5,10 @@
 //! `pretty` (Wadler-style).
 //!
 //! Files with syntax errors are not formatted: the contents of an ERROR node do not follow the
-//! grammar, so reprinting them could break the file. The old form of an anonymous function
-//! (E0148) is not a syntax error here: it is printed in the new form (`[fmt.io]`,
+//! grammar, so reprinting them could break the file. The old effect clause (E0147) and the old
+//! form of an anonymous function (E0148) are not syntax errors here: the parser reads the old
+//! clause into the tree of a uses clause, which the printer writes in its canonical form, and the
+//! old anonymous function is printed in the new form (`[fmt.io]`, `[fmt.signature]`,
 //! `[fmt.closure]`).
 
 mod comments;
@@ -56,7 +58,7 @@ pub fn format_with_width(src: &str, width: usize) -> Result<String, FormatError>
     let errors: Vec<Diagnostic> = parse
         .diagnostics()
         .iter()
-        .filter(|d| d.code != DiagnosticCode::OldLambda)
+        .filter(|d| !is_rewritten(d))
         .cloned()
         .collect();
     if !errors.is_empty() {
@@ -115,6 +117,14 @@ fn finish(rendered: &str) -> String {
     out
 }
 
+/// Diagnostics of old forms that the formatter rewrites instead of refusing the file.
+fn is_rewritten(diagnostic: &Diagnostic) -> bool {
+    matches!(
+        diagnostic.code,
+        DiagnosticCode::OldUseClause | DiagnosticCode::OldLambda
+    )
+}
+
 /// Checks that formatting did not change the meaning: the output must parse without errors, and
 /// its tokens (`normalized_tokens`) and comments must match the input's.
 fn verify(before: &SyntaxNode, out: &str) -> Result<(), FormatError> {
@@ -153,6 +163,8 @@ fn verify(before: &SyntaxNode, out: &str) -> Result<(), FormatError> {
 ///   it. The parentheses around a parameter type, and around a chain of `||` (`[fmt.wrap]`), are
 ///   dropped too: the formatter only adds them, and adding parentheses around a node does not
 ///   change what it means.
+/// - the rewrites of `[fmt.signature]`: the keyword of a uses clause is `uses` (the old `use`
+///   included), and its set is in braces
 #[doc(hidden)]
 pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
     use SyntaxKind::*;
@@ -192,8 +204,7 @@ fn meaningful_tokens(node: &SyntaxNode, out: &mut Vec<(SyntaxKind, String)>) {
                 if t.kind().is_trivia() || (t.kind() == NEWLINE && !separates(&t)) {
                     continue;
                 }
-                // A `\r\n` inside a multiline string compares equal to `\n`.
-                out.push((t.kind(), t.text().replace("\r\n", "\n")));
+                out.extend(uses_clause_tokens(&t));
             }
             rowan::NodeOrToken::Node(n) => single_node_tokens(&n, out),
         }
@@ -262,6 +273,42 @@ fn single_node_tokens(node: &SyntaxNode, out: &mut Vec<(SyntaxKind, String)>) {
         SyntaxKind::LAMBDA_EXPR => lambda_tokens(node, out),
         _ => meaningful_tokens(node, out),
     }
+}
+
+/// A token as `normalized_tokens` compares it: `(kind, text)`, with the uses clause in its
+/// canonical form. The keyword becomes `uses`, and a set without braces gets them around its
+/// first and last tokens.
+fn uses_clause_tokens(token: &SyntaxToken) -> Vec<(SyntaxKind, String)> {
+    use SyntaxKind::*;
+    // A `\r\n` inside a multiline string compares equal to `\n`.
+    let this = (token.kind(), token.text().replace("\r\n", "\n"));
+    let parent = token.parent();
+    if token.kind() == USE_KW && parent.as_ref().is_some_and(|p| p.kind() == USES_CLAUSE) {
+        return vec![(LOWER_NAME, "uses".to_owned())];
+    }
+    let Some(set) = token
+        .parent_ancestors()
+        .find(|n| n.kind() == EFFECT_SET)
+        .filter(|set| set.parent().is_some_and(|p| p.kind() == USES_CLAUSE))
+        .filter(|set| !set.children_with_tokens().any(|e| e.kind() == L_BRACE))
+    else {
+        return vec![this];
+    };
+    let significant = |t: &SyntaxToken| !t.kind().is_trivia() && t.kind() != NEWLINE;
+    let tokens: Vec<SyntaxToken> = set
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(significant)
+        .collect();
+    let mut out = Vec::new();
+    if tokens.first() == Some(token) {
+        out.push((L_BRACE, "{".to_owned()));
+    }
+    out.push(this);
+    if tokens.last() == Some(token) {
+        out.push((R_BRACE, "}".to_owned()));
+    }
+    out
 }
 
 /// Only newlines in a file, block, arm list or declaration body separate anything. The parser

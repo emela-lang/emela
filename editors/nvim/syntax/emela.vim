@@ -74,8 +74,8 @@ syntax keyword emelaReserved as var return while loop let mut in where do try ca
 
 " Contextual words (spec 3.2). They are keywords only in the position shown; elsewhere they are
 " ordinary names. In each pattern, the word would be a syntax error as a name.
-"   -> T fails E | F,  fails {}
-syntax match emelaContextual "\<fails\ze\s\+[A-Z{]"
+"   -> T fails E | F,  fails {},  uses { R },  uses {}
+syntax match emelaContextual "\<\%(fails\|uses\)\ze\s\+[A-Z{]"
 "   type/enum ... derive Eq, Show
 syntax match emelaContextual "\<derive\ze\s\+\u"
 "   init { ... } and release { ... } in a handler

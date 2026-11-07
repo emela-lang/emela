@@ -1,7 +1,7 @@
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 
-pub fn work(n: Int) -> Int use Async {
+pub fn work(n: Int) -> Int uses { Async } {
   Fiber.scope(|| {
     d: Deferred[Int] = (use Scope).deferred()
     Fiber.fork(|| Deferred.complete(d, n))

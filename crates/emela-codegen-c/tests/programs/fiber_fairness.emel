@@ -3,7 +3,7 @@ import Std.Deferred.{Deferred}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 effect Tick {
   suspend fn tick() -> ()
@@ -14,12 +14,12 @@ handler Ticks: Tick {
 }
 
 ## A suspending function that does not suspend: calls of it count for fairness too.
-fn step(n: Int) -> Int use { Tick } { n + 1 }
+fn step(n: Int) -> Int uses { Tick } { n + 1 }
 
 ## Counts to `n` with suspending calls, printing every `every` calls. Fibers that never wait still
 ## take turns: each yields every so many suspending calls (spec 11.1), and the order is the same
 ## on every target.
-fn count(name: String, i: Int, n: Int, every: Int) -> Int use { Tick } {
+fn count(name: String, i: Int, n: Int, every: Int) -> Int uses { Tick } {
   if i == n { i } else {
     if i % every == 0 { print("#{name} #{i}") } else { () }
     j = if i % 2 == 0 {
@@ -32,7 +32,7 @@ fn count(name: String, i: Int, n: Int, every: Int) -> Int use { Tick } {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
     total = Fiber.scope(|| {
       a = Fiber.fork(|| count("a", 0, 40000, 2500))

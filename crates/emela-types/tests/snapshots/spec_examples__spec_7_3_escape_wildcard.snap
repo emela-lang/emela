@@ -11,8 +11,8 @@ fallback: fn(String) -> Config
 bundled: fn(String) -> Config
   path: String
   config: Config
-or_else: ∀ A, E, R(f). fn(fn() -> A fails E use R(f), A) -> A use R(f)
-  f: fn() -> '0 fails '1 use '2
+or_else: ∀ A, E, R(f). fn(fn() -> A fails E uses { R(f) }, A) -> A uses { R(f) }
+  f: fn() -> '0 fails '1 uses { '2 }
   default: '0
 callers: fn(String) -> Config
   path: String

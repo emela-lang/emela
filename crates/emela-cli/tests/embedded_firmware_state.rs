@@ -6,7 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const SOURCE: &str = "pub fn main() -> Int use Async { 42 }\n";
+const SOURCE: &str = "pub fn main() -> Int uses { Async } { 42 }\n";
 
 const TOOL_WRAPPER: &str = r#"
 import hashlib

@@ -100,7 +100,7 @@ fn type_var(p: &mut Parser<'_>) -> CompletedMarker {
 
 /// `()`, a parenthesized type `(T)`, or a tuple of two or more.
 ///
-/// Parentheses tell where fails and use attach in a function type that returns a function
+/// Parentheses tell where fails and uses attach in a function type that returns a function
 /// (spec 5.5). `(T,)` would be a one-element tuple, so the closing parenthesis gets a diagnostic
 /// and it is read as a tuple.
 fn paren_type(p: &mut Parser<'_>) {
@@ -132,7 +132,7 @@ fn paren_type(p: &mut Parser<'_>) {
     m.complete(p, kind);
 }
 
-/// `"fn" "(" [ type { "," type } ] ")" "->" type [ "fails" error_set ] [ "use" effect_set ]`
+/// `"fn" "(" [ type { "," type } ] ")" "->" type [ "fails" error_set ] [ "uses" effect_set ]`
 fn fn_type(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump_kind(FN_KW);
@@ -162,20 +162,49 @@ pub(crate) fn ret_type(p: &mut Parser<'_>) {
     m.complete(p, RET_TYPE);
 }
 
-/// `[ "fails" error_set ] [ "use" effect_set ]`
-pub(crate) fn effects_and_errors(p: &mut Parser<'_>) {
+/// `[ "fails" error_set ] [ "uses" effect_set ]`
+///
+/// The old clause `use effect_set` is read as a USES_CLAUSE too, and validation reports it
+/// with the rewrite (E0147, `[grammar.decl]`), so that checking goes on with the set it names.
+/// Returns whether a uses clause was read.
+pub(crate) fn effects_and_errors(p: &mut Parser<'_>) -> bool {
     if p.at_contextual_kw("fails") {
         let m = p.start();
         p.bump();
         error_set(p);
         m.complete(p, FAILS_CLAUSE);
     }
-    if p.at(USE_KW) {
-        let m = p.start();
-        p.bump();
-        effect_set(p);
-        m.complete(p, USE_CLAUSE);
+    let uses = p.at_contextual_kw("uses") || p.at(USE_KW);
+    if uses {
+        uses_clause(p);
     }
+    uses
+}
+
+/// The old clause on a line of its own after a signature (`fn f() -> Int⏎  use Db {`). Rule 4
+/// of spec 2.5 no longer continues a line starting with `use`, so the parser looks past the
+/// newlines for `use` followed by a set. No statement or declaration can stand there: the line
+/// after a signature starts a body item, a declaration or `}`, never `use`. Called where a
+/// signature can end, when it has no uses clause yet.
+pub(crate) fn old_uses_clause_on_next_line(p: &mut Parser<'_>) {
+    let mut n = 0;
+    while p.nth(n) == NEWLINE {
+        n += 1;
+    }
+    if n == 0 || p.nth(n) != USE_KW || !matches!(p.nth(n + 1), TYPE_NAME | UPPER_NAME | L_BRACE) {
+        return;
+    }
+    for _ in 0..n {
+        p.bump();
+    }
+    uses_clause(p);
+}
+
+fn uses_clause(p: &mut Parser<'_>) {
+    let m = p.start();
+    p.bump();
+    effect_set(p);
+    m.complete(p, USES_CLAUSE);
 }
 
 /// `"{" "}" | error_item { "|" error_item }`．`error_item = type_ref | upper_name`

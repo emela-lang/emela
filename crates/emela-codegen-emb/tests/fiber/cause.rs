@@ -77,7 +77,7 @@ fn cause_raise_preserves_the_error_and_runs_native_cleanup_before_escape() {
 import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom(n: Int) derive Show
 effect Resource { fn read() -> Int }
 handler Res: Resource { fn read() { 0 }
@@ -116,7 +116,7 @@ import Std.Cause.{Cause, Fail, Die, Interrupt}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n,resume) { resume(wait(n)) } }
@@ -128,7 +128,7 @@ handler Outer: Resource { fn read() { 0 }
  release { mark(2) }
 }
 fn bounce(c: Cause[{}]) -> Int { with Inner { Cause.raise(c) } }
-pub fn make() -> Cause[{}] use Async {
+pub fn make() -> Cause[{}] uses { Async } {
  with Waiting {
   Fiber.scope(|| {
    first = Fiber.fork(|| (use Wait).get(1))
@@ -141,7 +141,7 @@ pub fn make() -> Cause[{}] use Async {
   })
  }
 }
-pub fn raised(c: Cause[{}], asynchronous: Bool) -> Int use Async {
+pub fn raised(c: Cause[{}], asynchronous: Bool) -> Int uses { Async } {
  with Waiting { Fiber.scope(|| {
      second = Fiber.fork(|| { with Outer {
       if asynchronous { Exit.attempt(|| { (use Wait).get(3)
@@ -247,27 +247,27 @@ import Std.Cause.{Cause}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom(n: Int) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n,resume) { resume(wait(n)) } }
 fn bounce(c: Cause[{}]) -> () { Cause.raise(c) }
-fn bounce_async(c: Cause[{}]) -> () use Wait { (use Wait).get(3)
+fn bounce_async(c: Cause[{}]) -> () uses { Wait } { (use Wait).get(3)
  Cause.raise(c)
 }
-fn cleanup(child: Fiber[Int], asynchronous: Bool) -> () use {Async, Wait} {
+fn cleanup(child: Fiber[Int], asynchronous: Bool) -> () uses {Async, Wait} {
  mark(1)
  Fiber.await(child) match { Success(_) -> mark(99)
   Failure(c) -> if asynchronous { bounce_async(c) } else { bounce(c) }
  }
  mark(98)
 }
-fn protected(child: Fiber[Int], asynchronous: Bool) -> Int use {Async, Wait} {
+fn protected(child: Fiber[Int], asynchronous: Bool) -> Int uses {Async, Wait} {
  (use Wait).get(2)
  cleanup(child, asynchronous)
  0
 }
-pub fn work(asynchronous: Bool) -> Int use Async {
+pub fn work(asynchronous: Bool) -> Int uses { Async } {
  with Waiting { Fiber.scope(|| {
   child = Fiber.fork(|| { (use Wait).get(1)
    fail Boom(n: 42)
@@ -332,7 +332,7 @@ fn interruption_raised_by_cleanup_replaces_a_body_failure() {
                 "fn protected(c: Cause[{}]) -> Int fails Boom { with Res { failure()\n cleanup(c)\n 0 } }"
             }
             1 => {
-                "fn protected(c: Cause[{}]) -> Int fails Boom use Wait { with Res { (use Wait).get(3)\n failure()\n cleanup(c)\n 0 } }"
+                "fn protected(c: Cause[{}]) -> Int fails Boom uses { Wait } { with Res { (use Wait).get(3)\n failure()\n cleanup(c)\n 0 } }"
             }
             _ => {
                 "fn protected(c: Cause[{}]) -> Int { with Res { failure()\n cleanup(c)\n 0 } escape { Boom(n) -> { mark(3)\n n } } }"
@@ -346,7 +346,7 @@ import Std.Cause.{{Cause, Fail, Die, Interrupt}}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {{}}
+fn mark(n: Int) -> () uses {{}}
 error Boom(n: Int) derive Show
 effect Wait {{ suspend fn get(n: Int) -> Int }}
 handler Waiting: Wait {{ suspend fn get(n,resume) {{ resume(wait(n)) }} }}
@@ -360,7 +360,7 @@ fn cleanup(c: Cause[{{}}]) -> () {{ mark(1)
  mark(99)
 }}
 {protected}
-pub fn make() -> Cause[{{}}] use Async {{ with Waiting {{ Fiber.scope(|| {{
+pub fn make() -> Cause[{{}}] uses {{ Async }} {{ with Waiting {{ Fiber.scope(|| {{
  child = Fiber.fork(|| (use Wait).get(1))
  (use Wait).get(2)
  Fiber.interrupt(child)
@@ -368,7 +368,7 @@ pub fn make() -> Cause[{{}}] use Async {{ with Waiting {{ Fiber.scope(|| {{
   Failure(c) -> c
  }}
 }}) }} }}
-pub fn work(c: Cause[{{}}], failing: Bool) -> Int use Async {{ with Waiting {{
+pub fn work(c: Cause[{{}}], failing: Bool) -> Int uses {{ Async }} {{ with Waiting {{
  Fiber.scope(|| {{
   if failing {{ fail Boom(n: 0) }}
   child = Fiber.fork(|| protected(c))

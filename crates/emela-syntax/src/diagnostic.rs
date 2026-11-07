@@ -77,9 +77,9 @@ pub enum DiagnosticCode {
     TypedHandlerParam,
     /// An impl or handler fn without a body.
     MissingBody,
-    /// A return type, fails or use on an impl fn. The types come from the trait declaration.
+    /// A return type, fails or uses on an impl fn. The types come from the trait declaration.
     SignatureInImpl,
-    /// A `use` clause on an effect operation (spec 8.1).
+    /// A `uses` clause on an effect operation (spec 8.1).
     UseOnEffectOp,
     /// A fn's `@external` arguments are not `(target, "a")` or `(target, "a", "b")` (spec 12.1):
     /// the target is missing or not a name, an argument is not a string, or there are not one or
@@ -104,6 +104,8 @@ pub enum DiagnosticCode {
     OldLambda,
     /// An anonymous function as a statement that is not the last of its block (`[fn.block]`).
     UnusedLambda,
+    /// `use` written in the place of the uses clause. `fn f() use Db` (`[grammar.decl]`)
+    OldUseClause,
 }
 
 impl DiagnosticCode {
@@ -156,6 +158,7 @@ impl DiagnosticCode {
             Self::MalformedExport => "E0146",
             Self::OldLambda => "E0148",
             Self::UnusedLambda => "E0149",
+            Self::OldUseClause => "E0147",
         }
     }
 }

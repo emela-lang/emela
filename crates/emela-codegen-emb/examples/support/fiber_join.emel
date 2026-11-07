@@ -1,6 +1,6 @@
 import Std.Fiber.{Fiber}
 import Std.Exit.{Success, Failure}
-pub fn work(n: Int) -> Int use Async {
+pub fn work(n: Int) -> Int uses { Async } {
   Fiber.scope(|| {
     child = Fiber.fork(|| n + 1)
     first = Fiber.join(child)

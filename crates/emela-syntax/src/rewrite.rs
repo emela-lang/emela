@@ -1,4 +1,4 @@
-//! Rewrites of the old forms the parser still reads (E0144, E0145, E0148). Validation shows them
+//! Rewrites of the old forms the parser still reads (E0144, E0145, E0147, E0148). Validation shows them
 //! in the message, and the driver's quick fixes apply them, so both come from here.
 
 use rowan::{NodeOrToken, TextRange};
@@ -247,6 +247,48 @@ pub fn starts_line_with_or(lambda: &SyntaxNode) -> bool {
         }
     }
     true
+}
+
+/// The old effect clause (`use Db`, `[grammar.decl]`): the `use` token and the uses clause to
+/// write instead, in its canonical form (`uses { Db }`). `None` for a clause written with
+/// `uses`.
+pub fn old_uses_clause(node: &SyntaxNode) -> Option<(SyntaxToken, String)> {
+    if node.kind() != USES_CLAUSE {
+        return None;
+    }
+    let keyword = node
+        .children_with_tokens()
+        .filter_map(NodeOrToken::into_token)
+        .find(|t| t.kind() == USE_KW)?;
+    Some((keyword, canonical_uses_clause(node)?))
+}
+
+/// The canonical form of a uses clause (`[fmt.signature]`): `uses` and its set, always in
+/// braces (`uses { Db }`, `uses { Db, Log }`, `uses {}`). `None` if the clause has no set.
+pub fn canonical_uses_clause(node: &SyntaxNode) -> Option<String> {
+    let set = node.children().find(|n| n.kind() == EFFECT_SET)?;
+    let items: Vec<String> = set
+        .children()
+        .map(|item| compact(&without_comments(&item)))
+        .collect();
+    Some(if items.is_empty() {
+        "uses {}".to_owned()
+    } else {
+        format!("uses {{ {} }}", items.join(", "))
+    })
+}
+
+/// The old clause as written, for the message of E0147: its text without comments, compacted.
+pub(crate) fn old_uses_text(node: &SyntaxNode) -> String {
+    compact(&without_comments(node))
+}
+
+fn without_comments(node: &SyntaxNode) -> String {
+    node.descendants_with_tokens()
+        .filter_map(NodeOrToken::into_token)
+        .filter(|t| !matches!(t.kind(), COMMENT | DOC_COMMENT))
+        .map(|t| t.text().to_owned())
+        .collect()
 }
 
 /// The text with each run of whitespace (newlines included) made one space, and none just

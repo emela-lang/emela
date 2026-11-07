@@ -5,7 +5,7 @@ import Std.Deferred.{Deferred}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 effect Tick {
   suspend fn tick() -> ()
@@ -15,7 +15,7 @@ handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
-fn spin(n: Int) -> () use { Tick } {
+fn spin(n: Int) -> () uses { Tick } {
   if n == 0 { () } else {
     (use Tick).tick()
     spin(n - 1)
@@ -71,7 +71,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
 }
 
 ## Recursion that suspends at the bottom: the frames are resumed one by one by the driver loop.
-fn deep(n: Int) -> Int use { Tick } {
+fn deep(n: Int) -> Int uses { Tick } {
   if n == 0 {
     spin(2000)
     0
@@ -80,7 +80,7 @@ fn deep(n: Int) -> Int use { Tick } {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
     Fiber.scope(|| {
       h = Fiber.fork(|| {

@@ -3,7 +3,7 @@ import Std.Exit.{Success, Failure}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
 effect Marker { fn read() -> Int }
@@ -11,7 +11,7 @@ handler Resource: Marker { fn read() { 1 }
   release { mark(3)
     (use Wait).get(3)
     mark(4) } }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
   with Waiting {
     Fiber.scope(|| {
       child = Fiber.fork(|| { with Resource { mark(1)

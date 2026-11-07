@@ -314,20 +314,20 @@ effect Clock {
   fn now() -> Int
 }
 
-fn declared() -> () use Logger {
+fn declared() -> () uses { Logger } {
   (use Logger).info("a")
 }
 
-fn too_many() -> () use Logger {
+fn too_many() -> () uses { Logger } {
   (use Clock).now()
   ()
 }
 
-fn pure_only() -> () use {} {
+fn pure_only() -> () uses {} {
   (use Logger).info("a")
 }
 
-fn run_pure(f: fn() -> () use {}) { f() }
+fn run_pure(f: fn() -> () uses {}) { f() }
 
 fn callers() {
   run_pure(|| ())
@@ -350,7 +350,7 @@ effect Logger {
 
 fn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }
 
-fn update[A, R](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
+fn update[A, R](x: A, f: fn(A) -> A uses { R }) -> A uses { R } { f(x) }
 
 fn make() {
   || (use Logger).info("later")
@@ -434,7 +434,7 @@ effect Console {
 fn console_log(text: String) -> ()
 
 @external(js, "Math.abs")
-fn abs(x: Int) -> Int use {}
+fn abs(x: Int) -> Int uses {}
 
 handler SystemConsole: Console {
   fn print_line(text) {
@@ -512,7 +512,7 @@ fn test_inside() {
   with Quiet { (use Logger).info("ok") }
 }
 
-fn test_outside() -> () use Logger {
+fn test_outside() -> () uses { Logger } {
   (use Logger).info("t")
 }
 "#
@@ -538,15 +538,15 @@ handler Silent: Quiet {
   fn hush() { () }
 }
 
-fn run[R](f: fn() -> () use { Quiet, R }) -> () use R {
+fn run[R](f: fn() -> () uses { Quiet, R }) -> () uses { R } {
   with Silent { f() }
 }
 
-fn run_rev[R](f: fn() -> () use { R, Quiet }) -> () use R {
+fn run_rev[R](f: fn() -> () uses { R, Quiet }) -> () uses { R } {
   with Silent { f() }
 }
 
-fn run_inferred[R](f: fn() -> () use { Quiet, R }) {
+fn run_inferred[R](f: fn() -> () uses { Quiet, R }) {
   with Silent { f() }
 }
 
@@ -554,11 +554,11 @@ fn run_hidden(f: fn() -> ()) {
   with Silent { f() }
 }
 
-fn not_provided[R](f: fn() -> () use { Quiet, R }) -> () use R {
+fn not_provided[R](f: fn() -> () uses { Quiet, R }) -> () uses { R } {
   f()
 }
 
-fn wrap[R](f: fn() -> () use R) -> fn() -> () use { Quiet, R } {
+fn wrap[R](f: fn() -> () uses { R }) -> fn() -> () uses { Quiet, R } {
   || {
     (use Quiet).hush()
     f()
@@ -661,7 +661,7 @@ fn instant() { with InstantClock { nap() } }
 
 fn waits() { with SystemClock { nap() } }
 
-fn pure_only() -> Int use {} { with SystemClock { nap() } }
+fn pure_only() -> Int uses {} { with SystemClock { nap() } }
 
 fn main() {
   with SystemClock { nap() }
@@ -685,7 +685,7 @@ handler MyAsync: Async {
 
 fn grab() { use Async }
 
-fn declared() -> Int use Async { 1 }
+fn declared() -> Int uses { Async } { 1 }
 
 fn main() {
   with MyAsync { declared() }
@@ -773,7 +773,7 @@ handler LazyClock: Clock {
   }
 }
 
-fn stamp() -> Int use { Clock } { (use Clock).now() }
+fn stamp() -> Int uses { Clock } { (use Clock).now() }
 
 handler ViaFn: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
@@ -853,9 +853,9 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> ()
 suspend fn fetch_text(url: String) -> String
 
 @external(js, "onTick")
-fn on_tick(f: fn() -> () use { Clock }) -> ()
+fn on_tick(f: fn() -> () uses { Clock }) -> ()
 
-fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
+fn update[A, R: Immediate](x: A, f: fn(A) -> A uses { R }) -> A uses { R } { f(x) }
 
 fn logs() -> Int {
   update(1, |x| {
@@ -873,15 +873,15 @@ fn sleeps() -> Int {
 
 fn hidden(f: fn(Int) -> Int) -> Int { update(1, f) }
 
-fn named[R: Immediate](f: fn(Int) -> Int use R) -> Int use R { update(1, f) }
+fn named[R: Immediate](f: fn(Int) -> Int uses { R }) -> Int uses { R } { update(1, f) }
 
-fn unnamed[R](f: fn(Int) -> Int use R) -> Int use R { update(1, f) }
+fn unnamed[R](f: fn(Int) -> Int uses { R }) -> Int uses { R } { update(1, f) }
 
 fn inferred() { |g| update(1, g) }
 
 fn not_effect[A: Immediate](x: A) -> A { x }
 
-fn trait_bound[R: Show](f: fn() -> () use R) -> () use R { f() }
+fn trait_bound[R: Show](f: fn() -> () uses { R }) -> () uses { R } { f() }
 
 handler Ticking: Logger {
   fn info(msg) {
@@ -919,7 +919,7 @@ effect Clock {
   suspend fn sleep(ms: Int) -> ()
 }
 
-type Handler[E, R](run: fn(Request) -> Response fails E use R)
+type Handler[E, R](run: fn(Request) -> Response fails E uses { R })
 
 enum Step[E] {
   Done,
@@ -928,7 +928,7 @@ enum Step[E] {
 
 type Server[E](inner: Handler[E, Db])
 
-type Ticker[R: Immediate](tick: fn() -> () use R)
+type Ticker[R: Immediate](tick: fn() -> () uses { R })
 
 handler MemDb: Db {
   fn query(q) { q }
@@ -945,7 +945,7 @@ fn failing() -> Handler[NotFound, Db] {
   Handler(run: |req| fail NotFound)
 }
 
-fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E use R {
+fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E uses { R } {
   h.run(req)
 }
 
@@ -977,7 +977,7 @@ fn steps(s: Step[Timeout]) -> Int fails Timeout {
   }
 }
 
-fn server(s: Server[NotFound], req: Request) -> Response fails NotFound use Db {
+fn server(s: Server[NotFound], req: Request) -> Response fails NotFound uses { Db } {
   s.inner.run(req)
 }
 
@@ -1013,7 +1013,7 @@ effect Log {
   fn info(msg: String) -> ()
 }
 
-type Handler[E, R](run: fn(Request) -> Response fails E use R)
+type Handler[E, R](run: fn(Request) -> Response fails E uses { R })
 
 fn both() -> Handler[NotFound | Timeout, { Db, Log }] {
   Handler(run: |req| {
@@ -1354,7 +1354,7 @@ fn main() {
   with PrintLog, Audit by Log { with Other by Audit { run_hidden(|| (use Other).log("y")) } }
 }
 
-fn ticks[R: Immediate](f: fn() -> () use R) { f() }
+fn ticks[R: Immediate](f: fn() -> () uses { R }) { f() }
 
 fn sleeps() { ticks(|| (use Ticks).sleep(1)) }
 "#
@@ -1638,8 +1638,8 @@ effect Kv {
   fn get(key: String) -> String
 }
 
-handler LazyKv(url: fn() -> String use { Config }): Kv {
-  init(url: fn() -> String use { Config }) { LazyKv(url:) }
+handler LazyKv(url: fn() -> String uses { Config }): Kv {
+  init(url: fn() -> String uses { Config }) { LazyKv(url:) }
   fn get(key) { (self.url)() }
 }
 

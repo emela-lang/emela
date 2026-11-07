@@ -5,7 +5,7 @@ fn add(x: Int, y: Int) -> Int {
 
 fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { todo() }
 
-pub fn find(id: Int) -> User fails NotFound use Users { todo() }
+pub fn find(id: Int) -> User fails NotFound uses { Users } { todo() }
 
 fn connect(host: String, port: Int) { todo() }
 

@@ -155,7 +155,7 @@ fn checks_root_names() {
 
 #[test]
 fn allows_external_only_when_the_project_says_so() {
-    let router = "@external(js, \"./x.mjs\", \"f\")\nfn f() -> Int use {}\n\npub fn route() -> Int { f() }\n";
+    let router = "@external(js, \"./x.mjs\", \"f\")\nfn f() -> Int uses {}\n\npub fn route() -> Int { f() }\n";
     let app = "import Quince\n\nfn main() -> Int { Quince.answer() }\n";
     let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(
@@ -172,7 +172,7 @@ fn allows_external_only_when_the_project_says_so() {
     );
 
     // Allowed, but a `pub` external fn would let the host be reached without an effect.
-    let public = "@external(js, \"./x.mjs\", \"f\")\npub fn f() -> Int use {}\n\npub fn route() -> Int { f() }\n";
+    let public = "@external(js, \"./x.mjs\", \"f\")\npub fn f() -> Int uses {}\n\npub fn route() -> Int { f() }\n";
     let found = diagnostics(&files(app, public), allowed.clone());
     assert!(found.iter().any(|d| d.starts_with("E0237")), "{found:?}");
 
@@ -190,7 +190,7 @@ fn allows_external_only_when_the_project_says_so() {
 /// `@external` only).
 #[test]
 fn allows_entry_adapters_only_when_the_project_says_so() {
-    let router = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }\n\npub fn route() -> Int { 1 }\n";
+    let router = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }\n\npub fn route() -> Int { 1 }\n";
     let app = "import Quince.Router\n\n@entry(Router.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() -> Int { 1 }\n";
     let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(

@@ -46,7 +46,7 @@ fn dynamically_dispatches_through_a_fixed_heap_evidence_table() {
             "effect Counter { fn get() -> Int }\n\
              handler Answer: Counter { fn get() { 42 } }\n\
              handler Other: Counter { fn get() { 41 } }\n\
-             fn read() -> Int use Counter { (use Counter).get() }\n\
+             fn read() -> Int uses { Counter } { (use Counter).get() }\n\
              fn main() -> Int {\n\
                with Answer {\n\
                  inner = with Other { read() }\n\

@@ -28,7 +28,7 @@ closures: fn(List[Int], List[(String, Int)], List[Request]) -> Int
   (a, b): (Int, Int)
   sum: fn((Int, Int)) -> Int
   f: fn() -> Int fails Timeout | Refused
-  run: fn(fn() -> Int fails Timeout | Refused use {}) -> Int fails Timeout | Refused
+  run: fn(fn() -> Int fails Timeout | Refused uses {}) -> Int fails Timeout | Refused
   x: Int
   f: fn(Int) -> Int
   x: Int

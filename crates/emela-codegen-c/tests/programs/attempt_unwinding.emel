@@ -3,7 +3,7 @@ import Std.Cause.{Cause}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 effect Wait {
   suspend fn wait() -> Int
@@ -51,7 +51,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Parked {
     with Loud {
       r = Exit.attempt(|| {

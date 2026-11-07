@@ -150,7 +150,7 @@ import Std.Fiber.{Fiber}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
 effect FirstResource { fn read() -> Int }
@@ -159,7 +159,7 @@ handler Outer: FirstResource { fn read() { 1 }
   release { mark(3) } }
 handler Inner: SecondResource { fn read() { 2 }
   release { mark(2) } }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
   with Waiting {
     result = Fiber.scope(|| {
       Fiber.fork(|| { with Outer, Inner { mark(1)
@@ -216,7 +216,7 @@ import Std.Fiber.{Fiber}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
 effect Marker { fn read() -> Int }
@@ -224,7 +224,7 @@ handler Resource: Marker { fn read() { 1 }
   release { mark(2)
     (use Wait).get(3)
     mark(3) } }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
   with Waiting {
     result = Fiber.scope(|| {
       Fiber.fork(|| { with Resource { mark(1)
@@ -288,7 +288,7 @@ fn a_root_waits_for_cleanup_of_its_resumed_operation_tail() {
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
 effect Marker { fn read() -> Int }
@@ -303,7 +303,7 @@ handler Gated: Gate {
     (use Wait).get(1)
     () } }
 }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
   with Waiting, Gated { result = (use Gate).go()
     mark(2)
     result }
@@ -351,11 +351,11 @@ fn defects_in_suspend_protect_keep_the_configured_immediate_stop_policy() {
             "main.emel",
             r#"
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Marker { fn read() -> Int }
 handler Resource: Marker { fn read() { 1 }
   release { mark(99) } }
-pub fn work() -> Int use Async { with Resource { panic("bad") } }
+pub fn work() -> Int uses { Async } { with Resource { panic("bad") } }
 "#,
         )],
         Roots::Public,

@@ -43,7 +43,7 @@ impl Shape: Show {
   fn show(self) { "shape" }
 }
 
-fn run[A, R](f: fn() -> A fails A | B use { A, R }) -> A use R {
+fn run[A, R](f: fn() -> A fails A | B uses { A, R }) -> A uses { R } {
   with AppLive { f() }
 }
 

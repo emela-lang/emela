@@ -150,7 +150,7 @@ handler Res: Name {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Res {
     with Ignores {
       dbg("body #{(use Wait).wait()}")
@@ -192,7 +192,7 @@ handler Res: Name {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
     with Res {
       with Ignores {
@@ -247,7 +247,7 @@ handler InnerRes: Name {
   release { dbg("release inner") }
 }
 
-fn caller() -> Int use { Go } {
+fn caller() -> Int uses { Go } {
   with OuterRes {
     v = (use Go).go()
     dbg("caller got #{v}")
@@ -255,7 +255,7 @@ fn caller() -> Int use { Go } {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ignores {
     with Slow {
       dbg("main got #{caller()}")

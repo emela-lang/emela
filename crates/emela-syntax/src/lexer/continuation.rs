@@ -8,22 +8,15 @@ pub(super) fn mark_continuations(src: &str, tokens: &mut [Token]) {
     use SyntaxKind::*;
 
     let mut stack = Vec::new();
-    // The bracket depth of the signature being read (rule 4): from `fn name` of a declaration or
-    // an effect operation to the body's `{`, or to the newline that ends a declaration without a
-    // body.
-    let mut signature: Option<usize> = None;
+    // Rule 5: where the current line stands in the error set of a fails clause.
+    let mut error_set = ErrorSet::Outside;
 
     for i in 0..tokens.len() {
         let kind = tokens[i].kind;
+        if !kind.is_trivia() && kind != NEWLINE {
+            error_set = error_set.next(src, tokens[i]);
+        }
         match kind {
-            // `fn name` starts a signature; `fn(` is a lambda or a function type.
-            FN_KW if next_significant(tokens, i).is_some_and(|t| t.kind == LOWER_NAME) => {
-                signature = Some(stack.len());
-            }
-            L_BRACE if signature == Some(stack.len()) => {
-                signature = None;
-                stack.push(kind);
-            }
             L_PAREN | L_BRACK | L_BRACE | INTERP_START => stack.push(kind),
             R_PAREN | R_BRACK | R_BRACE | INTERP_END => {
                 stack.pop();
@@ -34,16 +27,47 @@ pub(super) fn mark_continuations(src: &str, tokens: &mut [Token]) {
             NEWLINE => {
                 let next = next_significant(tokens, i).copied();
                 let continues = next.is_some_and(|t| starts_continuation(t.kind))
-                    || postfix_match_follows(tokens, i);
-                let in_signature = signature == Some(stack.len());
-                if continues || (in_signature && next.is_some_and(|t| continues_signature(src, t)))
-                {
+                    || postfix_match_follows(tokens, i)
+                    || starts_clause(src, tokens, i)
+                    || (error_set == ErrorSet::AfterItem && next.is_some_and(|t| t.kind == PIPE));
+                if continues {
                     tokens[i].kind = NEWLINE_CONT;
-                } else if in_signature {
-                    signature = None;
+                } else {
+                    error_set = ErrorSet::Outside;
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Rule 5 of spec 2.5 follows the tokens of the error set of a fails clause: `fails` followed by
+/// an error item (a type name, possibly qualified, or an uppercase name), then `|` and error
+/// items. A line that ends right after an item continues when the next line starts with `|`.
+///
+/// `fails` followed by a name is always a clause (as an identifier, `fails` is never followed by
+/// a name), so the tokens decide it without knowing whether they are in a signature.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ErrorSet {
+    Outside,
+    /// Right after `fails`, or after `|` inside the set.
+    BeforeItem,
+    /// Right after an error item (`NotFound`, `Http.Error`, `E`).
+    AfterItem,
+    /// After the `.` of a qualified item.
+    AfterDot,
+}
+
+impl ErrorSet {
+    fn next(self, src: &str, token: Token) -> ErrorSet {
+        use SyntaxKind::*;
+        match (self, token.kind) {
+            (_, LOWER_NAME) if &src[token.range] == "fails" => ErrorSet::BeforeItem,
+            (ErrorSet::BeforeItem | ErrorSet::AfterDot, TYPE_NAME) => ErrorSet::AfterItem,
+            (ErrorSet::BeforeItem, UPPER_NAME) => ErrorSet::AfterItem,
+            (ErrorSet::AfterItem, DOT) => ErrorSet::AfterDot,
+            (ErrorSet::AfterItem, PIPE) => ErrorSet::BeforeItem,
+            _ => ErrorSet::Outside,
         }
     }
 }
@@ -66,15 +90,27 @@ fn postfix_match_follows(tokens: &[Token], i: usize) -> bool {
         && rest.next().is_some_and(|t| t.kind == SyntaxKind::L_BRACE)
 }
 
-/// Rule 4 of `[lex.continuation]`: inside a signature, a line starting with `fails`, `use` or `|`
-/// continues it. `fails` is a contextual word, lexed as a lower name. Outside a signature, `|`
-/// starts an anonymous function.
-fn continues_signature(src: &str, token: Token) -> bool {
-    match token.kind {
-        SyntaxKind::USE_KW | SyntaxKind::PIPE => true,
-        SyntaxKind::LOWER_NAME => &src[token.range] == "fails",
-        _ => false,
+/// Rule 4 of spec 2.5: a line starting with `fails` or `uses` followed, on that line, by a type
+/// name, an uppercase name or `{` continues the previous one. Both are contextual words, lexed as
+/// lower names. As identifiers they are never followed by a name or `{`, so this holds anywhere.
+fn starts_clause(src: &str, tokens: &[Token], i: usize) -> bool {
+    use SyntaxKind::*;
+    let mut rest = tokens[i + 1..]
+        .iter()
+        .filter(|t| !t.kind.is_trivia() && t.kind != NEWLINE);
+    let Some(first) = rest.next() else {
+        return false;
+    };
+    if first.kind != LOWER_NAME || !matches!(&src[first.range], "fails" | "uses") {
+        return false;
     }
+    // The next token on the same line: a NEWLINE in between ends it.
+    let after = tokens[i + 1..]
+        .iter()
+        .skip_while(|t| t.range != first.range)
+        .skip(1)
+        .find(|t| !t.kind.is_trivia());
+    after.is_some_and(|t| matches!(t.kind, TYPE_NAME | UPPER_NAME | L_BRACE))
 }
 
 /// Rules 1 and 3 of `[lex.continuation]`. `-` and `||` are binary operators that can also start
@@ -156,7 +192,7 @@ mod tests {
         // `||` at the start of a line starts an anonymous function, not the logical or.
         assert_eq!(newlines("x = a\n|| b"), [NEWLINE]);
         assert_eq!(newlines("{\n  m\n  || m\n}"), [NEWLINE; 3]);
-        // `|` outside a signature starts an anonymous function.
+        // `|` outside the error set of a fails clause starts an anonymous function.
         assert_eq!(newlines("{\n  a\n  |x| x\n}"), [NEWLINE; 3]);
         // Inside parentheses, a line break continues by rule 2.
         assert_eq!(newlines("(\n  a\n  || b\n)"), [NEWLINE_CONT; 3]);
@@ -201,33 +237,70 @@ mod tests {
     }
 
     #[test]
-    fn シグネチャの中の行頭の縦棒は続き() {
+    fn fails_節の_error_set_で終わる行の次の縦棒は続き() {
+        // Rule 5 of spec 2.5.
         assert_eq!(
             newlines("fn load(id: Int) -> User fails NotFound\n  | DbError"),
             [NEWLINE_CONT]
         );
         assert_eq!(
+            newlines("fn f() -> A fails B | Http.Error\n  | C\n  | D {\n}"),
+            [NEWLINE_CONT, NEWLINE_CONT, NEWLINE]
+        );
+        assert_eq!(
             newlines("effect E {\n  fn get() -> Int\n    fails A\n    | B\n}"),
             [NEWLINE, NEWLINE_CONT, NEWLINE_CONT, NEWLINE]
         );
-        // The signature of a declaration without a body closes at the end of its line.
+        // The `fails` is on an earlier line that rule 4 continued.
         assert_eq!(
-            newlines("effect E {\n  fn get() -> Int\n}\n|x| x"),
-            [NEWLINE, NEWLINE, NEWLINE]
+            newlines("fn f() -> A\n  fails B\n  | C"),
+            [NEWLINE_CONT, NEWLINE_CONT]
+        );
+        // A set type parameter, comment lines in between, and a binding's type annotation.
+        assert_eq!(
+            newlines("fn f() -> A fails E # c\n  # d\n  | B"),
+            [NEWLINE_CONT; 2]
+        );
+        assert_eq!(
+            newlines("fn f() {\n  g: fn() -> A fails B\n    | C = h\n}"),
+            [NEWLINE, NEWLINE_CONT, NEWLINE]
         );
     }
 
     #[test]
-    fn シグネチャの中の_fails_と_use_で始まる行は続き() {
-        // The example of spec 2.5.
-        let src = "pub fn get(url: String) -> Response\n  fails InvalidUrl | ConnectionFailed\n  use Http {\n  x\n}";
+    fn それ以外の縦棒は新しい文() {
+        // Not inside the error set of a fails clause: a `|` starts an anonymous function.
+        assert_eq!(newlines("a\n| b"), [NEWLINE]);
+        assert_eq!(
+            newlines("effect E {\n  fn get() -> Int\n}\n|x| x"),
+            [NEWLINE, NEWLINE, NEWLINE]
+        );
+        assert_eq!(newlines("x = A\n|y| y"), [NEWLINE]);
+        assert_eq!(newlines("fn f() -> A fails {}\n  | B"), [NEWLINE]);
+        assert_eq!(newlines("fn f() -> A fails B uses { C }\n  | D"), [NEWLINE]);
+        assert_eq!(
+            newlines("fn f() -> A fails B {\n  | C\n}"),
+            [NEWLINE, NEWLINE]
+        );
+        assert_eq!(newlines("fails = A\n| b"), [NEWLINE]);
+    }
+
+    #[test]
+    fn fails_と_uses_の後に名前か波括弧が続く行は続き() {
+        // Rule 4 of spec 2.5, with the example there.
+        let src = "pub fn get(url: String) -> Response\n  fails InvalidUrl | ConnectionFailed\n  uses { Http } {\n  x\n}";
         assert_eq!(
             newlines(src),
             [NEWLINE_CONT, NEWLINE_CONT, NEWLINE, NEWLINE]
         );
         assert_eq!(
-            newlines("fn f() -> Int\n  use Log {\n  1\n}"),
+            newlines("fn f() -> Int\n  uses Log {\n  1\n}"),
             [NEWLINE_CONT, NEWLINE, NEWLINE]
+        );
+        assert_eq!(newlines("fn f[R]() -> Int\n  uses R"), [NEWLINE_CONT]);
+        assert_eq!(
+            newlines("fn f() -> Int\n  fails {}\n  uses {}"),
+            [NEWLINE_CONT; 2]
         );
         // Effect operations and functions without a body.
         assert_eq!(
@@ -235,29 +308,45 @@ mod tests {
             [NEWLINE, NEWLINE_CONT, NEWLINE, NEWLINE]
         );
         assert_eq!(
-            newlines("@external(js, \"f\")\nfn f() -> Int\n  use {}\nfn g() { 1 }"),
+            newlines("@external(js, \"f\")\nfn f() -> Int\n  uses {}\nfn g() { 1 }"),
             [NEWLINE, NEWLINE_CONT, NEWLINE]
+        );
+        // Anywhere, including the type annotation of a binding.
+        assert_eq!(
+            newlines("fn f() {\n  g: fn() -> Int\n    fails Boom\n    uses { Db } = h\n}"),
+            [NEWLINE, NEWLINE_CONT, NEWLINE_CONT, NEWLINE]
         );
     }
 
     #[test]
-    fn 本体の中の_fails_と_use_で始まる行は新しい文() {
+    fn 名前としての_fails_と_uses_で始まる行は新しい文() {
         assert_eq!(
-            newlines("fn f() {\n  a\n  fails = 1\n  use Log\n}"),
-            [NEWLINE, NEWLINE, NEWLINE, NEWLINE]
+            newlines("fn f() {\n  a\n  fails = 1\n  uses = 2\n  uses + fails\n}"),
+            [NEWLINE; 5]
         );
-        // After the signature ends at the body, and in lambdas.
+        assert_eq!(newlines("a\nuses(x)\nuses.y\nfails\nuses"), [NEWLINE; 4]);
         assert_eq!(
-            newlines("fn f() -> Int {\n  g(|| {\n    a\n    use Log\n  })\n}"),
-            [NEWLINE, NEWLINE, NEWLINE, NEWLINE, NEWLINE]
+            newlines("[\n  a\n]\nuses: Int = 1"),
+            [NEWLINE_CONT, NEWLINE_CONT, NEWLINE]
         );
-        // A declaration without a body ends at its newline.
+    }
+
+    #[test]
+    fn use_で始まる行は続かない() {
+        // `use` starts an expression; the old clause on its own line is left to the parser
+        // (E0147).
+        assert_eq!(
+            newlines("fn f() {\n  a\n  use Log\n}"),
+            [NEWLINE, NEWLINE, NEWLINE]
+        );
+        assert_eq!(
+            newlines("fn f() -> Int\n  use Log {\n  1\n}"),
+            [NEWLINE, NEWLINE, NEWLINE]
+        );
         assert_eq!(
             newlines("effect E {\n  fn get() -> Int\n}\nfails\nuse X"),
             [NEWLINE, NEWLINE, NEWLINE, NEWLINE]
         );
-        // `fn(` is a function type, not a signature.
-        assert_eq!(newlines("x = fn(a)\nuse Log"), [NEWLINE]);
     }
 
     #[test]

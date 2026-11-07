@@ -688,7 +688,7 @@ fn state_run_and_effect_type_args() {
     let m = lower_files(&[(
         "main.emel",
         "\
-import Std.State.{State}\n\nfn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+import Std.State.{State}\n\nfn modify[S](f: fn(S) -> S fails {} uses {}) -> S uses { State[S] } {
   (use State[S]).update(f)
   (use State[S]).get()
 }
@@ -728,7 +728,7 @@ import Std.Deferred.{Deferred}
 
 effect Log { fn info(msg: String) -> () }
 
-fn main() -> Int use { Log, Async } {
+fn main() -> Int uses { Log, Async } {
   Fiber.scope(|| {
     s = use Scope
     a = s.fork(|| (use Log).info(\"a\"))
@@ -796,10 +796,10 @@ fn main() {
 const HOST_TEST: &str = "\
 @external(js, \"./host/../host_test.mjs\", \"now\")
 @external(wasm, \"env\", \"now\")
-pub fn now() -> Int use {}
+pub fn now() -> Int uses {}
 
 @external(js, \"./missing.mjs\", \"gone\")
-pub fn gone() -> Int use {}
+pub fn gone() -> Int uses {}
 ";
 
 /// Bundled JS files. `host_test.mjs` imports `helper.mjs` relatively.
@@ -891,7 +891,7 @@ handler FetchingClock: Clock {
   fn now() { 0 }
 }
 
-fn naps(xs: List[Int]) -> List[Int] use Clock {
+fn naps(xs: List[Int]) -> List[Int] uses { Clock } {
   clock = use Clock
   List.map(xs, |ms| clock.sleep(ms) + clock.now())
 }

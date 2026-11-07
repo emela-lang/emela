@@ -18,7 +18,7 @@ use crate::infer::InferCtx;
 use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::ty::{ParamKind, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam};
 
-/// What omitted `fails` and `use` clauses on a function type mean, decided by where they are
+/// What omitted `fails` and `uses` clauses on a function type mean, decided by where they are
 /// written (spec 9.2).
 pub(crate) enum Omitted<'a> {
     /// Inside a declaration (fields, consts, ...): empty.
@@ -116,7 +116,7 @@ pub(crate) struct Scope<'a> {
 }
 
 impl Scope<'_> {
-    /// The set for an omitted `fails` clause (`use` clause if `effects`).
+    /// The set for an omitted `fails` clause (`uses` clause if `effects`).
     fn omitted_row(&mut self, positive: bool, effects: bool) -> Row {
         match &mut self.omitted {
             Omitted::Empty => Row::empty(),
@@ -337,7 +337,7 @@ impl TyTable {
         row
     }
 
-    /// The set of a `use` clause. Effects become tags, set type parameters `RowElem::Bound`.
+    /// The set of a `uses` clause. Effects become tags, set type parameters `RowElem::Bound`.
     pub(crate) fn lower_effect_set(
         &self,
         program: &Program,
@@ -387,7 +387,7 @@ impl TyTable {
     }
 
     /// The tag of an effect with its type arguments (spec 8.1). Type arguments are read as
-    /// ordinary types; omitted `fails` and `use` on function types inside them are empty (as in
+    /// ordinary types; omitted `fails` and `uses` on function types inside them are empty (as in
     /// declarations).
     ///
     /// Missing type arguments on an effect with type parameters are E0423 (`handler` names the
@@ -867,7 +867,7 @@ pub(crate) fn is_immediate_effect(program: &Program, effect: DefId) -> bool {
 pub(crate) type DeclSets = ArenaMap<DefId, Vec<Option<SetKind>>>;
 
 /// Decides type parameter kinds from where they are used (spec 9.2). A type parameter written only
-/// in `fails` or `use` clauses is a set; otherwise an ordinary type (written both as a value type
+/// in `fails` or `uses` clauses is a set; otherwise an ordinary type (written both as a value type
 /// and in `fails`, it is the type of a single error, spec 7.2). Type parameters written as set
 /// type arguments of named types (the `E` of `Handler[E, R]`) are sets too. `types` are the type
 /// expressions where type parameters may occur (parameters, return type, field types).
@@ -898,8 +898,8 @@ pub(crate) fn classify_sets(
 }
 
 /// Decides like [`classify_sets`], also counting the set type arguments of built-in effects in a
-/// fn's own `use` clause (the `E` and `R` of `fn deferred[A, E, R]() -> Deferred[A] use
-/// Scope[E, R]`, spec 11.2).
+/// fn's own `uses` clause (the `E` and `R` of
+/// `fn deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] }`, spec 11.2).
 pub(crate) fn classify_fn_sets(
     program: &Program,
     decls: &DeclSets,
@@ -1191,7 +1191,7 @@ pub(crate) fn has_omitted_fails(program: &Program, ty: TypeId) -> bool {
     }
 }
 
-/// Whether the type expression contains a function type with `use` omitted. If the return type
+/// Whether the type expression contains a function type with `uses` omitted. If the return type
 /// does, its R is inferred from the body (spec 9.2).
 pub(crate) fn has_omitted_uses(program: &Program, ty: TypeId) -> bool {
     match &program.types[ty].kind {

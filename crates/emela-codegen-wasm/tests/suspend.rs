@@ -34,14 +34,14 @@ handler Ticks: Tick {
   }
 }
 
-fn total(n: Int) -> Int use { Tick } {
+fn total(n: Int) -> Int uses { Tick } {
   if n == 0 { 0 } else {
     x = (use Tick).tick()
     x + total(n - 1)
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
     dbg(total(4))
     ()
@@ -77,7 +77,7 @@ handler Resumes: Values {
   suspend fn unit(resume) { resume(()) }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Resumes {
     dbg((use Values).int())
     dbg((use Values).long())
@@ -128,7 +128,7 @@ handler Res(label: String): Name {
   release { dbg("release #{self.label}") }
 }
 
-fn waits() -> Int use { Wait, Name } {
+fn waits() -> Int uses { Wait, Name } {
   n = (use Wait).wait()
   dbg("after wait #{n}")
   n
@@ -184,7 +184,7 @@ handler Res: Name {
   release { dbg("release res") }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Res {
     with Ignores {
       dbg("never #{(use Wait).wait()}")
@@ -384,7 +384,7 @@ handler ResOuter: Name {
   release { dbg("release outer") }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Stuck, Middles, Outers {
     dbg((use Outer).outer())
     ()
@@ -444,7 +444,7 @@ handler Boom: Name {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Stuck, Outers {
     dbg((use Outer).outer())
     ()
@@ -476,7 +476,7 @@ handler Ignores: Wait {
 }
 
 @test
-fn interrupted_one() -> () use { Async } {
+fn interrupted_one() -> () uses { Async } {
   with Ignores {
     dbg((use Wait).wait())
     ()
@@ -556,7 +556,7 @@ handler Ticks: Tick {{
   suspend fn tick(resume) {{ resume(1) }}
 }}
 {name}
-fn work() -> Int use {{ Tick }} {{
+fn work() -> Int uses {{ Tick }} {{
 {work}
 }}
 

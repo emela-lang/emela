@@ -1,10 +1,10 @@
 error Missing(text: String)
-fn right(n: Int, bad: Bool) -> Packet fails Missing use Wait {
+fn right(n: Int, bad: Bool) -> Packet fails Missing uses { Wait } {
   (use Wait).get(20)
   if bad { fail Missing(Int.to_string(n)) }
   packet(n + 1)
 }
-pub fn checked(n: Int, bad: Bool) -> String use Async {
+pub fn checked(n: Int, bad: Bool) -> String uses { Async } {
   with Waiting {
     result = Fiber.both(|| { (use Wait).get(10)
       packet(n) }, || right(n, bad)) escape {

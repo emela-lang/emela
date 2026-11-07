@@ -2,7 +2,7 @@ import Std.Fiber.{Fiber, Scope}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 error Boom
 
@@ -24,14 +24,14 @@ handler Res: Name {
   release { panic("in release") }
 }
 
-fn spin(n: Int) -> () use { Tick } {
+fn spin(n: Int) -> () uses { Tick } {
   if n == 0 { () } else {
     (use Tick).tick()
     spin(n - 1)
   }
 }
 
-fn main() -> () fails Boom use { Async } {
+fn main() -> () fails Boom uses { Async } {
   with Ticks {
     Fiber.scope(|| {
       Fiber.fork(|| {

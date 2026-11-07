@@ -1,12 +1,12 @@
 ---
 source: crates/emela-types/tests/fiber.rs
-expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\ntype User(name: String)\n\neffect Users {\n  fn find(id: Int) -> User\n}\n\nhandler PostgresUsers: Users {\n  fn find(id) { User(name: \"alice\") }\n}\n\nfn main() {\n  Fiber.scope(|| {\n    s = use Scope\n    with PostgresUsers {\n      s.fork(|| (use Users).find(1))\n    }\n    ()\n  })\n}\n\nfn fixed() -> () use { Async } {\n  with PostgresUsers {\n    Fiber.scope(|| {\n      Fiber.fork(|| (use Users).find(1))\n      ()\n    })\n  }\n}\n\nfn body_itself() -> () use { Async } {\n  Fiber.scope(|| {\n    (use Users).find(1)\n    ()\n  })\n}\n\nfn test_forked() {\n  Fiber.scope(|| {\n    Fiber.fork(|| (use Users).find(1))\n    ()\n  })\n}\n\"#)"
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\ntype User(name: String)\n\neffect Users {\n  fn find(id: Int) -> User\n}\n\nhandler PostgresUsers: Users {\n  fn find(id) { User(name: \"alice\") }\n}\n\nfn main() {\n  Fiber.scope(|| {\n    s = use Scope\n    with PostgresUsers {\n      s.fork(|| (use Users).find(1))\n    }\n    ()\n  })\n}\n\nfn fixed() -> () uses { Async } {\n  with PostgresUsers {\n    Fiber.scope(|| {\n      Fiber.fork(|| (use Users).find(1))\n      ()\n    })\n  }\n}\n\nfn body_itself() -> () uses { Async } {\n  Fiber.scope(|| {\n    (use Users).find(1)\n    ()\n  })\n}\n\nfn test_forked() {\n  Fiber.scope(|| {\n    Fiber.fork(|| (use Users).find(1))\n    ()\n  })\n}\n\"#)"
 ---
-main: fn() -> () use { Async, Users }
+main: fn() -> () uses { Async, Users }
   s: use Scope[{}, Users]
-fixed: fn() -> () use Async
-body_itself: fn() -> () use Async
-test_forked: fn() -> () use { Async, Users }
+fixed: fn() -> () uses { Async }
+body_itself: fn() -> () uses { Async }
+test_forked: fn() -> () uses { Async, Users }
 `Fiber.scope(|| {
     s = use Scope
     with PostgresUsers {

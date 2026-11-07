@@ -212,7 +212,7 @@ handler Counted(n: Int): Pool {
   fn get() { self.n }
 }
 
-fn work() -> Int use Pool {
+fn work() -> Int uses { Pool } {
   (use Pool).get() + 1
 }
 
@@ -240,7 +240,7 @@ handler Quiet: Log {
   fn count() { 0 }
 }
 
-fn report(x: Int) -> Int use Log {
+fn report(x: Int) -> Int uses { Log } {
   log = use Log
   log.info(\"x\")
   x + log.count()
@@ -268,7 +268,7 @@ handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
-fn nap(ms: Int) -> Int use Clock {
+fn nap(ms: Int) -> Int uses { Clock } {
   (use Clock).sleep(ms) + 1
 }
 
@@ -288,7 +288,7 @@ import Std.Fiber.{Fiber, Scope}
 import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
-fn main() -> Int use { Async } {
+fn main() -> Int uses { Async } {
   Fiber.scope(|| {
     s = use Scope
     a = s.fork(|| [1])
@@ -321,7 +321,7 @@ handler Later: Wait {
   suspend fn wait(resume) { resume(()) }
 }
 
-fn main() -> Int use { Async, Wait } {
+fn main() -> Int uses { Async, Wait } {
   with Later { () }
   Fiber.scope(|| {
     s = use Scope

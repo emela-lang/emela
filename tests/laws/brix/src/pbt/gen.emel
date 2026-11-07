@@ -85,14 +85,14 @@ fn int_halves(value: Int, target: Int, distance: Int64) -> List[Tree[Int]] {
   }
 }
 
-pub fn map[A, B](gen: Gen[A], f: fn(A) -> B fails {} use {}) -> Gen[B] {
+pub fn map[A, B](gen: Gen[A], f: fn(A) -> B fails {} uses {}) -> Gen[B] {
   Gen(|seed, size| {
     (tree, rest) = sample(gen, seed, size)
     (map_tree(tree, f), rest)
   })
 }
 
-pub fn map_tree[A, B](tree: Tree[A], f: fn(A) -> B fails {} use {}) -> Tree[B] {
+pub fn map_tree[A, B](tree: Tree[A], f: fn(A) -> B fails {} uses {}) -> Tree[B] {
   Tree(f(tree.value), || List.map(tree.children(), |child| map_tree(child, f)))
 }
 

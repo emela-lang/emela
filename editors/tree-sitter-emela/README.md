@@ -39,10 +39,15 @@ is the more permissive one, since an editor has to highlight code that is still 
 - To decide whether a line continues, the scanner looks past whitespace, blank lines and comment
   lines at the first meaningful token: a binary operator other than `-`, `.`, `->`, `|`, `else`,
   `escape`, or `match` followed by `{` (rules 1 and 3).
-- `fails` and `use` continue a signature (rule 4), and `derive` continues a type, enum or error
-  declaration, only where the grammar places the zero-width tokens `_signature_continues` and
-  `_derive_continues`. The scanner never produces them; their presence in `valid_symbols` tells it
-  that it is at such a position.
+- `fails` and `uses` followed on the same line by an uppercase name or `{` continue the line
+  anywhere (rule 4). The old clause `use` on its own line continues a signature, and `derive`
+  continues a type, enum or error declaration, only where the grammar places the zero-width tokens
+  `_signature_continues` and `_derive_continues`. The scanner never produces them; their presence
+  in `valid_symbols` tells it that it is at such a position. The old clause is read as a
+  `uses_clause`, as the compiler reads it (E0147).
+- A `|` at the start of a line continues an error set inside a signature, where the grammar places
+  `_signature_continues`, and starts an anonymous function elsewhere. The scanner keeps no state,
+  so an error set continued in the type annotation of a binding (rule 5) is not read.
 - A binary operator at the end of a line reads the next line as its operand (`a = 10 +⏎1`).
   The compiler reports this; the grammar does not.
 - The left side of a binding is read as an expression and not checked as a pattern, as the

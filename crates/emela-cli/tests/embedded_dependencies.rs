@@ -42,7 +42,7 @@ fn dependency_targets_are_checked_with_and_without_a_board() {
             write(
                 root,
                 source,
-                "import Value\npub fn main() -> Int use Async { Value.answer() }\n",
+                "import Value\npub fn main() -> Int uses { Async } { Value.answer() }\n",
             );
             let mut manifest = "[pome]\nname = \"github.com/acme/value\"\nversion = \"0.1.0\"\nemela = \"0.24.0\"\n".to_string();
             if let Some(target) = targets {

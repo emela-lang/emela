@@ -265,12 +265,13 @@ fn f() {
               (type_identifier))))))))
 
 ==================
-Fails and use on the following lines of a signature
+Fails and uses on the following lines of a signature
 ==================
 pub fn get(url: String) -> Response
   fails InvalidUrl | ConnectionFailed
-  use Http {
+  uses { Http } {
   fails = 1
+  uses = 2
   use Log
 }
 
@@ -293,10 +294,14 @@ pub fn get(url: String) -> Response
           (type_identifier))
         (type_reference
           (type_identifier))))
-    (use_clause
-      (type_reference
-        (type_identifier)))
+    (uses_clause
+      (effect_set
+        (type_reference
+          (type_identifier))))
     (block
+      (binding
+        (identifier)
+        (integer))
       (binding
         (identifier)
         (integer))
@@ -315,7 +320,7 @@ effect Store {
 
 @external(js, "f")
 fn f() -> Int
-  use {}
+  uses {}
 fn g() { 1 }
 
 ---
@@ -348,13 +353,68 @@ fn g() { 1 }
     (parameters)
     (type_reference
       (type_identifier))
-    (use_clause
+    (uses_clause
       (effect_set)))
   (function_declaration
     (identifier)
     (parameters)
     (block
       (integer))))
+
+==================
+The old clause on its own line is read as a uses clause
+==================
+fn f() -> Int
+  use Db {
+  1
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (type_reference
+      (type_identifier))
+    (uses_clause
+      (type_reference
+        (type_identifier)))
+    (block
+      (integer))))
+
+==================
+Fails and uses continue the type annotation of a binding
+==================
+fn f() {
+  g: fn() -> Int
+    fails Boom
+    uses { Db } = h
+  g
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (binding
+        (identifier)
+        (function_type
+          (parameter_types)
+          (type_reference
+            (type_identifier))
+          (fails_clause
+            (type_reference
+              (type_identifier)))
+          (uses_clause
+            (effect_set
+              (type_reference
+                (type_identifier)))))
+        (identifier))
+      (identifier))))
 
 ==================
 Derive on the next line

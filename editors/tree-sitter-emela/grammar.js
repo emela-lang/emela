@@ -39,8 +39,9 @@ module.exports = grammar({
     $._string_content,
     $._multiline_string_content,
     '#{',
-    // Never produced. They are valid only where a newline followed by `fails` or `use`
-    // (rule 4), or by `derive` ([grammar.decl]), continues the line, and tell the scanner so.
+    // Never produced. They are valid only where a newline followed by the old clause `use`
+    // (E0147, read as a uses clause), or by `derive` ([grammar.decl]), continues the line, and
+    // tell the scanner so. Rule 4 (`fails` and `uses`) needs no state.
     $._signature_continues,
     $._derive_continues,
     // Valid in every state only during error recovery.
@@ -150,7 +151,7 @@ module.exports = grammar({
       field('parameters', $.parameters),
       optional(seq(optional($._signature_continues), '->', field('return_type', $._type))),
       optional(seq(optional($._signature_continues), $.fails_clause)),
-      optional(seq(optional($._signature_continues), $.use_clause)),
+      optional(seq(optional($._signature_continues), $.uses_clause)),
     ),
 
     parameters: $ => seq('(', commaSep($.parameter), ')'),
@@ -368,14 +369,15 @@ module.exports = grammar({
       '->',
       field('return_type', $._type),
       optional($.fails_clause),
-      optional($.use_clause),
+      optional($.uses_clause),
     )),
 
     _parameter_types: $ => seq('(', commaSep($._type), ')'),
 
     fails_clause: $ => seq('fails', $._error_set),
 
-    use_clause: $ => seq('use', $._effect_set),
+    // The old clause `use` (E0147) is read as a uses clause too, as the compiler does.
+    uses_clause: $ => seq(choice('uses', 'use'), $._effect_set),
 
     _error_set: $ => choice(
       alias(seq('{', '}'), $.error_set),
@@ -611,7 +613,7 @@ module.exports = grammar({
       '->',
       field('return_type', $._lambda_parameter_type),
       optional(alias($._lambda_fails_clause, $.fails_clause)),
-      optional($.use_clause),
+      optional($.uses_clause),
     )),
 
     _lambda_fails_clause: $ => seq(

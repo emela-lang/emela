@@ -8,18 +8,18 @@ load: fn(Int) -> Int fails NotFound | DbError
 all: fn() -> Int
 after_ctor: fn() -> Int
 arm_fails: fn() -> Int fails Other
-or_else: ∀ A, E, R(f). fn(fn() -> A fails E use R(f), A) -> A use R(f)
-  f: fn() -> '0 fails '1 use '2
+or_else: ∀ A, E, R(f). fn(fn() -> A fails E uses { R(f) }, A) -> A uses { R(f) }
+  f: fn() -> '0 fails '1 uses { '2 }
   default: '0
-hidden: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) use R(f), A) -> A fails E(f) use R(f)
-  f: fn() -> '0 fails '1 use '2
+hidden: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) uses { R(f) }, A) -> A fails E(f) uses { R(f) }
+  f: fn() -> '0 fails '1 uses { '2 }
   default: '0
-set_param: ∀ E, R(f). fn(fn() -> Int fails E use R(f)) -> Int use R(f)
-  f: fn() -> Int fails '0 use '1
+set_param: ∀ E, R(f). fn(fn() -> Int fails E uses { R(f) }) -> Int uses { R(f) }
+  f: fn() -> Int fails '0 uses { '1 }
 error_param: ∀ E. fn(E) -> Int
   err: '0
-inferred: ∀ R, E. fn() -> fn(fn() -> Int fails E use R) -> Int use R
-  g: fn() -> Int fails ?e2 use ?e3
+inferred: ∀ R, E. fn() -> fn(fn() -> Int fails E uses { R }) -> Int uses { R }
+  g: fn() -> Int fails ?e2 uses { ?e3 }
 local: fn() -> Int
   f: fn() -> Int fails NotFound | DbError
 caller: fn() -> Int

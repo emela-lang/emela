@@ -1081,11 +1081,11 @@ import Std.Duration.{Duration}
 
 error Boom
 
-fn greet(id: Int) -> () use { Console } {
+fn greet(id: Int) -> () uses { Console } {
   (use Console).print_line("Hello, #{id}!")
 }
 
-fn wait_twice() -> Duration use { Clock } {
+fn wait_twice() -> Duration uses { Clock } {
   clock = use Clock
   start = clock.now()
   clock.sleep(250)
@@ -1471,12 +1471,12 @@ handler Parked: Wait {
 }
 
 @test
-fn stalls() -> () use { Async } {
+fn stalls() -> () uses { Async } {
   with Parked { _ = (use Wait).wait() }
 }
 
 @test
-fn catches() -> () use { Async } {
+fn catches() -> () uses { Async } {
   Exit.attempt(|| panic("caught")) match {
     Success(_) -> assert False
     Failure(c) -> assert Cause.to_string(c) == "defect: caught"

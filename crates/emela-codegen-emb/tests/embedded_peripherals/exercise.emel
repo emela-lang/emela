@@ -73,7 +73,7 @@ pub fn bounded(kind: Int, arg: Int) -> Int {
   } escape { PeripheralError(code) -> code }
 }
 
-pub fn sleep(ms: Int) -> Int use Async {
+pub fn sleep(ms: Int) -> Int uses { Async } {
   with BoardClock {
     (use Clock).sleep(ms)
     77

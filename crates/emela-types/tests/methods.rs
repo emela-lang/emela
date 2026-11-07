@@ -40,7 +40,7 @@ fn check(u: User) -> User fails Bad {
   if u.age < 0 { fail Bad } else { u }
 }
 
-fn logged(u: User) -> User use Log {
+fn logged(u: User) -> User uses { Log } {
   (use Log).write(u.name)
   u
 }

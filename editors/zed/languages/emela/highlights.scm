@@ -184,6 +184,7 @@
   "with"
   "assert"
   "fails"
+  "uses"
   "derive"
   "of"
   "default"

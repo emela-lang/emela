@@ -34,7 +34,7 @@ import Std.Exit.{Success, Failure}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom(n: Int)
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n,resume) { resume(wait(n)) } }
@@ -46,7 +46,7 @@ handler Res: Resource {
   mark(2)
  }
 }
-pub fn attempt(n: Int) -> Int use Async {
+pub fn attempt(n: Int) -> Int uses { Async } {
  with Waiting {
   a = Exit.attempt(|| { with Res {
    x = (use Wait).get(1)
@@ -127,7 +127,7 @@ fn attempt_keeps_the_embedded_policy_of_stopping_immediately_on_defect() {
     let source = r#"
 import Std.Exit.{Success, Failure}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Resource { fn read() -> Int }
 handler Res: Resource { fn read() { 0 }
  release { mark(99) }

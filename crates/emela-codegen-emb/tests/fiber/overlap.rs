@@ -8,7 +8,7 @@ import Std.Fiber.{Fiber}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom(n: Int) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n,resume) { resume(wait(n)) } }
@@ -19,16 +19,16 @@ handler Res: Resource { fn read() { 0 }
   mark(2)
  }
 }
-fn late() -> Int fails Boom use Wait { (use Wait).get(1)
+fn late() -> Int fails Boom uses { Wait } { (use Wait).get(1)
  fail Boom(n: 42)
 }
-fn nested() -> Int fails Boom use {Wait,Async} {
+fn nested() -> Int fails Boom uses {Wait,Async} {
  with Res { Fiber.scope(|| { Fiber.scope(|| {
   Fiber.fork(late)
   (use Wait).get(2)
  }) }) }
 }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
  with Waiting { Fiber.scope(|| {
   child = Fiber.fork(nested)
   (use Wait).get(3)
@@ -111,10 +111,10 @@ suspend fn wait(n: Int) -> Int
 error Boom(n: Int) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n,resume) { resume(wait(n)) } }
-fn late(n: Int) -> Int fails Boom use Wait { (use Wait).get(n)
+fn late(n: Int) -> Int fails Boom uses { Wait } { (use Wait).get(n)
  fail Boom(n: n)
 }
-pub fn work() -> Cause[Boom] use Async {
+pub fn work() -> Cause[Boom] uses { Async } {
  with Waiting { Exit.attempt(|| { Fiber.scope(|| {
   Fiber.fork(|| { Fiber.scope(|| { Fiber.scope(|| {
    Fiber.fork(|| late(1))
@@ -202,7 +202,7 @@ import Std.Cause.{Cause}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom(n: Int) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n,resume) { resume(wait(n)) } }
@@ -214,15 +214,15 @@ fn cleanup(c: Cause[{}]) -> () { mark(1)
  Cause.raise(c)
  mark(99)
 }
-fn protected(c: Cause[{}]) -> Int use Wait { with Res {
+fn protected(c: Cause[{}]) -> Int uses { Wait } { with Res {
  (use Wait).get(3)
  cleanup(c)
  0
 } }
-fn late(n: Int) -> Int fails Boom use Wait { (use Wait).get(n)
+fn late(n: Int) -> Int fails Boom uses { Wait } { (use Wait).get(n)
  fail Boom(n: n)
 }
-pub fn make() -> Cause[{}] use Async { with Waiting { Fiber.scope(|| {
+pub fn make() -> Cause[{}] uses { Async } { with Waiting { Fiber.scope(|| {
  child=Fiber.fork(|| (use Wait).get(4))
  (use Wait).get(5)
  Fiber.interrupt(child)
@@ -230,7 +230,7 @@ pub fn make() -> Cause[{}] use Async { with Waiting { Fiber.scope(|| {
   Failure(c) -> c
  }
 }) } }
-pub fn work(c: Cause[{}]) -> Cause[Boom] use Async { with Waiting {
+pub fn work(c: Cause[{}]) -> Cause[Boom] uses { Async } { with Waiting {
  Exit.attempt(|| { Fiber.scope(|| {
   child=Fiber.fork(|| { Fiber.scope(|| {
    Fiber.fork(|| late(1))

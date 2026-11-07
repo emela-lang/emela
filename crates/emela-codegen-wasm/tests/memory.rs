@@ -75,11 +75,11 @@ handler Retrying: Retry {
   }
 }
 
-fn ten() -> Int use { Retry } {
+fn ten() -> Int uses { Retry } {
   (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go() + (use Retry).go()
 }
 
-fn rounds(n: Int, total: Int) -> Int use { Retry } {
+fn rounds(n: Int, total: Int) -> Int uses { Retry } {
   if n == 0 {
     total
   } else {
@@ -119,7 +119,7 @@ handler Retrying: Retry {
   }
 }
 
-fn rounds(n: Int, total: Int) -> Int use { Retry } {
+fn rounds(n: Int, total: Int) -> Int uses { Retry } {
   if n == 0 {
     total
   } else {
@@ -164,7 +164,7 @@ fn length[A, E](e: Exit[A, E]) -> Int {
   }
 }
 
-fn round(i: Int) -> Int use { Clock } {
+fn round(i: Int) -> Int uses { Clock } {
   a = length(Exit.attempt(|| "value #{i}"))
   b = length(Exit.attempt(|| fail Boom(text: "boom #{i}")))
   c = length(Exit.attempt(|| panic("bad #{i}")))
@@ -179,7 +179,7 @@ fn round(i: Int) -> Int use { Clock } {
   a + b + c + d + e
 }
 
-fn rounds(n: Int, total: Int) -> Int use { Clock } {
+fn rounds(n: Int, total: Int) -> Int uses { Clock } {
   if n == 0 { total } else { rounds(n - 1, total + round(n % 10)) }
 }
 

@@ -2,7 +2,7 @@ import Std.Fiber.{Fiber, Scope}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 error Boom
 
@@ -28,7 +28,7 @@ handler Inner: Name {
   fn name() { "inner" }
 }
 
-fn spin(n: Int) -> () use { Tick } {
+fn spin(n: Int) -> () uses { Tick } {
   if n == 0 { () } else {
     (use Tick).tick()
     spin(n - 1)
@@ -36,7 +36,7 @@ fn spin(n: Int) -> () use { Tick } {
 }
 
 ## Takes `ticks` hundred suspending calls, then prints and returns `n * 10`.
-fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
+fn fetch(n: Int, ticks: Int) -> Int uses { Tick } {
   spin(ticks * 100)
   print("fetched #{n}")
   n * 10
@@ -44,7 +44,7 @@ fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
 
 fn boom() -> Int fails Boom { fail Boom }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks, Outer {
     total = Fiber.scope(|| {
       s = use Scope

@@ -130,7 +130,7 @@ effect Users {
   suspend fn find(id: Int) -> User fails NotFound
 }
 
-fn fetch_user(id: Int) -> User fails NotFound use Users {
+fn fetch_user(id: Int) -> User fails NotFound uses { Users } {
   (use Users).find(id)
 }
 
@@ -162,7 +162,7 @@ fn pairs() {
   (user, users)
 }
 
-fn signal() -> Int use { Async } {
+fn signal() -> Int uses { Async } {
   Fiber.scope(|| {
     ready = Fiber.deferred()
     Fiber.fork(|| Deferred.complete(ready, 1))
@@ -203,7 +203,7 @@ fn spawn_log() {
   (use Scope).fork(|| (use Log).info("hi"))
 }
 
-fn declared() -> Fiber[Int] use Scope[Bust, {}] {
+fn declared() -> Fiber[Int] uses { Scope[Bust, {}] } {
   Fiber.fork(|| bust())
 }
 
@@ -249,7 +249,7 @@ effect Log {
 
 fn boom() -> Int fails Boom { fail Boom }
 
-fn guarded() -> () use { Log } {
+fn guarded() -> () uses { Log } {
   Exit.attempt(|| boom()) match {
     Success(_) -> ()
     Failure(cause) -> (use Log).info(Cause.to_string(cause))
@@ -321,7 +321,7 @@ fn main() {
   })
 }
 
-fn fixed() -> () use { Async } {
+fn fixed() -> () uses { Async } {
   with PostgresUsers {
     Fiber.scope(|| {
       Fiber.fork(|| (use Users).find(1))
@@ -330,7 +330,7 @@ fn fixed() -> () use { Async } {
   }
 }
 
-fn body_itself() -> () use { Async } {
+fn body_itself() -> () uses { Async } {
   Fiber.scope(|| {
     (use Users).find(1)
     ()
@@ -453,7 +453,7 @@ effect Mine[E] {
   fn go(f: fn() -> () fails E) -> ()
 }
 
-fn wrapped() -> List[Int] use { Wrap } {
+fn wrapped() -> List[Int] uses { Wrap } {
   (use Wrap).wrap(1)
 }
 "#
@@ -497,7 +497,7 @@ fn through_capability() {
   })
 }
 
-fn spawn_tree(depth: Int) -> () use { Scope[Boom, {}] } {
+fn spawn_tree(depth: Int) -> () uses { Scope[Boom, {}] } {
   if depth > 0 {
     Fiber.fork(|| {
       spawn_tree(depth - 1)

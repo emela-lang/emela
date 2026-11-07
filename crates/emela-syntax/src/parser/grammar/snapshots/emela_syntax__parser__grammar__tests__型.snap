@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"Int\", \"Http.Client\", \"List[A]\", \"Map[String, List[(Int, Bool)]]\",\n\"Self\", \"()\", \"(Int, String,)\", \"(Int)\",\n\"fn() -> (fn(Int) -> String) fails ParseError\",\n\"fn() -> fn(Int) -> String fails ParseError\", \"fn(A) -> B\",\n\"fn() -> () fails NotFound | DbError use Users\", \"fn(A) -> A use R\",\n\"fn(A) -> A fails {} use { Io, Clock }\",\n\"fn(A) -> A fails E use {\\n  Io,\\n  Clock,\\n}\", \"fn() -> A fails Timeout | E\",\n\"fn() -> A fails E | Timeout | Http.Error\", \"fn() -> () use { Quiet, R }\",\n\"fn() -> () use { R, Quiet, Http.Client }\",], types::type_,)"
+expression: "dump_all(&[\"Int\", \"Http.Client\", \"List[A]\", \"Map[String, List[(Int, Bool)]]\",\n\"Self\", \"()\", \"(Int, String,)\", \"(Int)\",\n\"fn() -> (fn(Int) -> String) fails ParseError\",\n\"fn() -> fn(Int) -> String fails ParseError\", \"fn(A) -> B\",\n\"fn() -> () fails NotFound | DbError uses { Users }\", \"fn(A) -> A uses { R }\",\n\"fn(A) -> A fails {} uses { Io, Clock }\",\n\"fn(A) -> A fails E uses {\\n  Io,\\n  Clock,\\n}\",\n\"fn() -> A fails Timeout | E\", \"fn() -> A fails E | Timeout | Http.Error\",\n\"fn() -> () uses { Quiet, R }\", \"fn() -> () uses { R, Quiet, Http.Client }\",],\ntypes::type_,)"
 ---
 === Int
 ROOT@0..3
@@ -169,9 +169,9 @@ ROOT@0..10
       WHITESPACE@8..9 " "
       TYPE_VAR@9..10
         UPPER_NAME@9..10 "B"
-=== fn() -> () fails NotFound | DbError use Users
-ROOT@0..45
-  FN_TYPE@0..45
+=== fn() -> () fails NotFound | DbError uses { Users }
+ROOT@0..50
+  FN_TYPE@0..50
     FN_KW@0..2 "fn"
     PARAM_TYPE_LIST@2..4
       L_PAREN@2..3 "("
@@ -196,15 +196,19 @@ ROOT@0..45
         PATH@28..35
           TYPE_NAME@28..35 "DbError"
     WHITESPACE@35..36 " "
-    USE_CLAUSE@36..45
-      USE_KW@36..39 "use"
-      WHITESPACE@39..40 " "
-      EFFECT_SET@40..45
-        PATH@40..45
-          TYPE_NAME@40..45 "Users"
-=== fn(A) -> A use R
-ROOT@0..16
-  FN_TYPE@0..16
+    USES_CLAUSE@36..50
+      LOWER_NAME@36..40 "uses"
+      WHITESPACE@40..41 " "
+      EFFECT_SET@41..50
+        L_BRACE@41..42 "{"
+        WHITESPACE@42..43 " "
+        PATH@43..48
+          TYPE_NAME@43..48 "Users"
+        WHITESPACE@48..49 " "
+        R_BRACE@49..50 "}"
+=== fn(A) -> A uses { R }
+ROOT@0..21
+  FN_TYPE@0..21
     FN_KW@0..2 "fn"
     PARAM_TYPE_LIST@2..5
       L_PAREN@2..3 "("
@@ -218,15 +222,19 @@ ROOT@0..16
       TYPE_VAR@9..10
         UPPER_NAME@9..10 "A"
     WHITESPACE@10..11 " "
-    USE_CLAUSE@11..16
-      USE_KW@11..14 "use"
-      WHITESPACE@14..15 " "
-      EFFECT_SET@15..16
-        TYPE_VAR@15..16
-          UPPER_NAME@15..16 "R"
-=== fn(A) -> A fails {} use { Io, Clock }
-ROOT@0..37
-  FN_TYPE@0..37
+    USES_CLAUSE@11..21
+      LOWER_NAME@11..15 "uses"
+      WHITESPACE@15..16 " "
+      EFFECT_SET@16..21
+        L_BRACE@16..17 "{"
+        WHITESPACE@17..18 " "
+        TYPE_VAR@18..19
+          UPPER_NAME@18..19 "R"
+        WHITESPACE@19..20 " "
+        R_BRACE@20..21 "}"
+=== fn(A) -> A fails {} uses { Io, Clock }
+ROOT@0..38
+  FN_TYPE@0..38
     FN_KW@0..2 "fn"
     PARAM_TYPE_LIST@2..5
       L_PAREN@2..3 "("
@@ -247,26 +255,26 @@ ROOT@0..37
         L_BRACE@17..18 "{"
         R_BRACE@18..19 "}"
     WHITESPACE@19..20 " "
-    USE_CLAUSE@20..37
-      USE_KW@20..23 "use"
-      WHITESPACE@23..24 " "
-      EFFECT_SET@24..37
-        L_BRACE@24..25 "{"
-        WHITESPACE@25..26 " "
-        PATH@26..28
-          TYPE_NAME@26..28 "Io"
-        COMMA@28..29 ","
-        WHITESPACE@29..30 " "
-        PATH@30..35
-          TYPE_NAME@30..35 "Clock"
-        WHITESPACE@35..36 " "
-        R_BRACE@36..37 "}"
-=== fn(A) -> A fails E use {
+    USES_CLAUSE@20..38
+      LOWER_NAME@20..24 "uses"
+      WHITESPACE@24..25 " "
+      EFFECT_SET@25..38
+        L_BRACE@25..26 "{"
+        WHITESPACE@26..27 " "
+        PATH@27..29
+          TYPE_NAME@27..29 "Io"
+        COMMA@29..30 ","
+        WHITESPACE@30..31 " "
+        PATH@31..36
+          TYPE_NAME@31..36 "Clock"
+        WHITESPACE@36..37 " "
+        R_BRACE@37..38 "}"
+=== fn(A) -> A fails E uses {
   Io,
   Clock,
 }
-ROOT@0..41
-  FN_TYPE@0..41
+ROOT@0..42
+  FN_TYPE@0..42
     FN_KW@0..2 "fn"
     PARAM_TYPE_LIST@2..5
       L_PAREN@2..3 "("
@@ -287,23 +295,23 @@ ROOT@0..41
         TYPE_VAR@17..18
           UPPER_NAME@17..18 "E"
     WHITESPACE@18..19 " "
-    USE_CLAUSE@19..41
-      USE_KW@19..22 "use"
-      WHITESPACE@22..23 " "
-      EFFECT_SET@23..41
-        L_BRACE@23..24 "{"
-        NEWLINE@24..25 "\n"
-        WHITESPACE@25..27 "  "
-        PATH@27..29
-          TYPE_NAME@27..29 "Io"
-        COMMA@29..30 ","
-        NEWLINE@30..31 "\n"
-        WHITESPACE@31..33 "  "
-        PATH@33..38
-          TYPE_NAME@33..38 "Clock"
-        COMMA@38..39 ","
-        NEWLINE@39..40 "\n"
-        R_BRACE@40..41 "}"
+    USES_CLAUSE@19..42
+      LOWER_NAME@19..23 "uses"
+      WHITESPACE@23..24 " "
+      EFFECT_SET@24..42
+        L_BRACE@24..25 "{"
+        NEWLINE@25..26 "\n"
+        WHITESPACE@26..28 "  "
+        PATH@28..30
+          TYPE_NAME@28..30 "Io"
+        COMMA@30..31 ","
+        NEWLINE@31..32 "\n"
+        WHITESPACE@32..34 "  "
+        PATH@34..39
+          TYPE_NAME@34..39 "Clock"
+        COMMA@39..40 ","
+        NEWLINE@40..41 "\n"
+        R_BRACE@41..42 "}"
 === fn() -> A fails Timeout | E
 ROOT@0..27
   FN_TYPE@0..27
@@ -361,9 +369,9 @@ ROOT@0..40
           TYPE_NAME@30..34 "Http"
           DOT@34..35 "."
           TYPE_NAME@35..40 "Error"
-=== fn() -> () use { Quiet, R }
-ROOT@0..27
-  FN_TYPE@0..27
+=== fn() -> () uses { Quiet, R }
+ROOT@0..28
+  FN_TYPE@0..28
     FN_KW@0..2 "fn"
     PARAM_TYPE_LIST@2..4
       L_PAREN@2..3 "("
@@ -376,52 +384,52 @@ ROOT@0..27
         L_PAREN@8..9 "("
         R_PAREN@9..10 ")"
     WHITESPACE@10..11 " "
-    USE_CLAUSE@11..27
-      USE_KW@11..14 "use"
-      WHITESPACE@14..15 " "
-      EFFECT_SET@15..27
-        L_BRACE@15..16 "{"
-        WHITESPACE@16..17 " "
-        PATH@17..22
-          TYPE_NAME@17..22 "Quiet"
-        COMMA@22..23 ","
-        WHITESPACE@23..24 " "
-        TYPE_VAR@24..25
-          UPPER_NAME@24..25 "R"
-        WHITESPACE@25..26 " "
-        R_BRACE@26..27 "}"
-=== fn() -> () use { R, Quiet, Http.Client }
-ROOT@0..40
-  FN_TYPE@0..40
-    FN_KW@0..2 "fn"
-    PARAM_TYPE_LIST@2..4
-      L_PAREN@2..3 "("
-      R_PAREN@3..4 ")"
-    WHITESPACE@4..5 " "
-    RET_TYPE@5..10
-      THIN_ARROW@5..7 "->"
-      WHITESPACE@7..8 " "
-      UNIT_TYPE@8..10
-        L_PAREN@8..9 "("
-        R_PAREN@9..10 ")"
-    WHITESPACE@10..11 " "
-    USE_CLAUSE@11..40
-      USE_KW@11..14 "use"
-      WHITESPACE@14..15 " "
-      EFFECT_SET@15..40
-        L_BRACE@15..16 "{"
-        WHITESPACE@16..17 " "
-        TYPE_VAR@17..18
-          UPPER_NAME@17..18 "R"
-        COMMA@18..19 ","
-        WHITESPACE@19..20 " "
-        PATH@20..25
-          TYPE_NAME@20..25 "Quiet"
-        COMMA@25..26 ","
+    USES_CLAUSE@11..28
+      LOWER_NAME@11..15 "uses"
+      WHITESPACE@15..16 " "
+      EFFECT_SET@16..28
+        L_BRACE@16..17 "{"
+        WHITESPACE@17..18 " "
+        PATH@18..23
+          TYPE_NAME@18..23 "Quiet"
+        COMMA@23..24 ","
+        WHITESPACE@24..25 " "
+        TYPE_VAR@25..26
+          UPPER_NAME@25..26 "R"
         WHITESPACE@26..27 " "
-        PATH@27..38
-          TYPE_NAME@27..31 "Http"
-          DOT@31..32 "."
-          TYPE_NAME@32..38 "Client"
-        WHITESPACE@38..39 " "
-        R_BRACE@39..40 "}"
+        R_BRACE@27..28 "}"
+=== fn() -> () uses { R, Quiet, Http.Client }
+ROOT@0..41
+  FN_TYPE@0..41
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..4
+      L_PAREN@2..3 "("
+      R_PAREN@3..4 ")"
+    WHITESPACE@4..5 " "
+    RET_TYPE@5..10
+      THIN_ARROW@5..7 "->"
+      WHITESPACE@7..8 " "
+      UNIT_TYPE@8..10
+        L_PAREN@8..9 "("
+        R_PAREN@9..10 ")"
+    WHITESPACE@10..11 " "
+    USES_CLAUSE@11..41
+      LOWER_NAME@11..15 "uses"
+      WHITESPACE@15..16 " "
+      EFFECT_SET@16..41
+        L_BRACE@16..17 "{"
+        WHITESPACE@17..18 " "
+        TYPE_VAR@18..19
+          UPPER_NAME@18..19 "R"
+        COMMA@19..20 ","
+        WHITESPACE@20..21 " "
+        PATH@21..26
+          TYPE_NAME@21..26 "Quiet"
+        COMMA@26..27 ","
+        WHITESPACE@27..28 " "
+        PATH@28..39
+          TYPE_NAME@28..32 "Http"
+          DOT@32..33 "."
+          TYPE_NAME@33..39 "Client"
+        WHITESPACE@39..40 " "
+        R_BRACE@40..41 "}"

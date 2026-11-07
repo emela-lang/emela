@@ -1,7 +1,7 @@
 ---
 title: Rename the effect clause to uses
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 488
 issue:
 decided: 2026-11-06
@@ -237,9 +237,9 @@ In code examples, API signatures and prose, the clause `use` becomes `uses` in i
 
 ## Diagnostics
 
-- [ ] E0147 for `use` in the place of the uses clause, with the rewrite; also for the old clause on a line of its own after a signature
-- [ ] E0147 quickfix in the LSP, and the rewrite in `emela fmt`
-- [ ] E0136, E0137, E0402, E0403, E0407, E0423: wording changed to `uses`, and sets displayed in the canonical form
+- [x] E0147 for `use` in the place of the uses clause, with the rewrite; also for the old clause on a line of its own after a signature
+- [x] E0147 quickfix in the LSP, and the rewrite in `emela fmt`
+- [x] E0136, E0137, E0402, E0403, E0407, E0423: wording changed to `uses`, and sets displayed in the canonical form
 
 ## Compatibility
 

@@ -95,7 +95,7 @@ pub(crate) fn complete(
             .rsplit(|c: char| !is_name_char(c))
             .next()
         {
-            Some("use") => cx.in_scope(offset, |kind| kind == DefKind::Effect),
+            Some("use" | "uses") => cx.in_scope(offset, |kind| kind == DefKind::Effect),
             Some("with") => cx.in_scope(offset, |kind| {
                 matches!(kind, DefKind::Handler | DefKind::Layer)
             }),

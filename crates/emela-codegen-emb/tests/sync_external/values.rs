@@ -7,7 +7,7 @@ fn source_tuple_and_list_external_values_keep_all_managed_fields_alive() {
             "main.emel",
             r#"
 @external(c,"host_packet")
-fn packet(p: (String,List[String])) -> (String,List[String]) use {}
+fn packet(p: (String,List[String])) -> (String,List[String]) uses {}
 pub fn roundtrip(s: String) -> (String,List[String]) { packet((s,[s])) }
 pub fn text(p: (String,List[String])) -> String { (s,_) = p
  s }

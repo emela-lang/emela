@@ -53,7 +53,8 @@ pub fn scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) ->
 - `Fiber.fork(f)` and `Fiber.deferred()` are functions that wrap `(use Scope).fork(f)` and `(use Scope).deferred()`. These are the usual way, and `s = use Scope` is written only to refer to an outer scope.
 
 ```emel
-pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A] uses { Scope[E, R] } {
+pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
+  uses { Scope[E, R] } {
   (use Scope).fork(f)
 }
 pub fn deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] } { (use Scope).deferred() }

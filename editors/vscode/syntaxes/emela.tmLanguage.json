@@ -229,7 +229,7 @@
         },
         {
           "comment": "Contextual keywords ([kw.contextual]). Outside their positions they are identifiers, which this grammar cannot tell apart, so only the forms that are rarely identifiers are matched.",
-          "match": "\\b(fails|derive)\\b|(?:^|(?<=\\{))\\s*\\b(init|release)\\b(?=\\s*[({])|\\b(of|by)\\b(?=\\s+[A-Z])",
+          "match": "\\b(fails|uses|derive)\\b|(?:^|(?<=\\{))\\s*\\b(init|release)\\b(?=\\s*[({])|\\b(of|by)\\b(?=\\s+[A-Z])",
           "name": "keyword.other.emela"
         },
         {
