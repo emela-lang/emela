@@ -195,7 +195,7 @@ contexts:
       scope: keyword.other.emela
     # Contextual keywords ([kw.contextual]). Outside their positions they are identifiers, which
     # this definition cannot tell apart, so only the forms that are rarely identifiers are matched.
-    - match: '\b(fails|derive)\b|(?:^|(?<=\{))\s*\b(init|release)\b(?=\s*[({])|\b(of|by)\b(?=\s+[A-Z])'
+    - match: '\b(fails|uses|derive)\b|(?:^|(?<=\{))\s*\b(init|release)\b(?=\s*[({])|\b(of|by)\b(?=\s+[A-Z])'
       scope: keyword.other.emela
     - match: '\bdefault(?=\s*$)'
       scope: keyword.other.emela

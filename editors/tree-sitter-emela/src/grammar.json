@@ -650,7 +650,7 @@
                 },
                 {
                   "type": "SYMBOL",
-                  "name": "use_clause"
+                  "name": "uses_clause"
                 }
               ]
             },
@@ -2495,7 +2495,7 @@
             "members": [
               {
                 "type": "SYMBOL",
-                "name": "use_clause"
+                "name": "uses_clause"
               },
               {
                 "type": "BLANK"
@@ -2576,12 +2576,21 @@
         }
       ]
     },
-    "use_clause": {
+    "uses_clause": {
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": "use"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "uses"
+            },
+            {
+              "type": "STRING",
+              "value": "use"
+            }
+          ]
         },
         {
           "type": "SYMBOL",
@@ -4276,7 +4285,7 @@
             "members": [
               {
                 "type": "SYMBOL",
-                "name": "use_clause"
+                "name": "uses_clause"
               },
               {
                 "type": "BLANK"

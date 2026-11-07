@@ -1143,7 +1143,7 @@
           "named": true
         },
         {
-          "type": "use_clause",
+          "type": "uses_clause",
           "named": true
         },
         {
@@ -1187,7 +1187,7 @@
           "named": true
         },
         {
-          "type": "use_clause",
+          "type": "uses_clause",
           "named": true
         }
       ]
@@ -1865,7 +1865,7 @@
           "named": true
         },
         {
-          "type": "use_clause",
+          "type": "uses_clause",
           "named": true
         }
       ]
@@ -2406,33 +2406,6 @@
     "fields": {}
   },
   {
-    "type": "use_clause",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "effect_set",
-          "named": true
-        },
-        {
-          "type": "generic_type",
-          "named": true
-        },
-        {
-          "type": "type_reference",
-          "named": true
-        },
-        {
-          "type": "type_variable",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "use_expression",
     "named": true,
     "fields": {
@@ -2456,6 +2429,33 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "uses_clause",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "effect_set",
+          "named": true
+        },
+        {
+          "type": "generic_type",
+          "named": true
+        },
+        {
+          "type": "type_reference",
+          "named": true
+        },
+        {
+          "type": "type_variable",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -2873,6 +2873,10 @@
   },
   {
     "type": "use",
+    "named": false
+  },
+  {
+    "type": "uses",
     "named": false
   },
   {
