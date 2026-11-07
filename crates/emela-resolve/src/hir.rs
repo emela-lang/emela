@@ -570,7 +570,7 @@ pub struct TypeItem {
     pub fields: Fields,
     pub derives: Vec<(Res, Span)>,
     /// A built-in type of the bundled sources, marked with `@intrinsic` (`Std.Bytes.Bytes`,
-    /// `[kw.annotation]`). Its values are represented by the runtime.
+    /// `Std.Array.Array`, `[kw.annotation]`). Its values are represented by the runtime.
     pub is_intrinsic: bool,
 }
 

@@ -1,0 +1,4 @@
+exit: 101
+--- stdout
+--- stderr
+defect: Array.set was given position -1 in an array of size 2

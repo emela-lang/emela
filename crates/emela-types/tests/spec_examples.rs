@@ -516,6 +516,54 @@ fn round_trip() -> Option[String] {
     ));
 }
 
+/// `[api.std.array]`: the functions of `Std.Array` with their types, Eq, Ord and Show, as in the
+/// examples of the proposal (`proposals/array.md`), and `Array[A]` at the boundary
+/// (`[ext.boundary]`).
+#[test]
+fn spec_api_std_array() {
+    insta::assert_snapshot!(render_bodies(
+        r##"
+import Std.Array.{Array}
+
+@external(js, "./host.mjs", "sum")
+fn sum(xs: Array[Int]) -> Int
+
+fn histogram(bytes: List[Int], counts: Array[Int]) -> Array[Int] {
+  bytes match {
+    [] -> counts
+    [b, ..rest] -> {
+      n = Array.get(counts, b) |> Option.or(0)
+      histogram(rest, Array.set(counts, b, n + 1))
+    }
+  }
+}
+
+fn bump_twice(counts: Array[Int], b: Int) -> (Array[Int], Array[Int]) {
+  (Array.set(counts, b, 1), counts)
+}
+
+fn basics() -> Option[Int] {
+  a = Array.from_list([30, 10, 20])
+  size = Array.size(a)
+  first = Array.get(a, 1)
+  b = Array.set(a, 0, 31)
+  sorted = Array.sort(a)
+  listed = Array.to_list(sorted)
+  part = Array.slice(a, 1, 9)
+  text = inspect(a)
+  joined = Array.concat([a, Array.empty(), Array.append(a, b)])
+  names = Array.map(a, fn(x) { "#{x}" })
+  total = Array.fold(a, 0, fn(acc, x) { acc + x })
+  at = Array.find_index(names, fn(x) { x == "10" })
+  by = Array.sort_by(Array.reverse(a), fn(x, y) { Ord.compare(y, x) })
+  low = Array.lower_bound(sorted, 15)
+  same = a == b && a < b && Array.is_empty(Array.repeat("x", 0))
+  Array.binary_search(sorted, 20)
+}
+"##
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Code the text declares to be errors
 

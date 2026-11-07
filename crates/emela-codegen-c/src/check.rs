@@ -41,8 +41,8 @@ impl Found {
     }
 }
 
-/// An external function with `@external(c, ...)`: E0427 for callbacks and E0443 for Bytes, whose
-/// C form is not decided yet (`[ext.boundary]`). A `suspend fn` external function completes its
+/// An external function with `@external(c, ...)`: E0427 for callbacks and E0443 for Bytes and
+/// Arrays, whose C form is not decided yet (`[ext.boundary]`). A `suspend fn` external function completes its
 /// task later (spec 12.6).
 fn external(m: &Module, f: &Function, found: &mut Found) {
     let name = display_name(&f.name);
@@ -55,12 +55,15 @@ fn external(m: &Module, f: &Function, found: &mut Found) {
                     "external function `{name}` {verb} a callback, which target `c` does not support yet"
                 ),
             ),
-            Type::Bytes => found.report(
-                CErrorKind::Bytes,
-                format!(
-                    "external function `{name}` {verb} `Bytes`, which target `c` does not support yet"
-                ),
-            ),
+            Type::Bytes | Type::Array(_) => {
+                let ty = emela_lir::core_ty(&m.core, ty);
+                found.report(
+                    CErrorKind::BoundaryType,
+                    format!(
+                        "external function `{name}` {verb} `{ty}`, which target `c` does not support yet"
+                    ),
+                );
+            }
             _ => {}
         }
     }

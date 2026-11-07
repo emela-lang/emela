@@ -222,7 +222,9 @@ impl<'a> Verifier<'a> {
                     && self.compatible(f.ret, g.ret)
                     && (!self.strict || f.ev == g.ev)
             }
-            (Type::List(x), Type::List(y)) => self.compatible(*x, *y),
+            (Type::List(x), Type::List(y)) | (Type::Array(x), Type::Array(y)) => {
+                self.compatible(*x, *y)
+            }
             (Type::Tuple(xs), Type::Tuple(ys)) => all(xs, ys),
             (Type::Enum(i, xs), Type::Enum(j, ys)) => i == j && all(xs, ys),
             // Set type arguments of enums carry no values. Some are still the `()` placeholder
@@ -1038,9 +1040,9 @@ fn instance_of(types: &TypeTable, pattern: &[TypeId], actual: &[TypeId]) -> bool
         }
         match (&types[p], &types[x]) {
             (Type::Param(i), _) => *bound.entry(*i).or_insert(x) == x,
-            (Type::List(q), Type::List(y)) | (Type::Cell(q), Type::Cell(y)) => {
-                go(types, *q, *y, bound)
-            }
+            (Type::List(q), Type::List(y))
+            | (Type::Array(q), Type::Array(y))
+            | (Type::Cell(q), Type::Cell(y)) => go(types, *q, *y, bound),
             (Type::Tuple(qs), Type::Tuple(ys)) => all(types, qs, ys, bound),
             (Type::Enum(i, qs), Type::Enum(j, ys)) => i == j && all(types, qs, ys, bound),
             (Type::Fn(f), Type::Fn(g)) => {

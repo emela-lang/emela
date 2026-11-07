@@ -64,6 +64,30 @@ impl Mono<'_> {
                 ];
                 StrPart::Value(call(f, args), TypeId::STRING)
             }
+            // An array of elements without Show (`[api.std.array]`): the form of its Show,
+            // `Array.from_list([...])`, with the list of its elements in the debug display.
+            Type::Array(elem) => {
+                let list = self.out.intern(Type::List(elem));
+                let f = self.debug_fn(list);
+                let elems = Expr::Builtin {
+                    op: Builtin::ArrayToList,
+                    ty_args: vec![elem],
+                    args: vec![Expr::Var(x)],
+                };
+                let args = vec![
+                    elems,
+                    Expr::Lit(Lit::String("[".to_owned())),
+                    Expr::Lit(Lit::String(String::new())),
+                ];
+                StrPart::Value(
+                    Expr::Concat(vec![
+                        StrPart::Lit("Array.from_list(".to_owned()),
+                        StrPart::Value(call(f, args), TypeId::STRING),
+                        StrPart::Lit(")".to_owned()),
+                    ]),
+                    TypeId::STRING,
+                )
+            }
             _ => StrPart::Value(Expr::Var(x), ty),
         }
     }

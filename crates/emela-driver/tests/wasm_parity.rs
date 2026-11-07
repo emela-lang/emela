@@ -795,6 +795,19 @@ fn main() {
         "bytes_hex_defect",
         include_str!("../../emela-codegen-c/tests/programs/bytes_hex_defect.emel"),
     ),
+    // `[api.std.array]`: the same programs as the JS and C parity tests.
+    (
+        "array",
+        include_str!("../../emela-codegen-c/tests/programs/array.emel"),
+    ),
+    (
+        "array_set_defect",
+        include_str!("../../emela-codegen-c/tests/programs/array_set_defect.emel"),
+    ),
+    (
+        "array_set_negative",
+        include_str!("../../emela-codegen-c/tests/programs/array_set_negative.emel"),
+    ),
 ];
 
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops
