@@ -15,7 +15,7 @@ Every language feature belongs to one of the following three. A feature that bel
 | Level | Who writes it | What it contains |
 |---|---|---|
 | Everyday level | People who write applications | `type` `enum` `error` `fn` `match` `use` `with` `fail` `escape` |
-| Foundation level | People who write libraries and runtime boundaries | `effect` `handler` `layer` `suspend` `trait` `impl`, `fails` clauses and `use` clauses, constraints, `@external` |
+| Foundation level | People who write libraries and runtime boundaries | `effect` `handler` `layer` `suspend` `trait` `impl`, `fails` clauses and `uses` clauses, constraints, `@external` |
 
 If writing code at the everyday level requires knowledge of the foundation level, that is treated as a design flaw.
 

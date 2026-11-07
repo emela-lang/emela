@@ -33,37 +33,37 @@ profile = Fiber.scope(|| {
 ```
 
 ```emel
-## The capability to launch fibers in a scope. E and R are the fails and use of the children
+## The capability to launch fibers in a scope. E and R are the fails and uses of the children
 pub effect Scope[E, R] {
   fn fork[A](
-    f: fn() -> A fails E use { Scope[E, R], R },
+    f: fn() -> A fails E uses { Scope[E, R], R },
   ) -> Fiber[A] # the Scope inside a child is this scope itself
   fn deferred[A]() -> Deferred[A]
 }
 
 @intrinsic
-pub fn scope[A, E, R](body: fn() -> A fails E use { Scope[E, R], Async, R }) -> A
+pub fn scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) -> A
   fails E
-  use { Async, R }
+  uses { Async, R }
 ```
 
 - Scope is a built-in effect, and only `Fiber.scope` can provide it. Users cannot write a handler for Scope (E0413). Writing such a handler in a with provides nothing. `use Scope` can be written.
-- A `use` expression of a built-in effect MAY omit the type arguments (`use Scope`). Omitted type arguments are inferred. They cannot be omitted in a use clause or a handler head (E0423, the same rule as State in 8.1).
+- A `use` expression of a built-in effect MAY omit the type arguments (`use Scope`). Omitted type arguments are inferred. They cannot be omitted in a uses clause or a handler head (E0423, the same rule as State in 8.1).
 - The operations of Scope have their own type parameters (`fork[A]`) and set type parameters (E, R). Both are allowed only for built-in effects (8.1).
 - `Fiber.fork(f)` and `Fiber.deferred()` are functions that wrap `(use Scope).fork(f)` and `(use Scope).deferred()`. These are the usual way, and `s = use Scope` is written only to refer to an outer scope.
 
 ```emel
-pub fn fork[A, E, R](f: fn() -> A fails E use { Scope[E, R], R }) -> Fiber[A] use Scope[E, R] {
+pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A] uses { Scope[E, R] } {
   (use Scope).fork(f)
 }
-pub fn deferred[A, E, R]() -> Deferred[A] use Scope[E, R] { (use Scope).deferred() }
+pub fn deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] } { (use Scope).deferred() }
 ```
 
 - A fork can happen only where Scope is provided: inside the function passed to Fiber.scope and inside functions called from it. Helper functions do not take the scope as a parameter. They take it with `use Scope` (capability values cannot be passed as arguments. 8.2). The Scope in R shows which scope a fork goes to. In nested scopes, `use Scope` refers to the innermost scope. To fork into an outer scope, use a capability value taken out in the outer scope (8.3).
 - A child fiber always finishes before the scope is exited. Children that remain when the body of the scope returns a value are interrupted, and the scope returns the body's value after the unwinding of all children (including releases) has finished.
 - When a child ends with an error or a defect, its sibling fibers (including the body of the scope) are interrupted, and the cause propagates out of the scope. The fails of a child joins the fails of the scope through the E of `Scope[E, R]`. When two or more children fail, the first failure becomes the result of the scope, and later failures are added to the display as notes (`note: another fiber also failed: <cause>`) (the same as a defect in a release in 14.4).
 - Inside a child, the handlers passed from the caller (8.3) are the ones in effect at the call to Fiber.scope. The exception is Scope, which refers to the scope the child belongs to (so that a child can fork siblings).
-- The E and R of a child MUST be included in the E and R of `Scope[E, R]` (inclusion: a requirement `Scope[E1, R1]` in R is satisfied by `Scope[E2, R2]` with E1 ⊆ E2 and R1 ⊆ R2). With equality, the type of a helper function that forks would be fixed to concrete sets, and they would conflict when another child adds a different error. So the effects that children use MUST be provided outside Fiber.scope. The exception is a requirement for Scope in a child's R, which is satisfied by the scope's own `Scope[E, R]`. In the types, `Scope[E, R]` is written out in the type of the function passed to fork (`use { Scope[E, R], R }`) and is not put in R. If it is not written out, the Scope inside the child goes into R and leaks out of the scope (this is so that a child can fork siblings. It imposes only that the E and R of the requirement are included in the E and R of the scope). In nested scopes too, a child's Scope is satisfied by the scope the child belongs to, not by an outer one. A with written inside the body of the scope is not passed to children.
+- The E and R of a child MUST be included in the E and R of `Scope[E, R]` (inclusion: a requirement `Scope[E1, R1]` in R is satisfied by `Scope[E2, R2]` with E1 ⊆ E2 and R1 ⊆ R2). With equality, the type of a helper function that forks would be fixed to concrete sets, and they would conflict when another child adds a different error. So the effects that children use MUST be provided outside Fiber.scope. The exception is a requirement for Scope in a child's R, which is satisfied by the scope's own `Scope[E, R]`. In the types, `Scope[E, R]` is written out in the type of the function passed to fork (`uses { Scope[E, R], R }`) and is not put in R. If it is not written out, the Scope inside the child goes into R and leaks out of the scope (this is so that a child can fork siblings. It imposes only that the E and R of the requirement are included in the E and R of the scope). In nested scopes too, a child's Scope is satisfied by the scope the child belongs to, not by an outer one. A with written inside the body of the scope is not passed to children.
 - For E0402 about a missing effect, if the expression it comes from is a call to Fiber.scope and the effect is not a top-level element of the R of the function type of the scope body, the effect is treated as coming from a forked child, and a note and help are added (suggesting to write the with outside Fiber.scope). They are not added for an effect the body uses itself. They are not added for one that comes from a Fiber.scope called inside a helper function, because the expression it comes from is then the call to the helper function.
 
 ```emel
@@ -81,7 +81,7 @@ Fiber.scope(|| {
 - fork is not a suspension point (the operations of Scope are fn). The child goes into the queue and starts running the next time the parent suspends. A child interrupted before it starts running ends with Interrupt without calling f.
 - The result of the scope is the first Fail or Die among the body and the children, or otherwise the way the body ended. If a child ends with a defect while the body is unwinding because of an interruption from outside, that defect becomes the result (the same direction as a defect in a release in 14.4).
 - The scope closes when a child fails (11.8). A fork or deferred during the unwinding caused by a sibling's failure is a defect and goes into the notes.
-- fork requires Async. Async is not put in the type of the fork operation. It is expressed by the Async that remains in the R of Fiber.scope (because the use clause of `Fiber.fork` has no Async).
+- fork requires Async. Async is not put in the type of the fork operation. It is expressed by the Async that remains in the R of Fiber.scope (because the uses clause of `Fiber.fork` has no Async).
 - There are no detached fibers that outlive their parent. Long-running work is forked in a scope directly under main.
 
 ## 11.3 Combinators `[fiber.combinators]`
@@ -90,14 +90,14 @@ The combinators are written in plain Emela on top of Fiber.scope as part of the 
 
 | Function | Type | Meaning |
 |---|---|---|
-| `all` | `all[A, E, R](fs: List[fn() -> A fails E use R]) -> List[A] fails E use { Async, R }` | Runs all of them concurrently and collects the results in the original order. If one fails, interrupts the rest and fails |
-| `race` | `race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async, R }` | Takes the first one to finish and interrupts the rest. If the first one to finish is an error, fails with that error |
-| `both` | `both[A, B, E, R](f: fn() -> A fails E use R, g: fn() -> B fails E use R) -> (A, B) fails E use { Async, R }` | Runs two functions of different types concurrently and returns a pair. If one fails, interrupts the other and fails |
-| `map` | `map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E use R) -> List[B] fails E use { Async, R }` | Applies f to each element concurrently and collects the results in the original order |
-| `timeout` | `timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A] fails E use { Clock, Async, R }` | Waits for f for up to ms milliseconds. Some if it finishes in time, otherwise interrupts f and returns None. To make it a failure, add `Option.or_fail` |
+| `all` | `all[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[A] fails E uses { Async, R }` | Runs all of them concurrently and collects the results in the original order. If one fails, interrupts the rest and fails |
+| `race` | `race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }` | Takes the first one to finish and interrupts the rest. If the first one to finish is an error, fails with that error |
+| `both` | `both[A, B, E, R](f: fn() -> A fails E uses { R }, g: fn() -> B fails E uses { R }) -> (A, B) fails E uses { Async, R }` | Runs two functions of different types concurrently and returns a pair. If one fails, interrupts the other and fails |
+| `map` | `map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E uses { R }) -> List[B] fails E uses { Async, R }` | Applies f to each element concurrently and collects the results in the original order |
+| `timeout` | `timeout[A, E, R](ms: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { Clock, Async, R }` | Waits for f for up to ms milliseconds. Some if it finishes in time, otherwise interrupts f and returns None. To make it a failure, add `Option.or_fail` |
 
 ```emel
-pub fn race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async, R } {
+pub fn race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R } {
   scope(|| {
     s = use Scope
     d = s.deferred()
@@ -128,7 +128,7 @@ users = Fiber.map(ids, |id| fetch(id))
 ```emel
 ## Interrupts the child and waits until its unwinding (including releases) finishes. Does nothing to a child that has already finished
 @intrinsic
-pub fn interrupt[A](fiber: Fiber[A]) -> () use Async
+pub fn interrupt[A](fiber: Fiber[A]) -> () uses { Async }
 ```
 
 ## 11.5 Causes of failure `[fiber.cause]`
@@ -159,9 +159,9 @@ There are four ways to receive a result.
 
 | Function | Type | Meaning |
 |---|---|---|
-| `join` | `join[A](fiber: Fiber[A]) -> A use Async` | Waits for the child to finish and returns its value |
-| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] use Async` | Waits for the child to finish and returns how it ended |
-| `attempt` | `attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R` | Runs f in place and turns Fail and Die into values |
+| `join` | `join[A](fiber: Fiber[A]) -> A uses { Async }` | Waits for the child to finish and returns its value |
+| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | Waits for the child to finish and returns how it ended |
+| `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | Runs f in place and turns Fail and Die into values |
 | `Cause.raise` | As above | Raises a received cause again |
 
 - Only the fiber that calls join or await waits. Other fibers keep running in the meantime. Nothing marks the caller (8.2).
@@ -206,7 +206,7 @@ d = (use Scope).deferred() # Deferred[A], belongs to the scope
 | Function (`Std.Deferred`) | Type | Meaning |
 |---|---|---|
 | `complete` | `complete[A](d: Deferred[A], value: A) -> Bool` | Stores the value only the first time and returns True. From the second time on, does nothing and returns False. Does not suspend |
-| `await` | `await[A](d: Deferred[A]) -> A use Async` | Waits until a value is stored |
+| `await` | `await[A](d: Deferred[A]) -> A uses { Async }` | Waits until a value is stored |
 | `poll` | `poll[A](d: Deferred[A]) -> Option[A]` | `Some(value)` if a value is stored, `None` if not yet. Does not wait. Does not suspend |
 
 - To tie its lifetime to the scope, a Deferred can be created only by the Scope operation `deferred`.
