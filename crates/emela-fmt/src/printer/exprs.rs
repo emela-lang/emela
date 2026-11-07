@@ -1,7 +1,7 @@
 //! Expressions (spec 17.5), types (spec 17.4) and patterns (spec 17.6).
 
 use emela_syntax::SyntaxKind::{self, *};
-use emela_syntax::{SyntaxElement, SyntaxNode, SyntaxToken};
+use emela_syntax::{SyntaxElement, SyntaxNode, SyntaxToken, rewrite};
 use pretty::RcDoc;
 
 use super::{
@@ -50,6 +50,13 @@ impl BlockDoc {
     }
 }
 
+/// The body of an anonymous function: a block, which an argument list may hug, or an
+/// expression.
+pub(crate) enum LambdaBody {
+    Block(BlockDoc),
+    Expr(Doc),
+}
+
 /// The parts of a match arm. Head and body are kept apart so that `->` can be aligned.
 #[derive(Clone)]
 struct ArmDoc {
@@ -82,6 +89,7 @@ fn op_class(kind: SyntaxKind) -> u8 {
 impl Printer {
     pub(crate) fn node(&mut self, node: &SyntaxNode) -> Doc {
         match node.kind() {
+            PAREN_EXPR if paren_or_chain(node).is_some() => self.paren_or_chain(node),
             PATH | PATH_TYPE | TYPE_VAR | SELF_TYPE | NAME_REF | PATH_EXPR | UNDERSCORE_EXPR
             | PAREN_EXPR | FIELD_EXPR | PREFIX_EXPR | REST_EXPR | LITERAL | PAREN_TYPE
             | SPREAD_ARG | WILDCARD_PAT | IDENT_PAT | CONST_PAT | LITERAL_PAT | VARIANT_PAT
@@ -122,10 +130,7 @@ impl Printer {
             MATCH_EXPR | ESCAPE_EXPR => self.arms_expr(node),
             MATCH_ARM_LIST => self.arm_list(node),
             WITH_EXPR => self.with_expr(node),
-            LAMBDA_EXPR => {
-                let (head, block) = self.lambda_parts(node);
-                head.append(block.assemble(false).group())
-            }
+            LAMBDA_EXPR => self.lambda(node),
             _ => self.verbatim(node),
         }
     }
@@ -454,29 +459,129 @@ impl Printer {
         out
     }
 
-    fn lambda_parts(&mut self, node: &SyntaxNode) -> (Doc, BlockDoc) {
+    /// An anonymous function (`[fmt.closure]`), in parentheses where it is an operand.
+    fn lambda(&mut self, node: &SyntaxNode) -> Doc {
+        let parens = rewrite::needs_parens(node);
+        // A trailing comment at the end of the function goes after the closing parenthesis.
+        let held = match node.last_token().filter(|_| parens) {
+            Some(last) => self.hold_trailing(&last),
+            None => Vec::new(),
+        };
+        let (head, body) = self.lambda_parts(node);
+        let doc = match body {
+            LambdaBody::Block(block) => head.append(block.assemble(false).group()),
+            LambdaBody::Expr(expr) => head.append(expr),
+        };
+        if parens {
+            let close = self.print_trailing(held);
+            text("(").append(doc).append(")").append(close)
+        } else {
+            doc
+        }
+    }
+
+    /// `(a || b)`, laid out as the parentheses the formatter adds around a chain of `||`.
+    fn paren_or_chain(&mut self, node: &SyntaxNode) -> Doc {
+        let chain = paren_or_chain(node).expect("checked by the caller");
+        let open = child_token(node, L_PAREN).map_or_else(RcDoc::nil, |t| self.tok(&t));
+        let chain = self.node(&chain);
+        // After a trailing comment, `)` already starts a line of its own.
+        let close_breaks = self.pending;
+        let close = child_token(node, R_PAREN).map_or_else(RcDoc::nil, |t| self.tok(&t));
+        or_chain_in_parens(open, chain, close, close_breaks, 1, self.width())
+    }
+
+    /// The parameter list and the space after it, and the body. The old form `fn(x) { ... }`
+    /// (E0148) is printed in the new form. A body block written on one line with one expression
+    /// loses its braces; any other block keeps them.
+    fn lambda_parts(&mut self, node: &SyntaxNode) -> (Doc, LambdaBody) {
         let mut head = RcDoc::nil();
-        let mut block = None;
+        let mut body = None;
         for child in significant_children(node) {
             match child {
-                rowan::NodeOrToken::Token(t) => head = head.append(self.tok(&t)),
-                rowan::NodeOrToken::Node(n) if n.kind() == BLOCK_EXPR => {
-                    head = head.append(self.space());
-                    block = Some(self.block(&n));
+                // The `fn` of the old form.
+                rowan::NodeOrToken::Token(t) => head = head.append(self.tok_as(&t, RcDoc::nil())),
+                rowan::NodeOrToken::Node(n) if n.kind() == PARAM_LIST => {
+                    head = head.append(self.closure_params(&n));
                 }
-                rowan::NodeOrToken::Node(n) => head = head.append(self.node(&n)),
+                rowan::NodeOrToken::Node(n) => {
+                    head = head.append(self.space());
+                    let stripped = strip_one_line_blocks(n.clone());
+                    body = Some(if stripped.kind() == BLOCK_EXPR {
+                        LambdaBody::Block(self.block(&stripped))
+                    } else {
+                        // The braces removed: a comment before `{` is printed before the
+                        // expression, and one after `}` after it.
+                        let removed: Vec<SyntaxNode> = stripped
+                            .ancestors()
+                            .skip(1)
+                            .take_while(|a| a != node)
+                            .collect();
+                        let mut doc = RcDoc::nil();
+                        for block in removed.iter().rev() {
+                            if let Some(open) = child_token(block, L_BRACE) {
+                                doc = doc.append(self.tok_as(&open, RcDoc::nil()));
+                            }
+                        }
+                        doc = doc.append(self.node(&stripped));
+                        for block in &removed {
+                            if let Some(close) = child_token(block, R_BRACE) {
+                                doc = doc.append(self.tok_as(&close, RcDoc::nil()));
+                            }
+                        }
+                        LambdaBody::Expr(doc)
+                    });
+                }
             }
         }
-        let block = block.unwrap_or(BlockDoc {
-            open: RcDoc::nil(),
-            first_break: RcDoc::nil(),
-            body: RcDoc::nil(),
-            last_break: RcDoc::nil(),
-            close: RcDoc::nil(),
-            empty: true,
-            comment_only: false,
-        });
-        (head, block)
+        let body = body.unwrap_or(LambdaBody::Expr(RcDoc::nil()));
+        (head, body)
+    }
+
+    /// `|a, b|` or `||`, on one line: outside brackets a newline would end the statement. The
+    /// brackets of the old form become `|`. A type with `|` outside brackets (only possible in
+    /// the old form) is parenthesized, since there `|` closes the list.
+    fn closure_params(&mut self, node: &SyntaxNode) -> Doc {
+        let children: Vec<SyntaxElement> = significant_children(node).collect();
+        let empty = !children.iter().any(|c| c.kind() == PARAM);
+        let last_param = children.iter().rposition(|c| c.kind() == PARAM);
+        let last = children.len().saturating_sub(1);
+        let mut out = RcDoc::nil();
+        for (i, child) in children.iter().enumerate() {
+            match child {
+                rowan::NodeOrToken::Token(t) => {
+                    let closing = i == last && i > 0 && matches!(t.kind(), R_PAREN | PIPE);
+                    let doc = match t.kind() {
+                        COMMA if last_param.is_some_and(|p| i > p) => RcDoc::nil(),
+                        COMMA => text(", "),
+                        _ if closing && empty => RcDoc::nil(),
+                        _ if closing => text("|"),
+                        _ if empty => text("||"),
+                        _ => text("|"),
+                    };
+                    out = out.append(self.tok_as(t, doc));
+                }
+                rowan::NodeOrToken::Node(n) => out = out.append(self.closure_param(n)),
+            }
+        }
+        out
+    }
+
+    fn closure_param(&mut self, node: &SyntaxNode) -> Doc {
+        let mut out = RcDoc::nil();
+        for child in significant_children(node) {
+            match child {
+                rowan::NodeOrToken::Token(t) if t.kind() == COLON => {
+                    out = out.append(self.tok(&t)).append(" ");
+                }
+                rowan::NodeOrToken::Token(t) => out = out.append(self.tok(&t)),
+                rowan::NodeOrToken::Node(n) if pipe_outside_brackets(&n) => {
+                    out = out.append("(").append(self.node(&n)).append(")");
+                }
+                rowan::NodeOrToken::Node(n) => out = out.append(self.node(&n)),
+            }
+        }
+        out
     }
 
     fn call(&mut self, node: &SyntaxNode) -> Doc {
@@ -493,7 +598,7 @@ impl Printer {
     }
 
     /// If the last argument is a lambda with a block, tries the hugging form that keeps the
-    /// parenthesis open around its body (`f(xs, fn(x) {` ... `})`).
+    /// parenthesis open around its body (`f(xs, |x| {` ... `})`).
     fn arg_list(&mut self, node: &SyntaxNode) -> Doc {
         let args: Vec<_> = node.children().collect();
         let huggable = !has_comments_outside_blocks(node) && args.last().is_some_and(is_lambda_arg);
@@ -547,12 +652,19 @@ impl Printer {
                 }
             }
         }
-        let (head, block) = self.lambda_parts(&lambda);
+        let (head, body) = self.lambda_parts(&lambda);
         let head = prefix.append(head);
-        (
-            head.clone().append(block.assemble(false).group()),
-            head.append(block.assemble(true)),
-        )
+        match body {
+            LambdaBody::Block(block) => (
+                head.clone().append(block.assemble(false).group()),
+                head.append(block.assemble(true)),
+            ),
+            // `is_lambda_arg` admits only a body printed as a block.
+            LambdaBody::Expr(expr) => {
+                let doc = head.append(expr);
+                (doc.clone(), doc)
+            }
+        }
     }
 
     /// String interpolation. The contents never break by width; only forced newlines from
@@ -594,6 +706,10 @@ impl Printer {
     /// Never break before `-`: a `-` at the start of a line is a unary minus that starts a new
     /// statement (spec 2.5). A pipe chain breaks entirely if the source had a newline before
     /// any of its `|>`.
+    ///
+    /// A `||` at the start of a line starts an anonymous function (`[lex.continuation]`), so a
+    /// chain of `||` that breaks outside brackets is put in parentheses and broken inside them
+    /// (`[fmt.wrap]`).
     fn bin_chain(&mut self, node: &SyntaxNode) -> Doc {
         let class = bin_op(node).map_or(0, |t| op_class(t.kind()));
         // Left-associative, so collect the chain by following left children.
@@ -638,7 +754,10 @@ impl Printer {
             ops.push(link);
         }
         let normal = first_doc.clone().append(tail.nest(INDENT)).group();
-        // When a single pipe breaks only inside a hugged body (`xs |> List.map(fn(x) {`), do
+        if class == op_class(PIPE2) && !inside_brackets(node) {
+            return or_chain_in_parens(text("("), normal, text(")"), false, 0, self.width());
+        }
+        // When a single pipe breaks only inside a hugged body (`xs |> List.map(|x| {`), do
         // not break the pipe if the first line fits.
         if pipe
             && !source_broken
@@ -660,6 +779,60 @@ impl Printer {
         }
         normal
     }
+}
+
+/// A chain of `||` that breaks before a `||` is written with `open` and `close` on lines of
+/// their own around it (`[fmt.wrap]`); with `close_breaks`, `close` already starts a line (after
+/// a trailing comment). Otherwise the chain is printed as is: alone for a chain outside brackets
+/// (`shift` 0: `open` and `close` are the parentheses the formatter adds), or in its parentheses,
+/// `shift` being the width of `(`.
+fn or_chain_in_parens(
+    open: Doc,
+    chain: Doc,
+    close: Doc,
+    close_breaks: bool,
+    shift: usize,
+    width: usize,
+) -> Doc {
+    let inline = if shift == 0 {
+        chain.clone()
+    } else {
+        open.clone().append(chain.clone()).append(close.clone())
+    };
+    let close_line = if close_breaks {
+        close
+    } else {
+        RcDoc::hardline().append(close)
+    };
+    let broken = open
+        .append(RcDoc::hardline().append(chain.clone()).nest(INDENT))
+        .append(close_line);
+    RcDoc::column(move |col| {
+        let (chain, inline, broken) = (chain.clone(), inline.clone(), broken.clone());
+        RcDoc::nesting(move |indent| {
+            let probe = text(&" ".repeat(col + shift))
+                .append(chain.clone())
+                .nest(indent as isize);
+            let broke = render(&probe, width)
+                .lines()
+                .skip(1)
+                .any(|l| l.trim_start().starts_with("||"));
+            if broke {
+                broken.clone()
+            } else {
+                inline.clone()
+            }
+        })
+    })
+}
+
+/// The chain of `||` that is the only thing in a PAREN_EXPR.
+fn paren_or_chain(node: &SyntaxNode) -> Option<SyntaxNode> {
+    let mut inner = node.children();
+    let (Some(only), None) = (inner.next(), inner.next()) else {
+        return None;
+    };
+    (only.kind() == BIN_EXPR && bin_op(&only).is_some_and(|t| t.kind() == PIPE2)).then_some(only)
 }
 
 /// Arms with `->` aligned. `indent` is the arms' indentation.
@@ -749,12 +922,55 @@ fn is_pipe(node: &SyntaxNode) -> bool {
     node.kind() == BIN_EXPR && bin_op(node).is_some_and(|t| t.kind() == PIPE_GT)
 }
 
-/// A lambda with a block, or a named argument whose value is one.
+/// A lambda whose body is printed as a block, or a named argument whose value is one.
 fn is_lambda_arg(node: &SyntaxNode) -> bool {
     let lambda = match node.kind() {
         LAMBDA_EXPR => Some(node.clone()),
         NAMED_ARG => node.children().find(|n| n.kind() == LAMBDA_EXPR),
         _ => None,
     };
-    lambda.is_some_and(|l| l.children().any(|n| n.kind() == BLOCK_EXPR))
+    lambda.is_some_and(|l| {
+        l.children()
+            .find(|n| n.kind() != PARAM_LIST)
+            .is_some_and(|body| strip_one_line_blocks(body).kind() == BLOCK_EXPR)
+    })
+}
+
+/// The body of an anonymous function as printed: a block written on one line with one
+/// expression is replaced by that expression, repeatedly (`|x| { { x } }` is `|x| x`), so that
+/// formatting twice gives the same result.
+pub(crate) fn strip_one_line_blocks(mut body: SyntaxNode) -> SyntaxNode {
+    while body.kind() == BLOCK_EXPR
+        && let Some(expr) = rewrite::single_line_expression(&body)
+    {
+        body = expr;
+    }
+    body
+}
+
+/// Whether a `|` of the type is outside any bracket inside it.
+fn pipe_outside_brackets(ty: &SyntaxNode) -> bool {
+    let mut depth = 0i32;
+    for token in ty.descendants_with_tokens().filter_map(|e| e.into_token()) {
+        match token.kind() {
+            L_PAREN | L_BRACK | L_BRACE => depth += 1,
+            R_PAREN | R_BRACK | R_BRACE => depth -= 1,
+            PIPE if depth == 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Whether a line break here continues the line by rule 2 of `[lex.continuation]`: the
+/// innermost bracket around the node is `(`, `[` or an interpolation, not a block or arm list.
+fn inside_brackets(node: &SyntaxNode) -> bool {
+    for ancestor in node.ancestors().skip(1) {
+        match ancestor.kind() {
+            ARG_LIST | PAREN_EXPR | TUPLE_EXPR | LIST_EXPR | INTERP => return true,
+            BLOCK_EXPR | MATCH_ARM_LIST | ROOT => return false,
+            _ => {}
+        }
+    }
+    false
 }

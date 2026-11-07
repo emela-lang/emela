@@ -650,7 +650,7 @@ fn fails() {
         ),
         (
             "app/src/util.emel",
-            "@test\nfn in_util() {\n  assert List.map([1], fn(x) { x + 1 }) == [2]\n}\n",
+            "@test\nfn in_util() {\n  assert List.map([1], |x| x + 1) == [2]\n}\n",
         ),
     ];
     let (analysis, report, out) = run_tests(
@@ -807,7 +807,7 @@ handler DownStore: Store {
 
 fn total(keys: List[String]) -> Int fails Down {
   store = use Store
-  List.fold(keys, 0, fn(acc, k) { acc + store.get(k) })
+  List.fold(keys, 0, |acc, k| acc + store.get(k))
 }
 
 @test
@@ -1095,24 +1095,24 @@ fn wait_twice() -> Duration use { Clock } {
 
 @test
 fn greets() {
-  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+  (_, lines) = State.run([], || with TestConsole { greet(1) })
   assert lines == ["Hello, 1!"]
 }
 
 @test
 fn clock_moves() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (d, end) = State.run(start, fn() { with TestClock { wait_twice() } })
+  (d, end) = State.run(start, || with TestClock { wait_twice() })
   assert Duration.to_milliseconds(d) == Int64.from_int(1000)
   assert Instant.to_unix_milliseconds(end) == Int64.from_int(1000)
 }
 
 @test
 fn two_states() {
-  ((_, s), n) = State.run(1, fn() {
-    State.run("a", fn() {
-      (use State[Int]).update(fn(n) { n + 41 })
-      (use State[String]).update(fn(s) { String.append(s, "b") })
+  ((_, s), n) = State.run(1, || {
+    State.run("a", || {
+      (use State[Int]).update(|n| n + 41)
+      (use State[String]).update(|s| String.append(s, "b"))
     })
   })
   assert n == 42
@@ -1121,7 +1121,7 @@ fn two_states() {
 
 @test
 fn failure_drops_the_state() {
-  State.run(0, fn() {
+  State.run(0, || {
     (use State[Int]).set(1)
     fail Boom
   })
@@ -1477,7 +1477,7 @@ fn stalls() -> () use { Async } {
 
 @test
 fn catches() -> () use { Async } {
-  Exit.attempt(fn() { panic("caught") }) match {
+  Exit.attempt(|| panic("caught")) match {
     Success(_) -> assert False
     Failure(c) -> assert Cause.to_string(c) == "defect: caught"
   }

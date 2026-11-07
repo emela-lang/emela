@@ -28,7 +28,7 @@ fn squares(a: Array[Int], i: Int) -> Array[Int] {
 
 ## The closure and the tuple still refer to `a`, so `set` must not change it.
 fn shared(a: Array[Int]) -> (Array[Int], Int, (Array[Int], Int)) {
-  f = fn() { Array.get(a, 0) |> Option.or(-1) }
+  f = || Array.get(a, 0) |> Option.or(-1)
   t = (a, 1)
   b = Array.set(a, 0, 99)
   (b, f(), t)
@@ -90,15 +90,15 @@ fn main() {
   dbg(Array.reverse(no_ints()))
 
   # map applies `f` from the first element
-  dbg(Array.map(PRIMES, fn(x) { dbg(x) * 10 }))
-  dbg(Array.fold(PRIMES, 0, fn(acc, x) { acc * 2 + x }))
-  dbg(Array.fold(PRIMES, "", fn(acc, x) { "#{acc}#{x}," }))
-  dbg(Array.find_index(PRIMES, fn(x) { x > 4 }))
-  dbg(Array.find_index(PRIMES, fn(x) { x > 40 }))
+  dbg(Array.map(PRIMES, |x| dbg(x) * 10))
+  dbg(Array.fold(PRIMES, 0, |acc, x| acc * 2 + x))
+  dbg(Array.fold(PRIMES, "", |acc, x| "#{acc}#{x},"))
+  dbg(Array.find_index(PRIMES, |x| x > 4))
+  dbg(Array.find_index(PRIMES, |x| x > 40))
 
   # sorting is stable
   pairs = Array.from_list([(2, "a"), (1, "b"), (2, "c"), (1, "d"), (0, "e")])
-  dbg(Array.sort_by(pairs, fn(x, y) { key(x).compare(key(y)) }))
+  dbg(Array.sort_by(pairs, |x, y| key(x).compare(key(y))))
   dbg(Array.sort(Array.from_list(["pear", "apple", "fig", "apple"])))
   dbg(Array.sort(no_ints()))
 
@@ -141,11 +141,11 @@ fn main() {
   dbg(Array.set(nested, 1, Array.from_list([2, 3])))
   dbg([Array.from_list([1])])
   dbg(Some(Array.from_list(["s"])))
-  fs = Array.from_list([fn(x: Int) { x + 1 }, fn(x: Int) { x * 2 }])
-  dbg(Array.fold(fs, 5, fn(acc, f) { f(acc) }))
+  fs = Array.from_list([|x: Int| x + 1, |x: Int| x * 2])
+  dbg(Array.fold(fs, 5, |acc, f| f(acc)))
   # an array of a type without Show is shown in the same form by `dbg`
   dbg(fs)
-  dbg((fs, [Array.from_list([Some(fn() { 1 })])]))
+  dbg((fs, [Array.from_list([Some(|| 1)])]))
 
   # in a record with derived Eq and Show
   grid = Grid(width: 2, cells: Array.repeat(".", 4))

@@ -135,8 +135,8 @@ fn 複数行の文字列の中身は変えない() {
 fn 中身のないブロックの行末のコメントの後に空行を入れない() {
     assert_eq!(format("fn a() { # c\n}\n").unwrap(), "fn a() { # c\n}\n");
     assert_eq!(
-        format("fn a() {\n  f(fn(y) { # d\n  })\n}\n").unwrap(),
-        "fn a() {\n  f(fn(y) { # d\n  })\n}\n"
+        format("fn a() {\n  f(|y| { # d\n  })\n}\n").unwrap(),
+        "fn a() {\n  f(|y| { # d\n  })\n}\n"
     );
     assert_eq!(
         format("fn a() {\n  x match { # e\n  }\n}\n").unwrap(),
@@ -187,8 +187,8 @@ fn 長い宣言は_fails_と_use_から折る() {
 
 #[test]
 fn 補間の中は幅で折らない() {
-    let src = "fn a() {\n  s = \"#{ f(fn(x) {\n    x\n  }) }\"\n}\n";
-    let expected = "fn a() {\n  s = \"#{f(fn(x) {\n    x\n  })}\"\n}\n";
+    let src = "fn a() {\n  s = \"#{ f(|x| {\n    x\n  }) }\"\n}\n";
+    let expected = "fn a() {\n  s = \"#{f(|x| {\n    x\n  })}\"\n}\n";
     for width in [100, 10] {
         assert_eq!(
             format_with_width(src, width).unwrap(),

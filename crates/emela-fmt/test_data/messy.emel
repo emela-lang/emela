@@ -7,7 +7,7 @@
    _->"other"
         }
 }
-fn squeezed(xs:List[Int])->List[Int]{xs|>List.map(fn(x){x*2})|>List.filter(fn(x){x>2})}
+fn squeezed(xs:List[Int])->List[Int]{xs|>List.map(|x| x*2)|>List.filter(|x| x>2)}
 fn   tight(a:Int,b:Int)->Bool{!(a==b)&&-a<b||a>=-b}
 
 

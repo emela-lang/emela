@@ -163,7 +163,7 @@ fn type_errors() {
     let mut sources = SourceDb::new();
     let file = sources.add(
         "src/main.emel",
-        "let a: Int = \"s\"\nlet b = [1] == [\"s\"]\nlet f = fn(x) { x(x) }\n",
+        "let a: Int = \"s\"\nlet b = [1] == [\"s\"]\nlet f = |x| x(x)\n",
     );
     let span = |start: u32, end: u32| Span::new(file, TextRange::new(start.into(), end.into()));
     let cons = TyCons::new();
@@ -183,7 +183,7 @@ fn type_errors() {
     let diagnostics = vec![
         Diagnostic::from_type_error(&top, &cons, span(13, 16)),
         Diagnostic::from_type_error(&nested, &cons, span(25, 36)),
-        Diagnostic::from_type_error(&infinite, &cons, span(56, 60)),
+        Diagnostic::from_type_error(&infinite, &cons, span(50, 54)),
     ];
     insta::assert_snapshot!(render(&diagnostics, &sources, false));
 }
@@ -430,7 +430,7 @@ fn bundled_core_resolves_cleanly() {
     let analysis = check_files(
         &[(
             "home/main.emel",
-            "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x + 1 })\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
+            "fn main() -> Int {\n  xs = List.map([1, 2], |x| x + 1)\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
         )],
         "home/main.emel",
         &mut frontend,
@@ -444,7 +444,7 @@ fn bundled_core_typechecks_cleanly() {
     let analysis = check_files(
         &[(
             "home/main.emel",
-            "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x + 1 })\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
+            "fn main() -> Int {\n  xs = List.map([1, 2], |x| x + 1)\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
         )],
         "home/main.emel",
         &mut frontend,
@@ -568,7 +568,7 @@ fn only(f: fn() -> () use {}) -> () use {} {
 
 fn misuse() {
   log = use Logger
-  only(fn() { log.info("x") })
+  only(|| log.info("x"))
   console_log("x")
   xs = [log]
   Some(log)
@@ -613,7 +613,7 @@ suspend fn fetch_text(url: String) -> String
 
 handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
-    set_timeout(ms, fn() { resume(()) })
+    set_timeout(ms, || resume(()))
   }
   suspend fn now(resume) { resume(0) }
 }
@@ -650,7 +650,7 @@ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d:
 fn misuse(g: fn(Int) -> Int) {
   use Async
   fetch_text("x")
-  update(1, fn(n) {
+  update(1, |n| {
     (use Clock).sleep(n)
     n
   })
@@ -1436,7 +1436,7 @@ fn no_fields(n: Int) -> Int {
 }
 
 fn unknown() -> Int {
-  f = fn(x) { x.area() }
+  f = |x| x.area()
   0
 }
 
@@ -1628,4 +1628,48 @@ pub fn deep(a: Array[Array[Option[Int]]]) -> Int { 0 }
 fn main() {}
 "#,
     )]));
+}
+
+/// The old form of an anonymous function (E0148) shows its rewrite; an anonymous function before
+/// the last statement of a block is E0149; a line that starts with `||` gets a help on E0149 and
+/// on E0301 (`[fn.decl]`, `[fn.block]`, `[diag.list]`).
+#[test]
+fn closure_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"fn old(xs: List[Int]) -> List[Int] {
+  ys = List.map(xs, fn(x) { x + 1 })
+  List.map(ys, fn(y) {
+    z = y * 2
+    z
+  })
+}
+
+fn unused() -> Int {
+  |x| x
+  1
+}
+
+fn continued(a: Bool, b: Bool) -> Bool {
+  x = a
+  || b
+  x
+}
+
+fn last(a: Bool, b: Bool) -> Bool {
+  x = a
+  || b
+}
+
+fn main() -> Int {
+  0
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }

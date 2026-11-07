@@ -106,7 +106,47 @@ fn add(x: Int, y: Int) -> Int {
 fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { List.map(xs, f) }
 
 fn inc() -> fn(Int) -> Int {
-  fn(x) { x + 1 }
+  |x| x + 1
+}
+"#
+    ));
+}
+
+/// 6.1 Anonymous functions (`[fn.decl]`): parameters between `|`, `||` without parameters,
+/// patterns as parameters, a body that takes everything to its right, a call in parentheses, and a
+/// parameter type whose error set is parenthesized. 6.3: a binding of an anonymous function.
+/// 2.5: a line that starts with `||` is an anonymous function.
+#[test]
+fn spec_6_1_anonymous_functions() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+error Timeout
+error Refused
+type Request(url: String, method: String)  # 補
+
+fn fetch(n: Int) -> Int { n }  # 補
+
+fn closures(xs: List[Int], pairs: List[(String, Int)], reqs: List[Request]) -> Int {
+  ys = xs |> List.map(|x| x + 1)
+  total = List.fold(ys, 0, |acc, x| acc + x)
+  thunk = || fetch(1)
+  keys = List.map(pairs, |(key, _)| key)
+  first = |acc, _| acc
+  urls = List.map(reqs, |Request(url:, ..)| url)
+  sum = |(a, b): (Int, Int)| a + b
+  run = |f: (fn() -> Int fails Timeout | Refused)| f()
+  f = |x| x + 1
+  n = (|x| x + 1)(2)
+  m = List.map(ys, |x| x match {
+    0 -> 1
+    _ -> x
+  })
+  total + thunk() + sum((1, 2)) + f(n) + first(1, "a")
+}
+
+fn make(n: Int) -> fn() -> Int {
+  m = n * 2
+  || m
 }
 "#
     ));
@@ -214,11 +254,11 @@ fn spec_9_2_compose() {
     insta::assert_snapshot!(render_bodies(
         r##"
 fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
-  fn(x) { g(f(x)) }
+  |x| g(f(x))
 }
 
 fn use_it() -> String {
-  h = compose(fn(n: Int) { n + 1 }, fn(n) { "#{n}" })
+  h = compose(|n: Int| n + 1, |n| "#{n}")
   h(1)
 }
 "##
@@ -242,7 +282,7 @@ fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E use R {  # �
 }
 
 fn not_found() -> Handler[NotFound, Never] {  # 補．効果の集合の位置に型を書くと E0323
-  Handler(run: fn(req) { fail NotFound })
+  Handler(run: |req| fail NotFound)
 }
 "#
     ));
@@ -302,7 +342,7 @@ fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
 }
 
 fn find(users: List[User], id: Int) {  # 補
-  user = List.find(users, fn(u) { u.id == id }) |> or_fail(NotFound(id:))
+  user = List.find(users, |u| u.id == id) |> or_fail(NotFound(id:))
   user
 }
 
@@ -392,7 +432,7 @@ fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
 }
 
 fn callers(path: String) -> Config {  # 補
-  or_else(fn() { load_config(path) }, default_config())
+  or_else(|| load_config(path), default_config())
 }
 "#
     ));
@@ -452,11 +492,11 @@ fn load(id: Int) -> User fails NotFound | DbError {
 fn retry[A, E](f: fn() -> A fails Timeout | E) -> A fails Timeout | E { f() }
 
 fn only_db() {  # 補
-  retry(fn() { if True { fail Timeout } else { fail DbError } })
+  retry(|| if True { fail Timeout } else { fail DbError })
 }
 
 fn no_timeout() {  # 補．Timeout を起こさない関数を渡してもよい
-  retry(fn() { fail DbError })
+  retry(|| fail DbError)
 }
 "#
     ));
@@ -590,10 +630,10 @@ fn basics() -> Option[Int] {
   part = Array.slice(a, 1, 9)
   text = inspect(a)
   joined = Array.concat([a, Array.empty(), Array.append(a, b)])
-  names = Array.map(a, fn(x) { "#{x}" })
-  total = Array.fold(a, 0, fn(acc, x) { acc + x })
-  at = Array.find_index(names, fn(x) { x == "10" })
-  by = Array.sort_by(Array.reverse(a), fn(x, y) { Ord.compare(y, x) })
+  names = Array.map(a, |x| "#{x}")
+  total = Array.fold(a, 0, |acc, x| acc + x)
+  at = Array.find_index(names, |x| x == "10")
+  by = Array.sort_by(Array.reverse(a), |x, y| Ord.compare(y, x))
   low = Array.lower_bound(sorted, 15)
   same = a == b && a < b && Array.is_empty(Array.repeat("x", 0))
   Array.binary_search(sorted, 20)
@@ -848,7 +888,7 @@ fn main() {  # 補
     primary = use Db
     with ReplicaDb {
       replica = use Db
-      copy(fn() { replica.query("...") }, fn(rows) { primary.execute(rows) })
+      copy(|| replica.query("..."), |rows| primary.execute(rows))
     }
   }
 }
@@ -920,12 +960,12 @@ fn run[R](f: fn() -> () use { Logger, R }) -> () use R {
 }
 
 fn callers() {  # 補
-  a = run(fn() {
+  a = run(|| {
     (use Logger).info("x")
     (use Clock).now()
     ()
   })
-  b = run_hidden(fn() { (use Logger).info("y") })
+  b = run_hidden(|| (use Logger).info("y"))
 }
 "#
     ));
@@ -953,7 +993,7 @@ fn date_now() -> Instant
 
 handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
-    set_timeout(ms, fn() { resume(()) })
+    set_timeout(ms, || resume(()))
   }
   fn now() { date_now() }
 }
@@ -994,7 +1034,7 @@ fn update[A, R: Immediate](
 @external(wasm, "wasi:http/client", "fetch")
 suspend fn fetch_text(url: String) -> String
 
-fn bump(r: Ref[Int]) { update(r, fn(n) { n + 1 }) }  # 補
+fn bump(r: Ref[Int]) { update(r, |n| n + 1) }  # 補
 "#
     ));
 }
@@ -1013,9 +1053,9 @@ fn run_pure(f: fn() -> Int use {}) -> Int { f() }  # 補
 fn run_any(f: fn() -> Int) -> Int { f() }  # 補
 
 fn callers() {  # 補
-  a = run_any(fn() { (use Logger).info("a")
+  a = run_any(|| { (use Logger).info("a")
   1 })
-  b = run_pure(fn() { (use Logger).info("b")
+  b = run_pure(|| { (use Logger).info("b")
   1 })
   (a, b)
 }
@@ -1094,9 +1134,9 @@ fn run(f: fn() -> Int fails {}) -> Int { f() }
 
 fn flaky() -> Int fails Timeout { fail Timeout }  # 補
 
-fn ok() -> Int { run(fn() { 1 }) }
+fn ok() -> Int { run(|| 1) }
 fn bad() -> Int { run(flaky) }
-fn bad_lambda() -> Int { run(fn() { fail Timeout }) }
+fn bad_lambda() -> Int { run(|| fail Timeout) }
 "#
     ));
 }

@@ -95,7 +95,7 @@ import Std.Cause.{Cause}
 "#,
             r#"
 fn main() {
-  Exit.attempt(fn() { fail Evil }) match {
+  Exit.attempt(|| fail Evil) match {
     Success(_) -> dbg("success")
     Failure(c) -> dbg(Cause.to_string(c))
   }

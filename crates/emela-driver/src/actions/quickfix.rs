@@ -47,6 +47,9 @@ pub(super) fn quickfixes(
             Some(c) if c == DiagnosticCode::OldHandlerHead.as_str() => {
                 old_handler_head(tree.syntax(), span.range)
             }
+            Some(c) if c == DiagnosticCode::OldLambda.as_str() => {
+                old_lambda(tree.syntax(), span.range)
+            }
             _ => None,
         };
         if let Some((title, edits)) = edits {
@@ -100,6 +103,16 @@ fn old_handler_head(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
         .filter(|n| n.kind() == SyntaxKind::HANDLER_DECL)
         .find_map(|n| rewrite::old_handler_head(&n).filter(|(t, _, _)| t.text_range() == range))?;
     Some((format!("Rewrite as `{head}`"), vec![(edit, ":".to_owned())]))
+}
+
+/// `fn(x) { x + 1 }` -> `|x| x + 1` (E0148, `[fn.decl]`). The diagnostic covers `fn` and the
+/// parameter list; the edit replaces the whole function.
+fn old_lambda(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
+    let (edit, text, head) = root
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::LAMBDA_EXPR && n.text_range().start() == range.start())
+        .find_map(|n| rewrite::old_lambda(&n))?;
+    Some((format!("Rewrite as `{head} ...`"), vec![(edit, text)]))
 }
 
 fn nearby_name(

@@ -1,0 +1,38 @@
+# 無名関数の整形（[fmt.closure]）
+fn closures(xs: List[Int]) {
+  ys = xs |> List.map(|x|   x + 1)
+  total = List.fold(xs, 0, | acc ,  x |acc + x)
+  t = Fiber.fork(||   fetch(1))
+  nested = |x|   |y|  x
+  braced = |x| { x + 1 }
+  twice = |x| { { x } }
+  kept = |x| {
+    x + 1
+  }
+  bound = |x| { y = x }
+  either = a || || b
+  negated = !(|| b)
+  called = (|x| x + 1)(2)
+  hugged = Fiber.scope(|| {
+    a = Fiber.fork(|| fetch(1))
+    Fiber.join(a)
+  })
+  vs = List.map(results, |r| r match {
+    Ok(v) -> v
+    Err(_) -> 0
+  })
+}
+
+# || の連なりは括弧の外では行頭で折らない（[fmt.wrap]）
+fn unreserved(byte: Int) -> Bool {
+  ok = byte >= 0x41 && byte <= 0x5A || byte >= 0x61 && byte <= 0x7A || byte >= 0x30 && byte <= 0x39 || byte == 0x2D
+  (
+    (byte >= 0x41 && byte <= 0x5A)
+      || (byte >= 0x61 && byte <= 0x7A)
+      || (byte >= 0x30 && byte <= 0x39)
+  )
+}
+
+fn inside(byte: Int) -> Bool {
+  f(byte >= 0x41 && byte <= 0x5A || byte >= 0x61 && byte <= 0x7A || byte >= 0x30 && byte <= 0x39 || byte == 0x2D)
+}

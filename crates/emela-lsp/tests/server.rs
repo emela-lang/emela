@@ -853,7 +853,7 @@ fn formatting_replaces_the_whole_document() {
 /// Hover shows the type and E (spec 9.3).
 #[test]
 fn hover_shows_types_and_errors() {
-    let src = "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  n = find(1)\n  List.map([n], fn(x) { x })\n}\n";
+    let src = "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  n = find(1)\n  List.map([n], |x| x)\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     assert_eq!(
@@ -996,7 +996,7 @@ fn hover_shows_effects() {
 /// `suspend`, and handler names show their dependencies.
 #[test]
 fn hover_shows_suspend_and_async() {
-    let src = "effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\nhandler JsClock: Clock {\n  suspend fn sleep(ms, resume) {\n    set_timeout(ms, fn() { resume(()) })\n  }\n}\n\nfn main() {\n  with JsClock { (use Clock).sleep(1) }\n}\n";
+    let src = "effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\nhandler JsClock: Clock {\n  suspend fn sleep(ms, resume) {\n    set_timeout(ms, || resume(()))\n  }\n}\n\nfn main() {\n  with JsClock { (use Clock).sleep(1) }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -1533,15 +1533,15 @@ fn definition_of_an_entry_adapter() {
 /// Definitions in the bundled core have no location to go to.
 #[test]
 fn definition_of_core_is_null() {
-    let src = "fn main() {\n  List.map([1], fn(x) { x })\n}\n";
+    let src = "fn main() {\n  List.map([1], |x| x)\n}\n";
     let files = [("/tmp/main.emel", src)];
     let mut client = Client::initialize(&files, None, Typecheck::default);
     assert_eq!(client.definition("/tmp/main.emel", 1, 3), None);
     assert_eq!(client.definition("/tmp/main.emel", 1, 8), None);
     // A local variable in a standalone file can be navigated.
     assert_eq!(
-        client.definition("/tmp/main.emel", 1, 24),
-        location("/tmp/main.emel", (1, 19), (1, 20))
+        client.definition("/tmp/main.emel", 1, 20),
+        location("/tmp/main.emel", (1, 17), (1, 18))
     );
     // null for frontends that do not resolve names.
     client.shutdown();
@@ -1867,7 +1867,7 @@ fn greet(s: String) {
 
 fn main() {
   xs = [1, 2, 3]
-  ys = xs |> List.map(fn(x) { x |> add(1) })
+  ys = xs |> List.map(|x| x |> add(1))
   n = xs |> List.fold(from: 0, f: add)
   m = 1 |> add(2) |> add(3)
   k = add(1, 2) |> add(3)
@@ -1898,7 +1898,7 @@ fn signature_help_on_the_right_of_a_pipe() {
         )
     );
     // Nested in a lambda on the right of another pipe.
-    assert_eq!(client.signature(MAIN, 18, 39), add_b);
+    assert_eq!(client.signature(MAIN, 18, 35), add_b);
     // The other parameters given by name.
     let f = "f: fn(B, A) -> B fails E(f) use R(f)";
     let fold = format!("fold(from: B, {f}) -> B fails E(f) use R(f)");
@@ -2006,7 +2006,7 @@ fn rename_across_files() {
 /// cannot be renamed.
 #[test]
 fn rename_keeps_punned_labels() {
-    let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  u match {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], fn(x) { x })\n}\n";
+    let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  u match {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], |x| x)\n}\n";
     let path = "/tmp/main.emel";
     let mut client = Client::initialize(&[(path, src)], None, Typecheck::default);
     let edit = |s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
@@ -2299,7 +2299,7 @@ fn greet() {
   log = use Logger
   log.info(\"hi\")
   n = find(1)
-  List.map([n], fn(x) { x })
+  List.map([n], |x| x)
 }
 
 fn main() {
@@ -2325,8 +2325,9 @@ fn main() {
             // The type of a binding (not shown for the capability `log`).
             hint(17, 3, ": Int", false),
             hint(17, 13, "fails NotFound", true),
-            // Lambda parameters. Calls with neither E nor R get no hint.
-            hint(18, 20, ": Int", false),
+            // Lambda parameters, after the name inside the bars (`|x: Int|`). Calls with neither
+            // E nor R get no hint.
+            hint(18, 18, ": Int", false),
             hint(21, 9, "-> List[Int] fails NotFound", true),
             // A call inside `with` shows R.
             hint(22, 22, "fails NotFound use Logger", true),
@@ -2353,7 +2354,7 @@ handler Loud: Logger {
 
 fn greet(names: List[String]) {
   log = use Logger
-  List.map(names, fn(n) { log.info(\"hi #{n}\") })
+  List.map(names, |n| log.info(\"hi #{n}\"))
   (use Logger).info(\"bye\")
 }
 
@@ -2403,7 +2404,7 @@ fn semantic_tokens_mark_capability_values() {
         [
             // The binding and its use in a closure.
             cap(13, 2, 3),
-            cap(14, 26, 3),
+            cap(14, 22, 3),
             // Nested `with`: both the outer and the inner value.
             cap(20, 4, 5),
             cap(22, 6, 5),
@@ -2847,6 +2848,23 @@ fn old_forms_have_rewriting_quickfixes() {
         let edits = &actions[0].edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
         assert_eq!(edits[0].new_text, expected);
     }
+    client.shutdown();
+}
+
+/// The old form of an anonymous function comes with a quick fix that rewrites it (E0148,
+/// `[fn.decl]`), and the inlay hint of a parameter type stays on the new form (`|x: Int|`).
+#[test]
+fn old_lambda_has_a_rewriting_quickfix() {
+    let main = "fn f(xs: List[Int]) -> List[Int] {\n  List.map(xs, fn(x) { x + 1 })\n}\n";
+    let files = [("/app/Pome.toml", ""), (MAIN, main)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let published = client.diagnostics();
+    assert_eq!(codes(&published), ["E0148"]);
+    let actions = client.quickfixes(MAIN, (1, 15), (1, 15));
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Rewrite as `|x| ...`");
+    let edits = &actions[0].edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
+    assert_eq!(edits[0].new_text, "|x| x + 1");
     client.shutdown();
 }
 

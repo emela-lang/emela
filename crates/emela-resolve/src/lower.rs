@@ -1463,13 +1463,21 @@ impl Lower<'_, '_> {
                 self.push_scope();
                 let (params, lets) =
                     self.lambda_params(node.children().find_map(ast::ParamList::cast));
-                let body = self.child_expr(node, 0);
+                let mut body = self.child_expr(node, 0);
                 self.pop_scope();
-                // `fn(p) { body }` is `fn(t) { p = t; body }` (spec 6.1).
-                if !lets.is_empty()
-                    && let ExprKind::Block(block) = &mut self.r.program.exprs[body].kind
-                {
-                    block.stmts.splice(0..0, lets);
+                // `|p| body` is `|t| { p = t; body }` (`[fn.decl]`). A body that is not a block
+                // (`|(a, b)| a + b`) is put in one, spanning the body.
+                if !lets.is_empty() {
+                    if let ExprKind::Block(block) = &mut self.r.program.exprs[body].kind {
+                        block.stmts.splice(0..0, lets);
+                    } else {
+                        let range = self.r.program.exprs[body].span.range;
+                        let block = Block {
+                            stmts: lets,
+                            tail: Some(body),
+                        };
+                        body = self.alloc_expr(ExprKind::Block(block), range);
+                    }
                 }
                 ExprKind::Lambda { params, body }
             }

@@ -21,7 +21,7 @@ fn main() {
 fn make_greeter() {
   with ConsoleLogger {
     log = use Logger
-    fn() { log.info("hi") }    # エラー: log を抱えたまま with の外に出る
+    || log.info("hi")    # エラー: log を抱えたまま with の外に出る
   }
 }
 
@@ -32,9 +32,9 @@ fn update[A, R: Immediate](
 ) -> () use R
 
 fn profile() {
-  profile = Fiber.scope(fn(s) {
-    a = s.fork(fn() { fetch_user(1) })
-    b = s.fork(fn() { fetch_orders(1) })
+  profile = Fiber.scope(|s| {
+    a = s.fork(|| fetch_user(1))
+    b = s.fork(|| fetch_orders(1))
     Profile(user: a.join(), orders: b.join())
   })
 }
@@ -47,7 +47,7 @@ fn max(self, other: Self) -> Self {    # 既定の実装
 }
 
 fn sleep(ms, resume) {
-  set_timeout(ms, fn() { resume(()) })
+  set_timeout(ms, || resume(()))
 }
 
 fn continuation(users: Users, id: Int) {

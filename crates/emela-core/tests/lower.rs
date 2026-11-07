@@ -323,7 +323,7 @@ fn lambdas_and_wrapped_functions() {
         "\
 fn main() {
   k = 10
-  add_k = fn(x) { x + k }
+  add_k = |x| x + k
   dbg(add_k(1))
   dbg(List.map([1, 2], Some))
   dbg(List.map([\"a\", \"bc\"], String.length))
@@ -533,8 +533,8 @@ fn main() {
   with Fixed, ClockStamp {
     clock = use Clock
     dbg(stamped(\"a\") escape { Late -> \"late\" })
-    dbg(apply(fn() { clock.now() + (use Clock).now() }))
-    dbg(List.map([1], fn(x) { x + (use Clock).now() }))
+    dbg(apply(|| clock.now() + (use Clock).now()))
+    dbg(List.map([1], |x| x + (use Clock).now()))
     f = clock.now
     dbg(f())
   }
@@ -694,10 +694,10 @@ import Std.State.{State}\n\nfn modify[S](f: fn(S) -> S fails {} use {}) -> S use
 }
 
 fn main() {
-  dbg(State.run(\"\", fn() {
-    State.run(1, fn() {
+  dbg(State.run(\"\", || {
+    State.run(1, || {
       (use State[String]).set(\"x\")
-      modify(fn(n) { n + 1 })
+      modify(|n| n + 1)
     })
   }))
 }
@@ -729,14 +729,14 @@ import Std.Deferred.{Deferred}
 effect Log { fn info(msg: String) -> () }
 
 fn main() -> Int use { Log, Async } {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     s = use Scope
-    a = s.fork(fn() { (use Log).info(\"a\") })
-    b = Fiber.fork(fn() { 2 })
+    a = s.fork(|| (use Log).info(\"a\"))
+    b = Fiber.fork(|| 2)
     d = s.deferred()
     Deferred.complete(d, 1)
     Fiber.join(a)
-    e = Exit.attempt(fn() { (use Log).info(\"e\") })
+    e = Exit.attempt(|| (use Log).info(\"e\"))
     Fiber.join(b) + Deferred.await(d)
   })
 }
@@ -877,7 +877,7 @@ fn after(ms: Int, f: fn() -> ()) -> ()
 suspend fn fetch_text(url: String) -> String
 
 handler SystemClock: Clock {
-  suspend fn sleep(ms, resume) { after(ms, fn() { resume(ms) }) }
+  suspend fn sleep(ms, resume) { after(ms, || resume(ms)) }
   fn now() { 0 }
 }
 
@@ -893,14 +893,14 @@ handler FetchingClock: Clock {
 
 fn naps(xs: List[Int]) -> List[Int] use Clock {
   clock = use Clock
-  List.map(xs, fn(ms) { clock.sleep(ms) + clock.now() })
+  List.map(xs, |ms| clock.sleep(ms) + clock.now())
 }
 
 fn main() {
   with SystemClock { dbg(naps([1, 2])) }
   with InstantClock { dbg((use Clock).sleep(1)) }
   with FetchingClock { dbg((use Clock).sleep(1)) }
-  dbg(List.map([1], fn(x) { x }))
+  dbg(List.map([1], |x| x))
 }
 ",
     )]);
@@ -944,7 +944,7 @@ effect Clock {
 fn after(ms: Int, f: fn() -> ()) -> ()
 
 handler SystemClock: Clock {
-  suspend fn sleep(ms, resume) { after(ms, fn() { resume(ms) }) }
+  suspend fn sleep(ms, resume) { after(ms, || resume(ms)) }
   fn now() { 42 }
 }
 
@@ -1010,7 +1010,7 @@ fn method_calls_lower_as_calls() {
         module("Show.show(rename(u, \"b\"))")
     );
     assert_eq!(
-        module("[u.show()].map(fn(s) { s.append(\"!\") }).join(\",\")"),
-        module("List.join(List.map([Show.show(u)], fn(s) { String.append(s, \"!\") }), \",\")")
+        module("[u.show()].map(|s| s.append(\"!\")).join(\",\")"),
+        module("List.join(List.map([Show.show(u)], |s| String.append(s, \"!\")), \",\")")
     );
 }

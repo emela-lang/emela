@@ -118,6 +118,21 @@ impl Printer {
         out
     }
 
+    /// Claims the trailing comments of `token` now, to be printed later with
+    /// [`Printer::print_trailing`] (after a parenthesis the printer adds, for one).
+    pub(crate) fn hold_trailing(&mut self, token: &SyntaxToken) -> Vec<String> {
+        self.comments.take_trailing(token)
+    }
+
+    pub(crate) fn print_trailing(&mut self, comments: Vec<String>) -> Doc {
+        let mut out = RcDoc::nil();
+        for c in comments {
+            out = out.append(" ").append(text(&c));
+            self.pending = true;
+        }
+        out
+    }
+
     pub(crate) fn line(&mut self) -> Doc {
         self.soft(RcDoc::line())
     }

@@ -99,7 +99,7 @@ error[E0407]: external function `fetch_text` can only be used in handlers
 error[E0416]: effect `Clock` may suspend, but `R` of `update` must be `Immediate`
     ╭─[ main.emel:51:3 ]
     │
- 51 │   update(1, fn(n) {
+ 51 │   update(1, |n| {
     │   ───┬──  
     │      ╰──── 
 ────╯

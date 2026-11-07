@@ -6,7 +6,7 @@ fn attempt_captures_sync_failure_and_returns_owned_cause() {
 import Std.Exit.{Success, Failure}
 error Boom(n: Int)
 pub fn attempt(n: Int) -> Int {
- a = Exit.attempt(fn() { if n == 0 { 41 } else { fail Boom(n: n) } })
+ a = Exit.attempt(|| if n == 0 { 41 } else { fail Boom(n: n) })
  a match { Success(v) -> v + 1
   Failure(_) -> 42
  }
@@ -48,7 +48,7 @@ handler Res: Resource {
 }
 pub fn attempt(n: Int) -> Int use Async {
  with Waiting {
-  a = Exit.attempt(fn() { with Res {
+  a = Exit.attempt(|| { with Res {
    x = (use Wait).get(1)
    if n == 0 { x } else { fail Boom(n: n) }
   } })
@@ -99,9 +99,9 @@ fn attempt_owns_managed_success_and_releases_discarded_results() {
 import Std.Exit.{Success, Failure}
 error Boom
 pub fn attempt(n: Int) -> Int {
- Exit.attempt(fn() { fail Boom })
- Exit.attempt(fn() { [n, n+1] })
- a = Exit.attempt(fn() { [n, n+1] })
+ Exit.attempt(|| fail Boom)
+ Exit.attempt(|| [n, n+1])
+ a = Exit.attempt(|| [n, n+1])
  a match { Success(xs) -> List.length(xs) + 40
   Failure(_) -> -1
  }
@@ -133,7 +133,7 @@ handler Res: Resource { fn read() { 0 }
  release { mark(99) }
 }
 pub fn stopped() -> Int {
- Exit.attempt(fn() { with Res { panic("test defect") } }) match {
+ Exit.attempt(|| with Res { panic("test defect") }) match {
   Success(_) -> 1
   Failure(_) -> 2
  }

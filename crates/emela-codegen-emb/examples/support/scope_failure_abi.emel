@@ -2,8 +2,8 @@ import Std.Fiber.{Fiber}
 import Std.Exit.{Success, Failure}
 error Boom(n: Int) derive Show
 pub fn good(n: Int) -> Int use Async {
- Fiber.scope(fn() {
-  child=Fiber.fork(fn() { n+1 })
+ Fiber.scope(|| {
+  child=Fiber.fork(|| n+1)
   Fiber.join(child)
   Fiber.await(child) match { Success(n) -> n
    Failure(_) -> panic("unexpected")
@@ -11,17 +11,17 @@ pub fn good(n: Int) -> Int use Async {
  })
 }
 pub fn bad(n: Int) -> Int use Async {
- Fiber.scope(fn() {
-  child=Fiber.fork(fn() { fail Boom(n: n) })
+ Fiber.scope(|| {
+  child=Fiber.fork(|| fail Boom(n: n))
   Fiber.join(child)
   0
  }) escape { Boom(n) -> n }
 }
 pub fn nested(n: Int) -> Int use Async {
- Fiber.scope(fn() {
-  first=Fiber.fork(fn() { n })
-  result=Fiber.scope(fn() {
-   child=Fiber.fork(fn() { fail Boom(n: n) })
+ Fiber.scope(|| {
+  first=Fiber.fork(|| n)
+  result=Fiber.scope(|| {
+   child=Fiber.fork(|| fail Boom(n: n))
    Fiber.join(child)
    0
   }) escape { Boom(n) -> n+1 }

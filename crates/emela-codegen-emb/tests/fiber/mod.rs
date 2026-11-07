@@ -84,8 +84,8 @@ import Std.Fiber.{Fiber, Scope}
 @external(c, "mark")
 fn mark(n: Int) -> () use {}
 pub fn skip() -> Int use Async {
-  Fiber.scope(fn() {
-    Fiber.fork(fn() {
+  Fiber.scope(|| {
+    Fiber.fork(|| {
       mark(99)
       1
     })
@@ -185,10 +185,10 @@ handler Waiting: Wait {
 }
 pub fn nested() -> Int use Async {
   with Waiting {
-    Fiber.scope(fn() {
-      Fiber.fork(fn() {
-        Fiber.scope(fn() {
-          Fiber.fork(fn() {
+    Fiber.scope(|| {
+      Fiber.fork(|| {
+        Fiber.scope(|| {
+          Fiber.fork(|| {
             mark(3)
             (use Wait).get(3)
           })
@@ -257,7 +257,7 @@ handler Inner: Config { fn read() { 90 } }
 fn read() -> Int use Config { (use Config).read() }
 fn branch() -> () use { Config, Scope[{}, {Config}] } {
   mark(read())
-  Fiber.fork(fn() { mark(read() + 1) })
+  Fiber.fork(|| mark(read() + 1))
   ()
 }
 effect Wait { suspend fn get(n: Int) -> Int }
@@ -267,7 +267,7 @@ handler Waiting: Wait {
 pub fn siblings() -> Int use Async {
   with Outer {
     with Waiting {
-      Fiber.scope(fn() {
+      Fiber.scope(|| {
         with Inner {
           Fiber.fork(branch)
         }
@@ -403,9 +403,9 @@ import Std.Fiber.{Fiber}
 @external(c, "mark")
 fn mark(n: Int) -> () use {}
 pub fn full() -> Int use Async {
-  Fiber.scope(fn() {
-    Fiber.fork(fn() { mark(99) })
-    Fiber.fork(fn() { mark(99) })
+  Fiber.scope(|| {
+    Fiber.fork(|| mark(99))
+    Fiber.fork(|| mark(99))
     7
   })
 }
@@ -448,8 +448,8 @@ pub fn managed(n: Int) -> String use Async {
   with Waiting {
     text = Int.to_string(n)
     xs = [n, n + 1]
-    Fiber.scope(fn() {
-      Fiber.fork(fn() {
+    Fiber.scope(|| {
+      Fiber.fork(|| {
         mark(String.length(text))
         (use Wait).get(n + 1)
         xs

@@ -36,7 +36,7 @@ const PROGRAMS: &[(&str, &str, usize, u64)] = &[
         "closures_and_strings",
         r#"
 fn adder(a: Int) -> fn(Int) -> Int {
-  fn(b: Int) { a + b }
+  |b: Int| a + b
 }
 fn main() {
   add2 = adder(2)
@@ -69,7 +69,7 @@ fn total(xs: List[Int], acc: Int) -> Int {
   }
 }
 fn adder(a: Int) -> fn(Int) -> Int {
-  fn(b: Int) { a + b }
+  |b: Int| a + b
 }
 fn main() {
   add = adder(1)
@@ -120,10 +120,10 @@ fn main() {
 import Std.State.{State}
 
 fn main() {
-  (_, final) = State.run([], fn() {
+  (_, final) = State.run([], || {
     st = use State[List[String]]
-    st.update(fn(xs) { List.append(xs, ["x"]) })
-    st.update(fn(xs) { List.append(xs, ["y"]) })
+    st.update(|xs| List.append(xs, ["x"]))
+    st.update(|xs| List.append(xs, ["y"]))
   })
   dbg(final)
   dbg(Int.parse("42"))

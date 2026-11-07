@@ -1,7 +1,7 @@
 ---
 title: Closure syntax for anonymous functions
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 492
 issue:
 decided: 2026-11-05
@@ -261,10 +261,10 @@ Every example in `spec/` that writes an anonymous function is rewritten with `em
 
 ## Diagnostics
 
-- [ ] E0148: `fn(...)` written as an expression (code to be assigned), with a help and a quick fix
-- [ ] Syntax error for a newline right after the parameter list outside brackets (the existing message for an expression that is missing)
-- [ ] E0149: an anonymous function as a statement that is not the last of its block, with the help for a line that starts with `||`
-- [ ] The same help on E0301 when the last statement of a block is an anonymous function that starts a line with `||`
+- [x] E0148: `fn(...)` written as an expression, with a help and a quick fix
+- [x] Syntax error for a newline right after the parameter list outside brackets (the existing message for an expression that is missing, E0118)
+- [x] E0149: an anonymous function as a statement that is not the last of its block, with the help for a line that starts with `||`
+- [x] The same help on E0301 when the last statement of a block is an anonymous function that starts a line with `||`
 
 ## Compatibility
 

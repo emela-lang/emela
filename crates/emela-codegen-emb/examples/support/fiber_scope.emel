@@ -12,8 +12,8 @@ handler Waiting: Wait {
 
 pub fn work(n: Int) -> Int use Async {
   with Waiting {
-    Fiber.scope(fn() {
-      Fiber.fork(fn() {
+    Fiber.scope(|| {
+      Fiber.fork(|| {
         mark(2)
         (use Wait).get(n + 1)
       })

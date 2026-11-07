@@ -115,7 +115,7 @@ fn continues(b: Bytes, i: Int, low: Int, high: Int) -> Bool {
 
 ## Two lowercase hexadecimal digits per byte, with no separator (`"89504e47"`).
 pub fn to_hex(b: Bytes) -> String {
-  b.to_list().map(fn(x) { "#{hex_digit(x / 16)}#{hex_digit(x % 16)}" }).join("")
+  b.to_list().map(|x| "#{hex_digit(x / 16)}#{hex_digit(x % 16)}").join("")
 }
 
 fn hex_digit(n: Int) -> String {

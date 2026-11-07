@@ -6,8 +6,8 @@ fn right(n: Int, bad: Bool) -> Packet fails Missing use Wait {
 }
 pub fn checked(n: Int, bad: Bool) -> String use Async {
   with Waiting {
-    result = Fiber.both(fn() { (use Wait).get(10)
-      packet(n) }, fn() { right(n, bad) }) escape {
+    result = Fiber.both(|| { (use Wait).get(10)
+      packet(n) }, || right(n, bad)) escape {
       Missing(text) -> (Empty, Data((text, None), []))
     }
     (_, value) = result

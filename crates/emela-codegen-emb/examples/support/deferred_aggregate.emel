@@ -8,14 +8,14 @@ fn save(d: Deferred[(String, Option[String])], n: Int) -> Bool {
   first && !again
 }
 pub fn work(n: Int, cancel: Bool) -> List[(String, Option[String])] use Async {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d: Deferred[(String, Option[String])] = (use Scope).deferred()
     captured = (Int.to_string(n + 10), Some(Int.to_string(n + 11)))
-    first = Fiber.fork(fn() {
+    first = Fiber.fork(|| {
       value = Deferred.await(d)
       [value, captured]
     })
-    second = Fiber.fork(fn() { [Deferred.await(d)] })
+    second = Fiber.fork(|| [Deferred.await(d)])
     if cancel { [] } else {
       if !save(d, n) { panic("unexpected complete result") }
       value = Deferred.poll(d) match {

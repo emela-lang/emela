@@ -7,6 +7,8 @@ pub struct Diagnostic {
     pub range: TextRange,
     pub code: DiagnosticCode,
     pub message: String,
+    /// Printed as `= help: …` by the driver.
+    pub help: Option<String>,
 }
 
 /// Codes match the list in spec appendix A. A code once assigned is never reused.
@@ -98,6 +100,10 @@ pub enum DiagnosticCode {
     OldImplHead,
     /// `implements` in a handler head. `handler H implements E` (spec 8.4)
     OldHandlerHead,
+    /// `fn(...)` written as an expression, the old form of an anonymous function (`[fn.decl]`).
+    OldLambda,
+    /// An anonymous function as a statement that is not the last of its block (`[fn.block]`).
+    UnusedLambda,
 }
 
 impl DiagnosticCode {
@@ -148,6 +154,8 @@ impl DiagnosticCode {
             Self::OldImplHead => "E0144",
             Self::OldHandlerHead => "E0145",
             Self::MalformedExport => "E0146",
+            Self::OldLambda => "E0148",
+            Self::UnusedLambda => "E0149",
         }
     }
 }

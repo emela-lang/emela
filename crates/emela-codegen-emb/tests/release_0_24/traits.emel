@@ -35,7 +35,7 @@ pub fn quoted(text: String) -> String { inspect(text) }
 fn increment(n: Int) -> Int { n + 1 }
 pub fn debugging(n: Int) -> Int {
   dbg(increment)
-  f = fn(x: Int) { x + n }
+  f = |x: Int| x + n
   dbg(f)
   dbg(Key(value: n))
   n
@@ -51,19 +51,19 @@ fn bad_derived(text: String) -> Int fails Derived { fail Derived(message: text) 
 fn bad_plain(text: String) -> Int fails Plain { fail Plain(message: text) }
 
 pub fn written_cause(text: String) -> String {
-  Exit.attempt(fn() { bad_written(text) }) match {
+  Exit.attempt(|| bad_written(text)) match {
     Success(_) -> "unexpected"
     Failure(cause) -> Cause.to_string(cause)
   }
 }
 pub fn derived_cause(text: String) -> String {
-  Exit.attempt(fn() { bad_derived(text) }) match {
+  Exit.attempt(|| bad_derived(text)) match {
     Success(_) -> "unexpected"
     Failure(cause) -> Cause.to_string(cause)
   }
 }
 pub fn plain_cause(text: String) -> String {
-  Exit.attempt(fn() { bad_plain(text) }) match {
+  Exit.attempt(|| bad_plain(text)) match {
     Success(_) -> "unexpected"
     Failure(cause) -> Cause.to_string(cause)
   }

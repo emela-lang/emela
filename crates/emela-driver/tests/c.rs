@@ -166,7 +166,7 @@ fn callbacks_are_rejected() {
     let main = r##"@external(c, "take")
 fn take(f: fn(Int) -> Int) -> () use {}
 
-fn main() { take(fn(x) { x }) }
+fn main() { take(|x| x) }
 "##;
     let (analysis, _) = run_c("callback", main, &mut CoreC::default());
     assert_eq!(
@@ -727,9 +727,9 @@ fn main() {
     console.print_line(host.greet("c"))
     console.print_line("#{host.double(21, 10)}")
     console.print_line("#{host.threaded(41)}")
-    console.print_line("#{Fiber.timeout(20, fn() { host.double(5, 60000) })}")
-    console.print_line("#{Fiber.all([fn() { host.double(1, 30) }, fn() { host.double(2, 10) }])}")
-    console.print_line("#{Fiber.race([fn() { host.double(3, 60000) }, fn() { host.double(4, 10) }])}")
+    console.print_line("#{Fiber.timeout(20, || host.double(5, 60000))}")
+    console.print_line("#{Fiber.all([|| host.double(1, 30), || host.double(2, 10)])}")
+    console.print_line("#{Fiber.race([|| host.double(3, 60000), || host.double(4, 10)])}")
   }
 }
 

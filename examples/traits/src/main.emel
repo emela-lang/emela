@@ -32,12 +32,12 @@ fn main() {
   ]
   dbg(describe_all(tasks)) # ["write docs (Low)", "fix build (High)", "review (High)"]
 
-  urgent = List.filter(tasks, fn(t) { t.priority > Low })
+  urgent = List.filter(tasks, |t| t.priority > Low)
   dbg(List.length(urgent)) # 2
 
   # A Map keeps its keys in Ord order.
-  by_priority = List.fold(tasks, from: Map.empty(), f: fn(m, t) {
-    Map.update(m, t.priority, fn(n) { Some(Option.or(n, 0) + 1) })
+  by_priority = List.fold(tasks, from: Map.empty(), f: |m, t| {
+    Map.update(m, t.priority, |n| Some(Option.or(n, 0) + 1))
   })
   dbg(by_priority) # Map.from_list([(Low, 1), (High, 2)])
 

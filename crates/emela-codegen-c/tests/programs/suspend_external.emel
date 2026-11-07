@@ -22,7 +22,7 @@ fn main() {
   with Naps {
     nap = use Nap
     print("#{nap.nap(5)}")
-    print("#{Fiber.all([fn() { nap.nap(30) }, fn() { nap.nap(10) }])}")
-    print("#{Fiber.race([fn() { nap.nap(60000) }, fn() { nap.nap(1) }])}")
+    print("#{Fiber.all([|| nap.nap(30), || nap.nap(10)])}")
+    print("#{Fiber.race([|| nap.nap(60000), || nap.nap(1)])}")
   }
 }

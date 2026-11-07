@@ -13,10 +13,10 @@ fn late(n: Int) -> Int fails Boom use Wait {
 }
 pub fn work() -> Cause[Boom] use Async {
   with Waiting {
-    Exit.attempt(fn() { Fiber.scope(fn() {
-      Fiber.fork(fn() { late(1) })
-      Fiber.fork(fn() { late(2) })
-      Fiber.fork(fn() { late(3) })
+    Exit.attempt(|| { Fiber.scope(|| {
+      Fiber.fork(|| late(1))
+      Fiber.fork(|| late(2))
+      Fiber.fork(|| late(3))
       (use Wait).get(4)
     }) }) match {
       Success(_) -> panic("unexpected")
@@ -25,13 +25,13 @@ pub fn work() -> Cause[Boom] use Async {
   }
 }
 pub fn rethrow(c: Cause[Boom]) -> Cause[Boom] {
-  Exit.attempt(fn() { Cause.raise(c) }) match {
+  Exit.attempt(|| Cause.raise(c)) match {
     Success(_) -> panic("unexpected")
     Failure(again) -> again
   }
 }
 pub fn rethrow_async(c: Cause[Boom]) -> Cause[Boom] use Async {
-  Exit.attempt(fn() { Fiber.scope(fn() { Cause.raise(c) }) }) match {
+  Exit.attempt(|| Fiber.scope(|| Cause.raise(c))) match {
     Success(_) -> panic("unexpected")
     Failure(again) -> again
   }

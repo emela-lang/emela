@@ -49,12 +49,12 @@ fn traced(label: String, u: User) -> User {
 }
 
 fn describe_all[A: Describe](xs: List[A]) -> List[String] {
-  xs.map(fn(x) { x.describe() })
+  xs.map(|x| x.describe())
 }
 
 fn main() {
   u = User(name: "ann", age: 17)
-  g = Greeter(greet: fn(s) { "#{s}!" })
+  g = Greeter(greet: |s| "#{s}!")
   dbg(u.rename("bea").name)
   dbg(u.older(years: 3).age)
   dbg(g.greet("hi"))
@@ -66,14 +66,14 @@ fn main() {
   with Fixed {
     dbg(u.numbered())
   }
-  dbg("a,bb,ccc".split(",").map(fn(s) { s.byte_size() }))
-  dbg([1, 2, 3].fold(from: 10, f: fn(acc, x) { acc + x }))
+  dbg("a,bb,ccc".split(",").map(|s| s.byte_size()))
+  dbg([1, 2, 3].fold(from: 10, f: |acc, x| acc + x))
   dbg(["x", "y", "z"].join("-"))
   dbg(["x", "y"].join(""))
   dbg("".split("\n").head().or("none"))
-  dbg(Some(3).map(fn(n) { n * 2 }).or(0))
+  dbg(Some(3).map(|n| n * 2).or(0))
   n: Int = 42
   dbg(n.to_string().byte_size())
   dbg(u.rename("dee").show())
-  dbg([3, 1, 2] |> List.map(fn(x) { x + 1 }))
+  dbg([3, 1, 2] |> List.map(|x| x + 1))
 }

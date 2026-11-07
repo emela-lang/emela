@@ -6,7 +6,10 @@
 //! - Check the constraints beyond the spec 17.3 grammar that syntax alone decides (whether
 //!   `@external` is needed, empty enums, the shape of handler and impl fns).
 //! - Check the arguments of `@external` (spec 12.1, 12.3) and of `@export` (spec 12.7, 16.6.2).
-//! - Report the old impl and handler heads with the head to write instead (E0144, E0145).
+//! - Report the old impl and handler heads with the head to write instead (E0144, E0145), and the
+//!   old form of an anonymous function with the closure to write instead (E0148).
+//! - Report an anonymous function written as a statement that is not the last of its block
+//!   (E0149).
 
 use rowan::TextRange;
 
@@ -109,6 +112,23 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 );
             }
         }
+        LAMBDA_EXPR => {
+            if let Some((_, rewritten, head)) = crate::rewrite::old_lambda(node) {
+                // A rewrite that spans lines is long; its parameter list is enough to show it.
+                let shown = if rewritten.contains('\n') {
+                    format!("{head} ...")
+                } else {
+                    rewritten
+                };
+                out.push(Diagnostic {
+                    range: old_lambda_head(node),
+                    code: DiagnosticCode::OldLambda,
+                    message: "anonymous functions are written `|x| body`".to_owned(),
+                    help: Some(format!("write `{shown}`")),
+                });
+            }
+        }
+        BLOCK_EXPR => unused_lambdas(node, out),
         UNDERSCORE_EXPR => error(
             out,
             node.text_range(),
@@ -125,6 +145,33 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
     for child in node.children() {
         walk(&child, out);
+    }
+}
+
+/// From `fn` to the end of the parameter list of the old form of an anonymous function.
+fn old_lambda_head(node: &SyntaxNode) -> TextRange {
+    let start = node.text_range().start();
+    let end =
+        child_kind(node, PARAM_LIST).map_or(node.text_range().end(), |l| l.text_range().end());
+    TextRange::new(start, end)
+}
+
+/// E0149: the value of an anonymous function written as a statement before the last one is
+/// discarded (`[fn.block]`). A line that starts with `||` starts such a function (`[lex.continuation]`),
+/// so the help names the way to continue a line with the logical or.
+fn unused_lambdas(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let stmts: Vec<SyntaxNode> = block.children().filter(|n| n.kind() != ERROR).collect();
+    let Some((_, init)) = stmts.split_last() else {
+        return;
+    };
+    for stmt in init.iter().filter(|s| s.kind() == LAMBDA_EXPR) {
+        out.push(Diagnostic {
+            range: stmt.text_range(),
+            code: DiagnosticCode::UnusedLambda,
+            message: "this anonymous function is never used".to_owned(),
+            help: crate::rewrite::starts_line_with_or(stmt)
+                .then(|| crate::rewrite::OR_AT_LINE_START_HELP.to_owned()),
+        });
     }
 }
 
@@ -532,5 +579,6 @@ fn error(out: &mut Vec<Diagnostic>, range: TextRange, code: DiagnosticCode, mess
         range,
         code,
         message: message.to_owned(),
+        help: None,
     });
 }

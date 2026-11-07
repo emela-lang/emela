@@ -75,7 +75,7 @@ fn main() {
   assert packet == Packet(id: 1, payload: Bytes.hex("CAFE"))
 
   # a long sequence goes through loops, not deep recursion
-  long = Bytes.concat(List.map(List.range(0, 20000), fn(_) { Bytes.hex("ab") }))
+  long = Bytes.concat(List.map(List.range(0, 20000), |_| Bytes.hex("ab")))
   dbg(Bytes.size(long))
   assert long == Bytes.concat([long])
   round_trip = Bytes.from_hex(Bytes.to_hex(long)) |> Option.or(Bytes.empty())

@@ -50,15 +50,15 @@ handler SlowRes: Name {
 ## unwinds as interrupted and runs its releases from the inside (spec 14.5).
 fn main() -> () use { Async } {
   with Ticks, Res {
-    Fiber.scope(fn() {
+    Fiber.scope(|| {
       d = Fiber.deferred()
-      Fiber.fork(fn() {
+      Fiber.fork(|| {
         with SlowRes {
           Deferred.await(d)
           print("never")
         }
       })
-      Fiber.fork(fn() {
+      Fiber.fork(|| {
         with Res {
           spin(2000)
           print("child waits")

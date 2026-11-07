@@ -1196,7 +1196,7 @@ handler Waiting: Wait {
     mark(n * 10 + 1)
     value = wait(n)
     mark(n * 10 + 2)
-    callback = fn() { resume(value) }
+    callback = || resume(value)
     callback()
     mark(n * 10 + 4)
   }

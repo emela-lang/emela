@@ -10,7 +10,7 @@ handler Fixed: State[ Int ] {
 
 fn count() -> Int use { State[Int],Log } {
   st = use State[ Int ]
-  (use State[Int]).update(fn(n) { n + 1 })
+  (use State[Int]).update(|n| n + 1)
   st.get()
 }
 

@@ -43,7 +43,7 @@ const VIA_INDIRECT = { f = sum
 const VALUE = { dbg("once")
  if True { VIA_INDIRECT + loop_sum(6, 0) - 21 } else { 0 } }
 const APPLY = { x = VALUE
- (fn(y: Int) { x + y }, ()) }
+ (|y: Int| x + y, ()) }
 pub fn read() -> Int { (apply, _) = APPLY
  apply(VALUE) }
 "#,
@@ -747,19 +747,19 @@ const MISSING = { dbg("MISSING")
  None
 }
 const IDENTITY = { dbg("IDENTITY")
- (fn(value) { value }, ())
+ (|value| value, ())
 }
 const APPLY = { dbg("APPLY")
- (fn(callback) { callback() }, ())
+ (|callback| callback(), ())
 }
 const CHOICE = { dbg("CHOICE")
- if tick() == 1 { (fn(value) { mark(1)
- value }, ()) } else { (fn(value) { mark(2)
+ if tick() == 1 { (|value| { mark(1)
+ value }, ()) } else { (|value| { mark(2)
  value }, ()) }
 }
 const CAPTURE = { dbg("CAPTURE")
  text = Int.to_string(tick())
- (fn(value) { fn() { (value, text) } }, ())
+ (|value| || (value, text), ())
 }
 fn ints(xs: List[Int], o: Option[Int]) -> Int { List.length(xs) + (o match {Some(n)->n
  None->0}) }
@@ -770,13 +770,13 @@ pub fn integer() -> Int { (capture,_) = CAPTURE
  (apply,_) = APPLY
  (choice,_) = CHOICE
  (value,text)=capture(identity(20))()
- ints(EMPTY,MISSING) + value + apply(fn(){21}) + choice(1) + String.byte_size(text) - 1 }
+ ints(EMPTY,MISSING) + value + apply(|| 21) + choice(1) + String.byte_size(text) - 1 }
 pub fn text() -> Int { (capture,_) = CAPTURE
  (identity,_) = IDENTITY
  (apply,_) = APPLY
  (choice,_) = CHOICE
  (value,text)=capture(identity("42"))()
- texts(EMPTY,MISSING) + String.byte_size(value) + String.byte_size(apply(fn(){"42"})) + String.byte_size(choice("")) + String.byte_size(text) + 37 }
+ texts(EMPTY,MISSING) + String.byte_size(value) + String.byte_size(apply(|| "42")) + String.byte_size(choice("")) + String.byte_size(text) + 37 }
 "#;
     let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();

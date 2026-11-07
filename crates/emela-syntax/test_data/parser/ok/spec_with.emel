@@ -9,7 +9,7 @@ fn h() {
       primary.execute("...")
     }
   }
-  List.map(names, fn(n) { log.info(n) })
+  List.map(names, |n| log.info(n))
   xs match {
     [] -> 0
     [x, ..rest] -> x

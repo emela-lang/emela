@@ -82,8 +82,8 @@ fn deep(n: Int) -> Int use { Tick } {
 
 fn main() -> () use { Async } {
   with Ticks {
-    Fiber.scope(fn() {
-      h = Fiber.fork(fn() {
+    Fiber.scope(|| {
+      h = Fiber.fork(|| {
         with SlowRes {
           spin(100000)
         }
@@ -93,10 +93,10 @@ fn main() -> () use { Async } {
       Fiber.interrupt(h)
       print("interrupted #{show(Fiber.await(h))}")
     })
-    bad = Exit.attempt(fn() {
-      Fiber.scope(fn() {
-        h = Fiber.fork(fn() {
-          Exit.attempt(fn() {
+    bad = Exit.attempt(|| {
+      Fiber.scope(|| {
+        h = Fiber.fork(|| {
+          Exit.attempt(|| {
             with BadRes {
               spin(100000)
             }
@@ -112,12 +112,12 @@ fn main() -> () use { Async } {
     })
     print("bad #{show(bad)}")
     with Slowly {
-      Fiber.scope(fn() {
-        h = Fiber.fork(fn() { (use Slow).slow(100000) })
+      Fiber.scope(|| {
+        h = Fiber.fork(|| (use Slow).slow(100000))
         spin(1500)
         Fiber.interrupt(h)
         print("slow #{show(Fiber.await(h))}")
-        k = Fiber.fork(fn() { (use Slow).slow(1000) })
+        k = Fiber.fork(|| (use Slow).slow(1000))
         print("slow joined #{Fiber.join(k)}")
       })
     }

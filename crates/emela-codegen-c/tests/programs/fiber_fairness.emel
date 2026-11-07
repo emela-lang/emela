@@ -34,12 +34,12 @@ fn count(name: String, i: Int, n: Int, every: Int) -> Int use { Tick } {
 
 fn main() -> () use { Async } {
   with Ticks {
-    total = Fiber.scope(fn() {
-      a = Fiber.fork(fn() { count("a", 0, 40000, 2500) })
-      b = Fiber.fork(fn() { count("b", 0, 30000, 2500) })
-      c = Fiber.fork(fn() { count("c", 0, 5000, 1000) })
+    total = Fiber.scope(|| {
+      a = Fiber.fork(|| count("a", 0, 40000, 2500))
+      b = Fiber.fork(|| count("b", 0, 30000, 2500))
+      c = Fiber.fork(|| count("c", 0, 5000, 1000))
       d = Fiber.deferred()
-      Fiber.fork(fn() {
+      Fiber.fork(|| {
         count("d", 0, 20000, 5000)
         Deferred.complete(d, "done")
       })

@@ -217,7 +217,7 @@ fn selections_are_strictly_nested_and_handle_empty_or_broken_files() {
 /// bound names, the hidden parameter is not completed, and the pattern gets one type hint.
 #[test]
 fn lambda_parameter_patterns_in_ide_queries() {
-    let text = "fn main() -> Int {\n  List.fold([(1, True)], from: 0, f: fn(acc, (count, _)) {\n    acc + count\n  })\n}\n";
+    let text = "fn main() -> Int {\n  List.fold([(1, True)], from: 0, f: |acc, (count, _)| {\n    acc + count\n  })\n}\n";
     let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
     let file = analysis
         .sources
@@ -254,7 +254,7 @@ fn lambda_parameter_patterns_in_ide_queries() {
         .map(|h| (h.offset, h.label))
         .collect();
     let after_acc = at(text, ", (count");
-    let after_pattern = at(text, ")) {") + TextSize::from(1);
+    let after_pattern = at(text, ")| {") + TextSize::from(1);
     assert_eq!(
         hints,
         [

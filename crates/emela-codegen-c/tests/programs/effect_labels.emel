@@ -72,9 +72,9 @@ fn main() {
     with Tagged { c() }
   }
   # Each State.run provides a State[Int]; plugging it into a label keeps the two apart.
-  (_, misses) = State.run(0, fn() {
+  (_, misses) = State.run(0, || {
     with Misses by State[Int] {
-      (counts, hits) = State.run(0, fn() { with Hits by State[Int] { tally() } })
+      (counts, hits) = State.run(0, || with Hits by State[Int] { tally() })
       (h, m) = counts
       print("tally #{h} #{m}, hits #{hits}")
     }
@@ -88,7 +88,7 @@ effect Hits of State[Int]
 effect Misses of State[Int]
 
 fn count(hit: Bool) {
-  if hit { (use Hits).update(fn(n) { n + 1 }) } else { (use Misses).update(fn(n) { n + 1 }) }
+  if hit { (use Hits).update(|n| n + 1) } else { (use Misses).update(|n| n + 1) }
 }
 
 fn tally() -> (Int, Int) use { Hits, Misses } {

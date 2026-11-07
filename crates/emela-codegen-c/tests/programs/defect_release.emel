@@ -23,7 +23,7 @@ handler Inner(n: Int): Pool {
 
 fn work(xs: List[Int]) -> Int {
   zero = (use Pool).get()
-  total = List.fold(xs, from: 0, f: fn(a, x) { a + x })
+  total = List.fold(xs, from: 0, f: |a, x| a + x)
   print("total #{total}")
   total / zero
 }

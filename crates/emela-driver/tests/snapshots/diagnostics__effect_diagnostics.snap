@@ -46,9 +46,9 @@ error[E0401]: effect `Logger` has no operation `infoo`
 error[E0403]: effect set mismatch: expected `use {}`, found `use Logger`
     ╭─[ main.emel:36:8 ]
     │
- 36 │   only(fn() { log.info("x") })
-    │        ───────────┬──────────  
-    │                   ╰──────────── 
+ 36 │   only(|| log.info("x"))
+    │        ────────┬───────  
+    │                ╰───────── 
 ────╯
 
 error[E0407]: external function `console_log` can only be used in handlers

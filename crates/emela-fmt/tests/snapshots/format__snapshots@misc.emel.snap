@@ -51,8 +51,8 @@ fn expressions(xs: List[Int]) {
   }
   inline = { 1 }
   empty_block = {}
-  lambda = fn(x: Int, y) { x + y }
-  no_args = fn() { 0 }
+  lambda = |x: Int, y| x + y
+  no_args = || 0
   assert x == 1
   fail Oops
   with Logs { use Logs }

@@ -279,9 +279,9 @@ fn show_cause[A, E](e: Exit[A, E]) {
 }
 
 fn main() {
-  show_cause(Exit.attempt(fn() { fail Nope }))
-  show_cause(Exit.attempt(fn() { fail Retry(after: fn() { 1 }) }))
-  show_cause(Exit.attempt(fn() { fail Shown(why: "no") }))
+  show_cause(Exit.attempt(|| fail Nope))
+  show_cause(Exit.attempt(|| fail Retry(after: || 1)))
+  show_cause(Exit.attempt(|| fail Shown(why: "no")))
 }
 "#,
         0,

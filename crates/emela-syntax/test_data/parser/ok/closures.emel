@@ -1,0 +1,45 @@
+# 無名関数は |x| e，|a, b| e，|| e と書く．本体は右へできるだけ伸びる式（6.1，17.5）
+fn f(xs: List[Int], pairs: List[(String, Int)], ids: List[Int]) {
+  ys = xs |> List.map(|x| x + 1)
+  total = List.fold(xs, 0, |acc, x| acc + x)
+  t = Fiber.fork(|| fetch(1))
+  keys = List.map(pairs, |(key, _)| key)
+  doubled = List.map(ids, |id: Int| id * 2)
+  sum = |(a, b): (Int, Int)| a + b
+  run = |f: (fn() -> Int fails Timeout | Refused)| f()
+  one = |f: fn() -> Int fails Timeout| f()
+  h = |h: Handler[Timeout | Refused, Db]| h
+  scoped = Fiber.scope(|| {
+    a = Fiber.fork(|| fetch(1))
+    Fiber.join(a)
+  })
+  vs = List.map(results, |r| r match {
+    Ok(v) -> v
+    Err(_) -> 0
+  })
+  n = (|x| x + 1)(2)
+  either = a || || b
+  nested = |x| |y| x
+  pair = (|| 1, || 2)
+  list = [|| 1, |x| x]
+  named = Quince.field(name: "x", f: |v| v)
+  failing = || fail Boom
+  escaped = || load(1) escape {
+    NotFound -> 0
+  }
+  piped = |x| x |> f |> g
+  armed = x match {
+    _ -> |y| y
+  }
+  interp = "#{(|| 1)()}"
+  long = (
+    (byte >= 0x41 && byte <= 0x5A)
+      || (byte >= 0x61 && byte <= 0x7A)
+  )
+  || long
+}
+
+fn make(n: Int) -> fn() -> Int {
+  m = n * 2
+  || m
+}

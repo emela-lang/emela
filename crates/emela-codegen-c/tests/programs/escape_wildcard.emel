@@ -65,11 +65,11 @@ fn main() -> () use { Async } {
   print(describe(4))
   print(describe(9))
   print(describe(0))
-  print(or_else(fn() { find(2) }, "fallback"))
-  print(or_else(fn() { find(0) }, "fallback"))
+  print(or_else(|| find(2), "fallback"))
+  print(or_else(|| find(0), "fallback"))
   print(convert(0) escape { Converted -> "converted" })
   ## A defect is not an error, so `_` does not handle it (`[error.defect]`).
-  print(show(Exit.attempt(fn() { crash(1) escape { _ -> "caught" } })))
-  print(show(Exit.attempt(fn() { divide(0) escape { _ -> -1 } })))
-  print(show(Exit.attempt(fn() { crash(0) escape { _ -> "caught" } })))
+  print(show(Exit.attempt(|| crash(1) escape { _ -> "caught" })))
+  print(show(Exit.attempt(|| divide(0) escape { _ -> -1 })))
+  print(show(Exit.attempt(|| crash(0) escape { _ -> "caught" })))
 }

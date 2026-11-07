@@ -1317,7 +1317,7 @@ fn released_handlers_are_defects_when_used() {
   with SystemConsole, EnvConfig {
     f = with Pool {
       users = use Users
-      fn() { users.find(1) }
+      || users.find(1)
     }
     with Spare { (use Console).print_line(f()) }
   }
@@ -1372,13 +1372,13 @@ fn lists_strings_and_int64_run_through_core() {
   xs = [3, 1, 2]
   dbg((List.take(xs, 2), List.drop(xs, 2), List.take(xs, -1), List.drop(xs, 5)))
   none: List[Int] = []
-  dbg((List.last(xs), List.last(none), List.find_index(xs, fn(x) { x == 2 })))
-  dbg(List.flat_map(xs, fn(x) { [x, x] }))
-  dbg(List.filter_map(xs, fn(x) { if x > 1 { Some(x * 10) } else { None } }))
+  dbg((List.last(xs), List.last(none), List.find_index(xs, |x| x == 2)))
+  dbg(List.flat_map(xs, |x| [x, x]))
+  dbg(List.filter_map(xs, |x| if x > 1 { Some(x * 10) } else { None }))
   dbg(List.enumerate(["a", "b"]))
   dbg(List.unzip([(1, "a"), (2, "b")]))
   pairs = [(2, "a"), (1, "b"), (2, "c"), (1, "d")]
-  dbg(List.sort_by(pairs, fn(a, b) {
+  dbg(List.sort_by(pairs, |a, b| {
     (x, _) = a
     (y, _) = b
     Ord.compare(x, y)
@@ -1758,7 +1758,7 @@ fn main() {
   with SystemConsole, SystemClock {
     c = use Console
     c.print_line(nap("js", 50))
-    List.map([30, 10, 20], fn(ms) { nap("js #{ms}", ms) }) |> List.map(c.print_line)
+    List.map([30, 10, 20], |ms| nap("js #{ms}", ms)) |> List.map(c.print_line)
     c.print_line("done")
   }
 }
@@ -1812,7 +1812,7 @@ error Boom
 
 fn count() -> Int use { State[Int] } {
   st = use State[Int]
-  st.update(fn(n) { n + 1 })
+  st.update(|n| n + 1)
   st.get()
 }
 
@@ -1827,15 +1827,15 @@ fn twice[T](f: fn(T) -> T fails {} use {}) -> T use State[T] {
 }
 
 fn both() -> String use { State[Int], State[String] } {
-  n = modify(fn(n) { n + 1 })
+  n = modify(|n| n + 1)
   (use State[String]).set("n=#{n}")
-  twice(fn(s) { String.append(s, "!") })
+  twice(|s| String.append(s, "!"))
 }
 
-fn peek() { modify(fn(x) { x }) }
+fn peek() { modify(|x| x) }
 
 fn failing() -> Int fails Boom {
-  (_, last) = State.run(1, fn() {
+  (_, last) = State.run(1, || {
     (use State[Int]).set(5)
     fail Boom
   })
@@ -1845,14 +1845,14 @@ fn failing() -> Int fails Boom {
 fn main() {
   with SystemConsole {
     c = use Console
-    (n, last) = State.run(0, fn() { count() + count() })
+    (n, last) = State.run(0, || count() + count())
     c.print_line("#{n} #{last}")
-    ((s, inner), outer) = State.run(10, fn() { State.run("", fn() { both() }) })
+    ((s, inner), outer) = State.run(10, || State.run("", || both()))
     c.print_line("#{s} #{inner} #{outer}")
-    (v, same) = State.run(7, fn() { peek() })
+    (v, same) = State.run(7, || peek())
     c.print_line("#{v} #{same}")
     f = modify
-    (g, h) = State.run(3, fn() { f(fn(k) { k * 4 }) })
+    (g, h) = State.run(3, || f(|k| k * 4))
     c.print_line("#{g} #{h}")
     c.print_line("#{failing() escape { Boom -> -1 }}")
   }
@@ -1892,14 +1892,14 @@ fn elapsed() -> Duration use { Clock } {
 }
 
 fn main() {
-  (_, lines) = State.run([], fn() {
+  (_, lines) = State.run([], || {
     with TestConsole {
       greet("alice")
       greet("bob")
     }
   })
   start = Instant.from_unix_milliseconds(Int64.from_int(1000))
-  (d, end) = State.run(start, fn() { with TestClock { elapsed() } })
+  (d, end) = State.run(start, || with TestClock { elapsed() })
   with SystemConsole {
     c = use Console
     c.print_line(String.join(lines, "|"))
@@ -1926,15 +1926,15 @@ import Std.State.{State}
 
 fn tick() -> () use { State[Int], Clock } {
   (use Clock).sleep(10)
-  (use State[Int]).update(fn(n) { n + 1 })
+  (use State[Int]).update(|n| n + 1)
 }
 
 fn main() {
-  (_, n) = State.run(0, fn() {
+  (_, n) = State.run(0, || {
     with SystemClock {
       tick()
       tick()
-      List.map([1, 2, 3], fn(x) { tick() })
+      List.map([1, 2, 3], |x| tick())
     }
   })
   with SystemConsole { (use Console).print_line("#{n}") }
@@ -1965,8 +1965,8 @@ fn main() {
     (use Console).print_line("now > 0: #{now > Int64.from_int(0)}")
   }
   start = Instant.from_unix_milliseconds(Int64.from_int(5))
-  (_, end) = State.run(start, fn() { with Platform, TestClock { (use Clock).sleep(10) } })
-  (_, lines) = State.run([], fn() { with Platform, TestConsole { (use Console).print_line("x") } })
+  (_, end) = State.run(start, || with Platform, TestClock { (use Clock).sleep(10) })
+  (_, lines) = State.run([], || with Platform, TestConsole { (use Console).print_line("x") })
   with Platform {
     (use Console).print_line("#{Instant.to_unix_milliseconds(end)} #{lines}")
   }
@@ -2007,7 +2007,7 @@ fn main() {
     c.print_line(String.append("ab", "cd"))
     c.print_line("#{List.flatten([[1], [], [2, 3]])}")
     c.print_line("#{Float.from_int(7)} #{Int64.from_int(-1)}")
-    c.print_line("#{Option.or(None, 5)} #{List.fold([1, 2, 3], from: 10, f: fn(a, b) { a + b })}")
+    c.print_line("#{Option.or(None, 5)} #{List.fold([1, 2, 3], from: 10, f: |a, b| a + b)}")
   }
 }
 "##,
@@ -2059,7 +2059,7 @@ fn method(req: Request) -> String {
 
 fn main() {
   server = TestServer(respond: reply, sent: [])
-  (out, after) = State.run(server, fn() {
+  (out, after) = State.run(server, || {
     with TestHttp {
       a = Http.get("https://example.com/a")
       b = Http.post("https://example.com/b", "body")
@@ -2072,7 +2072,7 @@ fn main() {
   with SystemConsole {
     c = use Console
     c.print_line(out)
-    c.print_line(String.join(List.map(after.sent, fn(req) { "#{method(req)} #{req.url} #{req.body}" }), ", "))
+    c.print_line(String.join(List.map(after.sent, |req| "#{method(req)} #{req.url} #{req.body}"), ", "))
     c.print_line(Request.encode_query([("q", "東 京"), ("a&b", "c=d"), ("page", "2")]))
     c.print_line("#{Response.require_ok(Response.new(204, "")).status}")
     c.print_line("#{Response.require_ok(Response.new(404, "nf")).status}" escape {
@@ -2205,7 +2205,7 @@ import Std.Http.{Http, InvalidUrl, ConnectionFailed, ResponseNotText}
 import Std.Http.Request.{Request, Get, Head, Post}
 
 fn picked(headers: List[(String, String)]) -> List[(String, String)] {
-  List.filter(headers, fn(pair) {
+  List.filter(headers, |pair| {
     (name, _) = pair
     name == "content-type" || name == "set-cookie" || name == "x-multi"
   })

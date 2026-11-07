@@ -330,8 +330,8 @@ fn pure_only() -> () use {} {
 fn run_pure(f: fn() -> () use {}) { f() }
 
 fn callers() {
-  run_pure(fn() { () })
-  run_pure(fn() { (use Logger).info("x") })
+  run_pure(|| ())
+  run_pure(|| (use Logger).info("x"))
   run_pure(declared)
 }
 "#
@@ -353,19 +353,19 @@ fn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }
 fn update[A, R](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
 
 fn make() {
-  fn() { (use Logger).info("later") }
+  || (use Logger).info("later")
 }
 
 fn callers() {
-  a = apply(fn(n) { (use Logger).info("n")
+  a = apply(|n| { (use Logger).info("n")
   n }, 1)
-  b = update(1, fn(n) { n + 1 })
-  c = List.map([1], fn(n) { (use Logger).info("m") })
+  b = update(1, |n| n + 1)
+  c = List.map([1], |n| (use Logger).info("m"))
   f = make()
 }
 
 fn caller() {
-  fn(g) { g() }
+  |g| g()
 }
 "#
     ));
@@ -438,7 +438,7 @@ fn abs(x: Int) -> Int use {}
 
 handler SystemConsole: Console {
   fn print_line(text) {
-    f = fn() { console_log(text) }
+    f = || console_log(text)
     f()
   }
 }
@@ -470,19 +470,19 @@ fn f() {
   p = (log, 1)
   s = Some(log)
   pipe = log |> Some
-  id = fn(x) { x }
+  id = |x| x
   id(log)
   log
 }
 
 fn g() {
   log = use Logger
-  fn() { log }
+  || log
 }
 
 fn h() {
   log = use Logger
-  fn() { log.info("closure") }
+  || log.info("closure")
 }
 "#
     ));
@@ -559,7 +559,7 @@ fn not_provided[R](f: fn() -> () use { Quiet, R }) -> () use R {
 }
 
 fn wrap[R](f: fn() -> () use R) -> fn() -> () use { Quiet, R } {
-  fn() {
+  || {
     (use Quiet).hush()
     f()
   }
@@ -570,14 +570,14 @@ fn forward(g: fn() -> ()) {
 }
 
 fn callers() {
-  a = run(fn() {
+  a = run(|| {
     (use Quiet).hush()
     (use Logger).info("x")
   })
-  b = run(fn() { (use Quiet).hush() })
-  c = run(fn() { () })
-  d = run_hidden(fn() { (use Quiet).hush() })
-  e = run(wrap(fn() { (use Logger).info("y") }))
+  b = run(|| (use Quiet).hush())
+  c = run(|| ())
+  d = run_hidden(|| (use Quiet).hush())
+  e = run(wrap(|| (use Logger).info("y")))
 }
 "#
     ));
@@ -613,7 +613,7 @@ handler InstantClock: Clock {
 
 handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
-    set_timeout(ms, fn() { resume(()) })
+    set_timeout(ms, || resume(()))
   }
   fn now() { 0 }
 }
@@ -760,7 +760,7 @@ handler CapturedClock: Clock {
   fn now() {
     clock = use Clock
     (use Logger).info("now")
-    clock.now() + (clock.now() |> fn(x) { x })
+    clock.now() + (clock.now() |> (|x| x))
   }
 }
 
@@ -768,7 +768,7 @@ handler LazyClock: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() {
     clock = use Clock
-    later = fn() { clock.sleep(1) }
+    later = || clock.sleep(1)
     1
   }
 }
@@ -784,7 +784,7 @@ handler ViaClosure: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() {
     clock = use Clock
-    f = fn() { clock.now() }
+    f = || clock.now()
     f()
   }
 }
@@ -858,14 +858,14 @@ fn on_tick(f: fn() -> () use { Clock }) -> ()
 fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
 
 fn logs() -> Int {
-  update(1, fn(x) {
+  update(1, |x| {
     (use Logger).info("x")
     x
   })
 }
 
 fn sleeps() -> Int {
-  update(1, fn(x) {
+  update(1, |x| {
     (use Clock).sleep(1)
     x
   })
@@ -877,7 +877,7 @@ fn named[R: Immediate](f: fn(Int) -> Int use R) -> Int use R { update(1, f) }
 
 fn unnamed[R](f: fn(Int) -> Int use R) -> Int use R { update(1, f) }
 
-fn inferred() { fn(g) { update(1, g) } }
+fn inferred() { |g| update(1, g) }
 
 fn not_effect[A: Immediate](x: A) -> A { x }
 
@@ -885,9 +885,9 @@ fn trait_bound[R: Show](f: fn() -> () use R) -> () use R { f() }
 
 handler Ticking: Logger {
   fn info(msg) {
-    set_timeout(1, fn() { (use Logger).info(msg) })
-    set_timeout(1, fn() { (use Clock).sleep(1) })
-    set_timeout(1, fn() {
+    set_timeout(1, || (use Logger).info(msg))
+    set_timeout(1, || (use Clock).sleep(1))
+    set_timeout(1, || {
       fetch_text(msg)
       ()
     })
@@ -935,14 +935,14 @@ handler MemDb: Db {
 }
 
 fn db_handler() {
-  Handler(run: fn(req) {
+  Handler(run: |req| {
     body = (use Db).query(req.path)
     Response(body:)
   })
 }
 
 fn failing() -> Handler[NotFound, Db] {
-  Handler(run: fn(req) { fail NotFound })
+  Handler(run: |req| fail NotFound)
 }
 
 fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E use R {
@@ -962,7 +962,7 @@ fn inferred(req: Request) {
 }
 
 fn too_much() -> Handler[NotFound, Db] {
-  Handler(run: fn(req) {
+  Handler(run: |req| {
     (use Clock).sleep(1)
     fail Timeout
   })
@@ -982,11 +982,11 @@ fn server(s: Server[NotFound], req: Request) -> Response fails NotFound use Db {
 }
 
 fn tickers() {
-  a = Ticker(tick: fn() {
+  a = Ticker(tick: || {
     (use Db).query("x")
     ()
   })
-  b = Ticker(tick: fn() { (use Clock).sleep(1) })
+  b = Ticker(tick: || (use Clock).sleep(1))
 }
 "#
     ));
@@ -1016,7 +1016,7 @@ effect Log {
 type Handler[E, R](run: fn(Request) -> Response fails E use R)
 
 fn both() -> Handler[NotFound | Timeout, { Db, Log }] {
-  Handler(run: fn(req) {
+  Handler(run: |req| {
     (use Log).info(req.path)
     if req.path == "/" { fail Timeout }
     body = (use Db).query(req.path)
@@ -1026,15 +1026,15 @@ fn both() -> Handler[NotFound | Timeout, { Db, Log }] {
 }
 
 fn pure() -> Handler[{}, {}] {
-  Handler(run: fn(req) { Response(body: req.path) })
+  Handler(run: |req| Response(body: req.path))
 }
 
 fn too_much() -> Handler[{}, {}] {
-  Handler(run: fn(req) { fail NotFound })
+  Handler(run: |req| fail NotFound)
 }
 
 fn wrap[E, R](h: Handler[E, R]) -> Handler[E | Timeout, { R, Log }] {
-  Handler(run: fn(req) {
+  Handler(run: |req| {
     (use Log).info("wrap")
     h.run(req)
   })
@@ -1168,7 +1168,7 @@ handler Plain: Logger {
 
 fn make() { Counter(n: 1) }
 
-fn lambda() { fn() { Counter(n: 1) } }
+fn lambda() { || Counter(n: 1) }
 "#
     ));
 }
@@ -1351,12 +1351,12 @@ fn main() {
   with PrintLog, Audit by Log { c() }
   with PrintLog, Audit by PrintLog, Debug by Tagged, Other by Log { c() }
   with Audit by PrintLog { direct() }
-  with PrintLog, Audit by Log { with Other by Audit { run_hidden(fn() { (use Other).log("y") }) } }
+  with PrintLog, Audit by Log { with Other by Audit { run_hidden(|| (use Other).log("y")) } }
 }
 
 fn ticks[R: Immediate](f: fn() -> () use R) { f() }
 
-fn sleeps() { ticks(fn() { (use Ticks).sleep(1) }) }
+fn sleeps() { ticks(|| (use Ticks).sleep(1)) }
 "#
     ));
 }
@@ -1650,7 +1650,7 @@ handler TakesString(url: String): Kv {
 
 fn closure() {
   c = use Config
-  with LazyKv(url: fn() { c.url() }) { (use Kv).get("a") }
+  with LazyKv(url: || c.url()) { (use Kv).get("a") }
 }
 
 fn value() {

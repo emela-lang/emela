@@ -6,7 +6,7 @@ fn print(s: String) -> () use {}
 error Retry(after: fn() -> Int)
 
 fn attempt(n: Int) -> Int fails Retry {
-  if n > 1 { fail Retry(after: fn() { n }) }
+  if n > 1 { fail Retry(after: || n) }
   n
 }
 

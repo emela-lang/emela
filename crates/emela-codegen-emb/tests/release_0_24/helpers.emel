@@ -3,15 +3,15 @@ enum Wrap { Wrap(Int, String) }
 
 pub fn lambda_patterns(n: Int) -> Int {
   pairs = [("a", n), ("b", n + 1), ("c", n + 2)]
-  total = List.fold(pairs, from: 0, f: fn(acc, (_, value)) { acc + value })
-  selected = List.map([Point(x: n, y: 2), Point(x: n + 1, y: 4)], fn(Point(x:, ..)) { x })
-  nested = List.map([((1, 2), Wrap(n, "w"))], fn(((a, b), Wrap(c, _))) { a + b + c })
-  shifted = List.map(pairs, fn((_, value): (String, Int)) { value + n })
+  total = List.fold(pairs, from: 0, f: |acc, (_, value)| acc + value)
+  selected = List.map([Point(x: n, y: 2), Point(x: n + 1, y: 4)], |Point(x:, ..)| x)
+  nested = List.map([((1, 2), Wrap(n, "w"))], |((a, b), Wrap(c, _))| a + b + c)
+  shifted = List.map(pairs, |(_, value): (String, Int)| value + n)
   assert(selected == [n, n + 1])
   assert(nested == [n + 3])
   assert(shifted == [n + n, n + n + 1, n + n + 2])
-  assert(List.map([()], fn(()) { 42 }) == [42])
-  second = fn(_, value) { value }
+  assert(List.map([()], |()| 42) == [42])
+  second = |_, value| value
   total + second(0, n)
 }
 
@@ -23,20 +23,20 @@ pub fn list_helpers(n: Int) -> Int {
   assert(List.drop(values, 0) == values)
   assert(List.last(values) == Some(n + 5))
   assert(List.last(List.take(values, 0)) == None)
-  flat = List.flat_map(List.take(values, 2), fn(x) { [x, x] })
+  flat = List.flat_map(List.take(values, 2), |x| [x, x])
   assert(flat == [n, n, n + 1, n + 1])
-  kept = List.filter_map(values, fn(x) { if x == n + 2 { Some(x * 2) } else { None } })
+  kept = List.filter_map(values, |x| if x == n + 2 { Some(x * 2) } else { None })
   assert(kept == [(n + 2) * 2])
-  assert(List.find_index(values, fn(x) { x == n + 3 }) == Some(3))
+  assert(List.find_index(values, |x| x == n + 3) == Some(3))
   enumerated = List.enumerate(List.take(values, 3))
   assert(enumerated == [(0, n), (1, n + 1), (2, n + 2)])
   (indexes, items) = List.unzip(enumerated)
   assert(indexes == [0, 1, 2])
   assert(items == List.take(values, 3))
-  sorted = List.sort_by([(1, n), (0, n + 1), (1, n + 2)], fn((a, _), (b, _)) { Ord.compare(a, b) })
+  sorted = List.sort_by([(1, n), (0, n + 1), (1, n + 2)], |(a, _), (b, _)| Ord.compare(a, b))
   assert(sorted == [(0, n + 1), (1, n), (1, n + 2)])
   assert(List.sort([3, 1, 2, 1]) == [1, 1, 2, 3])
-  List.fold(items, from: 0, f: fn(acc, value) { acc + value })
+  List.fold(items, from: 0, f: |acc, value| acc + value)
 }
 
 pub fn ascii(text: String) -> String {

@@ -8,8 +8,8 @@ fn print(s: String) -> () use {}
 # nothing) and set parameters; the C target instantiates them instead of skipping main.
 fn main() {
   print("start")
-  Fiber.scope(fn() {
-    h = Fiber.fork(fn() { panic("child") })
+  Fiber.scope(|| {
+    h = Fiber.fork(|| panic("child"))
     Fiber.join(h)
   })
 }
