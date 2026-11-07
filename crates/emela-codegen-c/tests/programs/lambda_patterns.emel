@@ -2,7 +2,7 @@
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 type Point(x: Int, y: Int)
 

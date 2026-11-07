@@ -8,8 +8,8 @@ fn interrupt_cancels_unstarted_children_and_does_not_yield_for_ended_children() 
             r#"
 import Std.Fiber.{Fiber}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
-pub fn work() -> Int use Async {
+fn mark(n: Int) -> () uses {}
+pub fn work() -> Int uses { Async } {
   Fiber.scope(|| {
     skipped = Fiber.fork(|| mark(99))
     Fiber.interrupt(skipped)
@@ -60,7 +60,7 @@ import Std.Fiber.{Fiber}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
 effect Marker { fn read() -> Int }
@@ -68,7 +68,7 @@ handler Resource: Marker { fn read() { 1 }
   release { mark(3)
     (use Wait).get(3)
     mark(4) } }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
   with Waiting {
     Fiber.scope(|| {
       child = Fiber.fork(|| { with Resource { mark(1)
@@ -131,7 +131,7 @@ import Std.Fiber.{Fiber}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
 effect Marker { fn read() -> Int }
@@ -139,7 +139,7 @@ handler Resource: Marker { fn read() { 1 }
   release { mark(5)
     (use Wait).get(2)
     mark(6) } }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
   with Waiting {
     Fiber.scope(|| {
       child = Fiber.fork(|| { with Resource { mark(1)
@@ -215,7 +215,7 @@ handler Finishing: Finish { suspend fn go(resume) {
 effect Marker { fn read() -> Int }
 handler Resource: Marker { fn read() { 1 }
   release { (use Finish).go() } }
-pub fn work() -> Int use Async { with Waiting, Finishing, Resource { 42 } }
+pub fn work() -> Int uses { Async } { with Waiting, Finishing, Resource { 42 } }
 "#,
         )],
         Roots::Public,
@@ -348,15 +348,15 @@ fn self_interrupt_unwinds_the_body_and_is_deferred_inside_cleanup() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
-fn cleanup(me: Deferred[Fiber[Int]], done: Deferred[()], inside: Bool) -> () use Async {
+fn mark(n: Int) -> () uses {}
+fn cleanup(me: Deferred[Fiber[Int]], done: Deferred[()], inside: Bool) -> () uses { Async } {
   mark(2)
   if inside { Fiber.interrupt(Deferred.await(me)) } else { () }
   mark(3)
   Deferred.complete(done, ())
   ()
 }
-pub fn work(inside: Bool) -> Int use Async {
+pub fn work(inside: Bool) -> Int uses { Async } {
   Fiber.scope(|| {
     me: Deferred[Fiber[Int]] = (use Scope).deferred()
     done: Deferred[()] = (use Scope).deferred()
@@ -423,14 +423,14 @@ fn interrupted_cleanup_can_wait_on_a_deferred_completed_by_a_sibling() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
-fn cleanup(started: Deferred[()], done: Deferred[()]) -> () use Async {
+fn mark(n: Int) -> () uses {}
+fn cleanup(started: Deferred[()], done: Deferred[()]) -> () uses { Async } {
   mark(1)
   Deferred.complete(started, ())
   Deferred.await(done)
   mark(3)
 }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
   Fiber.scope(|| {
     stop: Deferred[Int] = (use Scope).deferred()
     started: Deferred[()] = (use Scope).deferred()
@@ -499,7 +499,7 @@ fn join_of_an_interrupted_child_is_the_defined_panic_defect() {
             "main.emel",
             r#"
 import Std.Fiber.{Fiber}
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
   Fiber.scope(|| { child = Fiber.fork(|| 42)
     Fiber.interrupt(child)
     Fiber.join(child) })
@@ -536,11 +536,11 @@ fn leaked_interrupt_callback_reports_ended_scope_after_slot_reuse() {
             "main.emel",
             r#"
 import Std.Fiber.{Fiber}
-pub fn leak() -> (fn() -> () use Async) use Async {
+pub fn leak() -> (fn() -> () uses { Async }) uses { Async } {
   Fiber.scope(|| { child = Fiber.fork(|| 42)
     || Fiber.interrupt(child) })
 }
-pub fn invoke(f: fn() -> () fails {} use Async) -> () use Async { f() }
+pub fn invoke(f: fn() -> () fails {} uses { Async }) -> () uses { Async } { f() }
 "#,
         )],
         Roots::Public,
@@ -596,7 +596,7 @@ fn await_of_interrupted_children_returns_owned_failures_repeatedly_and_for_unit(
             r#"
 import Std.Fiber.{Fiber}
 import Std.Exit.{Success, Failure}
-pub fn work() -> Bool use Async {
+pub fn work() -> Bool uses { Async } {
   Fiber.scope(|| {
     child = Fiber.fork(|| 42)
     Fiber.interrupt(child)
@@ -648,11 +648,11 @@ import Std.Fiber.{Fiber, Scope}
 import Std.Exit.{Success, Failure}
 import Std.Deferred.{Deferred}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Marker { fn read() -> Int }
 handler Resource: Marker { fn read() { 1 }
   release { mark(4) } }
-pub fn work() -> Bool use Async {
+pub fn work() -> Bool uses { Async } {
   Fiber.scope(|| {
     stop: Deferred[Int] = (use Scope).deferred()
     child = Fiber.fork(|| { with Resource { mark(1)
@@ -711,7 +711,7 @@ fn interruption_causes_survive_scope_and_heap_reuse_and_can_be_released_by_the_c
 import Std.Fiber.{Fiber}
 import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
-pub fn failure() -> Cause[{}] use Async {
+pub fn failure() -> Cause[{}] uses { Async } {
   Fiber.scope(|| {
     child = Fiber.fork(|| 42)
     Fiber.interrupt(child)
@@ -766,14 +766,14 @@ import Std.Deferred.{Deferred}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
 effect Marker { fn read() -> Int }
 handler Resource: Marker { fn read() { 1 }
   release { (use Wait).get(3)
     mark(3) } }
-fn cleanup() -> () use {Async, Wait} {
+fn cleanup() -> () uses {Async, Wait} {
   Fiber.scope(|| {
     Fiber.fork(|| { with Resource { mark(2)
       (use Wait).get(1) } })
@@ -781,7 +781,7 @@ fn cleanup() -> () use {Async, Wait} {
   })
   mark(4)
 }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
   with Waiting {
     Fiber.scope(|| {
       stop: Deferred[Int] = (use Scope).deferred()

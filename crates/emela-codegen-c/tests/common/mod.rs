@@ -39,7 +39,7 @@ void emela_test_sleep(int32_t ms, em_task *task) {
 /// Declares `print` for the test programs.
 pub const PRELUDE: &str = r#"@external(js, "console.log")
 @external(c, "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 "#;
 
 /// Lowers `src` and compiles it to C.

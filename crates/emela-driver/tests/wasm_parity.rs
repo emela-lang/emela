@@ -156,7 +156,7 @@ handler Hi: Greet {
   fn hello(name) { "hi #{name}" }
 }
 
-fn greet(name: String) -> String use Greet {
+fn greet(name: String) -> String uses { Greet } {
   (use Greet).hello(name)
 }
 
@@ -322,7 +322,7 @@ fn count(hit: Bool) {
   if hit { (use Hits).update(|n| n + 1) } else { (use Misses).update(|n| n + 1) }
 }
 
-fn tally() -> (Int, Int) use { Hits, Misses } {
+fn tally() -> (Int, Int) uses { Hits, Misses } {
   count(True)
   count(False)
   count(True)
@@ -851,7 +851,7 @@ fn main() {
 /// them (the WASM target's "not supported yet", which has no diagnostic code any more).
 const NOT_ON_WASM: &[(&str, &str, &str)] = &[(
     "fibers",
-    "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(|| ())\n}\n",
+    "import Std.Fiber.{Fiber}\nfn main() -> () uses { Async } {\n  Fiber.scope(|| ())\n}\n",
     "fibers are not supported on target `wasm`",
 )];
 

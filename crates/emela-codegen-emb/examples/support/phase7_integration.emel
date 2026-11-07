@@ -6,11 +6,11 @@ suspend fn wait(n: Int) -> Int
 error Boom(message: String, parts: List[String]) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
-fn request(n: Int) -> Int fails Boom use Async {
+fn request(n: Int) -> Int fails Boom uses { Async } {
   with Waiting { (use Wait).get(n) }
   fail Boom(message: "", parts: [])
 }
-fn rounds(n: Int, total: Int) -> Int fails Boom use {Scope[Boom, {State[String], Async}], State[String], Async} {
+fn rounds(n: Int, total: Int) -> Int fails Boom uses {Scope[Boom, {State[String], Async}], State[String], Async} {
   if n == 0 { total } else {
     state = use State[String]
     Fiber.fork(|| { state.get()
@@ -27,7 +27,7 @@ fn rounds(n: Int, total: Int) -> Int fails Boom use {Scope[Boom, {State[String],
     if text == "42" { rounds(n - 1, total + String.byte_size(text)) } else { -1000 }
   }
 }
-pub fn work(n: Int) -> Int use Async {
+pub fn work(n: Int) -> Int uses { Async } {
   (answer, final) = State.run("initial", || {
     Fiber.scope(|| rounds(n, 0)) escape {
       Boom(message, parts) -> if String.starts_with(message, "a") {

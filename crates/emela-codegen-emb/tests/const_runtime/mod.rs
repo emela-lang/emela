@@ -737,9 +737,9 @@ pub fn text() -> String { (identity, _) = IDENTITY
 fn source_polymorphic_consts_share_initialization_and_specialize_callable_families() {
     let source = r#"
 @external(c, "tick")
-fn tick() -> Int use {}
+fn tick() -> Int uses {}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 const EMPTY = { dbg("EMPTY")
  []
 }
@@ -893,7 +893,7 @@ fn polymorphic_const_opaque_handles_forward_one_pointer_abi_and_one_initializati
 @external
 type Handle[A]
 @external(c,"host_handle")
-fn handle[A]() -> Handle[A] use {}
+fn handle[A]() -> Handle[A] uses {}
 const HANDLE = handle()
 fn number(h: Handle[Int]) -> Int { 42 }
 fn text(h: Handle[String]) -> Int { 42 }
@@ -991,7 +991,7 @@ fn polymorphic_const_defects_have_one_source_context_and_self_reference_retries(
         let source = format!(
             r#"
 @external(c,"trigger")
-fn trigger() -> Int use {{}}
+fn trigger() -> Int uses {{}}
 const BROKEN = {{ dbg("once")
  if trigger() == 1 {{ {expression} }} else {{ [] }}
 }}

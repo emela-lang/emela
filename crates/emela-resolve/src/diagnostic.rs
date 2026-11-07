@@ -119,7 +119,7 @@ pub enum Expected {
     TypeParam,
     /// Left of `.`.
     ModuleOrTrait,
-    /// `use X`, `handler H: X`, the `use` clause.
+    /// `use X`, `handler H: X`, the `uses` clause.
     Effect,
     /// The contents of a layer.
     HandlerOrLayer,

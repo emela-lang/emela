@@ -1,6 +1,6 @@
 ---
 source: crates/emela-driver/tests/doc.rs
-expression: "files[2].contents"
+expression: "files[2].text()"
 ---
 # Shapes
 
@@ -98,7 +98,7 @@ const LIMIT: Int
 ### find
 
 ```emela
-fn find(id: Int) -> Point fails NotFound | Timeout use Log
+fn find(id: Int) -> Point fails NotFound | Timeout uses { Log }
 ```
 
 Finds a point, or fails.
@@ -110,5 +110,5 @@ Indented lines stay indented:
 ### apply
 
 ```emela
-fn apply[A, B](x: A, f: fn(A) -> B fails E(f) use R(f)) -> B fails E(f) use R(f)
+fn apply[A, B](x: A, f: fn(A) -> B fails E(f) uses { R(f) }) -> B fails E(f) uses { R(f) }
 ```

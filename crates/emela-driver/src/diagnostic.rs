@@ -837,11 +837,11 @@ impl Diagnostic {
                     EffectContext::Declared => {
                         help = Some(match scope {
                             Some(scope) => format!(
-                                "add it to `use` or provide it with `with` outside `{scope}`"
+                                "add it to `uses` or provide it with `with` outside `{scope}`"
                             ),
-                            None => "add it to `use` or provide it with `with`".to_owned(),
+                            None => "add it to `uses` or provide it with `with`".to_owned(),
                         });
-                        format!("{list} {verb} not declared in `use`")
+                        format!("{list} {verb} not declared in `uses`")
                     }
                     EffectContext::Const => format!("constant values cannot use {list}"),
                     EffectContext::LayerArg(arg) => {
@@ -875,7 +875,7 @@ impl Diagnostic {
             TypeDiagnosticKind::EffectSetMismatch { expected, found } => (
                 Severity::Error,
                 Some(code::EFFECT_SET_MISMATCH),
-                format!("effect set mismatch: expected `use {expected}`, found `use {found}`"),
+                format!("effect set mismatch: expected `uses {expected}`, found `uses {found}`"),
             ),
             TypeDiagnosticKind::MissingHandlerOps { handler, ops } => (
                 Severity::Error,
@@ -903,7 +903,7 @@ impl Diagnostic {
             ),
             TypeDiagnosticKind::ExternalOutsideHandler { name, suspend } => {
                 if !*suspend {
-                    help = Some("declare it with `use {}` if it has no side effects".to_owned());
+                    help = Some("declare it with `uses {}` if it has no side effects".to_owned());
                 }
                 (
                     Severity::Error,
@@ -1362,7 +1362,7 @@ impl Diagnostic {
                 Severity::Error,
                 Some(code::IMMEDIATE_ON_NON_EFFECT),
                 format!(
-                    "`Immediate` can only constrain effect sets, but `{param}` is not used in `use`"
+                    "`Immediate` can only constrain effect sets, but `{param}` is not used in `uses`"
                 ),
             ),
         };

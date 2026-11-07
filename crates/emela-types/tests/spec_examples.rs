@@ -275,9 +275,9 @@ type Request(path: String)  # 補
 type Response(body: String)  # 補
 error NotFound  # 補
 
-type Handler[E, R](run: fn(Request) -> Response fails E use R)
+type Handler[E, R](run: fn(Request) -> Response fails E uses { R })
 
-fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E use R {  # 補
+fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E uses { R } {  # 補
   h.run(req)
 }
 
@@ -879,7 +879,7 @@ handler ReplicaDb: Db {  # 補
   fn execute(rows) { () }
 }
 
-fn copy(read: fn() -> Rows use { Db }, write: fn(Rows) -> () use { Db }) {
+fn copy(read: fn() -> Rows uses { Db }, write: fn(Rows) -> () uses { Db }) {
   write(read())
 }
 
@@ -935,8 +935,8 @@ fn run() {  # 補．ConsoleLogger だけでは Clock が残る
 }
 
 /// 8.3 `with` and invisible effect sets. `with` removes nothing from a parameter function's
-/// invisible set. Writing `use { Logger, R }` lets `with` remove Logger and passes as
-/// `-> () use R`.
+/// invisible set. Writing `uses { Logger, R }` lets `with` remove Logger and passes as
+/// `-> () uses { R }`.
 #[test]
 fn spec_8_3_with_and_set_variables() {
     insta::assert_snapshot!(render_bodies(
@@ -955,7 +955,7 @@ handler ConsoleLogger: Logger {  # 補
 
 fn run_hidden(f: fn() -> ()) { with ConsoleLogger { f() } }  # 補．仕様の `run(f: fn() -> ())`
 
-fn run[R](f: fn() -> () use { Logger, R }) -> () use R {
+fn run[R](f: fn() -> () uses { Logger, R }) -> () uses { R } {
   with ConsoleLogger { f() }      # R は R だけ。Logger は消える
 }
 
@@ -1024,8 +1024,8 @@ type Ref[A](value: A)  # 補
 
 fn update[A, R: Immediate](
   ref: Ref[A],
-  f: fn(A) -> A use R,
-) -> () use R {
+  f: fn(A) -> A uses { R },
+) -> () uses { R } {
   f(ref.value)  # 補
   ()
 }
@@ -1039,7 +1039,7 @@ fn bump(r: Ref[Int]) { update(r, |n| n + 1) }  # 補
     ));
 }
 
-/// 9.2 `fn(A) -> B use {}` accepts only functions without effects. Omitted, it accepts anything,
+/// 9.2 `fn(A) -> B uses {}` accepts only functions without effects. Omitted, it accepts anything,
 /// and the effects join the caller's R.
 #[test]
 fn spec_9_2_effect_free_parameter() {
@@ -1049,7 +1049,7 @@ effect Logger {  # 補
   fn info(msg: String) -> ()
 }
 
-fn run_pure(f: fn() -> Int use {}) -> Int { f() }  # 補
+fn run_pure(f: fn() -> Int uses {}) -> Int { f() }  # 補
 fn run_any(f: fn() -> Int) -> Int { f() }  # 補
 
 fn callers() {  # 補

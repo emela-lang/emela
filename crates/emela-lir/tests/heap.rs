@@ -211,7 +211,7 @@ handler Counted(n: Int): Pool {
 
 error Empty
 
-fn work(k: Int) -> Int fails Empty use Pool {
+fn work(k: Int) -> Int fails Empty uses { Pool } {
   if k == 0 { fail Empty }
   (use Pool).get() + k
 }
@@ -239,7 +239,7 @@ handler Strict: Pool {
   fn get() { 1 }
 }
 
-fn pick(xs: List[Int]) -> Int use Pool {
+fn pick(xs: List[Int]) -> Int uses { Pool } {
   xs match {
     [] -> panic(\"empty\")
     [x, ..] -> x / (use Pool).get()
@@ -302,7 +302,7 @@ handler Prefixed(prefix: String): Log {
   fn count() { 0 }
 }
 
-fn report(x: Int) -> Int use Log {
+fn report(x: Int) -> Int uses { Log } {
   log = use Log
   log.info(\"x\")
   x + log.count()
@@ -339,16 +339,16 @@ handler Napper: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
-fn nap(ms: Int, label: String) -> Int use Clock {
+fn nap(ms: Int, label: String) -> Int uses { Clock } {
   with Napper { dbg(label) }
   (use Clock).sleep(ms) + 1
 }
 
-fn count(i: Int, acc: Int) -> Int use Clock {
+fn count(i: Int, acc: Int) -> Int uses { Clock } {
   if i == 0 { acc } else { count(i - 1, acc + (use Clock).sleep(i)) }
 }
 
-fn twice(f: fn() -> Int use Clock) -> Int use Clock {
+fn twice(f: fn() -> Int uses { Clock }) -> Int uses { Clock } {
   f() + f()
 }
 
@@ -393,7 +393,7 @@ handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
-fn nap(ms: Int, label: String) -> String use Clock {
+fn nap(ms: Int, label: String) -> String uses { Clock } {
   n = (use Clock).sleep(ms)
   \"#{label} #{ms} #{n}\"
 }

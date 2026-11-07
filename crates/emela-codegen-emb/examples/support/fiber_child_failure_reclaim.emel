@@ -11,7 +11,7 @@ handler Res: Resource {
   fn read() { 0 }
   release { (use Wait).get(3) }
 }
-pub fn work(n: Int) -> String use Async {
+pub fn work(n: Int) -> String uses { Async } {
   with Waiting {
     Exit.attempt(|| { Fiber.scope(|| {
       Fiber.fork(|| with Res { (use Wait).get(2) })

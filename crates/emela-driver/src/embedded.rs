@@ -231,7 +231,7 @@ impl EmbeddedConfig {
                         && function.external.is_none()
                 });
             if !valid {
-                return Err(self.error(format!("board entry `{entry}` must be a public, non-generic, argument-free `fn() -> Int use Async` without unhandled failures or effects")));
+                return Err(self.error(format!("board entry `{entry}` must be a public, non-generic, argument-free `fn() -> Int uses {{ Async }}` without unhandled failures or effects")));
             }
         }
         let mut board_symbols: HashSet<&str> = self

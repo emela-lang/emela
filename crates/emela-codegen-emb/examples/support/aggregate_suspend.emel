@@ -8,11 +8,11 @@ pub fn make(n: Int) -> (String, Option[String]) {
   text = Int.to_string(n)
   (text, Some(text))
 }
-fn echo(pair: (String, Option[String])) -> (String, Option[String]) use Wait {
+fn echo(pair: (String, Option[String])) -> (String, Option[String]) uses { Wait } {
   (use Wait).get(1)
   pair
 }
-pub fn delayed(pair: (String, Option[String]), keep: Bool) -> (String, Option[String]) use Async {
+pub fn delayed(pair: (String, Option[String]), keep: Bool) -> (String, Option[String]) uses { Async } {
   with Waiting {
     result = echo(pair)
     (use Wait).get(2)
@@ -29,7 +29,7 @@ pub fn maker(s: String, n: Int) -> (fn() -> String) {
     String.append(String.append(text, suffix), String.join(xs, "/"))
   }
 }
-pub fn scoped(n: Int, cancel: Bool) -> (String, Option[String]) use Async {
+pub fn scoped(n: Int, cancel: Bool) -> (String, Option[String]) uses { Async } {
   with Waiting {
     xs = Fiber.scope(|| {
       pair = (Int.to_string(n), Some(Int.to_string(n + 1)))

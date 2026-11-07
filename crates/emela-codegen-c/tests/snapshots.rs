@@ -103,12 +103,12 @@ handler Instant: Clock {
   suspend fn sleep(ms, resume) { resume(ms + 1) }
 }
 
-fn nap(ms: Int) -> Int use { Clock } {
+fn nap(ms: Int) -> Int uses { Clock } {
   n = (use Clock).sleep(ms)
   n + ms
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Instant {
     total = Fiber.scope(|| {
       a = Fiber.fork(|| nap(1))

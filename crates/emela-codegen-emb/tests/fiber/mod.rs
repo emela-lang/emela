@@ -82,8 +82,8 @@ fn scope_cancels_unstarted_children_before_running_their_function() {
             r#"
 import Std.Fiber.{Fiber, Scope}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
-pub fn skip() -> Int use Async {
+fn mark(n: Int) -> () uses {}
+pub fn skip() -> Int uses { Async } {
   Fiber.scope(|| {
     Fiber.fork(|| {
       mark(99)
@@ -178,12 +178,12 @@ import Std.Fiber.{Fiber, Scope}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait {
   suspend fn get(n, resume) { resume(wait(n)) }
 }
-pub fn nested() -> Int use Async {
+pub fn nested() -> Int uses { Async } {
   with Waiting {
     Fiber.scope(|| {
       Fiber.fork(|| {
@@ -250,12 +250,12 @@ import Std.Fiber.{Fiber, Scope}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Config { fn read() -> Int }
 handler Outer: Config { fn read() { 10 } }
 handler Inner: Config { fn read() { 90 } }
-fn read() -> Int use Config { (use Config).read() }
-fn branch() -> () use { Config, Scope[{}, {Config}] } {
+fn read() -> Int uses { Config } { (use Config).read() }
+fn branch() -> () uses { Config, Scope[{}, {Config}] } {
   mark(read())
   Fiber.fork(|| mark(read() + 1))
   ()
@@ -264,7 +264,7 @@ effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait {
   suspend fn get(n, resume) { resume(wait(n)) }
 }
-pub fn siblings() -> Int use Async {
+pub fn siblings() -> Int uses { Async } {
   with Outer {
     with Waiting {
       Fiber.scope(|| {
@@ -401,8 +401,8 @@ fn fork_exhaustion_is_a_fixed_pool_defect_before_children_start() {
             r#"
 import Std.Fiber.{Fiber}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
-pub fn full() -> Int use Async {
+fn mark(n: Int) -> () uses {}
+pub fn full() -> Int uses { Async } {
   Fiber.scope(|| {
     Fiber.fork(|| mark(99))
     Fiber.fork(|| mark(99))
@@ -439,12 +439,12 @@ import Std.Fiber.{Fiber}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait {
   suspend fn get(n, resume) { resume(wait(n)) }
 }
-pub fn managed(n: Int) -> String use Async {
+pub fn managed(n: Int) -> String uses { Async } {
   with Waiting {
     text = Int.to_string(n)
     xs = [n, n + 1]

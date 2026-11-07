@@ -47,7 +47,7 @@ fn run_fs_prepared(name: &str, setup: impl FnOnce(&Path), src: &str) -> Option<(
 const FS_IMPORTS: &str = "import Std.FileSystem.{FileSystem, SystemFileSystem, FileNotFound, FileAccessDenied, IsADirectory, InvalidText, NotADirectory, DirectoryNotEmpty, FileSystemFailure}";
 
 /// An Emela helper: the name of the error `body` failed with, or `"ok"`.
-const ERROR_NAME: &str = r#"fn error_name[E](body: fn() -> () fails E use { FileSystem }) -> String fails E use { FileSystem } {
+const ERROR_NAME: &str = r#"fn error_name[E](body: fn() -> () fails E uses { FileSystem }) -> String fails E uses { FileSystem } {
   {
     body()
     "ok"
@@ -118,7 +118,7 @@ fn errors_are_classified_like_js_and_c() {
     dbg(outcome(|| fs.remove("e/missing")))
     dbg(outcome(|| fs.remove("e")))"#;
     let src = format!(
-        "import Std.FileSystem.{{FileSystem, SystemFileSystem, FileNotFound, IsADirectory, NotADirectory, DirectoryNotEmpty}}\n\nfn outcome[E](body: fn() -> () fails E use {{ FileSystem }}) -> String fails E use {{ FileSystem }} {{\n  {{\n    body()\n    \"ok\"\n  }} escape {{\n    FileNotFound(..)      -> \"FileNotFound\"\n    IsADirectory(..)      -> \"IsADirectory\"\n    NotADirectory(..)     -> \"NotADirectory\"\n    DirectoryNotEmpty(..) -> \"DirectoryNotEmpty\"\n  }}\n}}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n{body}\n  }}\n}}\n"
+        "import Std.FileSystem.{{FileSystem, SystemFileSystem, FileNotFound, IsADirectory, NotADirectory, DirectoryNotEmpty}}\n\nfn outcome[E](body: fn() -> () fails E uses {{ FileSystem }}) -> String fails E uses {{ FileSystem }} {{\n  {{\n    body()\n    \"ok\"\n  }} escape {{\n    FileNotFound(..)      -> \"FileNotFound\"\n    IsADirectory(..)      -> \"IsADirectory\"\n    NotADirectory(..)     -> \"NotADirectory\"\n    DirectoryNotEmpty(..) -> \"DirectoryNotEmpty\"\n  }}\n}}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n{body}\n  }}\n}}\n"
     );
     let Some(run) = run_fs("fs-errors", &[], &src) else {
         return;
@@ -138,7 +138,7 @@ fn invalid_text_and_bom() {
     let body = r#"    dbg(outcome(|| { _ = fs.read_text("invalid.bin") }))
     dbg(String.code_points(fs.read_text("bom.txt")))"#;
     let src = format!(
-        "import Std.FileSystem.{{FileSystem, SystemFileSystem, InvalidText}}\n\nfn outcome[E](body: fn() -> () fails E use {{ FileSystem }}) -> String fails E use {{ FileSystem }} {{\n  {{\n    body()\n    \"ok\"\n  }} escape {{\n    InvalidText(..) -> \"InvalidText\"\n  }}\n}}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n{body}\n  }}\n}}\n"
+        "import Std.FileSystem.{{FileSystem, SystemFileSystem, InvalidText}}\n\nfn outcome[E](body: fn() -> () fails E uses {{ FileSystem }}) -> String fails E uses {{ FileSystem }} {{\n  {{\n    body()\n    \"ok\"\n  }} escape {{\n    InvalidText(..) -> \"InvalidText\"\n  }}\n}}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n{body}\n  }}\n}}\n"
     );
     let Some(run) = run_fs(
         "fs-invalid",

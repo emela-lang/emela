@@ -4,13 +4,13 @@ expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nfn take[A](x: A) ->
 ---
 take: ∀ A. fn(A) -> ()
   x: '0
-leaks: fn() -> () use Async
+leaks: fn() -> () uses { Async }
   s: use Scope[{}, {}]
   xs: List[use Scope[{}, {}]]
-returned: fn() -> use Scope[{}, {}] use Scope[{}, {}]
-closure_is_fine: fn() -> Int use Async
+returned: fn() -> use Scope[{}, {}] uses { Scope[{}, {}] }
+closure_is_fine: fn() -> Int uses { Async }
   s: use Scope[{}, {}]
-  run: fn() -> Fiber[Int] use Scope[{}, {}]
+  run: fn() -> Fiber[Int] uses { Scope[{}, {}] }
 `s` CapabilityArgument
 `s` CapabilityInData
 `use Scope` CapabilityReturned

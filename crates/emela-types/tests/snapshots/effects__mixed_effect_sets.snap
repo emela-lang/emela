@@ -1,15 +1,15 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\neffect Quiet {\n  fn hush() -> ()\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Silent: Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () use { Quiet, R }) -> () use R {\n  with Silent { f() }\n}\n\nfn run_rev[R](f: fn() -> () use { R, Quiet }) -> () use R {\n  with Silent { f() }\n}\n\nfn run_inferred[R](f: fn() -> () use { Quiet, R }) {\n  with Silent { f() }\n}\n\nfn run_hidden(f: fn() -> ()) {\n  with Silent { f() }\n}\n\nfn not_provided[R](f: fn() -> () use { Quiet, R }) -> () use R {\n  f()\n}\n\nfn wrap[R](f: fn() -> () use R) -> fn() -> () use { Quiet, R } {\n  || {\n    (use Quiet).hush()\n    f()\n  }\n}\n\nfn forward(g: fn() -> ()) {\n  run(g)\n}\n\nfn callers() {\n  a = run(|| {\n    (use Quiet).hush()\n    (use Logger).info(\"x\")\n  })\n  b = run(|| (use Quiet).hush())\n  c = run(|| ())\n  d = run_hidden(|| (use Quiet).hush())\n  e = run(wrap(|| (use Logger).info(\"y\")))\n}\n\"#)"
+expression: "render_effects(r#\"\neffect Quiet {\n  fn hush() -> ()\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Silent: Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () uses { Quiet, R }) -> () uses { R } {\n  with Silent { f() }\n}\n\nfn run_rev[R](f: fn() -> () uses { R, Quiet }) -> () uses { R } {\n  with Silent { f() }\n}\n\nfn run_inferred[R](f: fn() -> () uses { Quiet, R }) {\n  with Silent { f() }\n}\n\nfn run_hidden(f: fn() -> ()) {\n  with Silent { f() }\n}\n\nfn not_provided[R](f: fn() -> () uses { Quiet, R }) -> () uses { R } {\n  f()\n}\n\nfn wrap[R](f: fn() -> () uses { R }) -> fn() -> () uses { Quiet, R } {\n  || {\n    (use Quiet).hush()\n    f()\n  }\n}\n\nfn forward(g: fn() -> ()) {\n  run(g)\n}\n\nfn callers() {\n  a = run(|| {\n    (use Quiet).hush()\n    (use Logger).info(\"x\")\n  })\n  b = run(|| (use Quiet).hush())\n  c = run(|| ())\n  d = run_hidden(|| (use Quiet).hush())\n  e = run(wrap(|| (use Logger).info(\"y\")))\n}\n\"#)"
 ---
-run: ∀ R, E(f). fn(fn() -> () fails E(f) use { Quiet, R }) -> () fails E(f) use R
-run_rev: ∀ R, E(f). fn(fn() -> () fails E(f) use { Quiet, R }) -> () fails E(f) use R
-run_inferred: ∀ R, E(f). fn(fn() -> () fails E(f) use { Quiet, R }) -> () fails E(f) use R
-run_hidden: ∀ E(f), R(f). fn(fn() -> () fails E(f) use R(f)) -> () fails E(f) use R(f)
-not_provided: ∀ R, E(f). fn(fn() -> () fails E(f) use { Quiet, R }) -> () fails E(f) use R
-wrap: ∀ R, E(f). fn(fn() -> () fails E(f) use R) -> fn() -> () fails E(f) use { Quiet, R }
-forward: ∀ E(g), R(g). fn(fn() -> () fails E(g) use R(g)) -> () fails E(g) use R(g)
-callers: fn() -> () use { Quiet, Logger }
+run: ∀ R, E(f). fn(fn() -> () fails E(f) uses { Quiet, R }) -> () fails E(f) uses { R }
+run_rev: ∀ R, E(f). fn(fn() -> () fails E(f) uses { Quiet, R }) -> () fails E(f) uses { R }
+run_inferred: ∀ R, E(f). fn(fn() -> () fails E(f) uses { Quiet, R }) -> () fails E(f) uses { R }
+run_hidden: ∀ E(f), R(f). fn(fn() -> () fails E(f) uses { R(f) }) -> () fails E(f) uses { R(f) }
+not_provided: ∀ R, E(f). fn(fn() -> () fails E(f) uses { Quiet, R }) -> () fails E(f) uses { R }
+wrap: ∀ R, E(f). fn(fn() -> () fails E(f) uses { R }) -> fn() -> () fails E(f) uses { Quiet, R }
+forward: ∀ E(g), R(g). fn(fn() -> () fails E(g) uses { R(g) }) -> () fails E(g) uses { R(g) }
+callers: fn() -> () uses { Quiet, Logger }
 handler Silent: use {}
 `f()` unhandled effects Quiet (Declared)
 --- R

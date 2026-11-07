@@ -4,7 +4,7 @@ import Std.Cause.{Cause, Fail, Die, Interrupt}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom(n: Int) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n,resume) { resume(wait(n)) } }
@@ -16,7 +16,7 @@ handler Res: Resource {
   mark(2)
  }
 }
-pub fn work(mode: Int) -> Int use Async {
+pub fn work(mode: Int) -> Int uses { Async } {
  with Waiting {
   Exit.attempt(|| {
    Fiber.scope(|| {

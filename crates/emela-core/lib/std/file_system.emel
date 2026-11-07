@@ -6,7 +6,7 @@
 # normalized (no `..` resolution, no `~` expansion).
 #
 # SystemFileSystem's host functions return an `Outcome` (below). The functions reading it are
-# pure (`use {}`): they only read an immutable object. On C, Emela does not free host values
+# pure (`uses {}`): they only read an immutable object. On C, Emela does not free host values
 # (spec 12.3), so each operation takes everything out of the outcome, releases it, and only then
 # fails. The operations do not stop on interruption: reading and writing are short.
 #
@@ -111,31 +111,31 @@ suspend fn host_remove(path: String) -> Outcome
 @external(js, "./file_system.mjs", "error")
 @external(c, "./file_system.c", "emela_fs_outcome_error")
 @external(wasm, "emela:runtime/filesystem@0.1.0", "outcome-error")
-fn outcome_error(o: Outcome) -> String use {}
+fn outcome_error(o: Outcome) -> String uses {}
 
 ## The host's message for FileSystemFailure.
 @external(js, "./file_system.mjs", "message")
 @external(c, "./file_system.c", "emela_fs_outcome_message")
 @external(wasm, "emela:runtime/filesystem@0.1.0", "outcome-message")
-fn outcome_message(o: Outcome) -> String use {}
+fn outcome_message(o: Outcome) -> String uses {}
 
 ## The text read by `host_read_text`.
 @external(js, "./file_system.mjs", "text")
 @external(c, "./file_system.c", "emela_fs_outcome_text")
 @external(wasm, "emela:runtime/filesystem@0.1.0", "outcome-text")
-fn outcome_text(o: Outcome) -> String use {}
+fn outcome_text(o: Outcome) -> String uses {}
 
 ## The number of names listed by `host_list_directory`.
 @external(js, "./file_system.mjs", "nameCount")
 @external(c, "./file_system.c", "emela_fs_outcome_name_count")
 @external(wasm, "emela:runtime/filesystem@0.1.0", "outcome-name-count")
-fn outcome_name_count(o: Outcome) -> Int use {}
+fn outcome_name_count(o: Outcome) -> Int uses {}
 
 ## The `i`-th name listed by `host_list_directory`.
 @external(js, "./file_system.mjs", "nameAt")
 @external(c, "./file_system.c", "emela_fs_outcome_name_at")
 @external(wasm, "emela:runtime/filesystem@0.1.0", "outcome-name-at")
-fn outcome_name_at(o: Outcome, i: Int) -> String use {}
+fn outcome_name_at(o: Outcome, i: Int) -> String uses {}
 
 # Frees the outcome on C, where Emela does not free host values (spec 12.3). Does nothing on JS
 # or WASM, where the outcome and its strings are left to the end of the command.

@@ -101,7 +101,7 @@ fn clocks_resume_later_and_in_place() {
     // suspending copy when given a suspending lambda, and the original otherwise.
     let project = Project::new(
         "clocks",
-        r#"fn total(xs: List[Int]) -> Int use Clock {
+        r#"fn total(xs: List[Int]) -> Int uses { Clock } {
   clock = use Clock
   List.fold(List.map(xs, |ms| clock.sleep(ms)), 0, |a, b| a + b)
 }

@@ -1,8 +1,8 @@
 ---
 source: crates/emela-types/tests/methods.rs
-expression: "render_bodies(r#\"\nerror Bad\n\neffect Log {\n  fn write(s: String) -> ()\n}\n\ntype User(name: String, age: Int)\n\nfn chained(u: User) {\n  u.rename(\"a\").check().logged()\n}\n\nfn named(u: User) {\n  u.rename(name: \"b\").name\n}\n\nfn before(u: User) {\n  u.later()\n}\n\nfn rename(u: User, name: String) -> User {\n  User(name:, ..u)\n}\n\nfn check(u: User) -> User fails Bad {\n  if u.age < 0 { fail Bad } else { u }\n}\n\nfn logged(u: User) -> User use Log {\n  (use Log).write(u.name)\n  u\n}\n\nfn later(u: User) {\n  u.age + 1\n}\n\nfn private_here(u: User) {\n  u.helper()\n}\n\nfn helper(u: User) -> Int {\n  u.age\n}\n\"#)"
+expression: "render_bodies(r#\"\nerror Bad\n\neffect Log {\n  fn write(s: String) -> ()\n}\n\ntype User(name: String, age: Int)\n\nfn chained(u: User) {\n  u.rename(\"a\").check().logged()\n}\n\nfn named(u: User) {\n  u.rename(name: \"b\").name\n}\n\nfn before(u: User) {\n  u.later()\n}\n\nfn rename(u: User, name: String) -> User {\n  User(name:, ..u)\n}\n\nfn check(u: User) -> User fails Bad {\n  if u.age < 0 { fail Bad } else { u }\n}\n\nfn logged(u: User) -> User uses { Log } {\n  (use Log).write(u.name)\n  u\n}\n\nfn later(u: User) {\n  u.age + 1\n}\n\nfn private_here(u: User) {\n  u.helper()\n}\n\nfn helper(u: User) -> Int {\n  u.age\n}\n\"#)"
 ---
-chained: fn(User) -> User fails Bad use Log
+chained: fn(User) -> User fails Bad uses { Log }
   u: User
 named: fn(User) -> String
   u: User
@@ -13,7 +13,7 @@ rename: fn(User, String) -> User
   name: String
 check: fn(User) -> User fails Bad
   u: User
-logged: fn(User) -> User use Log
+logged: fn(User) -> User uses { Log }
   u: User
 later: fn(User) -> Int
   u: User

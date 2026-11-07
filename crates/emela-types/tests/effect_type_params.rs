@@ -125,7 +125,7 @@ fn spec_test_console() {
 import Std.Console.{Console}
 import Std.State.{State}
 
-fn greet(id: Int) -> () use { Console } {
+fn greet(id: Int) -> () uses { Console } {
   (use Console).print_line("Hello, alice!")
 }
 
@@ -167,7 +167,7 @@ handler TestClock: Clock {
   fn now() { (use State[Instant]).get() }
 }
 
-fn elapsed() -> Duration use { Clock } {
+fn elapsed() -> Duration uses { Clock } {
   clock = use Clock
   start = clock.now()
   clock.sleep(1500)
@@ -203,7 +203,7 @@ handler Empty: State[String] {
   fn update(f) { () }
 }
 
-fn both() -> () use { State[Int], State[String] } {
+fn both() -> () uses { State[Int], State[String] } {
   n = (use State[Int]).get()
   s = (use State[String]).get()
   ()
@@ -243,7 +243,7 @@ fn generic_state() {
         r#"
 import Std.State.{State}
 
-fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+fn modify[S](f: fn(S) -> S fails {} uses {}) -> S uses { State[S] } {
   st = use State[S]
   st.update(f)
   st.get()
@@ -292,13 +292,13 @@ handler TooMany: State[Int, String] {
 
 fn omitted() { (use State).get() }
 
-fn clause() -> () use State { () }
+fn clause() -> () uses { State } { () }
 
 fn logger() { (use Logger[Int]).info("a") }
 
 fn wrong_value() { (use State[Int]).set("a") }
 
-fn undeclared() -> () use State[Int] {
+fn undeclared() -> () uses { State[Int] } {
   (use State[String]).set("a")
 }
 

@@ -141,7 +141,7 @@ handler Res: Name {
   release { print("release res") }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   print(String.join(String.split("abc", sep(0)), "|"))
   r = Exit.attempt(|| String.split("aé", sep(0)))
   r match {
@@ -172,7 +172,7 @@ fn callbacks_to_c_are_rejected() {
     let (kind, message) = error_of(
         r#"
 @external(c, "emela_on")
-fn on(f: fn(Int) -> Int) -> () use {}
+fn on(f: fn(Int) -> Int) -> () uses {}
 
 fn main() { on(|x| x) }
 "#,

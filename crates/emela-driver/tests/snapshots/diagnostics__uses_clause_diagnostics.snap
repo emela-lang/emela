@@ -1,0 +1,98 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0147]: write `uses { Logger }` instead of `use Logger`
+   ╭─[ main.emel:6:19 ]
+   │
+ 6 │   fn get() -> Int use Logger
+   │                   ─┬─  
+   │                    ╰─── 
+───╯
+
+error[E0137]: effect operations cannot have a `uses` clause
+   ╭─[ main.emel:6:19 ]
+   │
+ 6 │   fn get() -> Int use Logger
+   │                   ─────┬────  
+   │                        ╰────── 
+───╯
+
+error[E0147]: write `uses { Db }` instead of `use Db`
+    ╭─[ main.emel:13:17 ]
+    │
+ 13 │ fn old() -> Int use Db {
+    │                 ─┬─  
+    │                  ╰─── 
+────╯
+
+error[E0147]: write `uses { Db, Logger }` instead of `use { Db, Logger }`
+    ╭─[ main.emel:18:3 ]
+    │
+ 18 │   use { Db, Logger } {
+    │   ─┬─  
+    │    ╰─── 
+────╯
+
+error[E0147]: write `uses {}` instead of `use {}`
+    ╭─[ main.emel:22:27 ]
+    │
+ 22 │ fn old_type(f: fn() -> () use {}) -> () uses {} {
+    │                           ─┬─  
+    │                            ╰─── 
+────╯
+
+error[E0402]: effect `Logger` is not declared in `uses`
+    ╭─[ main.emel:27:4 ]
+    │
+ 27 │   (use Logger).info("x")
+    │    ─────┬────  
+    │         ╰────── 
+────╯
+   = help: add it to `uses` or provide it with `with`
+
+error[E0402]: effect `Logger` is not declared in `uses`
+    ╭─[ main.emel:31:4 ]
+    │
+ 31 │   (use Logger).info("x")
+    │    ─────┬────  
+    │         ╰────── 
+────╯
+   = help: add it to `uses` or provide it with `with`
+
+error[E0402]: effect `Db` is not declared in `uses`
+    ╭─[ main.emel:32:4 ]
+    │
+ 32 │   (use Db).get()
+    │    ───┬──  
+    │       ╰──── 
+────╯
+   = help: add it to `uses` or provide it with `with`
+
+error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Logger }`
+    ╭─[ main.emel:37:12 ]
+    │
+ 37 │   old_type(|| (use Logger).info("x"))
+    │            ────────────┬────────────  
+    │                        ╰────────────── 
+────╯
+
+error[E0423]: missing type arguments for effect `State[S]`
+    ╭─[ main.emel:40:26 ]
+    │
+ 40 │ fn untyped() -> Int uses State {
+    │                          ──┬──  
+    │                            ╰──── 
+────╯
+   = help: write the types, like `State[...]`
+
+error[E0407]: external function `console_log` can only be used in handlers
+    ╭─[ main.emel:48:3 ]
+    │
+ 48 │   console_log("x")
+    │   ─────┬─────  
+    │        ╰─────── 
+────╯
+   = help: declare it with `uses {}` if it has no side effects
+
+11 errors

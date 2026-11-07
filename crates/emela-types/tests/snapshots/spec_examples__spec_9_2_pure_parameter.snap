@@ -2,8 +2,8 @@
 source: crates/emela-types/tests/spec_examples.rs
 expression: "render_bodies(r#\"\nerror Timeout  # 補\n\nfn run(f: fn() -> Int fails {}) -> Int { f() }\n\nfn flaky() -> Int fails Timeout { fail Timeout }  # 補\n\nfn ok() -> Int { run(|| 1) }\nfn bad() -> Int { run(flaky) }\nfn bad_lambda() -> Int { run(|| fail Timeout) }\n\"#)"
 ---
-run: ∀ R(f). fn(fn() -> Int fails {} use R(f)) -> Int use R(f)
-  f: fn() -> Int use '0
+run: ∀ R(f). fn(fn() -> Int fails {} uses { R(f) }) -> Int uses { R(f) }
+  f: fn() -> Int uses { '0 }
 flaky: fn() -> Int fails Timeout
 ok: fn() -> Int
 bad: fn() -> Int

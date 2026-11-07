@@ -6,8 +6,9 @@
 //! - Check the constraints beyond the spec 17.3 grammar that syntax alone decides (whether
 //!   `@external` is needed, empty enums, the shape of handler and impl fns).
 //! - Check the arguments of `@external` (spec 12.1, 12.3) and of `@export` (spec 12.7, 16.6.2).
-//! - Report the old impl and handler heads with the head to write instead (E0144, E0145), and the
-//!   old form of an anonymous function with the closure to write instead (E0148).
+//! - Report the old impl and handler heads with the head to write instead (E0144, E0145), the
+//!   old effect clause `use` with the uses clause to write instead (E0147), and the old form of an
+//!   anonymous function with the closure to write instead (E0148).
 //! - Report an anonymous function written as a statement that is not the last of its block
 //!   (E0149).
 
@@ -66,12 +67,23 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             }
         }
         OP_SIG => {
-            if let Some(clause) = child_kind(node, USE_CLAUSE) {
+            if let Some(clause) = child_kind(node, USES_CLAUSE) {
                 error(
                     out,
                     clause.text_range(),
                     DiagnosticCode::UseOnEffectOp,
-                    "effect operations cannot have a `use` clause",
+                    "effect operations cannot have a `uses` clause",
+                );
+            }
+        }
+        USES_CLAUSE => {
+            if let Some((keyword, uses)) = crate::rewrite::old_uses_clause(node) {
+                let old = crate::rewrite::old_uses_text(node);
+                error(
+                    out,
+                    keyword.text_range(),
+                    DiagnosticCode::OldUseClause,
+                    &format!("write `{uses}` instead of `{old}`"),
                 );
             }
         }
@@ -277,7 +289,7 @@ fn fn_decl(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         Some(IMPL_DECL) => {
             for clause in node
                 .children()
-                .filter(|c| matches!(c.kind(), RET_TYPE | FAILS_CLAUSE | USE_CLAUSE))
+                .filter(|c| matches!(c.kind(), RET_TYPE | FAILS_CLAUSE | USES_CLAUSE))
             {
                 error(
                     out,

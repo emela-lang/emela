@@ -39,7 +39,7 @@ fn adult(u: User) -> User fails TooYoung {
   if u.age < 18 { fail TooYoung(age: u.age) } else { u }
 }
 
-fn numbered(u: User) -> String use Counter {
+fn numbered(u: User) -> String uses { Counter } {
   "#{(use Counter).next()} #{u.name}"
 }
 

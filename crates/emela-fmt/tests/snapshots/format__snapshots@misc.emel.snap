@@ -11,12 +11,12 @@ fn strings(name: String, n: Int) {
 }
 
 fn types(
-  f: fn(Int, String) -> Bool fails {} use {},
+  f: fn(Int, String) -> Bool fails {} uses {},
   g: fn() -> (),
   t: (Int, (String, Bool)),
   s: Self,
   p: Http.Client,
-) -> List[Map[String, Int]] fails E use R {
+) -> List[Map[String, Int]] fails E uses { R } {
   todo()
 }
 
@@ -68,7 +68,7 @@ fn expressions(xs: List[Int]) {
   self_param = self.field
 }
 
-fn generics[A: Ord + Show, B, R: Immediate](xs: List[A]) -> Option[A] use R { todo() }
+fn generics[A: Ord + Show, B, R: Immediate](xs: List[A]) -> Option[A] uses { R } { todo() }
 
 fn one_line() -> Int { 42 }
 

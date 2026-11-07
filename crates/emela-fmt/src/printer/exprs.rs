@@ -109,9 +109,10 @@ impl Printer {
             WITH_BY => self.seq(node, |_, cur| cur != TYPE_ARG_LIST),
             // `Map[K: Eq, V: Eq]` in `impl Map[K: Eq, V: Eq]: Eq`.
             IMPL_TYPE => self.seq(node, |_, cur| cur != TYPE_PARAM_LIST),
-            RET_TYPE | FAILS_CLAUSE | USE_CLAUSE | FAIL_EXPR | ASSERT_EXPR | MATCH_GUARD => {
+            RET_TYPE | FAILS_CLAUSE | FAIL_EXPR | ASSERT_EXPR | MATCH_GUARD => {
                 self.seq(node, |_, _| true)
             }
+            USES_CLAUSE => self.uses_clause(node),
             // No space before `:`.
             PARAM | TYPE_PARAM | NAMED_ARG | FIELD_PAT | BINDING | ANNOT_ARG => {
                 self.seq(node, |_, cur| cur != COLON)
@@ -905,6 +906,47 @@ fn bin_op(node: &SyntaxNode) -> Option<SyntaxToken> {
 }
 
 /// Whether there is a newline in the trivia right before the token.
+impl Printer {
+    /// A uses clause in its canonical form (`[fmt.signature]`): `uses` and the set in braces.
+    /// The old keyword `use` (E0147) is printed as `uses`, and a bare element gets braces
+    /// (`uses Db` becomes `uses { Db }`). The formatter does not resolve names, so an effect and
+    /// a set type parameter are treated alike.
+    fn uses_clause(&mut self, node: &SyntaxNode) -> Doc {
+        let mut out = RcDoc::nil();
+        for child in significant_children(node) {
+            match child {
+                rowan::NodeOrToken::Token(t) if matches!(t.kind(), USE_KW | LOWER_NAME) => {
+                    out = out.append(self.tok_as(&t, text("uses")));
+                }
+                rowan::NodeOrToken::Node(set) if set.kind() == EFFECT_SET => {
+                    out = out.append(self.space());
+                    if child_token(&set, L_BRACE).is_some() {
+                        out = out.append(self.node(&set));
+                    } else {
+                        // The same document as the braced set `{ X }` gives, so that the
+                        // output reads back to itself at every width.
+                        let brk = self.line();
+                        let item = self.seq(&set, |_, _| true);
+                        let end_break = self.line();
+                        let parts = super::ListParts {
+                            open: text("{"),
+                            breaks: vec![brk],
+                            elements: vec![item],
+                            last_comma: text(",").flat_alt(RcDoc::nil()),
+                            closing: RcDoc::nil(),
+                            end_break,
+                            close: text("}"),
+                        };
+                        out = out.append(parts.grouped());
+                    }
+                }
+                other => out = out.append(self.element(&other)),
+            }
+        }
+        out
+    }
+}
+
 pub(crate) fn newline_before(token: &SyntaxToken) -> bool {
     let mut cur = token.prev_token();
     while let Some(t) = cur {

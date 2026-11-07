@@ -2,7 +2,7 @@
 fn types(xs: List[ # 型引数の中
   Int]) # 戻り値の前
   -> Int fails NotFound # エラーの間
-  | DbError use { # 効果の集合の中
+  | DbError uses { # 効果の集合の中
   Io, # 要素の後ろ
   # 要素の前
   Clock

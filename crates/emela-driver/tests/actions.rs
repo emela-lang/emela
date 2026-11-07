@@ -269,18 +269,18 @@ fn adds_module_and_effect_imports() {
 
 #[test]
 fn extends_written_annotations_without_losing_existing_members() {
-    let text = "error Alpha\nerror Beta\nfn f() -> () fails Alpha use {} { fail Beta }\n";
+    let text = "error Alpha\nerror Beta\nfn f() -> () fails Alpha uses {} { fail Beta }\n";
     let actions = fixes(text, "fail Beta", &[]);
     assert_eq!(actions.len(), 1);
     assert!(actions[0].edits[0].1.contains("fails Alpha | Beta"));
     assert_clean(&apply(text, &actions[0]), &[]);
 
-    let text = "error Beta\nfn f() -> () use {} { fail Beta }\n";
+    let text = "error Beta\nfn f() -> () uses {} { fail Beta }\n";
     let actions = fixes(text, "fail Beta", &[]);
     assert_eq!(actions.len(), 1);
     assert_clean(&apply(text, &actions[0]), &[]);
 
-    let text = "effect Log { fn log() -> () }\neffect Clock { fn now() -> Int }\nfn f() -> Int use Log { (use Clock).now() }\n";
+    let text = "effect Log { fn log() -> () }\neffect Clock { fn now() -> Int }\nfn f() -> Int uses { Log } { (use Clock).now() }\n";
     let actions = fixes(text, "use Clock", &[]);
     assert_eq!(actions.len(), 1);
     assert!(actions[0].edits[0].1.contains("Log"));
@@ -417,4 +417,45 @@ fn old_impl_and_handler_heads_are_rewritten() {
     let edited = apply(text, &actions[0]);
     assert!(edited.contains("handler Quiet(level: Int): Logger {"));
     assert_clean(&edited, &[]);
+}
+
+/// E0147: the old clause is replaced with its canonical form (`[lsp.code-action]`), in a
+/// signature, in a function type, and on a line of its own.
+#[test]
+fn old_use_clause_is_rewritten() {
+    let effect = "effect Db {\n  fn get() -> Int\n}\neffect Log {\n  fn info() -> ()\n}\n";
+    for (text, at, title, expected) in [
+        (
+            format!("{effect}fn f() -> Int use Db {{\n  (use Db).get()\n}}\n"),
+            "use Db {",
+            "Rewrite as `uses { Db }`",
+            "fn f() -> Int uses { Db } {",
+        ),
+        (
+            format!("{effect}fn f() -> () use {{ Db, Log }} {{\n  (use Log).info()\n}}\n"),
+            "use {",
+            "Rewrite as `uses { Db, Log }`",
+            "fn f() -> () uses { Db, Log } {",
+        ),
+        (
+            format!("{effect}fn f(g: fn() -> () use {{}}) {{\n  g()\n}}\n"),
+            "use {}",
+            "Rewrite as `uses {}`",
+            "fn f(g: fn() -> () uses {}) {",
+        ),
+        (
+            format!("{effect}fn f() -> Int\n  use Db {{\n  (use Db).get()\n}}\n"),
+            "use Db {",
+            "Rewrite as `uses { Db }`",
+            "fn f() -> Int\n  uses { Db } {",
+        ),
+    ] {
+        let actions = fixes(&text, at, &[]);
+        assert_eq!(actions.len(), 1, "{text}");
+        assert_eq!(actions[0].title, title);
+        assert_eq!(actions[0].diagnostics[0].code, Some("E0147"));
+        let edited = apply(&text, &actions[0]);
+        assert!(edited.contains(expected), "{edited}");
+        assert_clean(&edited, &[]);
+    }
 }

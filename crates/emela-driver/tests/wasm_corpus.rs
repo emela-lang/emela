@@ -136,7 +136,7 @@ fn with_wasm_print(src: &str) -> String {
         }
         if line.starts_with("fn print(") {
             out.push_str(
-                "fn print(s: String) -> () use {} {\n  with SystemConsole { (use Console).print_line(s) }\n}\n",
+                "fn print(s: String) -> () uses {} {\n  with SystemConsole { (use Console).print_line(s) }\n}\n",
             );
         } else {
             for attribute in attributes.iter() {

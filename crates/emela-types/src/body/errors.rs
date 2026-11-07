@@ -592,8 +592,8 @@ impl BodyInfer<'_> {
                             found: SmolStr::new(sub.display_with(cons, &params).to_string()),
                         },
                         SetKind::Effects => DiagnosticKind::EffectSetMismatch {
-                            expected: SmolStr::new(sup.display_effects(cons, &params).to_string()),
-                            found: SmolStr::new(sub.display_effects(cons, &params).to_string()),
+                            expected: SmolStr::new(sup.display_uses(cons, &params).to_string()),
+                            found: SmolStr::new(sub.display_uses(cons, &params).to_string()),
                         },
                     };
                     self.diags.push(Diagnostic { span: *span, kind });

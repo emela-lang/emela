@@ -37,7 +37,7 @@ error[E0417]: calling `stamp` may suspend because it uses effect `Clock`, but op
 ────╯
    = help: declare `tick` as a `suspend fn` in the effect, or call the `fn` operations of `Clock` directly instead of through a function
 
-error[E0322]: `Immediate` can only constrain effect sets, but `A` is not used in `use`
+error[E0322]: `Immediate` can only constrain effect sets, but `A` is not used in `uses`
     ╭─[ main.emel:42:18 ]
     │
  42 │ fn not_effect[A: Immediate](x: A) -> A { x }

@@ -4,11 +4,11 @@ expression: "render_errors(r#\"\nerror Boom\n\nfn pure() -> Int fails {} { 1 }\n
 ---
 pure: fn() -> Int
 impure: fn() -> Int
-apply: ∀ E(f), R(f). fn(fn(Int) -> Int fails E(f) use R(f), Int) -> Int fails E(f) use R(f)
-  f: fn(Int) -> Int fails '0 use '1
+apply: ∀ E(f), R(f). fn(fn(Int) -> Int fails E(f) uses { R(f) }, Int) -> Int fails E(f) uses { R(f) }
+  f: fn(Int) -> Int fails '0 uses { '1 }
   x: Int
-apply_x: ∀ E(f), R(f). fn(fn(Int) -> Int fails E(f) use R(f), Int) -> Int fails Boom | E(f) use R(f)
-  f: fn(Int) -> Int fails '0 use '1
+apply_x: ∀ E(f), R(f). fn(fn(Int) -> Int fails E(f) uses { R(f) }, Int) -> Int fails Boom | E(f) uses { R(f) }
+  f: fn(Int) -> Int fails '0 uses { '1 }
   x: Int
 use_apply: fn() -> Int fails Boom
   n: Int

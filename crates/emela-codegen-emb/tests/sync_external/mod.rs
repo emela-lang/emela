@@ -46,7 +46,7 @@ fn source_string_adapters_snapshot_borrowed_results_and_board_held_arguments() {
             "main.emel",
             r#"
 @external(c,"host_echo")
-fn echo(s: String) -> String use {}
+fn echo(s: String) -> String uses {}
 pub fn direct(s: String) -> String { echo(s) }
 pub fn indirect(s: String) -> String { f = echo
  f(s) }

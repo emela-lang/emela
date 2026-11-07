@@ -2,7 +2,7 @@ effect AuditLog of Console
 pub effect DebugLog of Console default
 effect Counter of State[Int]
 
-fn c() -> () use { AuditLog, DebugLog } {
+fn c() -> () uses { AuditLog, DebugLog } {
   with AuditLog { a() }
   with DebugLog { b() }
 }

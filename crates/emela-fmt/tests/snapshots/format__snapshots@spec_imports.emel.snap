@@ -15,7 +15,7 @@ fn console_log(msg: String) -> ()
 
 @external(js, "Math.sin")
 @external(wasm, "env", "sin")
-fn sin(x: Float) -> Float use {}
+fn sin(x: Float) -> Float uses {}
 
 @external(js, "./http_ffi.mjs", "fetchText")
 @external(wasm, "wasi:http/client", "fetch")

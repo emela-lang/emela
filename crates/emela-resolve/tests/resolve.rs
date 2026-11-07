@@ -400,7 +400,7 @@ pub effect Clock {
   fn now() -> Time.Instant
 }
 
-fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R {
+fn update[A, R: Immediate](x: A, f: fn(A) -> A uses { R }) -> A uses { R } {
   f(x)
 }
 "##,
@@ -473,7 +473,7 @@ fn f(count: Int) -> Strng {
   }
 }
 
-fn g[A](a: B) -> A fails NotFonud use Loger { a }
+fn g[A](a: B) -> A fails NotFonud uses { Loger } { a }
 "##,
     )]));
 }
@@ -634,7 +634,7 @@ handler Console: User {
 }
 layer App { Logger, Console }
 
-fn f(x: Logger) -> Int fails User use Console {
+fn f(x: Logger) -> Int fails User uses { Console } {
   log = use User
   with Logger { 1 }
   fail Empty

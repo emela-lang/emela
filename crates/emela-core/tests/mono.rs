@@ -163,17 +163,17 @@ fn state_run_and_effects_with_type_arguments() {
         "\
 import Std.State.{State}
 
-fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+fn modify[S](f: fn(S) -> S fails {} uses {}) -> S uses { State[S] } {
   (use State[S]).update(f)
   (use State[S]).get()
 }
 
-fn twice[T](f: fn(T) -> T fails {} use {}) -> T use State[T] {
+fn twice[T](f: fn(T) -> T fails {} uses {}) -> T uses { State[T] } {
   modify(f)
   modify(f)
 }
 
-fn both() -> String use { State[Int], State[String] } {
+fn both() -> String uses { State[Int], State[String] } {
   n = modify(|n| n + 1)
   (use State[String]).set(\"n=#{n}\")
   twice(|s| String.append(s, \"!\"))
@@ -222,7 +222,7 @@ fn monomorphizing_twice_changes_nothing() {
         "\
 import Std.State.{State}
 
-fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+fn modify[S](f: fn(S) -> S fails {} uses {}) -> S uses { State[S] } {
   (use State[S]).update(f)
   (use State[S]).get()
 }
@@ -255,7 +255,7 @@ handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
-fn naps(xs: List[Int]) -> List[Int] use Clock {
+fn naps(xs: List[Int]) -> List[Int] uses { Clock } {
   clock = use Clock
   List.map(xs, |ms| clock.sleep(ms))
 }
@@ -280,7 +280,7 @@ import Std.Fiber.{Fiber, Scope}
 import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
-fn main() -> Int use { Async } {
+fn main() -> Int uses { Async } {
   Fiber.scope(|| {
     s = use Scope
     a = s.fork(|| [1])

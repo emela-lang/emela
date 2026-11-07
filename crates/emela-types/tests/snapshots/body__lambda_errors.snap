@@ -2,8 +2,8 @@
 source: crates/emela-types/tests/body.rs
 expression: "run(r#\"\nfn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }\n\nfn f() -> Int {\n  a = apply(|n| \"s\", 1)\n  b = apply(|n, m| n, 1)\n  c = apply(|n: String| 1, 1)\n  g = |u| u.name\n  1\n}\n\"#)"
 ---
-apply: ∀ E(f), R(f). fn(fn(Int) -> Int fails E(f) use R(f), Int) -> Int fails E(f) use R(f)
-  f: fn(Int) -> Int fails '0 use '1
+apply: ∀ E(f), R(f). fn(fn(Int) -> Int fails E(f) uses { R(f) }, Int) -> Int fails E(f) uses { R(f) }
+  f: fn(Int) -> Int fails '0 uses { '1 }
   x: Int
 f: fn() -> Int
   n: Int

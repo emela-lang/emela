@@ -1,21 +1,21 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\n@external(js, \"./ffi.mjs\", \"fetchText\")\nsuspend fn fetch_text(url: String) -> String\n\n@external(js, \"onTick\")\nfn on_tick(f: fn() -> () use { Clock }) -> ()\n\nfn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }\n\nfn logs() -> Int {\n  update(1, |x| {\n    (use Logger).info(\"x\")\n    x\n  })\n}\n\nfn sleeps() -> Int {\n  update(1, |x| {\n    (use Clock).sleep(1)\n    x\n  })\n}\n\nfn hidden(f: fn(Int) -> Int) -> Int { update(1, f) }\n\nfn named[R: Immediate](f: fn(Int) -> Int use R) -> Int use R { update(1, f) }\n\nfn unnamed[R](f: fn(Int) -> Int use R) -> Int use R { update(1, f) }\n\nfn inferred() { |g| update(1, g) }\n\nfn not_effect[A: Immediate](x: A) -> A { x }\n\nfn trait_bound[R: Show](f: fn() -> () use R) -> () use R { f() }\n\nhandler Ticking: Logger {\n  fn info(msg) {\n    set_timeout(1, || (use Logger).info(msg))\n    set_timeout(1, || (use Clock).sleep(1))\n    set_timeout(1, || {\n      fetch_text(msg)\n      ()\n    })\n  }\n}\n\"#)"
+expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\n@external(js, \"./ffi.mjs\", \"fetchText\")\nsuspend fn fetch_text(url: String) -> String\n\n@external(js, \"onTick\")\nfn on_tick(f: fn() -> () uses { Clock }) -> ()\n\nfn update[A, R: Immediate](x: A, f: fn(A) -> A uses { R }) -> A uses { R } { f(x) }\n\nfn logs() -> Int {\n  update(1, |x| {\n    (use Logger).info(\"x\")\n    x\n  })\n}\n\nfn sleeps() -> Int {\n  update(1, |x| {\n    (use Clock).sleep(1)\n    x\n  })\n}\n\nfn hidden(f: fn(Int) -> Int) -> Int { update(1, f) }\n\nfn named[R: Immediate](f: fn(Int) -> Int uses { R }) -> Int uses { R } { update(1, f) }\n\nfn unnamed[R](f: fn(Int) -> Int uses { R }) -> Int uses { R } { update(1, f) }\n\nfn inferred() { |g| update(1, g) }\n\nfn not_effect[A: Immediate](x: A) -> A { x }\n\nfn trait_bound[R: Show](f: fn() -> () uses { R }) -> () uses { R } { f() }\n\nhandler Ticking: Logger {\n  fn info(msg) {\n    set_timeout(1, || (use Logger).info(msg))\n    set_timeout(1, || (use Clock).sleep(1))\n    set_timeout(1, || {\n      fetch_text(msg)\n      ()\n    })\n  }\n}\n\"#)"
 ---
-set_timeout: ∀ E(f), R(f): Immediate. fn(Int, fn() -> () fails E(f) use R(f)) -> () fails E(f) use R(f)
-fetch_text: fn(String) -> String use Async
-on_tick: ∀ E(f). fn(fn() -> () fails E(f) use Clock) -> () fails E(f)
-update: ∀ A, R: Immediate, E(f). fn(A, fn(A) -> A fails E(f) use R) -> A fails E(f) use R
-logs: fn() -> Int use Logger
-sleeps: fn() -> Int use Clock
-hidden: ∀ E(f), R(f). fn(fn(Int) -> Int fails E(f) use R(f)) -> Int fails E(f) use R(f)
-named: ∀ R: Immediate, E(f). fn(fn(Int) -> Int fails E(f) use R) -> Int fails E(f) use R
-unnamed: ∀ R, E(f). fn(fn(Int) -> Int fails E(f) use R) -> Int fails E(f) use R
-inferred: ∀ E, R: Immediate. fn() -> fn(fn(Int) -> Int fails E use R) -> Int fails E use R
+set_timeout: ∀ E(f), R(f): Immediate. fn(Int, fn() -> () fails E(f) uses { R(f) }) -> () fails E(f) uses { R(f) }
+fetch_text: fn(String) -> String uses { Async }
+on_tick: ∀ E(f). fn(fn() -> () fails E(f) uses { Clock }) -> () fails E(f)
+update: ∀ A, R: Immediate, E(f). fn(A, fn(A) -> A fails E(f) uses { R }) -> A fails E(f) uses { R }
+logs: fn() -> Int uses { Logger }
+sleeps: fn() -> Int uses { Clock }
+hidden: ∀ E(f), R(f). fn(fn(Int) -> Int fails E(f) uses { R(f) }) -> Int fails E(f) uses { R(f) }
+named: ∀ R: Immediate, E(f). fn(fn(Int) -> Int fails E(f) uses { R }) -> Int fails E(f) uses { R }
+unnamed: ∀ R, E(f). fn(fn(Int) -> Int fails E(f) uses { R }) -> Int fails E(f) uses { R }
+inferred: ∀ E, R: Immediate. fn() -> fn(fn(Int) -> Int fails E uses { R }) -> Int fails E uses { R }
 not_effect: ∀ A. fn(A) -> A
-trait_bound: ∀ R, E(f). fn(fn() -> () fails E(f) use R) -> () fails E(f) use R
+trait_bound: ∀ R, E(f). fn(fn() -> () fails E(f) uses { R }) -> () fails E(f) uses { R }
 handler Ticking: use { Async, Logger, Clock }
-`fn() -> () use { Clock }` NotImmediate { effects: ["Clock"], sets: [], required: ExternalCallback { callee: "on_tick" } }
+`fn() -> () uses { Clock }` NotImmediate { effects: ["Clock"], sets: [], required: ExternalCallback { callee: "on_tick" } }
 `update` NotImmediate { effects: ["Clock"], sets: [], required: Bound { param: "R", callee: "update" } }
 `update` NotImmediate { effects: [], sets: ["R(f)"], required: Bound { param: "R", callee: "update" } }
 `update` NotImmediate { effects: [], sets: ["R"], required: Bound { param: "R", callee: "update" } }

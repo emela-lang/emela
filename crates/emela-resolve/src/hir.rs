@@ -197,7 +197,7 @@ pub struct ErrorSet {
     pub span: Span,
 }
 
-/// The `use` clause. Elements point to effects or type parameters. `use {}` is empty.
+/// The `uses` clause. Elements point to effects or type parameters. `uses {}` is empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSet {
     pub items: Vec<EffectRef>,

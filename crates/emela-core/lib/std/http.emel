@@ -27,14 +27,16 @@ pub effect Http {
 }
 
 ## Sends a GET request to `url`.
-pub fn get(url: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText use Http {
+pub fn get(url: String) -> Response
+  fails InvalidUrl | ConnectionFailed | ResponseNotText
+  uses { Http } {
   (use Http).send(Request.new(Get, url))
 }
 
 ## Sends a POST request to `url` with `body`.
 pub fn post(url: String, body: String) -> Response
   fails InvalidUrl | ConnectionFailed | ResponseNotText
-  use Http {
+  uses { Http } {
   (use Http).send(Request(body:, ..Request.new(Post, url)))
 }
 
@@ -200,8 +202,8 @@ pub type Outgoing
 ## one line and the response is 500; the cause is never in the response.
 @export(js, "default", "fetch")
 @export(wasm, "wasi:http/handler@0.3.0", "handle")
-pub fn serve[E](app: fn(Request) -> Response fails E use { Async }, incoming: Incoming) -> Outgoing
-  use { Async } {
+pub fn serve[E](app: fn(Request) -> Response fails E uses { Async }, incoming: Incoming) -> Outgoing
+  uses { Async } {
   received = with SystemHostHttp { (use HostHttp).read(incoming) }
   response = received_request(received) match {
     None                                     -> status_only(405).add_header("allow", ALLOW)
@@ -215,8 +217,8 @@ pub fn serve[E](app: fn(Request) -> Response fails E use { Async }, incoming: In
 const ALLOW: String = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
 
 ## Runs `app` and turns how it ends into the response to send.
-fn launch[E](app: fn(Request) -> Response fails E use { Async }, request: Request) -> Response
-  use { Async } {
+fn launch[E](app: fn(Request) -> Response fails E uses { Async }, request: Request) -> Response
+  uses { Async } {
   Exit.attempt(|| app(request)) match {
     Success(res) -> invalid_reason(res) match {
       None         -> with_content_type(res)
@@ -401,31 +403,31 @@ suspend fn host_read(incoming: Incoming) -> Received
 ## Whether the body is UTF-8. When it is not, the body is empty.
 @external(js, "./http.mjs", "receivedText")
 @external(wasm, "emela:runtime/http@0.1.0", "received-text")
-fn host_received_text(received: Received) -> Bool use {}
+fn host_received_text(received: Received) -> Bool uses {}
 
 @external(js, "./http.mjs", "receivedMethod")
 @external(wasm, "emela:runtime/http@0.1.0", "received-method")
-fn host_received_method(received: Received) -> String use {}
+fn host_received_method(received: Received) -> String uses {}
 
 @external(js, "./http.mjs", "receivedUrl")
 @external(wasm, "emela:runtime/http@0.1.0", "received-url")
-fn host_received_url(received: Received) -> String use {}
+fn host_received_url(received: Received) -> String uses {}
 
 @external(js, "./http.mjs", "body")
 @external(wasm, "emela:runtime/http@0.1.0", "received-body")
-fn host_received_body(received: Received) -> String use {}
+fn host_received_body(received: Received) -> String uses {}
 
 @external(js, "./http.mjs", "headerCount")
 @external(wasm, "emela:runtime/http@0.1.0", "received-header-count")
-fn host_received_header_count(received: Received) -> Int use {}
+fn host_received_header_count(received: Received) -> Int uses {}
 
 @external(js, "./http.mjs", "headerName")
 @external(wasm, "emela:runtime/http@0.1.0", "received-header-name")
-fn host_received_header_name(received: Received, index: Int) -> String use {}
+fn host_received_header_name(received: Received, index: Int) -> String uses {}
 
 @external(js, "./http.mjs", "headerValue")
 @external(wasm, "emela:runtime/http@0.1.0", "received-header-value")
-fn host_received_header_value(received: Received, index: Int) -> String use {}
+fn host_received_header_value(received: Received, index: Int) -> String uses {}
 
 ## The response being built on the host. On WASM the runtime keeps the response being built, so
 ## the value only stands for it.
@@ -434,12 +436,12 @@ type Draft
 
 @external(js, "./http.mjs", "newDraft")
 @external(wasm, "emela:runtime/http@0.1.0", "new-draft")
-fn host_draft(status: Int, body: String) -> Draft use {}
+fn host_draft(status: Int, body: String) -> Draft uses {}
 
 @external(js, "./http.mjs", "withHeader")
 @external(wasm, "emela:runtime/http@0.1.0", "draft-header")
-fn host_draft_header(draft: Draft, name: String, value: String) -> Draft use {}
+fn host_draft_header(draft: Draft, name: String, value: String) -> Draft uses {}
 
 @external(js, "./http.mjs", "finishDraft")
 @external(wasm, "emela:runtime/http@0.1.0", "finish-draft")
-fn host_finish(draft: Draft) -> Outgoing use {}
+fn host_finish(draft: Draft) -> Outgoing uses {}

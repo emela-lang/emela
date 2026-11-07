@@ -489,7 +489,7 @@ fn js_exports_are_called_by_the_host() {
 pub fn add(a: Int, b: Int) -> Int { a + b }
 
 @export(js, "greet")
-fn greet(name: String, suffix: fn(String) -> String fails {} use {}) -> String {
+fn greet(name: String, suffix: fn(String) -> String fails {} uses {}) -> String {
   "hello, #{suffix(name)}"
 }
 
@@ -509,7 +509,7 @@ fn late_boom(n: Int) -> Int {
 }
 
 @export(js, "default", "run")
-fn run(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) + 1 }
+fn run(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) + 1 }
 
 @entry(run)
 fn twice(x: Int) -> Int { x * 2 }
@@ -564,16 +564,16 @@ fn js_bytes_cross_as_uint8_array() {
     let main = r##"import Std.Bytes.{Bytes}
 
 @external(js, "globalThis.hostBytes")
-fn host_bytes() -> Bytes use {}
+fn host_bytes() -> Bytes uses {}
 
 @external(js, "globalThis.laterBytes")
 suspend fn later_bytes() -> Bytes
 
 @external(js, "globalThis.mutate")
-fn mutate() -> () use {}
+fn mutate() -> () uses {}
 
 @external(js, "globalThis.apply")
-fn apply(f: fn(Bytes) -> Int) -> Int use {}
+fn apply(f: fn(Bytes) -> Int) -> Int uses {}
 
 effect Source {
   suspend fn next() -> Bytes
@@ -682,28 +682,28 @@ fn js_arrays_cross_as_js_arrays() {
 import Std.Bytes.{Bytes}
 
 @external(js, "globalThis.hostRows")
-fn host_rows() -> Array[String] use {}
+fn host_rows() -> Array[String] uses {}
 
 @external(js, "globalThis.hostGrid")
-fn host_grid() -> Array[Array[Int]] use {}
+fn host_grid() -> Array[Array[Int]] uses {}
 
 @external(js, "globalThis.hostChunks")
-fn host_chunks() -> Array[Bytes] use {}
+fn host_chunks() -> Array[Bytes] uses {}
 
 @external(js, "globalThis.hostUnits")
-fn host_units() -> Array[()] use {}
+fn host_units() -> Array[()] uses {}
 
 @external(js, "globalThis.laterRows")
 suspend fn later_rows() -> Array[String]
 
 @external(js, "globalThis.mutate")
-fn mutate() -> () use {}
+fn mutate() -> () uses {}
 
 @external(js, "globalThis.sum")
-fn sum(xs: Array[Int]) -> Int use {}
+fn sum(xs: Array[Int]) -> Int uses {}
 
 @external(js, "globalThis.apply")
-fn apply(f: fn(Array[Int]) -> Int) -> Int use {}
+fn apply(f: fn(Array[Int]) -> Int) -> Int uses {}
 
 effect Source {
   suspend fn next() -> Array[String]
@@ -1712,7 +1712,7 @@ import Std.Clock.{Clock, SystemClock}
 import Std.Instant.{Instant}
 import Std.Duration.{Duration}
 
-fn elapsed(start: Instant) -> Duration use { Clock } {
+fn elapsed(start: Instant) -> Duration uses { Clock } {
   (use Clock).now() |> Instant.since(start)
 }
 
@@ -1746,7 +1746,7 @@ import Std.Clock.{Clock, SystemClock}
 import Std.Instant.{Instant}
 import Std.Duration.{Duration}
 
-fn nap(clock_name: String, ms: Int) -> String use { Clock } {
+fn nap(clock_name: String, ms: Int) -> String uses { Clock } {
   clock = use Clock
   start = clock.now()
   clock.sleep(ms)
@@ -1810,23 +1810,23 @@ import Std.State.{State}
 
 error Boom
 
-fn count() -> Int use { State[Int] } {
+fn count() -> Int uses { State[Int] } {
   st = use State[Int]
   st.update(|n| n + 1)
   st.get()
 }
 
-fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+fn modify[S](f: fn(S) -> S fails {} uses {}) -> S uses { State[S] } {
   (use State[S]).update(f)
   (use State[S]).get()
 }
 
-fn twice[T](f: fn(T) -> T fails {} use {}) -> T use State[T] {
+fn twice[T](f: fn(T) -> T fails {} uses {}) -> T uses { State[T] } {
   modify(f)
   modify(f)
 }
 
-fn both() -> String use { State[Int], State[String] } {
+fn both() -> String uses { State[Int], State[String] } {
   n = modify(|n| n + 1)
   (use State[String]).set("n=#{n}")
   twice(|s| String.append(s, "!"))
@@ -1878,12 +1878,12 @@ import Std.State.{State}
 import Std.Instant.{Instant}
 import Std.Duration.{Duration}
 
-fn greet(name: String) -> () use { Console } {
+fn greet(name: String) -> () uses { Console } {
   (use Console).print_line("Hello, #{name}!")
   (use Console).print_error_line("dropped")
 }
 
-fn elapsed() -> Duration use { Clock } {
+fn elapsed() -> Duration uses { Clock } {
   clock = use Clock
   start = clock.now()
   clock.sleep(1500)
@@ -1924,7 +1924,7 @@ fn state_run_keeps_the_state_across_suspension() {
 import Std.Clock.{Clock, SystemClock}
 import Std.State.{State}
 
-fn tick() -> () use { State[Int], Clock } {
+fn tick() -> () uses { State[Int], Clock } {
   (use Clock).sleep(10)
   (use State[Int]).update(|n| n + 1)
 }
@@ -2211,12 +2211,12 @@ fn picked(headers: List[(String, String)]) -> List[(String, String)] {
   })
 }
 
-fn show(req: Request) -> String fails InvalidUrl | ConnectionFailed | ResponseNotText use { Http } {
+fn show(req: Request) -> String fails InvalidUrl | ConnectionFailed | ResponseNotText uses { Http } {
   res = (use Http).send(req)
   "#{res.status} #{picked(res.headers)} #{res.body}"
 }
 
-fn attempt(req: Request) -> String use { Http } {
+fn attempt(req: Request) -> String uses { Http } {
   show(req) escape {
     InvalidUrl(url:) -> "invalid #{url}"
     ConnectionFailed(url:, message:) -> if String.contains(message, "ECONNREFUSED") { "refused" } else { "failed" }

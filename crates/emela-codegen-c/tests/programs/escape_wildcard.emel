@@ -3,7 +3,7 @@ import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 error NotFound(id: Int)
 error Empty
@@ -59,7 +59,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   print(describe(1))
   print(describe(3))
   print(describe(4))

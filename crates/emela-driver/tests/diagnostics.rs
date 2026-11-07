@@ -561,7 +561,7 @@ handler Ticking: Clock {
 @external(js, "console.log")
 fn console_log(text: String) -> ()
 
-fn only(f: fn() -> () use {}) -> () use {} {
+fn only(f: fn() -> () uses {}) -> () uses {} {
   (use Logger).infoo("x")
   f()
 }
@@ -583,6 +583,73 @@ fn main() {
 @test
 fn logs() {
   (use Logger).info("t")
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// The diagnostics about the uses clause (`[grammar.decl]`, `[diag.list]`): the old clause
+/// (E0147) in a signature, in a function type, on its own line and on an effect operation, read
+/// on as a uses clause; and the sets of E0402, E0403, E0407 and E0423 shown in the canonical
+/// form `uses { ... }`.
+#[test]
+fn uses_clause_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect Db {
+  fn get() -> Int use Logger
+}
+
+effect State[S] {
+  fn get() -> S
+}
+
+fn old() -> Int use Db {
+  (use Db).get()
+}
+
+fn own_line() -> Int
+  use { Db, Logger } {
+  (use Db).get()
+}
+
+fn old_type(f: fn() -> () use {}) -> () uses {} {
+  f()
+}
+
+fn undeclared() -> () uses {} {
+  (use Logger).info("x")
+}
+
+fn two() -> () uses {} {
+  (use Logger).info("x")
+  (use Db).get()
+  ()
+}
+
+fn mismatch() {
+  old_type(|| (use Logger).info("x"))
+}
+
+fn untyped() -> Int uses State {
+  1
+}
+
+@external(js, "console.log")
+fn console_log(text: String) -> ()
+
+fn outside() {
+  console_log("x")
 }
 "#,
         )],
@@ -633,17 +700,17 @@ effect Ticks {
   fn tick() -> Int
 }
 
-fn stamp() -> Int use { Clock } { (use Clock).now() }
+fn stamp() -> Int uses { Clock } { (use Clock).now() }
 
 handler Stamped: Ticks {
   fn tick() { stamp() + (use Clock).now() }
 }
 
-fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
+fn update[A, R: Immediate](x: A, f: fn(A) -> A uses { R }) -> A uses { R } { f(x) }
 
 fn not_effect[A: Immediate](x: A) -> A { x }
 
-type Handler[E, R](run: fn() -> () fails E use R)
+type Handler[E, R](run: fn() -> () fails E uses { R })
 
 fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
 
@@ -773,7 +840,7 @@ handler Empty: Cell[String] {
   fn get() { "" }
 }
 
-fn leftover() -> Int use {} {
+fn leftover() -> Int uses {} {
   with Zero {
     (use Cell[String]).get()
     (use Cell[Int]).get()
@@ -893,7 +960,7 @@ effect Log {
 error Oops
 
 @export(js, "ok")
-pub fn ok(a: Int, b: Int64, c: Float, d: Bool, e: String, f: (), g: Conn, h: fn(Int) -> String fails {} use {}) -> () {}
+pub fn ok(a: Int, b: Int64, c: Float, d: Bool, e: String, f: (), g: Conn, h: fn(Int) -> String fails {} uses {}) -> () {}
 
 @export(js, "callback")
 pub fn callback(h: fn(Int) -> String) -> String { h(1) }
@@ -935,14 +1002,14 @@ fn wait(ms: Int) -> () {
 }
 
 @export(c, "apply")
-fn apply(x: Int, f: fn(Int) -> Int fails {} use {}) -> Int { f(x) }
+fn apply(x: Int, f: fn(Int) -> Int fails {} uses {}) -> Int { f(x) }
 
 @export(wasm, "env", "add")
 @export(js, "add")
 fn add(a: Int, b: Int) -> Int { a + b }
 
 @export(wasm, "wasi:http/handler@0.3.0", "handle")
-fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }
 
 @entry(serve)
 fn app(x: Int) -> Int { x }
@@ -1013,7 +1080,7 @@ fn main() {}
         (
             "own/http.emel",
             r#"@export(c, "serve")
-pub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+pub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }
 "#,
         ),
     ];
@@ -1066,7 +1133,7 @@ fn main() {}
         (
             "home/util.emel",
             r#"@export(js, "default", "fetch")
-pub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+pub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }
 
 @export(js, "helper")
 pub fn helper(x: Int) -> Int { x }
@@ -1092,19 +1159,19 @@ fn entry_fits_the_adapter() {
 error Oops
 
 @export(js, "default", "one")
-fn one(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+fn one(app: fn(String) -> String fails {} uses {}, s: String) -> String { app(s) }
 
 @export(js, "default", "two")
-fn two(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+fn two(app: fn(String) -> String fails {} uses {}, s: String) -> String { app(s) }
 
 @export(js, "default", "three")
-fn three(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+fn three(app: fn(String) -> String fails {} uses {}, s: String) -> String { app(s) }
 
 @export(js, "default", "open")
 fn open(app: fn(String) -> String, s: String) -> String { app(s) }
 
 @export(js, "default", "four")
-fn four(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+fn four(app: fn(String) -> String fails {} uses {}, s: String) -> String { app(s) }
 
 @entry(one)
 fn fits(s: String) -> String { s }
@@ -1617,7 +1684,7 @@ type Conn
 pub fn ok(a: Array[Int], b: Array[Array[String]], c: Array[Bytes], d: Array[Conn], e: Array[()]) -> Array[Float] { Array.empty() }
 
 @export(js, "callbacks")
-pub fn callbacks(fs: Array[fn(Int) -> Int fails {} use {}]) -> Int { 0 }
+pub fn callbacks(fs: Array[fn(Int) -> Int fails {} uses {}]) -> Int { 0 }
 
 @export(js, "lists")
 pub fn lists() -> Array[List[Int]] { Array.empty() }

@@ -4,6 +4,6 @@ expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nerror Boom\nerror B
 ---
 boom: fn() -> Int fails Boom
 bust: fn() -> Int fails Bust
-nested: fn() -> Int fails Boom | Bust use Async
+nested: fn() -> Int fails Boom | Bust uses { Async }
   inner: Int
-test_nested: fn() -> () use Async
+test_nested: fn() -> () uses { Async }

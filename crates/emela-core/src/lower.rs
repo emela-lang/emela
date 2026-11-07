@@ -2819,7 +2819,7 @@ impl<'a> Lowerer<'a> {
             suspends: self.row_suspends(&body.uses),
         };
         let base = self.ev.map(Expr::Var);
-        // `State.run(initial: S, body: fn() -> A use { State[S] }) -> (A, S)` (spec 8.8).
+        // `State.run(initial: S, body: fn() -> A uses { State[S] }) -> (A, S)` (spec 8.8).
         let state = match f.params.first() {
             Some(s) => self.ty(s),
             None => TypeId::UNIT,

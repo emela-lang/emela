@@ -23,4 +23,4 @@ pub enum Exit[A, E] {
 ## Runs `f` here and turns its errors and defects into values. An interruption of the current
 ## fiber is not caught.
 @intrinsic
-pub fn attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R
+pub fn attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }

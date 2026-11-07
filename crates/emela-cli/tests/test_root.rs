@@ -55,7 +55,7 @@ fn project(dir: &Path) {
             ),
             (
                 "app/test/support.emel",
-                "import Gen\n\n@external(js, \"./answer.mjs\", \"answer\")\nfn answer() -> Int use {}\n\npub fn sample() -> List[Int] { Gen.list(answer()) }\n",
+                "import Gen\n\n@external(js, \"./answer.mjs\", \"answer\")\nfn answer() -> Int uses {}\n\npub fn sample() -> List[Int] { Gen.list(answer()) }\n",
             ),
             (
                 "app/test/answer.mjs",
