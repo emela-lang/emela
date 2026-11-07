@@ -501,7 +501,10 @@ impl Served {
         let started = std::time::Instant::now();
         loop {
             let text = std::fs::read_to_string(&served.log).unwrap_or_default();
-            let found = text.lines().find_map(|line| {
+            // Only lines the server has finished writing: a line read halfway (`Serving HTTP on
+            // http:`) would give a broken address.
+            let complete = &text[..text.rfind('\n').map_or(0, |i| i + 1)];
+            let found = complete.lines().find_map(|line| {
                 line.strip_prefix("listening on ")
                     .or_else(|| line.strip_prefix("Serving HTTP on "))
             });
