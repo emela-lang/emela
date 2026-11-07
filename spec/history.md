@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-07 (Move attempt and Exit to Std.Exit)
+
+- `[fiber]`, `[fiber.cause]`, `[error.defect]`, `[lib.layers]`, `[api.std.fiber]`, `[api.std.exit]`, `[api.std.cause]`, `[target.c.unsupported]`, `[dyn.memory]`, `[target.unspecified]`: `attempt` and the enum `Exit` (`Success`, `Failure`) move from `Std.Fiber` to a new module `Std.Exit`. `Fiber.attempt(f)` becomes `Exit.attempt(f)`. `Cause` stays in `Std.Cause`, and `Fiber.await` returns the `Exit` of `Std.Exit`. The old names are removed without a deprecation period. Adopted in the proposal `std-exit` (#501).
+
 ## 2026-11-07 (Array)
 
 - `[lib.layers]`, `[api.std.array]`, `[ext.boundary]`, `[target.js.value]`, `[target.impl-hint]`, `[diag.list]`: Add `Array[A]`, an immutable sequence of fixed length with O(1) access by position, to the value layer of std as `Std.Array`. Its representation is a flat block of elements. `set` returns a new array; on WASM and C, it updates the array in place when the argument is the last reference to it, so a loop that threads one array through `set` runs in O(1) per step there. A sequence is built as a List and turned into an Array; Array has no operation that grows an array. `Array[A]` becomes a boundary type of external functions on the JS target, where it is a JS `Array`. Adopted in the proposal `array` (#508).

@@ -1,10 +1,10 @@
 ---
 title: Move attempt and Exit to Std.Exit
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 501
 issue:
-decided:
+decided: 2026-11-07
 touches: [fiber, fiber.cause, error.defect, lib.layers, api.std.fiber, api.std.exit (new), api.std.cause, target.c.unsupported, dyn.memory, target.unspecified]
 requires: []
 related: []
@@ -185,3 +185,5 @@ Outside this repository, `x/sql`, `deploy/control/src/sqlite.emel` and `brix` (`
 ## Open questions
 
 ## Decision
+
+attempt starts no fiber: it runs f in place and turns Fail and Die into a value, so it has nothing to do with concurrency. Yet a program that only wants to turn a defect into a value had to import the concurrency module, and every program outside the compiler's tests that imports Std.Fiber uses only attempt. Moving Exit and attempt to Std.Exit makes the dependency one-directional, Std.Fiber to Std.Exit to Std.Cause, with Fiber.await as one producer of Exit. The old names are removed without a deprecation period: an enum cannot be re-exported, so the imports of Success and Failure would break anyway, and before 1.0 a single break is preferred to a rule kept for a period.
