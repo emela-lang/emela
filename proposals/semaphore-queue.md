@@ -2,7 +2,7 @@
 title: Semaphore and Queue
 authors: [Alliana]
 status: draft
-pr:
+pr: 515
 issue:
 decided:
 touches: [lib.layers, fiber.scope, fiber.escape, fiber.semaphore (new), fiber.queue (new), api.std.fiber, api.std.semaphore (new), api.std.queue (new), dyn.memory, diag.list, glossary.context, open.next]
