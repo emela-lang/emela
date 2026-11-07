@@ -1,7 +1,7 @@
 ---
 title: Move attempt and Exit to Std.Exit
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 501
 issue:
 decided: 2026-11-07
