@@ -70,4 +70,5 @@ Informative.
 | Errors | Returned as return values | Same | Same |
 | defect | An exception of a dedicated class | Propagated explicitly through return values (no exceptions) | Same |
 | Memory management | The host's GC | Reference counting in linear memory (Perceus style) | Reference counting (Perceus style) |
+| `Array.set` (`[api.std.array]`) | Copies | Updates in place when the reference count of the argument is 1 | Same as WASM |
 | Runtime | The compiler writes it to the output directory | Linked into the emitted module | Compiled as C source together with the output |

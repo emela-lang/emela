@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-07 (Array)
+
+- `[lib.layers]`, `[api.std.array]`, `[ext.boundary]`, `[target.js.value]`, `[target.impl-hint]`, `[diag.list]`: Add `Array[A]`, an immutable sequence of fixed length with O(1) access by position, to the value layer of std as `Std.Array`. Its representation is a flat block of elements. `set` returns a new array; on WASM and C, it updates the array in place when the argument is the last reference to it, so a loop that threads one array through `set` runs in O(1) per step there. A sequence is built as a List and turned into an Array; Array has no operation that grows an array. `Array[A]` becomes a boundary type of external functions on the JS target, where it is a JS `Array`. Adopted in the proposal `array` (#508).
+
 ## 2026-11-07 (Line continuation of error sets)
 
 - `[lex.continuation]`: Rule 5 continues a line that starts with `|` when the previous line ends inside the error set of a fails clause. The proposal `closure-syntax` (#492) had kept `|` in rule 4, which applied only inside a signature, so that an error set could be written over several lines; the proposal `uses-clause` (#488) replaced rule 4 with a rule on `fails` and `uses` alone and dropped the signature. `|` cannot follow that rule, because a line that starts with `|` can start an anonymous function. A line that ends inside the error set of a fails clause is never a complete statement, and `fails` followed by a name is always a clause, so the previous line decides it without tracking the signature. The reading of correct programs does not change. Decided by the author while applying `uses-clause`.

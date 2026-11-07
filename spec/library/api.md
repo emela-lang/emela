@@ -232,6 +232,41 @@ The value layer (`[lib.layers]`). An immutable sequence of bytes. Each byte is a
 
 impl: `impl Bytes: Eq`, `impl Bytes: Ord`, `impl Bytes: Show`. Two Bytes are equal when they have the same bytes in the same order. Ord is lexicographic on the bytes as unsigned values (if the common prefix is equal, the shorter one is smaller). Show is the source form `Bytes.hex("89504e47")`, with the digits of `to_hex`, so the output can be pasted back as an expression. A Bytes inside another value is displayed the same way (`[Bytes.hex("00")]`).
 
+### Std.Array (`std/array.emel`) `[api.std.array]`
+
+The value layer (`[lib.layers]`). An immutable sequence of fixed length, read by position. Positions are 0-based.
+
+| Declaration | Signature | Implementation | Description |
+|---|---|---|---|
+| `Array` | `opaque type Array[A]` | intrinsic | A sequence of values of type `A` |
+| `empty` | `empty[A]() -> Array[A]` | Emela | The array of no elements |
+| `from_list` | `from_list[A](xs: List[A]) -> Array[A]` | intrinsic | The elements in the order of `xs` |
+| `to_list` | `to_list[A](a: Array[A]) -> List[A]` | intrinsic | The elements in order |
+| `repeat` | `repeat[A](value: A, count: Int) -> Array[A]` | Emela | `count` copies of `value`. Empty if `count` is not positive |
+| `size` | `size[A](a: Array[A]) -> Int` | intrinsic | The number of elements |
+| `is_empty` | `is_empty[A](a: Array[A]) -> Bool` | Emela | Whether there are no elements |
+| `get` | `get[A](a: Array[A], index: Int) -> Option[A]` | intrinsic | The element at `index`. `None` if out of range or negative |
+| `set` | `set[A](a: Array[A], index: Int, value: A) -> Array[A]` | intrinsic | The elements of `a` with the one at `index` replaced by `value`. A defect if `index` is out of range or negative |
+| `slice` | `slice[A](a: Array[A], from: Int, to: Int) -> Array[A]` | intrinsic | The elements from `from` inclusive to `to` exclusive. Both are clamped to 0 to `size(a)`; empty if `from` is not less than `to` |
+| `append` | `append[A](a: Array[A], b: Array[A]) -> Array[A]` | Emela | The elements of `a`, then those of `b` |
+| `concat` | `concat[A](parts: List[Array[A]]) -> Array[A]` | intrinsic | The elements of all of them in order |
+| `reverse` | `reverse[A](a: Array[A]) -> Array[A]` | Emela | The elements in reverse order |
+| `map` | `map[A, B](a: Array[A], f: fn(A) -> B) -> Array[B]` | Emela | Applies `f` to each element, from the first |
+| `fold` | `fold[A, B](a: Array[A], from: B, f: fn(B, A) -> B) -> B` | Emela | Folds from the first element |
+| `find_index` | `find_index[A](a: Array[A], f: fn(A) -> Bool) -> Option[Int]` | Emela | The position of the first element that gives True |
+| `sort_by` | `sort_by[A](a: Array[A], f: fn(A, A) -> Ordering) -> Array[A]` | Emela | Sorts in the order of `f`. Stable, with the same result as `List.sort_by` |
+| `sort` | `sort[A: Ord](a: Array[A]) -> Array[A]` | Emela | Sorts in the Ord order (`sort_by(a, Ord.compare)`). Stable |
+| `lower_bound` | `lower_bound[A: Ord](a: Array[A], value: A) -> Int` | Emela | In an array sorted in the Ord order, the smallest position whose element is not less than `value`: the position where `value` would be inserted to keep the order. `size(a)` if every element is less |
+| `binary_search` | `binary_search[A: Ord](a: Array[A], value: A) -> Option[Int]` | Emela | In an array sorted in the Ord order, the smallest position whose element is equal to `value`. `None` if there is none |
+
+- The defect message of `set` is ``Array.set was given position <index> in an array of size <size>``.
+- `lower_bound` bisects as follows, so its result is the same on every target even when `a` is not sorted. Start with `low = 0` and `high = size(a)`. While `low < high`, let `mid = (low + high) / 2`; if the element at `mid` is less than `value`, set `low = mid + 1`, otherwise set `high = mid`. The result is `low`. It compares O(log n) times.
+- `binary_search(a, value)` is `Some(i)` where `i = lower_bound(a, value)`, if `i < size(a)` and the element at `i` is equal to `value`, and `None` otherwise.
+- `size`, `get` and `is_empty` are O(1). `set` is O(n), where n is `size(a)`, except as below. `slice` is O(`to - from`) or less. `append`, `concat`, `repeat`, `from_list`, `to_list`, `reverse`, `map`, `fold` and `find_index` are O(n) in the number of elements of the result or of the argument, and `sort` and `sort_by` are O(n log n).
+- On the WASM and C targets, `set` MUST be O(1) when the argument `a` is a variable (a parameter or a local binding) that is not used after the call on any path, and no other variable or value that is still in use refers to the same array (a closure that captured it, a tuple, a record or a list that holds it, the state of State, or another variable bound to it). In other cases, a target MAY still update in place when it can determine that the array is not shared. The JS target always copies. The result is the same in every case.
+
+impl: `impl Array[A: Eq]: Eq`, `impl Array[A: Ord]: Ord`, `impl Array[A: Show]: Show`. Two arrays are equal when they have equal elements in the same order. Ord is lexicographic (if the common prefix is equal, the shorter one is smaller). Show is the source form `Array.from_list([1, 2, 3])`, so the output can be pasted back as an expression. Values inside are displayed as in `[trait.builtin]` (a String in `"`). An array inside another value is displayed the same way (`[Array.from_list([1])]`).
+
 ### Std.Map (`std/map.emel`) `[api.std.map]`
 
 A mapping from keys to values. Immutable and ordered by key (the Ord order) (`[lib.layers]`, `[open.list]` #36). An opaque type whose contents are a weight-balanced tree.
