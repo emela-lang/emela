@@ -148,6 +148,13 @@ fn 中身のないブロックの行末のコメントの後に空行を入れ�
     );
 }
 
+/// An escape arm `_` (`[error.escape]`) is formatted as any other arm, on one line or in a block.
+#[test]
+fn escape_の_wildcard_arm() {
+    let src = "fn or_else[A](f: fn() -> A, default: A) -> A {\n  f() escape { _ -> default }\n}\n\nfn a() {\n  config = load_config(path) escape {\n    NotFound(_) -> default_config()\n    _           -> panic(\"the bundled config must load\")\n  }\n}\n";
+    assert_eq!(format(src).unwrap(), src);
+}
+
 /// A signature that does not fit moves its `fails` and `use` clauses to their own lines first
 /// (rule 4 of spec 2.5); the parameter list breaks only if the first line is still too long.
 #[test]

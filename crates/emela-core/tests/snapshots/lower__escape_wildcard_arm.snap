@@ -1,0 +1,13 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: main
+---
+export fn main() -> Int {
+  let a%0: Int = {
+    find(1)?
+  } escape {
+    NotFound.NotFound(id: 3) -> 3
+    _ -> 0
+  }
+  @dbg[Int](a%0)
+}

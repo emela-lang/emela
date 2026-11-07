@@ -1,7 +1,7 @@
 ---
 title: A wildcard arm for escape
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 420
 issue:
 decided: 2026-10-29
@@ -126,10 +126,10 @@ Replace the E cell of the escape row with:
 
 ## Diagnostics
 
-- [ ] E0320 narrowed to variables, message changed
-- [ ] E0320 for `_` with a guard
-- [ ] W0302 for `_` on an expression that raises nothing
-- [ ] W0301 for arms below `_`
+- [x] E0320 narrowed to variables, message changed
+- [x] E0320 for `_` with a guard
+- [x] W0302 for `_` on an expression that raises nothing
+- [x] W0301 for arms below `_`
 
 ## Compatibility
 

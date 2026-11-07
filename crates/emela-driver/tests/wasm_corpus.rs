@@ -46,6 +46,7 @@ const SKIPPED: &[Skipped] = &[
         reason: "fibers are not supported on target `wasm` yet",
         expected_failures: &["fibers are not supported on target `wasm` yet"],
         programs: &[
+            "escape_wildcard_interrupt",
             "fiber_deferred",
             "fiber_failures",
             "fiber_fairness",

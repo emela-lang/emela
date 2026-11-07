@@ -1,0 +1,75 @@
+import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+error NotFound(id: Int)
+error Empty
+error Converted
+
+fn find(id: Int) -> String fails NotFound | Empty {
+  if id == 0 { fail Empty }
+  if id > 2 { fail NotFound(id:) }
+  "user #{id}"
+}
+
+## The arms above `_` are tried first (`[error.escape]`).
+fn describe(id: Int) -> String {
+  find(id) escape {
+    NotFound(id:) if id > 5 -> "far #{id}"
+    NotFound(id: 3)         -> "three"
+    _                       -> "other"
+  }
+}
+
+## Every error of a function received as an argument.
+fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
+  f() escape { _ -> default }
+}
+
+## Errors raised in the arm `_` propagate.
+fn convert(id: Int) -> String fails Converted {
+  find(id) escape { _ -> fail Converted }
+}
+
+fn crash(id: Int) -> String fails Empty {
+  if id == 0 { fail Empty }
+  panic("bad")
+}
+
+fn divide(n: Int) -> Int fails Empty {
+  if n < 0 { fail Empty }
+  10 / n
+}
+
+fn kind_name(k: CauseKind) -> String {
+  k match {
+    Fail      -> "Fail"
+    Die       -> "Die"
+    Interrupt -> "Interrupt"
+  }
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> "#{kind_name(Cause.kind(c))} #{Cause.to_string(c)}"
+  }
+}
+
+fn main() -> () use { Async } {
+  print(describe(1))
+  print(describe(3))
+  print(describe(4))
+  print(describe(9))
+  print(describe(0))
+  print(or_else(fn() { find(2) }, "fallback"))
+  print(or_else(fn() { find(0) }, "fallback"))
+  print(convert(0) escape { Converted -> "converted" })
+  ## A defect is not an error, so `_` does not handle it (`[error.defect]`).
+  print(show(Fiber.attempt(fn() { crash(1) escape { _ -> "caught" } })))
+  print(show(Fiber.attempt(fn() { divide(0) escape { _ -> -1 } })))
+  print(show(Fiber.attempt(fn() { crash(0) escape { _ -> "caught" } })))
+}

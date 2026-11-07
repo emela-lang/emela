@@ -1232,9 +1232,11 @@ pub enum Expr {
     Fail(Box<Expr>),
     /// `body escape { arms }` (spec 7.3). Catches failures raised while evaluating `body`.
     ///
-    /// Arm patterns are error constructors (`Pat::Ctor`). Arms for the failed error are tried top
-    /// to bottom, and the body of the first arm whose pattern and guard match is the escape's
-    /// value. A failure that no arm matches propagates outward, whether its error is named in no
+    /// Arm patterns are error constructors (`Pat::Ctor`) or `Pat::Wild` without a guard. Arms
+    /// are tried top to bottom, and the body of the first arm whose pattern and guard match is the
+    /// escape's value. `Pat::Wild` matches every failure, whatever its error, so the arms below it
+    /// are never tried (`[error.escape]`). Defects and interruptions are not failures and never
+    /// reach the arms. A failure that no arm matches propagates outward, whether its error is named in no
     /// arm or only in arms that do not match its value (`NotFound(id: 1)` against
     /// `NotFound(id: 2)`, `[error.escape]`). Failures inside arms propagate outward. `body` is not
     /// in tail position (spec 6.8).

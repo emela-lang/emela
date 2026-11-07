@@ -478,6 +478,27 @@ fn g[A](a: B) -> A fails NotFonud use Loger { a }
     )]));
 }
 
+/// The top-level pattern of an escape arm is limited to errors (E0217); `_` and a variable pass
+/// name resolution (`[module.resolution]`), and only the constructor that is not an error is
+/// reported.
+#[test]
+fn escape_arm_patterns() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"type User(id: Int)
+error NotFound(id: Int)
+
+fn f() -> Int fails NotFound { fail NotFound(id: 1) }
+
+fn g() {
+  a = f() escape { _ -> 0 }
+  b = f() escape { e -> 0 }
+  c = f() escape { User(_) -> 0 }
+}
+"##,
+    )]));
+}
+
 /// A pattern in place of a lambda parameter name becomes a hidden parameter and a binding at the
 /// head of the body (spec 6.1).
 #[test]

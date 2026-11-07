@@ -1,6 +1,5 @@
 ---
 source: crates/emela-cli/tests/cli.rs
-assertion_line: 390
 expression: run.stderr
 ---
 error[E0318]: unhandled error `NotFound`
@@ -45,12 +44,12 @@ error[E0319]: expected an error value, found `Int`
     │                       ╰── 
 ────╯
 
-error[E0320]: escape arms must match an error constructor
-    ╭─[ src/main.emel:24:42 ]
+error[E0320]: escape arms must match an error constructor or `_`
+    ╭─[ src/main.emel:24:47 ]
     │
- 24 │ fn catch_all() -> Int { find(1) escape { _ -> 0 } }
-    │                                          ┬  
-    │                                          ╰── 
+ 24 │ fn catch_variable() -> Int { find(1) escape { e -> 0 } }
+    │                                               ┬  
+    │                                               ╰── 
 ────╯
 
 5 errors, 1 warning

@@ -360,6 +360,44 @@ fn as_value(id: Int) {
     ));
 }
 
+/// 7.3 An arm `_`: falling back to a default, turning any error into a defect, and falling back on
+/// any error of a function received as an argument. The calls have no errors.
+#[test]
+fn spec_7_3_escape_wildcard() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type Config(name: String)  # 補
+error NotFound  # 補
+error InvalidText  # 補
+
+fn load_config(path: String) -> Config fails NotFound | InvalidText { fail NotFound }  # 補
+fn default_config() -> Config { Config(name: "default") }  # 補
+
+fn fallback(path: String) -> Config {  # 補
+  config = load_config(path) escape {
+    _ -> default_config()
+  }
+  config
+}
+
+fn bundled(path: String) -> Config {  # 補
+  config = load_config(path) escape {
+    _ -> panic("the bundled config must load")
+  }
+  config
+}
+
+fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
+  f() escape { _ -> default }
+}
+
+fn callers(path: String) -> Config {  # 補
+  or_else(fn() { load_config(path) }, default_config())
+}
+"#
+    ));
+}
+
 /// 7.3 escape and set variables. Nothing is removed from a parameter function's invisible set
 /// variable. Writing `fails Timeout | E` removes the first call's Timeout from the type too. The
 /// set is decided at the caller.
@@ -984,8 +1022,14 @@ fn not_error_type() {
   or_fail(Some(1), "no")
 }
 
-fn catch_all() -> Int {
-  0 escape { _ -> 1 }
+fn flaky() -> Int fails NotFound { fail NotFound }  # 補
+
+fn catch_variable() -> Int {
+  flaky() escape { e -> 1 }
+}
+
+fn catch_all_guarded(c: Bool) -> Int {
+  flaky() escape { _ if c -> 1 }
 }
 "#
     ));

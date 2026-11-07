@@ -88,7 +88,7 @@ pub const REFUTABLE_BINDING: &str = "E0317";
 // Errors (spec chapter 7)
 pub const UNHANDLED_ERRORS: &str = "E0318";
 pub const NOT_AN_ERROR: &str = "E0319";
-pub const ESCAPE_ARM_NOT_ERROR: &str = "E0320";
+pub const INVALID_ESCAPE_ARM: &str = "E0320";
 pub const ERROR_SET_MISMATCH: &str = "E0321";
 // Constraints on effects (spec 9.5)
 pub const IMMEDIATE_ON_NON_EFFECT: &str = "E0322";

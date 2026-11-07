@@ -220,6 +220,129 @@ fn guarded() -> Int {
     ));
 }
 
+/// An arm `_` handles every error that reaches it, so the E of the escape is the E of its arms
+/// alone, with every tag and every set variable of the original expression removed, opaque or not
+/// (`[error.escape]`, `[type.rules]`). Arms above `_` are tried first; errors raised in arms stay.
+/// The hidden set variable of a parameter function stays in the E of a declaration whatever its
+/// body does (`[error.fails]`), so the caller of `hidden` still has the errors.
+#[test]
+fn escape_wildcard_removes_everything() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error NotFound(id: Int)
+error DbError
+error Other
+
+fn load(id: Int) -> Int fails NotFound | DbError { fail DbError }
+
+fn all() {
+  load(1) escape { _ -> 0 }
+}
+
+fn after_ctor() {
+  load(1) escape {
+    NotFound(id: 1) -> 1
+    _ -> 0
+  }
+}
+
+fn arm_fails() {
+  load(1) escape { _ -> fail Other }
+}
+
+fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
+  f() escape { _ -> default }
+}
+
+fn hidden[A](f: fn() -> A, default: A) -> A {
+  f() escape { _ -> default }
+}
+
+fn set_param[E](f: fn() -> Int fails E) -> Int {
+  f() escape { _ -> 0 }
+}
+
+fn error_param[E](err: E) -> Int {
+  { fail err } escape { _ -> 0 }
+}
+
+fn inferred() {
+  fn(g) { g() escape { _ -> 0 } }
+}
+
+fn local() {
+  f = fn() { load(2) }
+  f() escape { _ -> 0 }
+}
+
+fn caller() -> Int {
+  or_else(fn() { load(3) }, 0) + set_param(fn() { load(4) }) + inferred()(fn() { load(5) })
+}
+
+fn hidden_caller() {
+  hidden(fn() { load(6) }, 0)
+}
+"#
+    ));
+}
+
+/// Warnings and errors around an arm `_` (`[error.escape]`, `[diag.list]`): W0302 on `_` when
+/// the original expression raises nothing; W0301 on every arm below `_`, also when E has an opaque
+/// set variable, and no W0302 in addition; E0320 for a variable or a guarded `_`, without E0318.
+#[test]
+fn escape_wildcard_diagnostics() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+error Bad(n: Int)
+
+fn steady() -> Int { 1 }
+fn fy(n: Int) -> Int fails Bad { fail Bad(n:) }
+
+fn nothing_raised() -> Int {
+  steady() escape { _ -> 0 }
+}
+
+fn below_on_nothing() -> Int {
+  steady() escape {
+    _ -> 0
+    Boom -> 1
+  }
+}
+
+fn below() -> Int {
+  fy(1) escape {
+    _ -> 0
+    Bad(_) -> 1
+    _ -> 2
+  }
+}
+
+fn below_opaque[A](f: fn() -> A) -> A {
+  f() escape {
+    _ -> f()
+    Boom -> f()
+  }
+}
+
+fn after_total() -> Int {
+  fy(1) escape {
+    Bad(_) -> 0
+    _ -> 1
+  }
+}
+
+fn guarded(c: Bool) -> Int {
+  fy(1) escape { _ if c -> 0 }
+}
+
+fn variable() -> Int {
+  fy(1) escape { e -> 0 }
+}
+"#
+    ));
+}
+
 /// `escape` removes a tag from E only when the arms catch every value of that error (spec 7.3). If
 /// the arms catch only some values (field values, guards), the tag stays in E.
 #[test]
