@@ -6,6 +6,7 @@ emela = "0.23.0"
 [dev-dependencies]
 "github.com/emela-lang/brix" = "v0.3.0"
 
-# Until brix is released with `Std.Exit` (vendor/brix/README.md).
+# A copy of brix kept in this repository (brix/README.md), so that a change to the language can
+# update it in the same pull request.
 [replace]
-"github.com/emela-lang/brix" = { path = "vendor/brix" }
+"github.com/emela-lang/brix" = { path = "brix" }
