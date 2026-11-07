@@ -115,7 +115,7 @@ The names in a module are split into three namespaces (types, constructors, and 
 - The modules of the bundled core go into the same table as the source modules and are always read, even in single-file mode. Being writable on the left of `.` without an import, and resolving a name in a type position to a core type, apply only to core modules whose name has a single segment.
 - Binding the same name twice in one pattern or one parameter list is a compile error (E0220). In a binding, the right-hand side is resolved first, and then the names of the pattern are added.
 - `self` is visible inside the operations and the release of a handler. It is not visible inside init (because init is the side that creates the handler value). A handler with fields has a constructor with the same name, and init can write `PostgresUsers(conn: ...)`.
-- The top-level constructor pattern of an escape arm is limited to errors (E0217). `_` and variables pass name resolution but are compile errors in type checking (E0320, 7.3).
+- The top-level constructor pattern of an escape arm is limited to errors (E0217). `_` is allowed (7.3). A variable passes name resolution but is a compile error in type checking (E0320, 7.3).
 - If a name in an import list is not found, it is E0212. If it is found but none of the definitions are pub, it is E0214.
 - Importing two different definitions with the same name is E0213.
 - When `M.x` looks up a definition that is not pub, E0214 is reported, and checking continues as if the name resolved to that definition.
