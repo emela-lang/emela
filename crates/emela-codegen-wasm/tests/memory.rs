@@ -149,7 +149,7 @@ fn attempts_free_their_exits_and_causes() {
     run_limited(
         "memory-attempt",
         r#"
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
@@ -165,14 +165,14 @@ fn length[A, E](e: Exit[A, E]) -> Int {
 }
 
 fn round(i: Int) -> Int use { Clock } {
-  a = length(Fiber.attempt(fn() { "value #{i}" }))
-  b = length(Fiber.attempt(fn() { fail Boom(text: "boom #{i}") }))
-  c = length(Fiber.attempt(fn() { panic("bad #{i}") }))
-  d = length(Fiber.attempt(fn() {
+  a = length(Exit.attempt(fn() { "value #{i}" }))
+  b = length(Exit.attempt(fn() { fail Boom(text: "boom #{i}") }))
+  c = length(Exit.attempt(fn() { panic("bad #{i}") }))
+  d = length(Exit.attempt(fn() {
     (use Clock).sleep(1)
     fail Boom(text: "late #{i}")
   }))
-  e = Fiber.attempt(fn() { fail Boom(text: "again #{i}") }) match {
+  e = Exit.attempt(fn() { fail Boom(text: "again #{i}") }) match {
     Success(_) -> 0
     Failure(cause) -> Cause.raise(cause)
   } escape { Boom(text) -> String.length(text) }
@@ -521,16 +521,16 @@ fn main() {
 }
 
 #[test]
-fn fiber_attempt_does_not_catch_an_allocation_failure() {
+fn exit_attempt_does_not_catch_an_allocation_failure() {
     let Some(_) = wasmtime() else { return };
     // In this backend the attempt cannot make the program continue: the runtime traps before any
     // defect or error value reaches it. Nothing after the attempt runs.
     let bytes = compile_checked(
         r#"
-import Std.Fiber.{Fiber}
+import Std.Exit
 
 fn main() {
-  e = Fiber.attempt(fn() {
+  e = Exit.attempt(fn() {
     xs = List.range(0, 1000000)
     dbg(List.length(xs))
   })

@@ -3573,7 +3573,7 @@ static const em_desc em_desc_scope_close_ref = {EM_KIND_FIELDS, 7, 0, -1, "Fiber
                                                 em_refs_scope_close_ref, NULL};
 static const em_desc em_desc_scope_close_val = {EM_KIND_FIELDS, 7, 0, -1, "Fiber.scope", NULL,
                                                 em_refs_scope_close_val, NULL};
-static const em_desc em_desc_attempt = {EM_KIND_FIELDS, 4, 0, -1, "Fiber.attempt", NULL,
+static const em_desc em_desc_attempt = {EM_KIND_FIELDS, 4, 0, -1, "Exit.attempt", NULL,
                                         em_refs_frame1, NULL};
 
 static void em_scope_fin(em_ref o) {
@@ -3772,7 +3772,7 @@ void em_fiber_interrupt(em_ref h) {
   em_suspend_on(w);
 }
 
-/* ---- Fiber.attempt (spec 11.5) ---- */
+/* ---- Exit.attempt (spec 11.5) ---- */
 
 static em_ref em_attempt_finish(int32_t repr, em_input in) {
   em_word v;

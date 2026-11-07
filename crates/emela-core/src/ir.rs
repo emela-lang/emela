@@ -1415,7 +1415,7 @@ impl Expr {
 ///
 /// Scopes (the `Scope` capability value), fiber handles (`Fiber[A]`), Deferreds and causes
 /// (`Cause[E]`) are opaque values chosen by the backend. Capability values may be put in evidence
-/// tables with `Expr::Provide`. Exit (`Std.Fiber`) and CauseKind (`Std.Cause`) are represented like
+/// tables with `Expr::Provide`. Exit (`Std.Exit`) and CauseKind (`Std.Cause`) are represented like
 /// user enums, with constructor order given by `EXIT_SUCCESS`, `EXIT_FAILURE` and `CAUSE_FAIL`,
 /// `CAUSE_DIE`, `CAUSE_INTERRUPT`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1440,7 +1440,7 @@ pub enum FiberOp {
     /// `Fiber.interrupt(h)` (spec 11.4). `[fiber]`. Interrupts the child and waits until it has
     /// unwound. The value is `()`.
     Interrupt,
-    /// `Fiber.attempt(f)` (spec 11.5). `[f]`. Calls `f` on the spot and turns Fail and Die into
+    /// `Exit.attempt(f)` (spec 11.5). `[f]`. Calls `f` on the spot and turns Fail and Die into
     /// `Failure` of the `exit` enum. Interrupt is not caught. `suspends` tells whether `f` may
     /// suspend (the same rule as `Callee::Indirect` of `Expr::Call::suspends`).
     Attempt { exit: EnumId, suspends: bool },

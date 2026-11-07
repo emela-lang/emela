@@ -1,4 +1,4 @@
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 
 type Key(value: Int)
@@ -51,19 +51,19 @@ fn bad_derived(text: String) -> Int fails Derived { fail Derived(message: text) 
 fn bad_plain(text: String) -> Int fails Plain { fail Plain(message: text) }
 
 pub fn written_cause(text: String) -> String {
-  Fiber.attempt(fn() { bad_written(text) }) match {
+  Exit.attempt(fn() { bad_written(text) }) match {
     Success(_) -> "unexpected"
     Failure(cause) -> Cause.to_string(cause)
   }
 }
 pub fn derived_cause(text: String) -> String {
-  Fiber.attempt(fn() { bad_derived(text) }) match {
+  Exit.attempt(fn() { bad_derived(text) }) match {
     Success(_) -> "unexpected"
     Failure(cause) -> Cause.to_string(cause)
   }
 }
 pub fn plain_cause(text: String) -> String {
-  Fiber.attempt(fn() { bad_plain(text) }) match {
+  Exit.attempt(fn() { bad_plain(text) }) match {
     Success(_) -> "unexpected"
     Failure(cause) -> Cause.to_string(cause)
   }

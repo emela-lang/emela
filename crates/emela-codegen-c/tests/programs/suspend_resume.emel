@@ -1,4 +1,5 @@
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 import Std.State.{State}
 
@@ -122,6 +123,6 @@ fn main() -> () use { Async } {
     print("failed early #{r}")
   }
   with TwiceResumer {
-    print(show(Fiber.attempt(fn() { (use Twice).twice() })))
+    print(show(Exit.attempt(fn() { (use Twice).twice() })))
   }
 }

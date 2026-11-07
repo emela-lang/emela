@@ -85,7 +85,7 @@ Int / Int64の十進出力は最大11 / 20 byte、動的Float出力は最大25 b
 
 `fails` は回復可能な失敗辺として扱い、所有するerrorをcatch・上位関数・FiberのCauseへ渡す。通常のreturn/fail/break、取消、scopeの終了では必要なProtect cleanupを実行する。cleanup自身がsuspendする場合も、その完了を待って元の結果や失敗を配送する。永久に完了しないcleanupを時間だけで強制終了する契約はない。
 
-**defectは即時停止契約である。** kind・messageのpointer・byte長を `_Noreturn emela_board_defect` へ渡す。Protect cleanupや参照解放を行わず、Fiber.attemptでもDieとして捕捉しない。通常のEmelaのdefect unwindと異なるtarget固有の意味論であり、hookが安全な出力状態への移行・停止/resetを担当する。公開入口まで届いた未処理のfailsは `EMELA_DEFECT_UNHANDLED_ERROR` と静的message `unhandled error` にする。
+**defectは即時停止契約である。** kind・messageのpointer・byte長を `_Noreturn emela_board_defect` へ渡す。Protect cleanupや参照解放を行わず、Exit.attemptでもDieとして捕捉しない。通常のEmelaのdefect unwindと異なるtarget固有の意味論であり、hookが安全な出力状態への移行・停止/resetを担当する。公開入口まで届いた未処理のfailsは `EMELA_DEFECT_UNHANDLED_ERROR` と静的message `unhandled error` にする。
 
 suspendは固定pool上の継続と協調schedulerで実装する。Scope/Fork/Join/Await/Interrupt、Deferred、Cause、suspend closure、handlerのresume、managed値の保持・解放を扱う。schedulerはmain文脈で呼ぶ。`emela_scheduler_run(budget)` はdispatchまたはeventの処理数を制限するが、同期の同一fiber内resumeや次のsuspendまでの処理時間を分割する上限ではない。WCET・任意の応答時間・全stack使用量の保証は提供しない。
 

@@ -121,7 +121,7 @@ fn grapheme_builtins_are_rejected() {
 }
 
 /// An empty separator that turns up at run time splits ASCII text by characters, and is a defect
-/// on other text (C has no grapheme cluster tables yet): releases run and `Fiber.attempt` catches
+/// on other text (C has no grapheme cluster tables yet): releases run and `Exit.attempt` catches
 /// it.
 #[test]
 fn split_by_graphemes_at_run_time_is_a_defect() {
@@ -143,7 +143,7 @@ handler Res: Name {
 
 fn main() -> () use { Async } {
   print(String.join(String.split("abc", sep(0)), "|"))
-  r = Fiber.attempt(fn() { String.split("aé", sep(0)) })
+  r = Exit.attempt(fn() { String.split("aé", sep(0)) })
   r match {
     Success(_) -> print("split")
     Failure(c) -> print(Cause.to_string(c))
@@ -152,7 +152,7 @@ fn main() -> () use { Async } {
 }
 "#;
     let src = format!(
-        "import Std.Fiber.{{Fiber, Exit, Success, Failure}}\nimport Std.Cause.{{Cause}}\n{PRELUDE}{src}"
+        "import Std.Exit.{{Exit, Success, Failure}}\nimport Std.Cause.{{Cause}}\n{PRELUDE}{src}"
     );
     let got = run("split_defect", &src).expect("cc is available");
     let message = "`String.split` with an empty separator on non-ASCII text needs the Unicode \

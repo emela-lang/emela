@@ -8,7 +8,8 @@
 
 import Std.State.{State}
 import Std.Console.{Console, SystemConsole}
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Cause
+import Std.Exit.{Success, Failure}
 import Std.Http.Request.{Request, Method, Get, Head, Post, Put, Patch, Delete, Options}
 import Std.Http.Response.{Response, UnexpectedStatus}
 
@@ -216,7 +217,7 @@ const ALLOW: String = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
 ## Runs `app` and turns how it ends into the response to send.
 fn launch[E](app: fn(Request) -> Response fails E use { Async }, request: Request) -> Response
   use { Async } {
-  Fiber.attempt(fn() { app(request) }) match {
+  Exit.attempt(fn() { app(request) }) match {
     Success(res) -> invalid_reason(res) match {
       None         -> with_content_type(res)
       Some(reason) -> failed("invalid response: #{reason}")

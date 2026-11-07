@@ -782,7 +782,7 @@ fn main() {
     (
         "attempt",
         r#"
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 error Boom
@@ -802,20 +802,20 @@ fn cause[A, E](e: Exit[A, E]) {
 }
 
 fn main() {
-  dbg(Fiber.attempt(fn() { 40 + 2 }))
-  dbg(Fiber.attempt(fn() { "text" }))
-  dbg(Fiber.attempt(fn() { 0.5 }))
-  dbg(Fiber.attempt(fn() { () }))
-  dbg(Fiber.attempt(fn() { boom() }))
-  cause(Fiber.attempt(fn() { boom() }))
-  cause(Fiber.attempt(fn() { fail NotFound(id: 7) }))
-  cause(Fiber.attempt(fn() { panic("bad") }))
-  dbg(Fiber.attempt(fn() { boom() }) match {
+  dbg(Exit.attempt(fn() { 40 + 2 }))
+  dbg(Exit.attempt(fn() { "text" }))
+  dbg(Exit.attempt(fn() { 0.5 }))
+  dbg(Exit.attempt(fn() { () }))
+  dbg(Exit.attempt(fn() { boom() }))
+  cause(Exit.attempt(fn() { boom() }))
+  cause(Exit.attempt(fn() { fail NotFound(id: 7) }))
+  cause(Exit.attempt(fn() { panic("bad") }))
+  dbg(Exit.attempt(fn() { boom() }) match {
     Success(v) -> v
     Failure(c) -> Cause.raise(c)
   } escape { Boom -> -1 })
-  cause(Fiber.attempt(fn() {
-    Fiber.attempt(fn() { panic("again") }) match {
+  cause(Exit.attempt(fn() {
+    Exit.attempt(fn() { panic("again") }) match {
       Success(v) -> v
       Failure(c) -> Cause.raise(c)
     }

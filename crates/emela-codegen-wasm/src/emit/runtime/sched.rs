@@ -1111,7 +1111,7 @@ fn unwind_ops(b: &mut Builder<'_>, ins: &mut InstructionSink) {
         ins.call(push);
         ins.end();
     };
-    // Unwinding the whole run (`depth` -1): `Fiber.attempt` no longer catches a defect.
+    // Unwinding the whole run (`depth` -1): `Exit.attempt` no longer catches a defect.
     if let Some(unwinding) = super::attempt::unwinding_cell(b) {
         ins.local_get(DEPTH);
         ins.i32_const(-1);

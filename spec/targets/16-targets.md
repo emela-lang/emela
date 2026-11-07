@@ -54,7 +54,7 @@ The following points are implementation-defined, and programs MUST NOT depend on
 - How traits are implemented (dictionary passing or a copy per type)
 - How continuations are implemented
 - The order of execution when several fibers can run
-- The result of a program that cannot obtain the memory it needs, including whether it is a defect, whether releases run, whether the failure can be observed at `Fiber.attempt`, what, if anything, is written, and the exit status
+- The result of a program that cannot obtain the memory it needs, including whether it is a defect, whether releases run, whether the failure can be observed at `Exit.attempt`, what, if anything, is written, and the exit status
 
 ## 16.5 Informative: intended implementation `[target.impl-hint]`
 

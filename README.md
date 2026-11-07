@@ -355,7 +355,7 @@ The bundled std lives under `Std` and is imported: the platform effects
 `Std.Http`, each with its host handler (`SystemConsole`, `SystemClock`,
 `SystemRandom`, `SystemEnv`, `SystemFileSystem`, `SystemHttp`), the layer
 `Std.Platform.Platform` that bundles them, `Std.State`, `Std.Fiber`,
-`Std.Cause`, `Std.Deferred`, the values `Std.Map`, `Std.Set`, `Std.Path`,
+`Std.Exit`, `Std.Cause`, `Std.Deferred`, the values `Std.Map`, `Std.Set`, `Std.Path`,
 `Std.Instant` and `Std.Duration`, and `Std.Http.Request` and
 `Std.Http.Response`. The test handlers `TestConsole`, `TestClock`,
 `TestFileSystem` and `TestHttp` keep their state in `State`. The core modules

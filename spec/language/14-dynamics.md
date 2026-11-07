@@ -64,5 +64,5 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 
 - All values are immutable. Mutable state is limited to the State effect (8.8), host objects held by handlers, and Deferred (11.7, written only once).
 - When memory is freed cannot be observed, and is unspecified.
-- If a program cannot obtain the memory it needs, the result is implementation-defined (`[target.unspecified]`), including whether it is a defect and therefore whether the releases of handlers run and whether the failure can be observed at `Fiber.attempt` as a `Die` cause (`[fiber.cause]`). What, if anything, is written and the exit status are implementation-defined as well. A program MUST NOT depend on any of these.
+- If a program cannot obtain the memory it needs, the result is implementation-defined (`[target.unspecified]`), including whether it is a defect and therefore whether the releases of handlers run and whether the failure can be observed at `Exit.attempt` as a `Die` cause (`[fiber.cause]`). What, if anything, is written and the exit status are implementation-defined as well. A program MUST NOT depend on any of these.
 - Resources are cleaned up in the release of a handler. There are no destructors tied to freeing a value.

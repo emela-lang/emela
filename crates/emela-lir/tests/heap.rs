@@ -262,11 +262,11 @@ fn main() -> Int {
 fn raising_a_cause_that_cannot_fail() {
     let m = program(
         "\
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 
 fn again() -> Int {
-  Fiber.attempt(fn() { panic(\"bad\") }) match {
+  Exit.attempt(fn() { panic(\"bad\") }) match {
     Success(v) -> v
     Failure(c) -> Cause.raise(c)
   }

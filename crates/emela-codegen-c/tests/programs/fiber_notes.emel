@@ -1,4 +1,5 @@
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 @external(js, "console.log")
@@ -44,7 +45,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
 
 fn main() -> () use { Async } {
   with Ticks {
-    caught = Fiber.attempt(fn() {
+    caught = Exit.attempt(fn() {
       Fiber.scope(fn() {
         Fiber.fork(fn() {
           spin(1000)

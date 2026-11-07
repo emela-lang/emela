@@ -3,11 +3,11 @@ use super::*;
 #[test]
 fn cause_kind_reads_failure_without_consuming_the_cause() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
 error Boom(n: Int) derive Show
 pub fn kind(n: Int) -> Int {
- Fiber.attempt(fn() { fail Boom(n: n) }) match {
+ Exit.attempt(fn() { fail Boom(n: n) }) match {
   Success(_) -> 0
   Failure(c) -> {
    Cause.kind(c)
@@ -36,11 +36,11 @@ int main(void) { for(int i=0;i<1000;i++) assert(emela_export_kind_0(i)==42); }
 #[test]
 fn cause_to_string_uses_error_show_and_caller_output_buffer() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 error Boom(n: Int) derive Show
 pub fn make(n: Int) -> Cause[Boom] {
- Fiber.attempt(fn() { fail Boom(n: n) }) match { Success(_) -> panic("unexpected")
+ Exit.attempt(fn() { fail Boom(n: n) }) match { Success(_) -> panic("unexpected")
   Failure(c) -> c
  }
 }
@@ -74,7 +74,7 @@ int main(void) {
 #[test]
 fn cause_raise_preserves_the_error_and_runs_native_cleanup_before_escape() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 @external(c, "mark")
 fn mark(n: Int) -> () use {}
@@ -85,7 +85,7 @@ handler Res: Resource { fn read() { 0 }
 }
 fn retry(c: Cause[Boom]) -> Int fails Boom { with Res { Cause.raise(c) } }
 pub fn rethrow(n: Int) -> Int {
- Fiber.attempt(fn() { fail Boom(n: n) }) match {
+ Exit.attempt(fn() { fail Boom(n: n) }) match {
   Success(_) -> 0
   Failure(c) -> retry(c) escape { Boom(n) -> n }
  }
@@ -110,7 +110,8 @@ int main(void) { for(int i=0;i<1000;i++) { assert(emela_export_rethrow_0(42)==42
 #[test]
 fn raised_interruption_crosses_sync_calls_and_attempt_without_becoming_a_value() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause, Fail, Die, Interrupt}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
@@ -143,9 +144,9 @@ pub fn make() -> Cause[{}] use Async {
 pub fn raised(c: Cause[{}], asynchronous: Bool) -> Int use Async {
  with Waiting { Fiber.scope(fn() {
      second = Fiber.fork(fn() { with Outer {
-      if asynchronous { Fiber.attempt(fn() { (use Wait).get(3)
+      if asynchronous { Exit.attempt(fn() { (use Wait).get(3)
        bounce(c)
-      }) } else { Fiber.attempt(fn() { bounce(c) }) }
+      }) } else { Exit.attempt(fn() { bounce(c) }) }
       mark(99)
       0
      } })
@@ -240,7 +241,8 @@ fn compile_flow_keeps_rejecting_a_cause_failure_without_a_channel() {
 #[test]
 fn failed_empty_cause_raised_in_cleanup_returns_to_its_failing_scope() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
@@ -338,7 +340,8 @@ fn interruption_raised_by_cleanup_replaces_a_body_failure() {
         };
         let source = format!(
             r#"
-import Std.Fiber.{{Fiber, Success, Failure}}
+import Std.Fiber.{{Fiber}}
+import Std.Exit.{{Success, Failure}}
 import Std.Cause.{{Cause, Fail, Die, Interrupt}}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int

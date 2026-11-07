@@ -594,7 +594,8 @@ fn await_of_interrupted_children_returns_owned_failures_repeatedly_and_for_unit(
         &[(
             "main.emel",
             r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 pub fn work() -> Bool use Async {
   Fiber.scope(fn() {
     child = Fiber.fork(fn() { 42 })
@@ -643,7 +644,8 @@ fn await_waiters_receive_failure_after_interrupt_cleanup_before_interrupt_waiter
         &[(
             "main.emel",
             r#"
-import Std.Fiber.{Fiber, Scope, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Success, Failure}
 import Std.Deferred.{Deferred}
 @external(c, "mark")
 fn mark(n: Int) -> () use {}
@@ -706,7 +708,8 @@ fn interruption_causes_survive_scope_and_heap_reuse_and_can_be_released_by_the_c
         &[(
             "main.emel",
             r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 pub fn failure() -> Cause[{}] use Async {
   Fiber.scope(fn() {

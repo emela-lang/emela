@@ -405,7 +405,7 @@ enum Target {
     Scope(Box<ScopeCall>),
     /// `s.fork(f)`（11.2）．
     Fork(Box<ForkCall>),
-    /// `Fiber.attempt(f)`（11.5）．
+    /// `Exit.attempt(f)`（11.5）．
     Attempt(Box<AttemptCall>),
 }
 

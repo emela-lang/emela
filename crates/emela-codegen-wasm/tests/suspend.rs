@@ -264,7 +264,7 @@ fn cause_to_string_shows_the_name_of_an_error_without_show() {
     let Some(run) = run_code(
         "cause-name",
         r#"
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 error Nope
@@ -279,9 +279,9 @@ fn show_cause[A, E](e: Exit[A, E]) {
 }
 
 fn main() {
-  show_cause(Fiber.attempt(fn() { fail Nope }))
-  show_cause(Fiber.attempt(fn() { fail Retry(after: fn() { 1 }) }))
-  show_cause(Fiber.attempt(fn() { fail Shown(why: "no") }))
+  show_cause(Exit.attempt(fn() { fail Nope }))
+  show_cause(Exit.attempt(fn() { fail Retry(after: fn() { 1 }) }))
+  show_cause(Exit.attempt(fn() { fail Shown(why: "no") }))
 }
 "#,
         0,

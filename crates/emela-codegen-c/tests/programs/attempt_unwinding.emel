@@ -1,4 +1,4 @@
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 @external(js, "console.log")
@@ -34,9 +34,9 @@ handler Loud: Name {
   fn name() { "loud" }
   release {
     print("release loud")
-    r = Fiber.attempt(fn() { 1 })
+    r = Exit.attempt(fn() { 1 })
     print("release attempt #{show(r)}")
-    Fiber.attempt(fn() { panic("in release") }) match {
+    Exit.attempt(fn() { panic("in release") }) match {
       Success(_) -> print("not a failure")
       Failure(c) -> print("caught #{Cause.to_string(c)}")
     }
@@ -54,7 +54,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
 fn main() -> () use { Async } {
   with Parked {
     with Loud {
-      r = Fiber.attempt(fn() {
+      r = Exit.attempt(fn() {
         with Res {
           n = (use Wait).wait()
           print("not resumed #{n}")

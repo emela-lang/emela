@@ -1,4 +1,5 @@
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 import Std.Deferred.{Deferred}
 
@@ -73,12 +74,12 @@ fn main() -> () use { Async } {
       h = Fiber.fork(fn() { 1 })
       fn() { Fiber.join(h) }
     })
-    print(show(Fiber.attempt(fn() { join_later() })))
+    print(show(Exit.attempt(fn() { join_later() })))
     complete_later = Fiber.scope(fn() {
       d = Fiber.deferred()
       fn() { Deferred.complete(d, 1) }
     })
-    print(show(Fiber.attempt(fn() { complete_later() })))
+    print(show(Exit.attempt(fn() { complete_later() })))
     poll_later = Fiber.scope(fn() {
       d = Fiber.deferred()
       fn() { Deferred.poll(d) }

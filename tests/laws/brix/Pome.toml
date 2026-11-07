@@ -1,0 +1,4 @@
+[pome]
+name = "github.com/emela-lang/brix"
+version = "0.3.0"
+emela = "0.24.0"

@@ -337,7 +337,8 @@ int main(void) {
 #[test]
 fn masked_cleanup_can_await_the_failed_child_before_scope_error_propagates() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause, Fail, Die, Interrupt}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int

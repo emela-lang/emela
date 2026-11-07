@@ -276,7 +276,8 @@ fn fibers() {
     let m = mono(&lower_files(&[(
         "main.emel",
         "\
-import Std.Fiber.{Fiber, Scope, Exit}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 fn main() -> Int use { Async } {
@@ -286,7 +287,7 @@ fn main() -> Int use { Async } {
     b = Fiber.fork(fn() { 2 })
     d = s.deferred()
     Deferred.complete(d, \"x\")
-    e = Fiber.attempt(fn() { 3 })
+    e = Exit.attempt(fn() { 3 })
     List.length(Fiber.join(a)) + Fiber.join(b)
   })
 }

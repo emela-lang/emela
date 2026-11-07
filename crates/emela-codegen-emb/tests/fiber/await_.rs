@@ -6,7 +6,8 @@ fn await_returns_success_and_can_mix_with_repeated_join_without_yielding() {
         &[(
             "main.emel",
             r#"
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Exit, Success, Failure}
 @external(c, "mark")
 fn mark(n: Int) -> () use {}
 pub fn work(n: Int) -> Int use Async {
@@ -78,7 +79,8 @@ fn await_keeps_owned_list_results_after_the_scope_ends() {
         &[(
             "main.emel",
             r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 pub fn list(n: Int) -> List[Int] use Async {
   Fiber.scope(fn() {
     child = Fiber.fork(fn() { [n, n + 1] })
@@ -127,7 +129,8 @@ fn await_and_join_share_fifo_waiters_and_transfer_each_result() {
         &[(
             "main.emel",
             r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
@@ -196,7 +199,8 @@ int main(void) {
 #[test]
 fn leaked_await_callback_checks_the_ended_scope_before_using_the_child_result() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 pub fn leak() -> (fn() -> Int use Async) use Async {
   Fiber.scope(fn() {
     child = Fiber.fork(fn() { 42 })
@@ -433,7 +437,8 @@ fn await_preserves_int64_float_bits_and_bool_payloads() {
         &[(
             "main.emel",
             r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 pub fn wide(n: Int64) -> Int64 use Async {
   Fiber.scope(fn() { child = Fiber.fork(fn() { n })
     Fiber.await(child) match { Success(v) -> v
@@ -489,7 +494,8 @@ fn await_with_a_string_exit_keeps_owned_backing_after_scope_and_frame_reuse() {
         &[(
             "main.emel",
             r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 pub fn text(n: Int) -> String use Async {
   Fiber.scope(fn() {
     child = Fiber.fork(fn() { Int.to_string(n) })
@@ -537,7 +543,8 @@ fn returning_await_exit_through_scope_owns_the_exit_after_scope_end() {
         &[(
             "main.emel",
             r#"
-import Std.Fiber.{Fiber, Exit}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Exit}
 pub fn terminal(n: Int) -> Exit[Int, {}] use Async {
   Fiber.scope(fn() { child = Fiber.fork(fn() { n })
     Fiber.await(child) })
@@ -599,7 +606,8 @@ fn a_direct_suspend_call_can_return_an_inline_exit_into_its_caller_frame() {
         &[(
             "main.emel",
             r#"
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Exit, Success, Failure}
 fn terminal(child: Fiber[Int]) -> Exit[Int, {}] use Async { Fiber.await(child) }
 pub fn work(n: Int) -> Int use Async {
   Fiber.scope(fn() {

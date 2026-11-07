@@ -1,4 +1,5 @@
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 error Boom(n: Int) derive Show
 pub fn good(n: Int) -> Int use Async {
  Fiber.scope(fn() {
