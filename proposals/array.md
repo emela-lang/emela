@@ -101,7 +101,7 @@ fn sum(xs: Array[Int]) -> Int
 - `Array` is defined in `std/array.emel` as an opaque type with `@intrinsic` and one type parameter. Like `Bytes`, it works only with the same version of the runtime (`[lib.layers]`).
 - `set` returns a new array. When the array given to it is referred to from nowhere else, WASM and C update it in place and return it. Because the old array can no longer be observed, the result is the same as a copy; only the time taken differs.
 
-List and Array divide the work by how a sequence is read. A List is read from the front and built a little at a time: recursion, `match` on `[x, ..rest]`, pipelines of `List.map` and `List.filter`. An Array is read by position: tables, binary search, grids, and values passed to the host. The functions of `Std.Array` beyond the basic ones are those where the position matters (`find_index`, `binary_search`, `sort`, `reverse`); functions that read from the front (`find`, `any`, `filter`) are reached through `to_list`.
+List and Array divide the work by how a sequence is read. A List is read from the front and built a little at a time: recursion, `match` on `[x, ..rest]`, pipelines of `List.map` and `List.filter`. An Array is read by position: tables, binary search, grids, and values passed to the host. The functions of `Std.Array` beyond the basic ones are those where the position matters (`find_index`, `lower_bound`, `binary_search`, `sort`, `reverse`); functions that read from the front (`find`, `any`, `filter`) are reached through `to_list`.
 
 ### Typing rules
 
@@ -151,10 +151,12 @@ Placed after `[api.std.bytes]`.
 > | `find_index` | `find_index[A](a: Array[A], f: fn(A) -> Bool) -> Option[Int]` | Emela | The position of the first element that gives True |
 > | `sort_by` | `sort_by[A](a: Array[A], f: fn(A, A) -> Ordering) -> Array[A]` | Emela | Sorts in the order of `f`. Stable, with the same result as `List.sort_by` |
 > | `sort` | `sort[A: Ord](a: Array[A]) -> Array[A]` | Emela | Sorts in the Ord order (`sort_by(a, Ord.compare)`). Stable |
+> | `lower_bound` | `lower_bound[A: Ord](a: Array[A], value: A) -> Int` | Emela | In an array sorted in the Ord order, the smallest position whose element is not less than `value`: the position where `value` would be inserted to keep the order. `size(a)` if every element is less |
 > | `binary_search` | `binary_search[A: Ord](a: Array[A], value: A) -> Option[Int]` | Emela | In an array sorted in the Ord order, the smallest position whose element is equal to `value`. `None` if there is none |
 >
 > - The defect message of `set` is ``Array.set was given position <index> in an array of size <size>``.
-> - `binary_search` bisects as follows, so its result is the same on every target even when `a` is not sorted. Start with `low = 0` and `high = size(a)`. While `low < high`, let `mid = (low + high) / 2`; if the element at `mid` is less than `value`, set `low = mid + 1`, otherwise set `high = mid`. The result is `Some(low)` if `low < size(a)` and the element at `low` is equal to `value`, and `None` otherwise. It compares O(log n) times.
+> - `lower_bound` bisects as follows, so its result is the same on every target even when `a` is not sorted. Start with `low = 0` and `high = size(a)`. While `low < high`, let `mid = (low + high) / 2`; if the element at `mid` is less than `value`, set `low = mid + 1`, otherwise set `high = mid`. The result is `low`. It compares O(log n) times.
+> - `binary_search(a, value)` is `Some(i)` where `i = lower_bound(a, value)`, if `i < size(a)` and the element at `i` is equal to `value`, and `None` otherwise.
 > - `size`, `get` and `is_empty` are O(1). `set` is O(n), where n is `size(a)`, except as below. `slice` is O(`to - from`) or less. `append`, `concat`, `repeat`, `from_list`, `to_list`, `reverse`, `map`, `fold` and `find_index` are O(n) in the number of elements of the result or of the argument, and `sort` and `sort_by` are O(n log n).
 > - On the WASM and C targets, `set` MUST be O(1) when the argument `a` is a variable (a parameter or a local binding) that is not used after the call on any path, and no other variable or value that is still in use refers to the same array (a closure that captured it, a tuple, a record or a list that holds it, the state of State, or another variable bound to it). In other cases, a target MAY still update in place when it can determine that the array is not shared. The JS target always copies. The result is the same in every case.
 >
@@ -230,6 +232,7 @@ No program that compiles now changes meaning. `Array` is reached only through `i
 - A mutable array held in State or a handler. Every other value is immutable (`[dyn.memory]`); mutation would have to be tracked in effects, and an array could not be put in a Map or compared.
 - Array in core and the Prelude. Core holds the types the compiler knows as syntax (`[lib.layers]`), and Array has no syntax. Placing it in core would make `array.emel` a reserved file name (`[module.name]`). If an array literal is added later, this can be revisited.
 - No boundary for Array, with sequences passed to the host in a later proposal. Handler authors would keep writing one external function per element.
+- Only `binary_search`, without `lower_bound`. The bisection already finds the position where the value would be inserted, which keeps a sorted array sorted and answers range queries; without it, callers would write the bisection again.
 - Only arrays of the scalar boundary types at the boundary. The rule would need an exception, while the recursive rule copies a nested array the same way.
 - A new code for Array on the `c` target instead of extending E0443. Both are decided together with the C form of 18.1 #38, so one code for "not supported at the boundary yet" is enough.
 
@@ -242,7 +245,5 @@ No program that compiles now changes meaning. `Array` is reached only through `i
 - A binary search that returns the first position not less than the value (lower bound): C++ `std::lower_bound`, Rust `partition_point`.
 
 ## Open questions
-
-- `binary_search` returns only a position whose element is equal. Whether to also return the position where `value` would be inserted (for example a separate `lower_bound(a, value) -> Int`), which the bisection already finds.
 
 ## Decision
