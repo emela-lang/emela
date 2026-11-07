@@ -1,10 +1,10 @@
 ---
 title: Array
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 508
 issue:
-decided:
+decided: 2026-11-07
 touches: [lib.layers, api.std.array (new), ext.boundary, target.js.value, target.impl-hint, diag.list]
 requires: []
 related: [bytes]
@@ -247,3 +247,5 @@ No program that compiles now changes meaning. `Array` is reached only through `i
 ## Open questions
 
 ## Decision
+
+List.get is O(n), so tables indexed by position (automata, dynamic programming, histograms, binary search) had only Map[Int, A] to fall back on, and no sequence could cross the host boundary. Array is fixed-length so that the work is divided by how a sequence is read: a List is read from the front and built a little at a time, an Array is built from a List and then read by position. For the same reason, Std.Array has only the functions where the position matters, and the ones that read from the front stay in List. set is a defect out of range rather than an Option, because the natural fallback with the original array would keep it alive and make every set a silent copy; a write out of range is a bug of the caller. The in-place update is promised on WASM and C only for the case a reader can see in the source, a variable not used after the call and not referred to from elsewhere, so programs can rely on O(1) set without the specification fixing the analyses of the compiler. Arrays cross the JS boundary as JS arrays, nested ones included, and the C target reports them with E0443 until its form is decided with 18.1 #38.
