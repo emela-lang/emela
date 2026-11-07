@@ -82,7 +82,7 @@ fn or_else[A](f: fn() -> A, default: A) -> A {
 - The result of an arm MUST have the same type as the original expression, or be Never (`fail` or `panic`). When the type of the original expression is Never, the common type of the arms is the type of the whole.
 - The tags handled by the arms are removed from E. The tags not handled propagate as they are.
 - A tag is removed only when the arms without guards for that error together handle all values of that error (`NotFound(_)`; two arms `Flag(on: True)` and `Flag(on: False)` also work). If there are only arms that handle some of the values (`NotFound(id: 1)`, arms with guards), the tag stays in E, and values that match no arm propagate to the caller as errors.
-- An arm `_` handles every error that reaches it, and removes every tag and every set variable, opaque or not, from E. Arms below it are warned about as redundant (W0301). `_` cannot have a guard.
+- An arm `_` handles every error that reaches it, and removes every tag and every set variable, opaque or not, from E. Arms below it are warned about as redundant (W0301), whether or not the E of the original expression contains an opaque set variable, and such an arm does not also get W0302. `_` cannot have a guard.
 - `_` discards the error. Use it when the error itself is not needed: to fall back to a default value, to do nothing, or to turn the failure into a defect with `panic`. To look at the error, handle it by its constructor.
 - A defect and an interruption are not errors, so `_` does not handle them (7.5, 11.5).
 - Errors raised in an arm are added to E.
