@@ -73,7 +73,7 @@ const MODULES: &[RuntimeModule] = &[
     RuntimeModule {
         funcs: alloc::FUNCS,
         locals: alloc::locals,
-        setup: no_setup,
+        setup: alloc::setup,
         emit: alloc::emit,
         used: always,
     },
