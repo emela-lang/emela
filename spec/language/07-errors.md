@@ -60,13 +60,31 @@ data = load(id) escape {
 found = Some(find_user(id)) escape {
   NotFound(_) -> None
 }
+
+# Fall back to a default on any error
+config = load_config(path) escape {
+  _ -> default_config()
+}
+
+# Turn any error into a defect
+config = load_config(path) escape {
+  _ -> panic("the bundled config must load")
+}
+
+# Fall back on any error of a function received as an argument
+fn or_else[A](f: fn() -> A, default: A) -> A {
+  f() escape { _ -> default }
+}
 ```
 
-- `expr escape { arms }` handles errors raised while evaluating the expression. The pattern of an arm MUST be an error constructor (`_` and variables cannot be written). A constructor that is not an error at the top level is E0217, and `_` or a variable is E0320. An escape with such a mistake is checked further as if it handled all the errors of the original expression (E0318 is not reported in addition). Exhaustiveness of the arms is not required.
+- `expr escape { arms }` handles errors raised while evaluating the expression. The pattern of an arm MUST be an error constructor or the wildcard `_`. A variable cannot be written, because a value of one of several errors has no type (7.1). A constructor that is not an error at the top level is E0217, and a variable or `_` with a guard is E0320. An escape with such a mistake is checked further as if it handled all the errors of the original expression (E0318 is not reported in addition). Exhaustiveness of the arms is not required.
 - An arm that handles an error the original expression cannot raise gets a warning (W0302). If an arm for the same error is covered by the arms above it, it is warned about as a redundant arm (W0301). Both checks also apply to arms that handle only some values. They are checked only when the E of the original expression contains no opaque set variable.
 - The result of an arm MUST have the same type as the original expression, or be Never (`fail` or `panic`). When the type of the original expression is Never, the common type of the arms is the type of the whole.
 - The tags handled by the arms are removed from E. The tags not handled propagate as they are.
 - A tag is removed only when the arms without guards for that error together handle all values of that error (`NotFound(_)`; two arms `Flag(on: True)` and `Flag(on: False)` also work). If there are only arms that handle some of the values (`NotFound(id: 1)`, arms with guards), the tag stays in E, and values that match no arm propagate to the caller as errors.
+- An arm `_` handles every error that reaches it, and removes every tag and every set variable, opaque or not, from E. Arms below it are warned about as redundant (W0301). `_` cannot have a guard.
+- `_` discards the error. Use it when the error itself is not needed: to fall back to a default value, to do nothing, or to turn the failure into a defect with `panic`. To look at the error, handle it by its constructor.
+- A defect and an interruption are not errors, so `_` does not handle them (7.5, 11.5).
 - Errors raised in an arm are added to E.
 - When the E of the expression contains an opaque set variable (a set type parameter `E`, the hidden set variable of a parameter's function type, a type parameter for a single error type, or the set variable of a definition being generalized), escape removes nothing from that variable. From sets being inferred within the same function (such as the E of a local function), tags are removed exactly. At run time the arm does handle that tag, but in the type the variable remains.
 - To remove a tag exactly in the type as well, write the tag to handle in the function type (`fails Timeout | E`, 7.4). A written tag is outside the set variable, so escape removes it.
