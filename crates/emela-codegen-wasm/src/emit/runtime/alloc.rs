@@ -160,7 +160,7 @@ fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
 /// A failed `memory.grow` returns `-1`. The program then ends abruptly: it traps
 /// (`unreachable`), and `G_HEAP` keeps its old value, so no store is made past the end of the
 /// memory. In this backend an allocation failure is not a defect: it does not set `G_DEFECT`,
-/// does not run releases, and cannot be observed at `Fiber.attempt`. The classification, the
+/// does not run releases, and cannot be observed at `Exit.attempt`. The classification, the
 /// message and the trap are implementation-defined.
 ///
 /// `quiet` is non-zero for `cabi_realloc`, which runs inside a host call: a blocking write from

@@ -1,4 +1,4 @@
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
 
 @external(js, "console.log")
@@ -69,7 +69,7 @@ fn main() -> () use { Async } {
   print(or_else(fn() { find(0) }, "fallback"))
   print(convert(0) escape { Converted -> "converted" })
   ## A defect is not an error, so `_` does not handle it (`[error.defect]`).
-  print(show(Fiber.attempt(fn() { crash(1) escape { _ -> "caught" } })))
-  print(show(Fiber.attempt(fn() { divide(0) escape { _ -> -1 } })))
-  print(show(Fiber.attempt(fn() { crash(0) escape { _ -> "caught" } })))
+  print(show(Exit.attempt(fn() { crash(1) escape { _ -> "caught" } })))
+  print(show(Exit.attempt(fn() { divide(0) escape { _ -> -1 } })))
+  print(show(Exit.attempt(fn() { crash(0) escape { _ -> "caught" } })))
 }

@@ -521,16 +521,16 @@ fn main() {
 }
 
 #[test]
-fn fiber_attempt_does_not_catch_an_allocation_failure() {
+fn exit_attempt_does_not_catch_an_allocation_failure() {
     let Some(_) = wasmtime() else { return };
     // In this backend the attempt cannot make the program continue: the runtime traps before any
     // defect or error value reaches it. Nothing after the attempt runs.
     let bytes = compile_checked(
         r#"
-import Std.Fiber.{Fiber}
+import Std.Exit
 
 fn main() {
-  e = Fiber.attempt(fn() {
+  e = Exit.attempt(fn() {
     xs = List.range(0, 1000000)
     dbg(List.length(xs))
   })
