@@ -186,6 +186,43 @@ fn main() {
 "#,
     ),
     (
+        "escape_wildcard",
+        r#"
+error NotFound(id: Int)
+error Empty
+error Converted
+
+fn find(id: Int) -> Int fails NotFound | Empty {
+  if id == 0 { fail Empty }
+  if id > 2 { fail NotFound(id:) }
+  id
+}
+
+fn describe(id: Int) -> Int {
+  find(id) escape {
+    NotFound(id:) if id > 5 -> 100 + id
+    NotFound(id: 3) -> 30
+    _ -> -1
+  }
+}
+
+fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
+  f() escape { _ -> default }
+}
+
+fn convert(id: Int) -> Int fails Converted {
+  find(id) escape { _ -> fail Converted }
+}
+
+fn main() {
+  dbg(List.map([1, 3, 4, 9, 0], describe))
+  dbg(or_else(fn() { find(2) }, -2))
+  dbg(or_else(fn() { find(0) }, -2))
+  dbg(convert(0) escape { Converted -> -3 })
+}
+"#,
+    ),
+    (
         "error_without_show",
         r#"
 error Nope
@@ -794,6 +831,19 @@ fn main() {
     (
         "bytes_hex_defect",
         include_str!("../../emela-codegen-c/tests/programs/bytes_hex_defect.emel"),
+    ),
+    // `[api.std.array]`: the same programs as the JS and C parity tests.
+    (
+        "array",
+        include_str!("../../emela-codegen-c/tests/programs/array.emel"),
+    ),
+    (
+        "array_set_defect",
+        include_str!("../../emela-codegen-c/tests/programs/array_set_defect.emel"),
+    ),
+    (
+        "array_set_negative",
+        include_str!("../../emela-codegen-c/tests/programs/array_set_negative.emel"),
     ),
 ];
 

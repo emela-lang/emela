@@ -644,6 +644,10 @@ pub enum Type {
     /// `Std.Bytes.Bytes` (`[api.std.bytes]`), the built-in type of an `@intrinsic` type
     /// declaration. Immutable; the `Builtin::Bytes*` functions make and read it.
     Bytes,
+    /// `Std.Array.Array[A]` (`[api.std.array]`), the built-in type of an `@intrinsic` type
+    /// declaration with one type parameter: the element type. Immutable as seen by the program;
+    /// the `Builtin::Array*` functions make and read it.
+    Array(TypeId),
     Unit,
     Never,
     /// Two or more elements.
@@ -817,7 +821,7 @@ impl TypeTable {
         let has_param = match &ty {
             Type::Param(_) => true,
             Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(|&t| self.has_param(t)),
-            Type::List(t) | Type::Cell(t) => self.has_param(*t),
+            Type::List(t) | Type::Array(t) | Type::Cell(t) => self.has_param(*t),
             Type::Fn(f) => {
                 f.params.iter().any(|&t| self.has_param(t))
                     || self.has_param(f.ret)
@@ -896,6 +900,7 @@ impl TypeTable {
             Type::Set(_) => return TypeId::UNIT,
             Type::Tuple(ts) => Type::Tuple(ts.iter().map(|&t| self.erase_sets(t)).collect()),
             Type::List(t) => Type::List(self.erase_sets(t)),
+            Type::Array(t) => Type::Array(self.erase_sets(t)),
             Type::Enum(id, ts) => Type::Enum(id, ts.iter().map(|&t| self.erase_sets(t)).collect()),
             Type::Cell(t) => Type::Cell(self.erase_sets(t)),
             Type::Fn(f) => Type::Fn(FnType {
@@ -952,6 +957,7 @@ pub fn subst_type<S: TypeStore + ?Sized>(s: &mut S, ty: TypeId, args: &[TypeId])
         Type::Param(i) => return args.get(i).copied().unwrap_or(ty),
         Type::Tuple(ts) => Type::Tuple(subst_all(s, &ts, args)),
         Type::List(t) => Type::List(subst_type(s, t, args)),
+        Type::Array(t) => Type::Array(subst_type(s, t, args)),
         Type::Enum(id, ts) => Type::Enum(id, subst_all(s, &ts, args)),
         Type::Cell(t) => Type::Cell(subst_type(s, t, args)),
         Type::Handler(e) => Type::Handler(s.map_effect(e)),
@@ -1232,9 +1238,11 @@ pub enum Expr {
     Fail(Box<Expr>),
     /// `body escape { arms }` (spec 7.3). Catches failures raised while evaluating `body`.
     ///
-    /// Arm patterns are error constructors (`Pat::Ctor`). Arms for the failed error are tried top
-    /// to bottom, and the body of the first arm whose pattern and guard match is the escape's
-    /// value. A failure that no arm matches propagates outward, whether its error is named in no
+    /// Arm patterns are error constructors (`Pat::Ctor`) or `Pat::Wild` without a guard. Arms
+    /// are tried top to bottom, and the body of the first arm whose pattern and guard match is the
+    /// escape's value. `Pat::Wild` matches every failure, whatever its error, so the arms below it
+    /// are never tried (`[error.escape]`). Defects and interruptions are not failures and never
+    /// reach the arms. A failure that no arm matches propagates outward, whether its error is named in no
     /// arm or only in arms that do not match its value (`NotFound(id: 1)` against
     /// `NotFound(id: 2)`, `[error.escape]`). Failures inside arms propagate outward. `body` is not
     /// in tail position (spec 6.8).

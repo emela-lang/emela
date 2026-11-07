@@ -494,6 +494,37 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// The diagnostics of an escape arm `_` and of a variable arm (E0320, W0301, W0302,
+/// `[error.escape]`).
+#[test]
+fn escape_wildcard_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"error Boom
+
+fn steady() -> Int { 1 }
+fn boom() -> Int fails Boom { fail Boom }
+
+fn main() {
+  a = steady() escape { _ -> 0 }
+  b = boom() escape {
+    _ -> 0
+    Boom -> 1
+  }
+  c = boom() escape { _ if a > 0 -> 0 }
+  d = boom() escape { e -> 0 }
+  dbg((a, b, c, d))
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// The messages of effect diagnostics (E04xx). The driver also passes main and test functions to
 /// inference to check that their R is empty (spec 8.3, 13.3).
 #[test]
@@ -1526,4 +1557,75 @@ fn main() {
     ];
     let analysis = check_files(&files, "app", &mut Typecheck::default());
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// `[api.std.array]`, compatibility: `Array` is reached only through `import Std.Array`, so a
+/// module `array.emel` and a user type named `Array` keep working. Outside `Std.Array`, an Array
+/// is made only by its functions: it has no constructor to call or match.
+#[test]
+fn array_names_stay_free() {
+    let files = [
+        ("app/Pome.toml", ""),
+        (
+            "app/src/array.emel",
+            "pub type Array(n: Int)\n\npub fn count(a: Array) -> Int { a.n }\n",
+        ),
+        (
+            "app/src/main.emel",
+            "import Array\n\nfn main() {\n  dbg(Array.count(Array.Array(n: 1)))\n}\n",
+        ),
+    ];
+    let analysis = check_files(&files, "app", &mut Typecheck::default());
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+
+    let files = [
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            r#"import Std.Array.{Array}
+
+fn size(a: Array[Int]) -> Int {
+  a match {
+    Array() -> 0
+  }
+}
+
+fn main() {
+  dbg(Array())
+}
+"#,
+        ),
+    ];
+    let analysis = check_files(&files, "app", &mut Typecheck::default());
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// `[ext.boundary]`: `Array[A]` is a boundary type when `A` is a boundary type other than a
+/// function type, nested arrays and Bytes included. An array of functions, or of a type that is not
+/// a boundary type, is not one (E0436 for an exported fn).
+#[test]
+fn array_boundary_types() {
+    insta::assert_snapshot!(export_diagnostics(&[(
+        "home/main.emel",
+        r#"import Std.Array.{Array}
+import Std.Bytes.{Bytes}
+
+@external
+type Conn
+
+@export(js, "ok")
+pub fn ok(a: Array[Int], b: Array[Array[String]], c: Array[Bytes], d: Array[Conn], e: Array[()]) -> Array[Float] { Array.empty() }
+
+@export(js, "callbacks")
+pub fn callbacks(fs: Array[fn(Int) -> Int fails {} use {}]) -> Int { 0 }
+
+@export(js, "lists")
+pub fn lists() -> Array[List[Int]] { Array.empty() }
+
+@export(js, "deep")
+pub fn deep(a: Array[Array[Option[Int]]]) -> Int { 0 }
+
+fn main() {}
+"#,
+    )]));
 }

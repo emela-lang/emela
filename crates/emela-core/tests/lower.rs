@@ -463,6 +463,34 @@ fn pure(n: Int) -> Int {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
+/// An escape arm `_` lowers to an arm with the pattern `_`, after the arms above it
+/// (`[error.escape]`). The core verifier accepts it.
+#[test]
+fn escape_wildcard_arm() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+error NotFound(id: Int)
+error Unauthorized
+
+fn find(id: Int) -> Int fails NotFound | Unauthorized {
+  if id > 0 { id } else if id == 0 { fail NotFound(id:) } else { fail Unauthorized }
+}
+
+fn main() {
+  a = find(1) escape {
+    NotFound(id: 3) -> 3
+    _ -> 0
+  }
+  dbg(a)
+}
+",
+    )]);
+    let out = dump(&m);
+    let main = out.split("\n\n").find(|f| f.contains("fn main(")).unwrap();
+    insta::assert_snapshot!(main);
+}
+
 /// use, with, handlers, and operations on capability values (spec 8.2 to 8.4). Functions and
 /// lambdas with a non-empty R take the evidence table as their last argument, and `with` extends
 /// the table. The Clock in the same `with` satisfies Stamp's dependency.

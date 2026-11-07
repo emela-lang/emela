@@ -1313,6 +1313,71 @@ export function $hostBytes(b, message) {
   return new Uint8Array(b);
 }
 
+// ---- Array (`[api.std.array]`) ----
+//
+// An Array is a JS `Array` that nothing changes after it is made (`[target.js.value]`). The
+// functions that make one always make a new array, so `set` copies (`[target.impl-hint]`), and an
+// Array never shares its elements' storage with another value or with the host. Arrays from the
+// host are copied by `$hostArray`, so every Array is dense.
+
+export function $arrayFromList(xs) {
+  const out = [];
+  for (let p = xs; p !== null; p = p.t) out.push(p.h);
+  return out;
+}
+
+export function $arrayToList(a) {
+  return $list(a);
+}
+
+export function $arraySize(a) {
+  return a.length;
+}
+
+export function $arrayGet(a, i) {
+  return i >= 0 && i < a.length ? { $tag: 0, $0: a[i] } : $None;
+}
+
+export function $arraySet(a, i, value) {
+  if (!(i >= 0 && i < a.length)) {
+    throw new $Defect(`Array.set was given position ${i} in an array of size ${a.length}`);
+  }
+  const out = a.slice();
+  out[i] = value;
+  return out;
+}
+
+// Both ends are clamped to 0 to the size; empty if `from` is not less than `to`.
+export function $arraySlice(a, from, to) {
+  const f = Math.min(Math.max(from, 0), a.length);
+  const t = Math.min(Math.max(to, 0), a.length);
+  return f < t ? a.slice(f, t) : [];
+}
+
+export function $arrayConcat(parts) {
+  const out = [];
+  for (let p = parts; p !== null; p = p.t) {
+    for (let i = 0; i < p.h.length; i++) out.push(p.h[i]);
+  }
+  return out;
+}
+
+// The source form `Array.from_list([1, 2])`, as the Show impl in `std/array.emel` writes it.
+export function $showArray(a, show) {
+  return `Array.from_list([${a.map(show).join(", ")}])`;
+}
+
+// An Array received from the host (`[target.js.value]`): a value with `Array.isArray`, copied so
+// that later changes to the host's array do not reach it, each element converted by `convert`
+// (`null` when the elements pass as they are). A hole is read as `undefined`. `message` is the
+// defect for any other value.
+export function $hostArray(a, message, convert) {
+  if (!Array.isArray(a)) throw new $Defect(message);
+  const out = new Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = convert === null ? a[i] : convert(a[i]);
+  return out;
+}
+
 // ---- Numeric conversions (spec 16.1) ----
 
 export function $itof(n) {

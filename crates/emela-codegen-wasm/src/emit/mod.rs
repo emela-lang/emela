@@ -120,7 +120,7 @@ fn ix<T>(id: la_arena::Idx<T>) -> usize {
 /// The shape of a heap object made by the program.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct DescKey {
-    /// 0 = fields, 1 = string (variable size).
+    /// 0 = fields, 1 = string (variable size), 2 = array (variable size, `runtime/array.rs`).
     pub kind: u32,
     pub tag: u32,
     /// The enum index of an error value, or -1.
@@ -861,6 +861,28 @@ impl<'m> Builder<'m> {
         });
         let none = self.nullary(none_desc);
         Some((some, none, repr))
+    }
+
+    /// The representation of the elements of the array type `ty` (`[api.std.array]`).
+    pub(crate) fn array_elem_repr(&self, ty: TypeId) -> Repr {
+        match self.core().ty(ty) {
+            Type::Array(elem) => self.repr(*elem),
+            _ => Repr::Ref,
+        }
+    }
+
+    /// The descriptor of an array of type `ty` (`runtime/array.rs`): kind 2, with `refs[0]`
+    /// telling whether the elements are references.
+    pub(crate) fn array_desc(&mut self, ty: TypeId) -> u32 {
+        let elem_ref = self.array_elem_repr(ty) == Repr::Ref;
+        self.desc(DescKey {
+            kind: runtime::array::KIND,
+            tag: 0,
+            enum_id: -1,
+            name: "Array".to_owned(),
+            show: None,
+            refs: vec![elem_ref],
+        })
     }
 
     /// A static object (rc == 0) of the descriptor, with no fields.

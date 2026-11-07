@@ -250,11 +250,7 @@ fn loopify_through_short_circuit() {
     }
 }
 
-fn prelude_cons() -> (
-    emela_types::TyCons,
-    emela_types::TyConId,
-    emela_types::TyConId,
-) {
+fn prelude_cons() -> (emela_types::TyCons, crate::SigCons) {
     use emela_types::{TyConData, TyConKind, TyCons, TyParam};
     let mut cons = TyCons::new();
     let option = cons.alloc(TyConData {
@@ -267,7 +263,19 @@ fn prelude_cons() -> (
         kind: TyConKind::Type,
         params: Vec::new(),
     });
-    (cons, option, bytes)
+    let array = cons.alloc(TyConData {
+        name: "Array".into(),
+        kind: TyConKind::Type,
+        params: vec![TyParam::new("A")],
+    });
+    (
+        cons,
+        crate::SigCons {
+            option,
+            bytes,
+            array,
+        },
+    )
 }
 
 #[test]
@@ -290,8 +298,8 @@ fn builtin_names_are_unique_and_found_by_lookup() {
 
 #[test]
 fn builtin_schemes() {
-    let (cons, option, bytes) = prelude_cons();
-    let show = |op: Builtin| format!("{}", op.info().scheme(option, bytes).display(&cons));
+    let (cons, sig_cons) = prelude_cons();
+    let show = |op: Builtin| format!("{}", op.info().scheme(sig_cons).display(&cons));
     assert_eq!(show(Builtin::StringLength), "fn(String) -> Int");
     assert_eq!(
         show(Builtin::StringSplit),
@@ -309,6 +317,17 @@ fn builtin_schemes() {
     assert_eq!(Builtin::Dbg.info().path(), "dbg");
     assert_eq!(show(Builtin::Inspect), "∀ A. fn(A) -> String");
     assert_eq!(Builtin::Int64FromInt.info().path(), "Int64.from_int");
+    assert_eq!(show(Builtin::BytesSize), "fn(Bytes) -> Int");
+    assert_eq!(show(Builtin::ArrayFromList), "∀ A. fn(List[A]) -> Array[A]");
+    assert_eq!(
+        show(Builtin::ArraySet),
+        "∀ A. fn(Array[A], Int, A) -> Array[A]"
+    );
+    assert_eq!(
+        show(Builtin::ArrayConcat),
+        "∀ A. fn(List[Array[A]]) -> Array[A]"
+    );
+    assert_eq!(Builtin::ArrayGet.info().path(), "Std.Array.get");
 }
 
 #[test]

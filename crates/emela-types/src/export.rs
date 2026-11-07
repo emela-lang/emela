@@ -426,20 +426,23 @@ fn def_module(program: &Program, def: DefId) -> Option<ModuleId> {
     }
 }
 
-/// `[ext.boundary]`: Int, Int64, Float, Bool, String, `()`, an `@external type`, and function
-/// types made of these.
+/// `[ext.boundary]`: Int, Int64, Float, Bool, String, Bytes, `()`, an `@external type`, `Array[A]`
+/// of a boundary type `A` other than a function type, and function types made of these.
 fn is_boundary(program: &Program, ty_table: &TyTable, ty: &Ty) -> bool {
     match ty {
         Ty::Prim(
             Prim::Int | Prim::Int64 | Prim::Float | Prim::Bool | Prim::String | Prim::Unit,
         ) => true,
-        Ty::Named(con, args) => {
-            args.is_empty()
-                && matches!(
-                    program.item(ty_table.def(*con)),
-                    Some(Item::Type(t)) if t.ctor.is_none()
-                )
-        }
+        Ty::Named(con, args) => match program.item(ty_table.def(*con)) {
+            // `Array[A]` (`[ext.boundary]`), the built-in type with a type parameter, when its
+            // element type is a boundary type other than a function type.
+            Some(Item::Type(t)) if t.is_intrinsic && !args.is_empty() => args
+                .iter()
+                .all(|a| !matches!(a, Ty::Fn(_)) && is_boundary(program, ty_table, a)),
+            // `Bytes` and `@external type`s.
+            Some(Item::Type(t)) => args.is_empty() && t.ctor.is_none(),
+            _ => false,
+        },
         Ty::Fn(f) => {
             f.params.iter().all(|p| is_boundary(program, ty_table, p))
                 && is_boundary(program, ty_table, &f.ret)

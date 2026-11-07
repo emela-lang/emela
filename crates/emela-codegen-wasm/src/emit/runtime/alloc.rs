@@ -2,9 +2,16 @@
 
 use super::*;
 
+/// The line written to standard error before a failed heap reservation traps. It is best effort:
+/// the specification does not require an allocation failure to write anything, and a reservation
+/// made from `cabi_realloc` does not write it at all ([`heap_reserve`]).
+const OOM_MESSAGE: &[u8] = b"emela: out of memory\n";
+/// Where [`setup`] records the offset of [`OOM_MESSAGE`] in `Builder::rt_data`.
+const OOM_MESSAGE_KEY: &str = "alloc.oom_message";
+
 pub(super) const FUNCS: &[Sig] = &[
     ("alloc", &[ValType::I32, ValType::I32], &[ValType::I32]),
-    ("heap_reserve", &[ValType::I32], &[]),
+    ("heap_reserve", &[ValType::I64, ValType::I32], &[]),
     ("dup", &[ValType::I32], &[]),
     ("drop", &[ValType::I32], &[]),
     ("tag", &[ValType::I32], &[ValType::I32]),
@@ -14,21 +21,29 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "alloc" => i32s(5),        // need, cur, prev, next, p
-        "heap_reserve" => i32s(1), // memory bytes
-        "dup" => i32s(1),          // rc
-        "drop" => i32s(12),        // rc..size
-        "ev_lookup" => i32s(3),    // count, i, e
+        "alloc" => i32s(5),                        // need, cur, prev, next, p
+        "heap_reserve" => vec![(1, ValType::I64)], // memory bytes, after the parameters
+        "dup" => i32s(1),                          // rc
+        "drop" => i32s(12),                        // rc..size
+        "ev_lookup" => i32s(3),                    // count, i, e
         _ => Vec::new(),
     }
+}
+
+/// Writes the out-of-memory line into static data before any runtime body is emitted.
+pub(super) fn setup(b: &mut Builder) {
+    let off = b.alloc_static(OOM_MESSAGE.len() as u32);
+    let at = off as usize;
+    b.data[at..at + OOM_MESSAGE.len()].copy_from_slice(OOM_MESSAGE);
+    b.rt_data.insert(OOM_MESSAGE_KEY, off);
 }
 
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
     match name {
         "alloc" => alloc(b, ins),
-        "heap_reserve" => heap_reserve(ins),
+        "heap_reserve" => heap_reserve(b, ins),
         "dup" => dup(ins),
-        "drop" => drop_(ins),
+        "drop" => drop_(b, ins),
         "tag" => tag(ins),
         "is_error" => is_error(ins),
         "ev_lookup" => ev_lookup(ins),
@@ -113,8 +128,12 @@ fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_and();
     ins.local_set(ALLOC_P);
     ins.local_get(ALLOC_P);
+    ins.i64_extend_i32_u();
     ins.local_get(ALLOC_NEED);
-    ins.i32_add();
+    ins.i64_extend_i32_u();
+    ins.i64_add();
+    // `alloc` does not run inside a host callback, so its failure writes the line.
+    ins.i32_const(0);
     ins.call(rt(b, "heap_reserve"));
     ins.local_get(ALLOC_P);
     ins.local_get(ALLOC_NEED);
@@ -128,30 +147,90 @@ fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(ALLOC_P);
 }
 
-/// `heap_reserve(end)`: moves the bump pointer to `end`, growing the memory by whole pages when
-/// `end` is past it. Shared by `alloc` and `cabi_realloc`.
-fn heap_reserve(ins: &mut InstructionSink) {
-    const BYTES: u32 = 1;
+/// `heap_reserve(end, quiet)`: moves the bump pointer to `end`, growing the memory by whole pages
+/// when `end` is past it. Shared by `alloc` and `cabi_realloc`.
+///
+/// `end` is the sum of two u32 offsets (`alloc`: the aligned heap pointer and the block size;
+/// `cabi_realloc`: the aligned heap pointer and the new size), so it is taken as an i64: the sum
+/// can pass 4 GiB, and an i32 would wrap it to a small value. The checks below then end the
+/// program instead of (a) taking free space below 4 GiB for exhausted memory, because
+/// `memory.size * PAGE` also needs 2^32 at 65536 pages, or (b) moving `G_HEAP` back to 0 and
+/// storing over the beginning of the heap.
+///
+/// A failed `memory.grow` returns `-1`. The program then ends abruptly: it traps
+/// (`unreachable`), and `G_HEAP` keeps its old value, so no store is made past the end of the
+/// memory. In this backend an allocation failure is not a defect: it does not set `G_DEFECT`,
+/// does not run releases, and cannot be observed at `Fiber.attempt`. The classification, the
+/// message and the trap are implementation-defined.
+///
+/// `quiet` is non-zero for `cabi_realloc`, which runs inside a host call: a blocking write from
+/// there can be forbidden by the host, so the reservation traps without writing the line. With
+/// `quiet` zero, the trap writes [`OOM_MESSAGE`] first, best effort.
+fn heap_reserve(b: &mut Builder, ins: &mut InstructionSink) {
+    // Parameters 0 (`end`) and 1 (`quiet`); locals start at 2.
+    const BYTES: u32 = 2;
+    // Past the last address a wasm32 pointer can hold.
+    ins.local_get(0);
+    ins.i64_const(u32::MAX as i64);
+    ins.i64_gt_u();
+    ins.if_(BlockType::Empty);
+    out_of_memory(b, ins);
+    ins.end();
+    // The heap only grows, so an `end` below `G_HEAP` means the caller's rounding wrapped.
+    ins.local_get(0);
+    ins.global_get(G_HEAP);
+    ins.i64_extend_i32_u();
+    ins.i64_lt_u();
+    ins.if_(BlockType::Empty);
+    out_of_memory(b, ins);
+    ins.end();
+    // At 65536 pages the size in bytes is 2^32, which an i32 would wrap to 0.
     ins.memory_size(0);
-    ins.i32_const(PAGE as i32);
-    ins.i32_mul();
+    ins.i64_extend_i32_u();
+    ins.i64_const(PAGE as i64);
+    ins.i64_mul();
     ins.local_set(BYTES);
     ins.local_get(0);
     ins.local_get(BYTES);
-    ins.i32_gt_u();
+    ins.i64_gt_u();
     ins.if_(BlockType::Empty);
     ins.local_get(0);
     ins.local_get(BYTES);
-    ins.i32_sub();
-    ins.i32_const((PAGE - 1) as i32);
-    ins.i32_add();
-    ins.i32_const(PAGE as i32);
-    ins.i32_div_u();
+    ins.i64_sub();
+    ins.i64_const((PAGE - 1) as i64);
+    ins.i64_add();
+    ins.i64_const(PAGE as i64);
+    ins.i64_div_u();
+    ins.i32_wrap_i64();
     ins.memory_grow(0);
-    ins.drop();
+    ins.i32_const(-1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    out_of_memory(b, ins);
+    ins.end();
     ins.end();
     ins.local_get(0);
+    ins.i32_wrap_i64();
     ins.global_set(G_HEAP);
+}
+
+/// Ends the program after a reservation cannot be made: traps, after writing the line unless the
+/// reservation is quiet. The caller must keep `G_HEAP` at its old value.
+///
+/// The quiet flag is parameter 1 of [`heap_reserve`].
+fn out_of_memory(b: &Builder, ins: &mut InstructionSink) {
+    ins.local_get(1);
+    ins.if_(BlockType::Empty);
+    ins.unreachable();
+    ins.end();
+    let message = *b
+        .rt_data
+        .get(OOM_MESSAGE_KEY)
+        .expect("alloc::setup writes the out-of-memory line");
+    ins.i32_const(message as i32);
+    ins.i32_const(OOM_MESSAGE.len() as i32);
+    ins.call(rt(b, "write_stderr"));
+    ins.unreachable();
 }
 
 fn dup(ins: &mut InstructionSink) {
@@ -176,7 +255,7 @@ fn dup(ins: &mut InstructionSink) {
     ins.i32_store(mem(0, 4));
 }
 
-fn drop_(ins: &mut InstructionSink) {
+fn drop_(b: &Builder, ins: &mut InstructionSink) {
     const RC: u32 = 2;
     const PUSH: u32 = 3;
     const Q: u32 = 4;
@@ -239,6 +318,41 @@ fn drop_(ins: &mut InstructionSink) {
     ins.local_get(Q);
     ins.i32_load(mem(SIZE_AT, 4));
     ins.local_set(SIZE);
+    // An array (`array.rs`) holds references in slots 1 to its length when its descriptor's
+    // `refs[0]` says so. Only a program with arrays has this branch, so the others keep their
+    // bytes.
+    let arrays = super::array::used(b);
+    if arrays {
+        ins.local_get(KIND);
+        ins.i32_const(super::array::KIND as i32);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        ins.local_get(D);
+        ins.i32_load(mem(DESC_REFS, 4));
+        ins.i32_load8_u(mem(0, 1));
+        ins.if_(BlockType::Empty);
+        ins.local_get(Q);
+        ins.i32_load(mem(HDR, 4));
+        ins.local_set(N);
+        ins.i32_const(1);
+        ins.local_set(I);
+        ins.block(BlockType::Empty);
+        ins.loop_(BlockType::Empty);
+        ins.local_get(I);
+        ins.local_get(N);
+        ins.i32_gt_u();
+        ins.br_if(1);
+        release_slot(ins, Q, I, C, CRC, PUSH);
+        ins.local_get(I);
+        ins.i32_const(1);
+        ins.i32_add();
+        ins.local_set(I);
+        ins.br(0);
+        ins.end();
+        ins.end();
+        ins.end();
+        ins.else_();
+    }
     // A string holds no references.
     ins.local_get(KIND);
     ins.i32_const(1);
@@ -263,40 +377,7 @@ fn drop_(ins: &mut InstructionSink) {
     ins.i32_add();
     ins.i32_load8_u(mem(0, 1));
     ins.if_(BlockType::Empty);
-    ins.local_get(Q);
-    ins.i32_const(HDR as i32);
-    ins.i32_add();
-    ins.local_get(I);
-    ins.i32_const(8);
-    ins.i32_mul();
-    ins.i32_add();
-    ins.i32_load(mem(0, 4));
-    ins.local_set(C);
-    ins.local_get(C);
-    ins.if_(BlockType::Empty);
-    ins.local_get(C);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(CRC);
-    ins.local_get(CRC);
-    ins.if_(BlockType::Empty);
-    ins.local_get(CRC);
-    ins.i32_const(1);
-    ins.i32_sub();
-    ins.local_set(CRC);
-    ins.local_get(C);
-    ins.local_get(CRC);
-    ins.i32_store(mem(0, 4));
-    ins.local_get(CRC);
-    ins.i32_eqz();
-    ins.if_(BlockType::Empty);
-    ins.local_get(C);
-    ins.local_get(PUSH);
-    ins.i32_store(mem(4, 4));
-    ins.local_get(C);
-    ins.local_set(PUSH);
-    ins.end();
-    ins.end();
-    ins.end();
+    release_slot(ins, Q, I, C, CRC, PUSH);
     ins.end();
     ins.local_get(I);
     ins.i32_const(1);
@@ -306,9 +387,51 @@ fn drop_(ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.end();
+    if arrays {
+        ins.end();
+    }
     free_raw(ins, Q, SIZE);
     // Next object on the worklist (its children were pushed above).
     ins.br(0);
+    ins.end();
+    ins.end();
+}
+
+/// Gives up the reference in slot `i` of the object `q` (locals): when it was the last one, the
+/// object is pushed onto the worklist `push` of objects to free. `c` and `crc` are scratch.
+fn release_slot(ins: &mut InstructionSink, q: u32, i: u32, c: u32, crc: u32, push: u32) {
+    ins.local_get(q);
+    ins.i32_const(HDR as i32);
+    ins.i32_add();
+    ins.local_get(i);
+    ins.i32_const(8);
+    ins.i32_mul();
+    ins.i32_add();
+    ins.i32_load(mem(0, 4));
+    ins.local_set(c);
+    ins.local_get(c);
+    ins.if_(BlockType::Empty);
+    ins.local_get(c);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(crc);
+    ins.local_get(crc);
+    ins.if_(BlockType::Empty);
+    ins.local_get(crc);
+    ins.i32_const(1);
+    ins.i32_sub();
+    ins.local_set(crc);
+    ins.local_get(c);
+    ins.local_get(crc);
+    ins.i32_store(mem(0, 4));
+    ins.local_get(crc);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.local_get(c);
+    ins.local_get(push);
+    ins.i32_store(mem(4, 4));
+    ins.local_get(c);
+    ins.local_set(push);
+    ins.end();
     ins.end();
     ins.end();
 }

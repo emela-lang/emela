@@ -72,7 +72,8 @@ config = load_config(path) escape {
 }
 
 # Fall back on any error of a function received as an argument
-fn or_else[A](f: fn() -> A, default: A) -> A {
+# E is written: the hidden set variable of `fn() -> A` would stay in the E of or_else (7.4)
+fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
   f() escape { _ -> default }
 }
 ```

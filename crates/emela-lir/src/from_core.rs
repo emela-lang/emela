@@ -1055,6 +1055,10 @@ impl<'s> Lower<'s> {
             Sig::Bool => TypeId::BOOL,
             Sig::String => TypeId::STRING,
             Sig::Bytes => TypeId::BYTES,
+            Sig::Array(t) => {
+                let t = self.sig_type(*t, ty_args);
+                self.intern(Type::Array(t))
+            }
             Sig::Unit => TypeId::UNIT,
             Sig::Never => TypeId::NEVER,
             Sig::List(t) => {

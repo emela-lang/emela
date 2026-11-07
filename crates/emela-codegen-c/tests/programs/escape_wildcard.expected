@@ -1,0 +1,14 @@
+exit: 0
+--- stdout
+user 1
+three
+other
+far 9
+other
+user 2
+fallback
+converted
+Die defect: bad
+Die defect: division by zero
+Success
+--- stderr

@@ -93,6 +93,12 @@ void em_free(em_ref o) {
       case EM_KIND_RUNTIME:
         if (d->fin != NULL) d->fin(x);
         break;
+      case EM_KIND_ARRAY:
+        if (d->refs[0]) {
+          int64_t n = x->slots[0].l;
+          for (int64_t i = 1; i <= n; i++) EM_RELEASE_CHILD(x->slots[i].p);
+        }
+        break;
       default:
         break;
     }
@@ -514,6 +520,114 @@ em_ref em_bytes_concat(em_ref parts) {
 em_ref em_bytes_same(em_ref b) {
   em_dup(b);
   return b;
+}
+
+/* ---- Array (`[api.std.array]`) ----
+ *
+ * An EM_KIND_ARRAY object: slot 0 the length n, then the n elements. The program never sees an
+ * array change: `em_array_set` writes in place only into an array whose count is 1, which its
+ * caller has given up (the Heap IR moves the last reference into the call). */
+
+static const em_desc em_desc_array_val = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_none};
+static const em_desc em_desc_array_ref = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_one};
+
+#define EM_ARRAY_LEN(a) ((a)->slots[0].l)
+#define EM_ARRAY_REFS(a) ((a)->hdr.desc->refs[0] != 0)
+
+static em_ref em_array_alloc(int64_t n, bool ref) {
+  em_ref a = em_alloc(ref ? &em_desc_array_ref : &em_desc_array_val, (size_t)n + 1);
+  a->slots[0].l = n;
+  return a;
+}
+
+/* A new array of the `n` elements from `from`, each reference owned once more. */
+static em_ref em_array_copy(em_ref a, int64_t from, int64_t n) {
+  bool ref = EM_ARRAY_REFS(a);
+  em_ref out = em_array_alloc(n, ref);
+  if (n > 0) memcpy(&out->slots[1], &a->slots[1 + from], (size_t)n * sizeof(em_word));
+  if (ref) {
+    for (int64_t i = 1; i <= n; i++) em_dup(out->slots[i].p);
+  }
+  return out;
+}
+
+em_ref em_array_from_list(em_ref xs, bool ref) {
+  int64_t n = 0;
+  for (em_ref p = xs; p != NULL; p = p->slots[1].p) n++;
+  em_ref a = em_array_alloc(n, ref);
+  int64_t i = 1;
+  for (em_ref p = xs; p != NULL; p = p->slots[1].p) {
+    a->slots[i++] = p->slots[0];
+    if (ref) em_dup(p->slots[0].p);
+  }
+  return a;
+}
+
+em_ref em_array_to_list(em_ref a) {
+  bool ref = EM_ARRAY_REFS(a);
+  em_ref list = NULL;
+  for (int64_t i = EM_ARRAY_LEN(a); i >= 1; i--) {
+    if (ref) em_dup(a->slots[i].p);
+    list = em_cons(a->slots[i], ref, list);
+  }
+  return list;
+}
+
+int32_t em_array_size(em_ref a) { return (int32_t)EM_ARRAY_LEN(a); }
+
+em_ref em_array_get(em_ref a, int32_t index) {
+  if (index < 0 || index >= EM_ARRAY_LEN(a)) return EM_NONE;
+  bool ref = EM_ARRAY_REFS(a);
+  if (ref) em_dup(a->slots[1 + index].p);
+  return em_some(a->slots[1 + index], ref);
+}
+
+em_ref em_array_set(em_ref a, int32_t index, em_word value) {
+  int64_t n = EM_ARRAY_LEN(a);
+  if (index < 0 || index >= n) {
+    char msg[96];
+    snprintf(msg, sizeof msg, "Array.set was given position %" PRId32 " in an array of size %" PRId64,
+             index, n);
+    em_drop(a);
+    em_raise_cstr(msg);
+    return NULL;
+  }
+  bool ref = EM_ARRAY_REFS(a);
+  em_ref out;
+  if (a->hdr.u.h.rc == 1) {
+    out = a;
+    if (ref) em_drop(out->slots[1 + index].p);
+  } else {
+    out = em_array_copy(a, 0, n);
+    if (ref) em_drop(out->slots[1 + index].p);
+    em_drop(a);
+  }
+  if (ref) em_dup(value.p);
+  out->slots[1 + index] = value;
+  return out;
+}
+
+/* Both ends are clamped to 0 to the size; empty if `from` is not less than `to`. */
+em_ref em_array_slice(em_ref a, int32_t from, int32_t to) {
+  int64_t n = EM_ARRAY_LEN(a);
+  int64_t f = from < 0 ? 0 : from > n ? n : from;
+  int64_t t = to < 0 ? 0 : to > n ? n : to;
+  return em_array_copy(a, f, f < t ? t - f : 0);
+}
+
+em_ref em_array_concat(em_ref parts, bool ref) {
+  int64_t n = 0;
+  for (em_ref p = parts; p != NULL; p = p->slots[1].p) n += EM_ARRAY_LEN(p->slots[0].p);
+  em_ref out = em_array_alloc(n, ref);
+  int64_t at = 1;
+  for (em_ref p = parts; p != NULL; p = p->slots[1].p) {
+    em_ref part = p->slots[0].p;
+    for (int64_t i = 1; i <= EM_ARRAY_LEN(part); i++) {
+      if (ref) em_dup(part->slots[i].p);
+      out->slots[at++] = part->slots[i];
+    }
+  }
+  return out;
 }
 
 /* ---- Numbers ---- */

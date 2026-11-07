@@ -581,7 +581,7 @@ impl<'a> Lowerer<'a> {
                         let id = self.module.option_enum();
                         self.enums.insert(def, id);
                     }
-                    // A built-in type is `TypeId::BYTES` (`Lowerer::ty`).
+                    // A built-in type is `Type::Bytes` or `Type::Array` (`Lowerer::ty`).
                     Some(Item::Type(t)) if t.is_intrinsic => {}
                     Some(Item::Type(t)) => {
                         let id = self.declare_enum(def, t.type_params.len());
@@ -718,8 +718,17 @@ impl<'a> Lowerer<'a> {
             Ty::List(t) => Type::List(self.ty(t)),
             Ty::Named(con, args) => {
                 let def = self.types.ty_table.def(*con);
+                // The built-in types of `@intrinsic` declarations (`[api.std.bytes]`,
+                // `[api.std.array]`), told apart by their type parameter: `Bytes` has none, and
+                // `Array[A]` has the element type.
                 if matches!(self.hir.item(def), Some(Item::Type(t)) if t.is_intrinsic) {
-                    return TypeId::BYTES;
+                    return match args.first() {
+                        None => TypeId::BYTES,
+                        Some(elem) => {
+                            let elem = self.ty(elem);
+                            self.module.intern(Type::Array(elem))
+                        }
+                    };
                 }
                 match self.enums.get(def) {
                     Some(&id) => Type::Enum(id, args.iter().map(|t| self.ty(t)).collect()),
@@ -3686,7 +3695,7 @@ fn unshowable(m: &Module, ty: TypeId, inspect: bool) -> Option<&'static str> {
         Type::Fn(_) if !inspect => Some("showing a function"),
         Type::Handler(_) => Some("showing a capability value"),
         Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(|&t| unshowable(m, t, inspect)),
-        Type::List(t) => unshowable(m, *t, inspect),
+        Type::List(t) | Type::Array(t) => unshowable(m, *t, inspect),
         _ => None,
     }
 }

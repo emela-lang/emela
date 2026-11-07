@@ -360,6 +360,44 @@ fn as_value(id: Int) {
     ));
 }
 
+/// 7.3 An arm `_`: falling back to a default, turning any error into a defect, and falling back on
+/// any error of a function received as an argument. The calls have no errors.
+#[test]
+fn spec_7_3_escape_wildcard() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type Config(name: String)  # 補
+error NotFound  # 補
+error InvalidText  # 補
+
+fn load_config(path: String) -> Config fails NotFound | InvalidText { fail NotFound }  # 補
+fn default_config() -> Config { Config(name: "default") }  # 補
+
+fn fallback(path: String) -> Config {  # 補
+  config = load_config(path) escape {
+    _ -> default_config()
+  }
+  config
+}
+
+fn bundled(path: String) -> Config {  # 補
+  config = load_config(path) escape {
+    _ -> panic("the bundled config must load")
+  }
+  config
+}
+
+fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
+  f() escape { _ -> default }
+}
+
+fn callers(path: String) -> Config {  # 補
+  or_else(fn() { load_config(path) }, default_config())
+}
+"#
+    ));
+}
+
 /// 7.3 escape and set variables. Nothing is removed from a parameter function's invisible set
 /// variable. Writing `fails Timeout | E` removes the first call's Timeout from the type too. The
 /// set is decided at the caller.
@@ -513,6 +551,54 @@ fn round_trip() -> Option[String] {
   Bytes.decode_utf8(Bytes.slice(data, 4, 6))
 }
 "#
+    ));
+}
+
+/// `[api.std.array]`: the functions of `Std.Array` with their types, Eq, Ord and Show, as in the
+/// examples of the proposal (`proposals/array.md`), and `Array[A]` at the boundary
+/// (`[ext.boundary]`).
+#[test]
+fn spec_api_std_array() {
+    insta::assert_snapshot!(render_bodies(
+        r##"
+import Std.Array.{Array}
+
+@external(js, "./host.mjs", "sum")
+fn sum(xs: Array[Int]) -> Int
+
+fn histogram(bytes: List[Int], counts: Array[Int]) -> Array[Int] {
+  bytes match {
+    [] -> counts
+    [b, ..rest] -> {
+      n = Array.get(counts, b) |> Option.or(0)
+      histogram(rest, Array.set(counts, b, n + 1))
+    }
+  }
+}
+
+fn bump_twice(counts: Array[Int], b: Int) -> (Array[Int], Array[Int]) {
+  (Array.set(counts, b, 1), counts)
+}
+
+fn basics() -> Option[Int] {
+  a = Array.from_list([30, 10, 20])
+  size = Array.size(a)
+  first = Array.get(a, 1)
+  b = Array.set(a, 0, 31)
+  sorted = Array.sort(a)
+  listed = Array.to_list(sorted)
+  part = Array.slice(a, 1, 9)
+  text = inspect(a)
+  joined = Array.concat([a, Array.empty(), Array.append(a, b)])
+  names = Array.map(a, fn(x) { "#{x}" })
+  total = Array.fold(a, 0, fn(acc, x) { acc + x })
+  at = Array.find_index(names, fn(x) { x == "10" })
+  by = Array.sort_by(Array.reverse(a), fn(x, y) { Ord.compare(y, x) })
+  low = Array.lower_bound(sorted, 15)
+  same = a == b && a < b && Array.is_empty(Array.repeat("x", 0))
+  Array.binary_search(sorted, 20)
+}
+"##
     ));
 }
 
@@ -984,8 +1070,14 @@ fn not_error_type() {
   or_fail(Some(1), "no")
 }
 
-fn catch_all() -> Int {
-  0 escape { _ -> 1 }
+fn flaky() -> Int fails NotFound { fail NotFound }  # 補
+
+fn catch_variable() -> Int {
+  flaky() escape { e -> 1 }
+}
+
+fn catch_all_guarded(c: Bool) -> Int {
+  flaky() escape { _ if c -> 1 }
 }
 "#
     ));
