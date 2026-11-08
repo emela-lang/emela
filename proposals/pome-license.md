@@ -2,7 +2,7 @@
 title: License of a Pome in Pome.toml
 authors: [Alliana]
 status: draft
-pr:
+pr: 524
 issue:
 decided:
 touches: [module.pome, pome.manifest, cmd.pome]
