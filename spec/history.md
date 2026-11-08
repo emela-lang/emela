@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-09 (License of a Pome in Pome.toml)
+
+- `[module.pome]`, `[pome.manifest]`, `[cmd.pome]`: Add `license` to `[pome]`, so that a Pome declares its license as an SPDX license expression. It can be omitted. Tools such as the indexer of pkgs.emela.dev read this value instead of guessing the license from the files of the repository. Adopted in the proposal `pome-license` (#524).
+
 ## 2026-11-07 (Move attempt and Exit to Std.Exit)
 
 - `[fiber]`, `[fiber.cause]`, `[error.defect]`, `[lib.layers]`, `[api.std.fiber]`, `[api.std.exit]`, `[api.std.cause]`, `[target.c.unsupported]`, `[dyn.memory]`, `[target.unspecified]`: `attempt` and the enum `Exit` (`Success`, `Failure`) move from `Std.Fiber` to a new module `Std.Exit`. `Fiber.attempt(f)` becomes `Exit.attempt(f)`. `Cause` stays in `Std.Cause`, and `Fiber.await` returns the `Exit` of `Std.Exit`. The old names are removed without a deprecation period. Adopted in the proposal `std-exit` (#501).
