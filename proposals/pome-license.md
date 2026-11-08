@@ -7,7 +7,7 @@ issue:
 decided:
 touches: [module.pome, pome.manifest, cmd.pome]
 requires: []
-related: [pome-toml-diagnostics]
+related: []
 ---
 
 # License of a Pome in Pome.toml
