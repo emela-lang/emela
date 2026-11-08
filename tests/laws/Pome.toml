@@ -4,7 +4,7 @@ version = "0.0.0"
 emela = "0.23.0"
 
 [dev-dependencies]
-"github.com/emela-lang/brix" = "v0.3.0"
+"github.com/emela-lang/brix" = "v0.4.0"
 
 # A copy of brix kept in this repository (brix/README.md), so that a change to the language can
 # update it in the same pull request.
