@@ -4,11 +4,9 @@ A copy of the Pome `github.com/emela-lang/brix` that `tests/laws` builds against
 `[replace]` in `../Pome.toml`. The laws check the compiler, not a published brix, so a change to the
 language that breaks brix updates this copy in the same pull request.
 
-- Taken from brix v0.3.0 (commit `54932ed2d540563e796f4fde4dc3d80073685479`): `Pome.toml` and
+- Taken from brix v0.4.0 (commit `a685c98b611fcc4418d698a4b71260547e10f0ff`): `Pome.toml` and
   `src/` only.
-- Changed since: `attempt` and `Exit` imported from `Std.Exit` (proposal `std-exit`),
-  anonymous functions written `|x| e` (proposal `closure-syntax`), and the effect clause written
-  as `uses` (proposal `uses-clause`).
+- Changed since: nothing.
 
 Changes to brix itself are made in its own repository and brought here by hand; changes made here
 for the language go back to it once a compiler with them is released.
