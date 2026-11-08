@@ -1,10 +1,10 @@
 ---
 title: License of a Pome in Pome.toml
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 524
 issue:
-decided:
+decided: 2026-11-09
 touches: [module.pome, pome.manifest, cmd.pome]
 requires: []
 related: []
@@ -128,3 +128,8 @@ Every `Pome.toml` that is accepted now is still accepted. A `[pome].license` tha
 ## Open questions
 
 ## Decision
+
+- A Pome needs a machine-readable place to declare its license, so `[pome].license` is added and nothing more for now. A command that lists the licenses of dependencies is not needed yet.
+- Only the syntax of the SPDX license expression is checked. Licenses vary, and checking identifiers against the SPDX License List would tie compiler releases to updates of the list.
+- `license` does not affect the build, so an invalid value is a warning and does not stop the build. In a dependency it is not reported, since a published version cannot be changed.
+- `emela pome publish` warns when `license` is omitted. `publish` is not implemented yet, so this is added together with `publish`.
