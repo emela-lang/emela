@@ -21,6 +21,7 @@ mod host_files;
 mod hover;
 mod internal;
 mod js;
+mod links;
 mod nav;
 mod new;
 mod output;
@@ -54,6 +55,7 @@ pub use frontend::{Lower, ParseOnly, Resolve, Typecheck, TypedProgram};
 pub use hints::{HintKind, InlayHint};
 pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
+pub use links::{DocumentLink, document_links};
 
 pub use nav::{
     DocumentSymbol, NavTarget, RenameError, SymbolKind, WorkspaceSymbol, document_symbols,

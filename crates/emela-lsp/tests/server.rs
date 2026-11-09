@@ -1306,6 +1306,69 @@ fn syntax_navigation_works_with_parse_only_and_utf16() {
 }
 
 #[test]
+fn document_links_to_external_files() {
+    assert_eq!(
+        emela_lsp::capabilities().document_link_provider,
+        Some(lsp::DocumentLinkOptions {
+            resolve_provider: Some(false),
+            work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
+        })
+    );
+    // Only the unsaved contents have the annotations, and the file has a type error.
+    let text = r#"@external(js, "./http_ffi.mjs", "fetchText")
+@external(c, "../native/foo.c", "f")
+fn fetch_text(url: String) -> String
+
+@external(js, "./missing.mjs", "g")
+@external(c, "sin")
+fn g() -> Int
+
+@external(js, """
+  ./multi.mjs
+  """, "h")
+fn h() -> Int
+
+@external(js, "./#{h()}.mjs", "i")
+@external(wasm, "http_ffi.mjs", "i")
+@external(c, "./http\u{66}fi.mjs", "i")
+fn i() -> Int
+
+@export(wasm, "./http_ffi.mjs", "run")
+pub fn run() -> Int { "not an int" }
+"#;
+    let mut client = Client::initialize(
+        &[
+            ("/app/Pome.toml", ""),
+            (MAIN, ""),
+            ("/app/src/http_ffi.mjs", ""),
+            ("/app/src/multi.mjs", ""),
+            ("/app/native/foo.c", ""),
+        ],
+        Some("/app"),
+        Typecheck::default,
+    );
+    client.open(MAIN, 1, text);
+    let links: Vec<lsp::DocumentLink> = navigation(
+        &mut client,
+        "textDocument/documentLink",
+        json!({ "textDocument": { "uri": uri(MAIN) } }),
+    );
+    assert_eq!(
+        links
+            .into_iter()
+            .map(|link| (link.range, link.target))
+            .collect::<Vec<_>>(),
+        [
+            (range((0, 15), (0, 29)), Some(uri("/app/src/http_ffi.mjs"))),
+            (range((1, 14), (1, 29)), Some(uri("/app/native/foo.c"))),
+            (range((9, 2), (9, 13)), Some(uri("/app/src/multi.mjs"))),
+        ]
+    );
+    drain(&client);
+    client.shutdown();
+}
+
+#[test]
 fn type_and_implementation_navigation_with_type_errors() {
     let data = "pub type Boxed(value: Int)\npub enum Choice { One }\npub trait Speak {\n  fn speak(self) -> String\n}\nimpl Boxed: Speak {\n  fn speak(self) { \"boxed\" }\n}\nimpl Choice: Speak {\n  fn speak(self) { \"choice\" }\n}\n";
     let text = "import Data.{Boxed, Speak}\nfn call(item: Boxed) {\n  copy = item\n  Speak.speak(copy)\n}\nfn broken() -> Int { missing }\n";
