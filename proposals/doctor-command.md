@@ -1,10 +1,10 @@
 ---
 title: emela doctor
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 535
 issue:
-decided:
+decided: 2026-11-10
 touches: [cmd, cmd.doctor (new), target.c-embedded.board]
 requires: []
 related: []
@@ -170,3 +170,7 @@ Replace the second sentence of the introduction:
 ## Open questions
 
 ## Decision
+
+A missing toolchain should be found before it is used, not one target at a time through E0904, E0907 and E0909. `emela doctor` reports, per target, which programs that target needs and whether they are on PATH, resolving them by the same rules as the commands, so it also shows which executable is actually used.
+
+It is a report, not diagnostics: it has no codes and no locations. It does not go to the network, and it prints only the number of `EMELA_POMEPRIVATE` prefixes and masks credentials in URLs, so its output can be pasted into a public bug report. `--format json` is there from the start for tools that read it.
