@@ -12,6 +12,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - `textDocument/definition`, `textDocument/references`, `textDocument/documentHighlight`, `textDocument/typeDefinition`, `textDocument/implementation` (`[lsp.navigation]`)
   - `textDocument/documentSymbol`, `workspace/symbol` (`[lsp.symbol]`)
   - `textDocument/foldingRange`, `textDocument/selectionRange` (`[lsp.structure]`)
+  - `textDocument/documentLink` (`[lsp.document-link]`)
   - `textDocument/completion`, `textDocument/signatureHelp` (`[lsp.completion]`)
   - `textDocument/rename`, `textDocument/prepareRename` (`[lsp.rename]`)
   - `textDocument/codeAction` (`[lsp.code-action]`)
@@ -123,6 +124,14 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - Kind comment: runs of comments on adjacent lines. `#` and `##` are not distinguished.
   - Runs of imports and comments are split by a blank line or by code in between.
 - selectionRange returns, for each requested position, a chain of ranges from the token up through the parent syntax elements to the whole file. The same range is not repeated. If the position is on a token boundary, the token on the right is chosen. However, if only one side is whitespace or a comment, the other side is chosen. For a request that includes a position outside the document, it returns `null`.
+
+## Document links `[lsp.document-link]`
+
+- `textDocument/documentLink` returns a link for each file argument of `@external` (`[ext.decl]`) in the document: the second argument of `@external(target, "file", "name")` when its string starts with `./` or `../`. The link's target is the `file:` URI of that path taken from the directory of the document. `@export` and `@entry` take no file (`[ext.export]`, `[ext.entry]`), so they give no link.
+- It is built from the syntax tree of the unsaved contents without checking, so it answers even if there are syntax, import, or type errors. For an unreadable document, it returns `null`.
+- The range of a link is the contents of the string, without the quotes. In a multiline string, it is the one line that holds the path, without the indentation that the string removes (`[lex.literal]`).
+- No link is returned for a path that does not name an existing file, for a string with an escape or an interpolation, or for a multiline string whose value has more than one line.
+- Links are returned in source order. The server does not answer `documentLink/resolve`: the target is in the first response.
 
 ## Completion and signature help `[lsp.completion]`
 

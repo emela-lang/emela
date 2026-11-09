@@ -56,6 +56,10 @@ pub fn capabilities() -> lsp::ServerCapabilities {
         type_definition_provider: Some(lsp::TypeDefinitionProviderCapability::Simple(true)),
         implementation_provider: Some(lsp::ImplementationProviderCapability::Simple(true)),
         document_symbol_provider: Some(lsp::OneOf::Left(true)),
+        document_link_provider: Some(lsp::DocumentLinkOptions {
+            resolve_provider: Some(false),
+            work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
+        }),
         signature_help_provider: Some(lsp::SignatureHelpOptions {
             trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
             ..lsp::SignatureHelpOptions::default()
@@ -283,6 +287,9 @@ where
             References::METHOD => respond(request, |params| self.references(&params)),
             DocumentSymbolRequest::METHOD => {
                 respond(request, |params| self.document_symbols(&params))
+            }
+            lsp_types::request::DocumentLinkRequest::METHOD => {
+                respond(request, |params| self.document_links(&params))
             }
             _ => Response::new_err(
                 request.id,
@@ -562,6 +569,27 @@ where
             .map(|symbol| convert::document_symbol(&index, symbol))
             .collect();
         Some(lsp::DocumentSymbolResponse::Nested(symbols))
+    }
+
+    /// The host files that `@external` names, built from the syntax tree alone like document
+    /// symbols. Uses the unsaved contents if the file is open.
+    fn document_links(&self, params: &lsp::DocumentLinkParams) -> Option<Vec<lsp::DocumentLink>> {
+        let uri = &params.text_document.uri;
+        let path = self.path_of(uri)?;
+        let text = self.fs.read_to_string(&path).ok()?;
+        let index = line_index::LineIndex::new(&text);
+        let links = emela_driver::document_links(&self.fs, &path, &text)
+            .into_iter()
+            .filter_map(|link| {
+                Some(lsp::DocumentLink {
+                    range: convert::range(&index, link.range),
+                    target: Some(path_to_uri(&link.target)?),
+                    tooltip: None,
+                    data: None,
+                })
+            })
+            .collect();
+        Some(links)
     }
 
     /// Checks the project containing the file (or just the file if it is standalone).
