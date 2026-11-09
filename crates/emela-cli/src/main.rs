@@ -19,8 +19,8 @@ use std::process::ExitCode;
 
 mod pome;
 
-/// The version `--version` prints: the workspace version, then `+<short hash>` unless the binary
-/// was built from the commit tagged `v<version>` (see `build.rs`).
+/// The version `--version` prints: the workspace version, then `+<short hash>` when built from a
+/// git checkout (see `build.rs`).
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), env!("EMELA_VERSION_SUFFIX"));
 
 /// Compile, run, test, and format Emela programs.

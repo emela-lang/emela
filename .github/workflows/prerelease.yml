@@ -86,8 +86,8 @@ jobs:
       - name: Check the binary reports the tag's version
         run: |
           reported=$(target/${{ matrix.target }}/release/emela --version)
-          if [ "$reported" != "emela ${TAG#v}" ]; then
-            echo "::error::emela --version printed '$reported', expected 'emela ${TAG#v}'"
+          if [ "${reported%%+*}" != "emela ${TAG#v}" ]; then
+            echo "::error::emela --version printed '$reported', expected 'emela ${TAG#v}' (with an optional +<hash>)"
             exit 1
           fi
 
