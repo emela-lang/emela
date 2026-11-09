@@ -1792,6 +1792,14 @@ fn completion_of_names_in_scope() {
             .all(|i| i.1 == lsp::CompletionItemKind::INTERFACE),
         "{items:?}"
     );
+    // In a type, the imported modules that have a pub type (`Shapes`), not the others (`Log`).
+    let src = format!("{NAV_MAIN}\nfn later(s: S) -> ()\n");
+    client.change(MAIN, 3, &src);
+    let items = client.complete(MAIN, 22, 12).unwrap();
+    let names = labels(&items);
+    assert!(names.contains(&"Shapes"), "{names:?}");
+    assert!(names.contains(&"Shape"), "{names:?}");
+    assert!(!names.contains(&"Log"), "{names:?}");
     drain(&client);
     client.shutdown();
 }
@@ -2592,6 +2600,169 @@ fn completion_of_argument_labels() {
     client.change(MAIN, 4, &with("Line(from: Point("));
     let items = client.complete(MAIN, 12, 19).unwrap();
     assert_eq!(labels(&items)[..2], ["x:", "y:"]);
+    drain(&client);
+    client.shutdown();
+}
+
+const CLAUSE_MAIN: &str = "type Point(x: Int, y: Int)
+enum Color { Red, Green }
+error NotFound
+error Timeout
+trait Named {
+  fn name(self) -> String
+}
+effect Db {
+  fn get() -> Int
+}
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+fn main() {
+  p = Point(x: 1, y: 2)
+  0
+}
+";
+
+/// In clauses and types, only the names of one kind (`[lsp.completion]`). `$` in a line marks
+/// the cursor; an indented line goes before the last expression of main, and any other line is
+/// appended after the program.
+#[test]
+fn completion_in_clauses_and_types() {
+    let files = [("/app/Pome.toml", ""), (MAIN, CLAUSE_MAIN)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    client.open(MAIN, 1, CLAUSE_MAIN);
+    let mut version = 1;
+    let mut at = |line: &str| {
+        let src = if line.starts_with(' ') {
+            CLAUSE_MAIN.replace("  0\n", &format!("{line}\n  0\n"))
+        } else {
+            format!("{CLAUSE_MAIN}\n{line}\n")
+        };
+        let cursor = src.find('$').unwrap();
+        let before = &src[..cursor];
+        let row = u32::try_from(before.matches('\n').count()).unwrap();
+        let column = u32::try_from(cursor - before.rfind('\n').map_or(0, |i| i + 1)).unwrap();
+        version += 1;
+        client.change(MAIN, version, &src.replacen('$', "", 1));
+        (line.to_owned(), client.complete(MAIN, row, column).unwrap())
+    };
+    type Items = (
+        String,
+        Vec<(String, lsp::CompletionItemKind, Option<String>)>,
+    );
+    let check = |(line, items): Items,
+                 kinds: &[lsp::CompletionItemKind],
+                 present: &[&str],
+                 absent: &[&str]| {
+        let names = labels(&items);
+        for name in present {
+            assert!(names.contains(name), "{line}: {name}: {names:?}");
+        }
+        for name in absent {
+            assert!(!names.contains(name), "{line}: {name}: {names:?}");
+        }
+        assert!(
+            items.iter().all(|i| kinds.contains(&i.1)),
+            "{line}: {items:?}"
+        );
+    };
+    let effects = ["Db", "Log"];
+    let errors = ["NotFound", "Timeout"];
+    let traits = ["Named", "Show"];
+    let types = ["Point", "Color", "NotFound", "Int", "String", "List"];
+    let general = ["main", "match", "p"];
+    let interface = [lsp::CompletionItemKind::INTERFACE];
+    let structs = [lsp::CompletionItemKind::STRUCT];
+    let type_kinds = [
+        lsp::CompletionItemKind::STRUCT,
+        lsp::CompletionItemKind::ENUM,
+        lsp::CompletionItemKind::MODULE,
+    ];
+    let not_effects: Vec<&str> = [&general[..], &errors, &["Named"]].concat();
+    let not_errors: Vec<&str> = [&general[..], &effects, &["Point", "Color", "Named"]].concat();
+    let not_traits: Vec<&str> = [&general[..], &effects, &["Point"]].concat();
+    let not_types: Vec<&str> = [&general[..], &effects, &["Named", "Red"]].concat();
+    // Inside the braces of `uses`, at any item.
+    for line in [
+        "fn f() -> Int uses { $",
+        "fn f() -> Int uses { $ }",
+        "fn f() -> Int uses { Db, $ }",
+        "fn f() -> Int uses {\n  Db,\n  $\n}",
+        "fn f(g: fn() -> Int uses { Db, $ }) -> Int",
+    ] {
+        check(at(line), &interface, &effects, &not_effects);
+    }
+    // An effect set as a type argument, and the effect of a handler.
+    check(
+        at("fn f(x: Fiber[Int, { $"),
+        &interface,
+        &effects,
+        &not_effects,
+    );
+    check(at("handler Quiet: $"), &interface, &effects, &not_effects);
+    check(
+        at("handler Quiet(n: Int): $"),
+        &interface,
+        &effects,
+        &not_effects,
+    );
+    // After `fails`, and after `|` in its error set.
+    for line in [
+        "fn f() -> Int fails $",
+        "fn f() -> Int fails NotFound | $",
+        "fn f() -> Int fails NotFound | $ uses { Db }",
+        "fn f() -> Int fails NotFound\n  | $",
+        "fn f(g: fn() -> Int fails $) -> Int",
+    ] {
+        check(at(line), &structs, &errors, &not_errors);
+    }
+    // The trait of an impl, supertraits, bounds and derive.
+    for line in [
+        "impl Point: $",
+        "impl Point: $ {\n}",
+        "trait Tagged: $",
+        "trait Tagged: Named + $",
+        "fn f[A: $](a: A) -> Int",
+        "fn f[A: Named + $](a: A) -> Int",
+        "type Tag(a: Int) derive $",
+        "type Tag(a: Int) derive Eq, $",
+    ] {
+        check(at(line), &interface, &traits, &not_traits);
+    }
+    // Types: parameters, fields, return types, bindings, consts and type arguments.
+    for line in [
+        "fn f(a: $",
+        "fn f(a: Int, b: $) -> Int",
+        "fn f[A](a: $",
+        "fn f() -> $",
+        "fn f(a: Int) -> $ {\n}",
+        "fn f(g: fn($",
+        "fn f(g: fn(Int) -> $",
+        "fn f(a: List[$",
+        "fn f(a: Map[Int, $",
+        "type Tag(a: $",
+        "error Bad(a: Int, b: $",
+        "enum Shape { Dot(a: $",
+        "enum Shape { Dot($",
+        "const C: $",
+        "  q: $",
+    ] {
+        check(at(line), &type_kinds, &types, &not_types);
+    }
+    // Value positions stay unrestricted: a named argument, a match arm, a list, a call argument.
+    for line in [
+        "  Point(x: $",
+        "  match p { Point(x:, y:) -> $ }",
+        "  [$",
+        "  other($",
+    ] {
+        let (_, items) = at(line);
+        let names = labels(&items);
+        for name in ["p", "main", "match"] {
+            assert!(names.contains(&name), "{line}: {name}: {names:?}");
+        }
+    }
     drain(&client);
     client.shutdown();
 }
