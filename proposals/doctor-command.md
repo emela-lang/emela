@@ -2,7 +2,7 @@
 title: emela doctor
 authors: [Alliana]
 status: draft
-pr:
+pr: 535
 issue:
 decided:
 touches: [cmd, cmd.doctor (new), target.c-embedded.board]
