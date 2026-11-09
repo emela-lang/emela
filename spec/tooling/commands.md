@@ -1,6 +1,6 @@
 # Appendix B. Commands `[cmd]`
 
-This appendix defines the externally visible behavior of the `emela` command. `emela test` is in 13.4 and `[cmd.test]`, `emela pome` is in `[cmd.pome]`, and `emela flash` is in `[cmd.flash]`.
+This appendix defines the externally visible behavior of the `emela` command. `emela test` is in 13.4 and `[cmd.test]`, `emela pome` is in `[cmd.pome]`, `emela flash` is in `[cmd.flash]`, and `emela doctor` is in `[cmd.doctor]`.
 
 ## emela check, build, run `[cmd.build]`
 
@@ -74,6 +74,62 @@ Diagnostics and help:
 - After the check, the image is written with OpenOCD (STM32F4, the environment variable `OPENOCD`, else `openocd`) or esptool (ESP32-C3, run by the environment variable `EMELA_ESPTOOL_PYTHON`, else by the Python of the build). ESP32-C3 requires `--port` unless `--dry-run` is given. Paths and the port are passed as separate arguments, without a shell.
 - `--dry-run` performs the same check, prints the command that would write the image, and does not open the device.
 - The exit code is 0 on success and 1 otherwise.
+
+## emela doctor `[cmd.doctor]`
+
+- Reports, for each build target, whether the external programs it uses can be found and started and whether their versions are new enough, and reports the routes used to fetch Pomes. It installs nothing, changes no environment variables, and does not go to the network.
+- Takes one path, which defaults to `.`. When the path is in a project (4.1), the build target of the project (`[cmd.build]`) is required, and so is its board (`[target.c-embedded.board]`) when the target is `c-embedded`. Outside a project, no target is required. `--target <js|c|c-embedded|wasm>` makes that target required instead, and `--board <id>` selects the board.
+- Each program is resolved by the same rule as the command that uses it, and is checked as follows.
+
+  | Target | Program | Rule | Passes when |
+  |---|---|---|---|
+  | `js` | node | `[cmd.build]` | it starts and `--version` reports a version that `[target]` supports |
+  | `c` | the C compiler | `[target.c.cc]` | it starts; the first line of its `--version` is reported as its version |
+  | `wasm` | wasmtime | `[target.wasm.run]` | it starts and its major version is 49 or later |
+  | `c-embedded` | Python | `[target.c-embedded.board]` | it starts and reports version 3 |
+  | `c-embedded`, STM32F4 boards | `arm-none-eabi-gcc`, OpenOCD | `[target.c-embedded.board]`, `[cmd.flash]` | each starts |
+  | `c-embedded`, `esp32c3` | `riscv32-esp-elf-gcc`, esptool | `[target.c-embedded.board]`, `[cmd.flash]` | each starts |
+
+  The items of `c-embedded` are checked only when a board is selected.
+- A program passes or fails with one of these reasons: it was not found, it could not be started, its version is older than required, or its version could not be read. A program whose version could not be read passes, as in `[target.wasm.run]`.
+- The Pome section reports the values in effect of `EMELA_POMEPROXY` and `EMELA_POMESUMDB`, the number of prefixes in `EMELA_POMEPRIVATE` (`[module.pome]`), and whether git starts. The prefixes themselves are not written, so that the output can be pasted into a public report. git is required when `EMELA_POMEPRIVATE` is set or when `direct` is the only entry of `EMELA_POMEPROXY`. The userinfo part of a URL (`user:token@`) is written as `***@`. Nothing is fetched and no proxy is contacted.
+- Output without `--format`, written to standard output:
+  - The first line is the same as `emela --version`, followed by a blank line.
+  - For each target in the order `js`, `c`, `wasm`, `c-embedded`, a line with the target's name, followed by ` (required)` when required. Under it, one line per program, indented by two spaces: `ok`, `missing`, `too-old` or `failed`, then the program's name and version and the executable resolved in parentheses, or a sentence that names the target and the program that it lacks. A program that fails is followed by a line with the help of the diagnostic that the command using it would report (E0904, E0907, E0909), aligned with the sentence.
+  - Then a blank line and the Pome section in the same form.
+  - Color is used under the same conditions as diagnostics (`[diag]`).
+- With `--format json`, the command writes one JSON object to standard output instead:
+
+  ```json
+  {
+    "emela": "0.28.0+4e84642",
+    "targets": [
+      {
+        "target": "wasm",
+        "required": true,
+        "programs": [
+          {
+            "name": "wasmtime",
+            "status": "missing",
+            "executable": "wasmtime",
+            "version": null,
+            "message": "target `wasm` needs wasmtime 49 or later, but `wasmtime` is not on PATH",
+            "help": "install Wasmtime 49 or later and add it to PATH, or set EMELA_WASMTIME to the wasmtime executable"
+          }
+        ]
+      }
+    ],
+    "pome": {
+      "proxy": ["https://pomes.emela.dev", "direct"],
+      "sumdb": "https://sum.emela.dev",
+      "private": 0,
+      "git": { "name": "git", "status": "ok", "executable": "/usr/bin/git", "version": "2.51.0", "message": null, "help": null }
+    }
+  }
+  ```
+
+  `status` is one of `ok`, `missing`, `too-old` and `failed`. `executable` is the absolute path when the program was found, and the name that was looked up otherwise. Keys may be added in later versions; existing keys keep their meaning.
+- The exit code is 0 when every program of every required target passes and git passes when it is required, and 1 otherwise.
 
 ## emela fmt `[cmd.fmt]`
 
