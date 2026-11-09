@@ -225,7 +225,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0901 | A path is not found | ``path `app` not found`` |
 | E0902 | A file or directory cannot be read | ``cannot read `src/a.emel`: permission denied`` |
 | E0903 | Output cannot be written | ``cannot write `target/emela/js/main.mjs` `` |
-| E0904 | node is not found or cannot be started | ``cannot start `node` `` |
+| E0904 | node is not found, cannot be started, or is older than the version `[target]` requires with `--target js` (`[cmd.build]`) | ``cannot start `node` `` |
 | E0905 | No JS output yet (only in intermediate stages of 0.20) | `JS backend is not available yet` |
 | E0906 | The JS output stage returned invalid output (an internal error of the implementation) | `invalid output from the JS backend` |
 | E0907 | cc is not found or cannot be started (Appendix B) | ``cannot start `cc` `` |

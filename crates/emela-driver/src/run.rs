@@ -327,33 +327,106 @@ pub(crate) fn wasmtime_run_command(wasmtime: &Path, entry: &Path) -> Command {
 /// The oldest wasmtime major version that runs WASI 0.3 components with `-S p3=y`.
 pub(crate) const WASMTIME_MIN_MAJOR: u32 = 49;
 
-/// E0909 when `wasmtime --version` reports a version older than [`WASMTIME_MIN_MAJOR`], which
-/// would reject `-S p3=y` or the component with an unrelated error. Nothing is reported when the
-/// version cannot be read: a wasmtime that does not start is reported by the run itself.
-pub(crate) fn check_wasmtime_version(wasmtime: &Path) -> Result<(), Diagnostic> {
-    let Ok(out) = Command::new(wasmtime).arg("--version").output() else {
-        return Ok(());
-    };
-    let version = String::from_utf8_lossy(&out.stdout);
-    match wasmtime_major(&version) {
-        Some(major) if major < WASMTIME_MIN_MAJOR => Err(Diagnostic::error(format!(
-            "`{}` is {}, but target `wasm` needs wasmtime {WASMTIME_MIN_MAJOR} or later",
-            wasmtime.display(),
-            version.trim()
-        ))
-        .with_code(code::WASMTIME_UNAVAILABLE)
-        .with_note(format!(
-            "install Wasmtime {WASMTIME_MIN_MAJOR} or later, or set {WASMTIME_ENV} to a newer wasmtime executable"
-        ))),
-        _ => Ok(()),
+/// The oldest node major version the JS target supports (`[target]`).
+pub(crate) const NODE_MIN_MAJOR: u32 = 22;
+
+/// A host program that a build target runs on, with the oldest major version it supports.
+struct Host {
+    /// The name in messages (`node`, `wasmtime`).
+    name: &'static str,
+    /// The name in the note's "install ..." (`Node.js`, `Wasmtime`).
+    product: &'static str,
+    /// The build target that needs it.
+    target: &'static str,
+    /// The environment variable that overrides the executable.
+    env: &'static str,
+    min_major: u32,
+    code: &'static str,
+}
+
+const NODE: Host = Host {
+    name: "node",
+    product: "Node.js",
+    target: "js",
+    env: NODE_ENV,
+    min_major: NODE_MIN_MAJOR,
+    code: code::NODE_UNAVAILABLE,
+};
+
+const WASMTIME: Host = Host {
+    name: "wasmtime",
+    product: "Wasmtime",
+    target: "wasm",
+    env: WASMTIME_ENV,
+    min_major: WASMTIME_MIN_MAJOR,
+    code: code::WASMTIME_UNAVAILABLE,
+};
+
+impl Host {
+    /// An error when `<program> --version` reports a major version older than `min_major`, which
+    /// would fail later with an unrelated error. Nothing is reported when the version cannot be
+    /// read: a program that does not start is reported by the run itself.
+    fn check_version(&self, program: &Path) -> Result<(), Diagnostic> {
+        let Ok(out) = Command::new(program).arg("--version").output() else {
+            return Ok(());
+        };
+        let version = String::from_utf8_lossy(&out.stdout);
+        match major_version(&version) {
+            Some(major) if major < self.min_major => Err(Diagnostic::error(format!(
+                "`{}` is {}, but target `{}` needs {} {} or later",
+                program.display(),
+                version.trim(),
+                self.target,
+                self.name,
+                self.min_major,
+            ))
+            .with_code(self.code)
+            .with_note(format!(
+                "install {} {} or later, or set {} to a newer {} executable",
+                self.product, self.min_major, self.env, self.name
+            ))),
+            _ => Ok(()),
+        }
+    }
+
+    /// A diagnostic about failing to start `program`.
+    fn spawn_error(&self, program: &Path, err: &io::Error) -> Diagnostic {
+        match err.kind() {
+            io::ErrorKind::TimedOut => Diagnostic::error(format!("`{}` {err}", program.display())),
+            io::ErrorKind::NotFound => {
+                Diagnostic::error(format!("`{}` not found", program.display()))
+                    .with_code(self.code)
+                    .with_note(format!(
+                        "install {} {} or later and add it to PATH, or set {} to the {} executable",
+                        self.product, self.min_major, self.env, self.name
+                    ))
+            }
+            _ => Diagnostic::error(format!("cannot start `{}`: {err}", program.display()))
+                .with_code(self.code),
+        }
     }
 }
 
-/// The major version in the output of `wasmtime --version` (`wasmtime 49.0.3 (...)`, or
-/// `wasmtime-cli 20.0.0` for older releases).
-fn wasmtime_major(version: &str) -> Option<u32> {
-    let number = version.split_whitespace().nth(1)?;
-    number.split('.').next()?.parse().ok()
+/// E0909 when `wasmtime --version` reports a version older than [`WASMTIME_MIN_MAJOR`]
+/// (`[target.wasm.run]`).
+pub(crate) fn check_wasmtime_version(wasmtime: &Path) -> Result<(), Diagnostic> {
+    WASMTIME.check_version(wasmtime)
+}
+
+/// E0904 when `node --version` reports a version older than [`NODE_MIN_MAJOR`] (`[cmd.build]`).
+pub(crate) fn check_node_version(node: &Path) -> Result<(), Diagnostic> {
+    NODE.check_version(node)
+}
+
+/// The major version in the output of `--version`: the first word that is a version number,
+/// with an optional leading `v` (`v22.14.0` from node, `wasmtime 49.0.3 (...)`, or
+/// `wasmtime-cli 20.0.0` from older wasmtime releases).
+fn major_version(version: &str) -> Option<u32> {
+    version.split_whitespace().find_map(|word| {
+        let word = word.strip_prefix('v').unwrap_or(word);
+        let (major, _) = word.split_once('.')?;
+        major.parse().ok()
+    })
 }
 
 /// The work directory to preopen. It is made absolute before the child changes directory, so a
@@ -477,16 +550,7 @@ pub fn run_wasmtime(
 }
 
 fn wasmtime_spawn_error(wasmtime: &Path, err: &io::Error) -> Diagnostic {
-    match err.kind() {
-        io::ErrorKind::TimedOut => Diagnostic::error(format!("`{}` {err}", wasmtime.display())),
-        io::ErrorKind::NotFound => Diagnostic::error(format!("`{}` not found", wasmtime.display()))
-            .with_code(code::WASMTIME_UNAVAILABLE)
-            .with_note(format!(
-                "install Wasmtime {WASMTIME_MIN_MAJOR} or later and add it to PATH, or set {WASMTIME_ENV} to the wasmtime executable"
-            )),
-        _ => Diagnostic::error(format!("cannot start `{}`: {err}", wasmtime.display()))
-            .with_code(code::WASMTIME_UNAVAILABLE),
-    }
+    WASMTIME.spawn_error(wasmtime, err)
 }
 
 /// The command that runs the `.mjs` `entry` on node. `args` are passed to the program.
@@ -530,16 +594,7 @@ pub fn run_node(
 
 /// A diagnostic about failing to start node.
 pub(crate) fn spawn_error(node: &Path, err: &io::Error) -> Diagnostic {
-    match err.kind() {
-        io::ErrorKind::TimedOut => Diagnostic::error(format!("`{}` {err}", node.display())),
-        io::ErrorKind::NotFound => Diagnostic::error(format!("`{}` not found", node.display()))
-            .with_code(code::NODE_UNAVAILABLE)
-            .with_note(format!(
-                "install Node.js and add it to PATH, or set {NODE_ENV} to the node executable"
-            )),
-        _ => Diagnostic::error(format!("cannot start `{}`: {err}", node.display()))
-            .with_code(code::NODE_UNAVAILABLE),
-    }
+    NODE.spawn_error(node, err)
 }
 
 pub(crate) fn exit_code(status: ExitStatus) -> i32 {
@@ -595,14 +650,17 @@ mod tests {
     }
 
     #[test]
-    fn wasmtime_versions() {
+    fn major_versions() {
         assert_eq!(
-            wasmtime_major("wasmtime 49.0.3 (a1b2c3d 2026-01-20)\n"),
+            major_version("wasmtime 49.0.3 (a1b2c3d 2026-01-20)\n"),
             Some(49)
         );
-        assert_eq!(wasmtime_major("wasmtime-cli 20.0.0\n"), Some(20));
-        assert_eq!(wasmtime_major("wasmtime\n"), None);
-        assert_eq!(wasmtime_major(""), None);
+        assert_eq!(major_version("wasmtime-cli 20.0.0\n"), Some(20));
+        assert_eq!(major_version("v22.14.0\n"), Some(22));
+        assert_eq!(major_version("v18.20.8"), Some(18));
+        assert_eq!(major_version("wasmtime\n"), None);
+        assert_eq!(major_version("unknown"), None);
+        assert_eq!(major_version(""), None);
     }
 
     #[test]

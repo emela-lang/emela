@@ -8,7 +8,7 @@ The C target compiles the emitted C with cc into a native executable. It targets
 
 The embedded C target (`c-embedded`) makes C and firmware for microcontrollers (`[target.c-embedded]`). It is outside the tiers: it only builds, so it does not run the test suite, and the constructs it supports are a subset that is implementation-defined for now.
 
-The JS target assumes a host that runs on a server (Node 18 or later, and Deno and Bun with `node:` modules and `fetch`). Browsers are not a target. The platform handlers (15.2) do not specify how they behave in a browser.
+The JS target assumes a host that runs on a server (Node 22 or later, and Deno and Bun with `node:` modules and `fetch`). Browsers are not a target. The platform handlers (15.2) do not specify how they behave in a browser.
 
 ## 16.1 Numbers `[target.number]`
 

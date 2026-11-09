@@ -26,7 +26,7 @@ repository describes the 0.1x language, not the 0.20 series.
 ## Install
 
 Prebuilt binaries are published for macOS (Apple Silicon) and Linux (x86_64).
-Running the generated JavaScript (`emela run`, `emela test`) needs Node.js 18
+Running the generated JavaScript (`emela run`, `emela test`) needs Node.js 22
 or later. The C target (`--target c`) needs a C11 compiler as `cc` (or set
 `EMELA_CC`). The WASM target (`--target wasm`) needs Wasmtime 49 or later, run as a
 WASI 0.3 component with `-S p3=y` (or set `EMELA_WASMTIME`).
@@ -595,7 +595,7 @@ Set.from_list(["a", "b"])
 - No JSON, no `Array`, and no limit on how many fibers run at once
   (`Semaphore`) or `Queue` yet.
 - Only `Eq`, `Ord` and `Show` can be derived.
-- The JavaScript target assumes a server host: Node.js 18 or later, Deno, or
+- The JavaScript target assumes a server host: Node.js 22 or later, Deno, or
   Bun. Browsers are not a target.
 - Some checks that scopes, fiber handles and `Deferred` values do not escape
   run at run time (a defect such as `fiber scope was used after it ended`).
