@@ -73,6 +73,17 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} --bin emela
 
+      # A build that does not see the release tag appends `+<hash>` (crates/emela-cli/build.rs).
+      - name: Check the binary reports the tag's version
+        env:
+          TAG: ${{ needs.release-plz-release.outputs.tag }}
+        run: |
+          reported=$(target/${{ matrix.target }}/release/emela --version)
+          if [ "$reported" != "emela ${TAG#v}" ]; then
+            echo "::error::emela --version printed '$reported', expected 'emela ${TAG#v}'"
+            exit 1
+          fi
+
       - name: Package tarball
         run: |
           mkdir -p package
