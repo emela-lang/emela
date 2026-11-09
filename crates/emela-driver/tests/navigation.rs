@@ -285,3 +285,36 @@ fn init_parameters_are_completed_in_init() {
     assert!(!in_op.iter().any(|l| l == "binding"), "{in_op:?}");
     assert!(in_op.iter().any(|l| l == "key"), "{in_op:?}");
 }
+
+/// `[lsp.completion]`: `@intrinsic` and `@internal` are offered only in the bundled core
+/// sources, where they can be written (E0224, E0229).
+#[test]
+fn core_only_attributes_are_completed_in_core() {
+    let text = "@\nfn main() {}\n";
+    let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
+    let labels = |file, offset| -> Vec<String> {
+        Typecheck::complete(&program, &analysis, file, offset)
+            .into_iter()
+            .map(|c| c.label)
+            .collect()
+    };
+    let main = analysis
+        .sources
+        .file_id(Path::new("/app/src/main.emel"))
+        .unwrap();
+    let user = labels(main, TextSize::from(1));
+    assert_eq!(user, ["external", "export", "entry", "test", "deprecated"]);
+    let (core, offset) = analysis
+        .files
+        .iter()
+        .filter(|&(m, _)| analysis.modules.is_core(m))
+        .find_map(|(_, &file)| {
+            let at = analysis.sources[file].text().find("@intrinsic")?;
+            Some((file, TextSize::try_from(at + 1).unwrap()))
+        })
+        .expect("a core source with @intrinsic");
+    let core = labels(core, offset);
+    for name in ["external", "intrinsic", "internal"] {
+        assert!(core.iter().any(|l| l == name), "{name}: {core:?}");
+    }
+}
