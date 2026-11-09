@@ -76,6 +76,9 @@ pub(crate) fn complete(
     let Some(before) = text.get(..usize::from(offset)) else {
         return Vec::new();
     };
+    if let Some(items) = lexical(analysis, module, before) {
+        return items;
+    }
     let cx = Context {
         program,
         analysis,
@@ -129,6 +132,82 @@ pub(crate) fn complete(
     let mut seen = std::collections::HashSet::new();
     items.retain(|item| seen.insert(item.label.clone()));
     items
+}
+
+/// Attributes a user can write (spec `[kw.annotation]`), offered after `@`.
+const ATTRIBUTES: &[&str] = &["external", "export", "entry", "test", "deprecated"];
+
+/// Attributes allowed only in the bundled core sources (E0224, E0229), offered there only.
+const CORE_ATTRIBUTES: &[&str] = &["intrinsic", "internal"];
+
+/// The target names of `@external` and `@export` (spec `[ext.decl]`, `[ext.export]`; others are
+/// E0140).
+const TARGETS: &[&str] = &["js", "wasm", "c"];
+
+/// Contexts decided by the lexical position alone, before any name lookup: inside a comment or
+/// a string nothing is offered; after `@`, attribute names; in the first argument of
+/// `@external(` and `@export(`, target names. `None` leaves the position to the name contexts.
+///
+/// Only the text before the cursor is lexed, so what follows (often not yet written) cannot
+/// change the answer. The lexer reports each string and interpolation still open at the end of
+/// the input with a range ending there, so the innermost open one (the one opened last) tells
+/// whether the cursor is in string text or in the code of an interpolation (`#{ }`). A single-line
+/// string closed by a line break is reported with a range ending at that break, not at the end.
+fn lexical(analysis: &Analysis, module: ModuleId, before: &str) -> Option<Vec<Completion>> {
+    use emela_syntax::{DiagnosticCode, SyntaxKind};
+    let lexed = emela_syntax::lex(before);
+    let end = TextSize::of(before);
+    let in_comment = lexed
+        .tokens
+        .iter()
+        .rfind(|t| t.kind != SyntaxKind::EOF)
+        .is_some_and(|t| {
+            matches!(t.kind, SyntaxKind::COMMENT | SyntaxKind::DOC_COMMENT) && t.range.end() == end
+        });
+    let in_string = lexed
+        .diagnostics
+        .iter()
+        .filter(|d| {
+            d.range.end() == end
+                && matches!(
+                    d.code,
+                    DiagnosticCode::UnterminatedString | DiagnosticCode::UnterminatedInterpolation
+                )
+        })
+        .max_by_key(|d| d.range.start())
+        .is_some_and(|d| d.code == DiagnosticCode::UnterminatedString);
+    if in_comment || in_string {
+        return Some(Vec::new());
+    }
+    let head = before.trim_end_matches(is_name_char);
+    let keywords = |names: &mut dyn Iterator<Item = &&str>| {
+        names
+            .map(|name| Completion {
+                label: (*name).to_owned(),
+                kind: CompletionKind::Keyword,
+                detail: None,
+                insert_text: None,
+                documentation: None,
+            })
+            .collect()
+    };
+    if head.ends_with('@') {
+        // `intrinsic` and `internal` outside core would only produce E0224 and E0229.
+        let core: &[&str] = if analysis.modules.is_core(module) {
+            CORE_ATTRIBUTES
+        } else {
+            &[]
+        };
+        return Some(keywords(&mut ATTRIBUTES.iter().chain(core)));
+    }
+    let open = head.trim_end().strip_suffix('(')?;
+    if ["@external", "@export"]
+        .iter()
+        .any(|attr| open.trim_end().ends_with(attr))
+    {
+        return Some(keywords(&mut TARGETS.iter()));
+    }
+    None
 }
 
 /// At the start of a call argument (after `f(` or a comma, with only a partial name), the

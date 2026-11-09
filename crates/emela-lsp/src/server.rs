@@ -101,7 +101,8 @@ pub fn capabilities() -> lsp::ServerCapabilities {
             },
         )),
         completion_provider: Some(lsp::CompletionOptions {
-            trigger_characters: Some(vec![".".to_owned()]),
+            // `@` opens attribute names (`[lsp.completion]`).
+            trigger_characters: Some(vec![".".to_owned(), "@".to_owned()]),
             ..lsp::CompletionOptions::default()
         }),
         ..lsp::ServerCapabilities::default()

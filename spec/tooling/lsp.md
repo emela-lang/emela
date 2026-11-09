@@ -19,7 +19,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - `textDocument/codeAction` (`[lsp.code-action]`)
   - `textDocument/inlayHint` (`[lsp.inlay-hint]`)
   - `textDocument/semanticTokens/full`, `textDocument/semanticTokens/range` (`[lsp.semantic-tokens]`)
-- The only completion trigger character is `.`. The signature help trigger characters are `(` and `,`.
+- The completion trigger characters are `.` and `@`. The signature help trigger characters are `(` and `,`.
 - The server does not answer `completionItem/resolve`. Completion items carry their full contents in the first response.
 - Documents with URIs that are not `file:` (`untitled:` and so on) are not handled. Unsaved buffers get no diagnostics.
 - The path of a URI is expressed with `%` encoding. All characters other than alphanumerics and `-._~/` are encoded.
@@ -156,10 +156,13 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 | effect operation, trait function | Method |
 | field | Field |
 | module | Module |
-| reserved word | Keyword |
+| reserved word, attribute name, target name | Keyword |
 | label of a named argument | Property (`insertText` is `x: `) |
 
 - The candidates returned depend on the context determined from the text before the cursor, as follows.
+  - Inside a comment (`#` or `##`, from the character after `#` to the end of the line) or inside the text of a string literal (`"` or `"""`): nothing. Inside an interpolation `#{ }` of a string, the contexts below apply as in code.
+  - Right after `@`, with only a partially typed name: the attribute names `external`, `export`, `entry`, `test` and `deprecated` (`[kw.annotation]`). In the bundled core sources, `intrinsic` and `internal` follow them; elsewhere they are not shown, since writing them there is a compile error (E0224, E0229).
+  - In the first argument of `@external(` and `@export(`, with only a partially typed name: the target names `js`, `wasm` and `c` (`[ext.decl]`, `[ext.export]`).
   - Before `{` on an `import` line: the next segment after the module name (`Log` for `import Util.`). Names of functions and types, and the module itself, are not shown.
   - Inside `import A.{`: the pub definitions of module A (including enum variants).
   - After `.`, when the left side is a sequence of capitalized names: the name to the left of `.` is looked up in the same order as `[module.resolution]` (imported modules, core modules, Traits). For a module, its pub definitions. For a Trait, its functions.

@@ -1947,7 +1947,7 @@ fn completion_after_dot() {
         emela_lsp::capabilities()
             .completion_provider
             .and_then(|c| c.trigger_characters),
-        Some(vec![".".to_owned()])
+        Some(vec![".".to_owned(), "@".to_owned()])
     );
     // Operations of a capability. Same candidates with or without a partially typed name.
     let src = NAV_MAIN.replace("  log.info(Log.prefix(name))\n", "  log.\n  log.in\n");
@@ -2872,6 +2872,79 @@ fn completion_of_argument_labels() {
     client.change(MAIN, 4, &with("Line(from: Point("));
     let items = client.complete(MAIN, 12, 19).unwrap();
     assert_eq!(labels(&items)[..2], ["x:", "y:"]);
+    drain(&client);
+    client.shutdown();
+}
+
+/// After `@`, the attributes a user can write; in the first argument of `@external` and
+/// `@export`, the target names (`[lsp.completion]`).
+#[test]
+fn completion_of_attributes_and_targets() {
+    let files = [("/app/Pome.toml", ""), (MAIN, "fn main() { () }\n")];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let attributes = ["external", "export", "entry", "test", "deprecated"];
+    client.open(MAIN, 1, "@\nfn main() { () }\n");
+    let items = client.complete(MAIN, 0, 1).unwrap();
+    assert_eq!(labels(&items), attributes);
+    assert!(
+        items
+            .iter()
+            .all(|i| i.1 == lsp::CompletionItemKind::KEYWORD),
+        "{items:?}"
+    );
+    // The same with a partially typed name; `intrinsic` and `internal` only in core.
+    client.change(MAIN, 2, "@te\nfn main() { () }\n");
+    assert_eq!(labels(&client.complete(MAIN, 0, 3).unwrap()), attributes);
+    let targets = ["js", "wasm", "c"];
+    client.change(MAIN, 3, "@external(\nfn f() -> ()\nfn main() { () }\n");
+    let items = client.complete(MAIN, 0, 10).unwrap();
+    assert_eq!(labels(&items), targets);
+    assert!(
+        items
+            .iter()
+            .all(|i| i.1 == lsp::CompletionItemKind::KEYWORD),
+        "{items:?}"
+    );
+    client.change(
+        MAIN,
+        4,
+        "@export( w, \"a\")\npub fn f() -> () { () }\nfn main() { () }\n",
+    );
+    assert_eq!(labels(&client.complete(MAIN, 0, 10).unwrap()), targets);
+    // Not in the later arguments, nor in the argument of `@entry`.
+    client.change(MAIN, 5, "@external(js, \nfn f() -> ()\nfn main() { () }\n");
+    let items = client.complete(MAIN, 0, 14).unwrap();
+    assert!(!labels(&items).contains(&"wasm"), "{items:?}");
+    client.change(MAIN, 6, "@entry(\nfn main() { () }\n");
+    let items = client.complete(MAIN, 0, 7).unwrap();
+    assert!(!labels(&items).contains(&"wasm"), "{items:?}");
+    drain(&client);
+    client.shutdown();
+}
+
+/// Nothing inside a comment or a string; the inside of an interpolation is code.
+#[test]
+fn completion_not_in_comments_or_strings() {
+    let src = "## doc nam @\nfn main() {\n  name = \"a\"\n  # nam @\n  s = \"nam #{nam} @\"\n  t = \"abc\n  ()\n}\n";
+    let files = [("/app/Pome.toml", ""), (MAIN, src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    client.open(MAIN, 1, src);
+    for (line, character) in [(0, 10), (0, 12), (3, 7), (3, 9), (4, 10), (4, 19), (5, 10)] {
+        assert_eq!(
+            client.complete(MAIN, line, character),
+            Some(vec![]),
+            "{line}:{character}"
+        );
+    }
+    // Before the `#` of a comment, completion is as usual.
+    let items = client.complete(MAIN, 3, 2).unwrap();
+    assert!(labels(&items).contains(&"name"), "{items:?}");
+    // Inside `#{ }`.
+    let items = client.complete(MAIN, 4, 16).unwrap();
+    assert!(labels(&items).contains(&"name"), "{items:?}");
+    // After the closing quote.
+    let items = client.complete(MAIN, 4, 20).unwrap();
+    assert!(labels(&items).contains(&"name"), "{items:?}");
     drain(&client);
     client.shutdown();
 }
