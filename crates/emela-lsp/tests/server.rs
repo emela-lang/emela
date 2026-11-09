@@ -1,19 +1,24 @@
 //! Runs the server over an in-memory connection and checks the messages it sends.
 
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use emela_driver::{Frontend, MemoryFiles, ParseOnly, Typecheck};
+use emela_driver::{FileSystem, Frontend, MemoryFiles, ParseOnly, Typecheck};
+use emela_resolve::{DirEntry, SourceFs};
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use lsp_types::notification::{
-    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
-    Initialized, Notification as _, PublishDiagnostics,
+    DidChangeTextDocument, DidChangeWatchedFiles, DidCloseTextDocument, DidOpenTextDocument,
+    DidSaveTextDocument, Initialized, Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
     CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    Initialize, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
-    SemanticTokensFullRequest, SemanticTokensRangeRequest, Shutdown, SignatureHelpRequest,
+    Initialize, InlayHintRequest, PrepareRenameRequest, References, RegisterCapability, Rename,
+    Request as _, SemanticTokensFullRequest, SemanticTokensRangeRequest, Shutdown,
+    SignatureHelpRequest,
 };
 use lsp_types::{self as lsp, Uri};
 use serde_json::json;
@@ -57,6 +62,15 @@ impl Client {
         make_frontend: fn() -> F,
     ) {
         let fs = MemoryFiles::new(files.iter().copied());
+        self.start_on(connection, fs, make_frontend);
+    }
+
+    fn start_on<Fs: FileSystem + Send + 'static, F: Frontend + 'static>(
+        &mut self,
+        connection: Connection,
+        fs: Fs,
+        make_frontend: fn() -> F,
+    ) {
         self.server = Some(std::thread::spawn(move || {
             emela_lsp::serve(&connection, fs, make_frontend).unwrap();
         }));
@@ -64,8 +78,12 @@ impl Client {
 
     /// Does not read the response yet.
     fn send_initialize(&mut self, root: Option<&str>) {
+        self.send_initialize_with(root, json!({}));
+    }
+
+    fn send_initialize_with(&mut self, root: Option<&str>, capabilities: serde_json::Value) {
         let params = json!({
-            "capabilities": {},
+            "capabilities": capabilities,
             "rootUri": root.map(|r| format!("file://{r}")),
         });
         self.request(Initialize::METHOD, params);
@@ -77,9 +95,20 @@ impl Client {
         root: Option<&str>,
         make_frontend: fn() -> F,
     ) -> Client {
+        let fs = MemoryFiles::new(files.iter().copied());
+        Client::initialize_on(fs, root, json!({}), make_frontend)
+    }
+
+    /// Initializes with the given client capabilities, on a file system the test can change.
+    fn initialize_on<Fs: FileSystem + Send + 'static, F: Frontend + 'static>(
+        fs: Fs,
+        root: Option<&str>,
+        capabilities: serde_json::Value,
+        make_frontend: fn() -> F,
+    ) -> Client {
         let (mut client, server) = Client::new();
-        client.send_initialize(root);
-        client.start(server, files, make_frontend);
+        client.send_initialize_with(root, capabilities);
+        client.start_on(server, fs, make_frontend);
         let response = client.recv();
         let Message::Response(response) = response else {
             panic!("no initialize response: {response:?}");
@@ -139,6 +168,15 @@ impl Client {
             DidSaveTextDocument::METHOD,
             json!({ "textDocument": { "uri": uri(path) } }),
         );
+    }
+
+    /// `workspace/didChangeWatchedFiles` with (path, change type) pairs.
+    fn watched(&self, changes: &[(&str, lsp::FileChangeType)]) {
+        let changes: Vec<_> = changes
+            .iter()
+            .map(|(path, kind)| json!({ "uri": uri(path), "type": kind }))
+            .collect();
+        self.notify(DidChangeWatchedFiles::METHOD, json!({ "changes": changes }));
     }
 
     fn close(&self, path: &str) {
@@ -529,6 +567,56 @@ impl Client {
     }
 }
 
+/// Files on disk that a test changes while the server runs, without the editor's buffers.
+#[derive(Clone, Default)]
+struct Disk(Arc<Mutex<BTreeMap<PathBuf, String>>>);
+
+impl Disk {
+    fn new(files: &[(&str, &str)]) -> Disk {
+        let disk = Disk::default();
+        for (path, text) in files {
+            disk.write(path, text);
+        }
+        disk
+    }
+
+    fn write(&self, path: &str, text: &str) {
+        self.0.lock().unwrap().insert(path.into(), text.to_owned());
+    }
+
+    fn delete(&self, path: &str) {
+        self.0.lock().unwrap().remove(Path::new(path));
+    }
+
+    fn now(&self) -> MemoryFiles {
+        MemoryFiles::new(self.0.lock().unwrap().clone())
+    }
+}
+
+impl SourceFs for Disk {
+    fn read_dir(&self, dir: &Path) -> std::io::Result<Vec<DirEntry>> {
+        self.now().read_dir(dir)
+    }
+}
+
+impl FileSystem for Disk {
+    fn absolute(&self, path: &Path) -> std::io::Result<PathBuf> {
+        self.now().absolute(path)
+    }
+
+    fn read_to_string(&self, path: &Path) -> std::io::Result<String> {
+        self.now().read_to_string(path)
+    }
+
+    fn is_file(&self, path: &Path) -> bool {
+        self.now().is_file(path)
+    }
+
+    fn is_dir(&self, path: &Path) -> bool {
+        self.now().is_dir(path)
+    }
+}
+
 fn codes(params: &lsp::PublishDiagnosticsParams) -> Vec<String> {
     params
         .diagnostics
@@ -741,6 +829,127 @@ fn closing_a_single_file_clears_it() {
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/tmp/x/main.emel"));
     assert!(published.diagnostics.is_empty());
+    client.shutdown();
+}
+
+/// Files changed on disk without the editor (a checkout, another tool) are checked again when
+/// the editor reports them. An open file keeps its unsaved contents, so a change to it on disk is
+/// ignored. A deleted file's diagnostics are cleared.
+#[test]
+fn watched_file_changes_recheck_the_project() {
+    use lsp::FileChangeType as Change;
+    let disk = Disk::new(&[
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", "const X = 1\n"),
+        ("/app/src/util.emel", "const U = \"\\q\"\n"),
+    ]);
+    // The disk is changed only after a publish, so the server has read it before the change.
+    let client = Client::initialize_on(disk.clone(), Some("/app"), json!({}), ParseOnly::new);
+    assert_eq!(codes(&client.diagnostics()), ["E0107"]);
+
+    // The open buffer wins over the disk, so this change on disk publishes nothing.
+    client.open("/app/src/main.emel", 1, "const X = 1\n");
+    assert_eq!(codes(&client.diagnostics()), ["E0107"]);
+    disk.write("/app/src/main.emel", "const X = \"\\q\"\n");
+    client.watched(&[("/app/src/main.emel", Change::CHANGED)]);
+
+    // A change to `Pome.toml` counts too: dependencies without a lock are reported on it.
+    disk.write(
+        "/app/Pome.toml",
+        "[pome]\nname = \"github.com/me/app\"\nversion = \"0.1.0\"\nemela = \"0.21.0\"\n\n[dependencies]\n\"github.com/acme/x\" = \"v1.0.0\"\n",
+    );
+    client.watched(&[("/app/Pome.toml", Change::CHANGED)]);
+    let published = client.diagnostics_n(2);
+    assert_eq!(published[0].uri, uri("/app/Pome.toml"));
+    assert_eq!(codes(&published[0]), ["E0236"]);
+    assert_eq!(published[1].uri, uri("/app/src/util.emel"));
+    assert_eq!(codes(&published[1]), ["E0107"]);
+
+    disk.write("/app/Pome.toml", "");
+    disk.delete("/app/src/util.emel");
+    client.watched(&[
+        ("/app/Pome.toml", Change::CHANGED),
+        ("/app/src/util.emel", Change::DELETED),
+    ]);
+    let cleared = client.diagnostics_n(2);
+    assert_eq!(cleared[0].uri, uri("/app/Pome.toml"));
+    assert!(cleared[0].diagnostics.is_empty());
+    assert_eq!(cleared[1].uri, uri("/app/src/util.emel"));
+    assert!(cleared[1].diagnostics.is_empty());
+
+    disk.write("/app/src/new.emel", "const N = \"\\q\"\n");
+    client.watched(&[("/app/src/new.emel", Change::CREATED)]);
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri("/app/src/new.emel"));
+    assert_eq!(published.version, None);
+    assert_eq!(codes(&published), ["E0107"]);
+
+    // A file that cannot change a check is ignored.
+    client.watched(&[("/app/README.md", Change::CHANGED)]);
+    client.shutdown();
+}
+
+/// A file that an open single file imports is checked again when it changes on disk.
+#[test]
+fn watched_file_changes_recheck_single_file_imports() {
+    let disk = Disk::new(&[
+        ("/tmp/x/main.emel", "import Util\n"),
+        ("/tmp/x/util.emel", "const U = \"\\q\"\n"),
+    ]);
+    let client = Client::initialize_on(disk.clone(), None, json!({}), ParseOnly::new);
+    client.open("/tmp/x/main.emel", 1, "import Util\n");
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri("/tmp/x/util.emel"));
+    assert_eq!(codes(&published), ["E0107"]);
+
+    disk.write("/tmp/x/util.emel", "const U = 1\n");
+    client.watched(&[("/tmp/x/util.emel", lsp::FileChangeType::CHANGED)]);
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri("/tmp/x/util.emel"));
+    assert!(published.diagnostics.is_empty());
+    client.shutdown();
+}
+
+/// A client that can register `workspace/didChangeWatchedFiles` dynamically is asked to watch the
+/// files that affect a check, and its answer does not disturb the server.
+#[test]
+fn registers_file_watchers_when_the_client_can() {
+    let capabilities = json!({
+        "workspace": { "didChangeWatchedFiles": { "dynamicRegistration": true } },
+    });
+    let disk = Disk::new(&[
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", "const X = \"\\q\"\n"),
+    ]);
+    let client = Client::initialize_on(disk, Some("/app"), capabilities, ParseOnly::new);
+    let request = match client.recv() {
+        Message::Request(request) if request.method == RegisterCapability::METHOD => request,
+        other => panic!("not registerCapability: {other:?}"),
+    };
+    let params: lsp::RegistrationParams = serde_json::from_value(request.params).unwrap();
+    assert_eq!(params.registrations.len(), 1);
+    let registration = &params.registrations[0];
+    assert_eq!(registration.method, DidChangeWatchedFiles::METHOD);
+    let options: lsp::DidChangeWatchedFilesRegistrationOptions =
+        serde_json::from_value(registration.register_options.clone().unwrap()).unwrap();
+    let globs: Vec<_> = options
+        .watchers
+        .iter()
+        .map(|watcher| match &watcher.glob_pattern {
+            lsp::GlobPattern::String(glob) => (glob.as_str(), watcher.kind),
+            other => panic!("not a string glob: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        globs,
+        [
+            ("**/*.emel", None),
+            ("**/Pome.toml", None),
+            ("**/Pome.lock", None),
+        ]
+    );
+    client.send(lsp_server::Response::new_ok(request.id, serde_json::Value::Null).into());
+    assert_eq!(codes(&client.diagnostics()), ["E0107"]);
     client.shutdown();
 }
 

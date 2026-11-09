@@ -10,16 +10,18 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use emela_driver::{Analysis, Diagnostic, FileId, FileSystem, Frontend, Input, NavTarget};
-use lsp_server::{Connection, ErrorCode, Message, Notification, ProtocolError, Request, Response};
+use lsp_server::{
+    Connection, ErrorCode, Message, Notification, ProtocolError, Request, RequestId, Response,
+};
 use lsp_types::notification::{
-    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
-    Notification as _, PublishDiagnostics,
+    DidChangeTextDocument, DidChangeWatchedFiles, DidCloseTextDocument, DidOpenTextDocument,
+    DidSaveTextDocument, Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
     CodeActionRequest, Completion, DocumentHighlightRequest, DocumentSymbolRequest,
     FoldingRangeRequest, Formatting, GotoDefinition, GotoImplementation, GotoTypeDefinition,
-    HoverRequest, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
-    SelectionRangeRequest, SemanticTokensFullRequest, SemanticTokensRangeRequest,
+    HoverRequest, InlayHintRequest, PrepareRenameRequest, References, RegisterCapability, Rename,
+    Request as _, SelectionRangeRequest, SemanticTokensFullRequest, SemanticTokensRangeRequest,
     SignatureHelpRequest, WorkspaceSymbolRequest,
 };
 use lsp_types::{self as lsp, Uri};
@@ -29,6 +31,17 @@ use crate::overlay::Overlay;
 
 /// The project marker file (spec 4.1). Diagnostics without a location attach to it.
 const PROJECT_FILE: &str = "Pome.toml";
+
+/// The lock next to `Pome.toml` (spec 4.7). Whether it exists decides E0236.
+const LOCK_FILE: &str = "Pome.lock";
+
+/// The files whose contents on disk can change a check, as glob patterns for the client's file
+/// watcher: sources, manifests and locks at any depth (nested projects included).
+const WATCHED_GLOBS: [&str; 3] = ["**/*.emel", "**/Pome.toml", "**/Pome.lock"];
+
+/// The id of the one request the server sends. A string, so it never collides with the client's
+/// own numbering in logs.
+const REGISTER_WATCHERS_ID: &str = "emela/watchFiles";
 
 /// Text is synced in full.
 pub fn capabilities() -> lsp::ServerCapabilities {
@@ -114,14 +127,30 @@ where
     let params: lsp::InitializeParams = serde_json::from_value(params)?;
     let mut server = Server::new(connection, Overlay::new(fs), frontend);
     server.set_workspace(&params);
+    if can_register_watchers(&params.capabilities) {
+        server.register_watchers();
+    }
     Ok(server.run()?)
+}
+
+/// Whether the client lets the server register `workspace/didChangeWatchedFiles` with
+/// `client/registerCapability`. A client without it may still send the notification on its own,
+/// and it is handled the same way.
+fn can_register_watchers(capabilities: &lsp::ClientCapabilities) -> bool {
+    capabilities
+        .workspace
+        .as_ref()
+        .and_then(|workspace| workspace.did_change_watched_files.as_ref())
+        .and_then(|watched| watched.dynamic_registration)
+        .unwrap_or(false)
 }
 
 /// Errors that stop the server: protocol errors, bad initialize params, I/O errors.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 enum Step {
-    /// An open file changed, so diagnostics must be republished.
+    /// An open file, or a file on disk that a check reads, changed, so diagnostics must be
+    /// republished.
     Changed,
     Unchanged,
     Exit,
@@ -187,6 +216,32 @@ where
             .collect();
     }
 
+    /// Asks the client to watch [`WATCHED_GLOBS`]. Sent once the handshake, `initialized`
+    /// included, has finished in `serve`, and before the first analysis. The kind is left out, so
+    /// creation, change and deletion are all reported.
+    fn register_watchers(&self) {
+        let options = lsp::DidChangeWatchedFilesRegistrationOptions {
+            watchers: WATCHED_GLOBS
+                .iter()
+                .map(|glob| lsp::FileSystemWatcher {
+                    glob_pattern: lsp::GlobPattern::String((*glob).to_owned()),
+                    kind: None,
+                })
+                .collect(),
+        };
+        let params = lsp::RegistrationParams {
+            registrations: vec![lsp::Registration {
+                id: DidChangeWatchedFiles::METHOD.to_owned(),
+                method: DidChangeWatchedFiles::METHOD.to_owned(),
+                register_options: Some(
+                    serde_json::to_value(options).expect("watcher options serialize to JSON"),
+                ),
+            }],
+        };
+        let id = RequestId::from(REGISTER_WATCHERS_ID.to_owned());
+        self.send(Request::new(id, RegisterCapability::METHOD.to_owned(), params).into());
+    }
+
     fn run(&mut self) -> Result<(), ProtocolError> {
         // Workspace projects get diagnostics before any file is opened.
         let mut dirty = true;
@@ -236,6 +291,9 @@ where
         match message {
             Message::Request(request) => self.request(request),
             Message::Notification(notification) => Ok(self.notification(notification)),
+            // The only request the server sends is the watcher registration. If the client refuses
+            // it, diagnostics still follow open, change, save and close, so the answer, success or
+            // error, changes nothing.
             Message::Response(_) => Ok(Step::Unchanged),
         }
     }
@@ -691,8 +749,47 @@ where
                     None => Step::Unchanged,
                 }
             }
+            DidChangeWatchedFiles::METHOD => {
+                let Some(params) = parse::<DidChangeWatchedFiles>(notification) else {
+                    return Step::Unchanged;
+                };
+                if params.changes.iter().any(|event| self.affects_check(event)) {
+                    Step::Changed
+                } else {
+                    Step::Unchanged
+                }
+            }
             _ => Step::Unchanged,
         }
+    }
+
+    /// Whether a change on disk can change diagnostics. Every analysis checks all workspace
+    /// projects and the projects and single files of all open documents from scratch, so a
+    /// relevant change just makes the next analysis run. Narrowing it to the project the file
+    /// belongs to would save nothing, and `publish` needs the whole result to clear old files.
+    ///
+    /// - An open document is read from its buffer, not the disk, so a change to it on disk does
+    ///   not matter until it is closed (closing re-reads the disk).
+    /// - A check reads only sources, `Pome.toml` and `Pome.lock`. Other files are ignored, since
+    ///   a client may watch more than the server registered.
+    /// - Any deletion counts: deleting a directory can be reported as one event for the
+    ///   directory, without events for the sources in it.
+    fn affects_check(&self, event: &lsp::FileEvent) -> bool {
+        let Some(path) = uri_to_path(&event.uri) else {
+            return false;
+        };
+        let read_by_check = path.extension().is_some_and(|ext| ext == "emel")
+            || path
+                .file_name()
+                .is_some_and(|name| name == PROJECT_FILE || name == LOCK_FILE);
+        if !read_by_check && event.typ != lsp::FileChangeType::DELETED {
+            return false;
+        }
+        let path = self.fs.normalize(&path);
+        !self
+            .documents
+            .values()
+            .any(|document| document.path == path)
     }
 
     /// URIs other than `file:` are ignored.
