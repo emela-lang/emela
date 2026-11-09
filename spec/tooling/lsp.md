@@ -6,6 +6,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 
 - The server reads and writes JSON-RPC with `Content-Length` over standard input and output. On `exit` after `shutdown`, it ends with exit code 0.
 - Text is synchronized in full (`TextDocumentSyncKind::FULL`). The server receives the open, change, save, and close notifications. It does not ask for the text in the save notification (`includeText: false`), but uses the text if it arrives.
+- The server receives `workspace/didChangeWatchedFiles` (`[lsp.diagnostics]`). If the client declares `workspace.didChangeWatchedFiles.dynamicRegistration`, the server sends `client/registerCapability` after `initialized`, asking to watch `**/*.emel`, `**/Pome.toml`, and `**/Pome.lock` for creation, change, and deletion. Otherwise it registers nothing, and handles the notification if the client sends it anyway. The response to the registration does not change the server's behavior, whether it succeeds or fails.
 - The server answers the following requests.
   - `textDocument/formatting` (`[lsp.formatting]`)
   - `textDocument/hover` (`[lsp.hover]`)
@@ -34,6 +35,10 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 ## Diagnostics `[lsp.diagnostics]`
 
 - On every open, change, save, and close, the server re-checks the whole project the document belongs to and sends the results with `textDocument/publishDiagnostics`.
+- When the client reports files changed on disk (`workspace/didChangeWatchedFiles`), the server checks again everything it checks (the workspace projects, and the projects and single files of the open documents) and sends the results. This covers files that are not open, and files that an open single file reads through imports. The following events are ignored.
+  - Events for an open document: its unsaved contents are checked instead of the disk (`[lsp.project]`).
+  - Creations and changes of files that are not `.emel`, `Pome.toml`, or `Pome.lock`. A deletion of any path is not ignored, because deleting a directory can arrive as one event for the directory.
+- A file deleted from disk drops out of the check, so its diagnostics are cleared with an empty array by the rule below.
 - The `code` of a diagnostic is the string of the diagnostic code (`E0107` and so on), and `source` is `emela`. Each note is appended to the end of the message as `\nnote: …`. Labels go into `relatedInformation`.
 - `version` is set to the last received version for an open document, and is not set for files that are not open.
 - A diagnostic without a determined position is attached at the start (0:0) of the following location.
