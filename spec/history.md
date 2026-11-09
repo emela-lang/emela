@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-10 (emela doctor)
+
+- `[cmd]`, `[cmd.doctor]`, `[target.c-embedded.board]`: Add the command `emela doctor`. It resolves the external programs that each build target uses (node, cc, wasmtime, the tools of the embedded target) and the routes used to fetch Pomes, by the same rules as the commands that use them, and reports what is missing. Adopted in the proposal `doctor-command` (#535).
+
 ## 2026-11-09 (License of a Pome in Pome.toml)
 
 - `[module.pome]`, `[pome.manifest]`, `[cmd.pome]`: Add `license` to `[pome]`, so that a Pome declares its license as an SPDX license expression. It can be omitted. Tools such as the indexer of pkgs.emela.dev read this value instead of guessing the license from the files of the repository. Adopted in the proposal `pome-license` (#524).
