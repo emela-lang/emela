@@ -6,12 +6,14 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 
 - The server reads and writes JSON-RPC with `Content-Length` over standard input and output. On `exit` after `shutdown`, it ends with exit code 0.
 - Text is synchronized in full (`TextDocumentSyncKind::FULL`). The server receives the open, change, save, and close notifications. It does not ask for the text in the save notification (`includeText: false`), but uses the text if it arrives.
+- The server receives `workspace/didChangeWatchedFiles` (`[lsp.diagnostics]`). If the client declares `workspace.didChangeWatchedFiles.dynamicRegistration`, the server sends `client/registerCapability` after `initialized`, asking to watch `**/*.emel`, `**/Pome.toml`, and `**/Pome.lock` for creation, change, and deletion. Otherwise it registers nothing, and handles the notification if the client sends it anyway. The response to the registration does not change the server's behavior, whether it succeeds or fails.
 - The server answers the following requests.
   - `textDocument/formatting` (`[lsp.formatting]`)
   - `textDocument/hover` (`[lsp.hover]`)
   - `textDocument/definition`, `textDocument/references`, `textDocument/documentHighlight`, `textDocument/typeDefinition`, `textDocument/implementation` (`[lsp.navigation]`)
   - `textDocument/documentSymbol`, `workspace/symbol` (`[lsp.symbol]`)
   - `textDocument/foldingRange`, `textDocument/selectionRange` (`[lsp.structure]`)
+  - `textDocument/documentLink` (`[lsp.document-link]`)
   - `textDocument/completion`, `textDocument/signatureHelp` (`[lsp.completion]`)
   - `textDocument/rename`, `textDocument/prepareRename` (`[lsp.rename]`)
   - `textDocument/codeAction` (`[lsp.code-action]`)
@@ -34,6 +36,10 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 ## Diagnostics `[lsp.diagnostics]`
 
 - On every open, change, save, and close, the server re-checks the whole project the document belongs to and sends the results with `textDocument/publishDiagnostics`.
+- When the client reports files changed on disk (`workspace/didChangeWatchedFiles`), the server checks again everything it checks (the workspace projects, and the projects and single files of the open documents) and sends the results. This covers files that are not open, and files that an open single file reads through imports. The following events are ignored.
+  - Events for an open document: its unsaved contents are checked instead of the disk (`[lsp.project]`).
+  - Creations and changes of files that are not `.emel`, `Pome.toml`, or `Pome.lock`. A deletion of any path is not ignored, because deleting a directory can arrive as one event for the directory.
+- A file deleted from disk drops out of the check, so its diagnostics are cleared with an empty array by the rule below.
 - The `code` of a diagnostic is the string of the diagnostic code (`E0107` and so on), and `source` is `emela`. Each note is appended to the end of the message as `\nnote: …`. Labels go into `relatedInformation`.
 - `version` is set to the last received version for an open document, and is not set for files that are not open.
 - A diagnostic without a determined position is attached at the start (0:0) of the following location.
@@ -124,6 +130,14 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - Runs of imports and comments are split by a blank line or by code in between.
 - selectionRange returns, for each requested position, a chain of ranges from the token up through the parent syntax elements to the whole file. The same range is not repeated. If the position is on a token boundary, the token on the right is chosen. However, if only one side is whitespace or a comment, the other side is chosen. For a request that includes a position outside the document, it returns `null`.
 
+## Document links `[lsp.document-link]`
+
+- `textDocument/documentLink` returns a link for each file argument of `@external` (`[ext.decl]`) in the document: the second argument of `@external(target, "file", "name")` when its string starts with `./` or `../`. The link's target is the `file:` URI of that path taken from the directory of the document, written as for diagnostics (`[lsp.diagnostics]`): the URI received from the editor if the file is open, and otherwise the path joined to the workspace folder path received from the editor. `@export` and `@entry` take no file (`[ext.export]`, `[ext.entry]`), so they give no link.
+- It is built from the syntax tree of the unsaved contents without checking, so it answers even if there are syntax, import, or type errors. For an unreadable document, it returns `null`.
+- The range of a link is the contents of the string, without the quotes. In a multiline string, it is the one line that holds the path, without the indentation that the string removes (`[lex.literal]`).
+- No link is returned for a path that does not name an existing file, for a string with an escape or an interpolation, or for a multiline string whose value has more than one line.
+- Links are returned in source order. The server does not answer `documentLink/resolve`: the target is in the first response.
+
 ## Completion and signature help `[lsp.completion]`
 
 - `textDocument/completion` returns all candidates for names that can be written at that position. Filtering by the partially typed name is left to the editor. The order of candidates is kept by putting sequential numbers in `sortText`.
@@ -154,6 +168,11 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - After `.`, when the left side is a sequence of capitalized names: the name to the left of `.` is looked up in the same order as `[module.resolution]` (imported modules, core modules, Traits). For a module, its pub definitions. For a Trait, its functions.
   - After `.`, otherwise: if the type of the left expression is a capability value, the operations of the effect. If its head is a named type, its fields (the description is the text of the written type), then the functions that can be called as methods (`[type.rules]`; kind Method, the first parameter left out of the signature). For other types, empty. Even for a `.` at the end of a line, the type of the left expression is computed and candidates are shown (`l.from.`, `c.now().`).
   - Right after `use` and `uses`: effects only. Right after `with`: handlers and layers only.
+  - At the start of an item inside the braces of `uses` (`uses { `, `uses { Db, `), at the start of an effect set written as a type argument (`Fiber[A, { `), and after `handler H:` or `handler H(…):`: effects only.
+  - After `fails` written after a type, and after `|` in its error set (`fails NotFound | `, also on a continuation line): errors only.
+  - After `impl T:`, after `trait T:` and `+` in its supertraits, after `:` and `+` of a type parameter in the type parameters of a declaration (`fn f[A: `), and after `derive` and `,` in its list: traits only.
+  - In a type: after `name:` in the parameters of a function and in the fields of a type, an error, a handler or a variant, after `name:` at the start of a statement (the type of a binding), after `const C:`, after `->` that follows the parameters of a function or of a function type, at the start of a parameter of a function type (`fn(`), at the start of a positional field of a variant, and at the start of a type argument or after `|` in it (`List[`, `Map[K, `): types, enums and errors, followed by the imported and core modules that have a pub type, enum or error. Locals and reserved words are not shown.
+  - A `name:` inside the parentheses of a call is a label, and what follows it is a value. `->` after a pattern (a match arm) is followed by a value. In the parameters of a lambda and of `init`, and after a pattern other than a name, the type position is not told apart from an expression, and the candidates of the next item are shown.
   - Otherwise: in this order, the visible local variables (innermost first), the definitions of this module (including variants), the names listed in imports, the imported modules, the core modules whose name has one segment (except `Prelude`), the definitions of Prelude, and reserved words (except `as`). For the same name, only the first one is shown.
 - The type of an operation candidate of a capability value is the type with the effect's type parameters replaced by the type arguments of the capability value.
 - At the start of an argument in a call (after `f(` or after a comma, when only a partially typed name is there), the labels of the callee not yet written are shown first (the name is `x:`, and the description is the argument's type), followed by value candidates. They are not shown after a label (the value position of `x: `).

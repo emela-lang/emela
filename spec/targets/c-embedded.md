@@ -26,7 +26,7 @@ The embedded C target maps a program to C for microcontrollers. Passing `--targe
 - A board is selected by `--board <id>`, else by `board` in the `[embedded]` table of `Pome.toml` (`[target.c-embedded.project]`). The ids are `stm32f407vg`, `stm32f412zg`, `stm32f429zi`, `stm32f446re`, `stm32f446`, `stm32f4-discovery`, `nucleo-f446re` and `esp32c3`. Any other id is an error (``unknown embedded board `<id>` ``, with a note listing the ids).
 - When a board is selected and neither `--target` nor `[build].target` is given, the target is `c-embedded`.
 - `[embedded].board` applies only when the target is `c-embedded`. Building for `js`, `c` or `wasm` ignores it, and leaves the record of the last successful firmware build as it is. `--board` with a target other than `c-embedded` is an error (``a selected embedded board requires target `c-embedded` ``).
-- Making the firmware image needs Python 3 (the environment variable `EMELA_PYTHON`, else `python3`) and the cross toolchain of the board. The compiler does not fetch them.
+- Making the firmware image needs Python 3 (the environment variable `EMELA_PYTHON`, else `python3`) and the cross toolchain of the board: `arm-none-eabi-gcc` for the STM32F4 boards (in the `bin` directory of the environment variable `ARM_TOOLCHAIN_PATH`, else on PATH), and `riscv32-esp-elf-gcc` and the Python package esptool for `esp32c3` (in the `bin` directory of the environment variable `EMELA_ESP32C3_TOOLCHAIN`, else on PATH; esptool is imported by the Python of the environment variable `EMELA_ESPTOOL_PYTHON`, else by the Python of the build). The compiler does not fetch them.
 
 ## 16.9.3 The entry `[target.c-embedded.entry]`
 
