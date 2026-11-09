@@ -583,7 +583,8 @@ where
             .filter_map(|link| {
                 Some(lsp::DocumentLink {
                     range: convert::range(&index, link.range),
-                    target: Some(path_to_uri(&link.target)?),
+                    // Spelled as the editor knows the file, as for diagnostics.
+                    target: Some(self.uri_of(&link.target)?),
                     tooltip: None,
                     data: None,
                 })

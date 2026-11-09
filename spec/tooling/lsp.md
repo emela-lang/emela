@@ -127,7 +127,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 
 ## Document links `[lsp.document-link]`
 
-- `textDocument/documentLink` returns a link for each file argument of `@external` (`[ext.decl]`) in the document: the second argument of `@external(target, "file", "name")` when its string starts with `./` or `../`. The link's target is the `file:` URI of that path taken from the directory of the document. `@export` and `@entry` take no file (`[ext.export]`, `[ext.entry]`), so they give no link.
+- `textDocument/documentLink` returns a link for each file argument of `@external` (`[ext.decl]`) in the document: the second argument of `@external(target, "file", "name")` when its string starts with `./` or `../`. The link's target is the `file:` URI of that path taken from the directory of the document, written as for diagnostics (`[lsp.diagnostics]`): the URI received from the editor if the file is open, and otherwise the path joined to the workspace folder path received from the editor. `@export` and `@entry` take no file (`[ext.export]`, `[ext.entry]`), so they give no link.
 - It is built from the syntax tree of the unsaved contents without checking, so it answers even if there are syntax, import, or type errors. For an unreadable document, it returns `null`.
 - The range of a link is the contents of the string, without the quotes. In a multiline string, it is the one line that holds the path, without the indentation that the string removes (`[lex.literal]`).
 - No link is returned for a path that does not name an existing file, for a string with an escape or an interpolation, or for a multiline string whose value has more than one line.
