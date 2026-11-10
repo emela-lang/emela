@@ -34,7 +34,7 @@ pub struct Manifest {
 }
 
 /// The targets `[pome].targets` may name (spec chapter 16).
-pub const TARGETS: [&str; 4] = ["js", "wasm", "c", "c-embedded"];
+pub const TARGETS: [&str; 3] = ["js", "wasm", "c"];
 
 /// An entry of `[dependencies]` or `[dev-dependencies]`: "this version or above".
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,6 +258,10 @@ target = "c"
         let m = Manifest::parse(base).unwrap();
         assert_eq!((m.targets, m.external.len()), (None, 0));
         assert!(Manifest::parse(&format!("{base}targets = [\"node\"]\n")).is_err());
+        let error = Manifest::parse(&format!("{base}targets = [\"c-embedded\"]\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown target `c-embedded`"), "{error}");
     }
 
     #[test]

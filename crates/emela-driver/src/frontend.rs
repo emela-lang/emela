@@ -438,9 +438,8 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 ///
 /// Lowering is skipped if name resolution or type checking reported any error (lowering assumes
 /// an error-free program), or for library-only directory inputs (build is only a check). Only
-/// fns reachable from the fns the entry module exports are lowered. Embedded C preserves
-/// polymorphic Core so its backend can track const origins before monomorphization; other
-/// targets receive monomorphized Core.
+/// fns reachable from the fns the entry module exports are lowered. Every target receives
+/// monomorphized Core.
 pub struct Lower<B = NoBuiltins> {
     typecheck: Typecheck<B>,
     target: Target,
@@ -463,8 +462,7 @@ impl<B: BuiltinModules> Lower<B> {
         }
     }
 
-    /// Selects the build target. Embedded C defers monomorphization and external binding checks
-    /// to its backend; other targets check external functions during lowering (spec 12.1).
+    /// Selects the build target whose external functions are checked during lowering (spec 12.1).
     pub fn with_target(mut self, target: Target) -> Self {
         self.target = target;
         self
@@ -520,9 +518,8 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
 /// `main.emel` and `lib.emel` still runs its tests). Lowering errors are added to `diagnostics`,
 /// returning `None`.
 ///
-/// External functions are checked (spec 12.1) for `target`, except embedded C defers these
-/// checks and monomorphization to its backend. Only build, run and test call lowering
-/// (check and the LSP do not).
+/// External functions are checked (spec 12.1) for `target`. Only build, run and test call
+/// lowering (check and the LSP do not).
 ///
 /// Lowering also gets each module's source path (`LowerInput::paths`), so that the file an
 /// `@external` names is resolved next to its source.
@@ -566,21 +563,13 @@ pub(crate) fn lower_typed(
         paths,
         shown_paths,
         bundled_files: emela_core::bundled_files(),
-        // The embedded backend monomorphizes after recording generalized const origins.
-        target: (target != Target::CEmbedded).then(|| target.external_target()),
+        target: Some(target.external_target()),
     };
     match emela_core::lower(&input, roots) {
         Ok(lowered) => {
-            // Ill-typed IR is a lowering bug, not an error in the program. Embedded codegen
-            // receives polymorphic Core and owns monomorphization and C binding validation.
+            // Ill-typed IR is a lowering bug, not an error in the program.
             #[cfg(debug_assertions)]
-            let verified = if target == Target::CEmbedded {
-                emela_core::verify(&lowered.module)
-            } else {
-                emela_core::verify_monomorphic(&lowered.module)
-            };
-            #[cfg(debug_assertions)]
-            if let Err(errors) = verified {
+            if let Err(errors) = emela_core::verify_monomorphic(&lowered.module) {
                 let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
                 panic!(
                     "lowering produced ill-typed IR (a compiler bug):\n{}",

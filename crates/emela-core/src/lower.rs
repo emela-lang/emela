@@ -78,8 +78,8 @@ pub enum Roots {
     Exported,
     /// The entry module's `main` and its `pub` fns, except test functions and fns with a
     /// trait-bounded type parameter (no impl could be chosen for a caller that sees every type
-    /// the same). Not a build of a target in the specification: the embedded C backend
-    /// (`emela-codegen-emb`) exports these until it moves to `@export`.
+    /// the same). Available to external backends that select public entry points instead of
+    /// the host exports of a built-in target.
     Public,
     /// The test functions (`LowerInput::tests`), for `emela test`.
     Tests,

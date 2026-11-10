@@ -28,6 +28,8 @@ The standard library is divided into two parts: core, which cannot be separated 
 | core | Short names (`List`, `String`). Usable without an import | The Prelude and the modules of the types the compiler knows as syntax (numbers, String, List, Option, Bool; literals, interpolation, `..`, and so on). They correspond one to one with the table of built-in functions, so they work only with the same version of the compiler |
 | std | Under `Std` (`Std.Console`). Used through an import | Everything else. Modules that can be written in pure Emela and the platform handlers can be distributed separately from the compiler. The effect layer that has `@intrinsic` (State, Fiber) works only with the same version of the runtime |
 
+The compiler does not bundle `Std.Embedded.*` modules.
+
 Within std, modules are divided into four layers by their nature.
 
 | Layer | Nature | Contents |
