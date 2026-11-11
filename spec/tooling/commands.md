@@ -184,6 +184,7 @@ Operations on dependencies are placed under `emela pome` (4.7). Each of them rew
   5. Requests `<p>/@v/<version>.info` from the first proxy in `EMELA_POMEPROXY` to have it ingest the version.
   6. Looks up the sumdb record and verifies it as in 4.7. If `h1:` matches the local one, it prints the record and finishes. If it differs, different contents were recorded first (for example because the tag was moved), so the command suggests a tag for a new version.
 - `--dry-run` skips 2, 5, and 6. It is used to run only the checks and the public API comparison after tagging locally and before pushing. Because an ingested version cannot be withdrawn, this lets you push after seeing the warnings.
+- When `[pome].license` of the version does not follow the syntax of `[pome.manifest]`, `publish` reports an error. When `[pome].license` is omitted, `publish` warns that the Pome declares no license, and continues.
 - `publish` is not a required step for publishing. It exists so that the author, rather than the dependents, finds ingestion errors (a mismatched `Pome.toml`, symbolic links, and so on) and version bump errors first. A Pome matched by `EMELA_POMEPRIVATE`, and the case where `EMELA_POMEPROXY` has no proxy, are errors (except with `--dry-run`).
 
 Common:

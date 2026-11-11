@@ -136,6 +136,7 @@ name = "github.com/emela-lang/quince"   # source path
 version = "0.3.2"
 emela = "0.20.1"                         # minimum compiler version required
 module = "Quince"                        # root name when depended on (optional)
+license = "MIT OR Apache-2.0"            # SPDX license expression (optional)
 
 [dependencies]
 "github.com/emela-lang/x" = "v0.2.0"                              # this version or later
@@ -154,12 +155,13 @@ target = "c"                                     # default build target (js if o
 Identity:
 
 - A Pome is identified by its source path (`host/path`, the form without `https://` and a trailing `.git`). The shorthand `github:owner/repo` is accepted only as command input. `Pome.toml` and `Pome.lock` always use the source path.
-- In `[pome]`, `name`, `version`, and `emela` are required, and `module` and `targets` can be omitted.
+- In `[pome]`, `name`, `version`, and `emela` are required, and `module`, `targets`, and `license` can be omitted.
 - For a github.com source path, the part up to `github.com/<owner>/<repo>` is the repository, and the segments after it are a directory inside the repository. One repository can hold multiple Pomes (`github.com/emela-lang/x/platform-cloudflare` is the Pome in the directory `platform-cloudflare` of the repository `github.com/emela-lang/x`). On other hosts, the whole source path without `/vN` is the repository, and directory Pomes are not possible.
 - The version of a directory Pome is expressed by a tag prefixed with the directory (`platform-cloudflare/v0.1.0`). Its contents are the files under that directory, and paths are relative to the directory. The tag of the Pome at the repository root stays `v0.1.0`.
 - A Pome with major version 2 or higher appends `/vN` (N is the major version) to the end of its source path (`github.com/acme/http/v2`, `github.com/emela-lang/x/platform-cloudflare/v2`). The source path without `/vN` is the location of that Pome, and it is a different Pome from the v0 and v1 Pome at the same location. Versions of a source path without `/vN` are limited to v0 and v1, and versions of a source path with `/vN` are limited to major version N. A tag that does not match is not considered a version of that Pome (it does not appear in `@v/list` and cannot be ingested). Endings such as `/v0`, `/v1`, and `/v02` cannot be written.
 - The `target` in `[build]` is the default build target for `check`, `build`, `run`, and `test` (`js`, `c`, `c-embedded`, `wasm`, chapter 16). If omitted, it is `js`. The `--target` option of a command takes precedence. Like `[replace]`, it takes effect only when building that Pome and is ignored when the Pome is depended on. An unknown target is a compile error (E0232).
 - When `Pome.toml` cannot be read as TOML, or when the `target` in `[build]` is not a string, it is treated as if no `target` were specified.
+- `license` in `[pome]` declares the license under which the contents of that version are distributed, as an SPDX license expression. It is the author's declaration: no tool checks it against the files of the Pome. When it is omitted, the Pome declares no license; this does not mean any particular license. Unlike `[replace]` and `[build]`, `license` is read also when the Pome is depended on. It does not affect how any Pome is built.
 
 Modules:
 
