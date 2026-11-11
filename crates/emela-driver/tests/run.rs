@@ -671,6 +671,19 @@ await m.later().catch((e) => console.log(e.name, e.message));
     );
 }
 
+/// The entry's `main` is exported for the launcher even when it also has a host export, so
+/// `emela run` still calls it.
+#[test]
+fn main_with_a_host_export_runs() {
+    let output = run_source(
+        "main-host-export",
+        "@export(js, \"run\")\nfn main() -> Int {\n  dbg(41)\n  42\n}\n",
+    );
+    assert_eq!(text(&output.stdout), "");
+    assert_eq!(text(&output.stderr), "41\n");
+    assert_eq!(output.code, 0);
+}
+
 /// `[target.js.value]`, `[ext.boundary]`: an Array crosses as a JS `Array` whose elements are
 /// represented by the same table. One from JS (a return value, a value a suspend fn resolves to, an
 /// argument of a callback or of an exported fn) must satisfy `Array.isArray`; it is copied, each
