@@ -24,10 +24,12 @@ git_only = true
 features_always_increment_minor = true
 # Distribution is the `emela` binary tarball, not crates.io packages.
 publish = false
-# Nothing is published to crates.io and the product is the `emela` binary, so the
-# Rust API of the internal crates is not a public interface. With the check on,
-# cargo-semver-checks reports a new pub field of an internal struct as breaking and
-# release-plz bumps the minor in 0.x: a release of only fixes became v0.28.0 (#533).
+# The version describes the `emela` binary: the language, std, tools and diagnostics.
+# The Rust API of the crates is outside it and can change in any release; a project
+# that uses the crates (emelino uses the frontend through git dependencies) pins them
+# to a release tag. With the check on, cargo-semver-checks reports a new pub field of
+# a crate's struct as breaking and release-plz bumps the minor in 0.x: a release of
+# only fixes became v0.28.0 (#533), and every Pome written for 0.27 would get W0203.
 # The version is decided by the commit types alone (`feat:` bumps the minor, `fix:`
 # and `perf:` the patch).
 semver_check = false
