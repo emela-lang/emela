@@ -24,6 +24,13 @@ git_only = true
 features_always_increment_minor = true
 # Distribution is the `emela` binary tarball, not crates.io packages.
 publish = false
+# Nothing is published to crates.io and the product is the `emela` binary, so the
+# Rust API of the internal crates is not a public interface. With the check on,
+# cargo-semver-checks reports a new pub field of an internal struct as breaking and
+# release-plz bumps the minor in 0.x: a release of only fixes became v0.28.0 (#533).
+# The version is decided by the commit types alone (`feat:` bumps the minor, `fix:`
+# and `perf:` the patch).
+semver_check = false
 # emela-cli turns it back on below; `release-plz.yml` attaches the tarballs.
 git_release_enable = false
 # Only the `emela` package is tagged (see [[package]] below). Suppressing the
