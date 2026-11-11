@@ -1,5 +1,5 @@
 # 名前付き型の集合の型引数に渡す集合（9.2）
-type Handler[E, R](run: fn(Request) -> Response fails E use R)
+type Handler[E, R](run: fn(Request) -> Response fails E uses { R })
 
 fn serve(
   a: Handler[NotFound | Timeout, { Db, Log }],

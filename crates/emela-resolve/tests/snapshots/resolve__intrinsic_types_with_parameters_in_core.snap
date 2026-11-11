@@ -1,0 +1,11 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run_with_core(&[(\"main.emel\",\n\"fn first(s: Seq.Seq[Int]) -> Seq.Seq[Int] { s }\\n\",)],\n&[(\"seq.emel\", r##\"@intrinsic\npub opaque type Seq[A]\n\"##,)],)"
+---
+== Main (src/main.emel)
+fn Main.first
+  param s#0: Seq.Seq[Int]
+  ret Seq.Seq[Int]
+  body
+    block
+      s#0

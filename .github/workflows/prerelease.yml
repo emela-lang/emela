@@ -61,7 +61,7 @@ jobs:
       TAG: ${{ needs.resolve.outputs.tag }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ needs.resolve.outputs.tag }}
 
@@ -86,8 +86,8 @@ jobs:
       - name: Check the binary reports the tag's version
         run: |
           reported=$(target/${{ matrix.target }}/release/emela --version)
-          if [ "$reported" != "emela ${TAG#v}" ]; then
-            echo "::error::emela --version printed '$reported', expected 'emela ${TAG#v}'"
+          if [ "${reported%%+*}" != "emela ${TAG#v}" ]; then
+            echo "::error::emela --version printed '$reported', expected 'emela ${TAG#v}' (with an optional +<hash>)"
             exit 1
           fi
 

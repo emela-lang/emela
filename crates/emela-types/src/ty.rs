@@ -109,7 +109,7 @@ pub enum ParamKind {
     /// `RowElem::Of(Ty::Bound(i))`.
     Type,
     /// A set, referred to by `RowElem::Bound(i)`. Whether it is an error set (the `E` of
-    /// `fails E`) or an effect set (the `R` of `use R`) depends on where it is written. Includes
+    /// `fails E`) or an effect set (the `R` of `uses { R }`) depends on where it is written. Includes
     /// the invisible set variables of function-typed parameters.
     Set,
 }
@@ -200,7 +200,7 @@ impl Index<TyConId> for TyCons {
     }
 }
 
-/// `fn(A, B) -> C fails E use R`.
+/// `fn(A, B) -> C fails E uses { R }`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FnTy {
     pub params: Vec<Ty>,

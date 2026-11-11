@@ -103,7 +103,7 @@ expect("    close(self.conn)", "conn", "variable.member")
 expect("layer AppLive { PostgresUsers, ConsoleLogger }", "layer", "keyword.type")
 expect("impl Shape: Show {", "impl", "keyword")
 expect("  fn show(self)", "self", "variable.builtin")
-expect("fn run[A, R](f: fn() -> A fails A | B use { A, R }) -> A use R {", "use", "keyword")
+expect("fn run[A, R](f: fn() -> A fails A | B uses { A, R }) -> A uses { R } {", "uses", "keyword")
 expect("  with AppLive { f() }", "with", "keyword")
 expect("  with AppLive { f() }", "AppLive", "type")
 expect("  hex = 0xFF_ff + 0b1010 + 3.14 + 1.0e9", "3.14", "number.float")
@@ -129,11 +129,15 @@ expect("  greeting = load(id) match {", "match", "keyword.conditional")
 expect("    Some(user) -> user.name", "Some", "constructor")
 expect("    None ->", "None", "constructor")
 
--- Files that must parse without errors: everything but the compiler's error cases and the
--- statement-level lexer inputs.
+-- Files that must parse without errors: everything but the compiler's error cases, the
+-- statement-level lexer inputs, and the formatter's input in the old form of anonymous functions
+-- (E0148).
 local files = vim.fn.globpath(root, "{examples,crates,tests}/**/*.emel", false, true)
 for _, path in ipairs(files) do
-  if not path:find("/test_data/parser/err/", 1, true) and not path:find("/test_data/lexer/", 1, true) then
+  if not path:find("/test_data/parser/err/", 1, true)
+    and not path:find("/test_data/lexer/", 1, true)
+    and not path:find("/emela-fmt/test_data/old_lambdas.emel", 1, true)
+  then
     open(path)
     expect_no_errors()
   end

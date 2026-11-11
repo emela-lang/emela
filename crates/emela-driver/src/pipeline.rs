@@ -21,8 +21,8 @@ use crate::hover::HoverInfo;
 use crate::nav::{NavTarget, RenameError};
 use crate::output::{BuildOutput, write_output};
 use crate::run::{
-    Output, ProgramCommand, RunOutput, node_command, node_script_command, wasmtime_command,
-    wasmtime_serve_command,
+    Output, ProgramCommand, RunOutput, check_node_version, node_command, node_script_command,
+    wasmtime_command, wasmtime_serve_command,
 };
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
@@ -912,12 +912,17 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
     let (mut analysis, entry) = build_with(fs, input, frontend, backend, &options.out_dir, true);
     let server = frontend.is_http_service();
     let command = entry.map(|entry| match backend.runner() {
-        Runner::Node if server => Ok(node_script_command(
-            &options.node,
-            &entry.with_file_name(emela_codegen_js::SERVE_FILE),
-            &options.args,
-        )),
-        Runner::Node => Ok(node_command(&options.node, &entry, &options.args)),
+        Runner::Node => check_node_version(&options.node).map(|()| {
+            if server {
+                node_script_command(
+                    &options.node,
+                    &entry.with_file_name(emela_codegen_js::SERVE_FILE),
+                    &options.args,
+                )
+            } else {
+                node_command(&options.node, &entry, &options.args)
+            }
+        }),
         Runner::Native => Ok(native_command(&entry, &options.args)),
         Runner::Wasmtime if server => wasmtime_serve_command(&entry, &options.args),
         Runner::Wasmtime => wasmtime_command(&entry, &options.args),

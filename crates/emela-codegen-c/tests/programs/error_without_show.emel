@@ -6,7 +6,7 @@ error Nope
 error Retry(after: fn() -> Int)
 
 fn retry(n: Int) -> Int fails Retry {
-  if n > 0 { fail Retry(after: fn() { n }) }
+  if n > 0 { fail Retry(after: || n) }
   n
 }
 

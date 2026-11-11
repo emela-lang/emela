@@ -13,7 +13,7 @@ fn console_log(msg: String) -> ()
 @external(js, "Math.sin")
 @external(wasm, "env", "sin")
 @external(c, "sin")
-fn sin(x: Float) -> Float use {}
+fn sin(x: Float) -> Float uses {}
 
 @external(js, "./http_ffi.mjs", "fetchText")
 @external(wasm, "wasi:http/client", "fetch")
@@ -39,14 +39,14 @@ suspend fn fetch_text(url: String) -> String
 
 | Declaration | Meaning | Where it can be called |
 |---|---|---|
-| `use {}` written explicitly | Declares that the function is pure | Anywhere |
-| `use` omitted | Has host side effects | Only inside the init, the release and the operation bodies of a handler |
+| `uses {}` written explicitly | Declares that the function is pure | Anywhere |
+| `uses` omitted | Has host side effects | Only inside the init, the release and the operation bodies of a handler |
 | `suspend fn` | Needs to wait for completion. Requires Async | Only inside a handler |
 
-- The compiler cannot verify that a `use {}` declaration is correct. The person who declares it is responsible for it.
-- The restriction on where a function can be called applies to references, not only to calls. An external function with `use` omitted cannot be carried out of a handler as a function value either. The inside of an anonymous function inside an operation body of a handler counts as inside.
-- An external function declared as `suspend fn` can be used only inside a handler, even when `use {}` is written (E0407).
-- The host side effects of an external function are not put in R. The R of an external function with `use` omitted is empty, and its side effects are handled by the restriction on where it can be called.
+- The compiler cannot verify that a `uses {}` declaration is correct. The person who declares it is responsible for it.
+- The restriction on where a function can be called applies to references, not only to calls. An external function with `uses` omitted cannot be carried out of a handler as a function value either. The inside of an anonymous function inside an operation body of a handler counts as inside.
+- An external function declared as `suspend fn` can be used only inside a handler, even when `uses {}` is written (E0407).
+- The host side effects of an external function are not put in R. The R of an external function with `uses` omitted is empty, and its side effects are handled by the restriction on where it can be called.
 - An external function declared as `suspend fn` corresponds to a function that returns a Promise in JS, and to an async import in WASI. The calling fiber suspends until completion.
 - In JS, the runtime adds an `AbortSignal` as the last argument of an external function declared as `suspend fn`. It aborts when the waiting fiber is interrupted. When an implementation of a suspend fn operation is waiting on an external function and the caller is interrupted before resume, the runtime also unwinds the implementation and aborts. This is for stopping network requests and timers (without it, even if the result is discarded, the requests and timers stay in the host event loop and the process does not exit). A function that does not use the signal MAY ignore it. Interruption stops only waits of this form. A handler that resumes later from a callback is not stopped (discarded continuations in 14.5). The bundled handlers (including `sleep` of SystemClock) are written in this form.
 - In JS, a returned value that is not a Promise is treated as a resolved value. A rejected Promise is a defect, the same as an exception thrown by the call (12.5).
@@ -69,6 +69,7 @@ An `@external type` with no fields is an opaque type that represents a host obje
 Only the following types can be used for the parameters and the return value of an external function.
 
 - Int, Int64, Float, Bool, String, Bytes (`Std.Bytes`), `()`
+- `Array[A]` (`Std.Array`), where `A` is a boundary type other than a function type (so `Array[Array[Int]]` and `Array[Bytes]` are boundary types)
 - Types declared with `@external type`
 - Function types made only of the types above (callbacks)
 
@@ -77,6 +78,7 @@ List and user-defined types cannot be passed directly. They are converted inside
 - The parameters and return value of a function passed as a callback are treated the same as the parameters and return value of an external function (a String received from the host is normalized as in 12.5).
 - An external function that returns `()` discards the host's return value and returns `()`.
 - A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.
+- An Array received from the host is copied when it crosses the boundary, and each element is converted as a value of type `A` received from the host would be (a String element is normalized as in 12.5, and a nested Array is copied by this rule). A later change to the host's array does not change the Array. An Array passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own array or a copy is implementation-defined.
 
 On the `c` target, the types map to C types by the following table.
 
@@ -98,7 +100,7 @@ On the `c` target, the types map to C types by the following table.
 - A String received from C is copied into an Emela string, and freed with `free` right after the copy. Sequences that are not valid UTF-8 are replaced with the replacement character (U+FFFD) (the same idea as the normalization in 12.5). The replacement is one replacement character per maximal subpart of an invalid sequence. A returned NULL is a defect. The message is ``external function `f` returned NULL`` (`X` is the name of the external function).
 - A C type not in the table, such as `size_t` or `int`, is converted to a type in the table by a small function written on the C side. The compiler does not guess the width of integers.
 - The first version of the C target (0.21) does not support parameters and return values of function types. When the build target is `c` and an external function reachable from the entry point takes or returns a callback, it is a compile error (E0427). The form of callbacks (a pair of a function pointer and a context) and how long the C side can keep them are decided in 18.1 #38.
-- The C target does not support Bytes yet. When the build target is `c` and an external function reachable from the entry, or an exported fn, takes or returns Bytes, it is a compile error (E0443). The C form (a pointer and a length) is decided together with callbacks (18.1 #38).
+- The C target does not support Bytes and Array at the boundary yet. When the build target is `c` and an external function reachable from the entry, or an exported fn, takes or returns a type that contains Bytes or an Array, it is a compile error (E0443). The C form (a pointer and a length) is decided together with callbacks (18.1 #38).
 
 ## 12.5 Exceptions and failures `[ext.exception]`
 
@@ -170,9 +172,9 @@ pub fn add(a: Int, b: Int) -> Int { a + b }
 - `@export` is written on a top-level fn with a body. Writing it on any other declaration, or on a fn without a body, is E0146. Its arguments have the form `(target, "name")` or `(target, "interface", "name")`, as for `@external` (12.1). One `@export` is written per target name; a fn MAY have several for the same target. Malformed arguments are E0146, and an unknown target is E0140.
 - An `@export` fn exposes itself to the host under each name. Each call by the host is one launch, as main is.
 - The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402).
-- A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} use {}` (`f: fn(Int) -> String fails {} use {}`). Otherwise its E and R are not empty (E0402).
+- A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} uses {}` (`f: fn(Int) -> String fails {} uses {}`). Otherwise its E and R are not empty (E0402).
 - An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
-- Two exports with the same name for the same target, from `@export` or `@entry`, are a compile error (E0438).
+- Two exports with the same name for the same target, from `@export`, `@entry` or the launcher of `main.mjs` (`[target.js.module]`), are a compile error (E0438).
 - How each target exposes the fn is in `[target.js.module]`, `[target.c.export]` and `[target.wasm.external]`.
 
 ## 12.8 Entry adapters `[ext.entry]`

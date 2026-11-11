@@ -75,7 +75,7 @@ pub(crate) fn code_actions(
 /// - If the return type is omitted, adds `-> T`, plus `fails E` if the inferred E is not empty.
 ///   Writing the return type fixes E to the written fails clause (spec 7.4), so both are added
 ///   together.
-/// - If the `use` clause is omitted, adds `use R` if the inferred R is not empty (R is inferred
+/// - If the `uses` clause is omitted, adds `uses { R }` if the inferred R is not empty (R is inferred
 ///   separately from E).
 /// - Hidden sets of parameter function types cannot be written; they are implicitly added to the
 ///   written clauses (spec 9.2), so they are removed from E and R. If a hidden set appears in the
@@ -130,7 +130,7 @@ fn insert_annotations(
     if item.sig.uses.is_none() {
         let uses = visible(&fn_ty.uses, declared);
         if !uses.is_empty() && names.writable_row(&uses) {
-            let text = format!("use {}", uses.display_effects(cons, params));
+            let text = format!("uses {}", uses.display_uses(cons, params));
             parts.push(text.clone());
             uses_text = Some(text);
         }
@@ -152,7 +152,7 @@ fn insert_annotations(
         edits.push((after_params, head));
     }
     if let Some(text) = uses_text {
-        let (range, _) = clause_edit(f, SyntaxKind::USE_CLAUSE, &text)?;
+        let (range, _) = clause_edit(f, SyntaxKind::USES_CLAUSE, &text)?;
         let at = range.start();
         match edits.iter_mut().find(|(p, _)| *p == at) {
             Some((_, head)) => head.push_str(&format!(" {text}")),
@@ -181,7 +181,7 @@ fn clause_edit(f: &ast::FnDecl, kind: SyntaxKind, text: &str) -> Option<(TextRan
         .filter(|n| {
             n.kind() == SyntaxKind::PARAM_LIST
                 || n.kind() == SyntaxKind::RET_TYPE
-                || (kind == SyntaxKind::USE_CLAUSE && n.kind() == SyntaxKind::FAILS_CLAUSE)
+                || (kind == SyntaxKind::USES_CLAUSE && n.kind() == SyntaxKind::FAILS_CLAUSE)
         })
         .last()?;
     Some((

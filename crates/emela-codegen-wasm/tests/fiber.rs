@@ -23,21 +23,23 @@ import Std.Fiber.{Fiber, Scope}
 
 fn fetch(n: Int) -> Int { n * 10 }
 
-fn main() -> () use { Async } {
-  total = Fiber.scope(fn() {
+fn main() -> () uses { Async } {
+  total = Fiber.scope(|| {
     s = use Scope
-    a = s.fork(fn() { fetch(1) })
-    b = Fiber.fork(fn() { fetch(2) })
+    a = s.fork(|| fetch(1))
+    b = Fiber.fork(|| fetch(2))
     Fiber.join(a) + Fiber.join(b)
   })
   dbg(total)
-  dbg(Fiber.scope(fn() {
-    x = Fiber.fork(fn() { 1.5 })
-    y = Fiber.fork(fn() { Int64.from_int(7) })
-    u = Fiber.fork(fn() { dbg("unit child") })
-    Fiber.join(u)
-    "#{Fiber.join(x)} #{Fiber.join(y)}"
-  }))
+  dbg(
+    Fiber.scope(|| {
+      x = Fiber.fork(|| 1.5)
+      y = Fiber.fork(|| Int64.from_int(7))
+      u = Fiber.fork(|| dbg("unit child"))
+      Fiber.join(u)
+      "#{Fiber.join(x)} #{Fiber.join(y)}"
+    }),
+  )
   ()
 }
 "##,
@@ -56,9 +58,9 @@ fn scope_interrupts_children_left_at_the_end() {
         r##"
 import Std.Fiber.{Fiber, Scope}
 
-fn main() -> () use { Async } {
-  v = Fiber.scope(fn() {
-    h = Fiber.fork(fn() { dbg("child starts") })
+fn main() -> () uses { Async } {
+  v = Fiber.scope(|| {
+    h = Fiber.fork(|| dbg("child starts"))
     dbg("body returns")
     2
   })
@@ -83,19 +85,19 @@ fn nested_scopes_close_inside_out() {
         r##"
 import Std.Fiber.{Fiber, Scope}
 
-fn main() -> () use { Async } {
-  r = Fiber.scope(fn() {
+fn main() -> () uses { Async } {
+  r = Fiber.scope(|| {
     outer = use Scope
-    late = outer.fork(fn() {
+    late = outer.fork(|| {
       dbg("late")
       9
     })
-    inner = Fiber.scope(fn() {
-      a = Fiber.fork(fn() {
+    inner = Fiber.scope(|| {
+      a = Fiber.fork(|| {
         dbg("inner a")
         1
       })
-      b = Fiber.fork(fn() {
+      b = Fiber.fork(|| {
         dbg("inner b")
         2
       })
@@ -122,10 +124,10 @@ fn many_fibers_join_in_order() {
         r##"
 import Std.Fiber.{Fiber, Scope}
 
-fn main() -> () use { Async } {
-  total = Fiber.scope(fn() {
-    hs = List.map(List.range(0, 200), fn(i) { Fiber.fork(fn() { i + 1 }) })
-    List.fold(hs, 0, fn(acc, h) { acc + Fiber.join(h) })
+fn main() -> () uses { Async } {
+  total = Fiber.scope(|| {
+    hs = List.map(List.range(0, 200), |i| Fiber.fork(|| i + 1))
+    List.fold(hs, 0, |acc, h| acc + Fiber.join(h))
   })
   dbg(total)
   ()
@@ -148,18 +150,18 @@ fn deferred_multiple_waiters_and_complete_once() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 
-fn main() -> () use { Async } {
-  Fiber.scope(fn() {
+fn main() -> () uses { Async } {
+  Fiber.scope(|| {
     d = Fiber.deferred()
-    a = Fiber.fork(fn() { Deferred.await(d) + 1 })
-    b = Fiber.fork(fn() { Deferred.await(d) + 2 })
+    a = Fiber.fork(|| Deferred.await(d) + 1)
+    b = Fiber.fork(|| Deferred.await(d) + 2)
     dbg(Deferred.poll(d))
-    Fiber.fork(fn() { dbg(Deferred.complete(d, 40)) })
+    Fiber.fork(|| dbg(Deferred.complete(d, 40)))
     dbg("#{Fiber.join(a)} #{Fiber.join(b)}")
     dbg(Deferred.complete(d, 1))
     dbg(Deferred.poll(d))
     names = Fiber.deferred()
-    Fiber.fork(fn() { Deferred.complete(names, ["x", "y"]) })
+    Fiber.fork(|| Deferred.complete(names, ["x", "y"]))
     dbg(Deferred.await(names))
     ()
   })
@@ -182,7 +184,8 @@ fn interrupt_and_await() {
     let Some(run) = run_ok(
         "fiber-interrupt",
         r##"
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 import Std.Deferred.{Deferred}
 
@@ -194,8 +197,10 @@ handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
-fn spin(n: Int) -> () use { Tick } {
-  if n == 0 { () } else {
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
     (use Tick).tick()
     spin(n - 1)
   }
@@ -208,15 +213,15 @@ fn show[A, E](e: Exit[A, E]) -> String {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
-    Fiber.scope(fn() {
-      h = Fiber.fork(fn() { spin(100000) })
+    Fiber.scope(|| {
+      h = Fiber.fork(|| spin(100000))
       spin(1000)
       Fiber.interrupt(h)
       dbg(show(Fiber.await(h)))
-      dbg(show(Fiber.attempt(fn() { Fiber.join(h) })))
-      ok = Fiber.fork(fn() { 7 })
+      dbg(show(Exit.attempt(|| Fiber.join(h))))
+      ok = Fiber.fork(|| 7)
       dbg(show(Fiber.await(ok)))
       ()
     })
@@ -240,7 +245,8 @@ fn interrupt_waits_for_a_release() {
     let Some(run) = run_ok(
         "fiber-release",
         r##"
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 effect Tick {
@@ -251,8 +257,10 @@ handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
-fn spin(n: Int) -> () use { Tick } {
-  if n == 0 { () } else {
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
     (use Tick).tick()
     spin(n - 1)
   }
@@ -282,10 +290,10 @@ fn show[A, E](e: Exit[A, E]) -> String {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
-    Fiber.scope(fn() {
-      h = Fiber.fork(fn() { with SlowRes { spin(100000) } })
+    Fiber.scope(|| {
+      h = Fiber.fork(|| with SlowRes { spin(100000) })
       spin(1500)
       dbg("interrupting")
       Fiber.interrupt(h)
@@ -311,7 +319,8 @@ fn child_failure_notes_keep_the_first() {
     let Some(run) = run_ok(
         "fiber-notes",
         r##"
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 error Boom
@@ -337,8 +346,10 @@ handler Res: Name {
   release { panic("second") }
 }
 
-fn spin(n: Int) -> () use { Tick } {
-  if n == 0 { () } else {
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
     (use Tick).tick()
     spin(n - 1)
   }
@@ -351,15 +362,15 @@ fn show[A, E](e: Exit[A, E]) -> String {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
-    caught = Fiber.attempt(fn() {
-      Fiber.scope(fn() {
-        Fiber.fork(fn() {
+    caught = Exit.attempt(|| {
+      Fiber.scope(|| {
+        Fiber.fork(|| {
           spin(1000)
           fail Boom
         })
-        Fiber.fork(fn() { with Res { spin(100000) } })
+        Fiber.fork(|| with Res { spin(100000) })
         spin(100000)
         ()
       })
@@ -386,7 +397,8 @@ fn a_note_belongs_to_its_own_failure() {
     let Some(run) = run_ok(
         "fiber-notes-static",
         r##"
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 error Boom
@@ -412,21 +424,23 @@ handler Res: Name {
   release { panic("second") }
 }
 
-fn spin(n: Int) -> () use { Tick } {
-  if n == 0 { () } else {
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
     (use Tick).tick()
     spin(n - 1)
   }
 }
 
-fn once() -> String use { Async, Tick } {
-  caught = Fiber.attempt(fn() {
-    Fiber.scope(fn() {
-      Fiber.fork(fn() {
+fn once() -> String uses { Async, Tick } {
+  caught = Exit.attempt(|| {
+    Fiber.scope(|| {
+      Fiber.fork(|| {
         spin(1000)
         fail Boom
       })
-      Fiber.fork(fn() { with Res { spin(100000) } })
+      Fiber.fork(|| with Res { spin(100000) })
       spin(100000)
       ()
     })
@@ -437,7 +451,7 @@ fn once() -> String use { Async, Tick } {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
     dbg(once())
     dbg(once())
@@ -470,10 +484,10 @@ fn use_after_scope_close_is_a_defect() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 
-fn main() -> () use { Async } {
-  join_later = Fiber.scope(fn() {
-    h = Fiber.fork(fn() { 1 })
-    fn() { Fiber.join(h) }
+fn main() -> () uses { Async } {
+  join_later = Fiber.scope(|| {
+    h = Fiber.fork(|| 1)
+    || Fiber.join(h)
   })
   dbg("before join")
   join_later()
@@ -498,10 +512,10 @@ fn deferred_use_after_scope_close_is_a_defect() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 
-fn main() -> () use { Async } {
-  complete_later = Fiber.scope(fn() {
+fn main() -> () uses { Async } {
+  complete_later = Fiber.scope(|| {
     d = Fiber.deferred()
-    fn() { Deferred.complete(d, 1) }
+    || Deferred.complete(d, 1)
   })
   dbg("before complete")
   complete_later()
@@ -526,10 +540,10 @@ fn poll_after_scope_close_is_a_defect() {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 
-fn main() -> () use { Async } {
-  poll_later = Fiber.scope(fn() {
+fn main() -> () uses { Async } {
+  poll_later = Fiber.scope(|| {
     d = Fiber.deferred()
-    fn() { Deferred.poll(d) }
+    || Deferred.poll(d)
   })
   dbg("before poll")
   poll_later()
@@ -546,13 +560,14 @@ fn main() -> () use { Async } {
     );
 }
 
-/// `Fiber.attempt` does not catch the interruption of its own fiber (spec 11.5).
+/// `Exit.attempt` does not catch the interruption of its own fiber (spec 11.5).
 #[test]
 fn attempt_does_not_catch_its_own_interruption() {
     let Some(run) = run_ok(
         "fiber-attempt-interrupt",
         r##"
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 effect Tick {
@@ -563,8 +578,10 @@ handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
-fn spin(n: Int) -> () use { Tick } {
-  if n == 0 { () } else {
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
     (use Tick).tick()
     spin(n - 1)
   }
@@ -577,11 +594,11 @@ fn show[A, E](e: Exit[A, E]) -> String {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
-    Fiber.scope(fn() {
-      h = Fiber.fork(fn() {
-        Fiber.attempt(fn() { spin(100000) }) match {
+    Fiber.scope(|| {
+      h = Fiber.fork(|| {
+        Exit.attempt(|| spin(100000)) match {
           Success(_) -> dbg("attempt success")
           Failure(c) -> dbg("attempt caught #{Cause.to_string(c)}")
         }
@@ -608,7 +625,8 @@ fn body_failure_and_child_note() {
     let Some(run) = run_ok(
         "fiber-body-failure",
         r##"
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 error Boom
@@ -621,8 +639,10 @@ handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
-fn spin(n: Int) -> () use { Tick } {
-  if n == 0 { () } else {
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
     (use Tick).tick()
     spin(n - 1)
   }
@@ -635,10 +655,10 @@ fn show[A, E](e: Exit[A, E]) -> String {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
-    r = Fiber.scope(fn() {
-      Fiber.fork(fn() {
+    r = Fiber.scope(|| {
+      Fiber.fork(|| {
         spin(1000)
         fail Boom
       })
@@ -672,24 +692,28 @@ handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
-fn step(n: Int, tag: String) -> Int use { Tick } {
-  if n == 0 { 0 } else {
+fn step(n: Int, tag: String) -> Int uses { Tick } {
+  if n == 0 {
+    0
+  } else {
     (use Tick).tick()
     if n % 500 == 0 {
       dbg("#{tag} #{n}")
       ()
-    } else { () }
+    } else {
+      ()
+    }
     step(n - 1, tag) + 1
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
-    total = Fiber.scope(fn() {
-      a = Fiber.fork(fn() { step(3000, "a") })
-      b = Fiber.fork(fn() { step(2000, "b") })
+    total = Fiber.scope(|| {
+      a = Fiber.fork(|| step(3000, "a"))
+      b = Fiber.fork(|| step(2000, "b"))
       d = Fiber.deferred()
-      Fiber.fork(fn() {
+      Fiber.fork(|| {
         step(1000, "c")
         Deferred.complete(d, "done")
       })
@@ -723,9 +747,9 @@ fn defects_do_not_trap() {
             r##"
 import Std.Fiber.{Fiber, Scope}
 
-fn main() -> () use { Async } {
-  Fiber.scope(fn() {
-    h = Fiber.fork(fn() { panic("child defect") })
+fn main() -> () uses { Async } {
+  Fiber.scope(|| {
+    h = Fiber.fork(|| panic("child defect"))
     Fiber.join(h)
     ()
   })
@@ -739,10 +763,10 @@ fn main() -> () use { Async } {
 import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 
-fn main() -> () use { Async } {
-  Fiber.scope(fn() {
+fn main() -> () uses { Async } {
+  Fiber.scope(|| {
     d = Fiber.deferred()
-    h = Fiber.fork(fn() { Deferred.await(d) })
+    h = Fiber.fork(|| Deferred.await(d))
     Fiber.interrupt(h)
     Fiber.join(h)
     ()

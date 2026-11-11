@@ -5,7 +5,7 @@ This chapter is the first version that turns the decisions so far into EBNF. Amb
 ## 17.1 Notation `[grammar.notation]`
 
 - `{ x }` is zero or more repetitions, `[ x ]` is optional, and `|` is a choice. Quoted items are terminal symbols.
-- NL is a newline that acts as a statement terminator (2.5). Newlines judged to be line continuations, newlines inside `(` and `[`, and newlines inside the braces of an effect set (`use { ... }`) are removed during lexical analysis.
+- NL is a newline that acts as a statement terminator (2.5). Newlines judged to be line continuations, newlines inside `(` and `[`, and newlines inside the braces of an effect set (`uses { ... }`) are removed during lexical analysis.
 - A trailing comma in a list is allowed everywhere. The rules omit it.
 
 ## 17.2 Lexical grammar `[grammar.lex]`
@@ -52,7 +52,7 @@ qualified    = type_name { "." type_name } "." lower_name
 
 fn_decl      = [ "suspend" ] "fn" lower_name [ type_params ]
                "(" [ params ] ")" [ signature ] [ block ]
-signature    = [ "->" type [ "fails" error_set ] ] [ "use" effect_set ]
+signature    = [ "->" type [ "fails" error_set ] ] [ "uses" effect_set ]
 params       = param { "," param }
 param        = "self" | lower_name [ ":" type ]
 
@@ -96,6 +96,7 @@ impl_item    = "fn" lower_name "(" [ params ] ")" block
 The following restrictions apply outside the grammar.
 
 - An fn_decl without a body, and a top-level suspend fn, are allowed only when they have `@external`. A trait_item fn does not need a default implementation, and this restriction does not apply to it.
+- `fails` and `uses` are contextual keywords (3.2). Writing `use` in the place of `uses` is a compile error (E0147), and the diagnostic shows the rewrite.
 - A `qualified` annot_arg is allowed only as the argument of `@entry`.
 - `opaque` can be applied only to type and enum.
 - Each parameter of init is a lower_name with a type (8.4).
@@ -114,7 +115,7 @@ type       = type_ref [ "[" type_arg { "," type_arg } "]" ]
            | "(" type ")"                                     (* parentheses *)
            | "(" type "," type { "," type } ")"               (* tuple *)
            | "fn" "(" [ type { "," type } ] ")" "->" type
-             [ "fails" error_set ] [ "use" effect_set ]
+             [ "fails" error_set ] [ "uses" effect_set ]
 type_ref   = [ module_path "." ] type_name
 
 type_arg   = type
@@ -146,6 +147,7 @@ add_expr   = mul_expr { ( "+" | "-" ) mul_expr }
 mul_expr   = unary    { ( "*" | "/" | "%" ) unary }
 unary      = ( "!" | "-" ) unary
            | "use" type_ref [ "[" type { "," type } "]" ]
+           | lambda
            | postfix
 postfix    = primary { "(" [ args ] ")" | "." lower_name }
 
@@ -154,7 +156,7 @@ primary    = literal | lower_name | upper_name | type_ref | "self"
            | "(" expr ")"
            | "(" expr "," expr { "," expr } ")"
            | "[" [ expr { "," expr } [ "," ".." expr ] ] "]"
-           | block | if_expr | with_expr | lambda
+           | block | if_expr | with_expr
 
 args       = arg { "," arg } [ "," ".." expr ]
            | ".." expr
@@ -165,9 +167,13 @@ arm        = pattern [ "if" expr ] "->" expr
 with_expr  = "with" with_item { "," with_item } block
 with_item  = supply [ "by" by_right ]                                   (* by is in 8.9 *)
 by_right   = type_ref [ "[" type { "," type } "]" | "(" [ args ] ")" ]
-lambda     = "fn" "(" [ lambda_param { "," lambda_param } ] ")" block
+lambda     = ( "||" | "|" [ lambda_param { "," lambda_param } ] "|" ) expr
 lambda_param = pattern [ ":" type ]
 ```
+
+- The body of a lambda is an `expr`, so it extends as far to the right as possible. A lambda is never followed by anything in the same expression; to call it or apply an operator to it, it is enclosed in parentheses.
+- Inside the parameter list of a lambda, a `|` at bracket depth zero closes the list, and the `error_set` of a function type there has one item. Two or more items are written inside parentheses (`"(" type ")"`).
+- `||` in operand position is a lambda without parameters; after an operand it is the operator of `or_expr`.
 
 - When the last statement of a block is an expression, its value is the value of the block. When the last statement is a binding, the value of the block is `()`.
 - Whether a statement is a binding or an expression is decided by whether a sequence that reads as a pattern is immediately followed by `=` or `:`.

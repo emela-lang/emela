@@ -254,7 +254,7 @@ fn cell(b: &Builder<'_>, f: impl Fn(&Plan) -> u32) -> u32 {
 }
 
 /// Whether the program forks, scopes or shares a Deferred: the operations that need the
-/// scheduler. `Fiber.attempt` and the operations of `Std.Cause` run on the current fiber and need
+/// scheduler. `Exit.attempt` and the operations of `Std.Cause` run on the current fiber and need
 /// none of this.
 pub(crate) fn used(b: &Builder<'_>) -> bool {
     b.m.functions.iter().any(|(_, f)| {

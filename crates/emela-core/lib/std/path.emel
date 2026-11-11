@@ -42,7 +42,7 @@ pub fn file_name(path: String) -> Option[String] {
 ## `Some("gz")`. `None` if the file name has no `.`, only a leading one (`".bashrc"`), or ends
 ## in `.` (`"b."`).
 pub fn extension(path: String) -> Option[String] {
-  file_name(path).and_then(fn(name) {
+  file_name(path).and_then(|name| {
     name.split(".") match {
       []      -> None
       [_]     -> None
@@ -58,7 +58,7 @@ pub fn extension(path: String) -> Option[String] {
 ## The non-empty components, so that repeated and trailing slashes do not count.
 ## `"/a//b/"` is `["a", "b"]`.
 fn components(path: String) -> List[String] {
-  path.split("/").filter(fn(c) { c != "" })
+  path.split("/").filter(|c| c != "")
 }
 
 ## Joins the components back, keeping the leading `/` of an absolute `path`.

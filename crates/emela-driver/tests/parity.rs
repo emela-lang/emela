@@ -368,14 +368,14 @@ handler Ignores: Wait {
   suspend fn wait(resume) { () }
 }
 
-fn spin(n: Int) -> () use { Tick } {
+fn spin(n: Int) -> () uses { Tick } {
   if n == 0 { () } else {
     (use Tick).tick()
     spin(n - 1)
   }
 }
 
-fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
+fn fetch(n: Int, ticks: Int) -> Int uses { Tick } {
   spin(ticks * 100)
   n * 10
 }
@@ -387,30 +387,30 @@ fn explode() -> Int { panic("child") }
 @test
 fn joins() {
   with Ticks {
-    xs = Fiber.all([fn() { fetch(1, 20) }, fn() { fetch(2, 10) }])
+    xs = Fiber.all([|| fetch(1, 20), || fetch(2, 10)])
     assert xs == [10, 20]
   }
 }
 
 @test
 fn child_error() {
-  Fiber.scope(fn() {
-    h = Fiber.fork(fn() { boom() })
+  Fiber.scope(|| {
+    h = Fiber.fork(|| boom())
     Fiber.join(h)
   })
 }
 
 @test
 fn child_defect() {
-  Fiber.scope(fn() {
-    h = Fiber.fork(fn() { explode() })
+  Fiber.scope(|| {
+    h = Fiber.fork(|| explode())
     Fiber.join(h)
   })
 }
 
 @test
 fn waits_forever() {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d = Fiber.deferred()
     Deferred.await(d) + 1
   })

@@ -49,7 +49,7 @@ fn run_moved(project: &Path) -> String {
     String::from_utf8_lossy(&out.stdout).into()
 }
 
-const MAIN: &str = "import Std.Console.{Console, SystemConsole}\n\n@external(js, \"./ffi.mjs\", \"greet\")\nfn greet(name: String) -> String use {}\n\nfn main() {\n  with SystemConsole {\n    console = use Console\n    console.print_line(greet(\"Pome\"))\n  }\n}\n";
+const MAIN: &str = "import Std.Console.{Console, SystemConsole}\n\n@external(js, \"./ffi.mjs\", \"greet\")\nfn greet(name: String) -> String uses {}\n\nfn main() {\n  with SystemConsole {\n    console = use Console\n    console.print_line(greet(\"Pome\"))\n  }\n}\n";
 
 #[test]
 fn copies_the_projects_host_files() {
@@ -95,7 +95,7 @@ fn copies_a_dependencys_host_files() {
             ),
             (
                 "shout/src/lib.emel",
-                "@external(js, \"./host.mjs\", \"shout\")\nfn shout(text: String) -> String use {}\n\npub fn loud(text: String) -> String { shout(text) }\n",
+                "@external(js, \"./host.mjs\", \"shout\")\nfn shout(text: String) -> String uses {}\n\npub fn loud(text: String) -> String { shout(text) }\n",
             ),
             (
                 "shout/src/host.mjs",

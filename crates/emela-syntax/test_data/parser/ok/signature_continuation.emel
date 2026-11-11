@@ -1,8 +1,9 @@
-# シグネチャの中の fails と use で始まる行は前の行に続く（2.5 の規則4）．
+# fails と uses の後に名前か { が続く行は前の行に続く（2.5 の規則4）．
 pub fn get(url: String) -> Response
   fails InvalidUrl | ConnectionFailed | ResponseNotText
-  use Http {
+  uses { Http } {
   fails = 1
+  uses = 2
   use Log
 }
 
@@ -14,4 +15,22 @@ effect Store {
 
 @external(js, "./x.mjs", "now")
 fn now() -> Int
-  use {}
+  uses {}
+
+# fails 節の error set で終わる行の次の | は続く（規則5）．
+fn load(id: Int) -> User
+  fails NotFound
+  | DbError
+  | Http.Error
+  uses { Db } {
+  1
+}
+
+# 束縛の型注釈でも続く．
+fn bind() {
+  f: fn() -> Int
+    fails Boom
+    | Bust
+    uses { Db } = g
+  f
+}

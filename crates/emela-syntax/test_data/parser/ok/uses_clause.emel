@@ -1,0 +1,26 @@
+# uses 節（9.2，17.3，17.4）．文法が許す場所すべて．
+fn a() -> Int uses { Db } { 1 }
+fn b() -> Int fails E uses Db { 1 }
+fn c[R](f: fn() -> () uses { R }) -> () uses R { f() }
+fn d() uses {} { () }
+fn e() uses { Db, Log, R } { () }
+fn apply(f: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { f(x) }
+fn make() -> (fn() -> () uses { Log }) uses { Db } { g }
+fn st() -> Int uses { State[Int] } { 1 }
+
+type Handler[E, R](run: fn(Request) -> Response fails E uses { R })
+
+trait Store {
+  fn load(self) -> Int fails NotFound uses { Db }
+  fn save(self) uses Db { () }
+}
+
+@external(js, "./x.mjs", "f")
+fn ext(f: fn() -> () uses { R }) -> Int uses {}
+
+# 名前としての uses．
+fn idents(uses: Int) -> Int {
+  uses = uses + 1
+  x = uses
+  uses
+}

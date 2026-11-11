@@ -96,7 +96,7 @@ handler WasmHost: Host {
 
 fn main() {
   with WasmHost {
-    (use Host).each(fn(_x) { () })
+    (use Host).each(|_x| ())
     (use Host).wait()
   }
 }

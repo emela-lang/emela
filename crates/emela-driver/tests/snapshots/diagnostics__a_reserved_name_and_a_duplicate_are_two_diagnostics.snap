@@ -1,0 +1,21 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: output
+---
+error[E0438]: `main` is exported twice for target `js`
+   ╭─[ main.emel:1:1 ]
+   │
+ 1 │ @export(js, "main")
+   │ ─────────┬─────────  
+   │          ╰─────────── 
+───╯
+
+error[E0438]: `main` is exported twice for target `js`
+   ╭─[ main.emel:4:1 ]
+   │
+ 4 │ @export(js, "main")
+   │ ─────────┬─────────  
+   │          ╰─────────── 
+───╯
+
+2 errors

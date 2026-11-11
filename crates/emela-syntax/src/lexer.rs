@@ -244,6 +244,7 @@ impl Lexer<'_> {
             range: range(start, end),
             code,
             message: message.into(),
+            help: None,
         });
     }
 }

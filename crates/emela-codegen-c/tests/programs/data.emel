@@ -1,6 +1,6 @@
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 enum Shape {
   Circle(radius: Float)
@@ -26,7 +26,7 @@ fn area(s: Shape) -> Float {
   s match {
     Circle(radius:) -> 3.0 * radius * radius
     Rect(w, h) -> w * h
-    Group(items) -> List.fold(items, from: 0.0, f: fn(acc, i) { acc + area(i) })
+    Group(items) -> List.fold(items, from: 0.0, f: |acc, i| acc + area(i))
     Empty -> 0.0
   }
 }
@@ -76,10 +76,10 @@ fn main() {
   print("#{to_list(t, [])}")
   print("#{insert(insert(Leaf, 2), 1)}")
   print("#{classify([])} #{classify([7])} #{classify([1, 2, 3, 4])} #{classify([3, 1])} #{classify([1, 5])}")
-  print("#{List.reverse(List.range(0, 5))} #{List.filter(List.range(0, 10), fn(x) { x % 2 == 0 })}")
-  print("#{List.zip([1, 2, 3], ["a", "b"])} #{List.partition([1, 2, 3, 4], fn(x) { x > 2 })}")
-  print("#{List.get([1, 2, 3], 1)} #{List.get([1, 2, 3], 5)} #{List.head(["x"])} #{List.find([1, 2, 3], fn(x) { x > 5 })}")
+  print("#{List.reverse(List.range(0, 5))} #{List.filter(List.range(0, 10), |x| x % 2 == 0)}")
+  print("#{List.zip([1, 2, 3], ["a", "b"])} #{List.partition([1, 2, 3, 4], |x| x > 2)}")
+  print("#{List.get([1, 2, 3], 1)} #{List.get([1, 2, 3], 5)} #{List.head(["x"])} #{List.find([1, 2, 3], |x| x > 5)}")
   print("#{[[1, 2], [3]] == [[1, 2], [3]]} #{[[1, 2], [3]] == [[1, 2], [4]]} #{(1, "a") == (1, "a")} #{[(1, 2.5)]}")
-  print("#{Some(Some(1))} #{Option.map(Some(2), fn(x) { x * 10 })} #{Option.or(None, 3)} #{[Some("s"), None]}")
-  print("#{List.flatten([[1], [], [2, 3]])} #{List.append([1], [2])} #{List.any([1, 2], fn(x) { x == 2 })} #{List.all([], fn(x) { x == 2 })}")
+  print("#{Some(Some(1))} #{Option.map(Some(2), |x| x * 10)} #{Option.or(None, 3)} #{[Some("s"), None]}")
+  print("#{List.flatten([[1], [], [2, 3]])} #{List.append([1], [2])} #{List.any([1, 2], |x| x == 2)} #{List.all([], |x| x == 2)}")
 }

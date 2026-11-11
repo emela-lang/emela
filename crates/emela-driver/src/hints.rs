@@ -26,7 +26,7 @@ pub struct InlayHint {
 pub enum HintKind {
     /// Types of bindings and parameters (`: Int`).
     Type,
-    /// E and R of calls (`fails NotFound use Logger`).
+    /// E and R of calls (`fails NotFound uses { Logger }`).
     Effect,
     /// Omitted annotations of fns (`-> Int fails NotFound`).
     Signature,
@@ -67,8 +67,8 @@ struct Hints<'a> {
 }
 
 impl Hints<'_> {
-    /// Omitted annotations of top-level fns: `-> T fails E use R` if the return type is omitted
-    /// (E and R only when not empty), or `use R` if only the use clause is omitted. Hidden sets
+    /// Omitted annotations of top-level fns: `-> T fails E uses { R }` if the return type is omitted
+    /// (E and R only when not empty), or `uses { R }` if only the uses clause is omitted. Hidden sets
     /// are shown as is (as in hover).
     fn signatures(&mut self, text: &str) {
         let hir = &self.program.hir;
@@ -106,7 +106,7 @@ impl Hints<'_> {
                 continue;
             };
             let uses = (item.sig.uses.is_none() && !fn_ty.uses.is_empty())
-                .then(|| format!("use {}", fn_ty.uses.display_effects(cons, params)));
+                .then(|| format!("uses {}", fn_ty.uses.display_uses(cons, params)));
             if item.sig.ret.is_none() {
                 let mut label = format!("-> {}", fn_ty.ret.display_with(cons, params));
                 if !fn_ty.fails.is_empty() {
@@ -232,7 +232,7 @@ impl Hints<'_> {
             parts.push(format!("fails {}", errors.display_with(cons, &params)));
         }
         if !effects.is_empty() {
-            parts.push(format!("use {}", effects.display_effects(cons, &params)));
+            parts.push(format!("uses {}", effects.display_uses(cons, &params)));
         }
         self.push(e.span.range.end(), parts.join(" "), HintKind::Effect);
     }

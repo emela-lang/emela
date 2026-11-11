@@ -9,13 +9,13 @@ fn nested_generic_error_payloads_have_finite_display_functions() {
     );
     let source = format!(
         r#"
-import Std.Fiber.{{Fiber, Success, Failure}}
+import Std.Exit.{{Success, Failure}}
 import Std.Cause.{{Cause}}
 {definition}
 error Boom(value: {ty}) derive Show
 fn bad() -> Int fails Boom {{fail Boom(value: {value})}}
 pub fn show() -> String {{
-  Fiber.attempt(bad) match {{Success(_) -> "unexpected"
+  Exit.attempt(bad) match {{Success(_) -> "unexpected"
     Failure(cause) -> Cause.to_string(cause)}}
 }}
 "#,

@@ -43,7 +43,7 @@ const VIA_INDIRECT = { f = sum
 const VALUE = { dbg("once")
  if True { VIA_INDIRECT + loop_sum(6, 0) - 21 } else { 0 } }
 const APPLY = { x = VALUE
- (fn(y: Int) { x + y }, ()) }
+ (|y: Int| x + y, ()) }
 pub fn read() -> Int { (apply, _) = APPLY
  apply(VALUE) }
 "#,
@@ -737,9 +737,9 @@ pub fn text() -> String { (identity, _) = IDENTITY
 fn source_polymorphic_consts_share_initialization_and_specialize_callable_families() {
     let source = r#"
 @external(c, "tick")
-fn tick() -> Int use {}
+fn tick() -> Int uses {}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 const EMPTY = { dbg("EMPTY")
  []
 }
@@ -747,19 +747,19 @@ const MISSING = { dbg("MISSING")
  None
 }
 const IDENTITY = { dbg("IDENTITY")
- (fn(value) { value }, ())
+ (|value| value, ())
 }
 const APPLY = { dbg("APPLY")
- (fn(callback) { callback() }, ())
+ (|callback| callback(), ())
 }
 const CHOICE = { dbg("CHOICE")
- if tick() == 1 { (fn(value) { mark(1)
- value }, ()) } else { (fn(value) { mark(2)
+ if tick() == 1 { (|value| { mark(1)
+ value }, ()) } else { (|value| { mark(2)
  value }, ()) }
 }
 const CAPTURE = { dbg("CAPTURE")
  text = Int.to_string(tick())
- (fn(value) { fn() { (value, text) } }, ())
+ (|value| || (value, text), ())
 }
 fn ints(xs: List[Int], o: Option[Int]) -> Int { List.length(xs) + (o match {Some(n)->n
  None->0}) }
@@ -770,13 +770,13 @@ pub fn integer() -> Int { (capture,_) = CAPTURE
  (apply,_) = APPLY
  (choice,_) = CHOICE
  (value,text)=capture(identity(20))()
- ints(EMPTY,MISSING) + value + apply(fn(){21}) + choice(1) + String.byte_size(text) - 1 }
+ ints(EMPTY,MISSING) + value + apply(|| 21) + choice(1) + String.byte_size(text) - 1 }
 pub fn text() -> Int { (capture,_) = CAPTURE
  (identity,_) = IDENTITY
  (apply,_) = APPLY
  (choice,_) = CHOICE
  (value,text)=capture(identity("42"))()
- texts(EMPTY,MISSING) + String.byte_size(value) + String.byte_size(apply(fn(){"42"})) + String.byte_size(choice("")) + String.byte_size(text) + 37 }
+ texts(EMPTY,MISSING) + String.byte_size(value) + String.byte_size(apply(|| "42")) + String.byte_size(choice("")) + String.byte_size(text) + 37 }
 "#;
     let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -893,7 +893,7 @@ fn polymorphic_const_opaque_handles_forward_one_pointer_abi_and_one_initializati
 @external
 type Handle[A]
 @external(c,"host_handle")
-fn handle[A]() -> Handle[A] use {}
+fn handle[A]() -> Handle[A] uses {}
 const HANDLE = handle()
 fn number(h: Handle[Int]) -> Int { 42 }
 fn text(h: Handle[String]) -> Int { 42 }
@@ -991,7 +991,7 @@ fn polymorphic_const_defects_have_one_source_context_and_self_reference_retries(
         let source = format!(
             r#"
 @external(c,"trigger")
-fn trigger() -> Int use {{}}
+fn trigger() -> Int uses {{}}
 const BROKEN = {{ dbg("once")
  if trigger() == 1 {{ {expression} }} else {{ [] }}
 }}

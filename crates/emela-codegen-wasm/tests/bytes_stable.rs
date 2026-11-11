@@ -36,7 +36,7 @@ const PROGRAMS: &[(&str, &str, usize, u64)] = &[
         "closures_and_strings",
         r#"
 fn adder(a: Int) -> fn(Int) -> Int {
-  fn(b: Int) { a + b }
+  |b: Int| a + b
 }
 fn main() {
   add2 = adder(2)
@@ -46,8 +46,8 @@ fn main() {
   dbg("ab" == "ab")
 }
 "#,
-        13522,
-        0xfb9b_cb52_4f4e_09b1,
+        13543,
+        0x074b_6751_88a1_0dcf,
     ),
     (
         "lists_enums_strings",
@@ -69,7 +69,7 @@ fn total(xs: List[Int], acc: Int) -> Int {
   }
 }
 fn adder(a: Int) -> fn(Int) -> Int {
-  fn(b: Int) { a + b }
+  |b: Int| a + b
 }
 fn main() {
   add = adder(1)
@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        23733,
-        0x25af_9524_8dd8_6a36,
+        23754,
+        0x5f56_5bdd_89c6_0fcf,
     ),
     (
         "floats",
@@ -96,8 +96,8 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        22794,
-        0x2ac0_4623_c0f4_6f13,
+        22815,
+        0x8596_683b_ca34_c064,
     ),
     (
         "platform_console",
@@ -111,8 +111,8 @@ fn main() {
   }
 }
 "#,
-        43156,
-        0x1e8c_0cd7_f945_b883,
+        43181,
+        0xa1ac_0f80_6b00_c9b1,
     ),
     (
         "state_and_options",
@@ -120,10 +120,10 @@ fn main() {
 import Std.State.{State}
 
 fn main() {
-  (_, final) = State.run([], fn() {
+  (_, final) = State.run([], || {
     st = use State[List[String]]
-    st.update(fn(xs) { List.append(xs, ["x"]) })
-    st.update(fn(xs) { List.append(xs, ["y"]) })
+    st.update(|xs| List.append(xs, ["x"]))
+    st.update(|xs| List.append(xs, ["y"]))
   })
   dbg(final)
   dbg(Int.parse("42"))
@@ -131,8 +131,8 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        15721,
-        0x716c_d0ae_9c64_1e8f,
+        15742,
+        0x08d9_4069_99b7_60ff,
     ),
     (
         "numeric",
@@ -158,8 +158,8 @@ fn main() {
   dbg(Float.from_int(7) % Float.from_int(2) > 0.5)
 }
 "#,
-        13809,
-        0x82a1_1af2_ac13_8a73,
+        13830,
+        0x92cb_bc27_a2fc_8d61,
     ),
 ];
 
@@ -178,8 +178,8 @@ pub fn fails_with_an_error() -> Int fails Nope { half(3) }
 pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
-    13607,
-    0x849b_83dd_96bb_8fd0,
+    13628,
+    0x838c_1610_4b74_dc35,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new

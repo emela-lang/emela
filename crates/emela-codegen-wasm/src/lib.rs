@@ -18,7 +18,7 @@
 //! starts `wasi:clocks/monotonic-clock.wait-for` as an asynchronous subtask and the scheduler waits
 //! on its waitable set only when it has no continuation left (`emit::runtime::async_bridge`);
 //! TestClock uses the same suspension without a host timer. Fibers, `Scope`, the fiber operations
-//! and `Deferred` run on the same scheduler (`emit::runtime::fiber`), and `Fiber.attempt` and
+//! and `Deferred` run on the same scheduler (`emit::runtime::fiber`), and `Exit.attempt` and
 //! `Std.Cause` run on the current fiber (`emit::runtime::attempt`). External functions outside the
 //! bundled `Std` hosts are the unsupported part of the target (spec `[target.wasm.external]`); a
 //! stalling run is unwound as interrupted (spec 14.5). The Unicode tables for grapheme clusters

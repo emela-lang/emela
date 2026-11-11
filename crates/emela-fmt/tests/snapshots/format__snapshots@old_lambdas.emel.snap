@@ -1,0 +1,32 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/old_lambdas.emel
+---
+# 前の形 fn(params) { body } は書き換える（E0148）
+fn old(xs: List[Int]) {
+  ys = xs |> List.map(|x| x + 1)
+  thunk = || fetch(1)
+  pairs = List.map(xs, |(a, b), _| a)
+  typed = |f: (fn() -> Int fails Timeout | Refused)| f()
+  one = |f: fn() -> Int fails Timeout| f()
+  called = (|x| x)(1)
+  field = (|| p).name
+  operand = (|| 1) == (|| 2)
+  matched = (|| 1) match {
+    _ -> 0
+  }
+  inner = |x| |y| x + y
+  block = |x| {
+    y = x + 1
+    y * 2
+  }
+  multi = || {
+    x
+  }
+  hugged = Fiber.scope(|| {
+    a = Fiber.fork(|| fetch(1))
+    Fiber.join(a)
+  })
+  last = |x| x
+}

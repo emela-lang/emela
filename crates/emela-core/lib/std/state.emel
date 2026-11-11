@@ -2,7 +2,7 @@
 # `State.run`; the values themselves stay immutable.
 #
 # Import it with `import Std.State.{State}`. Use it as `(use State[Int]).get()` and provide the
-# state with `State.run(0, fn() { ... })`.
+# state with `State.run(0, || ...)`.
 # To hold two states of the same type, wrap them in distinct types (`State[Hits]` and `State[Misses]`).
 #
 # `run` is a built-in handler provided by the runtime: the lowering writes it in place instead of
@@ -23,6 +23,6 @@ pub effect State[S] {
 ## the final state. `State[S]` is removed from the R of `body`, so the call looks pure from
 ## outside. If `body` fails, the state is dropped and only the error propagates.
 @intrinsic
-pub fn run[S, A, E, R](initial: S, body: fn() -> A fails E use { State[S], R }) -> (A, S)
+pub fn run[S, A, E, R](initial: S, body: fn() -> A fails E uses { State[S], R }) -> (A, S)
   fails E
-  use R
+  uses { R }

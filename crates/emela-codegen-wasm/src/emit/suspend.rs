@@ -65,7 +65,7 @@ pub(crate) struct Plan {
     pub(crate) after_prefix: u32,
     pub(crate) queue_full: u32,
     /// Whether the run unwinds as interrupted (`runtime::attempt`). Allocated only when the
-    /// program uses `Fiber.attempt` or `Std.Cause`, so other programs keep their bytes.
+    /// program uses `Exit.attempt` or `Std.Cause`, so other programs keep their bytes.
     pub(crate) unwinding: u32,
     /// The table index of `attempt_resume`, when some attempt's function may suspend.
     pub(crate) attempt_table: u32,

@@ -6,7 +6,7 @@ inferred: ∀ A. fn(Int) -> A fails NotFound | DbError
   n: Int
 load: fn(Int) -> User fails NotFound | DbError
   id: Int
-retry: ∀ A, E, R(f). fn(fn() -> A fails Timeout | E use R(f)) -> A fails Timeout | E use R(f)
-  f: fn() -> '0 fails Timeout | '1 use '2
+retry: ∀ A, E, R(f). fn(fn() -> A fails Timeout | E uses { R(f) }) -> A fails Timeout | E uses { R(f) }
+  f: fn() -> '0 fails Timeout | '1 uses { '2 }
 only_db: ∀ A. fn() -> A fails DbError | Timeout
 no_timeout: ∀ A. fn() -> A fails DbError | Timeout

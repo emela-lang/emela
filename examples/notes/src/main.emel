@@ -15,7 +15,7 @@ fn note(day: String, text: String) {
   fs.create_directory(DIR)
   path = Path.join(DIR, "#{day}.txt")
   fs.append_text(path, "#{text}\n")
-  String.split(fs.read_text(path), "\n") |> List.filter(fn(l) { l != "" }) |> List.length
+  String.split(fs.read_text(path), "\n") |> List.filter(|l| l != "") |> List.length
 }
 
 ## The text of `notes/<day>.txt`, or a message if there is none.
@@ -37,7 +37,7 @@ fn main() {
 
 @test
 fn notes_are_appended() {
-  (n, TestFiles(files:, ..)) = State.run(TestFiles(files: [], directories: []), fn() {
+  (n, TestFiles(files:, ..)) = State.run(TestFiles(files: [], directories: []), || {
     with TestFileSystem {
       note("monday", "a")
       note("monday", "b")
@@ -49,7 +49,7 @@ fn notes_are_appended() {
 
 @test
 fn missing_notes_are_reported() {
-  (text, _) = State.run(TestFiles(files: [], directories: []), fn() {
+  (text, _) = State.run(TestFiles(files: [], directories: []), || {
     with TestFileSystem { show("sunday") }
   })
   assert text == "no notes in notes/sunday.txt"

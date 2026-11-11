@@ -148,6 +148,7 @@ fn error(start: usize, end: usize, code: DiagnosticCode, message: impl Into<Stri
         range: range(start, end),
         code,
         message: message.into(),
+        help: None,
     }
 }
 

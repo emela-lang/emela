@@ -42,7 +42,7 @@ handler Waiting: Wait {
     if n == 0 { resume(value) } else { fail Boom(message: Int.to_string(value)) }
   }
 }
-pub fn caught(n: Int) -> Int use Async {
+pub fn caught(n: Int) -> Int uses { Async } {
   with Waiting {
     (use Wait).get(n) escape { Boom(message) -> String.byte_size(message) }
   }
@@ -210,13 +210,13 @@ handler Res: Resource {
 fn fail_batch(n: Int) -> Int fails Batch {
   fail Batch(items: [Int.to_string(n), "tail"])
 }
-fn failing(n: Int) -> Int fails Batch use Wait {
+fn failing(n: Int) -> Int fails Batch uses { Wait } {
   with Res {
     (use Wait).get(1)
     fail_batch(n)
   }
 }
-pub fn caught(n: Int, direct: Bool) -> Int use Async {
+pub fn caught(n: Int, direct: Bool) -> Int uses { Async } {
   with Waiting {
     { if direct {
       with Res {

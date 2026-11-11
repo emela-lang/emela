@@ -1,0 +1,157 @@
+import Std.Array.{Array}
+
+const PRIMES = Array.from_list([2, 3, 5, 7, 11])
+
+type Grid(width: Int, cells: Array[String])
+  derive Eq
+
+## Counts each byte value. `set` is the last use of `counts`, so it updates in place on WASM and C.
+fn histogram(bytes: List[Int], counts: Array[Int]) -> Array[Int] {
+  bytes match {
+    [] -> counts
+    [b, ..rest] -> {
+      n = Array.get(counts, b) |> Option.or(0)
+      histogram(rest, Array.set(counts, b, n + 1))
+    }
+  }
+}
+
+## `counts` is used again after `set`, so `set` copies.
+fn bump_twice(counts: Array[Int], b: Int) -> (Array[Int], Array[Int]) {
+  (Array.set(counts, b, 1), counts)
+}
+
+## Fills positions `i` and up with their squares, threading one array through `set`.
+fn squares(a: Array[Int], i: Int) -> Array[Int] {
+  if i >= Array.size(a) { a } else { squares(Array.set(a, i, i * i), i + 1) }
+}
+
+## The closure and the tuple still refer to `a`, so `set` must not change it.
+fn shared(a: Array[Int]) -> (Array[Int], Int, (Array[Int], Int)) {
+  f = || Array.get(a, 0) |> Option.or(-1)
+  t = (a, 1)
+  b = Array.set(a, 0, 99)
+  (b, f(), t)
+}
+
+fn no_ints() -> Array[Int] {
+  Array.empty()
+}
+
+fn no_arrays() -> List[Array[Int]] {
+  []
+}
+
+fn key(pair: (Int, String)) -> Int {
+  pair match {
+    (k, _) -> k
+  }
+}
+
+fn main() {
+  a = Array.from_list([30, 10, 20])
+  dbg(a)
+  dbg(Array.size(a))
+  dbg(Array.get(a, 0))
+  dbg(Array.get(a, 2))
+  dbg(Array.get(a, 3))
+  dbg(Array.get(a, -1))
+  dbg(Array.to_list(a))
+  dbg(Array.is_empty(a))
+  dbg(Array.is_empty(Array.empty()))
+  dbg(Array.size(no_ints()))
+  dbg(inspect(a))
+  dbg("interpolated: #{a}")
+
+  # set returns a new array; the one given to it is unchanged where it is still used
+  b = Array.set(a, 0, 31)
+  dbg(b)
+  dbg(a)
+  dbg(bump_twice(a, 2))
+  dbg(shared(Array.from_list([7, 8])))
+  dbg(squares(Array.repeat(0, 6), 0))
+  dbg(histogram([1, 3, 1, 0, 1, 3], Array.repeat(0, 4)))
+
+  # slice clamps both ends and is empty when `from` is not less than `to`
+  dbg(Array.slice(a, 1, 9))
+  dbg(Array.slice(a, -3, 2))
+  dbg(Array.slice(a, 2, 1))
+  dbg(Array.slice(a, 3, 3))
+  dbg(Array.slice(a, 5, 9))
+
+  # building
+  dbg(Array.repeat("x", 3))
+  dbg(Array.repeat("x", 0))
+  dbg(Array.repeat("x", -2))
+  dbg(Array.append(a, PRIMES))
+  dbg(Array.concat([PRIMES, Array.empty(), a]))
+  dbg(Array.concat(no_arrays()))
+  dbg(Array.reverse(PRIMES))
+  dbg(Array.reverse(no_ints()))
+
+  # map applies `f` from the first element
+  dbg(Array.map(PRIMES, |x| dbg(x) * 10))
+  dbg(Array.fold(PRIMES, 0, |acc, x| acc * 2 + x))
+  dbg(Array.fold(PRIMES, "", |acc, x| "#{acc}#{x},"))
+  dbg(Array.find_index(PRIMES, |x| x > 4))
+  dbg(Array.find_index(PRIMES, |x| x > 40))
+
+  # sorting is stable
+  pairs = Array.from_list([(2, "a"), (1, "b"), (2, "c"), (1, "d"), (0, "e")])
+  dbg(Array.sort_by(pairs, |x, y| key(x).compare(key(y))))
+  dbg(Array.sort(Array.from_list(["pear", "apple", "fig", "apple"])))
+  dbg(Array.sort(no_ints()))
+
+  # bisection
+  sorted = Array.from_list([1, 3, 3, 3, 5, 8])
+  dbg(Array.lower_bound(sorted, 3))
+  dbg(Array.lower_bound(sorted, 4))
+  dbg(Array.lower_bound(sorted, 0))
+  dbg(Array.lower_bound(sorted, 9))
+  dbg(Array.binary_search(sorted, 3))
+  dbg(Array.binary_search(sorted, 8))
+  dbg(Array.binary_search(sorted, 4))
+  dbg(Array.binary_search(sorted, 9))
+  dbg(Array.binary_search(no_ints(), 1))
+  # the result on an array that is not sorted is fixed by the bisection
+  dbg(Array.lower_bound(Array.from_list([9, 1, 8, 2, 7]), 5))
+  dbg(Array.binary_search(Array.from_list([9, 1, 8, 2, 7]), 9))
+
+  # Eq and Ord
+  dbg(a == Array.from_list([30, 10, 20]))
+  dbg(a == b)
+  dbg(a != Array.from_list([30, 10]))
+  dbg(Array.from_list([1, 2]) < Array.from_list([1, 2, 0]))
+  dbg(Array.from_list([1, 3]) > Array.from_list([1, 2, 9]))
+  dbg(Array.from_list([1, 2]).compare(Array.from_list([1, 2])))
+  dbg(no_ints() < Array.from_list([0]))
+  dbg([Array.from_list([2]), Array.from_list([1, 5]), Array.from_list([1])].sort())
+
+  # elements of every representation
+  dbg(Array.from_list([Int64.from_int(1), Int64.from_int(-2)]))
+  dbg(Array.from_list([1.5, -0.0]))
+  dbg(Array.from_list([True, False]))
+  dbg(Array.from_list([(), ()]))
+  dbg(Array.size(Array.from_list([(), (), ()])))
+  dbg(Array.from_list(["a\"b", "\n"]))
+  dbg(Array.from_list([Some(1), None]))
+  dbg(Array.from_list([[1, 2], []]))
+  nested = Array.from_list([Array.from_list([1]), Array.empty()])
+  dbg(nested)
+  dbg(Array.set(nested, 1, Array.from_list([2, 3])))
+  dbg([Array.from_list([1])])
+  dbg(Some(Array.from_list(["s"])))
+  fs = Array.from_list([|x: Int| x + 1, |x: Int| x * 2])
+  dbg(Array.fold(fs, 5, |acc, f| f(acc)))
+  # an array of a type without Show is shown in the same form by `dbg`
+  dbg(fs)
+  dbg((fs, [Array.from_list([Some(|| 1)])]))
+
+  # in a record with derived Eq and Show
+  grid = Grid(width: 2, cells: Array.repeat(".", 4))
+  painted = Grid(width: grid.width, cells: Array.set(grid.cells, 3, "#"))
+  dbg(painted)
+  dbg(grid == painted)
+  dbg(grid == Grid(width: 2, cells: Array.from_list([".", ".", ".", "."])))
+  dbg(PRIMES)
+}

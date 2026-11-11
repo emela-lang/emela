@@ -1,10 +1,10 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\ntype Box(log: Int)\n\nfn f() {\n  log = use Logger\n  xs = [log]\n  p = (log, 1)\n  s = Some(log)\n  pipe = log |> Some\n  id = fn(x) { x }\n  id(log)\n  log\n}\n\nfn g() {\n  log = use Logger\n  fn() { log }\n}\n\nfn h() {\n  log = use Logger\n  fn() { log.info(\"closure\") }\n}\n\"#)"
+expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\ntype Box(log: Int)\n\nfn f() {\n  log = use Logger\n  xs = [log]\n  p = (log, 1)\n  s = Some(log)\n  pipe = log |> Some\n  id = |x| x\n  id(log)\n  log\n}\n\nfn g() {\n  log = use Logger\n  || log\n}\n\nfn h() {\n  log = use Logger\n  || log.info(\"closure\")\n}\n\"#)"
 ---
-f: fn() -> use Logger use Logger
-g: fn() -> (fn() -> use Logger) use Logger
-h: fn() -> (fn() -> () use Logger) use Logger
+f: fn() -> use Logger uses { Logger }
+g: fn() -> (fn() -> use Logger) uses { Logger }
+h: fn() -> (fn() -> () uses { Logger }) uses { Logger }
 `log` CapabilityInData
 `log` CapabilityInData
 `log` CapabilityInData
@@ -13,11 +13,10 @@ h: fn() -> (fn() -> () use Logger) use Logger
 `log` CapabilityReturned
 `log` CapabilityReturned
 --- R
-{   log = use Logger   xs = [log]   p = (log, 1)   s = Some(log)   pipe = log |> Some   id = fn(x) { x }   id(log)   log }: Logger
+{   log = use Logger   xs = [log]   p = (log, 1)   s = Some(log)   pipe = log |> Some   id = |x| x   id(log)   log }: Logger
 use Logger: Logger
-{   log = use Logger   fn() { log } }: Logger
+{   log = use Logger   || log }: Logger
 use Logger: Logger
-{   log = use Logger   fn() { log.info("closure") } }: Logger
+{   log = use Logger   || log.info("closure") }: Logger
 use Logger: Logger
-{ log.info("closure") }: Logger
 log.info("closure"): Logger

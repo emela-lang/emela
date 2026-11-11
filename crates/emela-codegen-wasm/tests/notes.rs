@@ -141,7 +141,8 @@ fn a_suspending_program_without_fibers_displays_its_error() {
 #[test]
 fn a_failing_show_does_not_turn_notes_into_a_test_message() {
     let src = r#"
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 error Boom(text: String)
@@ -168,22 +169,24 @@ handler Res: Name {
   release { panic("second") }
 }
 
-fn spin(n: Int) -> () use { Tick } {
-  if n == 0 { () } else {
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
     (use Tick).tick()
     spin(n - 1)
   }
 }
 
-fn once() -> Exit[(), Boom] use { Async } {
+fn once() -> Exit[(), Boom] uses { Async } {
   with Ticks {
-    Fiber.attempt(fn() {
-      Fiber.scope(fn() {
-        Fiber.fork(fn() {
+    Exit.attempt(|| {
+      Fiber.scope(|| {
+        Fiber.fork(|| {
           spin(1000)
           fail Boom(text: "boom")
         })
-        Fiber.fork(fn() { with Res { spin(100000) } })
+        Fiber.fork(|| with Res { spin(100000) })
         spin(100000)
         ()
       })
@@ -192,7 +195,7 @@ fn once() -> Exit[(), Boom] use { Async } {
 }
 
 @test
-fn failing_show() -> () fails Boom use { Async } {
+fn failing_show() -> () fails Boom uses { Async } {
   once() match {
     Success(_) -> ()
     Failure(c) -> Cause.raise(c)

@@ -163,7 +163,7 @@ fn type_errors() {
     let mut sources = SourceDb::new();
     let file = sources.add(
         "src/main.emel",
-        "let a: Int = \"s\"\nlet b = [1] == [\"s\"]\nlet f = fn(x) { x(x) }\n",
+        "let a: Int = \"s\"\nlet b = [1] == [\"s\"]\nlet f = |x| x(x)\n",
     );
     let span = |start: u32, end: u32| Span::new(file, TextRange::new(start.into(), end.into()));
     let cons = TyCons::new();
@@ -183,7 +183,7 @@ fn type_errors() {
     let diagnostics = vec![
         Diagnostic::from_type_error(&top, &cons, span(13, 16)),
         Diagnostic::from_type_error(&nested, &cons, span(25, 36)),
-        Diagnostic::from_type_error(&infinite, &cons, span(56, 60)),
+        Diagnostic::from_type_error(&infinite, &cons, span(50, 54)),
     ];
     insta::assert_snapshot!(render(&diagnostics, &sources, false));
 }
@@ -430,7 +430,7 @@ fn bundled_core_resolves_cleanly() {
     let analysis = check_files(
         &[(
             "home/main.emel",
-            "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x + 1 })\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
+            "fn main() -> Int {\n  xs = List.map([1, 2], |x| x + 1)\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
         )],
         "home/main.emel",
         &mut frontend,
@@ -444,7 +444,7 @@ fn bundled_core_typechecks_cleanly() {
     let analysis = check_files(
         &[(
             "home/main.emel",
-            "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x + 1 })\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
+            "fn main() -> Int {\n  xs = List.map([1, 2], |x| x + 1)\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
         )],
         "home/main.emel",
         &mut frontend,
@@ -494,6 +494,37 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// The diagnostics of an escape arm `_` and of a variable arm (E0320, W0301, W0302,
+/// `[error.escape]`).
+#[test]
+fn escape_wildcard_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"error Boom
+
+fn steady() -> Int { 1 }
+fn boom() -> Int fails Boom { fail Boom }
+
+fn main() {
+  a = steady() escape { _ -> 0 }
+  b = boom() escape {
+    _ -> 0
+    Boom -> 1
+  }
+  c = boom() escape { _ if a > 0 -> 0 }
+  d = boom() escape { e -> 0 }
+  dbg((a, b, c, d))
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// The messages of effect diagnostics (E04xx). The driver also passes main and test functions to
 /// inference to check that their R is empty (spec 8.3, 13.3).
 #[test]
@@ -530,14 +561,14 @@ handler Ticking: Clock {
 @external(js, "console.log")
 fn console_log(text: String) -> ()
 
-fn only(f: fn() -> () use {}) -> () use {} {
+fn only(f: fn() -> () uses {}) -> () uses {} {
   (use Logger).infoo("x")
   f()
 }
 
 fn misuse() {
   log = use Logger
-  only(fn() { log.info("x") })
+  only(|| log.info("x"))
   console_log("x")
   xs = [log]
   Some(log)
@@ -552,6 +583,73 @@ fn main() {
 @test
 fn logs() {
   (use Logger).info("t")
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// The diagnostics about the uses clause (`[grammar.decl]`, `[diag.list]`): the old clause
+/// (E0147) in a signature, in a function type, on its own line and on an effect operation, read
+/// on as a uses clause; and the sets of E0402, E0403, E0407 and E0423 shown in the canonical
+/// form `uses { ... }`.
+#[test]
+fn uses_clause_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect Db {
+  fn get() -> Int use Logger
+}
+
+effect State[S] {
+  fn get() -> S
+}
+
+fn old() -> Int use Db {
+  (use Db).get()
+}
+
+fn own_line() -> Int
+  use { Db, Logger } {
+  (use Db).get()
+}
+
+fn old_type(f: fn() -> () use {}) -> () uses {} {
+  f()
+}
+
+fn undeclared() -> () uses {} {
+  (use Logger).info("x")
+}
+
+fn two() -> () uses {} {
+  (use Logger).info("x")
+  (use Db).get()
+  ()
+}
+
+fn mismatch() {
+  old_type(|| (use Logger).info("x"))
+}
+
+fn untyped() -> Int uses State {
+  1
+}
+
+@external(js, "console.log")
+fn console_log(text: String) -> ()
+
+fn outside() {
+  console_log("x")
 }
 "#,
         )],
@@ -582,7 +680,7 @@ suspend fn fetch_text(url: String) -> String
 
 handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
-    set_timeout(ms, fn() { resume(()) })
+    set_timeout(ms, || resume(()))
   }
   suspend fn now(resume) { resume(0) }
 }
@@ -602,24 +700,24 @@ effect Ticks {
   fn tick() -> Int
 }
 
-fn stamp() -> Int use { Clock } { (use Clock).now() }
+fn stamp() -> Int uses { Clock } { (use Clock).now() }
 
 handler Stamped: Ticks {
   fn tick() { stamp() + (use Clock).now() }
 }
 
-fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
+fn update[A, R: Immediate](x: A, f: fn(A) -> A uses { R }) -> A uses { R } { f(x) }
 
 fn not_effect[A: Immediate](x: A) -> A { x }
 
-type Handler[E, R](run: fn() -> () fails E use R)
+type Handler[E, R](run: fn() -> () fails E uses { R })
 
 fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
 
 fn misuse(g: fn(Int) -> Int) {
   use Async
   fetch_text("x")
-  update(1, fn(n) {
+  update(1, |n| {
     (use Clock).sleep(n)
     n
   })
@@ -742,7 +840,7 @@ handler Empty: Cell[String] {
   fn get() { "" }
 }
 
-fn leftover() -> Int use {} {
+fn leftover() -> Int uses {} {
   with Zero {
     (use Cell[String]).get()
     (use Cell[Int]).get()
@@ -846,6 +944,168 @@ fn export_diagnostics(files: &[(&str, &str)]) -> String {
     render(&analysis.diagnostics, &analysis.sources, false)
 }
 
+/// A JS host export may not take a name that `main.mjs` already exports (`[target.js.module]`):
+/// `main` when the entry has it, and `$start` when the launcher or a host export may suspend.
+/// They are duplicates of those exports (E0438).
+#[test]
+fn reserved_js_host_names_are_diagnosed() {
+    insta::assert_snapshot!(export_diagnostics(&[(
+        "home/main.emel",
+        r#"@export(js, "main")
+fn a() -> Int { 1 }
+
+@export(js, "$start")
+fn b() -> Int { 1 }
+
+fn main() uses { Async } { () }
+"#,
+    )]));
+}
+
+/// Without `main` and without a suspending export, the launcher's names are free.
+#[test]
+fn launcher_names_are_free_without_main_or_suspension() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(js, "main")
+fn a() -> Int { 1 }
+
+@export(js, "$start")
+fn b() -> Int { 1 }
+"#,
+        )]),
+        ""
+    );
+}
+
+/// A build does not emit test functions, so a suspending test does not make the launcher export
+/// `$start`.
+#[test]
+fn a_suspending_test_does_not_reserve_the_launcher_names() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(js, "main")
+fn a() -> Int { 1 }
+
+@export(js, "$start")
+fn b() -> Int { 1 }
+
+@test
+fn t() uses { Async } { () }
+"#,
+        )]),
+        ""
+    );
+}
+
+/// `$start` is emitted when a `js` host export may suspend; a suspending export of another target
+/// does not make the launcher export it.
+#[test]
+fn only_suspending_js_exports_reserve_start() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(wasm, "env", "late")
+@export(c, "late")
+fn late() uses { Async } { () }
+
+@export(js, "$start")
+fn start() -> Int { 1 }
+"#,
+        )]),
+        ""
+    );
+}
+
+/// A `js` host export that may suspend makes the launcher export `$start`, so that name is
+/// reserved even without a suspending `main`.
+#[test]
+fn a_suspending_js_export_reserves_start() {
+    let output = export_diagnostics(&[(
+        "home/main.emel",
+        r#"@export(js, "slow")
+fn slow() uses { Async } { () }
+
+@export(js, "$start")
+fn start() -> Int { 1 }
+"#,
+    )]);
+    assert_eq!(output.matches("error[E0438]").count(), 1, "{output}");
+    insta::assert_snapshot!(output);
+}
+
+/// The three-argument form is a property of the default export object, not a named export, so
+/// `$start` is free there.
+#[test]
+fn a_default_export_property_may_be_named_start() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(js, "slow")
+fn slow() uses { Async } { () }
+
+@export(js, "default", "$start")
+fn value() -> Int { 1 }
+"#,
+        )]),
+        ""
+    );
+}
+
+/// A `@test fn main` is not the entry's main, so `main` is not a launcher export of the build.
+#[test]
+fn a_test_named_main_does_not_reserve_the_name() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(js, "main")
+fn a() -> Int { 1 }
+
+@test
+fn main() {}
+"#,
+        )]),
+        ""
+    );
+}
+
+/// A reserved name and a duplicate are reported once each: the first export collides with the
+/// launcher's `main`, and the second is a duplicate of the first (E0438).
+#[test]
+fn a_reserved_name_and_a_duplicate_are_two_diagnostics() {
+    let output = export_diagnostics(&[(
+        "home/main.emel",
+        r#"@export(js, "main")
+fn a() -> Int { 1 }
+
+@export(js, "main")
+fn b() -> Int { 1 }
+
+fn main() {}
+"#,
+    )]);
+    assert_eq!(output.matches("error[E0438]").count(), 2, "{output}");
+    insta::assert_snapshot!(output);
+}
+
+/// An export made by `@entry` is reported at the `@entry`, not at the adapter's `@export`.
+#[test]
+fn a_reserved_name_from_entry_is_reported_once_at_the_attribute() {
+    insta::assert_snapshot!(export_diagnostics(&[(
+        "home/main.emel",
+        r#"@export(js, "main")
+fn serve(app: fn(Int) -> Int fails {} uses {}) -> Int { app(1) }
+
+@entry(serve)
+fn app(n: Int) -> Int { n }
+
+fn main() {}
+"#,
+    )]));
+}
+
 /// `[ext.export]`: the parameters and the return value are boundary types (E0436), E is empty and
 /// R is empty except for Async (E0402).
 #[test]
@@ -862,7 +1122,7 @@ effect Log {
 error Oops
 
 @export(js, "ok")
-pub fn ok(a: Int, b: Int64, c: Float, d: Bool, e: String, f: (), g: Conn, h: fn(Int) -> String fails {} use {}) -> () {}
+pub fn ok(a: Int, b: Int64, c: Float, d: Bool, e: String, f: (), g: Conn, h: fn(Int) -> String fails {} uses {}) -> () {}
 
 @export(js, "callback")
 pub fn callback(h: fn(Int) -> String) -> String { h(1) }
@@ -904,14 +1164,14 @@ fn wait(ms: Int) -> () {
 }
 
 @export(c, "apply")
-fn apply(x: Int, f: fn(Int) -> Int fails {} use {}) -> Int { f(x) }
+fn apply(x: Int, f: fn(Int) -> Int fails {} uses {}) -> Int { f(x) }
 
 @export(wasm, "env", "add")
 @export(js, "add")
 fn add(a: Int, b: Int) -> Int { a + b }
 
 @export(wasm, "wasi:http/handler@0.3.0", "handle")
-fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }
 
 @entry(serve)
 fn app(x: Int) -> Int { x }
@@ -982,7 +1242,7 @@ fn main() {}
         (
             "own/http.emel",
             r#"@export(c, "serve")
-pub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+pub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }
 "#,
         ),
     ];
@@ -1035,7 +1295,7 @@ fn main() {}
         (
             "home/util.emel",
             r#"@export(js, "default", "fetch")
-pub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }
+pub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }
 
 @export(js, "helper")
 pub fn helper(x: Int) -> Int { x }
@@ -1061,19 +1321,19 @@ fn entry_fits_the_adapter() {
 error Oops
 
 @export(js, "default", "one")
-fn one(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+fn one(app: fn(String) -> String fails {} uses {}, s: String) -> String { app(s) }
 
 @export(js, "default", "two")
-fn two(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+fn two(app: fn(String) -> String fails {} uses {}, s: String) -> String { app(s) }
 
 @export(js, "default", "three")
-fn three(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+fn three(app: fn(String) -> String fails {} uses {}, s: String) -> String { app(s) }
 
 @export(js, "default", "open")
 fn open(app: fn(String) -> String, s: String) -> String { app(s) }
 
 @export(js, "default", "four")
-fn four(app: fn(String) -> String fails {} use {}, s: String) -> String { app(s) }
+fn four(app: fn(String) -> String fails {} uses {}, s: String) -> String { app(s) }
 
 @entry(one)
 fn fits(s: String) -> String { s }
@@ -1405,7 +1665,7 @@ fn no_fields(n: Int) -> Int {
 }
 
 fn unknown() -> Int {
-  f = fn(x) { x.area() }
+  f = |x| x.area()
   0
 }
 
@@ -1525,5 +1785,120 @@ fn main() {
         ),
     ];
     let analysis = check_files(&files, "app", &mut Typecheck::default());
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// `[api.std.array]`, compatibility: `Array` is reached only through `import Std.Array`, so a
+/// module `array.emel` and a user type named `Array` keep working. Outside `Std.Array`, an Array
+/// is made only by its functions: it has no constructor to call or match.
+#[test]
+fn array_names_stay_free() {
+    let files = [
+        ("app/Pome.toml", ""),
+        (
+            "app/src/array.emel",
+            "pub type Array(n: Int)\n\npub fn count(a: Array) -> Int { a.n }\n",
+        ),
+        (
+            "app/src/main.emel",
+            "import Array\n\nfn main() {\n  dbg(Array.count(Array.Array(n: 1)))\n}\n",
+        ),
+    ];
+    let analysis = check_files(&files, "app", &mut Typecheck::default());
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+
+    let files = [
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            r#"import Std.Array.{Array}
+
+fn size(a: Array[Int]) -> Int {
+  a match {
+    Array() -> 0
+  }
+}
+
+fn main() {
+  dbg(Array())
+}
+"#,
+        ),
+    ];
+    let analysis = check_files(&files, "app", &mut Typecheck::default());
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// `[ext.boundary]`: `Array[A]` is a boundary type when `A` is a boundary type other than a
+/// function type, nested arrays and Bytes included. An array of functions, or of a type that is not
+/// a boundary type, is not one (E0436 for an exported fn).
+#[test]
+fn array_boundary_types() {
+    insta::assert_snapshot!(export_diagnostics(&[(
+        "home/main.emel",
+        r#"import Std.Array.{Array}
+import Std.Bytes.{Bytes}
+
+@external
+type Conn
+
+@export(js, "ok")
+pub fn ok(a: Array[Int], b: Array[Array[String]], c: Array[Bytes], d: Array[Conn], e: Array[()]) -> Array[Float] { Array.empty() }
+
+@export(js, "callbacks")
+pub fn callbacks(fs: Array[fn(Int) -> Int fails {} uses {}]) -> Int { 0 }
+
+@export(js, "lists")
+pub fn lists() -> Array[List[Int]] { Array.empty() }
+
+@export(js, "deep")
+pub fn deep(a: Array[Array[Option[Int]]]) -> Int { 0 }
+
+fn main() {}
+"#,
+    )]));
+}
+
+/// The old form of an anonymous function (E0148) shows its rewrite; an anonymous function before
+/// the last statement of a block is E0149; a line that starts with `||` gets a help on E0149 and
+/// on E0301 (`[fn.decl]`, `[fn.block]`, `[diag.list]`).
+#[test]
+fn closure_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"fn old(xs: List[Int]) -> List[Int] {
+  ys = List.map(xs, fn(x) { x + 1 })
+  List.map(ys, fn(y) {
+    z = y * 2
+    z
+  })
+}
+
+fn unused() -> Int {
+  |x| x
+  1
+}
+
+fn continued(a: Bool, b: Bool) -> Bool {
+  x = a
+  || b
+  x
+}
+
+fn last(a: Bool, b: Bool) -> Bool {
+  x = a
+  || b
+}
+
+fn main() -> Int {
+  0
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }

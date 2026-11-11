@@ -233,7 +233,7 @@ fn calls(xs: List[Int], scores: Map[String, Int]) {
   total = xs
     |> List.filter(is_even)
     |> List.fold(from: 0, f: add)
-  doubled = List.map(xs, fn(x) { x * 2 })
+  doubled = List.map(xs, |x| x * 2)
   "#{label}: #{total}"
 }
 
@@ -400,7 +400,7 @@ pub effect Clock {
   fn now() -> Time.Instant
 }
 
-fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R {
+fn update[A, R: Immediate](x: A, f: fn(A) -> A uses { R }) -> A uses { R } {
   f(x)
 }
 "##,
@@ -463,8 +463,8 @@ error NotFound(id: Int)
 fn f(count: Int) -> Strng {
   x = cout + 1
   y = Usr(id: 1)
-  z = Lisst.map([], fn(a) { a })
-  w = List.mapp([], fn(a) { a })
+  z = Lisst.map([], |a| a)
+  w = List.mapp([], |a| a)
   v = Show.shw(1)
   u = Undefined
   x match {
@@ -473,7 +473,28 @@ fn f(count: Int) -> Strng {
   }
 }
 
-fn g[A](a: B) -> A fails NotFonud use Loger { a }
+fn g[A](a: B) -> A fails NotFonud uses { Loger } { a }
+"##,
+    )]));
+}
+
+/// The top-level pattern of an escape arm is limited to errors (E0217); `_` and a variable pass
+/// name resolution (`[module.resolution]`), and only the constructor that is not an error is
+/// reported.
+#[test]
+fn escape_arm_patterns() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"type User(id: Int)
+error NotFound(id: Int)
+
+fn f() -> Int fails NotFound { fail NotFound(id: 1) }
+
+fn g() {
+  a = f() escape { _ -> 0 }
+  b = f() escape { e -> 0 }
+  c = f() escape { User(_) -> 0 }
+}
 "##,
     )]));
 }
@@ -485,7 +506,7 @@ fn lambda_param_patterns() {
     insta::assert_snapshot!(run(&[(
         "main.emel",
         r##"fn f(xs: List[(Int, Int)]) -> Int {
-  List.fold(xs, from: 0, f: fn(acc, (a, _): (Int, Int)) { acc + a })
+  List.fold(xs, from: 0, f: |acc, (a, _): (Int, Int)| acc + a)
 }
 "##,
     )]));
@@ -497,9 +518,9 @@ fn lambda_param_duplicates() {
     insta::assert_snapshot!(diagnostics(&[(
         "main.emel",
         r##"fn f() {
-  g = fn(x, x) { x }
-  h = fn(x, (x, y)) { y }
-  k = fn((a, b), [a, ..]) { b }
+  g = |x, x| x
+  h = |x, (x, y)| y
+  k = |(a, b), [a, ..]| b
 }
 "##,
     )]));
@@ -613,7 +634,7 @@ handler Console: User {
 }
 layer App { Logger, Console }
 
-fn f(x: Logger) -> Int fails User use Console {
+fn f(x: Logger) -> Int fails User uses { Console } {
   log = use User
   with Logger { 1 }
   fail Empty
@@ -803,6 +824,24 @@ pub opaque type Raw
 
 @intrinsic
 pub type Cooked(n: Int)
+"##,
+        )],
+    ));
+}
+
+/// `[kw.annotation]`, `[api.std.array]`: a built-in type of the bundled sources may take type
+/// parameters (`Array[A]`).
+#[test]
+fn intrinsic_types_with_parameters_in_core() {
+    insta::assert_snapshot!(run_with_core(
+        &[(
+            "main.emel",
+            "fn first(s: Seq.Seq[Int]) -> Seq.Seq[Int] { s }\n",
+        )],
+        &[(
+            "seq.emel",
+            r##"@intrinsic
+pub opaque type Seq[A]
 "##,
         )],
     ));

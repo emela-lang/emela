@@ -78,7 +78,7 @@ fn clock_sleep_notifies_then_resumes_through_the_main_scheduler() {
 import Std.Clock.{Clock}
 import Std.Embedded.Board.{BoardClock}
 
-pub fn wait_then_return(ms: Int) -> Int use Async {
+pub fn wait_then_return(ms: Int) -> Int uses { Async } {
   with BoardClock {
     (use Clock).sleep(ms)
     42

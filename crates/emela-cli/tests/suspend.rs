@@ -86,7 +86,7 @@ fn after(ms: Int, f: fn() -> ()) -> ()
 
 handler JsClock: Clock {
   suspend fn sleep(ms, resume) {
-    after(ms, fn() { resume(ms) })
+    after(ms, || resume(ms))
   }
 }
 
@@ -101,9 +101,9 @@ fn clocks_resume_later_and_in_place() {
     // suspending copy when given a suspending lambda, and the original otherwise.
     let project = Project::new(
         "clocks",
-        r#"fn total(xs: List[Int]) -> Int use Clock {
+        r#"fn total(xs: List[Int]) -> Int uses { Clock } {
   clock = use Clock
-  List.fold(List.map(xs, fn(ms) { clock.sleep(ms) }), 0, fn(a, b) { a + b })
+  List.fold(List.map(xs, |ms| clock.sleep(ms)), 0, |a, b| a + b)
 }
 
 fn main() {
@@ -118,7 +118,7 @@ fn main() {
     with InstantClock {
       console.print_line("instant #{total([5, 5])}")
     }
-    console.print_line("doubled #{List.map([1, 2], fn(n) { n * 2 })}")
+    console.print_line("doubled #{List.map([1, 2], |n| n * 2)}")
   }
 }
 "#,
@@ -244,7 +244,7 @@ fn fn_op_calls_outer_fn_op() {
 
 handler JsTimer: Timer {
   suspend fn wait(ms, resume) {
-    after(ms, fn() { resume(ms) })
+    after(ms, || resume(ms))
   }
   fn now() { 42 }
 }

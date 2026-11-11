@@ -232,6 +232,41 @@ The value layer (`[lib.layers]`). An immutable sequence of bytes. Each byte is a
 
 impl: `impl Bytes: Eq`, `impl Bytes: Ord`, `impl Bytes: Show`. Two Bytes are equal when they have the same bytes in the same order. Ord is lexicographic on the bytes as unsigned values (if the common prefix is equal, the shorter one is smaller). Show is the source form `Bytes.hex("89504e47")`, with the digits of `to_hex`, so the output can be pasted back as an expression. A Bytes inside another value is displayed the same way (`[Bytes.hex("00")]`).
 
+### Std.Array (`std/array.emel`) `[api.std.array]`
+
+The value layer (`[lib.layers]`). An immutable sequence of fixed length, read by position. Positions are 0-based.
+
+| Declaration | Signature | Implementation | Description |
+|---|---|---|---|
+| `Array` | `opaque type Array[A]` | intrinsic | A sequence of values of type `A` |
+| `empty` | `empty[A]() -> Array[A]` | Emela | The array of no elements |
+| `from_list` | `from_list[A](xs: List[A]) -> Array[A]` | intrinsic | The elements in the order of `xs` |
+| `to_list` | `to_list[A](a: Array[A]) -> List[A]` | intrinsic | The elements in order |
+| `repeat` | `repeat[A](value: A, count: Int) -> Array[A]` | Emela | `count` copies of `value`. Empty if `count` is not positive |
+| `size` | `size[A](a: Array[A]) -> Int` | intrinsic | The number of elements |
+| `is_empty` | `is_empty[A](a: Array[A]) -> Bool` | Emela | Whether there are no elements |
+| `get` | `get[A](a: Array[A], index: Int) -> Option[A]` | intrinsic | The element at `index`. `None` if out of range or negative |
+| `set` | `set[A](a: Array[A], index: Int, value: A) -> Array[A]` | intrinsic | The elements of `a` with the one at `index` replaced by `value`. A defect if `index` is out of range or negative |
+| `slice` | `slice[A](a: Array[A], from: Int, to: Int) -> Array[A]` | intrinsic | The elements from `from` inclusive to `to` exclusive. Both are clamped to 0 to `size(a)`; empty if `from` is not less than `to` |
+| `append` | `append[A](a: Array[A], b: Array[A]) -> Array[A]` | Emela | The elements of `a`, then those of `b` |
+| `concat` | `concat[A](parts: List[Array[A]]) -> Array[A]` | intrinsic | The elements of all of them in order |
+| `reverse` | `reverse[A](a: Array[A]) -> Array[A]` | Emela | The elements in reverse order |
+| `map` | `map[A, B](a: Array[A], f: fn(A) -> B) -> Array[B]` | Emela | Applies `f` to each element, from the first |
+| `fold` | `fold[A, B](a: Array[A], from: B, f: fn(B, A) -> B) -> B` | Emela | Folds from the first element |
+| `find_index` | `find_index[A](a: Array[A], f: fn(A) -> Bool) -> Option[Int]` | Emela | The position of the first element that gives True |
+| `sort_by` | `sort_by[A](a: Array[A], f: fn(A, A) -> Ordering) -> Array[A]` | Emela | Sorts in the order of `f`. Stable, with the same result as `List.sort_by` |
+| `sort` | `sort[A: Ord](a: Array[A]) -> Array[A]` | Emela | Sorts in the Ord order (`sort_by(a, Ord.compare)`). Stable |
+| `lower_bound` | `lower_bound[A: Ord](a: Array[A], value: A) -> Int` | Emela | In an array sorted in the Ord order, the smallest position whose element is not less than `value`: the position where `value` would be inserted to keep the order. `size(a)` if every element is less |
+| `binary_search` | `binary_search[A: Ord](a: Array[A], value: A) -> Option[Int]` | Emela | In an array sorted in the Ord order, the smallest position whose element is equal to `value`. `None` if there is none |
+
+- The defect message of `set` is ``Array.set was given position <index> in an array of size <size>``.
+- `lower_bound` bisects as follows, so its result is the same on every target even when `a` is not sorted. Start with `low = 0` and `high = size(a)`. While `low < high`, let `mid = (low + high) / 2`; if the element at `mid` is less than `value`, set `low = mid + 1`, otherwise set `high = mid`. The result is `low`. It compares O(log n) times.
+- `binary_search(a, value)` is `Some(i)` where `i = lower_bound(a, value)`, if `i < size(a)` and the element at `i` is equal to `value`, and `None` otherwise.
+- `size`, `get` and `is_empty` are O(1). `set` is O(n), where n is `size(a)`, except as below. `slice` is O(`to - from`) or less. `append`, `concat`, `repeat`, `from_list`, `to_list`, `reverse`, `map`, `fold` and `find_index` are O(n) in the number of elements of the result or of the argument, and `sort` and `sort_by` are O(n log n).
+- On the WASM and C targets, `set` MUST be O(1) when the argument `a` is a variable (a parameter or a local binding) that is not used after the call on any path, and no other variable or value that is still in use refers to the same array (a closure that captured it, a tuple, a record or a list that holds it, the state of State, or another variable bound to it). In other cases, a target MAY still update in place when it can determine that the array is not shared. The JS target always copies. The result is the same in every case.
+
+impl: `impl Array[A: Eq]: Eq`, `impl Array[A: Ord]: Ord`, `impl Array[A: Show]: Show`. Two arrays are equal when they have equal elements in the same order. Ord is lexicographic (if the common prefix is equal, the shorter one is smaller). Show is the source form `Array.from_list([1, 2, 3])`, so the output can be pasted back as an expression. Values inside are displayed as in `[trait.builtin]` (a String in `"`). An array inside another value is displayed the same way (`[Array.from_list([1])]`).
+
 ### Std.Map (`std/map.emel`) `[api.std.map]`
 
 A mapping from keys to values. Immutable and ordered by key (the Ord order) (`[lib.layers]`, `[open.list]` #36). An opaque type whose contents are a weight-balanced tree.
@@ -281,19 +316,19 @@ The mutable state of `[effect.state]`. `run` is a handler provided by the runtim
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
 | `State` | `effect State[S] { fn get() -> S; fn set(value: S) -> (); fn update(f: fn(S) -> S) -> () }` | Emela | Reads and writes a state of type `S` |
-| `run` | `run[S, A, E, R](initial: S, body: fn() -> A fails E use { State[S], R }) -> (A, S) fails E use R` | runtime | Runs `body` with a state whose initial value is `initial`, and returns the value and the final state. On failure, the state is discarded |
+| `run` | `run[S, A, E, R](initial: S, body: fn() -> A fails E uses { State[S], R }) -> (A, S) fails E uses { R }` | runtime | Runs `body` with a state whose initial value is `initial`, and returns the value and the final state. On failure, the state is discarded |
 
 ```emel
 import Std.State.{State}
 
-fn count() -> Int use { State[Int] } {
+fn count() -> Int uses { State[Int] } {
   st = use State[Int]
-  st.update(fn(n) { n + 1 })
+  st.update(|n| n + 1)
   st.get()
 }
 
 fn main() {
-  (n, last) = State.run(0, fn() { count() })
+  (n, last) = State.run(0, || count())
 }
 ```
 
@@ -353,23 +388,30 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
 | `Fiber` | `@external type Fiber[A]` | runtime | A handle to a fiber. Cannot be leaked out of the scope (`[fiber.escape]`) |
-| `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | How a fiber ended |
-| `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E use R) -> Fiber[A]; fn deferred[A]() -> Deferred[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
-| `scope` | `scope[A, E, R](body: fn() -> A fails E use { Scope[E, R], Async, R }) -> A fails E use { Async, R }` | intrinsic | Runs the body and returns the value after all children have finished. Children use the handlers in effect where `scope` was called |
-| `fork` | `fork[A, E, R](f: fn() -> A fails E use R) -> Fiber[A] use Scope[E, R]` | Emela | `(use Scope).fork(f)` |
-| `deferred` | `deferred[A, E, R]() -> Deferred[A] use Scope[E, R]` | Emela | `(use Scope).deferred()` |
-| `join` | `join[A](fiber: Fiber[A]) -> A use Async` | intrinsic | Waits for the child to finish and returns its value. A defect if the child was interrupted |
-| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] use Async` | intrinsic | Waits for the child to finish and returns how it ended |
-| `interrupt` | `interrupt[A](fiber: Fiber[A]) -> () use Async` | intrinsic | Interrupts the child and waits until its unwinding finishes |
-| `attempt` | `attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R` | intrinsic | Runs `f` in place and turns Fail and Die into values. Does not catch an interruption of the calling fiber itself |
-| `all` | `all[A, E, R](fs: List[fn() -> A fails E use R]) -> List[A] fails E use { Async, R }` | Emela | Runs all of them concurrently and collects the results in the original order |
-| `race` | `race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async, R }` | Emela | Takes the first one to finish and interrupts the rest |
-| `both` | `both[A, B, E, R](f: fn() -> A fails E use R, g: fn() -> B fails E use R) -> (A, B) fails E use { Async, R }` | Emela | Runs the two concurrently and returns a pair |
-| `map` | `map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E use R) -> List[B] fails E use { Async, R }` | Emela | Applies `f` to each element concurrently |
-| `timeout` | `timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A] fails E use { Clock, Async, R }` | Emela | Waits up to `ms` milliseconds. If `f` does not finish in time, interrupts it and returns `None` |
+| `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]; fn deferred[A]() -> Deferred[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
+| `scope` | `scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) -> A fails E uses { Async, R }` | intrinsic | Runs the body and returns the value after all children have finished. Children use the handlers in effect where `scope` was called |
+| `fork` | `fork[A, E, R](f: fn() -> A fails E uses { R }) -> Fiber[A] uses { Scope[E, R] }` | Emela | `(use Scope).fork(f)` |
+| `deferred` | `deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] }` | Emela | `(use Scope).deferred()` |
+| `join` | `join[A](fiber: Fiber[A]) -> A uses { Async }` | intrinsic | Waits for the child to finish and returns its value. A defect if the child was interrupted |
+| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | intrinsic | Waits for the child to finish and returns how it ended (`Exit` of `Std.Exit`) |
+| `interrupt` | `interrupt[A](fiber: Fiber[A]) -> () uses { Async }` | intrinsic | Interrupts the child and waits until its unwinding finishes |
+| `all` | `all[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[A] fails E uses { Async, R }` | Emela | Runs all of them concurrently and collects the results in the original order |
+| `race` | `race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }` | Emela | Takes the first one to finish and interrupts the rest |
+| `both` | `both[A, B, E, R](f: fn() -> A fails E uses { R }, g: fn() -> B fails E uses { R }) -> (A, B) fails E uses { Async, R }` | Emela | Runs the two concurrently and returns a pair |
+| `map` | `map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E uses { R }) -> List[B] fails E uses { Async, R }` | Emela | Applies `f` to each element concurrently |
+| `timeout` | `timeout[A, E, R](ms: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { Clock, Async, R }` | Emela | Waits up to `ms` milliseconds. If `f` does not finish in time, interrupts it and returns `None` |
 
 - `all` and `map` launch all children first, then join them in the original order.
 - `timeout` launches a child that puts `Some(f())` into a Deferred and a child that waits ms with Clock and then puts None, and returns whichever was put first. Time is measured with the Clock handler at the call site, so inside TestClock it is measured in virtual time.
+
+### Std.Exit (`std/exit.emel`) `[api.std.exit]`
+
+How a computation ended, and `attempt`, which turns errors and defects into that value (`[fiber.cause]`). Used with `import Std.Exit.{Success, Failure}`.
+
+| Declaration | Signature | Implementation | Description |
+|---|---|---|---|
+| `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | How a computation ended |
+| `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | intrinsic | Runs `f` in place and turns Fail and Die into values. Starts no fiber. Does not catch an interruption of the calling fiber itself |
 
 ### Std.Cause (`std/cause.emel`) `[api.std.cause]`
 
@@ -381,7 +423,7 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 | `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`, `defect: …`, `interrupted` |
 | `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | Raises it again. Fail fails, Die is a defect, and Interrupt unwinds as an interruption |
 
-impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions, so it does not satisfy Eq, Ord, or Show (display it with `to_string` or dbg). For the same reason, Exit of Std.Fiber does not satisfy them either.
+impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions, so it does not satisfy Eq, Ord, or Show (display it with `to_string` or dbg). For the same reason, Exit of Std.Exit does not satisfy them either.
 
 ### Std.Deferred (`std/deferred.emel`) `[api.std.deferred]`
 
@@ -389,7 +431,7 @@ impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions,
 |---|---|---|---|
 | `Deferred` | `@external type Deferred[A]` | runtime | A container that can be filled with a value only once. Only `deferred` of Scope can create one |
 | `complete` | `complete[A](d: Deferred[A], value: A) -> Bool` | intrinsic | Puts in the value and returns True only the first time. False from the second time on |
-| `await` | `await[A](d: Deferred[A]) -> A use Async` | intrinsic | Waits until a value is put in |
+| `await` | `await[A](d: Deferred[A]) -> A uses { Async }` | intrinsic | Waits until a value is put in |
 | `poll` | `poll[A](d: Deferred[A]) -> Option[A]` | intrinsic | `Some` if a value is in. Does not wait |
 
 ### Std.Http (`std/http.emel`, `std/http.mjs`) `[api.std.http]`
@@ -402,14 +444,14 @@ The client effect, its errors, and the entry adapter for HTTP services. Requests
 | `ConnectionFailed` | `error ConnectionFailed(url: String, message: String)` | No response could be received (name resolution, connection, TLS, exceeding the redirect limit). The cause is in `message` |
 | `ResponseNotText` | `error ResponseNotText(url: String)` | The response body cannot be read as UTF-8 |
 | `Http` | `effect Http { suspend fn send(request: Request) -> Response fails InvalidUrl \| ConnectionFailed \| ResponseNotText }` | Sends a request. 4xx and 5xx are not failures |
-| `get` | `get(url: String) -> Response fails ... use Http` | Sends a GET |
-| `post` | `post(url: String, body: String) -> Response fails ... use Http` | Sends a POST with a body |
+| `get` | `get(url: String) -> Response fails ... uses { Http }` | Sends a GET |
+| `post` | `post(url: String, body: String) -> Response fails ... uses { Http }` | Sends a POST with a body |
 | `SystemHttp` | `handler SystemHttp: Http` | JS `fetch`. Follows redirects and does not store cookies. Requires Async |
 | `TestServer` | `type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Request])` | The counterpart of TestHttp. `respond` takes a request and its count (from 0) |
 | `TestHttp` | `handler TestHttp: Http` | The state is `State[TestServer]`. Appends the request to `sent` and resumes immediately with the response from `respond`. `None` means ConnectionFailed |
 | `Incoming` | `@external type Incoming` | The request as the host handed it over. Used only when writing an export by hand |
 | `Outgoing` | `@external type Outgoing` | The response for the host to send |
-| `serve` | `serve[E](app: fn(Request) -> Response fails E use { Async }, incoming: Incoming) -> Outgoing use { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
+| `serve` | `serve[E](app: fn(Request) -> Response fails E uses { Async }, incoming: Incoming) -> Outgoing uses { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
 
 - `request`, `add_header`, `header`, `headers`, `encode_query`, `require_ok`, and `response` remain for one minor version with `@deprecated`, pointing to their new places (`Request.new`, `Request.add_header`, `Response.header`, `Response.header_values`, `Request.encode_query`, `Response.require_ok`, `Response.new`).
 - The message of ConnectionFailed is the text of the host's exception. If cause information is available, the cause's code and text, joined by a space, are appended after `: ` (`fetch failed: ECONNREFUSED connect ECONNREFUSED 127.0.0.1:1234`). The text depends on the host.
@@ -428,8 +470,8 @@ import Std.State.{State}
 
 @test
 fn fetches() {
-  server = TestServer(respond: fn(req, n) { Some(Response.new(200, "ok")) }, sent: [])
-  (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
+  server = TestServer(respond: |req, n| Some(Response.new(200, "ok")), sent: [])
+  (res, after) = State.run(server, || with TestHttp { Http.get("https://example.com") })
   assert res.body == "ok"
   assert List.length(after.sent) == 1
 }
@@ -549,14 +591,14 @@ import Std.State.{State}
 
 @test
 fn greets() {
-  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+  (_, lines) = State.run([], || with TestConsole { greet(1) })
   assert lines == ["Hello, 1!"]
 }
 
 @test
 fn waits() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() { with TestClock { (use Clock).sleep(1000) } })
+  (_, end) = State.run(start, || with TestClock { (use Clock).sleep(1000) })
   assert Instant.to_unix_milliseconds(end) == Int64.from_int(1000)
 }
 ```

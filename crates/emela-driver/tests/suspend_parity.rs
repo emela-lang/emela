@@ -150,7 +150,7 @@ handler Res: Name {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Res {
     with Ignores {
       dbg("body #{(use Wait).wait()}")
@@ -192,7 +192,7 @@ handler Res: Name {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
     with Res {
       with Ignores {
@@ -247,7 +247,7 @@ handler InnerRes: Name {
   release { dbg("release inner") }
 }
 
-fn caller() -> Int use { Go } {
+fn caller() -> Int uses { Go } {
   with OuterRes {
     v = (use Go).go()
     dbg("caller got #{v}")
@@ -255,7 +255,7 @@ fn caller() -> Int use { Go } {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ignores {
     with Slow {
       dbg("main got #{caller()}")
@@ -320,7 +320,7 @@ import Std.State.{State}
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
+  (_, end) = State.run(start, || {
     with TestClock {
       clock = use Clock
       dbg(Instant.to_unix_milliseconds(clock.now()))
@@ -379,7 +379,7 @@ handler Retrying: Retry {
     clock = use Clock
     clock.sleep(100)
     clock.sleep(50)
-    List.map(List.range(0, 3), fn(i) { clock.sleep(10) })
+    List.map(List.range(0, 3), |i| clock.sleep(10))
     n = (use Ping).ping()
     resume(n)
   }
@@ -387,7 +387,7 @@ handler Retrying: Retry {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
+  (_, end) = State.run(start, || {
     with TestClock {
       with Pinging, Retrying {
         dbg("go #{(use Retry).go()}")
@@ -429,7 +429,7 @@ handler Retrying: Retry {
     clock = use Clock
     clock.sleep(10)
     clock.sleep(10)
-    List.map(List.range(0, 3), fn(i) { clock.sleep(10) })
+    List.map(List.range(0, 3), |i| clock.sleep(10))
     n = (use Ping).ping()
     resume(n)
   }
@@ -515,7 +515,7 @@ handler Going: Outer {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  State.run(start, fn() {
+  State.run(start, || {
     with TestClock {
       with MainRes {
         with Going {
@@ -590,7 +590,7 @@ handler Retrying: Retry {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  State.run(start, fn() {
+  State.run(start, || {
     with TestClock {
       with MainRes {
         with Dropping, Retrying {
@@ -636,8 +636,10 @@ handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
-fn spin(n: Int) -> () use { Tick } {
-  if n == 0 { () } else {
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
     (use Tick).tick()
     spin(n - 1)
   }
@@ -655,10 +657,10 @@ handler Retrying: Retry {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
-    Fiber.scope(fn() {
+  (_, end) = State.run(start, || {
+    Fiber.scope(|| {
       with TestClock {
         with Ticks, Retrying {
           dbg("go #{(use Retry).go()}")
@@ -704,11 +706,11 @@ import Std.State.{State}
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  State.run(start, fn() {
+  State.run(start, || {
     with TestClock {
-      v = Fiber.scope(fn() {
+      v = Fiber.scope(|| {
         d = Fiber.deferred()
-        h = Fiber.fork(fn() {
+        h = Fiber.fork(|| {
           n = Deferred.await(d)
           dbg("child got #{n}")
           n
@@ -743,7 +745,8 @@ fn a_queued_wake_delivers_a_pending_interruption() {
 /// 14.5): the inner implementation's sleep is abandoned with the outer one, so its continuation
 /// does not run after the scope ends.
 const NESTED_IMPLEMENTATIONS_INTERRUPTED: &str = r#"
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
@@ -781,13 +784,13 @@ fn show[A, E](e: Exit[A, E]) -> String {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  State.run(start, fn() {
+  State.run(start, || {
     with TestClock {
       with CallingOuter, SlowInner {
-        Fiber.scope(fn() {
-          h = Fiber.fork(fn() { (use Outer).outer() })
+        Fiber.scope(|| {
+          h = Fiber.fork(|| (use Outer).outer())
           (use Clock).sleep(20)
           (use Clock).sleep(30)
           Fiber.interrupt(h)

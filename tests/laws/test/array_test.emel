@@ -1,0 +1,74 @@
+import Brix.Pbt.Gen
+import Brix.Pbt.Property
+import Std.Array.{Array}
+
+@test
+fn from_list_and_to_list() {
+  Property.check(Gen.list(Gen.int()), |xs| {
+    a = Array.from_list(xs)
+    assert Array.to_list(a) == xs
+    assert Array.size(a) == List.length(xs)
+    assert Array.is_empty(a) == List.is_empty(xs)
+    assert Array.get(a, -1) == None
+    assert Array.get(a, Array.size(a)) == None
+    assert Array.reverse(Array.reverse(a)) == a
+    assert Array.to_list(Array.reverse(a)) == List.reverse(xs)
+    assert Array.to_list(Array.map(a, |x| x + 1)) == List.map(xs, |x| x + 1)
+    assert Array.fold(a, 0, |acc, x| acc - x) == List.fold(xs, 0, |acc, x| acc - x)
+  })
+}
+
+# `set` replaces one element and leaves the array it was given as it was.
+@test
+fn set_then_get() {
+  Property.check(Gen.pair(Gen.list(Gen.int()), Gen.int_between(0, 20)), |(xs, i)| {
+    a = Array.from_list(xs)
+    if i < Array.size(a) {
+      b = Array.set(a, i, 7)
+      assert Array.get(b, i) == Some(7)
+      assert Array.size(b) == Array.size(a)
+      assert Array.to_list(Array.slice(b, 0, i)) == List.take(xs, i)
+      assert Array.to_list(Array.slice(b, i + 1, Array.size(b))) == List.drop(xs, i + 1)
+      assert Array.to_list(a) == xs
+    }
+  })
+}
+
+@test
+fn slice_and_append() {
+  Property.check(Gen.pair(Gen.list(Gen.int()), Gen.int_between(-5, 25)), |(xs, k)| {
+    a = Array.from_list(xs)
+    assert Array.append(Array.slice(a, 0, k), Array.slice(a, k, Array.size(a))) == a
+    assert Array.concat([Array.slice(a, -10, k), Array.empty(), Array.slice(a, k, 100)]) == a
+    assert Array.to_list(Array.slice(a, k, k)) == []
+  })
+}
+
+@test
+fn sort_and_search() {
+  Property.check(Gen.pair(Gen.list(Gen.int_between(-20, 20)), Gen.int_between(-25, 25)), |(xs, v)| {
+    sorted = Array.sort(Array.from_list(xs))
+    assert Array.to_list(sorted) == List.sort(xs)
+    i = Array.lower_bound(sorted, v)
+    assert List.all(Array.to_list(Array.slice(sorted, 0, i)), |x| x < v)
+    assert List.all(Array.to_list(Array.slice(sorted, i, Array.size(sorted))), |x| x >= v)
+    Array.binary_search(sorted, v) match {
+      Some(j) -> {
+        assert j == i
+        assert Array.get(sorted, j) == Some(v)
+      }
+      None -> assert !List.any(xs, |x| x == v)
+    }
+  })
+}
+
+@test
+fn compare_as_lists() {
+  Property.check(
+    Gen.pair(Gen.list(Gen.int_between(0, 3)), Gen.list(Gen.int_between(0, 3))),
+    |(xs, ys)| {
+      assert Array.from_list(xs).compare(Array.from_list(ys)) == xs.compare(ys)
+      assert (Array.from_list(xs) == Array.from_list(ys)) == (xs == ys)
+    },
+  )
+}

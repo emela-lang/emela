@@ -7,7 +7,7 @@ fn apply(f: fn((String, Option[String])) -> Packet, pair: (String, Option[String
 }
 pub fn maker(n: Int) -> (fn((String, Option[String])) -> Packet) {
   suffix = Int.to_string(n)
-  fn(pair) {
+  |pair| {
     (text, note) = pair
     Data((String.append(text, suffix), note), [text, suffix])
   }

@@ -1,6 +1,6 @@
 # Appendix B. Commands `[cmd]`
 
-This appendix defines the externally visible behavior of the `emela` command. `emela test` is in 13.4 and `[cmd.test]`, `emela pome` is in `[cmd.pome]`, and `emela flash` is in `[cmd.flash]`.
+This appendix defines the externally visible behavior of the `emela` command. `emela test` is in 13.4 and `[cmd.test]`, `emela pome` is in `[cmd.pome]`, `emela flash` is in `[cmd.flash]`, and `emela doctor` is in `[cmd.doctor]`.
 
 ## emela check, build, run `[cmd.build]`
 
@@ -8,6 +8,7 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 - The command writes `main.mjs`, translated from the entry, and the runtime to the output directory. The fns with `@export(js, ...)` and the exports made by `@entry` are exported from `main.mjs` (`[target.js.module]`). `emela run` also writes to the default output directory (4.1) before running, and overwrites the previous output without deleting it. `--out-dir` changes the output directory.
 - Arguments to the program are written after `--`. Diagnostics are reported before the program is launched.
 - The node used is the environment variable `EMELA_NODE` if set, and otherwise `node` on PATH.
+- For `js`, before starting the program, the command reads the version from `<executable> --version`. If its major version is older than the Node version that `[target]` requires, it is E0904 and the program is not started: the message is ``` `<executable>` is <version>, but target `js` needs node <minimum> or later ```, with the note `install Node.js <minimum> or later, or set EMELA_NODE to a newer node executable`. `<executable>` is the value of `EMELA_NODE` or `node`, `<version>` is the output of `--version` without the surrounding whitespace, and `<minimum>` is the major version that `[target]` requires. If the version cannot be read, including when node cannot be started, the program is started. The same check is made by `emela test` (`[cmd.test]`).
 - For `c`, the command writes `main.c`, translated from the entry, and the C sources of the runtime to the output directory, and places the executable `main` compiled with cc. The cc used is the environment variable `EMELA_CC` if set, and otherwise `cc` on PATH (E0907, E0908).
 - The exit code is as follows.
   - 1 if the diagnostics include an error. 0 if there are only warnings.
@@ -36,7 +37,7 @@ JS output:
 
 Starting the program:
 
-- Before starting the program, `run` writes one line ``running `<command>` `` to standard error, for every build target. The line comes after the diagnostics and before any output of the program. It is not written when the program is not started (an error in the diagnostics, or wasmtime too old, E0909). When the command is written but cannot be started (node or the executable not found), the diagnostic about it follows the line.
+- Before starting the program, `run` writes one line ``running `<command>` `` to standard error, for every build target. The line comes after the diagnostics and before any output of the program. It is not written when the program is not started (an error in the diagnostics, node too old (E0904), or wasmtime too old (E0909)). When the command is written but cannot be started (node or the executable not found), the diagnostic about it follows the line.
 - `<command>` is the program that is started followed by its arguments, separated by single spaces: node with its options for `js`, the executable `main` for `c`, and wasmtime with its options for `wasm` (`[target.wasm.output]`), each followed by the arguments after `--`.
 - Each word is written as is when it is not empty and consists only of ASCII letters, digits and the characters `-_./=:@%+,`. Otherwise it is enclosed in single quotes, and each `'` inside it is written as `'\''`. Pasting the line into a POSIX shell starts the same command.
 - For `js`, the module that node runs with `-e` to load the entry is written as `<launcher>` (``running `node --input-type=module -e <launcher> -- target/emela/js/main.mjs` ``). This word alone does not follow the quoting rule above.
@@ -74,6 +75,62 @@ Diagnostics and help:
 - After the check, the image is written with OpenOCD (STM32F4, the environment variable `OPENOCD`, else `openocd`) or esptool (ESP32-C3, run by the environment variable `EMELA_ESPTOOL_PYTHON`, else by the Python of the build). ESP32-C3 requires `--port` unless `--dry-run` is given. Paths and the port are passed as separate arguments, without a shell.
 - `--dry-run` performs the same check, prints the command that would write the image, and does not open the device.
 - The exit code is 0 on success and 1 otherwise.
+
+## emela doctor `[cmd.doctor]`
+
+- Reports, for each build target, whether the external programs it uses can be found and started and whether their versions are new enough, and reports the routes used to fetch Pomes. It installs nothing, changes no environment variables, and does not go to the network.
+- Takes one path, which defaults to `.`. When the path is in a project (4.1), the build target of the project (`[cmd.build]`) is required, and so is its board (`[target.c-embedded.board]`) when the target is `c-embedded`. Outside a project, no target is required. `--target <js|c|c-embedded|wasm>` makes that target required instead, and `--board <id>` selects the board.
+- Each program is resolved by the same rule as the command that uses it, and is checked as follows.
+
+  | Target | Program | Rule | Passes when |
+  |---|---|---|---|
+  | `js` | node | `[cmd.build]` | it starts and `--version` reports a version that `[target]` supports |
+  | `c` | the C compiler | `[target.c.cc]` | it starts; the first line of its `--version` is reported as its version |
+  | `wasm` | wasmtime | `[target.wasm.run]` | it starts and its major version is 49 or later |
+  | `c-embedded` | Python | `[target.c-embedded.board]` | it starts and reports version 3 |
+  | `c-embedded`, STM32F4 boards | `arm-none-eabi-gcc`, OpenOCD | `[target.c-embedded.board]`, `[cmd.flash]` | each starts |
+  | `c-embedded`, `esp32c3` | `riscv32-esp-elf-gcc`, esptool | `[target.c-embedded.board]`, `[cmd.flash]` | each starts |
+
+  The items of `c-embedded` are checked only when a board is selected.
+- A program passes or fails with one of these reasons: it was not found, it could not be started, its version is older than required, or its version could not be read. A program whose version could not be read passes, as in `[target.wasm.run]`.
+- The Pome section reports the values in effect of `EMELA_POMEPROXY` and `EMELA_POMESUMDB`, the number of prefixes in `EMELA_POMEPRIVATE` (`[module.pome]`), and whether git starts. The prefixes themselves are not written, so that the output can be pasted into a public report. git is required when `EMELA_POMEPRIVATE` is set or when `direct` is the only entry of `EMELA_POMEPROXY`. The userinfo part of a URL (`user:token@`) is written as `***@`. Nothing is fetched and no proxy is contacted.
+- Output without `--format`, written to standard output:
+  - The first line is the same as `emela --version`, followed by a blank line.
+  - For each target in the order `js`, `c`, `wasm`, `c-embedded`, a line with the target's name, followed by ` (required)` when required. Under it, one line per program, indented by two spaces: `ok`, `missing`, `too-old` or `failed`, then the program's name and version and the executable resolved in parentheses, or a sentence that names the target and the program that it lacks. A program that fails is followed by a line with the help of the diagnostic that the command using it would report (E0904, E0907, E0909), aligned with the sentence.
+  - Then a blank line and the Pome section in the same form.
+  - Color is used under the same conditions as diagnostics (`[diag]`).
+- With `--format json`, the command writes one JSON object to standard output instead:
+
+  ```json
+  {
+    "emela": "0.28.0+4e84642",
+    "targets": [
+      {
+        "target": "wasm",
+        "required": true,
+        "programs": [
+          {
+            "name": "wasmtime",
+            "status": "missing",
+            "executable": "wasmtime",
+            "version": null,
+            "message": "target `wasm` needs wasmtime 49 or later, but `wasmtime` is not on PATH",
+            "help": "install Wasmtime 49 or later and add it to PATH, or set EMELA_WASMTIME to the wasmtime executable"
+          }
+        ]
+      }
+    ],
+    "pome": {
+      "proxy": ["https://pomes.emela.dev", "direct"],
+      "sumdb": "https://sum.emela.dev",
+      "private": 0,
+      "git": { "name": "git", "status": "ok", "executable": "/usr/bin/git", "version": "2.51.0", "message": null, "help": null }
+    }
+  }
+  ```
+
+  `status` is one of `ok`, `missing`, `too-old` and `failed`. `executable` is the absolute path when the program was found, and the name that was looked up otherwise. Keys may be added in later versions; existing keys keep their meaning.
+- The exit code is 0 when every program of every required target passes and git passes when it is required, and 1 otherwise.
 
 ## emela fmt `[cmd.fmt]`
 
@@ -149,12 +206,12 @@ Comparing the public API:
 - The version compared against (the previous version) is the largest version in the proxy's `@v/list` that has the same major and is smaller than the current version. Prerelease versions are included. If there is no previous version, no comparison is made. The previous version is fetched by the same path as dependencies and verified with the sumdb.
 - The following changes are treated as incompatible.
   - Removing a pub definition or module, making it non-pub, or renaming it.
-  - Changing the number, types, or names (6.2) of a function's parameters, or its return type. Adding an error to fails. Adding an effect to use. Adding a bound to a type parameter.
+  - Changing the number, types, or names (6.2) of a function's parameters, or its return type. Adding an error to fails. Adding an effect to uses. Adding a bound to a type parameter.
   - Adding, removing, or changing fields of a type or error. Making it opaque (4.4).
   - Adding, removing, or changing variants of an enum (this breaks exhaustive matches in dependents).
   - Adding, removing, or changing operations of an effect or methods of a trait (this breaks implementers).
   - Changing the type of a const.
-- Adding pub definitions or modules, and making something no longer opaque, are treated as compatible additions. Removing errors from fails and effects from use are treated as compatible (18.1 #41).
+- Adding pub definitions or modules, and making something no longer opaque, are treated as compatible additions. Removing errors from fails and effects from uses are treated as compatible (18.1 #41).
 - The required bump is major if there are incompatible changes, minor if there are only compatible additions, and patch if the public API does not change. While at v0, each is shifted down by one: incompatible changes require minor, and compatible additions require patch. `v0.0.z` and prerelease versions are not compared.
 - Behavior changes that do not change types are not examined.
 

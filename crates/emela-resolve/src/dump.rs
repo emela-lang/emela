@@ -309,7 +309,7 @@ impl Dumper<'_> {
         }
         if let Some(uses) = &sig.uses {
             let uses = self.effect_list(&uses.items);
-            self.line(depth, format!("use {{{uses}}}"));
+            self.line(depth, format!("uses {{{uses}}}"));
         }
         if let Some(body) = body {
             self.line(depth, "body");
@@ -409,12 +409,12 @@ impl Dumper<'_> {
                 }
                 if let Some(uses) = uses {
                     let uses = self.effect_list(&uses.items);
-                    let _ = write!(s, " use {{{uses}}}");
+                    let _ = write!(s, " uses {{{uses}}}");
                 }
                 s
             }
             TypeKind::ErrorSet(set) => format!("fails {{{}}}", self.res_list(&set.items)),
-            TypeKind::EffectSet(set) => format!("use {{{}}}", self.effect_list(&set.items)),
+            TypeKind::EffectSet(set) => format!("uses {{{}}}", self.effect_list(&set.items)),
             TypeKind::Missing => "missing".to_owned(),
         }
     }

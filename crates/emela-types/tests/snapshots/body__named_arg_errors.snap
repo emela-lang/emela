@@ -5,8 +5,8 @@ expression: "run(r#\"\nfn connect(host: String, port: Int) -> Bool { todo() }\n\
 connect: fn(String, Int) -> Bool
   host: String
   port: Int
-f: ∀ E(g), R(g). fn(fn(Int) -> Int fails E(g) use R(g)) -> Int fails E(g) use R(g)
-  g: fn(Int) -> Int fails '0 use '1
+f: ∀ E(g), R(g). fn(fn(Int) -> Int fails E(g) uses { R(g) }) -> Int fails E(g) uses { R(g) }
+  g: fn(Int) -> Int fails '0 uses { '1 }
   a: Bool
   b: Bool
   c: Bool

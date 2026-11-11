@@ -27,7 +27,11 @@
 //!   the arguments of external functions, builtins, `runtime` operations and concurrency
 //!   operations (the runtime dups what it keeps), primitive operations, the base of views, and
 //!   what `tag`, `list_is_empty`, `is_error` and `switch` look at. Builtins borrow so that the
-//!   runtime written in C need not care about ownership.
+//!   runtime written in C need not care about ownership, with one exception: `Array.set` consumes
+//!   its array (the first argument). When the variable passed is not live after the call, the
+//!   pass moves its reference into the call, so the runtime sees a count of 1 and updates the
+//!   array in place (`[api.std.array]`); otherwise a `dup` before the call leaves the count above
+//!   1 and the runtime copies. The other arguments of `set` are borrowed.
 //!
 //! Where the pass puts `dup` and `drop`, from liveness (a backward analysis over the structured
 //! control, with a fixpoint at loops):
@@ -48,8 +52,9 @@
 //!   nothing is dropped there, and the resumed function continues after the value owning what the
 //!   uninterrupted one owns.
 //!
-//! No drop specialization or reuse yet. Runs last.
+//! No drop specialization or reuse yet, other than the in-place `Array.set`. Runs last.
 
+use emela_core::Builtin;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{
@@ -111,6 +116,13 @@ pub(crate) fn value_uses(m: &Module, f: &Function, v: &Value, use_: &mut dyn FnM
     };
     match v {
         Value::Const(_) | Value::FnRef(_) => {}
+        Value::Builtin {
+            op: Builtin::ArraySet,
+            args,
+        } => {
+            each(&args[..1], Mode::Consume, use_);
+            each(&args[1..], Mode::Borrow, use_);
+        }
         Value::Prim { args, .. } | Value::Builtin { args, .. } | Value::Fiber { args, .. } => {
             each(args, Mode::Borrow, use_)
         }

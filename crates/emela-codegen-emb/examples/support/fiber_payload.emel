@@ -1,21 +1,22 @@
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 error Boom(message: String) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
-fn late(n: Int) -> Int fails Boom use Wait {
+fn late(n: Int) -> Int fails Boom uses { Wait } {
   text = Int.to_string(n)
   (use Wait).get(n)
   fail Boom(message: text)
 }
-pub fn work() -> Cause[Boom] use Async {
+pub fn work() -> Cause[Boom] uses { Async } {
   with Waiting {
-    Fiber.attempt(fn() { Fiber.scope(fn() {
-      Fiber.fork(fn() { late(1) })
-      Fiber.fork(fn() { late(2) })
-      Fiber.fork(fn() { late(3) })
+    Exit.attempt(|| { Fiber.scope(|| {
+      Fiber.fork(|| late(1))
+      Fiber.fork(|| late(2))
+      Fiber.fork(|| late(3))
       (use Wait).get(4)
     }) }) match {
       Success(_) -> panic("unexpected")
@@ -24,13 +25,13 @@ pub fn work() -> Cause[Boom] use Async {
   }
 }
 pub fn rethrow(c: Cause[Boom]) -> Cause[Boom] {
-  Fiber.attempt(fn() { Cause.raise(c) }) match {
+  Exit.attempt(|| Cause.raise(c)) match {
     Success(_) -> panic("unexpected")
     Failure(again) -> again
   }
 }
-pub fn rethrow_async(c: Cause[Boom]) -> Cause[Boom] use Async {
-  Fiber.attempt(fn() { Fiber.scope(fn() { Cause.raise(c) }) }) match {
+pub fn rethrow_async(c: Cause[Boom]) -> Cause[Boom] uses { Async } {
+  Exit.attempt(|| Fiber.scope(|| Cause.raise(c))) match {
     Success(_) -> panic("unexpected")
     Failure(again) -> again
   }

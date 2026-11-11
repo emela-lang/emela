@@ -243,15 +243,15 @@ fn board_entry_errors_are_reported_before_the_cross_compiler_is_started() {
             "board entry `main` must be",
         ),
         (
-            "pub fn main(n: Int) -> Int use Async { n }\n",
+            "pub fn main(n: Int) -> Int uses { Async } { n }\n",
             "embedded main function with parameters",
         ),
         (
-            "pub fn main() -> () use Async { () }\n",
+            "pub fn main() -> () uses { Async } { () }\n",
             "board entry `main` must be",
         ),
         (
-            "pub fn other() -> Int use Async { 42 }\n",
+            "pub fn other() -> Int uses { Async } { 42 }\n",
             "board entry `main` must be",
         ),
     ] {
@@ -298,7 +298,7 @@ fn a_failed_rebuild_invalidates_the_previous_success_record_before_config_valida
     write(
         root,
         "src/main.emel",
-        "pub fn main() -> Int use Async { 42 }\n",
+        "pub fn main() -> Int uses { Async } { 42 }\n",
     );
     write(root, "embedded.toml", "string_capacity = 0\n");
     let state = "target/emela/c-embedded/stm32f446re/board-build.json";

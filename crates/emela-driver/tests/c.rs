@@ -164,9 +164,9 @@ fn main() {
 #[test]
 fn callbacks_are_rejected() {
     let main = r##"@external(c, "take")
-fn take(f: fn(Int) -> Int) -> () use {}
+fn take(f: fn(Int) -> Int) -> () uses {}
 
-fn main() { take(fn(x) { x }) }
+fn main() { take(|x| x) }
 "##;
     let (analysis, _) = run_c("callback", main, &mut CoreC::default());
     assert_eq!(
@@ -183,7 +183,7 @@ fn main() { take(fn(x) { x }) }
 #[test]
 fn exported_callbacks_are_rejected() {
     let main = r##"@export(c, "apply")
-fn apply(x: Int, f: fn(Int) -> Int fails {} use {}) -> Int { f(x) }
+fn apply(x: Int, f: fn(Int) -> Int fails {} uses {}) -> Int { f(x) }
 
 fn main() {}
 "##;
@@ -204,10 +204,10 @@ fn bytes_at_the_boundary_are_e0443() {
     let main = r##"import Std.Bytes.{Bytes}
 
 @external(c, "read_file")
-fn read_file(path: String) -> Bytes use {}
+fn read_file(path: String) -> Bytes uses {}
 
 @external(c, "write_file")
-fn write_file(data: Bytes) -> () use {}
+fn write_file(data: Bytes) -> () uses {}
 
 fn main() { write_file(read_file("a")) }
 "##;
@@ -248,6 +248,75 @@ fn main() {}
             (
                 Some("E0443"),
                 "exported function `empty` returns `Bytes`, which target `c` does not support yet"
+            ),
+        ]
+    );
+}
+
+/// `[ext.boundary]`: the C target does not support Array at the boundary yet either. An external
+/// function reachable from the entry, or an exported fn, that takes or returns a type that is an
+/// Array (of any element type, Bytes and nested arrays included) is E0443.
+#[test]
+fn arrays_at_the_boundary_are_e0443() {
+    let main = r##"import Std.Array.{Array}
+import Std.Bytes.{Bytes}
+
+@external(c, "rows")
+fn rows() -> Array[String] uses {}
+
+@external(c, "sum")
+fn sum(xs: Array[Int]) -> Int uses {}
+
+@external(c, "chunks")
+fn chunks(xs: Array[Array[Bytes]]) -> () uses {}
+
+fn main() {
+  dbg(sum(Array.from_list([1])))
+  dbg(rows())
+  chunks(Array.empty())
+}
+"##;
+    let (analysis, output) = run_c("array-boundary", main, &mut CoreC::default());
+    assert!(output.is_none());
+    assert_eq!(
+        codes(&analysis),
+        [
+            (
+                Some("E0443"),
+                "external function `sum` takes `Array[Int]`, which target `c` does not support yet"
+            ),
+            (
+                Some("E0443"),
+                "external function `rows` returns `Array[String]`, which target `c` does not support yet"
+            ),
+            (
+                Some("E0443"),
+                "external function `chunks` takes `Array[Array[Bytes]]`, which target `c` does not support yet"
+            ),
+        ]
+    );
+    let main = r##"import Std.Array.{Array}
+
+@export(c, "size")
+fn size(a: Array[Int]) -> Int { Array.size(a) }
+
+@export(c, "names")
+fn names() -> Array[String] { Array.empty() }
+
+fn main() {}
+"##;
+    let (analysis, output) = run_c("array-export", main, &mut CoreC::default());
+    assert!(output.is_none());
+    assert_eq!(
+        codes(&analysis),
+        [
+            (
+                Some("E0443"),
+                "exported function `size` takes `Array[Int]`, which target `c` does not support yet"
+            ),
+            (
+                Some("E0443"),
+                "exported function `names` returns `Array[String]`, which target `c` does not support yet"
             ),
         ]
     );
@@ -658,9 +727,9 @@ fn main() {
     console.print_line(host.greet("c"))
     console.print_line("#{host.double(21, 10)}")
     console.print_line("#{host.threaded(41)}")
-    console.print_line("#{Fiber.timeout(20, fn() { host.double(5, 60000) })}")
-    console.print_line("#{Fiber.all([fn() { host.double(1, 30) }, fn() { host.double(2, 10) }])}")
-    console.print_line("#{Fiber.race([fn() { host.double(3, 60000) }, fn() { host.double(4, 10) }])}")
+    console.print_line("#{Fiber.timeout(20, || host.double(5, 60000))}")
+    console.print_line("#{Fiber.all([|| host.double(1, 30), || host.double(2, 10)])}")
+    console.print_line("#{Fiber.race([|| host.double(3, 60000), || host.double(4, 10)])}")
   }
 }
 
@@ -907,7 +976,7 @@ fn tick() -> () {
 }
 
 @external(c, "./host.c", "host_calls_back")
-fn host_calls_back(n: Int) -> Int use {}
+fn host_calls_back(n: Int) -> Int uses {}
 
 fn main() {
   dbg("main")

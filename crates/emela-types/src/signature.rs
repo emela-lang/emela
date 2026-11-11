@@ -1,7 +1,7 @@
 //! Declared types: the types ([`Scheme`]) of fns, constructors and consts, and parameter labels.
 //!
 //! Call inference looks up the callee's type and labels here. Fns without a written return type,
-//! fns with a body but no `use` clause, and consts without a written type are added after their
+//! fns with a body but no `uses` clause, and consts without a written type are added after their
 //! bodies are inferred. Effect operation types also live here, for calls through capability
 //! values.
 
@@ -280,8 +280,8 @@ impl Default for Signatures {
     }
 }
 /// `None` if no return type is written (it is inferred from the body). Also `None` if the
-/// return type contains a function type with `fails` or `use` omitted, since that E and R are
-/// inferred from the body. A fn with a body and no `use` clause is `None` too, since R is
+/// return type contains a function type with `fails` or `uses` omitted, since that E and R are
+/// inferred from the body. A fn with a body and no `uses` clause is `None` too, since R is
 /// inferred (spec 9.3). For a fn without a body (`@external`, `@intrinsic`), an omitted `use`
 /// means an empty R.
 fn fn_signature(
@@ -322,7 +322,7 @@ fn fn_signature(
 
 /// The type of a trait's function (spec 10.1): `Self` is the first type parameter, constrained by
 /// the trait, and `self` has its type. A function without a return type returns `()`. E and R are
-/// the written `fails` and `use` clauses, empty if omitted (spec 10.4).
+/// the written `fails` and `uses` clauses, empty if omitted (spec 10.4).
 fn trait_fn_signature(
     program: &Program,
     ty_table: &TyTable,
@@ -383,12 +383,12 @@ fn prelude_trait_fn_signature(
 
 /// Checks the bounds on a fn's type parameters (spec 9.5). Only Immediate is handled.
 ///
-/// - Immediate can only be put on effect sets (type parameters written in a `use` clause)
+/// - Immediate can only be put on effect sets (type parameters written in a `uses` clause)
 ///   (E0322).
 /// - Bounds other than Immediate (traits) on an effect set are "not supported yet". Trait bounds
 ///   on ordinary type parameters are checked where the fn is referenced (spec 10.3).
-/// - A `use` clause written in a function-typed parameter of an external function must be
-///   Immediate (E0416). An omitted `use` clause is an invisible set and gets the Immediate bound
+/// - A `uses` clause written in a function-typed parameter of an external function must be
+///   Immediate (E0416). An omitted `uses` clause is an invisible set and gets the Immediate bound
 ///   ([`FnParams::new`]).
 fn check_bounds(
     program: &Program,
@@ -450,7 +450,7 @@ fn check_bounds(
     if !item.is_external {
         return;
     }
-    // The `use` clauses of an external function's callbacks.
+    // The `uses` clauses of an external function's callbacks.
     fn walk(
         program: &Program,
         ty: TypeId,
@@ -523,9 +523,9 @@ fn check_bounds(
 }
 
 /// The type and labels of an effect operation (spec 8.1). Being inside a declaration, omitted
-/// `fails` and `use` in function-typed parameters mean empty (spec 9.2). The operation's `fails`
+/// `fails` and `uses` in function-typed parameters mean empty (spec 9.2). The operation's `fails`
 /// clause is its E. The operation type's R is empty; calls through a capability value add the
-/// effect. Operations cannot have a `use` clause (E0137 in the syntax stage). An omitted return
+/// effect. Operations cannot have a `uses` clause (E0137 in the syntax stage). An omitted return
 /// type is E0110 in the parser; it is read as `()` here to go on.
 ///
 /// Effect type parameters (the `S` of `effect State[S]`) become scheme type parameters as
@@ -576,7 +576,7 @@ fn op_signature(
     // A child forked through a built-in effect may use the effect itself (to fork a sibling),
     // and that is provided by the same scope, not from outside (spec 11.2): a function-typed
     // parameter whose `use` names the effect's set type parameter also gets the effect with its
-    // own type parameters (`fork[A](f: fn() -> A fails E use { Scope[E, R], R })`). Inclusion then
+    // own type parameters (`fork[A](f: fn() -> A fails E uses { Scope[E, R], R })`). Inclusion then
     // only requires the child's `Scope` arguments to be contained in the scope's.
     let params = match effect {
         Some(e) if is_intrinsic_effect(program, e) => {
@@ -596,7 +596,7 @@ fn op_signature(
         Some(set) => ty_table.lower_error_set(program, &scope, set, diags),
         None => Row::empty(),
     };
-    // An operation's `use` clause is E0137 in the syntax stage (spec 8.1); not read here.
+    // An operation's `uses` clause is E0137 in the syntax stage (spec 8.1); not read here.
     let ty_params = ty_params(program, &defs)
         .into_iter()
         .zip(&kinds)
@@ -646,7 +646,7 @@ fn with_own_tag(ty: Ty, own: &Tag, n: usize) -> Ty {
 }
 
 /// Effect type parameters are ordinary types only (spec 8.1). A type parameter written only in
-/// the `fails` or `use` of function types in an operation's parameters and return type becomes
+/// the `fails` or `uses` of function types in an operation's parameters and return type becomes
 /// a set, so it is E0424. Operations cannot have their own type parameters (E0426).
 ///
 /// Built-in effects (`Scope`, spec 11.2) may have both.
@@ -850,8 +850,8 @@ impl FnParams {
         written.union(&self.hidden.positive)
     }
 
-    /// The declared R: the written `use` clause united with the invisible effect sets in positive
-    /// positions of the parameter types. Unused when no `use` clause is written, since R is then
+    /// The declared R: the written `uses` clause united with the invisible effect sets in positive
+    /// positions of the parameter types. Unused when no `uses` clause is written, since R is then
     /// inferred from the body.
     pub(crate) fn declared_uses(
         &self,
@@ -900,7 +900,7 @@ fn ctor_signature(
         Fields::Positional(tys) => (tys.clone(), vec![None; tys.len()]),
         Fields::Named(fs) => fs.iter().map(|f| (f.ty, Some(f.name.clone()))).unzip(),
     };
-    // Omitted `fails` and `use` in fields' function types mean empty (spec 9.2). The kinds of
+    // Omitted `fails` and `uses` in fields' function types mean empty (spec 9.2). The kinds of
     // type parameters (whether sets) are as the type table decided (`type Handler[E, R]`).
     let params: Vec<TyParam> = match ty_table.con(owner) {
         Some(id) => ty_table.cons[id].params.clone(),

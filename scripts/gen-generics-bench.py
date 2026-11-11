@@ -112,6 +112,6 @@ fn run{i}() -> Int {{
 """)
 w("fn main() {")
 w("  results = [" + ", ".join(f"run{i}()" for i in range(n)) + "]")
-w("  dbg(List.fold(results, from: 0, f: fn(a, x) { a + x }))")
+w("  dbg(List.fold(results, from: 0, f: |a, x| a + x))")
 w("}")
 print("\n".join(out))
