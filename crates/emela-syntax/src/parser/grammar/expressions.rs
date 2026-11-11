@@ -2,7 +2,7 @@
 
 use super::patterns::pattern;
 use super::types::{effect_type_args, path, type_};
-use super::{lambda_param_list, literal};
+use super::{closure_param_list, literal, old_lambda_param_list};
 use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{CompletedMarker, Parser};
@@ -268,9 +268,20 @@ fn expr_bp(p: &mut Parser<'_>, min: u8) -> Option<CompletedMarker> {
     Some(lhs)
 }
 
-/// `( "!" | "-" ) unary | "use" type_ref [ "[" type { "," type } "]" ] | postfix`
+/// `( "!" | "-" ) unary | "use" type_ref [ "[" type { "," type } "]" ] | lambda | postfix`
 fn unary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     match p.current() {
+        // `lambda = ( "||" | "|" [ lambda_param { "," lambda_param } ] "|" ) expr`. `|` and `||`
+        // never start any other operand, so in operand position they start an anonymous
+        // function. The body is an `expr`, so it takes everything to its right
+        // (`[grammar.expr]`), and nothing follows the lambda in the same expression.
+        PIPE | PIPE2 => {
+            let m = p.start();
+            closure_param_list(p);
+            // A newline right after the list ends the statement; `expr` reports the missing body.
+            expr(p);
+            Some(m.complete(p, LAMBDA_EXPR))
+        }
         BANG | MINUS => {
             let m = p.start();
             p.bump();
@@ -372,11 +383,13 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
             with_expr(p);
             WITH_EXPR
         }
-        // `lambda = "fn" "(" [ params ] ")" block`
+        // The old form `fn(params) { ... }` (E0148, reported by validation). It is read into the
+        // node of an anonymous function, so the later passes need not tell the forms apart, and
+        // the formatter rewrites it (`[fmt.closure]`).
         FN_KW => {
             p.bump();
             if p.at(L_PAREN) {
-                lambda_param_list(p);
+                old_lambda_param_list(p);
             } else {
                 p.expect(L_PAREN);
             }

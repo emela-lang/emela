@@ -120,7 +120,7 @@ fn ix<T>(id: la_arena::Idx<T>) -> usize {
 /// The shape of a heap object made by the program.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct DescKey {
-    /// 0 = fields, 1 = string (variable size).
+    /// 0 = fields, 1 = string (variable size), 2 = array (variable size, `runtime/array.rs`).
     pub kind: u32,
     pub tag: u32,
     /// The enum index of an error value, or -1.
@@ -634,14 +634,16 @@ impl<'m> Builder<'m> {
                 self.defs.push(ty);
             }
         }
-        // The error `show` functions, as table indices (their descriptors point at them).
+        // The error `show` functions, as table indices (their descriptors point at them). A Show
+        // impl item always has a body (the `impl_item` production in [grammar.decl]), so its
+        // function is never imported and the loop above gives it an index in the table.
         for (enum_id, function) in self.m.error_shows.iter().copied() {
-            let slot = if self.imported(function) {
-                u32::MAX
-            } else {
-                self.fn_table[ix(function)]
-            };
-            self.error_shows.insert(enum_id, slot);
+            debug_assert!(
+                !self.imported(function),
+                "an error's show function cannot be imported: a Show impl item needs a body"
+            );
+            self.error_shows
+                .insert(enum_id, self.fn_table[ix(function)]);
         }
         // The stubs of the hosts the entry cannot reach. They are definitions like the IR
         // functions (one per distinct signature), so the calls in the emitted handler bodies
@@ -787,6 +789,16 @@ impl<'m> Builder<'m> {
     }
 
     pub(crate) fn desc(&mut self, key: DescKey) -> u32 {
+        // `from_core` gives every constructed error enum a show function (its Show, or the
+        // derived name when the type does not satisfy Show), and `build` maps it to a table
+        // index, so a language-produced error's descriptor always has one. `show_failure`
+        // relies on that.
+        debug_assert!(
+            key.enum_id < 0 || key.show.is_some(),
+            "the error `{}` has no show function; `from_core` must give every constructed error \
+             enum one (`Derive::ErrorName` when its type does not satisfy Show)",
+            key.name
+        );
         if let Some(&o) = self.descs.get(&key) {
             return o;
         }
@@ -849,6 +861,28 @@ impl<'m> Builder<'m> {
         });
         let none = self.nullary(none_desc);
         Some((some, none, repr))
+    }
+
+    /// The representation of the elements of the array type `ty` (`[api.std.array]`).
+    pub(crate) fn array_elem_repr(&self, ty: TypeId) -> Repr {
+        match self.core().ty(ty) {
+            Type::Array(elem) => self.repr(*elem),
+            _ => Repr::Ref,
+        }
+    }
+
+    /// The descriptor of an array of type `ty` (`runtime/array.rs`): kind 2, with `refs[0]`
+    /// telling whether the elements are references.
+    pub(crate) fn array_desc(&mut self, ty: TypeId) -> u32 {
+        let elem_ref = self.array_elem_repr(ty) == Repr::Ref;
+        self.desc(DescKey {
+            kind: runtime::array::KIND,
+            tag: 0,
+            enum_id: -1,
+            name: "Array".to_owned(),
+            show: None,
+            refs: vec![elem_ref],
+        })
     }
 
     /// A static object (rc == 0) of the descriptor, with no fields.
@@ -2353,7 +2387,7 @@ impl<'m> Builder<'m> {
         ins.end();
     }
 
-    /// `Fiber.attempt` and the operations of `Std.Cause` (spec 11.5), with the runtime of
+    /// `Exit.attempt` and the operations of `Std.Cause` (spec 11.5), with the runtime of
     /// `runtime::attempt`. The other concurrency operations are refused by `check` before this.
     fn fiber(
         &mut self,

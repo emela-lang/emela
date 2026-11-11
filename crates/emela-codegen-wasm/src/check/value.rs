@@ -1,4 +1,4 @@
-//! Values that reach an unsupported feature (fibers). `Fiber.attempt` and the operations of
+//! Values that reach an unsupported feature (fibers). `Exit.attempt` and the operations of
 //! `Std.Cause` run on the current fiber, so they are supported (`emit::runtime::attempt`).
 
 use super::*;

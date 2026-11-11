@@ -132,7 +132,7 @@ fn spec_test_console() {
 import Std.Console.{Console}
 import Std.State.{State}
 
-fn greet(id: Int) -> () use { Console } {
+fn greet(id: Int) -> () uses { Console } {
   (use Console).print_line("Hello, alice!")
 }
 
@@ -145,12 +145,12 @@ handler TestConsole: Console {
 }
 
 fn test_greets() {
-  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+  (_, lines) = State.run([], || with TestConsole { greet(1) })
   assert lines == ["Hello, alice!"]
 }
 
 fn captured() {
-  State.run([], fn() { with TestConsole { greet(1) } })
+  State.run([], || with TestConsole { greet(1) })
 }
 "#
     ));
@@ -168,13 +168,13 @@ import Std.Duration.{Duration}
 
 handler TestClock: Clock {
   suspend fn sleep(ms, resume) {
-    (use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int64.from_int(ms))) })
+    (use State[Instant]).update(|t| Instant.add(t, Duration.milliseconds(Int64.from_int(ms))))
     resume(())
   }
   fn now() { (use State[Instant]).get() }
 }
 
-fn elapsed() -> Duration use { Clock } {
+fn elapsed() -> Duration uses { Clock } {
   clock = use Clock
   start = clock.now()
   clock.sleep(1500)
@@ -183,7 +183,7 @@ fn elapsed() -> Duration use { Clock } {
 
 fn test_elapsed() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (d, last) = State.run(start, fn() { with TestClock { elapsed() } })
+  (d, last) = State.run(start, || with TestClock { elapsed() })
   assert Duration.to_milliseconds(d) == Int64.from_int(1500)
 }
 "#
@@ -210,14 +210,14 @@ handler Empty: State[String] {
   fn update(f) { () }
 }
 
-fn both() -> () use { State[Int], State[String] } {
+fn both() -> () uses { State[Int], State[String] } {
   n = (use State[Int]).get()
   s = (use State[String]).get()
   ()
 }
 
 fn inferred() {
-  (use State[Int]).update(fn(n) { n + 1 })
+  (use State[Int]).update(|n| n + 1)
   (use State[String]).get()
 }
 
@@ -226,15 +226,15 @@ fn only_int() { with Zero { both() } }
 fn both_provided() { with Zero, Empty { both() } }
 
 fn counted() {
-  State.run(0, fn() {
-    (use State[Int]).update(fn(n) { n + 1 })
+  State.run(0, || {
+    (use State[Int]).update(|n| n + 1)
     (use State[String]).get()
   })
 }
 
 fn nested() {
-  State.run(0, fn() {
-    State.run("", fn() { inferred() })
+  State.run(0, || {
+    State.run("", || inferred())
   })
 }
 
@@ -250,21 +250,21 @@ fn generic_state() {
         r#"
 import Std.State.{State}
 
-fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+fn modify[S](f: fn(S) -> S fails {} uses {}) -> S uses { State[S] } {
   st = use State[S]
   st.update(f)
   st.get()
 }
 
-fn bump() { modify(fn(n) { n + 1 }) }
+fn bump() { modify(|n| n + 1) }
 
-fn run_bump() { State.run(41, fn() { bump() }) }
+fn run_bump() { State.run(41, || bump()) }
 
-fn shout() { State.run("a", fn() { modify(fn(s) { String.append(s, "!") }) }) }
+fn shout() { State.run("a", || modify(|s| String.append(s, "!"))) }
 
-fn peek() { modify(fn(x) { x }) }
+fn peek() { modify(|x| x) }
 
-fn peek_int() { State.run(1, fn() { peek() }) }
+fn peek_int() { State.run(1, || peek()) }
 "#
     ));
 }
@@ -299,13 +299,13 @@ handler TooMany: State[Int, String] {
 
 fn omitted() { (use State).get() }
 
-fn clause() -> () use State { () }
+fn clause() -> () uses { State } { () }
 
 fn logger() { (use Logger[Int]).info("a") }
 
 fn wrong_value() { (use State[Int]).set("a") }
 
-fn undeclared() -> () use State[Int] {
+fn undeclared() -> () uses { State[Int] } {
   (use State[String]).set("a")
 }
 

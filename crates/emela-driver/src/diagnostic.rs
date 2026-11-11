@@ -127,9 +127,13 @@ impl Diagnostic {
 
     /// The code (E01xx) and English message come from emela-syntax.
     pub fn from_syntax(file: FileId, diagnostic: &emela_syntax::Diagnostic) -> Self {
-        Diagnostic::error(&diagnostic.message)
+        let out = Diagnostic::error(&diagnostic.message)
             .with_code(diagnostic.code.as_str())
-            .with_span(Span::new(file, diagnostic.range))
+            .with_span(Span::new(file, diagnostic.range));
+        match &diagnostic.help {
+            Some(help) => out.with_help(help),
+            None => out,
+        }
     }
 
     /// Points to a file by ID if its path is in the source table, otherwise keeps the path.
@@ -747,8 +751,13 @@ impl Diagnostic {
             ),
             TypeDiagnosticKind::EscapeArmNotError => (
                 Severity::Error,
-                Some(code::ESCAPE_ARM_NOT_ERROR),
-                "escape arms must match an error constructor".to_owned(),
+                Some(code::INVALID_ESCAPE_ARM),
+                "escape arms must match an error constructor or `_`".to_owned(),
+            ),
+            TypeDiagnosticKind::EscapeWildcardGuard => (
+                Severity::Error,
+                Some(code::INVALID_ESCAPE_ARM),
+                "a `_` escape arm cannot have a guard".to_owned(),
             ),
             TypeDiagnosticKind::ErrorSetMismatch { expected, found } => (
                 Severity::Error,
@@ -759,6 +768,11 @@ impl Diagnostic {
                 Severity::Warning,
                 Some(code::UNRAISED_ERROR),
                 format!("error `{error}` is never raised here"),
+            ),
+            TypeDiagnosticKind::NoErrorRaised => (
+                Severity::Warning,
+                Some(code::UNRAISED_ERROR),
+                "no error is raised here".to_owned(),
             ),
             TypeDiagnosticKind::UnusedLabelProvider { label } => (
                 Severity::Warning,
@@ -823,11 +837,11 @@ impl Diagnostic {
                     EffectContext::Declared => {
                         help = Some(match scope {
                             Some(scope) => format!(
-                                "add it to `use` or provide it with `with` outside `{scope}`"
+                                "add it to `uses` or provide it with `with` outside `{scope}`"
                             ),
-                            None => "add it to `use` or provide it with `with`".to_owned(),
+                            None => "add it to `uses` or provide it with `with`".to_owned(),
                         });
-                        format!("{list} {verb} not declared in `use`")
+                        format!("{list} {verb} not declared in `uses`")
                     }
                     EffectContext::Const => format!("constant values cannot use {list}"),
                     EffectContext::LayerArg(arg) => {
@@ -861,7 +875,7 @@ impl Diagnostic {
             TypeDiagnosticKind::EffectSetMismatch { expected, found } => (
                 Severity::Error,
                 Some(code::EFFECT_SET_MISMATCH),
-                format!("effect set mismatch: expected `use {expected}`, found `use {found}`"),
+                format!("effect set mismatch: expected `uses {expected}`, found `uses {found}`"),
             ),
             TypeDiagnosticKind::MissingHandlerOps { handler, ops } => (
                 Severity::Error,
@@ -889,7 +903,7 @@ impl Diagnostic {
             ),
             TypeDiagnosticKind::ExternalOutsideHandler { name, suspend } => {
                 if !*suspend {
-                    help = Some("declare it with `use {}` if it has no side effects".to_owned());
+                    help = Some("declare it with `uses {}` if it has no side effects".to_owned());
                 }
                 (
                     Severity::Error,
@@ -1348,7 +1362,7 @@ impl Diagnostic {
                 Severity::Error,
                 Some(code::IMMEDIATE_ON_NON_EFFECT),
                 format!(
-                    "`Immediate` can only constrain effect sets, but `{param}` is not used in `use`"
+                    "`Immediate` can only constrain effect sets, but `{param}` is not used in `uses`"
                 ),
             ),
         };

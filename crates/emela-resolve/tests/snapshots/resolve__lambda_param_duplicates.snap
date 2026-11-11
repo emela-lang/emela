@@ -1,7 +1,7 @@
 ---
 source: crates/emela-resolve/tests/resolve.rs
-expression: "diagnostics(&[(\"main.emel\",\nr##\"fn f() {\n  g = fn(x, x) { x }\n  h = fn(x, (x, y)) { y }\n  k = fn((a, b), [a, ..]) { b }\n}\n\"##,)])"
+expression: "diagnostics(&[(\"main.emel\",\nr##\"fn f() {\n  g = |x, x| x\n  h = |x, (x, y)| y\n  k = |(a, b), [a, ..]| b\n}\n\"##,)])"
 ---
-error src/main.emel@21..22 `x`: `x` is bound twice
-error src/main.emel@43..44 `x`: `x` is bound twice
-error src/main.emel@74..75 `a`: `a` is bound twice
+error src/main.emel@19..20 `x`: `x` is bound twice
+error src/main.emel@35..36 `x`: `x` is bound twice
+error src/main.emel@60..61 `a`: `a` is bound twice

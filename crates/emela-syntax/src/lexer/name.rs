@@ -142,6 +142,7 @@ mod tests {
         check(&[
             ("derive", Some(LOWER_NAME)),
             ("fails", Some(LOWER_NAME)),
+            ("uses", Some(LOWER_NAME)),
             ("release", Some(LOWER_NAME)),
             ("panic", Some(LOWER_NAME)),
             ("resume", Some(LOWER_NAME)),

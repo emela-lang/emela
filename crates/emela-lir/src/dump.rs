@@ -524,6 +524,7 @@ pub fn core_ty(core: &emela_core::Module, ty: TypeId) -> String {
         Type::Bool => "Bool".into(),
         Type::String => "String".into(),
         Type::Bytes => "Bytes".into(),
+        Type::Array(t) => format!("Array[{}]", core_ty(core, *t)),
         Type::Unit => "()".into(),
         Type::Never => "Never".into(),
         Type::Tuple(ts) => format!("({})", list(ts)),

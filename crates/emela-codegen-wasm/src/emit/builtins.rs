@@ -132,6 +132,76 @@ impl<'m> Builder<'m> {
                 self.operand(cx, ins, &args[0]);
                 self.assign(cx, ins, dst, Repr::Ref);
             }
+            // Arrays (`runtime/array.rs`). The functions that make an array from lists are given
+            // its descriptor, which says whether the elements are references.
+            ArrayFromList | ArrayConcat => {
+                let Some(d) = dst else {
+                    self.internal(format!("array without a destination in {}", cx.f.name));
+                    return;
+                };
+                let desc = self.array_desc(cx.f.vars[d].ty);
+                self.operand(cx, ins, &args[0]);
+                ins.i32_const(desc as i32);
+                let f = self.rt(if op == ArrayFromList {
+                    "array_from_list"
+                } else {
+                    "array_concat"
+                });
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            ArrayToList => {
+                let elem_ref = match &args[0] {
+                    Operand::Var(v) => self.array_elem_repr(cx.f.vars[*v].ty) == Repr::Ref,
+                    Operand::Const(_) => false,
+                };
+                self.operand(cx, ins, &args[0]);
+                let cons = if elem_ref {
+                    self.cons_ref_desc
+                } else {
+                    self.cons_val_desc
+                };
+                ins.i32_const(cons as i32);
+                let f = self.rt("array_to_list");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            ArraySize => {
+                self.operand(cx, ins, &args[0]);
+                ins.i32_load(mem(HDR, 4));
+                self.assign(cx, ins, dst, Repr::I32);
+            }
+            ArrayGet => self.option_call(cx, ins, dst, args, "array_get"),
+            // Consumes the array (`heap::rc`); the value goes as an 8-byte word.
+            ArraySet => {
+                self.operand(cx, ins, &args[0]);
+                self.operand(cx, ins, &args[1]);
+                match Self::operand_repr(cx.f, &args[2]) {
+                    Repr::I32 | Repr::Ref => {
+                        self.operand(cx, ins, &args[2]);
+                        ins.i64_extend_i32_u();
+                    }
+                    Repr::I64 => self.operand(cx, ins, &args[2]),
+                    Repr::F64 => {
+                        self.operand(cx, ins, &args[2]);
+                        ins.i64_reinterpret_f64();
+                    }
+                    Repr::Void => {
+                        ins.i64_const(0);
+                    }
+                }
+                let f = self.rt("array_set");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            ArraySlice => {
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                let f = self.rt("array_slice");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
             IntToString => {
                 self.operand(cx, ins, &args[0]);
                 let f = self.rt("int_to_string");

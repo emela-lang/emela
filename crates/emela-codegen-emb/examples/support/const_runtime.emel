@@ -1,7 +1,7 @@
 const VALUE = {
   dbg("once")
   text = Int.to_string(42)
-  (Some(text), [text], fn(n: Int) { n + String.byte_size(text) })
+  (Some(text), [text], |n: Int| n + String.byte_size(text))
 }
 pub fn read() -> Int {
   (option, values, apply) = VALUE

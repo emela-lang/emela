@@ -14,8 +14,8 @@ fn run(src: &str) -> String {
 #[test]
 fn fn_labels() {
     insta::assert_snapshot!(run(r#"
-fn connect(host: String, port: Int) -> () use {} { todo() }
-fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] use {} { todo() }
+fn connect(host: String, port: Int) -> () uses {} { todo() }
+fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] uses {} { todo() }
 fn inferred(x: Int) { x }
 "#));
 }

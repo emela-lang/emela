@@ -21,6 +21,7 @@ The following words act as keywords only in the positions shown. In any other po
 | Word | Position |
 |---|---|
 | `fails` | Function signatures and function types |
+| `uses` | Function signatures and function types |
 | `derive` | The end of a type, enum, or error declaration, and the body of a trait |
 | `init` `release` | The body of a handler |
 | `of` `default` | Label declarations (8.9) |

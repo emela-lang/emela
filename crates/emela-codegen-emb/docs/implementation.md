@@ -21,8 +21,8 @@
 正常なFlow入力への対応から、任意のsourceが既存frontend経由でそのFlowになることは導けない。特に次の境界がある。
 
 - **成長する再帰型**：`Grow[A]` のフィールドに `Grow[List[A]]` が現れるような型族を含むCore moduleは、未使用の定義でも `flow_from_core` / `compile` が `Unsupported` として拒否する。[`derived::check_core_input`](../src/derived.rs) と [`type_expansion`](../src/type_expansion.rs) による入口検査である。Flow producerが既存IRで有限の入力を作り、必要な構造操作を `derived_binding` で表せば、`compile_flow` の対応対象になる。sourceからそのFlowを自動生成する接続はこのPRに含まない。
-- **直接の関数値const**：現在の本体 [`emela-core/src/lower.rs`](../../emela-core/src/lower.rs) の `signature` は、constが返すfn型を通常関数の宣言と同じように扱うケースがあり、`const APPLY = fn(x: Int) { x + 1 }` を正しいCoreへlowerできない。値として返す関数のeffectをconst initializerのevidence引数にしない処理も必要になる。sourceの回帰試験では関数値を `(関数, ())` のtupleへ格納して呼び出す。backendのconst cache・closure対応は有効なCore/Flow入力に対するものであり、このsource loweringの修正は含まない。
-- **汎化effectのAsyncへの具体化**：現在の本体 [`emela-core/src/mono.rs`](../../emela-core/src/mono.rs) には、未確定effect集合をAsyncへ具体化した際にLambdaと間接Callの `suspends` の印を更新できないケースがある。例は `const APPLY = fn(callback) { callback() }` を `Fiber.join` するcallbackへ適用する場合である。Flow producerは確定した型・suspend/failure/evidence ABIを与える必要がある。このPRのsource汎化const試験は同期・failure・通常effectを扱い、このAsync具体化の成功を保証しない。
+- **直接の関数値const**：現在の本体 [`emela-core/src/lower.rs`](../../emela-core/src/lower.rs) の `signature` は、constが返すfn型を通常関数の宣言と同じように扱うケースがあり、`const APPLY = |x: Int| x + 1` を正しいCoreへlowerできない。値として返す関数のeffectをconst initializerのevidence引数にしない処理も必要になる。sourceの回帰試験では関数値を `(関数, ())` のtupleへ格納して呼び出す。backendのconst cache・closure対応は有効なCore/Flow入力に対するものであり、このsource loweringの修正は含まない。
+- **汎化effectのAsyncへの具体化**：現在の本体 [`emela-core/src/mono.rs`](../../emela-core/src/mono.rs) には、未確定effect集合をAsyncへ具体化した際にLambdaと間接Callの `suspends` の印を更新できないケースがある。例は `const APPLY = |callback| callback()` を `Fiber.join` するcallbackへ適用する場合である。Flow producerは確定した型・suspend/failure/evidence ABIを与える必要がある。このPRのsource汎化const試験は同期・failure・通常effectを扱い、このAsync具体化の成功を保証しない。
 
 `derived_binding` は既存のexternal metadataを使うbackend専用契約である。型はclosedかつ有効で、Unit/Neverは引数表現がないため対象外。Eqは関数値を比較せず、Showは関数値を `<fn>` と表示する。sourceのユーザー定義Eq/Showを使う場合は、その呼出しをproducer側で残す。
 
@@ -85,7 +85,7 @@ Int / Int64の十進出力は最大11 / 20 byte、動的Float出力は最大25 b
 
 `fails` は回復可能な失敗辺として扱い、所有するerrorをcatch・上位関数・FiberのCauseへ渡す。通常のreturn/fail/break、取消、scopeの終了では必要なProtect cleanupを実行する。cleanup自身がsuspendする場合も、その完了を待って元の結果や失敗を配送する。永久に完了しないcleanupを時間だけで強制終了する契約はない。
 
-**defectは即時停止契約である。** kind・messageのpointer・byte長を `_Noreturn emela_board_defect` へ渡す。Protect cleanupや参照解放を行わず、Fiber.attemptでもDieとして捕捉しない。通常のEmelaのdefect unwindと異なるtarget固有の意味論であり、hookが安全な出力状態への移行・停止/resetを担当する。公開入口まで届いた未処理のfailsは `EMELA_DEFECT_UNHANDLED_ERROR` と静的message `unhandled error` にする。
+**defectは即時停止契約である。** kind・messageのpointer・byte長を `_Noreturn emela_board_defect` へ渡す。Protect cleanupや参照解放を行わず、Exit.attemptでもDieとして捕捉しない。通常のEmelaのdefect unwindと異なるtarget固有の意味論であり、hookが安全な出力状態への移行・停止/resetを担当する。公開入口まで届いた未処理のfailsは `EMELA_DEFECT_UNHANDLED_ERROR` と静的message `unhandled error` にする。
 
 suspendは固定pool上の継続と協調schedulerで実装する。Scope/Fork/Join/Await/Interrupt、Deferred、Cause、suspend closure、handlerのresume、managed値の保持・解放を扱う。schedulerはmain文脈で呼ぶ。`emela_scheduler_run(budget)` はdispatchまたはeventの処理数を制限するが、同期の同一fiber内resumeや次のsuspendまでの処理時間を分割する上限ではない。WCET・任意の応答時間・全stack使用量の保証は提供しない。
 
@@ -170,7 +170,7 @@ host試験は生成Cの値・制御・所有権・容量defectを確認する。
 <!-- flow-audit:SwitchOn Tag Lit -->
 <!-- flow-audit:CaseKey Variant Lit -->
 <!-- flow-audit:Stage Flow ClosuresConverted DefectsExplicit StateMachines RefCounted -->
-<!-- flow-audit:Builtin StringLength StringByteSize StringAppend StringContains StringStartsWith StringEndsWith StringSplit StringChars StringJoin StringTrim StringCodePoints StringFromCodePoint IntToString IntParse IntCheckedAdd IntBitAnd IntBitOr IntBitXor IntBitNot IntShiftLeft IntShiftRight IntShiftRightUnsigned Int64FromInt Int64ToString Int64ToInt Int64BitAnd Int64BitOr Int64BitXor Int64BitNot Int64ShiftLeft Int64ShiftRight Int64ShiftRightUnsigned FloatToString FloatFromInt FloatParse FloatFloor FloatCeil FloatRound FloatTruncate BytesFromList BytesToList BytesSize BytesGet BytesSlice BytesConcat BytesEncodeUtf8 BytesDecodeValidUtf8 Panic Todo Dbg Inspect ShowNested CellNew CellGet CellSet ShowString DebugPrint AssertFail -->
+<!-- flow-audit:Builtin StringLength StringByteSize StringAppend StringContains StringStartsWith StringEndsWith StringSplit StringChars StringJoin StringTrim StringCodePoints StringFromCodePoint IntToString IntParse IntCheckedAdd IntBitAnd IntBitOr IntBitXor IntBitNot IntShiftLeft IntShiftRight IntShiftRightUnsigned Int64FromInt Int64ToString Int64ToInt Int64BitAnd Int64BitOr Int64BitXor Int64BitNot Int64ShiftLeft Int64ShiftRight Int64ShiftRightUnsigned FloatToString FloatFromInt FloatParse FloatFloor FloatCeil FloatRound FloatTruncate BytesFromList BytesToList BytesSize BytesGet BytesSlice BytesConcat BytesEncodeUtf8 BytesDecodeValidUtf8 ArrayFromList ArrayToList ArraySize ArrayGet ArraySet ArraySlice ArrayConcat Panic Todo Dbg Inspect ShowNested CellNew CellGet CellSet ShowString DebugPrint AssertFail -->
 <!-- flow-audit:RuntimeOp ShowString DebugPrint Retire Defect DefectAt DefectTake DefectResume Hold Unhold Yield YieldPerform -->
 
 ### Value
@@ -357,6 +357,13 @@ host試験は生成Cの値・制御・所有権・容量defectを確認する。
 | `Builtin::BytesConcat` | BytesのListを結合する（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
 | `Builtin::BytesEncodeUtf8` | StringのUTF-8 byte列（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
 | `Builtin::BytesDecodeValidUtf8` | 検査済みUTF-8をStringにする（`[api.std.bytes]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのBytes表現は未定。 |
+| `Builtin::ArrayFromList` | ListからArrayを作る（`[api.std.array]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのArray表現は未定。 |
+| `Builtin::ArrayToList` | ArrayをListにする（`[api.std.array]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのArray表現は未定。 |
+| `Builtin::ArraySize` | 要素数（`[api.std.array]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのArray表現は未定。 |
+| `Builtin::ArrayGet` | 位置の要素をOptionで返す（`[api.std.array]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのArray表現は未定。 |
+| `Builtin::ArraySet` | 位置の要素を置き換えたArray。範囲外はdefect（`[api.std.array]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのArray表現は未定。 |
+| `Builtin::ArraySlice` | 範囲を切り出す（`[api.std.array]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのArray表現は未定。 |
+| `Builtin::ArrayConcat` | ArrayのListを結合する（`[api.std.array]`） | 未対応 | `emit_builtin`は`unsupported`を返す | — | embeddedのArray表現は未定。 |
 | `Builtin::Panic` | message付きdefectを発生させる | Flow禁止（lower先に対応） | `from_core::Lower::builtin`、`emit_return`のDefect分岐、`lib::verify_flow`の入口guard | `sends_dynamic_defect_string_views_to_the_board_hook`、`rejects_source_builtins_that_must_lower_to_flow_control_or_runtime` | sourceのlower先は実装済み。生BuiltinはInvalidFlowIr。組み込み契約に従いdefect時はcleanupを省略する。 |
 | `Builtin::Todo` | 未実装defectを発生させる | Flow禁止（lower先に対応） | `from_core::Lower::builtin`、`emit_return`のDefect分岐、入口guard | `classifies_a_static_todo_defect`、`rejects_source_builtins_that_must_lower_to_flow_control_or_runtime` | 同じlower経路でTODO kindに分類。生BuiltinはInvalidFlowIr。defectの即時停止契約を維持。 |
 | `Builtin::AssertFail` | 失敗したassertのdefectを場所つきで発生させる | Flow禁止（lower先に対応） | `from_core::Lower::builtin`、`emit_return`のDefect分岐、入口guard | `rejects_source_builtins_that_must_lower_to_flow_control_or_runtime` | `Term::Defect`の場所はboard hookに渡さず、messageだけを使う。生BuiltinはInvalidFlowIr。 |

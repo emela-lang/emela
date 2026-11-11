@@ -48,24 +48,24 @@ impl Printer {
     /// Also prints effect operations and handler `init` and `release`.
     ///
     /// `@external(...)⏎ [pub] [opaque] type Name[A](x: Int) derive Eq`
-    /// `[pub] [suspend] fn name[A](x: Int) -> T fails E use R { ... }`
+    /// `[pub] [suspend] fn name[A](x: Int) -> T fails E uses { R } { ... }`
     ///
     /// Each annotation goes on its own line. Type parameter, parameter and field lists attach
     /// to the name.
     pub(crate) fn decl_seq(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
-        // The `fails` and `use` clauses read so far, put into `out` as one group (below).
+        // The `fails` and `uses` clauses read so far, put into `out` as one group (below).
         let mut clauses: Option<Doc> = None;
         let mut first = true;
         for child in significant_children(node) {
-            // `fails` and `use` clauses go on their own lines, indented, when they do not fit on
+            // `fails` and `uses` clauses go on their own lines, indented, when they do not fit on
             // the line (rule 4 of spec 2.5), and stay there if the source had them there, like
             // `derive`. Both clauses are one group, so they break together. The group comes after
             // the parameter list, so a signature that does not fit moves its clauses first, and
             // the parameter list breaks only if the first line is still too long; a parameter
             // list already broken keeps the clauses on its last line while they fit. The body's
             // `{` stays on the last line. Each clause itself never breaks.
-            if matches!(child.kind(), FAILS_CLAUSE | USE_CLAUSE) {
+            if matches!(child.kind(), FAILS_CLAUSE | USES_CLAUSE) {
                 let on_next_line = first_significant_token(child.as_node().unwrap())
                     .is_some_and(|t| newline_before(&t));
                 let brk = self.brk(on_next_line);

@@ -17,26 +17,26 @@ handler Lines: Core.State[List[String]] {
   fn update(f) { () }
 }
 
-fn count() -> Int use State[Int] {
+fn count() -> Int uses { State[Int] } {
   st = use State[Int]
   (use State[Int]).set(st.get() + 1)
   st.get()
 }
 
-fn both() use { State[Int], Log, State[(Int, String)] } {
+fn both() uses { State[Int], Log, State[(Int, String)] } {
   ()
 }
 
 pub fn run[S, A, E, R](
   initial: S,
-  body: fn() -> A fails E use { State[S], R },
-) -> (A, S) fails E use R {
+  body: fn() -> A fails E uses { State[S], R },
+) -> (A, S) fails E uses { R } {
   todo()
 }
 
 # 操作の型引数（8.1，11.2，17.3 の op_sig）．組み込みのエフェクトだけに許すのは型検査で見る．
 pub effect Scope[E, R] {
-  fn fork[A](f: fn() -> A fails E use R) -> Fiber[A]
+  fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]
   fn deferred[A]() -> Deferred[A]
   suspend fn both[A, B](a: A, b: B) -> (A, B)
 }

@@ -112,7 +112,7 @@ pub enum LocalKind {
     /// `self`. Written as a parameter in impls and traits; implicit in handlers.
     SelfParam,
     LambdaParam,
-    /// The parameter in place of a pattern of a lambda (`fn((a, b)) { ... }`, spec 6.1). It has
+    /// The parameter in place of a pattern of a lambda (`|(a, b)| ...`, spec 6.1). It has
     /// no name in scope; the body starts with a binding of the pattern to it. The name is the
     /// pattern's text, for display.
     PatParam,
@@ -197,7 +197,7 @@ pub struct ErrorSet {
     pub span: Span,
 }
 
-/// The `use` clause. Elements point to effects or type parameters. `use {}` is empty.
+/// The `uses` clause. Elements point to effects or type parameters. `uses {}` is empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSet {
     pub items: Vec<EffectRef>,
@@ -570,7 +570,7 @@ pub struct TypeItem {
     pub fields: Fields,
     pub derives: Vec<(Res, Span)>,
     /// A built-in type of the bundled sources, marked with `@intrinsic` (`Std.Bytes.Bytes`,
-    /// `[kw.annotation]`). Its values are represented by the runtime.
+    /// `Std.Array.Array`, `[kw.annotation]`). Its values are represented by the runtime.
     pub is_intrinsic: bool,
 }
 

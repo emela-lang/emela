@@ -407,7 +407,18 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         let mut type_diagnostics: Vec<Diagnostic> = types
             .diags
             .iter()
-            .map(|d| Diagnostic::from_type(d, &types.ty_table.cons, &analysis.files))
+            .map(|d| {
+                let out = Diagnostic::from_type(d, &types.ty_table.cons, &analysis.files);
+                let at_or_line = d.span.is_some_and(|s| {
+                    self.parse_of(s.module)
+                        .is_some_and(|parse| last_lambda_after_or_line(parse, s.range))
+                });
+                if at_or_line && out.code == Some(crate::code::TYPE_MISMATCH) {
+                    out.with_help(emela_syntax::rewrite::OR_AT_LINE_START_HELP)
+                } else {
+                    out
+                }
+            })
             .chain(test_diagnostics)
             .chain(crate::actions::incomplete_impl_diagnostics(
                 &hir,
@@ -600,6 +611,29 @@ fn entry_main(hir: &Program, entry: ModuleId) -> Option<DefId> {
         let data = &hir.defs[def];
         data.name == "main" && data.kind == DefKind::Fn
     })
+}
+
+/// Whether `range` is an anonymous function that starts a line with `||` and is the last
+/// statement of its block. A type mismatch there gets the help of E0149 (`[diag.list]`): the line
+/// was probably meant to continue the previous one with the logical or.
+fn last_lambda_after_or_line(parse: &Parse, range: line_index::TextRange) -> bool {
+    let root = parse.syntax();
+    let Some(lambda) = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::LAMBDA_EXPR && n.text_range() == range)
+    else {
+        return false;
+    };
+    let last_in_block = lambda.parent().is_some_and(|block| {
+        block.kind() == SyntaxKind::BLOCK_EXPR
+            && block
+                .children()
+                .filter(|n| n.kind() != SyntaxKind::ERROR)
+                .last()
+                .as_ref()
+                == Some(&lambda)
+    });
+    last_in_block && emela_syntax::rewrite::starts_line_with_or(&lambda)
 }
 
 #[cfg(test)]

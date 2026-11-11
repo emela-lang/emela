@@ -14,22 +14,22 @@ handler Board: Device {
   suspend fn packet(value,resume) { resume(packet(value)) }
   suspend fn text(value,resume) { resume(text(value)) }
 }
-pub fn exchange(value: Packet) -> Packet use Async {
+pub fn exchange(value: Packet) -> Packet uses { Async } {
   with Board { (use Device).packet(value) }
 }
-pub fn echoed(value: String) -> String use Async {
+pub fn echoed(value: String) -> String uses { Async } {
   with Board { (use Device).text(value) }
 }
-pub fn scoped(value: Packet) -> Packet use Async {
-  with Board { Fiber.scope(fn() {
-    child = Fiber.fork(fn() { (use Device).packet(value) })
+pub fn scoped(value: Packet) -> Packet uses { Async } {
+  with Board { Fiber.scope(|| {
+    child = Fiber.fork(|| (use Device).packet(value))
     Fiber.join(child)
   }) }
 }
-pub fn deferred(value: Packet) -> Packet use Async {
-  with Board { Fiber.scope(fn() {
+pub fn deferred(value: Packet) -> Packet uses { Async } {
+  with Board { Fiber.scope(|| {
     completion: Deferred[Packet] = (use Scope).deferred()
-    Fiber.fork(fn() { Deferred.complete(completion,(use Device).packet(value)) })
+    Fiber.fork(|| Deferred.complete(completion,(use Device).packet(value)))
     Deferred.await(completion)
   }) }
 }

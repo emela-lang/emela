@@ -86,16 +86,24 @@ static bool equals(const char *a, const char *b) {
 static bool continues_line(TSLexer *lexer, const bool *valid_symbols) {
   int32_t c = lexer->lookahead;
   switch (c) {
-    // Rule 1: binary operators (except `-`) and `.`. Rule 3: `|`.
+    // Rule 1: binary operators (except `-` and `||`) and `.`.
     case '*':
     case '/':
     case '%':
     case '+':
     case '<':
     case '>':
-    case '|':
     case '.':
       return true;
+    // `|>` continues (rule 1). `||` starts a lambda without parameters, and `|` a lambda,
+    // except after the error set of a fails clause, where `|` continues it (rule 5). The scanner
+    // keeps no state, so it takes the signatures for those places, as the grammar marks them;
+    // an error set continued in the type annotation of a binding is not read.
+    case '|':
+      advance(lexer);
+      if (lexer->lookahead == '>') return true;
+      if (lexer->lookahead == '|') return false;
+      return valid_symbols[SIGNATURE_CONTINUES];
     case '=':
     case '!':
       advance(lexer);
@@ -121,9 +129,18 @@ static bool continues_line(TSLexer *lexer, const bool *valid_symbols) {
     skip_trivia(lexer);
     return lexer->lookahead == '{';
   }
-  // Rule 4: inside a signature.
-  if (equals(name, "fails") || equals(name, "use")) {
-    return valid_symbols[SIGNATURE_CONTINUES];
+  // Rule 4: `fails` or `uses` followed on the same line by a type name, an uppercase name or
+  // `{`. As names they are never followed by one, so this needs no state.
+  if (equals(name, "fails") || equals(name, "uses")) {
+    while (is_blank(lexer->lookahead)) advance(lexer);
+    return (lexer->lookahead >= 'A' && lexer->lookahead <= 'Z') || lexer->lookahead == '{';
+  }
+  // The old clause `use` on its own line (E0147) continues a signature, as the compiler reads
+  // it.
+  if (equals(name, "use")) {
+    if (!valid_symbols[SIGNATURE_CONTINUES]) return false;
+    while (is_blank(lexer->lookahead)) advance(lexer);
+    return (lexer->lookahead >= 'A' && lexer->lookahead <= 'Z') || lexer->lookahead == '{';
   }
   // [grammar.decl]: `derive` on the line after a type, enum or error declaration.
   if (equals(name, "derive")) return valid_symbols[DERIVE_CONTINUES];

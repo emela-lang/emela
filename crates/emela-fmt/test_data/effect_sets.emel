@@ -3,14 +3,14 @@ effect Quiet {
   fn hush() -> ()
 }
 
-fn run[R](f: fn() -> () use {Quiet,R}) -> () use R {
+fn run[R](f: fn() -> () uses {Quiet,R}) -> () uses { R } {
   with Silent { f() }
 }
 
-fn both[R](f: fn() -> () use {   R, Quiet, Http.Client }) -> () use { R,Http.Client } {
+fn both[R](f: fn() -> () uses {   R, Quiet, Http.Client }) -> () uses { R,Http.Client } {
   with Silent { f() }
 }
 
-fn long[R](f: fn() -> () use { Quiet, Logger, Clock, Random, Http.Client, R }) -> () use { Logger, Clock, Random, Http.Client, R } {
+fn long[R](f: fn() -> () uses { Quiet, Logger, Clock, Random, Http.Client, R }) -> () uses { Logger, Clock, Random, Http.Client, R } {
   with Silent { f() }
 }

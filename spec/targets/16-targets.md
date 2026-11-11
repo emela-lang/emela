@@ -8,7 +8,7 @@ The C target compiles the emitted C with cc into a native executable. It targets
 
 The embedded C target (`c-embedded`) makes C and firmware for microcontrollers (`[target.c-embedded]`). It is outside the tiers: it only builds, so it does not run the test suite, and the constructs it supports are a subset that is implementation-defined for now.
 
-The JS target assumes a host that runs on a server (Node 18 or later, and Deno and Bun with `node:` modules and `fetch`). Browsers are not a target. The platform handlers (15.2) do not specify how they behave in a browser.
+The JS target assumes a host that runs on a server (Node 22 or later, and Deno and Bun with `node:` modules and `fetch`). Browsers are not a target. The platform handlers (15.2) do not specify how they behave in a browser.
 
 ## 16.1 Numbers `[target.number]`
 
@@ -54,6 +54,7 @@ The following points are implementation-defined, and programs MUST NOT depend on
 - How traits are implemented (dictionary passing or a copy per type)
 - How continuations are implemented
 - The order of execution when several fibers can run
+- The result of a program that cannot obtain the memory it needs, including whether it is a defect, whether releases run, whether the failure can be observed at `Exit.attempt`, what, if anything, is written, and the exit status
 
 ## 16.5 Informative: intended implementation `[target.impl-hint]`
 
@@ -69,4 +70,5 @@ Informative.
 | Errors | Returned as return values | Same | Same |
 | defect | An exception of a dedicated class | Propagated explicitly through return values (no exceptions) | Same |
 | Memory management | The host's GC | Reference counting in linear memory (Perceus style) | Reference counting (Perceus style) |
+| `Array.set` (`[api.std.array]`) | Copies | Updates in place when the reference count of the argument is 1 | Same as WASM |
 | Runtime | The compiler writes it to the output directory | Linked into the emitted module | Compiled as C source together with the output |

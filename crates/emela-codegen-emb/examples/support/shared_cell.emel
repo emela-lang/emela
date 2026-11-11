@@ -6,10 +6,10 @@ effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
 
 pub fn escaped(n: Int) -> fn() -> Int {
-  (reader, _) = State.run(n, fn() {
+  (reader, _) = State.run(n, || {
     state = use State[Int]
-    fn() {
-      state.update(fn(x) { x + 1 })
+    || {
+      state.update(|x| x + 1)
       state.get()
     }
   })
@@ -19,12 +19,12 @@ pub fn escaped_result(n: Int) -> Int {
   reader = escaped(n)
   reader() + reader()
 }
-pub fn shared(n: Int) -> String use Async {
+pub fn shared(n: Int) -> String uses { Async } {
   with Waiting {
-  (result, final) = State.run(Int.to_string(n), fn() {
+  (result, final) = State.run(Int.to_string(n), || {
     state = use State[String]
-    Fiber.scope(fn() {
-      child = Fiber.fork(fn() {
+    Fiber.scope(|| {
+      child = Fiber.fork(|| {
         (use Wait).get(10)
         state.set(String.append(state.get(), " child"))
       })
@@ -38,9 +38,9 @@ pub fn shared(n: Int) -> String use Async {
   }
 }
 error Boom(message: String) derive Show
-pub fn failed(n: Int, bad: Bool) -> String use Async {
+pub fn failed(n: Int, bad: Bool) -> String uses { Async } {
   with Waiting {
-    (value, _) = State.run(Int.to_string(n), fn() {
+    (value, _) = State.run(Int.to_string(n), || {
         state = use State[String]
         (use Wait).get(30)
         state.set(String.append(state.get(), " failure"))
@@ -53,7 +53,7 @@ pub fn failed(n: Int, bad: Bool) -> String use Async {
 pub enum Payload { Data((String, List[String])) }
 pub fn composite(n: Int) -> String {
   text = Int.to_string(n)
-  (value, _) = State.run(Data((text, [text])), fn() {
+  (value, _) = State.run(Data((text, [text])), || {
     state = use State[Payload]
     original = state.get()
     state.set(original)

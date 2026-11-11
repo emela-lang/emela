@@ -48,10 +48,10 @@ handler Fixed: Clock {
 }
 
 fn main() {
-  dbg(List.map([1, 2], fn(x) { x + 1 }))
+  dbg(List.map([1, 2], |x| x + 1))
   dbg(List.map([\"a\"], String.length))
   with Fixed {
-    dbg(List.map([1], fn(x) { x + (use Clock).now() }))
+    dbg(List.map([1], |x| x + (use Clock).now()))
   }
 }
 ",
@@ -163,26 +163,26 @@ fn state_run_and_effects_with_type_arguments() {
         "\
 import Std.State.{State}
 
-fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+fn modify[S](f: fn(S) -> S fails {} uses {}) -> S uses { State[S] } {
   (use State[S]).update(f)
   (use State[S]).get()
 }
 
-fn twice[T](f: fn(T) -> T fails {} use {}) -> T use State[T] {
+fn twice[T](f: fn(T) -> T fails {} uses {}) -> T uses { State[T] } {
   modify(f)
   modify(f)
 }
 
-fn both() -> String use { State[Int], State[String] } {
-  n = modify(fn(n) { n + 1 })
+fn both() -> String uses { State[Int], State[String] } {
+  n = modify(|n| n + 1)
   (use State[String]).set(\"n=#{n}\")
-  twice(fn(s) { String.append(s, \"!\") })
+  twice(|s| String.append(s, \"!\"))
 }
 
 fn main() {
-  dbg(State.run(10, fn() { State.run(\"\", fn() { both() }) }))
+  dbg(State.run(10, || State.run(\"\", || both())))
   g = modify
-  dbg(State.run(1, fn() { g(fn(x) { x * 2 }) }))
+  dbg(State.run(1, || g(|x| x * 2)))
 }
 ",
     )]));
@@ -222,7 +222,7 @@ fn monomorphizing_twice_changes_nothing() {
         "\
 import Std.State.{State}
 
-fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+fn modify[S](f: fn(S) -> S fails {} uses {}) -> S uses { State[S] } {
   (use State[S]).update(f)
   (use State[S]).get()
 }
@@ -232,8 +232,8 @@ pub fn keep[A](x: A) -> A {
 }
 
 fn main() {
-  dbg(State.run(10, fn() { modify(fn(n) { n + 1 }) }))
-  dbg(List.map([\"a\"], fn(s) { keep(s) }))
+  dbg(State.run(10, || modify(|n| n + 1)))
+  dbg(List.map([\"a\"], |s| keep(s)))
 }
 ",
     )]));
@@ -255,14 +255,14 @@ handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
-fn naps(xs: List[Int]) -> List[Int] use Clock {
+fn naps(xs: List[Int]) -> List[Int] uses { Clock } {
   clock = use Clock
-  List.map(xs, fn(ms) { clock.sleep(ms) })
+  List.map(xs, |ms| clock.sleep(ms))
 }
 
 fn main() {
   with InstantClock { dbg(naps([1, 2])) }
-  dbg(List.map([1], fn(x) { x }))
+  dbg(List.map([1], |x| x))
 }
 ",
     )]));
@@ -276,17 +276,18 @@ fn fibers() {
     let m = mono(&lower_files(&[(
         "main.emel",
         "\
-import Std.Fiber.{Fiber, Scope, Exit}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
-fn main() -> Int use { Async } {
-  Fiber.scope(fn() {
+fn main() -> Int uses { Async } {
+  Fiber.scope(|| {
     s = use Scope
-    a = s.fork(fn() { [1] })
-    b = Fiber.fork(fn() { 2 })
+    a = s.fork(|| [1])
+    b = Fiber.fork(|| 2)
     d = s.deferred()
     Deferred.complete(d, \"x\")
-    e = Fiber.attempt(fn() { 3 })
+    e = Exit.attempt(|| 3)
     List.length(Fiber.join(a)) + Fiber.join(b)
   })
 }
@@ -311,15 +312,15 @@ handler Quiet: Log {
 }
 
 fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
-  fn(x) { g(f(x)) }
+  |x| g(f(x))
 }
 
 fn main() {
-  h = compose(fn(x) { x + 1 }, fn(y) { y * 2 })
+  h = compose(|x| x + 1, |y| y * 2)
   dbg(h(1))
   with Quiet {
-    k = compose(fn(x) { (use Log).info(\"x\")
-      x }, fn(y) { y })
+    k = compose(|x| { (use Log).info(\"x\")
+      x }, |y| y)
     dbg(k(2))
   }
 }
@@ -338,8 +339,8 @@ fn generic_roots_are_instantiated() {
             "main.emel",
             "import Std.Fiber.{Fiber, Scope}\n\
              fn child_defect() {\n\
-               Fiber.scope(fn() {\n\
-                 h = Fiber.fork(fn() { panic(\"child\") })\n\
+               Fiber.scope(|| {\n\
+                 h = Fiber.fork(|| panic(\"child\"))\n\
                  Fiber.join(h)\n\
                })\n\
              }\n\

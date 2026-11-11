@@ -2,7 +2,7 @@ import Std.State.{State}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 effect Log {
   fn log(msg: String) -> ()
@@ -36,7 +36,7 @@ handler Counter(start: Int): Store {
 
 fn lookup(keys: List[String]) -> List[String] {
   store = use Store
-  List.map(keys, fn(k) { store.get(k) })
+  List.map(keys, |k| store.get(k))
 }
 
 fn count(n: Int) -> Int {
@@ -44,7 +44,7 @@ fn count(n: Int) -> Int {
   if n == 0 {
     st.get()
   } else {
-    st.update(fn(x) { x + n })
+    st.update(|x| x + n)
     count(n - 1)
   }
 }
@@ -57,18 +57,18 @@ fn main() {
     }
     print((use Store).get("d"))
   }
-  (total, final) = State.run(0, fn() { count(100) })
+  (total, final) = State.run(0, || count(100))
   print("#{total} #{final}")
-  (lines, kept) = State.run(["start"], fn() {
+  (lines, kept) = State.run(["start"], || {
     st = use State[List[String]]
     st.set(List.append(st.get(), ["more"]))
-    st.update(fn(xs) { [List.length(xs) |> Int.to_string, ..xs] })
+    st.update(|xs| [List.length(xs) |> Int.to_string, ..xs])
     st.get()
   })
   print("#{lines} #{kept}")
-  adders = List.map([1, 2, 3], fn(n) { fn(x) { x + n } })
-  print("#{List.map(adders, fn(f) { f(10) })}")
-  compose = fn(f, g) { fn(x) { g(f(x)) } }
-  twice = compose(fn(x) { x * 2 }, fn(x) { "#{x}!" })
+  adders = List.map([1, 2, 3], |n| |x| x + n)
+  print("#{List.map(adders, |f| f(10))}")
+  compose = |f, g| |x| g(f(x))
+  twice = compose(|x| x * 2, |x| "#{x}!")
   print(twice(21))
 }

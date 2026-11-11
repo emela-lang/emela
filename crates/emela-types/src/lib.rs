@@ -1,4 +1,4 @@
-//! Type inference, inference of `fails` and `use`, trait resolution, match exhaustiveness and
+//! Type inference, inference of `fails` and `uses`, trait resolution, match exhaustiveness and
 //! capture sets.
 //!
 //! Judgements have the form `Γ ⊢ e : T ! E ; R` (spec 9.1). T is inferred with Hindley-Milner;

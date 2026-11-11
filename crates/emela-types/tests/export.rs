@@ -46,7 +46,7 @@ fn boundary_types_include_external_types_and_callbacks() {
 type Handle
 
 @export(js, "f")
-pub fn f(a: Handle, g: fn(Handle) -> Handle fails {} use {}) -> Handle { g(a) }
+pub fn f(a: Handle, g: fn(Handle) -> Handle fails {} uses {}) -> Handle { g(a) }
 "#,
     );
     assert!(found.is_empty(), "{found:?}");
@@ -103,7 +103,7 @@ fn entry_checks_the_effects_of_the_function() {
 error Timeout
 
 @export(js, "default", "serve")
-pub fn serve(app: fn(Int) -> Int fails {} use {}) -> Int { app(1) }
+pub fn serve(app: fn(Int) -> Int fails {} uses {}) -> Int { app(1) }
 "#;
     let ok = diagnostics(&format!(
         "{adapter}\n@entry(serve)\npub fn app(n: Int) -> Int {{ n }}\n"
@@ -145,7 +145,7 @@ fn entry_adapter_skips_the_first_parameter() {
     let found = diagnostics(
         r#"
 @export(js, "default", "serve")
-pub fn serve(app: fn(List[Int]) -> Int fails {} use {}, n: List[Int]) -> Int { app(n) }
+pub fn serve(app: fn(List[Int]) -> Int fails {} uses {}, n: List[Int]) -> Int { app(n) }
 "#,
     );
     // The first parameter's `List[Int]` is allowed; the second is not.

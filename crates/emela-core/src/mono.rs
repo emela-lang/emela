@@ -413,7 +413,7 @@ impl<'a> Mono<'a> {
         let b = match self.out.types[ty].clone() {
             Type::Handler(_) => true,
             Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(|&t| self.has_handler(t)),
-            Type::List(t) | Type::Cell(t) => self.has_handler(t),
+            Type::List(t) | Type::Array(t) | Type::Cell(t) => self.has_handler(t),
             Type::Fn(f) => f.params.iter().any(|&t| self.has_handler(t)) || self.has_handler(f.ret),
             _ => false,
         };
@@ -432,6 +432,7 @@ impl<'a> Mono<'a> {
         let new = match self.typer.ty(ty).clone() {
             Type::Tuple(ts) => Type::Tuple(ts.iter().map(|&t| self.import(t)).collect()),
             Type::List(t) => Type::List(self.import(t)),
+            Type::Array(t) => Type::Array(self.import(t)),
             Type::Enum(id, ts) => Type::Enum(id, ts.iter().map(|&t| self.import(t)).collect()),
             Type::Cell(t) => Type::Cell(self.import(t)),
             Type::Set(s) => Type::Set(SetSummary {
@@ -654,7 +655,9 @@ impl<'a> Mono<'a> {
                         .zip(xs)
                         .all(|(&p, &x)| self.bind_head(p, x, bound))
             }
-            (Type::List(p), Type::List(x)) => self.bind_head(*p, *x, bound),
+            (Type::List(p), Type::List(x)) | (Type::Array(p), Type::Array(x)) => {
+                self.bind_head(*p, *x, bound)
+            }
             (Type::Tuple(ps), Type::Tuple(xs)) => {
                 ps.len() == xs.len()
                     && ps
@@ -1369,8 +1372,8 @@ impl<'a> Mono<'a> {
             | Type::Unit
             | Type::Never
             | Type::Any => return true,
-            // Its Eq, Ord and Show are written in `std/bytes.emel`.
-            Type::Bytes => return false,
+            // Their Eq, Ord and Show are written in `std/bytes.emel` and `std/array.emel`.
+            Type::Bytes | Type::Array(_) => return false,
             Type::List(t) => vec![t],
             Type::Tuple(ts) => ts,
             Type::Enum(id, args) => {
@@ -1512,8 +1515,8 @@ impl<'a> Mono<'a> {
             return false;
         }
         let parts: Vec<TypeId> = match self.out.ty(ty).clone() {
-            // Its only Show is the one written in `std/bytes.emel`.
-            Type::Bytes => return true,
+            // Their only Show is the one written in `std/bytes.emel` and `std/array.emel`.
+            Type::Bytes | Type::Array(_) => return true,
             Type::List(t) => vec![t],
             Type::Tuple(ts) => ts,
             Type::Enum(id, args) => {
@@ -1812,7 +1815,7 @@ fn set_params(types: &TypeTable, ty: TypeId, out: &mut FxHashSet<usize>) {
                 set_params(types, t, out);
             }
         }
-        Type::List(t) | Type::Cell(t) => set_params(types, *t, out),
+        Type::List(t) | Type::Array(t) | Type::Cell(t) => set_params(types, *t, out),
         Type::Fn(f) => {
             for &t in &f.params {
                 set_params(types, t, out);

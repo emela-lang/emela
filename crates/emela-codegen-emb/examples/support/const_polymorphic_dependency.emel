@@ -2,7 +2,7 @@ const BASE = { dbg("BASE")
   []
 }
 const PAIR = { dbg("PAIR")
-  (BASE, fn(value) { value })
+  (BASE, |value| value)
 }
 fn integers(value: (List[Int], fn(Int) -> Int)) -> Int {
   (items, apply) = value

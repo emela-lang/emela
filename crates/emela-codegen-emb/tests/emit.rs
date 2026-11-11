@@ -46,7 +46,7 @@ fn dynamically_dispatches_through_a_fixed_heap_evidence_table() {
             "effect Counter { fn get() -> Int }\n\
              handler Answer: Counter { fn get() { 42 } }\n\
              handler Other: Counter { fn get() { 41 } }\n\
-             fn read() -> Int use Counter { (use Counter).get() }\n\
+             fn read() -> Int uses { Counter } { (use Counter).get() }\n\
              fn main() -> Int {\n\
                with Answer {\n\
                  inner = with Other { read() }\n\
@@ -74,7 +74,7 @@ fn passes_dynamic_effect_evidence_to_a_captured_closure() {
              handler Answer: Counter { fn get() { 2 } }\n\
              pub fn apply(x: Int) -> Int {\n\
                with Answer {\n\
-                 read = fn() { x + (use Counter).get() }\n\
+                 read = || x + (use Counter).get()\n\
                  read()\n\
                }\n\
              }\n",
@@ -97,7 +97,7 @@ fn state_run_shares_owned_cell_storage_with_its_handler() {
             "main.emel",
             "import Std.State.{State}\n\
              pub fn main() -> Int {\n\
-               (value, final) = State.run(1, fn() {\n\
+               (value, final) = State.run(1, || {\n\
                  state = use State[Int]\n\
                  state.set(41)\n\
                  state.get()\n\
@@ -333,7 +333,7 @@ fn captures_runtime_values_in_a_fixed_heap_closure_environment() {
     let core = support::try_lower(
         &[(
             "main.emel",
-            "pub fn apply(x: Int) -> Int {\n  add = fn(y: Int) { x + y }\n  add(2)\n}\n",
+            "pub fn apply(x: Int) -> Int {\n  add = |y: Int| x + y\n  add(2)\n}\n",
         )],
         Roots::Public,
     )
@@ -351,7 +351,7 @@ fn lifts_nested_closures_that_capture_outer_closure_values() {
     let core = support::try_lower(
         &[(
             "main.emel",
-            "pub fn apply(x: Int) -> Int {\n  outer = fn(y: Int) {\n    inner = fn(z: Int) { x + y + z }\n    inner(1)\n  }\n  outer(1)\n}\n",
+            "pub fn apply(x: Int) -> Int {\n  outer = |y: Int| {\n    inner = |z: Int| x + y + z\n    inner(1)\n  }\n  outer(1)\n}\n",
         )],
         Roots::Public,
     )
@@ -6015,13 +6015,13 @@ fn captured_sync_string_producers_return_owned_bytes_with_inferred_scratch() {
         &[(
             "main.emel",
             r#"
-pub fn formatter(n: Int) -> (fn() -> String) { fn() { Int.to_string(n) } }
+pub fn formatter(n: Int) -> (fn() -> String) { || Int.to_string(n) }
 pub fn capture(n: Int) -> (fn() -> String) {
   first = Int.to_string(n)
   String.byte_size(first)
   other = Int.to_string(n + 1)
   String.byte_size(other)
-  fn() { first }
+  || first
 }
 "#,
         )],

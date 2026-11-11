@@ -10,7 +10,7 @@
 //! const v$3 = (yield $join(a$2));                          // Fiber.join(a)
 //! ```
 //!
-//! `Fiber.attempt` follows the rules of a function value call: `$attempt` returns a generator only
+//! `Exit.attempt` follows the rules of a function value call: `$attempt` returns a generator only
 //! when `f` does.
 
 use emela_core::{

@@ -450,10 +450,10 @@ fn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }
 fn names(users: List[User], f: fn(User) -> String) -> List[String] { todo() }
 
 fn f(users: List[User]) -> Int {
-  inc = fn(x) { x + 1 }
-  typed = fn(x: Int) { x * 2 }
-  a = apply(fn(n) { n * 3 }, 1)
-  b = names(users, fn(u) { u.name })
+  inc = |x| x + 1
+  typed = |x: Int| x * 2
+  a = apply(|n| n * 3, 1)
+  b = names(users, |u| u.name)
   c = inc(1)
   a
 }
@@ -466,10 +466,10 @@ fn lambda_errors() {
 fn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }
 
 fn f() -> Int {
-  a = apply(fn(n) { "s" }, 1)
-  b = apply(fn(n, m) { n }, 1)
-  c = apply(fn(n: String) { 1 }, 1)
-  g = fn(u) { u.name }
+  a = apply(|n| "s", 1)
+  b = apply(|n, m| n, 1)
+  c = apply(|n: String| 1, 1)
+  g = |u| u.name
   1
 }
 "#));
@@ -727,11 +727,11 @@ fn lambda_param_patterns() {
 type User(id: Int, name: String)
 
 fn f(us: List[User], ps: List[(Int, Bool)], os: List[Option[Int]]) -> List[Int] {
-  a = List.map(us, fn(User(id:, ..)) { id })
-  b = List.map(ps, fn((n, _)) { n })
-  c = List.map(os, fn(Some(x)) { x })
-  d = List.map(ps, fn((n, True)) { n })
-  e = List.fold(ps, from: 0, f: fn(acc, (n, _): (Int, Bool)) { acc + n })
+  a = List.map(us, |User(id:, ..)| id)
+  b = List.map(ps, |(n, _)| n)
+  c = List.map(os, |Some(x)| x)
+  d = List.map(ps, |(n, True)| n)
+  e = List.fold(ps, from: 0, f: |acc, (n, _): (Int, Bool)| acc + n)
   List.flatten([a, b, c, d, [e]])
 }
 "#));
@@ -756,7 +756,7 @@ const BRANCH = if True { OTHER } else { 0 }
 const OTHER = BRANCH
 const LAZY = False && LAZY2
 const LAZY2 = LAZY
-const LAMBDA = fn() { LAMBDA2() }
+const LAMBDA = || LAMBDA2()
 const LAMBDA2 = LAMBDA
 const CALL = f()
 

@@ -29,10 +29,10 @@ expression: dump(&modules)
 [Handler] handler Quiet: Log
 [Layer] layer Logging { Quiet }
 [Const] const LIMIT: Int
-[Fn] fn find(id: Int) -> Point fails NotFound | Timeout use Log
+[Fn] fn find(id: Int) -> Point fails NotFound | Timeout uses { Log }
   | Finds a point, or fails.
   |
   | Indented lines stay indented:
   |
   |     find(1)
-[Fn] fn apply[A, B](x: A, f: fn(A) -> B fails E(f) use R(f)) -> B fails E(f) use R(f)
+[Fn] fn apply[A, B](x: A, f: fn(A) -> B fails E(f) uses { R(f) }) -> B fails E(f) uses { R(f) }

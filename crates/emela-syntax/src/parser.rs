@@ -42,6 +42,9 @@ pub(crate) struct Parser<'t> {
     pos: usize,
     events: Vec<Event>,
     fuel: Cell<u32>,
+    /// Reading the parameter list of an anonymous function outside any bracket opened inside it.
+    /// There a `|` closes the list instead of joining an error set (`[grammar.expr]`).
+    pub(crate) in_closure_params: bool,
 }
 
 struct ParserToken<'t> {
@@ -88,7 +91,20 @@ impl<'t> Parser<'t> {
             pos: 0,
             events: Vec::new(),
             fuel: Cell::new(FUEL),
+            in_closure_params: false,
         }
+    }
+
+    /// Runs `f` with [`Parser::in_closure_params`] set to `value`, then restores it.
+    pub(crate) fn with_closure_params<T>(
+        &mut self,
+        value: bool,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let saved = std::mem::replace(&mut self.in_closure_params, value);
+        let out = f(self);
+        self.in_closure_params = saved;
+        out
     }
 
     /// The number of tokens read, used to check that a grammar function advanced.

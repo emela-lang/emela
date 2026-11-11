@@ -190,7 +190,7 @@ pub enum SyntaxKind {
     ANNOT_ARG,
     /// `Http.serve`, the argument of `@entry` (spec 17.3 `qualified`)
     ANNOT_PATH,
-    /// `pub fn find(id: Int) -> User fails NotFound use Users { ... }`
+    /// `pub fn find(id: Int) -> User fails NotFound uses { Users } { ... }`
     FN_DECL,
     /// `type User(id: Int, name: String) derive Eq`
     TYPE_DECL,
@@ -260,7 +260,7 @@ pub enum SyntaxKind {
     TUPLE_TYPE,
     /// `(fn(Int) -> String)`
     PAREN_TYPE,
-    /// `fn(A) -> B fails E use R`
+    /// `fn(A) -> B fails E uses { R }`
     FN_TYPE,
     /// The parameters of a function type. `(A, B)`
     PARAM_TYPE_LIST,
@@ -270,8 +270,8 @@ pub enum SyntaxKind {
     FAILS_CLAUSE,
     /// `{}` `NotFound | DbError` `E`
     ERROR_SET,
-    /// `use R`
-    USE_CLAUSE,
+    /// `uses { R }`. Also the old clause `uses { R }` (E0147), read as the same node.
+    USES_CLAUSE,
     /// `{ Io, Clock }` `Users` `R`
     EFFECT_SET,
 
@@ -379,7 +379,7 @@ pub enum SyntaxKind {
     SUPPLY,
     /// `find(id) escape { NotFound(_) -> guest() }`
     ESCAPE_EXPR,
-    /// `fn(n) { n + 1 }`
+    /// `|n| n + 1`
     LAMBDA_EXPR,
     /// `(x: Int, f)`
     PARAM_LIST,

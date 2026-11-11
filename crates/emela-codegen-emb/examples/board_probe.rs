@@ -63,7 +63,7 @@ import Std.Embedded.Board.{{BoardGpio, BoardConsole, BoardClock}}
 import Std.Console.{{Console}}
 import Std.Clock.{{Clock}}
 
-pub fn main() -> Int use Async {{
+pub fn main() -> Int uses {{ Async }} {{
   with BoardGpio, BoardConsole, BoardClock {{
     gpio = use Gpio
     pin = GpioPin({pin})

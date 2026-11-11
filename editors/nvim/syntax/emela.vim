@@ -74,8 +74,8 @@ syntax keyword emelaReserved as var return while loop let mut in where do try ca
 
 " Contextual words (spec 3.2). They are keywords only in the position shown; elsewhere they are
 " ordinary names. In each pattern, the word would be a syntax error as a name.
-"   -> T fails E | F,  fails {}
-syntax match emelaContextual "\<fails\ze\s\+[A-Z{]"
+"   -> T fails E | F,  fails {},  uses { R },  uses {}
+syntax match emelaContextual "\<\%(fails\|uses\)\ze\s\+[A-Z{]"
 "   type/enum ... derive Eq, Show
 syntax match emelaContextual "\<derive\ze\s\+\u"
 "   init { ... } and release { ... } in a handler
@@ -96,6 +96,18 @@ syntax match emelaAnnotation "@\%(external\|test\|intrinsic\|internal\|deprecate
 " Operators (spec 6.6, 17.5). Longer forms first: the first alternative that matches is taken.
 
 syntax match emelaOperator "|>\|||\|->\|\.\.\|[=!<>]=\|&&\|[-+*/%!<>=|]"
+
+" The parameters of an anonymous function, `|x, (a, b): T|` (spec 6.1, 17.5). `|` and `||` start
+" one in operand position: not after a name, a number, `)` or `]`, which is where `|` joins an
+" error set and `||` is the logical or. The list ends at the next `|` on the line, so an error set
+" written in parentheses inside it (`|f: (fn() -> A fails B | C)|`) ends it early.
+syntax region emelaClosureParams matchgroup=emelaDelimiter
+      \ start="\%(\w\s*\|)\s*\|]\s*\)\@<!|[|>]\@!" end="|" oneline
+      \ contains=emelaClosureParam,emelaType,emelaConstant,emelaTypeParam,emelaConstructor,
+      \emelaKeyword,emelaSelf,emelaBoolean,emelaPreludeConstructor,emelaUnit,emelaOperator,
+      \emelaNumber
+syntax match emelaClosureParam "\<[a-z_]\w*\>" contained
+syntax match emelaDelimiter "\%(\w\s*\|)\s*\|]\s*\)\@<!||"
 
 " ---------------------------------------------------------------------------
 " Numbers (spec 2.4, 17.2)
@@ -144,7 +156,7 @@ syntax cluster emelaCode contains=emelaNameError,emelaType,emelaConstant,emelaTy
       \emelaStructure,emelaEffectDecl,emelaConditional,emelaException,emelaEffect,emelaStatement,
       \emelaSelf,emelaReserved,emelaContextual,emelaBoolean,emelaPreludeConstructor,emelaUnit,
       \emelaOperator,emelaNumber,emelaNumberError,emelaFloat,emelaString,emelaComment,
-      \emelaDocComment
+      \emelaDocComment,emelaClosureParams,emelaDelimiter
 
 " Multiline strings and interpolations can open far above; read from the start of the file.
 syntax sync fromstart
@@ -171,6 +183,7 @@ highlight default link emelaConstDecl          Constant
 highlight default link emelaTypeDecl           Typedef
 highlight default link emelaTypeParamDecl      emelaTypeParam
 highlight default link emelaDelimiter          Delimiter
+highlight default link emelaClosureParam       Identifier
 
 highlight default link emelaConditional        Conditional
 highlight default link emelaException          Exception

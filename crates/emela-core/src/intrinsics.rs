@@ -13,8 +13,9 @@
 //! that depends on the other (`Int.to_string`, not also `String.from_int`; `Int64.from_int`, not
 //! also `Int.to_int64`), as `[lib.api-rules]` asks.
 //!
-//! Types are written as [`Sig`], not as `emela_types::Ty`, because the `TyConId` of `Option` is
-//! assigned by the type checker's tables; [`Sig::to_ty`] takes it as an argument.
+//! Types are written as [`Sig`], not as `emela_types::Ty`, because the `TyConId`s of `Option`,
+//! `Bytes` and `Array` are assigned by the type checker's tables; [`Sig::to_ty`] takes them as an
+//! argument ([`SigCons`]).
 
 use emela_types::{Scheme, Ty, TyConId, TyParam};
 
@@ -109,6 +110,24 @@ pub enum Builtin {
     /// checked to be valid UTF-8. Backends need not check again.
     BytesDecodeValidUtf8,
 
+    // Std.Array (`[api.std.array]`). Generic in the element type `A`; backends read the element's
+    // representation from the types of the arguments and of the result. The rest of the module is
+    // written in Emela over these.
+    /// `Array.from_list(xs)`: the elements in the order of `xs`.
+    ArrayFromList,
+    ArrayToList,
+    ArraySize,
+    /// `Array.get(a, index)`. `None` if out of range or negative.
+    ArrayGet,
+    /// `Array.set(a, index, value)`. A defect if `index` is out of range or negative. Unlike every
+    /// other builtin, it consumes its array argument (`heap::rc` in `emela-lir`): when that was the
+    /// last reference, the runtime updates the array in place instead of copying it.
+    ArraySet,
+    /// `Array.slice(a, from, to)`. Both ends are clamped to 0 to the size; empty if `from` is not
+    /// less than `to`.
+    ArraySlice,
+    ArrayConcat,
+
     // Prelude (spec 15.1).
     /// `panic(message)`.
     Panic,
@@ -159,6 +178,8 @@ pub enum Sig {
     String,
     /// `Std.Bytes.Bytes`.
     Bytes,
+    /// `Std.Array.Array[A]`.
+    Array(&'static Sig),
     Unit,
     Never,
     List(&'static Sig),
@@ -167,20 +188,32 @@ pub enum Sig {
     Param(u32),
 }
 
+/// The `TyConId`s of the named types a [`Sig`] can refer to, assigned by the type checker's
+/// tables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SigCons {
+    /// Prelude's `Option`.
+    pub option: TyConId,
+    /// `Std.Bytes.Bytes`.
+    pub bytes: TyConId,
+    /// `Std.Array.Array`.
+    pub array: TyConId,
+}
+
 impl Sig {
-    /// `option` is the `TyConId` of Prelude's `Option`, and `bytes` that of `Std.Bytes.Bytes`.
-    pub fn to_ty(self, option: TyConId, bytes: TyConId) -> Ty {
+    pub fn to_ty(self, cons: SigCons) -> Ty {
         match self {
             Sig::Int => Ty::INT,
             Sig::Int64 => Ty::INT64,
             Sig::Float => Ty::FLOAT,
             Sig::Bool => Ty::BOOL,
             Sig::String => Ty::STRING,
-            Sig::Bytes => Ty::named(bytes, []),
+            Sig::Bytes => Ty::named(cons.bytes, []),
+            Sig::Array(t) => Ty::named(cons.array, [t.to_ty(cons)]),
             Sig::Unit => Ty::UNIT,
             Sig::Never => Ty::Never,
-            Sig::List(t) => Ty::list(t.to_ty(option, bytes)),
-            Sig::Option(t) => Ty::named(option, [t.to_ty(option, bytes)]),
+            Sig::List(t) => Ty::list(t.to_ty(cons)),
+            Sig::Option(t) => Ty::named(cons.option, [t.to_ty(cons)]),
             Sig::Param(i) => Ty::Bound(i),
         }
     }
@@ -210,13 +243,13 @@ impl BuiltinInfo {
     }
 
     /// The type scheme for type inference, with type parameters named `A`, `B`, ….
-    pub fn scheme(&self, option: TyConId, bytes: TyConId) -> Scheme {
+    pub fn scheme(&self, cons: SigCons) -> Scheme {
         let params = (0..self.ty_params)
             .map(|i| TyParam::new(char::from(b'A' + i as u8).to_string()))
             .collect();
         let ty = Ty::func(
-            self.params.iter().map(|p| p.to_ty(option, bytes)),
-            self.ret.to_ty(option, bytes),
+            self.params.iter().map(|p| p.to_ty(cons)),
+            self.ret.to_ty(cons),
         );
         Scheme::new(params, ty)
     }
@@ -243,6 +276,15 @@ const I: Option<&str> = Some("Int");
 const L: Option<&str> = Some("Int64");
 const F: Option<&str> = Some("Float");
 const B: Option<&str> = Some("Std.Bytes");
+const A: Option<&str> = Some("Std.Array");
+
+/// A row of `Std.Array`, generic in the element type `A` (`Param(0)`).
+const fn array(name: &'static str, params: &'static [Sig], ret: Sig) -> BuiltinInfo {
+    BuiltinInfo {
+        ty_params: 1,
+        ..info(A, name, params, ret)
+    }
+}
 
 impl Builtin {
     pub const ALL: &'static [Builtin] = &[
@@ -294,6 +336,13 @@ impl Builtin {
         Builtin::BytesConcat,
         Builtin::BytesEncodeUtf8,
         Builtin::BytesDecodeValidUtf8,
+        Builtin::ArrayFromList,
+        Builtin::ArrayToList,
+        Builtin::ArraySize,
+        Builtin::ArrayGet,
+        Builtin::ArraySet,
+        Builtin::ArraySlice,
+        Builtin::ArrayConcat,
         Builtin::Panic,
         Builtin::Todo,
         Builtin::Dbg,
@@ -303,6 +352,7 @@ impl Builtin {
     pub const fn info(self) -> BuiltinInfo {
         use Sig::*;
         const STRS: Sig = List(&String);
+        const ARR: Sig = Array(&Param(0));
         match self {
             Builtin::StringLength => info(S, "length", &[String], Int),
             Builtin::StringByteSize => info(S, "byte_size", &[String], Int),
@@ -357,6 +407,13 @@ impl Builtin {
             Builtin::BytesConcat => info(B, "concat", &[List(&Bytes)], Bytes),
             Builtin::BytesEncodeUtf8 => info(B, "encode_utf8", &[String], Bytes),
             Builtin::BytesDecodeValidUtf8 => info(B, "decode_valid_utf8", &[Bytes], String),
+            Builtin::ArrayFromList => array("from_list", &[List(&Param(0))], ARR),
+            Builtin::ArrayToList => array("to_list", &[ARR], List(&Param(0))),
+            Builtin::ArraySize => array("size", &[ARR], Int),
+            Builtin::ArrayGet => array("get", &[ARR, Int], Option(&Param(0))),
+            Builtin::ArraySet => array("set", &[ARR, Int, Param(0)], ARR),
+            Builtin::ArraySlice => array("slice", &[ARR, Int, Int], ARR),
+            Builtin::ArrayConcat => array("concat", &[List(&ARR)], ARR),
             Builtin::Panic => info(None, "panic", &[String], Never),
             Builtin::Todo => info(None, "todo", &[], Never),
             Builtin::Dbg => BuiltinInfo {

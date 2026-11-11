@@ -136,7 +136,7 @@ fn diagnostics(errors: Vec<CError>) -> Vec<Diagnostic> {
             let d = Diagnostic::error(e.message);
             match e.kind {
                 CErrorKind::Callback => d.with_code(code::CALLBACK_EXTERNAL),
-                CErrorKind::Bytes => d.with_code(code::BYTES_ON_C),
+                CErrorKind::BoundaryType => d.with_code(code::BOUNDARY_TYPE_ON_C),
                 CErrorKind::Unsupported | CErrorKind::Internal => d,
             }
         })

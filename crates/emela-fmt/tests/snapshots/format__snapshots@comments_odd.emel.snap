@@ -12,7 +12,7 @@ fn types(
 -> Int
   fails NotFound # エラーの間
   | DbError
-  use { # 効果の集合の中
+  uses { # 効果の集合の中
     Io, # 要素の後ろ
     # 要素の前
     Clock,
@@ -37,8 +37,8 @@ fn types(
     # 行だけの引き算の前
     - b)
   f(
-    fn(x) # ブロックの前
-    { x },
+    |x| # ブロックの前
+    x,
   )
   f(
     if a # 条件の後ろ
@@ -51,7 +51,7 @@ fn types(
   g( # 開き括弧の後ろ
     a,
   )
-  xs |> List.map(fn(x) { # 本体の先頭
+  xs |> List.map(|x| { # 本体の先頭
     x
   })
   x match {

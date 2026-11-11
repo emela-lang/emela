@@ -19,7 +19,7 @@
 //! - In the type of a definition being generalized, a set variable in a negative position (the E
 //!   of a function-typed parameter) with neither lower nor upper bounds is generalized into a set
 //!   type parameter instead of becoming empty. Other set variables take the least solution.
-//!   A negative-position set variable that does have a lower bound (`fn(g) { if c { g } else
+//!   A negative-position set variable that does have a lower bound (`|g| { if c { g } else
 //!   { f } }`) is not generalized, so the type is not the most general one (an approximation).
 //!
 //! Constraints on effect sets R (`body/effects.rs`) go into the same table and are solved here
@@ -44,6 +44,16 @@ use crate::ty::{Ty, TyParam};
 struct Lower {
     elem: RowElem,
     minus: Vec<Tag>,
+}
+
+/// An `escape`, kept for the W0302 check after the error sets are solved.
+pub(super) struct Escape {
+    /// The inner expression.
+    pub(super) inner: ExprId,
+    /// The arms above the first arm `_` that catch an error: pattern and tag.
+    pub(super) caught: Vec<(PatId, DefId)>,
+    /// The pattern of the first arm `_` without a guard.
+    pub(super) wildcard: Option<PatId>,
 }
 
 impl BodyInfer<'_> {
@@ -237,7 +247,13 @@ impl BodyInfer<'_> {
             }
             ExprKind::Escape { expr: inner, arms } => {
                 let inner_row = self.expr_row(*inner);
-                let caught: Vec<(PatId, DefId)> = arms
+                // The first arm `_` without a guard handles every error that reaches it, so the
+                // arms below it never run (`[error.escape]`).
+                let wildcard = arms.iter().position(|arm| {
+                    arm.guard.is_none() && matches!(program.pats[arm.pat].kind, PatKind::Wild)
+                });
+                let reachable = &arms[..wildcard.unwrap_or(arms.len())];
+                let caught: Vec<(PatId, DefId)> = reachable
                     .iter()
                     .filter_map(|arm| match &program.pats[arm.pat].kind {
                         PatKind::Ctor {
@@ -249,16 +265,21 @@ impl BodyInfer<'_> {
                 // Only errors whose values the arms fully catch are removed from E (spec 7.3).
                 // Errors caught only partially (`NotFound(id: 1)`, guarded arms) stay in E, and
                 // unmatched values propagate.
-                let tags = self.escaped_tags(arms, &caught);
-                // If some arm is not an error constructor (E0320), treat everything as caught so
-                // errors do not cascade.
-                let broken = arms.iter().any(|arm| {
-                    !matches!(
-                        &program.pats[arm.pat].kind,
-                        PatKind::Ctor { .. } | PatKind::Missing
-                    )
+                let tags = self.escaped_tags(reachable, &caught);
+                // If some arm is a variable or a guarded `_` (E0320), treat everything as caught
+                // so errors do not cascade.
+                let broken = arms.iter().any(|arm| match &program.pats[arm.pat].kind {
+                    PatKind::Ctor { .. } | PatKind::Missing => false,
+                    PatKind::Wild => arm.guard.is_some(),
+                    _ => true,
                 });
-                let inner_row = if broken { Row::empty() } else { inner_row };
+                // An arm `_` removes every tag and every set variable, opaque or not: the E of
+                // the escape is the E of its arms alone (`[type.rules]`).
+                let inner_row = if broken || wildcard.is_some() {
+                    Row::empty()
+                } else {
+                    inner_row
+                };
                 let mut row = Row::empty();
                 for e in self.ctx.resolve_row(&inner_row).elems() {
                     match e {
@@ -282,7 +303,12 @@ impl BodyInfer<'_> {
                     }
                     row.extend(&self.expr_row(arm.body));
                 }
-                self.escapes.push((*inner, caught));
+                let wildcard = wildcard.map(|i| arms[i].pat);
+                self.escapes.push(Escape {
+                    inner: *inner,
+                    caught,
+                    wildcard,
+                });
                 row
             }
             ExprKind::Fail(inner) => {
@@ -566,8 +592,8 @@ impl BodyInfer<'_> {
                             found: SmolStr::new(sub.display_with(cons, &params).to_string()),
                         },
                         SetKind::Effects => DiagnosticKind::EffectSetMismatch {
-                            expected: SmolStr::new(sup.display_effects(cons, &params).to_string()),
-                            found: SmolStr::new(sub.display_effects(cons, &params).to_string()),
+                            expected: SmolStr::new(sup.display_uses(cons, &params).to_string()),
+                            found: SmolStr::new(sub.display_uses(cons, &params).to_string()),
                         },
                     };
                     self.diags.push(Diagnostic { span: *span, kind });
@@ -988,17 +1014,32 @@ impl BodyInfer<'_> {
         tags
     }
 
-    /// Warns when an `escape` arm catches an error the inner expression cannot raise (W0302). No
-    /// warning if the inner E has a set with unknown contents (a set type parameter, an error
-    /// type parameter, a set variable to be generalized), since it may be caught at run time.
+    /// Warns when an `escape` arm catches an error the inner expression cannot raise (W0302), and
+    /// when an arm `_` is on an inner expression whose E is empty. No warning if the inner E has a
+    /// set with unknown contents (a set type parameter, an error type parameter, a set variable to
+    /// be generalized), since it may be caught at run time. Arms below `_` are not looked at: they
+    /// are W0301 instead (`[error.escape]`).
     fn check_unraised(&mut self) {
-        for (inner, caught) in std::mem::take(&mut self.escapes) {
+        for Escape {
+            inner,
+            caught,
+            wildcard,
+        } in std::mem::take(&mut self.escapes)
+        {
             let Some(row) = self.expr_rows.get(inner).cloned() else {
                 continue;
             };
             let row = self.ctx.resolve_row(&row);
             if row.elems().iter().any(|e| !matches!(e, RowElem::Tag(_))) {
                 continue;
+            }
+            if let Some(pat) = wildcard
+                && row.is_empty()
+            {
+                self.diags.push(Diagnostic {
+                    span: Some(self.program.pats[pat].span),
+                    kind: DiagnosticKind::NoErrorRaised,
+                });
             }
             for (pat, tag) in caught {
                 if !row.contains(&RowElem::Tag(Tag::new(tag))) {

@@ -1,0 +1,5 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"type User(id: Int)\nerror NotFound(id: Int)\n\nfn f() -> Int fails NotFound { fail NotFound(id: 1) }\n\nfn g() {\n  a = f() escape { _ -> 0 }\n  b = f() escape { e -> 0 }\n  c = f() escape { User(_) -> 0 }\n}\n\"##,)])"
+---
+error src/main.emel@183..190 `User(_)`: expected error, found constructor `User`

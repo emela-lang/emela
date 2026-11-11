@@ -30,7 +30,7 @@ handler PostgresUsers(conn: Connection): Users {
 
 handler JsClock: Clock {
   suspend fn sleep(ms, resume) {
-    set_timeout(ms, fn() { resume(()) })
+    set_timeout(ms, || resume(()))
   }
   fn now() { date_now() }
 }

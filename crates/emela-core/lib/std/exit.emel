@@ -1,0 +1,26 @@
+# How a computation ended (spec 11.5), and `attempt`, which turns its errors and defects into that
+# value. `attempt` starts no fiber; `Fiber.await` returns the same `Exit`.
+#
+# Import it with `import Std.Exit.{Success, Failure}`:
+#
+#   Exit.attempt(|| load(id)) match {
+#     Success(user) -> user
+#     Failure(cause) -> fallback(Cause.to_string(cause))
+#   }
+#
+# `attempt` is built in: the runtime catches the failure (`@intrinsic`).
+
+import Std.Cause.{Cause}
+
+## How a computation ended (spec 11.5).
+pub enum Exit[A, E] {
+  ## Ended with a value.
+  Success(A)
+  ## Ended with an error, a defect or an interruption.
+  Failure(Cause[E])
+}
+
+## Runs `f` here and turns its errors and defects into values. An interruption of the current
+## fiber is not caught.
+@intrinsic
+pub fn attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }

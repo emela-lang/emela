@@ -29,11 +29,11 @@ export suspend fn main(ev%0: evidence) -> Int {
     let d%13: Std.Deferred.Deferred[Int] = s%6.Std.Fiber.Scope[_, _]#deferred[Int]()
     let _%14: Bool = fiber#complete(d%13, 1)
     let _%15: () = fiber#join(a%11)!
-    let e%18: Std.Fiber.Exit[(), {}] = {
+    let e%18: Std.Exit.Exit[(), {}] = {
       let f%16: fn() -> () ev = fn(ev%17: evidence) -> () {
         (use[Log](ev%17)).Log#info("e")
       }
-      fiber#attempt[Std.Fiber.Exit](fn() -> () {
+      fiber#attempt[Std.Exit.Exit](fn() -> () {
         (f%16)(ev%5)
       })
     }

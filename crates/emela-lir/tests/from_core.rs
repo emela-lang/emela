@@ -212,7 +212,7 @@ handler Counted(n: Int): Pool {
   fn get() { self.n }
 }
 
-fn work() -> Int use Pool {
+fn work() -> Int uses { Pool } {
   (use Pool).get() + 1
 }
 
@@ -240,7 +240,7 @@ handler Quiet: Log {
   fn count() { 0 }
 }
 
-fn report(x: Int) -> Int use Log {
+fn report(x: Int) -> Int uses { Log } {
   log = use Log
   log.info(\"x\")
   x + log.count()
@@ -268,7 +268,7 @@ handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
-fn nap(ms: Int) -> Int use Clock {
+fn nap(ms: Int) -> Int uses { Clock } {
   (use Clock).sleep(ms) + 1
 }
 
@@ -284,16 +284,17 @@ fn main() {
 fn fibers() {
     let m = program(
         "\
-import Std.Fiber.{Fiber, Scope, Exit}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
-fn main() -> Int use { Async } {
-  Fiber.scope(fn() {
+fn main() -> Int uses { Async } {
+  Fiber.scope(|| {
     s = use Scope
-    a = s.fork(fn() { [1] })
+    a = s.fork(|| [1])
     d = s.deferred()
     Deferred.complete(d, ())
-    e = Fiber.attempt(fn() { 3 })
+    e = Exit.attempt(|| 3)
     List.length(Fiber.join(a))
   })
 }
@@ -320,11 +321,11 @@ handler Later: Wait {
   suspend fn wait(resume) { resume(()) }
 }
 
-fn main() -> Int use { Async, Wait } {
+fn main() -> Int uses { Async, Wait } {
   with Later { () }
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     s = use Scope
-    a = s.fork(fn() { 1 })
+    a = s.fork(|| 1)
     Fiber.join(a)
   })
 }
@@ -338,9 +339,9 @@ fn closures_with_captures() {
     let m = program(
         "\
 fn adder(base: Int) -> fn(Int) -> (fn(Int) -> Int) {
-  fn(x) {
+  |x| {
     y = x * 2
-    fn(z) { base + y + z }
+    |z| base + y + z
   }
 }
 

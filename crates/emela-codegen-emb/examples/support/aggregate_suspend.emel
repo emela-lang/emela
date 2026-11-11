@@ -8,11 +8,11 @@ pub fn make(n: Int) -> (String, Option[String]) {
   text = Int.to_string(n)
   (text, Some(text))
 }
-fn echo(pair: (String, Option[String])) -> (String, Option[String]) use Wait {
+fn echo(pair: (String, Option[String])) -> (String, Option[String]) uses { Wait } {
   (use Wait).get(1)
   pair
 }
-pub fn delayed(pair: (String, Option[String]), keep: Bool) -> (String, Option[String]) use Async {
+pub fn delayed(pair: (String, Option[String]), keep: Bool) -> (String, Option[String]) uses { Async } {
   with Waiting {
     result = echo(pair)
     (use Wait).get(2)
@@ -22,19 +22,19 @@ pub fn delayed(pair: (String, Option[String]), keep: Bool) -> (String, Option[St
 pub fn maker(s: String, n: Int) -> (fn() -> String) {
   pair = (s, Some(Int.to_string(n)))
   xs = [s, Int.to_string(n + 1)]
-  fn() {
+  || {
     (text, note) = pair
     suffix = note match { Some(value) -> value
       None -> "" }
     String.append(String.append(text, suffix), String.join(xs, "/"))
   }
 }
-pub fn scoped(n: Int, cancel: Bool) -> (String, Option[String]) use Async {
+pub fn scoped(n: Int, cancel: Bool) -> (String, Option[String]) uses { Async } {
   with Waiting {
-    xs = Fiber.scope(fn() {
+    xs = Fiber.scope(|| {
       pair = (Int.to_string(n), Some(Int.to_string(n + 1)))
       parts = [Int.to_string(n + 2)]
-      child = Fiber.fork(fn() {
+      child = Fiber.fork(|| {
         (use Wait).get(1)
         (text, note) = pair
         parts match {

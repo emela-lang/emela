@@ -1,0 +1,7 @@
+import Std.Array.{Array}
+
+fn main() {
+  a = Array.from_list(["a", "b", "c"])
+  dbg(Array.set(a, 2, "z"))
+  dbg(Array.set(a, 3, "z"))
+}

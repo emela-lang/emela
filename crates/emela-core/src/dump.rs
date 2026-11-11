@@ -645,6 +645,7 @@ pub(crate) fn type_name(m: &Module, types: &TypeTable, ty: TypeId) -> String {
         Type::Bool => "Bool".into(),
         Type::String => "String".into(),
         Type::Bytes => "Bytes".into(),
+        Type::Array(t) => format!("Array[{}]", type_name(m, types, *t)),
         Type::Unit => "()".into(),
         Type::Never => "Never".into(),
         Type::Tuple(ts) => format!("({})", list(ts)),

@@ -1,0 +1,36 @@
+# 前の形の効果の節 use（E0147）．uses 節として読み続ける．
+fn a() -> Int use Db { 1 }
+fn b() -> Int fails E use { Db, Log } { 1 }
+fn c(f: fn() -> () fails {} use {}) { f() }
+fn d[R]() use R { () }
+fn st() -> Int use State[Int] { 1 }
+
+# 自分の行にある前の形の節．
+fn own() -> Int
+  use Db {
+  1
+}
+
+@external(js, "./x.mjs", "now")
+fn now() -> Int
+  # c
+  use {}
+
+trait Go {
+  fn go(self) -> () use Db
+}
+
+# effect の operation には uses 節を書けない（E0137）．
+effect Store {
+  fn get() -> Int use Db
+  fn put() -> ()
+    use { Db,
+      Log }
+  fn del() -> () uses Db
+}
+
+# 本体の中の use は式．
+fn body() {
+  use Log
+  log = use Log
+}

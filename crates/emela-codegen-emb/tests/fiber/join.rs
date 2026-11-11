@@ -8,23 +8,23 @@ fn join_reuses_completed_results_without_yielding_and_waits_for_discarded_unit()
             r#"
 import Std.Fiber.{Fiber}
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
-pub fn work(n: Int) -> Int use Async {
-  Fiber.scope(fn() {
-    child = Fiber.fork(fn() { mark(2)
+fn mark(n: Int) -> () uses {}
+pub fn work(n: Int) -> Int uses { Async } {
+  Fiber.scope(|| {
+    child = Fiber.fork(|| { mark(2)
       n + 1 })
     mark(1)
     first = Fiber.join(child)
     mark(3)
-    Fiber.fork(fn() { mark(99) })
+    Fiber.fork(|| mark(99))
     second = Fiber.join(child)
     mark(4)
     first + second
   })
 }
-pub fn unit() -> () use Async {
-  Fiber.scope(fn() {
-    child = Fiber.fork(fn() { mark(1) })
+pub fn unit() -> () uses { Async } {
+  Fiber.scope(|| {
+    child = Fiber.fork(|| mark(1))
     Fiber.join(child)
     Fiber.join(child)
     mark(2)
@@ -84,24 +84,24 @@ import Std.Fiber.{Fiber}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
   with Waiting {
-    Fiber.scope(fn() {
-      child = Fiber.fork(fn() { value = (use Wait).get(40)
+    Fiber.scope(|| {
+      child = Fiber.fork(|| { value = (use Wait).get(40)
         mark(4)
         value })
-      a = Fiber.fork(fn() { mark(1)
+      a = Fiber.fork(|| { mark(1)
         v = Fiber.join(child)
         mark(5)
         v })
-      b = Fiber.fork(fn() { mark(2)
+      b = Fiber.fork(|| { mark(2)
         v = Fiber.join(child)
         mark(6)
         v })
-      c = Fiber.fork(fn() { mark(3)
+      c = Fiber.fork(|| { mark(3)
         v = Fiber.join(child)
         mark(7)
         v })
@@ -151,24 +151,24 @@ fn join_results_own_strings_and_lists_after_scope_and_frame_reuse() {
             "main.emel",
             r#"
 import Std.Fiber.{Fiber}
-pub fn text(n: Int) -> String use Async {
-  Fiber.scope(fn() {
-    child = Fiber.fork(fn() { Int.to_string(n) })
+pub fn text(n: Int) -> String uses { Async } {
+  Fiber.scope(|| {
+    child = Fiber.fork(|| Int.to_string(n))
     first = Fiber.join(child)
     Fiber.join(child)
     first
   })
 }
 
-pub fn list(n: Int) -> List[Int] use Async {
-  Fiber.scope(fn() {
-    child = Fiber.fork(fn() { [n, n + 1] })
+pub fn list(n: Int) -> List[Int] uses { Async } {
+  Fiber.scope(|| {
+    child = Fiber.fork(|| [n, n + 1])
     first = Fiber.join(child)
     Fiber.join(child)
     first
   })
 }
-pub fn sum(xs: List[Int]) -> Int { List.fold(xs, 0, fn(a, b) { a + b }) }
+pub fn sum(xs: List[Int]) -> Int { List.fold(xs, 0, |a, b| a + b) }
 "#,
         )],
         Roots::Public,
@@ -215,24 +215,24 @@ import Std.Deferred.{Deferred}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
-pub fn cancel(early: Bool) -> Int use Async {
+pub fn cancel(early: Bool) -> Int uses { Async } {
   with Waiting {
-    Fiber.scope(fn() {
+    Fiber.scope(|| {
       d: Deferred[Int] = (use Scope).deferred()
-      target = Fiber.fork(fn() { Deferred.await(d) })
-      Fiber.scope(fn() {
+      target = Fiber.fork(|| Deferred.await(d))
+      Fiber.scope(|| {
         a: Deferred[()] = (use Scope).deferred()
         b: Deferred[()] = (use Scope).deferred()
-        Fiber.fork(fn() { Deferred.await(a)
+        Fiber.fork(|| { Deferred.await(a)
           Fiber.join(target)
           mark(99) })
-        Fiber.fork(fn() { Deferred.await(b)
+        Fiber.fork(|| { Deferred.await(b)
           Fiber.join(target)
           mark(99) })
-        Fiber.fork(fn() { Deferred.complete(a, ())
+        Fiber.fork(|| { Deferred.complete(a, ())
           Deferred.complete(b, ())
           Fiber.join(target)
           mark(99) })
@@ -288,14 +288,14 @@ int main(void) {
 fn leaked_join_callback_rejects_an_ended_scope_after_reusing_execution_slots() {
     let source = r#"
 import Std.Fiber.{Fiber}
-pub fn leak() -> (fn() -> Int use Async) use Async {
-  Fiber.scope(fn() {
-    child = Fiber.fork(fn() { 42 })
+pub fn leak() -> (fn() -> Int uses { Async }) uses { Async } {
+  Fiber.scope(|| {
+    child = Fiber.fork(|| 42)
     Fiber.join(child)
-    fn() { Fiber.join(child) }
+    || Fiber.join(child)
   })
 }
-pub fn invoke(f: fn() -> Int fails {} use Async) -> Int use Async { f() }
+pub fn invoke(f: fn() -> Int fails {} uses { Async }) -> Int uses { Async } { f() }
 "#;
     let core = support::try_lower(&[("main.emel", source)], Roots::Public).unwrap();
     let flow = emela_codegen_emb::flow_from_core(&core).unwrap();
@@ -349,16 +349,16 @@ fn join_preserves_int64_float_bits_and_bool() {
             "main.emel",
             r#"
 import Std.Fiber.{Fiber}
-pub fn wide(n: Int64) -> Int64 use Async {
-  Fiber.scope(fn() { child = Fiber.fork(fn() { n })
+pub fn wide(n: Int64) -> Int64 uses { Async } {
+  Fiber.scope(|| { child = Fiber.fork(|| n)
     Fiber.join(child) })
 }
-pub fn real(n: Float) -> Float use Async {
-  Fiber.scope(fn() { child = Fiber.fork(fn() { n })
+pub fn real(n: Float) -> Float uses { Async } {
+  Fiber.scope(|| { child = Fiber.fork(|| n)
     Fiber.join(child) })
 }
-pub fn flag(n: Bool) -> Bool use Async {
-  Fiber.scope(fn() { child = Fiber.fork(fn() { n })
+pub fn flag(n: Bool) -> Bool uses { Async } {
+  Fiber.scope(|| { child = Fiber.fork(|| n)
     Fiber.join(child) })
 }
 "#,

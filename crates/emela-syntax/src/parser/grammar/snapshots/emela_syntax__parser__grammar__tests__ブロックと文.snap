@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"{\\n  count = 0\\n  count = count + 1\\n  (evens, odds) = List.partition(xs, is_even)\\n  pairs: List[(String, Int)] = Map.to_list(scores)\\n  label = if count > 0 { \\\"あり\\\" } else { \\\"なし\\\" }\\n  if !valid { fail Invalid(input:) }\\n  connect(\\\"localhost\\\", port: 5432)\\n}\",\n\"{\\n  shape match {\\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\\n    Circle(_)                       -> 0.0\\n    Empty                           -> 0.0\\n  }\\n}\",\n\"{\\n  user = find_user(id) escape {\\n    NotFound(_) -> guest_user()\\n  }\\n  data = load(id)\\n    escape { DbError(message:) -> fail Unavailable(reason: message) }\\n}\",\n\"{\\n  with AppTest, FixedClock { greet(1) }\\n  List.map(names, fn(n) { log.info(n) })\\n  if a { 1 } else if b { 2 } else { 3 }\\n}\",\n\"{\\n  [x, ..rest] = xs\\n  User(name:, ..) = user\\n  [first, ..] = xs\\n  _ = run()\\n}\",\n\"{\\n  a = (10 -\\n    1)\\n  b = (10 +\\n    1)\\n}\", \"{}\",], block,)"
+expression: "dump_all(&[\"{\\n  count = 0\\n  count = count + 1\\n  (evens, odds) = List.partition(xs, is_even)\\n  pairs: List[(String, Int)] = Map.to_list(scores)\\n  label = if count > 0 { \\\"あり\\\" } else { \\\"なし\\\" }\\n  if !valid { fail Invalid(input:) }\\n  connect(\\\"localhost\\\", port: 5432)\\n}\",\n\"{\\n  shape match {\\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\\n    Circle(_)                       -> 0.0\\n    Empty                           -> 0.0\\n  }\\n}\",\n\"{\\n  user = find_user(id) escape {\\n    NotFound(_) -> guest_user()\\n  }\\n  data = load(id)\\n    escape { DbError(message:) -> fail Unavailable(reason: message) }\\n}\",\n\"{\\n  with AppTest, FixedClock { greet(1) }\\n  List.map(names, |n| log.info(n))\\n  if a { 1 } else if b { 2 } else { 3 }\\n}\",\n\"{\\n  [x, ..rest] = xs\\n  User(name:, ..) = user\\n  [first, ..] = xs\\n  _ = run()\\n}\",\n\"{\\n  a = (10 -\\n    1)\\n  b = (10 +\\n    1)\\n}\", \"{}\",], block,)"
 ---
 === {
   count = 0
@@ -408,11 +408,11 @@ ROOT@0..159
     R_BRACE@158..159 "}"
 === {
   with AppTest, FixedClock { greet(1) }
-  List.map(names, fn(n) { log.info(n) })
+  List.map(names, |n| log.info(n))
   if a { 1 } else if b { 2 } else { 3 }
 }
-ROOT@0..124
-  BLOCK_EXPR@0..124
+ROOT@0..118
+  BLOCK_EXPR@0..118
     L_BRACE@0..1 "{"
     NEWLINE@1..2 "\n"
     WHITESPACE@2..4 "  "
@@ -441,87 +441,81 @@ ROOT@0..124
         R_BRACE@40..41 "}"
     NEWLINE@41..42 "\n"
     WHITESPACE@42..44 "  "
-    CALL_EXPR@44..82
+    CALL_EXPR@44..76
       FIELD_EXPR@44..52
         PATH_EXPR@44..48
           PATH@44..48
             TYPE_NAME@44..48 "List"
         DOT@48..49 "."
         LOWER_NAME@49..52 "map"
-      ARG_LIST@52..82
+      ARG_LIST@52..76
         L_PAREN@52..53 "("
         NAME_REF@53..58
           LOWER_NAME@53..58 "names"
         COMMA@58..59 ","
         WHITESPACE@59..60 " "
-        LAMBDA_EXPR@60..81
-          FN_KW@60..62 "fn"
-          PARAM_LIST@62..65
-            L_PAREN@62..63 "("
-            PARAM@63..64
-              LOWER_NAME@63..64 "n"
-            R_PAREN@64..65 ")"
-          WHITESPACE@65..66 " "
-          BLOCK_EXPR@66..81
-            L_BRACE@66..67 "{"
-            WHITESPACE@67..68 " "
-            CALL_EXPR@68..79
-              FIELD_EXPR@68..76
-                NAME_REF@68..71
-                  LOWER_NAME@68..71 "log"
-                DOT@71..72 "."
-                LOWER_NAME@72..76 "info"
-              ARG_LIST@76..79
-                L_PAREN@76..77 "("
-                NAME_REF@77..78
-                  LOWER_NAME@77..78 "n"
-                R_PAREN@78..79 ")"
-            WHITESPACE@79..80 " "
-            R_BRACE@80..81 "}"
-        R_PAREN@81..82 ")"
-    NEWLINE@82..83 "\n"
-    WHITESPACE@83..85 "  "
-    IF_EXPR@85..122
-      IF_KW@85..87 "if"
-      WHITESPACE@87..88 " "
-      NAME_REF@88..89
-        LOWER_NAME@88..89 "a"
+        LAMBDA_EXPR@60..75
+          PARAM_LIST@60..63
+            PIPE@60..61 "|"
+            PARAM@61..62
+              LOWER_NAME@61..62 "n"
+            PIPE@62..63 "|"
+          WHITESPACE@63..64 " "
+          CALL_EXPR@64..75
+            FIELD_EXPR@64..72
+              NAME_REF@64..67
+                LOWER_NAME@64..67 "log"
+              DOT@67..68 "."
+              LOWER_NAME@68..72 "info"
+            ARG_LIST@72..75
+              L_PAREN@72..73 "("
+              NAME_REF@73..74
+                LOWER_NAME@73..74 "n"
+              R_PAREN@74..75 ")"
+        R_PAREN@75..76 ")"
+    NEWLINE@76..77 "\n"
+    WHITESPACE@77..79 "  "
+    IF_EXPR@79..116
+      IF_KW@79..81 "if"
+      WHITESPACE@81..82 " "
+      NAME_REF@82..83
+        LOWER_NAME@82..83 "a"
+      WHITESPACE@83..84 " "
+      BLOCK_EXPR@84..89
+        L_BRACE@84..85 "{"
+        WHITESPACE@85..86 " "
+        LITERAL@86..87
+          INT@86..87 "1"
+        WHITESPACE@87..88 " "
+        R_BRACE@88..89 "}"
       WHITESPACE@89..90 " "
-      BLOCK_EXPR@90..95
-        L_BRACE@90..91 "{"
-        WHITESPACE@91..92 " "
-        LITERAL@92..93
-          INT@92..93 "1"
-        WHITESPACE@93..94 " "
-        R_BRACE@94..95 "}"
-      WHITESPACE@95..96 " "
-      ELSE_KW@96..100 "else"
-      WHITESPACE@100..101 " "
-      IF_EXPR@101..122
-        IF_KW@101..103 "if"
-        WHITESPACE@103..104 " "
-        NAME_REF@104..105
-          LOWER_NAME@104..105 "b"
+      ELSE_KW@90..94 "else"
+      WHITESPACE@94..95 " "
+      IF_EXPR@95..116
+        IF_KW@95..97 "if"
+        WHITESPACE@97..98 " "
+        NAME_REF@98..99
+          LOWER_NAME@98..99 "b"
+        WHITESPACE@99..100 " "
+        BLOCK_EXPR@100..105
+          L_BRACE@100..101 "{"
+          WHITESPACE@101..102 " "
+          LITERAL@102..103
+            INT@102..103 "2"
+          WHITESPACE@103..104 " "
+          R_BRACE@104..105 "}"
         WHITESPACE@105..106 " "
-        BLOCK_EXPR@106..111
-          L_BRACE@106..107 "{"
-          WHITESPACE@107..108 " "
-          LITERAL@108..109
-            INT@108..109 "2"
-          WHITESPACE@109..110 " "
-          R_BRACE@110..111 "}"
-        WHITESPACE@111..112 " "
-        ELSE_KW@112..116 "else"
-        WHITESPACE@116..117 " "
-        BLOCK_EXPR@117..122
-          L_BRACE@117..118 "{"
-          WHITESPACE@118..119 " "
-          LITERAL@119..120
-            INT@119..120 "3"
-          WHITESPACE@120..121 " "
-          R_BRACE@121..122 "}"
-    NEWLINE@122..123 "\n"
-    R_BRACE@123..124 "}"
+        ELSE_KW@106..110 "else"
+        WHITESPACE@110..111 " "
+        BLOCK_EXPR@111..116
+          L_BRACE@111..112 "{"
+          WHITESPACE@112..113 " "
+          LITERAL@113..114
+            INT@113..114 "3"
+          WHITESPACE@114..115 " "
+          R_BRACE@115..116 "}"
+    NEWLINE@116..117 "\n"
+    R_BRACE@117..118 "}"
 === {
   [x, ..rest] = xs
   User(name:, ..) = user

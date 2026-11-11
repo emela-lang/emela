@@ -3,17 +3,17 @@ import Std.Fiber.{Fiber}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait {
   suspend fn get(n, resume) { resume(wait(n)) }
 }
 
-pub fn work(n: Int) -> Int use Async {
+pub fn work(n: Int) -> Int uses { Async } {
   with Waiting {
-    Fiber.scope(fn() {
-      Fiber.fork(fn() {
+    Fiber.scope(|| {
+      Fiber.fork(|| {
         mark(2)
         (use Wait).get(n + 1)
       })

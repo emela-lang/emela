@@ -1,19 +1,24 @@
 //! Runs the server over an in-memory connection and checks the messages it sends.
 
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use emela_driver::{Frontend, MemoryFiles, ParseOnly, Typecheck};
+use emela_driver::{FileSystem, Frontend, MemoryFiles, ParseOnly, Typecheck};
+use emela_resolve::{DirEntry, SourceFs};
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use lsp_types::notification::{
-    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
-    Initialized, Notification as _, PublishDiagnostics,
+    DidChangeTextDocument, DidChangeWatchedFiles, DidCloseTextDocument, DidOpenTextDocument,
+    DidSaveTextDocument, Initialized, Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
     CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    Initialize, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
-    SemanticTokensFullRequest, SemanticTokensRangeRequest, Shutdown, SignatureHelpRequest,
+    Initialize, InlayHintRequest, PrepareRenameRequest, References, RegisterCapability, Rename,
+    Request as _, SemanticTokensFullRequest, SemanticTokensRangeRequest, Shutdown,
+    SignatureHelpRequest,
 };
 use lsp_types::{self as lsp, Uri};
 use serde_json::json;
@@ -57,6 +62,15 @@ impl Client {
         make_frontend: fn() -> F,
     ) {
         let fs = MemoryFiles::new(files.iter().copied());
+        self.start_on(connection, fs, make_frontend);
+    }
+
+    fn start_on<Fs: FileSystem + Send + 'static, F: Frontend + 'static>(
+        &mut self,
+        connection: Connection,
+        fs: Fs,
+        make_frontend: fn() -> F,
+    ) {
         self.server = Some(std::thread::spawn(move || {
             emela_lsp::serve(&connection, fs, make_frontend).unwrap();
         }));
@@ -64,8 +78,12 @@ impl Client {
 
     /// Does not read the response yet.
     fn send_initialize(&mut self, root: Option<&str>) {
+        self.send_initialize_with(root, json!({}));
+    }
+
+    fn send_initialize_with(&mut self, root: Option<&str>, capabilities: serde_json::Value) {
         let params = json!({
-            "capabilities": {},
+            "capabilities": capabilities,
             "rootUri": root.map(|r| format!("file://{r}")),
         });
         self.request(Initialize::METHOD, params);
@@ -77,9 +95,20 @@ impl Client {
         root: Option<&str>,
         make_frontend: fn() -> F,
     ) -> Client {
+        let fs = MemoryFiles::new(files.iter().copied());
+        Client::initialize_on(fs, root, json!({}), make_frontend)
+    }
+
+    /// Initializes with the given client capabilities, on a file system the test can change.
+    fn initialize_on<Fs: FileSystem + Send + 'static, F: Frontend + 'static>(
+        fs: Fs,
+        root: Option<&str>,
+        capabilities: serde_json::Value,
+        make_frontend: fn() -> F,
+    ) -> Client {
         let (mut client, server) = Client::new();
-        client.send_initialize(root);
-        client.start(server, files, make_frontend);
+        client.send_initialize_with(root, capabilities);
+        client.start_on(server, fs, make_frontend);
         let response = client.recv();
         let Message::Response(response) = response else {
             panic!("no initialize response: {response:?}");
@@ -139,6 +168,15 @@ impl Client {
             DidSaveTextDocument::METHOD,
             json!({ "textDocument": { "uri": uri(path) } }),
         );
+    }
+
+    /// `workspace/didChangeWatchedFiles` with (path, change type) pairs.
+    fn watched(&self, changes: &[(&str, lsp::FileChangeType)]) {
+        let changes: Vec<_> = changes
+            .iter()
+            .map(|(path, kind)| json!({ "uri": uri(path), "type": kind }))
+            .collect();
+        self.notify(DidChangeWatchedFiles::METHOD, json!({ "changes": changes }));
     }
 
     fn close(&self, path: &str) {
@@ -529,6 +567,56 @@ impl Client {
     }
 }
 
+/// Files on disk that a test changes while the server runs, without the editor's buffers.
+#[derive(Clone, Default)]
+struct Disk(Arc<Mutex<BTreeMap<PathBuf, String>>>);
+
+impl Disk {
+    fn new(files: &[(&str, &str)]) -> Disk {
+        let disk = Disk::default();
+        for (path, text) in files {
+            disk.write(path, text);
+        }
+        disk
+    }
+
+    fn write(&self, path: &str, text: &str) {
+        self.0.lock().unwrap().insert(path.into(), text.to_owned());
+    }
+
+    fn delete(&self, path: &str) {
+        self.0.lock().unwrap().remove(Path::new(path));
+    }
+
+    fn now(&self) -> MemoryFiles {
+        MemoryFiles::new(self.0.lock().unwrap().clone())
+    }
+}
+
+impl SourceFs for Disk {
+    fn read_dir(&self, dir: &Path) -> std::io::Result<Vec<DirEntry>> {
+        self.now().read_dir(dir)
+    }
+}
+
+impl FileSystem for Disk {
+    fn absolute(&self, path: &Path) -> std::io::Result<PathBuf> {
+        self.now().absolute(path)
+    }
+
+    fn read_to_string(&self, path: &Path) -> std::io::Result<String> {
+        self.now().read_to_string(path)
+    }
+
+    fn is_file(&self, path: &Path) -> bool {
+        self.now().is_file(path)
+    }
+
+    fn is_dir(&self, path: &Path) -> bool {
+        self.now().is_dir(path)
+    }
+}
+
 fn codes(params: &lsp::PublishDiagnosticsParams) -> Vec<String> {
     params
         .diagnostics
@@ -744,6 +832,127 @@ fn closing_a_single_file_clears_it() {
     client.shutdown();
 }
 
+/// Files changed on disk without the editor (a checkout, another tool) are checked again when
+/// the editor reports them. An open file keeps its unsaved contents, so a change to it on disk is
+/// ignored. A deleted file's diagnostics are cleared.
+#[test]
+fn watched_file_changes_recheck_the_project() {
+    use lsp::FileChangeType as Change;
+    let disk = Disk::new(&[
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", "const X = 1\n"),
+        ("/app/src/util.emel", "const U = \"\\q\"\n"),
+    ]);
+    // The disk is changed only after a publish, so the server has read it before the change.
+    let client = Client::initialize_on(disk.clone(), Some("/app"), json!({}), ParseOnly::new);
+    assert_eq!(codes(&client.diagnostics()), ["E0107"]);
+
+    // The open buffer wins over the disk, so this change on disk publishes nothing.
+    client.open("/app/src/main.emel", 1, "const X = 1\n");
+    assert_eq!(codes(&client.diagnostics()), ["E0107"]);
+    disk.write("/app/src/main.emel", "const X = \"\\q\"\n");
+    client.watched(&[("/app/src/main.emel", Change::CHANGED)]);
+
+    // A change to `Pome.toml` counts too: dependencies without a lock are reported on it.
+    disk.write(
+        "/app/Pome.toml",
+        "[pome]\nname = \"github.com/me/app\"\nversion = \"0.1.0\"\nemela = \"0.21.0\"\n\n[dependencies]\n\"github.com/acme/x\" = \"v1.0.0\"\n",
+    );
+    client.watched(&[("/app/Pome.toml", Change::CHANGED)]);
+    let published = client.diagnostics_n(2);
+    assert_eq!(published[0].uri, uri("/app/Pome.toml"));
+    assert_eq!(codes(&published[0]), ["E0236"]);
+    assert_eq!(published[1].uri, uri("/app/src/util.emel"));
+    assert_eq!(codes(&published[1]), ["E0107"]);
+
+    disk.write("/app/Pome.toml", "");
+    disk.delete("/app/src/util.emel");
+    client.watched(&[
+        ("/app/Pome.toml", Change::CHANGED),
+        ("/app/src/util.emel", Change::DELETED),
+    ]);
+    let cleared = client.diagnostics_n(2);
+    assert_eq!(cleared[0].uri, uri("/app/Pome.toml"));
+    assert!(cleared[0].diagnostics.is_empty());
+    assert_eq!(cleared[1].uri, uri("/app/src/util.emel"));
+    assert!(cleared[1].diagnostics.is_empty());
+
+    disk.write("/app/src/new.emel", "const N = \"\\q\"\n");
+    client.watched(&[("/app/src/new.emel", Change::CREATED)]);
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri("/app/src/new.emel"));
+    assert_eq!(published.version, None);
+    assert_eq!(codes(&published), ["E0107"]);
+
+    // A file that cannot change a check is ignored.
+    client.watched(&[("/app/README.md", Change::CHANGED)]);
+    client.shutdown();
+}
+
+/// A file that an open single file imports is checked again when it changes on disk.
+#[test]
+fn watched_file_changes_recheck_single_file_imports() {
+    let disk = Disk::new(&[
+        ("/tmp/x/main.emel", "import Util\n"),
+        ("/tmp/x/util.emel", "const U = \"\\q\"\n"),
+    ]);
+    let client = Client::initialize_on(disk.clone(), None, json!({}), ParseOnly::new);
+    client.open("/tmp/x/main.emel", 1, "import Util\n");
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri("/tmp/x/util.emel"));
+    assert_eq!(codes(&published), ["E0107"]);
+
+    disk.write("/tmp/x/util.emel", "const U = 1\n");
+    client.watched(&[("/tmp/x/util.emel", lsp::FileChangeType::CHANGED)]);
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri("/tmp/x/util.emel"));
+    assert!(published.diagnostics.is_empty());
+    client.shutdown();
+}
+
+/// A client that can register `workspace/didChangeWatchedFiles` dynamically is asked to watch the
+/// files that affect a check, and its answer does not disturb the server.
+#[test]
+fn registers_file_watchers_when_the_client_can() {
+    let capabilities = json!({
+        "workspace": { "didChangeWatchedFiles": { "dynamicRegistration": true } },
+    });
+    let disk = Disk::new(&[
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", "const X = \"\\q\"\n"),
+    ]);
+    let client = Client::initialize_on(disk, Some("/app"), capabilities, ParseOnly::new);
+    let request = match client.recv() {
+        Message::Request(request) if request.method == RegisterCapability::METHOD => request,
+        other => panic!("not registerCapability: {other:?}"),
+    };
+    let params: lsp::RegistrationParams = serde_json::from_value(request.params).unwrap();
+    assert_eq!(params.registrations.len(), 1);
+    let registration = &params.registrations[0];
+    assert_eq!(registration.method, DidChangeWatchedFiles::METHOD);
+    let options: lsp::DidChangeWatchedFilesRegistrationOptions =
+        serde_json::from_value(registration.register_options.clone().unwrap()).unwrap();
+    let globs: Vec<_> = options
+        .watchers
+        .iter()
+        .map(|watcher| match &watcher.glob_pattern {
+            lsp::GlobPattern::String(glob) => (glob.as_str(), watcher.kind),
+            other => panic!("not a string glob: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        globs,
+        [
+            ("**/*.emel", None),
+            ("**/Pome.toml", None),
+            ("**/Pome.lock", None),
+        ]
+    );
+    client.send(lsp_server::Response::new_ok(request.id, serde_json::Value::Null).into());
+    assert_eq!(codes(&client.diagnostics()), ["E0107"]);
+    client.shutdown();
+}
+
 #[test]
 fn consecutive_changes_publish_only_the_latest() {
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", "")];
@@ -853,7 +1062,7 @@ fn formatting_replaces_the_whole_document() {
 /// Hover shows the type and E (spec 9.3).
 #[test]
 fn hover_shows_types_and_errors() {
-    let src = "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  n = find(1)\n  List.map([n], fn(x) { x })\n}\n";
+    let src = "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  n = find(1)\n  List.map([n], |x| x)\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     assert_eq!(
@@ -887,7 +1096,7 @@ fn hover_shows_types_and_errors() {
     // of function arguments.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 8)),
-        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) use R(f)) -> List[B] fails E(f) use R(f)\n```"
+        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n```"
     );
     // A position with nothing there.
     assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);
@@ -902,7 +1111,7 @@ fn hover_shows_types_and_errors() {
 /// showing the label itself.
 #[test]
 fn hover_on_labels() {
-    let src = "effect Log {\n  fn log(msg: String) -> ()\n}\n\neffect Debug of Log default\n\nfn b() -> () use { Debug } {\n  with Debug { (use Log).log(\"b\") }\n}\n";
+    let src = "effect Log {\n  fn log(msg: String) -> ()\n}\n\neffect Debug of Log default\n\nfn b() -> () uses { Debug } {\n  with Debug { (use Log).log(\"b\") }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -911,12 +1120,12 @@ fn hover_on_labels() {
     };
     let decl = "```emela\neffect Debug of Log default\n```";
     assert_eq!(text(client.hover("/app/src/main.emel", 4, 8)), decl);
-    // In the `use` clause, and in `with`.
+    // In the `uses` clause, and in `with`.
     assert_eq!(text(client.hover("/app/src/main.emel", 6, 20)), decl);
     assert_eq!(text(client.hover("/app/src/main.emel", 7, 8)), decl);
     assert_eq!(
         text(client.hover("/app/src/main.emel", 6, 3)),
-        "```emela\nb: fn() -> () use Debug\n```"
+        "```emela\nb: fn() -> () uses { Debug }\n```"
     );
     client.shutdown();
 }
@@ -964,7 +1173,7 @@ fn hover_shows_effects() {
     // Inferred R.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 4)),
-        "```emela\ngreet: fn() -> () use Logger\n```"
+        "```emela\ngreet: fn() -> () uses { Logger }\n```"
     );
     // A local variable holding a capability.
     assert_eq!(
@@ -974,12 +1183,12 @@ fn hover_shows_effects() {
     // An operation call expression shows its type and R.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 10, 16)),
-        "```emela\n()\nuse Logger\n```"
+        "```emela\n()\nuses { Logger }\n```"
     );
     // A call inside `with` shows R; outside it does not.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 14, 21)),
-        "```emela\n()\nuse Logger\n```"
+        "```emela\n()\nuses { Logger }\n```"
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 14, 3)),
@@ -996,7 +1205,7 @@ fn hover_shows_effects() {
 /// `suspend`, and handler names show their dependencies.
 #[test]
 fn hover_shows_suspend_and_async() {
-    let src = "effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\nhandler JsClock: Clock {\n  suspend fn sleep(ms, resume) {\n    set_timeout(ms, fn() { resume(()) })\n  }\n}\n\nfn main() {\n  with JsClock { (use Clock).sleep(1) }\n}\n";
+    let src = "effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\nhandler JsClock: Clock {\n  suspend fn sleep(ms, resume) {\n    set_timeout(ms, || resume(()))\n  }\n}\n\nfn main() {\n  with JsClock { (use Clock).sleep(1) }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -1009,7 +1218,7 @@ fn hover_shows_suspend_and_async() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 7, 10)),
-        "```emela\nhandler JsClock: Clock\nuse Async\n```"
+        "```emela\nhandler JsClock: Clock\nuses { Async }\n```"
     );
     // `resume` takes the operation's return type and returns `()`.
     assert_eq!(
@@ -1018,12 +1227,12 @@ fn hover_shows_suspend_and_async() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 14, 31)),
-        "```emela\nsuspend fn(Int) -> () use Clock\nuse Clock\n```"
+        "```emela\nsuspend fn(Int) -> () uses { Clock }\nuses { Clock }\n```"
     );
     // Async may remain in main's R (spec 8.3).
     assert_eq!(
         text(client.hover("/app/src/main.emel", 13, 4)),
-        "```emela\nmain: fn() -> () use Async\n```"
+        "```emela\nmain: fn() -> () uses { Async }\n```"
     );
     client.shutdown();
 }
@@ -1042,7 +1251,7 @@ fn hover_shows_stateful_handlers_and_layers() {
     };
     assert_eq!(
         text(client.hover("/app/src/main.emel", 12, 10)),
-        "```emela\nhandler DbUsers(conn: String): Users\ninit fails Down\nuse Config\n```"
+        "```emela\nhandler DbUsers(conn: String): Users\ninit fails Down\nuses { Config }\n```"
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 14, 16)),
@@ -1050,7 +1259,7 @@ fn hover_shows_stateful_handlers_and_layers() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 17, 7)),
-        "```emela\nlayer App { DbUsers }\nuse Config\n```"
+        "```emela\nlayer App { DbUsers }\nuses { Config }\n```"
     );
     client.shutdown();
 }
@@ -1086,7 +1295,7 @@ fn handler_init_arguments() {
 /// capability shows `use Cell[Int]`, and an operation shows its type with the arguments substituted.
 #[test]
 fn hover_shows_effect_type_args() {
-    let src = "effect Cell[S] {\n  fn get() -> S\n}\n\nhandler Zero: Cell[Int] {\n  fn get() { 0 }\n}\n\nfn read() -> Int use Cell[Int] {\n  cell = use Cell[Int]\n  cell.get()\n}\n";
+    let src = "effect Cell[S] {\n  fn get() -> S\n}\n\nhandler Zero: Cell[Int] {\n  fn get() { 0 }\n}\n\nfn read() -> Int uses { Cell[Int] } {\n  cell = use Cell[Int]\n  cell.get()\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -1103,16 +1312,16 @@ fn hover_shows_effect_type_args() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 10, 8)),
-        "```emela\nfn() -> Int use Cell[Int]\n```"
+        "```emela\nfn() -> Int uses { Cell[Int] }\n```"
     );
     client.shutdown();
 }
 
-/// A use clause mixing effects and set type parameters (spec 8.3). Inside `with` the listed effect
+/// A uses clause mixing effects and set type parameters (spec 8.3). Inside `with` the listed effect
 /// is visible; outside it only the set type parameter remains.
 #[test]
 fn hover_shows_mixed_effect_sets() {
-    let src = "effect Quiet {\n  fn hush() -> ()\n}\n\nhandler Silent: Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () use { Quiet, R }) -> () use R {\n  with Silent { f() }\n}\n";
+    let src = "effect Quiet {\n  fn hush() -> ()\n}\n\nhandler Silent: Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () uses { Quiet, R }) -> () uses { R } {\n  with Silent { f() }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -1121,17 +1330,17 @@ fn hover_shows_mixed_effect_sets() {
     };
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 4)),
-        "```emela\nrun: ∀ R, E(f). fn(fn() -> () fails E(f) use { Quiet, R }) -> () fails E(f) use R\n```"
+        "```emela\nrun: ∀ R, E(f). fn(fn() -> () fails E(f) uses { Quiet, R }) -> () fails E(f) uses { R }\n```"
     );
     // The call expression's R includes the set type parameter.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 17)),
-        "```emela\n()\nfails E(f)\nuse { Quiet, R }\n```"
+        "```emela\n()\nfails E(f)\nuses { Quiet, R }\n```"
     );
     // Outside `with`, Quiet is gone.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 3)),
-        "```emela\n()\nfails E(f)\nuse R\n```"
+        "```emela\n()\nfails E(f)\nuses { R }\n```"
     );
     client.shutdown();
 }
@@ -1301,6 +1510,69 @@ fn syntax_navigation_works_with_parse_only_and_utf16() {
         json!({ "textDocument": { "uri": uri(path) } }),
     );
     assert!(folds.is_empty());
+    drain(&client);
+    client.shutdown();
+}
+
+#[test]
+fn document_links_to_external_files() {
+    assert_eq!(
+        emela_lsp::capabilities().document_link_provider,
+        Some(lsp::DocumentLinkOptions {
+            resolve_provider: Some(false),
+            work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
+        })
+    );
+    // Only the unsaved contents have the annotations, and the file has a type error.
+    let text = r#"@external(js, "./http_ffi.mjs", "fetchText")
+@external(c, "../native/foo.c", "f")
+fn fetch_text(url: String) -> String
+
+@external(js, "./missing.mjs", "g")
+@external(c, "sin")
+fn g() -> Int
+
+@external(js, """
+  ./multi.mjs
+  """, "h")
+fn h() -> Int
+
+@external(js, "./#{h()}.mjs", "i")
+@external(wasm, "http_ffi.mjs", "i")
+@external(c, "./http\u{66}fi.mjs", "i")
+fn i() -> Int
+
+@export(wasm, "./http_ffi.mjs", "run")
+pub fn run() -> Int { "not an int" }
+"#;
+    let mut client = Client::initialize(
+        &[
+            ("/app/Pome.toml", ""),
+            (MAIN, ""),
+            ("/app/src/http_ffi.mjs", ""),
+            ("/app/src/multi.mjs", ""),
+            ("/app/native/foo.c", ""),
+        ],
+        Some("/app"),
+        Typecheck::default,
+    );
+    client.open(MAIN, 1, text);
+    let links: Vec<lsp::DocumentLink> = navigation(
+        &mut client,
+        "textDocument/documentLink",
+        json!({ "textDocument": { "uri": uri(MAIN) } }),
+    );
+    assert_eq!(
+        links
+            .into_iter()
+            .map(|link| (link.range, link.target))
+            .collect::<Vec<_>>(),
+        [
+            (range((0, 15), (0, 29)), Some(uri("/app/src/http_ffi.mjs"))),
+            (range((1, 14), (1, 29)), Some(uri("/app/native/foo.c"))),
+            (range((9, 2), (9, 13)), Some(uri("/app/src/multi.mjs"))),
+        ]
+    );
     drain(&client);
     client.shutdown();
 }
@@ -1506,7 +1778,7 @@ fn definition_of_names() {
 #[test]
 fn definition_of_an_entry_adapter() {
     let main = "import Http\n\n@entry(Http.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() {}\n";
-    let http = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }\n";
+    let http = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }\n";
     let files = [
         ("/app/Pome.toml", ""),
         ("/app/src/main.emel", main),
@@ -1533,15 +1805,15 @@ fn definition_of_an_entry_adapter() {
 /// Definitions in the bundled core have no location to go to.
 #[test]
 fn definition_of_core_is_null() {
-    let src = "fn main() {\n  List.map([1], fn(x) { x })\n}\n";
+    let src = "fn main() {\n  List.map([1], |x| x)\n}\n";
     let files = [("/tmp/main.emel", src)];
     let mut client = Client::initialize(&files, None, Typecheck::default);
     assert_eq!(client.definition("/tmp/main.emel", 1, 3), None);
     assert_eq!(client.definition("/tmp/main.emel", 1, 8), None);
     // A local variable in a standalone file can be navigated.
     assert_eq!(
-        client.definition("/tmp/main.emel", 1, 24),
-        location("/tmp/main.emel", (1, 19), (1, 20))
+        client.definition("/tmp/main.emel", 1, 20),
+        location("/tmp/main.emel", (1, 17), (1, 18))
     );
     // null for frontends that do not resolve names.
     client.shutdown();
@@ -1675,7 +1947,7 @@ fn completion_after_dot() {
         emela_lsp::capabilities()
             .completion_provider
             .and_then(|c| c.trigger_characters),
-        Some(vec![".".to_owned()])
+        Some(vec![".".to_owned(), "@".to_owned()])
     );
     // Operations of a capability. Same candidates with or without a partially typed name.
     let src = NAV_MAIN.replace("  log.info(Log.prefix(name))\n", "  log.\n  log.in\n");
@@ -1781,6 +2053,25 @@ fn completion_of_names_in_scope() {
     );
     let items = client.complete(MAIN, 19, 7).unwrap();
     assert_eq!(labels(&items), ["Quiet"]);
+    // Only effects right after `uses` too (`[lsp.completion]`).
+    let src = format!("{NAV_MAIN}\nfn later() -> () uses L\n");
+    client.open(MAIN, 2, &src);
+    let items = client.complete(MAIN, 22, 23).unwrap();
+    assert!(labels(&items).contains(&"Logger"), "{items:?}");
+    assert!(
+        items
+            .iter()
+            .all(|i| i.1 == lsp::CompletionItemKind::INTERFACE),
+        "{items:?}"
+    );
+    // In a type, the imported modules that have a pub type (`Shapes`), not the others (`Log`).
+    let src = format!("{NAV_MAIN}\nfn later(s: S) -> ()\n");
+    client.change(MAIN, 3, &src);
+    let items = client.complete(MAIN, 22, 12).unwrap();
+    let names = labels(&items);
+    assert!(names.contains(&"Shapes"), "{names:?}");
+    assert!(names.contains(&"Shape"), "{names:?}");
+    assert!(!names.contains(&"Log"), "{names:?}");
     drain(&client);
     client.shutdown();
 }
@@ -1867,7 +2158,7 @@ fn greet(s: String) {
 
 fn main() {
   xs = [1, 2, 3]
-  ys = xs |> List.map(fn(x) { x |> add(1) })
+  ys = xs |> List.map(|x| x |> add(1))
   n = xs |> List.fold(from: 0, f: add)
   m = 1 |> add(2) |> add(3)
   k = add(1, 2) |> add(3)
@@ -1888,20 +2179,20 @@ fn signature_help_on_the_right_of_a_pipe() {
     };
     // The left side fills the first parameter, so it is left out.
     let add_b = s("add(b: Int) -> Int", &["b: Int"], Some(0));
-    let f = "f: fn(A) -> B fails E(f) use R(f)";
+    let f = "f: fn(A) -> B fails E(f) uses { R(f) }";
     assert_eq!(
         client.signature(MAIN, 18, 22),
         s(
-            &format!("map({f}) -> List[B] fails E(f) use R(f)"),
+            &format!("map({f}) -> List[B] fails E(f) uses {{ R(f) }}"),
             &[f],
             Some(0)
         )
     );
     // Nested in a lambda on the right of another pipe.
-    assert_eq!(client.signature(MAIN, 18, 39), add_b);
+    assert_eq!(client.signature(MAIN, 18, 35), add_b);
     // The other parameters given by name.
-    let f = "f: fn(B, A) -> B fails E(f) use R(f)";
-    let fold = format!("fold(from: B, {f}) -> B fails E(f) use R(f)");
+    let f = "f: fn(B, A) -> B fails E(f) uses { R(f) }";
+    let fold = format!("fold(from: B, {f}) -> B fails E(f) uses {{ R(f) }}");
     for (col, active) in [(22, 0), (32, 1), (34, 1)] {
         assert_eq!(
             client.signature(MAIN, 19, col),
@@ -2006,7 +2297,7 @@ fn rename_across_files() {
 /// cannot be renamed.
 #[test]
 fn rename_keeps_punned_labels() {
-    let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  u match {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], fn(x) { x })\n}\n";
+    let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  u match {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], |x| x)\n}\n";
     let path = "/tmp/main.emel";
     let mut client = Client::initialize(&[(path, src)], None, Typecheck::default);
     let edit = |s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
@@ -2088,15 +2379,19 @@ fn apply[A](f: fn() -> A) {
     assert_eq!(
         client.code_actions(MAIN, (11, 0), (11, 0)),
         action(
-            "Add inferred `-> () use Logger`",
+            "Add inferred `-> () uses { Logger }`",
             (11, 10),
-            " -> () use Logger"
+            " -> () uses { Logger }"
         )
     );
     // With a return type present, only `use` is added, after the return type.
     assert_eq!(
         client.code_actions(MAIN, (16, 5), (16, 5)),
-        action("Add inferred `use Logger`", (16, 23), " use Logger")
+        action(
+            "Add inferred `uses { Logger }`",
+            (16, 23),
+            " uses { Logger }"
+        )
     );
     // Errors that cannot be written unqualified are not added.
     assert_eq!(client.code_actions(MAIN, (21, 4), (21, 4)), Some(vec![]));
@@ -2249,7 +2544,7 @@ fn impl_stubs_are_quickfixes_linked_to_published_diagnostics() {
 
 #[test]
 fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
-    let main = "error Missing\neffect Log { fn log() -> () }\nfn io() -> () { Io.print(\"hi\") }\nfn fails() -> () use {} { fail Missing }\nfn effects() -> () use {} { (use Log).log() }\n";
+    let main = "error Missing\neffect Log { fn log() -> () }\nfn io() -> () { Io.print(\"hi\") }\nfn fails() -> () uses {} { fail Missing }\nfn effects() -> () uses {} { (use Log).log() }\n";
     let files = [
         ("/app/Pome.toml", ""),
         (MAIN, main),
@@ -2262,8 +2557,8 @@ fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
     assert_eq!(codes(&published), ["E0211", "E0318", "E0402"]);
     for (at, code, inserted) in [
         ((2, 16), "E0211", "import Io\n"),
-        ((3, 26), "E0318", " fails Missing"),
-        ((4, 29), "E0402", "use Log"),
+        ((3, 27), "E0318", " fails Missing"),
+        ((4, 30), "E0402", "uses { Log }"),
     ] {
         let actions = client.quickfixes(MAIN, at, at);
         assert_eq!(actions.len(), 1, "at {at:?}: {actions:?}");
@@ -2299,7 +2594,7 @@ fn greet() {
   log = use Logger
   log.info(\"hi\")
   n = find(1)
-  List.map([n], fn(x) { x })
+  List.map([n], |x| x)
 }
 
 fn main() {
@@ -2319,17 +2614,18 @@ fn main() {
             // Parameter types of a handler operation.
             hint(11, 13, ": String", false),
             // An omitted annotation, including invisible sets.
-            hint(14, 10, "-> List[Int] fails NotFound use Logger", true),
+            hint(14, 10, "-> List[Int] fails NotFound uses { Logger }", true),
             // E and R of a call in statement position.
-            hint(16, 16, "use Logger", true),
+            hint(16, 16, "uses { Logger }", true),
             // The type of a binding (not shown for the capability `log`).
             hint(17, 3, ": Int", false),
             hint(17, 13, "fails NotFound", true),
-            // Lambda parameters. Calls with neither E nor R get no hint.
-            hint(18, 20, ": Int", false),
+            // Lambda parameters, after the name inside the bars (`|x: Int|`). Calls with neither
+            // E nor R get no hint.
+            hint(18, 18, ": Int", false),
             hint(21, 9, "-> List[Int] fails NotFound", true),
             // A call inside `with` shows R.
-            hint(22, 22, "fails NotFound use Logger", true),
+            hint(22, 22, "fails NotFound uses { Logger }", true),
         ]
     );
     // Written annotations get no hints. Frontends without types give none.
@@ -2353,7 +2649,7 @@ handler Loud: Logger {
 
 fn greet(names: List[String]) {
   log = use Logger
-  List.map(names, fn(n) { log.info(\"hi #{n}\") })
+  List.map(names, |n| log.info(\"hi #{n}\"))
   (use Logger).info(\"bye\")
 }
 
@@ -2403,7 +2699,7 @@ fn semantic_tokens_mark_capability_values() {
         [
             // The binding and its use in a closure.
             cap(13, 2, 3),
-            cap(14, 26, 3),
+            cap(14, 22, 3),
             // Nested `with`: both the outer and the inner value.
             cap(20, 4, 5),
             cap(22, 6, 5),
@@ -2576,6 +2872,242 @@ fn completion_of_argument_labels() {
     client.change(MAIN, 4, &with("Line(from: Point("));
     let items = client.complete(MAIN, 12, 19).unwrap();
     assert_eq!(labels(&items)[..2], ["x:", "y:"]);
+    drain(&client);
+    client.shutdown();
+}
+
+/// After `@`, the attributes a user can write; in the first argument of `@external` and
+/// `@export`, the target names (`[lsp.completion]`).
+#[test]
+fn completion_of_attributes_and_targets() {
+    let files = [("/app/Pome.toml", ""), (MAIN, "fn main() { () }\n")];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let attributes = ["external", "export", "entry", "test", "deprecated"];
+    client.open(MAIN, 1, "@\nfn main() { () }\n");
+    let items = client.complete(MAIN, 0, 1).unwrap();
+    assert_eq!(labels(&items), attributes);
+    assert!(
+        items
+            .iter()
+            .all(|i| i.1 == lsp::CompletionItemKind::KEYWORD),
+        "{items:?}"
+    );
+    // The same with a partially typed name; `intrinsic` and `internal` only in core.
+    client.change(MAIN, 2, "@te\nfn main() { () }\n");
+    assert_eq!(labels(&client.complete(MAIN, 0, 3).unwrap()), attributes);
+    let targets = ["js", "wasm", "c"];
+    client.change(MAIN, 3, "@external(\nfn f() -> ()\nfn main() { () }\n");
+    let items = client.complete(MAIN, 0, 10).unwrap();
+    assert_eq!(labels(&items), targets);
+    assert!(
+        items
+            .iter()
+            .all(|i| i.1 == lsp::CompletionItemKind::KEYWORD),
+        "{items:?}"
+    );
+    client.change(
+        MAIN,
+        4,
+        "@export( w, \"a\")\npub fn f() -> () { () }\nfn main() { () }\n",
+    );
+    assert_eq!(labels(&client.complete(MAIN, 0, 10).unwrap()), targets);
+    // Not in the later arguments, nor in the argument of `@entry`.
+    client.change(MAIN, 5, "@external(js, \nfn f() -> ()\nfn main() { () }\n");
+    let items = client.complete(MAIN, 0, 14).unwrap();
+    assert!(!labels(&items).contains(&"wasm"), "{items:?}");
+    client.change(MAIN, 6, "@entry(\nfn main() { () }\n");
+    let items = client.complete(MAIN, 0, 7).unwrap();
+    assert!(!labels(&items).contains(&"wasm"), "{items:?}");
+    drain(&client);
+    client.shutdown();
+}
+
+/// Nothing inside a comment or a string; the inside of an interpolation is code.
+#[test]
+fn completion_not_in_comments_or_strings() {
+    let src = "## doc nam @\nfn main() {\n  name = \"a\"\n  # nam @\n  s = \"nam #{nam} @\"\n  t = \"abc\n  ()\n}\n";
+    let files = [("/app/Pome.toml", ""), (MAIN, src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    client.open(MAIN, 1, src);
+    for (line, character) in [(0, 10), (0, 12), (3, 7), (3, 9), (4, 10), (4, 19), (5, 10)] {
+        assert_eq!(
+            client.complete(MAIN, line, character),
+            Some(vec![]),
+            "{line}:{character}"
+        );
+    }
+    // Before the `#` of a comment, completion is as usual.
+    let items = client.complete(MAIN, 3, 2).unwrap();
+    assert!(labels(&items).contains(&"name"), "{items:?}");
+    // Inside `#{ }`.
+    let items = client.complete(MAIN, 4, 16).unwrap();
+    assert!(labels(&items).contains(&"name"), "{items:?}");
+    // After the closing quote.
+    let items = client.complete(MAIN, 4, 20).unwrap();
+    assert!(labels(&items).contains(&"name"), "{items:?}");
+    drain(&client);
+    client.shutdown();
+}
+
+const CLAUSE_MAIN: &str = "type Point(x: Int, y: Int)
+enum Color { Red, Green }
+error NotFound
+error Timeout
+trait Named {
+  fn name(self) -> String
+}
+effect Db {
+  fn get() -> Int
+}
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+fn main() {
+  p = Point(x: 1, y: 2)
+  0
+}
+";
+
+/// In clauses and types, only the names of one kind (`[lsp.completion]`). `$` in a line marks
+/// the cursor; an indented line goes before the last expression of main, and any other line is
+/// appended after the program.
+#[test]
+fn completion_in_clauses_and_types() {
+    let files = [("/app/Pome.toml", ""), (MAIN, CLAUSE_MAIN)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    client.open(MAIN, 1, CLAUSE_MAIN);
+    let mut version = 1;
+    let mut at = |line: &str| {
+        let src = if line.starts_with(' ') {
+            CLAUSE_MAIN.replace("  0\n", &format!("{line}\n  0\n"))
+        } else {
+            format!("{CLAUSE_MAIN}\n{line}\n")
+        };
+        let cursor = src.find('$').unwrap();
+        let before = &src[..cursor];
+        let row = u32::try_from(before.matches('\n').count()).unwrap();
+        let column = u32::try_from(cursor - before.rfind('\n').map_or(0, |i| i + 1)).unwrap();
+        version += 1;
+        client.change(MAIN, version, &src.replacen('$', "", 1));
+        (line.to_owned(), client.complete(MAIN, row, column).unwrap())
+    };
+    type Items = (
+        String,
+        Vec<(String, lsp::CompletionItemKind, Option<String>)>,
+    );
+    let check = |(line, items): Items,
+                 kinds: &[lsp::CompletionItemKind],
+                 present: &[&str],
+                 absent: &[&str]| {
+        let names = labels(&items);
+        for name in present {
+            assert!(names.contains(name), "{line}: {name}: {names:?}");
+        }
+        for name in absent {
+            assert!(!names.contains(name), "{line}: {name}: {names:?}");
+        }
+        assert!(
+            items.iter().all(|i| kinds.contains(&i.1)),
+            "{line}: {items:?}"
+        );
+    };
+    let effects = ["Db", "Log"];
+    let errors = ["NotFound", "Timeout"];
+    let traits = ["Named", "Show"];
+    let types = ["Point", "Color", "NotFound", "Int", "String", "List"];
+    let general = ["main", "match", "p"];
+    let interface = [lsp::CompletionItemKind::INTERFACE];
+    let structs = [lsp::CompletionItemKind::STRUCT];
+    let type_kinds = [
+        lsp::CompletionItemKind::STRUCT,
+        lsp::CompletionItemKind::ENUM,
+        lsp::CompletionItemKind::MODULE,
+    ];
+    let not_effects: Vec<&str> = [&general[..], &errors, &["Named"]].concat();
+    let not_errors: Vec<&str> = [&general[..], &effects, &["Point", "Color", "Named"]].concat();
+    let not_traits: Vec<&str> = [&general[..], &effects, &["Point"]].concat();
+    let not_types: Vec<&str> = [&general[..], &effects, &["Named", "Red"]].concat();
+    // Inside the braces of `uses`, at any item.
+    for line in [
+        "fn f() -> Int uses { $",
+        "fn f() -> Int uses { $ }",
+        "fn f() -> Int uses { Db, $ }",
+        "fn f() -> Int uses {\n  Db,\n  $\n}",
+        "fn f(g: fn() -> Int uses { Db, $ }) -> Int",
+    ] {
+        check(at(line), &interface, &effects, &not_effects);
+    }
+    // An effect set as a type argument, and the effect of a handler.
+    check(
+        at("fn f(x: Fiber[Int, { $"),
+        &interface,
+        &effects,
+        &not_effects,
+    );
+    check(at("handler Quiet: $"), &interface, &effects, &not_effects);
+    check(
+        at("handler Quiet(n: Int): $"),
+        &interface,
+        &effects,
+        &not_effects,
+    );
+    // After `fails`, and after `|` in its error set.
+    for line in [
+        "fn f() -> Int fails $",
+        "fn f() -> Int fails NotFound | $",
+        "fn f() -> Int fails NotFound | $ uses { Db }",
+        "fn f() -> Int fails NotFound\n  | $",
+        "fn f(g: fn() -> Int fails $) -> Int",
+    ] {
+        check(at(line), &structs, &errors, &not_errors);
+    }
+    // The trait of an impl, supertraits, bounds and derive.
+    for line in [
+        "impl Point: $",
+        "impl Point: $ {\n}",
+        "trait Tagged: $",
+        "trait Tagged: Named + $",
+        "fn f[A: $](a: A) -> Int",
+        "fn f[A: Named + $](a: A) -> Int",
+        "type Tag(a: Int) derive $",
+        "type Tag(a: Int) derive Eq, $",
+    ] {
+        check(at(line), &interface, &traits, &not_traits);
+    }
+    // Types: parameters, fields, return types, bindings, consts and type arguments.
+    for line in [
+        "fn f(a: $",
+        "fn f(a: Int, b: $) -> Int",
+        "fn f[A](a: $",
+        "fn f() -> $",
+        "fn f(a: Int) -> $ {\n}",
+        "fn f(g: fn($",
+        "fn f(g: fn(Int) -> $",
+        "fn f(a: List[$",
+        "fn f(a: Map[Int, $",
+        "type Tag(a: $",
+        "error Bad(a: Int, b: $",
+        "enum Shape { Dot(a: $",
+        "enum Shape { Dot($",
+        "const C: $",
+        "  q: $",
+    ] {
+        check(at(line), &type_kinds, &types, &not_types);
+    }
+    // Value positions stay unrestricted: a named argument, a match arm, a list, a call argument.
+    for line in [
+        "  Point(x: $",
+        "  match p { Point(x:, y:) -> $ }",
+        "  [$",
+        "  other($",
+    ] {
+        let (_, items) = at(line);
+        let names = labels(&items);
+        for name in ["p", "main", "match"] {
+            assert!(names.contains(&name), "{line}: {name}: {names:?}");
+        }
+    }
     drain(&client);
     client.shutdown();
 }
@@ -2847,6 +3379,23 @@ fn old_forms_have_rewriting_quickfixes() {
         let edits = &actions[0].edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
         assert_eq!(edits[0].new_text, expected);
     }
+    client.shutdown();
+}
+
+/// The old form of an anonymous function comes with a quick fix that rewrites it (E0148,
+/// `[fn.decl]`), and the inlay hint of a parameter type stays on the new form (`|x: Int|`).
+#[test]
+fn old_lambda_has_a_rewriting_quickfix() {
+    let main = "fn f(xs: List[Int]) -> List[Int] {\n  List.map(xs, fn(x) { x + 1 })\n}\n";
+    let files = [("/app/Pome.toml", ""), (MAIN, main)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let published = client.diagnostics();
+    assert_eq!(codes(&published), ["E0148"]);
+    let actions = client.quickfixes(MAIN, (1, 15), (1, 15));
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Rewrite as `|x| ...`");
+    let edits = &actions[0].edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
+    assert_eq!(edits[0].new_text, "|x| x + 1");
     client.shutdown();
 }
 

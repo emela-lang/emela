@@ -355,6 +355,10 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
             return (analysis, None);
         }
         Runner::Node => {
+            if let Err(diagnostic) = crate::run::check_node_version(&options.node) {
+                analysis.diagnostics.push(diagnostic);
+                return (analysis, None);
+            }
             let mut command = Command::new(&options.node);
             command.arg(crate::run::entry_for_child(&entry));
             crate::run::apply_program_cwd(&mut command);

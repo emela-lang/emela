@@ -51,7 +51,7 @@ import Std.Console.{Console}
 import Std.Clock.{Clock}
 import Std.Embedded.Board.{BoardConsole, BoardClock}
 
-pub fn main() -> Int use Async {
+pub fn main() -> Int uses { Async } {
   with BoardConsole, BoardClock {
     (use Console).print_line("device ready")
     (use Clock).sleep(10)
@@ -60,7 +60,7 @@ pub fn main() -> Int use Async {
 }
 ```
 
-entryは公開・非generic・引数なしの`fn() -> Int use Async`とする。未処理の失敗・通常effectや外部bindingを持つentryは拒否する。CLIが`board_main_start`のC aliasを生成し、BSPのschedulerへ接続する。`[embedded].entry`を省略した場合は`main`を使う。
+entryは公開・非generic・引数なしの`fn() -> Int uses { Async }`とする。未処理の失敗・通常effectや外部bindingを持つentryは拒否する。CLIが`board_main_start`のC aliasを生成し、BSPのschedulerへ接続する。`[embedded].entry`を省略した場合は`main`を使う。
 
 必要な外部ツールを用意してから、`device`の親directoryで実行する。
 

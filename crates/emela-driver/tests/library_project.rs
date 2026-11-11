@@ -106,7 +106,7 @@ fn library_build_only_typechecks_and_never_calls_backend_hooks() {
         ("app/Pome.toml", ""),
         (
             "app/src/lib.emel",
-            "@export(js, \"late\")\npub fn late() use Async { () }\n\n@export(js, \"$start\")\npub fn start() -> Int { 1 }\n",
+            "@export(js, \"late\")\npub fn late() uses { Async } { () }\n\n@export(js, \"$start\")\npub fn start() -> Int { 1 }\n",
         ),
     ]);
     let launcher_input = Input::resolve(&launcher_fs, Path::new("app")).unwrap();

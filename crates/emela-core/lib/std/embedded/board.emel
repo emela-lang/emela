@@ -164,10 +164,10 @@ pub handler BoardClock: Clock {
 }
 
 @external(c, "__emela_peripheral_console_print_line")
-fn console_print_line(text: String) -> () use {}
+fn console_print_line(text: String) -> () uses {}
 
 @external(c, "__emela_peripheral_console_print_error_line")
-fn console_print_error_line(text: String) -> () use {}
+fn console_print_error_line(text: String) -> () uses {}
 
 ## The selected board's console. Board code adds the line terminator.
 pub handler BoardConsole: Console {

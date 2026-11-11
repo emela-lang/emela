@@ -108,9 +108,9 @@ fn closures_with_captures() {
     let m = program(
         "\
 fn adder(base: Int) -> fn(Int) -> (fn(Int) -> Int) {
-  fn(x) {
+  |x| {
     y = x * 2
-    fn(z) { base + y + z }
+    |z| base + y + z
   }
 }
 
@@ -123,7 +123,7 @@ fn main() {
   g = f(2)
   dbg(g(3))
   dbg(twice(inc, 1))
-  dbg(List.map([1, 2], fn(x) { x * 10 }))
+  dbg(List.map([1, 2], |x| x * 10))
 }
 ",
     );
@@ -211,7 +211,7 @@ handler Counted(n: Int): Pool {
 
 error Empty
 
-fn work(k: Int) -> Int fails Empty use Pool {
+fn work(k: Int) -> Int fails Empty uses { Pool } {
   if k == 0 { fail Empty }
   (use Pool).get() + k
 }
@@ -239,7 +239,7 @@ handler Strict: Pool {
   fn get() { 1 }
 }
 
-fn pick(xs: List[Int]) -> Int use Pool {
+fn pick(xs: List[Int]) -> Int uses { Pool } {
   xs match {
     [] -> panic(\"empty\")
     [x, ..] -> x / (use Pool).get()
@@ -262,11 +262,11 @@ fn main() -> Int {
 fn raising_a_cause_that_cannot_fail() {
     let m = program(
         "\
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 
 fn again() -> Int {
-  Fiber.attempt(fn() { panic(\"bad\") }) match {
+  Exit.attempt(|| panic(\"bad\")) match {
     Success(v) -> v
     Failure(c) -> Cause.raise(c)
   }
@@ -302,7 +302,7 @@ handler Prefixed(prefix: String): Log {
   fn count() { 0 }
 }
 
-fn report(x: Int) -> Int use Log {
+fn report(x: Int) -> Int uses { Log } {
   log = use Log
   log.info(\"x\")
   x + log.count()
@@ -339,22 +339,22 @@ handler Napper: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
-fn nap(ms: Int, label: String) -> Int use Clock {
+fn nap(ms: Int, label: String) -> Int uses { Clock } {
   with Napper { dbg(label) }
   (use Clock).sleep(ms) + 1
 }
 
-fn count(i: Int, acc: Int) -> Int use Clock {
+fn count(i: Int, acc: Int) -> Int uses { Clock } {
   if i == 0 { acc } else { count(i - 1, acc + (use Clock).sleep(i)) }
 }
 
-fn twice(f: fn() -> Int use Clock) -> Int use Clock {
+fn twice(f: fn() -> Int uses { Clock }) -> Int uses { Clock } {
   f() + f()
 }
 
 fn main() {
   label = \"a\"
-  with InstantClock { dbg(twice(fn() { nap(count(2, 0), label) })) }
+  with InstantClock { dbg(twice(|| nap(count(2, 0), label))) }
 }
 ",
     );
@@ -393,7 +393,7 @@ handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
-fn nap(ms: Int, label: String) -> String use Clock {
+fn nap(ms: Int, label: String) -> String uses { Clock } {
   n = (use Clock).sleep(ms)
   \"#{label} #{ms} #{n}\"
 }
@@ -508,4 +508,80 @@ fn the_verifier_checks_suspension_edges() {
         .map(|e| e.kind)
         .collect();
     assert_eq!(kinds, [ErrorKind::SuspendEdge]);
+}
+
+/// Whether the array argument of each `Array.set` in the function named `name` is still owned by
+/// the function after the call: a `dup` right before the call gives `set` a reference of its own
+/// while the function keeps one, so the array is shared and `set` copies.
+fn set_keeps_array(m: &Module, name: &str) -> Vec<bool> {
+    let (_, f) = m
+        .functions
+        .iter()
+        .find(|(_, f)| f.name == name)
+        .unwrap_or_else(|| panic!("no function {name}"));
+    let mut out = Vec::new();
+    for (_, seq) in f.seqs.iter() {
+        for (i, &s) in seq.stmts.iter().enumerate() {
+            let Stmt::Let {
+                value:
+                    Value::Builtin {
+                        op: emela_core::Builtin::ArraySet,
+                        args,
+                    },
+                ..
+            } = &f.stmts[s]
+            else {
+                continue;
+            };
+            let Some(emela_lir::Operand::Var(a)) = args.first() else {
+                panic!("the array of `set` is a variable");
+            };
+            let dup = i > 0 && f.stmts[seq.stmts[i - 1]] == Stmt::Dup(*a);
+            out.push(dup);
+        }
+    }
+    out
+}
+
+/// `[api.std.array]`: `set` consumes its array argument, so when the argument is a variable not
+/// used after the call (a parameter or a local binding), the reference counting pass moves the last
+/// reference into the call and the runtime sees a count of 1 (in place, O(1)). When the variable is
+/// used after the call, `set` gets a second reference and copies. (When another value holds the
+/// array, the count is above 1 at run time; the parity program `array` checks that case.)
+#[test]
+fn array_set_takes_the_last_reference() {
+    let m = program(
+        "\
+import Std.Array.{Array}
+
+fn histogram(bytes: List[Int], counts: Array[Int]) -> Array[Int] {
+  bytes match {
+    [] -> counts
+    [b, ..rest] -> {
+      n = Array.get(counts, b) |> Option.or(0)
+      histogram(rest, Array.set(counts, b, n + 1))
+    }
+  }
+}
+
+fn bump_twice(counts: Array[Int], b: Int) -> (Array[Int], Array[Int]) {
+  (Array.set(counts, b, 1), counts)
+}
+
+fn local(n: Int) -> Array[Int] {
+  a = Array.repeat(0, n)
+  b = Array.set(a, 0, 1)
+  Array.set(b, 1, 2)
+}
+
+fn main() {
+  dbg(histogram([1, 2, 1], Array.repeat(0, 3)))
+  dbg(bump_twice(Array.repeat(0, 3), 1))
+  dbg(local(2))
+}
+",
+    );
+    assert_eq!(set_keeps_array(&m, "histogram"), [false]);
+    assert_eq!(set_keeps_array(&m, "local"), [false, false]);
+    assert_eq!(set_keeps_array(&m, "bump_twice"), [true]);
 }

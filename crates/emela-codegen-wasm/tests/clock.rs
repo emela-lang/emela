@@ -82,7 +82,7 @@ import Std.State.{State}
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
+  (_, end) = State.run(start, || {
     with TestClock {
       clock = use Clock
       dbg(Instant.to_unix_milliseconds(clock.now()))
@@ -130,7 +130,7 @@ handler OuterHandler: Outer {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
+  (_, end) = State.run(start, || {
     with TestClock {
       with OuterHandler {
         dbg("go #{(use Outer).go()}")
@@ -181,7 +181,7 @@ handler Retrying: Retry {
     clock = use Clock
     clock.sleep(100)
     clock.sleep(50)
-    List.map(List.range(0, 3), fn(i) { clock.sleep(10) })
+    List.map(List.range(0, 3), |i| clock.sleep(10))
     n = (use Ping).ping()
     resume(n)
   }
@@ -189,7 +189,7 @@ handler Retrying: Retry {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
+  (_, end) = State.run(start, || {
     with TestClock {
       with Pinging, Retrying {
         dbg("go #{(use Retry).go()}")
@@ -233,7 +233,7 @@ handler Ignoring: Outer {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  State.run(start, fn() {
+  State.run(start, || {
     with TestClock {
       with Ignoring {
         dbg("go #{(use Outer).go()}")

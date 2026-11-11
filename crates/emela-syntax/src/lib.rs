@@ -50,6 +50,9 @@ impl Parse {
                 diagnostic.code, diagnostic.range, diagnostic.message
             )
             .unwrap();
+            if let Some(help) = &diagnostic.help {
+                writeln!(out, "  = help: {help}").unwrap();
+            }
         }
         out
     }

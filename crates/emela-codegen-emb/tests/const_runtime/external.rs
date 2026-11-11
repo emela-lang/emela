@@ -24,7 +24,7 @@ fn pure_external_string_const_caches_borrowed_owned_and_caller_buffer_values_acr
             "main.emel",
             r#"
 @external(c,"host_value")
-fn value() -> String use {}
+fn value() -> String uses {}
 const VALUE = value()
 pub fn text() -> String { VALUE }
 pub fn size() -> Int { String.byte_size(VALUE) }
@@ -104,7 +104,7 @@ fn pure_external_opaque_const_memoizes_the_board_handle_without_heap() {
 @external
 type Token
 @external(c,"host_token")
-fn token() -> Token use {}
+fn token() -> Token uses {}
 const TOKEN = token()
 pub fn read() -> Token { TOKEN }
 "#,
@@ -154,7 +154,7 @@ fn pure_external_aggregate_const_owns_string_and_list_fields_after_board_release
             "main.emel",
             r#"
 @external(c,"host_packet")
-fn packet() -> (String,List[String]) use {}
+fn packet() -> (String,List[String]) uses {}
 const VALUE = packet()
 pub fn read() -> (String,List[String]) { VALUE }
 pub fn make(value: String) -> (String,List[String]) { (value,[value]) }
@@ -237,7 +237,7 @@ fn adapter_contract_defects_are_memoized_with_the_source_const_name() {
             "main.emel",
             r#"
 @external(c,"host_value")
-fn value() -> String use {}
+fn value() -> String uses {}
 const VALUE = value()
 pub fn size() -> Int { String.byte_size(VALUE) }
 "#,

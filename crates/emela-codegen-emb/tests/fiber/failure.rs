@@ -6,7 +6,7 @@ fn suspend_failures_cross_calls_and_preserve_cleanup_before_escape() {
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom(n: Int) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait {
@@ -14,14 +14,14 @@ handler Waiting: Wait {
   release { mark(2) }
 }
 fn failure(n: Int) -> Int fails Boom { fail Boom(n: n) }
-fn work(n: Int) -> Int fails Boom use Async {
+fn work(n: Int) -> Int fails Boom uses { Async } {
   with Waiting {
     x = (use Wait).get(n)
     mark(1)
     failure(x)
   }
 }
-pub fn caught(n: Int) -> Int use Async {
+pub fn caught(n: Int) -> Int uses { Async } {
   work(n) escape { Boom(n) -> {
     mark(3)
     n
@@ -66,7 +66,7 @@ fn failing_suspend_closure_keeps_error_through_suspending_release() {
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom(n: Int) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
@@ -78,10 +78,10 @@ handler Res: Resource {
     mark(3)
   }
 }
-fn invoke(f: fn() -> Int fails Boom use Wait) -> Int fails Boom use Wait { f() }
-pub fn caught(n: Int) -> Int use Async {
+fn invoke(f: fn() -> Int fails Boom uses { Wait }) -> Int fails Boom uses { Wait } { f() }
+pub fn caught(n: Int) -> Int uses { Async } {
   with Waiting {
-    invoke(fn() {
+    invoke(|| {
       with Res {
         (use Wait).get(1)
         mark(1)
@@ -133,14 +133,14 @@ fn uncaught_suspend_failure_stops_at_public_boundary_after_release() {
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom
 effect Wait { suspend fn get() -> Int }
 handler Waiting: Wait {
  suspend fn get(resume) { resume(wait(1)) }
  release { mark(1) }
 }
-pub fn failure() -> Int fails Boom use Async {
+pub fn failure() -> Int fails Boom uses { Async } {
  with Waiting { (use Wait).get()
   fail Boom
  }
@@ -182,7 +182,7 @@ import Std.Fiber.{Fiber}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom(n: Int) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n,resume) { resume(wait(n)) } }
@@ -194,11 +194,11 @@ handler Res: Resource {
   mark(2)
  }
 }
-pub fn caught(mode: Int) -> Int use Async {
+pub fn caught(mode: Int) -> Int uses { Async } {
  with Waiting {
-  Fiber.scope(fn() {
-   Fiber.fork(fn() { with Res { (use Wait).get(2) } })
-   Fiber.fork(fn() { if mode == 0 { fail Boom(n: 42) } else { 0 } })
+  Fiber.scope(|| {
+   Fiber.fork(|| with Res { (use Wait).get(2) })
+   Fiber.fork(|| if mode == 0 { fail Boom(n: 42) } else { 0 })
    (use Wait).get(1)
    if mode != 0 { fail Boom(n: 42) }
    mark(99)
@@ -267,7 +267,7 @@ handler Waiting: Wait {
   if n == 0 { resume(x) } else { fail Boom(n: x) }
  }
 }
-pub fn caught(n: Int) -> Int use Async {
+pub fn caught(n: Int) -> Int uses { Async } {
  with Waiting { (use Wait).get(n) escape { Boom(n) -> n } }
 }
 "#;
@@ -308,7 +308,7 @@ handler Ticking: Tick {
   fail Boom
  }
 }
-pub fn work() -> Int use Async {
+pub fn work() -> Int uses { Async } {
  with Ticking { (use Tick).tick() escape { Boom -> 0 } }
 }
 "#;
@@ -337,16 +337,17 @@ int main(void) {
 #[test]
 fn masked_cleanup_can_await_the_failed_child_before_scope_error_propagates() {
     let source = r#"
-import Std.Fiber.{Fiber, Success, Failure}
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause, Fail, Die, Interrupt}
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 error Boom(n: Int) derive Show
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait { suspend fn get(n,resume) { resume(wait(n)) } }
-fn cleanup(child: Fiber[Int], joined: Bool) -> () use Async {
+fn cleanup(child: Fiber[Int], joined: Bool) -> () uses { Async } {
  if joined { Fiber.join(child)
   mark(99)
  } else { Fiber.await(child) match { Success(_) -> mark(99)
@@ -357,15 +358,15 @@ fn cleanup(child: Fiber[Int], joined: Bool) -> () use Async {
  }
 }
 }
-fn protected(child: Fiber[Int], joined: Bool) -> Int use {Async, Wait} {
+fn protected(child: Fiber[Int], joined: Bool) -> Int uses {Async, Wait} {
  (use Wait).get(2)
  cleanup(child, joined)
  0
 }
-pub fn work(joined: Bool) -> Int use Async {
+pub fn work(joined: Bool) -> Int uses { Async } {
  with Waiting {
-  Fiber.scope(fn() {
-   child = Fiber.fork(fn() { (use Wait).get(1)
+  Fiber.scope(|| {
+   child = Fiber.fork(|| { (use Wait).get(1)
     fail Boom(n: 42)
    })
    protected(child, joined)
@@ -587,8 +588,8 @@ handler Ticking: Tick {
   fail Boom(n: -2147483647 - 1)
  }
 }
-fn issue() -> Int use { Tick } { (use Tick).tick() escape { Boom(_) -> -1 } }
-pub fn work() -> Int use Async {
+fn issue() -> Int uses { Tick } { (use Tick).tick() escape { Boom(_) -> -1 } }
+pub fn work() -> Int uses { Async } {
  with Waiting { with Ticking {
   n = issue()
   (use Wait).get(2)

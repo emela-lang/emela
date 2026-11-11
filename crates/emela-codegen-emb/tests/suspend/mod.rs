@@ -295,7 +295,7 @@ fn completed_roots_release_waiting_operation_tasks_and_ignore_their_queued_event
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "notify")
-fn notify() -> () use {}
+fn notify() -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait {
   suspend fn get(n, resume) {
@@ -1139,7 +1139,7 @@ fn immediate_resume_finishes_the_operation_body_before_the_caller_continues() {
             "main.emel",
             r#"
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Instant: Wait {
   suspend fn get(n, resume) {
@@ -1189,14 +1189,14 @@ fn delayed_resume_runs_the_caller_until_its_next_suspension() {
 @external(c, "host_wait")
 suspend fn wait(n: Int) -> Int
 @external(c, "mark")
-fn mark(n: Int) -> () use {}
+fn mark(n: Int) -> () uses {}
 effect Wait { suspend fn get(n: Int) -> Int }
 handler Waiting: Wait {
   suspend fn get(n, resume) {
     mark(n * 10 + 1)
     value = wait(n)
     mark(n * 10 + 2)
-    callback = fn() { resume(value) }
+    callback = || resume(value)
     callback()
     mark(n * 10 + 4)
   }
