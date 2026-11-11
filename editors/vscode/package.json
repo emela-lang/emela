@@ -1,6 +1,7 @@
 {
   "name": "emela",
   "displayName": "Emela",
+  "icon": "./icons/emela-logo.png",
   "description": "Emela language support: diagnostics, completion and the other features of `emela lsp`, plus syntax highlighting.",
   "version": "0.25.0",
   "publisher": "Emela",
