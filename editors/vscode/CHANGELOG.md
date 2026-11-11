@@ -2,6 +2,11 @@
 
 The version of the extension follows the version of the `emela` binary it was released with.
 
+## 0.27.0
+
+- The extension has an icon on the Visual Studio Marketplace and in the Extensions view.
+- `.emel` files have a file icon.
+
 ## 0.25.0
 
 The first release on the Visual Studio Marketplace.
