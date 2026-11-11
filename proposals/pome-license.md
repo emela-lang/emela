@@ -3,7 +3,7 @@ title: License of a Pome in Pome.toml
 authors: [Alliana]
 status: accepted
 pr: 524
-issue:
+issue: 525
 decided: 2026-11-09
 touches: [module.pome, pome.manifest, cmd.pome]
 requires: []
