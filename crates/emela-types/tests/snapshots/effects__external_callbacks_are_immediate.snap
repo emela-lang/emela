@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "common::render_diagnostics(r##\"\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\neffect Log {\n  fn info(m: String) -> ()\n}\n\n@external(js, \"./x.mjs\", \"a\")\nfn a(h: fn() -> () uses { Log }) -> ()\n@external(js, \"./x.mjs\", \"b\")\nfn b(h: fn() -> () uses { Clock }) -> ()\n@external(js, \"./x.mjs\", \"c\")\nfn c[R](h: fn() -> () uses { R }) -> ()\n@external(js, \"./x.mjs\", \"d\")\nfn d[R: Immediate](h: fn() -> () uses { R }) -> ()\n\nfn e[A: Immediate](x: A) -> A { x }\nfn e2[A: Immediate](x: A) -> A uses { Log } { x }\nfn f[R: Show](g: fn() -> () uses { R }) -> () uses { R } { g() }\n\"##)"
+---
+`fn() -> () uses { Clock }` NotImmediate { effects: ["Clock"], sets: [], required: ExternalCallback { callee: "b" } }
+`fn() -> () uses { R }` NotImmediate { effects: [], sets: ["R"], required: ExternalCallback { callee: "c" } }
+`Immediate` ImmediateOnNonEffect { param: "A" }
+`Immediate` ImmediateOnNonEffect { param: "A" }
+`Show` not supported yet: trait bounds on effect sets

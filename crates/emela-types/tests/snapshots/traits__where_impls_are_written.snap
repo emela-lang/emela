@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntype User(id: Int)\ntrait Named {\n  fn name(self) -> String\n}\nimpl Int: Show {\n  fn show(self) { \"\" }\n}\nimpl Int: Named {\n  fn name(self) { \"\" }\n}\nimpl User: Show {\n  fn show(self) { \"\" }\n}\nimpl User: Show {\n  fn show(self) { \"\" }\n}\nimpl User: Named {\n  fn name(self, extra) { \"\" }\n}\n\"##)"
+---
+`Int` OrphanImpl { ty: "Int", trait_name: "Show" }
+`User` DuplicateImpl { ty: "User", trait_name: "Show" }
+`name` ImplFnParamCount { name: "name", trait_name: "Named", expected: 1, found: 2 }

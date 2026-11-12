@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntrait Copy {\n  fn copy(self) -> Self {\n    me: Self = self\n    wrong: Self = 1\n    me\n  }\n  fn first(self) -> Int\n}\ntype Box[A](value: A)\nimpl Box[A]: Copy {\n  fn first(self) {\n    v: A = self.value\n    wrong: A = 1\n    1\n  }\n}\n\"##)"
+---
+`1` mismatch: expected `'0`, found `Int`
+`1` mismatch: expected `'0`, found `Int`

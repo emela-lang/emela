@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "common::render_bodies(r##\"\ntrait Pairs {\n  fn pair[B, C](self, b: B, c: C) -> (Self, B, C)\n}\ntype Box[A](value: A)\nimpl Box[A]: Pairs {\n  fn pair(self, b, c) { (self, b, c) }\n}\n\nfn use_it() {\n  p = Box(value: 1).pair(\"x\", True)\n}\n\"##)"
+---
+use_it: fn() -> ()
+  p: (Box[Int], String, Bool)

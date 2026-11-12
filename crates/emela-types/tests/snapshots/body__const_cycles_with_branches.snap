@@ -1,0 +1,5 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "common::render_diagnostics(r##\"\nconst AA: Int = BB + CC\nconst BB: Int = CC\nconst CC: Int = AA\n\"##)"
+---
+`AA` ConstCycle { cycle: ["AA", "CC", "AA"] }

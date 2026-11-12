@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "common::render_diagnostics(r##\"\neffect Log {\n  fn info(m: String) -> ()\n}\neffect Audit of Log\nhandler Quiet: Log {\n  fn info(m) { () }\n}\nhandler Leveled(level: Int): Log {\n  init(level: Int) { Leveled(level:) }\n  fn info(m) { () }\n}\n\nfn f() {\n  with Log(level: 1) { () }\n  with Audit(level: 1) by Quiet { () }\n  with Quiet(level: 1) { () }\n  with Leveled { () }\n}\n\"##)"
+---
+`Log` NotALabel { name: "Log", by: false }
+`(level: 1)` UnexpectedInitArgs { name: "Log", kind: "effect" }
+`Audit(level: 1) by Quiet` UnusedLabelProvider { label: "Audit" }
+`(level: 1)` UnexpectedInitArgs { name: "Audit", kind: "label" }
+`(level: 1)` UnexpectedInitArgs { name: "Quiet", kind: "handler" }
+`Leveled` MissingInitArgs { handler: "Leveled", params: ["level"] }

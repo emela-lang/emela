@@ -567,3 +567,32 @@ fn test_nested() {
 "#
     ));
 }
+
+/// A reference to an operation with type parameters of its own (`s.fork`, spec 8.1) records what
+/// instantiates them, and only them.
+#[test]
+fn fork_records_its_own_type_argument() {
+    use emela_resolve::hir::ExprKind;
+    let src = r#"
+import Std.Fiber.{Fiber, Scope}
+
+fn f() -> String {
+  Fiber.scope(|| {
+    s = use Scope
+    a = s.fork(|| "x")
+    Fiber.join(a)
+  })
+}
+"#;
+    let (program, module, _) = resolve_main(src);
+    let types = emela_types::check_program(&program);
+    // The capability's own `Scope[E, R]` comes from the type of `s`; only `A` is recorded.
+    let counts: Vec<usize> = program
+        .exprs
+        .iter()
+        .filter(|(_, e)| e.span.module == module)
+        .filter(|(_, e)| matches!(&e.kind, ExprKind::Field { name, .. } if name.name == "fork"))
+        .map(|(expr, _)| types.type_args.get(expr).map_or(0, Vec::len))
+        .collect();
+    assert_eq!(counts, [1]);
+}

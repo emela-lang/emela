@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "common::render_bodies(r##\"\neffect Log {\n  fn info(m: String) -> ()\n}\neffect Audit of Log\nhandler Quiet: Log {\n  fn info(m) { () }\n}\n\nfn async_use() { use Async }\nfn takes_int_logs(n: Int) -> () uses { Log } { (use Log).info(\"x\") }\nfn piped() { 1 |> takes_int_logs }\nfn logs() -> () uses { Log } { (use Log).info(\"x\") }\nfn unused_by() -> () uses { Log } { with Audit by Quiet { logs() } }\nfn unused_label() -> () uses { Log } { with Audit { logs() } }\n\"##)"
+---
+async_use: fn() -> {unknown}
+takes_int_logs: fn(Int) -> () uses { Log }
+  n: Int
+piped: fn() -> () uses { Log }
+logs: fn() -> () uses { Log }
+unused_by: fn() -> () uses { Log }
+unused_label: fn() -> () uses { Log }
+`use Async` UseAsync
+`Audit by Quiet` UnusedLabelProvider { label: "Audit" }
+`with Audit { logs() }` unhandled effects Audit (Declared)

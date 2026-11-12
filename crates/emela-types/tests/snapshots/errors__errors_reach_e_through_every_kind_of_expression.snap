@@ -1,0 +1,15 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "common::render_bodies(r##\"\nerror Bad\nerror Worse\nfn f() -> Int fails Bad { fail Bad }\nfn h(a: Int, b: Int) -> Int fails Worse { fail Worse }\nfn neg(x: Int) -> Int fails Worse { fail Worse }\n\nfn tuple() { (f(), 1) }\nfn list() { [f(), 2] }\nfn list_rest() { [1, ..[f()]] }\nfn piped_call() { f() |> h(2) }\nfn piped_fn() { f() |> neg }\n\"##)"
+---
+f: fn() -> Int fails Bad
+h: fn(Int, Int) -> Int fails Worse
+  a: Int
+  b: Int
+neg: fn(Int) -> Int fails Worse
+  x: Int
+tuple: fn() -> (Int, Int) fails Bad
+list: fn() -> List[Int] fails Bad
+list_rest: fn() -> List[Int] fails Bad
+piped_call: fn() -> Int fails Bad | Worse
+piped_fn: fn() -> Int fails Bad | Worse

@@ -1,0 +1,5 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "common::render_diagnostics(r##\"\nfn run[E](f: fn() -> Int fails E uses {}) -> Int fails {} uses {} { f() }\n\"##)"
+---
+`f()` unhandled errors E (fails written: true)

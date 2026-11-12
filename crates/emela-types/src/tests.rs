@@ -545,3 +545,148 @@ fn display_scheme_with_bounds() {
         "∀ A: Ord + Show, B. fn(List[A]) -> B"
     );
 }
+
+#[test]
+fn unify_never_bound_and_capabilities_by_identity() {
+    let (mut cons, _, _) = cons();
+    let log = tag(&mut cons, 0, "Log");
+    let state = tag(&mut cons, 1, "State");
+    let mut cx = InferCtx::new();
+    assert!(cx.unify(&Ty::Never, &Ty::Never).is_ok());
+    assert!(cx.unify(&Ty::Bound(0), &Ty::Bound(0)).is_ok());
+    assert!(cx.unify(&Ty::Bound(0), &Ty::Bound(1)).is_err());
+    let cap = |def, args: Vec<Ty>| Ty::Cap(Tag::with_args(def, args));
+    assert!(cx.unify(&cap(log, vec![]), &cap(log, vec![])).is_ok());
+    assert!(cx.unify(&cap(log, vec![]), &cap(state, vec![])).is_err());
+    assert!(
+        cx.unify(&cap(state, vec![Ty::INT]), &cap(state, vec![Ty::INT]))
+            .is_ok()
+    );
+    assert!(
+        cx.unify(&cap(state, vec![Ty::INT]), &cap(state, vec![]))
+            .is_err()
+    );
+    assert!(
+        cx.unify(&cap(state, vec![Ty::INT]), &cap(state, vec![Ty::STRING]))
+            .is_err()
+    );
+}
+
+#[test]
+fn unify_sets_only_of_the_same_kind() {
+    let mut cx = InferCtx::new();
+    let errors = Ty::Set(SetKind::Errors, Row::empty());
+    let effects = Ty::Set(SetKind::Effects, Row::empty());
+    assert!(cx.unify(&errors, &errors.clone()).is_ok());
+    assert!(cx.unify(&errors, &effects).is_err());
+}
+
+#[test]
+fn named_types_with_as_many_arguments_still_differ_by_name() {
+    let (_, pair, option) = cons();
+    let mut cx = InferCtx::new();
+    let a = Ty::named(pair, [Ty::INT]);
+    let b = Ty::named(option, [Ty::INT]);
+    assert!(cx.unify(&a, &b).is_err());
+}
+
+#[test]
+fn join_needs_functions_of_the_same_arity() {
+    let mut cx = InferCtx::new();
+    let one = Ty::func([Ty::INT], Ty::INT);
+    let none = Ty::func([], Ty::INT);
+    assert!(cx.join(&one, &none).is_err());
+    // Two functions of the same arity join into one whose error and effect sets are fresh
+    // variables, apart from those of either side.
+    let (e1, e2) = (cx.new_row_var(), cx.new_row_var());
+    let a = Ty::func_fails([Ty::INT], Ty::INT, Row::var(e1));
+    let b = Ty::func_fails([Ty::INT], Ty::INT, Row::var(e2));
+    let Ok(Ty::Fn(joined)) = cx.join(&a, &b) else {
+        panic!("expected a function type")
+    };
+    let vars: Vec<_> = joined.fails.vars().collect();
+    assert_eq!(vars.len(), 1);
+    assert!(vars[0] != e1 && vars[0] != e2);
+}
+
+#[test]
+fn an_integer_variable_stays_integer_when_joined_with_another_variable() {
+    let mut cx = InferCtx::new();
+    let int = cx.new_int_var();
+    let plain = cx.new_var();
+    cx.unify(&plain, &int).unwrap();
+    assert!(cx.unify(&plain, &Ty::STRING).is_err());
+    let int = cx.new_int_var();
+    let plain = cx.new_var();
+    cx.unify(&int, &plain).unwrap();
+    assert!(cx.unify(&plain, &Ty::STRING).is_err());
+}
+
+#[test]
+fn reported_errors_are_kept() {
+    let mut cx = InferCtx::new();
+    let err = cx.unify(&Ty::INT, &Ty::STRING).unwrap_err();
+    cx.report(err.clone());
+    assert_eq!(cx.errors(), [err]);
+}
+
+#[test]
+fn generalize_names_set_parameters_apart_and_finds_them_in_set_arguments() {
+    let (cons, pair, _) = cons();
+    let mut cx = InferCtx::new();
+    let (e1, e2, e3) = (cx.new_row_var(), cx.new_row_var(), cx.new_row_var());
+    let ty = Ty::func(
+        [
+            Ty::func_fails([], Ty::INT, Row::var(e1)),
+            Ty::func_fails([], Ty::INT, Row::var(e2)),
+        ],
+        Ty::named(pair, [Ty::Set(SetKind::Errors, Row::var(e3)), Ty::INT]),
+    );
+    let scheme = cx.generalize(&ty, &[]);
+    assert_eq!(scheme.params.len(), 3);
+    assert_eq!(
+        scheme.display(&cons).to_string(),
+        "∀ E, E1, E2. fn(fn() -> Int fails E uses {}, fn() -> Int fails E1 uses {}) -> Pair[E2, Int]"
+    );
+}
+
+#[test]
+fn type_parameter_names_run_from_a_to_z_then_number() {
+    assert_eq!(crate::scheme::param_name(0), "A");
+    assert_eq!(crate::scheme::param_name(25), "Z");
+    assert_eq!(crate::scheme::param_name(26), "T26");
+}
+
+#[test]
+fn generalize_finds_type_variables_inside_error_sets() {
+    let (cons, _, _) = cons();
+    let mut cx = InferCtx::new();
+    let a = cx.new_var();
+    let ty = Ty::func_fails([], Ty::INT, Row::from_elems([RowElem::Of(a)]));
+    let scheme = cx.generalize(&ty, &[]);
+    assert!(!scheme.is_mono());
+    assert_eq!(
+        scheme.display(&cons).to_string(),
+        "∀ A. fn() -> Int fails A"
+    );
+    assert!(Scheme::mono(Ty::INT).is_mono());
+}
+
+#[test]
+fn generalize_finds_type_variables_in_effect_type_arguments() {
+    let (mut cons, _, _) = cons();
+    let state = tag(&mut cons, 0, "State");
+    let mut cx = InferCtx::new();
+    let a = cx.new_var();
+    let ty = Ty::func_sets(
+        [],
+        Ty::UNIT,
+        Row::empty(),
+        Row::of_tag(Tag::with_args(state, vec![a])),
+    );
+    let scheme = cx.generalize(&ty, &[]);
+    assert_eq!(
+        scheme.display(&cons).to_string(),
+        "∀ A. fn() -> () uses { State[A] }"
+    );
+}

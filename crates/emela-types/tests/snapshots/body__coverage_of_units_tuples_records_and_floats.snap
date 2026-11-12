@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "common::render_diagnostics(r##\"\ntype Point(x: Int, y: Int)\n\nfn unit(u: ()) -> Int {\n  u match {\n    () -> 1\n  }\n}\n\nfn tuple(p: (Int, Bool)) -> Int {\n  p match {\n    (_, True) -> 1\n    (_, False) -> 2\n  }\n}\n\nfn positional(p: Point) -> Int {\n  p match {\n    Point(0, _) -> 1\n    Point(_, 0) -> 2\n  }\n}\n\nfn named(p: Point) -> Int {\n  p match {\n    Point(y: 0, x: _) -> 1\n    Point(x: 0, y: _) -> 2\n    Point(x: 0, y: 1) -> 3\n  }\n}\n\nfn floats(f: Float) -> Int {\n  f match {\n    -1.5 -> 1\n    1.5 -> 2\n    -1.5 -> 3\n    _ -> 4\n  }\n}\n\nfn bindings(p: (Int, Int), u: ()) -> Int {\n  (a, 1) = p\n  () = u\n  (b, c) = (1, 2)\n  a\n}\n\"##)"
+---
+`p` non-exhaustive match: Point(_, _) not covered
+`p` non-exhaustive match: Point(_, _) not covered
+`Point(x: 0, y: 1)` warning: unreachable match arm
+`-1.5` warning: unreachable match arm
+`(a, 1)` refutable pattern in binding: (_, _) not covered

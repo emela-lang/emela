@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "common::render_bodies(r##\"\ntype Box[A](value: A)\nfn from_list(fs: List[fn() -> Int]) { fs.map(|f| f()) }\nfn from_tuple(t: (fn() -> Int, Int)) {\n  (f, _) = t\n  f()\n}\nfn from_box(b: Box[fn() -> Int]) { (b.value)() }\nfn from_param(g: fn(fn() -> Int) -> Int) { g(|| 1) }\n\"##)"
+---
+from_list: ∀ E(fs), R(fs). fn(List[fn() -> Int fails E(fs) uses { R(fs) }]) -> List[Int] fails E(fs) uses { R(fs) }
+  fs: List[fn() -> Int fails '0 uses { '1 }]
+  f: fn() -> Int fails '0 uses { '1 }
+from_tuple: ∀ E(t), R(t). fn((fn() -> Int fails E(t) uses { R(t) }, Int)) -> Int fails E(t) uses { R(t) }
+  t: (fn() -> Int fails '0 uses { '1 }, Int)
+  f: fn() -> Int fails '0 uses { '1 }
+from_box: ∀ E(b), R(b). fn(Box[fn() -> Int fails E(b) uses { R(b) }]) -> Int fails E(b) uses { R(b) }
+  b: Box[fn() -> Int fails '0 uses { '1 }]
+from_param: ∀ E(g), R(g), E(g, 2), R(g, 2). fn(fn(fn() -> Int fails E(g, 2) uses { R(g, 2) }) -> Int fails E(g) uses { R(g) }) -> Int fails E(g) uses { R(g) }
+  g: fn(fn() -> Int fails '2 uses { '3 }) -> Int fails '0 uses { '1 }

@@ -1,0 +1,8 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "common::render_bodies(r##\"\nerror Bad\neffect Log {\n  fn info(m: String) -> ()\n}\nfn bad() -> Int fails Bad { fail Bad }\nfn log() -> Int uses { Log } {\n  (use Log).info(\"x\")\n  1\n}\nfn fails_inside() -> fn() -> (fn() -> Int uses {}) fails {} uses {} { || || bad() }\nfn uses_inside() -> fn() -> (fn() -> Int fails {}) fails {} uses {} { || || log() }\n\"##)"
+---
+bad: fn() -> Int fails Bad
+log: fn() -> Int uses { Log }
+fails_inside: fn() -> fn() -> fn() -> Int fails Bad
+uses_inside: fn() -> fn() -> fn() -> Int uses { Log }

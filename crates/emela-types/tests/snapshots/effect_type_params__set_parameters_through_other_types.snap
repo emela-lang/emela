@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/effect_type_params.rs
+expression: "common::render_bodies(r##\"\nerror Bad\nerror Worse\neffect Log {\n  fn info(m: String) -> ()\n}\ntype Outer[E](w: Wrap[E])\ntype Wrap[E](h: Holder[E])\ntype WrapUnion[E](h: Holder[E | Bad])\ntype WrapEffects[R](r: Runner[{ R, Log }])\ntype Holder[E](f: fn() -> Int fails E uses {})\ntype Runner[R](f: fn() -> Int fails {} uses { R })\n\nfn outer(o: Outer[Bad | Worse]) -> Int { 1 }\nfn union(w: WrapUnion[Bad | Worse]) -> Int { 1 }\nfn effects(w: WrapEffects[{ Log }]) -> Int { 1 }\n\"##)"
+---
+outer: fn(Outer[Bad | Worse]) -> Int
+  o: Outer[Bad | Worse]
+union: fn(WrapUnion[Bad | Worse]) -> Int
+  w: WrapUnion[Bad | Worse]
+effects: fn(WrapEffects[Log]) -> Int
+  w: WrapEffects[Log]

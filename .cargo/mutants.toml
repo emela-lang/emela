@@ -7,6 +7,9 @@
 
 test_tool = "nextest"
 
+# cargo-mutants 27.1 does not apply `exclude_re` to the mutants that delete a field from a struct
+# expression; an equivalent one is avoided by writing the field as an assignment instead.
+
 # emela-codegen-emb is to be removed (v0.28).
 exclude_globs = ["crates/emela-codegen-emb/**"]
 
@@ -87,4 +90,111 @@ exclude_re = [
     # no lookup.
     'resolve\.rs:\d+:\d+: replace match guard kind == DefKind::Impl with true in Resolver<.*>::collect',
     'resolve\.rs:\d+:\d+: delete match arm DefKind::Impl in Resolver<.*>::collect',
+
+    # --- emela-types ---
+
+    # Every module has a name, so the empty-name fallback is never taken.
+    'export\.rs:\d+:\d+: replace match guard !items\.name\.segments\(\)\.is_empty\(\) with true in display_name',
+
+    # A function type has no head, so it fails at the end too; `()` has no Prelude definition
+    # either way.
+    'traits\.rs:\d+:\d+: delete match arm Ty::Fn\(_\) in Traits::satisfies',
+    'traits\.rs:\d+:\d+: delete match arm Ty::Prim\(Prim::Unit\) in head_def',
+    # The only other Prelude trait, Immediate, cannot bound a type parameter of a type
+    # (ImmediateOnNonEffect), so no type is checked against it here.
+    'traits\.rs:212:\d+: replace && with \|\| in Traits::satisfies',
+    # Name resolution makes a supertrait that is not a trait `Res::Err`.
+    'traits\.rs:\d+:\d+: replace match guard program\.defs\[s\]\.kind == DefKind::Trait with true in collect',
+
+    # A scope without set parameters (`sets: false`) has no parameters or only ordinary ones
+    # (`TyTable::lower` marks them all `Type`), so a set parameter is never found there.
+    'src/lower\.rs:\d+:\d+: replace match guard !scope\.sets with false in TyTable::lower_error_set',
+    'src/lower\.rs:\d+:\d+: (delete match arm Some\(ParamKind::Set\)|replace match guard scope\.sets with true) in TyTable::lower_effect_set',
+    'src/lower\.rs:\d+:\d+: replace (match guard scope\.kinds\.get\(i\) == Some\(&ParamKind::Set\)( && scope\.sets)? with (true|false)|&& with \|\||== with !=) in TyTable::set_elem',
+
+    # An inclusion whose subset is empty, or equal to its superset, always holds.
+    'infer\.rs:\d+:\d+: replace \|\| with && in InferCtx::add_subset_of',
+    # Float patterns are literals, never NaN.
+    'exhaustiveness\.rs:\d+:\d+: replace && with \|\| in <impl PartialEq for Lit>::eq',
+    # The examples of what a match misses are cut to `limit` at the end, so asking for more on the
+    # way changes nothing but the work done.
+    'exhaustiveness\.rs:\d+:\d+: replace - with \+ in Cx<.*>::useful',
+    'exhaustiveness\.rs:\d+:\d+: replace < with <= in Cx<.*>::useful',
+    # Every module has a name.
+    'fiber\.rs:\d+:\d+: replace match guard !items\.name\.segments\(\)\.is_empty\(\) with true in qualified_name',
+    # Every trait, the Prelude's included (the bundled `prelude.emel`), has an item; the fallback
+    # finds the same fns in the same order.
+    'methods\.rs:\d+:\d+: (delete match arm Some\(Item::Trait\(item\)\)|replace (&& with \|\||== with !=)) in trait_fns',
+    # `Row::empty` is the default row.
+    'row\.rs:\d+:\d+: replace Row::empty -> Self with Default::default\(\)',
+    # The name ena prints when debugging its tables.
+    'ty\.rs:\d+:\d+: replace <impl UnifyKey for TyVar>::tag -> &.static str with',
+    # A pattern whose shape does not fit its type is already a type error (E0301); how coverage
+    # reads it then does not matter.
+    'coverage\.rs:\d+:\d+: replace match guard (tys\.is_empty\(\)|elems\.len\(\) == tys\.len\(\)|item\.owner == ty_def) with (true|false) in',
+    'coverage\.rs:\d+:\d+: replace == with != in <impl CtorTable for Shapes<.*>>::value_pat',
+    # Name resolution reports a constructor that is not an error in an escape arm (E0217), and a
+    # guarded `_` is broken whichever arm says so; with no caught tag, the set variable is
+    # replaced by one that excludes nothing.
+    'body/errors\.rs:\d+:\d+: replace match guard program\.defs\[\*def\]\.kind == DefKind::Error with true in BodyInfer<.*>::expr_row',
+    'body/errors\.rs:\d+:\d+: delete match arm PatKind::Wild in BodyInfer<.*>::expr_row',
+    'body/errors\.rs:\d+:\d+: replace match guard !tags\.is_empty\(\) with true in BodyInfer<.*>::expr_row',
+    'body\.rs:\d+:\d+: (replace match guard program\.defs\[\*def\]\.kind == DefKind::Error with true|delete match arm PatKind::Ctor\{\.\.\} \| PatKind::Missing) in BodyInfer<.*>::infer_escape',
+    # A user effect has no set type parameters (spec 8.1), so it has no own tag to add to the
+    # uses of its operations' parameters.
+    'signature\.rs:\d+:\d+: replace match guard is_intrinsic_effect\(program, e\) with true in op_signature',
+    # A label defaulted by two providers of one `with` is the same label; listing it twice
+    # provides nothing more. With no tag to take away, the set variable is replaced by one that
+    # excludes nothing.
+    'body/effects\.rs:\d+:\d+: replace == with != in BodyInfer<.*>::with_effects',
+    'body/effects\.rs:\d+:\d+: replace match guard !tags\.is_empty\(\) with true in BodyInfer<.*>::subtract',
+    # A union or braces written as a type argument are lowered as a set whatever the parameter is
+    # marked, so marking the parameters inside them changes no type or diagnostic (checked by
+    # disabling these arms against the tests and the core sources).
+    'src/lower\.rs:\d+:\d+: delete match arm TypeKind::(ErrorSet|EffectSet)\(set\) in mark_set_arg',
+    # Only a syntax error leaves a type argument missing; a written path with arguments that is
+    # not an effect is reported as a type in either branch.
+    'src/lower\.rs:\d+:\d+: delete match arm \(TypeKind::Missing, _\) in TyTable::lower_set_arg',
+    'src/lower\.rs:\d+:\d+: replace match guard args\.is_empty\(\) \|\| .* with true in TyTable::lower_set_arg',
+    # A layer has no init parameters either, so taking it for a handler leads to the same
+    # diagnostic.
+    'body\.rs:\d+:\d+: replace match guard matches!\(program\.item\(def\), Some\(Item::Handler\(_\)\)\) with true in BodyInfer<.*>::infer_supply_args',
+    # The signature of an impl fn is read only for `main` and test functions, which are not impl
+    # fns.
+    'body\.rs:\d+:\d+: delete match arm (Res::Def\(t\)|Some\(Item::TraitFn\(item\)\)) in fn_parts',
+    # A trait fn without a body has nothing to infer, and one without a signature has an error in
+    # its declaration; handlers get their types from declarations, so inferring them before the
+    # fns that name them through a layer changes nothing.
+    'check\.rs:\d+:\d+: replace && with \|\| in groups',
+    'check\.rs:\d+:\d+: delete match arm Some\(Item::Layer\(_\)\) in groups',
+    # Functions of different arities fail to join in either branch, with the same error.
+    'infer\.rs:\d+:\d+: replace match guard f\.params\.len\(\) == g\.params\.len\(\) with true in InferCtx::join',
+    # A type parameter with type arguments is not written.
+    'src/lower\.rs:\d+:\d+: replace match guard args\.is_empty\(\) with true in mark_set_arg',
+    # The fn made by `@entry` is one call of the adapter, where no warning arises.
+    'diagnostic\.rs:\d+:\d+: replace DiagnosticKind::is_warning -> bool with false',
+    # `use Async` is E0414 and has the error type, so it adds no tag either way.
+    'body/effects\.rs:\d+:\d+: replace match guard program\.prelude_def\("Async"\) == Some\(\*effect\) with false in BodyInfer<.*>::expr_effects',
+    # A method's fn takes the receiver, so it has a first parameter.
+    'body/methods\.rs:\d+:\d+: replace match guard !f\.params\.is_empty\(\) with true in BodyInfer<.*>::infer_method_call',
+    # Wildcards and bindings also fall to the last arm, which makes a wildcard.
+    'coverage\.rs:\d+:\d+: delete match arm \(PatKind::Wild \| PatKind::Bind\(_\) \| PatKind::Missing, _\) in Shapes<.*>::pat',
+    # A definition without an item that is not a trait fn has no name the Prelude's trait fns
+    # have, so it gets no signature either way.
+    'signature\.rs:\d+:\d+: replace match guard program\.defs\[def\]\.kind == DefKind::TraitFn with true in Signatures::collect',
+    # The call on the right of `|>` is visited as an expression of its own, with the same result.
+    'body/suspend\.rs:\d+:\d+: replace match guard !matches!\(program\.exprs\[\*rhs\]\.kind, ExprKind::Call \{ \.\. \}\) with true in BodyInfer<.*>::check_fn_op_bodies',
+    'body/suspend\.rs:\d+:\d+: delete match arm ExprKind::Call\{callee, args\} in Walker<.*>::expr',
+    # The functions of Std.Fiber that take a function name the built-in effect first in its uses.
+    'fiber\.rs:\d+:\d+: replace match guard effects\.contains\(&d\) with true in names_effect',
+    # The call on the right of `|>` is also found as the origin through its own E.
+    'body/errors\.rs:\d+:\d+: delete match arm ExprKind::Call\{callee, args\} in BodyInfer<.*>::expr_row',
+    # A type parameter is never the head of the receiver's type, so taking it as one finds the
+    # same fns.
+    'body/methods\.rs:\d+:\d+: replace match guard program\.defs\[d\]\.kind != DefKind::TypeParam with true in written_first_param',
+    # A set variable in a named type's argument of an inferred type comes with a function type
+    # that holds it, which the function arm collects; a const has no set parameters, so no
+    # parameters and none to name are the same.
+    'body/errors\.rs:\d+:\d+: (replace match guard !positive with (true|false)|delete !) in BodyInfer<.*>::negative_row_vars',
+    'body/errors\.rs:\d+:\d+: (delete match arm Some\(Item::Const\(item\)\)|replace == with !=) in BodyInfer<.*>::current_params',
 ]

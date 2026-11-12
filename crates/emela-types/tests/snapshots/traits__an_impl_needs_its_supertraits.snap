@@ -1,0 +1,5 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntrait Named: Show {\n  fn name(self) -> String\n}\ntype User(id: Int)\ntype Admin(id: Int)\n  derive Show\nimpl User: Named {\n  fn name(self) { \"\" }\n}\nimpl Admin: Named {\n  fn name(self) { \"\" }\n}\n\"##)"
+---
+`User` NotImplemented { ty: "User", trait_name: "Show" }

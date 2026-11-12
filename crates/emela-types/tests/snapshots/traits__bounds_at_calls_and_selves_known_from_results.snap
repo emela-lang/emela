@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntrait Parse {\n  fn parse(s: String) -> Self\n}\ntrait Merge {\n  fn merge(xs: List[Self]) -> Self\n}\nimpl Int: Parse {\n  fn parse(s) { 1 }\n}\nimpl Int: Merge {\n  fn merge(xs) { 1 }\n}\ntype Plain(id: Int)\n\nfn needs[A: Show](a: A) -> A { a }\n\nfn calls(f: fn() -> Int, p: Plain) {\n  a = needs(f)\n  b = needs(p)\n  c = needs(1)\n  d = Parse.parse(\"1\")\n  e: Int = Parse.parse(\"1\")\n  g: Int = Merge.merge([])\n  ()\n}\n\"##)"
+---
+`needs` NotImplemented { ty: "fn() -> Int fails E(f) uses { R(f) }", trait_name: "Show" }
+`needs` NotImplemented { ty: "Plain", trait_name: "Show" }
+`Parse.parse` AmbiguousSelf { trait_name: "Parse" }

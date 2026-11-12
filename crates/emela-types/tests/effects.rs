@@ -1751,3 +1751,242 @@ handler Ticking: Clock {
 "#
     ));
 }
+
+/// A uses clause in a function-typed parameter of an external function is Immediate (spec 9.5):
+/// an effect without suspend fns, or a set type parameter constrained `: Immediate`. Immediate on
+/// an ordinary type parameter is E0322, and trait bounds on effect sets are not supported yet.
+#[test]
+fn external_callbacks_are_immediate() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+}
+effect Log {
+  fn info(m: String) -> ()
+}
+
+@external(js, "./x.mjs", "a")
+fn a(h: fn() -> () uses { Log }) -> ()
+@external(js, "./x.mjs", "b")
+fn b(h: fn() -> () uses { Clock }) -> ()
+@external(js, "./x.mjs", "c")
+fn c[R](h: fn() -> () uses { R }) -> ()
+@external(js, "./x.mjs", "d")
+fn d[R: Immediate](h: fn() -> () uses { R }) -> ()
+
+fn e[A: Immediate](x: A) -> A { x }
+fn e2[A: Immediate](x: A) -> A uses { Log } { x }
+fn f[R: Show](g: fn() -> () uses { R }) -> () uses { R } { g() }
+"##
+    ));
+}
+
+/// Only a handler whose init takes parameters is given arguments; an effect or a label written
+/// with arguments is reported by its kind.
+#[test]
+fn init_arguments_only_for_handlers() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+effect Log {
+  fn info(m: String) -> ()
+}
+effect Audit of Log
+handler Quiet: Log {
+  fn info(m) { () }
+}
+handler Leveled(level: Int): Log {
+  init(level: Int) { Leveled(level:) }
+  fn info(m) { () }
+}
+
+fn f() {
+  with Log(level: 1) { () }
+  with Audit(level: 1) by Quiet { () }
+  with Quiet(level: 1) { () }
+  with Leveled { () }
+}
+"##
+    ));
+}
+
+/// R at its edges: `use Async` is E0414 and adds nothing, `x |> f` adds f's R, and a label
+/// provided but unused by a body whose R is known is W0401 (spec 8.6).
+#[test]
+fn effects_at_their_edges() {
+    insta::assert_snapshot!(common::render_bodies(
+        r##"
+effect Log {
+  fn info(m: String) -> ()
+}
+effect Audit of Log
+handler Quiet: Log {
+  fn info(m) { () }
+}
+
+fn async_use() { use Async }
+fn takes_int_logs(n: Int) -> () uses { Log } { (use Log).info("x") }
+fn piped() { 1 |> takes_int_logs }
+fn logs() -> () uses { Log } { (use Log).info("x") }
+fn unused_by() -> () uses { Log } { with Audit by Quiet { logs() } }
+fn unused_label() -> () uses { Log } { with Audit { logs() } }
+"##
+    ));
+}
+
+/// A capability value cannot be passed through `|>`, stored by a partial update, or returned from
+/// a handler operation (spec 8.2); an `R: Immediate` written on an external function is a bound,
+/// its hidden callback sets are callbacks (spec 9.5); an fn operation's implementation does not
+/// call a suspending function, through `|>` either (E0417).
+#[test]
+fn capabilities_immediates_and_suspension_at_their_edges() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+effect Log {
+  fn info(m: String) -> ()
+}
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+}
+effect Source {
+  fn get() -> Int
+}
+type Box[A](value: A)
+fn take[A](a: A) -> () { () }
+fn pause() -> () uses { Clock } { (use Clock).sleep(1) }
+fn pause_n(n: Int) -> () uses { Clock } { (use Clock).sleep(n) }
+
+fn caps(b: Box[Int]) -> () uses { Log } {
+  log = use Log
+  x = log |> Box
+  y = log |> Box()
+  z = log |> take()
+  w = Box(value: log, ..b)
+  ()
+}
+
+handler Leaky: Source {
+  fn get() { use Log }
+}
+
+handler Sleepy: Source {
+  fn get() {
+    1 |> pause_n
+    1
+  }
+}
+
+@external(js, "./x.mjs", "bounded")
+fn bounded[R: Immediate](h: fn() -> () uses { R }) -> ()
+@external(js, "./x.mjs", "hidden")
+fn hidden(h: fn() -> () uses {}) -> ()
+
+fn calls() -> () uses { Clock } {
+  bounded(|| pause())
+}
+"##
+    ));
+}
+
+/// A layer inside a layer provides its handlers too, and the errors of the init arguments written
+/// in a `with` are part of E (spec 8.5).
+#[test]
+fn nested_layers_and_init_argument_errors() {
+    insta::assert_snapshot!(common::render_bodies(
+        r##"
+error Bad
+effect Log {
+  fn info(m: String) -> ()
+}
+handler Leveled(level: Int): Log {
+  init(level: Int) { Leveled(level:) }
+  fn info(m) { () }
+}
+layer Inner { Leveled(level: 1) }
+layer Outer { Inner }
+layer Top { Outer }
+fn bad() -> Int fails Bad { fail Bad }
+fn logs() -> () uses { Log } { (use Log).info("x") }
+
+fn nested() { with Outer { logs() } }
+fn nested_twice() { with Top { logs() } }
+fn arg_errors() { with Leveled(level: bad()) { logs() } }
+"##
+    ));
+}
+
+/// An error in the arguments of a `with` item is raised there (E0318); handlers that depend on
+/// each other inside a nested layer are a cycle reported once, at that layer (E0422).
+#[test]
+fn with_arguments_and_cycles_in_nested_layers() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+error Bad
+effect Aa {
+  fn a() -> Int
+}
+effect Bb {
+  fn b() -> Int
+}
+handler UsesB: Aa {
+  init { UsesB }
+  fn a() { (use Bb).b() }
+}
+handler UsesA: Bb {
+  init { UsesA }
+  fn b() { (use Aa).a() }
+}
+handler Leveled(level: Int): Aa {
+  init(level: Int) { Leveled(level:) }
+  fn a() { 1 }
+}
+layer Inner { UsesB, UsesA }
+layer Outer { Inner }
+fn bad() -> Int fails Bad { fail Bad }
+
+fn args() -> Int fails {} { with Leveled(level: bad()) { (use Aa).a() } }
+fn cycle() -> Int { with Outer { (use Aa).a() } }
+"##
+    ));
+}
+
+/// Edges of `with`: an unused label written alone is W0401 by its own name; a handler provided
+/// twice through a nested layer is E0421; handlers that depend on each other written directly
+/// in a `with` are a cycle (E0422).
+#[test]
+fn with_edges() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+effect Log {
+  fn info(m: String) -> ()
+}
+effect Audit of Log
+handler Quiet: Log {
+  fn info(m) { () }
+}
+effect Aa {
+  fn a() -> Int
+}
+effect Bb {
+  fn b() -> Int
+}
+handler UsesB: Aa {
+  init { UsesB }
+  fn a() { (use Bb).b() }
+}
+handler UsesA: Bb {
+  init { UsesA }
+  fn b() { (use Aa).a() }
+}
+layer Inner { Quiet }
+layer Outer { Inner, Quiet }
+layer HasB { UsesB }
+
+fn unused_label() -> () uses { Log } { with Audit { () } }
+fn unused_label_by_effect() -> () uses { Log } { with Audit by Log { () } }
+fn direct_cycle() -> Int { with UsesB, UsesA { (use Aa).a() } }
+fn cycle_through_a_layer() -> Int { with HasB, UsesA { (use Aa).a() } }
+fn twice() { with Outer { () } }
+"##
+    ));
+}

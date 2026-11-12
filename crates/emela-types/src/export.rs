@@ -420,7 +420,7 @@ fn reserved_js_names(
         if (name == "main" && options.main.is_none()) || (name == "$start" && !start) {
             continue;
         }
-        let first = exposed
+        let spans: Vec<Span> = exposed
             .iter()
             .flat_map(|exposed| {
                 exposed
@@ -433,19 +433,24 @@ fn reserved_js_names(
                     })
                     .map(|export| exposed.entry.unwrap_or(export.span))
             })
-            .min_by_key(|span| (span.module, span.range.start()));
-        let Some(span) = first else { continue };
-        let kind = DiagnosticKind::DuplicateExport {
-            name: SmolStr::new(name),
-            target: SmolStr::new("js"),
+            .collect();
+        let Some(&span) = spans
+            .iter()
+            .min_by_key(|span| (span.module, span.range.start()))
+        else {
+            continue;
         };
-        // A duplicate at the same place is already reported by `duplicates`.
-        if diags.iter().any(|d| d.span == Some(span) && d.kind == kind) {
+        // Two such exports at the same place (an `@entry` whose adapter exports the name twice)
+        // are already reported there by `duplicates`.
+        if spans.iter().filter(|&&s| s == span).count() > 1 {
             continue;
         }
         diags.push(Diagnostic {
             span: Some(span),
-            kind,
+            kind: DiagnosticKind::DuplicateExport {
+                name: SmolStr::new(name),
+                target: SmolStr::new("js"),
+            },
         });
     }
 }

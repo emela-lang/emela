@@ -1,0 +1,5 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntrait Sized {\n  fn size(self) -> Int { \"big\" }\n}\n\"##)"
+---
+`"big"` mismatch: expected `Int`, found `String`
