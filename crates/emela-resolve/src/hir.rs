@@ -836,8 +836,28 @@ impl Program {
     pub fn effect_ops(&self, effect: DefId) -> &[DefId] {
         let effect = self.label_base(effect).unwrap_or(effect);
         match self.item(effect) {
-            Some(Item::Effect(e)) if e.label.is_none() => &e.ops,
+            // A label declares no operations of its own.
+            Some(Item::Effect(e)) => &e.ops,
             _ => &[],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn 整数リテラルの値() {
+        assert_eq!(int_literal_value("42"), Some(42));
+        assert_eq!(int_literal_value("0xFF"), Some(255));
+        assert_eq!(int_literal_value("0b1010"), Some(10));
+        assert_eq!(int_literal_value("-0x10"), Some(-16));
+        assert_eq!(int_literal_value("-2147483648"), Some(-2_147_483_648));
+    }
+
+    #[test]
+    fn i128_に収まらない整数リテラルは値がない() {
+        assert_eq!(int_literal_value(&format!("0x{}", "F".repeat(33))), None);
     }
 }

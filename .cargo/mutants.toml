@@ -32,4 +32,59 @@ exclude_re = [
     # The parameters of the old `fn(...)` form are names, never patterns, so the last child node
     # of a PARAM is its type whenever it has one.
     'rewrite\.rs:\d+:\d+: replace is_type -> bool with true',
+
+    # --- emela-resolve ---
+
+    # NoBuiltins has no modules, so nothing asks it for the names of one, and no module named
+    # by an empty name can be written.
+    'builtins\.rs:\d+:\d+: replace (BuiltinModules::names|<impl BuiltinModules for NoBuiltins>::modules) -> Vec<SmolStr> with vec!',
+
+    # A node is pushed on the work list only before it is visited, so an edge index of 0 already
+    # means an unvisited node.
+    'graph\.rs:\d+:\d+: replace && with \|\| in tarjan',
+
+    # A handler cannot be written as a type (E0302), so no fn's first parameter has a handler
+    # type; the arm is kept for the rule of `[data.type]`, which counts handlers with fields.
+    'lower\.rs:\d+:\d+: delete match arm Some\(Item::(Handler\(h\)|Ctor\(c\))\) in check_fn_field_names',
+
+    # Only an INT or a FLOAT starts a LITERAL, and a STRING has only STRING_TEXT tokens and
+    # INTERP nodes, so these guards are always true where they are reached.
+    'lower\.rs:\d+:\d+: replace match guard t\.kind\(\) == FLOAT with true in Lower<.*>::expr',
+    'lower\.rs:\d+:\d+: replace match guard n\.kind\(\) == INTERP with true in Lower<.*>::string',
+    # The lexer never puts two STRING_TEXT tokens next to each other.
+    'lower\.rs:\d+:\d+: delete match arm Some\(StrPart::Text\(prev\)\) in Lower<.*>::string',
+
+    # A constructor that is not of a type or a handler is a variant of an enum.
+    'lower\.rs:\d+:\d+: replace match guard self\.r\.program\.defs\[p\]\.kind == DefKind::Enum with true in Lower<.*>::update',
+
+    # An operator token is always present, and `+` is also the fallback for a broken tree.
+    'lower\.rs:\d+:\d+: delete match arm PLUS in Lower<.*>::binary',
+
+    # The children of these lists are patterns or expressions (the syntax checks reject the
+    # rest, E0125), so the kind checks only skip ERROR nodes of trees with syntax errors.
+    'lower\.rs:\d+:\d+: replace match guard is_pat\(k\) with true in Lower<.*>::pat',
+    'lower\.rs:\d+:\d+: replace is_pat -> bool with true',
+    'lower\.rs:\d+:\d+: replace match guard is_expr\(k\) with true in Lower<.*>::expr_pat',
+    # A NAME_REF starts with a lower name, an upper name or `self`, and the syntax checks reject
+    # `self` and parentheses on the left of a binding (E0125).
+    'lower\.rs:\d+:\d+: replace match guard t\.kind\(\) == UPPER_NAME with true in Lower<.*>::expr_pat',
+    'lower\.rs:\d+:\d+: delete match arm PAREN_EXPR in Lower<.*>::expr_pat',
+
+    # An annotation argument with a string is either a string alone or `name: "..."`, which has
+    # both a lower name and a colon.
+    'lower\.rs:\d+:\d+: replace \|\| with && in attrs',
+
+    # A single-token argument of `@entry` without a node is a name: a type name is an ANNOT_PATH
+    # and a literal is a node.
+    'lower\.rs:\d+:\d+: replace match guard name\.kind\(\) == LOWER_NAME with true in Lower<.*>::entry_adapter',
+
+    # Only constructors take their parent's visibility; nothing reads the visibility of other
+    # children (operations, fields, type parameters).
+    'resolve\.rs:\d+:\d+: replace match guard kind == DefKind::Ctor with true in Resolver<.*>::alloc_def',
+
+    # A declaration other than an impl without a name has a syntax error and is skipped; an
+    # impl's generated name (`impl#1`) cannot be written, so putting it in a namespace changes
+    # no lookup.
+    'resolve\.rs:\d+:\d+: replace match guard kind == DefKind::Impl with true in Resolver<.*>::collect',
+    'resolve\.rs:\d+:\d+: delete match arm DefKind::Impl in Resolver<.*>::collect',
 ]
