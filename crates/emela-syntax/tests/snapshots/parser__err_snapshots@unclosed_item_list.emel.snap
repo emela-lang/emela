@@ -1,0 +1,50 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/unclosed_item_list.emel
+---
+ROOT@0..130
+  COMMENT@0..81 "# 閉じていない効果の本体は，行頭の fn 以外の宣言で終わる"
+  NEWLINE@81..82 "\n"
+  EFFECT_DECL@82..115
+    EFFECT_KW@82..88 "effect"
+    WHITESPACE@88..89 " "
+    TYPE_NAME@89..94 "Clock"
+    WHITESPACE@94..95 " "
+    ITEM_LIST@95..115
+      L_BRACE@95..96 "{"
+      NEWLINE@96..97 "\n"
+      WHITESPACE@97..99 "  "
+      OP_SIG@99..114
+        FN_KW@99..101 "fn"
+        WHITESPACE@101..102 " "
+        LOWER_NAME@102..105 "now"
+        PARAM_LIST@105..107
+          L_PAREN@105..106 "("
+          R_PAREN@106..107 ")"
+        WHITESPACE@107..108 " "
+        RET_TYPE@108..114
+          THIN_ARROW@108..110 "->"
+          WHITESPACE@110..111 " "
+          PATH_TYPE@111..114
+            PATH@111..114
+              TYPE_NAME@111..114 "Int"
+      NEWLINE@114..115 "\n"
+  TYPE_DECL@115..129
+    TYPE_KW@115..119 "type"
+    WHITESPACE@119..120 " "
+    ERROR@120..121
+      UPPER_NAME@120..121 "T"
+    FIELD_LIST@121..129
+      L_PAREN@121..122 "("
+      FIELD@122..128
+        LOWER_NAME@122..123 "x"
+        COLON@123..124 ":"
+        WHITESPACE@124..125 " "
+        PATH_TYPE@125..128
+          PATH@125..128
+            TYPE_NAME@125..128 "Int"
+      R_PAREN@128..129 ")"
+  NEWLINE@129..130 "\n"
+error[E0110]@115..119: expected `}`
+error[E0110]@120..121: expected type name

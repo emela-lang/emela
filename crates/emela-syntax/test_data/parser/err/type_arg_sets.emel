@@ -1,1 +1,3 @@
 fn bad(a: Handler[NotFound |, { Db, }], b: Handler[{ Db Log }]) { () }
+fn qualified(a: Handler[Http.x | Db]) { () }
+fn leading(a: Handler[| Db]) { () }

@@ -196,9 +196,8 @@ fn binding_target(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         PREFIX_EXPR => {
             has_token(node, MINUS)
                 && node.children().count() == 1
-                && node.first_child().is_some_and(|c| {
-                    c.kind() == LITERAL && (has_token(&c, INT) || has_token(&c, FLOAT))
-                })
+                // A LITERAL holds a number; strings are STRING.
+                && node.first_child().is_some_and(|c| c.kind() == LITERAL)
         }
         STRING => node.children().all(|c| c.kind() != INTERP),
         TUPLE_EXPR | LIST_EXPR => {

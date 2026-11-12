@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/type_arg_sets.emel
 ---
-ROOT@0..71
+ROOT@0..152
   FN_DECL@0..55
     FN_KW@0..2 "fn"
     WHITESPACE@2..3 " "
@@ -66,9 +66,82 @@ ROOT@0..71
     WHITESPACE@68..69 " "
     R_BRACE@69..70 "}"
     NEWLINE@70..71 "\n"
+  FN_DECL@71..99
+    FN_KW@71..73 "fn"
+    WHITESPACE@73..74 " "
+    LOWER_NAME@74..83 "qualified"
+    PARAM_LIST@83..99
+      L_PAREN@83..84 "("
+      PARAM@84..99
+        LOWER_NAME@84..85 "a"
+        COLON@85..86 ":"
+        WHITESPACE@86..87 " "
+        PATH_TYPE@87..99
+          PATH@87..94
+            TYPE_NAME@87..94 "Handler"
+          TYPE_ARG_LIST@94..99
+            L_BRACK@94..95 "["
+            PATH_TYPE@95..99
+              PATH@95..99
+                TYPE_NAME@95..99 "Http"
+  ERROR@99..116
+    DOT@99..100 "."
+    LOWER_NAME@100..101 "x"
+    WHITESPACE@101..102 " "
+    PIPE@102..103 "|"
+    WHITESPACE@103..104 " "
+    TYPE_NAME@104..106 "Db"
+    R_BRACK@106..107 "]"
+    R_PAREN@107..108 ")"
+    WHITESPACE@108..109 " "
+    L_BRACE@109..110 "{"
+    WHITESPACE@110..111 " "
+    L_PAREN@111..112 "("
+    R_PAREN@112..113 ")"
+    WHITESPACE@113..114 " "
+    R_BRACE@114..115 "}"
+    NEWLINE@115..116 "\n"
+  FN_DECL@116..138
+    FN_KW@116..118 "fn"
+    WHITESPACE@118..119 " "
+    LOWER_NAME@119..126 "leading"
+    PARAM_LIST@126..138
+      L_PAREN@126..127 "("
+      PARAM@127..138
+        LOWER_NAME@127..128 "a"
+        COLON@128..129 ":"
+        WHITESPACE@129..130 " "
+        PATH_TYPE@130..138
+          PATH@130..137
+            TYPE_NAME@130..137 "Handler"
+          TYPE_ARG_LIST@137..138
+            L_BRACK@137..138 "["
+  ERROR@138..152
+    PIPE@138..139 "|"
+    WHITESPACE@139..140 " "
+    TYPE_NAME@140..142 "Db"
+    R_BRACK@142..143 "]"
+    R_PAREN@143..144 ")"
+    WHITESPACE@144..145 " "
+    L_BRACE@145..146 "{"
+    WHITESPACE@146..147 " "
+    L_PAREN@147..148 "("
+    R_PAREN@148..149 ")"
+    WHITESPACE@149..150 " "
+    R_BRACE@150..151 "}"
+    NEWLINE@151..152 "\n"
 error[E0130]@3..6: a function without a body must be `@external`
 error[E0111]@28..29: expected type
 error[E0110]@56..59: expected `}`
 error[E0110]@56..59: expected `]`
 error[E0110]@56..59: expected `)`
 error[E0122]@56..59: expected newline after declaration
+error[E0130]@74..83: a function without a body must be `@external`
+error[E0110]@99..100: expected `]`
+error[E0110]@99..100: expected `)`
+error[E0122]@99..100: expected newline after declaration
+error[E0130]@119..126: a function without a body must be `@external`
+error[E0111]@138..139: expected type
+error[E0110]@138..139: expected `]`
+error[E0110]@138..139: expected `)`
+error[E0122]@138..139: expected newline after declaration

@@ -443,14 +443,14 @@ fn paren_expr(p: &mut Parser<'_>) -> SyntaxKind {
 /// `"[" [ expr { "," expr } [ "," ".." expr ] ] "]"`
 fn list_expr(p: &mut Parser<'_>) {
     p.bump_kind(L_BRACK);
-    let mut count = 0;
+    let mut has_element = false;
     let mut seen_rest = false;
     while !p.at(R_BRACK) && !p.at_eof() {
         if seen_rest {
             p.error(DiagnosticCode::RestNotLast, "`..` must come last");
         }
         if p.at(DOT2) {
-            if count == 0 {
+            if !has_element {
                 p.error(
                     DiagnosticCode::RestWithoutElements,
                     "`..` needs at least one element before it",
@@ -459,7 +459,7 @@ fn list_expr(p: &mut Parser<'_>) {
             rest_expr(p);
             seen_rest = true;
         } else {
-            count += 1;
+            has_element = true;
             expr(p);
         }
         if !p.eat(COMMA) {

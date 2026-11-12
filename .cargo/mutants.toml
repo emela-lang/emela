@@ -1,0 +1,35 @@
+# cargo-mutants (https://mutants.rs) configuration.
+#
+# Run it per crate: `cargo mutants -p <crate>`. A mutant that no test catches (MISSED) is either
+# caught by a new or better test, or listed below with the reason no test can catch it: the
+# mutated code behaves the same as the original on every input (an equivalent mutant), or it
+# only guards against a bug in the code itself.
+
+test_tool = "nextest"
+
+# emela-codegen-emb is to be removed (v0.28).
+exclude_globs = ["crates/emela-codegen-emb/**"]
+
+exclude_re = [
+    # --- emela-syntax ---
+
+    # `tokens[i]` is the NEWLINE being judged, which every one of these searches skips, so
+    # starting at `i` (`i * 1`) or `i - 1` instead of `i + 1` finds the same token.
+    'lexer/continuation\.rs:\d+:\d+: replace \+ with [*-] in (next_significant|postfix_match_follows|starts_clause)',
+
+    # The parser's fuel only stops a parser that no longer advances, which is a bug in the
+    # parser; a correct parser never runs out.
+    'parser\.rs:\d+:\d+: replace - with [+/] in Parser<.t>::nth',
+
+    # A PARAM with a name or `self` has no node before its `:`, so the search after the check
+    # finds nothing either way.
+    'ast\.rs:\d+:\d+: replace \|\| with && in Param::pattern',
+
+    # The only LOWER_NAME token directly under IMPL_DECL is `for`, and the only one directly
+    # under HANDLER_DECL is `implements`; other lower names land in ERROR nodes.
+    'rewrite\.rs:\d+:\d+: replace && with \|\| in (old_impl_head|old_handler_head)',
+
+    # The parameters of the old `fn(...)` form are names, never patterns, so the last child node
+    # of a PARAM is its type whenever it has one.
+    'rewrite\.rs:\d+:\d+: replace is_type -> bool with true',
+]

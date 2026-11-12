@@ -1,0 +1,19 @@
+# fn(...) の書き換え（E0148）: 引数の型，本体の形，括弧の要否
+fn params() {
+  a = fn(f: fn() -> Int fails Timeout | Refused) { f() }
+  b = fn(f: fn(Result[Int, Bool]) -> Int, x) { x }
+  k = fn(f: fn(fn() -> Int fails A | B) -> Int) { 1 }
+  c = fn() { x = 1 }
+  d = fn(x) {
+    x
+  }
+}
+
+fn operands() {
+  e = fn(x) { x } + 1
+  g = -fn(x) { x }
+  h = List.map(xs, fn(x) { x })
+}
+
+impl[A: Eq] Box[A: Show]: Eq {}
+impl[A: Eq, B: Ord] Pair[A, B]: Eq {}

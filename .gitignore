@@ -5,3 +5,4 @@
 /examples/*/target
 /tests/laws/target
 /proposals/drafts/
+/mutants.out*
