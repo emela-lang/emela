@@ -283,6 +283,8 @@ mod tests {
             [NEWLINE, NEWLINE]
         );
         assert_eq!(newlines("fails = A\n| b"), [NEWLINE]);
+        // A lower name other than `fails` before a type name does not open an error set.
+        assert_eq!(newlines("type T(x: Int) derive Eq\n|y| y"), [NEWLINE]);
     }
 
     #[test]

@@ -1,0 +1,4 @@
+# 閉じていない効果の本体は，行頭の fn 以外の宣言で終わる
+effect Clock {
+  fn now() -> Int
+type T(x: Int)

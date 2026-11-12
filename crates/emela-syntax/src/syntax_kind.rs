@@ -511,3 +511,47 @@ impl SyntaxKind {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn token_kinds() -> impl Iterator<Item = SyntaxKind> {
+        (0..=SyntaxKind::EOF as u16).map(SyntaxKind::from_raw)
+    }
+
+    #[test]
+    fn すべてのトークンに固有の名前がある() {
+        for kind in token_kinds() {
+            assert_ne!(kind.describe(), "syntax node", "{kind:?}");
+        }
+        assert_eq!(SyntaxKind::ROOT.describe(), "syntax node");
+    }
+
+    /// Every punctuation token and reserved word is named by its own text in backquotes. The text
+    /// comes from the lexer, not from the table under test.
+    #[test]
+    fn 記号と予約語は書いたとおりの綴りで呼ぶ() {
+        let src = concat!(
+            "fn type enum error const trait impl effect handler layer import pub opaque suspend ",
+            "if else match fail escape use with assert self Self as _ ",
+            "( ) [ ] { } , . .. : = -> | |> + - * / % ! == != < <= > >= && || @ ",
+            "\"#{x}\"\n\"\"\"\nt\n\"\"\"\n",
+        );
+        let mut seen = BTreeSet::new();
+        for token in crate::lexer::lex(src).tokens {
+            let described = token.kind.describe();
+            if !described.starts_with('`') {
+                continue;
+            }
+            let text = &src[token.range];
+            assert_eq!(described, format!("`{text}`"), "{:?}", token.kind);
+            seen.insert(token.kind);
+        }
+        let backquoted: BTreeSet<_> = token_kinds()
+            .filter(|k| k.describe().starts_with('`'))
+            .collect();
+        assert_eq!(seen, backquoted);
+    }
+}

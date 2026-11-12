@@ -1,7 +1,7 @@
 //! Parser tests. Snapshots the tree and diagnostics for `test_data/parser/{ok,err}/*.emel`, and
 //! checks that the ok inputs have no diagnostics.
 
-use emela_syntax::parse;
+use emela_syntax::{DiagnosticCode, parse};
 
 #[test]
 fn ok_snapshots() {
@@ -53,4 +53,25 @@ proptest! {
         let parse = parse(&src);
         prop_assert_eq!(parse.syntax().text().to_string(), src);
     }
+}
+
+/// The lexer's diagnostics come before the parser's, even when the parser's is earlier in the
+/// source.
+#[test]
+fn 字句の診断を構文の診断より先に並べる() {
+    let parse = parse("fn (\nü");
+    let diagnostics = parse.diagnostics();
+    let dump = parse.debug_dump();
+    assert_eq!(
+        diagnostics[0].code,
+        DiagnosticCode::UnrecognizedCharacter,
+        "{dump}"
+    );
+    assert!(diagnostics.len() > 1, "{dump}");
+    assert!(
+        diagnostics[1..]
+            .iter()
+            .any(|d| d.range.start() < diagnostics[0].range.start()),
+        "{dump}"
+    );
 }

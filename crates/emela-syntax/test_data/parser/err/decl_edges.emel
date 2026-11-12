@@ -1,0 +1,19 @@
+# 宣言の頭と要素の境界
+import Data {Json}
+type User(id, name Int)
+enum Shape {
+  Rect(Float, a)
+}
+effect Clock {
+  fn now() -> Int x
+  fn later() -> Int
+}
+handler Fixed: Clock {
+  release() { () }
+  init[A] { Fixed }
+  fn now() { 0 }
+}
+fn f() -> Int fails Http.x | Refused { 1 }
+fn g() -> Int fails | Refused { 1 }
+import Data.
+import Data x{Json}
