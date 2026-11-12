@@ -1,0 +1,9 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "fn_part(&m, \"fn APPLY\")"
+---
+const fn APPLY[A, B, C]() -> (fn(fn() -> A fails ev (E {B}, R {C})) -> A fails ev (E {B}, R {C}), ()) {
+  (fn(callback%7: fn() -> A fails ev (E {B}, R {C}), ev%8: evidence) -> A fails {
+    (callback%7)(ev%8)?
+  }, ())
+}

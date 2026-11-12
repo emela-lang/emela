@@ -1,0 +1,131 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"Mixed: \", \"Plain: \", \"Ratio: \"])"
+---
+fn Mixed: Eq.eq(self%1: Mixed, other%2: Mixed) -> Bool {
+  match self%1 {
+    Mixed.Empty -> match other%2 {
+      Mixed.Empty -> true
+      _ -> false
+    }
+    Mixed.Full(unit: x%73, big: x%74, flag: x%75, text: x%76, pair: x%77, nums: x%78) -> match other%2 {
+      Mixed.Full(unit: y%79, big: y%80, flag: y%81, text: y%82, pair: y%83, nums: y%84) -> (true &&[Bool] ((x%74 ==[Int64] y%80) &&[Bool] ((x%75 ==[Bool] y%81) &&[Bool] ((x%76 ==[String] y%82) &&[Bool] (match x%77 {
+        (x%85, x%86, x%87) -> match y%83 {
+          (y%88, y%89, y%90) -> (Name: Eq.eq(x%85, y%88) &&[Bool] ((x%86 ==[Int] y%89) &&[Bool] Name: Eq.eq(x%87, y%90)))
+        }
+      } &&[Bool] (x%78 ==[Structural] y%84))))))
+      _ -> false
+    }
+  }
+}
+
+fn Mixed: Ord.compare(self%4: Mixed, other%5: Mixed) -> Prelude.Ordering {
+  let tag%60: Int = match self%4 {
+    Mixed.Empty -> 0
+    Mixed.Full(unit: _, big: _, flag: _, text: _, pair: _, nums: _) -> 1
+  }
+  let tag%61: Int = match other%5 {
+    Mixed.Empty -> 0
+    Mixed.Full(unit: _, big: _, flag: _, text: _, pair: _, nums: _) -> 1
+  }
+  if (tag%60 <[Int] tag%61) {
+    Prelude.Ordering.Less
+  } else {
+    if (tag%61 <[Int] tag%60) {
+      Prelude.Ordering.Greater
+    } else {
+      match self%4 {
+        Mixed.Empty -> match other%5 {
+          Mixed.Empty -> Prelude.Ordering.Equal
+          _ -> Prelude.Ordering.Equal
+        }
+        Mixed.Full(unit: x%31, big: x%32, flag: x%33, text: x%34, pair: x%35, nums: x%36) -> match other%5 {
+          Mixed.Full(unit: y%37, big: y%38, flag: y%39, text: y%40, pair: y%41, nums: y%42) -> match Prelude.Ordering.Equal {
+            Prelude.Ordering.Equal -> match if (x%32 <[Int64] y%38) {
+              Prelude.Ordering.Less
+            } else {
+              if (x%32 ==[Int64] y%38) {
+                Prelude.Ordering.Equal
+              } else {
+                Prelude.Ordering.Greater
+              }
+            } {
+              Prelude.Ordering.Equal -> match if (x%33 ==[Bool] y%39) {
+                Prelude.Ordering.Equal
+              } else {
+                if x%33 {
+                  Prelude.Ordering.Greater
+                } else {
+                  Prelude.Ordering.Less
+                }
+              } {
+                Prelude.Ordering.Equal -> match if (x%34 <[String] y%40) {
+                  Prelude.Ordering.Less
+                } else {
+                  if (x%34 ==[String] y%40) {
+                    Prelude.Ordering.Equal
+                  } else {
+                    Prelude.Ordering.Greater
+                  }
+                } {
+                  Prelude.Ordering.Equal -> match match x%35 {
+                    (x%43, x%44, x%45) -> match y%41 {
+                      (y%46, y%47, y%48) -> match Name: Ord.compare(x%43, y%46) {
+                        Prelude.Ordering.Equal -> match if (x%44 <[Int] y%47) {
+                          Prelude.Ordering.Less
+                        } else {
+                          if (x%44 ==[Int] y%47) {
+                            Prelude.Ordering.Equal
+                          } else {
+                            Prelude.Ordering.Greater
+                          }
+                        } {
+                          Prelude.Ordering.Equal -> Name: Ord.compare(x%45, y%48)
+                          o%51 -> o%51
+                        }
+                        o%52 -> o%52
+                      }
+                    }
+                  } {
+                    Prelude.Ordering.Equal -> List.List: Ord.compare[Int](x%36, y%42)
+                    o%55 -> o%55
+                  }
+                  o%56 -> o%56
+                }
+                o%57 -> o%57
+              }
+              o%58 -> o%58
+            }
+            o%59 -> o%59
+          }
+          _ -> Prelude.Ordering.Equal
+        }
+      }
+    }
+  }
+}
+
+fn Mixed: Show.show(self%7: Mixed) -> String {
+  match self%7 {
+    Mixed.Empty -> concat("Empty")
+    Mixed.Full(unit: x%21, big: x%22, flag: x%23, text: x%24, pair: x%25, nums: x%26) -> concat("Full(unit: ", x%21 as (), ", big: ", x%22 as Int64, ", flag: ", x%23 as Bool, ", text: ", @$Show.string(x%24) as String, ", pair: ", match x%25 {
+      (x%27, x%28, x%29) -> concat("(", Name: Show.show(x%27) as String, ", ", x%28 as Int, ", ", Name: Show.show(x%29) as String, ")")
+    } as String, ", nums: ", x%26 as List[Int], ")")
+  }
+}
+
+fn Plain: Eq.eq(self%9: Plain, other%10: Plain) -> Bool {
+  (self%9 ==[Structural] other%10)
+}
+
+fn Ratio: Eq.eq(self%12: Ratio, other%13: Ratio) -> Bool {
+  match self%12 {
+    Ratio.Ratio(ratio: x%15, name: x%16) -> match other%13 {
+      Ratio.Ratio(ratio: y%17, name: y%18) -> ((x%15 ==[Float] y%17) &&[Bool] Name: Eq.eq(x%16, y%18))
+    }
+  }
+}
+
+fn Plain: Show.show(self%14: Plain) -> String {
+  concat(self%14 as Plain)
+}

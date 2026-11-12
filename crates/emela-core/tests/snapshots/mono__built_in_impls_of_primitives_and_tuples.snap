@@ -1,0 +1,61 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m,\n&[\"Int: \", \"Bool: Ord\", \"(): Ord\", \"String: Show\", \"(A, B, C): Show\",])"
+---
+fn Int: Eq.eq(self%1: Int, other%2: Int) -> Bool {
+  (self%1 ==[Int] other%2)
+}
+
+fn Int: Eq.eq#2(self%4: Int, other%5: Int) -> Bool {
+  (self%4 ==[Structural] other%5)
+}
+
+fn Int: Ord.compare(self%7: Int, other%8: Int) -> Prelude.Ordering {
+  if (self%7 ==[Int] other%8) {
+    Prelude.Ordering.Equal
+  } else {
+    if (self%7 <[Int] other%8) {
+      Prelude.Ordering.Less
+    } else {
+      Prelude.Ordering.Greater
+    }
+  }
+}
+
+fn Bool: Ord.compare(self%10: Bool, other%11: Bool) -> Prelude.Ordering {
+  if (self%10 ==[Bool] other%11) {
+    Prelude.Ordering.Equal
+  } else {
+    if other%11 {
+      Prelude.Ordering.Less
+    } else {
+      Prelude.Ordering.Greater
+    }
+  }
+}
+
+fn (): Ord.compare(self%13: (), other%14: ()) -> Prelude.Ordering {
+  Prelude.Ordering.Equal
+}
+
+fn String: Show.show(self%16: String) -> String {
+  self%16
+}
+
+fn (A, B, C): Show.show[Int, String, Bool](self%18: (Int, String, Bool)) -> String {
+  match self%18 {
+    (a0%22, a1%23, a2%24) -> concat("(", Int: Show.show#2(a0%22) as String, ", ", @$Show.string(a1%23) as String, ", ", Bool: Show.show(a2%24) as String, ")")
+  }
+}
+
+fn Int: Show.show(self%20: Int) -> String {
+  "mine"
+}
+
+fn Units.Int: Show.show(self%21: Units.Int) -> String {
+  "units"
+}
+
+fn Int: Show.show#2(self%25: Int) -> String {
+  concat(self%25 as Int)
+}

@@ -3,7 +3,7 @@
 mod support;
 
 use emela_core::{EnumDef, Expr, Module, Roots, Type, TypeId, VariantFields, dump};
-use support::{lower_files, try_lower, try_lower_with};
+use support::{Options, lower_files, lower_with, try_lower, try_lower_with};
 
 /// Renders an enum definition as `Name[2] { Ctor(first: A, second: B), Unit }`, with type
 /// parameters as `A`, `B`, ….
@@ -55,6 +55,15 @@ fn enum_named<'m>(m: &'m Module, name: &str) -> &'m EnumDef {
         .map(|(_, e)| e)
         .find(|e| e.name == name)
         .unwrap_or_else(|| panic!("no enum `{name}`"))
+}
+
+/// The part of the dump whose first line contains `key`.
+fn fn_part(m: &Module, key: &str) -> String {
+    let out = dump(m);
+    out.split("\n\n")
+        .find(|part| part.lines().next().unwrap_or_default().contains(key))
+        .unwrap_or_else(|| panic!("no {key}"))
+        .to_owned()
 }
 
 fn fn_names(m: &Module) -> Vec<&str> {
@@ -755,6 +764,345 @@ fn main() -> Int uses { Log, Async } {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
+/// The other concurrency functions of Std become operations of the IR (spec chapter 11).
+#[test]
+fn fiber_await_interrupt_poll_and_causes() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
+import Std.Deferred.{Deferred}
+import Std.Cause.{Cause, CauseKind}
+
+error Boom
+
+fn main() -> Int fails Boom uses { Async } {
+  Fiber.scope(|| {
+    a = Fiber.fork(|| 1)
+    d = (use Scope).deferred()
+    Fiber.interrupt(a)
+    p = Deferred.poll(d)
+    Fiber.await(a) match {
+      Success(x) -> x
+      Failure(c) -> {
+        k = Cause.kind(c)
+        s = Cause.to_string(c)
+        Cause.raise(c)
+      }
+    }
+  })
+}
+",
+    )]);
+    insta::assert_snapshot!(fn_part(&m, "fn main("));
+}
+
+/// The fns of the entry module (unqualified names, no `:` of impls), with ` exported` on roots.
+fn entry_fns(m: &Module) -> Vec<String> {
+    let mut out: Vec<String> = m
+        .functions
+        .iter()
+        .filter(|(_, f)| !f.name.contains(['.', ':', '$', '#']))
+        .map(|(_, f)| {
+            let exported = if f.exported { " exported" } else { "" };
+            format!("{}{exported}", f.name)
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// `Roots::Public` starts from `main` and the entry's `pub` fns, except test functions and fns
+/// with a trait-bounded type parameter.
+#[test]
+fn public_roots_are_pub_fns_of_the_entry() {
+    let files = [
+        (
+            "main.emel",
+            "\
+import Lib
+
+fn main() { 0 }
+
+pub fn api() -> Int { helper() + Lib.lib_api() }
+
+fn helper() -> Int { 1 }
+
+pub fn shown[A: Show](x: A) -> String { Show.show(x) }
+
+pub fn check() -> () { () }
+
+pub fn same[A](x: A) -> A { x }
+
+fn unused() -> Int { 2 }
+",
+        ),
+        (
+            "lib.emel",
+            "pub fn lib_api() -> Int { 2 }\n\npub fn lib_other() -> Int { 3 }\n",
+        ),
+    ];
+    let options = Options {
+        roots: Roots::Public,
+        tests: &["check"],
+        ..Options::default()
+    };
+    let m = lower_with(&files, &options).unwrap().module;
+    assert_eq!(
+        entry_fns(&m),
+        ["api exported", "helper", "main exported", "same exported"]
+    );
+    assert!(fn_names(&m).contains(&"Lib.lib_api"));
+    assert!(!fn_names(&m).contains(&"Lib.lib_other"));
+}
+
+/// `Roots::Tests` starts from the test functions, in the order given, and returns their IR
+/// functions after monomorphization. A test function named `main` is not the entry's main.
+#[test]
+fn test_roots_are_the_test_functions() {
+    let files = [(
+        "main.emel",
+        "\
+fn main() { 0 }
+
+fn check_b() -> () { assert helper() == 1 }
+
+fn check_a() -> () { () }
+
+fn helper() -> Int { 1 }
+
+fn other() -> Int { 2 }
+",
+    )];
+    for target in [None, Some("js")] {
+        let options = Options {
+            roots: Roots::Tests,
+            target,
+            tests: &["check_b", "check_a"],
+            ..Options::default()
+        };
+        let lowered = lower_with(&files, &options).unwrap();
+        let names: Vec<&str> = lowered
+            .tests
+            .iter()
+            .map(|&f| lowered.module.functions[f].name.as_str())
+            .collect();
+        assert_eq!(names, ["check_b", "check_a"], "{target:?}");
+        assert_eq!(
+            entry_fns(&lowered.module),
+            ["check_a", "check_b", "helper"],
+            "{target:?}"
+        );
+    }
+    let options = Options {
+        roots: Roots::Tests,
+        tests: &["main"],
+        ..Options::default()
+    };
+    let lowered = lower_with(&files, &options).unwrap();
+    assert_eq!(entry_fns(&lowered.module), ["main"]);
+}
+
+/// `Roots::All` lowers every fn, const and handler, used or not.
+#[test]
+fn all_roots_include_unused_consts_and_handlers() {
+    let m = try_lower(
+        &[(
+            "main.emel",
+            "\
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet: Log {
+  fn info(msg) { () }
+}
+
+const LIMIT: Int = 3
+
+fn main() { 0 }
+",
+        )],
+        Roots::All,
+    )
+    .unwrap();
+    let names = fn_names(&m);
+    assert!(names.contains(&"LIMIT"), "{names:?}");
+    assert!(names.iter().any(|n| n.starts_with("Quiet")), "{names:?}");
+}
+
+/// External functions reachable from the entries without an `@external` for the target are
+/// reported, in declaration order (spec 12.1). A handler's operation is followed only once it is
+/// called.
+#[test]
+fn missing_externals_for_the_target() {
+    let files = [(
+        "main.emel",
+        "\
+effect Get {
+  fn get() -> Int
+}
+
+effect Put {
+  fn put() -> Int
+}
+
+@external(js, \"a\")
+fn host_a() -> Int uses {}
+
+@external(js, \"b\")
+fn host_b() -> Int uses {}
+
+@external(js, \"c\")
+fn host_c() -> Int uses {}
+
+@external(js, \"d\")
+@external(c, \"./d.c\", \"d\")
+fn host_d() -> Int uses {}
+
+@external(js, \"e\")
+fn host_e() -> Int uses {}
+
+handler Gets: Get {
+  fn get() { host_b() }
+}
+
+handler Puts: Put {
+  fn put() { host_c() }
+}
+
+fn main() {
+  f = host_e
+  with Gets, Puts {
+    host_a() + (use Get).get() + host_d() + f()
+  }
+}
+",
+    )];
+    let options = |target| Options {
+        target: Some(target),
+        ..Options::default()
+    };
+    assert_eq!(
+        lower_with(&files, &options("c")).unwrap_err(),
+        [
+            "`host_a` missing c external host_a",
+            "`host_b` missing c external host_b",
+            "`host_e` missing c external host_e",
+        ]
+    );
+    assert!(lower_with(&files, &options("js")).is_ok());
+}
+
+/// The host names of each exported fn of the entry, for the target only (`[ext.export]`).
+fn host_exports(m: &Module) -> Vec<String> {
+    let mut out: Vec<String> = m
+        .functions
+        .iter()
+        .flat_map(|(_, f)| {
+            f.host_exports.iter().map(|e| {
+                let interface = e
+                    .interface
+                    .as_deref()
+                    .map_or(String::new(), |i| format!("{i} "));
+                format!("{}: {} {interface}{}", f.name, e.target, e.name)
+            })
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// A build for a target exposes the exports for that target. On `c` a fn that may suspend cannot
+/// be exported (E0441), and on `wasm` no export written by a user is (`[target.wasm.external]`).
+#[test]
+fn exports_for_the_target() {
+    let files = [(
+        "main.emel",
+        "\
+import Std.Fiber.{Fiber}
+
+@export(js, \"api\")
+@export(c, \"api\")
+@export(wasm, \"api\")
+pub fn api() -> Int { 1 }
+
+@export(js, \"default\", \"late\")
+@export(c, \"late\")
+pub fn late() -> Int uses { Async } { Fiber.scope(|| 1) }
+
+@export(js, \"only_js\")
+pub fn only_js() -> Int { 2 }
+
+fn main() { 0 }
+",
+    )];
+    let lower = |target| {
+        let options = Options {
+            target: Some(target),
+            ..Options::default()
+        };
+        lower_with(&files, &options).map(|l| host_exports(&l.module))
+    };
+    assert_eq!(
+        lower("js").unwrap(),
+        [
+            "api: js api",
+            "late: js default late",
+            "only_js: js only_js"
+        ]
+    );
+    assert_eq!(
+        lower("c").unwrap_err(),
+        // At the fn's first `@export`.
+        ["`@export(js, \"default\", \"late\")` suspending export late"]
+    );
+    assert_eq!(
+        lower("wasm").unwrap_err(),
+        ["`@export(js, \"api\")` wasm export api"]
+    );
+}
+
+/// `@entry(Http.serve)` makes an HTTP service: the runtime exposes it on `js` and `wasm`, and `c`
+/// has none (`[lib.http-service]`).
+#[test]
+fn http_service_entry() {
+    let files = [(
+        "main.emel",
+        "\
+import Std.Http.{Http}
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+
+@entry(Http.serve)
+pub fn app(req: Request) -> Response uses { Async } { Http.response(200, \"ok\") }
+",
+    )];
+    let lower = |target| {
+        let options = Options {
+            target: Some(target),
+            ..Options::default()
+        };
+        lower_with(&files, &options).map(|l| (l.module.http_service, host_exports(&l.module)))
+    };
+    assert_eq!(
+        lower("js").unwrap(),
+        (true, vec!["app$entry0: js default fetch".to_owned()])
+    );
+    assert_eq!(
+        lower("wasm").unwrap(),
+        (
+            true,
+            vec!["app$entry0: wasm wasi:http/handler@0.3.0 handle".to_owned()]
+        )
+    );
+    assert_eq!(
+        lower("c").unwrap_err(),
+        ["`@entry(Http.serve)` HTTP service on c"]
+    );
+}
+
 /// External functions (spec chapter 12). A module that names a file is rewritten to a path next to
 /// the source.
 #[test]
@@ -789,6 +1137,43 @@ fn main() {
     assert_eq!(
         ext[0].trim(),
         "external fn host_get() -> String = js[\"./ffi.mjs\", \"get\"] wasm[\"env\", \"get\"]"
+    );
+}
+
+/// An `@external` module naming a file is rewritten to the file next to the declaring source,
+/// with `.` and `..` collapsed textually (spec 12.1).
+#[test]
+fn external_files_next_to_the_source() {
+    let files = [(
+        "main.emel",
+        "\
+@external(js, \"./ffi/../host/./a.mjs\", \"a\")
+fn host_a() -> Int uses {}
+
+@external(js, \"../../b.mjs\", \"b\")
+fn host_b() -> Int uses {}
+
+fn main() { host_a() + host_b() }
+",
+    )];
+    let options = Options {
+        entry_path: Some("src/main.emel"),
+        ..Options::default()
+    };
+    let m = lower_with(&files, &options).unwrap().module;
+    let out = dump(&m);
+    let externals: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| f.starts_with("external fn"))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        externals,
+        [
+            "external fn host_a() -> Int = js[file \"src/host/a.mjs\", \"a\"]",
+            // Above the source's directory, `..` stays.
+            "external fn host_b() -> Int = js[file \"../b.mjs\", \"b\"]",
+        ]
     );
 }
 
@@ -992,6 +1377,445 @@ fn main() {
         })
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
+}
+
+/// Suspending copies are made per set type parameter instantiated with a suspending set (spec
+/// 9.5): for one that appears only as a type argument (`Task[R]`), through a recursive call, and
+/// through a call to a function of the same recursive group.
+#[test]
+fn suspending_copies_follow_set_parameters() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Wait {
+  suspend fn wait() -> Int
+}
+
+handler Waits: Wait {
+  suspend fn wait(resume) { resume(1) }
+}
+
+type Task[R](run: fn() -> Int uses R)
+
+fn wrap[R](t: Task[R]) -> Task[R] { Task(run: || (t.run)()) }
+
+fn again[R](n: Int, f: fn() -> Int uses R) -> Int uses R {
+  if n == 0 { f() } else { again(n - 1, f) + 1 }
+}
+
+fn ping[R](n: Int, f: fn() -> Int uses R) -> Int uses R {
+  if n == 0 { f() } else { pong(n - 1, f) + 1 }
+}
+
+fn pong[R](n: Int, f: fn() -> Int uses R) -> Int uses R { ping(n, f) + 1 }
+
+fn main() -> Int {
+  with Waits {
+    t = wrap(Task(run: || (use Wait).wait()))
+    (t.run)() + again(2, || (use Wait).wait()) + ping(2, || (use Wait).wait()) + again(1, || 1)
+  }
+}
+",
+    )]);
+    let out = dump(&m);
+    let names: Vec<&str> = out
+        .split("\n\n")
+        .filter_map(|part| part.lines().next())
+        .filter(|l| {
+            ["wrap", "again", "ping", "pong"]
+                .iter()
+                .any(|k| l.contains(k))
+        })
+        .collect();
+    insta::assert_snapshot!(names.join("\n"), @r"
+    fn wrap$suspend1[A](t%22: Task[{A}]) -> Task[{A}] {
+    suspend fn again$suspend1[A, B](n%19: Int, f%20: fn() -> Int fails suspends ev (E {B}, R {A}), ev%21: evidence) -> Int fails {
+    suspend fn ping$suspend1[A, B](n%13: Int, f%14: fn() -> Int fails suspends ev (E {B}, R {A}), ev%15: evidence) -> Int fails {
+    fn again[A, B](n%10: Int, f%11: fn() -> Int fails ev (E {B}, R {A}), ev%12: evidence) -> Int fails {
+    suspend fn pong$suspend1[A, B](n%16: Int, f%17: fn() -> Int fails suspends ev (E {B}, R {A}), ev%18: evidence) -> Int fails {
+    ");
+    // The lambda calls `t.run`, which may suspend in this copy.
+    insta::assert_snapshot!(fn_part(&m, "fn wrap$"), @r"
+    fn wrap$suspend1[A](t%22: Task[{A}]) -> Task[{A}] {
+      Task.Task[{A}](run: suspend fn(ev%23: evidence) -> Int {
+        let f%24: fn() -> Int suspends ev (E {}, R {A}) = t%22.run#0
+        (f%24)(ev%23)!
+      })
+    }
+    ");
+}
+
+/// Functions used as values (spec 6.4): a fn with a body or `@external` is referenced; an
+/// intrinsic, a
+/// constructor with fields, and a generic fn whose R holds an effect with type arguments are
+/// wrapped in a lambda. `self` of a stateless handler is `()`.
+#[test]
+fn function_values() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+import Std.State.{State}
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet: Log {
+  fn info(msg) {
+    me = self
+    ()
+  }
+}
+
+type Point(x: Int)
+
+fn twice(n: Int) -> Int { n * 2 }
+
+@external(js, \"host\")
+fn host(n: Int) -> Int uses {}
+
+fn bump[S](f: fn(S) -> S) -> () uses { State[S] } {
+  s = use State[S]
+  s.set(f(s.get()))
+}
+
+fn main() {
+  a = twice
+  b = String.length
+  c = Point
+  d = bump
+  e = host
+  with Quiet { (use Log).info(\"x\") }
+}
+",
+    )]);
+    insta::assert_snapshot!(fn_part(&m, "fn main("));
+    insta::assert_snapshot!(fn_part(&m, "fn Quiet("));
+}
+
+/// A callee that is an expression is evaluated once, before the arguments (spec 14.1): a function
+/// value made by a call and a capability value chosen by `if` are bound first; `(use Log)` only looks up the
+/// table, so it is not.
+#[test]
+fn callees_are_evaluated_first() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet: Log {
+  fn info(msg) { () }
+}
+
+fn pick(n: Int) -> fn(Int) -> Int { |x| x + n }
+
+fn main() {
+  a = pick(1)(2)
+  with Quiet {
+    (if a > 0 { use Log } else { use Log }).info(\"a\")
+    (use Log).info(\"b\")
+  }
+}
+",
+    )]);
+    insta::assert_snapshot!(fn_part(&m, "fn main("));
+}
+
+/// A fn whose R holds an effect with type arguments is wrapped when used as a value only if those
+/// arguments contain its type parameters, however deep (`State[List[S]]`); a generic const in a
+/// pattern takes its type arguments from the matched type.
+#[test]
+fn generic_tags_and_const_patterns() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+import Std.State.{State}
+
+const NOTHING = None
+
+fn count() -> Int uses { State[Int] } { (use State[Int]).get() }
+
+fn push[S](x: S) -> () uses { State[List[S]] } {
+  s = use State[List[S]]
+  s.set([x, ..s.get()])
+}
+
+fn main() -> Int {
+  a = count
+  b = push
+  Some(\"x\") match {
+    NOTHING -> 0
+    _ -> 1
+  }
+}
+",
+    )]);
+    insta::assert_snapshot!(fn_part(&m, "fn main("));
+}
+
+/// The E and R of an instantiation become set summaries in the type arguments (spec 16.5): an
+/// effect needs the evidence table, Async suspends without it, and an error fails. Inside a group
+/// of inferred functions, a call (to another or to itself) passes on the caller's own set type
+/// parameters, and a local holding a parameter's function value keeps them in its type.
+#[test]
+fn set_summaries_of_inferred_groups() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+import Std.Fiber.{Fiber}
+
+error Oops
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet: Log {
+  fn info(msg) { () }
+}
+
+fn ping(n: Int, f: fn() -> ()) {
+  if n == 0 { f() } else { pong(n - 1, f) }
+}
+
+fn pong(n: Int, f: fn() -> ()) {
+  g = f
+  ping(n, g)
+}
+
+fn boom() -> () fails Oops { fail Oops }
+
+fn again(n: Int, f: fn() -> ()) {
+  if n == 0 { f() } else {
+    again(n - 1, f)
+    f()
+  }
+}
+
+fn main() -> Int fails Oops uses { Async } {
+  with Quiet {
+    ping(2, || (use Log).info(\"x\"))
+    ping(1, || fail Oops)
+    ping(1, || Fiber.scope(|| ()))
+    again(1, || (use Log).info(\"y\"))
+    ping(1, boom)
+    0
+  }
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|p| {
+            ["fn main(", "fn ping", "fn pong", "fn again"]
+                .iter()
+                .any(|k| p.contains(k))
+        })
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}
+
+/// `fail` lowers `Show.show` only for an error with an impl of Show, which shows it if it reaches
+/// the entry (spec 14.3), and for errors not known here (a type parameter).
+#[test]
+fn fail_lowers_show_only_for_shown_errors() {
+    let shows = |src: &str| {
+        let m = lower_files(&[("main.emel", src)]);
+        m.traits.show.is_some()
+    };
+    assert!(!shows(
+        "error Bare\n\nfn main() -> Int fails Bare { fail Bare }\n"
+    ));
+    assert!(shows(
+        "error Shown derive Show\n\nfn main() -> Int fails Shown { fail Shown }\n"
+    ));
+    assert!(shows(
+        "error Named\n\nimpl Named: Show {\n  fn show(self) { \"n\" }\n}\n\n\
+         fn main() -> Int fails Named { fail Named }\n"
+    ));
+}
+
+/// A const generalized over the R of the function it holds (spec 5.6): inside its body, the set
+/// variable is the const's set type parameter.
+#[test]
+fn consts_generalized_over_sets() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet: Log {
+  fn info(msg) { () }
+}
+
+const APPLY = (|callback| callback(), ())
+
+fn main() -> Int {
+  (apply, _) = APPLY
+  with Quiet {
+    apply(|| 1) + apply(|| {
+      (use Log).info(\"x\")
+      2
+    })
+  }
+}
+",
+    )]);
+    insta::assert_snapshot!(fn_part(&m, "fn APPLY"));
+}
+
+/// Calls of other callees: a const holding a function is called as a value; a Bool comparison
+/// uses Bool's `==`; a generic const in a list pattern takes the element type; `State.run` finds
+/// State in its body's R also when Async is there too.
+#[test]
+fn const_callees_bool_comparisons_and_state_run() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+import Std.Fiber.{Fiber}
+import Std.State.{State}
+
+const DOUBLE: fn(Int) -> Int = |x| x * 2
+
+const EMPTY = []
+
+fn main() -> Int uses { Async } {
+  a = DOUBLE(2)
+  b = (a == 4) == True
+  c = [1] match {
+    EMPTY -> 0
+    _ -> 1
+  }
+  (result, _) = State.run(0, || {
+    Fiber.scope(|| ())
+    (use State[Int]).get()
+  })
+  result
+}
+",
+    )]);
+    insta::assert_snapshot!(fn_part(&m, "fn main("));
+}
+
+/// A trait function called with a suspending set gets a suspending copy, and so does the impl
+/// function it dispatches to, whose set type parameter comes after the impl's own (`A` of
+/// `Box[A]`) instead of `Self` (spec 9.5, 10.3).
+#[test]
+fn suspending_copies_of_impl_functions() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Wait {
+  suspend fn wait() -> Int
+}
+
+handler Waits: Wait {
+  suspend fn wait(resume) { resume(1) }
+}
+
+trait Runner {
+  fn run[R](self, f: fn() -> Int uses R) -> Int uses R
+}
+
+type Box[A](value: A)
+
+impl Box[A]: Runner {
+  fn run(self, f) { f() }
+}
+
+fn main() -> Int {
+  with Waits { Runner.run(Box(value: 1), || (use Wait).wait()) }
+}
+",
+    )]);
+    let out = dump(&m);
+    let heads: Vec<&str> = out
+        .split("\n\n")
+        .filter_map(|p| p.lines().next())
+        .filter(|l| l.contains("Runner.run"))
+        .collect();
+    insta::assert_snapshot!(heads.join("\n"), @r"
+    suspend fn Runner.run$suspend2[A, B, C](self%4: A, f%5: fn() -> Int fails suspends ev (E {C}, R {B}), ev%6: evidence) -> Int fails {
+    suspend fn Box: Runner.run$suspend2[A, B, C](self%7: Box[A], f%8: fn() -> Int fails suspends ev (E {C}, R {B}), ev%9: evidence) -> Int fails {
+    ");
+}
+
+/// A label is provided by the provider of its base (spec 8.3): `by Log` in the same `with` takes
+/// the handler initialized earlier there, a `default` label falls to it too, and `by Log` in an
+/// inner `with` takes the one the outer table holds.
+#[test]
+fn labels_take_the_provider_of_their_base() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+effect Ping {
+  fn ping() -> ()
+}
+
+effect Audit of Log
+
+effect Debug of Log default
+
+handler Quiet: Log {
+  fn info(msg) { () }
+}
+
+handler Pong: Ping {
+  fn ping() { () }
+}
+
+fn main() {
+  with Pong, Quiet, Audit by Log {
+    (use Audit).info(\"a\")
+    (use Debug).info(\"b\")
+    with Audit by Log { (use Audit).info(\"c\") }
+  }
+}
+",
+    )]);
+    insta::assert_snapshot!(fn_part(&m, "fn main("));
+}
+
+/// A trait function with a default implementation, called for a type whose impl does not define
+/// it, uses the default (spec 10.3); a build for a target does not report a missing impl.
+#[test]
+fn default_implementations_are_not_missing_impls() {
+    let files = [(
+        "main.emel",
+        "\
+trait Size {
+  fn size(self) -> Int
+
+  fn double(self) -> Int { Size.size(self) * 2 }
+}
+
+type Point(x: Int)
+
+impl Point: Size {
+  fn size(self) { self.x }
+}
+
+fn main() -> Int { Size.double(Point(x: 2)) }
+",
+    )];
+    let options = Options {
+        target: Some("js"),
+        ..Options::default()
+    };
+    let m = lower_with(&files, &options).unwrap().module;
+    assert_eq!(
+        fn_names(&m),
+        ["main", "Size.double[Point]", "Point: Size.size"]
+    );
 }
 
 /// A method call is lowered as the call of the function it finds (`[type.rules]`): `x.f(a)` as

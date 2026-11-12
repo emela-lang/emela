@@ -3,8 +3,8 @@
 
 use emela_core::build::*;
 use emela_core::{
-    Assert, BinOp, Builtin, CtorRef, EnumDef, FnType, Module, OpTy, Pat, TypeId, UnOp, VariantDef,
-    dump,
+    Assert, BinOp, Builtin, CtorRef, EnumDef, FiberOp, FnType, Module, OpTy, Pat, TypeId, UnOp,
+    VariantDef, dump,
 };
 
 #[test]
@@ -231,4 +231,49 @@ fn every_kind_of_expression() {
 
     assert_eq!(emela_core::verify(&m), Ok(()));
     insta::assert_snapshot!(dump(&m));
+}
+
+/// Concurrency operations show their names, and the operations that build an enum name it.
+#[test]
+fn fiber_operations() {
+    let mut m = Module::new();
+    let exit = m.add_enum(EnumDef {
+        name: "Std.Fiber.Exit".into(),
+        params: 2,
+        variants: vec![],
+        error: false,
+        external: false,
+    });
+    let kind = m.add_enum(EnumDef {
+        name: "Std.Fiber.CauseKind".into(),
+        params: 0,
+        variants: vec![],
+        error: false,
+        external: false,
+    });
+    let main = m.declare("main", true);
+    let body = emela_core::Expr::Tuple(vec![
+        fiber(FiberOp::Await { exit }, vec![int(1)]),
+        fiber(
+            FiberOp::Attempt {
+                exit,
+                suspends: false,
+            },
+            vec![int(1)],
+        ),
+        fiber(FiberOp::CauseKind { kind }, vec![int(1)]),
+        fiber(FiberOp::CauseToString, vec![int(1)]),
+    ]);
+    m.define(main, vec![], TypeId::ANY, body);
+    insta::assert_snapshot!(dump(&m), @r"
+    enum Std.Fiber.Exit[A, B] {
+    }
+
+    enum Std.Fiber.CauseKind {
+    }
+
+    export fn main() -> any {
+      (fiber#await[Std.Fiber.Exit](1)!, fiber#attempt[Std.Fiber.Exit](1), fiber#cause_kind[Std.Fiber.CauseKind](1), fiber#cause_to_string(1))
+    }
+    ");
 }

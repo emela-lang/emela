@@ -112,12 +112,11 @@ impl Builder<'_> {
         name: &str,
         body: impl FnOnce(&mut Self, &[Local]) -> Expr,
     ) -> FnId {
-        let mut unique = name.to_owned();
-        let mut i = 2;
-        while self.m.functions.iter().any(|(_, f)| f.name == unique) {
-            unique = format!("{name}#{i}");
-            i += 1;
-        }
+        let taken = |n: &str| self.m.functions.iter().any(|(_, f)| f.name == n);
+        let unique = std::iter::once(name.to_owned())
+            .chain((2..).map(|i| format!("{name}#{i}")))
+            .find(|n| !taken(n))
+            .expect("a free name");
         let f = self.m.declare(&unique, false);
         let params: Vec<Local> = params.iter().map(|p| self.m.local(p, ty)).collect();
         let body = body(self, &params);

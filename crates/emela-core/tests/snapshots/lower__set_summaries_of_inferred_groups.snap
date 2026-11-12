@@ -1,0 +1,75 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+export suspend fn main() -> Int fails {
+  with {
+    let h%0: handler Log = Quiet()
+    let ev%1: evidence = provide(; Log = h%0)
+  } {
+    let _%4: () = ping[{}, {ev}](2, fn(ev%2: evidence) -> () {
+      h%0.Log#info("x")
+    }, ev%1)
+    let _%5: () = ping[{fails}, {}](1, fn() -> () fails {
+      fail Oops.Oops
+    }, ev%1)?
+    let _%10: () = ping$suspend2[{}, {suspends}](1, suspend fn() -> () {
+      let body%6: fn() -> () suspends ev = fn() -> () {
+        ()
+      }
+      fiber#scope(suspend fn(s%7: fiber_scope) -> () {
+        let scope%8: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
+          fork: fn(g%9: fn(evidence) -> any suspends) -> any {
+            fiber#fork(s%7, suspend fn() -> any {
+              (g%9)(ev%1)!
+            })
+          }
+          deferred: fn() -> any {
+            fiber#deferred(s%7)
+          }
+        }
+        (body%6)(provide(ev%1; Std.Fiber.Scope[_, _] = scope%8))!
+      })!
+    }, ev%1)!
+    let _%13: () = again[{}, {ev}](1, fn(ev%11: evidence) -> () {
+      h%0.Log#info("y")
+    }, ev%1)
+    let _%14: () = ping[{fails}, {}](1, boom, ev%1)?
+    0
+  }
+}
+
+fn ping[A, B](n%26: Int, f%27: fn() -> () fails ev (E {A}, R {B}), ev%28: evidence) -> () fails {
+  if (n%26 ==[Int] 0) {
+    (f%27)(ev%28)?
+  } else {
+    pong[{A}, {B}]((n%26 -[Int] 1), f%27, ev%28)?
+  }
+}
+
+suspend fn ping$suspend2[A, B](n%19: Int, f%20: fn() -> () fails suspends ev (E {A}, R {B}), ev%21: evidence) -> () fails {
+  if (n%19 ==[Int] 0) {
+    (f%20)(ev%21)!?
+  } else {
+    pong$suspend2[{A}, {B}]((n%19 -[Int] 1), f%20, ev%21)!?
+  }
+}
+
+fn again[A, B](n%15: Int, f%16: fn() -> () fails ev (E {A}, R {B}), ev%17: evidence) -> () fails {
+  if (n%15 ==[Int] 0) {
+    (f%16)(ev%17)?
+  } else {
+    let _%18: () = again[{A}, {B}]((n%15 -[Int] 1), f%16, ev%17)?
+    (f%16)(ev%17)?
+  }
+}
+
+suspend fn pong$suspend2[A, B](n%22: Int, f%23: fn() -> () fails suspends ev (E {A}, R {B}), ev%24: evidence) -> () fails {
+  let g%25: fn() -> () fails suspends ev (E {A}, R {B}) = f%23
+  ping$suspend2[{A}, {B}](n%22, g%25, ev%24)!?
+}
+
+fn pong[A, B](n%29: Int, f%30: fn() -> () fails ev (E {A}, R {B}), ev%31: evidence) -> () fails {
+  let g%32: fn() -> () fails ev (E {A}, R {B}) = f%30
+  ping[{A}, {B}](n%29, g%32, ev%31)?
+}

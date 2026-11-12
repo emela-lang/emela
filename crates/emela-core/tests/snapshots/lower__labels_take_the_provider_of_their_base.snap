@@ -1,0 +1,19 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "fn_part(&m, \"fn main(\")"
+---
+export fn main() -> () {
+  with {
+    let h%0: handler Ping = Pong()
+    let h%1: handler Log = Quiet()
+    let h%2: handler Log = h%1
+  } {
+    let _%4: () = h%2.Log#info("a")
+    let _%5: () = h%1.Log#info("b")
+    with {
+      let h%6: handler Log = h%1
+    } {
+      h%6.Log#info("c")
+    }
+  }
+}

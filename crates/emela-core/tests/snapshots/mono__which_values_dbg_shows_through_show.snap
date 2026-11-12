@@ -1,0 +1,47 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \": debug\"])"
+---
+export fn main() -> ByOrd[Float] {
+  let _%0: Bag = @dbg[Bag](Bag.Bag(items: [1]: List[Int], maybe: Option.None[Int]))
+  let _%1: Timed = {
+    let value%3: Timed = Timed.Timed(d: Std.Duration.milliseconds(@Int64.from_int(1)))
+    let shown%7: () = @$Debug.print(concat(Timed: debug(value%3) as String))
+    value%3
+  }
+  let _%8: ByEq[Int] = {
+    let value%9: ByEq[Int] = ByEq.ByEq[Int](value: 1)
+    let shown%11: () = @$Debug.print(ByEq: Show.show[Int](value%9))
+    value%9
+  }
+  let _%12: ByEq[Float] = {
+    let value%13: ByEq[Float] = ByEq.ByEq[Float](value: 1.5)
+    let shown%15: () = @$Debug.print(ByEq: Show.show[Float](value%13))
+    value%13
+  }
+  let _%16: ByEq[(Int, String)] = {
+    let value%17: ByEq[(Int, String)] = ByEq.ByEq[(Int, String)](value: (1, "a"))
+    let shown%19: () = @$Debug.print(ByEq: Show.show[(Int, String)](value%17))
+    value%17
+  }
+  let _%20: ByOrd[Int] = {
+    let value%21: ByOrd[Int] = ByOrd.ByOrd[Int](value: 1)
+    let shown%23: () = @$Debug.print(ByOrd: Show.show[Int](value%21))
+    value%21
+  }
+  let value%24: ByOrd[Float] = ByOrd.ByOrd[Float](value: 1.5)
+  let shown%27: () = @$Debug.print(concat(ByOrd[Float]: debug(value%24) as String))
+  value%24
+}
+
+fn Timed: debug(x%4: Timed) -> String {
+  match x%4 {
+    Timed.Timed(d: x%5) -> concat("Timed(d: ", Std.Duration.Duration: Show.show(x%5) as String, ")")
+  }
+}
+
+fn ByOrd[Float]: debug(x%25: ByOrd[Float]) -> String {
+  match x%25 {
+    ByOrd.ByOrd(value: x%26) -> concat("ByOrd(value: ", x%26 as Float, ")")
+  }
+}

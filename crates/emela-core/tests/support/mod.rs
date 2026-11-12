@@ -54,10 +54,11 @@ pub fn resolve_files<'s>(
     assert_eq!(graph_diagnostics, []);
     let (program, diagnostics) = resolve(&modules, &trees, &NoBuiltins);
     // E0130 is still allowed: it used to be reported on the `@intrinsic` declarations of the
-    // bundled sources. The syntax check exempts them now (`emela_syntax` validation).
+    // bundled sources. The syntax check exempts them now (`emela_syntax` validation). Warnings do
+    // not stop a build.
     let diagnostics: Vec<_> = diagnostics
         .iter()
-        .filter(|d| !d.to_string().contains("E0130"))
+        .filter(|d| !d.to_string().contains("E0130") && !d.kind.is_warning())
         .collect();
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     (program, modules, entry, texts)
@@ -84,9 +85,79 @@ pub fn try_lower_with(
     core: &[(&str, &str)],
     bundled_files: &[(&str, &str)],
 ) -> Result<Module, Vec<String>> {
-    let (program, modules, entry, texts) = resolve_files(files, core);
+    let options = Options {
+        roots,
+        core,
+        bundled_files,
+        ..Options::default()
+    };
+    lower_with(files, &options).map(|l| l.module)
+}
+
+/// What [`lower_with`] lowers for.
+pub struct Options<'a> {
+    pub roots: Roots,
+    /// The build target; `None` stops after lowering, before monomorphization.
+    pub target: Option<&'a str>,
+    /// The fns of the entry, by name, that are test functions (`LowerInput::tests`).
+    pub tests: &'a [&'a str],
+    /// The source path of the entry module (`LowerInput::paths`); none by default.
+    pub entry_path: Option<&'a str>,
+    pub core: &'a [(&'a str, &'a str)],
+    pub bundled_files: &'a [(&'a str, &'a str)],
+}
+
+impl Default for Options<'_> {
+    fn default() -> Self {
+        Options {
+            roots: Roots::Exported,
+            target: None,
+            tests: &[],
+            entry_path: None,
+            core: emela_core::core_sources(),
+            bundled_files: emela_core::bundled_files(),
+        }
+    }
+}
+
+/// Lowers after type checking, with the roots, target and test functions of `options`. Errors
+/// are formatted as `` `source text` what ``.
+pub fn lower_with(
+    files: &[(&str, &str)],
+    options: &Options,
+) -> Result<emela_core::Lowered, Vec<String>> {
+    let Options {
+        roots,
+        target,
+        tests,
+        entry_path,
+        core,
+        bundled_files,
+    } = *options;
+    let (mut program, modules, entry, texts) = resolve_files(files, core);
+    // As the driver does: `@entry` adds the fns it makes before type checking.
+    let entry_diagnostics = emela_types::add_entry_exports(&mut program, Some(entry));
+    assert!(entry_diagnostics.is_empty(), "{entry_diagnostics:?}");
+    let tests: Vec<_> = tests
+        .iter()
+        .map(|name| {
+            program
+                .defs
+                .iter()
+                .find(|(_, d)| {
+                    d.name == *name && d.module == emela_resolve::hir::DefModule::Source(entry)
+                })
+                .map(|(id, _)| id)
+                .unwrap_or_else(|| panic!("no fn {name}"))
+        })
+        .collect();
     let types = check_program(&program);
-    assert!(types.diags.is_empty(), "{:?}", types.diags);
+    let errors: Vec<_> = types
+        .diags
+        .iter()
+        .filter(|d| !d.kind.is_warning())
+        .collect();
+    assert!(errors.is_empty(), "{errors:?}");
     // The files under `src`, as diagnostics would show them (the bundled sources have none).
     let shown_paths = modules
         .iter()
@@ -99,15 +170,17 @@ pub fn try_lower_with(
         modules: &modules,
         sources: texts.clone(),
         entry: Some(entry),
-        tests: Vec::new(),
-        paths: Default::default(),
+        tests,
+        paths: entry_path
+            .map(|p| std::iter::once((entry, Path::new(p))).collect())
+            .unwrap_or_default(),
         shown_paths,
         bundled_files,
-        target: None,
+        target,
     };
-    let lowered = lower(&input, roots).map(|l| l.module);
-    if let Ok(m) = &lowered {
-        assert_well_typed(m);
+    let lowered = lower(&input, roots);
+    if let Ok(l) = &lowered {
+        assert_well_typed(&l.module);
     }
     lowered.map_err(|errors| {
         errors

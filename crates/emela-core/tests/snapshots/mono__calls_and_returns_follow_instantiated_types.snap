@@ -1,0 +1,27 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \"fn apply[\"])"
+---
+export fn main() -> Int {
+  let r%0: fn() -> fn() -> Int ev = fn() -> fn() -> Int ev {
+    let f%1: fn() -> Int = pure
+    fn(ev%2: evidence) -> Int {
+      (f%1)()
+    }
+  }
+  with {
+    let h%3: handler Log = Quiet()
+    let ev%4: evidence = provide(; Log = h%3)
+  } {
+    (apply[{}](fn() -> Int {
+      1
+    }) +[Int] {
+      let f%6: fn() -> Int ev = (r%0)()
+      (f%6)(ev%4)
+    })
+  }
+}
+
+fn apply[{}](f%5: fn() -> Int) -> Int {
+  (f%5)()
+}

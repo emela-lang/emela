@@ -1,0 +1,34 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \": debug\"])"
+---
+export fn main() -> Plain {
+  let value%0: Plain = Plain.Empty
+  let shown%24: () = @$Debug.print(concat(Plain: debug(value%0) as String))
+  value%0
+}
+
+fn Plain: debug(x%1: Plain) -> String {
+  match x%1 {
+    Plain.Empty -> concat("Empty")
+    Plain.Two(x%2, x%3) -> concat("Two(", Name: Show.show(x%2) as String, ", ", Inner: debug(x%3) as String, ")")
+    Plain.Many(parts: x%7, names: x%8, more: x%9, inners: x%10) -> concat("Many(parts: ", match x%7 {
+      (x%11, x%12, x%13, x%14) -> concat("(", Name: Show.show(x%11) as String, ", ", @$Show.string(x%12) as String, ", ", x%13 as Int, ", ", Inner: debug(x%14) as String, ")")
+    } as String, ", names: ", List.List: Show.show[Name](x%8) as String, ", more: ", List[Inner]: debug(x%9, "[", "") as String, ", inners: ", concat("Array.from_list(", List[Inner]: debug(@Std.Array.to_list[Inner](x%10), "[", "") as String, ")") as String, ")")
+  }
+}
+
+fn Inner: debug(x%5: Inner) -> String {
+  match x%5 {
+    Inner.Inner(name: x%6) -> concat("Inner(name: ", Name: Show.show(x%6) as String, ")")
+  }
+}
+
+fn List[Inner]: debug(x%16: List[Inner], acc%17: String, sep%18: String) -> String {
+  loop(x%21: List[Inner] = x%16, acc%22: String = acc%17, sep%23: String = sep%18) {
+    match x%21 {
+      [] -> concat(acc%22 as String, "]")
+      [x%19, ..rest%20] -> recur(rest%20, concat(acc%22 as String, sep%23 as String, Inner: debug(x%19) as String), ", ")
+    }
+  }
+}

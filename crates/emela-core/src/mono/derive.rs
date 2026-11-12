@@ -87,14 +87,10 @@ impl Mono<'_> {
 
     /// `name`, or with `#2`, `#3`, ... if taken.
     pub(super) fn fresh_name(&mut self, name: String) -> String {
-        if self.names.insert(name.clone()) {
-            return name;
-        }
-        let mut i = 2;
-        while !self.names.insert(format!("{name}#{i}")) {
-            i += 1;
-        }
-        format!("{name}#{i}")
+        std::iter::once(name.clone())
+            .chain((2..).map(|i| format!("{name}#{i}")))
+            .find(|n| self.names.insert(n.clone()))
+            .expect("a free name")
     }
 
     /// Defines the body of a derived impl function.

@@ -325,11 +325,13 @@ impl Printer<'_> {
             Expr::Field { base, ctor, index } => {
                 self.atom(base);
                 // The index is what the IR holds; the name is added for readability if present.
-                match &self.m.variant(*ctor).fields {
-                    VariantFields::Named(names) if *index < names.len() => {
-                        write!(self.out, ".{}#{index}", names[*index]).unwrap()
-                    }
-                    _ => write!(self.out, ".#{index}").unwrap(),
+                let name = match &self.m.variant(*ctor).fields {
+                    VariantFields::Named(names) => names.get(*index),
+                    _ => None,
+                };
+                match name {
+                    Some(name) => write!(self.out, ".{name}#{index}").unwrap(),
+                    None => write!(self.out, ".#{index}").unwrap(),
                 }
             }
             Expr::Tuple(es) => {

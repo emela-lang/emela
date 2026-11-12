@@ -1,0 +1,23 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "fn_part(&m, \"fn main(\")"
+---
+export fn main() -> () {
+  let a%1: Int = {
+    let f%0: fn(Int) -> Int = pick(1)
+    (f%0)(2)
+  }
+  with {
+    let h%2: handler Log = Quiet()
+  } {
+    let _%5: () = {
+      let h%4: handler Log = if (a%1 >[Int] 0) {
+        h%2
+      } else {
+        h%2
+      }
+      h%4.Log#info("a")
+    }
+    h%2.Log#info("b")
+  }
+}

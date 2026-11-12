@@ -21,7 +21,7 @@ use emela_resolve::hir::{
     UnaryOp, WithItem, int_literal_value,
 };
 use emela_resolve::{ModuleId, ModuleMap};
-use emela_types::{ArgsSource, Prim, ProgramTypes, Row, RowElem, Supplier, Tag, Ty};
+use emela_types::{ArgsSource, FnTy, Prim, ProgramTypes, Row, RowElem, Supplier, Tag, Ty};
 use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -760,11 +760,11 @@ impl<'a> Lowerer<'a> {
                         set.ev = true;
                     }
                 },
+                // Async is an effect too (a builtin of the Prelude).
                 RowElem::Tag(t) if matches!(hir.item(t.def), Some(Item::Effect(_))) => {
                     set.ev |= Some(t.def) != async_;
                     set.suspends |= !self.is_immediate_effect(t.def);
                 }
-                RowElem::Tag(t) if Some(t.def) == async_ => set.suspends = true,
                 RowElem::Tag(_) | RowElem::Of(_) => set.fails = true,
             }
         }
@@ -854,9 +854,9 @@ impl<'a> Lowerer<'a> {
         let sets = (0..params.len())
             .filter(|&i| matches!(params[i].kind, emela_types::ParamKind::Set))
             .collect();
-        let ret = match &sig.scheme.ty {
-            Ty::Fn(f) => self.ty(&f.ret),
-            ty => self.ty(ty),
+        let ret = match self.fn_sig(def) {
+            Some(f) => self.ty(&f.ret),
+            None => self.ty(&sig.scheme.ty),
         };
         (ret, params.len(), sets)
     }
@@ -953,11 +953,9 @@ impl<'a> Lowerer<'a> {
         let (ret, type_params, set_params) = self.signature(def);
         self.module.define(id, params, ret, body);
         let fails = self.declared_fails(def);
-        let types = self.types;
-        let sets = match types.sigs.get(def).map(|s| &s.scheme.ty) {
-            Some(Ty::Fn(f)) => self.fn_sets(&f.fails, &f.uses),
-            _ => None,
-        };
+        let sets = self
+            .fn_sig(def)
+            .and_then(|f| self.fn_sets(&f.fails, &f.uses));
         let func = &mut self.module.functions[id];
         func.type_params = type_params;
         func.set_params = set_params;
@@ -1185,7 +1183,7 @@ impl<'a> Lowerer<'a> {
     /// Whether the declared (or generalized) type's E is not empty. Opaque sets (set type
     /// parameters, generalized sets) count as not empty.
     fn declared_fails(&self, def: DefId) -> bool {
-        matches!(self.types.sigs.get(def).map(|s| &s.scheme.ty), Some(Ty::Fn(f)) if !f.fails.is_empty())
+        self.fn_sig(def).is_some_and(|f| !f.fails.is_empty())
     }
 
     /// The IR type arguments of the reference `expr` to the generic definition `def`
@@ -1256,10 +1254,9 @@ impl<'a> Lowerer<'a> {
                     None => {
                         let spec = self.specialization_of(def, Some(expr));
                         let suspends = spec.checked_shr(i as u32).is_some_and(|b| b & 1 != 0);
-                        *slot = self.module.intern(Type::Set(SetSummary {
-                            suspends,
-                            ..SetSummary::unknown()
-                        }));
+                        let mut set = SetSummary::unknown();
+                        set.suspends = suspends;
+                        *slot = self.module.intern(Type::Set(set));
                         continue;
                     }
                 },
@@ -1273,8 +1270,20 @@ impl<'a> Lowerer<'a> {
     /// (generalized) type has an element other than Async. Opaque sets (`R(f)`, generalized sets)
     /// also need it, to pass it on to function arguments. Async is provided by the runtime
     /// (spec 8.3, 13.3) and has no handler value, so it needs no table.
+    /// The declared (or generalized) type of a definition that is called: `None` for a const,
+    /// whose type, a function type too, is the type of its value (spec 5.6).
+    pub(super) fn fn_sig(&self, def: DefId) -> Option<&'a FnTy> {
+        if matches!(self.hir.item(def), Some(Item::Const(_))) {
+            return None;
+        }
+        match self.types.sigs.get(def).map(|s| &s.scheme.ty) {
+            Some(Ty::Fn(f)) => Some(f),
+            _ => None,
+        }
+    }
+
     fn takes_ev(&self, def: DefId) -> bool {
-        matches!(self.types.sigs.get(def).map(|s| &s.scheme.ty), Some(Ty::Fn(f)) if self.row_needs_ev(&f.uses))
+        self.fn_sig(def).is_some_and(|f| self.row_needs_ev(&f.uses))
     }
 
     /// Whether to pass the evidence table when calling a value of function type: yes if the value
@@ -1368,15 +1377,12 @@ impl<'a> Lowerer<'a> {
         let name = self.hir.defs[op].name.to_string();
         let suspend = matches!(self.hir.item(op), Some(Item::Op(o)) if o.sig.is_suspend);
         let types = self.types;
-        let Some((Ty::Fn(f), n)) = types
+        let sig = types
             .sigs
             .get(op)
-            .map(|s| (&s.scheme.ty, s.scheme.params.len()))
-        else {
-            return OpDef {
-                suspend,
-                ..OpDef::new(&name, Vec::new(), TypeId::UNIT)
-            };
+            .expect("the type checker records the signature of every operation");
+        let (Ty::Fn(f), n) = (&sig.scheme.ty, sig.scheme.params.len()) else {
+            unreachable!("an operation's type is a function type");
         };
         // The scheme's parameters are the effect's, then the operation's own. A declared type has
         // no type variables, and its set parameters are read as possibly suspending (as in a
@@ -1608,7 +1614,7 @@ impl<'a> Lowerer<'a> {
         let mut params = Vec::new();
         if stateful {
             // Every operation's implicit self refers to this parameter.
-            let state_ty = self.handler_state_ty(def, h);
+            let state_ty = self.handler_state_ty(h);
             let state = self.module.local("self", state_ty);
             for op in &h.ops {
                 self.locals.insert(op.self_local, state);
@@ -1644,16 +1650,12 @@ impl<'a> Lowerer<'a> {
                 .effects
                 .get(body)
                 .is_some_and(|r| self.row_suspends(r));
-            // As in the type checker (E0417), an fn-operation implementation is not a generator
-            // unless its body's R is not Immediate and it contains a suspending call. With Clock in
-            // the body's R, calling only `clock.now()` does not suspend. When R is Immediate but a
-            // true call occurs (inside a `with` of an immediately resuming handler), the backend
+            // An fn-operation implementation is never a generator: the type checker (E0417) allows
+            // a call that may suspend in its body only when the body's R is Immediate. With Clock
+            // in the body's R, calling only `clock.now()` does not suspend. When R is Immediate but
+            // a true call occurs (inside a `with` of an immediately resuming handler), the backend
             // runs it on the spot, as in non-suspending function bodies.
-            let suspends = if op.is_suspend {
-                row_suspends
-            } else {
-                row_suspends && suspend::has_suspending_call(&lowered)
-            };
+            let suspends = op.is_suspend && row_suspends;
             // A failure in an operation body returns to the operation's caller (as with lambdas).
             let ret = self.ty(self.expr_ty(body));
             let ty = self.module.func(FnType {
@@ -1702,7 +1704,7 @@ impl<'a> Lowerer<'a> {
                 ev
             })
         };
-        let state_ty = self.handler_state_ty(def, h);
+        let state_ty = self.handler_state_ty(h);
 
         // init's value is the handler's state. For a handler without init (no fields), the state
         // is its constructor's value if it has one (`ConsoleLogger`), otherwise `()`. init takes
@@ -1736,14 +1738,14 @@ impl<'a> Lowerer<'a> {
 
     /// The type of a stateful handler's state (self, spec 8.4): init's value, else the handler's
     /// constructor value, else `()` (as built by `handler_parts`).
-    fn handler_state_ty(&mut self, def: DefId, h: &emela_resolve::hir::HandlerItem) -> TypeId {
-        match (h.init, self.enums.get(def)) {
-            (Some(body), _) => {
+    fn handler_state_ty(&mut self, h: &emela_resolve::hir::HandlerItem) -> TypeId {
+        // A handler with fields has an `init` (E0419), so one without holds nothing.
+        match h.init {
+            Some(body) => {
                 let ty = self.expr_ty(body);
                 self.ty(ty)
             }
-            (None, Some(&id)) if h.ctor.is_some() => self.module.enum_type(id, Vec::new()),
-            _ => TypeId::UNIT,
+            None => TypeId::UNIT,
         }
     }
 
@@ -1809,25 +1811,8 @@ impl<'a> Lowerer<'a> {
         // (supplier, key of the provided effect).
         let mut hs: Vec<(Supplier, EffectKey)> = Vec::new();
         for bind in &info.binds {
+            // The type checker makes a `Supplier::Handler` only of a handler.
             let own = self.tag_key(&bind.effect, None);
-            match &bind.supplier {
-                Supplier::Handler(def) => {
-                    // Errors go at the handler as written; for handlers expanded from a layer, at
-                    // the `with`.
-                    let span = items
-                        .iter()
-                        .find_map(|item| match item.by {
-                            Some((res, s)) if res == Res::Def(*def) => Some(s),
-                            None if item.res == Res::Def(*def) => Some(item.span),
-                            _ => None,
-                        })
-                        .unwrap_or(span);
-                    if !matches!(hir.item(*def), Some(Item::Handler(_))) {
-                        return self.unsupported("this kind of handler", span);
-                    }
-                }
-                Supplier::Effect(_) => {}
-            }
             hs.push((bind.supplier.clone(), own));
         }
         // Labels declared `default`, provided by the provider of their base (issue #255).
@@ -1931,7 +1916,7 @@ impl<'a> Lowerer<'a> {
                 }
             });
             let (init, release) = self.handler_fns(h);
-            let state_ty = self.handler_state_ty(h, item);
+            let state_ty = self.handler_state_ty(item);
             let state = self.module.local("self", state_ty);
             let init_fails = self
                 .types
@@ -2434,7 +2419,6 @@ impl<'a> Lowerer<'a> {
             Some(Item::Fn(f)) if f.body.is_some() && self.has_generic_tags(def) => {
                 self.wrap_in_lambda(id, span)
             }
-            Some(Item::Fn(f)) if f.body.is_some() => self.fn_value(def, id),
             // Builtins and constructors with fields are not IR values, so they are wrapped in a
             // lambda.
             Some(Item::Fn(f)) if f.is_intrinsic => self.wrap_in_lambda(id, span),
@@ -2695,10 +2679,7 @@ impl<'a> Lowerer<'a> {
             Some(Item::Fn(_)) => {
                 let f = self.fn_ref(def, callee);
                 let ty_args = self.ty_args(def, callee);
-                let call = Call {
-                    fails: false,
-                    ..call
-                };
+                debug_assert!(!call.fails, "an external function does not fail");
                 Ok(Target::Direct(f, ty_args, self.direct_call(f, call), None))
             }
             Some(Item::Ctor(_) | Item::Error(_)) => match self.ctors.get(def) {
@@ -2725,14 +2706,14 @@ impl<'a> Lowerer<'a> {
 
     /// Tags in the declared R that contain type parameters.
     fn generic_tags(&self, def: DefId) -> Vec<Tag> {
-        match self.types.sigs.get(def).map(|s| &s.scheme.ty) {
-            Some(Ty::Fn(f)) => f
+        match self.fn_sig(def) {
+            Some(f) => f
                 .uses
                 .tags()
                 .filter(|t| t.args.iter().any(has_bound))
                 .cloned()
                 .collect(),
-            _ => Vec::new(),
+            None => Vec::new(),
         }
     }
 
@@ -2868,13 +2849,15 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// The mark for a direct call of `f`. Whether it suspends matches the function's mark
-    /// (`Expr::Call`).
+    /// The mark for a direct call of `f`. Whether it suspends, decided from the instantiated R,
+    /// matches the mark of the copy called (`Expr::Call`).
     fn direct_call(&self, f: FnId, call: Call) -> Call {
-        Call {
-            suspends: self.module.functions[f].suspends,
-            ..call
-        }
+        debug_assert_eq!(
+            call.suspends, self.module.functions[f].suspends,
+            "a call of {} marked differently from the function",
+            self.module.functions[f].name
+        );
+        call
     }
 
     /// Whether the callee may fail: true if the E of the callee expression's function type (as
@@ -3002,24 +2985,22 @@ impl<'a> Lowerer<'a> {
                 (None, BinOp::Eq | BinOp::Ne) => Some(self.eq_op_ty(None)),
                 (None, _) => None,
             };
-            if unshowable(&self.module, ty, true).is_none() {
-                // Monomorphization shows the sides through a written Show impl (spec 10.6).
-                if prim_op_ty(self.expr_ty(*lhs)).is_none() {
-                    self.prelude_trait_fn_id("Show", "show");
-                }
-                let (l, r) = (self.expr(*lhs), self.expr(*rhs));
-                if let Some(op_ty) = op_ty {
-                    return Assert::compare(bin, op_ty, ty, l, r, text);
-                }
-                // An ordering through `Ord.compare`: the sides are bound first and shown if it
-                // fails (spec 13.2).
-                let (a, b) = (
-                    self.module.local("left", ty),
-                    self.module.local("right", ty),
-                );
-                let decide = self.compare(*op, ty, Expr::Var(a), Expr::Var(b), c.span);
-                return Assert::shown(decide, bin, ty, (a, l), (b, r), text);
+            // Monomorphization shows the sides through a written Show impl (spec 10.6).
+            if prim_op_ty(self.expr_ty(*lhs)).is_none() {
+                self.prelude_trait_fn_id("Show", "show");
             }
+            let (l, r) = (self.expr(*lhs), self.expr(*rhs));
+            if let Some(op_ty) = op_ty {
+                return Assert::compare(bin, op_ty, ty, l, r, text);
+            }
+            // An ordering through `Ord.compare`: the sides are bound first and shown if it
+            // fails (spec 13.2).
+            let (a, b) = (
+                self.module.local("left", ty),
+                self.module.local("right", ty),
+            );
+            let decide = self.compare(*op, ty, Expr::Var(a), Expr::Var(b), c.span);
+            return Assert::shown(decide, bin, ty, (a, l), (b, r), text);
         }
         let cond = self.expr(cond);
         Assert::bool(cond, text)
@@ -3155,9 +3136,11 @@ impl<'a> Lowerer<'a> {
             .map(|part| match part {
                 HirStrPart::Text(s) => StrPart::Lit(s.clone()),
                 HirStrPart::Interp(e) => {
+                    // The type checker has checked Show (spec 10.6), except for a capability
+                    // value, which data cannot hold, so only the value itself can be one.
                     let ty = self.ty(self.expr_ty(*e));
-                    if let Some(what) = unshowable(&self.module, ty, false) {
-                        self.report(what, self.hir.exprs[*e].span);
+                    if matches!(self.module.ty(ty), Type::Handler(_)) {
+                        self.report("showing a capability value", self.hir.exprs[*e].span);
                     }
                     // Monomorphization shows by structure where Show gives the same, and calls
                     // `Show.show` otherwise (spec 10.3, 10.6).
@@ -3686,20 +3669,6 @@ fn is_atomic(e: &Expr) -> bool {
     )
 }
 
-/// Why the type cannot be shown, if it cannot. Type parameters are resolved by
-/// monomorphization, which also substitutes the types carried by `StrPart::Value` and
-/// `AssertCond::Compare`. Functions cannot be shown in interpolation (spec 10.6), but the Show
-/// check comes with traits; the debug display (`inspect`) shows them as `<fn>`.
-fn unshowable(m: &Module, ty: TypeId, inspect: bool) -> Option<&'static str> {
-    match m.ty(ty) {
-        Type::Fn(_) if !inspect => Some("showing a function"),
-        Type::Handler(_) => Some("showing a capability value"),
-        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(|&t| unshowable(m, t, inspect)),
-        Type::List(t) | Type::Array(t) => unshowable(m, *t, inspect),
-        _ => None,
-    }
-}
-
 /// Records in `out[i]` what `Ty::Bound(i)` in `pattern` corresponds to in `actual`.
 fn match_bound<'t>(pattern: &Ty, actual: &'t Ty, out: &mut [Option<&'t Ty>]) {
     let all = |xs: &[Ty], ys: &'t [Ty], out: &mut [Option<&'t Ty>]| {
@@ -3715,10 +3684,7 @@ fn match_bound<'t>(pattern: &Ty, actual: &'t Ty, out: &mut [Option<&'t Ty>]) {
         }
         (Ty::List(x), Ty::List(y)) => match_bound(x, y, out),
         (Ty::Tuple(xs), Ty::Tuple(ys)) | (Ty::Named(_, xs), Ty::Named(_, ys)) => all(xs, ys, out),
-        (Ty::Fn(f), Ty::Fn(g)) => {
-            all(&f.params, &g.params, out);
-            match_bound(&f.ret, &g.ret, out);
-        }
+        // A const in a pattern has Eq, so its type is not a function type.
         _ => {}
     }
 }

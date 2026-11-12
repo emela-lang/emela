@@ -1,0 +1,22 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "fn_part(&m, \"fn main(\")"
+---
+export fn main() -> () {
+  let a%0: fn(Int) -> Int = twice
+  let b%2: fn(String) -> Int = fn(x%1: String) -> Int {
+    @String.length(x%1)
+  }
+  let c%4: fn(Int) -> Point = fn(x%3: Int) -> Point {
+    Point.Point(x: x%3)
+  }
+  let d%7: fn(fn(()) -> ()) -> () ev = fn(x%6: fn(()) -> (), ev%5: evidence) -> () {
+    bump[(), {}, {}](x%6, provide(ev%5; Std.State.State[$bump.0] = use[Std.State.State[_]](ev%5)))
+  }
+  let e%8: fn(Int) -> Int = host
+  with {
+    let h%9: handler Log = Quiet()
+  } {
+    h%9.Log#info("x")
+  }
+}

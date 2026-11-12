@@ -1,0 +1,35 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "fn_part(&m, \"fn main(\")"
+---
+export suspend fn main() -> Int fails {
+  let body%0: fn() -> Int suspends ev = suspend fn(ev%4: evidence) -> Int {
+    let a%5: Std.Fiber.Fiber[Int] = Std.Fiber.fork[Int, {}, {}](fn() -> Int {
+      1
+    }, ev%4)
+    let d%6: Std.Deferred.Deferred[()] = (use[Std.Fiber.Scope[_, _]](ev%4)).Std.Fiber.Scope[_, _]#deferred[()]()
+    let _%7: () = fiber#interrupt(a%5)!
+    let p%8: Option[()] = fiber#poll(d%6)
+    match fiber#await[Std.Exit.Exit](a%5)! {
+      Std.Exit.Exit.Success(x%9) -> x%9
+      Std.Exit.Exit.Failure(c%10) -> {
+        let k%11: Std.Cause.CauseKind = fiber#cause_kind[Std.Cause.CauseKind](c%10)
+        let s%12: String = fiber#cause_to_string(c%10)
+        fiber#cause_raise(c%10)
+      }
+    }
+  }
+  fiber#scope(suspend fn(s%1: fiber_scope) -> Int {
+    let scope%2: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
+      fork: fn(g%3: fn(evidence) -> any suspends) -> any {
+        fiber#fork(s%1, suspend fn() -> any {
+          (g%3)(())!
+        })
+      }
+      deferred: fn() -> any {
+        fiber#deferred(s%1)
+      }
+    }
+    (body%0)(provide(; Std.Fiber.Scope[_, _] = scope%2))!
+  })!
+}
