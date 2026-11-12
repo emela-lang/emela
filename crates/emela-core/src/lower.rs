@@ -3012,24 +3012,22 @@ impl<'a> Lowerer<'a> {
                 (None, BinOp::Eq | BinOp::Ne) => Some(self.eq_op_ty(None)),
                 (None, _) => None,
             };
-            if unshowable(&self.module, ty, true).is_none() {
-                // Monomorphization shows the sides through a written Show impl (spec 10.6).
-                if prim_op_ty(self.expr_ty(*lhs)).is_none() {
-                    self.prelude_trait_fn_id("Show", "show");
-                }
-                let (l, r) = (self.expr(*lhs), self.expr(*rhs));
-                if let Some(op_ty) = op_ty {
-                    return Assert::compare(bin, op_ty, ty, l, r, text);
-                }
-                // An ordering through `Ord.compare`: the sides are bound first and shown if it
-                // fails (spec 13.2).
-                let (a, b) = (
-                    self.module.local("left", ty),
-                    self.module.local("right", ty),
-                );
-                let decide = self.compare(*op, ty, Expr::Var(a), Expr::Var(b), c.span);
-                return Assert::shown(decide, bin, ty, (a, l), (b, r), text);
+            // Monomorphization shows the sides through a written Show impl (spec 10.6).
+            if prim_op_ty(self.expr_ty(*lhs)).is_none() {
+                self.prelude_trait_fn_id("Show", "show");
             }
+            let (l, r) = (self.expr(*lhs), self.expr(*rhs));
+            if let Some(op_ty) = op_ty {
+                return Assert::compare(bin, op_ty, ty, l, r, text);
+            }
+            // An ordering through `Ord.compare`: the sides are bound first and shown if it
+            // fails (spec 13.2).
+            let (a, b) = (
+                self.module.local("left", ty),
+                self.module.local("right", ty),
+            );
+            let decide = self.compare(*op, ty, Expr::Var(a), Expr::Var(b), c.span);
+            return Assert::shown(decide, bin, ty, (a, l), (b, r), text);
         }
         let cond = self.expr(cond);
         Assert::bool(cond, text)
@@ -3165,9 +3163,11 @@ impl<'a> Lowerer<'a> {
             .map(|part| match part {
                 HirStrPart::Text(s) => StrPart::Lit(s.clone()),
                 HirStrPart::Interp(e) => {
+                    // The type checker has checked Show (spec 10.6), except for a capability
+                    // value, which data cannot hold, so only the value itself can be one.
                     let ty = self.ty(self.expr_ty(*e));
-                    if let Some(what) = unshowable(&self.module, ty, false) {
-                        self.report(what, self.hir.exprs[*e].span);
+                    if matches!(self.module.ty(ty), Type::Handler(_)) {
+                        self.report("showing a capability value", self.hir.exprs[*e].span);
                     }
                     // Monomorphization shows by structure where Show gives the same, and calls
                     // `Show.show` otherwise (spec 10.3, 10.6).
@@ -3694,20 +3694,6 @@ fn is_atomic(e: &Expr) -> bool {
         e,
         Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } | Expr::Lambda { .. }
     )
-}
-
-/// Why the type cannot be shown, if it cannot. Type parameters are resolved by
-/// monomorphization, which also substitutes the types carried by `StrPart::Value` and
-/// `AssertCond::Compare`. Functions cannot be shown in interpolation (spec 10.6), but the Show
-/// check comes with traits; the debug display (`inspect`) shows them as `<fn>`.
-fn unshowable(m: &Module, ty: TypeId, inspect: bool) -> Option<&'static str> {
-    match m.ty(ty) {
-        Type::Fn(_) if !inspect => Some("showing a function"),
-        Type::Handler(_) => Some("showing a capability value"),
-        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(|&t| unshowable(m, t, inspect)),
-        Type::List(t) | Type::Array(t) => unshowable(m, *t, inspect),
-        _ => None,
-    }
 }
 
 /// Records in `out[i]` what `Ty::Bound(i)` in `pattern` corresponds to in `actual`.
