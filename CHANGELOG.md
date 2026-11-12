@@ -7,6 +7,18 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.27.1](https://github.com/emela-lang/emela/compare/v0.27.0...v0.27.1) - 2026-11-12
+
+### Fixed
+
+- *(driver)* JS ターゲットの Node の下限を 22 に上げ，古い node を止める ([#536](https://github.com/emela-lang/emela/pull/536)) (by @Allianaab2m)
+- *(cli)* --version にコミットハッシュを付ける ([#534](https://github.com/emela-lang/emela/pull/534)) (by @Allianaab2m)
+- reserve the JS launcher names for host exports ([#505](https://github.com/emela-lang/emela/pull/505)) (by @Allianaab2m)
+- *(lsp)* 属性名とターゲット名を補完し，コメントと文字列の中では補完しない ([#529](https://github.com/emela-lang/emela/pull/529)) (by @Allianaab2m)
+- *(lsp)* external のファイル引数をリンクにする ([#532](https://github.com/emela-lang/emela/pull/532)) (by @Allianaab2m)
+- *(lsp)* 節と型の位置では書ける種類の名前だけを補完する ([#530](https://github.com/emela-lang/emela/pull/530)) (by @Allianaab2m)
+- *(lsp)* ディスク上のファイル変更で再検査する ([#531](https://github.com/emela-lang/emela/pull/531)) (by @Allianaab2m)
+
 ## [0.27.0](https://github.com/emela-lang/emela/compare/v0.26.1...v0.27.0) - 2026-11-07
 
 ### Added
