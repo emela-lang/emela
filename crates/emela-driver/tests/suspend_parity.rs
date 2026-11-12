@@ -100,6 +100,11 @@ fn compare(name: &str, src: &str) -> Option<Outcome> {
     ];
     for (target, program) in &tools {
         if !have(program) {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "skipping {name}: cannot start the {target} tool `{}`",
+                program.display()
+            );
             eprintln!(
                 "skipping {name}: cannot start the {target} tool `{}`",
                 program.display()

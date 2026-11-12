@@ -39,6 +39,11 @@ fn c_backend() -> Option<CoreC> {
         .output()
         .is_ok_and(|o| o.status.success());
     if !ok {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "skipping: cannot start the C compiler `{}` (set EMELA_CC)",
+            cc.display()
+        );
         eprintln!(
             "skipping: cannot start the C compiler `{}` (set EMELA_CC)",
             cc.display()

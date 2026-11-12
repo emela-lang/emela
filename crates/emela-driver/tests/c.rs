@@ -20,6 +20,11 @@ fn have_cc() -> bool {
         .output()
         .is_ok_and(|o| o.status.success());
     if !ok {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "skipping: cannot start the C compiler `{}`",
+            cc.display()
+        );
         eprintln!("skipping: cannot start the C compiler `{}`", cc.display());
     }
     ok

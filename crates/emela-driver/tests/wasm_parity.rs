@@ -890,6 +890,11 @@ fn have_wasmtime() -> bool {
         .output()
         .is_ok_and(|o| o.status.success());
     if !ok {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "skipping: cannot start `{}`",
+            wasmtime.display()
+        );
         eprintln!("skipping: cannot start `{}`", wasmtime.display());
     }
     ok
@@ -958,6 +963,11 @@ fn programs_agree_on_js_and_wasm() {
             match node_unicode() {
                 Some(version) if version.starts_with("17.") => {}
                 Some(version) => {
+                    assert!(
+                        std::env::var_os("CI").is_none(),
+                        "skipping {name}: node uses Unicode {version}, need 17.x \
+                         (Node 24.18 / ICU 78.3)"
+                    );
                     eprintln!(
                         "skipping {name}: node uses Unicode {version}, need 17.x \
                          (Node 24.18 / ICU 78.3)"
