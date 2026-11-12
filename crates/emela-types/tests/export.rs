@@ -3,6 +3,7 @@
 mod common;
 
 use common::resolve_main;
+use emela_resolve::hir::DefKind;
 use emela_types::{CheckOptions, DiagnosticKind, add_entry_exports, check_program_with};
 
 fn diagnostics(src: &str) -> Vec<DiagnosticKind> {
@@ -155,5 +156,44 @@ pub fn serve(app: fn(List[Int]) -> Int fails {} uses {}, n: List[Int]) -> Int { 
             .iter()
             .any(|d| matches!(d, DiagnosticKind::NotBoundary { ty, .. } if ty == "List[Int]")),
         "{found:?}"
+    );
+}
+
+/// An `@entry` whose adapter exports `main` twice gives two exports at the same place, the
+/// `@entry`. The duplicate between them is reported there once, by [`add_entry_exports`], and
+/// taking `main` of the launcher (`[target.js.module]`) is not reported again for it.
+#[test]
+fn an_entry_that_takes_main_twice_is_reported_once() {
+    let (mut program, entry, _) = resolve_main(
+        r#"
+@export(js, "main")
+@export(js, "main")
+pub fn serve(app: fn(Int) -> Int fails {} uses {}) -> Int { app(1) }
+
+@entry(serve)
+pub fn app(n: Int) -> Int { n }
+
+fn main() { () }
+"#,
+    );
+    let mut found = add_entry_exports(&mut program, Some(entry));
+    let main = program
+        .defs
+        .iter()
+        .find(|(_, d)| d.name == "main" && d.kind == DefKind::Fn)
+        .map(|(id, _)| id);
+    let options = CheckOptions {
+        entry: Some(entry),
+        main,
+        ..CheckOptions::default()
+    };
+    found.extend(check_program_with(&program, &options).diags);
+    let kinds: Vec<DiagnosticKind> = found.into_iter().map(|d| d.kind).collect();
+    assert_eq!(
+        kinds,
+        [DiagnosticKind::DuplicateExport {
+            name: "main".into(),
+            target: "js".into(),
+        }]
     );
 }
