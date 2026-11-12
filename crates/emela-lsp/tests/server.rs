@@ -752,6 +752,25 @@ fn reports_dependencies_that_cannot_be_used() {
     client.shutdown();
 }
 
+/// `[pome.manifest]`: a `[pome].license` that is not an SPDX license expression is a warning at
+/// the value in `Pome.toml`.
+#[test]
+fn reports_a_license_that_is_not_an_spdx_expression() {
+    let manifest = "[pome]\nname = \"github.com/me/app\"\nversion = \"0.1.0\"\nemela = \"0.27.0\"\nlicense = \"MIT/Apache\"\n";
+    let files = [
+        ("/app/Pome.toml", manifest),
+        ("/app/src/main.emel", "const X = 1\n"),
+    ];
+    let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri("/app/Pome.toml"));
+    assert_eq!(codes(&published), ["W0205"]);
+    let diagnostic = &published.diagnostics[0];
+    assert_eq!(diagnostic.range, range((4, 10), (4, 22)));
+    assert_eq!(diagnostic.severity, Some(lsp::DiagnosticSeverity::WARNING));
+    client.shutdown();
+}
+
 #[test]
 fn close_reverts_to_disk() {
     let files = [

@@ -21,6 +21,7 @@ mod host_files;
 mod hover;
 mod internal;
 mod js;
+mod license;
 mod links;
 mod nav;
 mod new;

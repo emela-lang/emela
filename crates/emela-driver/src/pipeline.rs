@@ -640,6 +640,14 @@ pub fn check<F: Frontend>(
             crate::dependencies::add(fs, &mut analysis.modules, &input.dependencies);
         resolve_diagnostics.extend(more);
         analysis.diagnostics.extend(dependency_diagnostics);
+        let manifest = input.base.join(PROJECT_FILE);
+        if let Ok(text) = fs.read_to_string(&manifest) {
+            analysis.diagnostics.extend(crate::license::check(
+                &text,
+                &manifest,
+                &mut analysis.sources,
+            ));
+        }
     }
     if let Some(entry) = &input.entry {
         analysis.entry = analysis

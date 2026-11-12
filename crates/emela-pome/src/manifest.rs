@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
+use crate::license::is_license_expression;
 use crate::source_path::SourcePath;
 use crate::version::Version;
 
@@ -25,6 +26,11 @@ pub struct Manifest {
     pub module: Option<String>,
     /// `[pome].targets`: the targets the Pome runs on; `None` for all of them.
     pub targets: Option<Vec<String>>,
+    /// `[pome].license`: the SPDX license expression the author declares (spec `[pome.manifest]`).
+    /// `None` when it is omitted, and also when it is not a string or not an SPDX license
+    /// expression: such a Pome declares no license. The warning for the Pome being built is
+    /// emela-driver's, which needs the position of the value.
+    pub license: Option<String>,
     pub dependencies: BTreeMap<SourcePath, Requirement>,
     /// `[dev-dependencies]`: used only by the tests under `test/`; ignored when depended on.
     pub dev_dependencies: BTreeMap<SourcePath, Requirement>,
@@ -82,6 +88,8 @@ struct PomeSection {
     emela: String,
     module: Option<String>,
     targets: Option<Vec<String>>,
+    /// Any value, so that a `license` that is not a string does not fail the parse.
+    license: Option<toml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -142,6 +150,11 @@ impl Manifest {
             emela: file.pome.emela,
             module: file.pome.module,
             targets: file.pome.targets,
+            license: file
+                .pome
+                .license
+                .and_then(|v| v.as_str().map(str::to_string))
+                .filter(|l| is_license_expression(l)),
             dependencies,
             dev_dependencies,
             replace: file.replace.into_iter().map(|(k, v)| (k, v.path)).collect(),
@@ -186,6 +199,7 @@ name = "github.com/emela-lang/quince"
 version = "0.3.2"
 emela = "0.20.1"
 module = "Quince"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 "github.com/emela-lang/x" = "v0.2.0"
@@ -202,6 +216,7 @@ target = "c"
         assert_eq!(m.name.as_str(), "github.com/emela-lang/quince");
         assert_eq!(m.version.as_str(), "v0.3.2");
         assert_eq!(m.module.as_deref(), Some("Quince"));
+        assert_eq!(m.license.as_deref(), Some("MIT OR Apache-2.0"));
         let http = &m.dependencies[&SourcePath::parse("github.com/acme/http").unwrap()];
         assert_eq!(
             (http.version.as_str(), http.module.as_deref()),
@@ -258,6 +273,24 @@ target = "c"
         let m = Manifest::parse(base).unwrap();
         assert_eq!((m.targets, m.external.len()), (None, 0));
         assert!(Manifest::parse(&format!("{base}targets = [\"node\"]\n")).is_err());
+    }
+
+    /// `[pome.manifest]`: a `license` that is not a string or not an SPDX license expression does
+    /// not fail the parse; the Pome is treated as declaring no license.
+    #[test]
+    fn reads_license() {
+        let base =
+            "[pome]\nname = \"github.com/acme/x\"\nversion = \"0.1.0\"\nemela = \"0.27.0\"\n";
+        let license = |line: &str| Manifest::parse(&format!("{base}{line}\n")).unwrap().license;
+        assert_eq!(license(""), None);
+        assert_eq!(
+            license("license = \"MIT OR Apache-2.0\""),
+            Some("MIT OR Apache-2.0".to_string())
+        );
+        assert_eq!(license("license = \"MIT/Apache\""), None);
+        assert_eq!(license("license = 1"), None);
+        assert_eq!(license("license = [\"MIT\"]"), None);
+        assert_eq!(license("license = { id = \"MIT\" }"), None);
     }
 
     #[test]

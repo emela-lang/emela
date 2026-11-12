@@ -334,3 +334,25 @@ fn a_test_module_shares_the_names_of_the_source_root() {
         "{found:?}"
     );
 }
+
+/// `[pome.manifest]`: a `[pome].license` that is not an SPDX license expression is not reported
+/// in the `Pome.toml` of a dependency (a published version cannot be changed).
+#[test]
+fn does_not_report_the_license_of_a_dependency() {
+    let bad = "[pome]\nname = \"github.com/acme/quince\"\nversion = \"0.1.0\"\nemela = \"0.27.0\"\nlicense = \"MIT/Apache-2.0\"\n";
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "import Quince\n\nfn main() -> Int { Quince.answer() }\n",
+        ),
+        ("deps/quince/Pome.toml", bad),
+        ("deps/quince/src/lib.emel", "pub fn answer() -> Int { 1 }\n"),
+        ("deps/http-kit/Pome.toml", "[pome]\nlicense = 1\n"),
+        ("deps/http-kit/src/lib.emel", "pub fn get() -> Int { 3 }\n"),
+    ]);
+    assert_eq!(
+        diagnostics(&fs, dependencies(None, COMPILER)),
+        Vec::<String>::new()
+    );
+}
