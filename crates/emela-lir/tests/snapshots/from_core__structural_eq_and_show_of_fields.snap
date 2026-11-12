@@ -1,0 +1,57 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"main\", \"eq$\", \"show$\"])"
+---
+export fn main() -> i32 (Bool) {
+  t%0: i64 (Int64) = builtin Int64.from_int(1)
+  t%1: i32 (Color) = make Color.Red
+  a%2: ref (Rec) = make Rec.Rec(t%0, 1.0, t%1)
+  f%3: ref (fn() -> Int) = closure() [] {
+    return 1
+  }
+  t%4: ref (Conn) = call conn()
+  _%5: ref (Shown) = make Shown.Shown(f%3, "t", t%4)
+  s%6: ref (String) = call show$Shown(_%5)
+  runtime debug_print(s%6)
+  eq%7: i32 (Bool) = call eq$Rec(a%2, a%2)
+  return eq%7
+}
+
+fn show$Shown(x%0: ref (Shown)) -> ref (String) {
+  f%1: ref (fn() -> Int) = field x%0 Shown.Shown.f#0
+  f%2: ref (String) = field x%0 Shown.Shown.text#1
+  s%3: ref (String) = runtime show_string(f%2)
+  f%4: ref (Conn) = field x%0 Shown.Shown.c#2
+  s%5: ref (String) = call show$Conn(f%4)
+  s%6: ref (String) = builtin String.append("Shown(f: <fn>, text: ", s%3)
+  s%7: ref (String) = builtin String.append(s%6, ", c: ")
+  s%8: ref (String) = builtin String.append(s%7, s%5)
+  s%9: ref (String) = builtin String.append(s%8, ")")
+  return s%9
+}
+
+fn eq$Rec(a%0: ref (Rec), b%1: ref (Rec)) -> i32 (Bool) {
+  x%2: i64 (Int64) = field a%0 Rec.Rec.big#0
+  y%3: i64 (Int64) = field b%1 Rec.Rec.big#0
+  eq%4: i32 (Bool) = x%2 ==[i64] y%3
+  if eq%4 {} else {
+    return false
+  }
+  x%5: f64 (Float) = field a%0 Rec.Rec.ratio#1
+  y%6: f64 (Float) = field b%1 Rec.Rec.ratio#1
+  eq%7: i32 (Bool) = x%5 ==[f64] y%6
+  if eq%7 {} else {
+    return false
+  }
+  x%8: i32 (Color) = field a%0 Rec.Rec.color#2
+  y%9: i32 (Color) = field b%1 Rec.Rec.color#2
+  eq%10: i32 (Bool) = x%8 ==[i32] y%9
+  if eq%10 {} else {
+    return false
+  }
+  return true
+}
+
+fn show$Conn(x%0: ref (Conn)) -> ref (String) {
+  defect("cannot show a value of Conn")
+}

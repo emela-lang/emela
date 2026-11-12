@@ -85,7 +85,7 @@ pub fn enum_repr(core: &emela_core::Module, id: EnumId) -> Repr {
 /// substituted type: only the outermost constructor decides the representation.
 pub fn repr_of_subst(core: &emela_core::Module, ty: TypeId, args: &[TypeId]) -> Repr {
     match core.ty(ty) {
-        Type::Param(i) if *i < args.len() => repr_of(core, args[*i]),
+        Type::Param(i) => repr_of(core, args.get(*i).copied().unwrap_or(ty)),
         _ => repr_of(core, ty),
     }
 }

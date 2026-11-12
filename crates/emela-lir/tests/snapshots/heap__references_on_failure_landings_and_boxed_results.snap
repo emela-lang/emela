@@ -1,0 +1,152 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"handled\", \"Std.Fiber.both\"])"
+---
+suspend fn Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}](f%0: ref (fn() -> String fails suspends ev), g%1: ref (fn() -> String fails suspends ev), ev%2: ref (evidence)) -> ref ((String, String)) fails defects {
+  f%3: ref (fn() -> (String, String) suspends ev) = make_closure Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}]$closure0[f%0, g%1]
+  body%4: ref (fn() -> (String, String) fails suspends ev) = coerce f%3
+  dup body%4
+  drop f%3
+  f%5: ref (fn(fiber_scope) -> (String, String) fails suspends) = make_closure Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}]$closure1[ev%2, body%4]
+  t%7: ref ((String, String)) = fiber scope(f%5)! on_fail(e%6: ref (any)) on_suspend #0 [f%5] {
+    drop f%5
+    fail e%6
+  } on_defect {
+    drop f%5
+    unwind
+  }
+  drop f%5
+  return t%7
+}
+
+fn handled(n%0: i32 (Int)) -> i32 (Int) {
+  s%1: ref (String) = builtin String.append("a", "b")
+  x%7: i32 (Int) = block 'escape%0 {
+    err%4: ref (any) = block 'caught%1 {
+      dup s%1
+      t%3: i32 (Int) = call risky_len(s%1) on_fail(e%2: ref (any)) { break 'caught%1(e%2) }
+      drop s%1
+      break 'escape%0(t%3)
+    }
+    block 'next%2 {
+      is%5: i32 (Bool) = is_error err%4 Oops
+      drop err%4
+      if is%5 {
+        t%6: i32 (Int) = builtin String.length(s%1)
+        drop s%1
+        break 'escape%0(t%6)
+      } else {
+        drop s%1
+      }
+      break 'next%2
+    }
+    unreachable
+  }
+  return x%7
+}
+
+suspend fn Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}]$closure0(env%0: ref (fn() -> (String, String) suspends ev), ev%1: ref (evidence)) -> ref ((String, String)) defects env[fn() -> String fails suspends ev, fn() -> String fails suspends ev] {
+  f%2: ref (fn() -> String fails suspends ev) = env_get env%0#0
+  dup f%2
+  g%3: ref (fn() -> String fails suspends ev) = env_get env%0#1
+  dup g%3
+  dup ev%1
+  a%4: ref (Std.Fiber.Fiber[String]) = call Std.Fiber.fork$suspend4[String, {fails}, {suspends, ev}](f%2, ev%1) on_defect {
+    drop ev%1
+    drop g%3
+    unwind
+  }
+  b%5: ref (Std.Fiber.Fiber[String]) = call Std.Fiber.fork$suspend4[String, {fails}, {suspends, ev}](g%3, ev%1) on_defect {
+    drop a%4
+    unwind
+  }
+  t%6: ref (String) = fiber join(a%4)! on_suspend #0 [a%4, b%5] on_defect {
+    drop a%4
+    drop b%5
+    unwind
+  }
+  drop a%4
+  t%7: ref (String) = fiber join(b%5)! on_suspend #1 [b%5, t%6] on_defect {
+    drop b%5
+    drop t%6
+    unwind
+  }
+  drop b%5
+  t%8: ref ((String, String)) = tuple(t%6, t%7)
+  return t%8
+}
+
+suspend fn Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}]$closure1(env%0: ref (fn(fiber_scope) -> (String, String) fails suspends), s%1: ref (fiber_scope)) -> ref ((String, String)) fails defects env[evidence, fn() -> (String, String) fails suspends ev] {
+  ev%2: ref (evidence) = env_get env%0#0
+  dup ev%2
+  body%3: ref (fn() -> (String, String) fails suspends ev) = env_get env%0#1
+  dup body%3
+  dup ev%2
+  dup s%1
+  f%4: ref (fn(fn(evidence) -> any fails suspends) -> any) = make_closure Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}]$closure1$closure0[ev%2, s%1]
+  f%5: ref (fn() -> any) = make_closure Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}]$closure1$closure1[s%1]
+  scope%6: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%4, deferred: f%5 }
+  t%7: ref (evidence) = ev_extend(ev%2, [Std.Fiber.Scope[_, _]: scope%6])
+  runtime yield() on_suspend #0 [body%3, t%7] on_defect {
+    drop body%3
+    drop t%7
+    unwind
+  }
+  t%9: ref ((String, String)) = call_indirect body%3(t%7)! on_fail(e%8: ref (any)) on_suspend #1 [body%3] {
+    drop body%3
+    fail e%8
+  } on_defect {
+    drop body%3
+    unwind
+  }
+  drop body%3
+  return t%9
+}
+
+fn Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}]$closure1$closure0(env%0: ref (fn(fn(evidence) -> any fails suspends) -> any), g%1: ref (fn(evidence) -> any fails suspends)) -> ref (any) defects env[evidence, fiber_scope] {
+  ev%2: ref (evidence) = env_get env%0#0
+  dup ev%2
+  s%3: ref (fiber_scope) = env_get env%0#1
+  dup s%3
+  f%4: ref (fn() -> any fails suspends) = make_closure Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}]$closure1$closure0$closure0[g%1, ev%2]
+  t%5: ref (any) = fiber fork(s%3, f%4) on_defect {
+    drop s%3
+    drop f%4
+    unwind
+  }
+  drop s%3
+  drop f%4
+  return t%5
+}
+
+fn Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}]$closure1$closure1(env%0: ref (fn() -> any)) -> ref (any) defects env[fiber_scope] {
+  s%1: ref (fiber_scope) = env_get env%0#0
+  dup s%1
+  t%2: ref (any) = fiber deferred(s%1) on_defect {
+    drop s%1
+    unwind
+  }
+  drop s%1
+  return t%2
+}
+
+suspend fn Std.Fiber.both$suspend8[String, String, {fails}, {suspends, ev}]$closure1$closure0$closure0(env%0: ref (fn() -> any fails suspends)) -> ref (any) fails defects env[fn(evidence) -> any fails suspends, evidence] {
+  g%1: ref (fn(evidence) -> any fails suspends) = env_get env%0#0
+  dup g%1
+  ev%2: ref (evidence) = env_get env%0#1
+  dup ev%2
+  runtime yield() on_suspend #0 [g%1, ev%2] on_defect {
+    drop g%1
+    drop ev%2
+    unwind
+  }
+  t%4: ref (any) = call_indirect g%1(ev%2)! on_fail(e%3: ref (any)) on_suspend #1 [g%1] {
+    drop g%1
+    fail e%3
+  } on_defect {
+    drop g%1
+    unwind
+  }
+  drop g%1
+  return t%4
+}

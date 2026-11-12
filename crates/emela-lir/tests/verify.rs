@@ -749,7 +749,10 @@ fn reference_counts() {
     let mut b = FnBuilder::new(&m.core, "leak");
     b.param("s", TypeId::STRING);
     b.term(Term::Return(None));
-    assert_eq!(kinds(&m, &b.finish()), [ErrorKind::RcImbalance]);
+    assert_eq!(
+        messages(&m, &b.finish()),
+        ["s%0 leaves its scope with 1 references"]
+    );
     // A second consumption, and a borrowed use after the last reference.
     let mut b = FnBuilder::new(&m.core, "twice");
     b.set_ret(TypeId::STRING);
@@ -766,8 +769,11 @@ fn reference_counts() {
     );
     b.term(Term::Return(Some(s.into())));
     assert_eq!(
-        kinds(&m, &b.finish()),
-        [ErrorKind::RcImbalance, ErrorKind::RcImbalance]
+        messages(&m, &b.finish()),
+        [
+            "s%0 is used without a reference (after its last one)",
+            "the terminator consumes s%0, which owns no reference",
+        ]
     );
     // Different references on the two edges into the end of an `if`.
     let mut b = FnBuilder::new(&m.core, "join");
@@ -775,7 +781,20 @@ fn reference_counts() {
     let s = b.param("s", TypeId::STRING);
     b.if_(None, c, |b| b.stmt_drop(s), |_| {});
     b.term(Term::Return(None));
-    assert_eq!(kinds(&m, &b.finish()), [ErrorKind::RcImbalance]);
+    assert_eq!(
+        messages(&m, &b.finish()),
+        ["s%1 has different references on the edges into a join point"]
+    );
+    // A leak after a join point is found: the check goes on after it.
+    let mut b = FnBuilder::new(&m.core, "after_join");
+    let c = b.param("c", TypeId::BOOL);
+    b.param("s", TypeId::STRING);
+    b.if_(None, c, |_| {}, |_| {});
+    b.term(Term::Return(None));
+    assert_eq!(
+        messages(&m, &b.finish()),
+        ["s%1 leaves its scope with 1 references"]
+    );
     // A dup and drop before the stage.
     m.stage = Stage::DefectsExplicit;
     let mut b = FnBuilder::new(&m.core, "early");
@@ -835,4 +854,224 @@ fn environments() {
     let mut f = b.finish();
     f.env = Some(vec![TypeId::INT]);
     assert_eq!(kinds(&m, &f), [ErrorKind::BadIndex]);
+}
+
+fn messages(m: &Module, f: &Function) -> Vec<String> {
+    verify_function(m, f)
+        .into_iter()
+        .map(|e| e.message)
+        .collect()
+}
+
+/// An external function has no body.
+#[test]
+fn external_with_a_body() {
+    let (_, m) = module();
+    let mut b = FnBuilder::new(&m.core, "host");
+    let body = b.seq(|b| b.term(Term::Return(None)));
+    let mut f = b.finish_external(emela_core::External {
+        bindings: Vec::new(),
+    });
+    f.body = Some(body);
+    assert_eq!(messages(&m, &f), ["an external function has a body"]);
+}
+
+/// A constructor index at the count is out of range, and a literal case of another
+/// representation than the switched value's is not a case of it.
+#[test]
+fn switch_case_ranges_and_representations() {
+    let (fx, m) = module();
+    let mut b = FnBuilder::new(&m.core, "f");
+    let s = b.param("s", fx.shape_ty);
+    let n = b.param("n", TypeId::INT);
+    let (a, c) = (b.seq(|_| {}), b.seq(|_| {}));
+    let d = b.seq(|_| {});
+    let count = b.core().enums[fx.shape].variants.len();
+    b.switch(
+        None,
+        SwitchOn::Tag(s),
+        vec![(CaseKey::Variant(0), a), (CaseKey::Variant(count), c)],
+        Some(d),
+    );
+    let (e, g) = (b.seq(|_| {}), b.seq(|_| {}));
+    b.switch(
+        None,
+        SwitchOn::Lit(n),
+        vec![(CaseKey::Lit(Const::Int64(0)), e)],
+        Some(g),
+    );
+    b.term(Term::Return(None));
+    assert_eq!(
+        messages(&m, &b.finish()),
+        [
+            "constructor 2 out of range (2 constructors)",
+            "a i64 case in a switch on i32",
+        ]
+    );
+}
+
+/// `!` is defined on Bool (`i32`) only.
+#[test]
+fn not_on_other_types() {
+    let (_, m) = module();
+    let mut b = FnBuilder::new(&m.core, "f");
+    b.assign(
+        "x",
+        TypeId::INT64,
+        Value::Prim {
+            op: PrimOp::Not,
+            ty: PrimTy::I64,
+            args: vec![Const::Int64(1).into()],
+        },
+    );
+    b.term(Term::Return(None));
+    assert_eq!(messages(&m, &b.finish()), ["! is not defined on i64"]);
+}
+
+/// A builtin's arguments against its signature: a concrete parameter's representation, and the
+/// count. A type parameter's argument may be left out (its type has no representation).
+#[test]
+fn builtin_arguments() {
+    let (_, m) = module();
+    let mut b = FnBuilder::new(&m.core, "f");
+    let builtin = |op, args| Value::Builtin { op, args };
+    b.assign(
+        "a",
+        TypeId::INT,
+        builtin(emela_core::Builtin::StringLength, vec![int(1)]),
+    );
+    b.assign(
+        "b",
+        TypeId::INT,
+        builtin(emela_core::Builtin::StringLength, vec![]),
+    );
+    b.let_(None, builtin(emela_core::Builtin::Dbg, vec![]));
+    b.let_(
+        None,
+        builtin(emela_core::Builtin::Dbg, vec![int(1), int(2)]),
+    );
+    b.term(Term::Return(None));
+    assert_eq!(
+        messages(&m, &b.finish()),
+        [
+            "builtin String.length: argument 0: expected ref, found i32",
+            "builtin String.length: expected 1 arguments, found 0",
+            "builtin dbg: expected 1 arguments, found 2",
+        ]
+    );
+}
+
+/// A constructor's arguments against its fields, with the type arguments of the destination's
+/// type, or without a destination for a non-generic enum only; a destination of another type is
+/// wrong.
+#[test]
+fn make_without_a_destination_and_into_another_type() {
+    let (fx, m) = module();
+    let mut b = FnBuilder::new(&m.core, "f");
+    b.let_(
+        None,
+        Value::Make {
+            ctor: fx.ctor(fx.shape, 0),
+            args: vec![int(1)],
+        },
+    );
+    b.let_(
+        None,
+        Value::Make {
+            ctor: fx.some,
+            args: vec![int(1)],
+        },
+    );
+    b.assign(
+        "c",
+        fx.color_ty,
+        Value::Make {
+            ctor: fx.ctor(fx.shape, 0),
+            args: vec![Const::Float(1.0).into()],
+        },
+    );
+    b.term(Term::Return(None));
+    assert_eq!(
+        messages(&m, &b.finish()),
+        [
+            // `Some(1)` without a destination is not checked: `A` is unknown.
+            "make Circle: argument 0: expected f64, found i32",
+            "a value of Shape defines a variable of another type",
+        ]
+    );
+}
+
+/// Tuple elements and list elements against the destination's type; a caught failure taken as
+/// an error of another type; a coercion keeps the representation unless one side is `Any`.
+#[test]
+fn tuples_lists_errors_and_coercions() {
+    let (fx, m) = module();
+    let mut b = FnBuilder::new(&m.core, "f");
+    let e = b.param("e", TypeId::ANY);
+    let n = b.param("n", TypeId::INT);
+    b.assign("t", fx.pair, Value::Tuple(vec![string("a"), string("b")]));
+    b.assign(
+        "l",
+        fx.ints,
+        Value::List {
+            elems: vec![string("a")],
+            tail: None,
+        },
+    );
+    b.assign(
+        "x",
+        fx.shape_ty,
+        Value::AsError {
+            error: e,
+            enum_id: fx.parse_error,
+        },
+    );
+    b.assign("f", TypeId::FLOAT, Value::Coerce(n));
+    b.assign("g", TypeId::ANY, Value::Coerce(n));
+    b.term(Term::Return(None));
+    assert_eq!(
+        messages(&m, &b.finish()),
+        [
+            "tuple: argument 0: expected i32, found ref",
+            "list element: expected i32, found ref",
+            "as_error ParseError defines a variable of another type",
+            // `g` is `Any`, so its coercion is not checked.
+            "destination f%5 is f64, but the value is i32",
+        ]
+    );
+}
+
+/// A return inside a closure leaves the closure, also when the closure is in a cleanup; a label
+/// outside the closure is not in scope there.
+#[test]
+fn closures_in_a_cleanup() {
+    let (fx, m) = module();
+    let mut b = FnBuilder::new(&m.core, "f");
+    b.block(None, "out", |b, out| {
+        b.protect(
+            None,
+            |_| {},
+            |b| {
+                let c = b.var("c", fx.thunk);
+                b.closure(c, vec![], vec![], false, |b| {
+                    b.term(Term::Return(Some(int(1))))
+                });
+                let d = b.var("d", fx.thunk);
+                b.closure(d, vec![], vec![], false, |b| {
+                    b.term(Term::Break {
+                        label: out,
+                        value: None,
+                    })
+                });
+            },
+        );
+    });
+    b.term(Term::Return(None));
+    assert_eq!(
+        messages(&m, &b.finish()),
+        [
+            // The return leaves only the closure.
+            "break to 'out%0, which is not an enclosing block of the same body",
+        ]
+    );
 }

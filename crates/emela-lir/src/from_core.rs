@@ -200,12 +200,10 @@ impl Shared {
             Derive::ErrorName => "name",
         };
         let base = format!("{prefix}${}", core_ty(&self.core, ty));
-        let mut name = base.clone();
-        let mut n = 1;
-        while !self.names.insert(name.clone()) {
-            name = format!("{base}${n}");
-            n += 1;
-        }
+        let name = std::iter::once(base.clone())
+            .chain((1..).map(|n| format!("{base}${n}")))
+            .find(|name| self.names.insert(name.clone()))
+            .expect("a free name");
         let id = self.functions.alloc(Function::new(&name));
         self.derived.insert((kind, ty), id);
         self.pending.push((kind, ty, id));

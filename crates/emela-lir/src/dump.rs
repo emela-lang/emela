@@ -409,8 +409,8 @@ impl Printer<'_> {
             Value::Field { base, ctor, index } => {
                 // The index is what the IR holds; the name is added for readability if present.
                 let name = match &self.m.core.variant(*ctor).fields {
-                    VariantFields::Named(names) if *index < names.len() => {
-                        format!(".{}", names[*index])
+                    VariantFields::Named(names) => {
+                        names.get(*index).map_or(String::new(), |n| format!(".{n}"))
                     }
                     _ => String::new(),
                 };

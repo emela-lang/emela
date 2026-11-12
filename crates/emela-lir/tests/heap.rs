@@ -60,6 +60,8 @@ fn parts(m: &Module, prefixes: &[&str]) -> String {
 #[test]
 fn every_core_function_converts() {
     let m = convert(&[("main.emel", "fn main() { 0 }\n")], Roots::All);
+    // The check is the verifier inside `convert`; the count only guards against converting
+    // nothing (core and std have hundreds of functions).
     assert!(m.functions.len() > 100);
     if let Some(path) = std::env::var_os("EMELA_HEAP_DUMP") {
         std::fs::write(path, emela_lir::dump(&m)).unwrap();
@@ -77,6 +79,7 @@ fn every_example_converts() {
         .filter(|p| p.join("main.emel").exists())
         .collect();
     projects.sort();
+    // Guards against finding no project (a moved `examples`), which would check nothing.
     assert!(!projects.is_empty());
     for src in projects {
         let mut files: Vec<(String, String)> = std::fs::read_dir(&src)
@@ -508,6 +511,244 @@ fn the_verifier_checks_suspension_edges() {
         .map(|e| e.kind)
         .collect();
     assert_eq!(kinds, [ErrorKind::SuspendEdge]);
+}
+
+/// More of the suspension edges: an edge on a value that cannot suspend; and with another error
+/// in the function, the saved variables are not checked (the edges may be what is wrong).
+#[test]
+fn the_verifier_checks_where_edges_are() {
+    assert_eq!(
+        tampered(|f, call| {
+            let (other, _) = f
+                .stmts
+                .iter()
+                .find(|&(s, stmt)| {
+                    s != call
+                        && matches!(stmt, Stmt::Let { value, on_suspend: None, .. }
+                            if !emela_lir::may_suspend(value))
+                })
+                .expect("a value that cannot suspend");
+            *edge(f, other) = Some(emela_lir::Suspend {
+                state: 9,
+                saved: Vec::new(),
+            });
+        }),
+        [ErrorKind::SuspendEdge]
+    );
+    assert_eq!(
+        tampered(|f, s| {
+            let ms = f.params[0];
+            let e = edge(f, s).as_mut().unwrap();
+            e.state = 0;
+            e.saved.retain(|&v| v != ms);
+        }),
+        [ErrorKind::SuspendEdge]
+    );
+}
+
+/// After the state machine pass, before reference counting, the suspension edges are where they
+/// belong (spec 16.5).
+#[test]
+fn state_machines_stage_verifies() {
+    let m = try_lower(&[("main.emel", NAPS)], Roots::Exported).unwrap_or_else(|e| panic!("{e:#?}"));
+    let roots: Vec<_> = m
+        .functions
+        .iter()
+        .filter(|(_, f)| f.exported)
+        .map(|(id, _)| id)
+        .collect();
+    let (mono, _) = monomorphize_from(&m, &roots);
+    let mut lir = from_core(mono).unwrap_or_else(|e| panic!("{e:?}"));
+    emela_lir::convert_closures(&mut lir);
+    emela_lir::explicit_defects(&mut lir);
+    emela_lir::state_machines(&mut lir);
+    assert_eq!(lir.stage, Stage::StateMachines);
+    assert_eq!(verify(&lir), Ok(()));
+}
+
+/// Which functions may come back with a pending defect (`Function::defects`): a builtin that may
+/// raise one (a shift by a negative amount, spec 7.5), a concurrency operation that waits (spec
+/// 11.4), a defect inside a failure handler's body, a const's wrapper (spec 5.6), and the callers
+/// of such functions. Calls of other builtins and `fork` do not.
+#[test]
+fn which_functions_may_defect() {
+    let m = program(
+        "\
+import Std.Fiber.{Fiber}
+
+error Oops
+
+const VALUE: Int = 1
+
+fn shifts(n: Int) -> Int { Int.shift_left(n, 1) }
+
+fn calls_shifts(n: Int) -> Int { shifts(n) + 1 }
+
+fn lengths(s: String) -> Int { String.length(s) }
+
+fn calls_lengths(s: String) -> Int { lengths(s) + 1 }
+
+fn risky(n: Int) -> Int fails Oops {
+  if n == 0 { fail Oops }
+  n
+}
+
+fn handled(n: Int) -> Int {
+  risky(n) escape {
+    Oops -> Int.shift_left(n, 1)
+  }
+}
+
+fn joins() -> Int uses { Async } { Fiber.scope(|| Fiber.join(Fiber.fork(|| 1))) }
+
+fn main() -> Int uses { Async } {
+  calls_shifts(1) + calls_lengths(\"a\") + handled(1) + joins() + VALUE
+}
+",
+    );
+    let mut defects: Vec<&str> = m
+        .functions
+        .iter()
+        .filter(|(_, f)| f.defects)
+        .map(|(_, f)| f.name.as_str())
+        .filter(|name| {
+            [
+                "VALUE",
+                "shifts",
+                "calls_shifts",
+                "lengths",
+                "risky",
+                "handled",
+                "joins",
+                "main",
+            ]
+            .contains(name)
+        })
+        .collect();
+    defects.sort_unstable();
+    assert_eq!(
+        defects,
+        [
+            "VALUE",
+            "calls_shifts",
+            "handled",
+            "joins",
+            "main",
+            "shifts"
+        ]
+    );
+}
+
+/// Reference counting at its edges (Perceus): a value passed twice to one call gets a second
+/// reference, an external function only borrows its arguments, a reference live at a loop head
+/// stays owned around the loop, and two closures of one function are lifted under different
+/// names.
+#[test]
+fn reference_counts_at_the_edges() {
+    let m = program(
+        "\
+@external(js, \"host\")
+fn host(s: String) -> Int uses {}
+
+fn pair(a: String, b: String) -> Int { String.length(a) + String.length(b) }
+
+fn count(n: Int, s: String) -> Int {
+  if n == 0 { String.length(s) } else { count(n - 1, s) }
+}
+
+fn main() -> Int {
+  t = String.append(\"a\", \"b\")
+  f = || String.length(t)
+  g = || String.length(t) + 1
+  pair(t, t) + host(t) + count(3, t) + f() + g()
+}
+",
+    );
+    insta::assert_snapshot!(parts(&m, &["main", "count"]));
+}
+
+/// A call that may raise a defect while references are owned gets a landing that drops them
+/// (`on_defect`): a builtin that may raise one and a concurrency operation that waits (`fork`
+/// too, used after its scope ended, spec 11.8); a builtin that cannot and showing a cause do
+/// not.
+#[test]
+fn defect_landings() {
+    let m = program(
+        "\
+import Std.Fiber.{Fiber}
+import Std.Exit.{Success, Failure}
+import Std.Cause.{Cause}
+
+fn main() -> Int uses { Async } {
+  s = String.append(\"a\", \"b\")
+  a = Int.shift_left(String.length(s), 1)
+  b = Fiber.scope(|| {
+    f = Fiber.fork(|| 1)
+    g = Fiber.fork(|| 2)
+    Fiber.join(f) + (Fiber.await(g) match {
+      Success(x) -> x
+      Failure(c) -> String.length(Cause.to_string(c))
+    })
+  })
+  String.length(s) + a + b
+}
+",
+    );
+    insta::assert_snapshot!(parts(&m, &["main"]));
+}
+
+/// A reference passed to a call and live on its failure landing keeps a reference for the landing
+/// (the caught error is the landing's own), and a String taken back from `any` (a child's result in `Fiber.both`) is a view of it, not
+/// a new reference.
+#[test]
+fn references_on_failure_landings_and_boxed_results() {
+    let m = program(
+        "\
+import Std.Fiber.{Fiber}
+
+error Oops
+
+fn risky(n: Int) -> Int fails Oops {
+  if n == 0 { fail Oops }
+  n
+}
+
+fn risky_len(s: String) -> Int fails Oops {
+  if String.length(s) == 0 { fail Oops }
+  String.length(s)
+}
+
+fn handled(n: Int) -> Int {
+  s = String.append(\"a\", \"b\")
+  x = risky_len(s) escape {
+    Oops -> String.length(s)
+  }
+  x
+}
+
+effect Wait {
+  suspend fn wait() -> ()
+}
+
+handler Waits: Wait {
+  suspend fn wait(resume) { resume(()) }
+}
+
+fn word(n: Int) -> String fails Oops uses { Wait } {
+  (use Wait).wait()
+  if n == 0 { fail Oops }
+  \"x\"
+}
+
+fn main() -> Int fails Oops uses { Async } {
+  with Waits {
+    (a, b) = Fiber.both(|| word(1), || word(2))
+    handled(1) + String.length(a) + String.length(b)
+  }
+}
+",
+    );
+    insta::assert_snapshot!(parts(&m, &["handled", "Std.Fiber.both"]));
 }
 
 /// Whether the array argument of each `Array.set` in the function named `name` is still owned by
