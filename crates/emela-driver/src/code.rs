@@ -66,6 +66,8 @@ pub const SHADOWS_PRELUDE: &str = "W0202";
 pub const OLDER_COMPILER_DEPENDENCY: &str = "W0203";
 /// A Pome in `[external] allow` that is not depended on (spec 4.7).
 pub const UNUSED_EXTERNAL_ALLOW: &str = "W0204";
+/// `[pome].license` is not a string or not an SPDX license expression (spec `[pome.manifest]`).
+pub const LICENSE_NOT_AN_EXPRESSION: &str = "W0205";
 
 // E03xx: types
 pub const TYPE_MISMATCH: &str = "E0301";

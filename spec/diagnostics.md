@@ -139,6 +139,7 @@ error[E0204]: duplicate module `Http.Client`
 | W0202 | A definition or import in a module shadows a Prelude name of the same name | `` `Some` shadows a Prelude name `` |
 | W0203 | `[pome].emela` of a dependency is an older minor than the current compiler (4.7). The note is ``= note: it is built anyway; errors inside it may come from changes between the versions`` | `` `github.com/acme/x` is written for emela 0.20.1; this is 0.21.0 `` |
 | W0204 | A Pome in `allow` of `[external]` is not in the dependency graph (4.7). The location is `Pome.toml` | `` `github.com/acme/old` is allowed in [external] but not depended on `` |
+| W0205 | `[pome].license` of the Pome being built is not a string, or not an SPDX license expression (`[pome.manifest]`). The location is the value in `Pome.toml`. The help is ``= help: write an SPDX license expression, combining license identifiers with `AND`, `OR` and `WITH`, as in `MIT OR Apache-2.0` `` | `` `MIT/Apache-2.0` is not an SPDX license expression `` / `` `[pome].license` is not a string `` |
 | E0301 | A type mismatch | ``type mismatch: expected `Int`, found `String` `` |
 | E0302 | An infinite type | ``infinite type: `?0` occurs in `List[?0]` `` |
 | E0303 | A match is not exhaustive (6.5). With several missing examples, ``non-exhaustive match: patterns `A`, `B` not covered`` | ``non-exhaustive match: `Rect(_, _)` not covered`` |

@@ -1,7 +1,7 @@
 ---
 title: License of a Pome in Pome.toml
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 524
 issue: 525
 decided: 2026-11-09
@@ -96,8 +96,8 @@ Add to the items on `publish`:
 
 ## Diagnostics
 
-- [ ] A warning: `[pome].license` is not a string or not an SPDX license expression. The location is the value. Code to be assigned
-- [ ] `publish`: an error for the same value, and a warning when `[pome].license` is omitted. Codes to be assigned
+- [x] A warning: `[pome].license` is not a string or not an SPDX license expression. The location is the value. W0205
+- [ ] `publish`: an error for the same value, and a warning when `[pome].license` is omitted. Codes to be assigned when `publish` is implemented
 
 ## Compatibility
 

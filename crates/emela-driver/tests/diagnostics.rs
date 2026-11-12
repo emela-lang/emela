@@ -1902,3 +1902,73 @@ fn main() -> Int {
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
+
+/// `[pome.manifest]`: a `[pome].license` that is not an SPDX license expression is W0205 at the
+/// value, and the check goes on.
+#[test]
+fn license_that_is_not_an_spdx_expression() {
+    let manifest = |license: &str| {
+        format!(
+            "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.27.0\"\nlicense = {license}\n"
+        )
+    };
+    let check_manifest = |manifest: &str| {
+        check_files(
+            &[
+                ("app/Pome.toml", manifest),
+                ("app/src/main.emel", "let x = 1\n"),
+            ],
+            "app",
+            &mut LexOnly,
+        )
+    };
+
+    let analysis = check_manifest(&manifest("\"MIT/Apache-2.0\""));
+    assert_eq!(analysis.error_count(), 0);
+    insta::assert_snapshot!(
+        "license_not_an_expression",
+        render(&analysis.diagnostics, &analysis.sources, false)
+    );
+
+    let analysis = check_manifest(&manifest("[\"MIT\", \"Apache-2.0\"]"));
+    assert_eq!(analysis.error_count(), 0);
+    insta::assert_snapshot!(
+        "license_not_a_string",
+        render(&analysis.diagnostics, &analysis.sources, false)
+    );
+
+    for clean in [
+        manifest("\"MIT OR Apache-2.0\""),
+        manifest("\"LicenseRef-Acme-Internal\""),
+        // Omitted: the Pome declares no license, which is not reported when building.
+        "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.27.0\"\n".into(),
+        // `license` is read only in `[pome]`.
+        "[build]\nlicense = 1\n".into(),
+        String::new(),
+    ] {
+        let analysis = check_manifest(&clean);
+        assert!(
+            analysis.diagnostics.is_empty(),
+            "{clean:?}: {:?}",
+            analysis.diagnostics
+        );
+    }
+}
+
+/// A single file has no `Pome.toml` of its own, so there is no license to check.
+#[test]
+fn single_file_does_not_read_a_license() {
+    let analysis = check_files(
+        &[
+            ("dir/Pome.toml", "[pome]\nlicense = \"MIT/Apache-2.0\"\n"),
+            ("other/main.emel", "let x = 1\n"),
+        ],
+        "other/main.emel",
+        &mut LexOnly,
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+}
