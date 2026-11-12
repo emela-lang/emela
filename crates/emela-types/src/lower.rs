@@ -446,18 +446,6 @@ impl TyTable {
         Some(Tag::with_args(effect, args))
     }
 
-    pub fn lower_all(
-        &self,
-        program: &Program,
-        params: &[DefId],
-        tys: impl IntoIterator<Item = TypeId>,
-        diags: &mut Vec<Diagnostic>,
-    ) -> Vec<Ty> {
-        tys.into_iter()
-            .map(|ty| self.lower(program, params, ty, diags))
-            .collect()
-    }
-
     /// `Ty::Error` if no type is written.
     pub fn lower_or_error(
         &self,

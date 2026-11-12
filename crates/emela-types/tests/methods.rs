@@ -199,3 +199,123 @@ fn unknown() {
 "#
     ));
 }
+
+/// The names [`emela_types::methods_of`] gives for a value of the type `ty_src` (the type of the
+/// parameter `x` of `probe`) seen from `main.emel`.
+fn methods(src: &str) -> Vec<String> {
+    use emela_resolve::hir::{DefKind, DefModule, Item};
+    let (program, main, _) = common::resolve_main(src);
+    let types = emela_types::check_program(&program);
+    let probe = program
+        .defs
+        .iter()
+        .find(|(_, d)| d.name == "probe" && d.module == DefModule::Source(main))
+        .map(|(id, _)| id)
+        .unwrap();
+    let Some(Item::Fn(f)) = program.item(probe) else {
+        unreachable!()
+    };
+    let x = f.sig.params[0].local;
+    let ty = types.locals[x].clone();
+    emela_types::methods_of(&program, &types, main, &ty, &[])
+        .into_iter()
+        .map(|def| {
+            let data = &program.defs[def];
+            match (data.kind, data.parent) {
+                (DefKind::TraitFn, Some(t)) => format!("{}.{}", program.defs[t].name, data.name),
+                _ => data.name.to_string(),
+            }
+        })
+        .collect()
+}
+
+/// The fns of the type's module whose first parameter has the type at its head, private ones
+/// included from that module, then the `self` functions of the traits it implements.
+#[test]
+fn methods_of_a_type_of_this_module() {
+    let found = methods(
+        r#"
+trait Named {
+  fn name(self) -> String
+  fn make() -> Self
+}
+type User(id: Int)
+  derive Eq
+impl User: Named {
+  fn name(self) { "" }
+  fn make() { User(id: 1) }
+}
+type Other(id: Int)
+
+pub fn rename(u: User) -> User { u }
+fn private(u: User) -> Int { 1 }
+fn second(n: Int, u: User) -> Int { 1 }
+fn other(o: Other) -> Int { 1 }
+const ME: User = User(id: 1)
+
+fn probe(x: User) { () }
+"#,
+    );
+    assert_eq!(found, ["rename", "private", "probe", "Eq.eq", "Named.name"]);
+}
+
+/// A type of the core has the pub fns of its core module; a trait is found for a type whatever
+/// its type arguments (a `List[fn() -> Int]` finds `Show.show`). Tuples and functions have none.
+#[test]
+fn methods_of_core_types() {
+    let found = methods("fn probe(x: List[fn() -> Int]) { () }\n");
+    assert!(found.contains(&"map".to_string()), "{found:?}");
+    assert!(found.contains(&"Show.show".to_string()), "{found:?}");
+    assert!(!found.iter().any(|f| f.starts_with('_')), "{found:?}");
+    let boxed =
+        methods("type Box[A](value: A)\n  derive Show\nfn probe(x: Box[fn() -> Int]) { () }\n");
+    assert_eq!(boxed, ["probe", "Show.show"]);
+    // Types without a head have no methods to complete.
+    assert_eq!(
+        methods("fn probe(x: (Int, Int)) { () }\n"),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        methods("fn probe(x: fn() -> Int) { () }\n"),
+        Vec::<String>::new()
+    );
+}
+
+/// Method calls at their edges: a callee inferred later is inferred first, a name in both the
+/// type's module and a trait is ambiguous, a value that never returns has every method, a type
+/// parameter in the first parameter does not make a method, and an opaque type's fields are
+/// hidden outside its module.
+#[test]
+fn method_calls_at_their_edges() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+import Std.Duration.{Duration}
+
+type User(id: Int)
+  derive Show
+
+fn caller(u: User) -> Int { u.later() }
+fn later(u: User) { 1 }
+
+fn show(u: User) -> String { "" }
+fn ambiguous(u: User) -> String { u.show() }
+
+fn never() -> Int {
+  x = todo()
+  x.anything()
+}
+
+fn generic[A](a: A) -> Int { 1 }
+fn not_a_method(u: User) -> Int { u.generic() }
+
+fn hidden(d: Duration) -> Int64 { d.milliseconds }
+
+fn tuple_method(t: (Int, fn() -> Int)) -> String { t.show() }
+
+fn without_call(u: User) { u.untyped }
+fn without_call_generic(u: User) { u.generic_untyped }
+fn untyped(u: User) { 1 }
+fn generic_untyped[A](a: A) { 1 }
+"#
+    ));
+}

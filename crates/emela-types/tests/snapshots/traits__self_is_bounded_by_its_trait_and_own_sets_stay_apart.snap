@@ -1,0 +1,5 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntrait Named {\n  fn name(self) -> String\n  fn greet(self) -> String { \"hi #{self.name()}\" }\n  fn run[E, R](self, f: fn() -> Int fails E uses { R }) -> Int fails E uses { R }\n  fn run_pure[E, R](self, f: fn() -> Int fails E uses { R }) -> Int fails E uses {}\n}\ntype Box[A](value: A)\nimpl Box[A]: Named {\n  fn name(self) { \"box\" }\n  fn run(self, f) { f() }\n  fn run_pure(self, f) { f() }\n}\n\"##)"
+---
+`f()` unhandled effects R (Declared)

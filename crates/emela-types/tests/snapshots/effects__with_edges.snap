@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "common::render_diagnostics(r##\"\neffect Log {\n  fn info(m: String) -> ()\n}\neffect Audit of Log\nhandler Quiet: Log {\n  fn info(m) { () }\n}\neffect Aa {\n  fn a() -> Int\n}\neffect Bb {\n  fn b() -> Int\n}\nhandler UsesB: Aa {\n  init { UsesB }\n  fn a() { (use Bb).b() }\n}\nhandler UsesA: Bb {\n  init { UsesA }\n  fn b() { (use Aa).a() }\n}\nlayer Inner { Quiet }\nlayer Outer { Inner, Quiet }\nlayer HasB { UsesB }\n\nfn unused_label() -> () uses { Log } { with Audit { () } }\nfn unused_label_by_effect() -> () uses { Log } { with Audit by Log { () } }\nfn direct_cycle() -> Int { with UsesB, UsesA { (use Aa).a() } }\nfn cycle_through_a_layer() -> Int { with HasB, UsesA { (use Aa).a() } }\nfn twice() { with Outer { () } }\n\"##)"
+---
+`Quiet` DuplicateLayerEffect { layer: "Outer", effect: "Log", first: "Quiet", second: "Quiet" }
+`with Audit { () }` unhandled effects Audit (Declared)
+`Audit` UnusedLabelProvider { label: "Audit" }
+`Audit by Log` UnusedLabelProvider { label: "Audit" }
+`UsesB` HandlerCycle { cycle: ["UsesB", "UsesA", "UsesB"] }
+`HasB` HandlerCycle { cycle: ["UsesB", "UsesA", "UsesB"] }

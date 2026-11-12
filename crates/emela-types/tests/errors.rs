@@ -457,3 +457,147 @@ layer Failing {
 "#
     ));
 }
+
+/// The errors of every part of an expression reach the E of the fn: tuple and list elements, the
+/// rest of a list, and both sides of `|>`, whose right side is a call or a function.
+#[test]
+fn errors_reach_e_through_every_kind_of_expression() {
+    insta::assert_snapshot!(common::render_bodies(
+        r##"
+error Bad
+error Worse
+fn f() -> Int fails Bad { fail Bad }
+fn h(a: Int, b: Int) -> Int fails Worse { fail Worse }
+fn neg(x: Int) -> Int fails Worse { fail Worse }
+
+fn tuple() { (f(), 1) }
+fn list() { [f(), 2] }
+fn list_rest() { [1, ..[f()]] }
+fn piped_call() { f() |> h(2) }
+fn piped_fn() { f() |> neg }
+"##
+    ));
+}
+
+/// When the return type is a function type with `fails` omitted, its E is inferred from the body
+/// even though `uses` is written (spec 9.2).
+#[test]
+fn an_omitted_fails_in_the_return_type_is_inferred() {
+    insta::assert_snapshot!(common::render_bodies(
+        r##"
+error Bad
+fn bad() -> Int fails Bad { fail Bad }
+fn make() -> (fn() -> Int uses {}) uses {} { || bad() }
+"##
+    ));
+}
+
+/// A function type nested in the return type with `fails` or `uses` omitted makes them inferred
+/// from the body, even when the outer function type writes its own (spec 9.2).
+#[test]
+fn omitted_sets_nested_in_the_return_type_are_inferred() {
+    insta::assert_snapshot!(common::render_bodies(
+        r##"
+error Bad
+effect Log {
+  fn info(m: String) -> ()
+}
+fn bad() -> Int fails Bad { fail Bad }
+fn log() -> Int uses { Log } {
+  (use Log).info("x")
+  1
+}
+fn fails_inside() -> (fn() -> (fn() -> Int uses {}) fails {} uses {}) uses {} { || || bad() }
+fn uses_inside() -> (fn() -> (fn() -> Int fails {}) fails {} uses {}) fails {} uses {} {
+  || || log()
+}
+"##
+    ));
+}
+
+/// The E and R of function types in an inferred fn's parameters stay parameters of its type
+/// (spec 9.4), wherever the function type is: in a list, a tuple, a named type, or the parameter
+/// of a parameter.
+#[test]
+fn sets_of_functions_inside_parameters_are_generalized() {
+    insta::assert_snapshot!(common::render_bodies(
+        r##"
+type Box[A](value: A)
+fn from_list(fs: List[fn() -> Int]) { fs.map(|f| f()) }
+fn from_tuple(t: (fn() -> Int, Int)) {
+  (f, _) = t
+  f()
+}
+fn from_box(b: Box[fn() -> Int]) { (b.value)() }
+fn from_param(g: fn(fn() -> Int) -> Int) { g(|| 1) }
+"##
+    ));
+}
+
+/// Unhandled errors at their edges (E0318): the call on the right of `|>` raised them, a handler
+/// operation is checked against the operation's E (written or not), a const's value has no E,
+/// and an error caught only for some values stays in E even next to other errors' arms.
+#[test]
+fn unhandled_errors_at_their_edges() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+error Bad
+error Worse
+error NotFound(id: Int)
+fn h(a: Int, b: Int) -> Int fails Worse { fail Worse }
+fn find(id: Int) -> Int fails NotFound | Bad { fail NotFound(id:) }
+fn bad() -> Int fails Bad { fail Bad }
+
+fn piped() -> Int fails {} { 1 |> h(2) }
+
+effect Source {
+  fn get() -> Int fails Bad
+  fn plain() -> Int
+}
+handler Raises: Source {
+  fn get() { fail Worse }
+  fn plain() { fail Worse }
+}
+
+const VALUE: Int = bad()
+
+fn partial() -> Int fails {} {
+  find(1) escape {
+    NotFound(id: 1) -> 0
+    Bad -> 0
+  }
+}
+"##
+    ));
+}
+
+/// The sets of a function type in a parameter of a returned function stay parameters of the
+/// inferred type (spec 9.4), wherever the function type sits: in a list, a tuple, a named type,
+/// or directly.
+#[test]
+fn sets_in_parameters_of_returned_functions_are_generalized() {
+    insta::assert_snapshot!(common::render_bodies(
+        r##"
+type Box[A](value: A)
+fn direct() { |f: fn() -> Int| f() }
+fn in_list() { |fs: List[fn() -> Int]| fs.map(|f| f()) }
+fn in_tuple() {
+  |t: (fn() -> Int, Int)| {
+    (f, _) = t
+    f()
+  }
+}
+fn in_box() { |b: Box[fn() -> Int]| (b.value)() }
+"##
+    ));
+}
+
+/// An unhandled error set that is a type parameter is named by it.
+#[test]
+fn unhandled_set_parameters_are_named() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+fn run[E](f: fn() -> Int fails E uses {}) -> Int fails {} uses {} { f() }
+"##
+    ));
+}

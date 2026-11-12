@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntype Box[A](value: A)\n  derive Eq\nerror Bad(f: fn() -> Int) derive Eq\n\nfn bounds[A: Ord, B: Show](a: A, b: B) -> Bool { a == a && b == b }\nfn args(f: fn() -> Int) -> Bool {\n  [f] == [f] && (1, f) == (1, f) && Box(value: f) == Box(value: f) && Box(value: 1) == Box(value: 1)\n}\nfn unit() -> Bool { () == () }\n\"##)"
+---
+`Eq` NotImplemented { ty: "fn() -> Int", trait_name: "Eq" }
+`Eq` UnusedDerive { trait_name: "Eq", ty: "Bad" }
+`b == b` NotImplemented { ty: "B", trait_name: "Eq" }
+`[f] == [f]` NotImplemented { ty: "fn() -> Int fails E(f) uses { R(f) }", trait_name: "Eq" }
+`(1, f) == (1, f)` NotImplemented { ty: "fn() -> Int fails E(f) uses { R(f) }", trait_name: "Eq" }
+`Box(value: f) == Box(value: f)` NotImplemented { ty: "fn() -> Int fails E(f) uses { R(f) }", trait_name: "Eq" }

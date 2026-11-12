@@ -1,0 +1,5 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "common::render_diagnostics(r##\"\ntype User(id: Int, name: String)\nfn f(u: User) -> User { User(id: 1, id: 2, ..u) }\n\"##)"
+---
+`id` DuplicateArg { label: "id" }

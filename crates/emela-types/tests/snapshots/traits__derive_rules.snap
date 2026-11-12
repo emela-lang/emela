@@ -1,0 +1,20 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntype Plain(id: Int)\ntype HasFloat(x: Float, y: Float)\n  derive Eq, Ord, Show\ntype HasFn(f: fn() -> Int)\n  derive Eq, Show\ntype NoEq(id: Int)\n  derive Ord\ntype Twice(id: Int)\n  derive Show, Show\ntype Both(id: Int)\n  derive Show\nimpl Both: Show {\n  fn show(self) { \"\" }\n}\ntype Custom(id: Int)\n  derive Plainly\ntype HasPlain(p: Plain, xs: List[Plain], t: (Int, Plain))\n  derive Show\nenum Shape {\n  Dot\n  Circle(r: Float)\n  Unit(u: ())\n} derive Eq, Ord\nerror Down(code: Int) derive Eq\npub type Uses(id: Int)\n  derive Eq\n\ntrait Plainly {}\n\nfn use_all(a: HasFloat, d: Shape, e: Down) -> Bool {\n  a == a && d == d && d < d && e == e\n}\n\"##)"
+---
+`Ord` NotImplemented { ty: "Float", trait_name: "Ord" }
+`Ord` UnusedDerive { trait_name: "Ord", ty: "HasFloat" }
+`Show` UnusedDerive { trait_name: "Show", ty: "HasFloat" }
+`Eq` NotImplemented { ty: "fn() -> Int", trait_name: "Eq" }
+`Eq` UnusedDerive { trait_name: "Eq", ty: "HasFn" }
+`Show` NotImplemented { ty: "fn() -> Int", trait_name: "Show" }
+`Show` UnusedDerive { trait_name: "Show", ty: "HasFn" }
+`Ord` NotImplemented { ty: "NoEq", trait_name: "Eq" }
+`Ord` UnusedDerive { trait_name: "Ord", ty: "NoEq" }
+`Show` UnusedDerive { trait_name: "Show", ty: "Twice" }
+`Show` DuplicateImpl { ty: "Twice", trait_name: "Show" }
+`Show` DuplicateImpl { ty: "Both", trait_name: "Show" }
+`Plainly` NotDerivable { trait_name: "Plainly" }
+`Show` NotImplemented { ty: "Plain", trait_name: "Show" }
+`Show` UnusedDerive { trait_name: "Show", ty: "HasPlain" }
+`Ord` NotImplemented { ty: "Float", trait_name: "Ord" }

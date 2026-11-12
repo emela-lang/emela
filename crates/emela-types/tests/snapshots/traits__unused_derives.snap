@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntype Unused(id: Int)\n  derive Eq, Show\npub type Public(id: Int)\n  derive Eq\ntype Super(id: Int)\n  derive Eq, Ord\ntype Compared(id: Int)\n  derive Eq\ntype Shown(id: Int)\n  derive Show\nerror Failed(code: Int) derive Show\ntype Inner(id: Int)\n  derive Eq\ntype Outer(inner: Inner)\n  derive Eq\n\nfn f(a: Super, b: Compared, c: Shown, o: Outer) -> Bool {\n  s = \"#{c}\"\n  a < a && b == b && o == o\n}\n\"##)"
+---
+`Eq` UnusedDerive { trait_name: "Eq", ty: "Unused" }
+`Show` UnusedDerive { trait_name: "Show", ty: "Unused" }

@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntrait Aa: Bb {}\ntrait Bb: Cc {}\ntrait Cc: Aa {}\ntrait Dd: Dd {}\ntrait Ee: Aa {}\n\"##)"
+---
+`Aa` SupertraitCycle { cycle: ["Aa", "Bb", "Cc", "Aa"] }
+`Dd` SupertraitCycle { cycle: ["Dd", "Dd"] }

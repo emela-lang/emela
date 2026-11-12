@@ -471,13 +471,9 @@ impl InferCtx {
             actual: a.clone(),
         };
         match (&e, &a) {
+            // `is_int_var` asks about the whole class, so an integer variable stays one.
             (Ty::Var(x), Ty::Var(y)) => {
-                let int = self.is_int_var(*x) || self.is_int_var(*y);
                 self.table.union(*x, *y);
-                if int {
-                    let root = self.table.find(*x);
-                    self.int_vars.push(root);
-                }
                 Ok(())
             }
             (Ty::Var(v), t) | (t, Ty::Var(v)) => {

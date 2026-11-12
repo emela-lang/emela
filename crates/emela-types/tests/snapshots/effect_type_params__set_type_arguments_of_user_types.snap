@@ -1,0 +1,34 @@
+---
+source: crates/emela-types/tests/effect_type_params.rs
+expression: "common::render_bodies(r##\"\nimport Std.State.{State}\n\nerror Bad\nerror Worse\neffect Log {\n  fn info(m: String) -> ()\n}\ntype Holder[E](f: fn() -> Int fails E uses {})\ntype Runner[R](f: fn() -> Int fails {} uses { R })\n\nfn union(h: Holder[Bad | Worse]) -> Int { 1 }\nfn single(h: Holder[Bad]) -> Int { 1 }\nfn effects(h: Runner[{ Log }]) -> Int { 1 }\nfn bare_effect(h: Runner[Log]) -> Int { 1 }\nfn with_args(h: Runner[State[Int]]) -> Int { 1 }\nfn param[E](h: Holder[E]) -> Int { 1 }\nfn effect_for_errors(h: Holder[{ Log }]) -> Int { 1 }\nfn error_for_effects(h: Runner[Bad]) -> Int { 1 }\nfn type_for_set(h: Holder[List[Int]]) -> Int { 1 }\nfn named_type_for_set(h: Holder[Int]) -> Int { 1 }\nfn effect_with_args_for_errors(h: Holder[State[Int]]) -> Int { 1 }\nfn effect_for_error(h: Holder[Log]) -> Int { 1 }\n\"##)"
+---
+union: fn(Holder[Bad | Worse]) -> Int
+  h: Holder[Bad | Worse]
+single: fn(Holder[Bad]) -> Int
+  h: Holder[Bad]
+effects: fn(Runner[Log]) -> Int
+  h: Runner[Log]
+bare_effect: fn(Runner[Log]) -> Int
+  h: Runner[Log]
+with_args: fn(Runner[State[Int]]) -> Int
+  h: Runner[State[Int]]
+param: ∀ E. fn(Holder[E]) -> Int
+  h: Holder['0]
+effect_for_errors: fn(Holder[{}]) -> Int
+  h: Holder[{}]
+error_for_effects: fn(Runner[{}]) -> Int
+  h: Runner[{}]
+type_for_set: fn(Holder[{}]) -> Int
+  h: Holder[{}]
+named_type_for_set: fn(Holder[{}]) -> Int
+  h: Holder[{}]
+effect_with_args_for_errors: fn(Holder[{}]) -> Int
+  h: Holder[{}]
+effect_for_error: fn(Holder[{}]) -> Int
+  h: Holder[{}]
+`{ Log }` SetArgMismatch { param: "E", ty: "Holder", effects: false, found: "an effect set" }
+`Bad` SetArgMismatch { param: "R", ty: "Runner", effects: true, found: "error `Bad`" }
+`List[Int]` SetArgMismatch { param: "E", ty: "Holder", effects: false, found: "type `List`" }
+`Int` SetArgMismatch { param: "E", ty: "Holder", effects: false, found: "type `Int`" }
+`State[Int]` SetArgMismatch { param: "E", ty: "Holder", effects: false, found: "type `State`" }
+`Log` SetArgMismatch { param: "E", ty: "Holder", effects: false, found: "effect `Log`" }

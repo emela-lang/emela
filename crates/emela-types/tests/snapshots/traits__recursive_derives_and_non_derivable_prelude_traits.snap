@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/traits.rs
+expression: "render_diagnostics(r##\"\ntype Tree(kids: List[Tree])\n  derive Eq\ntype Fast(id: Int)\n  derive Immediate\n\"##)"
+---
+`Eq` UnusedDerive { trait_name: "Eq", ty: "Tree" }
+`Immediate` NotDerivable { trait_name: "Immediate" }

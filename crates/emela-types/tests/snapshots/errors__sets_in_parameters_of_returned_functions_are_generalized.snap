@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "common::render_bodies(r##\"\ntype Box[A](value: A)\nfn direct() { |f: fn() -> Int| f() }\nfn in_list() { |fs: List[fn() -> Int]| fs.map(|f| f()) }\nfn in_tuple() {\n  |t: (fn() -> Int, Int)| {\n    (f, _) = t\n    f()\n  }\n}\nfn in_box() { |b: Box[fn() -> Int]| (b.value)() }\n\"##)"
+---
+direct: ∀ E, R. fn() -> fn(fn() -> Int fails E uses { R }) -> Int fails E uses { R }
+  f: fn() -> Int fails ?e2 uses { ?e3 }
+in_list: ∀ E, R. fn() -> fn(List[fn() -> Int fails E uses { R }]) -> List[Int] fails E uses { R }
+  fs: List[fn() -> Int fails ?e2 uses { ?e3 }]
+  f: fn() -> Int fails ?e2 uses { ?e3 }
+in_tuple: ∀ E, R. fn() -> fn((fn() -> Int fails E uses { R }, Int)) -> Int fails E uses { R }
+  t: (fn() -> Int fails ?e2 uses { ?e3 }, Int)
+  f: fn() -> Int fails ?e2 uses { ?e3 }
+in_box: ∀ E, R. fn() -> fn(Box[fn() -> Int fails E uses { R }]) -> Int fails E uses { R }
+  b: Box[fn() -> Int fails ?e2 uses { ?e3 }]

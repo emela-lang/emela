@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "common::render_diagnostics(r##\"\neffect Log {\n  fn info(m: String) -> ()\n}\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\neffect Source {\n  fn get() -> Int\n}\ntype Box[A](value: A)\nfn take[A](a: A) -> () { () }\nfn pause() -> () uses { Clock } { (use Clock).sleep(1) }\nfn pause_n(n: Int) -> () uses { Clock } { (use Clock).sleep(n) }\n\nfn caps(b: Box[Int]) -> () uses { Log } {\n  log = use Log\n  x = log |> Box\n  y = log |> Box()\n  z = log |> take()\n  w = Box(value: log, ..b)\n  ()\n}\n\nhandler Leaky: Source {\n  fn get() { use Log }\n}\n\nhandler Sleepy: Source {\n  fn get() {\n    1 |> pause_n\n    1\n  }\n}\n\n@external(js, \"./x.mjs\", \"bounded\")\nfn bounded[R: Immediate](h: fn() -> () uses { R }) -> ()\n@external(js, \"./x.mjs\", \"hidden\")\nfn hidden(h: fn() -> () uses {}) -> ()\n\nfn calls() -> () uses { Clock } {\n  bounded(|| pause())\n}\n\"##)"
+---
+`log` CapabilityInData
+`log` CapabilityInData
+`log` CapabilityArgument
+`log` CapabilityInData
+`use Log` mismatch: expected `Int`, found `use Log`
+`use Log` CapabilityReturned
+`1 |> pause_n` SuspendingFnOp { op: "get", call: Fn { callee: Some("pause_n"), effects: ["Clock"] } }
+`bounded` ExternalOutsideHandler { name: "bounded", suspend: false }
+`bounded` NotImmediate { effects: ["Clock"], sets: [], required: Bound { param: "R", callee: "bounded" } }

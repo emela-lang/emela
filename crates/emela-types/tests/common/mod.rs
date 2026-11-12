@@ -262,3 +262,22 @@ pub fn render_bodies(src: &str) -> String {
     }
     out
 }
+
+/// The diagnostics of `main.emel` alone, one per line in source order, as [`describe`] writes them.
+pub fn render_diagnostics(src: &str) -> String {
+    let (program, module, resolve_diagnostics) = resolve_main(src);
+    assert_eq!(resolve_diagnostics, [], "name resolution failed");
+    let types = check_program(&program);
+    let cons = &types.ty_table.cons;
+    let mut diags: Vec<_> = types
+        .diags
+        .iter()
+        .filter(|d| d.span.is_some_and(|s| s.module == module))
+        .collect();
+    diags.sort_by_key(|d| d.span.map(|s| s.range.start()));
+    let mut out = String::new();
+    for d in diags {
+        writeln!(out, "{}", describe(src, cons, d)).unwrap();
+    }
+    out
+}
