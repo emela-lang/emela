@@ -863,3 +863,294 @@ fn computed_binding(s: Shape) -> Int {
 }
 "#));
 }
+
+/// Coverage of matches and bindings (spec 6.5): `()` and tuples are covered by their single
+/// shape, a type's constructor by its fields given positionally or by name, and a negative float
+/// is its own value.
+#[test]
+fn coverage_of_units_tuples_records_and_floats() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+type Point(x: Int, y: Int)
+
+fn unit(u: ()) -> Int {
+  u match {
+    () -> 1
+  }
+}
+
+fn tuple(p: (Int, Bool)) -> Int {
+  p match {
+    (_, True) -> 1
+    (_, False) -> 2
+  }
+}
+
+fn positional(p: Point) -> Int {
+  p match {
+    Point(0, _) -> 1
+    Point(_, 0) -> 2
+  }
+}
+
+fn named(p: Point) -> Int {
+  p match {
+    Point(y: 0, x: _) -> 1
+    Point(x: 0, y: _) -> 2
+    Point(x: 0, y: 1) -> 3
+  }
+}
+
+fn floats(f: Float) -> Int {
+  f match {
+    -1.5 -> 1
+    1.5 -> 2
+    -1.5 -> 3
+    _ -> 4
+  }
+}
+
+fn bindings(p: (Int, Int), u: ()) -> Int {
+  (a, 1) = p
+  () = u
+  (b, c) = (1, 2)
+  a
+}
+"##
+    ));
+}
+
+/// The names [`emela_types::body_refs`] gives for the definition `name` of `main.emel`.
+fn refs_of(src: &str, name: &str) -> Vec<String> {
+    use emela_resolve::hir::DefModule;
+    let (program, main, _) = common::resolve_main(src);
+    let def = program
+        .defs
+        .iter()
+        .find(|(_, d)| d.name == name && d.module == DefModule::Source(main))
+        .map(|(id, _)| id)
+        .unwrap();
+    emela_types::body_refs(&program, def)
+        .into_iter()
+        .map(|(d, span)| format!("{}@{}", program.defs[d].name, &src[span.range]))
+        .collect()
+}
+
+/// A body refers to the fns it calls and to the consts in its patterns, inside constructors,
+/// tuples and lists; a layer refers to what the arguments of its items call.
+#[test]
+fn body_refs_include_consts_in_patterns_and_layer_arguments() {
+    let src = r##"
+const MAX: Int = 3
+const MIN: Int = 0
+type Box(v: Int)
+fn helper() -> Int { 1 }
+fn f(xs: List[Int], p: (Int, Int), b: Box) -> Int {
+  xs match {
+    [MAX, ..] -> 1
+    _ -> 2
+  }
+  p match {
+    (MIN, _) -> 1
+    _ -> 2
+  }
+  b match {
+    Box(v: MAX) -> 1
+    _ -> 2
+  }
+  helper()
+}
+effect Log {
+  fn info(msg: String) -> ()
+}
+handler Quiet(level: Int): Log {
+  init(level: Int) { Quiet(level:) }
+  fn info(msg) { () }
+}
+layer App { Quiet(level: helper()) }
+"##;
+    assert_eq!(
+        refs_of(src, "f"),
+        ["MAX@MAX", "MIN@MIN", "MAX@MAX", "helper@helper"]
+    );
+    assert_eq!(refs_of(src, "App"), ["helper@helper"]);
+}
+
+/// A const in a pattern stands for its value: an arm after one with the same value is
+/// unreachable, whether the value is a tuple, a negative float, or a record built positionally or
+/// by name (spec 6.5).
+#[test]
+fn consts_in_patterns_are_compared_by_value() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+type Point(x: Int, y: Int)
+const ORIGIN: (Int, Int) = (0, 0)
+const NEG: Float = -1.5
+const P: Point = Point(0, 1)
+const Q: Point = Point(y: 1, x: 0)
+const UNIT: () = ()
+
+fn tuple(t: (Int, Int)) -> Int {
+  t match {
+    ORIGIN -> 1
+    (0, 0) -> 2
+    _ -> 3
+  }
+}
+
+fn float(f: Float) -> Int {
+  f match {
+    NEG -> 1
+    -1.5 -> 2
+    1.5 -> 3
+    _ -> 4
+  }
+}
+
+fn record(p: Point) -> Int {
+  p match {
+    P -> 1
+    Point(0, 1) -> 2
+    Q -> 3
+    Point(1, 0) -> 4
+    _ -> 5
+  }
+}
+
+fn unit(u: ()) -> Int {
+  u match {
+    UNIT -> 1
+    () -> 2
+  }
+}
+"##
+    ));
+}
+
+/// A reference to a generic definition records the types that instantiate it, and one with set
+/// parameters the sets; a reference to a monomorphic one records neither.
+#[test]
+fn references_record_their_instantiations() {
+    use emela_resolve::hir::{DefModule, ExprKind, Res};
+    let (program, main, _) = common::resolve_main(
+        r##"
+fn id[A](a: A) -> A { a }
+fn apply[E](f: fn() -> Int fails E) -> Int fails E { f() }
+fn plain(n: Int) -> Int { n }
+fn use_them() -> Int { plain(id(1)) + apply(|| 2) }
+"##,
+    );
+    let types = emela_types::check_program(&program);
+    let cons = &types.ty_table.cons;
+    let mut found: Vec<String> = Vec::new();
+    for (expr, e) in program.exprs.iter() {
+        let ExprKind::Path(Res::Def(def)) = e.kind else {
+            continue;
+        };
+        if program.defs[def].module != DefModule::Source(main) {
+            continue;
+        }
+        let tys: Vec<String> = types
+            .type_args
+            .get(expr)
+            .map(|args| args.iter().map(|t| t.display(cons).to_string()).collect())
+            .unwrap_or_default();
+        let rows = types.type_rows.get(expr).map_or(0, Vec::len);
+        found.push(format!(
+            "{} [{}] rows={rows}",
+            program.defs[def].name,
+            tys.join(", ")
+        ));
+    }
+    assert_eq!(found[0], "plain [] rows=0");
+    assert!(found[1].starts_with("id [Int] "), "{found:?}");
+    assert!(!found[2].ends_with("rows=0"), "{found:?}");
+}
+
+/// Labels written twice in a partial update are E0305 (spec 5.3).
+#[test]
+fn a_partial_update_names_each_field_once() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+type User(id: Int, name: String)
+fn f(u: User) -> User { User(id: 1, id: 2, ..u) }
+"##
+    ));
+}
+
+/// A cycle among consts is E0336, reported along one cycle even when the consts branch.
+#[test]
+fn const_cycles_with_branches() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+const AA: Int = BB + CC
+const BB: Int = CC
+const CC: Int = AA
+"##
+    ));
+}
+
+/// A method call to a generic fn records its instantiation on the callee `x.f`, as a reference
+/// by name does.
+#[test]
+fn method_calls_record_their_instantiations() {
+    use emela_resolve::hir::ExprKind;
+    let (program, main, _) = common::resolve_main(
+        r##"
+type Box[A](value: A)
+fn wrap[A](b: Box[A]) -> Box[A] { b }
+fn apply[E](b: Box[Int], f: fn() -> Int fails E) -> Int fails E { f() }
+fn plain(b: Box[Int]) -> Int { 1 }
+fn use_them(b: Box[Int]) -> Int {
+  c = b.wrap()
+  d = b.apply(|| 1)
+  b.plain()
+}
+"##,
+    );
+    let types = emela_types::check_program(&program);
+    let found: Vec<(String, usize, usize)> = program
+        .exprs
+        .iter()
+        .filter(|(_, e)| e.span.module == main)
+        .filter_map(|(expr, e)| match &e.kind {
+            ExprKind::Field { name, .. } => Some((
+                name.name.to_string(),
+                types.type_args.get(expr).map_or(0, Vec::len),
+                types.type_rows.get(expr).map_or(0, Vec::len),
+            )),
+            _ => None,
+        })
+        .collect();
+    let s = |n: &str, a, r| (n.to_string(), a, r);
+    assert_eq!(found[0], s("wrap", 1, 1), "{found:?}");
+    assert!(found[1].0 == "apply" && found[1].2 > 0, "{found:?}");
+    assert_eq!(found[2], s("plain", 0, 0), "{found:?}");
+}
+
+/// Matching a handler value covers it by its fields, as a type with fields (spec 6.5); a type
+/// with set arguments in a mismatch is shown without unsolved set variables.
+#[test]
+fn handler_values_in_matches_and_set_arguments_in_mismatches() {
+    insta::assert_snapshot!(common::render_diagnostics(
+        r##"
+effect Log {
+  fn info(m: String) -> ()
+}
+handler Leveled(level: Int): Log {
+  init(level: Int) {
+    x = Leveled(level:)
+    x match {
+      Leveled(level: 0) -> x
+    }
+  }
+  fn info(m) { () }
+}
+type Holder[E](f: fn() -> Int fails E uses {})
+fn f() -> Int {
+  x: Int = Holder(f: || 1)
+  x
+}
+"##
+    ));
+}

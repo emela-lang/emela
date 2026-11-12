@@ -1,0 +1,36 @@
+---
+source: crates/emela-types/tests/methods.rs
+expression: "render_bodies(r#\"\nimport Std.Duration.{Duration}\n\ntype User(id: Int)\n  derive Show\n\nfn caller(u: User) -> Int { u.later() }\nfn later(u: User) { 1 }\n\nfn show(u: User) -> String { \"\" }\nfn ambiguous(u: User) -> String { u.show() }\n\nfn never() -> Int {\n  x = todo()\n  x.anything()\n}\n\nfn generic[A](a: A) -> Int { 1 }\nfn not_a_method(u: User) -> Int { u.generic() }\n\nfn hidden(d: Duration) -> Int64 { d.milliseconds }\n\nfn tuple_method(t: (Int, fn() -> Int)) -> String { t.show() }\n\nfn without_call(u: User) { u.untyped }\nfn without_call_generic(u: User) { u.generic_untyped }\nfn untyped(u: User) { 1 }\nfn generic_untyped[A](a: A) { 1 }\n\"#)"
+---
+caller: fn(User) -> Int
+  u: User
+later: fn(User) -> Int
+  u: User
+show: fn(User) -> String
+  u: User
+ambiguous: fn(User) -> String
+  u: User
+never: fn() -> Int
+  x: Never
+generic: ∀ A. fn(A) -> Int
+  a: '0
+not_a_method: fn(User) -> Int
+  u: User
+hidden: fn(Duration) -> Int64
+  d: Duration
+tuple_method: ∀ E(t), R(t). fn((Int, fn() -> Int fails E(t) uses { R(t) })) -> String fails E(t)
+  t: (Int, fn() -> Int fails '0 uses { '1 })
+without_call: fn(User) -> {unknown}
+  u: User
+without_call_generic: fn(User) -> {unknown}
+  u: User
+untyped: fn(User) -> Int
+  u: User
+generic_untyped: ∀ A. fn(A) -> Int
+  a: '0
+`show` AmbiguousMethod { ty: Named(Idx::<TyConData>(3), []), name: "show", field: false, qualified: ["Main.show", "Show.show"], receiver: Some("u") }
+`generic` no field or function `generic` for type `User`
+`milliseconds` cannot access field `milliseconds` of opaque type `Duration`
+`show` NotImplemented { ty: "fn() -> Int fails E(t) uses { R(t) }", trait_name: "Show" }
+`untyped` MethodNotCalled { ty: Named(Idx::<TyConData>(3), []), name: "untyped", receiver: Some("u") }
+`generic_untyped` no field or function `generic_untyped` for type `User`

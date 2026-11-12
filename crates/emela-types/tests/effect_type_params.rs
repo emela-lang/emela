@@ -376,3 +376,61 @@ fn outside() { with Reads { (use Console).print_line("x") } }
 "#
     ));
 }
+
+/// Set type arguments of a user type (spec 9.2): an error, a union of errors, an effect set, an
+/// effect with type arguments, a set type parameter; and the wrong kind of set, or a type, where a
+/// set is expected.
+#[test]
+fn set_type_arguments_of_user_types() {
+    insta::assert_snapshot!(common::render_bodies(
+        r##"
+import Std.State.{State}
+
+error Bad
+error Worse
+effect Log {
+  fn info(m: String) -> ()
+}
+type Holder[E](f: fn() -> Int fails E uses {})
+type Runner[R](f: fn() -> Int fails {} uses { R })
+
+fn union(h: Holder[Bad | Worse]) -> Int { 1 }
+fn single(h: Holder[Bad]) -> Int { 1 }
+fn effects(h: Runner[{ Log }]) -> Int { 1 }
+fn bare_effect(h: Runner[Log]) -> Int { 1 }
+fn with_args(h: Runner[State[Int]]) -> Int { 1 }
+fn param[E](h: Holder[E]) -> Int { 1 }
+fn effect_for_errors(h: Holder[{ Log }]) -> Int { 1 }
+fn error_for_effects(h: Runner[Bad]) -> Int { 1 }
+fn type_for_set(h: Holder[List[Int]]) -> Int { 1 }
+fn named_type_for_set(h: Holder[Int]) -> Int { 1 }
+fn effect_with_args_for_errors(h: Holder[State[Int]]) -> Int { 1 }
+fn effect_for_error(h: Holder[Log]) -> Int { 1 }
+"##
+    ));
+}
+
+/// A type parameter given as a set type argument of another type is a set parameter too, in
+/// every form of set, and through a chain of types declared in any order: it takes a union.
+#[test]
+fn set_parameters_through_other_types() {
+    insta::assert_snapshot!(common::render_bodies(
+        r##"
+error Bad
+error Worse
+effect Log {
+  fn info(m: String) -> ()
+}
+type Outer[E](w: Wrap[E])
+type Wrap[E](h: Holder[E])
+type WrapUnion[E](h: Holder[E | Bad])
+type WrapEffects[R](r: Runner[{ R, Log }])
+type Holder[E](f: fn() -> Int fails E uses {})
+type Runner[R](f: fn() -> Int fails {} uses { R })
+
+fn outer(o: Outer[Bad | Worse]) -> Int { 1 }
+fn union(w: WrapUnion[Bad | Worse]) -> Int { 1 }
+fn effects(w: WrapEffects[{ Log }]) -> Int { 1 }
+"##
+    ));
+}

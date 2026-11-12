@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "common::render_diagnostics(r##\"\nerror Bad\nerror Worse\nerror NotFound(id: Int)\nfn h(a: Int, b: Int) -> Int fails Worse { fail Worse }\nfn find(id: Int) -> Int fails NotFound | Bad { fail NotFound(id:) }\nfn bad() -> Int fails Bad { fail Bad }\n\nfn piped() -> Int fails {} { 1 |> h(2) }\n\neffect Source {\n  fn get() -> Int fails Bad\n  fn plain() -> Int\n}\nhandler Raises: Source {\n  fn get() { fail Worse }\n  fn plain() { fail Worse }\n}\n\nconst VALUE: Int = bad()\n\nfn partial() -> Int fails {} {\n  find(1) escape {\n    NotFound(id: 1) -> 0\n    Bad -> 0\n  }\n}\n\"##)"
+---
+`h(2)` unhandled errors Worse (fails written: true)
+`fail Worse` unhandled errors Worse (fails written: true)
+`fail Worse` unhandled errors Worse (fails written: false)
+`bad()` unhandled errors Bad (fails written: false)
+`find(1)` unhandled errors NotFound (fails written: true)

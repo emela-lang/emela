@@ -600,7 +600,10 @@ fn op_signature(
     let ty_params = ty_params(program, &defs)
         .into_iter()
         .zip(&kinds)
-        .map(|(p, &kind)| TyParam { kind, ..p })
+        .map(|(mut p, &kind)| {
+            p.kind = kind;
+            p
+        })
         .collect();
     Signature {
         scheme: Scheme::new(ty_params, Ty::func_fails(params, ret, fails)),

@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "common::render_bodies(r##\"\nerror Bad\neffect Log {\n  fn info(m: String) -> ()\n}\nhandler Leveled(level: Int): Log {\n  init(level: Int) { Leveled(level:) }\n  fn info(m) { () }\n}\nlayer Inner { Leveled(level: 1) }\nlayer Outer { Inner }\nlayer Top { Outer }\nfn bad() -> Int fails Bad { fail Bad }\nfn logs() -> () uses { Log } { (use Log).info(\"x\") }\n\nfn nested() { with Outer { logs() } }\nfn nested_twice() { with Top { logs() } }\nfn arg_errors() { with Leveled(level: bad()) { logs() } }\n\"##)"
+---
+bad: fn() -> Int fails Bad
+logs: fn() -> () uses { Log }
+nested: fn() -> ()
+nested_twice: fn() -> ()
+arg_errors: fn() -> () fails Bad

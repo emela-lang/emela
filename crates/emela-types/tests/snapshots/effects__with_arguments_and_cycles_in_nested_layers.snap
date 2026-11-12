@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "common::render_diagnostics(r##\"\nerror Bad\neffect Aa {\n  fn a() -> Int\n}\neffect Bb {\n  fn b() -> Int\n}\nhandler UsesB: Aa {\n  init { UsesB }\n  fn a() { (use Bb).b() }\n}\nhandler UsesA: Bb {\n  init { UsesA }\n  fn b() { (use Aa).a() }\n}\nhandler Leveled(level: Int): Aa {\n  init(level: Int) { Leveled(level:) }\n  fn a() { 1 }\n}\nlayer Inner { UsesB, UsesA }\nlayer Outer { Inner }\nfn bad() -> Int fails Bad { fail Bad }\n\nfn args() -> Int fails {} { with Leveled(level: bad()) { (use Aa).a() } }\nfn cycle() -> Int { with Outer { (use Aa).a() } }\n\"##)"
+---
+`UsesB` HandlerCycle { cycle: ["UsesB", "UsesA", "UsesB"] }
+`bad()` unhandled errors Bad (fails written: true)

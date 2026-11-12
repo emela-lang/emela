@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "common::render_bodies(r##\"\nerror Bad\nfn bad() -> Int fails Bad { fail Bad }\nfn make() -> fn() -> Int uses {} { || bad() }\n\"##)"
+---
+bad: fn() -> Int fails Bad
+make: fn() -> fn() -> Int fails Bad

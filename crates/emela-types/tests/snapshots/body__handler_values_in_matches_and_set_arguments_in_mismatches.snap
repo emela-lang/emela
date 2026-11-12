@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "common::render_diagnostics(r##\"\neffect Log {\n  fn info(m: String) -> ()\n}\nhandler Leveled(level: Int): Log {\n  init(level: Int) {\n    x = Leveled(level:)\n    x match {\n      Leveled(level: 0) -> x\n    }\n  }\n  fn info(m) { () }\n}\ntype Holder[E](f: fn() -> Int fails E uses {})\nfn f() -> Int {\n  x: Int = Holder(f: || 1)\n  x\n}\n\"##)"
+---
+`x` non-exhaustive match: Leveled(_) not covered
+`Holder(f: || 1)` mismatch: expected `Int`, found `Holder[{}]`
