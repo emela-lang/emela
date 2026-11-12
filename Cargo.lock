@@ -480,18 +480,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "emela-codegen-emb"
-version = "0.27.1"
-dependencies = [
- "emela-core",
- "emela-lir",
- "emela-resolve",
- "emela-syntax",
- "emela-types",
- "la-arena",
-]
-
-[[package]]
 name = "emela-codegen-js"
 version = "0.27.1"
 dependencies = [
@@ -535,7 +523,6 @@ version = "0.27.1"
 dependencies = [
  "ariadne",
  "emela-codegen-c",
- "emela-codegen-emb",
  "emela-codegen-js",
  "emela-codegen-wasm",
  "emela-core",

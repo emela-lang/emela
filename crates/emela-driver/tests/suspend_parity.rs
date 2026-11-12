@@ -76,7 +76,6 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Vec<String>>
                 |_, _| {},
             )
         }
-        Target::CEmbedded => unreachable!("this test compares js, c and wasm"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {

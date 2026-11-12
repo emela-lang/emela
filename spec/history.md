@@ -2,6 +2,39 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-10 (Separate microcontroller support)
+
+- `[target]`, `[module.pome]`, `[lib.layers]`, `[cmd]`, `[cmd.build]`, `[cmd.doctor]`: Remove the embedded C backend, the `c-embedded` target, the `flash` command, the board and runtime configuration options, and the bundled `Std.Embedded.*` modules. Microcontroller support is maintained in the separate emelino repository. The native C target and the shared frontend and Flow APIs remain available.
+- The retired section names below are retained for references from earlier history and proposals. They no longer define supported behavior and MUST NOT be reused.
+
+### Embedded C target (retired) `[target.c-embedded]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded C output (retired) `[target.c-embedded.output]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded boards (retired) `[target.c-embedded.board]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded entry (retired) `[target.c-embedded.entry]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded project configuration (retired) `[target.c-embedded.project]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded runtime configuration (retired) `[target.c-embedded.config]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Firmware flashing (retired) `[cmd.flash]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
 ## 2026-11-10 (emela doctor)
 
 - `[cmd]`, `[cmd.doctor]`, `[target.c-embedded.board]`: Add the command `emela doctor`. It resolves the external programs that each build target uses (node, cc, wasmtime, the tools of the embedded target) and the routes used to fetch Pomes, by the same rules as the commands that use them, and reports what is missing. Adopted in the proposal `doctor-command` (#535).

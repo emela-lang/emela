@@ -603,6 +603,18 @@ Set.from_list(["a", "b"])
   constructs listed under [Commands](#commands).
 - The questions still open are in [`spec/open-questions.md`](spec/open-questions.md).
 
+## Embedded development
+
+Microcontroller support is maintained in the separate
+[emelino repository](https://github.com/aoi-netai/emelino). Use its CLI,
+`Embedded.*` modules and board setup instructions for embedded projects.
+
+Emela no longer provides the `c-embedded` target, `flash`, `--board`,
+`--embedded-config`, or the bundled `Std.Embedded.*` modules. Projects using
+these features need to migrate their commands, imports and configuration to
+emelino. Its supported boards and configuration are documented in that
+repository; the old command lines are not interchangeable.
+
 ## Crates
 
 The version of Emela describes the `emela` binary: the language, the standard
@@ -621,7 +633,6 @@ tag (`git = "https://github.com/emela-lang/emela.git", tag = "v0.27.0"`).
 | `emela-codegen-js`   | JavaScript output and the embedded JS runtime                                              |
 | `emela-codegen-wasm` | WebAssembly (WASI 0.3 component) output and the embedded WASM runtime                      |
 | `emela-codegen-c`    | C11 output and the embedded C runtime                                                      |
-| `emela-codegen-emb`  | C for embedded boards from the Flow IR (not yet wired into the CLI)                        |
 | `emela-pome`         | Pomes: source paths, versions, `Pome.toml` / `Pome.lock`, checksum database                |
 | `emela-driver`       | Pipeline, diagnostics, build configuration                                                 |
 | `emela-lsp`          | Language server                                                                            |
@@ -630,8 +641,8 @@ tag (`git = "https://github.com/emela-lang/emela.git", tag = "v0.27.0"`).
 ```
 syntax → resolve → types → core ─────────────→ codegen-js ───┐
    ↓                         └─→ lir ─┬─→ codegen-wasm ─────┤
-  fmt                                 ├─→ codegen-c ────────┤
-                                      └─→ codegen-emb       ↓
+  fmt                                 └─→ codegen-c ────────┤
+                                                           ↓
                                      pome → driver → lsp → cli
 ```
 

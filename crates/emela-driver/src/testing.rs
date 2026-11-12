@@ -49,8 +49,6 @@ use crate::target::Target;
 pub const JS_TEST_OUT_DIR: &str = "target/emela/test";
 /// The default C output directory for tests (`--target c`), relative like [`JS_TEST_OUT_DIR`].
 pub const C_TEST_OUT_DIR: &str = "target/emela/test-c";
-/// Reserved output directory for embedded C test backends; the CLI does not run them.
-pub const C_EMBEDDED_TEST_OUT_DIR: &str = "target/emela/test-c-embedded";
 /// The default WASM output directory for tests (`--target wasm`), relative like
 /// [`JS_TEST_OUT_DIR`].
 pub const WASM_TEST_OUT_DIR: &str = "target/emela/test-wasm";
@@ -67,7 +65,6 @@ pub fn default_test_out_dir_for(input: &Input, target: Target) -> PathBuf {
     match target {
         Target::Js => input.base.join(JS_TEST_OUT_DIR),
         Target::C => input.base.join(C_TEST_OUT_DIR),
-        Target::CEmbedded => input.base.join(C_EMBEDDED_TEST_OUT_DIR),
         Target::Wasm => input.base.join(WASM_TEST_OUT_DIR),
     }
 }

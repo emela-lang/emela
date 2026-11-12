@@ -127,6 +127,32 @@ fn entry_exports_main_and_export_fns() {
     assert_eq!(names, [(None, "api"), (Some("default"), "api")]);
 }
 
+/// External backends can still select the entry's public functions without host annotations.
+#[test]
+fn public_roots_remain_available_to_external_backends() {
+    let m = try_lower(
+        &[
+            (
+                "main.emel",
+                "import Other\nfn main() {}\npub fn api() -> Int { helper() }\nfn helper() -> Int { 42 }\nfn unused() {}\n",
+            ),
+            ("other.emel", "pub fn unrelated() {}\n"),
+        ],
+        Roots::Public,
+    )
+    .unwrap();
+    let mut names = fn_names(&m);
+    names.sort_unstable();
+    assert_eq!(names, ["api", "helper", "main"]);
+    let exported: Vec<_> = m
+        .functions
+        .iter()
+        .filter(|(_, f)| f.exported)
+        .map(|(_, f)| f.name.as_str())
+        .collect();
+    assert_eq!(exported, ["main", "api"]);
+}
+
 #[test]
 fn self_tail_calls_come_out_as_loops() {
     // Lowering loopifies once for every backend (spec 16.3).

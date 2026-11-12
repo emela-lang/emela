@@ -1,6 +1,6 @@
 # Appendix B. Commands `[cmd]`
 
-This appendix defines the externally visible behavior of the `emela` command. `emela test` is in 13.4 and `[cmd.test]`, `emela pome` is in `[cmd.pome]`, `emela flash` is in `[cmd.flash]`, and `emela doctor` is in `[cmd.doctor]`.
+This appendix defines the externally visible behavior of the `emela` command. `emela test` is in 13.4 and `[cmd.test]`, `emela pome` is in `[cmd.pome]`, and `emela doctor` is in `[cmd.doctor]`.
 
 ## emela check, build, run `[cmd.build]`
 
@@ -17,9 +17,8 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 
 Build target and output directory:
 
-- `build`, `run`, and `test` select the build target with `--target <js|c|c-embedded|wasm>`. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `c-embedded` for a `build` with a board selected (`[target.c-embedded.board]`) and `js` otherwise (`[module.pome]`). `run` and `test` are not available for `c-embedded`. `check` takes no build target.
-- `build` and `check` take `--board <id>`, and `build` takes `--embedded-config <path>` (`[target.c-embedded]`). `check` with a board, or with `[embedded].board`, reads the module replacements of that board (`[target.c-embedded.project]`).
-- The default output directory of `build` and `run` is `target/emela/<target>` (`target/emela/js`, `target/emela/c`, `target/emela/c-embedded`, `target/emela/wasm`; `target/emela/c-embedded/<board>` with a board) in the project (in single-file mode, in the directory that contains the file). The default output directory of `test` is as in `[cmd.test.out-dir]`. `--out-dir` changes the output directory of `build` and `run` for every target.
+- `build`, `run`, and `test` select the build target with `--target <js|c|wasm>`. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `js` (`[module.pome]`). `check` takes no build target.
+- The default output directory of `build` and `run` is `target/emela/<target>` (`target/emela/js`, `target/emela/c`, `target/emela/wasm`) in the project (in single-file mode, in the directory that contains the file). The default output directory of `test` is as in `[cmd.test.out-dir]`. `--out-dir` changes the output directory of `build` and `run` for every target.
 - Giving `build` or `run` a file inside the test root is a compile error (E0208, ``... is under the test root, which only check and test read``). `build` and `run` do not read the test root.
 
 Entry and main:
@@ -62,24 +61,14 @@ Running the program (JS):
 
 Diagnostics and help:
 
+- `flash`, `--board`, `--embedded-config` and the target `c-embedded` are not accepted by the command-line parser. They produce a usage error without writing build output.
 - The form and destination of diagnostics are in Appendix A (`[diag]`).
 - The text of `--help` is written in English.
-
-## emela flash `[cmd.flash]`
-
-- Writes the firmware image of the last successful `emela build` with a board (`[target.c-embedded]`) to the device. It does not build.
-- Takes one path like `build` (`[cmd.build]`). The board is `--board`, else `[embedded].board`; without either it is an error (``` `flash` requires `--board` or `[embedded].board` ```). `--out-dir` and `--embedded-config` MUST be the same as given to the build. `--port` is the serial port (ESP32-C3) or the serial number of the debug probe (STM32F4).
-- A successful board build records the SHA-256 of its inputs and outputs in `board-build.json`: the sources and manifests of the project and of its dependencies, `Pome.lock`, the runtime configuration, the module replacements, the files of `[embedded].sources` and the headers next to them, the generated C, the board support files, and the firmware outputs. The selected project, board, entry, runtime configuration and output directory are recorded with them.
-- `build` with a board removes the previous record once the target is decided and before it compiles anything, and writes a new one only when the build succeeds and no input changed while it ran. A failed build leaves no record.
-- `flash` checks the current files and selection against the record before it starts any program from the output directory. Without a record, it is an error (``no successful firmware build exists; run `emela build` first``). When anything differs, it is an error and nothing is written to the device.
-- After the check, the image is written with OpenOCD (STM32F4, the environment variable `OPENOCD`, else `openocd`) or esptool (ESP32-C3, run by the environment variable `EMELA_ESPTOOL_PYTHON`, else by the Python of the build). ESP32-C3 requires `--port` unless `--dry-run` is given. Paths and the port are passed as separate arguments, without a shell.
-- `--dry-run` performs the same check, prints the command that would write the image, and does not open the device.
-- The exit code is 0 on success and 1 otherwise.
 
 ## emela doctor `[cmd.doctor]`
 
 - Reports, for each build target, whether the external programs it uses can be found and started and whether their versions are new enough, and reports the routes used to fetch Pomes. It installs nothing, changes no environment variables, and does not go to the network.
-- Takes one path, which defaults to `.`. When the path is in a project (4.1), the build target of the project (`[cmd.build]`) is required, and so is its board (`[target.c-embedded.board]`) when the target is `c-embedded`. Outside a project, no target is required. `--target <js|c|c-embedded|wasm>` makes that target required instead, and `--board <id>` selects the board.
+- Takes one path, which defaults to `.`. When the path is in a project (4.1), the build target of the project (`[cmd.build]`) is required. Outside a project, no target is required. `--target <js|c|wasm>` makes that target required instead.
 - Each program is resolved by the same rule as the command that uses it, and is checked as follows.
 
   | Target | Program | Rule | Passes when |
@@ -87,16 +76,11 @@ Diagnostics and help:
   | `js` | node | `[cmd.build]` | it starts and `--version` reports a version that `[target]` supports |
   | `c` | the C compiler | `[target.c.cc]` | it starts; the first line of its `--version` is reported as its version |
   | `wasm` | wasmtime | `[target.wasm.run]` | it starts and its major version is 49 or later |
-  | `c-embedded` | Python | `[target.c-embedded.board]` | it starts and reports version 3 |
-  | `c-embedded`, STM32F4 boards | `arm-none-eabi-gcc`, OpenOCD | `[target.c-embedded.board]`, `[cmd.flash]` | each starts |
-  | `c-embedded`, `esp32c3` | `riscv32-esp-elf-gcc`, esptool | `[target.c-embedded.board]`, `[cmd.flash]` | each starts |
-
-  The items of `c-embedded` are checked only when a board is selected.
 - A program passes or fails with one of these reasons: it was not found, it could not be started, its version is older than required, or its version could not be read. A program whose version could not be read passes, as in `[target.wasm.run]`.
 - The Pome section reports the values in effect of `EMELA_POMEPROXY` and `EMELA_POMESUMDB`, the number of prefixes in `EMELA_POMEPRIVATE` (`[module.pome]`), and whether git starts. The prefixes themselves are not written, so that the output can be pasted into a public report. git is required when `EMELA_POMEPRIVATE` is set or when `direct` is the only entry of `EMELA_POMEPROXY`. The userinfo part of a URL (`user:token@`) is written as `***@`. Nothing is fetched and no proxy is contacted.
 - Output without `--format`, written to standard output:
   - The first line is the same as `emela --version`, followed by a blank line.
-  - For each target in the order `js`, `c`, `wasm`, `c-embedded`, a line with the target's name, followed by ` (required)` when required. Under it, one line per program, indented by two spaces: `ok`, `missing`, `too-old` or `failed`, then the program's name and version and the executable resolved in parentheses, or a sentence that names the target and the program that it lacks. A program that fails is followed by a line with the help of the diagnostic that the command using it would report (E0904, E0907, E0909), aligned with the sentence.
+  - For each target in the order `js`, `c`, `wasm`, a line with the target's name, followed by ` (required)` when required. Under it, one line per program, indented by two spaces: `ok`, `missing`, `too-old` or `failed`, then the program's name and version and the executable resolved in parentheses, or a sentence that names the target and the program that it lacks. A program that fails is followed by a line with the help of the diagnostic that the command using it would report (E0904, E0907, E0909), aligned with the sentence.
   - Then a blank line and the Pome section in the same form.
   - Color is used under the same conditions as diagnostics (`[diag]`).
 - With `--format json`, the command writes one JSON object to standard output instead:
