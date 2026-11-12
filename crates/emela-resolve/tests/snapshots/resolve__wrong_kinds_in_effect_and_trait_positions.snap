@@ -1,0 +1,12 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"type User(id: Int)\neffect Log {\n  fn info(msg: String) -> ()\n}\neffect Audit of Log\nhandler Quiet: Log {\n  fn info(msg) { () }\n}\nfn helper() { 1 }\n\nfn f[Eff]() -> Int uses { Eff } {\n  with User { 1 }\n  with User by Quiet { 1 }\n  with Audit by User { 1 }\n  with Audit by Quiet { 1 }\n  use Eff\n  xs: List[Quiet] = []\n  1\n}\n\ntrait Named: User {}\nimpl User: User {}\nfn g[A: User](a: A) -> Int { 1 }\n\"##,)])"
+---
+error src/main.emel@188..192 `User`: expected handler, layer or label, found type `User`
+error src/main.emel@206..210 `User`: expected label, found type `User`
+error src/main.emel@242..246 `User`: expected handler or effect, found type `User`
+error src/main.emel@287..290 `Eff`: expected effect, found type parameter `Eff`
+error src/main.emel@302..307 `Quiet`: expected type, found handler `Quiet`
+error src/main.emel@334..338 `User`: expected trait, found type `User`
+error src/main.emel@353..357 `User`: expected trait, found type `User`
+error src/main.emel@369..373 `User`: expected trait, found type `User`

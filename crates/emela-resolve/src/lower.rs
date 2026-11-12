@@ -2106,17 +2106,8 @@ impl Lower<'_, '_> {
                     _ => PatKind::Missing,
                 }
             }
-            // `-1`: the syntax checks accept only `-` before a number literal.
-            PREFIX_EXPR
-                if child_token(node, MINUS).is_some()
-                    && node.children().count() == 1
-                    && node.first_child().is_some_and(|c| {
-                        c.kind() == LITERAL
-                            && (child_token(&c, INT).is_some() || child_token(&c, FLOAT).is_some())
-                    }) =>
-            {
-                pat_literal(node)
-            }
+            // `-1`: the syntax checks accept only `-` before a number literal (E0125).
+            PREFIX_EXPR => pat_literal(node),
             UNIT_EXPR => PatKind::Unit,
             PAREN_EXPR => {
                 return match node.children().find(|c| is_expr(c.kind())) {
@@ -2429,4 +2420,76 @@ fn is_pat(kind: SyntaxKind) -> bool {
             | TUPLE_PAT
             | LIST_PAT
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The values of the STRING_TEXT tokens of `src`, in order.
+    fn texts(src: &str) -> Vec<String> {
+        emela_syntax::parse(src)
+            .syntax()
+            .descendants_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == STRING_TEXT)
+            .map(|t| string_text(&t))
+            .collect()
+    }
+
+    #[test]
+    fn 複数行文字列は閉じる行のインデントと前後の改行を除く() {
+        // The example of `[lex.literal]`, with the interpolation as the separate part it is.
+        let src = "fn f() {\n  query = \"\"\"\n    SELECT *\n    FROM users\n    WHERE id = #{id}\n    \"\"\"\n}";
+        assert_eq!(texts(src), ["SELECT *\nFROM users\nWHERE id = ", ""]);
+    }
+
+    #[test]
+    fn 補間の後の部品は行の途中から始まる() {
+        let src = "fn f() {\n  s = \"\"\"\n    a #{x}  b\n      c\n    \"\"\"\n}";
+        assert_eq!(texts(src), ["a ", "  b\n  c"]);
+    }
+
+    #[test]
+    fn 空白だけの行は閉じる行より浅くてよい() {
+        let src = "fn f() {\n  s = \"\"\"\n    a\n  \n\t\n    b\n    \"\"\"\n}";
+        assert_eq!(texts(src), ["a\n\n\nb"]);
+    }
+
+    #[test]
+    fn 複数行文字列の改行は_crlf_でもよい() {
+        let src = "fn f() {\r\n  s = \"\"\"\r\n    a\r\n    \"\"\"\r\n}";
+        assert_eq!(texts(src), ["a"]);
+    }
+
+    #[test]
+    fn 複数行文字列のエスケープは字下げを除いた後に解く() {
+        // `\n` does not start a line, so the indentation after it is kept.
+        let src = "fn f() {\n  s = \"\"\"\n    a\\n    b\n    \"\"\"\n}";
+        assert_eq!(texts(src), ["a\n    b"]);
+    }
+
+    #[test]
+    fn 七つのエスケープ() {
+        assert_eq!(
+            unescape(r#"\" \\ \n \t \r \# \u{41}"#),
+            "\" \\ \n \t \r # A"
+        );
+        assert_eq!(unescape(r"\u{1F600}!"), "😀!");
+        assert_eq!(unescape(r"a\u{62}c\u{64}"), "abcd");
+    }
+
+    /// Invalid escapes are reported by the lexer and kept as written.
+    #[test]
+    fn 不正なエスケープは書いたまま残す() {
+        assert_eq!(unescape(r"\q"), r"\q");
+        assert_eq!(unescape(r"\u{D800}x"), r"\u{D800}x");
+        assert_eq!(unescape(r"\u41"), r"\u41");
+        assert_eq!(unescape("a\\"), "a\\");
+    }
+
+    #[test]
+    fn ふつうの文字列はエスケープだけを解く() {
+        assert_eq!(texts("fn f() { \"  a\\tb  \" }"), ["  a\tb  "]);
+    }
 }
