@@ -617,6 +617,11 @@ repository; the old command lines are not interchangeable.
 
 ## Crates
 
+The version of Emela describes the `emela` binary: the language, the standard
+library, the tools and the diagnostics. The Rust API of these crates is not covered
+by it and can change in any release. A project that uses them depends on a release
+tag (`git = "https://github.com/emela-lang/emela.git", tag = "v0.27.0"`).
+
 | Crate                | Role                                                                                       |
 | -------------------- | ------------------------------------------------------------------------------------------ |
 | `emela-syntax`       | Lexer, parser, lossless syntax tree, error recovery                                        |
