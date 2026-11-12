@@ -75,7 +75,7 @@ impl Lowerer<'_> {
     /// Whether copy `spec` of definition `def` may suspend (becomes a generator). Decided by the R
     /// of the declared type.
     pub(super) fn fn_suspends(&self, def: DefId, spec: Specialization) -> bool {
-        let Some(Ty::Fn(f)) = self.types.sigs.get(def).map(|s| &s.scheme.ty) else {
+        let Some(f) = self.fn_sig(def) else {
             return false;
         };
         f.uses.elems().iter().any(|e| match e {
@@ -88,7 +88,8 @@ impl Lowerer<'_> {
     /// The copy to call when definition `def` is referenced by expression `expr`. With `expr` of
     /// `None` (a root with no referencing expression), the original function (0).
     pub(super) fn specialization_of(&self, def: DefId, expr: Option<ExprId>) -> Specialization {
-        let Some(sig) = self.types.sigs.get(def) else {
+        // A const is one value, whatever sets its type is instantiated with (spec 5.6).
+        let (Some(sig), Some(_)) = (self.types.sigs.get(def), self.fn_sig(def)) else {
             return 0;
         };
         let candidates = effect_params(&sig.scheme);

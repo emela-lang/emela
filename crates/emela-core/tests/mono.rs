@@ -127,6 +127,39 @@ fn main() {
     insta::assert_snapshot!(parts(&m, &["fn main(", ": Eq.", ": Ord.", ": Show."]));
 }
 
+/// A const whose value is a function is one value, also when its type is generalized over the
+/// function's R (spec 5.6): it takes no parameters and returns the function. Lowering used to read
+/// its type as the signature of a function.
+#[test]
+fn consts_holding_functions() {
+    let m = mono(&lower_files(&[(
+        "main.emel",
+        "\
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet: Log {
+  fn info(msg) { () }
+}
+
+const DOUBLE: fn(Int) -> Int = |x| x * 2
+
+const APPLY = |callback| callback()
+
+fn main() -> Int {
+  with Quiet {
+    DOUBLE(2) + APPLY(|| 1) + APPLY(|| {
+      (use Log).info(\"x\")
+      2
+    })
+  }
+}
+",
+    )]));
+    insta::assert_snapshot!(parts(&m, &["DOUBLE", "APPLY", "fn main("]));
+}
+
 /// Option, nested generic types and a generic function calling another with its own type
 /// parameters.
 #[test]

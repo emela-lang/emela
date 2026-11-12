@@ -1,0 +1,44 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"DOUBLE\", \"APPLY\", \"fn main(\"])"
+---
+export fn main() -> Int {
+  with {
+    let h%0: handler Log = Quiet()
+    let ev%1: evidence = provide(; Log = h%0)
+  } {
+    (({
+      let f%2: fn(Int) -> Int = DOUBLE()
+      (f%2)(2)
+    } +[Int] {
+      let f%3: fn(fn() -> Int) -> Int = APPLY[Int, {}, {}]()
+      (f%3)(fn() -> Int {
+        1
+      })
+    }) +[Int] {
+      let f%4: fn(fn() -> Int ev) -> Int ev = APPLY[Int, {}, {ev}]()
+      (f%4)(fn(ev%5: evidence) -> Int {
+        let _%6: () = h%0.Log#info("x")
+        2
+      }, ev%1)
+    })
+  }
+}
+
+const fn DOUBLE() -> fn(Int) -> Int {
+  fn(x%8: Int) -> Int {
+    (x%8 *[Int] 2)
+  }
+}
+
+const fn APPLY[Int, {}, {}]() -> fn(fn() -> Int) -> Int {
+  fn(callback%9: fn() -> Int) -> Int {
+    (callback%9)()
+  }
+}
+
+const fn APPLY[Int, {}, {ev}]() -> fn(fn() -> Int ev) -> Int ev {
+  fn(callback%10: fn() -> Int ev, ev%11: evidence) -> Int {
+    (callback%10)(ev%11)
+  }
+}

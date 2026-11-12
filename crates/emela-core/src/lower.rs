@@ -21,7 +21,7 @@ use emela_resolve::hir::{
     UnaryOp, WithItem, int_literal_value,
 };
 use emela_resolve::{ModuleId, ModuleMap};
-use emela_types::{ArgsSource, Prim, ProgramTypes, Row, RowElem, Supplier, Tag, Ty};
+use emela_types::{ArgsSource, FnTy, Prim, ProgramTypes, Row, RowElem, Supplier, Tag, Ty};
 use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -854,9 +854,9 @@ impl<'a> Lowerer<'a> {
         let sets = (0..params.len())
             .filter(|&i| matches!(params[i].kind, emela_types::ParamKind::Set))
             .collect();
-        let ret = match &sig.scheme.ty {
-            Ty::Fn(f) => self.ty(&f.ret),
-            ty => self.ty(ty),
+        let ret = match self.fn_sig(def) {
+            Some(f) => self.ty(&f.ret),
+            None => self.ty(&sig.scheme.ty),
         };
         (ret, params.len(), sets)
     }
@@ -953,11 +953,9 @@ impl<'a> Lowerer<'a> {
         let (ret, type_params, set_params) = self.signature(def);
         self.module.define(id, params, ret, body);
         let fails = self.declared_fails(def);
-        let types = self.types;
-        let sets = match types.sigs.get(def).map(|s| &s.scheme.ty) {
-            Some(Ty::Fn(f)) => self.fn_sets(&f.fails, &f.uses),
-            _ => None,
-        };
+        let sets = self
+            .fn_sig(def)
+            .and_then(|f| self.fn_sets(&f.fails, &f.uses));
         let func = &mut self.module.functions[id];
         func.type_params = type_params;
         func.set_params = set_params;
@@ -1185,7 +1183,7 @@ impl<'a> Lowerer<'a> {
     /// Whether the declared (or generalized) type's E is not empty. Opaque sets (set type
     /// parameters, generalized sets) count as not empty.
     fn declared_fails(&self, def: DefId) -> bool {
-        matches!(self.types.sigs.get(def).map(|s| &s.scheme.ty), Some(Ty::Fn(f)) if !f.fails.is_empty())
+        self.fn_sig(def).is_some_and(|f| !f.fails.is_empty())
     }
 
     /// The IR type arguments of the reference `expr` to the generic definition `def`
@@ -1273,8 +1271,20 @@ impl<'a> Lowerer<'a> {
     /// (generalized) type has an element other than Async. Opaque sets (`R(f)`, generalized sets)
     /// also need it, to pass it on to function arguments. Async is provided by the runtime
     /// (spec 8.3, 13.3) and has no handler value, so it needs no table.
+    /// The declared (or generalized) type of a definition that is called: `None` for a const,
+    /// whose type, a function type too, is the type of its value (spec 5.6).
+    pub(super) fn fn_sig(&self, def: DefId) -> Option<&'a FnTy> {
+        if matches!(self.hir.item(def), Some(Item::Const(_))) {
+            return None;
+        }
+        match self.types.sigs.get(def).map(|s| &s.scheme.ty) {
+            Some(Ty::Fn(f)) => Some(f),
+            _ => None,
+        }
+    }
+
     fn takes_ev(&self, def: DefId) -> bool {
-        matches!(self.types.sigs.get(def).map(|s| &s.scheme.ty), Some(Ty::Fn(f)) if self.row_needs_ev(&f.uses))
+        self.fn_sig(def).is_some_and(|f| self.row_needs_ev(&f.uses))
     }
 
     /// Whether to pass the evidence table when calling a value of function type: yes if the value
@@ -2725,14 +2735,14 @@ impl<'a> Lowerer<'a> {
 
     /// Tags in the declared R that contain type parameters.
     fn generic_tags(&self, def: DefId) -> Vec<Tag> {
-        match self.types.sigs.get(def).map(|s| &s.scheme.ty) {
-            Some(Ty::Fn(f)) => f
+        match self.fn_sig(def) {
+            Some(f) => f
                 .uses
                 .tags()
                 .filter(|t| t.args.iter().any(has_bound))
                 .cloned()
                 .collect(),
-            _ => Vec::new(),
+            None => Vec::new(),
         }
     }
 
