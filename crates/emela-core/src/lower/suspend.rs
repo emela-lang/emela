@@ -3,8 +3,7 @@
 //! Functions, lambdas and calls are marked by whether the effect set R of their type is not
 //! Immediate (may suspend). Per element of R, an effect may suspend if it has a suspend fn or is
 //! Async (spec 9.5). An operation call is decided by the operation's declaration (`suspend fn` or
-//! not). An fn-operation implementation may suspend only when its body's R is not Immediate and the
-//! body contains a call marked as suspending (E0417, spec 8.1).
+//! not). An fn-operation implementation never suspends (E0417, spec 8.1).
 //!
 //! Whether a set type parameter (such as `R(f)` of `List.map`) may suspend depends on its
 //! instantiation. A suspending function becomes a generator and is called differently, so such a
@@ -29,7 +28,6 @@ use emela_resolve::hir::{DefId, ExprId, Item};
 use emela_types::{Row, RowElem, Scheme, SetKind, Ty};
 
 use super::Lowerer;
-use crate::ir::Expr;
 
 /// Which suspending copy: a bit per index of an effect-set type parameter instantiated with a
 /// suspending set. 0 is the original function (all Immediate).
@@ -75,7 +73,7 @@ impl Lowerer<'_> {
     /// Whether copy `spec` of definition `def` may suspend (becomes a generator). Decided by the R
     /// of the declared type.
     pub(super) fn fn_suspends(&self, def: DefId, spec: Specialization) -> bool {
-        let Some(Ty::Fn(f)) = self.types.sigs.get(def).map(|s| &s.scheme.ty) else {
+        let Some(f) = self.fn_sig(def) else {
             return false;
         };
         f.uses.elems().iter().any(|e| match e {
@@ -88,7 +86,8 @@ impl Lowerer<'_> {
     /// The copy to call when definition `def` is referenced by expression `expr`. With `expr` of
     /// `None` (a root with no referencing expression), the original function (0).
     pub(super) fn specialization_of(&self, def: DefId, expr: Option<ExprId>) -> Specialization {
-        let Some(sig) = self.types.sigs.get(def) else {
+        // A const is one value, whatever sets its type is instantiated with (spec 5.6).
+        let (Some(sig), Some(_)) = (self.types.sigs.get(def), self.fn_sig(def)) else {
             return 0;
         };
         let candidates = effect_params(&sig.scheme);
@@ -121,23 +120,6 @@ impl Lowerer<'_> {
             }
         }
         spec
-    }
-}
-
-/// Whether the lowered expression `e` contains a suspending call (`Expr::Call::suspends`). Lambda
-/// bodies are not visited (calling the lambda is marked as a function value call). Calls are marked
-/// by the same rule as E0417 in the type checker (operation calls by the operation's declaration,
-/// function calls by the R of the type).
-pub(super) fn has_suspending_call(e: &Expr) -> bool {
-    match e {
-        Expr::Lambda { .. } => false,
-        Expr::Call { suspends: true, .. } => true,
-        Expr::Fiber { op, .. } if op.suspends() => true,
-        _ => {
-            let mut found = false;
-            e.for_each_child(&mut |c| found = found || has_suspending_call(c));
-            found
-        }
     }
 }
 

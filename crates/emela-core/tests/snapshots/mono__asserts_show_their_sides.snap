@@ -1,0 +1,81 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\"])"
+---
+export fn main() -> () {
+  let n%0: Name = Name.Name(value: "a")
+  let _%1: () = {
+    let left%2: Name = n%0
+    let right%3: Name = n%0
+    if Name: Eq.eq(left%2, right%3) {
+      ()
+    } else {
+      @$Assert.fail(concat("assertion failed: n == n\n  left: ", Name: Show.show(left%2) as String, "\n right: ", Name: Show.show(right%3) as String), "src/main.emel:27:3")
+    }
+  }
+  let _%7: () = {
+    let left%8: Name = n%0
+    let right%9: Name = n%0
+    if (![Bool] Name: Eq.eq(left%8, right%9)) {
+      ()
+    } else {
+      @$Assert.fail(concat("assertion failed: n != n\n  left: ", Name: Show.show(left%8) as String, "\n right: ", Name: Show.show(right%9) as String), "src/main.emel:28:3")
+    }
+  }
+  let _%10: () = {
+    let left%11: Name = n%0
+    let right%12: Name = n%0
+    if match Name: Ord.compare(left%11, right%12) {
+      Prelude.Ordering.Less -> true
+      _ -> false
+    } {
+      ()
+    } else {
+      @$Assert.fail(concat("assertion failed: n < n\n  left: ", Name: Show.show(left%11) as String, "\n right: ", Name: Show.show(right%12) as String), "src/main.emel:29:3")
+    }
+  }
+  let _%15: () = {
+    let left%16: Name = n%0
+    let right%17: Name = n%0
+    if match Name: Ord.compare(left%16, right%17) {
+      Prelude.Ordering.Greater -> false
+      _ -> true
+    } {
+      ()
+    } else {
+      @$Assert.fail(concat("assertion failed: n <= n\n  left: ", Name: Show.show(left%16) as String, "\n right: ", Name: Show.show(right%17) as String), "src/main.emel:30:3")
+    }
+  }
+  let _%18: () = {
+    let left%19: Name = n%0
+    let right%20: Name = n%0
+    if match Name: Ord.compare(left%19, right%20) {
+      Prelude.Ordering.Greater -> true
+      _ -> false
+    } {
+      ()
+    } else {
+      @$Assert.fail(concat("assertion failed: n > n\n  left: ", Name: Show.show(left%19) as String, "\n right: ", Name: Show.show(right%20) as String), "src/main.emel:31:3")
+    }
+  }
+  let _%21: () = {
+    let left%22: Name = n%0
+    let right%23: Name = n%0
+    if match Name: Ord.compare(left%22, right%23) {
+      Prelude.Ordering.Less -> false
+      _ -> true
+    } {
+      ()
+    } else {
+      @$Assert.fail(concat("assertion failed: n >= n\n  left: ", Name: Show.show(left%22) as String, "\n right: ", Name: Show.show(right%23) as String), "src/main.emel:32:3")
+    }
+  }
+  let _%24: () = assert((Point.Point(x: 1) ==[Structural] Point.Point(x: 1)), text: "Point(x: 1) == Point(x: 1)", at: "src/main.emel:33:3")
+  let _%25: () = assert(Tagged.Tagged(x: 1) ==[Structural] Tagged.Tagged(x: 1), ty: Tagged, text: "Tagged(x: 1) == Tagged(x: 1)", at: "src/main.emel:34:3")
+  let _%26: () = {
+    let left%27: Code = Code.Code(x: 1)
+    let right%28: Code = Code.Code(x: 2)
+    assert(Code: Eq.eq(left%27, right%28), shows left%27 == right%28, ty: Code, text: "Code(x: 1) == Code(x: 2)", at: "src/main.emel:35:3")
+  }
+  assert(1 <[Int] 2, ty: Int, text: "1 < 2", at: "src/main.emel:36:3")
+}

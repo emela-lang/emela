@@ -1,0 +1,60 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\"])"
+---
+export fn main() -> Int {
+  with {
+    let h%0: handler Log = Quiet()
+    let ev%1: evidence = provide(; Log = h%0)
+  } {
+    let p%2: fn() -> Int = pure
+    let fs%3: List[fn() -> Int ev] = [{
+      let f%4: fn() -> Int = pure
+      fn(ev%5: evidence) -> Int {
+        (f%4)()
+      }
+    }, {
+      let f%6: fn() -> Int = p%2
+      fn(ev%7: evidence) -> Int {
+        (f%6)()
+      }
+    }, {
+      let f%8: fn() -> Int = fn() -> Int {
+        3
+      }
+      fn(ev%9: evidence) -> Int {
+        (f%8)()
+      }
+    }, logs]: List[fn() -> Int ev]
+    let g%11: fn() -> Int ev = if List.is_empty[fn() -> Int ev](fs%3) {
+      let f%13: fn() -> Int = pure
+      fn(ev%14: evidence) -> Int {
+        (f%13)()
+      }
+    } else {
+      logs
+    }
+    let h%15: fn() -> Int ev = match 1 {
+      0 -> {
+        let f%16: fn() -> Int = pure
+        fn(ev%17: evidence) -> Int {
+          (f%16)()
+        }
+      }
+      _ -> logs
+    }
+    let k%18: fn(fn() -> Int) -> Int ev = call_pure[{}]
+    let m%21: fn(fn() -> Int) -> Int ev = {
+      let f%24: fn(fn() -> Int ev) -> Int ev = call_any[{}]
+      fn(x%25: fn() -> Int, ev%28: evidence) -> Int {
+        (f%24)({
+          let f%26: fn() -> Int = x%25
+          fn(ev%27: evidence) -> Int {
+            (f%26)()
+          }
+        }, ev%28)
+      }
+    }
+    ((((g%11)(ev%1) +[Int] (h%15)(ev%1)) +[Int] (k%18)(pure, ev%1)) +[Int] (m%21)(pure, ev%1))
+  }
+}

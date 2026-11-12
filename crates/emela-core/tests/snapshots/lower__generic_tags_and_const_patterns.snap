@@ -1,0 +1,14 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "fn_part(&m, \"fn main(\")"
+---
+export fn main() -> Int {
+  let a%0: fn() -> Int ev = count
+  let b%3: fn(()) -> () ev = fn(x%2: (), ev%1: evidence) -> () {
+    push[()](x%2, provide(ev%1; Std.State.State[List[$push.0]] = use[Std.State.State[List[_]]](ev%1)))
+  }
+  match Option.Some[String]("x") {
+    c%4 if (c%4 ==[Structural] NOTHING[String]()) -> 0
+    _ -> 1
+  }
+}

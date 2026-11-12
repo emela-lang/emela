@@ -197,4 +197,54 @@ exclude_re = [
     # parameters and none to name are the same.
     'body/errors\.rs:\d+:\d+: (replace match guard !positive with (true|false)|delete !) in BodyInfer<.*>::negative_row_vars',
     'body/errors\.rs:\d+:\d+: (delete match arm Some\(Item::Const\(item\)\)|replace == with !=) in BodyInfer<.*>::current_params',
+    # emela-core.
+    # The positions are a permutation of 0..n, so no two neighbors are equal.
+    'emela-core/src/named\.rs:\d+:\d+: replace < with <= in in_written_order',
+    # A type table starts with the built-in types, so it is never empty.
+    'emela-core/src/ir\.rs:\d+:\d+: replace TypeTable::is_empty -> bool with false',
+    # Substituting into a type without type parameters rebuilds the same type, which interning
+    # gives the same ID (a function type has `sets` only while they hold set type parameters).
+    'emela-core/src/ir\.rs:\d+:\d+: replace TypeStore::may_change -> bool with true',
+    # A set type parameter bounded by Immediate is only instantiated with sets that do not
+    # suspend, so keeping its bit among the candidates never sets it in a copy.
+    'emela-core/src/lower/suspend\.rs:\d+:\d+: (replace == with != in effect_params|replace < with (==|>|<=) in effect_params|replace &= with \|= in effect_params|delete ! in effect_params|replace << with >> in effect_params)',
+    # No function has 64 type parameters.
+    'emela-core/src/lower/suspend\.rs:\d+:\d+: replace < with <= in (spec_has|collect_effect_params)',
+    # A constant hash keeps every map correct, only slower.
+    'emela-core/src/lower\.rs:\d+:\d+: replace <impl std::hash::Hash for EffectKey>::hash with \(\)',
+    # The Prelude's Eq.eq, Ord.compare and Show.show are each the first fn of their trait, so
+    # finding a fn of the trait or one of the name gives the same one.
+    'emela-core/src/lower\.rs:\d+:\d+: replace && with \|\| in Lowerer<.*>::prelude_trait_fn',
+    # No other effect is declared in the module of Std.State.
+    'emela-core/src/lower\.rs:\d+:\d+: replace && with \|\| in Lowerer<.*>::state_run',
+    # The type checker records the type arguments and sets of every reference, also within a
+    # group being inferred, so the fallbacks for an unrecorded reference are not reached (no
+    # workspace test reaches them; checked by making them print), and a self reference with
+    # recorded arguments has the function's own parameters as them.
+    'emela-core/src/lower\.rs:\d+:\d+: (replace && with \|\||replace >= with <|replace < with (<=|==|>)|replace == with !=|replace & with (\^|\|)|replace != with ==|delete field suspends from struct SetSummary expression) in Lowerer<.*>::ty_args',
+    'emela-core/src/lower\.rs:\d+:\d+: replace == with != in Lowerer<.*>::key_ty',
+    # A capability type is only ever the type of a capability value itself: one cannot be
+    # passed (E0408), stored in data (E0409) or returned (E0410), and an effect is not a type
+    # (E0221). So no other type holds one, and asking whether it may change only does extra work.
+    'emela-core/src/mono\.rs:\d+:\d+: (replace Mono<.*>::has_handler -> bool with true|replace \+ with \* in Mono<.*>::has_handler|delete match arm .* in Mono<.*>::has_handler|replace \|\| with && in Mono<.*>::has_handler)',
+    'emela-core/src/mono\.rs:\d+:\d+: replace <impl TypeStore for Subst<.*>>::may_change -> bool with true',
+    # The output's type table starts as the old module's and the typer's extends it the same way,
+    # so importing an old type gives the same ID.
+    'emela-core/src/mono\.rs:\d+:\d+: replace < with > in Mono<.*>::import',
+    # `fail` takes only an error (or a type parameter, replaced by one), and deciding the
+    # display of an error twice gives the same.
+    'emela-core/src/mono\.rs:\d+:\d+: replace \|\| with && in Mono<.*>::error_display',
+    # Lowering passes an evidence table built with `provide` only as the last argument of a
+    # call to a generic function (`generic_ev`).
+    'emela-core/src/mono\.rs:\d+:\d+: (replace match guard is_ev && !ty_args.is_empty\(\) with true|replace && with \|\|) in Mono<.*>::call',
+    # Derive generates every impl now, so no call reaches a type without one, and checking the
+    # list of missing impls for a duplicate is never reached.
+    # (The `!` at column 20 is the one of `!self.missing_impls.contains`.)
+    'emela-core/src/mono\.rs:\d+:20: delete ! in Mono<.*>::target',
+    # A set variable is left in a body only in a const generalized over it, which has no
+    # suspending copies (its copy is always 0), so which variable it is does not matter.
+    'emela-core/src/lower/suspend\.rs:\d+:\d+: replace == with != in Lowerer<.*>::row_suspends',
+    # As in `ty_args`, a reference without recorded sets is only a self reference, so the branch
+    # for a reference within a group is not reached (checked by making it print).
+    'emela-core/src/lower/suspend\.rs:\d+:\d+: (replace match guard self\.current_def == Some\(def\) with true|replace && with \|\||replace \|= with &=|replace << with >>) in Lowerer<.*>::specialization_of',
 ]

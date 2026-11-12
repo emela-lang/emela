@@ -507,12 +507,14 @@ impl Lowerer<'_> {
     /// value.
     pub(super) fn wrapped_child(&mut self, f: TypeId) -> TypeId {
         match self.module.ty(f).clone() {
-            Type::Fn(f) => self.module.func(FnType {
-                params: vec![TypeId::EVIDENCE],
-                ev: false,
-                sets: None,
-                ..f
-            }),
+            // The child's E and R are Scope's type arguments, the `()` placeholder, so `sets` is
+            // `None` already; set here, it stays so.
+            Type::Fn(mut f) => {
+                f.params = vec![TypeId::EVIDENCE];
+                f.ev = false;
+                f.sets = None;
+                self.module.func(f)
+            }
             _ => f,
         }
     }

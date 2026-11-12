@@ -435,19 +435,19 @@ impl<'a> Mono<'a> {
             Type::Array(t) => Type::Array(self.import(t)),
             Type::Enum(id, ts) => Type::Enum(id, ts.iter().map(|&t| self.import(t)).collect()),
             Type::Cell(t) => Type::Cell(self.import(t)),
-            Type::Set(s) => Type::Set(SetSummary {
-                params: s.params.iter().map(|&t| self.import(t)).collect(),
-                ..s
-            }),
-            Type::Fn(f) => Type::Fn(FnType {
-                params: f.params.iter().map(|&t| self.import(t)).collect(),
-                ret: self.import(f.ret),
-                sets: f.sets.map(|s| FnSets {
+            Type::Set(mut s) => {
+                s.params = s.params.iter().map(|&t| self.import(t)).collect();
+                Type::Set(s)
+            }
+            Type::Fn(mut f) => {
+                f.params = f.params.iter().map(|&t| self.import(t)).collect();
+                f.ret = self.import(f.ret);
+                f.sets = f.sets.map(|s| FnSets {
                     errors: self.import(s.errors),
                     effects: self.import(s.effects),
-                }),
-                ..f
-            }),
+                });
+                Type::Fn(f)
+            }
             t => t,
         };
         let t = self.out.intern(new);
@@ -556,13 +556,7 @@ impl<'a> Mono<'a> {
                 .collect();
             name = format!("{name}[{}]", names.join(", "));
         }
-        if !self.names.insert(name.clone()) {
-            let mut i = 2;
-            while !self.names.insert(format!("{name}#{i}")) {
-                i += 1;
-            }
-            name = format!("{name}#{i}");
-        }
+        let name = self.fresh_name(name);
         // The signature is made here, so that calls and references can be adapted to it before
         // the body is defined.
         let drops_ev = old_ev && !ev;
@@ -760,7 +754,8 @@ impl<'a> Mono<'a> {
                 inits,
                 body: Box::new(self.coerce(ob, *body, slot)),
             },
-            (_, Expr::Lit(Lit::Unit)) if slot == TypeId::EVIDENCE => Expr::Provide {
+            // A function value is never `()`, so the slot is an evidence table.
+            (_, Expr::Lit(Lit::Unit)) => Expr::Provide {
                 base: None,
                 bindings: Vec::new(),
             },
@@ -788,9 +783,8 @@ impl<'a> Mono<'a> {
     /// The type of the rewritten expression `new` (of `old`).
     fn value_ty(&mut self, old: &'a Expr, new: &Expr) -> TypeId {
         match new {
-            Expr::Var(l) => self.out.locals[*l].ty,
-            Expr::Lambda { ty, .. } => *ty,
-            Expr::Lit(lit) => crate::typing::lit_type(lit),
+            // The copy of a function drops the evidence table it does not need, which its old
+            // type does not show.
             Expr::Fn { f: id, .. } => {
                 let ev = self.out.takes_ev(*id);
                 let f = &self.out.functions[*id];
@@ -1372,8 +1366,6 @@ impl<'a> Mono<'a> {
             | Type::Unit
             | Type::Never
             | Type::Any => return true,
-            // Their Eq, Ord and Show are written in `std/bytes.emel` and `std/array.emel`.
-            Type::Bytes | Type::Array(_) => return false,
             Type::List(t) => vec![t],
             Type::Tuple(ts) => ts,
             Type::Enum(id, args) => {
@@ -1388,6 +1380,8 @@ impl<'a> Mono<'a> {
                 }
                 parts
             }
+            // Including Bytes and Array, whose Eq, Ord and Show are written in `std/bytes.emel`
+            // and `std/array.emel`.
             _ => return false,
         };
         if let Some(dispatch) = self.m.dispatch.get(&f)
@@ -1462,15 +1456,10 @@ impl<'a> Mono<'a> {
         }
         let traits = &self.m.trait_impls[tr];
         let t = self.out.ty(ty);
-        match t {
-            Type::Never | Type::Any | Type::Set(_) => return true,
-            Type::Fn(_)
-            | Type::Handler(_)
-            | Type::Evidence
-            | Type::Cell(_)
-            | Type::FiberScope
-            | Type::Param(_) => return false,
-            _ => {}
+        // Function and capability types match no impl's head and have no compiler impl, so they
+        // satisfy nothing below.
+        if matches!(t, Type::Never | Type::Any | Type::Set(_)) {
+            return true;
         }
         for (pattern, bounds) in &traits.impls {
             let mut bound = vec![None; bounds.len()];

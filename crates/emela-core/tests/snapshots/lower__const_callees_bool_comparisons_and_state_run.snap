@@ -1,0 +1,53 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "fn_part(&m, \"fn main(\")"
+---
+export suspend fn main() -> Int {
+  let a%1: Int = {
+    let f%0: fn(Int) -> Int = DOUBLE()
+    (f%0)(2)
+  }
+  let b%2: Bool = ((a%1 ==[Int] 4) ==[Bool] true)
+  let c%4: Int = match [1]: List[Int] {
+    c%3 if (c%3 ==[Structural] EMPTY[Int]()) -> 0
+    _ -> 1
+  }
+  match {
+    let cell%5: cell Int = @$Cell.new[Int](0)
+    let state%6: handler Std.State.State[Int] = handler State: Std.State.State[Int] {
+      get: fn() -> Int {
+        @$Cell.get[Int](cell%5)
+      }
+      set: fn(value%7: Int) -> () {
+        @$Cell.set[Int](cell%5, value%7)
+      }
+      update: fn(f%8: fn(Int) -> Int) -> () {
+        @$Cell.set[Int](cell%5, (f%8)(@$Cell.get[Int](cell%5)))
+      }
+    }
+    let result%9: Int = (suspend fn(ev%10: evidence) -> Int {
+      let _%15: () = {
+        let body%11: fn() -> () suspends ev = fn() -> () {
+          ()
+        }
+        fiber#scope(suspend fn(s%12: fiber_scope) -> () {
+          let scope%13: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
+            fork: fn(g%14: fn(evidence) -> any suspends) -> any {
+              fiber#fork(s%12, suspend fn() -> any {
+                (g%14)(ev%10)!
+              })
+            }
+            deferred: fn() -> any {
+              fiber#deferred(s%12)
+            }
+          }
+          (body%11)(provide(ev%10; Std.Fiber.Scope[_, _] = scope%13))!
+        })!
+      }
+      (use[Std.State.State[Int]](ev%10)).Std.State.State[Int]#get()
+    })(provide(; Std.State.State[Int] = state%6))!
+    (result%9, @$Cell.get[Int](cell%5))
+  } {
+    (result%16, _) -> result%16
+  }
+}

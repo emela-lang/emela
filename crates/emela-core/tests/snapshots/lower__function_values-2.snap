@@ -1,0 +1,12 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "fn_part(&m, \"fn Quiet(\")"
+---
+fn Quiet() -> handler Log {
+  handler Quiet: Log {
+    info: fn(msg%11: String) -> () {
+      let me%12: () = ()
+      ()
+    }
+  }
+}

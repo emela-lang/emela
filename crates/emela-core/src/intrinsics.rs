@@ -228,9 +228,6 @@ pub struct BuiltinInfo {
     pub ty_params: u32,
     pub params: &'static [Sig],
     pub ret: Sig,
-    /// The Prelude only holds pure functions (spec 15.1), so every row is `true` today. `dbg`
-    /// writes to stderr but counts as pure as a debugging exception.
-    pub pure: bool,
 }
 
 impl BuiltinInfo {
@@ -267,7 +264,6 @@ const fn info(
         ty_params: 0,
         params,
         ret,
-        pure: true,
     }
 }
 
@@ -428,25 +424,19 @@ impl Builtin {
             // `Cell[A]` (it is never passed to type inference). The type argument is the content
             // type: `new(A) -> Cell[A]`, `get(Cell[A]) -> A`, `set(Cell[A], A) -> ()`.
             Builtin::CellNew => BuiltinInfo {
-                pure: false,
                 ty_params: 1,
                 ..info(Some("$Cell"), "new", &[Param(0)], Param(0))
             },
             Builtin::CellGet => BuiltinInfo {
-                pure: false,
                 ty_params: 1,
                 ..info(Some("$Cell"), "get", &[Param(0)], Param(0))
             },
             Builtin::CellSet => BuiltinInfo {
-                pure: false,
                 ty_params: 1,
                 ..info(Some("$Cell"), "set", &[Param(0), Param(0)], Unit)
             },
             Builtin::ShowString => info(Some("$Show"), "string", &[String], String),
-            Builtin::DebugPrint => BuiltinInfo {
-                pure: false,
-                ..info(Some("$Debug"), "print", &[String], Unit)
-            },
+            Builtin::DebugPrint => info(Some("$Debug"), "print", &[String], Unit),
             Builtin::AssertFail => info(Some("$Assert"), "fail", &[String, String], Never),
         }
     }
