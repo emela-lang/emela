@@ -127,6 +127,35 @@ fn main() {
     insta::assert_snapshot!(parts(&m, &["fn main(", ": Eq.", ": Ord.", ": Show."]));
 }
 
+/// A value whose type argument is a function is shown through a written Show impl that does not
+/// need the argument's Show (spec 10.6). Lowering used to reject it ("showing a function").
+#[test]
+fn written_show_of_a_type_holding_a_function() {
+    let m = mono(&lower_files(&[(
+        "main.emel",
+        "\
+type Box[A](value: A)
+
+impl Box[A]: Show {
+  fn show(self) { \"box\" }
+}
+
+fn twice(n: Int) -> Int { n * 2 }
+
+fn main() -> String {
+  b = Box(value: twice)
+  \"#{b}\"
+}
+",
+    )]));
+    insta::assert_snapshot!(parts(&m, &["fn main("]), @r"
+    export fn main() -> String {
+      let b%0: Box[fn(Int) -> Int] = Box.Box[fn(Int) -> Int](value: twice)
+      concat(Box: Show.show[fn(Int) -> Int](b%0) as String)
+    }
+    ");
+}
+
 /// Option, nested generic types and a generic function calling another with its own type
 /// parameters.
 #[test]
