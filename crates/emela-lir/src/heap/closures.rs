@@ -93,11 +93,8 @@ pub fn convert_closures(m: &mut Module) {
 /// A name not used by another function of the module.
 fn unique_name(m: &Module, base: &str) -> String {
     let taken = |n: &str| m.functions.iter().any(|(_, f)| f.name == n);
-    if !taken(base) {
-        return base.to_owned();
-    }
-    (1..)
-        .map(|i| format!("{base}${i}"))
+    std::iter::once(base.to_owned())
+        .chain((1..).map(|i| format!("{base}${i}")))
         .find(|n| !taken(n))
         .expect("a free name")
 }

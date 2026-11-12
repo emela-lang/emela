@@ -1,0 +1,159 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"run\", \"reraise\", \"awaited\", \"attempted\"])"
+---
+suspend fn run[{}](f%0: ref (fn() -> Int suspends)) -> i32 (Int) {
+  f%2: ref (fn() -> Int suspends) = suspend closure() [f%0] {
+    t%1: i32 (Int) = call_indirect f%0()!
+    return t%1
+  }
+  f%5: ref (fn() -> Int suspends ev) = suspend closure(ev%3: ref (evidence)) [f%2] {
+    t%4: i32 (Int) = call_indirect f%2()!
+    return t%4
+  }
+  f%18: ref (fn(fiber_scope) -> Int fails suspends) = suspend closure(s%6: ref (fiber_scope)) [f%5] {
+    f%12: ref (fn(fn(evidence) -> any fails suspends) -> any) = closure(g%7: ref (fn(evidence) -> any fails suspends)) [s%6] {
+      f%10: ref (fn() -> any fails suspends) = suspend closure() [g%7] {
+        t%8: ref (evidence) = ev_extend([])
+        t%9: ref (any) = call_indirect g%7(t%8)! on_fail fail
+        return t%9
+      }
+      t%11: ref (any) = fiber fork(s%6, f%10)
+      return t%11
+    }
+    f%14: ref (fn() -> any) = closure() [s%6] {
+      t%13: ref (any) = fiber deferred(s%6)
+      return t%13
+    }
+    scope%15: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%12, deferred: f%14 }
+    t%16: ref (evidence) = ev_extend([Std.Fiber.Scope[_, _]: scope%15])
+    t%17: i32 (Int) = call_indirect f%5(t%16)!
+    return t%17
+  }
+  t%19: i32 (Int) = fiber scope(f%18)!
+  return t%19
+}
+
+suspend fn run[{fails}](f%0: ref (fn() -> Int fails suspends)) -> i32 (Int) fails {
+  f%2: ref (fn() -> Int fails suspends) = suspend closure() [f%0] {
+    t%1: i32 (Int) = call_indirect f%0()! on_fail fail
+    return t%1
+  }
+  f%5: ref (fn() -> Int fails suspends ev) = suspend closure(ev%3: ref (evidence)) [f%2] {
+    t%4: i32 (Int) = call_indirect f%2()! on_fail fail
+    return t%4
+  }
+  f%18: ref (fn(fiber_scope) -> Int fails suspends) = suspend closure(s%6: ref (fiber_scope)) [f%5] {
+    f%12: ref (fn(fn(evidence) -> any fails suspends) -> any) = closure(g%7: ref (fn(evidence) -> any fails suspends)) [s%6] {
+      f%10: ref (fn() -> any fails suspends) = suspend closure() [g%7] {
+        t%8: ref (evidence) = ev_extend([])
+        t%9: ref (any) = call_indirect g%7(t%8)! on_fail fail
+        return t%9
+      }
+      t%11: ref (any) = fiber fork(s%6, f%10)
+      return t%11
+    }
+    f%14: ref (fn() -> any) = closure() [s%6] {
+      t%13: ref (any) = fiber deferred(s%6)
+      return t%13
+    }
+    scope%15: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%12, deferred: f%14 }
+    t%16: ref (evidence) = ev_extend([Std.Fiber.Scope[_, _]: scope%15])
+    t%17: i32 (Int) = call_indirect f%5(t%16)! on_fail fail
+    return t%17
+  }
+  t%19: i32 (Int) = fiber scope(f%18)! on_fail fail
+  return t%19
+}
+
+suspend fn awaited() -> i32 (Int) {
+  f%10: ref (fn() -> Int suspends ev) = suspend closure(ev%0: ref (evidence)) [] {
+    f%1: ref (fn() -> Int) = closure() [] {
+      return 1
+    }
+    f%4: ref (fn() -> Int ev) = closure(ev%2: ref (evidence)) [f%1] {
+      t%3: i32 (Int) = call_indirect f%1()
+      return t%3
+    }
+    f%5: ref (Std.Fiber.Fiber[Int]) = call Std.Fiber.fork[Int, {}, {}](f%4, ev%0)
+    t%6: ref (Std.Exit.Exit[Int, ()]) = fiber await(f%5)!
+    t%9: i32 (Int) = block 'match%0 {
+      switch tag(t%6) {
+        case Std.Exit.Exit.Success {
+          x%7: i32 (Int) = field t%6 Std.Exit.Exit.Success#0
+          break 'match%0(x%7)
+        }
+        case Std.Exit.Exit.Failure {
+          x%8: ref (Std.Cause.Cause[{fails, suspends, ev}]) = field t%6 Std.Exit.Exit.Failure#0
+          fiber cause_raise(x%8)
+          unreachable
+        }
+      }
+      unreachable
+    }
+    return t%9
+  }
+  f%23: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%11: ref (fiber_scope)) [f%10] {
+    f%17: ref (fn(fn(evidence) -> any suspends) -> any) = closure(g%12: ref (fn(evidence) -> any suspends)) [s%11] {
+      f%15: ref (fn() -> any suspends) = suspend closure() [g%12] {
+        t%13: ref (evidence) = ev_extend([])
+        t%14: ref (any) = call_indirect g%12(t%13)!
+        return t%14
+      }
+      t%16: ref (any) = fiber fork(s%11, f%15)
+      return t%16
+    }
+    f%19: ref (fn() -> any) = closure() [s%11] {
+      t%18: ref (any) = fiber deferred(s%11)
+      return t%18
+    }
+    scope%20: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%17, deferred: f%19 }
+    t%21: ref (evidence) = ev_extend([Std.Fiber.Scope[_, _]: scope%20])
+    t%22: i32 (Int) = call_indirect f%10(t%21)!
+    return t%22
+  }
+  t%24: i32 (Int) = fiber scope(f%23)!
+  return t%24
+}
+
+suspend fn attempted() -> i32 (Int) fails {
+  f%1: ref (fn() -> Int fails) = closure() [] {
+    t%0: ref (Oops) = make Oops.Oops
+    fail t%0
+  }
+  t%2: ref (Std.Exit.Exit[Int, ()]) = fiber attempt(f%1)
+  t%5: i32 (Int) = block 'match%0 {
+    switch tag(t%2) {
+      case Std.Exit.Exit.Success {
+        x%3: i32 (Int) = field t%2 Std.Exit.Exit.Success#0
+        break 'match%0(x%3)
+      }
+      case Std.Exit.Exit.Failure {
+        x%4: ref (Std.Cause.Cause[{fails, suspends, ev}]) = field t%2 Std.Exit.Exit.Failure#0
+        fiber cause_raise(x%4) on_fail fail
+        unreachable
+      }
+    }
+    unreachable
+  }
+  return t%5
+}
+
+suspend fn reraise[{}](f%0: ref (fn() -> Int suspends)) -> i32 (Int) {
+  t%1: ref (Std.Exit.Exit[Int, ()]) = fiber attempt(f%0)!
+  t%4: i32 (Int) = block 'match%0 {
+    switch tag(t%1) {
+      case Std.Exit.Exit.Success {
+        x%2: i32 (Int) = field t%1 Std.Exit.Exit.Success#0
+        break 'match%0(x%2)
+      }
+      case Std.Exit.Exit.Failure {
+        x%3: ref (Std.Cause.Cause[{fails, suspends, ev}]) = field t%1 Std.Exit.Exit.Failure#0
+        fiber cause_raise(x%3)
+        unreachable
+      }
+    }
+    unreachable
+  }
+  return t%4
+}

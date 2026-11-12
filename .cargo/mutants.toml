@@ -247,4 +247,34 @@ exclude_re = [
     # As in `ty_args`, a reference without recorded sets is only a self reference, so the branch
     # for a reference within a group is not reached (checked by making it print).
     'emela-core/src/lower/suspend\.rs:\d+:\d+: (replace match guard self\.current_def == Some\(def\) with true|replace && with \|\||replace \|= with &=|replace << with >>) in Lowerer<.*>::specialization_of',
+    # emela-lir.
+    # A release's body is a call of the handler's release function (`X$release`), so whether it
+    # may suspend is the call's mark; the other cases are never reached.
+    'emela-lir/src/from_core\.rs:\d+:\d+: (delete match arm Expr::Lambda\{\.\.\}|replace match guard op\.suspends\(\) with (true|false)|replace \|\| with &&) in may_suspend',
+    # A value of a type without representation has no operand to coerce, and equal types erase
+    # to the same.
+    'emela-lir/src/from_core\.rs:\d+:\d+: replace \|\| with && in Lower<.*>::differs',
+    # The general path of `with` binds a bind without a release as the plain one does.
+    'emela-lir/src/from_core\.rs:\d+:\d+: replace match guard binds\.iter\(\)\.all\(\|b\| b\.release\.is_none\(\)\) with false in Lower<.*>::expr',
+    # An operation without type parameters of its own has no `Any` parameter to box for.
+    'emela-lir/src/from_core\.rs:\d+:\d+: replace > with >= in Lower<.*>::call',
+    # Monomorphization replaces String.show_nested; the arm only says so.
+    'emela-lir/src/from_core\.rs:\d+:\d+: delete match arm Builtin::ShowNested in Lower<.*>::builtin',
+    # What follows a value of type Never is unreachable, so its type is never looked at.
+    'emela-lir/src/from_core\.rs:\d+:\d+: delete match arm Type::Never in Lower<.*>::fiber_result',
+    # A list pattern with a rest needs an element before it, so it is never irrefutable.
+    'emela-lir/src/from_core\.rs:\d+:\d+: replace && with \|\| in irrefutable',
+    # An enum without constructors (an external type) has no Eq.
+    'emela-lir/src/from_core/derive\.rs:\d+:\d+: delete match arm 0 in Lower<.*>::eq_body',
+    # The Core verifier rejects an escape arm `_` with a guard.
+    'emela-lir/src/from_core/pat\.rs:\d+:\d+: replace match guard arm\.guard\.is_none\(\) with true in Lower<.*>::escape',
+    # The defects are analysed after closures are lifted and before failure landings are made,
+    # so no closure or `Handle` body is met; a direct call goes to the callees instead; and the
+    # only runtime operations that may raise a defect, the fairness yields, are in suspending
+    # functions, which raise one anyway.
+    'emela-lir/src/heap/defects\.rs:\d+:\d+: delete match arm Value::(Closure\(c\)|Call\{on_fail:Some.*) in visit',
+    'emela-lir/src/heap/defects\.rs:\d+:\d+: delete match arm Value::(Call\{callee:Callee::Direct\(_\), \.\.\}|Runtime\{op, \.\.\}) in may_defect_without_flags',
+    # A loop comes from a self tail call and takes every live variable as a loop variable, so
+    # nothing outside its arguments is live at `recur`.
+    'emela-lir/src/heap/(live|rc)\.rs:\d+:\d+: delete match arm Term::Recur\(_\) in .*',
 ]

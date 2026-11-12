@@ -1,0 +1,169 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"main\"])"
+---
+export suspend fn main() -> i32 (Int) defects {
+  s%0: ref (String) = builtin String.append("a", "b")
+  t%1: i32 (Int) = builtin String.length(s%0)
+  a%2: i32 (Int) = builtin Int.shift_left(t%1, 1) on_defect {
+    drop s%0
+    unwind
+  }
+  f%3: ref (fn() -> Int suspends ev) = make_closure main$closure0[]
+  f%4: ref (fn(fiber_scope) -> Int suspends) = make_closure main$closure1[f%3]
+  b%5: i32 (Int) = fiber scope(f%4)! on_suspend #0 [s%0, a%2, f%4] on_defect {
+    drop s%0
+    drop f%4
+    unwind
+  }
+  drop f%4
+  t%6: i32 (Int) = builtin String.length(s%0)
+  drop s%0
+  t%7: i32 (Int) = t%6 +[i32] a%2
+  t%8: i32 (Int) = t%7 +[i32] b%5
+  return t%8
+}
+
+suspend fn main$closure0(env%0: ref (fn() -> Int suspends ev), ev%1: ref (evidence)) -> i32 (Int) defects env[] {
+  f%2: ref (fn() -> Int) = make_closure main$closure0$closure0[]
+  f%3: ref (fn() -> Int ev) = make_closure main$closure0$closure1[f%2]
+  dup ev%1
+  f%4: ref (Std.Fiber.Fiber[Int]) = call Std.Fiber.fork[Int, {}, {}](f%3, ev%1) on_defect {
+    drop ev%1
+    unwind
+  }
+  f%5: ref (fn() -> Int) = make_closure main$closure0$closure2[]
+  f%6: ref (fn() -> Int ev) = make_closure main$closure0$closure3[f%5]
+  g%7: ref (Std.Fiber.Fiber[Int]) = call Std.Fiber.fork[Int, {}, {}](f%6, ev%1) on_defect {
+    drop f%4
+    unwind
+  }
+  t%8: i32 (Int) = fiber join(f%4)! on_suspend #0 [f%4, g%7] on_defect {
+    drop f%4
+    drop g%7
+    unwind
+  }
+  drop f%4
+  t%9: ref (Std.Exit.Exit[Int, ()]) = fiber await(g%7)! on_suspend #1 [g%7, t%8] on_defect {
+    drop g%7
+    unwind
+  }
+  drop g%7
+  t%14: i32 (Int) = block 'match%0 {
+    switch tag(t%9) {
+      case Std.Exit.Exit.Success {
+        x%10: i32 (Int) = field t%9 Std.Exit.Exit.Success#0
+        drop t%9
+        break 'match%0(x%10)
+      }
+      case Std.Exit.Exit.Failure {
+        x%11: ref (Std.Cause.Cause[{fails, suspends, ev}]) = field t%9 Std.Exit.Exit.Failure#0
+        dup x%11
+        drop t%9
+        t%12: ref (String) = fiber cause_to_string(x%11)
+        drop x%11
+        t%13: i32 (Int) = builtin String.length(t%12)
+        drop t%12
+        break 'match%0(t%13)
+      }
+    }
+    unreachable
+  }
+  t%15: i32 (Int) = t%8 +[i32] t%14
+  return t%15
+}
+
+suspend fn main$closure1(env%0: ref (fn(fiber_scope) -> Int suspends), s%1: ref (fiber_scope)) -> i32 (Int) defects env[fn() -> Int suspends ev] {
+  f%2: ref (fn() -> Int suspends ev) = env_get env%0#0
+  dup f%2
+  dup s%1
+  f%3: ref (fn(fn(evidence) -> any suspends) -> any) = make_closure main$closure1$closure0[s%1]
+  f%4: ref (fn() -> any) = make_closure main$closure1$closure1[s%1]
+  scope%5: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%3, deferred: f%4 }
+  t%6: ref (evidence) = ev_extend([Std.Fiber.Scope[_, _]: scope%5])
+  runtime yield() on_suspend #0 [f%2, t%6] on_defect {
+    drop f%2
+    drop t%6
+    unwind
+  }
+  t%7: i32 (Int) = call_indirect f%2(t%6)! on_suspend #1 [f%2] on_defect {
+    drop f%2
+    unwind
+  }
+  drop f%2
+  return t%7
+}
+
+fn main$closure1$closure0(env%0: ref (fn(fn(evidence) -> any suspends) -> any), g%1: ref (fn(evidence) -> any suspends)) -> ref (any) defects env[fiber_scope] {
+  s%2: ref (fiber_scope) = env_get env%0#0
+  dup s%2
+  f%3: ref (fn() -> any suspends) = make_closure main$closure1$closure0$closure0[g%1]
+  t%4: ref (any) = fiber fork(s%2, f%3) on_defect {
+    drop s%2
+    drop f%3
+    unwind
+  }
+  drop s%2
+  drop f%3
+  return t%4
+}
+
+fn main$closure1$closure1(env%0: ref (fn() -> any)) -> ref (any) defects env[fiber_scope] {
+  s%1: ref (fiber_scope) = env_get env%0#0
+  dup s%1
+  t%2: ref (any) = fiber deferred(s%1) on_defect {
+    drop s%1
+    unwind
+  }
+  drop s%1
+  return t%2
+}
+
+suspend fn main$closure1$closure0$closure0(env%0: ref (fn() -> any suspends)) -> ref (any) defects env[fn(evidence) -> any suspends] {
+  g%1: ref (fn(evidence) -> any suspends) = env_get env%0#0
+  dup g%1
+  t%2: ref (evidence) = ev_extend([])
+  runtime yield() on_suspend #0 [g%1, t%2] on_defect {
+    drop g%1
+    drop t%2
+    unwind
+  }
+  t%3: ref (any) = call_indirect g%1(t%2)! on_suspend #1 [g%1] on_defect {
+    drop g%1
+    unwind
+  }
+  drop g%1
+  return t%3
+}
+
+fn main$closure0$closure0(env%0: ref (fn() -> Int)) -> i32 (Int) env[] {
+  return 1
+}
+
+fn main$closure0$closure1(env%0: ref (fn() -> Int ev), ev%1: ref (evidence)) -> i32 (Int) defects env[fn() -> Int] {
+  drop ev%1
+  f%2: ref (fn() -> Int) = env_get env%0#0
+  dup f%2
+  t%3: i32 (Int) = call_indirect f%2() on_defect {
+    drop f%2
+    unwind
+  }
+  drop f%2
+  return t%3
+}
+
+fn main$closure0$closure2(env%0: ref (fn() -> Int)) -> i32 (Int) env[] {
+  return 2
+}
+
+fn main$closure0$closure3(env%0: ref (fn() -> Int ev), ev%1: ref (evidence)) -> i32 (Int) defects env[fn() -> Int] {
+  drop ev%1
+  f%2: ref (fn() -> Int) = env_get env%0#0
+  dup f%2
+  t%3: i32 (Int) = call_indirect f%2() on_defect {
+    drop f%2
+    unwind
+  }
+  drop f%2
+  return t%3
+}

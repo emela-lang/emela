@@ -1,0 +1,73 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"main\"])"
+---
+export fn main() -> i32 (Int) {
+  t%18: i32 (Int) = block 'escape%0 {
+    err%1: ref (any) = block 'caught%1 {
+      t%0: i32 (Int) = call risky(1) on_fail 'caught%1
+      break 'escape%0(t%0)
+    }
+    block 'next%2 {
+      is%2: i32 (Bool) = is_error err%1 Bad
+      if is%2 {
+        e%3: ref (Bad) = as_error err%1 Bad
+        x%4: i32 (Int) = field e%3 Bad.Bad.code#0
+        switch x%4 {
+          case 1 {
+            break 'escape%0(1)
+          }
+          default {
+            break 'next%2
+          }
+        }
+        unreachable
+      } else {}
+      break 'next%2
+    }
+    block 'next%3 {
+      is%5: i32 (Bool) = is_error err%1 Bad
+      if is%5 {
+        e%6: ref (Bad) = as_error err%1 Bad
+        x%7: i32 (Int) = field e%6 Bad.Bad.code#0
+        t%8: i32 (Bool) = x%7 >[i32] 5
+        if t%8 {
+          break 'escape%0(2)
+        } else {}
+        break 'next%3
+      } else {}
+      break 'next%3
+    }
+    block 'next%4 {
+      is%9: i32 (Bool) = is_error err%1 Bad
+      if is%9 {
+        e%10: ref (Bad) = as_error err%1 Bad
+        x%11: ref (Wrapper) = field e%10 Bad.Bad.w#3
+        x%12: i32 (Int) = field x%11 Wrapper.Wrapper.n#0
+        switch x%12 {
+          case 2 {
+            break 'escape%0(6)
+          }
+          default {
+            break 'next%4
+          }
+        }
+        unreachable
+      } else {}
+      break 'next%4
+    }
+    block 'next%5 {
+      is%13: i32 (Bool) = is_error err%1 Bad
+      if is%13 {
+        e%14: ref (Bad) = as_error err%1 Bad
+        x%15: i32 (Int) = field e%14 Bad.Bad.code#0
+        x%16: ref ((Int, ())) = field e%14 Bad.Bad.pair#1
+        x%17: ref (Wrapper) = field e%14 Bad.Bad.w#3
+        break 'escape%0(3)
+      } else {}
+      break 'next%5
+    }
+    break 'escape%0(5)
+  }
+  return t%18
+}

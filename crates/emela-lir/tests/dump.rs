@@ -729,3 +729,12 @@ fn representations() {
         );
     }
 }
+
+/// Type parameters are named `A`, `B`, ... in types the dump writes.
+#[test]
+fn type_parameter_names() {
+    let mut core = emela_core::Module::new();
+    let b = core.type_param(1);
+    let list = core.list(b);
+    assert_eq!(emela_lir::core_ty(&core, list), "List[B]");
+}

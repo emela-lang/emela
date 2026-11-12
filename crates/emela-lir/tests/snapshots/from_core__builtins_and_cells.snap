@@ -1,0 +1,100 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"main\", \"Tagged: debug\"])"
+---
+export fn main() -> i32 (Int) {
+  n%0: ref (Name) = make Name.Name("a")
+  t%1: ref (String) = call Name: Show.show(n%0)
+  runtime debug_print(t%1)
+  value%2: ref (Tagged) = make Tagged.Tagged(n%0, "l")
+  t%3: ref (String) = call Tagged: debug(value%2)
+  runtime debug_print(t%3)
+  s%4: ref (String) = builtin Int.to_string(5)
+  t%5: ref (String) = call Name: Show.show(n%0)
+  t%6: i32 (Bool) = call Name: Eq.eq(n%0, n%0)
+  if t%6 {} else {
+    t%7: ref (String) = call Name: Show.show(n%0)
+    t%8: ref (String) = call Name: Show.show(n%0)
+    s%9: ref (String) = builtin String.append("assertion failed: n == n\n  left: ", t%7)
+    s%10: ref (String) = builtin String.append(s%9, "\n right: ")
+    s%11: ref (String) = builtin String.append(s%10, t%8)
+    defect(s%11) at "src/main.emel:21:3"
+  }
+  cell%12: ref (cell Int) = builtin $Cell.new(1)
+  f%14: ref (fn() -> Int) = closure() [cell%12] {
+    t%13: i32 (Int) = builtin $Cell.get(cell%12)
+    return t%13
+  }
+  f%16: ref (fn(Int) -> ()) = closure(value%15: i32 (Int)) [cell%12] {
+    builtin $Cell.set(cell%12, value%15)
+    return
+  }
+  f%20: ref (fn(fn(Int) -> Int) -> ()) = closure(f%17: ref (fn(Int) -> Int)) [cell%12] {
+    t%18: i32 (Int) = builtin $Cell.get(cell%12)
+    t%19: i32 (Int) = call_indirect f%17(t%18)
+    builtin $Cell.set(cell%12, t%19)
+    return
+  }
+  state%21: ref (handler Std.State.State[Int]) = handler State: Std.State.State[Int] { get: f%14, set: f%16, update: f%20 }
+  f%25: ref (fn() -> Int ev) = closure(ev%22: ref (evidence)) [] {
+    t%23: ref (handler Std.State.State[Int]) = ev_lookup(ev%22, Std.State.State[Int])
+    t%24: i32 (Int) = call_op t%23.Std.State.State[Int]#get()
+    return t%24
+  }
+  t%26: ref (evidence) = ev_extend([Std.State.State[Int]: state%21])
+  result%27: i32 (Int) = call_indirect f%25(t%26)
+  t%28: i32 (Int) = builtin $Cell.get(cell%12)
+  t%29: ref ((Int, Int)) = tuple(result%27, t%28)
+  t%44: i32 (Int) = block 'match%0 {
+    x%30: i32 (Int) = tuple_get t%29#0
+    cell%31: ref (cell ()) = builtin $Cell.new(())
+    f%32: ref (fn() -> ()) = closure() [cell%31] {
+      builtin $Cell.get(cell%31)
+      return
+    }
+    f%33: ref (fn(()) -> ()) = closure() [cell%31] {
+      builtin $Cell.set(cell%31, ())
+      return
+    }
+    f%35: ref (fn(fn(()) -> ()) -> ()) = closure(f%34: ref (fn(()) -> ())) [cell%31] {
+      builtin $Cell.get(cell%31)
+      call_indirect f%34()
+      builtin $Cell.set(cell%31, ())
+      return
+    }
+    state%36: ref (handler Std.State.State[()]) = handler State: Std.State.State[()] { get: f%32, set: f%33, update: f%35 }
+    f%39: ref (fn() -> () ev) = closure(ev%37: ref (evidence)) [] {
+      t%38: ref (handler Std.State.State[()]) = ev_lookup(ev%37, Std.State.State[()])
+      call_op t%38.Std.State.State[()]#get()
+      return
+    }
+    t%40: ref (evidence) = ev_extend([Std.State.State[()]: state%36])
+    call_indirect f%39(t%40)
+    builtin $Cell.get(cell%31)
+    t%41: ref (((), ())) = tuple((), ())
+    t%43: i32 (Int) = block 'match%1 {
+      t%42: i32 (Bool) = x%30 >[i32] 5
+      if t%42 {
+        defect("not yet implemented")
+      } else {}
+      break 'match%1(x%30)
+    }
+    break 'match%0(t%43)
+  }
+  return t%44
+}
+
+fn Tagged: debug(x%0: ref (Tagged)) -> ref (String) {
+  t%9: ref (String) = block 'match%0 {
+    x%1: ref (Name) = field x%0 Tagged.Tagged.name#0
+    x%2: ref (String) = field x%0 Tagged.Tagged.label#1
+    t%3: ref (String) = call Name: Show.show(x%1)
+    s%4: ref (String) = runtime show_string(x%2)
+    s%5: ref (String) = builtin String.append("Tagged(name: ", t%3)
+    s%6: ref (String) = builtin String.append(s%5, ", label: ")
+    s%7: ref (String) = builtin String.append(s%6, s%4)
+    s%8: ref (String) = builtin String.append(s%7, ")")
+    break 'match%0(s%8)
+  }
+  return t%9
+}
