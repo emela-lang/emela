@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
+use crate::doctor::Version;
 
 thread_local! {
     /// The working directory for the child runner in this thread (see [`with_program_cwd`]).
@@ -279,21 +280,29 @@ pub struct RunOutput {
     pub stderr: Vec<u8>,
 }
 
-/// `EMELA_NODE` if set, otherwise `node`.
-pub fn node_program() -> PathBuf {
-    std::env::var_os(NODE_ENV)
+pub(crate) fn node_program_in(env: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
+    env(NODE_ENV)
         .filter(|v| !v.is_empty())
         .map_or_else(|| PathBuf::from("node"), PathBuf::from)
+}
+
+/// `EMELA_NODE` if set, otherwise `node`.
+pub fn node_program() -> PathBuf {
+    node_program_in(&|key| std::env::var_os(key))
 }
 
 /// An environment variable overriding the `wasmtime` executable; `wasmtime` on PATH otherwise.
 pub const WASMTIME_ENV: &str = "EMELA_WASMTIME";
 
-/// `EMELA_WASMTIME` if set, otherwise `wasmtime`.
-pub fn wasmtime_program() -> PathBuf {
-    std::env::var_os(WASMTIME_ENV)
+pub(crate) fn wasmtime_program_in(env: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
+    env(WASMTIME_ENV)
         .filter(|v| !v.is_empty())
         .map_or_else(|| PathBuf::from("wasmtime"), PathBuf::from)
+}
+
+/// `EMELA_WASMTIME` if set, otherwise `wasmtime`.
+pub fn wasmtime_program() -> PathBuf {
+    wasmtime_program_in(&|key| std::env::var_os(key))
 }
 
 /// The `wasmtime run` command for a WASI 0.3 component. Callers add stdin/args/output as needed.
@@ -331,7 +340,7 @@ pub(crate) const WASMTIME_MIN_MAJOR: u32 = 49;
 pub(crate) const NODE_MIN_MAJOR: u32 = 22;
 
 /// A host program that a build target runs on, with the oldest major version it supports.
-struct Host {
+pub(crate) struct Host {
     /// The name in messages (`node`, `wasmtime`).
     name: &'static str,
     /// The name in the note's "install ..." (`Node.js`, `Wasmtime`).
@@ -342,24 +351,27 @@ struct Host {
     env: &'static str,
     min_major: u32,
     code: &'static str,
+    version: fn(&str) -> Option<Version>,
 }
 
-const NODE: Host = Host {
+pub(crate) const NODE: Host = Host {
     name: "node",
     product: "Node.js",
     target: "js",
     env: NODE_ENV,
     min_major: NODE_MIN_MAJOR,
     code: code::NODE_UNAVAILABLE,
+    version: crate::doctor::node_version,
 };
 
-const WASMTIME: Host = Host {
+pub(crate) const WASMTIME: Host = Host {
     name: "wasmtime",
     product: "Wasmtime",
     target: "wasm",
     env: WASMTIME_ENV,
     min_major: WASMTIME_MIN_MAJOR,
     code: code::WASMTIME_UNAVAILABLE,
+    version: crate::doctor::wasmtime_version,
 };
 
 impl Host {
@@ -371,7 +383,7 @@ impl Host {
             return Ok(());
         };
         let version = String::from_utf8_lossy(&out.stdout);
-        match major_version(&version) {
+        match (self.version)(&version).and_then(|v| v.major) {
             Some(major) if major < self.min_major => Err(Diagnostic::error(format!(
                 "`{}` is {}, but target `{}` needs {} {} or later",
                 program.display(),
@@ -405,6 +417,20 @@ impl Host {
                 .with_code(self.code),
         }
     }
+
+    pub(crate) fn missing_help(&self) -> String {
+        format!(
+            "install {} {} or later and add it to PATH, or set {} to the {} executable",
+            self.product, self.min_major, self.env, self.name
+        )
+    }
+
+    pub(crate) fn too_old_help(&self) -> String {
+        format!(
+            "install {} {} or later, or set {} to a newer {} executable",
+            self.product, self.min_major, self.env, self.name
+        )
+    }
 }
 
 /// E0909 when `wasmtime --version` reports a version older than [`WASMTIME_MIN_MAJOR`]
@@ -416,17 +442,6 @@ pub(crate) fn check_wasmtime_version(wasmtime: &Path) -> Result<(), Diagnostic> 
 /// E0904 when `node --version` reports a version older than [`NODE_MIN_MAJOR`] (`[cmd.build]`).
 pub(crate) fn check_node_version(node: &Path) -> Result<(), Diagnostic> {
     NODE.check_version(node)
-}
-
-/// The major version in the output of `--version`: the first word that is a version number,
-/// with an optional leading `v` (`v22.14.0` from node, `wasmtime 49.0.3 (...)`, or
-/// `wasmtime-cli 20.0.0` from older wasmtime releases).
-fn major_version(version: &str) -> Option<u32> {
-    version.split_whitespace().find_map(|word| {
-        let word = word.strip_prefix('v').unwrap_or(word);
-        let (major, _) = word.split_once('.')?;
-        major.parse().ok()
-    })
 }
 
 /// The work directory to preopen. It is made absolute before the child changes directory, so a
@@ -647,20 +662,6 @@ mod tests {
         assert_eq!(shell_word("p3=y"), "p3=y");
         assert_eq!(shell_word(""), "''");
         assert_eq!(shell_word("$HOME"), "'$HOME'");
-    }
-
-    #[test]
-    fn major_versions() {
-        assert_eq!(
-            major_version("wasmtime 49.0.3 (a1b2c3d 2026-01-20)\n"),
-            Some(49)
-        );
-        assert_eq!(major_version("wasmtime-cli 20.0.0\n"), Some(20));
-        assert_eq!(major_version("v22.14.0\n"), Some(22));
-        assert_eq!(major_version("v18.20.8"), Some(18));
-        assert_eq!(major_version("wasmtime\n"), None);
-        assert_eq!(major_version("unknown"), None);
-        assert_eq!(major_version(""), None);
     }
 
     #[test]

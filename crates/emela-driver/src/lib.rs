@@ -11,6 +11,8 @@ mod dependencies;
 pub use dependencies::check_dependency_targets;
 mod diagnostic;
 mod doc;
+mod doctor;
+pub use doctor::{DoctorFormat, doctor};
 mod documentation;
 mod fmt;
 mod frontend;
@@ -75,7 +77,7 @@ pub use run::{
 pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
 pub use structure::{FoldKind, FoldRange, folding_ranges, selection_ranges};
-pub use target::{Target, project_target};
+pub use target::{Target, enclosing_project_target, project_target};
 pub use testing::{
     AGENT_ENV_VARS, C_TEST_OUT_DIR, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, Reporter,
     TEST_ANNOTATION, TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestDef, TestFn, TestModule,
