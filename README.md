@@ -166,17 +166,18 @@ every construct of the language. The C target does not have `String.length`,
 `String.chars`, callbacks across `@external` or HTTP services yet
 ([`[target.c.unsupported]`](spec/targets/c.md)).
 
-| Command       | Does                                                                                   |
-| ------------- | -------------------------------------------------------------------------------------- |
-| `emela new`   | Creates a new Pome in a new directory; `--lib` creates a library                       |
-| `emela check` | Reports diagnostics without compiling                                                  |
-| `emela run`   | Compiles and runs: JavaScript on Node.js, a native executable, or WASM with `wasmtime` |
-| `emela build` | Compiles under `target/emela/js` (JS), a native executable (C), or `main.wasm` (WASM)  |
-| `emela test`  | Runs the functions marked `@test`; `--reporter pretty\|plain\|agent` picks the output  |
-| `emela fmt`   | Formats the sources in place; `--check` only lists them                                |
-| `emela doc`   | Writes the docs of the `pub` declarations as HTML (or `--format md`); `--std` for std  |
-| `emela pome`  | Manages dependencies: `add`, `remove`, `install`, `update`, `list`, `verify`           |
-| `emela lsp`   | Starts the language server over stdio                                                  |
+| Command        | Does                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------- |
+| `emela new`    | Creates a new Pome in a new directory; `--lib` creates a library                       |
+| `emela check`  | Reports diagnostics without compiling                                                  |
+| `emela run`    | Compiles and runs: JavaScript on Node.js, a native executable, or WASM with `wasmtime` |
+| `emela build`  | Compiles under `target/emela/js` (JS), a native executable (C), or `main.wasm` (WASM)  |
+| `emela test`   | Runs the functions marked `@test`; `--reporter pretty\|plain\|agent` picks the output  |
+| `emela fmt`    | Formats the sources in place; `--check` only lists them                                |
+| `emela doc`    | Writes the docs of the `pub` declarations as HTML (or `--format md`); `--std` for std  |
+| `emela pome`   | Manages dependencies: `add`, `remove`, `install`, `update`, `list`, `verify`           |
+| `emela lsp`    | Starts the language server over stdio                                                  |
+| `emela doctor` | Reports whether the programs each target uses are installed; `--format json`           |
 
 The language server reports diagnostics with quick fixes and offers hover
 (types, `fails`, `use` and `##` doc comments), inlay hints, completion,

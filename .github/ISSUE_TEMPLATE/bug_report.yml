@@ -111,12 +111,22 @@ body:
     validations:
       required: true
 
-  - type: input
+  - type: textarea
     id: environment
     attributes:
       label: Environment
-      description: OS and version, plus Rust toolchain (`rustc --version`) if built from source.
-      placeholder: "macOS 14.6 (arm64), rustc 1.85.0"
+      description: >-
+        OS and version, plus Rust toolchain (`rustc --version`) if built from source, and the
+        output of `emela doctor`. The output shows no private module paths and hides credentials
+        in URLs, so it can be pasted as is.
+      placeholder: |
+        macOS 14.6 (arm64), rustc 1.85.0
+
+        emela 0.28.0+4e84642
+
+        js
+          ok       node 24.11.0 (/opt/homebrew/bin/node)
+        ...
     validations:
       required: true
 
