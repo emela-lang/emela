@@ -2,7 +2,7 @@
 title: The minimum version of Bun is 1.4.3
 authors: [Alliana]
 status: draft
-pr:
+pr: 560
 issue:
 decided:
 touches: [target, target.js.host, cmd.build]
