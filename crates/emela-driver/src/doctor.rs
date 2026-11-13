@@ -12,6 +12,7 @@ pub(crate) struct Version {
     pub(crate) text: String,
     pub(crate) major: Option<u32>,
     pub(crate) minor: Option<u32>,
+    pub(crate) patch: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,16 +102,19 @@ pub fn doctor(
     (output, exit_code(&report))
 }
 
-/// `<major>[.<minor>[...]]`; the minor is `None` when it is absent or not a number.
+/// `<major>[.<minor>[.<patch>[...]]]`; the minor and the patch are `None` when they are absent
+/// or not a number.
 pub(crate) fn number(word: &str) -> Option<Version> {
     let mut parts = word.split('.');
     let major = parts.next().and_then(|s| s.parse::<u32>().ok())?;
     let minor = parts.next().and_then(|s| s.parse::<u32>().ok());
+    let patch = parts.next().and_then(|s| s.parse::<u32>().ok());
 
     Some(Version {
         text: word.to_string(),
         major: Some(major),
         minor,
+        patch,
     })
 }
 
@@ -134,6 +138,7 @@ fn cc_version(out: &str) -> Option<Version> {
         text: word.to_string(),
         major: None,
         minor: None,
+        patch: None,
     })
 }
 
@@ -902,7 +907,7 @@ mod process_tests {
         assert_eq!(
             check.help.as_deref(),
             Some(
-                "install Node.js 22 or later or Bun 1.3 or later, or set EMELA_JS_HOST to a newer JS host"
+                "install Node.js 22 or later or Bun 1.4.3 or later, or set EMELA_JS_HOST to a newer JS host"
             )
         );
     }
@@ -918,13 +923,13 @@ mod process_tests {
         assert_eq!(ok.executable, bun);
         assert_eq!(ok.version.as_deref(), Some("1.4.4"));
 
-        fake(dir.path(), "bun", "#!/bin/sh\necho bun 1.2.23\n", 0o755);
+        fake(dir.path(), "bun", "#!/bin/sh\necho bun 1.4.2\n", 0o755);
         let check = check(&js_host_spec(&env), &env);
         assert_eq!(check.status, Status::TooOld);
         assert_eq!(
             check.message,
             Some(format!(
-                "target `js` needs Bun 1.3 or later, but `{}` is Bun 1.2.23",
+                "target `js` needs Bun 1.4.3 or later, but `{}` is Bun 1.4.2",
                 bun.display()
             ))
         );
@@ -957,13 +962,13 @@ mod process_tests {
         assert_eq!(
             check.message.as_deref(),
             Some(
-                "target `js` needs Node 22 or later or Bun 1.3 or later, but `bun` is not on PATH"
+                "target `js` needs Node 22 or later or Bun 1.4.3 or later, but `bun` is not on PATH"
             )
         );
         assert_eq!(
             check.help.as_deref(),
             Some(
-                "install Node.js 22 or later or Bun 1.3 or later and add it to PATH, or set EMELA_JS_HOST to the JS host"
+                "install Node.js 22 or later or Bun 1.4.3 or later and add it to PATH, or set EMELA_JS_HOST to the JS host"
             )
         );
     }
@@ -1026,7 +1031,7 @@ mod process_tests {
         assert_eq!(check.status, Status::Failed);
         assert_eq!(check.executable, node);
         let prefix = format!(
-            "target `js` needs Node 22 or later or Bun 1.3 or later, but `{}` cannot be started: ",
+            "target `js` needs Node 22 or later or Bun 1.4.3 or later, but `{}` cannot be started: ",
             node.display()
         );
         let message = check.message.unwrap();
@@ -1362,8 +1367,8 @@ mod process_tests {
         emela 0.28.0+4e84642
 
         js
-          missing  target `js` needs Node 22 or later or Bun 1.3 or later, but `node` is not on PATH
-                   install Node.js 22 or later or Bun 1.3 or later and add it to PATH, or set EMELA_JS_HOST to the JS host
+          missing  target `js` needs Node 22 or later or Bun 1.4.3 or later, but `node` is not on PATH
+                   install Node.js 22 or later or Bun 1.4.3 or later and add it to PATH, or set EMELA_JS_HOST to the JS host
         c
           missing  target `c` needs a C compiler, but `cc` is not on PATH
                    install a C11 compiler and add it to PATH as `cc`, or set EMELA_CC to the compiler
@@ -1517,8 +1522,8 @@ mod process_tests {
                         "required": false,
                         "programs": [missing(
                             "node",
-                            "target `js` needs Node 22 or later or Bun 1.3 or later, but `node` is not on PATH",
-                            "install Node.js 22 or later or Bun 1.3 or later and add it to PATH, or set EMELA_JS_HOST to the JS host",
+                            "target `js` needs Node 22 or later or Bun 1.4.3 or later, but `node` is not on PATH",
+                            "install Node.js 22 or later or Bun 1.4.3 or later and add it to PATH, or set EMELA_JS_HOST to the JS host",
                         )],
                     },
                     {

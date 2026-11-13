@@ -598,8 +598,8 @@ Set.from_list(["a", "b"])
 - No JSON, no `Array`, and no limit on how many fibers run at once
   (`Semaphore`) or `Queue` yet.
 - Only `Eq`, `Ord` and `Show` can be derived.
-- The JavaScript target assumes a server host: Node.js 22 or later, or Bun 1.3
-  or later. `EMELA_JS_HOST` chooses the one that `emela run` and `emela test`
+- The JavaScript target assumes a server host: Node.js 22 or later, or Bun
+  1.4.3 or later. `EMELA_JS_HOST` chooses the one that `emela run` and `emela test`
   start (`node` by default). Browsers are not a target.
 - Some checks that scopes, fiber handles and `Deferred` values do not escape
   run at run time (a defect such as `fiber scope was used after it ended`).

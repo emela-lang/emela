@@ -1,7 +1,7 @@
 ---
 title: The minimum version of Bun is 1.4.3
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 560
 issue:
 decided: 2026-11-14
@@ -53,7 +53,7 @@ In the item on the version check, replace the note `install Node.js 22 or later 
 
 ## Diagnostics
 
-- [ ] E0904: the note and the minimum of Bun in the message (`needs Bun 1.4.3 or later`)
+- [x] E0904: the note and the minimum of Bun in the message (`needs Bun 1.4.3 or later`)
 
 ## Compatibility
 

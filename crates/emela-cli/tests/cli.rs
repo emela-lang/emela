@@ -1248,8 +1248,8 @@ fn run_and_test_stop_on_a_js_host_that_is_too_old() {
             "is Node 20.11.1, but target `js` needs Node 22 or later",
         ),
         (
-            "bun 1.2.23",
-            "is Bun 1.2.23, but target `js` needs Bun 1.3 or later",
+            "bun 1.4.2",
+            "is Bun 1.4.2, but target `js` needs Bun 1.4.3 or later",
         ),
     ] {
         let host = fake_js_host(&project, version);
@@ -1263,7 +1263,7 @@ fn run_and_test_stop_on_a_js_host_that_is_too_old() {
             assert!(run.stderr.contains(&expected), "{command}: {run:?}");
             assert!(
                 run.stderr.contains(
-                    "install Node.js 22 or later or Bun 1.3 or later, or set EMELA_JS_HOST to a newer JS host"
+                    "install Node.js 22 or later or Bun 1.4.3 or later, or set EMELA_JS_HOST to a newer JS host"
                 ),
                 "{command}: {run:?}"
             );
@@ -1284,8 +1284,8 @@ fn run_starts_a_js_host_that_is_new_enough_or_whose_version_is_unknown() {
     for version in [
         "node 22.0.0",
         "node 24.11.1",
-        "bun 1.3.0",
         "bun 1.4.3",
+        "bun 1.4.4",
         "v20.11.1",
         "unknown",
     ] {
