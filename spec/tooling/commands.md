@@ -7,8 +7,9 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 - Takes one path, which defaults to `.`. When a directory is given, the target is the whole project of the ancestor `Pome.toml` (4.1). The directory given can be the project directory or a directory inside the source root or the test root. A directory outside them (`scripts/`) is a compile error (E0208, the same as fmt). Even when a directory inside the source root or the test root is given, the whole project is checked, because type checking spans modules. `emela test` does the same.
 - The command writes `main.mjs`, translated from the entry, and the runtime to the output directory. The fns with `@export(js, ...)` and the exports made by `@entry` are exported from `main.mjs` (`[target.js.module]`). `emela run` also writes to the default output directory (4.1) before running, and overwrites the previous output without deleting it. `--out-dir` changes the output directory.
 - Arguments to the program are written after `--`. Diagnostics are reported before the program is launched.
-- The node used is the environment variable `EMELA_NODE` if set, and otherwise `node` on PATH.
-- For `js`, before starting the program, the command reads the version from `<executable> --version`. If its major version is older than the Node version that `[target]` requires, it is E0904 and the program is not started: the message is ``` `<executable>` is <version>, but target `js` needs node <minimum> or later ```, with the note `install Node.js <minimum> or later, or set EMELA_NODE to a newer node executable`. `<executable>` is the value of `EMELA_NODE` or `node`, `<version>` is the output of `--version` without the surrounding whitespace, and `<minimum>` is the major version that `[target]` requires. If the version cannot be read, including when node cannot be started, the program is started. The same check is made by `emela test` (`[cmd.test]`).
+- The JS host is the command in the environment variable `EMELA_JS_HOST` if it is set and not empty, otherwise the command in `EMELA_NODE` if it is set and not empty, otherwise `node` on PATH. It MUST accept the options `--input-type=module -e` as node does; Node and Bun do.
+- `EMELA_NODE` is deprecated. When it is read, W0902 is reported, also when `EMELA_JS_HOST` is set and takes precedence. It is read until the minor version after the one that deprecates it.
+- For `js`, before starting the program, the command reads the version of the JS host by starting it with `--input-type=module -e` and a module that writes `bun <process.versions.bun>` when `process.versions.bun` is defined, and `node <process.versions.node>` otherwise. A host that wrote `bun` is Bun, and is compared with the minimum version of Bun that `[target]` requires; a host that wrote `node` is compared with the minimum version of Node. When the version is older than the minimum, it is E0904 and the program is not started: the message is ``` `<executable>` is <Host> <version>, but target `js` needs <Host> <minimum> or later ```, with the note `install Node.js 22 or later or Bun 1.3 or later, or set EMELA_JS_HOST to a newer JS host`. `<executable>` is the command of the JS host, `<Host>` is `Node` or `Bun`, `<version>` is the version written by the host, and `<minimum>` is the minimum that `[target]` gives for that host. If the version cannot be read, including when the host cannot be started, the program is started. The same check is made by `emela test` (`[cmd.test]`).
 - For `c`, the command writes `main.c`, translated from the entry, and the C sources of the runtime to the output directory, and places the executable `main` compiled with cc. The cc used is the environment variable `EMELA_CC` if set, and otherwise `cc` on PATH (E0907, E0908).
 - The exit code is as follows.
   - 1 if the diagnostics include an error. 0 if there are only warnings.
@@ -36,15 +37,15 @@ JS output:
 
 Starting the program:
 
-- Before starting the program, `run` writes one line ``running `<command>` `` to standard error, for every build target. The line comes after the diagnostics and before any output of the program. It is not written when the program is not started (an error in the diagnostics, node too old (E0904), or wasmtime too old (E0909)). When the command is written but cannot be started (node or the executable not found), the diagnostic about it follows the line.
-- `<command>` is the program that is started followed by its arguments, separated by single spaces: node with its options for `js`, the executable `main` for `c`, and wasmtime with its options for `wasm` (`[target.wasm.output]`), each followed by the arguments after `--`.
+- Before starting the program, `run` writes one line ``running `<command>` `` to standard error, for every build target. The line comes after the diagnostics and before any output of the program. It is not written when the program is not started (an error in the diagnostics, the JS host too old (E0904), or wasmtime too old (E0909)). When the command is written but cannot be started (the JS host or the executable not found), the diagnostic about it follows the line.
+- `<command>` is the program that is started followed by its arguments, separated by single spaces: the JS host with its options for `js`, the executable `main` for `c`, and wasmtime with its options for `wasm` (`[target.wasm.output]`), each followed by the arguments after `--`.
 - Each word is written as is when it is not empty and consists only of ASCII letters, digits and the characters `-_./=:@%+,`. Otherwise it is enclosed in single quotes, and each `'` inside it is written as `'\''`. Pasting the line into a POSIX shell starts the same command.
-- For `js`, the module that node runs with `-e` to load the entry is written as `<launcher>` (``running `node --input-type=module -e <launcher> -- target/emela/js/main.mjs` ``). This word alone does not follow the quoting rule above.
+- For `js`, the module that the JS host runs with `-e` to load the entry is written as `<launcher>` (``running `node --input-type=module -e <launcher> -- target/emela/js/main.mjs` ``). This word alone does not follow the quoting rule above.
 
 Running the program (JS):
 
-- For an HTTP service, `run` runs `node serve.mjs` (`[target.js.module]`) with the arguments after `--`, instead of what follows.
-- `run` loads the entry module and calls the exported `main` with no arguments. The return value of `main` is discarded. Arguments to the program are passed after `--` as node arguments.
+- For an HTTP service, `run` runs `serve.mjs` (`[target.js.module]`) with the JS host with the arguments after `--`, instead of what follows.
+- `run` loads the entry module and calls the exported `main` with no arguments. The return value of `main` is discarded. Arguments to the program are passed after `--` as arguments of the JS host.
 - A `main` that can suspend is awaited on the event loop until it finishes.
 - The standard error output and exit code when execution stops are as follows. The exit code is determined after writing to standard error finishes (writes to a pipe are not cut off midway).
 
@@ -53,7 +54,7 @@ Running the program (JS):
 | An error that reached `main` (14.3) | `error: <display of the error value>` | 1 |
 | defect (7.5) | `defect: <message>` | 101 |
 | Ended while suspended without being resumed (14.5) | `interrupted` | 130 |
-| An exception that is not a defect | node's stack display | 1 |
+| An exception that is not a defect | the JS host's stack display | 1 |
 
 - The display of the error value is the same as inspect (10.6) if the error type satisfies Show (for `error DbError(message: String) derive Show`, `error: DbError(message: "down")`), and only the name otherwise (`error: Retry`).
 - "Ended while suspended without being resumed" means that nothing remains to resume the continuation of `main` and the event loop has nothing left to wait for. Also, when, inside a `main` that does not suspend, a continuation is discarded on the spot without being resumed, the program ends on the spot with `interrupted` and 130.
@@ -73,9 +74,10 @@ Diagnostics and help:
 
   | Target | Program | Rule | Passes when |
   |---|---|---|---|
-  | `js` | node | `[cmd.build]` | it starts and `--version` reports a version that `[target]` supports |
+  | `js` | the JS host | `[cmd.build]` | it starts and the version read as in `[cmd.build]` is one that `[target]` supports for that host |
   | `c` | the C compiler | `[target.c.cc]` | it starts; the first line of its `--version` is reported as its version |
   | `wasm` | wasmtime | `[target.wasm.run]` | it starts and its major version is 49 or later |
+- For `js`, the report names the host and its version as the host wrote them (`node 24.11.0`, `bun 1.4.4`).
 - A program passes or fails with one of these reasons: it was not found, it could not be started, its version is older than required, or its version could not be read. A program whose version could not be read passes, as in `[target.wasm.run]`.
 - The Pome section reports the values in effect of `EMELA_POMEPROXY` and `EMELA_POMESUMDB`, the number of prefixes in `EMELA_POMEPRIVATE` (`[module.pome]`), and whether git starts. The prefixes themselves are not written, so that the output can be pasted into a public report. git is required when `EMELA_POMEPRIVATE` is set or when `direct` is the only entry of `EMELA_POMEPROXY`. The userinfo part of a URL (`user:token@`) is written as `***@`. Nothing is fetched and no proxy is contacted.
 - Output without `--format`, written to standard output:

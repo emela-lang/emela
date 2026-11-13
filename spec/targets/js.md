@@ -6,7 +6,7 @@ This section defines what the host and users can observe about the JS target. Th
 
 - The supported hosts are as in the introduction of `[target]`.
 - The JS output uses the host's event loop. It learns that the event loop has become empty from the host's `beforeExit` notification. It assumes that if more host work is added after `beforeExit`, the notification comes again the next time the loop becomes empty.
-- Informative: suspension and resumption, yielding, AbortSignal, and the order of virtual time (`[target.js.event-loop]`, `[target.js.abort]`) have been checked to give the same results on Node 22.14, Deno 2.7.13 and Bun 1.3.8 (2026-10-13).
+- Informative: suspension and resumption, yielding, AbortSignal, and the order of virtual time (`[target.js.event-loop]`, `[target.js.abort]`) have been checked to give the same results on Node 22.14 and Bun 1.3.8 (2026-10-13).
 
 ## 16.6.2 Emitted modules `[target.js.module]`
 

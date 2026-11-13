@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-14 (JS hosts are Node and Bun, chosen with EMELA_JS_HOST)
+
+- `[target]`, `[target.js.host]`, `[cmd.build]`, `[cmd.doctor]`, `[cmd.test.out-dir]`, `[diag.list]`: `emela run` and `emela test` run the JS output with the host named by the environment variable `EMELA_JS_HOST`. Its value is a command, started in the same way as `EMELA_NODE` today. `EMELA_NODE` is deprecated and is read, with a warning, for one more minor version. The hosts that the JS target assumes become Node and Bun; Deno is no longer one of them. The version check before a run reads the version from inside the host, so that it knows Bun from Node and compares each with its own minimum. Adopted in the proposal `js-host-variable` (#504).
+
 ## 2026-11-10 (Separate microcontroller support)
 
 - `[target]`, `[module.pome]`, `[lib.layers]`, `[cmd]`, `[cmd.build]`, `[cmd.doctor]`: Remove the embedded C backend, the `c-embedded` target, the `flash` command, the board and runtime configuration options, and the bundled `Std.Embedded.*` modules. Microcontroller support is maintained in the separate emelino repository. The native C target and the shared frontend and Flow APIs remain available.
