@@ -1,10 +1,10 @@
 ---
 title: The minimum version of Bun is 1.4.3
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 560
 issue:
-decided:
+decided: 2026-11-14
 touches: [target, target.js.host, cmd.build]
 requires: [js-host-variable]
 related: []
@@ -76,3 +76,5 @@ In the item on the version check, replace the note `install Node.js 22 or later 
 ## Open questions
 
 ## Decision
+
+Adopted. Bun before 1.4.3 does not run the work that a `beforeExit` listener schedules as Node does, and `emela test` gives different results on it after a test left suspended; Bun fixed this in 1.4.3 (oven-sh/bun#43826). The minimum of Bun is raised to the oldest version on which the tests of the compiler give the same results as on Node, so that `[target.js.host]` names a version that was actually checked. Working around it in the test runner is not worth it for a defect that Bun has fixed.
