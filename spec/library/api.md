@@ -390,7 +390,7 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 | `Fiber` | `@external type Fiber[A]` | runtime | A handle to a fiber. Cannot be leaked out of the scope (`[fiber.escape]`) |
 | `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]; fn deferred[A]() -> Deferred[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
 | `scope` | `scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) -> A fails E uses { Async, R }` | intrinsic | Runs the body and returns the value after all children have finished. Children use the handlers in effect where `scope` was called |
-| `fork` | `fork[A, E, R](f: fn() -> A fails E uses { R }) -> Fiber[A] uses { Scope[E, R] }` | Emela | `(use Scope).fork(f)` |
+| `fork` | `fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A] uses { Scope[E, R] }` | Emela | `(use Scope).fork(f)` |
 | `deferred` | `deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] }` | Emela | `(use Scope).deferred()` |
 | `join` | `join[A](fiber: Fiber[A]) -> A uses { Async }` | intrinsic | Waits for the child to finish and returns its value. A defect if the child was interrupted |
 | `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | intrinsic | Waits for the child to finish and returns how it ended (`Exit` of `Std.Exit`) |
