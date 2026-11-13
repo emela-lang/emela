@@ -125,8 +125,9 @@ jobs:
 
   # The JS tests of the compiler (`emela run` and `emela test` in `crates/emela-driver` and
   # `crates/emela-cli`, and the JS side of the WASM tests), the examples and the laws on Bun, the
-  # other JS host that `[target]` supports. The other jobs run them on Node. The version of Bun is
-  # the one checked in `[target.js.host]`.
+  # other JS host that `[target]` supports. The other jobs run them on Node. Bun before 1.4.3 does
+  # not run the microtasks that a `beforeExit` listener queues (oven-sh/bun#43826), which
+  # `emela test` relies on to go on after a test left suspended.
   test-bun:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -141,7 +142,7 @@ jobs:
           shared-key: test
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.8
+          bun-version: 1.4.3
       # Some tests start node themselves (the JS backend's own tests and the HTTP harness).
       - uses: actions/setup-node@v4
         with:
