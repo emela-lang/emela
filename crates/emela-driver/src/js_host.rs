@@ -77,23 +77,23 @@ impl Kind {
         }
     }
 
-    /// The oldest version that `[target]` supports, as major and minor, and as it is written in
-    /// messages.
-    fn minimum(self) -> (u32, u32, &'static str) {
+    /// The oldest version that `[target]` supports, as major, minor and patch, and as it is
+    /// written in messages.
+    fn minimum(self) -> ((u32, u32, u32), &'static str) {
         match self {
-            Kind::Node => (22, 0, "22"),
-            Kind::Bun => (1, 3, "1.3"),
+            Kind::Node => ((22, 0, 0), "22"),
+            Kind::Bun => ((1, 4, 3), "1.4.3"),
         }
     }
 
-    /// `Node 22`, `Bun 1.3`.
+    /// `Node 22`, `Bun 1.4.3`.
     pub(crate) fn minimum_text(self) -> String {
-        format!("{} {}", self.name(), self.minimum().2)
+        format!("{} {}", self.name(), self.minimum().1)
     }
 }
 
 /// What every supported JS host needs, for messages that do not know which host it is.
-pub(crate) const NEEDS: &str = "Node 22 or later or Bun 1.3 or later";
+pub(crate) const NEEDS: &str = "Node 22 or later or Bun 1.4.3 or later";
 
 /// The module that the JS host runs with `-e` to report itself (`[cmd.build]`). Bun defines
 /// `process.versions.node` as well, so `bun` is looked at first.
@@ -106,11 +106,12 @@ pub(crate) struct Probed {
 }
 
 impl Probed {
-    /// Older than the minimum of its host. A version without a minor is compared as `.0`.
+    /// Older than the minimum of its host. A missing minor or patch counts as 0.
     pub(crate) fn too_old(&self) -> bool {
-        let (major, minor, _) = self.kind.minimum();
-        match self.version.major {
-            Some(m) => (m, self.version.minor.unwrap_or(0)) < (major, minor),
+        let (minimum, _) = self.kind.minimum();
+        let v = &self.version;
+        match v.major {
+            Some(major) => (major, v.minor.unwrap_or(0), v.patch.unwrap_or(0)) < minimum,
             None => false,
         }
     }
@@ -180,14 +181,14 @@ pub(crate) fn spawn_error(program: &Path, err: &io::Error) -> Diagnostic {
 /// The note of E0904 when the JS host is not found.
 pub(crate) fn missing_help() -> String {
     format!(
-        "install Node.js 22 or later or Bun 1.3 or later and add it to PATH, or set {JS_HOST_ENV} to the JS host"
+        "install Node.js 22 or later or Bun 1.4.3 or later and add it to PATH, or set {JS_HOST_ENV} to the JS host"
     )
 }
 
 /// The note of E0904 when the JS host is too old (`[cmd.build]`).
 pub(crate) fn too_old_help() -> String {
     format!(
-        "install Node.js 22 or later or Bun 1.3 or later, or set {JS_HOST_ENV} to a newer JS host"
+        "install Node.js 22 or later or Bun 1.4.3 or later, or set {JS_HOST_ENV} to a newer JS host"
     )
 }
 
@@ -303,11 +304,19 @@ mod tests {
         let too_old = |out| parsed(out).unwrap().4;
         assert!(too_old("node 21.7.3"));
         assert!(!too_old("node 22.0.0"));
-        // Bun 1.3 or later; a Bun is not compared with the minimum of Node.
+        // Bun 1.4.3 or later, to the patch version; a Bun is not compared with the minimum of
+        // Node.
         assert!(too_old("bun 1.2.23"));
-        assert!(!too_old("bun 1.3.0"));
+        assert!(too_old("bun 1.3.14"));
+        assert!(too_old("bun 1.4.2"));
+        assert!(!too_old("bun 1.4.3"));
+        assert!(!too_old("bun 1.4.10"));
+        assert!(!too_old("bun 1.5.0"));
         assert!(!too_old("bun 2.0.0"));
+        // A missing part counts as 0.
         assert!(too_old("bun 1"));
+        assert!(too_old("bun 1.4"));
+        assert!(!too_old("bun 1.5"));
     }
 
     #[test]
@@ -369,7 +378,7 @@ mod process_tests {
         assert_eq!(
             err.notes,
             vec![
-                "install Node.js 22 or later or Bun 1.3 or later, or set EMELA_JS_HOST to a newer JS host"
+                "install Node.js 22 or later or Bun 1.4.3 or later, or set EMELA_JS_HOST to a newer JS host"
                     .to_owned()
             ]
         );
@@ -378,12 +387,12 @@ mod process_tests {
     #[test]
     fn e0904_for_a_bun_that_is_too_old() {
         let dir = tempfile::tempdir().unwrap();
-        let bun = host(dir.path(), "bun 1.2.23");
+        let bun = host(dir.path(), "bun 1.4.2");
         let err = check_version(&bun).unwrap_err();
         assert_eq!(
             err.message,
             format!(
-                "`{}` is Bun 1.2.23, but target `js` needs Bun 1.3 or later",
+                "`{}` is Bun 1.4.2, but target `js` needs Bun 1.4.3 or later",
                 bun.display()
             )
         );
@@ -392,7 +401,7 @@ mod process_tests {
     #[test]
     fn a_host_that_is_new_enough_or_unknown_or_cannot_start_passes() {
         let dir = tempfile::tempdir().unwrap();
-        for line in ["node 22.0.0", "bun 1.3.0", "bun 1.4.3", "hello"] {
+        for line in ["node 22.0.0", "bun 1.4.3", "bun 1.4.4", "hello"] {
             assert!(check_version(&host(dir.path(), line)).is_ok(), "{line}");
         }
         let broken = fake(dir.path(), "broken", "#!/nonexistent/sh\n");
