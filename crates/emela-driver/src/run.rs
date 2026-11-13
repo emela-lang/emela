@@ -169,8 +169,6 @@ pub(crate) fn entry_for_child(entry: &Path) -> PathBuf {
     }
 }
 
-/// An environment variable overriding the node executable; `node` on PATH otherwise.
-pub const NODE_ENV: &str = "EMELA_NODE";
 /// The `name` of the defect class, matching `$Defect` in emela-codegen-js's runtime.
 pub const DEFECT_NAME: &str = "Defect";
 /// The exit code when stopped by a defect.
@@ -280,17 +278,6 @@ pub struct RunOutput {
     pub stderr: Vec<u8>,
 }
 
-pub(crate) fn node_program_in(env: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
-    env(NODE_ENV)
-        .filter(|v| !v.is_empty())
-        .map_or_else(|| PathBuf::from("node"), PathBuf::from)
-}
-
-/// `EMELA_NODE` if set, otherwise `node`.
-pub fn node_program() -> PathBuf {
-    node_program_in(&|key| std::env::var_os(key))
-}
-
 /// An environment variable overriding the `wasmtime` executable; `wasmtime` on PATH otherwise.
 pub const WASMTIME_ENV: &str = "EMELA_WASMTIME";
 
@@ -336,14 +323,11 @@ pub(crate) fn wasmtime_run_command(wasmtime: &Path, entry: &Path) -> Command {
 /// The oldest wasmtime major version that runs WASI 0.3 components with `-S p3=y`.
 pub(crate) const WASMTIME_MIN_MAJOR: u32 = 49;
 
-/// The oldest node major version the JS target supports (`[target]`).
-pub(crate) const NODE_MIN_MAJOR: u32 = 22;
-
 /// A host program that a build target runs on, with the oldest major version it supports.
 pub(crate) struct Host {
-    /// The name in messages (`node`, `wasmtime`).
+    /// The name in messages (`wasmtime`).
     name: &'static str,
-    /// The name in the note's "install ..." (`Node.js`, `Wasmtime`).
+    /// The name in the note's "install ..." (`Wasmtime`).
     product: &'static str,
     /// The build target that needs it.
     target: &'static str,
@@ -353,16 +337,6 @@ pub(crate) struct Host {
     code: &'static str,
     version: fn(&str) -> Option<Version>,
 }
-
-pub(crate) const NODE: Host = Host {
-    name: "node",
-    product: "Node.js",
-    target: "js",
-    env: NODE_ENV,
-    min_major: NODE_MIN_MAJOR,
-    code: code::NODE_UNAVAILABLE,
-    version: crate::doctor::node_version,
-};
 
 pub(crate) const WASMTIME: Host = Host {
     name: "wasmtime",
@@ -437,11 +411,6 @@ impl Host {
 /// (`[target.wasm.run]`).
 pub(crate) fn check_wasmtime_version(wasmtime: &Path) -> Result<(), Diagnostic> {
     WASMTIME.check_version(wasmtime)
-}
-
-/// E0904 when `node --version` reports a version older than [`NODE_MIN_MAJOR`] (`[cmd.build]`).
-pub(crate) fn check_node_version(node: &Path) -> Result<(), Diagnostic> {
-    NODE.check_version(node)
 }
 
 /// The work directory to preopen. It is made absolute before the child changes directory, so a
@@ -607,9 +576,9 @@ pub fn run_node(
     node_command(node, entry, args).run(output)
 }
 
-/// A diagnostic about failing to start node.
+/// A diagnostic about failing to start the JS host.
 pub(crate) fn spawn_error(node: &Path, err: &io::Error) -> Diagnostic {
-    NODE.spawn_error(node, err)
+    crate::js_host::spawn_error(node, err)
 }
 
 pub(crate) fn exit_code(status: ExitStatus) -> i32 {

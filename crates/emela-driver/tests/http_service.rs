@@ -1,5 +1,5 @@
 //! HTTP services on the JS target (`[lib.http-service]`, `[target.js.module]`, `[cmd.build]`): the
-//! `fetch` of the default export of `main.mjs`, called by a harness the way Deno, Bun and Workers
+//! `fetch` of the default export of `main.mjs`, called by a harness the way Bun and Workers
 //! call it, and `serve.mjs`, which `emela run` starts.
 //!
 //! Needs node; the WASM test also needs wasmtime (`EMELA_WASMTIME` or `wasmtime`), and is skipped
@@ -420,7 +420,7 @@ fn run_starts_serve_mjs() {
     let node_dir = out_dir("run-node");
     let options = RunOptions {
         out_dir: out_dir("run"),
-        node: echo_node(&node_dir),
+        js_host: echo_node(&node_dir),
         args: vec!["--addr".into(), "127.0.0.1:0".into()],
         output: Output::Capture,
     };

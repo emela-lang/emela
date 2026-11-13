@@ -135,7 +135,7 @@ fn run_wasm(name: &str, src: &str) -> Result<Outcome, Box<Analysis>> {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir("corpus", name),
-        node: emela_driver::wasmtime_program(),
+        js_host: emela_driver::wasmtime_program(),
         args: Vec::new(),
         output: Output::Capture,
     };

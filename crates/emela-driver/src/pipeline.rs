@@ -21,8 +21,8 @@ use crate::hover::HoverInfo;
 use crate::nav::{NavTarget, RenameError};
 use crate::output::{BuildOutput, write_output};
 use crate::run::{
-    Output, ProgramCommand, RunOutput, check_node_version, node_command, node_script_command,
-    wasmtime_command, wasmtime_serve_command,
+    Output, ProgramCommand, RunOutput, node_command, node_script_command, wasmtime_command,
+    wasmtime_serve_command,
 };
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
@@ -518,7 +518,7 @@ pub trait Backend<P> {
 pub enum Runner {
     /// Generated output that requires a separate toolchain and runner.
     BuildOnly,
-    /// A `.mjs` entry run on node.
+    /// A `.mjs` entry run on the JS host.
     Node,
     /// A native executable.
     Native,
@@ -884,15 +884,15 @@ fn build_with<F: Frontend, B: Backend<F::Program>>(
 #[derive(Debug, Clone)]
 pub struct RunOptions {
     pub out_dir: PathBuf,
-    /// The node executable ([`crate::node_program`]).
-    pub node: PathBuf,
+    /// The command of the JS host ([`crate::js_host`]).
+    pub js_host: PathBuf,
     /// Arguments to the program.
     pub args: Vec<OsString>,
     pub output: Output,
 }
 
-/// The `emela run` stage: builds and runs the entry (on node for JS, the executable for C). Without main in the entry, reports
-/// E0230 and does not start node (spec 8.3).
+/// The `emela run` stage: builds and runs the entry (on the JS host for JS, the executable for C). Without main in the entry,
+/// reports E0230 and does not start the program (spec 8.3).
 ///
 /// `before_start` is called once after the build and before the program starts (even if the
 /// build fails), with the command that will start it (`None` if there is none). The CLI prints
@@ -917,15 +917,15 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
     let (mut analysis, entry) = build_with(fs, input, frontend, backend, &options.out_dir, true);
     let server = frontend.is_http_service();
     let command = entry.map(|entry| match backend.runner() {
-        Runner::Node => check_node_version(&options.node).map(|()| {
+        Runner::Node => crate::js_host::check_version(&options.js_host).map(|()| {
             if server {
                 node_script_command(
-                    &options.node,
+                    &options.js_host,
                     &entry.with_file_name(emela_codegen_js::SERVE_FILE),
                     &options.args,
                 )
             } else {
-                node_command(&options.node, &entry, &options.args)
+                node_command(&options.js_host, &entry, &options.args)
             }
         }),
         Runner::Native => Ok(native_command(&entry, &options.args)),

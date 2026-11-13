@@ -3,7 +3,7 @@
 //! Consists of collecting `@test` functions from source ([`collect_tests`], [`resolve_tests`];
 //! called inside the [`Typecheck`] type checker), a frontend lowering to Core IR with the test
 //! functions as roots ([`LowerTests`]), and turning the Core IR test functions into JS and calling
-//! them one by one on node ([`TestBackend`], [`test`]).
+//! them one by one on the JS host ([`TestBackend`], [`test`]).
 
 mod collect;
 mod report;
@@ -306,8 +306,8 @@ impl TestBackend<TestModule> for CoreJs {
 #[derive(Debug, Clone)]
 pub struct TestOptions {
     pub out_dir: PathBuf,
-    /// The node executable ([`crate::node_program`]).
-    pub node: PathBuf,
+    /// The command of the JS host ([`crate::js_host`]).
+    pub js_host: PathBuf,
     /// A substring of test names; `None` runs all.
     pub filter: Option<String>,
     /// How node's stderr is handled. Stdout is always captured to read results.
@@ -319,7 +319,8 @@ pub struct TestOptions {
     pub color: bool,
 }
 
-/// The `emela test` stage: checks, writes the tests out as JS, and runs them one by one on node.
+/// The `emela test` stage: checks, writes the tests out as JS, and runs them one by one on the JS
+/// host.
 ///
 /// Results are written to `out` as they arrive, in the form of [`TestOptions::reporter`]. `before_node`
 /// is called once after emission and before node starts (even if checking or emission failed);
@@ -352,14 +353,14 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
             return (analysis, None);
         }
         Runner::Node => {
-            if let Err(diagnostic) = crate::run::check_node_version(&options.node) {
+            if let Err(diagnostic) = crate::js_host::check_version(&options.js_host) {
                 analysis.diagnostics.push(diagnostic);
                 return (analysis, None);
             }
-            let mut command = Command::new(&options.node);
+            let mut command = Command::new(&options.js_host);
             command.arg(crate::run::entry_for_child(&entry));
             crate::run::apply_program_cwd(&mut command);
-            (options.node.clone(), command)
+            (options.js_host.clone(), command)
         }
         Runner::Native => {
             let mut command = Command::new(crate::run::entry_for_child(&entry));

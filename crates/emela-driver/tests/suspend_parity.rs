@@ -10,7 +10,7 @@ use std::process::Command;
 
 use emela_driver::{
     Analysis, CoreC, CoreJs, CoreWasm, Input, Lower, MemoryFiles, Output, RunOptions, Target,
-    cc_command, node_program, run, wasmtime_program,
+    cc_command, js_host_program, run, wasmtime_program,
 };
 
 type Outcome = (i32, String, String);
@@ -45,9 +45,9 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Vec<String>>
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: match target {
+        js_host: match target {
             Target::Wasm => wasmtime_program(),
-            _ => node_program(),
+            _ => js_host_program(),
         },
         args: Vec::new(),
         output: Output::Capture,
@@ -93,7 +93,7 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Vec<String>>
 fn compare(name: &str, src: &str) -> Option<Outcome> {
     let (cc, _) = cc_command();
     let tools = [
-        (Target::Js, node_program()),
+        (Target::Js, js_host_program()),
         (Target::C, cc),
         (Target::Wasm, wasmtime_program()),
     ];

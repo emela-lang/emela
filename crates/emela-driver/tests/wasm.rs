@@ -52,7 +52,7 @@ fn run_wasm_files(name: &str, files: &[(&str, &str)]) -> (Analysis, Option<RunOu
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
-        node: wasmtime_program(),
+        js_host: wasmtime_program(),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -214,7 +214,7 @@ fn test_wasm(name: &str, main: &str) -> (Analysis, Vec<(String, TestOutcome)>) {
     let (fs, input) = project(main);
     let options = TestOptions {
         out_dir: out_dir(name),
-        node: wasmtime_program(),
+        js_host: wasmtime_program(),
         filter: None,
         output: Output::Capture,
         reporter: emela_driver::Reporter::Plain,

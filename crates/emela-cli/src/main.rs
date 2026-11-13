@@ -358,7 +358,7 @@ fn run(
     };
     let options = RunOptions {
         out_dir: out_dir.unwrap_or_else(|| input.default_out_dir_for(target)),
-        node: emela_driver::node_program(),
+        js_host: js_host(target),
         args,
         output: Output::Inherit,
     };
@@ -425,7 +425,7 @@ fn test(
     };
     let options = TestOptions {
         out_dir: out_dir.unwrap_or_else(|| emela_driver::default_test_out_dir_for(&input, target)),
-        node: emela_driver::node_program(),
+        js_host: js_host(target),
         filter,
         output: Output::Inherit,
         reporter: match reporter {
@@ -600,6 +600,16 @@ fn fmt_stdin(check: bool) -> ExitCode {
     }
 }
 
+/// The command of the JS host (`[cmd.build]`). W0902 is reported here when `EMELA_NODE` was read
+/// and `target` runs on the JS host, before the diagnostics of the program.
+fn js_host(target: Target) -> PathBuf {
+    let host = emela_driver::js_host();
+    if target == Target::Js {
+        print_diagnostics(host.warning.as_slice(), &SourceDb::new());
+    }
+    host.program
+}
+
 /// `emela doctor` (`[cmd.doctor]`). The required target is `--target`, else the build target of
 /// the project that contains `path`; `Pome.toml` is not read when `--target` is given, so a broken
 /// manifest does not stop the report.
@@ -614,6 +624,8 @@ fn doctor(path: &Path, target: Option<TargetArg>, format: DoctorFormatArg) -> Ex
             }
         },
     };
+    // The report resolves the JS host, so reading `EMELA_NODE` is reported here as well.
+    js_host(Target::Js);
     let (output, code) = emela_driver::doctor(required, VERSION, format.into(), stdout_color());
     let _ = std::io::stdout().lock().write_all(output.as_bytes());
     ExitCode::from(code)

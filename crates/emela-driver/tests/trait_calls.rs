@@ -2,7 +2,7 @@
 //! for the type, and a default implementation is copied per type. Runs on JS, and on C when cc
 //! starts; both must print the same.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use emela_driver::{
@@ -35,7 +35,7 @@ fn run_on(name: &str, main: &str, target: Target) -> (Analysis, Option<RunOutput
     let _ = std::fs::remove_dir_all(&out_dir);
     let options = RunOptions {
         out_dir: out_dir.clone(),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         args: Vec::new(),
         output: Output::Capture,
     };

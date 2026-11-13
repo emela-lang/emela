@@ -21,6 +21,7 @@ mod host_files;
 mod hover;
 mod internal;
 mod js;
+mod js_host;
 mod license;
 mod links;
 mod nav;
@@ -56,6 +57,7 @@ pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use links::{DocumentLink, document_links};
 
+pub use js_host::{JS_HOST_ENV, JsHost, NODE_ENV, js_host, js_host_program};
 pub use nav::{
     DocumentSymbol, NavTarget, RenameError, SymbolKind, WorkspaceSymbol, document_symbols,
     workspace_symbols,
@@ -70,9 +72,9 @@ pub use pipeline::{
 pub use pome::project_dependencies;
 pub use render::{render, render_one, summary};
 pub use run::{
-    DEFECT_EXIT_CODE, DEFECT_NAME, ERROR_EXIT_CODE, FAIL_KEY, INTERRUPTED_EXIT_CODE, NODE_ENV,
-    Output, ProgramCommand, RunOutput, WASMTIME_ENV, node_program, run_node, run_wasmtime,
-    wasmtime_program, with_program_cwd, with_program_timeout,
+    DEFECT_EXIT_CODE, DEFECT_NAME, ERROR_EXIT_CODE, FAIL_KEY, INTERRUPTED_EXIT_CODE, Output,
+    ProgramCommand, RunOutput, WASMTIME_ENV, run_node, run_wasmtime, wasmtime_program,
+    with_program_cwd, with_program_timeout,
 };
 pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};

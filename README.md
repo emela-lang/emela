@@ -515,7 +515,7 @@ pub fn app(request: Request) -> Response fails NotANumber {
 
 `emela run` serves it on `127.0.0.1:8080` (`--addr <host>:<port>`, or `HOST`
 and `PORT`). The same `main.mjs` is the `fetch` of its default export, so
-`deno serve`, Bun and Cloudflare Workers run it as it is. With
+Bun and Cloudflare Workers run it as it is. With
 `--target wasm`, `main.wasm` is a `wasi:http/service` component and
 `emela run` serves it with `wasmtime serve`. An error or a defect becomes a 500
 whose cause goes only to standard error.
@@ -598,8 +598,9 @@ Set.from_list(["a", "b"])
 - No JSON, no `Array`, and no limit on how many fibers run at once
   (`Semaphore`) or `Queue` yet.
 - Only `Eq`, `Ord` and `Show` can be derived.
-- The JavaScript target assumes a server host: Node.js 22 or later, Deno, or
-  Bun. Browsers are not a target.
+- The JavaScript target assumes a server host: Node.js 22 or later, or Bun 1.3
+  or later. `EMELA_JS_HOST` chooses the one that `emela run` and `emela test`
+  start (`node` by default). Browsers are not a target.
 - Some checks that scopes, fiber handles and `Deferred` values do not escape
   run at run time (a defect such as `fiber scope was used after it ended`).
 - The C target runs on macOS (arm64) and Linux (x86_64) only, and lacks the

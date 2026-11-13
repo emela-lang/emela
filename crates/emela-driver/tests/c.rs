@@ -43,7 +43,7 @@ fn run_c(name: &str, main: &str, backend: &mut CoreC) -> (Analysis, Option<RunOu
     let (fs, input) = project(main);
     let options = RunOptions {
         out_dir: out_dir(name),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -380,7 +380,7 @@ fn raises_a_defect() {
     let (fs, input) = project(main);
     let options = TestOptions {
         out_dir: out_dir("tests"),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         filter: None,
         output: Output::Capture,
         reporter: emela_driver::Reporter::Plain,
@@ -476,7 +476,7 @@ fn without_show() {
     for target in [Target::Js, Target::C] {
         let options = TestOptions {
             out_dir: out_dir(&format!("assert-inspect-{target}")),
-            node: emela_driver::node_program(),
+            js_host: emela_driver::js_host_program(),
             filter: None,
             output: Output::Capture,
             reporter: emela_driver::Reporter::Plain,
@@ -832,7 +832,7 @@ fn suspend_externals_complete_later() {
     let (dir, input) = host_project("host-run");
     let options = RunOptions {
         out_dir: dir.join("out"),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -866,7 +866,7 @@ fn suspend_externals_misbehaving() {
     let (dir, input) = host_project("host-test");
     let options = TestOptions {
         out_dir: dir.join("out"),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         filter: None,
         output: Output::Capture,
         reporter: emela_driver::Reporter::Plain,
@@ -1001,7 +1001,7 @@ fn exported_functions_are_called_from_c() {
     let input = Input::resolve(&OsFs, &dir).unwrap();
     let options = RunOptions {
         out_dir: dir.join("out"),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         args: Vec::new(),
         output: Output::Capture,
     };

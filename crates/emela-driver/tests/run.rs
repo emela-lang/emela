@@ -62,13 +62,13 @@ fn run_with(
     sources: &[(&str, &str)],
     js: &str,
     args: &[&str],
-    node: PathBuf,
+    js_host: PathBuf,
 ) -> (Analysis, Option<RunOutput>) {
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
-        node,
+        js_host,
         args: args.iter().map(Into::into).collect(),
         output: Output::Capture,
     };
@@ -246,7 +246,7 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -373,13 +373,13 @@ fn run_source_with(name: &str, main: &str, frontend: &mut Lower) -> RunOutput {
 }
 
 /// Like `run_source_with`, with a given node executable.
-fn run_source_in(name: &str, main: &str, frontend: &mut Lower, node: PathBuf) -> RunOutput {
+fn run_source_in(name: &str, main: &str, frontend: &mut Lower, js_host: PathBuf) -> RunOutput {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
-        node,
+        js_host,
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -431,7 +431,7 @@ fn run_without_main_stops_before_node() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir("no-main"),
-        node: PathBuf::from("/nonexistent/node"),
+        js_host: PathBuf::from("/nonexistent/node"),
         args: Vec::new(),
         output: Output::Capture,
     };

@@ -1,7 +1,7 @@
 ---
 title: JS hosts are Node and Bun, chosen with EMELA_JS_HOST
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 504
 issue:
 decided: 2026-11-14
@@ -86,8 +86,8 @@ Replace "`emela test` runs the launcher module with node." with "`emela test` ru
 
 ## Diagnostics
 
-- [ ] W0902 (new): `EMELA_NODE` was read
-- [ ] E0904: its meaning, message and note follow the JS host and its minimum version
+- [x] W0902 (new): `EMELA_NODE` was read
+- [x] E0904: its meaning, message and note follow the JS host and its minimum version
 
 ## Compatibility
 
