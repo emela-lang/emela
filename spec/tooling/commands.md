@@ -82,7 +82,7 @@ Diagnostics and help:
   - The first line is the same as `emela --version`, followed by a blank line.
   - For each target in the order `js`, `c`, `wasm`, a line with the target's name, followed by ` (required)` when required. Under it, one line per program, indented by two spaces: `ok`, `missing`, `too-old` or `failed`, then the program's name and version and the executable resolved in parentheses, or a sentence that names the target and the program that it lacks. A program that fails is followed by a line with the help of the diagnostic that the command using it would report (E0904, E0907, E0909), aligned with the sentence.
   - Then a blank line and the Pome section in the same form.
-  - Color is used under the same conditions as diagnostics (`[diag]`).
+  - Color is used under the same conditions as diagnostics (`[diag]`). When it is, the first of the two spaces before `ok` is written as `✓`, and the first of the two spaces before `missing`, `too-old` and `failed` as `✗`. Without color, the lines are as described above.
 - With `--format json`, the command writes one JSON object to standard output instead:
 
   ```json
