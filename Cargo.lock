@@ -462,6 +462,7 @@ dependencies = [
  "emela-lsp",
  "emela-pome",
  "insta",
+ "serde_json",
  "tempfile",
 ]
 
