@@ -6,7 +6,7 @@ There are three targets: JS, WASM and C. JS and WASM are Tier 1, and C is Tier 2
 
 The C target compiles the emitted C with cc into a native executable. It targets macOS (arm64) and Linux (x86_64), and assumes a C11 compiler. Windows is left for a later version (18.1 #39). The constructs that the C target does not support yet are in `[target.c.unsupported]`, and using them is a compile error. The observable behavior of each target is in `[target.js]`, `[target.wasm]` and `[target.c]`.
 
-The JS target assumes a host that runs on a server: Node 22 or later, or Bun 1.3 or later. Browsers are not a target. The platform handlers (15.2) do not specify how they behave in a browser.
+The JS target assumes a host that runs on a server: Node 22 or later, or Bun 1.4.3 or later. Browsers are not a target. The platform handlers (15.2) do not specify how they behave in a browser.
 
 ## 16.1 Numbers `[target.number]`
 
