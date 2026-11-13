@@ -11,6 +11,10 @@ puts it, so it is found even when VSCode is started from the desktop without the
 If it is somewhere else, set `emela.serverPath`. When the binary is not found, a notification
 links to the install instructions and the setting.
 
+Prebuilt binaries are published for macOS (Apple Silicon) and Linux (x86_64). On other
+platforms, build `emela` from source (`cargo build --release -p emela-cli`) and set
+`emela.serverPath` to it.
+
 ## Features
 
 - Syntax highlighting, following the tree-sitter grammar in `editors/tree-sitter-emela`
@@ -39,7 +43,7 @@ Build the server first (`cargo build -p emela-cli` makes `target/debug/emela`), 
 ```sh
 cd editors/vscode
 npm install
-npm run compile
+npm run compile   # type checks, then bundles src/ into out/extension.js
 ```
 
 1. Open this directory in VSCode and press F5 (Run Extension).
@@ -49,9 +53,12 @@ npm run compile
    squiggle appears, and goes away once you fix the escape.
 4. The server's stderr shows up in the Output panel under "Emela Language Server".
 
-## Package (optional)
+## Package
 
 ```sh
-npx @vscode/vsce package   # produces emela-<version>.vsix
+npm run package   # produces emela-<version>.vsix
 code --install-extension emela-*.vsix
 ```
+
+Releases to the Marketplace are made by `.github/workflows/vscode-release.yml`; see
+`docs/release.md`.

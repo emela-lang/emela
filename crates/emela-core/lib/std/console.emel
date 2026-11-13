@@ -32,14 +32,14 @@ pub handler SystemConsole: Console {
 ## inside `State.run`:
 ##
 ## ```emela
-## (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+## (_, lines) = State.run([], || with TestConsole { greet(1) })
 ## assert lines == ["Hello, alice!"]
 ## ```
 ##
 ## `print_line` appends the line in the printed order. `print_error_line` drops the line.
 pub handler TestConsole: Console {
   fn print_line(text) {
-    (use State[List[String]]).update(fn(lines) { List.append(lines, [text]) })
+    (use State[List[String]]).update(|lines| lines.append([text]))
   }
   fn print_error_line(text) { () }
 }

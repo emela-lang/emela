@@ -1,0 +1,38 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/doc_comment_before_stmt.emel
+---
+ROOT@0..119
+  COMMENT@0..80 "# ドキュメントコメントは宣言にだけ付き，文には付かない"
+  NEWLINE@80..81 "\n"
+  FN_DECL@81..118
+    FN_KW@81..83 "fn"
+    WHITESPACE@83..84 " "
+    LOWER_NAME@84..85 "f"
+    PARAM_LIST@85..87
+      L_PAREN@85..86 "("
+      R_PAREN@86..87 ")"
+    WHITESPACE@87..88 " "
+    BLOCK_EXPR@88..118
+      L_BRACE@88..89 "{"
+      NEWLINE@89..90 "\n"
+      WHITESPACE@90..92 "  "
+      DOC_COMMENT@92..104 "## 文の前"
+      NEWLINE@104..105 "\n"
+      WHITESPACE@105..107 "  "
+      BINDING@107..112
+        NAME_REF@107..108
+          LOWER_NAME@107..108 "x"
+        WHITESPACE@108..109 " "
+        EQ@109..110 "="
+        WHITESPACE@110..111 " "
+        LITERAL@111..112
+          INT@111..112 "1"
+      NEWLINE@112..113 "\n"
+      WHITESPACE@113..115 "  "
+      NAME_REF@115..116
+        LOWER_NAME@115..116 "x"
+      NEWLINE@116..117 "\n"
+      R_BRACE@117..118 "}"
+  NEWLINE@118..119 "\n"

@@ -1,0 +1,269 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/decl_edges.emel
+---
+ROOT@0..358
+  COMMENT@0..32 "# 宣言の頭と要素の境界"
+  NEWLINE@32..33 "\n"
+  IMPORT@33..44
+    IMPORT_KW@33..39 "import"
+    WHITESPACE@39..40 " "
+    PATH@40..44
+      TYPE_NAME@40..44 "Data"
+  WHITESPACE@44..45 " "
+  ERROR@45..52
+    L_BRACE@45..46 "{"
+    TYPE_NAME@46..50 "Json"
+    R_BRACE@50..51 "}"
+    NEWLINE@51..52 "\n"
+  TYPE_DECL@52..75
+    TYPE_KW@52..56 "type"
+    WHITESPACE@56..57 " "
+    TYPE_NAME@57..61 "User"
+    FIELD_LIST@61..75
+      L_PAREN@61..62 "("
+      FIELD@62..64
+        LOWER_NAME@62..64 "id"
+      COMMA@64..65 ","
+      WHITESPACE@65..66 " "
+      FIELD@66..74
+        LOWER_NAME@66..70 "name"
+        WHITESPACE@70..71 " "
+        PATH_TYPE@71..74
+          PATH@71..74
+            TYPE_NAME@71..74 "Int"
+      R_PAREN@74..75 ")"
+  NEWLINE@75..76 "\n"
+  ENUM_DECL@76..107
+    ENUM_KW@76..80 "enum"
+    WHITESPACE@80..81 " "
+    TYPE_NAME@81..86 "Shape"
+    WHITESPACE@86..87 " "
+    VARIANT_LIST@87..107
+      L_BRACE@87..88 "{"
+      NEWLINE@88..89 "\n"
+      WHITESPACE@89..91 "  "
+      VARIANT@91..105
+        TYPE_NAME@91..95 "Rect"
+        TUPLE_FIELD_LIST@95..105
+          L_PAREN@95..96 "("
+          PATH_TYPE@96..101
+            PATH@96..101
+              TYPE_NAME@96..101 "Float"
+          COMMA@101..102 ","
+          WHITESPACE@102..103 " "
+          ERROR@103..104
+            LOWER_NAME@103..104 "a"
+          R_PAREN@104..105 ")"
+      NEWLINE@105..106 "\n"
+      R_BRACE@106..107 "}"
+  NEWLINE@107..108 "\n"
+  EFFECT_DECL@108..164
+    EFFECT_KW@108..114 "effect"
+    WHITESPACE@114..115 " "
+    TYPE_NAME@115..120 "Clock"
+    WHITESPACE@120..121 " "
+    ITEM_LIST@121..164
+      L_BRACE@121..122 "{"
+      NEWLINE@122..123 "\n"
+      WHITESPACE@123..125 "  "
+      OP_SIG@125..140
+        FN_KW@125..127 "fn"
+        WHITESPACE@127..128 " "
+        LOWER_NAME@128..131 "now"
+        PARAM_LIST@131..133
+          L_PAREN@131..132 "("
+          R_PAREN@132..133 ")"
+        WHITESPACE@133..134 " "
+        RET_TYPE@134..140
+          THIN_ARROW@134..136 "->"
+          WHITESPACE@136..137 " "
+          PATH_TYPE@137..140
+            PATH@137..140
+              TYPE_NAME@137..140 "Int"
+      WHITESPACE@140..141 " "
+      ERROR@141..142
+        LOWER_NAME@141..142 "x"
+      NEWLINE@142..143 "\n"
+      WHITESPACE@143..145 "  "
+      OP_SIG@145..162
+        FN_KW@145..147 "fn"
+        WHITESPACE@147..148 " "
+        LOWER_NAME@148..153 "later"
+        PARAM_LIST@153..155
+          L_PAREN@153..154 "("
+          R_PAREN@154..155 ")"
+        WHITESPACE@155..156 " "
+        RET_TYPE@156..162
+          THIN_ARROW@156..158 "->"
+          WHITESPACE@158..159 " "
+          PATH_TYPE@159..162
+            PATH@159..162
+              TYPE_NAME@159..162 "Int"
+      NEWLINE@162..163 "\n"
+      R_BRACE@163..164 "}"
+  NEWLINE@164..165 "\n"
+  HANDLER_DECL@165..206
+    HANDLER_KW@165..172 "handler"
+    WHITESPACE@172..173 " "
+    TYPE_NAME@173..178 "Fixed"
+    COLON@178..179 ":"
+    WHITESPACE@179..180 " "
+    HANDLER_EFFECT@180..185
+      PATH@180..185
+        TYPE_NAME@180..185 "Clock"
+    WHITESPACE@185..186 " "
+    ITEM_LIST@186..206
+      L_BRACE@186..187 "{"
+      NEWLINE@187..188 "\n"
+      WHITESPACE@188..190 "  "
+      ERROR@190..204
+        LOWER_NAME@190..197 "release"
+        L_PAREN@197..198 "("
+        R_PAREN@198..199 ")"
+        WHITESPACE@199..200 " "
+        L_BRACE@200..201 "{"
+        WHITESPACE@201..202 " "
+        L_PAREN@202..203 "("
+        R_PAREN@203..204 ")"
+      WHITESPACE@204..205 " "
+      R_BRACE@205..206 "}"
+  NEWLINE@206..207 "\n"
+  WHITESPACE@207..209 "  "
+  ERROR@209..227
+    ERROR@209..227
+      LOWER_NAME@209..213 "init"
+      L_BRACK@213..214 "["
+      UPPER_NAME@214..215 "A"
+      R_BRACK@215..216 "]"
+      WHITESPACE@216..217 " "
+      L_BRACE@217..218 "{"
+      WHITESPACE@218..219 " "
+      TYPE_NAME@219..224 "Fixed"
+      WHITESPACE@224..225 " "
+      R_BRACE@225..226 "}"
+      NEWLINE@226..227 "\n"
+  WHITESPACE@227..229 "  "
+  FN_DECL@229..243
+    FN_KW@229..231 "fn"
+    WHITESPACE@231..232 " "
+    LOWER_NAME@232..235 "now"
+    PARAM_LIST@235..237
+      L_PAREN@235..236 "("
+      R_PAREN@236..237 ")"
+    WHITESPACE@237..238 " "
+    BLOCK_EXPR@238..243
+      L_BRACE@238..239 "{"
+      WHITESPACE@239..240 " "
+      LITERAL@240..241
+        INT@240..241 "0"
+      WHITESPACE@241..242 " "
+      R_BRACE@242..243 "}"
+  NEWLINE@243..244 "\n"
+  ERROR@244..246
+    ERROR@244..246
+      R_BRACE@244..245 "}"
+      NEWLINE@245..246 "\n"
+  FN_DECL@246..270
+    FN_KW@246..248 "fn"
+    WHITESPACE@248..249 " "
+    LOWER_NAME@249..250 "f"
+    PARAM_LIST@250..252
+      L_PAREN@250..251 "("
+      R_PAREN@251..252 ")"
+    WHITESPACE@252..253 " "
+    RET_TYPE@253..259
+      THIN_ARROW@253..255 "->"
+      WHITESPACE@255..256 " "
+      PATH_TYPE@256..259
+        PATH@256..259
+          TYPE_NAME@256..259 "Int"
+    WHITESPACE@259..260 " "
+    FAILS_CLAUSE@260..270
+      LOWER_NAME@260..265 "fails"
+      WHITESPACE@265..266 " "
+      ERROR_SET@266..270
+        PATH@266..270
+          TYPE_NAME@266..270 "Http"
+  ERROR@270..289
+    DOT@270..271 "."
+    LOWER_NAME@271..272 "x"
+    WHITESPACE@272..273 " "
+    PIPE@273..274 "|"
+    WHITESPACE@274..275 " "
+    TYPE_NAME@275..282 "Refused"
+    WHITESPACE@282..283 " "
+    L_BRACE@283..284 "{"
+    WHITESPACE@284..285 " "
+    INT@285..286 "1"
+    WHITESPACE@286..287 " "
+    R_BRACE@287..288 "}"
+    NEWLINE@288..289 "\n"
+  FN_DECL@289..324
+    FN_KW@289..291 "fn"
+    WHITESPACE@291..292 " "
+    LOWER_NAME@292..293 "g"
+    PARAM_LIST@293..295
+      L_PAREN@293..294 "("
+      R_PAREN@294..295 ")"
+    WHITESPACE@295..296 " "
+    RET_TYPE@296..302
+      THIN_ARROW@296..298 "->"
+      WHITESPACE@298..299 " "
+      PATH_TYPE@299..302
+        PATH@299..302
+          TYPE_NAME@299..302 "Int"
+    WHITESPACE@302..303 " "
+    FAILS_CLAUSE@303..318
+      LOWER_NAME@303..308 "fails"
+      WHITESPACE@308..309 " "
+      ERROR_SET@309..318
+        PIPE@309..310 "|"
+        WHITESPACE@310..311 " "
+        PATH@311..318
+          TYPE_NAME@311..318 "Refused"
+    WHITESPACE@318..319 " "
+    BLOCK_EXPR@319..324
+      L_BRACE@319..320 "{"
+      WHITESPACE@320..321 " "
+      LITERAL@321..322
+        INT@321..322 "1"
+      WHITESPACE@322..323 " "
+      R_BRACE@323..324 "}"
+  NEWLINE@324..325 "\n"
+  IMPORT@325..336
+    IMPORT_KW@325..331 "import"
+    WHITESPACE@331..332 " "
+    PATH@332..336
+      TYPE_NAME@332..336 "Data"
+  ERROR@336..338
+    DOT@336..337 "."
+    NEWLINE@337..338 "\n"
+  IMPORT@338..349
+    IMPORT_KW@338..344 "import"
+    WHITESPACE@344..345 " "
+    PATH@345..349
+      TYPE_NAME@345..349 "Data"
+  WHITESPACE@349..350 " "
+  ERROR@350..358
+    LOWER_NAME@350..351 "x"
+    L_BRACE@351..352 "{"
+    TYPE_NAME@352..356 "Json"
+    R_BRACE@356..357 "}"
+    NEWLINE@357..358 "\n"
+error[E0122]@45..46: expected newline after declaration
+error[E0110]@64..65: expected `:`
+error[E0110]@71..74: expected `:`
+error[E0111]@103..104: expected type
+error[E0122]@141..142: expected newline or `}` after item
+error[E0110]@190..197: expected `init`, `release`, or operation (`fn`)
+error[E0126]@209..213: expected declaration
+error[E0126]@244..245: expected declaration
+error[E0130]@249..250: a function without a body must be `@external`
+error[E0122]@270..271: expected newline after declaration
+error[E0111]@309..310: expected type
+error[E0127]@325..331: imports must come before declarations
+error[E0122]@336..337: expected newline after declaration
+error[E0127]@338..344: imports must come before declarations
+error[E0122]@350..351: expected newline after declaration

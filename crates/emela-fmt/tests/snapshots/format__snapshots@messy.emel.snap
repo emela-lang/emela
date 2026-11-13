@@ -12,9 +12,7 @@ pub fn messy(x: Int, y: Int) -> Int {
     _            -> "other"
   }
 }
-fn squeezed(xs: List[Int]) -> List[Int] {
-  xs |> List.map(fn(x) { x * 2 }) |> List.filter(fn(x) { x > 2 })
-}
+fn squeezed(xs: List[Int]) -> List[Int] { xs |> List.map(|x| x * 2) |> List.filter(|x| x > 2) }
 fn tight(a: Int, b: Int) -> Bool { !(a == b) && -a < b || a >= -b }
 
 fn after_blank_lines() {
@@ -23,7 +21,7 @@ fn after_blank_lines() {
   y = 2
 }
 @external(js, "./ext.mjs", "ext")
-suspend fn ext(url: String) -> String fails HttpError use { Http, Io }
+suspend fn ext(url: String) -> String fails HttpError uses { Http, Io }
 fn else_on_next_line(a: Bool, b: Bool) -> Int {
   if a {
     1

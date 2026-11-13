@@ -42,7 +42,7 @@ pub fn subtract(d: Duration, other: Duration) -> Duration {
 
 ## Milliseconds with an `ms` suffix (`1500ms`).
 pub fn to_string(d: Duration) -> String {
-  "#{Int64.to_string(d.milliseconds)}ms"
+  "#{d.milliseconds.to_string()}ms"
 }
 
 ## Shown as `to_string` writes it (`1500ms`).

@@ -1,0 +1,7 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"lib.emel\", \"import Util.{opener}\\npub fn open() { 1 }\\n\",),\n(\"util.emel\", \"pub fn opener() { 1 }\\n\"),\n(\"main.emel\", \"import Lib.{opne, openr}\\n\\nfn f() {\\n  Shw.show(1)\\n}\\n\",),])"
+---
+error src/main.emel@12..16 `opne`: `Lib` has no `opne`
+error src/main.emel@18..23 `openr`: `Lib` has no `openr` (did you mean `open`?)
+error src/main.emel@37..40 `Shw`: undefined module or trait `Shw` (did you mean `Show`?)

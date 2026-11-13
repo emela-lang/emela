@@ -1,0 +1,39 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/doc_comment_in_args.emel
+---
+ROOT@0..131
+  COMMENT@0..89 "# 括弧の中のドキュメントコメントは宣言ではない引数に付かない"
+  NEWLINE@89..90 "\n"
+  FN_DECL@90..130
+    FN_KW@90..92 "fn"
+    WHITESPACE@92..93 " "
+    LOWER_NAME@93..94 "f"
+    PARAM_LIST@94..96
+      L_PAREN@94..95 "("
+      R_PAREN@95..96 ")"
+    WHITESPACE@96..97 " "
+    BLOCK_EXPR@97..130
+      L_BRACE@97..98 "{"
+      NEWLINE@98..99 "\n"
+      WHITESPACE@99..101 "  "
+      CALL_EXPR@101..128
+        NAME_REF@101..102
+          LOWER_NAME@101..102 "g"
+        ARG_LIST@102..128
+          L_PAREN@102..103 "("
+          NEWLINE_CONT@103..104 "\n"
+          WHITESPACE@104..108 "    "
+          DOC_COMMENT@108..117 "## 引数"
+          NEWLINE_CONT@117..118 "\n"
+          WHITESPACE@118..122 "    "
+          NAME_REF@122..123
+            LOWER_NAME@122..123 "x"
+          COMMA@123..124 ","
+          NEWLINE_CONT@124..125 "\n"
+          WHITESPACE@125..127 "  "
+          R_PAREN@127..128 ")"
+      NEWLINE@128..129 "\n"
+      R_BRACE@129..130 "}"
+  NEWLINE@130..131 "\n"

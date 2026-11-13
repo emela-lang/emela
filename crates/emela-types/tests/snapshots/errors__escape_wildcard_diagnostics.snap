@@ -1,0 +1,37 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "render_errors(r#\"\nerror Boom\nerror Bad(n: Int)\n\nfn steady() -> Int { 1 }\nfn fy(n: Int) -> Int fails Bad { fail Bad(n:) }\n\nfn nothing_raised() -> Int {\n  steady() escape { _ -> 0 }\n}\n\nfn below_on_nothing() -> Int {\n  steady() escape {\n    _ -> 0\n    Boom -> 1\n  }\n}\n\nfn below() -> Int {\n  fy(1) escape {\n    _ -> 0\n    Bad(_) -> 1\n    _ -> 2\n  }\n}\n\nfn below_opaque[A](f: fn() -> A) -> A {\n  f() escape {\n    _ -> f()\n    Boom -> f()\n  }\n}\n\nfn after_total() -> Int {\n  fy(1) escape {\n    Bad(_) -> 0\n    _ -> 1\n  }\n}\n\nfn guarded(c: Bool) -> Int {\n  fy(1) escape { _ if c -> 0 }\n}\n\nfn variable() -> Int {\n  fy(1) escape { e -> 0 }\n}\n\"#)"
+---
+steady: fn() -> Int
+fy: fn(Int) -> Int fails Bad
+  n: Int
+nothing_raised: fn() -> Int
+below_on_nothing: fn() -> Int
+below: fn() -> Int
+below_opaque: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) uses { R(f) }) -> A fails E(f) uses { R(f) }
+  f: fn() -> '0 fails '1 uses { '2 }
+after_total: fn() -> Int
+guarded: fn(Bool) -> Int
+  c: Bool
+variable: fn() -> Int
+  e: {unknown}
+`_` warning: no error is raised here
+`_` warning: no error is raised here
+`Boom` warning: unreachable match arm
+`Bad(_)` warning: unreachable match arm
+`_` warning: unreachable match arm
+`Boom` warning: unreachable match arm
+`c` `_` escape arm has a guard
+`e` escape arm is not an error or `_`
+--- E
+{ fail Bad(n:) }: Bad
+fail Bad(n:): Bad
+fy(1): Bad
+{   f() escape {     _ -> f()     Boom -> f()   } }: '1
+f() escape {     _ -> f()     Boom -> f()   }: '1
+f(): '1
+f(): '1
+f(): '1
+fy(1): Bad
+fy(1): Bad
+fy(1): Bad

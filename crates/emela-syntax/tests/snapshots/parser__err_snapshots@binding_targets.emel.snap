@@ -1,0 +1,127 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/binding_targets.emel
+---
+ROOT@0..319
+  COMMENT@0..117 "# 束縛の左辺に書けるパターン: 補間のない文字列は書け，`..` の後は小文字の名前だけ"
+  NEWLINE@117..118 "\n"
+  FN_DECL@118..190
+    FN_KW@118..120 "fn"
+    WHITESPACE@120..121 " "
+    LOWER_NAME@121..122 "f"
+    PARAM_LIST@122..130
+      L_PAREN@122..123 "("
+      PARAM@123..129
+        LOWER_NAME@123..124 "n"
+        COLON@124..125 ":"
+        WHITESPACE@125..126 " "
+        PATH_TYPE@126..129
+          PATH@126..129
+            TYPE_NAME@126..129 "Int"
+      R_PAREN@129..130 ")"
+    WHITESPACE@130..131 " "
+    BLOCK_EXPR@131..190
+      L_BRACE@131..132 "{"
+      NEWLINE@132..133 "\n"
+      WHITESPACE@133..135 "  "
+      BINDING@135..142
+        STRING@135..138
+          STRING_QUOTE@135..136 "\""
+          STRING_TEXT@136..137 "a"
+          STRING_QUOTE@137..138 "\""
+        WHITESPACE@138..139 " "
+        EQ@139..140 "="
+        WHITESPACE@140..141 " "
+        NAME_REF@141..142
+          LOWER_NAME@141..142 "n"
+      NEWLINE@142..143 "\n"
+      WHITESPACE@143..145 "  "
+      BINDING@145..155
+        STRING@145..151
+          STRING_QUOTE@145..146 "\""
+          INTERP@146..150
+            INTERP_START@146..148 "#{"
+            NAME_REF@148..149
+              LOWER_NAME@148..149 "x"
+            INTERP_END@149..150 "}"
+          STRING_QUOTE@150..151 "\""
+        WHITESPACE@151..152 " "
+        EQ@152..153 "="
+        WHITESPACE@153..154 " "
+        NAME_REF@154..155
+          LOWER_NAME@154..155 "n"
+      NEWLINE@155..156 "\n"
+      WHITESPACE@156..158 "  "
+      BINDING@158..173
+        LIST_EXPR@158..169
+          L_BRACK@158..159 "["
+          NAME_REF@159..160
+            LOWER_NAME@159..160 "a"
+          COMMA@160..161 ","
+          WHITESPACE@161..162 " "
+          REST_EXPR@162..168
+            DOT2@162..164 ".."
+            NAME_REF@164..168
+              SELF_KW@164..168 "self"
+          R_BRACK@168..169 "]"
+        WHITESPACE@169..170 " "
+        EQ@170..171 "="
+        WHITESPACE@171..172 " "
+        NAME_REF@172..173
+          LOWER_NAME@172..173 "n"
+      NEWLINE@173..174 "\n"
+      WHITESPACE@174..176 "  "
+      BINDING@176..188
+        LIST_EXPR@176..184
+          L_BRACK@176..177 "["
+          NAME_REF@177..178
+            LOWER_NAME@177..178 "b"
+          COMMA@178..179 ","
+          WHITESPACE@179..180 " "
+          REST_EXPR@180..183
+            DOT2@180..182 ".."
+            NAME_REF@182..183
+              LOWER_NAME@182..183 "c"
+          R_BRACK@183..184 "]"
+        WHITESPACE@184..185 " "
+        EQ@185..186 "="
+        WHITESPACE@186..187 " "
+        NAME_REF@187..188
+          LOWER_NAME@187..188 "n"
+      NEWLINE@188..189 "\n"
+      R_BRACE@189..190 "}"
+  NEWLINE@190..191 "\n"
+  NEWLINE@191..192 "\n"
+  COMMENT@192..290 "# 注釈の最初の引数は，コロンの付かない名前だけがターゲット名になる"
+  NEWLINE@290..291 "\n"
+  FN_DECL@291..318
+    ANNOTATION@291..311
+      AT@291..292 "@"
+      LOWER_NAME@292..300 "external"
+      ANNOT_ARG_LIST@300..311
+        L_PAREN@300..301 "("
+        ANNOT_ARG@301..304
+          LOWER_NAME@301..303 "js"
+          COLON@303..304 ":"
+        WHITESPACE@304..305 " "
+        COMMA@305..306 ","
+        WHITESPACE@306..307 " "
+        ANNOT_ARG@307..310
+          STRING@307..310
+            STRING_QUOTE@307..308 "\""
+            STRING_TEXT@308..309 "a"
+            STRING_QUOTE@309..310 "\""
+        R_PAREN@310..311 ")"
+    NEWLINE@311..312 "\n"
+    FN_KW@312..314 "fn"
+    WHITESPACE@314..315 " "
+    LOWER_NAME@315..316 "g"
+    PARAM_LIST@316..318
+      L_PAREN@316..317 "("
+      R_PAREN@317..318 ")"
+  NEWLINE@318..319 "\n"
+error[E0125]@145..151: invalid left-hand side of binding: expected a pattern
+error[E0125]@162..168: invalid left-hand side of binding: expected a pattern
+error[E0138]@301..304: the first argument of `@external` must be a target name such as `js`
+error[E0110]@305..306: expected name or literal

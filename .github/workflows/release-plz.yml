@@ -15,7 +15,7 @@ jobs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: true
@@ -61,7 +61,7 @@ jobs:
             os: macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-plz-release.outputs.tag }}
 
@@ -72,6 +72,16 @@ jobs:
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} --bin emela
+
+      - name: Check the binary reports the tag's version
+        env:
+          TAG: ${{ needs.release-plz-release.outputs.tag }}
+        run: |
+          reported=$(target/${{ matrix.target }}/release/emela --version)
+          if [ "${reported%%+*}" != "emela ${TAG#v}" ]; then
+            echo "::error::emela --version printed '$reported', expected 'emela ${TAG#v}' (with an optional +<hash>)"
+            exit 1
+          fi
 
       - name: Package tarball
         run: |
@@ -154,7 +164,7 @@ jobs:
           owner: emela-lang
           repositories: emela
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: true

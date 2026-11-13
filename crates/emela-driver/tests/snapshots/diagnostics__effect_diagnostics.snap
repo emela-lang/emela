@@ -26,14 +26,14 @@ error[E0406]: wrong number of parameters: operation `info` takes 1, found 2
     │        ╰─── 
 ────╯
 
-error[E0402]: effect `Logger` is not declared in `use`
+error[E0402]: effect `Logger` is not declared in `uses`
     ╭─[ main.emel:30:4 ]
     │
  30 │   (use Logger).infoo("x")
     │    ─────┬────  
     │         ╰────── 
 ────╯
-   = help: add it to `use` or provide it with `with`
+   = help: add it to `uses` or provide it with `with`
 
 error[E0401]: effect `Logger` has no operation `infoo`
     ╭─[ main.emel:30:16 ]
@@ -43,12 +43,12 @@ error[E0401]: effect `Logger` has no operation `infoo`
     │                  ╰──── 
 ────╯
 
-error[E0403]: effect set mismatch: expected `use {}`, found `use Logger`
+error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Logger }`
     ╭─[ main.emel:36:8 ]
     │
- 36 │   only(fn() { log.info("x") })
-    │        ───────────┬──────────  
-    │                   ╰──────────── 
+ 36 │   only(|| log.info("x"))
+    │        ────────┬───────  
+    │                ╰───────── 
 ────╯
 
 error[E0407]: external function `console_log` can only be used in handlers
@@ -58,7 +58,7 @@ error[E0407]: external function `console_log` can only be used in handlers
     │   ─────┬─────  
     │        ╰─────── 
 ────╯
-   = help: declare it with `use {}` if it has no side effects
+   = help: declare it with `uses {}` if it has no side effects
 
 error[E0409]: a capability cannot be stored in a data structure
     ╭─[ main.emel:38:9 ]

@@ -1,10 +1,11 @@
 {
   "name": "emela",
   "displayName": "Emela",
+  "icon": "./icons/emela-logo.png",
   "description": "Emela language support: diagnostics, completion and the other features of `emela lsp`, plus syntax highlighting.",
-  "version": "0.1.0",
+  "version": "0.27.0",
   "publisher": "Emela",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/emela-lang/emela.git",
@@ -28,7 +29,11 @@
         "extensions": [
           ".emel"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/emela-logo-simple.svg",
+          "dark": "./icons/emela-logo-simple.svg"
+        }
       }
     ],
     "grammars": [
@@ -57,9 +62,11 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "vscode:prepublish": "npm run compile"
+    "check": "tsc -p ./ --noEmit",
+    "compile": "npm run check && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "vsce package",
+    "vscode:prepublish": "npm run check && node esbuild.mjs --production"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
@@ -67,6 +74,8 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "4.1.0",
+    "esbuild": "^0.28.0",
     "typescript": "^5.4.0"
   }
 }

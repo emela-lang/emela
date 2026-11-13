@@ -1,0 +1,15 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run_with_core(&[(\"main.emel\", \"fn f(s: Sec[Int], b: Box) -> Int { 1 }\\n\",)],\n&[(\"scope.emel\",\n\"@intrinsic\\npub effect Scope {}\\n@intrinsic\\npub type Bytes\\n\"),\n(\"sec.emel\", \"type Sec[A](a: A)\\n\"), (\"box.emel\", \"import Other.{Box}\\n\"),\n(\"other.emel\", \"pub type Box(x: Int)\\n\"),],)"
+---
+== Main (src/main.emel)
+fn Main.f
+  param s#0: <error>[Int]
+  param b#1: <error>
+  ret Int
+  body
+    block
+      1
+== diagnostics
+error src/main.emel@8..11 `Sec`: undefined type `Sec`
+error src/main.emel@21..24 `Box`: undefined type `Box`

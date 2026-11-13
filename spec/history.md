@@ -6,6 +6,79 @@ This is the record of changes to the specification. New entries are added at the
 
 - `[target]`, `[target.js.host]`, `[cmd.build]`, `[cmd.doctor]`, `[cmd.test.out-dir]`, `[diag.list]`: `emela run` and `emela test` run the JS output with the host named by the environment variable `EMELA_JS_HOST`. Its value is a command, started in the same way as `EMELA_NODE` today. `EMELA_NODE` is deprecated and is read, with a warning, for one more minor version. The hosts that the JS target assumes become Node and Bun; Deno is no longer one of them. The version check before a run reads the version from inside the host, so that it knows Bun from Node and compares each with its own minimum. Adopted in the proposal `js-host-variable` (#504).
 
+## 2026-11-10 (Separate microcontroller support)
+
+- `[target]`, `[module.pome]`, `[lib.layers]`, `[cmd]`, `[cmd.build]`, `[cmd.doctor]`: Remove the embedded C backend, the `c-embedded` target, the `flash` command, the board and runtime configuration options, and the bundled `Std.Embedded.*` modules. Microcontroller support is maintained in the separate emelino repository. The native C target and the shared frontend and Flow APIs remain available.
+- The retired section names below are retained for references from earlier history and proposals. They no longer define supported behavior and MUST NOT be reused.
+
+### Embedded C target (retired) `[target.c-embedded]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded C output (retired) `[target.c-embedded.output]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded boards (retired) `[target.c-embedded.board]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded entry (retired) `[target.c-embedded.entry]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded project configuration (retired) `[target.c-embedded.project]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded runtime configuration (retired) `[target.c-embedded.config]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Firmware flashing (retired) `[cmd.flash]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+## 2026-11-10 (emela doctor)
+
+- `[cmd]`, `[cmd.doctor]`, `[target.c-embedded.board]`: Add the command `emela doctor`. It resolves the external programs that each build target uses (node, cc, wasmtime, the tools of the embedded target) and the routes used to fetch Pomes, by the same rules as the commands that use them, and reports what is missing. Adopted in the proposal `doctor-command` (#535).
+
+## 2026-11-09 (License of a Pome in Pome.toml)
+
+- `[module.pome]`, `[pome.manifest]`, `[cmd.pome]`: Add `license` to `[pome]`, so that a Pome declares its license as an SPDX license expression. It can be omitted. Tools such as the indexer of pkgs.emela.dev read this value instead of guessing the license from the files of the repository. Adopted in the proposal `pome-license` (#524).
+
+## 2026-11-07 (Move attempt and Exit to Std.Exit)
+
+- `[fiber]`, `[fiber.cause]`, `[error.defect]`, `[lib.layers]`, `[api.std.fiber]`, `[api.std.exit]`, `[api.std.cause]`, `[target.c.unsupported]`, `[dyn.memory]`, `[target.unspecified]`: `attempt` and the enum `Exit` (`Success`, `Failure`) move from `Std.Fiber` to a new module `Std.Exit`. `Fiber.attempt(f)` becomes `Exit.attempt(f)`. `Cause` stays in `Std.Cause`, and `Fiber.await` returns the `Exit` of `Std.Exit`. The old names are removed without a deprecation period. Adopted in the proposal `std-exit` (#501).
+
+## 2026-11-07 (Array)
+
+- `[lib.layers]`, `[api.std.array]`, `[ext.boundary]`, `[target.js.value]`, `[target.impl-hint]`, `[diag.list]`: Add `Array[A]`, an immutable sequence of fixed length with O(1) access by position, to the value layer of std as `Std.Array`. Its representation is a flat block of elements. `set` returns a new array; on WASM and C, it updates the array in place when the argument is the last reference to it, so a loop that threads one array through `set` runs in O(1) per step there. A sequence is built as a List and turned into an Array; Array has no operation that grows an array. `Array[A]` becomes a boundary type of external functions on the JS target, where it is a JS `Array`. Adopted in the proposal `array` (#508).
+
+## 2026-11-07 (Line continuation of error sets)
+
+- `[lex.continuation]`: Rule 5 continues a line that starts with `|` when the previous line ends inside the error set of a fails clause. The proposal `closure-syntax` (#492) had kept `|` in rule 4, which applied only inside a signature, so that an error set could be written over several lines; the proposal `uses-clause` (#488) replaced rule 4 with a rule on `fails` and `uses` alone and dropped the signature. `|` cannot follow that rule, because a line that starts with `|` can start an anonymous function. A line that ends inside the error set of a fails clause is never a complete statement, and `fails` followed by a name is always a clause, so the previous line decides it without tracking the signature. The reading of correct programs does not change. Decided by the author while applying `uses-clause`.
+
+## 2026-11-06 (Rename the effect clause to uses)
+
+- `[fmt.io]`, `[fmt.space]`, `[lex.continuation]`, `[kw.contextual]`, `[glossary.terms]`, `[grammar.decl]`, `[grammar.type]`, `[type.fn]`, `[type.inference]`, `[type.rules]`, `[type.effect-bound]`, `[effect.decl]`, `[effect.use]`, `[effect.with]`, `[effect.handler]`, `[effect.async]`, `[effect.state]`, `[effect.label]`, `[error.fails]`, `[fn.decl]`, `[fn.operator]`, `[data.tuple]`, `[intro.layers]`, `[module.pub-signature]`, `[module.resolution]`, `[module.pome]`, `[trait.effects]`, `[trait.not]`, `[fiber.scope]`, `[fiber.combinators]`, `[fiber.interrupt]`, `[fiber.cause]`, `[fiber.deferred]`, `[ext.decl]`, `[ext.call]`, `[ext.boundary]`, `[ext.c-host]`, `[ext.export]`, `[lib.layers]`, `[api.prelude]`, `[api.std.state]`, `[api.std.fiber]`, `[api.std.deferred]`, `[api.std.http]`, `[target.js]`, `[target.c-embedded.entry]`, `[fmt.signature]`, `[lsp.hover]`, `[lsp.completion]`, `[lsp.code-action]`, `[lsp.inlay-hint]`, `[open.list]`, `[diag.list]`: The clause that writes the effect set R of a function signature or a function type is renamed from `use` to `uses` (`fn f() -> A fails E uses { R }`, `fn(A) -> B fails {} uses {}`). `uses` is a contextual keyword, as `fails` is, so no reserved word is added. The expression `use X`, the display of a capability type `use Logger`, and `use` inside init stay as they are. The old clause is a compile error that shows the rewrite (E0147). Because a line starting with `uses` can no longer be mistaken for a `use` expression, rule 4 of `[lex.continuation]` is decided by tokens alone and no longer only inside signatures. The canonical form of a clause always has braces (`uses { Db }`), and `emela fmt` rewrites both the old clause and the form without braces. Adopted in the proposal `uses-clause` (#488).
+
+## 2026-11-05 (The JavaScript launcher names)
+
+- `[target.js.module]`, `[ext.export]`, `[diag.list]`: `main.mjs` exports `main` and `$start` for the launcher in addition to the host exports. A two-argument `@export(js, "name")` that would duplicate one of them is E0438. The rule is conditional on the name being exported: `main` when the entry has a `main`, and `$start` when the entry's `main` or a host export of the `js` target may suspend. Adopted in the proposal `js-launcher-names` (#462).
+
+## 2026-11-05 (Closure syntax for anonymous functions)
+
+- `[fn.decl]`, `[fn.block]`, `[lex.continuation]`, `[grammar.expr]`, `[type.fn]`, `[type.inference]`, `[type.rules]`, `[fiber.combinators]`, `[fmt.wrap]`, `[fmt.closure]`, `[fmt.io]`, `[diag.list]`: An anonymous function is written `|x| e`, `|a, b| e` or `|| e`. The body is one expression and extends as far to the right as possible; a body of several statements is a block, `|x| { ... }`. The form `fn(x) { e }` is removed from expressions, and `fn` is used only for declarations and function types. Existing code is rewritten mechanically by `emela fmt`. Adopted in the proposal `closure-syntax` (#492).
+
+## 2026-10-29 (Behavior when memory is exhausted)
+
+- `[dyn.memory]`, `[target.unspecified]`, `[error.defect]`, `[fiber.cause]`, `[target.wasm.run]`: The specification does not say what happens when a program cannot obtain the memory it needs. This proposal leaves the result implementation-defined, including whether it is a defect (and therefore whether the releases run and whether the failure is observable at `Fiber.attempt`), what is written and the exit status. A program MUST NOT depend on any of these. A future proposal may fix them. Adopted in the proposal `memory-exhaustion` (#461).
+
+## 2026-10-29 (A wildcard arm for escape)
+
+- `[error.escape]`, `[type.rules]`, `[module.resolution]`, `[diag.list]`: An escape arm MAY be the wildcard `_`. It handles every error of the original expression, including the errors in opaque set variables, and removes all of them from E. It is meant for falling back to a default, doing nothing, or turning a failure into a defect. `_` cannot have a guard. A variable pattern stays a compile error, because a value of "one of E" cannot be typed (`[error.decl]`). Adopted in the proposal `escape-wildcard-arm` (#420).
+
 ## 2026-10-29 (The embedded C target)
 
 - `[target]`, `[target.c-embedded]`, `[target.c-embedded.output]`, `[target.c-embedded.board]`, `[target.c-embedded.entry]`, `[target.c-embedded.project]`, `[target.c-embedded.config]`, `[module.pome]`, `[cmd]`, `[cmd.build]`, `[cmd.flash]`: Add the target `c-embedded`, which makes C for microcontrollers, and, with a board selected by `--board` or `[embedded].board`, a firmware image. `emela flash` writes the image of the last successful build after checking that its inputs and outputs have not changed. `[pome].targets` and `[build].target` can name `c-embedded`. The `[embedded]` table of `Pome.toml` and the runtime configuration file are added. This follows the pull request #387.

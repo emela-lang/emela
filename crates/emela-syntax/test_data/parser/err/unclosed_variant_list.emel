@@ -1,0 +1,4 @@
+# 閉じていない enum の本体は，行頭の宣言で終わる
+enum Shape {
+  Circle
+fn f() { 1 }

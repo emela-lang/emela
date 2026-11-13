@@ -17,7 +17,7 @@ pub fn complete[A](d: Deferred[A], value: A) -> Bool
 
 ## Waits until the box has a value, and returns it. Any number of fibers may wait on one box.
 @intrinsic
-pub fn await[A](d: Deferred[A]) -> A use Async
+pub fn await[A](d: Deferred[A]) -> A uses { Async }
 
 ## The value if the box has one, `None` otherwise. Does not wait or suspend.
 @intrinsic

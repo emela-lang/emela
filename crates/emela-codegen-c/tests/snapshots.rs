@@ -64,7 +64,7 @@ fn twice(f: fn(Int) -> Int, x: Int) -> Int { f(f(x)) }
 fn main() {
   with Fixed {
     k = (use Ask).ask()
-    print("#{twice(fn(x) { x * k }, 3)}")
+    print("#{twice(|x| x * k, 3)}")
   }
 }
 "##
@@ -103,15 +103,15 @@ handler Instant: Clock {
   suspend fn sleep(ms, resume) { resume(ms + 1) }
 }
 
-fn nap(ms: Int) -> Int use { Clock } {
+fn nap(ms: Int) -> Int uses { Clock } {
   n = (use Clock).sleep(ms)
   n + ms
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Instant {
-    total = Fiber.scope(fn() {
-      a = Fiber.fork(fn() { nap(1) })
+    total = Fiber.scope(|| {
+      a = Fiber.fork(|| nap(1))
       nap(2) + Fiber.join(a)
     })
     print("#{total}")

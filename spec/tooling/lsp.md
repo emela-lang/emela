@@ -6,18 +6,20 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 
 - The server reads and writes JSON-RPC with `Content-Length` over standard input and output. On `exit` after `shutdown`, it ends with exit code 0.
 - Text is synchronized in full (`TextDocumentSyncKind::FULL`). The server receives the open, change, save, and close notifications. It does not ask for the text in the save notification (`includeText: false`), but uses the text if it arrives.
+- The server receives `workspace/didChangeWatchedFiles` (`[lsp.diagnostics]`). If the client declares `workspace.didChangeWatchedFiles.dynamicRegistration`, the server sends `client/registerCapability` after `initialized`, asking to watch `**/*.emel`, `**/Pome.toml`, and `**/Pome.lock` for creation, change, and deletion. Otherwise it registers nothing, and handles the notification if the client sends it anyway. The response to the registration does not change the server's behavior, whether it succeeds or fails.
 - The server answers the following requests.
   - `textDocument/formatting` (`[lsp.formatting]`)
   - `textDocument/hover` (`[lsp.hover]`)
   - `textDocument/definition`, `textDocument/references`, `textDocument/documentHighlight`, `textDocument/typeDefinition`, `textDocument/implementation` (`[lsp.navigation]`)
   - `textDocument/documentSymbol`, `workspace/symbol` (`[lsp.symbol]`)
   - `textDocument/foldingRange`, `textDocument/selectionRange` (`[lsp.structure]`)
+  - `textDocument/documentLink` (`[lsp.document-link]`)
   - `textDocument/completion`, `textDocument/signatureHelp` (`[lsp.completion]`)
   - `textDocument/rename`, `textDocument/prepareRename` (`[lsp.rename]`)
   - `textDocument/codeAction` (`[lsp.code-action]`)
   - `textDocument/inlayHint` (`[lsp.inlay-hint]`)
   - `textDocument/semanticTokens/full`, `textDocument/semanticTokens/range` (`[lsp.semantic-tokens]`)
-- The only completion trigger character is `.`. The signature help trigger characters are `(` and `,`.
+- The completion trigger characters are `.` and `@`. The signature help trigger characters are `(` and `,`.
 - The server does not answer `completionItem/resolve`. Completion items carry their full contents in the first response.
 - Documents with URIs that are not `file:` (`untitled:` and so on) are not handled. Unsaved buffers get no diagnostics.
 - The path of a URI is expressed with `%` encoding. All characters other than alphanumerics and `-._~/` are encoded.
@@ -34,6 +36,10 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 ## Diagnostics `[lsp.diagnostics]`
 
 - On every open, change, save, and close, the server re-checks the whole project the document belongs to and sends the results with `textDocument/publishDiagnostics`.
+- When the client reports files changed on disk (`workspace/didChangeWatchedFiles`), the server checks again everything it checks (the workspace projects, and the projects and single files of the open documents) and sends the results. This covers files that are not open, and files that an open single file reads through imports. The following events are ignored.
+  - Events for an open document: its unsaved contents are checked instead of the disk (`[lsp.project]`).
+  - Creations and changes of files that are not `.emel`, `Pome.toml`, or `Pome.lock`. A deletion of any path is not ignored, because deleting a directory can arrive as one event for the directory.
+- A file deleted from disk drops out of the check, so its diagnostics are cleared with an empty array by the rule below.
 - The `code` of a diagnostic is the string of the diagnostic code (`E0107` and so on), and `source` is `emela`. Each note is appended to the end of the message as `\nnote: …`. Labels go into `relatedInformation`.
 - `version` is set to the last received version for an open document, and is not set for files that are not open.
 - A diagnostic without a determined position is attached at the start (0:0) of the following location.
@@ -59,10 +65,10 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - The name of a definition, and a name that refers to a definition: `name: type`. The type is the declared type, and for an inferred one, the generalized type.
   - A local variable (the bound position and references): `name: type`.
   - Any other expression: its type, and `fails E` on the next line if E is not empty.
-  - For an expression, if R is not empty, a `use R` line also follows the `fails E` line.
-  - The name of a handler: the form `handler H(conn: Connection): E`. A handler without fields is written without parentheses. A handler for an effect with type arguments is shown with the type arguments substituted (`handler Fixed: State[Int]`). If the E of init is not empty, an `init fails E` line is added, and if the requirements of the handler are not empty, a `use R` line is added.
-  - The name of a layer: `layer L { H1, H2 }` (in initialization order). If the layer has requirements not satisfied inside it, a `use R` line is added.
-  - The name of a label (`[effect.label]`), and a name that refers to a label (`use { AuditLog }`, `with AuditLog by H`): the declaration as is (`effect DebugLog of Console default`). Whether it falls back to the underlying effect can be read from `default` in the declaration.
+  - For an expression, if R is not empty, a `uses { R }` line also follows the `fails E` line.
+  - The name of a handler: the form `handler H(conn: Connection): E`. A handler without fields is written without parentheses. A handler for an effect with type arguments is shown with the type arguments substituted (`handler Fixed: State[Int]`). If the E of init is not empty, an `init fails E` line is added, and if the requirements of the handler are not empty, a `uses { R }` line is added.
+  - The name of a layer: `layer L { H1, H2 }` (in initialization order). If the layer has requirements not satisfied inside it, a `uses { R }` line is added.
+  - The name of a label (`[effect.label]`), and a name that refers to a label (`uses { AuditLog }`, `with AuditLog by H`): the declaration as is (`effect DebugLog of Console default`). Whether it falls back to the underlying effect can be read from `default` in the declaration.
   - A suspend fn (an effect operation and `@external suspend fn`): `suspend` is put before the type.
   - The type of a capability value is shown as `use Logger` (`log: use Logger`). For an effect with type arguments, `use State[Int]`.
   - The type of a handler value shows only the handler's name (`self: PostgresUsers`).
@@ -124,6 +130,14 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - Runs of imports and comments are split by a blank line or by code in between.
 - selectionRange returns, for each requested position, a chain of ranges from the token up through the parent syntax elements to the whole file. The same range is not repeated. If the position is on a token boundary, the token on the right is chosen. However, if only one side is whitespace or a comment, the other side is chosen. For a request that includes a position outside the document, it returns `null`.
 
+## Document links `[lsp.document-link]`
+
+- `textDocument/documentLink` returns a link for each file argument of `@external` (`[ext.decl]`) in the document: the second argument of `@external(target, "file", "name")` when its string starts with `./` or `../`. The link's target is the `file:` URI of that path taken from the directory of the document, written as for diagnostics (`[lsp.diagnostics]`): the URI received from the editor if the file is open, and otherwise the path joined to the workspace folder path received from the editor. `@export` and `@entry` take no file (`[ext.export]`, `[ext.entry]`), so they give no link.
+- It is built from the syntax tree of the unsaved contents without checking, so it answers even if there are syntax, import, or type errors. For an unreadable document, it returns `null`.
+- The range of a link is the contents of the string, without the quotes. In a multiline string, it is the one line that holds the path, without the indentation that the string removes (`[lex.literal]`).
+- No link is returned for a path that does not name an existing file, for a string with an escape or an interpolation, or for a multiline string whose value has more than one line.
+- Links are returned in source order. The server does not answer `documentLink/resolve`: the target is in the first response.
+
 ## Completion and signature help `[lsp.completion]`
 
 - `textDocument/completion` returns all candidates for names that can be written at that position. Filtering by the partially typed name is left to the editor. The order of candidates is kept by putting sequential numbers in `sortText`.
@@ -142,20 +156,28 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 | effect operation, trait function | Method |
 | field | Field |
 | module | Module |
-| reserved word | Keyword |
+| reserved word, attribute name, target name | Keyword |
 | label of a named argument | Property (`insertText` is `x: `) |
 
 - The candidates returned depend on the context determined from the text before the cursor, as follows.
+  - Inside a comment (`#` or `##`, from the character after `#` to the end of the line) or inside the text of a string literal (`"` or `"""`): nothing. Inside an interpolation `#{ }` of a string, the contexts below apply as in code.
+  - Right after `@`, with only a partially typed name: the attribute names `external`, `export`, `entry`, `test` and `deprecated` (`[kw.annotation]`). In the bundled core sources, `intrinsic` and `internal` follow them; elsewhere they are not shown, since writing them there is a compile error (E0224, E0229).
+  - In the first argument of `@external(` and `@export(`, with only a partially typed name: the target names `js`, `wasm` and `c` (`[ext.decl]`, `[ext.export]`).
   - Before `{` on an `import` line: the next segment after the module name (`Log` for `import Util.`). Names of functions and types, and the module itself, are not shown.
   - Inside `import A.{`: the pub definitions of module A (including enum variants).
   - After `.`, when the left side is a sequence of capitalized names: the name to the left of `.` is looked up in the same order as `[module.resolution]` (imported modules, core modules, Traits). For a module, its pub definitions. For a Trait, its functions.
   - After `.`, otherwise: if the type of the left expression is a capability value, the operations of the effect. If its head is a named type, its fields (the description is the text of the written type), then the functions that can be called as methods (`[type.rules]`; kind Method, the first parameter left out of the signature). For other types, empty. Even for a `.` at the end of a line, the type of the left expression is computed and candidates are shown (`l.from.`, `c.now().`).
-  - Right after `use`: effects only. Right after `with`: handlers and layers only.
+  - Right after `use` and `uses`: effects only. Right after `with`: handlers and layers only.
+  - At the start of an item inside the braces of `uses` (`uses { `, `uses { Db, `), at the start of an effect set written as a type argument (`Fiber[A, { `), and after `handler H:` or `handler H(…):`: effects only.
+  - After `fails` written after a type, and after `|` in its error set (`fails NotFound | `, also on a continuation line): errors only.
+  - After `impl T:`, after `trait T:` and `+` in its supertraits, after `:` and `+` of a type parameter in the type parameters of a declaration (`fn f[A: `), and after `derive` and `,` in its list: traits only.
+  - In a type: after `name:` in the parameters of a function and in the fields of a type, an error, a handler or a variant, after `name:` at the start of a statement (the type of a binding), after `const C:`, after `->` that follows the parameters of a function or of a function type, at the start of a parameter of a function type (`fn(`), at the start of a positional field of a variant, and at the start of a type argument or after `|` in it (`List[`, `Map[K, `): types, enums and errors, followed by the imported and core modules that have a pub type, enum or error. Locals and reserved words are not shown.
+  - A `name:` inside the parentheses of a call is a label, and what follows it is a value. `->` after a pattern (a match arm) is followed by a value. In the parameters of a lambda and of `init`, and after a pattern other than a name, the type position is not told apart from an expression, and the candidates of the next item are shown.
   - Otherwise: in this order, the visible local variables (innermost first), the definitions of this module (including variants), the names listed in imports, the imported modules, the core modules whose name has one segment (except `Prelude`), the definitions of Prelude, and reserved words (except `as`). For the same name, only the first one is shown.
 - The type of an operation candidate of a capability value is the type with the effect's type parameters replaced by the type arguments of the capability value.
 - At the start of an argument in a call (after `f(` or after a comma, when only a partially typed name is there), the labels of the callee not yet written are shown first (the name is `x:`, and the description is the argument's type), followed by value candidates. They are not shown after a label (the value position of `x: `).
 - `textDocument/signatureHelp` returns exactly one signature: the type of the call and the labels of its arguments (there is no overloading). The range of an argument is expressed as UTF-16 positions inside the label of `ParameterInformation`. If the argument position of the cursor exceeds the number of arguments, `activeParameter` is not set.
-- Signature help has the form `name(label: type, …) -> return fails E use R`, and is shown for the innermost call whose parentheses contain the cursor. For an unclosed call, the end position of the range is also treated as inside the parentheses. The argument at the cursor is the argument with that label if the partially typed argument starts with `label:`, and otherwise is determined by the number of commas outside nested brackets (commas inside strings are not counted). If the label of the partially typed argument is not among the remaining arguments, no argument is marked as active.
+- Signature help has the form `name(label: type, …) -> return fails E uses { R }`, and is shown for the innermost call whose parentheses contain the cursor. For an unclosed call, the end position of the range is also treated as inside the parentheses. The argument at the cursor is the argument with that label if the partially typed argument starts with `label:`, and otherwise is determined by the number of commas outside nested brackets (commas inside strings are not counted). If the label of the partially typed argument is not among the remaining arguments, no argument is marked as active.
 - For a call on the right side of a pipe (`x |> f(a)`), both signature help and label completion exclude the first argument, which the left side fills (`[fn.pipe]`).
 - For a call on the right side of a pipe where the first argument is written by name (`xs |> List.fold(xs: ys)`), no argument is marked as active. When the right side is not a call (`x |> log.info`), no signature help is shown.
 - The `documentation` of completion and signature help shows the doc of the definition (`[lsp.doc]`) as Markdown `MarkupContent`. The doc of a function is not split per argument. Completion of a named argument of a constructor shows the doc of the corresponding field.
@@ -175,7 +197,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 - `refactor.rewrite`: inserts the inferred result into the omitted annotations of a top-level fn (`[module.pub-signature]`). It is not tied to a diagnostic.
   - It is offered for a top-level fn with a body when the range covers the fn's header (from `fn` to just before the `{` of the body). It is also offered for fns that are not pub.
   - If the return type is omitted, `-> T` is added, together with `fails E` if the inferred E is not empty. Nothing is added to a fn that writes the return type and omits fails (because E is fixed to the written fails clause, `[error.fails]`).
-  - If the `use` clause is omitted, `use R` is added if the inferred R is not empty. It goes after the fails clause or the return type.
+  - If the `uses` clause is omitted, `uses { R }` is added if the inferred R is not empty. It goes after the fails clause or the return type.
   - Hidden sets of function types in arguments (`E(f)`) are excluded from E and R. When a hidden set appears in the return type, the return type and fails are not added.
   - A clause in which a definition appears that cannot be written unqualified in this file (types and errors of other modules not listed in an import) is not added.
   - The title has the form ``Add inferred `-> Int fails NotFound` ``.
@@ -184,11 +206,12 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - If the requested range is empty, the diagnostics that contain the cursor (excluding the end of the range) are chosen. If it is not empty, the diagnostics whose ranges overlap are chosen.
 - The fixes are as follows.
   - E0303 (match is not exhaustive): adds the examples of missing patterns reported by the exhaustiveness check (`[fn.match]`) at the end of the arms. The body of each arm is the Prelude `todo()`. Constructors are qualified with an already imported module if needed. When a name cannot be written in a single way, `_ -> todo()` is added. When the number of examples reaches the limit, the same `_ -> todo()` is added at the end.
-  - E0325 (an impl is missing methods): adds the missing methods together at the end of the impl body, in declaration order. Only the argument names are taken from the trait, and types, fails, and use are not written. The body is `todo()`. It is offered only when the cursor is inside the head of the impl (`impl User: Show`), not at `{` or inside the body.
+  - E0325 (an impl is missing methods): adds the missing methods together at the end of the impl body, in declaration order. Only the argument names are taken from the trait, and types, fails, and uses are not written. The body is `todo()`. It is offered only when the cursor is inside the head of the impl (`impl User: Show`), not at `{` or inside the body.
   - Imports for E0211 (undefined name): candidates are chosen from the module table and the checked public definitions. For a qualified name like `Io.print`, `import Io` is added. For an effect that is not imported, and the like, an import of the form `import Std.Console.{Console}` is added. Each candidate is a separate action. No edit is offered that makes an effect operation callable in the form `Effect.op` (`[module.resolution]`, `[effect.use]`).
   - Misspellings for E0211 and E0212: from the completion candidates at that position, excluding reserved words, labels, and names of a different uppercase/lowercase lexical class, the name is replaced with the closest name within the same edit distance as name resolution (within one third of the name length, at least 1). On a tie, the name from the inner scope is chosen.
-  - E0318 and E0402 (the E and R of the body are not included in the declaration): writes the union of the body's E and R and the written clauses, by the same rules as inserting omitted annotations. Written elements are not removed. For E0402 on main, test, const, and handler operations, no edit that propagates use is offered.
+  - E0318 and E0402 (the E and R of the body are not included in the declaration): writes the union of the body's E and R and the written clauses, by the same rules as inserting omitted annotations. Written elements are not removed. For E0402 on main, test, const, and handler operations, no edit that propagates uses is offered.
   - E0144 and E0145 (the old form of impl and handler heads): for E0144, the head (from `impl` to the end of the head) is replaced with the rewritten head. For E0145, the text from after the name (or after the field sequence, if any) up to `implements` is replaced with `:`. The rewritten form is the same as the form shown in the diagnostic message (`[diag.list]`).
+  - E0147 (the old clause): replaces the clause with its canonical form (`use Db` becomes `uses { Db }`).
 - There is no diagnostic for unused imports, so there is no quickfix that removes them.
 
 ## Inlay hints `[lsp.inlay-hint]`
@@ -197,9 +220,9 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 - The kind is `Type` for types and omitted annotations, and `Parameter` for the E and R of calls.
 - A type (`: Int`) is shown right after the name. Others are shown with a space on the left.
 - The following are shown.
-  - Omitted annotations of a top-level fn: if the return type is omitted, `-> T fails E use R` (E and R only if not empty). If only the use clause is omitted, `use R`. Hidden sets (`E(f)`) are shown as is. Whether they can be written is not considered.
+  - Omitted annotations of a top-level fn: if the return type is omitted, `-> T fails E uses { R }` (E and R only if not empty). If only the uses clause is omitted, `uses { R }`. Hidden sets (`E(f)`) are shown as is. Whether they can be written is not considered.
   - The type `: T` of bindings without type annotations (whose pattern is a single variable), of arguments of anonymous functions, and of arguments of handler operations and impl functions. Capability values, and types containing undetermined or broken types, are not shown.
-  - The E and R (`fails E use R`) of calls and pipelines in statement position (a statement, the right side of a binding, the end of a block). Nothing is shown if both are empty. Nothing is shown for nested calls.
+  - The E and R (`fails E uses { R }`) of calls and pipelines in statement position (a statement, the right side of a binding, the end of a block). Nothing is shown if both are empty. Nothing is shown for nested calls.
 - If the end of the requested range is outside the file, it is treated as the end of the file.
 
 ## semantic tokens `[lsp.semantic-tokens]`

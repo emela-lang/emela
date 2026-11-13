@@ -59,7 +59,7 @@ pub(crate) fn signature_help(
         label.push_str(&format!(" fails {}", f.fails.display_with(cons, &params)));
     }
     if !f.uses.is_empty() {
-        label.push_str(&format!(" use {}", f.uses.display_effects(cons, &params)));
+        label.push_str(&format!(" uses {}", f.uses.display_uses(cons, &params)));
     }
     let args = text.get(usize::from(call.open) + 1..usize::from(offset))?;
     let active = active_param(args, &labels, ranges.len());

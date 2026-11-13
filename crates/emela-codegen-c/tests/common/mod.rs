@@ -39,7 +39,7 @@ void emela_test_sleep(int32_t ms, em_task *task) {
 /// Declares `print` for the test programs.
 pub const PRELUDE: &str = r#"@external(js, "console.log")
 @external(c, "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 "#;
 
 /// Lowers `src` and compiles it to C.
@@ -75,7 +75,8 @@ pub fn sanitizers() -> Option<&'static str> {
     static FLAGS: OnceLock<Option<&'static str>> = OnceLock::new();
     *FLAGS.get_or_init(|| {
         let cc = cc()?;
-        let dir = out_dir("sanitizer-probe");
+        // Per process, as the shared objects are ([`shared_objects`]).
+        let dir = out_dir(&format!("sanitizer-probe-{}", std::process::id()));
         std::fs::write(dir.join("p.c"), "int main(void) { return 0; }\n").unwrap();
         ["-fsanitize=address,undefined", "-fsanitize=undefined"]
             .into_iter()
@@ -151,7 +152,9 @@ fn shared_objects(flags: &[&str]) -> (PathBuf, PathBuf) {
         return paths.clone();
     }
 
-    let dir = out_dir(&format!("shared-{}", key.join("-")));
+    // The cache is per process, and nextest runs each test in its own process: a directory per
+    // process keeps one from linking an object another is still writing.
+    let dir = out_dir(&format!("shared-{}-{}", std::process::id(), key.join("-")));
     std::fs::write(dir.join(RUNTIME_C_FILE), RUNTIME_C).unwrap();
     std::fs::write(dir.join(RUNTIME_H_FILE), RUNTIME_H).unwrap();
     std::fs::write(dir.join(EMELA_H_FILE), EMELA_H).unwrap();

@@ -30,6 +30,11 @@ impl Project {
     /// Runs emela. For `run`, the line naming the command that started the program is taken out
     /// of `stderr` into `command`, so `stderr` holds the diagnostics and the program's own output.
     fn emela(&self, args: &[&str]) -> Run {
+        self.emela_with_env(args, &[])
+    }
+
+    /// [`Project::emela`] with environment variables set for the process.
+    fn emela_with_env(&self, args: &[&str], env: &[(&str, &Path)]) -> Run {
         // `emela test` prints in the `plain` format outside a coding agent ([cmd.test.reporter]).
         let mut command = Command::new(env!("CARGO_BIN_EXE_emela"));
         for var in emela_driver::AGENT_ENV_VARS {
@@ -39,6 +44,7 @@ impl Project {
             .args(args)
             .current_dir(&self.dir)
             .env("NO_COLOR", "1")
+            .envs(env.iter().copied())
             .output()
             .unwrap();
         let mut stderr = String::from_utf8(output.stderr).unwrap();
@@ -711,7 +717,7 @@ fn check_resolves_bundled_core() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x * 2 })\n  Option.or(List.head(xs), 0) + String.length(\"abc\")\n}\n",
+                "fn main() -> Int {\n  xs = List.map([1, 2], |x| x * 2)\n  Option.or(List.head(xs), 0) + String.length(\"abc\")\n}\n",
             ),
         ],
     );
@@ -730,7 +736,7 @@ fn check_reports_error_set_errors() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "error NotFound(id: Int)\nerror Timeout\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn strict() -> Int {\n  find(1)\n}\n\nfn wrong() -> Int fails Timeout {\n  find(1)\n}\n\nfn run(f: fn() -> Int fails {}) -> Int { f() }\n\nfn bad() -> Int { run(fn() { fail Timeout }) }\n\nfn never() -> Int { strict() escape { Timeout -> 0 } }\n\nfn not_error() { fail 1 }\n\nfn catch_all() -> Int { find(1) escape { _ -> 0 } }\n\n# main の E は空でなくてよい（14.3）\nfn main() {\n  find(1)\n}\n",
+                "error NotFound(id: Int)\nerror Timeout\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn strict() -> Int {\n  find(1)\n}\n\nfn wrong() -> Int fails Timeout {\n  find(1)\n}\n\nfn run(f: fn() -> Int fails {}) -> Int { f() }\n\nfn bad() -> Int { run(|| fail Timeout) }\n\nfn never() -> Int { strict() escape { Timeout -> 0 } }\n\nfn not_error() { fail 1 }\n\nfn catch_variable() -> Int { find(1) escape { e -> 0 } }\n\n# main の E は空でなくてよい（14.3）\nfn main() {\n  find(1)\n}\n",
             ),
         ],
     );
@@ -1197,4 +1203,72 @@ fn run_starts_the_server_of_an_http_service() {
             )
         )
     );
+}
+
+/// A script standing in for node: `--version` prints `version`, and anything else prints
+/// `started` (`[cmd.build]`).
+#[cfg(unix)]
+fn fake_node(project: &Project, version: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = project.path().join(format!("node-{}", version.len()));
+    std::fs::write(
+        &path,
+        format!("#!/bin/sh\nif [ \"$1\" = --version ]; then echo '{version}'; exit 0; fi\necho started\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// `emela run` and `emela test` on JS stop with E0904 before starting a node older than the
+/// version `[target]` requires (`[cmd.build]`). The `running` line is not written.
+#[cfg(unix)]
+#[test]
+fn run_and_test_stop_on_a_node_that_is_too_old() {
+    let project = Project::new(
+        "old-node",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "fn main() {}\n\n@test\nfn works() {}\n"),
+        ],
+    );
+    let node = fake_node(&project, "v20.11.1");
+    let expected = format!(
+        "error[E0904]: `{}` is v20.11.1, but target `js` needs node 22 or later",
+        node.display()
+    );
+    for command in ["run", "test"] {
+        let run = project.emela_with_env(&[command, "--target", "js"], &[("EMELA_NODE", &node)]);
+        assert_eq!(run.code, Some(1), "{command}: {run:?}");
+        assert!(!run.stdout.contains("started"), "{command}: {run:?}");
+        assert_eq!(run.command, None, "{command}: {run:?}");
+        assert!(run.stderr.contains(&expected), "{command}: {run:?}");
+        assert!(
+            run.stderr.contains(
+                "install Node.js 22 or later, or set EMELA_NODE to a newer node executable"
+            ),
+            "{command}: {run:?}"
+        );
+    }
+}
+
+/// A node of the required version or later, and one whose version cannot be read, is started
+/// (`[cmd.build]`).
+#[cfg(unix)]
+#[test]
+fn run_starts_a_node_that_is_new_enough_or_whose_version_is_unknown() {
+    let project = Project::new(
+        "new-node",
+        &[("Pome.toml", ""), ("src/main.emel", "fn main() {}\n")],
+    );
+    for version in ["v22.0.0", "v24.11.1", "unknown"] {
+        let node = fake_node(&project, version);
+        let run = project.emela_with_env(&["run", "--target", "js"], &[("EMELA_NODE", &node)]);
+        assert_eq!(
+            (run.code, run.stdout.as_str()),
+            (Some(0), "started\n"),
+            "{version}: {run:?}"
+        );
+    }
 }

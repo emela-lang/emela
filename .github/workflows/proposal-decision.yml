@@ -101,7 +101,7 @@ jobs:
 
       - name: Checkout the pull request
         if: steps.command.outputs.verb == 'accept'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.pr.outputs.branch }}
           token: ${{ steps.app-token.outputs.token }}
@@ -111,7 +111,7 @@ jobs:
       # before `accept` was added lacks it, and a pull request must not choose the code the bot runs.
       - name: Checkout scripts/spec.py of the default branch
         if: steps.command.outputs.verb == 'accept'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: base
           sparse-checkout: scripts/spec.py

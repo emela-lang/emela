@@ -1,0 +1,636 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/uses_clause.emel
+---
+ROOT@0..760
+  COMMENT@0..69 "# uses 節（9.2，17.3，17.4）．文法が許す場所すべて．"
+  NEWLINE@69..70 "\n"
+  FN_DECL@70..101
+    FN_KW@70..72 "fn"
+    WHITESPACE@72..73 " "
+    LOWER_NAME@73..74 "a"
+    PARAM_LIST@74..76
+      L_PAREN@74..75 "("
+      R_PAREN@75..76 ")"
+    WHITESPACE@76..77 " "
+    RET_TYPE@77..83
+      THIN_ARROW@77..79 "->"
+      WHITESPACE@79..80 " "
+      PATH_TYPE@80..83
+        PATH@80..83
+          TYPE_NAME@80..83 "Int"
+    WHITESPACE@83..84 " "
+    USES_CLAUSE@84..95
+      LOWER_NAME@84..88 "uses"
+      WHITESPACE@88..89 " "
+      EFFECT_SET@89..95
+        L_BRACE@89..90 "{"
+        WHITESPACE@90..91 " "
+        PATH@91..93
+          TYPE_NAME@91..93 "Db"
+        WHITESPACE@93..94 " "
+        R_BRACE@94..95 "}"
+    WHITESPACE@95..96 " "
+    BLOCK_EXPR@96..101
+      L_BRACE@96..97 "{"
+      WHITESPACE@97..98 " "
+      LITERAL@98..99
+        INT@98..99 "1"
+      WHITESPACE@99..100 " "
+      R_BRACE@100..101 "}"
+  NEWLINE@101..102 "\n"
+  FN_DECL@102..137
+    FN_KW@102..104 "fn"
+    WHITESPACE@104..105 " "
+    LOWER_NAME@105..106 "b"
+    PARAM_LIST@106..108
+      L_PAREN@106..107 "("
+      R_PAREN@107..108 ")"
+    WHITESPACE@108..109 " "
+    RET_TYPE@109..115
+      THIN_ARROW@109..111 "->"
+      WHITESPACE@111..112 " "
+      PATH_TYPE@112..115
+        PATH@112..115
+          TYPE_NAME@112..115 "Int"
+    WHITESPACE@115..116 " "
+    FAILS_CLAUSE@116..123
+      LOWER_NAME@116..121 "fails"
+      WHITESPACE@121..122 " "
+      ERROR_SET@122..123
+        TYPE_VAR@122..123
+          UPPER_NAME@122..123 "E"
+    WHITESPACE@123..124 " "
+    USES_CLAUSE@124..131
+      LOWER_NAME@124..128 "uses"
+      WHITESPACE@128..129 " "
+      EFFECT_SET@129..131
+        PATH@129..131
+          TYPE_NAME@129..131 "Db"
+    WHITESPACE@131..132 " "
+    BLOCK_EXPR@132..137
+      L_BRACE@132..133 "{"
+      WHITESPACE@133..134 " "
+      LITERAL@134..135
+        INT@134..135 "1"
+      WHITESPACE@135..136 " "
+      R_BRACE@136..137 "}"
+  NEWLINE@137..138 "\n"
+  FN_DECL@138..192
+    FN_KW@138..140 "fn"
+    WHITESPACE@140..141 " "
+    LOWER_NAME@141..142 "c"
+    TYPE_PARAM_LIST@142..145
+      L_BRACK@142..143 "["
+      TYPE_PARAM@143..144
+        UPPER_NAME@143..144 "R"
+      R_BRACK@144..145 "]"
+    PARAM_LIST@145..171
+      L_PAREN@145..146 "("
+      PARAM@146..170
+        LOWER_NAME@146..147 "f"
+        COLON@147..148 ":"
+        WHITESPACE@148..149 " "
+        FN_TYPE@149..170
+          FN_KW@149..151 "fn"
+          PARAM_TYPE_LIST@151..153
+            L_PAREN@151..152 "("
+            R_PAREN@152..153 ")"
+          WHITESPACE@153..154 " "
+          RET_TYPE@154..159
+            THIN_ARROW@154..156 "->"
+            WHITESPACE@156..157 " "
+            UNIT_TYPE@157..159
+              L_PAREN@157..158 "("
+              R_PAREN@158..159 ")"
+          WHITESPACE@159..160 " "
+          USES_CLAUSE@160..170
+            LOWER_NAME@160..164 "uses"
+            WHITESPACE@164..165 " "
+            EFFECT_SET@165..170
+              L_BRACE@165..166 "{"
+              WHITESPACE@166..167 " "
+              TYPE_VAR@167..168
+                UPPER_NAME@167..168 "R"
+              WHITESPACE@168..169 " "
+              R_BRACE@169..170 "}"
+      R_PAREN@170..171 ")"
+    WHITESPACE@171..172 " "
+    RET_TYPE@172..177
+      THIN_ARROW@172..174 "->"
+      WHITESPACE@174..175 " "
+      UNIT_TYPE@175..177
+        L_PAREN@175..176 "("
+        R_PAREN@176..177 ")"
+    WHITESPACE@177..178 " "
+    USES_CLAUSE@178..184
+      LOWER_NAME@178..182 "uses"
+      WHITESPACE@182..183 " "
+      EFFECT_SET@183..184
+        TYPE_VAR@183..184
+          UPPER_NAME@183..184 "R"
+    WHITESPACE@184..185 " "
+    BLOCK_EXPR@185..192
+      L_BRACE@185..186 "{"
+      WHITESPACE@186..187 " "
+      CALL_EXPR@187..190
+        NAME_REF@187..188
+          LOWER_NAME@187..188 "f"
+        ARG_LIST@188..190
+          L_PAREN@188..189 "("
+          R_PAREN@189..190 ")"
+      WHITESPACE@190..191 " "
+      R_BRACE@191..192 "}"
+  NEWLINE@192..193 "\n"
+  FN_DECL@193..214
+    FN_KW@193..195 "fn"
+    WHITESPACE@195..196 " "
+    LOWER_NAME@196..197 "d"
+    PARAM_LIST@197..199
+      L_PAREN@197..198 "("
+      R_PAREN@198..199 ")"
+    WHITESPACE@199..200 " "
+    USES_CLAUSE@200..207
+      LOWER_NAME@200..204 "uses"
+      WHITESPACE@204..205 " "
+      EFFECT_SET@205..207
+        L_BRACE@205..206 "{"
+        R_BRACE@206..207 "}"
+    WHITESPACE@207..208 " "
+    BLOCK_EXPR@208..214
+      L_BRACE@208..209 "{"
+      WHITESPACE@209..210 " "
+      UNIT_EXPR@210..212
+        L_PAREN@210..211 "("
+        R_PAREN@211..212 ")"
+      WHITESPACE@212..213 " "
+      R_BRACE@213..214 "}"
+  NEWLINE@214..215 "\n"
+  FN_DECL@215..248
+    FN_KW@215..217 "fn"
+    WHITESPACE@217..218 " "
+    LOWER_NAME@218..219 "e"
+    PARAM_LIST@219..221
+      L_PAREN@219..220 "("
+      R_PAREN@220..221 ")"
+    WHITESPACE@221..222 " "
+    USES_CLAUSE@222..241
+      LOWER_NAME@222..226 "uses"
+      WHITESPACE@226..227 " "
+      EFFECT_SET@227..241
+        L_BRACE@227..228 "{"
+        WHITESPACE@228..229 " "
+        PATH@229..231
+          TYPE_NAME@229..231 "Db"
+        COMMA@231..232 ","
+        WHITESPACE@232..233 " "
+        PATH@233..236
+          TYPE_NAME@233..236 "Log"
+        COMMA@236..237 ","
+        WHITESPACE@237..238 " "
+        TYPE_VAR@238..239
+          UPPER_NAME@238..239 "R"
+        WHITESPACE@239..240 " "
+        R_BRACE@240..241 "}"
+    WHITESPACE@241..242 " "
+    BLOCK_EXPR@242..248
+      L_BRACE@242..243 "{"
+      WHITESPACE@243..244 " "
+      UNIT_EXPR@244..246
+        L_PAREN@244..245 "("
+        R_PAREN@245..246 ")"
+      WHITESPACE@246..247 " "
+      R_BRACE@247..248 "}"
+  NEWLINE@248..249 "\n"
+  FN_DECL@249..317
+    FN_KW@249..251 "fn"
+    WHITESPACE@251..252 " "
+    LOWER_NAME@252..257 "apply"
+    PARAM_LIST@257..301
+      L_PAREN@257..258 "("
+      PARAM@258..292
+        LOWER_NAME@258..259 "f"
+        COLON@259..260 ":"
+        WHITESPACE@260..261 " "
+        FN_TYPE@261..292
+          FN_KW@261..263 "fn"
+          PARAM_TYPE_LIST@263..268
+            L_PAREN@263..264 "("
+            PATH_TYPE@264..267
+              PATH@264..267
+                TYPE_NAME@264..267 "Int"
+            R_PAREN@267..268 ")"
+          WHITESPACE@268..269 " "
+          RET_TYPE@269..275
+            THIN_ARROW@269..271 "->"
+            WHITESPACE@271..272 " "
+            PATH_TYPE@272..275
+              PATH@272..275
+                TYPE_NAME@272..275 "Int"
+          WHITESPACE@275..276 " "
+          FAILS_CLAUSE@276..284
+            LOWER_NAME@276..281 "fails"
+            WHITESPACE@281..282 " "
+            ERROR_SET@282..284
+              L_BRACE@282..283 "{"
+              R_BRACE@283..284 "}"
+          WHITESPACE@284..285 " "
+          USES_CLAUSE@285..292
+            LOWER_NAME@285..289 "uses"
+            WHITESPACE@289..290 " "
+            EFFECT_SET@290..292
+              L_BRACE@290..291 "{"
+              R_BRACE@291..292 "}"
+      COMMA@292..293 ","
+      WHITESPACE@293..294 " "
+      PARAM@294..300
+        LOWER_NAME@294..295 "x"
+        COLON@295..296 ":"
+        WHITESPACE@296..297 " "
+        PATH_TYPE@297..300
+          PATH@297..300
+            TYPE_NAME@297..300 "Int"
+      R_PAREN@300..301 ")"
+    WHITESPACE@301..302 " "
+    RET_TYPE@302..308
+      THIN_ARROW@302..304 "->"
+      WHITESPACE@304..305 " "
+      PATH_TYPE@305..308
+        PATH@305..308
+          TYPE_NAME@305..308 "Int"
+    WHITESPACE@308..309 " "
+    BLOCK_EXPR@309..317
+      L_BRACE@309..310 "{"
+      WHITESPACE@310..311 " "
+      CALL_EXPR@311..315
+        NAME_REF@311..312
+          LOWER_NAME@311..312 "f"
+        ARG_LIST@312..315
+          L_PAREN@312..313 "("
+          NAME_REF@313..314
+            LOWER_NAME@313..314 "x"
+          R_PAREN@314..315 ")"
+      WHITESPACE@315..316 " "
+      R_BRACE@316..317 "}"
+  NEWLINE@317..318 "\n"
+  FN_DECL@318..374
+    FN_KW@318..320 "fn"
+    WHITESPACE@320..321 " "
+    LOWER_NAME@321..325 "make"
+    PARAM_LIST@325..327
+      L_PAREN@325..326 "("
+      R_PAREN@326..327 ")"
+    WHITESPACE@327..328 " "
+    RET_TYPE@328..356
+      THIN_ARROW@328..330 "->"
+      WHITESPACE@330..331 " "
+      PAREN_TYPE@331..356
+        L_PAREN@331..332 "("
+        FN_TYPE@332..355
+          FN_KW@332..334 "fn"
+          PARAM_TYPE_LIST@334..336
+            L_PAREN@334..335 "("
+            R_PAREN@335..336 ")"
+          WHITESPACE@336..337 " "
+          RET_TYPE@337..342
+            THIN_ARROW@337..339 "->"
+            WHITESPACE@339..340 " "
+            UNIT_TYPE@340..342
+              L_PAREN@340..341 "("
+              R_PAREN@341..342 ")"
+          WHITESPACE@342..343 " "
+          USES_CLAUSE@343..355
+            LOWER_NAME@343..347 "uses"
+            WHITESPACE@347..348 " "
+            EFFECT_SET@348..355
+              L_BRACE@348..349 "{"
+              WHITESPACE@349..350 " "
+              PATH@350..353
+                TYPE_NAME@350..353 "Log"
+              WHITESPACE@353..354 " "
+              R_BRACE@354..355 "}"
+        R_PAREN@355..356 ")"
+    WHITESPACE@356..357 " "
+    USES_CLAUSE@357..368
+      LOWER_NAME@357..361 "uses"
+      WHITESPACE@361..362 " "
+      EFFECT_SET@362..368
+        L_BRACE@362..363 "{"
+        WHITESPACE@363..364 " "
+        PATH@364..366
+          TYPE_NAME@364..366 "Db"
+        WHITESPACE@366..367 " "
+        R_BRACE@367..368 "}"
+    WHITESPACE@368..369 " "
+    BLOCK_EXPR@369..374
+      L_BRACE@369..370 "{"
+      WHITESPACE@370..371 " "
+      NAME_REF@371..372
+        LOWER_NAME@371..372 "g"
+      WHITESPACE@372..373 " "
+      R_BRACE@373..374 "}"
+  NEWLINE@374..375 "\n"
+  FN_DECL@375..415
+    FN_KW@375..377 "fn"
+    WHITESPACE@377..378 " "
+    LOWER_NAME@378..380 "st"
+    PARAM_LIST@380..382
+      L_PAREN@380..381 "("
+      R_PAREN@381..382 ")"
+    WHITESPACE@382..383 " "
+    RET_TYPE@383..389
+      THIN_ARROW@383..385 "->"
+      WHITESPACE@385..386 " "
+      PATH_TYPE@386..389
+        PATH@386..389
+          TYPE_NAME@386..389 "Int"
+    WHITESPACE@389..390 " "
+    USES_CLAUSE@390..409
+      LOWER_NAME@390..394 "uses"
+      WHITESPACE@394..395 " "
+      EFFECT_SET@395..409
+        L_BRACE@395..396 "{"
+        WHITESPACE@396..397 " "
+        PATH_TYPE@397..407
+          PATH@397..402
+            TYPE_NAME@397..402 "State"
+          TYPE_ARG_LIST@402..407
+            L_BRACK@402..403 "["
+            PATH_TYPE@403..406
+              PATH@403..406
+                TYPE_NAME@403..406 "Int"
+            R_BRACK@406..407 "]"
+        WHITESPACE@407..408 " "
+        R_BRACE@408..409 "}"
+    WHITESPACE@409..410 " "
+    BLOCK_EXPR@410..415
+      L_BRACE@410..411 "{"
+      WHITESPACE@411..412 " "
+      LITERAL@412..413
+        INT@412..413 "1"
+      WHITESPACE@413..414 " "
+      R_BRACE@414..415 "}"
+  NEWLINE@415..416 "\n"
+  NEWLINE@416..417 "\n"
+  TYPE_DECL@417..484
+    TYPE_KW@417..421 "type"
+    WHITESPACE@421..422 " "
+    TYPE_NAME@422..429 "Handler"
+    TYPE_PARAM_LIST@429..435
+      L_BRACK@429..430 "["
+      TYPE_PARAM@430..431
+        UPPER_NAME@430..431 "E"
+      COMMA@431..432 ","
+      WHITESPACE@432..433 " "
+      TYPE_PARAM@433..434
+        UPPER_NAME@433..434 "R"
+      R_BRACK@434..435 "]"
+    FIELD_LIST@435..484
+      L_PAREN@435..436 "("
+      FIELD@436..483
+        LOWER_NAME@436..439 "run"
+        COLON@439..440 ":"
+        WHITESPACE@440..441 " "
+        FN_TYPE@441..483
+          FN_KW@441..443 "fn"
+          PARAM_TYPE_LIST@443..452
+            L_PAREN@443..444 "("
+            PATH_TYPE@444..451
+              PATH@444..451
+                TYPE_NAME@444..451 "Request"
+            R_PAREN@451..452 ")"
+          WHITESPACE@452..453 " "
+          RET_TYPE@453..464
+            THIN_ARROW@453..455 "->"
+            WHITESPACE@455..456 " "
+            PATH_TYPE@456..464
+              PATH@456..464
+                TYPE_NAME@456..464 "Response"
+          WHITESPACE@464..465 " "
+          FAILS_CLAUSE@465..472
+            LOWER_NAME@465..470 "fails"
+            WHITESPACE@470..471 " "
+            ERROR_SET@471..472
+              TYPE_VAR@471..472
+                UPPER_NAME@471..472 "E"
+          WHITESPACE@472..473 " "
+          USES_CLAUSE@473..483
+            LOWER_NAME@473..477 "uses"
+            WHITESPACE@477..478 " "
+            EFFECT_SET@478..483
+              L_BRACE@478..479 "{"
+              WHITESPACE@479..480 " "
+              TYPE_VAR@480..481
+                UPPER_NAME@480..481 "R"
+              WHITESPACE@481..482 " "
+              R_BRACE@482..483 "}"
+      R_PAREN@483..484 ")"
+  NEWLINE@484..485 "\n"
+  NEWLINE@485..486 "\n"
+  TRAIT_DECL@486..582
+    TRAIT_KW@486..491 "trait"
+    WHITESPACE@491..492 " "
+    TYPE_NAME@492..497 "Store"
+    WHITESPACE@497..498 " "
+    ITEM_LIST@498..582
+      L_BRACE@498..499 "{"
+      NEWLINE@499..500 "\n"
+      WHITESPACE@500..502 "  "
+      FN_DECL@502..549
+        FN_KW@502..504 "fn"
+        WHITESPACE@504..505 " "
+        LOWER_NAME@505..509 "load"
+        PARAM_LIST@509..515
+          L_PAREN@509..510 "("
+          PARAM@510..514
+            SELF_KW@510..514 "self"
+          R_PAREN@514..515 ")"
+        WHITESPACE@515..516 " "
+        RET_TYPE@516..522
+          THIN_ARROW@516..518 "->"
+          WHITESPACE@518..519 " "
+          PATH_TYPE@519..522
+            PATH@519..522
+              TYPE_NAME@519..522 "Int"
+        WHITESPACE@522..523 " "
+        FAILS_CLAUSE@523..537
+          LOWER_NAME@523..528 "fails"
+          WHITESPACE@528..529 " "
+          ERROR_SET@529..537
+            PATH@529..537
+              TYPE_NAME@529..537 "NotFound"
+        WHITESPACE@537..538 " "
+        USES_CLAUSE@538..549
+          LOWER_NAME@538..542 "uses"
+          WHITESPACE@542..543 " "
+          EFFECT_SET@543..549
+            L_BRACE@543..544 "{"
+            WHITESPACE@544..545 " "
+            PATH@545..547
+              TYPE_NAME@545..547 "Db"
+            WHITESPACE@547..548 " "
+            R_BRACE@548..549 "}"
+      NEWLINE@549..550 "\n"
+      WHITESPACE@550..552 "  "
+      FN_DECL@552..580
+        FN_KW@552..554 "fn"
+        WHITESPACE@554..555 " "
+        LOWER_NAME@555..559 "save"
+        PARAM_LIST@559..565
+          L_PAREN@559..560 "("
+          PARAM@560..564
+            SELF_KW@560..564 "self"
+          R_PAREN@564..565 ")"
+        WHITESPACE@565..566 " "
+        USES_CLAUSE@566..573
+          LOWER_NAME@566..570 "uses"
+          WHITESPACE@570..571 " "
+          EFFECT_SET@571..573
+            PATH@571..573
+              TYPE_NAME@571..573 "Db"
+        WHITESPACE@573..574 " "
+        BLOCK_EXPR@574..580
+          L_BRACE@574..575 "{"
+          WHITESPACE@575..576 " "
+          UNIT_EXPR@576..578
+            L_PAREN@576..577 "("
+            R_PAREN@577..578 ")"
+          WHITESPACE@578..579 " "
+          R_BRACE@579..580 "}"
+      NEWLINE@580..581 "\n"
+      R_BRACE@581..582 "}"
+  NEWLINE@582..583 "\n"
+  NEWLINE@583..584 "\n"
+  FN_DECL@584..661
+    ANNOTATION@584..613
+      AT@584..585 "@"
+      LOWER_NAME@585..593 "external"
+      ANNOT_ARG_LIST@593..613
+        L_PAREN@593..594 "("
+        ANNOT_ARG@594..596
+          LOWER_NAME@594..596 "js"
+        COMMA@596..597 ","
+        WHITESPACE@597..598 " "
+        ANNOT_ARG@598..607
+          STRING@598..607
+            STRING_QUOTE@598..599 "\""
+            STRING_TEXT@599..606 "./x.mjs"
+            STRING_QUOTE@606..607 "\""
+        COMMA@607..608 ","
+        WHITESPACE@608..609 " "
+        ANNOT_ARG@609..612
+          STRING@609..612
+            STRING_QUOTE@609..610 "\""
+            STRING_TEXT@610..611 "f"
+            STRING_QUOTE@611..612 "\""
+        R_PAREN@612..613 ")"
+    NEWLINE@613..614 "\n"
+    FN_KW@614..616 "fn"
+    WHITESPACE@616..617 " "
+    LOWER_NAME@617..620 "ext"
+    PARAM_LIST@620..646
+      L_PAREN@620..621 "("
+      PARAM@621..645
+        LOWER_NAME@621..622 "f"
+        COLON@622..623 ":"
+        WHITESPACE@623..624 " "
+        FN_TYPE@624..645
+          FN_KW@624..626 "fn"
+          PARAM_TYPE_LIST@626..628
+            L_PAREN@626..627 "("
+            R_PAREN@627..628 ")"
+          WHITESPACE@628..629 " "
+          RET_TYPE@629..634
+            THIN_ARROW@629..631 "->"
+            WHITESPACE@631..632 " "
+            UNIT_TYPE@632..634
+              L_PAREN@632..633 "("
+              R_PAREN@633..634 ")"
+          WHITESPACE@634..635 " "
+          USES_CLAUSE@635..645
+            LOWER_NAME@635..639 "uses"
+            WHITESPACE@639..640 " "
+            EFFECT_SET@640..645
+              L_BRACE@640..641 "{"
+              WHITESPACE@641..642 " "
+              TYPE_VAR@642..643
+                UPPER_NAME@642..643 "R"
+              WHITESPACE@643..644 " "
+              R_BRACE@644..645 "}"
+      R_PAREN@645..646 ")"
+    WHITESPACE@646..647 " "
+    RET_TYPE@647..653
+      THIN_ARROW@647..649 "->"
+      WHITESPACE@649..650 " "
+      PATH_TYPE@650..653
+        PATH@650..653
+          TYPE_NAME@650..653 "Int"
+    WHITESPACE@653..654 " "
+    USES_CLAUSE@654..661
+      LOWER_NAME@654..658 "uses"
+      WHITESPACE@658..659 " "
+      EFFECT_SET@659..661
+        L_BRACE@659..660 "{"
+        R_BRACE@660..661 "}"
+  NEWLINE@661..662 "\n"
+  NEWLINE@662..663 "\n"
+  COMMENT@663..691 "# 名前としての uses．"
+  NEWLINE@691..692 "\n"
+  FN_DECL@692..759
+    FN_KW@692..694 "fn"
+    WHITESPACE@694..695 " "
+    LOWER_NAME@695..701 "idents"
+    PARAM_LIST@701..712
+      L_PAREN@701..702 "("
+      PARAM@702..711
+        LOWER_NAME@702..706 "uses"
+        COLON@706..707 ":"
+        WHITESPACE@707..708 " "
+        PATH_TYPE@708..711
+          PATH@708..711
+            TYPE_NAME@708..711 "Int"
+      R_PAREN@711..712 ")"
+    WHITESPACE@712..713 " "
+    RET_TYPE@713..719
+      THIN_ARROW@713..715 "->"
+      WHITESPACE@715..716 " "
+      PATH_TYPE@716..719
+        PATH@716..719
+          TYPE_NAME@716..719 "Int"
+    WHITESPACE@719..720 " "
+    BLOCK_EXPR@720..759
+      L_BRACE@720..721 "{"
+      NEWLINE@721..722 "\n"
+      WHITESPACE@722..724 "  "
+      BINDING@724..739
+        NAME_REF@724..728
+          LOWER_NAME@724..728 "uses"
+        WHITESPACE@728..729 " "
+        EQ@729..730 "="
+        WHITESPACE@730..731 " "
+        BIN_EXPR@731..739
+          NAME_REF@731..735
+            LOWER_NAME@731..735 "uses"
+          WHITESPACE@735..736 " "
+          PLUS@736..737 "+"
+          WHITESPACE@737..738 " "
+          LITERAL@738..739
+            INT@738..739 "1"
+      NEWLINE@739..740 "\n"
+      WHITESPACE@740..742 "  "
+      BINDING@742..750
+        NAME_REF@742..743
+          LOWER_NAME@742..743 "x"
+        WHITESPACE@743..744 " "
+        EQ@744..745 "="
+        WHITESPACE@745..746 " "
+        NAME_REF@746..750
+          LOWER_NAME@746..750 "uses"
+      NEWLINE@750..751 "\n"
+      WHITESPACE@751..753 "  "
+      NAME_REF@753..757
+        LOWER_NAME@753..757 "uses"
+      NEWLINE@757..758 "\n"
+      R_BRACE@758..759 "}"
+  NEWLINE@759..760 "\n"

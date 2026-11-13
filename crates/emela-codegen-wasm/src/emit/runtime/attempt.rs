@@ -1,4 +1,4 @@
-//! `Fiber.attempt` and the operations of `Std.Cause` (spec 11.5).
+//! `Exit.attempt` and the operations of `Std.Cause` (spec 11.5).
 //!
 //! `attempt` runs its function on the current fiber, so it needs no fiber of its own: the call is
 //! an indirect call, and what it left (a value, a pending failure or a pending defect) becomes an
@@ -23,7 +23,7 @@
 
 use super::*;
 
-use super::sched::{F_STATE, cell};
+use super::sched::F_STATE;
 
 pub(super) const FUNCS: &[Sig] = &[
     ("cause_new", &[ValType::I32, ValType::I32], &[ValType::I32]),
@@ -62,7 +62,7 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
     true
 }
 
-/// Whether the program uses `Fiber.attempt` or an operation of `Std.Cause`, the only concurrency
+/// Whether the program uses `Exit.attempt` or an operation of `Std.Cause`, the only concurrency
 /// operations the target supports (`check::value`).
 pub(crate) fn used(b: &Builder) -> bool {
     b.m.functions.iter().any(|(_, f)| {
@@ -78,7 +78,7 @@ pub(crate) fn used(b: &Builder) -> bool {
     })
 }
 
-/// Whether some `Fiber.attempt` runs a function that may suspend, so the scheduler needs the
+/// Whether some `Exit.attempt` runs a function that may suspend, so the scheduler needs the
 /// resume function of its frame.
 pub(crate) fn suspends(b: &Builder) -> bool {
     b.m.functions.iter().any(|(_, f)| {
@@ -200,16 +200,46 @@ fn failure_of(
 fn attempt_caught(b: &mut Builder, ins: &mut InstructionSink) {
     const C: u32 = 0;
     const EXIT: u32 = 1;
+    if let Some(run_over) = b.fiber_plan.as_ref().map(|p| p.run_over) {
+        // A defect that ended the run (a failure or defect after the operation implementation
+        // resumed, spec 14.5) is not caught: it is the run's result.
+        ins.i32_const(run_over as i32);
+        ins.i32_load(mem(0, 4));
+        ins.if_(BlockType::Empty);
+        ins.i32_const(0);
+        ins.return_();
+        ins.end();
+    }
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
     if let Some(plan) = &b.sus {
-        let (interrupted, unwinding) = (plan.interrupted, plan.unwinding);
-        ins.global_get(G_DEFECT);
-        ins.i32_const(interrupted as i32);
-        ins.i32_eq();
-        ins.i32_const(unwinding as i32);
-        ins.i32_load(mem(0, 4));
-        ins.i32_or();
+        if b.fiber_plan.is_some() {
+            // An interruption, and any defect while the fiber unwinds as interrupted, is not
+            // caught (spec 11.5).
+            ins.global_get(G_DEFECT);
+            let f = b.rt("fb_is_interrupted");
+            ins.call(f);
+            let cur = b.fiber_plan.as_ref().map(|p| p.cur_fiber).unwrap_or(0);
+            ins.i32_const(cur as i32);
+            ins.i32_load(mem(0, 4));
+            ins.if_(BlockType::Result(ValType::I32));
+            ins.i32_const(cur as i32);
+            ins.i32_load(mem(0, 4));
+            let g = b.rt("fb_is_unwinding");
+            ins.call(g);
+            ins.else_();
+            ins.i32_const(0);
+            ins.end();
+            ins.i32_or();
+        } else {
+            let (interrupted, unwinding) = (plan.interrupted, plan.unwinding);
+            ins.global_get(G_DEFECT);
+            ins.i32_const(interrupted as i32);
+            ins.i32_eq();
+            ins.i32_const(unwinding as i32);
+            ins.i32_load(mem(0, 4));
+            ins.i32_or();
+        }
         ins.if_(BlockType::Empty);
         ins.i32_const(0);
         ins.return_();
@@ -321,17 +351,16 @@ fn cause_to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(CAUSE_FAIL);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
-    // `show_failure` takes the error value; the cause keeps its own.
-    ins.local_get(0);
-    ins.i32_load(mem(HDR, 4));
-    ins.call(rt(b, "dup"));
+    // `show_failure` borrows the error; the cause keeps its own reference.
     ins.local_get(0);
     ins.i32_load(mem(HDR, 4));
     ins.call(rt(b, "show_failure"));
     ins.local_tee(SHOWN);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    // An error value without a display shows as nothing (spec 14.3, the same as `main`'s).
+    // In a failure cause, `show_failure` is null only when showing raised a defect; the cause
+    // then shows as `error: ` and the defect stays pending, so the program reports it at the end
+    // (a `defect:` line and exit 101), unlike a test result, which reports and clears it.
     ins.i32_const(error as i32);
     ins.return_();
     ins.end();
@@ -387,16 +416,13 @@ fn cause_raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     // `Interrupt`: only `Fiber.await` makes one, so it needs the suspend runtime.
     if b.sus.is_some() {
-        ins.call(rt(b, "interrupted"));
+        if b.fiber_plan.is_some() {
+            ins.i32_const(0);
+            let f = b.rt("fb_interrupted_new");
+            ins.call(f);
+        } else {
+            ins.call(rt(b, "interrupted"));
+        }
         ins.call(rt(b, "raise"));
     }
-}
-
-/// The `unwinding` cell (see the module documentation), if the program uses this module and
-/// suspends.
-pub(super) fn unwinding_cell(b: &Builder) -> Option<u32> {
-    if !used(b) {
-        return None;
-    }
-    b.sus.as_ref().map(|_| cell(b, |p| p.unwinding))
 }

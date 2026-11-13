@@ -35,7 +35,7 @@ pub struct DocModule {
 pub struct DocItem {
     pub name: SmolStr,
     pub kind: DocKind,
-    /// `fn now() -> Instant use { Clock }`, `type User(id: Int)`, ...
+    /// `fn now() -> Instant uses { Clock }`, `type User(id: Int)`, ...
     pub signature: String,
     /// The `##` lines without the marker, joined by newlines. Markdown.
     pub doc: String,
@@ -238,7 +238,7 @@ fn describe(
 }
 
 /// The signature of a fn, an effect operation or a trait function:
-/// `suspend fn name[A: Ord](label: T, ...) -> R fails E use R`.
+/// `suspend fn name[A: Ord](label: T, ...) -> R fails E uses { R }`.
 ///
 /// Only the type parameters written on the declaration go in `[...]`. The invisible sets of
 /// function-typed parameters (spec 9.2) show as `E(f)` and `R(f)`, as in hover.
@@ -302,7 +302,7 @@ fn fn_signature(program: &TypedProgram, def: DefId, sig: &FnSig) -> Option<Strin
         text.push_str(&format!(" fails {}", f.fails.display_with(cons, params)));
     }
     if !f.uses.is_empty() {
-        text.push_str(&format!(" use {}", f.uses.display_effects(cons, params)));
+        text.push_str(&format!(" uses {}", f.uses.display_uses(cons, params)));
     }
     Some(text)
 }

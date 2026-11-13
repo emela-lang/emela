@@ -89,9 +89,10 @@ pub enum CErrorKind {
     Unsupported,
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,
-    /// An external function reachable from the entry, or an exported fn, takes or returns Bytes
-    /// (E0443, `[ext.boundary]`).
-    Bytes,
+    /// An external function reachable from the entry, or an exported fn, takes or returns a type
+    /// the C target does not support at the boundary yet: Bytes or an Array (E0443,
+    /// `[ext.boundary]`).
+    BoundaryType,
     /// A bug in the compiler (the IR failed a verifier, ...).
     Internal,
 }

@@ -9,6 +9,7 @@
 pub mod edit;
 pub mod fetch;
 pub mod hash;
+pub mod license;
 pub mod lock;
 pub mod manifest;
 pub mod mvs;
@@ -18,6 +19,7 @@ pub mod sumdb;
 pub mod version;
 
 pub use hash::{H1, manifest_hash, tree_hash};
+pub use license::is_license_expression;
 pub use lock::{Lock, Locked};
 pub use manifest::{Manifest, Requirement};
 pub use source_path::SourcePath;

@@ -105,7 +105,7 @@ fn closures_capture() {
         "closure",
         r#"
 fn adder(a: Int) -> fn(Int) -> Int {
-  fn(b: Int) { a + b }
+  |b: Int| a + b
 }
 fn main() {
   add2 = adder(2)
@@ -148,7 +148,7 @@ handler Hi: Greet {
   fn hello(name) { "hi #{name}" }
 }
 
-fn greet(name: String) -> String use Greet {
+fn greet(name: String) -> String uses { Greet } {
   (use Greet).hello(name)
 }
 
@@ -187,6 +187,73 @@ fn main() {
         return;
     };
     assert_eq!(out, "5\n-1\n");
+}
+
+#[test]
+fn an_error_without_show_reaching_main_shows_its_name() {
+    // An error whose type does not satisfy Show is shown by its name only ([dyn.error]), and the
+    // program still exits with 1 rather than trapping.
+    let Some(run) = run(
+        "error-name",
+        r#"
+error Nope
+
+fn nope() -> Int fails Nope { fail Nope }
+
+fn main() {
+  dbg(nope())
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stdout, "");
+    assert_eq!(run.stderr, "error: Nope\n");
+}
+
+#[test]
+fn an_error_without_show_shows_only_its_name() {
+    // The fields of an error whose type does not satisfy Show are not shown; only the name is
+    // ([dyn.error]).
+    let Some(run) = run(
+        "error-name-fields",
+        r#"
+error Nope(why: String)
+
+fn nope() -> Int fails Nope { fail Nope(why: "no") }
+
+fn main() {
+  dbg(nope())
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stderr, "error: Nope\n");
+}
+
+#[test]
+fn an_error_with_show_reaching_main_keeps_its_display() {
+    // An error whose type satisfies Show is shown the same way as by inspect ([trait.builtin],
+    // [dyn.error]).
+    let Some(run) = run(
+        "error-name-show",
+        r#"
+error Nope(why: String) derive Show
+
+fn nope() -> Int fails Nope { fail Nope(why: "no") }
+
+fn main() {
+  dbg(nope())
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stderr, "error: Nope(why: \"no\")\n");
 }
 
 #[test]
@@ -231,7 +298,7 @@ fn bump(lines: List[String]) -> List[String] {
 }
 
 fn main() {
-  (_, final) = State.run([], fn() {
+  (_, final) = State.run([], || {
     st = use State[List[String]]
     st.update(bump)
     st.update(bump)
@@ -259,11 +326,11 @@ effect Counter {
 }
 
 handler CounterHandler: Counter {
-  fn add() { (use State[List[String]]).update(fn(lines) { List.append(lines, ["a"]) }) }
+  fn add() { (use State[List[String]]).update(|lines| List.append(lines, ["a"])) }
 }
 
 fn main() {
-  (_, final) = State.run([], fn() {
+  (_, final) = State.run([], || {
     with CounterHandler {
       c = use Counter
       c.add()
@@ -287,10 +354,10 @@ fn state_of_a_string() {
 import Std.State.{State}
 
 fn main() {
-  (_, final) = State.run("a", fn() {
+  (_, final) = State.run("a", || {
     st = use State[String]
-    st.update(fn(s) { String.append(s, "b") })
-    st.update(fn(s) { String.append(s, "c") })
+    st.update(|s| String.append(s, "b"))
+    st.update(|s| String.append(s, "c"))
   })
   dbg(final)
 }
@@ -460,9 +527,9 @@ fn main() {
     );
 }
 
-// Notes added by fiber failures (`note: another fiber also failed: …`, 11.2) are not tested here:
-// fibers are not supported on target `wasm` yet (see `check::unsupported`), so only the defect
-// notes of 14.4 are reachable.
+// Notes added by fiber failures (`note: another fiber also failed: …`, 11.2) are tested in
+// `tests/fiber.rs` (`child_failure_notes_keep_the_first`); this file covers the defect notes of
+// 14.4.
 
 #[test]
 fn a_release_defect_becomes_a_note_of_the_first_defect() {
@@ -490,7 +557,7 @@ handler Inner: Pool {
 
 fn work(xs: List[Int]) -> Int {
   zero = (use Pool).get()
-  total = List.fold(xs, 0, fn(a, x) { a + x })
+  total = List.fold(xs, 0, |a, x| a + x)
   dbg("total #{total}")
   total / zero
 }
@@ -540,7 +607,7 @@ handler Spare: Pool {
 fn main() {
   f = with PoolH {
     p = use Pool
-    fn() { p.get() }
+    || p.get()
   }
   with Spare { dbg(f()) }
 }

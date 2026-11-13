@@ -1,0 +1,56 @@
+# Anonymous functions written `|x| e`, `|a, b| e` and `|| e` (`[fn.decl]`). The body takes
+# everything to its right; a call of an anonymous function is written in parentheses.
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+error Boom
+error Other
+
+fn make(n: Int) -> fn() -> Int {
+  m = n * 2
+  || m
+}
+
+fn double(n: Int) -> Int { n * 2 }
+
+fn inc(n: Int) -> Int { n + 1 }
+
+fn adder(a: Int) -> fn(Int) -> fn(Int) -> Int {
+  |b| |c| a + b + c
+}
+
+fn risky(n: Int) -> Int fails Boom | Other {
+  if n < 0 { fail Boom } else if n == 0 { fail Other } else { n }
+}
+
+fn main() {
+  xs = [1, 2, 3]
+  ys = xs |> List.map(|x| x * 10 + 1)
+  total = List.fold(ys, 0, |acc, x| acc + x)
+  print("#{ys} #{total}")
+  piped = List.map(xs, |x| x |> double |> inc)
+  print("#{piped}")
+  print("#{(|x| x + 1)(2)} #{make(21)()} #{adder(1)(2)(3)}")
+  sign = List.map([-2, 0, 5], |n| n match {
+    0 -> "zero"
+    _ if n < 0 -> "neg"
+    _ -> "pos"
+  })
+  print("#{sign}")
+  safe = |f: (fn() -> Int fails Boom | Other)| f() escape {
+    Boom -> -1
+    Other -> 0
+  }
+  print("#{safe(|| risky(-3))} #{safe(|| risky(0))} #{safe(|| risky(7))}")
+  either = False || (|| True)()
+  print("#{either}")
+  sum = |(a, b): (Int, Int)| a + b
+  print("#{List.map([(1, 2), (3, 4)], sum)}")
+  block = |x| {
+    y = x + 1
+    y * y
+  }
+  print("#{block(2)}")
+}

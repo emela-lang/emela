@@ -217,7 +217,7 @@ fn selections_are_strictly_nested_and_handle_empty_or_broken_files() {
 /// bound names, the hidden parameter is not completed, and the pattern gets one type hint.
 #[test]
 fn lambda_parameter_patterns_in_ide_queries() {
-    let text = "fn main() -> Int {\n  List.fold([(1, True)], from: 0, f: fn(acc, (count, _)) {\n    acc + count\n  })\n}\n";
+    let text = "fn main() -> Int {\n  List.fold([(1, True)], from: 0, f: |acc, (count, _)| {\n    acc + count\n  })\n}\n";
     let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
     let file = analysis
         .sources
@@ -254,7 +254,7 @@ fn lambda_parameter_patterns_in_ide_queries() {
         .map(|h| (h.offset, h.label))
         .collect();
     let after_acc = at(text, ", (count");
-    let after_pattern = at(text, ")) {") + TextSize::from(1);
+    let after_pattern = at(text, ")| {") + TextSize::from(1);
     assert_eq!(
         hints,
         [
@@ -284,4 +284,37 @@ fn init_parameters_are_completed_in_init() {
     let in_op = labels("key }");
     assert!(!in_op.iter().any(|l| l == "binding"), "{in_op:?}");
     assert!(in_op.iter().any(|l| l == "key"), "{in_op:?}");
+}
+
+/// `[lsp.completion]`: `@intrinsic` and `@internal` are offered only in the bundled core
+/// sources, where they can be written (E0224, E0229).
+#[test]
+fn core_only_attributes_are_completed_in_core() {
+    let text = "@\nfn main() {}\n";
+    let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
+    let labels = |file, offset| -> Vec<String> {
+        Typecheck::complete(&program, &analysis, file, offset)
+            .into_iter()
+            .map(|c| c.label)
+            .collect()
+    };
+    let main = analysis
+        .sources
+        .file_id(Path::new("/app/src/main.emel"))
+        .unwrap();
+    let user = labels(main, TextSize::from(1));
+    assert_eq!(user, ["external", "export", "entry", "test", "deprecated"]);
+    let (core, offset) = analysis
+        .files
+        .iter()
+        .filter(|&(m, _)| analysis.modules.is_core(m))
+        .find_map(|(_, &file)| {
+            let at = analysis.sources[file].text().find("@intrinsic")?;
+            Some((file, TextSize::try_from(at + 1).unwrap()))
+        })
+        .expect("a core source with @intrinsic");
+    let core = labels(core, offset);
+    for name in ["external", "intrinsic", "internal"] {
+        assert!(core.iter().any(|l| l == name), "{name}: {core:?}");
+    }
 }

@@ -21,8 +21,8 @@ use crate::hover::HoverInfo;
 use crate::nav::{NavTarget, RenameError};
 use crate::output::{BuildOutput, write_output};
 use crate::run::{
-    Output, ProgramCommand, RunOutput, node_command, node_script_command, wasmtime_command,
-    wasmtime_serve_command,
+    Output, ProgramCommand, RunOutput, check_node_version, node_command, node_script_command,
+    wasmtime_command, wasmtime_serve_command,
 };
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
@@ -42,8 +42,6 @@ pub const ENTRY_FILE: &str = "main.emel";
 pub const JS_OUT_DIR: &str = "target/emela/js";
 /// The default C output directory (`--target c`), relative like [`JS_OUT_DIR`].
 pub const C_OUT_DIR: &str = "target/emela/c";
-/// The embedded C output directory (`--target c-embedded`), relative like [`JS_OUT_DIR`].
-pub const C_EMBEDDED_OUT_DIR: &str = "target/emela/c-embedded";
 /// The default WASM output directory (`--target wasm`), relative like [`JS_OUT_DIR`].
 pub const WASM_OUT_DIR: &str = "target/emela/wasm";
 /// The default output directory of `emela doc`, relative like [`JS_OUT_DIR`].
@@ -283,7 +281,6 @@ impl Input {
         match target {
             Target::Js => self.base.join(JS_OUT_DIR),
             Target::C => self.base.join(C_OUT_DIR),
-            Target::CEmbedded => self.base.join(C_EMBEDDED_OUT_DIR),
             Target::Wasm => self.base.join(WASM_OUT_DIR),
         }
     }
@@ -519,7 +516,7 @@ pub trait Backend<P> {
 /// How the built program runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Runner {
-    /// Generated sources that require a separate board toolchain and runner.
+    /// Generated output that requires a separate toolchain and runner.
     BuildOnly,
     /// A `.mjs` entry run on node.
     Node,
@@ -640,6 +637,14 @@ pub fn check<F: Frontend>(
             crate::dependencies::add(fs, &mut analysis.modules, &input.dependencies);
         resolve_diagnostics.extend(more);
         analysis.diagnostics.extend(dependency_diagnostics);
+        let manifest = input.base.join(PROJECT_FILE);
+        if let Ok(text) = fs.read_to_string(&manifest) {
+            analysis.diagnostics.extend(crate::license::check(
+                &text,
+                &manifest,
+                &mut analysis.sources,
+            ));
+        }
     }
     if let Some(entry) = &input.entry {
         analysis.entry = analysis
@@ -912,12 +917,17 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
     let (mut analysis, entry) = build_with(fs, input, frontend, backend, &options.out_dir, true);
     let server = frontend.is_http_service();
     let command = entry.map(|entry| match backend.runner() {
-        Runner::Node if server => Ok(node_script_command(
-            &options.node,
-            &entry.with_file_name(emela_codegen_js::SERVE_FILE),
-            &options.args,
-        )),
-        Runner::Node => Ok(node_command(&options.node, &entry, &options.args)),
+        Runner::Node => check_node_version(&options.node).map(|()| {
+            if server {
+                node_script_command(
+                    &options.node,
+                    &entry.with_file_name(emela_codegen_js::SERVE_FILE),
+                    &options.args,
+                )
+            } else {
+                node_command(&options.node, &entry, &options.args)
+            }
+        }),
         Runner::Native => Ok(native_command(&entry, &options.args)),
         Runner::Wasmtime if server => wasmtime_serve_command(&entry, &options.args),
         Runner::Wasmtime => wasmtime_command(&entry, &options.args),
@@ -938,9 +948,9 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
 
 pub(crate) fn build_only_diagnostic(command: &str) -> Diagnostic {
     Diagnostic::error(format!(
-        "`{command}` is not available for a backend that only generates embedded C sources"
+        "`{command}` is not available for a backend that only builds output"
     ))
-    .with_note("help: use `emela build --target c-embedded`, then build and run the generated C with the board's toolchain and runner")
+    .with_note("help: build the output and run it with the backend's toolchain and runner")
 }
 
 /// Treats `./src/main.emel` and `src/main.emel` as the same.

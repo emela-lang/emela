@@ -40,7 +40,7 @@ fn check(u: User) -> User fails Bad {
   if u.age < 0 { fail Bad } else { u }
 }
 
-fn logged(u: User) -> User use Log {
+fn logged(u: User) -> User uses { Log } {
   (use Log).write(u.name)
   u
 }
@@ -68,7 +68,7 @@ fn core_functions_are_methods() {
     insta::assert_snapshot!(render_bodies(
         r#"
 fn lengths(xs: List[String]) {
-  xs.map(fn(s) { s.length() }).fold(from: 0, f: fn(a, b) { a + b })
+  xs.map(|s| s.length()).fold(from: 0, f: |a, b| a + b)
 }
 
 fn first_line(s: String) {
@@ -127,7 +127,7 @@ fn traits(s: Square) {
 }
 
 fn total[A: Area](xs: List[A]) -> Int {
-  xs.fold(from: 0, f: fn(n, x) { n + x.area() })
+  xs.fold(from: 0, f: |n, x| n + x.area())
 }
 
 fn through_super[A: Shape](x: A) -> Int {
@@ -138,6 +138,29 @@ fn unbounded[A](x: A) -> Int {
   x.area()
 }
 "##
+    ));
+}
+
+/// A method call is ordered before only the fns that can be its callee: those whose first
+/// parameter has a type of their own module. `get` here takes a String, defined by the core
+/// module String, so `[f()].get(0)` (`List.get`) does not put it in a group with `run`, and its
+/// type is generalized before `main` uses it.
+#[test]
+fn a_method_call_does_not_order_before_fns_of_other_modules() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+fn run(f: fn() -> Int) -> Int {
+  [f()].get(0).or(0)
+}
+
+fn get(url: String) -> Int {
+  run(|| url.length())
+}
+
+fn main() -> Int {
+  get("x")
+}
+"#
     ));
 }
 
@@ -171,7 +194,7 @@ fn tuple(p: (Int, Int)) {
 }
 
 fn unknown() {
-  fn(x) { x.rename("a") }
+  |x| x.rename("a")
 }
 "#
     ));

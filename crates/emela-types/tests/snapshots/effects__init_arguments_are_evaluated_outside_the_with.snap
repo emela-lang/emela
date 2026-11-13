@@ -2,9 +2,9 @@
 source: crates/emela-types/tests/effects.rs
 expression: "render_handlers(r#\"\neffect Config {\n  fn url() -> String\n}\n\neffect Kv {\n  fn get(key: String) -> String\n}\n\neffect AuditKv of Kv\n\nhandler EnvConfig: Config {\n  fn url() { \"kv://\" }\n}\n\nhandler RemoteKv(url: String): Kv {\n  init(url: String) { RemoteKv(url:) }\n  fn get(key) { self.url }\n}\n\nhandler FakeKv: Kv {\n  fn get(key) { \"\" }\n}\n\nfn own_config() {\n  with EnvConfig, RemoteKv(url: (use Config).url()) { (use Kv).get(\"a\") }\n}\n\nfn overridden() {\n  with RemoteKv(url: (use Config).url()), FakeKv { (use Kv).get(\"a\") }\n}\n\nfn label() {\n  with AuditKv by RemoteKv(url: (use Config).url()) { (use AuditKv).get(\"a\") }\n}\n\nfn main() {\n  with EnvConfig {\n    with EnvConfig, RemoteKv((use Config).url()) { (use Kv).get(\"a\") }\n  }\n}\n\"#)"
 ---
-own_config: fn() -> String use Config
+own_config: fn() -> String uses { Config }
 overridden: fn() -> String
-label: fn() -> String use Config
+label: fn() -> String uses { Config }
 main: fn() -> String
 handler EnvConfig: use {}
 handler RemoteKv: use {}

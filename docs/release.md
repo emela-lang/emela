@@ -11,6 +11,8 @@
 `emela-<tag>-<target>.tar.gz`（`x86_64-unknown-linux-gnu` と `aarch64-apple-darwin`）
 で、`install.sh` がこの名前を引く。
 
+VSCode 拡張（`editors/vscode`）は別に出す。下の「VSCode 拡張」を見る。
+
 ## 正式版（release-plz）
 
 ### セットアップ（初回のみ）
@@ -79,6 +81,46 @@ emela.nix には知らせない（正式版だけ）。
 タグと version がずれていたら、ワークフローはビルドの前に失敗する。そのときは
 タグを消して（`git push origin :refs/tags/vX.Y.Z-alpha.N`）、version を直してから
 打ち直す。
+
+## VSCode 拡張（vscode-release.yml）
+
+`editors/vscode` の拡張は Visual Studio Marketplace の publisher `Emela` から出す
+（拡張の ID は `Emela.emela`）。version は、その時点の `emela` バイナリの version にそろえる。
+
+`vscode-release.yml` は `editors/vscode` を触る PR ごとに `.vsix` を作り（Actions の
+artifact に載る）、`editors/vscode/vX.Y.Z` タグの push で Marketplace に公開する。タグに
+`/` があるので、`prerelease.yml`（`v*-*`）にも release-plz の `vX.Y.Z` にも当たらない。
+
+### セットアップ（初回のみ）
+
+公開は Trusted Publishing で、Secret は置かない。`vsce publish --oidc` が GitHub の OIDC
+トークンを Marketplace の資格情報に替える（`--oidc` は `@vscode/vsce` 4.1.0 から）。
+
+1. https://marketplace.visualstudio.com/manage で publisher `Emela` を選ぶ。
+2. **Trusted Publishing** の **Create** で policy を作る。
+   - repository owner: `emela-lang`
+   - repository name: `emela`
+   - workflow: `vscode-release.yml`
+   - environment: 空
+3. まだ一度も公開していない拡張を Trusted Publishing で出せるかはドキュメントに書かれて
+   いない。最初の公開が失敗したら、Actions の artifact の `emela.vsix` を
+   https://marketplace.visualstudio.com/manage の publisher `Emela` の画面から手で上げる。
+   2回目からは workflow で出る。
+
+### 出し方
+
+1. `editors/vscode/package.json` の `version` を上げ（`npm version X.Y.Z --no-git-tag-version`
+   なら `package-lock.json` も変わる）、`editors/vscode/CHANGELOG.md` に節を足す PR を出す。
+2. その PR をマージし、マージしたコミットでタグを打って push する。
+
+   ```sh
+   git tag editors/vscode/vX.Y.Z
+   git push origin editors/vscode/vX.Y.Z
+   ```
+
+3. `vscode-release.yml` がタグと `package.json` の version を比べ、合えば公開する。
+   違えば公開の前に失敗するので、タグを消して（`git push origin :refs/tags/editors/vscode/vX.Y.Z`）
+   version を直してから打ち直す。
 
 ## インストール
 

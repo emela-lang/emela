@@ -1,4 +1,4 @@
-# Emela
+![Emela](assets/icons/emela-logo-wide.png)
 
 Emela is a functional language with typed errors and typed effects, compiling to
 JavaScript, WebAssembly and C.
@@ -26,7 +26,7 @@ repository describes the 0.1x language, not the 0.20 series.
 ## Install
 
 Prebuilt binaries are published for macOS (Apple Silicon) and Linux (x86_64).
-Running the generated JavaScript (`emela run`, `emela test`) needs Node.js 18
+Running the generated JavaScript (`emela run`, `emela test`) needs Node.js 22
 or later. The C target (`--target c`) needs a C11 compiler as `cc` (or set
 `EMELA_CC`). The WASM target (`--target wasm`) needs Wasmtime 49 or later, run as a
 WASI 0.3 component with `-S p3=y` (or set `EMELA_WASMTIME`).
@@ -166,17 +166,18 @@ every construct of the language. The C target does not have `String.length`,
 `String.chars`, callbacks across `@external` or HTTP services yet
 ([`[target.c.unsupported]`](spec/targets/c.md)).
 
-| Command       | Does                                                                                   |
-| ------------- | -------------------------------------------------------------------------------------- |
-| `emela new`   | Creates a new Pome in a new directory; `--lib` creates a library                       |
-| `emela check` | Reports diagnostics without compiling                                                  |
-| `emela run`   | Compiles and runs: JavaScript on Node.js, a native executable, or WASM with `wasmtime` |
-| `emela build` | Compiles under `target/emela/js` (JS), a native executable (C), or `main.wasm` (WASM)  |
-| `emela test`  | Runs the functions marked `@test`; `--reporter pretty\|plain\|agent` picks the output  |
-| `emela fmt`   | Formats the sources in place; `--check` only lists them                                |
-| `emela doc`   | Writes the docs of the `pub` declarations as HTML (or `--format md`); `--std` for std  |
-| `emela pome`  | Manages dependencies: `add`, `remove`, `install`, `update`, `list`, `verify`           |
-| `emela lsp`   | Starts the language server over stdio                                                  |
+| Command        | Does                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------- |
+| `emela new`    | Creates a new Pome in a new directory; `--lib` creates a library                       |
+| `emela check`  | Reports diagnostics without compiling                                                  |
+| `emela run`    | Compiles and runs: JavaScript on Node.js, a native executable, or WASM with `wasmtime` |
+| `emela build`  | Compiles under `target/emela/js` (JS), a native executable (C), or `main.wasm` (WASM)  |
+| `emela test`   | Runs the functions marked `@test`; `--reporter pretty\|plain\|agent` picks the output  |
+| `emela fmt`    | Formats the sources in place; `--check` only lists them                                |
+| `emela doc`    | Writes the docs of the `pub` declarations as HTML (or `--format md`); `--std` for std  |
+| `emela pome`   | Manages dependencies: `add`, `remove`, `install`, `update`, `list`, `verify`           |
+| `emela lsp`    | Starts the language server over stdio                                                  |
+| `emela doctor` | Reports whether the programs each target uses are installed; `--format json`           |
 
 The language server reports diagnostics with quick fixes and offers hover
 (types, `fails`, `use` and `##` doc comments), inlay hints, completion,
@@ -313,7 +314,7 @@ import Std.Instant.{Instant}
 fn countdown(n: Int) {
   console = use Console
   clock = use Clock
-  List.map(List.range(0, n), fn(i) {
+  List.map(List.range(0, n), |i| {
     clock.sleep(100)
     console.print_line("#{n - i}")
   })
@@ -355,7 +356,7 @@ The bundled std lives under `Std` and is imported: the platform effects
 `Std.Http`, each with its host handler (`SystemConsole`, `SystemClock`,
 `SystemRandom`, `SystemEnv`, `SystemFileSystem`, `SystemHttp`), the layer
 `Std.Platform.Platform` that bundles them, `Std.State`, `Std.Fiber`,
-`Std.Cause`, `Std.Deferred`, the values `Std.Map`, `Std.Set`, `Std.Path`,
+`Std.Exit`, `Std.Cause`, `Std.Deferred`, the values `Std.Map`, `Std.Set`, `Std.Path`,
 `Std.Instant` and `Std.Duration`, and `Std.Http.Request` and
 `Std.Http.Response`. The test handlers `TestConsole`, `TestClock`,
 `TestFileSystem` and `TestHttp` keep their state in `State`. The core modules
@@ -382,7 +383,7 @@ body's value and the final state, so a test can read what `TestConsole`
 recorded.
 
 ```emela
-(_, lines) = State.run([], fn() {
+(_, lines) = State.run([], || {
   with TestConsole {
     greet("a")
     greet("b")
@@ -404,18 +405,18 @@ fn main() {
   with SystemConsole, SystemClock {
     console = use Console
     # The waits overlap: the second fetch ends first.
-    (a, b) = Fiber.both(fn() { fetch(1, 200) }, fn() { fetch(2, 100) })
+    (a, b) = Fiber.both(|| fetch(1, 200), || fetch(2, 100))
     console.print_line("both: #{a}, #{b}")
-    names = Fiber.map([3, 4, 5], fn(id) { fetch(id, 100 * (6 - id)) })
+    names = Fiber.map([3, 4, 5], |id| fetch(id, 100 * (6 - id)))
     console.print_line("map: #{names}")
-    first = Fiber.race([fn() { fetch(6, 300) }, fn() { fetch(7, 100) }])
+    first = Fiber.race([|| fetch(6, 300), || fetch(7, 100)])
     console.print_line("race: #{first}")
-    late = Fiber.timeout(100, fn() { fetch(8, 1000) })
+    late = Fiber.timeout(100, || fetch(8, 1000))
     console.print_line("timeout: #{late}")
     # A failing child interrupts its siblings, and the error reaches the scope.
-    failed = Fiber.scope(fn() {
-      ok = Fiber.fork(fn() { fetch(9, 1000) })
-      bad = Fiber.fork(fn() { fetch(-1, 100) })
+    failed = Fiber.scope(|| {
+      ok = Fiber.fork(|| fetch(9, 1000))
+      bad = Fiber.fork(|| fetch(-1, 100))
       "#{Fiber.join(ok)} #{Fiber.join(bad)}"
     }) escape {
       NotFound(id:) -> "not found: #{id}"
@@ -452,7 +453,7 @@ fn note(day: String, text: String) {
   fs.create_directory(DIR)
   path = Path.join(DIR, "#{day}.txt")
   fs.append_text(path, "#{text}\n")
-  String.split(fs.read_text(path), "\n") |> List.filter(fn(l) { l != "" }) |> List.length
+  String.split(fs.read_text(path), "\n") |> List.filter(|l| l != "") |> List.length
 }
 
 ## The text of `notes/<day>.txt`, or a message if there is none.
@@ -483,8 +484,8 @@ fn first_result(query: String) {
 
 @test
 fn a_404_is_not_a_failure() {
-  server = TestServer(respond: fn(_, _) { Some(Response.new(404, "")) }, sent: [])
-  (text, after) = State.run(server, fn() { with TestHttp { first_result("x") } })
+  server = TestServer(respond: |_, _| Some(Response.new(404, "")), sent: [])
+  (text, after) = State.run(server, || with TestHttp { first_result("x") })
   assert text == "status 404"
   assert List.length(after.sent) == 1
 }
@@ -561,12 +562,12 @@ fn main() {
   ]
   dbg(describe_all(tasks)) # ["write docs (Low)", "fix build (High)", "review (High)"]
 
-  urgent = List.filter(tasks, fn(t) { t.priority > Low })
+  urgent = List.filter(tasks, |t| t.priority > Low)
   dbg(List.length(urgent)) # 2
 
   # A Map keeps its keys in Ord order.
-  by_priority = List.fold(tasks, from: Map.empty(), f: fn(m, t) {
-    Map.update(m, t.priority, fn(n) { Some(Option.or(n, 0) + 1) })
+  by_priority = List.fold(tasks, from: Map.empty(), f: |m, t| {
+    Map.update(m, t.priority, |n| Some(Option.or(n, 0) + 1))
   })
   dbg(by_priority) # Map.from_list([(Low, 1), (High, 2)])
 
@@ -595,7 +596,7 @@ Set.from_list(["a", "b"])
 - No JSON, no `Array`, and no limit on how many fibers run at once
   (`Semaphore`) or `Queue` yet.
 - Only `Eq`, `Ord` and `Show` can be derived.
-- The JavaScript target assumes a server host: Node.js 18 or later, Deno, or
+- The JavaScript target assumes a server host: Node.js 22 or later, Deno, or
   Bun. Browsers are not a target.
 - Some checks that scopes, fiber handles and `Deferred` values do not escape
   run at run time (a defect such as `fiber scope was used after it ended`).
@@ -603,7 +604,24 @@ Set.from_list(["a", "b"])
   constructs listed under [Commands](#commands).
 - The questions still open are in [`spec/open-questions.md`](spec/open-questions.md).
 
+## Embedded development
+
+Microcontroller support is maintained in the separate
+[emelino repository](https://github.com/aoi-netai/emelino). Use its CLI,
+`Embedded.*` modules and board setup instructions for embedded projects.
+
+Emela no longer provides the `c-embedded` target, `flash`, `--board`,
+`--embedded-config`, or the bundled `Std.Embedded.*` modules. Projects using
+these features need to migrate their commands, imports and configuration to
+emelino. Its supported boards and configuration are documented in that
+repository; the old command lines are not interchangeable.
+
 ## Crates
+
+The version of Emela describes the `emela` binary: the language, the standard
+library, the tools and the diagnostics. The Rust API of these crates is not covered
+by it and can change in any release. A project that uses them depends on a release
+tag (`git = "https://github.com/emela-lang/emela.git", tag = "v0.27.0"`).
 
 | Crate                | Role                                                                                       |
 | -------------------- | ------------------------------------------------------------------------------------------ |
@@ -616,7 +634,6 @@ Set.from_list(["a", "b"])
 | `emela-codegen-js`   | JavaScript output and the embedded JS runtime                                              |
 | `emela-codegen-wasm` | WebAssembly (WASI 0.3 component) output and the embedded WASM runtime                      |
 | `emela-codegen-c`    | C11 output and the embedded C runtime                                                      |
-| `emela-codegen-emb`  | C for embedded boards from the Flow IR (not yet wired into the CLI)                        |
 | `emela-pome`         | Pomes: source paths, versions, `Pome.toml` / `Pome.lock`, checksum database                |
 | `emela-driver`       | Pipeline, diagnostics, build configuration                                                 |
 | `emela-lsp`          | Language server                                                                            |
@@ -625,8 +642,8 @@ Set.from_list(["a", "b"])
 ```
 syntax → resolve → types → core ─────────────→ codegen-js ───┐
    ↓                         └─→ lir ─┬─→ codegen-wasm ─────┤
-  fmt                                 ├─→ codegen-c ────────┤
-                                      └─→ codegen-emb       ↓
+  fmt                                 └─→ codegen-c ────────┤
+                                                           ↓
                                      pome → driver → lsp → cli
 ```
 

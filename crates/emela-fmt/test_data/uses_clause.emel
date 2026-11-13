@@ -1,0 +1,20 @@
+# uses 節の正規形（[fmt.signature]）．
+fn a() -> Int uses Db { 1 }
+fn b() -> Int use Db { 1 }
+fn c[R](f: fn() -> () use R) -> () use { R, Log } { f() }
+fn d() -> Int
+  fails Boom
+  use { # 効果の集合の中
+    Db,
+  } {
+  1
+}
+
+@external(js, "./x.mjs", "now")
+fn now() -> Int
+  use {}
+
+fn e(h: Handler[E, Db]) -> Int uses {} {
+  uses = use Log
+  uses
+}

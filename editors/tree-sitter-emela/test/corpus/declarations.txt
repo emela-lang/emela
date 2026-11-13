@@ -345,7 +345,7 @@ impl Map[K: Eq, V]: Show {
 ==================
 Function types and effect sets
 ==================
-fn run[A, R](f: fn() -> A fails E | B use { Log, R }) -> A use R {
+fn run[A, R](f: fn() -> A fails E | B uses { Log, R }) -> A uses { R } {
   with AppLive, Audit by FileLog, Hits by State[Int] {
     f()
   }
@@ -378,7 +378,7 @@ fn h(x: Handler[NotFound | Timeout, { Db, Log }], y: (Int, String), z: ()) -> fn
                 (constant_identifier))
               (type_variable
                 (constant_identifier))))
-          (use_clause
+          (uses_clause
             (effect_set
               (type_reference
                 (type_identifier))
@@ -386,9 +386,10 @@ fn h(x: Handler[NotFound | Timeout, { Db, Log }], y: (Int, String), z: ()) -> fn
                 (constant_identifier)))))))
     (type_variable
       (constant_identifier))
-    (use_clause
-      (type_variable
-        (constant_identifier)))
+    (uses_clause
+      (effect_set
+        (type_variable
+          (constant_identifier))))
     (block
       (with_expression
         (with_item

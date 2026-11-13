@@ -8,7 +8,7 @@ fn long_signature(
   third_argument: fn(Int) -> Bool,
 ) -> Map[String, List[Int]]
   fails ParseError | IoError
-  use { Io, Clock } {
+  uses { Io, Clock } {
   todo()
 }
 
@@ -37,18 +37,31 @@ fn long_expressions() {
     |> List.fold(init: 0, f: add)
   mapped = List.map(
     input_values_that_are_long,
-    fn(value) {
+    |value| transform_the_value_with_a_long_function(
+      value,
+    ),
+  )
+  hugged = Fiber.scope(
+    |s| s.fork(
+      || fetch_user_profile_and_orders_for_the_current_session(
+        1,
+      ),
+    ),
+  )
+  mapped_block = List.map(
+    input_values_that_are_long,
+    |value| {
       transform_the_value_with_a_long_function(
         value,
       )
     },
   )
-  hugged = Fiber.scope(fn(s) {
-    s.fork(fn() {
-      fetch_user_profile_and_orders_for_the_current_session(
+  hugged_block = Fiber.scope(|s| {
+    s.fork(
+      || fetch_user_profile_and_orders_for_the_current_session(
         1,
-      )
-    })
+      ),
+    )
   })
   nested = outer_function(
     inner_function(
@@ -71,7 +84,7 @@ fn long_expressions() {
     ),
     extra: 1,
   )
-  xs |> List.map(fn(x) {
+  xs |> List.map(|x| {
     x + 1
   })
 }

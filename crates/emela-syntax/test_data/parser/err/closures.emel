@@ -1,0 +1,42 @@
+# fn(...) は式に書けない（E0148）．ブロックの最後でない文の無名関数は E0149（6.1，6.3）
+fn old(xs: List[Int]) {
+  ys = List.map(xs, fn(x) { x + 1 })
+  fn() { 1 }(2)
+}
+
+fn unused() {
+  || 1
+  |x| x
+  x = 2
+  x
+}
+
+fn continued(a: Bool, b: Bool) -> Bool {
+  x = a
+  || b
+  x
+}
+
+fn first_on_the_line() {
+  { || 1
+    2 }
+}
+
+# 引数の並びの直後の改行は文を終える
+fn newline_after_params() {
+  f = |x|
+    x
+  f
+}
+
+# 字句は最長一致なので |x||y| は |x，||，y| と読む
+fn adjacent() {
+  g = |x||y| x
+  g
+}
+
+# 引数の型のエラー集合が二つ以上なら括弧で囲む
+fn unparenthesized_error_set() {
+  h = |f: fn() -> Int fails Timeout | Refused| f()
+  h
+}

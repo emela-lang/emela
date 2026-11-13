@@ -19,7 +19,7 @@ mod verify;
 mod tests;
 
 pub use dump::dump;
-pub use intrinsics::{Builtin, BuiltinInfo, Sig};
+pub use intrinsics::{Builtin, BuiltinInfo, Sig, SigCons};
 pub use ir::*;
 pub use lower::{LowerError, LowerInput, Lowered, Roots, lower};
 pub use mono::{Monomorphized, monomorphize, monomorphize_from, monomorphize_traced};

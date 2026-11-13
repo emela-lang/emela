@@ -45,7 +45,7 @@ import Support
 
 @test
 fn sort_keeps_length() {
-  Property.check(Support.small_lists(), fn(xs) {
+  Property.check(Support.small_lists(), |xs| {
     assert List.length(Sort.sort(xs)) == List.length(xs)
   })
 }

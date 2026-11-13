@@ -160,4 +160,4 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | design flaw | 設計の不具合 |
 | last resort | 逃げ道 |
 
-Used as they are: defect, escape, fail, fails, use, with, handler, layer, effect, Immediate, Async, Scope, fiber, Deferred, Prelude, Pome, trait, Tier.
+Used as they are: defect, escape, fail, fails, use, uses, with, handler, layer, effect, Immediate, Async, Scope, fiber, Deferred, Prelude, Pome, trait, Tier.

@@ -17,11 +17,12 @@
 //! frames (`emit::suspend`) and a FIFO continuation scheduler (`emit::runtime::sched`). A sleep
 //! starts `wasi:clocks/monotonic-clock.wait-for` as an asynchronous subtask and the scheduler waits
 //! on its waitable set only when it has no continuation left (`emit::runtime::async_bridge`);
-//! TestClock uses the same suspension without a host timer. `Fiber.attempt` and `Std.Cause` run
-//! on the current fiber (`emit::runtime::attempt`). Fibers, other `Async` wakeups and custom host
-//! WIT are not implemented yet; reaching them is a [`WasmError`] or a stall unwound as interrupted
-//! (spec 14.5). The Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0) are
-//! part of the runtime.
+//! TestClock uses the same suspension without a host timer. Fibers, `Scope`, the fiber operations
+//! and `Deferred` run on the same scheduler (`emit::runtime::fiber`), and `Exit.attempt` and
+//! `Std.Cause` run on the current fiber (`emit::runtime::attempt`). External functions outside the
+//! bundled `Std` hosts are the unsupported part of the target (spec `[target.wasm.external]`); a
+//! stalling run is unwound as interrupted (spec 14.5). The Unicode tables for grapheme clusters
+//! (UAX #29, Unicode 17.0.0) are part of the runtime.
 
 mod check;
 mod component;
@@ -42,10 +43,13 @@ pub enum Entry {
     Main,
     /// Test functions (spec 13.4), called one by one in order. Each result is written to stdout
     /// as a line of [`TEST_EVENT_PREFIX`] and JSON, the protocol of the JS test runner: `{"event":
-    /// "result", "name": …, "outcome": "ok" | "defect" | "error", "message": …}`, then `{"event":
-    /// "done"}`. `message` is left out when an error value has no display, and the defect of a
-    /// failed assert also has `"location"` (`[test.assert]`). The protocol is
-    /// internal between the module and `emela test`, so the spec only fixes what `emela test`
+    /// "result", "name": …, "outcome": "ok" | "defect" | "error" | "interrupted", "message": …}`,
+    /// then `{"event": "done"}`. `message` is the defect or the error's display (the name only
+    /// when the error's type does not satisfy Show). It is left out for `ok` and `interrupted`.
+    /// When showing the error raises a defect, that defect's message is reported instead and
+    /// cleared, so the next test does not observe it (the C runtime's `em_test_result` does the
+    /// same). The defect of a failed assert also has `"location"` (`[test.assert]`). The protocol
+    /// is internal between the module and `emela test`, so the spec only fixes what `emela test`
     /// shows (`[cmd.test.output]`, `[cmd.test.outcome]`).
     Tests(Vec<TestEntry>),
 }
@@ -81,7 +85,8 @@ pub struct WasmError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WasmErrorKind {
-    /// A feature the WASM target does not support yet (fibers, `suspend fn` external functions).
+    /// A construct the WASM target cannot emit yet (an external without a bundled host,
+    /// spec `[target.wasm.external]`).
     Unsupported,
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,
@@ -157,7 +162,11 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
         return Err(internal("monomorphisation", errors));
     }
     let mut lir = emela_lir::from_core(mono).map_err(|errors| internal("from_core", errors))?;
-    let errors = check::unsupported(&lir, &entry.roots());
+    // Reachability is computed on the Flow IR and read again by the emitter: the Heap IR passes
+    // append functions but keep the index of every existing one, so the roots' reachable
+    // external functions are the same.
+    let reach = check::reach(&lir, &entry.roots());
+    let errors = check::unsupported(&lir, &reach);
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -167,7 +176,7 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
     {
         return Err(internal("the Heap IR verifier", errors));
     }
-    emit::emit(&lir, &entry)
+    emit::emit(&lir, &entry, &reach)
 }
 
 fn internal<E: std::fmt::Display>(stage: &str, errors: Vec<E>) -> Vec<WasmError> {

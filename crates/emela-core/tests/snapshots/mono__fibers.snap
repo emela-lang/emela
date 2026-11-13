@@ -34,7 +34,7 @@ export suspend fn main() -> Int {
     }, ev%1)
     let d%14: Std.Deferred.Deferred[String] = s%2.Std.Fiber.Scope[_, _]#deferred[String]()
     let _%15: Bool = fiber#complete(d%14, "x")
-    let e%16: Std.Fiber.Exit[Int, {}] = fiber#attempt[Std.Fiber.Exit](fn() -> Int {
+    let e%16: Std.Exit.Exit[Int, {}] = fiber#attempt[Std.Exit.Exit](fn() -> Int {
       3
     })
     (List.length[Int](fiber#join(a%3)!) +[Int] fiber#join(b%9)!)

@@ -9,6 +9,7 @@ use emela_resolve::hir::{
     Program, Res, Stmt,
 };
 use emela_resolve::{ModuleId, ModuleName};
+use emela_syntax::SyntaxKind;
 use emela_syntax::ast::AstNode;
 use emela_types::{Ty, TyParam};
 use line_index::{TextRange, TextSize};
@@ -75,6 +76,9 @@ pub(crate) fn complete(
     let Some(before) = text.get(..usize::from(offset)) else {
         return Vec::new();
     };
+    if let Some(items) = lexical(analysis, module, before) {
+        return items;
+    }
     let cx = Context {
         program,
         analysis,
@@ -95,29 +99,115 @@ pub(crate) fn complete(
             .rsplit(|c: char| !is_name_char(c))
             .next()
         {
-            Some("use") => cx.in_scope(offset, |kind| kind == DefKind::Effect),
+            Some("use" | "uses") => cx.in_scope(offset, |kind| kind == DefKind::Effect),
             Some("with") => cx.in_scope(offset, |kind| {
                 matches!(kind, DefKind::Handler | DefKind::Layer)
             }),
-            _ => {
-                // At the start of a call argument, offer labels not yet written first.
-                let mut items = labels(program, analysis, file, offset, start, &cx.docs);
-                items.extend(cx.in_scope(offset, |_| true));
-                items.extend(KEYWORDS.iter().map(|k| Completion {
-                    label: (*k).to_owned(),
-                    kind: CompletionKind::Keyword,
-                    documentation: None,
-                    detail: None,
-                    insert_text: None,
-                }));
-                items
-            }
+            _ => match slot(&before[..start]) {
+                Some(Slot::Effect) => cx.in_scope(offset, |kind| kind == DefKind::Effect),
+                Some(Slot::Error) => cx.in_scope(offset, |kind| kind == DefKind::Error),
+                Some(Slot::Trait) => cx.in_scope(offset, |kind| kind == DefKind::Trait),
+                Some(Slot::Type) => {
+                    let mut items = cx.in_scope(offset, is_type);
+                    items.extend(cx.type_modules());
+                    items
+                }
+                None => {
+                    // At the start of a call argument, offer labels not yet written first.
+                    let mut items = labels(program, analysis, file, offset, start, &cx.docs);
+                    items.extend(cx.in_scope(offset, |_| true));
+                    items.extend(KEYWORDS.iter().map(|k| Completion {
+                        label: (*k).to_owned(),
+                        kind: CompletionKind::Keyword,
+                        documentation: None,
+                        detail: None,
+                        insert_text: None,
+                    }));
+                    items
+                }
+            },
         }
     };
     // For duplicate names, keep the first found (the innermost).
     let mut seen = std::collections::HashSet::new();
     items.retain(|item| seen.insert(item.label.clone()));
     items
+}
+
+/// Attributes a user can write (spec `[kw.annotation]`), offered after `@`.
+const ATTRIBUTES: &[&str] = &["external", "export", "entry", "test", "deprecated"];
+
+/// Attributes allowed only in the bundled core sources (E0224, E0229), offered there only.
+const CORE_ATTRIBUTES: &[&str] = &["intrinsic", "internal"];
+
+/// The target names of `@external` and `@export` (spec `[ext.decl]`, `[ext.export]`; others are
+/// E0140).
+const TARGETS: &[&str] = &["js", "wasm", "c"];
+
+/// Contexts decided by the lexical position alone, before any name lookup: inside a comment or
+/// a string nothing is offered; after `@`, attribute names; in the first argument of
+/// `@external(` and `@export(`, target names. `None` leaves the position to the name contexts.
+///
+/// Only the text before the cursor is lexed, so what follows (often not yet written) cannot
+/// change the answer. The lexer reports each string and interpolation still open at the end of
+/// the input with a range ending there, so the innermost open one (the one opened last) tells
+/// whether the cursor is in string text or in the code of an interpolation (`#{ }`). A single-line
+/// string closed by a line break is reported with a range ending at that break, not at the end.
+fn lexical(analysis: &Analysis, module: ModuleId, before: &str) -> Option<Vec<Completion>> {
+    use emela_syntax::{DiagnosticCode, SyntaxKind};
+    let lexed = emela_syntax::lex(before);
+    let end = TextSize::of(before);
+    let in_comment = lexed
+        .tokens
+        .iter()
+        .rfind(|t| t.kind != SyntaxKind::EOF)
+        .is_some_and(|t| {
+            matches!(t.kind, SyntaxKind::COMMENT | SyntaxKind::DOC_COMMENT) && t.range.end() == end
+        });
+    let in_string = lexed
+        .diagnostics
+        .iter()
+        .filter(|d| {
+            d.range.end() == end
+                && matches!(
+                    d.code,
+                    DiagnosticCode::UnterminatedString | DiagnosticCode::UnterminatedInterpolation
+                )
+        })
+        .max_by_key(|d| d.range.start())
+        .is_some_and(|d| d.code == DiagnosticCode::UnterminatedString);
+    if in_comment || in_string {
+        return Some(Vec::new());
+    }
+    let head = before.trim_end_matches(is_name_char);
+    let keywords = |names: &mut dyn Iterator<Item = &&str>| {
+        names
+            .map(|name| Completion {
+                label: (*name).to_owned(),
+                kind: CompletionKind::Keyword,
+                detail: None,
+                insert_text: None,
+                documentation: None,
+            })
+            .collect()
+    };
+    if head.ends_with('@') {
+        // `intrinsic` and `internal` outside core would only produce E0224 and E0229.
+        let core: &[&str] = if analysis.modules.is_core(module) {
+            CORE_ATTRIBUTES
+        } else {
+            &[]
+        };
+        return Some(keywords(&mut ATTRIBUTES.iter().chain(core)));
+    }
+    let open = head.trim_end().strip_suffix('(')?;
+    if ["@external", "@export"]
+        .iter()
+        .any(|attr| open.trim_end().ends_with(attr))
+    {
+        return Some(keywords(&mut TARGETS.iter()));
+    }
+    None
 }
 
 /// At the start of a call argument (after `f(` or a comma, with only a partial name), the
@@ -534,30 +624,56 @@ impl Context<'_> {
                 .filter_map(|def| self.def_item(def)),
         );
         if all {
-            // Imported modules, and core modules that can be written left of `.` without an
-            // import.
-            let modules = imports.iter().map(|(path, _)| path.clone()).chain(
-                self.analysis
-                    .modules
-                    .iter()
-                    .filter(|&(id, data)| {
-                        self.analysis.modules.is_core(id)
-                            && data.name.segments().len() == 1
-                            && data.name.last() != emela_resolve::PRELUDE
-                    })
-                    .map(|(_, data)| data.name.clone()),
-            );
-            for name in modules {
-                items.push(Completion {
-                    label: name.last().to_string(),
-                    kind: CompletionKind::Module,
-                    documentation: None,
-                    detail: Some(name.to_string()),
-                    insert_text: None,
-                });
-            }
+            items.extend(self.modules(&imports, None));
         }
         items
+    }
+
+    /// Imported modules, and core modules that can be written left of `.` without an import.
+    /// With `keep`, only the modules found for which it holds.
+    fn modules(
+        &self,
+        imports: &[(ModuleName, Vec<String>)],
+        keep: Option<&dyn Fn(ModuleId) -> bool>,
+    ) -> Vec<Completion> {
+        let modules = &self.analysis.modules;
+        let imported = imports
+            .iter()
+            .map(|(path, _)| (modules.lookup(path), path.clone()));
+        let core = modules
+            .iter()
+            .filter(|&(id, data)| {
+                modules.is_core(id)
+                    && data.name.segments().len() == 1
+                    && data.name.last() != emela_resolve::PRELUDE
+            })
+            .map(|(id, data)| (Some(id), data.name.clone()));
+        imported
+            .chain(core)
+            .filter(|&(id, _)| keep.is_none_or(|keep| id.is_some_and(keep)))
+            .map(|(_, name)| Completion {
+                label: name.last().to_string(),
+                kind: CompletionKind::Module,
+                documentation: None,
+                detail: Some(name.to_string()),
+                insert_text: None,
+            })
+            .collect()
+    }
+
+    /// The modules that can be written at the head of a type (`Shapes.Shape`): those with a pub
+    /// type, enum or error.
+    fn type_modules(&self) -> Vec<Completion> {
+        let hir = self.hir();
+        let has_types = |module: ModuleId| {
+            hir.modules.get(module).is_some_and(|m| {
+                m.items.iter().any(|&def| {
+                    let data = &hir.defs[def];
+                    data.is_pub && is_type(data.kind)
+                })
+            })
+        };
+        self.modules(&imports(self.text), Some(&has_types))
     }
 
     /// Definitions without a kind (impls and their functions, type parameters) are not offered. A constructor named
@@ -616,6 +732,365 @@ enum Left {
 
 fn is_name_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
+}
+
+/// Kinds of definitions whose names can be written as a type (`[grammar.type]`). A trait is
+/// written only in bounds, impl heads and derive, so it is not one of them.
+fn is_type(kind: DefKind) -> bool {
+    matches!(
+        kind,
+        DefKind::Type | DefKind::BuiltinType | DefKind::Enum | DefKind::Error
+    )
+}
+
+/// A position in a signature, a declaration head or a type where only names of one kind can be
+/// written (`[lsp.completion]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    /// An item of `uses { … }`, an effect set in type arguments, or the effect after
+    /// `handler H:`.
+    Effect,
+    /// After `fails`, and after `|` in its error set.
+    Error,
+    /// The trait of an impl head, a supertrait, a bound of a declared type parameter, or a
+    /// derive.
+    Trait,
+    /// The type of a parameter, a field, a binding or a const, a return type, a parameter of a
+    /// function type, and a type argument.
+    Type,
+}
+
+/// The slot at the end of `text` (the text before the partially typed name), decided from its
+/// tokens. The source being edited does not parse, so this reads only the shape of the tokens
+/// before the cursor. A position that this shape cannot tell apart from an expression (the
+/// parameters of a lambda or of `init`, a pattern before `:`) gets `None`, and with it the
+/// general candidates.
+///
+/// One shape is read wrongly: after a lambda whose last parameter has a function type with a
+/// `fails` clause (`|f: fn() -> A fails E| `), the body is taken as the error set.
+fn slot(text: &str) -> Option<Slot> {
+    use SyntaxKind as K;
+    let t = Tokens::new(text);
+    let end = t.kinds.len();
+    let last = end.checked_sub(1).map(|i| t.kinds[i]);
+
+    // `fails E1 | E2 | `: the clause follows a type (`[error.fails]`), which tells the
+    // contextual keyword apart from a variable named `fails`.
+    let list = t.list_before(end, K::PIPE);
+    if t.word_before(list, "fails")
+        && list.checked_sub(2).is_some_and(|i| {
+            matches!(
+                t.kinds[i],
+                K::TYPE_NAME | K::UPPER_NAME | K::R_BRACK | K::R_PAREN | K::SELF_TYPE_KW
+            )
+        })
+    {
+        return Some(Slot::Error);
+    }
+
+    // `impl T:`, `impl T[A]:`, `trait T: A + `, `[A: B + ` in declared type parameters, and
+    // `handler H:`, `handler H(…):`.
+    let list = t.list_before(end, K::PLUS);
+    if let Some(colon) = list.checked_sub(1).filter(|&i| t.kinds[i] == K::COLON) {
+        let head = t.group_before(colon).unwrap_or(colon);
+        if t.type_ref_before(head)
+            .is_some_and(|name| t.kind(name.wrapping_sub(1)) == Some(K::IMPL_KW))
+            || (t.kind(colon.wrapping_sub(1)) == Some(K::TYPE_NAME)
+                && t.kind(colon.wrapping_sub(2)) == Some(K::TRAIT_KW))
+        {
+            return Some(Slot::Trait);
+        }
+        if list == end
+            && t.kind(head.wrapping_sub(1)) == Some(K::TYPE_NAME)
+            && t.kind(head.wrapping_sub(2)) == Some(K::HANDLER_KW)
+        {
+            return Some(Slot::Effect);
+        }
+        if let Some(&open) = t.open.last()
+            && t.declares_params(open)
+            && matches!(
+                t.kind(colon.wrapping_sub(1)),
+                Some(K::TYPE_NAME | K::UPPER_NAME)
+            )
+            && (colon - 2 == open || t.kind(colon - 2) == Some(K::COMMA))
+        {
+            return Some(Slot::Trait);
+        }
+    }
+
+    // `derive A, B, ` after the fields or the variants of a declaration (`[trait.derive]`).
+    let list = t.list_before(end, K::COMMA);
+    if t.word_before(list, "derive")
+        && list.checked_sub(2).is_some_and(|i| {
+            matches!(
+                t.kinds[i],
+                K::TYPE_NAME | K::R_PAREN | K::R_BRACE | K::R_BRACK
+            )
+        })
+    {
+        return Some(Slot::Trait);
+    }
+
+    // At the start of an item inside a bracket still open.
+    if let Some(&open) = t.open.last() {
+        let item = t.item_start(open, end);
+        let enclosing = t.open.len().checked_sub(2).map(|i| t.open[i]);
+        match t.kinds[open] {
+            K::L_BRACE if item == end => {
+                if t.word_before(open, "uses") {
+                    return Some(Slot::Effect);
+                }
+                // `Fiber[A, { `: an effect set as a type argument.
+                if enclosing.is_some_and(|e| t.type_args(e))
+                    && matches!(t.kind(open - 1), Some(K::L_BRACK | K::COMMA))
+                {
+                    return Some(Slot::Effect);
+                }
+            }
+            // `List[`, `Map[K, `, and an error set `E1 | ` as a type argument.
+            K::L_BRACK if t.type_args(open) && (item == end || last == Some(K::PIPE)) => {
+                return Some(Slot::Type);
+            }
+            // The parameters of a function type, `fn(A, `.
+            K::L_PAREN if item == end && t.kind(open.wrapping_sub(1)) == Some(K::FN_KW) => {
+                return Some(Slot::Type);
+            }
+            // A variant with positional fields, `V(A, ` in an enum.
+            K::L_PAREN
+                if item == end
+                    && t.variant(open.wrapping_sub(1), enclosing)
+                    && !t.kinds[open + 1..end].contains(&K::COLON) =>
+            {
+                return Some(Slot::Type);
+            }
+            _ => {}
+        }
+    }
+
+    match last {
+        // `name: ` in the parameters of a function, the fields of a type, an error, a handler
+        // or a variant, a binding at the start of a statement, and `const C: `. A label in a call
+        // (`f(x: `) is a value position and is not matched.
+        Some(K::COLON) => {
+            let name = end.checked_sub(2)?;
+            match t.kinds[name] {
+                K::UPPER_NAME if t.kind(name.wrapping_sub(1)) == Some(K::CONST_KW) => {
+                    Some(Slot::Type)
+                }
+                K::LOWER_NAME => {
+                    let open = t.open.last().copied();
+                    let enclosing = t.open.len().checked_sub(2).map(|i| t.open[i]);
+                    let first_in =
+                        |open: usize| name - 1 == open || t.kind(name - 1) == Some(K::COMMA);
+                    let field = open.is_some_and(|open| {
+                        t.kinds[open] == K::L_PAREN
+                            && first_in(open)
+                            && t.declares_fields(open, enclosing)
+                    });
+                    let binding = (t.line_start[name] || open.is_some_and(|o| name - 1 == o))
+                        && open.is_none_or(|open| t.kinds[open] == K::L_BRACE);
+                    (field || binding).then_some(Slot::Type)
+                }
+                _ => None,
+            }
+        }
+        // A return type: `->` after the parameters of a function or a function type. After a
+        // pattern (`Some(x) ->` in a match arm) it is a value position.
+        Some(K::THIN_ARROW) => {
+            let close = end.checked_sub(2)?;
+            let open = t.opener[close]?;
+            (t.kind(open.wrapping_sub(1)) == Some(K::FN_KW) || t.fn_params(open))
+                .then_some(Slot::Type)
+        }
+        _ => None,
+    }
+}
+
+/// The tokens of the text before the cursor, without trivia and newlines, and the brackets they
+/// leave open.
+struct Tokens<'a> {
+    kinds: Vec<SyntaxKind>,
+    texts: Vec<&'a str>,
+    /// Whether the token starts a line (a newline that is not a continuation is before it).
+    line_start: Vec<bool>,
+    /// For a closing bracket, its opening bracket.
+    opener: Vec<Option<usize>>,
+    /// The brackets still open at the end, outermost first.
+    open: Vec<usize>,
+}
+
+impl<'a> Tokens<'a> {
+    fn new(text: &'a str) -> Self {
+        use SyntaxKind as K;
+        let mut tokens = Tokens {
+            kinds: Vec::new(),
+            texts: Vec::new(),
+            line_start: Vec::new(),
+            opener: Vec::new(),
+            open: Vec::new(),
+        };
+        let mut line_start = true;
+        for token in emela_syntax::lex(text).tokens {
+            if token.kind.is_trivia() || token.kind == K::EOF {
+                continue;
+            }
+            if token.kind == K::NEWLINE {
+                line_start = true;
+                continue;
+            }
+            let index = tokens.kinds.len();
+            let opener = match token.kind {
+                K::L_PAREN | K::L_BRACK | K::L_BRACE | K::INTERP_START => {
+                    tokens.open.push(index);
+                    None
+                }
+                K::R_PAREN | K::R_BRACK | K::R_BRACE | K::INTERP_END => tokens.open.pop(),
+                _ => None,
+            };
+            tokens.kinds.push(token.kind);
+            tokens
+                .texts
+                .push(&text[std::ops::Range::<usize>::from(token.range)]);
+            tokens.line_start.push(std::mem::take(&mut line_start));
+            tokens.opener.push(opener);
+        }
+        tokens
+    }
+
+    /// The kind at `i`, if there is a token there (an index below zero wraps and is out of range).
+    fn kind(&self, i: usize) -> Option<SyntaxKind> {
+        self.kinds.get(i).copied()
+    }
+
+    /// Whether the token right before `i` is the contextual keyword `word`.
+    fn word_before(&self, i: usize, word: &str) -> bool {
+        i.checked_sub(1)
+            .is_some_and(|i| self.kinds[i] == SyntaxKind::LOWER_NAME && self.texts[i] == word)
+    }
+
+    /// The start of the type reference (`Timeout`, `Http.Timeout`) that ends right before `end`.
+    fn type_ref_before(&self, end: usize) -> Option<usize> {
+        use SyntaxKind as K;
+        let mut start = end.checked_sub(1)?;
+        if !matches!(self.kinds[start], K::TYPE_NAME | K::UPPER_NAME) {
+            return None;
+        }
+        while start >= 2 && self.kinds[start - 1] == K::DOT && self.kinds[start - 2] == K::TYPE_NAME
+        {
+            start -= 2;
+        }
+        Some(start)
+    }
+
+    /// The start of a run of type references each followed by `sep` (`A | B | `) that ends
+    /// right before `end`; `end` itself when there is none.
+    fn list_before(&self, end: usize, sep: SyntaxKind) -> usize {
+        let mut start = end;
+        while start > 0 && self.kinds[start - 1] == sep {
+            match self.type_ref_before(start - 1) {
+                Some(item) => start = item,
+                None => break,
+            }
+        }
+        start
+    }
+
+    /// The opening bracket of the group that ends right before `end`.
+    fn group_before(&self, end: usize) -> Option<usize> {
+        self.opener[end.checked_sub(1)?]
+    }
+
+    /// The start of the current item inside the bracket `open`: right after its last comma at
+    /// that depth, or after `open`.
+    fn item_start(&self, open: usize, end: usize) -> usize {
+        let mut i = end;
+        while i > open + 1 {
+            i -= 1;
+            if let Some(opener) = self.opener[i] {
+                i = opener;
+            } else if self.kinds[i] == SyntaxKind::COMMA {
+                return i + 1;
+            }
+        }
+        open + 1
+    }
+
+    /// Whether the bracket `open` (`[`) holds type arguments: it follows a type reference that
+    /// is not the name being declared (`type Box[`, `impl Box[` declare type parameters).
+    fn type_args(&self, open: usize) -> bool {
+        use SyntaxKind as K;
+        self.kinds[open] == K::L_BRACK
+            && self.type_ref_before(open).is_some_and(|name| {
+                !matches!(
+                    self.kind(name.wrapping_sub(1)),
+                    Some(K::TYPE_KW | K::ENUM_KW | K::EFFECT_KW | K::IMPL_KW | K::TRAIT_KW)
+                )
+            })
+    }
+
+    /// Whether the bracket `open` (`[`) declares type parameters: `fn f[`, `type T[`,
+    /// `enum T[`, `effect T[` or `impl T[`.
+    fn declares_params(&self, open: usize) -> bool {
+        use SyntaxKind as K;
+        self.kinds[open] == K::L_BRACK
+            && match self.kind(open.wrapping_sub(1)) {
+                Some(K::LOWER_NAME) => self.kind(open.wrapping_sub(2)) == Some(K::FN_KW),
+                Some(K::TYPE_NAME) => matches!(
+                    self.kind(open.wrapping_sub(2)),
+                    Some(K::TYPE_KW | K::ENUM_KW | K::EFFECT_KW | K::IMPL_KW)
+                ),
+                _ => false,
+            }
+    }
+
+    /// Whether the bracket `open` (`(`) holds the parameters of a declared function:
+    /// `fn f(` or `fn f[A](`.
+    fn fn_params(&self, open: usize) -> bool {
+        use SyntaxKind as K;
+        let name = match self.kind(open.wrapping_sub(1)) {
+            Some(K::R_BRACK) => self.opener[open - 1].map_or(usize::MAX, |o| o.wrapping_sub(1)),
+            _ => open.wrapping_sub(1),
+        };
+        self.kind(name) == Some(K::LOWER_NAME) && self.kind(name.wrapping_sub(1)) == Some(K::FN_KW)
+    }
+
+    /// Whether the bracket `open` (`(`) holds `name: type` pairs of a declaration: the
+    /// parameters of a function, or the fields of a type, an error, a handler or a variant.
+    /// `enclosing` is the bracket around `open`.
+    fn declares_fields(&self, open: usize, enclosing: Option<usize>) -> bool {
+        use SyntaxKind as K;
+        if self.fn_params(open) || self.variant(open.wrapping_sub(1), enclosing) {
+            return true;
+        }
+        let name = match self.kind(open.wrapping_sub(1)) {
+            Some(K::R_BRACK) => self.opener[open - 1].map_or(usize::MAX, |o| o.wrapping_sub(1)),
+            _ => open.wrapping_sub(1),
+        };
+        self.kind(name) == Some(K::TYPE_NAME)
+            && matches!(
+                self.kind(name.wrapping_sub(1)),
+                Some(K::TYPE_KW | K::ERROR_KW | K::HANDLER_KW)
+            )
+    }
+
+    /// Whether `name` is the name of a variant in the body of an enum, the bracket `enclosing`.
+    fn variant(&self, name: usize, enclosing: Option<usize>) -> bool {
+        use SyntaxKind as K;
+        let Some(body) = enclosing else {
+            return false;
+        };
+        if self.kind(name) != Some(K::TYPE_NAME)
+            || !(name - 1 == body || self.kinds[name - 1] == K::COMMA || self.line_start[name])
+            || self.kinds[body] != K::L_BRACE
+        {
+            return false;
+        }
+        let head = match self.kind(body.wrapping_sub(1)) {
+            Some(K::R_BRACK) => self.opener[body - 1].map_or(usize::MAX, |o| o.wrapping_sub(1)),
+            _ => body.wrapping_sub(1),
+        };
+        self.kind(head) == Some(K::TYPE_NAME) && self.kind(head.wrapping_sub(1)) == Some(K::ENUM_KW)
+    }
 }
 
 fn module_of(analysis: &Analysis, file: FileId) -> Option<ModuleId> {

@@ -1,6 +1,6 @@
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 # A failed assert that reaches main is shown as `defect: <message>`, without the location of the
 # assert (`[cmd.test.outcome]`, `[error.defect]`). A release that also fails adds its note.

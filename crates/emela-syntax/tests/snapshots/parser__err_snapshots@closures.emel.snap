@@ -1,0 +1,395 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/closures.emel
+---
+ROOT@0..719
+  COMMENT@0..117 "# fn(...) は式に書けない（E0148）．ブロックの最後でない文の無名関数は E0149（6.1，6.3）"
+  NEWLINE@117..118 "\n"
+  FN_DECL@118..196
+    FN_KW@118..120 "fn"
+    WHITESPACE@120..121 " "
+    LOWER_NAME@121..124 "old"
+    PARAM_LIST@124..139
+      L_PAREN@124..125 "("
+      PARAM@125..138
+        LOWER_NAME@125..127 "xs"
+        COLON@127..128 ":"
+        WHITESPACE@128..129 " "
+        PATH_TYPE@129..138
+          PATH@129..133
+            TYPE_NAME@129..133 "List"
+          TYPE_ARG_LIST@133..138
+            L_BRACK@133..134 "["
+            PATH_TYPE@134..137
+              PATH@134..137
+                TYPE_NAME@134..137 "Int"
+            R_BRACK@137..138 "]"
+      R_PAREN@138..139 ")"
+    WHITESPACE@139..140 " "
+    BLOCK_EXPR@140..196
+      L_BRACE@140..141 "{"
+      NEWLINE@141..142 "\n"
+      WHITESPACE@142..144 "  "
+      BINDING@144..178
+        NAME_REF@144..146
+          LOWER_NAME@144..146 "ys"
+        WHITESPACE@146..147 " "
+        EQ@147..148 "="
+        WHITESPACE@148..149 " "
+        CALL_EXPR@149..178
+          FIELD_EXPR@149..157
+            PATH_EXPR@149..153
+              PATH@149..153
+                TYPE_NAME@149..153 "List"
+            DOT@153..154 "."
+            LOWER_NAME@154..157 "map"
+          ARG_LIST@157..178
+            L_PAREN@157..158 "("
+            NAME_REF@158..160
+              LOWER_NAME@158..160 "xs"
+            COMMA@160..161 ","
+            WHITESPACE@161..162 " "
+            LAMBDA_EXPR@162..177
+              FN_KW@162..164 "fn"
+              PARAM_LIST@164..167
+                L_PAREN@164..165 "("
+                PARAM@165..166
+                  LOWER_NAME@165..166 "x"
+                R_PAREN@166..167 ")"
+              WHITESPACE@167..168 " "
+              BLOCK_EXPR@168..177
+                L_BRACE@168..169 "{"
+                WHITESPACE@169..170 " "
+                BIN_EXPR@170..175
+                  NAME_REF@170..171
+                    LOWER_NAME@170..171 "x"
+                  WHITESPACE@171..172 " "
+                  PLUS@172..173 "+"
+                  WHITESPACE@173..174 " "
+                  LITERAL@174..175
+                    INT@174..175 "1"
+                WHITESPACE@175..176 " "
+                R_BRACE@176..177 "}"
+            R_PAREN@177..178 ")"
+      NEWLINE@178..179 "\n"
+      WHITESPACE@179..181 "  "
+      CALL_EXPR@181..194
+        LAMBDA_EXPR@181..191
+          FN_KW@181..183 "fn"
+          PARAM_LIST@183..185
+            L_PAREN@183..184 "("
+            R_PAREN@184..185 ")"
+          WHITESPACE@185..186 " "
+          BLOCK_EXPR@186..191
+            L_BRACE@186..187 "{"
+            WHITESPACE@187..188 " "
+            LITERAL@188..189
+              INT@188..189 "1"
+            WHITESPACE@189..190 " "
+            R_BRACE@190..191 "}"
+        ARG_LIST@191..194
+          L_PAREN@191..192 "("
+          LITERAL@192..193
+            INT@192..193 "2"
+          R_PAREN@193..194 ")"
+      NEWLINE@194..195 "\n"
+      R_BRACE@195..196 "}"
+  NEWLINE@196..197 "\n"
+  NEWLINE@197..198 "\n"
+  FN_DECL@198..240
+    FN_KW@198..200 "fn"
+    WHITESPACE@200..201 " "
+    LOWER_NAME@201..207 "unused"
+    PARAM_LIST@207..209
+      L_PAREN@207..208 "("
+      R_PAREN@208..209 ")"
+    WHITESPACE@209..210 " "
+    BLOCK_EXPR@210..240
+      L_BRACE@210..211 "{"
+      NEWLINE@211..212 "\n"
+      WHITESPACE@212..214 "  "
+      LAMBDA_EXPR@214..218
+        PARAM_LIST@214..216
+          PIPE2@214..216 "||"
+        WHITESPACE@216..217 " "
+        LITERAL@217..218
+          INT@217..218 "1"
+      NEWLINE@218..219 "\n"
+      WHITESPACE@219..221 "  "
+      LAMBDA_EXPR@221..226
+        PARAM_LIST@221..224
+          PIPE@221..222 "|"
+          PARAM@222..223
+            LOWER_NAME@222..223 "x"
+          PIPE@223..224 "|"
+        WHITESPACE@224..225 " "
+        NAME_REF@225..226
+          LOWER_NAME@225..226 "x"
+      NEWLINE@226..227 "\n"
+      WHITESPACE@227..229 "  "
+      BINDING@229..234
+        NAME_REF@229..230
+          LOWER_NAME@229..230 "x"
+        WHITESPACE@230..231 " "
+        EQ@231..232 "="
+        WHITESPACE@232..233 " "
+        LITERAL@233..234
+          INT@233..234 "2"
+      NEWLINE@234..235 "\n"
+      WHITESPACE@235..237 "  "
+      NAME_REF@237..238
+        LOWER_NAME@237..238 "x"
+      NEWLINE@238..239 "\n"
+      R_BRACE@239..240 "}"
+  NEWLINE@240..241 "\n"
+  NEWLINE@241..242 "\n"
+  FN_DECL@242..303
+    FN_KW@242..244 "fn"
+    WHITESPACE@244..245 " "
+    LOWER_NAME@245..254 "continued"
+    PARAM_LIST@254..272
+      L_PAREN@254..255 "("
+      PARAM@255..262
+        LOWER_NAME@255..256 "a"
+        COLON@256..257 ":"
+        WHITESPACE@257..258 " "
+        PATH_TYPE@258..262
+          PATH@258..262
+            TYPE_NAME@258..262 "Bool"
+      COMMA@262..263 ","
+      WHITESPACE@263..264 " "
+      PARAM@264..271
+        LOWER_NAME@264..265 "b"
+        COLON@265..266 ":"
+        WHITESPACE@266..267 " "
+        PATH_TYPE@267..271
+          PATH@267..271
+            TYPE_NAME@267..271 "Bool"
+      R_PAREN@271..272 ")"
+    WHITESPACE@272..273 " "
+    RET_TYPE@273..280
+      THIN_ARROW@273..275 "->"
+      WHITESPACE@275..276 " "
+      PATH_TYPE@276..280
+        PATH@276..280
+          TYPE_NAME@276..280 "Bool"
+    WHITESPACE@280..281 " "
+    BLOCK_EXPR@281..303
+      L_BRACE@281..282 "{"
+      NEWLINE@282..283 "\n"
+      WHITESPACE@283..285 "  "
+      BINDING@285..290
+        NAME_REF@285..286
+          LOWER_NAME@285..286 "x"
+        WHITESPACE@286..287 " "
+        EQ@287..288 "="
+        WHITESPACE@288..289 " "
+        NAME_REF@289..290
+          LOWER_NAME@289..290 "a"
+      NEWLINE@290..291 "\n"
+      WHITESPACE@291..293 "  "
+      LAMBDA_EXPR@293..297
+        PARAM_LIST@293..295
+          PIPE2@293..295 "||"
+        WHITESPACE@295..296 " "
+        NAME_REF@296..297
+          LOWER_NAME@296..297 "b"
+      NEWLINE@297..298 "\n"
+      WHITESPACE@298..300 "  "
+      NAME_REF@300..301
+        LOWER_NAME@300..301 "x"
+      NEWLINE@301..302 "\n"
+      R_BRACE@302..303 "}"
+  NEWLINE@303..304 "\n"
+  NEWLINE@304..305 "\n"
+  FN_DECL@305..348
+    FN_KW@305..307 "fn"
+    WHITESPACE@307..308 " "
+    LOWER_NAME@308..325 "first_on_the_line"
+    PARAM_LIST@325..327
+      L_PAREN@325..326 "("
+      R_PAREN@326..327 ")"
+    WHITESPACE@327..328 " "
+    BLOCK_EXPR@328..348
+      L_BRACE@328..329 "{"
+      NEWLINE@329..330 "\n"
+      WHITESPACE@330..332 "  "
+      BLOCK_EXPR@332..346
+        L_BRACE@332..333 "{"
+        WHITESPACE@333..334 " "
+        LAMBDA_EXPR@334..338
+          PARAM_LIST@334..336
+            PIPE2@334..336 "||"
+          WHITESPACE@336..337 " "
+          LITERAL@337..338
+            INT@337..338 "1"
+        NEWLINE@338..339 "\n"
+        WHITESPACE@339..343 "    "
+        LITERAL@343..344
+          INT@343..344 "2"
+        WHITESPACE@344..345 " "
+        R_BRACE@345..346 "}"
+      NEWLINE@346..347 "\n"
+      R_BRACE@347..348 "}"
+  NEWLINE@348..349 "\n"
+  NEWLINE@349..350 "\n"
+  COMMENT@350..403 "# 引数の並びの直後の改行は文を終える"
+  NEWLINE@403..404 "\n"
+  FN_DECL@404..453
+    FN_KW@404..406 "fn"
+    WHITESPACE@406..407 " "
+    LOWER_NAME@407..427 "newline_after_params"
+    PARAM_LIST@427..429
+      L_PAREN@427..428 "("
+      R_PAREN@428..429 ")"
+    WHITESPACE@429..430 " "
+    BLOCK_EXPR@430..453
+      L_BRACE@430..431 "{"
+      NEWLINE@431..432 "\n"
+      WHITESPACE@432..434 "  "
+      BINDING@434..441
+        NAME_REF@434..435
+          LOWER_NAME@434..435 "f"
+        WHITESPACE@435..436 " "
+        EQ@436..437 "="
+        WHITESPACE@437..438 " "
+        LAMBDA_EXPR@438..441
+          PARAM_LIST@438..441
+            PIPE@438..439 "|"
+            PARAM@439..440
+              LOWER_NAME@439..440 "x"
+            PIPE@440..441 "|"
+      NEWLINE@441..442 "\n"
+      WHITESPACE@442..446 "    "
+      NAME_REF@446..447
+        LOWER_NAME@446..447 "x"
+      NEWLINE@447..448 "\n"
+      WHITESPACE@448..450 "  "
+      NAME_REF@450..451
+        LOWER_NAME@450..451 "f"
+      NEWLINE@451..452 "\n"
+      R_BRACE@452..453 "}"
+  NEWLINE@453..454 "\n"
+  NEWLINE@454..455 "\n"
+  COMMENT@455..521 "# 字句は最長一致なので |x||y| は |x，||，y| と読む"
+  NEWLINE@521..522 "\n"
+  FN_DECL@522..558
+    FN_KW@522..524 "fn"
+    WHITESPACE@524..525 " "
+    LOWER_NAME@525..533 "adjacent"
+    PARAM_LIST@533..535
+      L_PAREN@533..534 "("
+      R_PAREN@534..535 ")"
+    WHITESPACE@535..536 " "
+    BLOCK_EXPR@536..558
+      L_BRACE@536..537 "{"
+      NEWLINE@537..538 "\n"
+      WHITESPACE@538..540 "  "
+      BINDING@540..549
+        NAME_REF@540..541
+          LOWER_NAME@540..541 "g"
+        WHITESPACE@541..542 " "
+        EQ@542..543 "="
+        WHITESPACE@543..544 " "
+        LAMBDA_EXPR@544..549
+          PARAM_LIST@544..546
+            PIPE@544..545 "|"
+            PARAM@545..546
+              LOWER_NAME@545..546 "x"
+          LAMBDA_EXPR@546..549
+            PARAM_LIST@546..548
+              PIPE2@546..548 "||"
+            NAME_REF@548..549
+              LOWER_NAME@548..549 "y"
+      ERROR@549..552
+        PIPE@549..550 "|"
+        WHITESPACE@550..551 " "
+        LOWER_NAME@551..552 "x"
+      NEWLINE@552..553 "\n"
+      WHITESPACE@553..555 "  "
+      NAME_REF@555..556
+        LOWER_NAME@555..556 "g"
+      NEWLINE@556..557 "\n"
+      R_BRACE@557..558 "}"
+  NEWLINE@558..559 "\n"
+  NEWLINE@559..560 "\n"
+  COMMENT@560..628 "# 引数の型のエラー集合が二つ以上なら括弧で囲む"
+  NEWLINE@628..629 "\n"
+  FN_DECL@629..718
+    FN_KW@629..631 "fn"
+    WHITESPACE@631..632 " "
+    LOWER_NAME@632..657 "unparenthesized_error_set"
+    PARAM_LIST@657..659
+      L_PAREN@657..658 "("
+      R_PAREN@658..659 ")"
+    WHITESPACE@659..660 " "
+    BLOCK_EXPR@660..718
+      L_BRACE@660..661 "{"
+      NEWLINE@661..662 "\n"
+      WHITESPACE@662..664 "  "
+      BINDING@664..707
+        NAME_REF@664..665
+          LOWER_NAME@664..665 "h"
+        WHITESPACE@665..666 " "
+        EQ@666..667 "="
+        WHITESPACE@667..668 " "
+        LAMBDA_EXPR@668..707
+          PARAM_LIST@668..699
+            PIPE@668..669 "|"
+            PARAM@669..697
+              LOWER_NAME@669..670 "f"
+              COLON@670..671 ":"
+              WHITESPACE@671..672 " "
+              FN_TYPE@672..697
+                FN_KW@672..674 "fn"
+                PARAM_TYPE_LIST@674..676
+                  L_PAREN@674..675 "("
+                  R_PAREN@675..676 ")"
+                WHITESPACE@676..677 " "
+                RET_TYPE@677..683
+                  THIN_ARROW@677..679 "->"
+                  WHITESPACE@679..680 " "
+                  PATH_TYPE@680..683
+                    PATH@680..683
+                      TYPE_NAME@680..683 "Int"
+                WHITESPACE@683..684 " "
+                FAILS_CLAUSE@684..697
+                  LOWER_NAME@684..689 "fails"
+                  WHITESPACE@689..690 " "
+                  ERROR_SET@690..697
+                    PATH@690..697
+                      TYPE_NAME@690..697 "Timeout"
+            WHITESPACE@697..698 " "
+            PIPE@698..699 "|"
+          WHITESPACE@699..700 " "
+          PATH_EXPR@700..707
+            PATH@700..707
+              TYPE_NAME@700..707 "Refused"
+      ERROR@707..712
+        PIPE@707..708 "|"
+        WHITESPACE@708..709 " "
+        LOWER_NAME@709..710 "f"
+        L_PAREN@710..711 "("
+        R_PAREN@711..712 ")"
+      NEWLINE@712..713 "\n"
+      WHITESPACE@713..715 "  "
+      NAME_REF@715..716
+        LOWER_NAME@715..716 "h"
+      NEWLINE@716..717 "\n"
+      R_BRACE@717..718 "}"
+  NEWLINE@718..719 "\n"
+error[E0148]@162..167: anonymous functions are written `|x| body`
+  = help: write `|x| x + 1`
+error[E0148]@181..185: anonymous functions are written `|x| body`
+  = help: write `(|| 1)`
+error[E0149]@214..218: this anonymous function is never used
+  = help: a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses
+error[E0149]@221..226: this anonymous function is never used
+error[E0149]@293..297: this anonymous function is never used
+  = help: a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses
+error[E0149]@334..338: this anonymous function is never used
+error[E0118]@441..442: expected expression
+error[E0110]@546..548: expected `|`
+error[E0122]@549..550: expected newline or `}` after statement
+error[E0122]@707..708: expected newline or `}` after statement

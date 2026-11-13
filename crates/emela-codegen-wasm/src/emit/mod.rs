@@ -80,14 +80,18 @@ pub(crate) struct OutputImports {
     pub(crate) future_drop_readable: u32,
 }
 
-pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>> {
+pub(crate) fn emit(
+    m: &Module,
+    entry: &Run,
+    reach: &check::Reach,
+) -> Result<WasmOutput, Vec<WasmError>> {
     assert_eq!(
         m.stage,
         Stage::RefCounted,
         "the WASM emitter reads the Heap IR"
     );
     let mut b = Builder::new(m);
-    b.build(entry);
+    b.build(entry, reach);
     if !b.errors.is_empty() {
         return Err(b.errors);
     }
@@ -116,7 +120,7 @@ fn ix<T>(id: la_arena::Idx<T>) -> usize {
 /// The shape of a heap object made by the program.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct DescKey {
-    /// 0 = fields, 1 = string (variable size).
+    /// 0 = fields, 1 = string (variable size), 2 = array (variable size, `runtime/array.rs`).
     pub kind: u32,
     pub tag: u32,
     /// The enum index of an error value, or -1.
@@ -139,6 +143,18 @@ pub(crate) fn val(r: Repr) -> ValType {
 
 fn repr_val(r: Repr) -> Option<ValType> {
     (r != Repr::Void).then(|| val(r))
+}
+
+/// The index of a representation in the runtime's thunk tables and the fiber operations' repr
+/// argument (the order of `emit::suspend::repr_index`).
+fn repr_code(r: Repr) -> i32 {
+    match r {
+        Repr::Void => 0,
+        Repr::I32 => 1,
+        Repr::I64 => 2,
+        Repr::F64 => 3,
+        Repr::Ref => 4,
+    }
 }
 
 // ---- global indices ----
@@ -227,18 +243,20 @@ pub(crate) struct Builder<'m> {
     const_cells: FxHashMap<FnId, u32>,
     pub(crate) errors: Vec<WasmError>,
     pub(crate) bodies: Vec<WasmFunction>,
+    /// The trapping bodies of the hosts the entry cannot reach, emitted after the IR functions.
+    traps: Vec<WasmFunction>,
     /// The external functions resolved to a supported WASI 0.3 host, with their runtime wrapper.
     std_hosts: Vec<(FnId, StdHost)>,
     /// The suspend runtime's cells and per-function entries, when the program suspends.
     pub(crate) sus: Option<suspend::Plan>,
-    /// The asynchronous host bridge's cells, when the program sleeps.
-    pub(crate) async_plan: Option<runtime::async_bridge::Plan>,
     /// The file system runtime's cells, when the program uses `Std.FileSystem`.
     pub(crate) fs_plan: Option<runtime::fs::Plan>,
     pub(crate) http_plan: Option<runtime::http::Plan>,
     /// Whether the output is an HTTP service ([`Run::Service`]): it exports `handle` of
     /// `wasi:http/handler@0.3.0` instead of `run` of `wasi:cli/run@0.3.0`.
     pub(crate) service: bool,
+    /// The fiber scheduler's cells and descriptors, when the program suspends.
+    pub(crate) fiber_plan: Option<runtime::fiber::Plan>,
 }
 
 impl<'m> Builder<'m> {
@@ -272,12 +290,13 @@ impl<'m> Builder<'m> {
             const_cells: FxHashMap::default(),
             errors: Vec::new(),
             bodies: Vec::new(),
+            traps: Vec::new(),
             std_hosts: Vec::new(),
             sus: None,
-            async_plan: None,
             fs_plan: None,
             http_plan: None,
             service: false,
+            fiber_plan: None,
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
@@ -505,6 +524,44 @@ impl<'m> Builder<'m> {
         self.ty(params, results)
     }
 
+    /// Reserves a trapping stub per wasm signature for the externals the entry cannot reach, and
+    /// points their indices at it.
+    ///
+    /// A handler constructor builds a closure for every operation of its effect, whether the
+    /// entry performs the operation or not, so the emitted bodies contain calls to those hosts.
+    /// Emitting the import would carry a host the program never uses, and the body of the call
+    /// cannot run because only performing the operation reaches it. The stub keeps the calls
+    /// valid without the import (spec `[target.wasm.output]`).
+    fn reserve_traps(&mut self, ids: &[FnId]) {
+        let mut traps: FxHashMap<u32, u32> = FxHashMap::default();
+        for &id in ids {
+            let (params, results) = {
+                let f = &self.m.functions[id];
+                (
+                    f.params
+                        .iter()
+                        .map(|&p| val(f.vars[p].repr))
+                        .collect::<Vec<_>>(),
+                    repr_val(self.repr(f.ret)).into_iter().collect::<Vec<_>>(),
+                )
+            };
+            let ty = self.ty(params, results);
+            let index = *traps.entry(ty).or_insert_with(|| {
+                let index = self.imports.len() as u32 + self.defs.len() as u32;
+                self.defs.push(ty);
+                let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+                {
+                    let ins = &mut func.instructions();
+                    ins.unreachable();
+                    ins.end();
+                }
+                self.traps.push(func);
+                index
+            });
+            self.fn_index[ix(id)] = index;
+        }
+    }
+
     fn imported(&self, id: FnId) -> bool {
         let f = &self.m.functions[id];
         f.external
@@ -512,17 +569,25 @@ impl<'m> Builder<'m> {
             .is_some_and(|e| e.binding("wasm").is_some())
     }
 
-    fn build(&mut self, entry: &Run) {
+    fn build(&mut self, entry: &Run, reach: &check::Reach) {
         self.service = matches!(entry, Run::Service(_));
         // The imports (the WASI host and the externals with a wasm binding) take the lowest
         // indices. A supported `Std` host is a runtime wrapper instead; it is resolved after the
         // runtime functions have their indices.
+        let mut unreachable_hosts = Vec::new();
         for (id, f) in self.m.functions.iter() {
             if let Some(ext) = &f.external
                 && let Some(binding) = ext.binding("wasm")
             {
                 match crate::std_host::classify(f) {
-                    Some(host) => self.std_hosts.push((id, host)),
+                    Some(host) if reach.contains(id) => self.std_hosts.push((id, host)),
+                    // A host the entry cannot reach is in the module because a handler it builds
+                    // bundles the external (`Std.Platform` bundles every system handler). It is
+                    // never called, so neither its runtime wrapper nor its import is emitted
+                    // (spec `[target.wasm.output]`). The handler constructors still put calls to
+                    // it in their operation bodies, which are emitted whether the operation runs
+                    // or not, so it gets a trapping stub with its signature.
+                    Some(_) => unreachable_hosts.push(id),
                     None => self.external_import(id, f, binding),
                 }
             }
@@ -581,15 +646,21 @@ impl<'m> Builder<'m> {
                 self.defs.push(ty);
             }
         }
-        // The error `show` functions, as table indices (their descriptors point at them).
+        // The error `show` functions, as table indices (their descriptors point at them). A Show
+        // impl item always has a body (the `impl_item` production in [grammar.decl]), so its
+        // function is never imported and the loop above gives it an index in the table.
         for (enum_id, function) in self.m.error_shows.iter().copied() {
-            let slot = if self.imported(function) {
-                u32::MAX
-            } else {
-                self.fn_table[ix(function)]
-            };
-            self.error_shows.insert(enum_id, slot);
+            debug_assert!(
+                !self.imported(function),
+                "an error's show function cannot be imported: a Show impl item needs a body"
+            );
+            self.error_shows
+                .insert(enum_id, self.fn_table[ix(function)]);
         }
+        // The stubs of the hosts the entry cannot reach. They are definitions like the IR
+        // functions (one per distinct signature), so the calls in the emitted handler bodies
+        // validate; the calls can never run.
+        self.reserve_traps(&unreachable_hosts);
         // The state machines of suspending functions: their extra definitions come right after
         // the IR functions, before the runtime (so the runtime indices do not move).
         if suspend::used(self) {
@@ -612,6 +683,7 @@ impl<'m> Builder<'m> {
         }
         if suspend::used(self) {
             suspend::prepare(self);
+            runtime::fiber::prepare(self);
         }
         // The async-lifted `wasi:cli/run@0.3.0#run` export (or `handle` of
         // `wasi:http/handler@0.3.0`, which takes the request) and its callback. Both return the
@@ -730,6 +802,16 @@ impl<'m> Builder<'m> {
     }
 
     pub(crate) fn desc(&mut self, key: DescKey) -> u32 {
+        // `from_core` gives every constructed error enum a show function (its Show, or the
+        // derived name when the type does not satisfy Show), and `build` maps it to a table
+        // index, so a language-produced error's descriptor always has one. `show_failure`
+        // relies on that.
+        debug_assert!(
+            key.enum_id < 0 || key.show.is_some(),
+            "the error `{}` has no show function; `from_core` must give every constructed error \
+             enum one (`Derive::ErrorName` when its type does not satisfy Show)",
+            key.name
+        );
         if let Some(&o) = self.descs.get(&key) {
             return o;
         }
@@ -792,6 +874,28 @@ impl<'m> Builder<'m> {
         });
         let none = self.nullary(none_desc);
         Some((some, none, repr))
+    }
+
+    /// The representation of the elements of the array type `ty` (`[api.std.array]`).
+    pub(crate) fn array_elem_repr(&self, ty: TypeId) -> Repr {
+        match self.core().ty(ty) {
+            Type::Array(elem) => self.repr(*elem),
+            _ => Repr::Ref,
+        }
+    }
+
+    /// The descriptor of an array of type `ty` (`runtime/array.rs`): kind 2, with `refs[0]`
+    /// telling whether the elements are references.
+    pub(crate) fn array_desc(&mut self, ty: TypeId) -> u32 {
+        let elem_ref = self.array_elem_repr(ty) == Repr::Ref;
+        self.desc(DescKey {
+            kind: runtime::array::KIND,
+            tag: 0,
+            enum_id: -1,
+            name: "Array".to_owned(),
+            show: None,
+            refs: vec![elem_ref],
+        })
     }
 
     /// A static object (rc == 0) of the descriptor, with no fields.
@@ -978,6 +1082,7 @@ impl<'m> Builder<'m> {
             };
             bodies.push(body);
         }
+        bodies.append(&mut self.traps);
         self.bodies = bodies;
     }
 
@@ -1141,10 +1246,14 @@ impl<'m> Builder<'m> {
                 Run::Main(Some(id)) => {
                     let index = self.fn_index(*id);
                     let ret = self.repr(self.m.functions[*id].ret);
+                    if self.sus.is_some() {
+                        let begin = self.rt("fb_root_begin");
+                        ins.call(begin);
+                    }
                     ins.call(index);
                     self.drop_result(ins, ret);
                     if self.sus.is_some() {
-                        let root = self.rt("root_run");
+                        let root = self.rt("fb_root_run");
                         ins.call(root);
                     }
                 }
@@ -1159,13 +1268,23 @@ impl<'m> Builder<'m> {
                         // `Incoming` is a counted reference: the handle goes in a box.
                         ins.local_get(0);
                         ins.call(self.rt("http_box"));
+                        if self.sus.is_some() {
+                            let begin = self.rt("fb_root_begin");
+                            ins.call(begin);
+                        }
                         ins.call(index);
                         self.drop_result(ins, ret);
                         if self.sus.is_some() {
-                            let root = self.rt("root_run");
+                            let root = self.rt("fb_root_run");
                             ins.call(root);
                         }
                     }
+                    // The run's result is a counted value (`fb_finish_run` put it back into the
+                    // global). Release it before the next request starts.
+                    ins.global_get(G_DEFECT);
+                    ins.call(self.rt("drop"));
+                    ins.global_get(G_FAILURE);
+                    ins.call(self.rt("drop"));
                     ins.i32_const(0);
                     ins.global_set(G_DEFECT);
                     ins.i32_const(0);
@@ -1184,10 +1303,14 @@ impl<'m> Builder<'m> {
                         }
                         let index = self.fn_index(*id);
                         let ret = self.repr(self.m.functions[*id].ret);
+                        if self.sus.is_some() {
+                            let begin = self.rt("fb_root_begin");
+                            ins.call(begin);
+                        }
                         ins.call(index);
                         self.drop_result(ins, ret);
                         if self.sus.is_some() {
-                            let root = self.rt("root_run");
+                            let root = self.rt("fb_root_run");
                             ins.call(root);
                         }
                         let name = self.string_literal(name.as_bytes());
@@ -2266,6 +2389,7 @@ impl<'m> Builder<'m> {
             ins.i32_const(prefix as i32);
             ins.local_get(cx.local(handler));
             ins.i32_const(resume as i32);
+            ins.i32_const(repr_code(ret));
             let f = self.rt("perform_new");
             ins.call(f);
             ins.local_set(rs);
@@ -2295,8 +2419,8 @@ impl<'m> Builder<'m> {
         ins.end();
     }
 
-    /// `Fiber.attempt` and the operations of `Std.Cause` (spec 11.5), with the runtime of
-    /// `runtime::attempt`. The other concurrency operations are refused by `check` before this.
+    /// `Fiber.scope`, `fork`, `join`, `await`, `interrupt`, the Deferred operations and the
+    /// operations of `Std.Cause` (spec chapter 11), with the runtime of `runtime::fiber`.
     fn fiber(
         &mut self,
         cx: &mut FnCtx,
@@ -2306,6 +2430,102 @@ impl<'m> Builder<'m> {
         args: &[Operand],
     ) {
         match op {
+            FiberOp::Scope { .. } => {
+                let ret = self.operand_fn_ret(cx, &args[0]);
+                let repr = self.repr(ret);
+                let table = self.thunk1(repr);
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                ins.i32_const(table as i32);
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_scope");
+                ins.call(f);
+                self.assign_i64(cx, ins, dst, repr);
+            }
+            FiberOp::Fork => {
+                let ret = self.operand_fn_ret(cx, &args[1]);
+                let repr = self.repr(ret);
+                let table = self.thunk0(repr);
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                ins.i32_const(table as i32);
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_fork");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FiberOp::Deferred => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("fb_deferred");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FiberOp::Join => {
+                let repr = self.dst_repr(cx, dst);
+                self.operand(cx, ins, &args[0]);
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_join");
+                ins.call(f);
+                self.assign_i64(cx, ins, dst, repr);
+            }
+            FiberOp::Await { .. } => {
+                let repr = self.exit_value_repr(cx, dst);
+                self.operand(cx, ins, &args[0]);
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_await");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FiberOp::Interrupt => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("fb_interrupt");
+                ins.call(f);
+            }
+            FiberOp::Complete => {
+                let repr = self.operand_repr_of(cx, &args[1]);
+                self.operand(cx, ins, &args[0]);
+                // A value without representation is passed as the zero word (the C runtime's
+                // `em_deferred_complete`).
+                if repr == Repr::Void {
+                    ins.i64_const(0);
+                } else {
+                    self.operand(cx, ins, &args[1]);
+                    if repr == Repr::F64 {
+                        ins.i64_reinterpret_f64();
+                    } else if repr != Repr::I64 {
+                        ins.i64_extend_i32_u();
+                    }
+                }
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_complete");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::I32);
+            }
+            FiberOp::DeferredAwait => {
+                let repr = self.dst_repr(cx, dst);
+                self.operand(cx, ins, &args[0]);
+                ins.i32_const(repr_code(repr));
+                let f = self.rt("fb_deferred_await");
+                ins.call(f);
+                self.assign_i64(cx, ins, dst, repr);
+            }
+            FiberOp::Poll => {
+                let (some, none, repr) = match dst {
+                    Some(d) => self
+                        .option_parts(cx.f.vars[d].ty)
+                        .unwrap_or_else(|| panic!("Deferred.poll without an Option type")),
+                    None => return,
+                };
+                self.operand(cx, ins, &args[0]);
+                ins.i32_const(repr_code(repr));
+                ins.i32_const(some as i32);
+                ins.i32_const(none as i32);
+                let f = self.rt("fb_poll");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
             FiberOp::Attempt { suspends, .. } => {
                 let Some(Operand::Var(f)) = args.first() else {
                     self.internal(format!("attempt without a function in {}", cx.f.name));
@@ -2321,7 +2541,6 @@ impl<'m> Builder<'m> {
                         return;
                     }
                 };
-                // Call the function in place; its value goes to a word, as a slot stores it.
                 let word = cx.scratch(Repr::I64, 0);
                 let exit = cx.scratch(Repr::Ref, 0);
                 let ty = self.call_ty(&[Repr::Ref], ret);
@@ -2344,9 +2563,6 @@ impl<'m> Builder<'m> {
                 ins.local_set(word);
                 let success = runtime::attempt::success_desc(self, ret);
                 if suspends {
-                    // The function suspended: the attempt's frame goes after the callee's, and
-                    // makes the `Exit` when the continuation is resumed. The suspension edge of
-                    // the statement pushes the caller's frame next.
                     let frame = runtime::attempt::frame_desc(self);
                     let table = self.sus.as_ref().map_or(0, |p| p.attempt_table);
                     ins.global_get(G_SUSPENDING);
@@ -2368,7 +2584,6 @@ impl<'m> Builder<'m> {
                 ins.if_(BlockType::Result(ValType::I32));
                 ins.local_get(exit);
                 ins.else_();
-                // Nothing caught: a value, or a defect that is not caught (then no value).
                 ins.global_get(G_DEFECT);
                 ins.if_(BlockType::Result(ValType::I32));
                 ins.i32_const(0);
@@ -2404,12 +2619,93 @@ impl<'m> Builder<'m> {
                 let f = self.rt("cause_raise");
                 ins.call(f);
             }
-            _ => self.internal(format!(
-                "fiber operation `{}` left in {}",
-                op.name(),
-                cx.f.name
-            )),
         }
+    }
+
+    fn operand_fn_ret(&self, cx: &FnCtx<'_>, op: &Operand) -> TypeId {
+        match op {
+            Operand::Var(v) => match self.core().ty(cx.f.vars[*v].ty) {
+                Type::Fn(f) => f.ret,
+                _ => TypeId::UNIT,
+            },
+            Operand::Const(_) => TypeId::UNIT,
+        }
+    }
+
+    fn operand_repr_of(&self, cx: &FnCtx<'_>, op: &Operand) -> Repr {
+        match op {
+            Operand::Var(v) => self.repr(cx.f.vars[*v].ty),
+            Operand::Const(c) => match c {
+                emela_lir::Const::Int(_) | emela_lir::Const::Bool(_) => Repr::I32,
+                emela_lir::Const::Int64(_) => Repr::I64,
+                emela_lir::Const::Float(_) => Repr::F64,
+                emela_lir::Const::String(_) => Repr::Ref,
+                emela_lir::Const::Unit => Repr::Void,
+            },
+        }
+    }
+
+    /// The representation of a `join` or `Deferred.await` result. Without a destination the value
+    /// is unused; it is read as a reference and released.
+    fn dst_repr(&self, cx: &FnCtx<'_>, dst: Option<VarId>) -> Repr {
+        match dst {
+            Some(d) => self.repr(cx.f.vars[d].ty),
+            None => Repr::Ref,
+        }
+    }
+
+    /// The `A` of an `Exit[A, E]` destination (the value `Fiber.await` carries).
+    fn exit_value_repr(&self, cx: &FnCtx<'_>, dst: Option<VarId>) -> Repr {
+        let Some(d) = dst else { return Repr::Ref };
+        match self.core().ty(cx.f.vars[d].ty) {
+            Type::Enum(_, args) => match args.first() {
+                Some(&a) => self.repr(a),
+                None => Repr::Void,
+            },
+            _ => Repr::Ref,
+        }
+    }
+
+    /// The table index of the closure thunk for `repr` (`fn() -> A`).
+    fn thunk0(&self, repr: Repr) -> u32 {
+        let plan = self
+            .fiber_plan
+            .as_ref()
+            .expect("the fiber runtime for a forked fiber");
+        plan.call_table + repr_code(repr) as u32
+    }
+
+    /// The table index of the closure thunk for `repr` (`fn(Scope) -> A`).
+    fn thunk1(&self, repr: Repr) -> u32 {
+        let plan = self
+            .fiber_plan
+            .as_ref()
+            .expect("the fiber runtime for a scope");
+        plan.call1_table + repr_code(repr) as u32
+    }
+
+    /// Stores the `i64` word a fiber operation returned, as `repr`.
+    fn assign_i64(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        repr: Repr,
+    ) {
+        match repr {
+            Repr::I32 | Repr::Ref => {
+                ins.i32_wrap_i64();
+            }
+            Repr::I64 => {}
+            Repr::F64 => {
+                ins.f64_reinterpret_i64();
+            }
+            Repr::Void => {
+                ins.drop();
+                return;
+            }
+        }
+        self.assign(cx, ins, dst, repr);
     }
 
     /// The resume function table index for an operation returning `ret`.

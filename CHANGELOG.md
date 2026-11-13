@@ -7,6 +7,67 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.27.1](https://github.com/emela-lang/emela/compare/v0.27.0...v0.27.1) - 2026-11-12
+
+### Fixed
+
+- *(driver)* JS ターゲットの Node の下限を 22 に上げ，古い node を止める ([#536](https://github.com/emela-lang/emela/pull/536)) (by @Allianaab2m)
+- *(cli)* --version にコミットハッシュを付ける ([#534](https://github.com/emela-lang/emela/pull/534)) (by @Allianaab2m)
+- reserve the JS launcher names for host exports ([#505](https://github.com/emela-lang/emela/pull/505)) (by @Allianaab2m)
+- *(lsp)* 属性名とターゲット名を補完し，コメントと文字列の中では補完しない ([#529](https://github.com/emela-lang/emela/pull/529)) (by @Allianaab2m)
+- *(lsp)* external のファイル引数をリンクにする ([#532](https://github.com/emela-lang/emela/pull/532)) (by @Allianaab2m)
+- *(lsp)* 節と型の位置では書ける種類の名前だけを補完する ([#530](https://github.com/emela-lang/emela/pull/530)) (by @Allianaab2m)
+- *(lsp)* ディスク上のファイル変更で再検査する ([#531](https://github.com/emela-lang/emela/pull/531)) (by @Allianaab2m)
+
+## [0.27.0](https://github.com/emela-lang/emela/compare/v0.26.1...v0.27.0) - 2026-11-07
+
+### Added
+
+- 効果の節を uses { R } と書けるようにする ([#518](https://github.com/emela-lang/emela/pull/518)) (by @Allianaab2m)
+- 無名関数を |x| e と書ける ([#516](https://github.com/emela-lang/emela/pull/516)) (by @Allianaab2m)
+- escape の arm に `_` を書いて、どの error も受けられるようにする ([#512](https://github.com/emela-lang/emela/pull/512)) (by @Allianaab2m)
+- Std.Array で位置で読む固定長の列を書けるようにする ([#513](https://github.com/emela-lang/emela/pull/513)) (by @Allianaab2m)
+
+### Fixed
+
+- *(wasm)* trap when the heap cannot grow ([#506](https://github.com/emela-lang/emela/pull/506)) (by @Allianaab2m)
+- *(wasm)* show the name of an error without Show ([#443](https://github.com/emela-lang/emela/pull/443)) (by @isoshigi)
+
+### Other
+
+- Move attempt and Exit to Std.Exit ([#501](https://github.com/emela-lang/emela/pull/501)) (by @Allianaab2m)
+- *(std)* 同梱の core と std を x.f(a) のメソッド呼び出しで書き直す ([#477](https://github.com/emela-lang/emela/pull/477)) (by @Allianaab2m)
+- update Cargo.toml dependencies
+
+### Breaking
+
+- `attempt` と `Exit`（`Success`，`Failure`）を `Std.Fiber` から新しい `Std.Exit` に移す．`Fiber.attempt(f)` は `Exit.attempt(f)` に，`import Std.Fiber.{Exit, Success, Failure}` は `import Std.Exit.{Exit, Success, Failure}` に書き換える．古い名前は残さない（`proposals/std-exit.md`）
+
+## [0.26.1](https://github.com/emela-lang/emela/compare/v0.26.0...v0.26.1) - 2026-10-30
+
+### Fixed
+
+- *(types)* order a method call only before fns of the receiver type's module ([#480](https://github.com/emela-lang/emela/pull/480)) (by @Allianaab2m)
+
+## [0.26.0](https://github.com/emela-lang/emela/compare/v0.25.0...v0.26.0) - 2026-10-29
+
+### Added
+
+- CLIから組み込みCのビルドと書き込みを利用可能にする ([#387](https://github.com/emela-lang/emela/pull/387)) (by @aoi-netai)
+- Std.Bytes でバイト列を扱えるようにする ([#466](https://github.com/emela-lang/emela/pull/466)) (by @Allianaab2m)
+- x.f(a) でメソッド呼び出しを書ける ([#467](https://github.com/emela-lang/emela/pull/467)) (by @Allianaab2m)
+- STM32F4・ESP32-C3のボード実行基盤を追加 ([#386](https://github.com/emela-lang/emela/pull/386)) (by @aoi-netai)
+
+### Fixed
+
+- *(wasm)* import only the std hosts reached from the entry ([#442](https://github.com/emela-lang/emela/pull/442)) (by @isoshigi)
+
+### Other
+
+- 多数のプログラムを回すテストを並列にする ([#456](https://github.com/emela-lang/emela/pull/456)) (by @Allianaab2m)
+- update Cargo.toml dependencies
+- README と docs を 0.25 に合わせ，trait の例を足す ([#464](https://github.com/emela-lang/emela/pull/464)) (by @Allianaab2m)
+
 ## [0.25.0](https://github.com/emela-lang/emela/compare/v0.24.0...v0.25.0) - 2026-10-25
 
 ### Added

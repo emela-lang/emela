@@ -1,27 +1,31 @@
 //! What the WASM target does not support yet, found on the Flow IR before the Heap IR passes.
 //!
 //! The checks are split by what they inspect: the whole module and the collected diagnostics
-//! here, external functions in `external`, the calls to `suspend fn` external functions reachable
-//! from the entry in `suspend`, and values (fibers) in `value`. Suspending functions and `suspend
-//! fn` operations are supported; `suspend fn` external functions are not (they need a host
-//! callback).
+//! here, external functions in `external`, and reachability from the entry in `reach`.
+//! Suspending functions, `suspend fn` operations, fibers and the scopes and Deferred values of
+//! chapter 11 are supported; `suspend fn` external functions are not (they need a host callback),
+//! so a reachable call to one without a `wasm` binding is unsupported.
 
 mod external;
-mod suspend;
-mod value;
+mod reach;
 
-use emela_lir::{FnId, Module, Stmt};
+use emela_lir::{FnId, Module};
 
 use crate::{WasmError, WasmErrorKind};
 
 use self::external::external;
-use self::suspend::suspension_points;
-use self::value::value_unsupported;
+
+pub(crate) use self::reach::Reach;
+
+/// What the entry can reach, for the diagnostics and the emitter (see [`reach::walk`]).
+pub(crate) fn reach(m: &Module, roots: &[FnId]) -> Reach {
+    reach::walk(m, roots)
+}
 
 /// Every construct reachable from the entry (the module holds only reachable functions after
 /// monomorphisation) that the WASM target cannot compile yet. Calls to `suspend fn` external
-/// functions and fibers are reported once each, naming where they are reached.
-pub(crate) fn unsupported(m: &Module, roots: &[FnId]) -> Vec<WasmError> {
+/// functions are reported once each, naming where they are reached.
+pub(crate) fn unsupported(m: &Module, reach: &Reach) -> Vec<WasmError> {
     let mut found = Found::default();
     for (_, f) in m.functions.iter() {
         if let Some(ext) = &f.external {
@@ -30,13 +34,13 @@ pub(crate) fn unsupported(m: &Module, roots: &[FnId]) -> Vec<WasmError> {
             }
             continue;
         }
-        for (_, stmt) in f.stmts.iter() {
-            if let Stmt::Let { value, .. } = stmt {
-                value_unsupported(value, &mut found);
-            }
-        }
     }
-    suspension_points(m, roots, &mut found);
+    for &callee in reach.suspending() {
+        found.suspending(format!(
+            "a call to `{}`, a `suspend fn` external",
+            display_name(&m.functions[callee].name)
+        ));
+    }
     found.finish()
 }
 
@@ -45,8 +49,6 @@ struct Found {
     errors: Vec<WasmError>,
     /// Where a `suspend fn` external function is called.
     suspending: Vec<String>,
-    /// The fiber operations used.
-    fibers: Vec<&'static str>,
 }
 
 impl Found {
@@ -71,15 +73,6 @@ impl Found {
             );
             self.errors
                 .insert(0, WasmError::new(WasmErrorKind::Unsupported, message));
-        }
-        if !self.fibers.is_empty() {
-            let names: Vec<String> = self.fibers.iter().map(|f| format!("`{f}`")).collect();
-            let message = format!(
-                "fibers are not supported on target `wasm` yet, and the entry uses {}",
-                list(&names)
-            );
-            self.errors
-                .push(WasmError::new(WasmErrorKind::Unsupported, message));
         }
         self.errors
     }

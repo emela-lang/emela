@@ -39,8 +39,9 @@ module.exports = grammar({
     $._string_content,
     $._multiline_string_content,
     '#{',
-    // Never produced. They are valid only where a newline followed by `fails` or `use`
-    // (rule 4), or by `derive` ([grammar.decl]), continues the line, and tell the scanner so.
+    // Never produced. They are valid only where a newline followed by the old clause `use`
+    // (E0147, read as a uses clause), or by `derive` ([grammar.decl]), continues the line, and
+    // tell the scanner so. Rule 4 (`fails` and `uses`) needs no state.
     $._signature_continues,
     $._derive_continues,
     // Valid in every state only during error recovery.
@@ -150,7 +151,7 @@ module.exports = grammar({
       field('parameters', $.parameters),
       optional(seq(optional($._signature_continues), '->', field('return_type', $._type))),
       optional(seq(optional($._signature_continues), $.fails_clause)),
-      optional(seq(optional($._signature_continues), $.use_clause)),
+      optional(seq(optional($._signature_continues), $.uses_clause)),
     ),
 
     parameters: $ => seq('(', commaSep($.parameter), ')'),
@@ -368,14 +369,15 @@ module.exports = grammar({
       '->',
       field('return_type', $._type),
       optional($.fails_clause),
-      optional($.use_clause),
+      optional($.uses_clause),
     )),
 
     _parameter_types: $ => seq('(', commaSep($._type), ')'),
 
     fails_clause: $ => seq('fails', $._error_set),
 
-    use_clause: $ => seq('use', $._effect_set),
+    // The old clause `use` (E0147) is read as a uses clause too, as the compiler does.
+    uses_clause: $ => seq(choice('uses', 'use'), $._effect_set),
 
     _error_set: $ => choice(
       alias(seq('{', '}'), $.error_set),
@@ -426,6 +428,7 @@ module.exports = grammar({
       $.use_expression,
       $.call_expression,
       $.field_expression,
+      $.lambda,
       $._primary_expression,
     ),
 
@@ -528,7 +531,6 @@ module.exports = grammar({
       $.block,
       $.if_expression,
       $.with_expression,
-      $.lambda,
     ),
 
     self: _ => 'self',
@@ -574,17 +576,49 @@ module.exports = grammar({
       )),
     ),
 
-    lambda: $ => seq(
-      'fn',
+    // `|x| e`, `|a, b| e` and `|| e` ([grammar.expr]). The body is an expression and takes
+    // everything to its right, so the lambda binds looser than every operator.
+    lambda: $ => prec.right(-1, seq(
       field('parameters', $.lambda_parameters),
-      field('body', $.block),
-    ),
+      field('body', $._expression),
+    )),
 
-    lambda_parameters: $ => seq('(', commaSep($.lambda_parameter), ')'),
+    lambda_parameters: $ => choice(
+      '||',
+      seq('|', commaSep($.lambda_parameter), '|'),
+    ),
 
     lambda_parameter: $ => seq(
       field('pattern', choice($.self, $._pattern)),
-      optional(seq(':', field('type', $._type))),
+      optional(seq(':', field('type', $._lambda_parameter_type))),
+    ),
+
+    // Inside the parameter list of a lambda, a `|` outside brackets closes the list, so the error
+    // set of a function type there has one item; more are written inside parentheses
+    // ([grammar.expr]). Inside brackets the types are the usual ones.
+    _lambda_parameter_type: $ => choice(
+      $.type_reference,
+      $.generic_type,
+      $.type_variable,
+      $.self_type,
+      $.unit_type,
+      $.parenthesized_type,
+      $.tuple_type,
+      alias($._lambda_function_type, $.function_type),
+    ),
+
+    _lambda_function_type: $ => prec.right(seq(
+      'fn',
+      field('parameters', alias($._parameter_types, $.parameter_types)),
+      '->',
+      field('return_type', $._lambda_parameter_type),
+      optional(alias($._lambda_fails_clause, $.fails_clause)),
+      optional($.uses_clause),
+    )),
+
+    _lambda_fails_clause: $ => seq(
+      'fails',
+      choice(alias(seq('{', '}'), $.error_set), $._error_item),
     ),
 
     // Literals ([grammar.lex]).
