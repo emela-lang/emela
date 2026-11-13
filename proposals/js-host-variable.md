@@ -1,10 +1,10 @@
 ---
 title: JS hosts are Node and Bun, chosen with EMELA_JS_HOST
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 504
 issue:
-decided:
+decided: 2026-11-14
 touches: [target, target.js.host, cmd.build, cmd.doctor, cmd.test.out-dir, diag.list]
 requires: []
 related: []
@@ -121,3 +121,5 @@ Replace "`emela test` runs the launcher module with node." with "`emela test` ru
 ## Open questions
 
 ## Decision
+
+Adopted, keeping the name `EMELA_JS_HOST`: the specification calls what runs the JS output the host, and `EMELA_JS_RUNTIME` would be confused with `emela_runtime.mjs`. Node and Bun are both supported for now, so CI runs the JS tests on Bun as well, and the version check reads the version from inside the host so that Bun is compared with its own minimum. Making Bun the default is left for later.
