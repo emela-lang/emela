@@ -1,7 +1,7 @@
 ---
 title: emela doctor
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 535
 issue:
 decided: 2026-11-10

@@ -8,9 +8,9 @@
 
 use clap::{CommandFactory, Parser, Subcommand};
 use emela_driver::{
-    Analysis, Backend, CoreC, CoreJs, CoreWasm, Diagnostic, FileSystem, Input, Lower, LowerTests,
-    MemoryFiles, OsFs, Output, Reporter, RunOptions, SourceDb, Target, TestBackend, TestModule,
-    TestOptions, Typecheck,
+    Analysis, Backend, CoreC, CoreJs, CoreWasm, Diagnostic, DoctorFormat, FileSystem, Input, Lower,
+    LowerTests, MemoryFiles, OsFs, Output, Reporter, RunOptions, SourceDb, Target, TestBackend,
+    TestModule, TestOptions, Typecheck,
 };
 use std::ffi::OsString;
 use std::io::{IsTerminal, Read, Write};
@@ -120,6 +120,17 @@ enum Command {
     },
     /// Start the language server over standard input and output
     Lsp,
+    /// Report whether the programs each build target uses can be found and are new enough
+    Doctor {
+        /// A path in the project [default: .]
+        path: Option<PathBuf>,
+        /// Require this target instead of the build target of the project
+        #[arg(long, value_enum)]
+        target: Option<TargetArg>,
+        /// Output format
+        #[arg(long, value_enum, default_value_t = DoctorFormatArg::Text)]
+        format: DoctorFormatArg,
+    },
 }
 
 /// A build target (spec chapter 16).
@@ -172,6 +183,23 @@ enum DocFormat {
     Md,
 }
 
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum DoctorFormatArg {
+    /// Lines for a person, grouped by target
+    Text,
+    /// One JSON object
+    Json,
+}
+
+impl From<DoctorFormatArg> for DoctorFormat {
+    fn from(format: DoctorFormatArg) -> Self {
+        match format {
+            DoctorFormatArg::Text => DoctorFormat::Text,
+            DoctorFormatArg::Json => DoctorFormat::Json,
+        }
+    }
+}
+
 const DIAGNOSTIC_FAILURE: u8 = 1;
 
 fn main() -> ExitCode {
@@ -205,6 +233,11 @@ fn main() -> ExitCode {
         } => doc(path, std, format, out_dir),
         Command::Pome { command } => pome::pome(command),
         Command::Lsp => lsp(),
+        Command::Doctor {
+            path,
+            target,
+            format,
+        } => doctor(&path_or_current(path), target, format),
     }
 }
 
@@ -565,6 +598,25 @@ fn fmt_stdin(check: bool) -> ExitCode {
             ExitCode::SUCCESS
         }
     }
+}
+
+/// `emela doctor` (`[cmd.doctor]`). The required target is `--target`, else the build target of
+/// the project that contains `path`; `Pome.toml` is not read when `--target` is given, so a broken
+/// manifest does not stop the report.
+fn doctor(path: &Path, target: Option<TargetArg>, format: DoctorFormatArg) -> ExitCode {
+    let required = match target {
+        Some(target) => Some(target.into()),
+        None => match emela_driver::enclosing_project_target(&OsFs, path) {
+            Ok(target) => target,
+            Err(diagnostic) => {
+                print_diagnostics(&[diagnostic], &SourceDb::new());
+                return ExitCode::from(DIAGNOSTIC_FAILURE);
+            }
+        },
+    };
+    let (output, code) = emela_driver::doctor(required, VERSION, format.into(), stdout_color());
+    let _ = std::io::stdout().lock().write_all(output.as_bytes());
+    ExitCode::from(code)
 }
 
 fn lsp() -> ExitCode {

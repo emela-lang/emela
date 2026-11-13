@@ -91,6 +91,36 @@ fn target_in(text: &str, path: &Path) -> Result<Option<Target>, Diagnostic> {
     }
 }
 
+/// The build target of the project that contains `path` (`[cmd.doctor]`): `[build].target` of
+/// the nearest `Pome.toml` above it, else `js`. `None` outside a project.
+///
+/// Unlike [`Input::resolve`], any path in the project is accepted, not only the project directory
+/// and the source and test roots, and no dependency is resolved, so nothing is fetched.
+pub fn enclosing_project_target(
+    fs: &dyn FileSystem,
+    path: &Path,
+) -> Result<Option<Target>, Diagnostic> {
+    let not_found = || {
+        Diagnostic::error(format!("`{}` not found", path.display())).with_code(code::PATH_NOT_FOUND)
+    };
+    let absolute = fs.absolute(path).map_err(|_| not_found())?;
+    if !fs.is_file(&absolute) && !fs.is_dir(&absolute) {
+        return Err(not_found());
+    }
+    let Some(project) = absolute
+        .ancestors()
+        .find(|dir| fs.is_file(&dir.join(PROJECT_FILE)))
+    else {
+        return Ok(None);
+    };
+
+    let manifest = project.join(PROJECT_FILE);
+    let Ok(text) = fs.read_to_string(&manifest) else {
+        return Ok(Some(Target::default()));
+    };
+    Ok(Some(target_in(&text, &manifest)?.unwrap_or_default()))
+}
+
 fn quoted(names: &[&str]) -> String {
     names
         .iter()
