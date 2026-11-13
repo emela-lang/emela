@@ -134,9 +134,13 @@ fn new_application_runs() {
         (Some(0), "Hello, world!\n")
     );
     let command = run.command.unwrap_or_default();
+    // The JS host is `EMELA_JS_HOST` when the tests run on another host (`[cmd.build]`).
+    let host = emela_driver::js_host_program();
     assert!(
-        command.starts_with("running `node --input-type=module -e <launcher> -- ")
-            && command.ends_with("main.mjs`"),
+        command.starts_with(&format!(
+            "running `{} --input-type=module -e <launcher> -- ",
+            host.display()
+        )) && command.ends_with("main.mjs`"),
         "{command}"
     );
 }
@@ -1170,7 +1174,7 @@ fn run_starts_the_server_of_an_http_service() {
         let output = Command::new(env!("CARGO_BIN_EXE_emela"))
             .args(["run", "--target", target, "--", "--addr", "127.0.0.1:0"])
             .current_dir(project.path())
-            .env("EMELA_NODE", &echo)
+            .env("EMELA_JS_HOST", &echo)
             .env("EMELA_WASMTIME", &echo)
             .env("NO_COLOR", "1")
             .output()
@@ -1205,70 +1209,190 @@ fn run_starts_the_server_of_an_http_service() {
     );
 }
 
-/// A script standing in for node: `--version` prints `version`, and anything else prints
+/// A script standing in for a JS host: started with `--input-type=module -e <module>` and nothing
+/// else, as the version check starts it, it prints `version`; started in any other way, it prints
 /// `started` (`[cmd.build]`).
 #[cfg(unix)]
-fn fake_node(project: &Project, version: &str) -> PathBuf {
+fn fake_js_host(project: &Project, version: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
 
-    let path = project.path().join(format!("node-{}", version.len()));
+    let path = project
+        .path()
+        .join(format!("host-{}", version.replace([' ', '.'], "-")));
     std::fs::write(
         &path,
-        format!("#!/bin/sh\nif [ \"$1\" = --version ]; then echo '{version}'; exit 0; fi\necho started\n"),
+        format!(
+            "#!/bin/sh\nif [ $# = 3 ] && [ \"$1\" = --input-type=module ] && [ \"$2\" = -e ]; then echo '{version}'; exit 0; fi\necho started\n"
+        ),
     )
     .unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
 }
 
-/// `emela run` and `emela test` on JS stop with E0904 before starting a node older than the
-/// version `[target]` requires (`[cmd.build]`). The `running` line is not written.
+/// `emela run` and `emela test` on JS stop with E0904 before starting a JS host older than the
+/// version `[target]` requires for that host (`[cmd.build]`). The `running` line is not written.
 #[cfg(unix)]
 #[test]
-fn run_and_test_stop_on_a_node_that_is_too_old() {
+fn run_and_test_stop_on_a_js_host_that_is_too_old() {
     let project = Project::new(
-        "old-node",
+        "old-host",
         &[
             ("Pome.toml", ""),
             ("src/main.emel", "fn main() {}\n\n@test\nfn works() {}\n"),
         ],
     );
-    let node = fake_node(&project, "v20.11.1");
-    let expected = format!(
-        "error[E0904]: `{}` is v20.11.1, but target `js` needs node 22 or later",
-        node.display()
-    );
-    for command in ["run", "test"] {
-        let run = project.emela_with_env(&[command, "--target", "js"], &[("EMELA_NODE", &node)]);
-        assert_eq!(run.code, Some(1), "{command}: {run:?}");
-        assert!(!run.stdout.contains("started"), "{command}: {run:?}");
-        assert_eq!(run.command, None, "{command}: {run:?}");
-        assert!(run.stderr.contains(&expected), "{command}: {run:?}");
-        assert!(
-            run.stderr.contains(
-                "install Node.js 22 or later, or set EMELA_NODE to a newer node executable"
-            ),
-            "{command}: {run:?}"
-        );
+    for (version, message) in [
+        (
+            "node 20.11.1",
+            "is Node 20.11.1, but target `js` needs Node 22 or later",
+        ),
+        (
+            "bun 1.2.23",
+            "is Bun 1.2.23, but target `js` needs Bun 1.3 or later",
+        ),
+    ] {
+        let host = fake_js_host(&project, version);
+        let expected = format!("error[E0904]: `{}` {message}", host.display());
+        for command in ["run", "test"] {
+            let run =
+                project.emela_with_env(&[command, "--target", "js"], &[("EMELA_JS_HOST", &host)]);
+            assert_eq!(run.code, Some(1), "{command}: {run:?}");
+            assert!(!run.stdout.contains("started"), "{command}: {run:?}");
+            assert_eq!(run.command, None, "{command}: {run:?}");
+            assert!(run.stderr.contains(&expected), "{command}: {run:?}");
+            assert!(
+                run.stderr.contains(
+                    "install Node.js 22 or later or Bun 1.3 or later, or set EMELA_JS_HOST to a newer JS host"
+                ),
+                "{command}: {run:?}"
+            );
+        }
     }
 }
 
-/// A node of the required version or later, and one whose version cannot be read, is started
+/// A JS host of the required version or later, a Bun that is new enough although its major
+/// version is below that of Node, and a host whose version cannot be read, are started
 /// (`[cmd.build]`).
 #[cfg(unix)]
 #[test]
-fn run_starts_a_node_that_is_new_enough_or_whose_version_is_unknown() {
+fn run_starts_a_js_host_that_is_new_enough_or_whose_version_is_unknown() {
     let project = Project::new(
-        "new-node",
+        "new-host",
         &[("Pome.toml", ""), ("src/main.emel", "fn main() {}\n")],
     );
-    for version in ["v22.0.0", "v24.11.1", "unknown"] {
-        let node = fake_node(&project, version);
-        let run = project.emela_with_env(&["run", "--target", "js"], &[("EMELA_NODE", &node)]);
+    for version in [
+        "node 22.0.0",
+        "node 24.11.1",
+        "bun 1.3.0",
+        "bun 1.4.3",
+        "v20.11.1",
+        "unknown",
+    ] {
+        let node = fake_js_host(&project, version);
+        let run = project.emela_with_env(&["run", "--target", "js"], &[("EMELA_JS_HOST", &node)]);
         assert_eq!(
             (run.code, run.stdout.as_str()),
             (Some(0), "started\n"),
             "{version}: {run:?}"
         );
     }
+}
+
+const W0902: &str = "warning[W0902]: EMELA_NODE is deprecated; use EMELA_JS_HOST";
+
+/// `EMELA_NODE` is still read when `EMELA_JS_HOST` is empty, with W0902; when `EMELA_JS_HOST` is
+/// set, it takes precedence and W0902 is still reported (`[cmd.build]`). The warning does not
+/// change the exit code.
+#[cfg(unix)]
+#[test]
+fn emela_node_is_read_with_a_warning() {
+    let project = Project::new(
+        "emela-node",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "fn main() {}\n\n@test\nfn works() {}\n"),
+        ],
+    );
+    let host = fake_js_host(&project, "node 24.11.1");
+    let empty = Path::new("");
+    for command in ["run", "test"] {
+        let run = project.emela_with_env(
+            &[command, "--target", "js"],
+            &[("EMELA_JS_HOST", empty), ("EMELA_NODE", &host)],
+        );
+        assert!(run.stdout.contains("started"), "{command}: {run:?}");
+        assert!(run.stderr.contains(W0902), "{command}: {run:?}");
+    }
+
+    let missing = project.path().join("missing-node");
+    let run = project.emela_with_env(
+        &["run", "--target", "js"],
+        &[("EMELA_JS_HOST", &host), ("EMELA_NODE", &missing)],
+    );
+    assert_eq!(
+        (run.code, run.stdout.as_str()),
+        (Some(0), "started\n"),
+        "{run:?}"
+    );
+    assert_eq!(run.stderr.matches(W0902).count(), 1, "{run:?}");
+    let prefix = format!(
+        "running `{} --input-type=module -e <launcher> -- ",
+        host.display()
+    );
+    assert!(
+        run.command
+            .as_deref()
+            .is_some_and(|c| c.starts_with(&prefix)),
+        "{run:?}"
+    );
+}
+
+/// W0902 is reported only by the commands that use the JS host: not by `emela check`, nor by a run
+/// on another target.
+#[cfg(unix)]
+#[test]
+fn emela_node_is_not_reported_when_the_js_host_is_not_used() {
+    let project = Project::new(
+        "emela-node-unused",
+        &[("Pome.toml", ""), ("src/main.emel", "fn main() {}\n")],
+    );
+    let host = fake_js_host(&project, "node 24.11.1");
+    let empty = Path::new("");
+    let env = [("EMELA_JS_HOST", empty), ("EMELA_NODE", host.as_path())];
+    let check = project.emela_with_env(&["check"], &env);
+    assert_eq!(check.code, Some(0), "{check:?}");
+    assert!(!check.stderr.contains("W0902"), "{check:?}");
+    let wasm = project.emela_with_env(
+        &["run", "--target", "wasm"],
+        &[
+            ("EMELA_JS_HOST", empty),
+            ("EMELA_NODE", host.as_path()),
+            ("EMELA_WASMTIME", Path::new("/nonexistent/wasmtime")),
+        ],
+    );
+    assert!(!wasm.stderr.contains("W0902"), "{wasm:?}");
+}
+
+/// `emela doctor` resolves the JS host by the same rule, so it reports W0902 too. The JS host is
+/// named by what it wrote (`[cmd.doctor]`).
+#[cfg(unix)]
+#[test]
+fn doctor_names_the_js_host_and_reports_emela_node() {
+    let project = Project::new("doctor-host", &[]);
+    let host = fake_js_host(&project, "bun 1.4.4");
+    let empty = Path::new("");
+    let run = project.emela_with_env(
+        &["doctor", "--target", "js"],
+        &[("EMELA_JS_HOST", empty), ("EMELA_NODE", &host)],
+    );
+    assert_eq!(run.code, Some(0), "{run:?}");
+    assert!(run.stderr.contains(W0902), "{run:?}");
+    assert!(
+        run.stdout
+            .contains(&format!("  ok       bun 1.4.4 ({})", host.display())),
+        "{run:?}"
+    );
+    let run = project.emela_with_env(&["doctor", "--target", "js"], &[("EMELA_JS_HOST", &host)]);
+    assert!(!run.stderr.contains("W0902"), "{run:?}");
 }

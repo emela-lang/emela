@@ -1,5 +1,5 @@
 # An HTTP service. The host calls `app` once for each request (`emela run` starts a server on
-# 127.0.0.1:8080; Deno, Bun and Workers call the `fetch` of `main.mjs` themselves). `app` is an
+# 127.0.0.1:8080; Bun and Workers call the `fetch` of `main.mjs` themselves). `app` is an
 # ordinary fn, so the tests call it directly with requests built as values.
 
 import Std.Http

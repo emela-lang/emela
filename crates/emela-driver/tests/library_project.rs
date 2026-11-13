@@ -27,7 +27,7 @@ fn options(name: &str) -> RunOptions {
             "emela-library-project-{}-{name}",
             std::process::id()
         )),
-        node: "/nonexistent/node".into(),
+        js_host: "/nonexistent/node".into(),
         args: Vec::new(),
         output: Output::Capture,
     }

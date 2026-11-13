@@ -181,7 +181,8 @@ pub const BOUNDARY_TYPE_ON_C: &str = "E0443";
 pub const PATH_NOT_FOUND: &str = "E0901";
 pub const CANNOT_READ: &str = "E0902";
 pub const CANNOT_WRITE_OUTPUT: &str = "E0903";
-/// `node` could not be started, or is older than the JS target supports (`--target js`).
+/// The JS host could not be started, or is older than the JS target supports for it
+/// (`--target js`, `[cmd.build]`).
 pub const NODE_UNAVAILABLE: &str = "E0904";
 pub const NO_JS_BACKEND: &str = "E0905";
 pub const INVALID_JS_OUTPUT: &str = "E0906";
@@ -190,3 +191,5 @@ pub const CC_UNAVAILABLE: &str = "E0907";
 pub const CC_FAILED: &str = "E0908";
 /// The `wasmtime` executable could not be started, or is too old (`--target wasm`).
 pub const WASMTIME_UNAVAILABLE: &str = "E0909";
+/// `EMELA_NODE` was read to choose the JS host (`[cmd.build]`).
+pub const NODE_ENV_DEPRECATED: &str = "W0902";

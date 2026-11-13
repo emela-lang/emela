@@ -9,7 +9,7 @@
 //! the test fail, and one that fails for another reason does too, so a skip cannot outlive its
 //! feature or hide a different bug.
 //!
-//! Needs node (`EMELA_NODE` or `node`) and wasmtime 49 or later (`EMELA_WASMTIME` or `wasmtime`);
+//! Needs node (`EMELA_JS_HOST` or `node`) and wasmtime 49 or later (`EMELA_WASMTIME` or `wasmtime`);
 //! without wasmtime the tests are skipped with a message.
 
 mod wasm_common;
@@ -19,8 +19,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use emela_driver::{
     Analysis, CoreJs, CoreWasm, Input, Lower, LowerTests, OsFs, Output, RunOptions, RunOutput,
-    Target, TestOptions, TestOutcome, node_program, run, test, wasmtime_program, with_program_cwd,
-    with_program_timeout,
+    Target, TestOptions, TestOutcome, js_host_program, run, test, wasmtime_program,
+    with_program_cwd, with_program_timeout,
 };
 use wasm_common::{PROGRAM_TIMEOUT, have_wasmtime, matches_any, messages, out_dir};
 
@@ -77,9 +77,9 @@ fn run_on(path: &Path, target: Target, name: &str) -> Result<Outcome, Box<Analys
     let input = Input::resolve(&OsFs, path).unwrap();
     let options = RunOptions {
         out_dir: out_dir("examples", &format!("{name}-{target}")),
-        node: match target {
+        js_host: match target {
             Target::Wasm => wasmtime_program(),
-            _ => node_program(),
+            _ => js_host_program(),
         },
         args: Vec::new(),
         output: Output::Capture,
@@ -128,9 +128,9 @@ fn test_on(
     let input = Input::resolve(&OsFs, path).unwrap();
     let options = TestOptions {
         out_dir: out_dir("examples", &format!("{name}-test-{target}")),
-        node: match target {
+        js_host: match target {
             Target::Wasm => wasmtime_program(),
-            _ => node_program(),
+            _ => js_host_program(),
         },
         filter: None,
         output: Output::Capture,

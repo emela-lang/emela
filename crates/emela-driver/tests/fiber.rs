@@ -60,7 +60,7 @@ fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) 
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -116,7 +116,7 @@ fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutc
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = TestOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         filter: None,
         output: Output::Capture,
         reporter: emela_driver::Reporter::Plain,

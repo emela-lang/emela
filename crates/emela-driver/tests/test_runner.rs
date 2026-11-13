@@ -77,7 +77,7 @@ fn run_tests_with<P, F: Frontend<Program = P>, B: TestBackend<P>>(
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = TestOptions {
         out_dir: out_dir(name),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         filter: filter.map(Into::into),
         output: Output::Capture,
         reporter,
@@ -573,7 +573,7 @@ fn missing_node_is_a_diagnostic() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = TestOptions {
         out_dir: out_dir("no-node"),
-        node: PathBuf::from("/nonexistent/node"),
+        js_host: PathBuf::from("/nonexistent/node"),
         filter: None,
         output: Output::Capture,
         reporter: Reporter::Plain,
@@ -1182,7 +1182,7 @@ fn run_on(
     let mut frontend = LowerTests::default().with_target(target);
     let options = TestOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: emela_driver::node_program(),
+        js_host: emela_driver::js_host_program(),
         filter: None,
         output: Output::Capture,
         reporter,

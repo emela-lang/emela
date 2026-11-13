@@ -49,7 +49,7 @@ fn failures_on(name: &str, main: &str, target: Target) -> Vec<(Target, String, T
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = TestOptions {
         out_dir: temp_dir(&format!("{name}-out-{target}")),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         filter: None,
         output: Output::Capture,
         reporter: emela_driver::Reporter::Plain,

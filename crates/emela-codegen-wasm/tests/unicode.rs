@@ -139,7 +139,7 @@ const SAMPLES: &[&str] = &[
 fn node() -> Option<&'static str> {
     static NODE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     NODE.get_or_init(|| {
-        let node = std::env::var("EMELA_NODE")
+        let node = std::env::var("EMELA_JS_HOST")
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "node".to_owned());

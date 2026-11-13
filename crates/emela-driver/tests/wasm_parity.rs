@@ -3,7 +3,7 @@
 //! write to stderr (JS `console.error`, WASM `wasi:cli/stderr.write-via-stream`), so their output
 //! can be compared without host functions.
 //!
-//! Needs node (`EMELA_NODE` or `node`) and wasmtime (`EMELA_WASMTIME` or `wasmtime`); without
+//! Needs node (`EMELA_JS_HOST` or `node`) and wasmtime (`EMELA_WASMTIME` or `wasmtime`); without
 //! wasmtime the tests are skipped with a message, like the C tests without a C compiler.
 
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 
 use emela_driver::{
     Analysis, CoreJs, CoreWasm, Input, Lower, MemoryFiles, Output, RunOptions, Target,
-    node_program, run, wasmtime_program,
+    js_host_program, run, wasmtime_program,
 };
 
 /// Programs that use only the pure language and `dbg`, so both targets must run them the same way.
@@ -857,7 +857,7 @@ fn node_unicode() -> Option<&'static str> {
     static VERSION: OnceLock<Option<String>> = OnceLock::new();
     VERSION
         .get_or_init(|| {
-            let output = Command::new(node_program())
+            let output = Command::new(js_host_program())
                 .arg("-e")
                 .arg("process.stdout.write(process.versions.unicode)")
                 .output()
@@ -905,9 +905,9 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Box<Analysis
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: match target {
+        js_host: match target {
             Target::Wasm => wasmtime_program(),
-            _ => node_program(),
+            _ => js_host_program(),
         },
         args: Vec::new(),
         output: Output::Capture,

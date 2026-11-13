@@ -91,7 +91,7 @@ fn run_on(
     let input = Input::resolve(&OsFs, path).unwrap();
     let options = RunOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: emela_driver::node_program(),
+        js_host: emela_driver::js_host_program(),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -133,7 +133,7 @@ fn test_on(
     let input = Input::resolve(&OsFs, path).unwrap();
     let options = TestOptions {
         out_dir: out_dir(&format!("{name}-test-{target}")),
-        node: emela_driver::node_program(),
+        js_host: emela_driver::js_host_program(),
         filter: None,
         output: Output::Capture,
         reporter: emela_driver::Reporter::Plain,
@@ -432,7 +432,7 @@ fn after_the_others() {
     for target in [Target::Js, Target::C] {
         let options = TestOptions {
             out_dir: out_dir(&format!("suspending-tests-{target}")),
-            node: emela_driver::node_program(),
+            js_host: emela_driver::js_host_program(),
             filter: None,
             output: Output::Capture,
             reporter: emela_driver::Reporter::Plain,

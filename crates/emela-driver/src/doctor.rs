@@ -11,6 +11,7 @@ use emela_pome::fetch::config::{Config, Source};
 pub(crate) struct Version {
     pub(crate) text: String,
     pub(crate) major: Option<u32>,
+    pub(crate) minor: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +35,9 @@ impl Status {
 }
 
 struct ProgramCheck {
-    name: &'static str,
+    /// The name of the program: as the JS host wrote it (`node`, `bun`), otherwise the name of
+    /// the spec, or for the JS host the file name of its command.
+    name: String,
     status: Status,
     executable: PathBuf,
     version: Option<String>,
@@ -43,11 +46,11 @@ struct ProgramCheck {
 }
 
 struct Spec {
-    name: &'static str,
+    name: String,
     who: &'static str,
     program: PathBuf,
-    parse: fn(&str) -> Option<Version>,
-    min_major: Option<u32>,
+    probe: Probe,
+    /// What the target needs, in the message when the program is missing or cannot start.
     needs: String,
     missing_help: Option<String>,
     too_old_help: Option<String>,
@@ -98,18 +101,17 @@ pub fn doctor(
     (output, exit_code(&report))
 }
 
-fn number(word: &str) -> Option<Version> {
-    let major = word.split('.').next().and_then(|s| s.parse::<u32>().ok())?;
+/// `<major>[.<minor>[...]]`; the minor is `None` when it is absent or not a number.
+pub(crate) fn number(word: &str) -> Option<Version> {
+    let mut parts = word.split('.');
+    let major = parts.next().and_then(|s| s.parse::<u32>().ok())?;
+    let minor = parts.next().and_then(|s| s.parse::<u32>().ok());
 
     Some(Version {
         text: word.to_string(),
         major: Some(major),
+        minor,
     })
-}
-
-pub(crate) fn node_version(out: &str) -> Option<Version> {
-    let word = out.trim();
-    number(word.strip_prefix('v').unwrap_or(word))
 }
 
 pub(crate) fn wasmtime_version(out: &str) -> Option<Version> {
@@ -131,6 +133,7 @@ fn cc_version(out: &str) -> Option<Version> {
     Some(Version {
         text: word.to_string(),
         major: None,
+        minor: None,
     })
 }
 
@@ -172,37 +175,87 @@ fn probe(
     Ok(parse(&stderr))
 }
 
-fn status(probed: Option<&io::Result<Option<Version>>>, min_major: Option<u32>) -> Status {
+/// How the version of a program is read.
+enum Probe {
+    /// From `<program> --version`, compared with the minimum major version if there is one.
+    VersionFlag {
+        parse: fn(&str) -> Option<Version>,
+        min_major: Option<u32>,
+    },
+    /// From inside the JS host, compared with the minimum of the host it reports (`[cmd.build]`).
+    JsHost,
+}
+
+/// The version that a program reported.
+struct Found {
+    /// The name the program wrote with its version (`node`, `bun`).
+    name: Option<&'static str>,
+    version: Version,
+    /// When the version is older than the minimum: what the target needs (`Node 22 or later`)
+    /// and the version as it reads after "is" in the message (`Node 20.1.0`).
+    too_old: Option<(String, String)>,
+}
+
+fn find_version(spec: &Spec, exe: &Path) -> io::Result<Option<Found>> {
+    match spec.probe {
+        Probe::VersionFlag { parse, min_major } => {
+            Ok(probe(exe, parse)?.map(|version| compare_major(version, min_major, &spec.needs)))
+        }
+        Probe::JsHost => Ok(crate::js_host::probe(exe)?.map(|probed| {
+            let too_old = probed.too_old().then(|| {
+                (
+                    format!("{} or later", probed.kind.minimum_text()),
+                    probed.describe(),
+                )
+            });
+            Found {
+                name: Some(probed.kind.word()),
+                version: probed.version,
+                too_old,
+            }
+        })),
+    }
+}
+
+/// A version read from `--version`, compared with the minimum major version if there is one.
+fn compare_major(version: Version, min_major: Option<u32>, needs: &str) -> Found {
+    let too_old = min_major
+        .filter(|min| version.major.is_some_and(|major| major < *min))
+        .map(|_| (needs.to_owned(), version.text.clone()));
+    Found {
+        name: None,
+        version,
+        too_old,
+    }
+}
+
+fn status(probed: Option<&io::Result<Option<Found>>>) -> Status {
     match probed {
         None => Status::Missing,
         Some(Err(_)) => Status::Failed,
-        Some(Ok(Some(Version { major: Some(m), .. }))) if min_major.is_some_and(|min| *m < min) => {
-            Status::TooOld
-        }
+        Some(Ok(Some(found))) if found.too_old.is_some() => Status::TooOld,
         Some(Ok(_)) => Status::Ok,
     }
 }
 
 fn check(spec: &Spec, env: &dyn Fn(&str) -> Option<OsString>) -> ProgramCheck {
     let executable = find_executable(&spec.program, env);
-    let probed = executable.as_ref().map(|exe| probe(exe, spec.parse));
-    let status = status(probed.as_ref(), spec.min_major);
+    let probed = executable.as_ref().map(|exe| find_version(spec, exe));
+    let status = status(probed.as_ref());
     let shown = executable.as_ref().unwrap_or(&spec.program);
-    let version = probed
+    let found = probed
         .as_ref()
         .and_then(|r| r.as_ref().ok())
-        .and_then(|v| v.as_ref())
-        .map(|v| v.text.clone());
+        .and_then(|v| v.as_ref());
+    let version = found.map(|f| f.version.text.clone());
+    let name = found
+        .and_then(|f| f.name)
+        .map_or_else(|| spec.name.clone(), str::to_owned);
     let error = match &probed {
         Some(Err(e)) => Some(e.to_string()),
         _ => None,
     };
-    let lead = format!(
-        "{} needs {}, but `{}`",
-        spec.who,
-        spec.needs,
-        shown.display()
-    );
+    let lead = |needs: &str| format!("{} needs {needs}, but `{}`", spec.who, shown.display());
 
     let (message, help) = match status {
         Status::Ok => (None, None),
@@ -213,18 +266,22 @@ fn check(spec: &Spec, env: &dyn Fn(&str) -> Option<OsString>) -> ProgramCheck {
             } else {
                 "is not on PATH"
             };
-            (Some(format!("{lead} {why}")), spec.missing_help.clone())
+            (
+                Some(format!("{} {why}", lead(&spec.needs))),
+                spec.missing_help.clone(),
+            )
         }
-        Status::TooOld => (
-            Some(format!(
-                "{lead} is {}",
-                version.as_deref().unwrap_or_default()
-            )),
-            spec.too_old_help.clone(),
-        ),
+        Status::TooOld => {
+            let (needs, described) = found.and_then(|f| f.too_old.clone()).unwrap_or_default();
+            (
+                Some(format!("{} is {described}", lead(&needs))),
+                spec.too_old_help.clone(),
+            )
+        }
         Status::Failed => (
             Some(format!(
-                "{lead} cannot be started: {}",
+                "{} cannot be started: {}",
+                lead(&spec.needs),
                 error.unwrap_or_default()
             )),
             None,
@@ -232,7 +289,7 @@ fn check(spec: &Spec, env: &dyn Fn(&str) -> Option<OsString>) -> ProgramCheck {
     };
 
     ProgramCheck {
-        name: spec.name,
+        name,
         status,
         executable: shown.clone(),
         version,
@@ -241,26 +298,33 @@ fn check(spec: &Spec, env: &dyn Fn(&str) -> Option<OsString>) -> ProgramCheck {
     }
 }
 
-fn node_spec(env: &dyn Fn(&str) -> Option<OsString>) -> Spec {
+/// The JS host (`[cmd.build]`). Before it has reported itself, it is named by the file name of
+/// its command (`node`, `bun`).
+fn js_host_spec(env: &dyn Fn(&str) -> Option<OsString>) -> Spec {
+    let program = crate::js_host::js_host_in(env).program;
+    let name = program
+        .file_name()
+        .map_or_else(|| "node".to_owned(), |n| n.to_string_lossy().into_owned());
     Spec {
-        name: "node",
+        name,
         who: "target `js`",
-        program: crate::run::node_program_in(env),
-        parse: node_version,
-        min_major: Some(crate::run::NODE_MIN_MAJOR),
-        needs: format!("node {} or later", crate::run::NODE_MIN_MAJOR),
-        missing_help: Some(crate::run::NODE.missing_help()),
-        too_old_help: Some(crate::run::NODE.too_old_help()),
+        program,
+        probe: Probe::JsHost,
+        needs: crate::js_host::NEEDS.to_owned(),
+        missing_help: Some(crate::js_host::missing_help()),
+        too_old_help: Some(crate::js_host::too_old_help()),
     }
 }
 
 fn wasmtime_spec(env: &dyn Fn(&str) -> Option<OsString>) -> Spec {
     Spec {
-        name: "wasmtime",
+        name: "wasmtime".to_owned(),
         who: "target `wasm`",
         program: crate::run::wasmtime_program_in(env),
-        parse: wasmtime_version,
-        min_major: Some(crate::run::WASMTIME_MIN_MAJOR),
+        probe: Probe::VersionFlag {
+            parse: wasmtime_version,
+            min_major: Some(crate::run::WASMTIME_MIN_MAJOR),
+        },
         needs: format!("wasmtime {} or later", crate::run::WASMTIME_MIN_MAJOR),
         missing_help: Some(crate::run::WASMTIME.missing_help()),
         too_old_help: Some(crate::run::WASMTIME.too_old_help()),
@@ -269,11 +333,13 @@ fn wasmtime_spec(env: &dyn Fn(&str) -> Option<OsString>) -> Spec {
 
 fn cc_spec(env: &dyn Fn(&str) -> Option<OsString>) -> Spec {
     Spec {
-        name: "cc",
+        name: "cc".to_owned(),
         who: "target `c`",
         program: crate::c::cc_command_in(env).0,
-        parse: cc_version,
-        min_major: None,
+        probe: Probe::VersionFlag {
+            parse: cc_version,
+            min_major: None,
+        },
         needs: "a C compiler".into(),
         missing_help: Some(crate::c::cc_missing_help()),
         too_old_help: None,
@@ -282,11 +348,13 @@ fn cc_spec(env: &dyn Fn(&str) -> Option<OsString>) -> Spec {
 
 fn git_spec() -> Spec {
     Spec {
-        name: "git",
+        name: "git".to_owned(),
         who: "fetching Pomes",
         program: PathBuf::from("git"),
-        parse: git_version,
-        min_major: None,
+        probe: Probe::VersionFlag {
+            parse: git_version,
+            min_major: None,
+        },
         needs: "git".into(),
         missing_help: None,
         too_old_help: None,
@@ -336,7 +404,7 @@ fn mask_userinfo(url: &str) -> String {
 
 fn report(required: Option<Target>, env: &dyn Fn(&str) -> Option<OsString>) -> Report {
     let specs: [(Target, Vec<Spec>); 3] = [
-        (Target::Js, vec![node_spec(env)]),
+        (Target::Js, vec![js_host_spec(env)]),
         (Target::C, vec![cc_spec(env)]),
         (Target::Wasm, vec![wasmtime_spec(env)]),
     ];
@@ -512,22 +580,6 @@ mod tests {
     }
 
     #[test]
-    fn node_versions() {
-        assert_eq!(
-            parsed(node_version("v24.11.0\n")),
-            some("24.11.0", Some(24))
-        );
-        assert_eq!(
-            parsed(node_version("v18.0.0\r\n")),
-            some("18.0.0", Some(18))
-        );
-        // Without the leading `v`, as a wrapper set in `EMELA_NODE` may print it.
-        assert_eq!(parsed(node_version("24.11.0\n")), some("24.11.0", Some(24)));
-        assert_eq!(parsed(node_version("node\n")), None);
-        assert_eq!(parsed(node_version("")), None);
-    }
-
-    #[test]
     fn wasmtime_versions() {
         assert_eq!(
             parsed(wasmtime_version("wasmtime 49.0.3 (a1b2c3d 2026-01-20)\n")),
@@ -668,8 +720,13 @@ mod process_tests {
     #[test]
     fn probe_reads_the_version_from_stdout() {
         let dir = tempfile::tempdir().unwrap();
-        let node = fake(dir.path(), "node", "#!/bin/sh\necho v20.1.0\n", 0o755);
-        let version = probe(&node, node_version).unwrap().unwrap();
+        let wasmtime = fake(
+            dir.path(),
+            "wasmtime",
+            "#!/bin/sh\necho wasmtime 20.1.0\n",
+            0o755,
+        );
+        let version = probe(&wasmtime, wasmtime_version).unwrap().unwrap();
         assert_eq!((version.text.as_str(), version.major), ("20.1.0", Some(20)));
     }
 
@@ -692,8 +749,8 @@ mod process_tests {
         let dir = tempfile::tempdir().unwrap();
         let chatty = fake(dir.path(), "chatty", "#!/bin/sh\necho hello\n", 0o755);
         let failing = fake(dir.path(), "failing", "#!/bin/sh\nexit 3\n", 0o755);
-        assert!(probe(&chatty, node_version).unwrap().is_none());
-        assert!(probe(&failing, node_version).unwrap().is_none());
+        assert!(probe(&chatty, wasmtime_version).unwrap().is_none());
+        assert!(probe(&failing, wasmtime_version).unwrap().is_none());
     }
 
     #[test]
@@ -701,38 +758,41 @@ mod process_tests {
         let dir = tempfile::tempdir().unwrap();
         let plain = fake(dir.path(), "node", "#!/bin/sh\necho v24.0.0\n", 0o644);
         let broken = fake(dir.path(), "broken", "#!/nonexistent/sh\n", 0o755);
-        assert!(probe(&plain, node_version).is_err());
-        assert!(probe(&broken, node_version).is_err());
+        assert!(probe(&plain, wasmtime_version).is_err());
+        assert!(probe(&broken, wasmtime_version).is_err());
     }
 
     // status
 
-    fn probed(word: &str) -> std::io::Result<Option<Version>> {
-        Ok(number(word))
+    fn probed(word: &str, min_major: Option<u32>) -> std::io::Result<Option<Found>> {
+        Ok(Some(compare_major(number(word).unwrap(), min_major, "")))
     }
 
     #[test]
     fn statuses() {
         let cannot_start = Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
-        assert_eq!(status(None, Some(22)), Status::Missing);
-        assert_eq!(status(Some(&cannot_start), Some(22)), Status::Failed);
-        assert_eq!(status(Some(&probed("20.1.0")), Some(22)), Status::TooOld);
-        assert_eq!(status(Some(&probed("22.0.0")), Some(22)), Status::Ok);
-        assert_eq!(status(Some(&probed("24.11.0")), Some(22)), Status::Ok);
+        assert_eq!(status(None), Status::Missing);
+        assert_eq!(status(Some(&cannot_start)), Status::Failed);
+        assert_eq!(status(Some(&probed("20.1.0", Some(22)))), Status::TooOld);
+        assert_eq!(status(Some(&probed("22.0.0", Some(22)))), Status::Ok);
+        assert_eq!(status(Some(&probed("24.11.0", Some(22)))), Status::Ok);
     }
 
     #[test]
     fn a_version_that_cannot_be_read_passes() {
-        assert_eq!(status(Some(&Ok(None)), Some(22)), Status::Ok);
-        let cc = Ok(cc_version("Apple clang version 17.0.0\n"));
-        assert_eq!(status(Some(&cc), Some(22)), Status::Ok);
+        assert_eq!(status(Some(&Ok(None))), Status::Ok);
+        let cc = cc_version("Apple clang version 17.0.0\n").unwrap();
+        assert_eq!(
+            status(Some(&Ok(Some(compare_major(cc, Some(22), ""))))),
+            Status::Ok
+        );
     }
 
     #[test]
     fn a_program_without_a_minimum_passes_when_it_starts() {
-        assert_eq!(status(Some(&probed("1.0")), None), Status::Ok);
-        assert_eq!(status(Some(&Ok(None)), None), Status::Ok);
-        assert_eq!(status(None, None), Status::Missing);
+        assert_eq!(status(Some(&probed("1.0", None))), Status::Ok);
+        assert_eq!(status(Some(&Ok(None))), Status::Ok);
+        assert_eq!(status(None), Status::Missing);
     }
 
     // Resolving each program from the environment, by the rule of the command that uses it
@@ -754,13 +814,13 @@ mod process_tests {
     #[test]
     fn programs_are_resolved_from_the_environment() {
         let env = vars(&[
-            ("EMELA_NODE", "/opt/node/bin/node"),
+            ("EMELA_JS_HOST", "/opt/bun/bin/bun"),
             ("EMELA_WASMTIME", "/opt/wasmtime/wasmtime"),
             ("EMELA_CC", "clang -fsanitize=address"),
         ]);
         assert_eq!(
-            crate::run::node_program_in(&env),
-            PathBuf::from("/opt/node/bin/node")
+            crate::js_host::js_host_in(&env).program,
+            PathBuf::from("/opt/bun/bin/bun")
         );
         assert_eq!(
             crate::run::wasmtime_program_in(&env),
@@ -780,12 +840,15 @@ mod process_tests {
         for env in [
             vars(&[]),
             vars(&[
-                ("EMELA_NODE", ""),
+                ("EMELA_JS_HOST", ""),
                 ("EMELA_WASMTIME", ""),
                 ("EMELA_CC", "  "),
             ]),
         ] {
-            assert_eq!(crate::run::node_program_in(&env), PathBuf::from("node"));
+            assert_eq!(
+                crate::js_host::js_host_in(&env).program,
+                PathBuf::from("node")
+            );
             assert_eq!(
                 crate::run::wasmtime_program_in(&env),
                 PathBuf::from("wasmtime")
@@ -809,9 +872,9 @@ mod process_tests {
     #[test]
     fn a_node_that_is_new_enough() {
         let dir = tempfile::tempdir().unwrap();
-        let node = fake(dir.path(), "node", "#!/bin/sh\necho v24.11.0\n", 0o755);
+        let node = fake(dir.path(), "node", "#!/bin/sh\necho node 24.11.0\n", 0o755);
         let env = on_path(dir.path(), &[]);
-        let check = check(&node_spec(&env), &env);
+        let check = check(&js_host_spec(&env), &env);
         assert_eq!(check.name, "node");
         assert_eq!(check.status, Status::Ok);
         assert_eq!(check.executable, node);
@@ -823,22 +886,85 @@ mod process_tests {
     #[test]
     fn a_node_that_is_too_old() {
         let dir = tempfile::tempdir().unwrap();
-        let node = fake(dir.path(), "node", "#!/bin/sh\necho v20.1.0\n", 0o755);
+        let node = fake(dir.path(), "node", "#!/bin/sh\necho node 20.1.0\n", 0o755);
         let env = on_path(dir.path(), &[]);
-        let check = check(&node_spec(&env), &env);
+        let check = check(&js_host_spec(&env), &env);
         assert_eq!(check.status, Status::TooOld);
         assert_eq!(check.version.as_deref(), Some("20.1.0"));
         assert_eq!(
             check.message,
             Some(format!(
-                "target `js` needs node 22 or later, but `{}` is 20.1.0",
+                "target `js` needs Node 22 or later, but `{}` is Node 20.1.0",
                 node.display()
             ))
         );
-        // The note of E0904 for a node that is too old.
+        // The note of E0904 for a JS host that is too old.
         assert_eq!(
             check.help.as_deref(),
-            Some("install Node.js 22 or later, or set EMELA_NODE to a newer node executable")
+            Some(
+                "install Node.js 22 or later or Bun 1.3 or later, or set EMELA_JS_HOST to a newer JS host"
+            )
+        );
+    }
+
+    #[test]
+    fn a_bun_is_named_and_compared_with_the_minimum_of_bun() {
+        let dir = tempfile::tempdir().unwrap();
+        let bun = fake(dir.path(), "bun", "#!/bin/sh\necho bun 1.4.4\n", 0o755);
+        let env = on_path(dir.path(), &[("EMELA_JS_HOST", "bun")]);
+        let ok = check(&js_host_spec(&env), &env);
+        assert_eq!(ok.name, "bun");
+        assert_eq!(ok.status, Status::Ok);
+        assert_eq!(ok.executable, bun);
+        assert_eq!(ok.version.as_deref(), Some("1.4.4"));
+
+        fake(dir.path(), "bun", "#!/bin/sh\necho bun 1.2.23\n", 0o755);
+        let check = check(&js_host_spec(&env), &env);
+        assert_eq!(check.status, Status::TooOld);
+        assert_eq!(
+            check.message,
+            Some(format!(
+                "target `js` needs Bun 1.3 or later, but `{}` is Bun 1.2.23",
+                bun.display()
+            ))
+        );
+    }
+
+    #[test]
+    fn the_js_host_is_started_with_the_probe_module() {
+        // A host that answers `--version` like Node but writes nothing for the module has no
+        // version that can be read, and passes.
+        let dir = tempfile::tempdir().unwrap();
+        fake(
+            dir.path(),
+            "node",
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo v20.1.0; fi\n",
+            0o755,
+        );
+        let env = on_path(dir.path(), &[]);
+        let check = check(&js_host_spec(&env), &env);
+        assert_eq!(check.status, Status::Ok);
+        assert_eq!(check.version, None);
+    }
+
+    #[test]
+    fn a_missing_js_host_is_named_by_its_command() {
+        let empty = tempfile::tempdir().unwrap();
+        let env = on_path(empty.path(), &[("EMELA_JS_HOST", "bun")]);
+        let check = check(&js_host_spec(&env), &env);
+        assert_eq!(check.name, "bun");
+        assert_eq!(check.status, Status::Missing);
+        assert_eq!(
+            check.message.as_deref(),
+            Some(
+                "target `js` needs Node 22 or later or Bun 1.3 or later, but `bun` is not on PATH"
+            )
+        );
+        assert_eq!(
+            check.help.as_deref(),
+            Some(
+                "install Node.js 22 or later or Bun 1.3 or later and add it to PATH, or set EMELA_JS_HOST to the JS host"
+            )
         );
     }
 
@@ -896,11 +1022,11 @@ mod process_tests {
         let dir = tempfile::tempdir().unwrap();
         let node = fake(dir.path(), "node", "#!/nonexistent/sh\n", 0o755);
         let env = on_path(dir.path(), &[]);
-        let check = check(&node_spec(&env), &env);
+        let check = check(&js_host_spec(&env), &env);
         assert_eq!(check.status, Status::Failed);
         assert_eq!(check.executable, node);
         let prefix = format!(
-            "target `js` needs node 22 or later, but `{}` cannot be started: ",
+            "target `js` needs Node 22 or later or Bun 1.3 or later, but `{}` cannot be started: ",
             node.display()
         );
         let message = check.message.unwrap();
@@ -1125,7 +1251,11 @@ mod process_tests {
                 (Target::Wasm, true)
             ]
         );
-        let names: Vec<_> = report.targets[2].programs.iter().map(|p| p.name).collect();
+        let names: Vec<_> = report.targets[2]
+            .programs
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
         assert_eq!(names, ["wasmtime"]);
     }
 
@@ -1139,7 +1269,7 @@ mod process_tests {
     #[test]
     fn missing_programs_of_other_targets_pass() {
         let dir = tempfile::tempdir().unwrap();
-        fake(dir.path(), "node", "#!/bin/sh\necho v24.11.0\n", 0o755);
+        fake(dir.path(), "node", "#!/bin/sh\necho node 24.11.0\n", 0o755);
         let env = on_path(dir.path(), &[]);
         // cc, wasmtime and git are missing, but only js is required.
         assert_eq!(exit_code(&report(Some(Target::Js), &env)), 0);
@@ -1149,7 +1279,7 @@ mod process_tests {
     #[test]
     fn a_too_old_program_of_a_required_target_fails() {
         let dir = tempfile::tempdir().unwrap();
-        fake(dir.path(), "node", "#!/bin/sh\necho v20.1.0\n", 0o755);
+        fake(dir.path(), "node", "#!/bin/sh\necho node 20.1.0\n", 0o755);
         let env = on_path(dir.path(), &[]);
         assert_eq!(exit_code(&report(Some(Target::Js), &env)), 1);
     }
@@ -1196,7 +1326,7 @@ mod process_tests {
     /// `[DIR]`.
     fn some_installed(render: impl Fn(&Report) -> String) -> String {
         let dir = tempfile::tempdir().unwrap();
-        fake(dir.path(), "node", "#!/bin/sh\necho v24.11.0\n", 0o755);
+        fake(dir.path(), "node", "#!/bin/sh\necho node 24.11.0\n", 0o755);
         fake(
             dir.path(),
             "cc",
@@ -1232,8 +1362,8 @@ mod process_tests {
         emela 0.28.0+4e84642
 
         js
-          missing  target `js` needs node 22 or later, but `node` is not on PATH
-                   install Node.js 22 or later and add it to PATH, or set EMELA_NODE to the node executable
+          missing  target `js` needs Node 22 or later or Bun 1.3 or later, but `node` is not on PATH
+                   install Node.js 22 or later or Bun 1.3 or later and add it to PATH, or set EMELA_JS_HOST to the JS host
         c
           missing  target `c` needs a C compiler, but `cc` is not on PATH
                    install a C11 compiler and add it to PATH as `cc`, or set EMELA_CC to the compiler
@@ -1387,8 +1517,8 @@ mod process_tests {
                         "required": false,
                         "programs": [missing(
                             "node",
-                            "target `js` needs node 22 or later, but `node` is not on PATH",
-                            "install Node.js 22 or later and add it to PATH, or set EMELA_NODE to the node executable",
+                            "target `js` needs Node 22 or later or Bun 1.3 or later, but `node` is not on PATH",
+                            "install Node.js 22 or later or Bun 1.3 or later and add it to PATH, or set EMELA_JS_HOST to the JS host",
                         )],
                     },
                     {
