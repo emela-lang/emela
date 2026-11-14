@@ -1,0 +1,4 @@
+exit: 2
+--- stdout
+usage: tool <file>: no file
+--- stderr

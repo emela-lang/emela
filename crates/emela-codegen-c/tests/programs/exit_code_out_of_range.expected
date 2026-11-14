@@ -1,0 +1,4 @@
+exit: 101
+--- stdout
+--- stderr
+defect: exit code 256 is out of range 0 to 255

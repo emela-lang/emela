@@ -197,3 +197,24 @@ fn main() { () }
         }]
     );
 }
+
+/// `ExitCode` of `Std.Process` is not a boundary type, so an `@export` fn cannot return it
+/// (E0436, `[ext.export]`, `[api.std.process]`).
+#[test]
+fn exit_code_is_not_a_boundary_type() {
+    let found = diagnostics(
+        r#"
+import Std.Process.{EXIT_SUCCESS, ExitCode}
+
+@export(js, "f")
+pub fn f() -> ExitCode { EXIT_SUCCESS }
+"#,
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found.iter().any(
+            |d| matches!(d, DiagnosticKind::NotBoundary { ty, ret: true, .. } if ty == "ExitCode")
+        ),
+        "{found:?}"
+    );
+}

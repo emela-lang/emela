@@ -4031,6 +4031,13 @@ int32_t em_arg_count(void) { return em_argc > INT32_MAX ? INT32_MAX : (int32_t)e
 
 const char *em_arg_at(int32_t i) { return i >= 0 && i < em_argc ? em_argv[i] : ""; }
 
+/* The exit code of a `main` that returns an `ExitCode` (`[dyn.error]`), set by the bundled
+ * `std/process.c` after main has returned. `em_exit` returns it when the run did not end with an
+ * error, a defect or an interruption, and the leak check (99) still wins. */
+static int32_t em_main_exit_code = 0;
+
+void em_set_exit_code(int32_t code) { em_main_exit_code = code; }
+
 /* ---- Exported functions (`[target.native.export]`) ---- */
 
 void em_export_enter(const char *function) {
@@ -4150,7 +4157,7 @@ static void em_write_line(FILE *f, const char *prefix, em_ref s) {
 }
 
 int em_exit(void (*cleanup)(void)) {
-  int code = 0;
+  int code = em_main_exit_code;
   em_flush_stdout();
   if (em_stdout_closed) {
     /* However main ended, after a write to a closed standard output (`[api.std.process]`). */

@@ -117,6 +117,8 @@ pub const AMBIGUOUS_METHOD: &str = "E0335";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_DERIVE: &str = "W0303";
+/// `[dyn.error]`: the entry's `main` returns a type other than `()`, `ExitCode` and Never.
+pub const MAIN_VALUE_DISCARDED: &str = "W0304";
 pub const UNUSED_LABEL_PROVIDER: &str = "W0401";
 
 // E04xx: effects and handlers (spec chapter 8)

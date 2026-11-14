@@ -1,0 +1,5 @@
+# `[dyn.error]`: the value of a main that returns neither `()` nor `ExitCode` is discarded (W0304),
+# and the program exits with 0.
+fn main() -> Int {
+  2
+}
