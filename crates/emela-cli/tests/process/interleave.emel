@@ -1,0 +1,25 @@
+# Writes mixed between Console, Stdout, Stderr and `dbg` keep their order (`[api.std.process]`),
+# also when standard output and standard error go to the same pipe.
+
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+import Std.Process.{Stderr, Stdout}
+
+fn lines(i: Int, n: Int) -> () uses { Console, Stdout, Stderr } {
+  if i < n {
+    (use Stdout).print("out #{i}")
+    (use Stdout).print_line("")
+    (use Console).print_line("console #{i}")
+    if i % 100 == 0 {
+      (use Stderr).print("err ")
+      (use Stderr).print_line("#{i}")
+      (use Console).print_error_line("console error #{i}")
+      _ = dbg(i)
+    }
+    lines(i + 1, n)
+  }
+}
+
+fn main() {
+  with Platform { lines(0, 5000) }
+}

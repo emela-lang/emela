@@ -200,6 +200,17 @@ fn failure_of(
 fn attempt_caught(b: &mut Builder, ins: &mut InstructionSink) {
     const C: u32 = 0;
     const EXIT: u32 = 1;
+    if b.uses_console() {
+        // What unwinds after a write to a standard output closed by its reader is not caught
+        // (`console::stdout_lost`).
+        ins.global_get(G_STDOUT);
+        ins.i32_const(super::console::STDOUT_LOST);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        ins.i32_const(0);
+        ins.return_();
+        ins.end();
+    }
     if let Some(run_over) = b.fiber_plan.as_ref().map(|p| p.run_over) {
         // A defect that ended the run (a failure or defect after the operation implementation
         // resumed, spec 14.5) is not caught: it is the run's result.

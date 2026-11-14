@@ -1,0 +1,24 @@
+# SystemStdout and SystemStderr (`[api.std.process]`): `print` writes the text as is, and
+# `print_line` writes it and `\n`. Both are in Platform.
+
+import Std.Platform.{Platform}
+import Std.Process.{Stderr, Stdout}
+
+## Not a suspend fn and no Async: the operations are Immediate.
+fn write() -> () uses { Stdout, Stderr } {
+  out = use Stdout
+  err = use Stderr
+  out.print("Hello, ")
+  out.print_line("alice!")
+  out.print("")
+  out.print("a\r\nb\n")
+  out.print_line("")
+  out.print("no newline")
+  err.print("e1 ")
+  err.print_line("e2")
+  err.print("e3\r\n")
+}
+
+fn main() {
+  with Platform { write() }
+}

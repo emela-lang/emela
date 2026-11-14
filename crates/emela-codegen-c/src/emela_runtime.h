@@ -287,6 +287,11 @@ int32_t em_float_round(double x);
 int32_t em_float_truncate(double x);
 em_ref em_show_string(em_ref s);
 void em_debug_print(em_ref s);
+/* Writes `n` bytes, and `\n` when `newline`, to standard output or standard error, handling a
+ * closed one as `[api.std.process]` says. Also called by the bundled `std/console.c` and
+ * `std/process.c`, which declare them, since they are not part of `emela.h`. */
+void em_write_stdout(const char *bytes, size_t n, bool newline);
+void em_write_stderr(const char *bytes, size_t n, bool newline);
 
 /* ---- The host boundary (spec 12.4, 12.5) ---- */
 

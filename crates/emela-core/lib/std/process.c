@@ -1,4 +1,4 @@
-/* Host functions for SystemArgs and SystemStdin on C (`@external(c, "./process.c", ...)` in
+/* Host functions for SystemArgs, SystemStdin, SystemStdout and SystemStderr on C (`@external(c, "./process.c", ...)` in
  * process.emel), the counterpart of process.mjs.
  *
  * Args: the runtime keeps `argv[1]` and after from `main` (`em_start`). The runtime replaces
@@ -29,6 +29,9 @@
 int32_t em_arg_count(void);
 const char *em_arg_at(int32_t i);
 void em_host_string_length(const char *s, size_t n);
+void em_write_stdout(const char *bytes, size_t n, bool newline);
+void em_write_stderr(const char *bytes, size_t n, bool newline);
+void em_flush_stdout_before_wait(void);
 
 static void *emela_process_alloc(size_t n) {
   void *p = malloc(n == 0 ? 1 : n);
@@ -159,6 +162,8 @@ static void emela_stdin_wait(int need, em_task *task) {
     em_complete_unit(task);
     return;
   }
+  /* A prompt written before the read reaches the host before the wait (`[api.std.process]`). */
+  em_flush_stdout_before_wait();
   em_on_readable(0, task, emela_stdin_on_readable, (void *)(intptr_t)need);
   em_on_cancel(task, emela_stdin_on_cancel, NULL);
 }
@@ -268,3 +273,13 @@ int32_t emela_stdin_take_text(void) {
 char *emela_stdin_taken(void) {
   return emela_process_string(emela_stdin_last != NULL ? emela_stdin_last : "", emela_stdin_last_length);
 }
+
+/* ---- Stdout and Stderr ----
+ *
+ * The runtime writes, through the same `FILE *` as SystemConsole and `dbg`, and handles a closed
+ * stream (`em_write_stdout` in the runtime). A write to standard error flushes standard output
+ * first. */
+
+void emela_process_write_stdout(const char *text) { em_write_stdout(text, strlen(text), false); }
+
+void emela_process_write_stderr(const char *text) { em_write_stderr(text, strlen(text), false); }

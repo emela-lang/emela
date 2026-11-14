@@ -452,6 +452,17 @@ fn test_done(b: &mut Builder, ins: &mut InstructionSink) {
 fn finish(b: &mut Builder, ins: &mut InstructionSink) {
     const SHOWN: u32 = 0;
     const TMP: u32 = 1;
+    // After a write to a standard output closed by its reader, the program exits with 141 and
+    // writes nothing, however main ended (`[api.std.process]`, `console::stdout_lost`).
+    if b.uses_console() {
+        ins.global_get(G_STDOUT);
+        ins.i32_const(super::console::STDOUT_LOST);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        ins.i32_const(141);
+        ins.call(rt(b, "exit"));
+        ins.end();
+    }
     // A run unwound as interrupted exits with 130 and the single line `interrupted` (spec 14.5).
     if let Some(plan) = &b.sus {
         if b.fiber_plan.is_some() {

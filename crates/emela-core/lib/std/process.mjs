@@ -1,4 +1,4 @@
-// Host functions for SystemArgs and SystemStdin (process.emel) on JS.
+// Host functions for SystemArgs, SystemStdin, SystemStdout and SystemStderr (process.emel) on JS.
 
 // ---- Args ----
 
@@ -172,3 +172,22 @@ export function takeText() {
 }
 
 export const taken = () => last;
+
+// ---- Stdout and Stderr ----
+//
+// The runtime writes, through the same path as SystemConsole and `dbg`, and handles a closed descriptor
+// (`$output` in the runtime). The runtime registers it under this key when it is loaded, before any operation runs.
+
+const OUTPUT = Symbol.for("emela.output");
+
+// Without the runtime (an output that calls nothing of it), the host's console.
+function write(fd, text) {
+  const output = globalThis[OUTPUT];
+  if (output !== undefined) output.write(fd, text);
+  else if (fd === 2) console.error(text.endsWith("\n") ? text.slice(0, -1) : text);
+  else console.log(text.endsWith("\n") ? text.slice(0, -1) : text);
+}
+
+export const writeStdout = (text) => write(1, text);
+
+export const writeStderr = (text) => write(2, text);
