@@ -1,0 +1,23 @@
+# 局所関数はトップレベルの fn と同じ形で，ブロックの中に字下げして並べる（[fn.local]）
+pub fn range(from:Int,to:Int)->List[Int]{
+  ## Builds from the back, so `to - 1` cannot overflow.
+  fn   onto( to : Int ,acc:List[Int] )->List[Int]{
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+
+
+  onto(to, [])
+}
+
+fn signatures() -> Int {
+  # 長いシグネチャは fails と uses を次の行に送る
+  fn long_name_here(first_argument: Int, second_argument: Int, third_argument: Int) -> Int fails Boom uses { Log } { first_argument }
+  fn short(x: Int) { x }  # 行末のコメント
+  x = {
+    fn inner(n: Int) -> Int {
+      n
+    }
+    inner(1)
+  }
+  short(x)
+}
