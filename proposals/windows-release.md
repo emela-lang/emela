@@ -1,10 +1,10 @@
 ---
 title: Release the compiler for Windows
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 576
 issue:
-decided:
+decided: 2026-11-14
 touches: [target, target.native, open.list, lib.layers, api.std.path, module.name, module.pome, pome.fetch, cmd.build, cmd.test.outcome]
 requires: []
 related: [native-target]
@@ -150,3 +150,9 @@ Also needed for the release:
 ## Open questions
 
 ## Decision
+
+- The JS and WASM targets do not need the C toolchain of the machine, so users on Windows can use them now. They should not wait for the native target, which has no plan for Windows yet (#39 stays open).
+- `[target]` tied the platforms of the native target to the platforms for which the compiler is released. Stating the two lists separately lets the compiler be released for a platform before the native target supports it.
+- The specification is written for macOS and Linux. Windows-specific behavior (environment variable names compared without case, no signals) is what the program sees, and no rules are added to hide it.
+- Output and `Std.Path` use `/` on every platform, so a program and the text the commands write are the same everywhere.
+- The Pome cache stays at `~/.emela/pomes` (`%USERPROFILE%` on Windows), the same layout as on the other platforms and next to the installed compiler.

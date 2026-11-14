@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-14 (Release the compiler for Windows)
+
+- `[target]`, `[target.native]`, `[open.list]`, `[lib.layers]`, `[api.std.path]`, `[module.name]`, `[module.pome]`, `[pome.fetch]`, `[cmd.build]`, `[cmd.test.outcome]`: From 0.28, the compiler is also released for Windows on x86_64. On Windows, every command and the JS and WASM targets are supported; the native target is not (18.1 #39 stays open). `[target]` stops using "the platforms for which the compiler is released" as the definition of the platforms that the native target supports, and states the two lists separately. Adopted in the proposal `windows-release` (#576).
+
 ## 2026-11-14 (Std.Process, the arguments and the standard input of the process)
 
 - `[lib.layers]`, `[api.std.process]`, `[api.std.platform]`, `[cmd.build]`, `[target.native.run]`, `[target.wasm.output]`, `[target.wasm.external]`, `[cmd.test.output]`: Add a module `Std.Process` to the platform layer of std, for what belongs to the process, and put two effects in it first. `Args` reads the arguments given to the process: `get(index)` takes one by position, and `list()` returns all of them as a `List[String]`, without the name of the program. `Stdin` reads standard input: `read_line` reads one line, and `read_text` reads all the rest; both are `suspend fn`. The system handlers `SystemArgs` and `SystemStdin` are added to `Platform`. For tests, `TestStdin` reads from `State[StdinLines]`. There is no test handler for `Args`. `Console` does not change. Adopted in the proposal `std-process` (#565).
