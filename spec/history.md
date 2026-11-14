@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-15 (Dynamic, Shape and JSON in std, with derived Encode, Decode and Shaped)
+
+- `[kw.annotation]`, `[grammar.decl]`, `[lib.layers]`, `[trait.derive]`, `[api.std.bytes]`, `[api.std.dynamic]`, `[api.std.dynamic.number]`, `[api.std.shape]`, `[api.std.json]`, `[diag.list]`, `[open.list]`: Move x/dynamic (`Dynamic`, a value in no particular format, and the traits `Encode` and `Decode`) and x/shape (`Shape`, the shape of a type, and the trait `Shaped`) into the value layer of std, as `Std.Dynamic` and `Std.Shape`. Move JSON parsing and writing (x/json) into std as `Std.Json`. The compiler derives `Encode`, `Decode` and `Shaped`. `Std.Bytes` gains `to_base64` and `from_base64`, which `Std.Json` uses to write bytes. This is planned for 0.28. ```emel import Std.Dynamic.{Decode, Encode} import Std.Shape.{Shaped} type TodoBody(title: String, due: Option[String]) derive Decode, Shaped type TodoView(id: String, title: String, done: Bool) derive Encode, Shaped ``` JSON Schema generation (`json_schema.emel` of x/shape) stays in x, in a new package x/json-schema. Adopted in the proposal `derive-encode-decode-shaped` (#503).
+
 ## 2026-11-14 (each for List, Array, Map and Set)
 
 - `[lib.api-rules]`, `[api.list]`, `[api.std.array]`, `[api.std.map]`, `[api.std.set]`: `each(xs, f)` calls `f` on each element, in the order of the collection, for its effects, and returns `()`. It is added to List, Array, Map and Set. `[lib.api-rules]` also gains a rule for every function of the standard library that calls `f` once per element (`map`, `filter`, `fold`, `find`, ...): it calls `f` in the order of the collection, at most once per element, and not after the result is decided or `f` has failed. ```emel List.each(List.range(0, n), |i| { clock.sleep(100) console.print_line("#{n - i}") }) ``` Adopted in the proposal `each` (#514).

@@ -1,10 +1,10 @@
 ---
 title: Dynamic, Shape and JSON in std, with derived Encode, Decode and Shaped
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 503
 issue:
-decided:
+decided: 2026-11-15
 touches: [kw.annotation, grammar.decl, lib.layers, trait.derive, api.std.bytes, api.std.dynamic (new), api.std.dynamic.number (new), api.std.shape (new), api.std.json (new), diag.list, open.list]
 requires: []
 related: []
@@ -414,3 +414,5 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler with th
 ## Open questions
 
 ## Decision
+
+Every type that goes in or out of a program had its Encode, Decode and Shaped written by hand, apart from its declaration, so a field added later was forgotten and the JSON Schema drifted from the JSON actually written. The compiler now derives all three from the same declaration by the same rules, so the shape a type describes and the JSON it reads and writes match by construction. These traits are settled in x, and there is no reason for them to wait for a syntax that lets trait authors write derivation rules. Dynamic, Shape and JSON move into the value layer of std, since a derived Decode is of little use if reading a request still needs x, and `[lib.layers]` already names JSON for std. TOML and YAML stay in x. `@key` and `@tag` let a type match the names the other side expects without going back to a hand-written impl. Decode and ObjectKey are not derived for opaque types, because they would build the value without the function that checks it. `derive Decode` reports every broken field at once through `from_dynamic_all`, so an API can answer 400 with all of them. `Rule` stays in x until it has users. Bytes is carried as Binary and written to JSON as base64, so `Std.Bytes` gains `to_base64` and `from_base64`. Array and Set are read and written as Items like List. x/dynamic, x/shape and x/json stay published, and after 0.28 the packages built on them move to the std modules in new versions.
