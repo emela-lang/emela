@@ -225,11 +225,13 @@ The value layer (`[lib.layers]`). An immutable sequence of bytes. Each byte is a
 | `to_hex` | `to_hex(b: Bytes) -> String` | Emela | Two lowercase hexadecimal digits per byte, with no separator (`"89504e47"`) |
 | `from_hex` | `from_hex(s: String) -> Option[Bytes]` | Emela | The inverse of `to_hex`. Accepts uppercase and lowercase digits. `None` for an odd number of digits or any other character, including whitespace |
 | `hex` | `hex(s: String) -> Bytes` | Emela | The bytes that `from_hex` reads from `s`. A defect if `from_hex` returns `None`. For constants written in the program (`const PNG_SIGNATURE = Bytes.hex("89504e47")`) |
+| `to_base64` | `to_base64(b: Bytes) -> String` | Emela | Base64 in the standard alphabet (`A`–`Z`, `a`–`z`, `0`–`9`, `+`, `/`) of RFC 4648 section 4, padded with `=` to a multiple of 4 characters |
+| `from_base64` | `from_base64(s: String) -> Option[Bytes]` | Emela | The inverse of `to_base64`. The padding is required. `None` for a length that is not a multiple of 4, misplaced padding, or any other character, including whitespace |
 
 - The defect message of `hex` is ``Bytes.hex was given a string that is not hexadecimal: "<s>"``, where `<s>` is shown as by inspect. In a const, the name of the const is prepended (`[data.const]`).
 - `size(encode_utf8(s)) == String.byte_size(s)`, and `decode_utf8(encode_utf8(s)) == Some(s)`, for every String `s`.
 - Invalid UTF-8 is not replaced with the replacement character: `decode_utf8` returns `None`, so text that is read and written back is not changed silently. A sequence that encodes a surrogate (U+D800 to U+DFFF) or a value above U+10FFFF, and an overlong encoding, are not valid UTF-8.
-- `size`, `get` and `is_empty` are O(1). `slice` is O(`to - from`) or less. `append` and `concat` are O(n) in the number of bytes of the result. `to_list`, `from_list`, `encode_utf8`, `decode_utf8`, `to_hex` and `from_hex` are O(n).
+- `size`, `get` and `is_empty` are O(1). `slice` is O(`to - from`) or less. `append` and `concat` are O(n) in the number of bytes of the result. `to_list`, `from_list`, `encode_utf8`, `decode_utf8`, `to_hex`, `from_hex`, `to_base64` and `from_base64` are O(n).
 
 impl: `impl Bytes: Eq`, `impl Bytes: Ord`, `impl Bytes: Show`. Two Bytes are equal when they have the same bytes in the same order. Ord is lexicographic on the bytes as unsigned values (if the common prefix is equal, the shorter one is smaller). Show is the source form `Bytes.hex("89504e47")`, with the digits of `to_hex`, so the output can be pasted back as an expression. A Bytes inside another value is displayed the same way (`[Bytes.hex("00")]`).
 
@@ -312,6 +314,81 @@ A collection of values. Immutable and in Ord order. The contents are a `Map[A, (
 | `union` | `union[A: Ord](a: Set[A], b: Set[A]) -> Set[A]` | Emela | The union |
 
 impl (`[trait.builtin]`): `impl Set[A: Eq]: Eq`, `impl Set[A: Show]: Show` (`Set.from_list([1, 2])`).
+
+### Std.Dynamic (`std/dynamic.emel`) `[api.std.dynamic]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Dynamic` | `enum Dynamic { Null, Bool(Bool), Number(Number), Text(String), Items(List[Dynamic]), Fields(Map[String, Dynamic]), Binary(Bytes) }` | A value in no particular format |
+| `Segment` | `enum Segment { Key(String), Index(Int) }` | A step of a path into a Dynamic |
+| `DecodeError` | `error DecodeError(expected: String, actual: Dynamic, path: List[Segment])` | Show writes the kind of `actual`, not its contents |
+| `Encode` | `trait Encode { fn to_dynamic(self) -> Dynamic }` | Derivable |
+| `Decode` | `trait Decode { fn from_dynamic(d: Dynamic) -> Self fails DecodeError; fn from_dynamic_all(d: Dynamic) -> Self fails DecodeErrors }` | Derivable, except for opaque types. `from_dynamic` stops at the first failure. `from_dynamic_all` reports every failure; its default fails with the one failure of `from_dynamic` |
+| `DecodeErrors` | `error DecodeErrors(errors: List[DecodeError])` | Every failure of `from_dynamic_all`, in the order the parts were read. Never empty |
+| `Attempt` | `enum Attempt[A] { Decoded(A), Failed(List[DecodeError]) }` | The result of reading one part while collecting failures |
+| `attempt`, `errors_of` | `attempt[A](f: fn() -> A fails DecodeErrors) -> Attempt[A]`, `errors_of[A](a: Attempt[A]) -> List[DecodeError]` | Keep the failures of `f` instead of failing, and read them back (empty for Decoded) |
+| `field_all`, `index_all` | `field_all[A](value: Dynamic, name: String, decoder) -> A fails DecodeErrors`, `index_all[A](n: Int, decoder) -> decoder` | `field` and `index` for a decoder that fails with DecodeErrors; the key or the position is added in front of the path of every failure |
+| `ObjectKey` | `trait ObjectKey: Ord { fn to_key(self) -> String; fn from_key(key: String) -> Self fails DecodeError }` | The keys of a Map written as Fields |
+| `string`, `bytes`, `bool`, `int`, `int64`, `float` | `fn(value: Dynamic) -> A fails DecodeError` | Read a value of a basic type. `bytes` reads only Binary. `int` and `int64` accept a number whose value is an integer (`1.0`, `1e3`) |
+| `list`, `optional`, `dict` | `fn(decoder) -> decoder` | Read Items, Null or a value, and Fields with each value read by `decoder` |
+| `index` | `index[A](n: Int, decoder) -> decoder` | Read the element `n` of Items. Fewer elements is a DecodeError |
+| `items` | `items(value: Dynamic, n: Int) -> List[Dynamic] fails DecodeError` | The elements of Items that has exactly `n` elements. Any other number is `DecodeError(expected: "n items", ...)` |
+| `field` | `field[A](value: Dynamic, name: String, decoder) -> A fails DecodeError` | Read the key `name` of Fields. A missing key is read as Null |
+| `tag` | `tag(value: Dynamic) -> String fails DecodeError` | The `"tag"` of an enum written by Encode |
+| `object`, `variant` | `object(fields: List[(String, Dynamic)]) -> Dynamic`, `variant(tag: String, value: Option[Dynamic]) -> Dynamic` | Build Fields, and the form of an enum |
+| `kind` | `kind(value: Dynamic) -> String` | `"null"`, `"bool"`, `"number"`, `"text"`, `"items"`, `"fields"` or `"binary"` |
+
+impl: Bool, Int, Int64, Float, String, Bytes, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. Bytes is encoded as Binary, and its Decode reads only Binary. `Array[A]` and `Set[A]` are encoded as Items in their order, and decoded from Items; the Decode of `Set[A]` drops repeated elements. The Decode of `List[A]`, `Array[A]`, `Set[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None.
+
+### Std.Dynamic.Number (`std/dynamic/number.emel`) `[api.std.dynamic.number]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Number` | `opaque type Number` | A decimal number of any size and precision: a sign, digits and an exponent. Two numbers that denote the same value are equal (`1.0` and `1e0`) |
+| `OutOfRange` | `error OutOfRange(number: Number)` | A number that the target type cannot hold |
+| `parse` | `parse(s: String) -> Number fails ParseError` | Read a number in the JSON grammar. Fails also when the exponent is outside the range of Int |
+| `from_int`, `from_int64` | `from_int(n: Int) -> Number`, `from_int64(n: Int64) -> Number` | Exact |
+| `from_float` | `from_float(f: Float) -> Option[Number]` | None for NaN and ±Infinity |
+| `to_int`, `to_int64` | `to_int(n: Number) -> Int fails OutOfRange`, `to_int64(n: Number) -> Int64 fails OutOfRange` | Fails for a number that is not an integer or is outside the range |
+| `to_float` | `to_float(n: Number) -> Float` | The nearest Float |
+| `to_string` | `to_string(n: Number) -> String` | In the JSON grammar. An integer of up to 21 digits is written in full, a short fraction with a point, the rest with an exponent |
+
+### Std.Shape (`std/shape.emel`) `[api.std.shape]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Shape` | `enum Shape { Bool, Int, Int64, Float, String, Bytes, Any, List(Shape), Option(Shape), Map(key: Shape, value: Shape), Record(name: String, fields: List[Field]), Variants(name: String, variants: List[Variant]), Ref(String), Named(name: String, shape: Shape), Annotated(shape: Shape, notes: List[(String, Dynamic)]) }` | The shape of a type, without a value. The variants are named after the types they describe and are written with the module (`Shape.Int`, `Shape.List(Shape.String)`). `Any` is the shape of Dynamic. `Ref` is a record or enum that appears again inside itself. `Named` is a type known by its name with the shape of its contents (an opaque type). `Annotated` carries notes; a reader passes on the keys it does not know |
+| `Field` | `type Field(name: String, shape: Shape)` | A field of a record or of named contents |
+| `Variant` | `type Variant(name: String, contents: Contents)` | A variant of an enum |
+| `Contents` | `enum Contents { NoFields, PositionalFields(List[Shape]), NamedFields(List[Field]) }` | The contents of a variant, in the form they are declared in |
+| `Shaped` | `trait Shaped { fn shape_in(proxy: Option[Self], visiting: List[String]) -> Shape; fn shape(proxy: Option[Self]) -> Shape }` | Derivable. `proxy` only carries the type. `visiting` holds the names of the records and enums being read around this one, innermost first. `shape` calls `shape_in` with an empty `visiting` |
+| `visit` | `visit(name: String, visiting: List[String], build: fn(List[String]) -> Shape) -> Shape` | `Ref(name)` if `name` is in `visiting`, otherwise `build` with `name` added in front |
+| `of_value`, `of_parameter` | `of_value[A: Shaped](value: A) -> Shape`, `of_parameter[A: Shaped, B, E, R](f: fn(A) -> B fails E uses { R }) -> Shape` | The shape of the type of a value, and of the parameter of a function without calling it |
+| `annotate` | `annotate(shape: Shape, name: String, value: Dynamic) -> Shape` | Add the note `name` after the notes of `shape`, replacing a note of the same name |
+| `description`, `pattern`, `format` | `fn(shape: Shape, text: String) -> Shape` | The notes `"description"`, `"pattern"` (a regular expression) and `"format"` (`"date-time"`, `"email"`) |
+| `minimum`, `maximum` | `fn(shape: Shape, n: Int) -> Shape` | The notes `"minimum"` and `"maximum"`: the least and the greatest number allowed |
+| `min_length`, `max_length` | `fn(shape: Shape, n: Int) -> Shape` | The notes `"min_length"` and `"max_length"`: the length of a string, counted in code points |
+| `min_items`, `max_items` | `fn(shape: Shape, n: Int) -> Shape` | The notes `"min_items"` and `"max_items"`: the number of items of a list |
+| `strip` | `strip(shape: Shape) -> Shape` | `shape` without its notes and names |
+| `note` | `note(shape: Shape, name: String) -> Option[Dynamic]` | The value of the note `name`, looking through names |
+| `field_names` | `field_names(shape: Shape) -> List[String]` | The names of the fields of a record in declaration order, looking through notes and names; empty for any other shape |
+| `name_of` | `name_of(shape: Shape) -> String` | The name of the type as it is written (`Int`, `List[String]`, `Page[Member]`) |
+| `generic_name` | `generic_name(name: String, arguments: List[Shape]) -> String` | `name` followed by the names of `arguments` in brackets, or `name` alone without arguments |
+
+impl: Bool, Int, Int64, Float, String, Bytes, Dynamic, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K, V]` have Shaped. The shape of Bytes is `Bytes`, and the shapes of `Array[A]` and `Set[A]` are `List` of the shape of `A`. The impls of `List`, `Array`, `Set`, `Option` and `Map` pass `visiting` on to their type arguments.
+
+The notes defined by `Std.Shape` are `"description"`, `"pattern"`, `"format"`, `"minimum"`, `"maximum"`, `"min_length"`, `"max_length"`, `"min_items"` and `"max_items"`, each with the value its function above writes. Notes are only described: the notes do not change which values a shape describes, and nothing in `Std.Shape` checks them. Other notes may be added with `annotate`.
+
+### Std.Json (`std/json.emel`) `[api.std.json]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `SyntaxError` | `error SyntaxError(message: String, offset: Int)` | Text that is not JSON. `offset` counts code points from the start of the input |
+| `parse` | `parse(s: String) -> Dynamic fails SyntaxError` | Read one JSON value (RFC 8259), with whitespace allowed around it. Numbers are read with `Std.Dynamic.Number.parse`. For a key repeated in an object, the later value is kept. Never gives Binary |
+| `to_string` | `to_string(value: Dynamic) -> String` | Write `value` as JSON without whitespace. Keys come in the order of the Map. A string escapes `"`, `\` and the control characters, and keeps every other character as it is. Binary is written as a string of `Bytes.to_base64` |
+| `decode` | `decode[A: Decode](text: String) -> A fails SyntaxError \| DecodeError` | `parse`, then `Decode.from_dynamic` |
+| `decode_all` | `decode_all[A: Decode](text: String) -> A fails SyntaxError \| DecodeErrors` | `parse`, then `Decode.from_dynamic_all` |
+| `encode` | `encode[A: Encode](value: A) -> String` | `Encode.to_dynamic`, then `to_string` |
 
 ### Std.State (`std/state.emel`) `[api.std.state]`
 
