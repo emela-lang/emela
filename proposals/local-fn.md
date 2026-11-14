@@ -1,10 +1,10 @@
 ---
 title: Local functions
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 502
 issue:
-decided:
+decided: 2026-11-14
 touches: [fn.decl, fn.local (new), fn.args, fn.block, fn.loop, lex.comment, module.resolution, type.inference, type.rules, effect.use, effect.with, effect.escape, grammar.expr, diag.list]
 requires: []
 related: [closure-syntax]
@@ -322,5 +322,6 @@ Nothing has been prototyped. The outlook by crate:
 
 ## Open questions
 
-
 ## Decision
+
+A recursion with an accumulator or an index is written today as a public fn and a private helper that only it calls, and the bundled core and std have 16 such pairs. The helper is visible to the whole module, needs a name of its own, cannot capture the arguments of its caller, and repeats its type parameters. A local fn puts the helper where it is used: it captures the variables visible at its declaration, can use the type parameters of the enclosing fn, and its self tail call keeps the guarantee of `[fn.loop]`. It is a binding, so it is visible only after it, is not generalized, and follows the shadowing rules of bindings without warnings; mutual recursion and generalization stay at the top level. Anonymous functions stay without names, as `closure-syntax` decided, and a local fn is the form that has a name: named arguments, a doc comment shown on hover, and calls to itself. Both forms stay, and no lint prefers one. A local fn as the last statement of its block can never be called, so it is an error (E0151), as an unused anonymous function statement is (E0149). Type parameters, attributes, `pub` and `suspend` on a local fn share one code (E0150). It lowers by lambda lifting to an ordinary Core function, so no backend needs new constructs.
