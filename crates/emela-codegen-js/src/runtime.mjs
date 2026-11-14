@@ -78,8 +78,10 @@ export class $Fail {
 }
 
 // Turns an exception thrown by an external function (spec 12.5) into a defect. A defect (raised inside an Emela
-// callback) is kept as is. The message is prefixed with the exception's name (`TypeError: …`).
+// callback) is kept as is, and so is the runtime's own interruption, which a write of the bundled std raises on a
+// closed standard output (`$output`). The message is prefixed with the exception's name (`TypeError: …`).
 export function $foreign(error) {
+  if (error instanceof $Interrupted) return error;
   if (error instanceof Error) {
     return error.name === "Defect" ? error : new $Defect(`${error.name}: ${error.message}`);
   }

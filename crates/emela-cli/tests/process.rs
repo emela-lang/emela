@@ -485,6 +485,31 @@ fn a_prompt_is_written_before_reading() {
     }
 }
 
+/// Runs `emela run --target <target> -- <args>`, reads the first line of standard output, closes
+/// it, and returns the exit code and what the program wrote to standard error.
+fn run_until_stdout_closes(
+    project: &Project,
+    target: &str,
+    args: &[&str],
+) -> (Option<i32>, String) {
+    let mut command = vec!["run", "--target", target, "--"];
+    command.extend_from_slice(args);
+    let mut child = project
+        .emela(&command.iter().map(std::ffi::OsStr::new).collect::<Vec<_>>())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut first = String::new();
+    stdout.read_line(&mut first).unwrap();
+    assert_eq!(first, "line 0\n", "{target} {args:?}");
+    drop(stdout);
+    let out = wait(child, Duration::from_secs(60), target);
+    (out.status.code(), program_stderr(&out.stderr))
+}
+
 /// A write to a standard output whose reader has closed it unwinds the program as interrupted:
 /// the releases of both fibers run, later writes to standard output are discarded, nothing after
 /// the scope runs, and the program exits with 141 without writing `interrupted`. The same holds
@@ -497,23 +522,41 @@ fn a_closed_stdout_ends_the_program_with_141() {
         let built = project.run(&["build", "--target", target], b"");
         assert!(built.status.success(), "{target}: {}", text(&built.stderr));
         for how in ["stdout", "console"] {
-            let mut child = project
-                .emela(&["run", "--target", target, "--", how].map(std::ffi::OsStr::new))
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap();
-            let mut stdout = BufReader::new(child.stdout.take().unwrap());
-            let mut first = String::new();
-            stdout.read_line(&mut first).unwrap();
-            assert_eq!(first, "line 0\n", "{target} {how}");
-            drop(stdout);
-            let out = wait(child, Duration::from_secs(60), target);
             assert_eq!(
-                (out.status.code(), program_stderr(&out.stderr)),
+                run_until_stdout_closes(&project, target, &[how]),
                 (Some(141), "released\nreleased\n".into()),
                 "{target} {how}"
+            );
+        }
+    }
+}
+
+/// The same in a program that never suspends and in one that suspends but forks no fiber (the
+/// WASM runtime has a form for each): `Exit.attempt` does not catch what unwinds.
+#[test]
+fn a_closed_stdout_is_not_caught_by_attempt() {
+    for (name, source) in [
+        (
+            "closed-stdout-immediate",
+            include_str!("process/closed_stdout_immediate.emel"),
+        ),
+        (
+            "closed-stdout-suspend",
+            include_str!("process/closed_stdout_suspend.emel"),
+        ),
+    ] {
+        let project = Project::new(name, source);
+        for target in js_and_native() {
+            let built = project.run(&["build", "--target", target], b"");
+            assert!(
+                built.status.success(),
+                "{name} {target}: {}",
+                text(&built.stderr)
+            );
+            assert_eq!(
+                run_until_stdout_closes(&project, target, &[]),
+                (Some(141), "released\n".into()),
+                "{name} {target}"
             );
         }
     }
