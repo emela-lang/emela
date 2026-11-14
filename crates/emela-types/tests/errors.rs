@@ -457,3 +457,44 @@ layer Failing {
 "#
     ));
 }
+
+/// A local fn encloses its body's E in its type, and the E surfaces where it is called. Its
+/// written `-> T` and `fails` are enforced as for a top-level fn (E0318). The E of a function
+/// parameter whose `fails` is omitted is part of its E, and calls that pass functions with
+/// different errors give the union (`[fn.local]`, `[type.inference]`).
+#[test]
+fn local_fn_errors() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+error Other
+
+fn inferred(x: Int) {
+  fn go(n: Int) { if n == 0 { fail Boom } else { n } }
+  go(x)
+}
+
+fn declared(x: Int) -> Int fails Boom {
+  fn go(n: Int) -> Int fails Boom { if n == 0 { fail Boom } else { n } }
+  go(x)
+}
+
+fn unhandled(x: Int) -> Int fails Boom {
+  fn go(n: Int) -> Int { fail Boom }
+  go(x)
+}
+
+fn not_declared() -> Int {
+  fn go(n: Int) -> Int fails Other { fail Boom }
+  1
+}
+
+fn union_of_arguments() {
+  fn call(f: fn() -> Int) -> Int { f() }
+  a = call(|| fail Boom)
+  b = call(|| fail Other)
+  a + b
+}
+"#
+    ));
+}

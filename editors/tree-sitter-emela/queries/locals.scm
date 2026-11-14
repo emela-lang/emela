@@ -3,6 +3,7 @@
 [
   (source_file)
   (function_declaration)
+  (local_function)
   (handler_init)
   (lambda)
   (block)
@@ -12,6 +13,9 @@
 ; Definitions
 
 (function_declaration
+  name: (identifier) @local.definition.function)
+
+(local_function
   name: (identifier) @local.definition.function)
 
 (const_declaration

@@ -1,0 +1,5 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"fn f() -> Int {\n  fn go(x: Int, x: Int) -> Int { x }\n  go(1, 2)\n}\n\"##,)])"
+---
+error src/main.emel@32..33 `x`: `x` is bound twice

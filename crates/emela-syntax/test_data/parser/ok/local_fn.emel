@@ -1,0 +1,33 @@
+# ブロックの文としての局所関数（[fn.local]）
+pub fn range(from: Int, to: Int) -> List[Int] {
+  ## Builds from the back, so `to - 1` cannot overflow.
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  onto(to, [])
+}
+
+fn signatures() -> Int {
+  fn plain(x: Int) { x }
+  fn full(x: Int) -> Int fails NotFound uses { Log } { x }
+  fn effects(x: Int) uses { Log } { x }
+  plain(1)
+}
+
+fn nested() -> Int {
+  f = |x| {
+    fn inner(y: Int) -> Int { y }
+    inner(x)
+  }
+  x = {
+    fn go(n: Int) -> Int { n }
+    go(1)
+  }
+  f(x)
+}
+
+# 宣言の位置（行頭，字下げなし）にある fn も，閉じたブロックの中なら局所関数
+fn at_column_zero() -> Int {
+fn go() -> Int { 1 }
+go()
+}

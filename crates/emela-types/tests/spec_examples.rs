@@ -231,6 +231,22 @@ fn area(shape: Shape) -> Float {
 }
 
 /// 6.7 Pipes. The named arguments of `List.fold(from: 0, f: add)` follow the pipe's left side.
+/// 6.9 Local functions: `onto` captures `from` and calls itself.
+#[test]
+fn spec_6_9_local_functions() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+pub fn range(from: Int, to: Int) -> List[Int] {
+  ## Builds from the back, so `to - 1` cannot overflow.
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  onto(to, [])
+}
+"#
+    ));
+}
+
 #[test]
 fn spec_6_7_pipe() {
     insta::assert_snapshot!(render_bodies(

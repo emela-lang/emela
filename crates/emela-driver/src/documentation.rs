@@ -110,6 +110,20 @@ pub(crate) fn module_docs(tree: &ast::SourceFile) -> HashMap<TextRange, String> 
     docs
 }
 
+/// The doc comment of the local fn whose name is at `span` (`[fn.local]`). Local fns are not
+/// part of the module's API, so [`module_docs`], which generated documentation reads, leaves
+/// them out; only the language server shows them.
+pub(crate) fn local_fn_doc(analysis: &Analysis, span: Span) -> Option<String> {
+    let &file = analysis.files.get(span.module)?;
+    let tree = emela_syntax::parse(analysis.sources[file].text()).tree();
+    let f = tree
+        .syntax()
+        .descendants()
+        .filter_map(ast::LocalFn::cast)
+        .find(|f| f.name().is_some_and(|n| n.text_range() == span.range))?;
+    Some(syntax_doc_text(f.syntax())).filter(|doc| !doc.trim().is_empty())
+}
+
 /// A written function signature when type checking has not produced one yet (trait/impl
 /// functions in particular). Comments, annotations and the body are left out.
 pub(crate) fn written_signature(analysis: &Analysis, span: Span) -> Option<String> {
