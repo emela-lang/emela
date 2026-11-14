@@ -2,7 +2,7 @@
 title: Choosing the exit code with the return value of main
 authors: [Alliana]
 status: draft
-pr:
+pr: 567
 issue:
 decided:
 touches: [dyn.error, effect.with, diag.list, cmd.build, target.c.run, target.wasm.output, ext.export, lib.layers, api.std.process (new)]
