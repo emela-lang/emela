@@ -1,10 +1,10 @@
 ---
 title: Choosing the exit code with the return value of main
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 567
 issue:
-decided:
+decided: 2026-11-15
 touches: [dyn.error, effect.with, diag.list, cmd.build, target.native.run, target.wasm.output, ext.export, lib.layers, api.std.process]
 requires: [std-process]
 related: [std-exit, stdout-stderr]
@@ -258,3 +258,5 @@ No text change. `ExitCode` is not a boundary type (12.4), so an `@export` fn or 
 ## Open questions
 
 ## Decision
+
+An Emela program could end only with 0, 1, 101 or 130, and the value of `main` was thrown away, so a CLI tool could not report a usage error with 2 or "not found" with 1, as the scripts and CI that call it expect. The only workaround was to call the host's exit through `@external`, which skips the releases of withs and cuts output not yet written. `main` now chooses the exit code by returning an `ExitCode` of `Std.Process`, next to Args and Stdin, since it belongs to the process. Returning a value from `main` happens after every release has run and every child of `Fiber.scope` has ended, so choosing an exit code never skips cleanup, and calling `main` from a test only returns a value. Every value from 0 to 255 can be returned, including 1, 101 and 130, which the runtime uses for errors, defects and interruptions; the line on standard error tells them apart. A value outside that range is a defect rather than taken modulo 256, so `exit_code(256)` does not silently succeed. A `main` that returns any other type gets W0304 instead of a change of meaning, because the specification says the value is thrown away and such programs follow it. An operation that ends the process from deep inside, a function that stops it on the spot, and a trait that derives the code from an error are not added: the first needs a fourth way for a fiber to end, the second skips cleanup, and the third puts the choice in two places. An error raised to `main` and turned into an `ExitCode` with `escape` covers ending from deep inside.
