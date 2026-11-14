@@ -370,7 +370,7 @@ em_ref em_string_split(em_ref s, em_ref sep) {
          * among the builtins that may raise one). */
         em_raise_cstr(
             "`String.split` with an empty separator on non-ASCII text needs the Unicode grapheme "
-            "cluster tables, which target `c` does not support yet");
+            "cluster tables, which target `native` does not support yet");
         return NULL;
       }
     }
@@ -1111,15 +1111,32 @@ const char *em_cstr(em_ref s) {
   return bytes;
 }
 
+/* The string that a bundled host function is about to return, and its length in bytes (see
+ * `em_host_string_length`). */
+static const char *em_sized_string = NULL;
+static size_t em_sized_length = 0;
+
+/* For the bundled `std/process.c`: the string `s` that the host function returns next has `n`
+ * bytes, which may include U+0000 (standard input is read as is, `[api.std.process]`). Called
+ * right before returning `s`, so that the conversion of that return value reads `n` bytes instead
+ * of stopping at the first NUL. Not part of `emela.h`: the public form of a String returned by C
+ * stays NUL-terminated (`[ext.boundary]`). */
+void em_host_string_length(const char *s, size_t n) {
+  em_sized_string = s;
+  em_sized_length = n;
+}
+
 em_ref em_from_host_string(char *s, const char *function) {
   if (s == NULL) {
+    em_sized_string = NULL;
     char msg[256];
     snprintf(msg, sizeof msg, "external function `%s` returned NULL", function);
     em_raise_cstr(msg);
     return NULL;
   }
   const unsigned char *p = (const unsigned char *)s;
-  size_t n = strlen(s);
+  size_t n = s == em_sized_string ? em_sized_length : strlen(s);
+  em_sized_string = NULL;
   em_buf b = {NULL, 0, 0};
   for (size_t i = 0; i < n;) {
     size_t bad = 0, len = em_utf8_valid(p, n, i, &bad);
@@ -3901,15 +3918,26 @@ em_ref em_deferred_poll(em_ref o, int32_t repr) {
 
 static bool em_started = false;
 
+/* The arguments of the process after the name of the program (`Args` of `Std.Process`). */
+static int em_argc = 0;
+static char **em_argv = NULL;
+
 void em_start(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
   if (em_started) return;
   em_started = true;
+  if (argc > 1 && argv != NULL) {
+    em_argc = argc - 1;
+    em_argv = argv + 1;
+  }
   em_loop_init();
 }
 
-/* ---- Exported functions (`[target.c.export]`) ---- */
+/* For the bundled `std/process.c`: the number of arguments, and the argument at `i` (from 0). */
+int32_t em_arg_count(void) { return em_argc > INT32_MAX ? INT32_MAX : (int32_t)em_argc; }
+
+const char *em_arg_at(int32_t i) { return i >= 0 && i < em_argc ? em_argv[i] : ""; }
+
+/* ---- Exported functions (`[target.native.export]`) ---- */
 
 void em_export_enter(const char *function) {
   /* `em_root_cur` is the running launch: the mark that Emela code is running on this thread. */

@@ -11,6 +11,8 @@
 //!   anonymous function with the closure to write instead (E0148).
 //! - Report an anonymous function written as a statement that is not the last of its block
 //!   (E0149).
+//! - Report what a local fn cannot have (E0150) and a local fn as the last statement of its
+//!   block (E0151).
 
 use rowan::TextRange;
 
@@ -140,7 +142,19 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 });
             }
         }
-        BLOCK_EXPR => unused_lambdas(node, out),
+        BLOCK_EXPR => {
+            unused_lambdas(node, out);
+            unused_local_fn(node, out);
+        }
+        LOCAL_FN => {
+            local_fn_modifiers(node, out);
+            // An attribute is already reported as one; what it would say on a top-level fn
+            // (E0146 for `@export`) is not added.
+            for child in node.children().filter(|c| c.kind() != ANNOTATION) {
+                walk(&child, out);
+            }
+            return;
+        }
         UNDERSCORE_EXPR => error(
             out,
             node.text_range(),
@@ -185,6 +199,55 @@ fn unused_lambdas(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 .then(|| crate::rewrite::OR_AT_LINE_START_HELP.to_owned()),
         });
     }
+}
+
+/// E0150: what a top-level fn can have and a local fn cannot (`[fn.local]`). Each is reported
+/// where it is written.
+fn local_fn_modifiers(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let mut found: Vec<(TextRange, &str)> = Vec::new();
+    for element in node.children_with_tokens() {
+        let what = match element.kind() {
+            ANNOTATION => "a local function cannot have attributes",
+            PUB_KW => "a local function cannot be `pub`",
+            SUSPEND_KW => "a local function cannot be `suspend`",
+            TYPE_PARAM_LIST => "a local function cannot have type parameters",
+            _ => continue,
+        };
+        found.push((element.text_range(), what));
+    }
+    for (range, message) in found {
+        out.push(Diagnostic {
+            range,
+            code: DiagnosticCode::LocalFnModifier,
+            message: message.to_owned(),
+            help: Some("remove it".to_owned()),
+        });
+    }
+}
+
+/// E0151: a local fn as the last statement of its block is visible to nothing after it, so it
+/// can never be called (`[fn.local]`).
+fn unused_local_fn(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let Some(last) = block.children().filter(|n| n.kind() != ERROR).last() else {
+        return;
+    };
+    if last.kind() != LOCAL_FN {
+        return;
+    }
+    let name = last
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == LOWER_NAME);
+    let (range, shown) = match &name {
+        Some(name) => (name.text_range(), name.text().to_owned()),
+        None => (last.text_range(), String::new()),
+    };
+    out.push(Diagnostic {
+        range,
+        code: DiagnosticCode::UnusedLocalFn,
+        message: format!("local function `{shown}` is never called"),
+        help: Some("call it after the declaration".to_owned()),
+    });
 }
 
 /// Accepts only the expression shapes that correspond to spec 17.6 patterns.
@@ -306,11 +369,12 @@ fn fn_decl(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// Known `@external` targets (spec 12.1).
-const EXTERNAL_TARGETS: [&str; 3] = ["js", "wasm", "c"];
+/// The languages that `@external` and `@export` name (`[ext.decl]`): the language of the code
+/// that is linked with, one per build target.
+const EXTERNAL_LANGUAGES: [&str; 3] = ["js", "wasm", "c"];
 
-/// The shape of a fn's `@external(target, "a")` and `@external(target, "a", "b")` (spec 12.1):
-/// one or two strings after the target name, and one annotation per target.
+/// The shape of a fn's `@external(language, "a")` and `@external(language, "a", "b")` (spec 12.1):
+/// one or two strings after the language name, and one annotation per language.
 fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     let mut seen: Vec<String> = Vec::new();
     for annotation in annotations(node, "external") {
@@ -331,41 +395,43 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 out,
                 annotation.text_range(),
                 DiagnosticCode::MalformedExternal,
-                "`@external` on a function needs a target and a name: `@external(js, \"name\")`",
+                "`@external` on a function needs a language and a name: `@external(js, \"name\")`",
             );
             continue;
         };
-        let Some(target) = annot_name(first) else {
+        let Some(language) = annot_name(first) else {
             error(
                 out,
                 first.text_range(),
                 DiagnosticCode::MalformedExternal,
-                "the first argument of `@external` must be a target name such as `js`",
+                "the first argument of `@external` must be a language name such as `js`",
             );
             continue;
         };
-        if !EXTERNAL_TARGETS.contains(&target.as_str()) {
+        if !EXTERNAL_LANGUAGES.contains(&language.as_str()) {
             error(
                 out,
                 first.text_range(),
                 DiagnosticCode::UnknownExternalTarget,
-                &format!("unknown target `{target}` in `@external`: expected `js`, `wasm` or `c`"),
+                &format!(
+                    "unknown language `{language}` in `@external`: expected `js`, `wasm` or `c`"
+                ),
             );
-        } else if seen.contains(&target) {
+        } else if seen.contains(&language) {
             error(
                 out,
                 first.text_range(),
                 DiagnosticCode::DuplicateExternalTarget,
-                &format!("more than one `@external` for target `{target}`"),
+                &format!("more than one `@external` for language `{language}`"),
             );
         } else {
-            seen.push(target);
+            seen.push(language);
         }
         for arg in rest {
             let message = match annot_string(arg) {
                 Some(true) => continue,
                 Some(false) => "string interpolation is not allowed in `@external`",
-                None => "arguments after the target of `@external` must be strings",
+                None => "arguments after the language of `@external` must be strings",
             };
             error(
                 out,
@@ -380,7 +446,7 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 annotation.text_range(),
                 DiagnosticCode::MalformedExternal,
                 &format!(
-                    "`@external` takes one or two strings after the target, found {}",
+                    "`@external` takes one or two strings after the language, found {}",
                     rest.len()
                 ),
             );
@@ -388,9 +454,9 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// The place and the arguments of `@export(target, "name")` and
-/// `@export(target, "interface", "name")` (spec 12.7). Unlike `@external`, a fn may have several
-/// for the same target. On `js` the middle argument of the three-argument form is `"default"`
+/// The place and the arguments of `@export(language, "name")` and
+/// `@export(language, "interface", "name")` (spec 12.7). Unlike `@external`, a fn may have several
+/// for the same language. On `js` the middle argument of the three-argument form is `"default"`
 /// (spec 16.6.2).
 fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     let on_fn_with_body = annotation.parent().is_some_and(|decl| {
@@ -430,16 +496,16 @@ fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         malformed(out, annotation.text_range());
         return;
     };
-    let Some(target) = annot_name(first) else {
+    let Some(language) = annot_name(first) else {
         malformed(out, first.text_range());
         return;
     };
-    if !EXTERNAL_TARGETS.contains(&target.as_str()) {
+    if !EXTERNAL_LANGUAGES.contains(&language.as_str()) {
         error(
             out,
             first.text_range(),
             DiagnosticCode::UnknownExternalTarget,
-            &format!("unknown target `{target}` in `@export`: expected `js`, `wasm` or `c`"),
+            &format!("unknown language `{language}` in `@export`: expected `js`, `wasm` or `c`"),
         );
     }
     let mut strings = true;
@@ -463,16 +529,16 @@ fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
     if !(1..=2).contains(&rest.len()) {
         malformed(out, annotation.text_range());
-    } else if target == "c" && rest.len() == 2 {
-        // `[target.c.export]` gives only `@export(c, "name")` a meaning.
+    } else if language == "c" && rest.len() == 2 {
+        // `[language.native.export]` gives only `@export(c, "name")` a meaning.
         error(
             out,
             annotation.text_range(),
             DiagnosticCode::MalformedExport,
-            "on target `c`, `@export` takes one name: `@export(c, \"name\")`",
+            "on the native target, `@export` takes one name: `@export(c, \"name\")`",
         );
     } else if strings
-        && target == "js"
+        && language == "js"
         && let [name] = rest
         && string_value(name).as_deref() == Some("default")
     {
@@ -485,7 +551,7 @@ fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             "on target `js`, the name `\"default\"` is the default export: write `@export(js, \"default\", \"name\")`",
         );
     } else if strings
-        && target == "js"
+        && language == "js"
         && let [interface, _] = rest
         && string_value(interface).as_deref() != Some("default")
     {

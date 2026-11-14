@@ -152,7 +152,7 @@ pub const EFFECT_PARAM_NOT_TYPE: &str = "E0424";
 // fiber（11.2，11.8）
 pub const ESCAPING_FROM_SCOPE: &str = "E0425";
 pub const OP_TYPE_PARAMS: &str = "E0426";
-// External functions the C target does not support yet (spec 12.4). E0428 is retired: `suspend
+// External functions the native target does not support yet (spec 12.4). E0428 is retired: `suspend
 // fn` external functions on C complete their task later (spec 12.6).
 pub const CALLBACK_EXTERNAL: &str = "E0427";
 // Labels (issue #255)
@@ -174,7 +174,7 @@ pub const SUSPENDING_EXPORT: &str = "E0441";
 
 // HTTP services (`[lib.http-service]`)
 pub const HTTP_SERVICE_ON_C: &str = "E0442";
-// Bytes and Arrays at the boundary on the C target (`[ext.boundary]`)
+// Bytes and Arrays at the boundary on the native target (`[ext.boundary]`)
 pub const BOUNDARY_TYPE_ON_C: &str = "E0443";
 
 // E09xx: tooling
@@ -186,10 +186,12 @@ pub const CANNOT_WRITE_OUTPUT: &str = "E0903";
 pub const NODE_UNAVAILABLE: &str = "E0904";
 pub const NO_JS_BACKEND: &str = "E0905";
 pub const INVALID_JS_OUTPUT: &str = "E0906";
-// The C target's cc (spec appendix B)
+// The C compiler of the native target (`[target.native.cc]`)
 pub const CC_UNAVAILABLE: &str = "E0907";
 pub const CC_FAILED: &str = "E0908";
 /// The `wasmtime` executable could not be started, or is too old (`--target wasm`).
 pub const WASMTIME_UNAVAILABLE: &str = "E0909";
 /// `EMELA_NODE` was read to choose the JS host (`[cmd.build]`).
 pub const NODE_ENV_DEPRECATED: &str = "W0902";
+/// The build target `c`, a deprecated name of `native` (`[target.native]`).
+pub const DEPRECATED_TARGET: &str = "W0903";

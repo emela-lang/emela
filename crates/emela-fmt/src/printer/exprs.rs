@@ -127,6 +127,8 @@ impl Printer {
             CALL_EXPR | SUPPLY => self.call(node),
             BIN_EXPR => self.bin_chain(node),
             BLOCK_EXPR => self.block(node).assemble(false).group(),
+            // A local fn is laid out as a top-level fn, indented in its block (`[fn.local]`).
+            LOCAL_FN => self.decl_seq(node),
             IF_EXPR => self.if_chain(node).group(),
             MATCH_EXPR | ESCAPE_EXPR => self.arms_expr(node),
             MATCH_ARM_LIST => self.arm_list(node),

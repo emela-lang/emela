@@ -46,7 +46,7 @@ enum Command {
         /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
     },
-    /// Compile to the output of `--target` (`target/emela/js` for JS; a native executable for C;
+    /// Compile to the output of `--target` (`target/emela/js` for JS; an executable for native;
     /// `main.wasm` for WASM)
     Build {
         /// Entry file or project directory [default: .]
@@ -58,7 +58,7 @@ enum Command {
         #[arg(long, value_enum)]
         target: Option<TargetArg>,
     },
-    /// Compile and run: on Node.js, as a native executable (`--target c`), or with wasmtime
+    /// Compile and run: on Node.js, as a native executable (`--target native`), or with wasmtime
     /// (`--target wasm`)
     Run {
         /// Entry file or project directory [default: .]
@@ -79,7 +79,7 @@ enum Command {
         path: Option<PathBuf>,
         /// Run only the tests whose name contains this string
         filter: Option<String>,
-        /// Output directory [default: <project>/target/emela/test, or test-c for `--target c`]
+        /// Output directory [default: <project>/target/emela/test, or test-native for `--target native`]
         #[arg(long)]
         out_dir: Option<PathBuf>,
         /// The target [default: `[build].target` of Pome.toml, or js]
@@ -138,18 +138,29 @@ enum Command {
 enum TargetArg {
     /// JavaScript run on Node.js
     Js,
-    /// C compiled with cc (`EMELA_CC`) to a native executable
-    C,
+    /// An executable for this machine, built with its C compiler (`EMELA_CC`, `EMELA_CC_ARGS`)
+    Native,
     /// WebAssembly (WASI) run with `wasmtime` (`EMELA_WASMTIME`)
     Wasm,
+    /// The deprecated name of `native` (`[target.native]`): W0903, removed in 0.29
+    #[value(hide = true)]
+    C,
 }
 
-impl From<TargetArg> for Target {
-    fn from(target: TargetArg) -> Self {
-        match target {
+impl TargetArg {
+    /// The target, after printing W0903 for the deprecated `c` (`[target.native]`).
+    fn select(self) -> Target {
+        match self {
             TargetArg::Js => Target::Js,
-            TargetArg::C => Target::C,
+            TargetArg::Native => Target::Native,
             TargetArg::Wasm => Target::Wasm,
+            TargetArg::C => {
+                print_diagnostics(
+                    &[emela_driver::deprecated_target_warning()],
+                    &SourceDb::new(),
+                );
+                Target::Native
+            }
         }
     }
 }
@@ -304,7 +315,7 @@ fn check(path: &Path) -> ExitCode {
 /// Also `None` after printing E0238 when a dependency does not support the target (spec 4.7).
 fn resolve_target(input: &Input, flag: Option<TargetArg>, default: Target) -> Option<Target> {
     let target = match flag {
-        Some(flag) => flag.into(),
+        Some(flag) => flag.select(),
         None => match emela_driver::project_target(&OsFs, input) {
             Ok(target) => target.unwrap_or(default),
             Err(diagnostic) => {
@@ -332,7 +343,7 @@ fn build(path: &Path, out_dir: Option<PathBuf>, target: Option<TargetArg>) -> Ex
     let mut frontend = Lower::default().with_target(target);
     let (analysis, _) = match target {
         Target::Js => emela_driver::build(&OsFs, &input, &mut frontend, &mut CoreJs, &out_dir),
-        Target::C => emela_driver::build(
+        Target::Native => emela_driver::build(
             &OsFs,
             &input,
             &mut frontend,
@@ -364,7 +375,7 @@ fn run(
     };
     match target {
         Target::Js => run_with(&input, &options, target, &mut CoreJs),
-        Target::C => run_with(&input, &options, target, &mut CoreC::default()),
+        Target::Native => run_with(&input, &options, target, &mut CoreC::default()),
         Target::Wasm => run_with(&input, &options, target, &mut CoreWasm),
     }
 }
@@ -439,7 +450,7 @@ fn test(
     };
     match target {
         Target::Js => test_with(&input, &options, target, &mut CoreJs),
-        Target::C => test_with(&input, &options, target, &mut CoreC::default()),
+        Target::Native => test_with(&input, &options, target, &mut CoreC::default()),
         Target::Wasm => test_with(&input, &options, target, &mut CoreWasm),
     }
 }
@@ -614,10 +625,14 @@ fn js_host(target: Target) -> PathBuf {
 /// the project that contains `path`; `Pome.toml` is not read when `--target` is given, so a broken
 /// manifest does not stop the report.
 fn doctor(path: &Path, target: Option<TargetArg>, format: DoctorFormatArg) -> ExitCode {
+    let mut sources = SourceDb::new();
     let required = match target {
-        Some(target) => Some(target.into()),
-        None => match emela_driver::enclosing_project_target(&OsFs, path) {
-            Ok(target) => target,
+        Some(target) => Some(target.select()),
+        None => match emela_driver::enclosing_project_target(&OsFs, path, &mut sources) {
+            Ok((target, warnings)) => {
+                print_diagnostics(&warnings, &sources);
+                target
+            }
             Err(diagnostic) => {
                 print_diagnostics(&[diagnostic], &SourceDb::new());
                 return ExitCode::from(DIAGNOSTIC_FAILURE);

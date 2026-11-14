@@ -41,7 +41,9 @@ struct Skipped {
 const SKIPPED: &[Skipped] = &[Skipped {
     feature: "http",
     reason: "the client of Std.Http (SystemHttp) has no WASM host yet",
-    expected_failures: &["external function `host_request` has no `@external` for target `wasm`"],
+    expected_failures: &[
+        "external function `host_request` has no `@external(wasm, ...)` for target `wasm`",
+    ],
     examples: &["http"],
 }];
 
@@ -102,7 +104,7 @@ fn run_on(path: &Path, target: Target, name: &str) -> Result<Outcome, Box<Analys
             &options,
             |_, _| {},
         ),
-        Target::C => unreachable!("this test compares js and wasm"),
+        Target::Native => unreachable!("this test compares js and wasm"),
     });
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {
@@ -158,7 +160,7 @@ fn test_on(
             |_| {},
             &mut out,
         ),
-        Target::C => unreachable!("this test compares js and wasm"),
+        Target::Native => unreachable!("this test compares js and wasm"),
     });
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match report {

@@ -140,13 +140,13 @@ const ATTRIBUTES: &[&str] = &["external", "export", "entry", "test", "deprecated
 /// Attributes allowed only in the bundled core sources (E0224, E0229), offered there only.
 const CORE_ATTRIBUTES: &[&str] = &["intrinsic", "internal"];
 
-/// The target names of `@external` and `@export` (spec `[ext.decl]`, `[ext.export]`; others are
+/// The language names of `@external` and `@export` (spec `[ext.decl]`, `[ext.export]`; others are
 /// E0140).
-const TARGETS: &[&str] = &["js", "wasm", "c"];
+const LANGUAGES: &[&str] = &["js", "wasm", "c"];
 
 /// Contexts decided by the lexical position alone, before any name lookup: inside a comment or
 /// a string nothing is offered; after `@`, attribute names; in the first argument of
-/// `@external(` and `@export(`, target names. `None` leaves the position to the name contexts.
+/// `@external(` and `@export(`, language names. `None` leaves the position to the name contexts.
 ///
 /// Only the text before the cursor is lexed, so what follows (often not yet written) cannot
 /// change the answer. The lexer reports each string and interpolation still open at the end of
@@ -205,7 +205,7 @@ fn lexical(analysis: &Analysis, module: ModuleId, before: &str) -> Option<Vec<Co
         .iter()
         .any(|attr| open.trim_end().ends_with(attr))
     {
-        return Some(keywords(&mut TARGETS.iter()));
+        return Some(keywords(&mut LANGUAGES.iter()));
     }
     None
 }
@@ -1183,6 +1183,18 @@ fn visible_locals(
                                 TextRange::new(start, span.range.end()),
                             );
                         }
+                    }
+                    // A local fn's name from its declaration to the end of the block, its own
+                    // body included; its parameters in its body (`[fn.local]`).
+                    if let Stmt::LocalFn(f) = stmt {
+                        let start = hir.locals[f.local].span.range.start();
+                        if start <= span.range.end() {
+                            add(vec![f.local], TextRange::new(start, span.range.end()));
+                        }
+                        add(
+                            f.sig.params.iter().map(|p| p.local).collect(),
+                            span_of(f.body),
+                        );
                     }
                 }
             }

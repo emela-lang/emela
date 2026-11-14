@@ -3,8 +3,8 @@ source: crates/emela-driver/tests/diagnostics.rs
 expression: out
 ---
 == home/main.emel js
-== home/main.emel c
-error[E0442]: HTTP services are not supported on target `c` yet
+== home/main.emel native
+error[E0442]: HTTP services are not supported on target `native` yet
    ╭─[ main.emel:7:1 ]
    │
  7 │ @entry(Http.serve)
@@ -23,7 +23,7 @@ error[E0440]: `app` does not fit `Http.serve`
 ───╯
 
 1 error
-== other/main.emel c
+== other/main.emel native
 error[E0440]: `app` does not fit `Http.serve`
    ╭─[ main.emel:6:1 ]
    │
@@ -34,4 +34,4 @@ error[E0440]: `app` does not fit `Http.serve`
 
 1 error
 == own/main.emel js
-== own/main.emel c
+== own/main.emel native

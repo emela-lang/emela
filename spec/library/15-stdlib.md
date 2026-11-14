@@ -225,6 +225,7 @@ Functions in the standard library (core and std) are named according to the foll
 
 - The subject is the first argument, so the function can be written with a pipe, as in `xs |> List.map(f)`.
 - An argument that takes a function is named `f` and is passed by position, not by name (`List.map(xs, |x| ...)`). The proposal to use `with` and `where` as argument names was not adopted: both are reserved words (3.1, 3.3) and cannot be used as parameter names, and the case is not strong enough to add syntax that separates the external argument name from the internal name.
+- A function that calls `f` with the elements of a collection calls it in the order of the collection (List from the first element, Array from index 0, Map and Set in key order), at most once per element. When the result is decided before the last element (`any`, `all`, `find`, `find_index`), or when `f` fails, `f` is not called on the remaining elements. This does not apply to `sort_by`, whose calls of `f` are not specified, or to the functions of `Std.Fiber`, which run concurrently (`[api.std.fiber]`).
 - A function that joins two values is `append` (`List.append(xs, ys)`, `String.append(a, b)`), a function that flattens a sequence is `List.flatten(xss)` or `String.concat(parts)`, and a function that joins with a separator in between is `join` (`List.join(parts, sep)`).
 - The argument for the initial value of a fold is named `from` (`List.fold(xs, from: 0, f: add)`).
 - How a function reports that something did not work depends on the situation.

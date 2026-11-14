@@ -97,7 +97,7 @@ pub(crate) fn emit(
     }
     let (core, layout) = b.finish();
     let optional = crate::component::OptionalImports {
-        environment: b.uses_env(),
+        environment: b.uses_env() || b.args_from_host(),
         random: b.uses_random(),
         clock: b.uses_clock(),
         monotonic_clock: b.uses_std_host(StdHost::is_monotonic),
@@ -179,7 +179,12 @@ pub(crate) const G_LAST_RETIRED: u32 = 11;
 const G_ENV_LOADED: u32 = 12;
 const G_ENV_PTR: u32 = 13;
 const G_ENV_LEN: u32 = 14;
-const GLOBALS: u32 = 15;
+/// Whether `Std.Process` has fetched the argument list, and the list's pointer and length (the
+/// first element, the name of the program, included). `get-arguments` is a value import too.
+const G_ARGS_LOADED: u32 = 15;
+const G_ARGS_PTR: u32 = 16;
+const G_ARGS_LEN: u32 = 17;
+const GLOBALS: u32 = 18;
 
 /// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, the size of a heap object's
 /// block at 12, slots at 16. A `rc` of 0 marks static data (never counted).
@@ -255,6 +260,8 @@ pub(crate) struct Builder<'m> {
     /// Whether the output is an HTTP service ([`Run::Service`]): it exports `handle` of
     /// `wasi:http/handler@0.3.0` instead of `run` of `wasi:cli/run@0.3.0`.
     pub(crate) service: bool,
+    /// Whether the output runs the tests ([`Run::Tests`]).
+    pub(crate) tests: bool,
     /// The fiber scheduler's cells and descriptors, when the program suspends.
     pub(crate) fiber_plan: Option<runtime::fiber::Plan>,
 }
@@ -296,6 +303,7 @@ impl<'m> Builder<'m> {
             fs_plan: None,
             http_plan: None,
             service: false,
+            tests: false,
             fiber_plan: None,
         };
         b.str_desc = b.string_desc();
@@ -365,6 +373,12 @@ impl<'m> Builder<'m> {
         self.uses_std_host(StdHost::is_env)
     }
 
+    /// Whether the arguments come from `get-arguments`. The tests and an HTTP service have none
+    /// (`[api.std.process]`), so their output does not import it.
+    pub(crate) fn args_from_host(&self) -> bool {
+        self.uses_std_host(StdHost::is_args) && !self.tests && !self.service
+    }
+
     pub(crate) fn uses_random(&self) -> bool {
         self.uses_std_host(StdHost::is_random)
     }
@@ -384,6 +398,16 @@ impl<'m> Builder<'m> {
             "wasi:cli/environment@0.3.0",
             "get-environment",
             // The result is a `list<tuple<string, string>>`, returned through a pointer.
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn arguments_get(&mut self) -> u32 {
+        self.host_import(
+            "wasi:cli/environment@0.3.0",
+            "get-arguments",
+            // The result is a `list<string>`, returned through a pointer.
             vec![ValType::I32],
             Vec::new(),
         )
@@ -571,6 +595,7 @@ impl<'m> Builder<'m> {
 
     fn build(&mut self, entry: &Run, reach: &check::Reach) {
         self.service = matches!(entry, Run::Service(_));
+        self.tests = matches!(entry, Run::Tests(_));
         // The imports (the WASI host and the externals with a wasm binding) take the lowest
         // indices. A supported `Std` host is a runtime wrapper instead; it is resolved after the
         // runtime functions have their indices.
@@ -597,6 +622,9 @@ impl<'m> Builder<'m> {
         // added when the program uses them.
         if self.uses_env() {
             self.environment_get();
+        }
+        if self.args_from_host() {
+            self.arguments_get();
         }
         if self.uses_random() {
             self.random_u64();

@@ -6,7 +6,7 @@
 //! stderr. Runs set `EMELA_LEAK_CHECK`, so a program
 //! that leaves allocations live exits with 99 and says so on stderr.
 //!
-//! Builds use the flags of `[target.c.cc]` without `-O2`.
+//! Builds use the flags of `[target.native.cc]` without `-O2`.
 
 #![allow(dead_code)]
 

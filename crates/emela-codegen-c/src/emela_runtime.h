@@ -112,7 +112,7 @@ struct em_obj {
 /* The static header of a constant object (string literals, constructors without fields,
  * closures without captures). The emitter declares each static object as a struct of its own
  * shape and the runtime reads it as an `em_obj`, which is why the C is compiled with
- * -fno-strict-aliasing (`[target.c.cc]`). */
+ * -fno-strict-aliasing (`[target.native.cc]`). */
 #define EM_STATIC_HDR(desc) {{{0, 0}}, (desc)}
 
 /* ---- Reference counting ---- */
@@ -388,10 +388,11 @@ void em_run(em_word (*entry)(void), int32_t repr);
 /* ---- The program ---- */
 
 /* Starts the runtime. Later calls do nothing: an exported function called before main starts it
- * (`[target.c.export]`). */
+ * (`[target.native.export]`). `argv[1]` and after are the arguments that `Args` of `Std.Process`
+ * returns; the test executable passes none (`[cmd.test.output]`). */
 void em_start(int argc, char **argv);
 
-/* ---- Exported functions (`[target.c.export]`) ----
+/* ---- Exported functions (`[target.native.export]`) ----
  *
  * The C function of an exported function calls `em_export_enter`, stores its arguments, runs a
  * thunk with `em_run` (one launch) and then calls `em_export_leave`. The thunk converts the

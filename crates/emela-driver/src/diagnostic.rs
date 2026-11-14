@@ -17,6 +17,7 @@ use smol_str::SmolStr;
 
 use crate::code;
 use crate::source::{FileId, SourceDb};
+use crate::target::Target;
 
 /// The prefix of notes that are help.
 pub const HELP_PREFIX: &str = "help: ";
@@ -437,19 +438,27 @@ impl Diagnostic {
                 Diagnostic::error(format!("not supported yet: {what}")),
                 span,
             ),
-            emela_core::LowerError::MissingExternal { name, target, span } => (
-                Diagnostic::error(format!(
-                    "external function `{name}` has no `@external` for target `{target}`"
-                ))
-                .with_code(code::MISSING_EXTERNAL_TARGET)
-                .with_help(format!(
-                    "add `@external({target}, ...)`, or avoid calling it from the entry"
-                )),
+            emela_core::LowerError::MissingExternal {
+                name,
+                language,
                 span,
-            ),
+            } => {
+                let target = Target::of_language(language)
+                    .map_or_else(|| language.clone(), |t| t.name().to_owned());
+                (
+                    Diagnostic::error(format!(
+                        "external function `{name}` has no `@external({language}, ...)` for target `{target}`"
+                    ))
+                    .with_code(code::MISSING_EXTERNAL_TARGET)
+                    .with_help(format!(
+                        "add `@external({language}, ...)`, or avoid calling it from the entry"
+                    )),
+                    span,
+                )
+            }
             emela_core::LowerError::SuspendingExport { name, span } => (
                 Diagnostic::error(format!(
-                    "exported function `{name}` may suspend, which target `c` does not support"
+                    "exported function `{name}` may suspend, which target `native` does not support"
                 ))
                 .with_code(code::SUSPENDING_EXPORT),
                 span,
@@ -461,7 +470,7 @@ impl Diagnostic {
                 span,
             ),
             emela_core::LowerError::HttpServiceOnC { span } => (
-                Diagnostic::error("HTTP services are not supported on target `c` yet")
+                Diagnostic::error("HTTP services are not supported on target `native` yet")
                     .with_code(code::HTTP_SERVICE_ON_C),
                 span,
             ),
@@ -668,6 +677,11 @@ impl Diagnostic {
                 Severity::Error,
                 Some(code::MISSING_PARAM_TYPE),
                 format!("parameter `{param}` of a top-level function needs a type"),
+            ),
+            TypeDiagnosticKind::MissingLocalFnParamType { param } => (
+                Severity::Error,
+                Some(code::MISSING_PARAM_TYPE),
+                format!("parameter `{param}` of a local function needs a type"),
             ),
             TypeDiagnosticKind::MissingInitParamType { handler, param } => (
                 Severity::Error,

@@ -34,6 +34,18 @@ enum Std.Set.Set[A] {
   Set(inner: Std.Map.Map[A, ()])
 }
 
+error enum Std.Process.InvalidInput {
+  InvalidInput
+}
+
+error enum Std.Process.StdinFailure {
+  StdinFailure(message: String)
+}
+
+enum Std.Process.StdinLines {
+  StdinLines(lines: List[String])
+}
+
 enum Std.Http.Request.Method {
   Get
   Head

@@ -158,7 +158,7 @@ fn self_rel_second() { dbg(SELF_REL) }
         ],
     );
     let mut outputs = Vec::new();
-    for target in ["js", "c", "wasm"] {
+    for target in ["js", "native", "wasm"] {
         let (code, stdout, stderr) = project.emela(&["test", "--target", target]);
         assert_eq!(code, Some(1), "{target}: {stdout}\n{stderr}");
         outputs.push((target, stdout, stderr));

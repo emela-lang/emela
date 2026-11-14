@@ -863,3 +863,75 @@ fn computed_binding(s: Shape) -> Int {
 }
 "#));
 }
+
+/// A local fn has the function type of its signature, can use the type parameters of the
+/// enclosing fn, calls itself at the type being inferred, takes named arguments by its parameter
+/// names, and is a function value when written without a call (`[fn.local]`, `[type.rules]`).
+#[test]
+fn local_fns() {
+    insta::assert_snapshot!(run(r#"
+pub fn range(from: Int, to: Int) -> List[Int] {
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  onto(to, [])
+}
+
+fn first[A](xs: List[A], fallback: A) -> A {
+  fn go(ys: List[A]) -> A {
+    ys match {
+      [y, ..] -> y
+      [] -> fallback
+    }
+  }
+  go(xs)
+}
+
+fn inferred(x: Int) {
+  fn twice(n: Int) { n * 2 }
+  twice(x)
+}
+
+fn named(x: Int) -> Int {
+  fn sub(a: Int, b: Int) -> Int { a - b }
+  sub(b: 1, a: x)
+}
+
+fn as_value() -> fn(Int) -> Int {
+  fn inc(n: Int) -> Int { n + 1 }
+  f = inc
+  f
+}
+"#));
+}
+
+/// A local fn is not generalized: the unknown parts of its type are shared by every use
+/// (`[fn.block]`).
+#[test]
+fn local_fn_not_generalized() {
+    insta::assert_snapshot!(run(r#"
+fn f() {
+  fn empty(n: Int) { [] }
+  a: List[Int] = empty(1)
+  b: List[String] = empty(2)
+}
+"#));
+}
+
+/// The parameter types of a local fn are written (E0316). A wrong label and a wrong number of
+/// arguments are reported with its name. A method call does not find a local fn
+/// (`[fn.local]`).
+#[test]
+fn local_fn_errors() {
+    insta::assert_snapshot!(run(r#"
+fn f(x: Int) -> Int {
+  fn go(n) -> Int { 1 }
+  fn sub(a: Int, b: Int) -> Int { a - b }
+  fn double(n: Int) -> Int { n * 2 }
+  a = sub(c: 1, b: 2)
+  b = sub(1)
+  c = x.double()
+  go(1)
+}
+"#));
+}

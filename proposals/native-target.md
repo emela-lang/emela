@@ -1,7 +1,7 @@
 ---
 title: The C target becomes the native target
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 564
 issue: 568
 decided: 2026-11-14
@@ -295,14 +295,14 @@ and the same for `[target.c.output]`, `[target.c.cc]`, `[target.c.run]`, `[targe
 
 ## Diagnostics
 
-- [ ] E0140: the description and the message name a language instead of a target
-- [ ] E0146: names the native target
-- [ ] E0232: the note lists `js`, `native`, `wasm`
-- [ ] E0412: names the language and the target
-- [ ] E0427, E0441, E0442, E0443: messages name target `native`
-- [ ] E0907: a help when `EMELA_CC` contains whitespace
-- [ ] E0908: does not name a file
-- [ ] W0903 (new): the build target `c` is deprecated
+- [x] E0140: the description and the message name a language instead of a target
+- [x] E0146: names the native target
+- [x] E0232: the note lists `js`, `native`, `wasm`
+- [x] E0412: names the language and the target
+- [x] E0427, E0441, E0442, E0443: messages name target `native`
+- [x] E0907: a help when `EMELA_CC` contains whitespace
+- [x] E0908: does not name a file
+- [x] W0903 (new): the build target `c` is deprecated
 
 ## Compatibility
 

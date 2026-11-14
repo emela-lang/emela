@@ -1,0 +1,190 @@
+# What the process has exactly one of: its arguments (Args) and its standard input (Stdin)
+# (`[api.std.process]`; the platform and test layers of `[lib.layers]`).
+#
+# Use them as `(use Args).get(0)` and `(use Stdin).read_line()`, and provide them with
+# `with SystemArgs, SystemStdin { ... }`, or with `with Platform { ... }` from `Std.Platform`.
+#
+# The host gives the arguments as a count and an element at an index: a List cannot cross the
+# external function boundary (`[ext.boundary]`), so the list is built here.
+#
+# SystemStdin waits and takes in two steps. `wait_line` and `wait_end` only wait until the host
+# holds what the operation needs, and take nothing, so a fiber interrupted while it waits leaves
+# the input in the host's buffer for the next operation (`[api.std.process]`: no input is lost).
+# `take_line` and `take_text` then take it from the buffer without suspending, and `taken`
+# returns the text taken (or the message of a failure). The three are called one after another
+# with no suspension in between, so no other fiber can take from the buffer in the middle.
+
+import Std.State.{State}
+
+pub effect Args {
+  ## The argument at `index` (from 0), or `None` when `index` is negative or not less than the
+  ## number of arguments.
+  fn get(index: Int) -> Option[String]
+  ## The arguments in the order given, without the name of the program.
+  fn list() -> List[String]
+}
+
+## Standard input is not valid UTF-8.
+pub error InvalidInput derive Show
+## The host cannot read standard input. `message` is the host's text.
+pub error StdinFailure(message: String) derive Show
+
+pub effect Stdin {
+  ## The next line without its line terminator (`\n`, or `\r\n`), or `None` at the end of the
+  ## input.
+  suspend fn read_line() -> Option[String] fails InvalidInput | StdinFailure
+  ## The rest of the input, line terminators included, or `""` at the end of the input.
+  suspend fn read_text() -> String fails InvalidInput | StdinFailure
+}
+
+# ---- SystemArgs ----
+
+# The arguments do not change while the program runs, so reading them has no side effects.
+
+@external(js, "./process.mjs", "argCount")
+@external(c, "./process.c", "emela_process_arg_count")
+@external(wasm, "wasi:cli/environment@0.3.0", "get-arguments")
+fn arg_count() -> Int uses {}
+
+## Call only with `0 <= index < arg_count()`.
+@external(js, "./process.mjs", "argAt")
+@external(c, "./process.c", "emela_process_arg_at")
+@external(wasm, "wasi:cli/environment@0.3.0", "get-arguments")
+fn arg_at(index: Int) -> String uses {}
+
+## The arguments from `index` down to 0, prepended to `acc`.
+fn args_onto(index: Int, acc: List[String]) -> List[String] {
+  if index < 0 { acc } else { args_onto(index - 1, [arg_at(index), ..acc]) }
+}
+
+## The arguments given by the host: `argv[1]` and after on native, what the launcher of
+## `emela run` passes on JS, and `get-arguments` without its first element on WASM. Has no state.
+pub handler SystemArgs: Args {
+  fn get(index) {
+    if index >= 0 && index < arg_count() { Some(arg_at(index)) } else { None }
+  }
+  fn list() { args_onto(arg_count() - 1, []) }
+}
+
+# ---- SystemStdin ----
+
+## Completes once the host holds a whole line, or the input has ended or failed.
+@external(js, "./process.mjs", "waitLine")
+@external(c, "./process.c", "emela_stdin_wait_line")
+suspend fn wait_line() -> ()
+
+## Completes once the input has ended or failed.
+@external(js, "./process.mjs", "waitEnd")
+@external(c, "./process.c", "emela_stdin_wait_end")
+suspend fn wait_end() -> ()
+
+# `take_line` and `take_text` return 0 when they took something (it is in `taken`), 1 at the end
+# of the input, 2 when what they took is not valid UTF-8, 3 when the host failed to read (the
+# message is in `taken`), and 4 when what the operation needs is not there yet (another fiber
+# took what completed its wait).
+
+## Takes the next line: 0, 1, 2 (the line is consumed), 3 or 4.
+@external(js, "./process.mjs", "takeLine")
+@external(c, "./process.c", "emela_stdin_take_line")
+fn take_line() -> Int
+
+## Takes the rest of the input: 0 (`""` at the end), 2 (the rest is consumed), 3 or 4 (the input
+## has not ended yet).
+@external(js, "./process.mjs", "takeText")
+@external(c, "./process.c", "emela_stdin_take_text")
+fn take_text() -> Int
+
+## The text or the message of the last `take_line` or `take_text`.
+@external(js, "./process.mjs", "taken")
+@external(c, "./process.c", "emela_stdin_taken")
+fn taken() -> String
+
+## Waits with `step` (a wait, then a take) until the take is not 4, and turns the result into
+## what `read_line` returns. `text` is `taken`. The two are made inside the operation of
+## SystemStdin, where external functions can be called (`[ext.call]`).
+fn next_line(step: fn() -> Int uses { Async }, text: fn() -> String) -> Option[String]
+  fails InvalidInput | StdinFailure
+  uses { Async } {
+  step() match {
+    0 -> Some(text())
+    1 -> None
+    2 -> fail InvalidInput
+    3 -> fail StdinFailure(message: text())
+    _ -> next_line(step, text)
+  }
+}
+
+## `next_line` for `read_text`.
+fn rest_text(step: fn() -> Int uses { Async }, text: fn() -> String) -> String
+  fails InvalidInput | StdinFailure
+  uses { Async } {
+  step() match {
+    0 -> text()
+    2 -> fail InvalidInput
+    3 -> fail StdinFailure(message: text())
+    _ -> rest_text(step, text)
+  }
+}
+
+## The standard input of the process (JS `process.stdin`, file descriptor 0 on native). The host
+## starts reading only when an operation first waits, and does not keep the program running while
+## no operation waits. Requires Async. Has no state.
+pub handler SystemStdin: Stdin {
+  suspend fn read_line(resume) {
+    line = next_line(
+      || {
+        wait_line()
+        take_line()
+      },
+      || taken(),
+    )
+    resume(line)
+  }
+  suspend fn read_text(resume) {
+    text = rest_text(
+      || {
+        wait_end()
+        take_text()
+      },
+      || taken(),
+    )
+    resume(text)
+  }
+}
+
+# ---- TestStdin ----
+
+## The state of TestStdin: the lines not read yet.
+pub type StdinLines(lines: List[String])
+  derive Eq, Show
+
+## The test handler. It keeps the lines in `State[StdinLines]` and resumes at once, so use it
+## inside `State.run`:
+##
+## ```emela
+## (line, rest) = State.run(StdinLines(lines: ["a", "b"]), || {
+##   with TestStdin { (use Stdin).read_line() }
+## })
+## ```
+##
+## `read_line` removes the first line and returns it, or `None` when no line is left. `read_text`
+## returns the lines left joined with `\n` and leaves none. It never fails.
+pub handler TestStdin: Stdin {
+  suspend fn read_line(resume) {
+    st = use State[StdinLines]
+    StdinLines(lines:) = st.get()
+    lines match {
+      [] -> resume(None)
+      [line, ..rest] -> {
+        st.set(StdinLines(lines: rest))
+        resume(Some(line))
+      }
+    }
+  }
+  suspend fn read_text(resume) {
+    st = use State[StdinLines]
+    StdinLines(lines:) = st.get()
+    st.set(StdinLines(lines: []))
+    resume(String.join(lines, "\n"))
+  }
+}

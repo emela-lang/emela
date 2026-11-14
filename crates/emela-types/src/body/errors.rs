@@ -27,7 +27,8 @@
 
 use crate::sparse::SparseMap;
 use emela_resolve::hir::{
-    Arm, Block, DefId, DefKind, ExprId, ExprKind, Item, PatId, PatKind, Res, Span, Stmt, StrPart,
+    Arm, Block, DefId, DefKind, ExprId, ExprKind, Item, LocalId, PatId, PatKind, Res, Span, Stmt,
+    StrPart,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
@@ -385,6 +386,7 @@ impl BodyInfer<'_> {
         for stmt in &block.stmts {
             match stmt {
                 Stmt::Let { value, .. } => row.extend(&self.expr_row(*value)),
+                Stmt::LocalFn(f) => self.local_fn_errors(f.local),
                 Stmt::Expr(e) => row.extend(&self.expr_row(*e)),
             }
         }
@@ -392,6 +394,47 @@ impl BodyInfer<'_> {
             row.extend(&self.expr_row(tail));
         }
         row
+    }
+
+    /// The E of the body of a local fn is enclosed in its type's E; it surfaces where the local
+    /// fn is called, and the declaration has none (`[fn.local]`).
+    fn local_fn_errors(&mut self, local: LocalId) {
+        let Some(info) = self.local_fns.get(local) else {
+            return;
+        };
+        let (body, fails) = (info.body, info.fails.clone());
+        let row = self.expr_row(body);
+        self.ctx.add_subset(row, fails, Origin::LocalFn(local));
+    }
+
+    /// Errors of the body of a local fn not contained in its declared E (E0318), reported as
+    /// for a top-level fn.
+    fn report_local_fn_errors(&mut self, local: LocalId, missing: &[RowElem]) {
+        let Some(info) = self.local_fns.get(local) else {
+            return;
+        };
+        if !info.fails_declared {
+            return;
+        }
+        let (body, written) = (info.body, info.fails_written);
+        self.push_unhandled(body, written, None, missing);
+    }
+
+    /// Effects of the body of a local fn not contained in its `uses` clause (E0402).
+    fn report_local_fn_effects(&mut self, local: LocalId, missing: &[RowElem]) {
+        let Some(info) = self.local_fns.get(local) else {
+            return;
+        };
+        if !info.uses_written {
+            return;
+        }
+        let body = info.body;
+        let params = self
+            .local_owner
+            .get(local)
+            .map(|&def| self.def_params(def))
+            .unwrap_or_default();
+        self.push_unhandled_effects(body, &params, missing, EffectContext::Declared);
     }
 
     /// The callee function type's E. If a single-error type parameter is instantiated with a
@@ -597,6 +640,12 @@ impl BodyInfer<'_> {
                         },
                     };
                     self.diags.push(Diagnostic { span: *span, kind });
+                }
+                (Origin::LocalFn(local), SetKind::Errors) => {
+                    self.report_local_fn_errors(*local, &missing)
+                }
+                (Origin::LocalFn(local), SetKind::Effects) => {
+                    self.report_local_fn_effects(*local, &missing)
                 }
                 // Lambda types' E and R and handler dependencies are set variables, so these
                 // always hold.
@@ -878,9 +927,13 @@ impl BodyInfer<'_> {
         groups
     }
 
-    /// `None` unless `body` is the body of a fn or const (that is, for handler operations).
+    /// `None` unless `body` is the body of a fn or const (that is, for handler operations). The
+    /// body of a local fn has the type parameters of the definition it is in.
     fn current_params(&self, body: ExprId) -> Option<Vec<TyParam>> {
         let program = self.program;
+        if let Some((local, _)) = self.local_fns.iter().find(|(_, info)| info.body == body) {
+            return self.local_owner.get(local).map(|&def| self.def_params(def));
+        }
         let def = self.defs.iter().copied().find(|&d| match program.item(d) {
             Some(Item::Const(item)) => item.value == body,
             _ => fn_parts(program, d).is_some_and(|p| p.body == Some(body)),
@@ -937,9 +990,11 @@ impl BodyInfer<'_> {
                 out.extend(rest);
             }
             ExprKind::Block(block) => {
+                // The body of a local fn is excluded, as a lambda body is.
                 for stmt in &block.stmts {
                     match stmt {
                         Stmt::Let { value, .. } => out.push(*value),
+                        Stmt::LocalFn(_) => {}
                         Stmt::Expr(e) => out.push(*e),
                     }
                 }

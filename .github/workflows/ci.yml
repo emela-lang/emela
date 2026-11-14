@@ -5,7 +5,8 @@ name: CI
 # alone, which sums up the other jobs.
 #
 # A pull request runs the tests on Linux only; the merge queue runs them on
-# macOS too, so main is checked on both before a change lands. Changes that
+# macOS too, and builds and runs the examples on Windows, so main is checked on
+# all three before a change lands. Changes that
 # touch only documentation skip everything but `ci-ok`.
 
 on:
@@ -216,14 +217,14 @@ jobs:
           version: 49.0.3
       - name: Build
         run: cargo build --bin emela --locked
-      - name: Test on JS, C and WASM
+      - name: Test on JS, native and WASM
         working-directory: tests/laws
         run: |
           emela="$GITHUB_WORKSPACE/target/debug/emela"
           "$emela" pome install
           "$emela" fmt --check
           "$emela" test --target js
-          "$emela" test --target c
+          "$emela" test --target native
           "$emela" test --target wasm
 
   # The one check branch protection requires. A skipped job (documentation only)
@@ -304,9 +305,43 @@ jobs:
             exit 1
           fi
 
+  # The compiler is released for Windows too. The merge queue builds it there and runs the
+  # examples on the JS target, so main does not break the Windows build. The test suite is not
+  # run: many of its tests start fake programs written as shell scripts. A pull request skips
+  # this job, as it skips macOS.
+  windows:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Check out with LF line endings, as on the other runners, so `emela fmt --check` compares
+      # the files as they are in the repository.
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build
+        run: cargo build --bin emela --locked
+      - name: Check, test and fmt every example
+        run: |
+          emela="$PWD/target/debug/emela.exe"
+          "$emela" --version
+          for dir in examples/*/; do
+            echo "::group::$dir"
+            (cd "$dir" && "$emela" check && "$emela" test && "$emela" fmt --check)
+            echo "::endgroup::"
+          done
+
   ci-ok:
     if: always()
-    needs: [changes, lint, test, test-bun, examples, laws, spec, proposal-adopted]
+    needs: [changes, lint, test, test-bun, examples, laws, spec, proposal-adopted, windows]
     runs-on: ubuntu-latest
     steps:
       - name: Sum up the jobs

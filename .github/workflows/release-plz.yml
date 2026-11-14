@@ -52,6 +52,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
+    # Git Bash on Windows, so the same steps run on every runner.
+    defaults:
+      run:
+        shell: bash
     strategy:
       matrix:
         include:
@@ -59,6 +63,8 @@ jobs:
             os: ubuntu-latest
           - target: aarch64-apple-darwin
             os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -83,17 +89,28 @@ jobs:
             exit 1
           fi
 
-      - name: Package tarball
+      # A tarball on Linux and macOS, which install.sh fetches, and a zip with `emela.exe` on Windows.
+      - name: Package
+        env:
+          TAG: ${{ needs.release-plz-release.outputs.tag }}
         run: |
+          name="emela-$TAG-${{ matrix.target }}"
           mkdir -p package
-          cp target/${{ matrix.target }}/release/emela package/
           cp LICENSE package/
           cp crates/emela-codegen-wasm/data/unicode/17.0.0/LICENSE.txt package/LICENSE-UNICODE
-          tar czf emela-${{ needs.release-plz-release.outputs.tag }}-${{ matrix.target }}.tar.gz \
-            -C package emela LICENSE LICENSE-UNICODE
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp target/${{ matrix.target }}/release/emela.exe package/
+            (cd package && 7z a -tzip "../$name.zip" emela.exe LICENSE LICENSE-UNICODE)
+          else
+            cp target/${{ matrix.target }}/release/emela package/
+            tar czf "$name.tar.gz" -C package emela LICENSE LICENSE-UNICODE
+          fi
 
       - name: Upload asset
-        run: gh release upload ${{ needs.release-plz-release.outputs.tag }} ./emela-*.tar.gz
+        # Each runner has made only one of the tarball and the zip.
+        run: |
+          shopt -s nullglob
+          gh release upload ${{ needs.release-plz-release.outputs.tag }} emela-*.tar.gz emela-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

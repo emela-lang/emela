@@ -1,0 +1,12 @@
+# SystemStdin does not hold the host open: main ends after one line although the input is still
+# open (`[api.std.process]`).
+
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+import Std.Process.{Stdin}
+
+fn main() {
+  with Platform {
+    (use Console).print_line("#{(use Stdin).read_line()}")
+  }
+}

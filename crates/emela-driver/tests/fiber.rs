@@ -1,6 +1,6 @@
 //! Concurrency (spec chapter 11) through the `emela run` and `emela test` paths. Runs source
 //! through lowering, codegen-js and node, checking the behavior of the chapter 11 examples
-//! (spec 11.2, 11.3, 11.5, 11.7, 11.8). When cc starts, every program also runs on the C target
+//! (spec 11.2, 11.3, 11.5, 11.7, 11.8). When cc starts, every program also runs on the native target
 //! (the runtime with its leak check) and must give the same result (spec chapter 16).
 //!
 //! Time advances with SystemClock's real timers. Wait times differ widely, and only the order of
@@ -44,7 +44,7 @@ fn c_backend() -> Option<CoreC> {
 fn run_main(name: &str, main: &str) -> (i32, String, String) {
     let js = run_main_on(name, main, Target::Js);
     if c_backend().is_some() {
-        let c = run_main_on(name, main, Target::C);
+        let c = run_main_on(name, main, Target::Native);
         if js != c {
             // Written to stderr too, in case the panic message is lost.
             eprintln!("{name}: JS and C differ\nJS: {js:?}\nC: {c:?}");
@@ -67,7 +67,7 @@ fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) 
     let mut frontend = Lower::default().with_target(target);
     let (analysis, output) = match target {
         Target::Js => run(&fs, &input, &mut frontend, &mut CoreJs, &options, |_, _| {}),
-        Target::C => run(
+        Target::Native => run(
             &fs,
             &input,
             &mut frontend,
@@ -100,7 +100,7 @@ fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) 
 fn run_tests(name: &str, main: &str) -> Vec<(String, TestOutcome)> {
     let js = run_tests_on(name, main, Target::Js);
     if c_backend().is_some() {
-        let c = run_tests_on(name, main, Target::C);
+        let c = run_tests_on(name, main, Target::Native);
         if js != c {
             // Written to stderr too, in case the panic message is lost.
             eprintln!("{name}: JS and C differ\nJS: {js:?}\nC: {c:?}");
@@ -134,7 +134,7 @@ fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutc
             |_| {},
             &mut out,
         ),
-        Target::C => test(
+        Target::Native => test(
             &fs,
             &input,
             &mut frontend,
@@ -579,7 +579,7 @@ fn main() {
 fn fibers_in_tests() {
     // spec chapter 13: fibers also run inside test functions. A child's failure becomes that
     // test's error or defect. `child_defect` infers a type parameter (the child returns Never);
-    // the C target instantiates it (with `Never`) instead of skipping the test.
+    // the native target instantiates it (with `Never`) instead of skipping the test.
     let outcomes = run_tests(
         "tests",
         &source(

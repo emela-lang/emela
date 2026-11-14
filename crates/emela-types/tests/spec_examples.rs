@@ -231,6 +231,22 @@ fn area(shape: Shape) -> Float {
 }
 
 /// 6.7 Pipes. The named arguments of `List.fold(from: 0, f: add)` follow the pipe's left side.
+/// 6.9 Local functions: `onto` captures `from` and calls itself.
+#[test]
+fn spec_6_9_local_functions() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+pub fn range(from: Int, to: Int) -> List[Int] {
+  ## Builds from the back, so `to - 1` cannot overflow.
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  onto(to, [])
+}
+"#
+    ));
+}
+
 #[test]
 fn spec_6_7_pipe() {
     insta::assert_snapshot!(render_bodies(
@@ -637,6 +653,39 @@ fn basics() -> Option[Int] {
   low = Array.lower_bound(sorted, 15)
   same = a == b && a < b && Array.is_empty(Array.repeat("x", 0))
   Array.binary_search(sorted, 20)
+}
+"##
+    ));
+}
+
+/// `[api.std.process]`: the example of reading standard input, and the form of `main` in the
+/// proposal (`proposals/std-process.md`), with the arguments and `Platform`.
+#[test]
+fn spec_api_std_process() {
+    insta::assert_snapshot!(render_bodies(
+        r##"
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+import Std.Process.{Args, Stdin, InvalidInput, StdinFailure}
+
+fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {
+  (use Stdin).read_line() match {
+    None -> ()
+    Some(line) -> {
+      (use Console).print_line("#{prefix}#{line}")
+      quote(prefix)
+    }
+  }
+}
+
+fn main() {
+  with Platform {
+    prefix = (use Args).get(0) match {
+      Some(p) -> p
+      None    -> "> "
+    }
+    quote(prefix)
+  }
 }
 "##
     ));

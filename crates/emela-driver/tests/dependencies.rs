@@ -221,6 +221,24 @@ fn checks_the_targets_of_dependencies() {
     assert_eq!(found[0].notes[0], "required by `github.com/acme/quince`");
 }
 
+/// `[target.native]`: `c` in `[pome].targets` of a dependency is the deprecated name of `native`.
+/// It is W0903 at the Pome's `Pome.toml`, and the Pome supports `native`.
+#[test]
+fn the_deprecated_target_c_in_a_dependency() {
+    let mut deps = dependencies(None, COMPILER);
+    deps.pomes[1].targets = Some(vec!["c".into()]);
+    assert!(check_dependency_targets(&deps, Target::Native).is_empty());
+    let found = check_dependency_targets(&deps, Target::Js);
+    assert_eq!(
+        found[0].message,
+        "`github.com/acme/http-kit` supports only native, not js"
+    );
+    assert_eq!(
+        diagnostics(&files(APP, ROUTER), deps),
+        ["W0903 target `c` is deprecated; use `native`"]
+    );
+}
+
 #[test]
 fn compares_the_compiler_version() {
     let found = diagnostics(&files(APP, ROUTER), dependencies(None, "99.0.0"));

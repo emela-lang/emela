@@ -192,6 +192,9 @@ pub enum SyntaxKind {
     ANNOT_PATH,
     /// `pub fn find(id: Int) -> User fails NotFound uses { Users } { ... }`
     FN_DECL,
+    /// `fn onto(to: Int, acc: List[Int]) -> List[Int] { ... }`, a statement of a block
+    /// (`[fn.local]`). Its children are laid out as in FN_DECL.
+    LOCAL_FN,
     /// `type User(id: Int, name: String) derive Eq`
     TYPE_DECL,
     /// `error NotFound(id: Int)`
@@ -493,6 +496,7 @@ impl SyntaxKind {
         matches!(
             self,
             Self::FN_DECL
+                | Self::LOCAL_FN
                 | Self::TYPE_DECL
                 | Self::ERROR_DECL
                 | Self::ENUM_DECL

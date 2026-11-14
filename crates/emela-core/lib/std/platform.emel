@@ -6,10 +6,13 @@ import Std.Console.{SystemConsole}
 import Std.Env.{SystemEnv}
 import Std.FileSystem.{SystemFileSystem}
 import Std.Http.{SystemHttp}
+import Std.Process.{SystemArgs, SystemStdin}
 import Std.Random.{SystemRandom}
 
 pub layer Platform {
   SystemConsole
+  SystemArgs
+  SystemStdin
   SystemClock
   SystemRandom
   SystemEnv

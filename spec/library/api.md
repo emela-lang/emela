@@ -30,6 +30,7 @@ impl (`[trait.derive]`): ParseError has `derive Show` (its contents are shown wh
 | Function | Signature | Implementation | Description |
 |---|---|---|---|
 | `map` | `map[A, B](xs: List[A], f: fn(A) -> B) -> List[B]` | Emela | Applies `f` to each element |
+| `each` | `each[A](xs: List[A], f: fn(A) -> ()) -> ()` | Emela | Calls `f` on each element, from the first to the last. Stops at the first failure |
 | `filter` | `filter[A](xs: List[A], f: fn(A) -> Bool) -> List[A]` | Emela | Keeps only the elements for which `f` is True |
 | `fold` | `fold[A, B](xs: List[A], from: B, f: fn(B, A) -> B) -> B` | Emela | Folds from the front |
 | `length` | `length[A](xs: List[A]) -> Int` | Emela | The number of elements |
@@ -252,6 +253,7 @@ The value layer (`[lib.layers]`). An immutable sequence of fixed length, read by
 | `concat` | `concat[A](parts: List[Array[A]]) -> Array[A]` | intrinsic | The elements of all of them in order |
 | `reverse` | `reverse[A](a: Array[A]) -> Array[A]` | Emela | The elements in reverse order |
 | `map` | `map[A, B](a: Array[A], f: fn(A) -> B) -> Array[B]` | Emela | Applies `f` to each element, from the first |
+| `each` | `each[A](a: Array[A], f: fn(A) -> ()) -> ()` | Emela | Calls `f` on each element, from the first. Stops at the first failure |
 | `fold` | `fold[A, B](a: Array[A], from: B, f: fn(B, A) -> B) -> B` | Emela | Folds from the first element |
 | `find_index` | `find_index[A](a: Array[A], f: fn(A) -> Bool) -> Option[Int]` | Emela | The position of the first element that gives True |
 | `sort_by` | `sort_by[A](a: Array[A], f: fn(A, A) -> Ordering) -> Array[A]` | Emela | Sorts in the order of `f`. Stable, with the same result as `List.sort_by` |
@@ -283,6 +285,7 @@ A mapping from keys to values. Immutable and ordered by key (the Ord order) (`[l
 | `size` | `size[K, V](m: Map[K, V]) -> Int` | Emela | The number of keys |
 | `is_empty` | `is_empty[K, V](m: Map[K, V]) -> Bool` | Emela | Whether the map is empty |
 | `fold` | `fold[K, V, B](m: Map[K, V], from: B, f: fn(B, K, V) -> B) -> B` | Emela | Folds in key order |
+| `each` | `each[K, V](m: Map[K, V], f: fn(K, V) -> ()) -> ()` | Emela | Calls `f` on each pair in key order. Stops at the first failure |
 | `to_list` | `to_list[K, V](m: Map[K, V]) -> List[(K, V)]` | Emela | The pairs in key order |
 | `keys` / `values` | `(m: Map[K, V]) -> List[K]` / `List[V]` | Emela | In key order |
 | `map_values` | `map_values[K, V, W](m: Map[K, V], f: fn(V) -> W) -> Map[K, W]` | Emela | Applies `f` to the values |
@@ -303,6 +306,7 @@ A collection of values. Immutable and in Ord order. The contents are a `Map[A, (
 | `contains` | `contains[A: Ord](s: Set[A], x: A) -> Bool` | Emela | Whether it contains the value |
 | `size` / `is_empty` | `(s: Set[A]) -> Int` / `Bool` | Emela | The number of elements / whether it is empty |
 | `fold` | `fold[A, B](s: Set[A], from: B, f: fn(B, A) -> B) -> B` | Emela | Folds in order |
+| `each` | `each[A](s: Set[A], f: fn(A) -> ()) -> ()` | Emela | Calls `f` on each element in order. Stops at the first failure |
 | `to_list` | `to_list[A](s: Set[A]) -> List[A]` | Emela | Lists in order |
 | `filter` | `filter[A](s: Set[A], f: fn(A) -> Bool) -> Set[A]` | Emela | The elements for which `f` is True |
 | `union` | `union[A: Ord](a: Set[A], b: Set[A]) -> Set[A]` | Emela | The union |

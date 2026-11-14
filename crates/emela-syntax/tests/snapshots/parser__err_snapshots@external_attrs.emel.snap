@@ -581,18 +581,18 @@ ROOT@0..863
     WHITESPACE@852..853 " "
     TYPE_NAME@853..862 "EmptyArgs"
   NEWLINE@862..863 "\n"
-error[E0138]@143..152: `@external` on a function needs a target and a name: `@external(js, "name")`
-error[E0138]@173..184: `@external` on a function needs a target and a name: `@external(js, "name")`
-error[E0138]@218..231: the first argument of `@external` must be a target name such as `js`
-error[E0138]@268..269: the first argument of `@external` must be a target name such as `js`
-error[E0138]@308..314: the first argument of `@external` must be a target name such as `js`
-error[E0138]@345..358: `@external` takes one or two strings after the target, found 0
-error[E0138]@381..409: `@external` takes one or two strings after the target, found 3
-error[E0138]@450..451: arguments after the target of `@external` must be strings
-error[E0138]@487..491: arguments after the target of `@external` must be strings
-error[E0138]@533..539: arguments after the target of `@external` must be strings
+error[E0138]@143..152: `@external` on a function needs a language and a name: `@external(js, "name")`
+error[E0138]@173..184: `@external` on a function needs a language and a name: `@external(js, "name")`
+error[E0138]@218..231: the first argument of `@external` must be a language name such as `js`
+error[E0138]@268..269: the first argument of `@external` must be a language name such as `js`
+error[E0138]@308..314: the first argument of `@external` must be a language name such as `js`
+error[E0138]@345..358: `@external` takes one or two strings after the language, found 0
+error[E0138]@381..409: `@external` takes one or two strings after the language, found 3
+error[E0138]@450..451: arguments after the language of `@external` must be strings
+error[E0138]@487..491: arguments after the language of `@external` must be strings
+error[E0138]@533..539: arguments after the language of `@external` must be strings
 error[E0138]@577..583: string interpolation is not allowed in `@external`
-error[E0139]@639..641: more than one `@external` for target `js`
-error[E0140]@680..683: unknown target `jvm` in `@external`: expected `js`, `wasm` or `c`
+error[E0139]@639..641: more than one `@external` for language `js`
+error[E0140]@680..683: unknown language `jvm` in `@external`: expected `js`, `wasm` or `c`
 error[E0141]@808..820: `@external` on a type takes no arguments
 error[E0141]@845..847: `@external` on a type takes no arguments

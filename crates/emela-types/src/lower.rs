@@ -29,6 +29,15 @@ pub(crate) enum Omitted<'a> {
     /// set variable. Lambdas are not generalized, so their parameters get set variables rather
     /// than invisible set type parameters.
     Fresh(&'a mut InferCtx),
+    /// A local fn's parameter types (`[fn.local]`): a fresh set variable, as for `Fresh`, since a
+    /// local fn is not generalized. The ones in positive positions (functions the body can call)
+    /// are also added to `positive` (error sets) and `positive_uses` (effect sets), to be
+    /// included in the declared E and R as [`Hidden`] does for a top-level fn.
+    Local {
+        ctx: &'a mut InferCtx,
+        positive: &'a mut Row,
+        positive_uses: &'a mut Row,
+    },
 }
 
 /// Invisible set type parameters inside parameter types (spec 9.2), placed after the written
@@ -122,6 +131,21 @@ impl Scope<'_> {
             Omitted::Empty => Row::empty(),
             Omitted::Hidden(hidden) => hidden.fresh(positive, effects),
             Omitted::Fresh(ctx) => Row::var(ctx.new_row_var()),
+            Omitted::Local {
+                ctx,
+                positive: fails,
+                positive_uses: uses,
+            } => {
+                let row = Row::var(ctx.new_row_var());
+                if positive {
+                    if effects {
+                        uses.extend(&row);
+                    } else {
+                        fails.extend(&row);
+                    }
+                }
+                row
+            }
         }
     }
 }
