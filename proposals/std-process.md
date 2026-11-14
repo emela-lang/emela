@@ -2,7 +2,7 @@
 title: Std.Process, the arguments and the standard input of the process
 authors: [Alliana]
 status: draft
-pr:
+pr: 565
 issue:
 decided:
 touches: [lib.layers, api.std.process (new), api.std.platform, cmd.build, target.c.run, target.wasm.output, target.wasm.external, cmd.test.output]
