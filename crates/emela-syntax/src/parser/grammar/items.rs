@@ -379,6 +379,10 @@ fn variant_list(p: &mut Parser<'_>) {
     let list = p.start();
     p.bump_kind(L_BRACE);
     separated_items(p, "variants", |p, m| {
+        while p.at(AT) {
+            annotation(p);
+            while p.eat(NEWLINE) {}
+        }
         if matches!(p.current(), LOWER_NAME | UPPER_NAME) {
             // Only the name class differs. Report it and read it as a variant.
             p.error(
@@ -422,7 +426,7 @@ pub(crate) fn separated_items(
 ) {
     loop {
         let doc = newlines_with_doc(p);
-        if p.at(R_BRACE) || p.at_eof() || p.at_decl_start() {
+        if p.at(R_BRACE) || p.at_eof() || (p.at_decl_start() && !at_annotated_variant(p)) {
             if let Some(doc) = doc {
                 doc.abandon(p);
             }
@@ -451,6 +455,39 @@ pub(crate) fn separated_items(
         }
         e.complete(p, ERROR);
     }
+}
+
+/// At attributes followed, across newlines, by a type name: the start of a variant
+/// (`variant = { annotation } type_name ...`, `[grammar.decl]`), not of the next declaration. An
+/// enum missing its `}` before `@test fn` still ends there.
+fn at_annotated_variant(p: &Parser<'_>) -> bool {
+    let mut n = 0;
+    while p.nth(n) == AT {
+        n += 1;
+        if p.nth(n) != LOWER_NAME {
+            return false;
+        }
+        n += 1;
+        if p.nth(n) == L_PAREN {
+            let mut depth = 0usize;
+            loop {
+                match p.nth(n) {
+                    L_PAREN => depth += 1,
+                    R_PAREN => depth -= 1,
+                    NEWLINE | EOF => return false,
+                    _ => {}
+                }
+                n += 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+        }
+        while p.nth(n) == NEWLINE {
+            n += 1;
+        }
+    }
+    n > 0 && p.nth(n) == TYPE_NAME
 }
 
 /// FIELD_LIST if named, TUPLE_FIELD_LIST if unnamed; mixing them is E0128.

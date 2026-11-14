@@ -114,6 +114,11 @@ pub const AMBIGUOUS_SELF: &str = "E0333";
 // declarations.
 pub const FN_NAMED_LIKE_FIELD: &str = "E0334";
 pub const AMBIGUOUS_METHOD: &str = "E0335";
+// Derivations of std (`[trait.derive]`) and their field attributes (`[kw.annotation]`).
+pub const OPAQUE_DERIVE: &str = "E0336";
+pub const DUPLICATE_KEY: &str = "E0337";
+pub const MISPLACED_KEY_TAG: &str = "E0338";
+pub const OBJECT_KEY_FORM: &str = "E0339";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_DERIVE: &str = "W0303";

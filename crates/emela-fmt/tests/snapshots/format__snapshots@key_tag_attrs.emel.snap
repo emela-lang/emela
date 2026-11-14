@@ -1,0 +1,22 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/key_tag_attrs.emel
+---
+# 属性は variant の上の行に置く．1行の enum も複数行にする
+type TodoView(id: String, @key("dueAt") due_at: Option[String]) derive Encode, Decode
+
+enum Status {
+  @tag("open")
+  Open
+  ## 終わったもの
+  @tag("done")
+  Done
+  Closed(@key("at") closed_at: String)
+} derive Encode
+
+enum Inline {
+  @tag("a")
+  Aa
+  Bb
+}

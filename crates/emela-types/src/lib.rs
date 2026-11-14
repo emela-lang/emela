@@ -48,7 +48,7 @@ pub use lower::TyTable;
 pub use methods::methods_of;
 pub use scheme::Scheme;
 pub use signature::{InitParams, Signature, Signatures};
-pub use traits::{ImplHead, Traits, Unsatisfied, head_def};
+pub use traits::{ImplHead, Traits, Unsatisfied, derivable, head_def};
 pub use ty::{
     FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData, TyConId, TyConKind,
     TyCons, TyParam, TyVar,

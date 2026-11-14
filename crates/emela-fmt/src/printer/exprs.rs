@@ -98,7 +98,7 @@ impl Printer {
             | PARAM_LIST | UNIT_EXPR | TUPLE_EXPR | LIST_EXPR | PAT_ARG_LIST | UNIT_PAT
             | TUPLE_PAT | LIST_PAT | ANNOT_ARG_LIST | FIELD_LIST | TUPLE_FIELD_LIST
             | IMPORT_LIST => self.list(node, |p, n| p.node(n)),
-            VARIANT => self.seq(node, |_, _| false),
+            VARIANT => self.variant(node),
             FIELD => self.seq(node, |_, cur| cur != COLON),
             DERIVE_CLAUSE => self.seq(node, |_, cur| cur != COMMA),
             // Effect type arguments (`handler H: State[Int]`, `use State[Int]`, `of State[Int]`)
@@ -203,6 +203,22 @@ impl Printer {
     }
 
     /// Puts a space between children when `space(prev, cur)` is true.
+    /// A variant. Each attribute goes on its own line above the name (`@tag("open")⏎Open`).
+    fn variant(&mut self, node: &SyntaxNode) -> Doc {
+        let mut out = RcDoc::nil();
+        for child in significant_children(node) {
+            let doc = match &child {
+                rowan::NodeOrToken::Token(t) => self.tok(t),
+                rowan::NodeOrToken::Node(n) => self.node(n),
+            };
+            out = out.append(doc);
+            if child.kind() == ANNOTATION {
+                out = out.append(self.hard());
+            }
+        }
+        out
+    }
+
     fn seq(&mut self, node: &SyntaxNode, space: impl Fn(SyntaxKind, SyntaxKind) -> bool) -> Doc {
         let mut out = RcDoc::nil();
         let mut prev = None;

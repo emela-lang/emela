@@ -2890,7 +2890,15 @@ fn completion_of_argument_labels() {
 fn completion_of_attributes_and_targets() {
     let files = [("/app/Pome.toml", ""), (MAIN, "fn main() { () }\n")];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
-    let attributes = ["external", "export", "entry", "test", "deprecated"];
+    let attributes = [
+        "external",
+        "export",
+        "entry",
+        "test",
+        "deprecated",
+        "key",
+        "tag",
+    ];
     client.open(MAIN, 1, "@\nfn main() { () }\n");
     let items = client.complete(MAIN, 0, 1).unwrap();
     assert_eq!(labels(&items), attributes);
@@ -3114,6 +3122,28 @@ fn completion_in_clauses_and_types() {
             assert!(names.contains(&name), "{line}: {name}: {names:?}");
         }
     }
+    client.shutdown();
+}
+
+/// After `derive`, the derivable traits of std are offered once they are imported
+/// (`[trait.derive]`, `[lsp.completion]`).
+#[test]
+fn completion_of_derive_offers_the_imported_traits_of_std() {
+    let imported = "import Std.Dynamic.{Decode, Encode, ObjectKey}\nimport Std.Shape.{Shaped}\n\ntype Tag(a: Int) derive Eq, \n";
+    let files = [("/app/Pome.toml", ""), (MAIN, imported)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    client.open(MAIN, 1, imported);
+    let items = client.complete(MAIN, 3, 28).unwrap();
+    let names = labels(&items);
+    for name in ["Encode", "Decode", "ObjectKey", "Shaped", "Show"] {
+        assert!(names.contains(&name), "{name}: {names:?}");
+    }
+    let plain = "type Tag(a: Int) derive Eq, \n";
+    client.change(MAIN, 2, plain);
+    let items = client.complete(MAIN, 0, 28).unwrap();
+    let names = labels(&items);
+    assert!(!names.contains(&"Encode"), "{names:?}");
+    assert!(names.contains(&"Show"), "{names:?}");
     client.shutdown();
 }
 

@@ -1,0 +1,148 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/key_tag_attrs.emel
+---
+ROOT@0..196
+  TYPE_DECL@0..63
+    TYPE_KW@0..4 "type"
+    WHITESPACE@4..5 " "
+    TYPE_NAME@5..13 "TodoView"
+    FIELD_LIST@13..63
+      L_PAREN@13..14 "("
+      FIELD@14..24
+        LOWER_NAME@14..16 "id"
+        COLON@16..17 ":"
+        WHITESPACE@17..18 " "
+        PATH_TYPE@18..24
+          PATH@18..24
+            TYPE_NAME@18..24 "String"
+      COMMA@24..25 ","
+      WHITESPACE@25..26 " "
+      FIELD@26..62
+        ANNOTATION@26..39
+          AT@26..27 "@"
+          LOWER_NAME@27..30 "key"
+          ANNOT_ARG_LIST@30..39
+            L_PAREN@30..31 "("
+            ANNOT_ARG@31..38
+              STRING@31..38
+                STRING_QUOTE@31..32 "\""
+                STRING_TEXT@32..37 "dueAt"
+                STRING_QUOTE@37..38 "\""
+            R_PAREN@38..39 ")"
+        WHITESPACE@39..40 " "
+        LOWER_NAME@40..46 "due_at"
+        COLON@46..47 ":"
+        WHITESPACE@47..48 " "
+        PATH_TYPE@48..62
+          PATH@48..54
+            TYPE_NAME@48..54 "Option"
+          TYPE_ARG_LIST@54..62
+            L_BRACK@54..55 "["
+            PATH_TYPE@55..61
+              PATH@55..61
+                TYPE_NAME@55..61 "String"
+            R_BRACK@61..62 "]"
+      R_PAREN@62..63 ")"
+  NEWLINE@63..64 "\n"
+  NEWLINE@64..65 "\n"
+  ENUM_DECL@65..161
+    ENUM_KW@65..69 "enum"
+    WHITESPACE@69..70 " "
+    TYPE_NAME@70..76 "Status"
+    WHITESPACE@76..77 " "
+    VARIANT_LIST@77..161
+      L_BRACE@77..78 "{"
+      NEWLINE@78..79 "\n"
+      WHITESPACE@79..81 "  "
+      VARIANT@81..100
+        ANNOTATION@81..93
+          AT@81..82 "@"
+          LOWER_NAME@82..85 "tag"
+          ANNOT_ARG_LIST@85..93
+            L_PAREN@85..86 "("
+            ANNOT_ARG@86..92
+              STRING@86..92
+                STRING_QUOTE@86..87 "\""
+                STRING_TEXT@87..91 "open"
+                STRING_QUOTE@91..92 "\""
+            R_PAREN@92..93 ")"
+        NEWLINE@93..94 "\n"
+        WHITESPACE@94..96 "  "
+        TYPE_NAME@96..100 "Open"
+      NEWLINE@100..101 "\n"
+      WHITESPACE@101..103 "  "
+      VARIANT@103..120
+        ANNOTATION@103..115
+          AT@103..104 "@"
+          LOWER_NAME@104..107 "tag"
+          ANNOT_ARG_LIST@107..115
+            L_PAREN@107..108 "("
+            ANNOT_ARG@108..114
+              STRING@108..114
+                STRING_QUOTE@108..109 "\""
+                STRING_TEXT@109..113 "done"
+                STRING_QUOTE@113..114 "\""
+            R_PAREN@114..115 ")"
+        WHITESPACE@115..116 " "
+        TYPE_NAME@116..120 "Done"
+      NEWLINE@120..121 "\n"
+      WHITESPACE@121..123 "  "
+      VARIANT@123..159
+        TYPE_NAME@123..129 "Closed"
+        FIELD_LIST@129..159
+          L_PAREN@129..130 "("
+          FIELD@130..158
+            ANNOTATION@130..140
+              AT@130..131 "@"
+              LOWER_NAME@131..134 "key"
+              ANNOT_ARG_LIST@134..140
+                L_PAREN@134..135 "("
+                ANNOT_ARG@135..139
+                  STRING@135..139
+                    STRING_QUOTE@135..136 "\""
+                    STRING_TEXT@136..138 "at"
+                    STRING_QUOTE@138..139 "\""
+                R_PAREN@139..140 ")"
+            WHITESPACE@140..141 " "
+            LOWER_NAME@141..150 "closed_at"
+            COLON@150..151 ":"
+            WHITESPACE@151..152 " "
+            PATH_TYPE@152..158
+              PATH@152..158
+                TYPE_NAME@152..158 "String"
+          R_PAREN@158..159 ")"
+      NEWLINE@159..160 "\n"
+      R_BRACE@160..161 "}"
+  NEWLINE@161..162 "\n"
+  NEWLINE@162..163 "\n"
+  ENUM_DECL@163..195
+    ENUM_KW@163..167 "enum"
+    WHITESPACE@167..168 " "
+    TYPE_NAME@168..174 "Inline"
+    WHITESPACE@174..175 " "
+    VARIANT_LIST@175..195
+      L_BRACE@175..176 "{"
+      WHITESPACE@176..177 " "
+      VARIANT@177..189
+        ANNOTATION@177..186
+          AT@177..178 "@"
+          LOWER_NAME@178..181 "tag"
+          ANNOT_ARG_LIST@181..186
+            L_PAREN@181..182 "("
+            ANNOT_ARG@182..185
+              STRING@182..185
+                STRING_QUOTE@182..183 "\""
+                STRING_TEXT@183..184 "a"
+                STRING_QUOTE@184..185 "\""
+            R_PAREN@185..186 ")"
+        WHITESPACE@186..187 " "
+        TYPE_NAME@187..189 "Aa"
+      COMMA@189..190 ","
+      WHITESPACE@190..191 " "
+      VARIANT@191..193
+        TYPE_NAME@191..193 "Bb"
+      WHITESPACE@193..194 " "
+      R_BRACE@194..195 "}"
+  NEWLINE@195..196 "\n"

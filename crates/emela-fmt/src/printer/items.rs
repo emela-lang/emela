@@ -132,7 +132,11 @@ impl Printer {
     /// (`enum Shape {⏎  Circle⏎  Empty⏎}`). A one-line source stays as `{ Red, Green }` while it
     /// fits, and becomes multiline otherwise.
     fn item_list(&mut self, node: &SyntaxNode) -> Doc {
-        let multi = has_newline_child(node);
+        // A variant with attributes has them on lines of their own, so the list is multiline.
+        let annotated = node
+            .children()
+            .any(|c| c.kind() == VARIANT && c.children().any(|a| a.kind() == ANNOTATION));
+        let multi = has_newline_child(node) || annotated;
         let open = match child_token(node, L_BRACE) {
             Some(t) => self.tok(&t),
             None => RcDoc::nil(),

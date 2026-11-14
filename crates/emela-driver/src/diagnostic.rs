@@ -1321,7 +1321,25 @@ impl Diagnostic {
             TypeDiagnosticKind::NotDerivable { trait_name } => (
                 Severity::Error,
                 Some(code::NOT_IMPLEMENTED),
-                format!("cannot derive `{trait_name}`: only `Eq`, `Ord` and `Show` can be derived"),
+                format!(
+                    "cannot derive `{trait_name}`: only `Eq`, `Ord`, `Show`, `Encode`, `Decode`, \
+                     `ObjectKey` and `Shaped` can be derived"
+                ),
+            ),
+            TypeDiagnosticKind::OpaqueDerive { trait_name, ty } => {
+                help = Some(format!(
+                    "write `impl {ty}: {trait_name}` that builds the value with a function that checks it"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::OPAQUE_DERIVE),
+                    format!("cannot derive `{trait_name}` for opaque type `{ty}`"),
+                )
+            }
+            TypeDiagnosticKind::ObjectKeyForm { ty, reason } => (
+                Severity::Error,
+                Some(code::OBJECT_KEY_FORM),
+                format!("cannot derive `ObjectKey` for `{ty}`: {reason}"),
             ),
             TypeDiagnosticKind::SupertraitCycle { cycle } => (
                 Severity::Error,

@@ -27,6 +27,7 @@ pub use builtins::{BuiltinKind, BuiltinModules, BuiltinTable, NoBuiltins};
 pub use diagnostic::{Diagnostic, DiagnosticKind, Expected};
 pub use dump::dump_module;
 pub use graph::{Import, ImportEdge, ImportGraph, build_import_graph};
+pub use lower::string_attr_value;
 pub use module_name::ModuleName;
 pub use naming::{NameError, is_type_name, to_type_name};
 pub use resolve::{imports, resolve};

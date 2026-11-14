@@ -554,6 +554,7 @@ impl Lower<'_, '_> {
                 name,
                 ty,
                 span: self.span(range),
+                key: string_attr(&field, "key"),
             });
         }
         Some(fields)
@@ -610,6 +611,10 @@ impl Lower<'_, '_> {
         // Variants with unreadable names were skipped during collection, so match up only the
         // named ones, in order.
         let syntax_variants: Vec<_> = e.variants().filter(|v| v.name().is_some()).collect();
+        let tags = syntax_variants
+            .iter()
+            .map(|v| string_attr(v, "tag"))
+            .collect();
         for (&variant, syntax) in variants.iter().zip(&syntax_variants) {
             let fields = if let Some(fields) = self.named_fields(syntax.field_list()) {
                 Fields::Named(fields)
@@ -632,6 +637,7 @@ impl Lower<'_, '_> {
             type_params,
             variants: variants.to_vec(),
             derives,
+            tags,
         })
     }
 
@@ -2330,6 +2336,43 @@ fn attrs(f: &ast::FnDecl, attr: &str, module: ModuleId) -> Vec<ExternalAttr> {
             })
         })
         .collect()
+}
+
+/// The value of `@key("...")` or `@tag("...")` (`[kw.annotation]`): its one argument when that is
+/// a string literal without interpolation. `None` for any other argument, which is E0338.
+pub fn string_attr_value(annotation: &ast::Annotation) -> Option<SmolStr> {
+    let mut args = annotation.args();
+    let arg = args.next()?;
+    if args.next().is_some() {
+        return None;
+    }
+    // A name (`@key(k)`) or `name: value` puts a token before the literal.
+    if arg
+        .children_with_tokens()
+        .any(|e| matches!(e.kind(), LOWER_NAME | COLON))
+    {
+        return None;
+    }
+    let mut nodes = arg.children();
+    let string = nodes.next().filter(|n| n.kind() == STRING)?;
+    if nodes.next().is_some() || string.children().next().is_some() {
+        // An interpolation is a child node of the string.
+        return None;
+    }
+    let text: String = string
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|t| t.kind() == STRING_TEXT)
+        .map(|t| string_text(&t))
+        .collect();
+    Some(text.into())
+}
+
+/// The argument of the first attribute `name` of `node`, if it is valid ([`string_attr_value`]).
+fn string_attr(node: &impl HasAttrs, name: &str) -> Option<SmolStr> {
+    node.annotations()
+        .find(|a| a.name().is_some_and(|n| n.text() == name))
+        .and_then(|a| string_attr_value(&a))
 }
 
 /// The value of a STRING_TEXT token. In a multiline string (spec 2.4), the newline after the

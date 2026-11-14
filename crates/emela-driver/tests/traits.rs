@@ -300,12 +300,166 @@ fn default_implementations_use_the_trait_on_self() {
     assert_clean(&[("/app/src/main.emel", &main)]);
 }
 
+const ONLY_DERIVABLE: &str =
+    "only `Eq`, `Ord`, `Show`, `Encode`, `Decode`, `ObjectKey` and `Shaped` can be derived";
+
 #[test]
-fn only_eq_ord_and_show_can_be_derived() {
+fn only_the_traits_the_compiler_derives_can_be_derived() {
     let main = "trait Label { fn label(self) -> String }\ntype Point(x: Int) derive Eq, Label\n";
     assert_eq!(
         errors(main),
-        ["E0326 cannot derive `Label`: only `Eq`, `Ord` and `Show` can be derived @ Label"]
+        [format!(
+            "E0326 cannot derive `Label`: {ONLY_DERIVABLE} @ Label"
+        )]
+    );
+    // A user trait with the name of a derivable trait of std is not derivable (`[trait.derive]`).
+    let main = "trait Encode { fn to_dynamic(self) -> Int }\ntype Point(x: Int) derive Encode\n";
+    assert_eq!(
+        errors(main),
+        [format!(
+            "E0326 cannot derive `Encode`: {ONLY_DERIVABLE} @ Encode"
+        )]
+    );
+}
+
+const STD_TRAITS: &str =
+    "import Std.Dynamic.{Decode, Encode, ObjectKey}\nimport Std.Shape.{Shaped}\n\n";
+
+#[test]
+fn encode_decode_object_key_and_shaped_of_std_can_be_derived() {
+    // Every form: a type, an enum with each kind of contents, type parameters, a recursive
+    // enum, `@key` and `@tag`, and the collections of std as fields (`[trait.derive]`).
+    let main = format!(
+        "{STD_TRAITS}import Std.Array.{{Array}}\nimport Std.Bytes.{{Bytes}}\nimport Std.Map.{{Map}}\nimport Std.Set.{{Set}}\n\n\
+         pub type View(id: String, @key(\"dueAt\") due_at: Option[String], tags: Set[String], data: Bytes, xs: Array[Int])\n  derive Encode, Decode, Shaped\n\n\
+         pub enum Tree[A] {{\n  Leaf\n  Node(left: Tree[A], value: A, right: Tree[A])\n  @tag(\"pair\")\n  Pair(A, A)\n}} derive Encode, Decode, Shaped\n\n\
+         pub enum Status {{\n  @tag(\"open\")\n  Open\n  Done\n}} derive Eq, Ord, ObjectKey, Encode, Decode, Shaped\n\n\
+         pub type Code(value: String) derive Eq, Ord, ObjectKey, Shaped\n\n\
+         pub type Board(counts: Map[Status, Int], codes: Map[Code, Tree[Int]]) derive Encode, Decode, Shaped\n\n\
+         pub opaque type Email(value: String) derive Encode, Shaped\n"
+    );
+    assert_clean(&[("/app/src/main.emel", &main)]);
+}
+
+#[test]
+fn derived_fields_need_the_std_traits() {
+    let main = format!(
+        "{STD_TRAITS}type Plain(x: Int)\ntype Holder(p: Plain, f: fn() -> Int) derive Encode, Decode, Shaped\n"
+    );
+    assert_eq!(
+        errors(&main),
+        [
+            "E0326 type `Plain` does not implement `Encode` @ Encode",
+            "E0326 type `fn() -> Int` does not implement `Encode` @ Encode",
+            "E0326 type `Plain` does not implement `Decode` @ Decode",
+            "E0326 type `fn() -> Int` does not implement `Decode` @ Decode",
+            "E0326 type `Plain` does not implement `Shaped` @ Shaped",
+            "E0326 type `fn() -> Int` does not implement `Shaped` @ Shaped",
+        ]
+    );
+    // ObjectKey has Ord as its supertrait, which a derive does not derive.
+    let main = format!("{STD_TRAITS}type Code(value: String) derive ObjectKey\n");
+    assert_eq!(
+        errors(&main),
+        ["E0326 type `Code` does not implement `Ord` @ ObjectKey"]
+    );
+}
+
+#[test]
+fn decode_and_object_key_cannot_be_derived_for_an_opaque_type() {
+    let main = format!(
+        "{STD_TRAITS}pub opaque type Email(value: String) derive Eq, Ord, Encode, Decode, ObjectKey, Shaped\n"
+    );
+    assert_eq!(
+        errors(&main),
+        [
+            "E0336 cannot derive `Decode` for opaque type `Email` @ Decode",
+            "E0336 cannot derive `ObjectKey` for opaque type `Email` @ ObjectKey",
+        ]
+    );
+    let analysis = checked(&[("/app/src/main.emel", &main)]);
+    let rendered = render(&analysis.diagnostics, &analysis.sources, false);
+    assert!(
+        rendered.contains(
+            "= help: write `impl Email: Decode` that builds the value with a function that checks it"
+        ),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn object_key_is_derived_only_for_enums_without_contents_and_types_with_one_field() {
+    let main = format!(
+        "{STD_TRAITS}enum Shape {{\n  Circle(Float)\n  Empty\n}} derive Eq, Ord, ObjectKey\n\
+         enum Named {{\n  Some(x: Int)\n}} derive Eq, Ord, ObjectKey\n\
+         type Point(x: Int, y: Int) derive Eq, Ord, ObjectKey\n\
+         error Nothing derive ObjectKey\n"
+    );
+    let errors: Vec<String> = errors(&main)
+        .into_iter()
+        .filter(|e| e.starts_with("E0339"))
+        .collect();
+    assert_eq!(
+        errors,
+        [
+            "E0339 cannot derive `ObjectKey` for `Shape`: variant `Circle` has contents @ ObjectKey",
+            "E0339 cannot derive `ObjectKey` for `Named`: variant `Some` has contents @ ObjectKey",
+            "E0339 cannot derive `ObjectKey` for `Point`: it has 2 fields @ ObjectKey",
+            "E0339 cannot derive `ObjectKey` for `Nothing`: it has no fields @ ObjectKey",
+        ]
+    );
+}
+
+#[test]
+fn key_and_tag_take_one_string_literal_in_their_place() {
+    let main = "type Bad(@key(x) a: Int, @key(\"a\", \"b\") b: Int, @key(\"#{1}\") c: Int, @key(1) d: Int, @tag(\"t\") e: Int)\n\
+         enum Status {\n  @key(\"k\")\n  Open\n  @tag\n  Done\n}\n\
+         error Oops(@key(\"x\") a: Int)\n\
+         @tag(\"f\")\nfn f() {}\n";
+    assert_eq!(
+        errors(main),
+        [
+            "E0338 `@key` takes one string literal @ @key(x)",
+            "E0338 `@key` takes one string literal @ @key(\"a\", \"b\")",
+            "E0338 `@key` takes one string literal @ @key(\"#{1}\")",
+            "E0338 `@key` takes one string literal @ @key(1)",
+            "E0338 `@tag` can only be placed on a variant @ @tag(\"t\")",
+            "E0338 `@key` can only be placed on a field @ @key(\"k\")",
+            "E0338 `@tag` takes one string literal @ @tag",
+            "E0338 `@key` can only be placed on a field @ @key(\"x\")",
+            "E0338 `@tag` can only be placed on a variant @ @tag(\"f\")",
+        ]
+    );
+}
+
+#[test]
+fn keys_and_tags_are_distinct_after_the_attributes() {
+    let main = "type View(due: Int, @key(\"due\") due_at: Int, @key(\"x\") a: Int, @key(\"x\") b: Int)\n\
+         enum Status {\n  @tag(\"done\")\n  Done\n  @tag(\"done\")\n  Closed\n  Open\n  @tag(\"Open\")\n  Again(@key(\"k\") p: Int, k: Int)\n}\n";
+    assert_eq!(
+        errors(main),
+        [
+            "E0337 key `due` is used by both `due` and `due_at` @ @key(\"due\") due_at: Int",
+            "E0337 key `x` is used by both `a` and `b` @ @key(\"x\") b: Int",
+            "E0337 tag `done` is used by both `Done` and `Closed` @ @tag(\"done\")\n  Closed",
+            "E0337 tag `Open` is used by both `Open` and `Again` @ @tag(\"Open\")\n  Again(@key(\"k\") p: Int, k: Int)",
+            "E0337 key `k` is used by both `p` and `k` @ k: Int",
+        ]
+    );
+}
+
+#[test]
+fn derived_std_impls_count_as_used_when_a_bound_needs_them() {
+    // W0303 (`[trait.derive]`): `Json.encode(view)` requires Encode; Decode is required nowhere.
+    let main = format!(
+        "{STD_TRAITS}import Std.Json\n\ntype View(id: String) derive Encode, Decode, Shaped\n\nfn main() {{\n  Json.encode(View(id: \"a\"))\n  ()\n}}\n"
+    );
+    assert_eq!(
+        diagnostics(&main),
+        [
+            "W0303 derived `Decode` for `View` is never used @ Decode",
+            "W0303 derived `Shaped` for `View` is never used @ Shaped",
+        ]
     );
 }
 

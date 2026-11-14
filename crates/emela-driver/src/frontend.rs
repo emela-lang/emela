@@ -379,6 +379,10 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         test_diagnostics.extend(ref_diagnostics);
         // Placement of `@internal` (E0229) and references from outside core (E0228).
         test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
+        // Placement and arguments of `@key` and `@tag` (E0338), and repeated keys and tags (E0337).
+        test_diagnostics.extend(crate::attributes::check_key_tag(analysis, |m| {
+            self.parse_of(m)
+        }));
         test_diagnostics.extend(check_external_in_dependencies(analysis, |m| {
             self.parse_of(m)
         }));

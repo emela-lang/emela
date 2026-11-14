@@ -1,0 +1,6 @@
+# 閉じていない enum の本体は，後に型名が続かない行頭の属性で終わる
+enum Status {
+  Open
+
+@test
+fn t() {}

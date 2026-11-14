@@ -4,6 +4,7 @@
 //! on node (or builds the emitted C with cc and runs the executable).
 
 mod actions;
+mod attributes;
 mod c;
 pub mod code;
 mod complete;

@@ -24,8 +24,35 @@ use crate::ty::{ParamKind, Prim, Ty, TyParam};
 /// the compiler provides (see [`Traits::satisfies`]).
 const BUILTIN_TRAITS: &[&str] = &["Eq", "Ord", "Show"];
 
-/// The Prelude's traits a `derive` may list (spec 10.5).
-const DERIVABLE: &[&str] = &["Eq", "Ord", "Show"];
+/// The traits a `derive` may list (spec 10.5), by the module that defines them and their name.
+/// They are recognized only there, so a user trait of the same name is not derivable (E0326).
+const DERIVABLE: &[(&str, &str)] = &[
+    ("Prelude", "Eq"),
+    ("Prelude", "Ord"),
+    ("Prelude", "Show"),
+    ("Std.Dynamic", "Encode"),
+    ("Std.Dynamic", "Decode"),
+    ("Std.Dynamic", "ObjectKey"),
+    ("Std.Shape", "Shaped"),
+];
+
+/// The trait `trait_def` as the compiler derives it ([`DERIVABLE`]), by its name (`"Encode"`), or
+/// `None` if it cannot be derived.
+pub fn derivable(program: &Program, trait_def: DefId) -> Option<&'static str> {
+    let data = &program.defs[trait_def];
+    let module = match data.module {
+        DefModule::Prelude => "Prelude".to_owned(),
+        DefModule::Source(m) => {
+            let items = program.modules.get(m).filter(|m| m.is_core)?;
+            items.name.to_string()
+        }
+        DefModule::Builtin(_) => return None,
+    };
+    DERIVABLE
+        .iter()
+        .find(|(m, name)| *m == module && *name == data.name.as_str())
+        .map(|&(_, name)| name)
+}
 
 /// What the type checker knows about traits and impls.
 #[derive(Debug, Default)]
@@ -340,14 +367,19 @@ fn register_derives(
                 continue;
             }
             let trait_name = program.defs[trait_def].name.clone();
-            if !(program.defs[trait_def].module == DefModule::Prelude
-                && DERIVABLE.contains(&trait_name.as_str()))
-            {
+            let Some(derivable) = derivable(program, trait_def) else {
                 diags.push(Diagnostic {
                     span: Some(span),
                     kind: DiagnosticKind::NotDerivable { trait_name },
                 });
                 continue;
+            };
+            // Registered all the same, so that its uses are not E0326 as well.
+            if let Some(kind) = derive_form_error(program, ty_def, derivable) {
+                diags.push(Diagnostic {
+                    span: Some(span),
+                    kind,
+                });
             }
             // Every ordinary type parameter gets the trait; sets cannot have trait constraints.
             let params: Vec<TyParam> = ty_table.cons[con]
@@ -392,6 +424,51 @@ fn register_derives(
     }
 }
 
+/// Why `trait_name` cannot be derived for `ty_def` whatever its fields (spec 10.5): Decode and
+/// ObjectKey on an opaque type (E0336), and ObjectKey on anything but an enum whose variants have no
+/// contents or a type with one field (E0339).
+fn derive_form_error(program: &Program, ty_def: DefId, trait_name: &str) -> Option<DiagnosticKind> {
+    let ty = program.defs[ty_def].name.clone();
+    if matches!(trait_name, "Decode" | "ObjectKey") && program.defs[ty_def].is_opaque {
+        return Some(DiagnosticKind::OpaqueDerive {
+            trait_name: trait_name.into(),
+            ty,
+        });
+    }
+    if trait_name != "ObjectKey" {
+        return None;
+    }
+    let count = |fields: &emela_resolve::hir::Fields| match fields {
+        emela_resolve::hir::Fields::None => 0,
+        emela_resolve::hir::Fields::Named(fs) => fs.len(),
+        emela_resolve::hir::Fields::Positional(ts) => ts.len(),
+    };
+    let reason = match program.item(ty_def)? {
+        Item::Enum(e) => e.variants.iter().find_map(|&v| match program.item(v) {
+            Some(Item::Ctor(c)) if count(&c.fields) > 0 => {
+                Some(format!("variant `{}` has contents", program.defs[v].name))
+            }
+            _ => None,
+        })?,
+        Item::Type(t) if count(&t.fields) == 1 => return None,
+        Item::Type(t) => fields_reason(count(&t.fields)),
+        Item::Error(e) if count(&e.fields) == 1 => return None,
+        Item::Error(e) => fields_reason(count(&e.fields)),
+        _ => return None,
+    };
+    Some(DiagnosticKind::ObjectKeyForm {
+        ty,
+        reason: reason.into(),
+    })
+}
+
+fn fields_reason(n: usize) -> String {
+    match n {
+        0 => "it has no fields".to_owned(),
+        n => format!("it has {n} fields"),
+    }
+}
+
 /// Checks that each derived impl can be generated (E0326, spec 10.5): the type satisfies the
 /// trait's supertraits (a derive does not derive them), and every field's type satisfies the
 /// trait, under the impl's constraints. Reported at the trait's name in the `derive` clause.
@@ -413,7 +490,12 @@ fn check_derives(
             }
         }
         traits.exempt.set(Some(head.ty_def));
-        for field in field_tys(program, sigs, head.ty_def) {
+        // A form that cannot be derived (E0336, E0339) is reported already.
+        let fields = match derivable(program, head.trait_def) {
+            Some(name) if derive_form_error(program, head.ty_def, name).is_some() => Vec::new(),
+            _ => field_tys(program, sigs, head.ty_def),
+        };
+        for field in fields {
             if let Err(e) =
                 traits.satisfies(program, ty_table, &field, head.trait_def, &head.params)
                 && !failures.contains(&e)

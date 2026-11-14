@@ -1,0 +1,10 @@
+type TodoView(id: String, @key("dueAt") due_at: Option[String])
+
+enum Status {
+  @tag("open")
+  Open
+  @tag("done") Done
+  Closed(@key("at") closed_at: String)
+}
+
+enum Inline { @tag("a") Aa, Bb }
