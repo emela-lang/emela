@@ -1,5 +1,6 @@
 //! Expressions (spec 17.5).
 
+use super::items::{at_local_fn_start, newlines_with_doc};
 use super::patterns::pattern;
 use super::types::{effect_type_args, path, type_};
 use super::{closure_param_list, literal, old_lambda_param_list};
@@ -58,17 +59,39 @@ pub(crate) fn stmt(p: &mut Parser<'_>) {
     m.complete(p, BINDING);
 }
 
-/// `"{" { stmt NL } "}"`
+/// `"{" { stmt NL } "}"`. `stmt = binding | local_fn | expr`.
+///
+/// A local fn (`[fn.local]`) and a top-level declaration both start with `fn` at the start of a
+/// line. When the braces of the input balance, it is a local fn, as the grammar says. When they
+/// do not, a `}` is missing or extra somewhere, and the parser cannot tell which block it belongs
+/// to. Then a `fn` is a local fn only if its line is indented deeper than the line of this
+/// block's `{`; otherwise it ends the block, so that recovery from a missing `}` keeps the
+/// declarations after it at the top level or in their impl or handler. A program whose braces
+/// do not balance already has an error, so layout never changes the meaning of a valid program.
 pub(crate) fn block(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
+    let indent = p.line_indent();
     p.bump_kind(L_BRACE);
     loop {
-        while p.eat(NEWLINE) {}
-        if p.at(R_BRACE) || p.at_eof() || p.at_decl_start() {
+        let doc = newlines_with_doc(p);
+        let local_fn =
+            at_local_fn_start(p) && (p.braces_balance || p.line_indent() > indent);
+        if !local_fn && (p.at(R_BRACE) || p.at_eof() || p.at_decl_start()) {
+            if let Some(doc) = doc {
+                doc.abandon(p);
+            }
             break;
         }
         let before = p.position();
-        stmt(p);
+        if local_fn {
+            let m = doc.unwrap_or_else(|| p.start());
+            super::items::local_fn(p, m);
+        } else {
+            if let Some(doc) = doc {
+                doc.abandon(p);
+            }
+            stmt(p);
+        }
         if p.position() == before {
             // A diagnostic was reported but no token was consumed (e.g. `=` at line start).
             bump_error(p);

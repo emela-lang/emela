@@ -103,6 +103,32 @@ impl FnDecl {
 }
 
 ast_node!(
+    /// `fn onto(to: Int, acc: List[Int]) -> List[Int] { ... }`, a statement of a block
+    /// (`[fn.local]`). Its children are laid out as in [`FnDecl`].
+    LocalFn,
+    LOCAL_FN
+);
+
+impl LocalFn {
+    pub fn name(&self) -> Option<SyntaxToken> {
+        token(&self.0, LOWER_NAME)
+    }
+    pub fn param_list(&self) -> Option<ParamList> {
+        child(&self.0)
+    }
+    /// The `T` of `-> T`, as an untyped node.
+    pub fn ret_type(&self) -> Option<SyntaxNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == RET_TYPE)?
+            .first_child()
+    }
+    pub fn body(&self) -> Option<BlockExpr> {
+        child(&self.0)
+    }
+}
+
+ast_node!(
     /// `(x: Int, f)`
     ParamList,
     PARAM_LIST
@@ -161,13 +187,16 @@ impl BlockExpr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Stmt {
     Binding(Binding),
+    LocalFn(LocalFn),
     Expr(Expr),
 }
 
 impl Stmt {
     fn cast(node: SyntaxNode) -> Option<Self> {
-        if node.kind() == BINDING {
-            return Some(Stmt::Binding(Binding(node)));
+        match node.kind() {
+            BINDING => return Some(Stmt::Binding(Binding(node))),
+            LOCAL_FN => return Some(Stmt::LocalFn(LocalFn(node))),
+            _ => {}
         }
         Expr::cast(node).map(Stmt::Expr)
     }
