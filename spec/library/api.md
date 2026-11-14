@@ -446,6 +446,11 @@ The platform layer and the test layer (`[lib.layers]`). What the process has exa
 | `SystemStdin` | `handler SystemStdin: Stdin` | The standard input of the process. `process.stdin` on JS and file descriptor 0 on native. Requires Async. Has no state |
 | `StdinLines` | `type StdinLines(lines: List[String])` | The state of TestStdin: the lines not read yet |
 | `TestStdin` | `handler TestStdin: Stdin` | Kept in `State[StdinLines]` and resumes immediately. Does not raise InvalidInput or StdinFailure |
+| `ExitCode` | `opaque type ExitCode` | The exit code of a program. Its contents are an Int from 0 to 255 |
+| `exit_code` | `exit_code(code: Int) -> ExitCode` | The exit code `code`. A `code` outside 0 to 255 is a defect. Implemented in Emela |
+| `exit_code_to_int` | `exit_code_to_int(code: ExitCode) -> Int` | The number of the exit code. Implemented in Emela |
+| `EXIT_SUCCESS` | `const EXIT_SUCCESS: ExitCode` | `exit_code(0)` |
+| `EXIT_FAILURE` | `const EXIT_FAILURE: ExitCode` | `exit_code(1)` |
 
 Args:
 
@@ -468,7 +473,15 @@ Stdin:
 - Under `emela test`, standard input is not passed to the program (`[cmd.test.output]`). SystemStdin reads it as an empty input.
 - `read_line` of TestStdin removes the first element of `lines` and returns it, or returns `None` when `lines` is empty. `read_text` returns the elements of `lines` joined with `\n` and sets `lines` to `[]`.
 
+ExitCode:
+
+- A `main` whose return type is `ExitCode` chooses the exit code of the program with its value (`[dyn.error]`). Every value from 0 to 255 can be chosen, including 1, 101 and 130. `ExitCode` is a value: making one uses no effect, and no handler is needed.
+- The constants are named with the prefix `EXIT_` because a const is used through an import, not as a qualified name (`[grammar.expr]`), so its name appears in user code on its own.
+- The upper bound 255 comes from the exit status of POSIX processes and the argument of `exit-with-code` of WASI, which are 8 bits wide.
+
 impl (`[trait.derive]`): StdinLines has `derive Eq, Show`. Both errors have `derive Show`.
+
+impl of `ExitCode` (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Show`. The Show impl gives `ExitCode(2)`.
 
 ```emel
 import Std.Console.{Console}
