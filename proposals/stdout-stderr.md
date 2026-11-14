@@ -2,7 +2,7 @@
 title: Stdout and Stderr in Std.Process, the output streams of the process
 authors: [Alliana]
 status: draft
-pr:
+pr: 566
 issue:
 decided:
 touches: [api.std.process (new), api.std.console, api.std.platform, lib.layers, cmd.build, target.c.run, target.wasm.external, open.list]
