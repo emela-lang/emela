@@ -14,7 +14,7 @@ related: [std-exit, stdout-stderr]
 
 ## Summary
 
-`Std.Process`（std-process 案で作るモジュール）に値の型 `ExitCode` と，定数 `EXIT_SUCCESS`（0）と `EXIT_FAILURE`（1）を足す．`main` の戻り値の型が `ExitCode` のとき，`main` が値で終わったらプログラムはその終了コードで終わる．0 から 255 のすべての値を返せる．`main` の戻り値の型は `()` か `ExitCode` にし，それ以外の型を返す `main` には警告 W0304 を出す（値は今と同じく捨てて 0）．error は 1，defect は 101，中断は 130 で変わらない．プロセスをその場で止める関数や effect 操作は足さない．
+Add to `Std.Process` (the module that std-process created) a value type `ExitCode` and the constants `EXIT_SUCCESS` (0) and `EXIT_FAILURE` (1). When the return type of `main` is `ExitCode` and `main` ends with a value, the program exits with that exit code. Every value from 0 to 255 can be returned. The return type of `main` is `()` or `ExitCode`; a `main` that returns any other type gets the warning W0304 (the value is thrown away and the program exits with 0, as now). An error still exits with 1, a defect with 101 and an interruption with 130. No function or effect operation that stops the process on the spot is added.
 
 ```emel
 import Std.Platform.{Platform}
@@ -42,38 +42,38 @@ fn run() -> ExitCode fails UsageError uses { Console } {
 
 ## Motivation
 
-- 今の Emela のプログラムが返せる終了コードは 0，1，101，130 の 4 つだけ（`[dyn.error]`，`[dyn.suspend]`，`[error.defect]`）．`main` の戻り値は捨てられる（`fn main() -> Int { 2 }` は 0 で終わることを確かめた）
-- CLI ツールは終了コードで結果を返す．usage の誤りは 2，「見つからなかった」は 1 で「失敗」は 2 以上，といった取り決めは呼び出す側のシェルスクリプトや CI が読む．Emela でこれを書く手段がない
-- 回避策は `@external` で `process.exit` や C の `exit` を呼ぶことだけ．これは with の release を飛ばし，標準出力の書き残しを切り，ターゲットごとに書き分けが要る
-- error を `main` まで上げると，終了コードは 1 に決まり，`error: <値>` の 1 行も必ず出る．usage の表示を自分で書きたい場合に合わない
+- An Emela program can now exit with only four exit codes: 0, 1, 101 and 130 (`[dyn.error]`, `[dyn.suspend]`, `[error.defect]`). The return value of `main` is thrown away (`fn main() -> Int { 2 }` was checked to exit with 0).
+- A CLI tool reports its result through its exit code. Conventions such as 2 for a usage error, or 1 for "not found" and 2 or more for "failed", are read by the shell scripts and CI that call it. Emela has no way to write them.
+- The only workaround is to call `process.exit` or C `exit` through `@external`. That skips the releases of withs, cuts output not yet written, and has to be written for each target.
+- Raising an error up to `main` fixes the exit code at 1 and always writes the line `error: <value>`. It does not fit when the program wants to write its own usage message.
 
 ## Proposal
 
 ### Syntax
 
-変更なし．
+No change.
 
 ### Meaning
 
-- `Std.Process` に opaque type `ExitCode` を宣言する．中身は 0 から 255 までの Int．`Std.Process` は std-process 案が作るモジュールで，この案はそこに型と関数を足す（`requires: [std-process]`）．
-- `Process.exit_code(code)` は `code` の `ExitCode` を返す．`code` が 0 から 255 の外なら defect（呼び出し側の前提が壊れている，`[lib.api-rules]`）．`Process.exit_code_to_int` はその Int を返す（メソッド呼び出しなら `code.exit_code_to_int()`）．
-- 関数名に `exit_code` を入れるのは，`Std.Process` には `Args` や `Stdin` も同居するので，`Process.from_int` や `Process.to_int` では何の変換か読めないため．
-- 層: `ExitCode` 自体はホストに依らない値だが，意味を持つのはプロセスの終わり方だけなので，platform 層の `Std.Process` に置く．`[lib.layers]` の platform 層の行に「プロセスに属する値の型も置く」と書き足す．`Std.Process` を import しても handler は要らない（`ExitCode` を作るだけなら effect を使わない）．
-- `main` の戻り値の型が `ExitCode` で，`main` が値で終わったとき，プログラムはその値の終了コードで終わる．error，defect，中断で終わったときは今と同じ（1，101，130）．
-- 戻り値の型が `()` の `main` は今と同じく，値で終われば 0．
-- 戻り値の型が `()`，`ExitCode`，Never のどれでもない `main`（`fn main() -> Int { 2 }` など）は警告 W0304．動きは今と同じで，値を捨てて 0 で終わる．今は黙って 0 で終わるので，`Int` を返せば終了コードになると思って書いた人が気づけない．Never（本体が必ず fail するなど）は値を返さず，捨てるものがないので警告しない．
-- 0 から 255 のすべての値を返せる．1，101，130 も返せる．この 3 つは runtime が異常終了（error，defect，中断）に使う番号にすぎず，ユーザーが返す値を制限する理由にはならない．呼び出す側は，それが error などから来たのか `main` が返したのかを終了コードだけでは区別できず，標準エラー出力の 1 行（`error: ...` など）の有無で区別する．
-- 上限 255 は Emela の都合ではなく，POSIX の終了ステータスが 8 ビットであることと，WASI の `exit-with-code` が u8 を取ることによる．範囲外は呼び出し側の前提が壊れているので defect（`[lib.api-rules]`）．256 で割った余りにはしない（`exit_code(256)` が黙って成功になるため）．
-- 定数 `EXIT_SUCCESS`（`exit_code(0)`）と `EXIT_FAILURE`（`exit_code(1)`）を `pub const` で置く．const は修飾名で書けず import して使うので（次の項目），裸の名前のままユーザーのコードに入る．`SUCCESS` だけでは何の成功か読めず，ユーザーの名前ともぶつかりやすいので，`EXIT_` を付けて何の定数か分かる名前にする．std の const は大文字の名前（`[data.const]`）．std に `pub const` を置くのはこれが初めてだが，`pub` の対象に `const` は含まれ（`[module.pub]`），opaque type の値も右辺の関数呼び出しで作れる（`[data.const]`）．
-- 他のモジュールの const は `Process.EXIT_SUCCESS` とは書けない．式の修飾名は `Module.lower_name` だけで（`[grammar.expr]`），const は import して使う（`import Std.Process.{EXIT_SUCCESS}`）．試作で，別モジュールの `pub const SUCCESS: ExitCode = exit_code(0)` を import して `main` から返し，`emela check` と `emela run` が通ることを確かめた（emela 0.27.0，2026-11-14）．`Process.SUCCESS` は E0110 になる（名前を `EXIT_SUCCESS` にしても規則は同じ）．
-- `main` が値を返すのは，with の release がすべて走り，`Fiber.scope` の子がすべて終わった後なので，終了コードを選ぶことで後始末が飛ぶことはない．終了コードは標準出力と標準エラー出力の書き込みが終わってから決まる（`[cmd.build]` の既存の保証と同じ）．
-- `main` は普通の fn なので，テストから呼ぶと `ExitCode` の値が返るだけで，プロセスは終わらない．
-- `ExitCode` は境界型（12.4）ではないので，`@export` の fn や entry adapter からは返せない（E0436）．HTTP サービスは変わらない．
+- `Std.Process` declares an opaque type `ExitCode`. Its contents are an Int from 0 to 255. `Std.Process` is the module that std-process created, and this proposal adds a type and functions to it (`requires: [std-process]`).
+- `Process.exit_code(code)` returns the `ExitCode` of `code`. A `code` outside 0 to 255 is a defect (an assumption of the caller is broken, `[lib.api-rules]`). `Process.exit_code_to_int` returns the Int (`code.exit_code_to_int()` as a method call).
+- The function names contain `exit_code` because `Std.Process` also holds `Args` and `Stdin`, so `Process.from_int` and `Process.to_int` would not say what is converted.
+- Layer: `ExitCode` itself is a value independent of the host, but it means something only as the way the process ends, so it is placed in `Std.Process` of the platform layer. The row of the platform layer in `[lib.layers]` says that value types that belong to the process are placed there too. Importing `Std.Process` needs no handler (making an `ExitCode` uses no effect).
+- When the return type of `main` is `ExitCode` and `main` ends with a value, the program exits with the exit code of that value. When it ends with an error, a defect or an interruption, the program exits as now (1, 101, 130).
+- A `main` whose return type is `()` exits with 0 when it ends with a value, as now.
+- A `main` whose return type is none of `()`, `ExitCode` and Never (such as `fn main() -> Int { 2 }`) gets the warning W0304. Its behavior is as now: the value is thrown away and the program exits with 0. Now it exits with 0 silently, so someone who wrote it expecting the `Int` to become the exit code cannot notice. Never (a body that always fails, for example) returns no value and has nothing to throw away, so it is not warned about.
+- Every value from 0 to 255 can be returned, including 1, 101 and 130. These three are only the numbers the runtime uses for abnormal ends (error, defect, interruption), and are no reason to restrict the values a user returns. From the exit code alone, the caller cannot tell whether it came from an error or from `main`; it tells them apart by whether there is a line on standard error (`error: ...` and the others).
+- The upper bound 255 comes not from Emela but from the 8-bit exit status of POSIX and the u8 that `exit-with-code` of WASI takes. A value outside the range means an assumption of the caller is broken, so it is a defect (`[lib.api-rules]`). It is not taken modulo 256, because then `exit_code(256)` would silently succeed.
+- The constants `EXIT_SUCCESS` (`exit_code(0)`) and `EXIT_FAILURE` (`exit_code(1)`) are declared with `pub const`. A const cannot be written with a qualified name and is used through an import (next item), so its bare name enters the user's code. `SUCCESS` alone does not say what succeeded and easily clashes with the user's names, so the prefix `EXIT_` says what the constant is. Consts of std have uppercase names (`[data.const]`). This is the first `pub const` in std, but `pub` applies to `const` (`[module.pub]`), and a value of an opaque type can be made by a function call on the right-hand side (`[data.const]`).
+- A const of another module cannot be written `Process.EXIT_SUCCESS`. Qualified names in expressions are only `Module.lower_name` (`[grammar.expr]`), and a const is used through an import (`import Std.Process.{EXIT_SUCCESS}`). In a prototype, `pub const SUCCESS: ExitCode = exit_code(0)` in another module was imported and returned from `main`, and `emela check` and `emela run` passed (emela 0.27.0, 2026-11-14). `Process.SUCCESS` is E0110 (the rule is the same with the name `EXIT_SUCCESS`).
+- `main` returns its value after every release of the withs has run and every child of `Fiber.scope` has ended, so choosing an exit code never skips cleanup. The exit code is set after the writes to standard output and standard error have finished (the existing guarantee of `[cmd.build]`).
+- `main` is an ordinary fn, so calling it from a test only returns an `ExitCode` value; the process does not end.
+- `ExitCode` is not a boundary type (12.4), so an `@export` fn or an entry adapter cannot return it (E0436). HTTP services do not change.
 
 ### Typing rules
 
-- 新しい型付け規則はない．`main` の戻り値の型は推論でも注釈でもよい．`ExitCode` かどうか，W0304 を出すかは，型検査の後で決まった戻り値の型で判断する．
-- W0304 は警告なので，型検査は通り，`build` も `run` もできる．`main` の R が Async 以外空であるという規則（`[effect.with]`）とは独立で，あちらは R，こちらは戻り値の型だけを見る．
+- No new typing rules. The return type of `main` may be inferred or annotated. Whether it is `ExitCode`, and whether W0304 is reported, is decided by the return type fixed after type checking.
+- W0304 is a warning, so type checking passes, and `build` and `run` work. It is independent of the rule that the R of `main` is empty except for Async (`[effect.with]`): that rule looks at R, and this one only at the return type.
 
 ## Specification changes
 
@@ -178,85 +178,83 @@ No text change. `ExitCode` is not a boundary type (12.4), so an `@export` fn or 
 
 ## Diagnostics
 
-- [ ] W0304：戻り値の型が `()`，`ExitCode`，Never のどれでもない `main`．message は ``the value of type `Int` returned by `main` is discarded``，help は ``= help: return `()`, or return an `ExitCode` to choose the exit code``．位置は戻り値の型注釈，推論のときは `main` の名前．W03xx（型の警告）の空いている最初の番号
-- `exit_code` の範囲外は実行時の defect で，診断は足さない．メッセージは `exit code <n> is out of range 0 to 255`
+- [ ] W0304: a `main` whose return type is none of `()`, `ExitCode` and Never. The message is ``the value of type `Int` returned by `main` is discarded``, and the help is ``= help: return `()`, or return an `ExitCode` to choose the exit code``. It points at the annotation of the return type, or at the name `main` when the type is inferred. It is the first free number of W03xx (warnings about types).
+- A value outside the range of `exit_code` is a defect at run time, and no diagnostic is added. The message is `exit code <n> is out of range 0 to 255`.
 
 ## Compatibility
 
-- 既存のプログラムの動きは変わらない．`ExitCode` は新しい型なので，今の `main` の戻り値の型が `ExitCode` であることはない．
-- `()` 以外を返している既存の `main` には W0304 が新しく出る．警告なので build も run も通る．examples と spec のコード例に該当する `main` はない（`git grep` で確かめた）．
-- コード例は今の仕様にある `Std.Console` を使う．この案は stdout-stderr 案に依存しないので，どちらが先に採択されても単独で成り立つ．stdout-stderr 案が先に採択されたら，仕様へ貼るときにコード例の import を `Std.Process.{Stderr, Stdout}` に書き換える（意味は変わらない）．
+- No existing program changes behavior. `ExitCode` is a new type, so no current `main` has `ExitCode` as its return type.
+- An existing `main` that returns something other than `()` newly gets W0304. It is a warning, so build and run still work. No `main` in the examples or in the code examples of the specification is affected (checked with `git grep`).
+- The code examples use `Std.Console`, which is in the specification. This proposal does not depend on stdout-stderr. Now that stdout-stderr has been adopted, the imports of the code examples may be rewritten to `Std.Process.{Stderr, Stdout}` when they are pasted into the specification; the meaning does not change.
 
 ## Implementation
 
-- コンパイラは型検査の後，entry の `main` の戻り値の型が `Std.Process.ExitCode` かを見て，launcher に渡す情報を変える．
-- JS: launcher は `main` の値（Int）を `process.exitCode` に入れる．既存の 101，130 と同じく，書き込みが終わってから終わる（`crates/emela-driver/src/run.rs` の launcher）．suspend する `main` は `$start` の完了で値を受け取る．
-- C: 生成する C の `main` が `ExitCode` の Int を返す．stdout と stderr は `exit` の前に flush する．`EMELA_LEAK_CHECK` の 99 は今と同じく優先する．
-- wasm: `wasi:cli/run` の `run` は `result` しか返せないので，0 以外は既に import している `wasi:cli/exit@0.3.0` の `exit-with-code` で返す．
-- `ExitCode` と 2 つの関数は std-process 案の `std/process.emel` に純 Emela で書ける（`opaque type ExitCode = Int` と範囲検査）．host ファイルは要らない．
+- After type checking, the compiler looks at whether the return type of `main` of the entry is `Std.Process.ExitCode`, and changes what it passes to the launcher.
+- JS: the launcher puts the value of `main` (an Int) into `process.exitCode`. As with the existing 101 and 130, the program ends after the writes have finished (the launcher in `crates/emela-driver/src/run.rs`). A `main` that suspends gives its value when `$start` completes.
+- C: the generated C `main` returns the Int of the `ExitCode`. stdout and stderr are flushed before `exit`. The 99 of `EMELA_LEAK_CHECK` takes precedence, as now.
+- WASM: `run` of `wasi:cli/run` can return only a `result`, so a code other than 0 is returned with `exit-with-code` of `wasi:cli/exit@0.3.0`, which is already imported.
+- `ExitCode` and the two functions can be written in plain Emela in `std/process.emel` (`opaque type ExitCode = Int` and a range check). No host file is needed.
 
 ## Alternatives
 
-### 独立したモジュール `Std.ExitCode` に置く
+### Put it in a separate module `Std.ExitCode`
 
-- 値の層のモジュールとして `Std.ExitCode` を作り，`ExitCode.from_int(2)` と書けるようにする．`[lib.api-rules]` の `from_*` と `to_*` の名前がそのまま使える．
-- 却下の理由: `Args`，`Stdin`，`Stdout`，`Stderr` と同じく「プロセスに属するもの」なので，`Std.Process` にまとめると探す場所が 1 つで済む（作者の決定）．プロセスの終わり方にしか使わない型のためだけにモジュールを 1 つ足すことにもなる．
+- Make `Std.ExitCode` a module of the value layer, so that `ExitCode.from_int(2)` can be written. The `from_*` and `to_*` names of `[lib.api-rules]` would apply as they are.
+- Rejected: like `Args`, `Stdin`, `Stdout` and `Stderr`, it belongs to the process, and gathering them in `Std.Process` leaves one place to look (the author's decision). It would also add a module only for a type used only for how the process ends.
 
-### `Std.Exit` に足す
+### Add it to `Std.Exit`
 
-- `Std.Exit`（`[api.std.exit]`）に `ExitCode` を足し，`import Std.Exit.{ExitCode}` で使う．
-- 却下の理由: `Std.Exit` は計算の終わり方（`Exit[A, E]`，`attempt`）で，fiber の中でも使う．プロセスの終了コードとは別の概念なのに，`Exit` と `ExitCode` が同じモジュールに並んで紛らわしい．
+- Add `ExitCode` to `Std.Exit` (`[api.std.exit]`) and use it with `import Std.Exit.{ExitCode}`.
+- Rejected: `Std.Exit` is about how a computation ends (`Exit[A, E]`, `attempt`) and is used inside fibers too. The exit code of the process is a different concept, and `Exit` and `ExitCode` side by side in one module would be confusing.
 
-### サブモジュール `Std.Process.ExitCode` に置く
+### Put it in a submodule `Std.Process.ExitCode`
 
-- `Std.Http.Request` と同じ形になり，`ExitCode.from_int` と `ExitCode.to_int` が自然な名前になる．
-- 採らない理由: `Args`，`Stdin` と並べて `Std.Process` に置き，名前に `exit_code` を入れると決めた前提が崩れる．層の扱いは `[lib.layers]` に規則を 1 つ書けば足りる．
+- It would have the form of `Std.Http.Request`, and `ExitCode.from_int` and `ExitCode.to_int` would be natural names.
+- Not taken: it breaks the premise of placing it in `Std.Process` next to `Args` and `Stdin` with `exit_code` in the names. The layer is handled by one rule in `[lib.layers]`.
 
-### 値の層の行に `ExitCode` を挙げる
+### List `ExitCode` in the row of the value layer
 
-- 採らない理由: 値の層は単独で役に立つ値（Instant，Bytes，Map など）の層で，同じく host に依存しない `Request` と `Response` も挙げていない．終了コードはプロセスの終わり方としてしか意味を持たない．
+- Not taken: the value layer holds values that are useful on their own (Instant, Bytes, Map and others), and it does not list `Request` and `Response` either, which are also independent of the host. An exit code means something only as how the process ends.
 
-### `main` の戻り値を `Int` にする
+### Make the return value of `main` an `Int`
 
-- `fn main() -> Int` の値を終了コードにする．型を足さずに済む．
-- 却下の理由: 今 `Int` を返している `main`（最後の式がたまたま `Int`）の終了コードが黙って変わる．`main` の戻り値は捨てると書いてある（`[dyn.error]`）ので，そう書いたプログラムは仕様に沿っている．範囲外の値をどう扱うかも決まらない（JS は 256 で割った余り，wasm の `exit-with-code` は u8）．
+- The value of `fn main() -> Int` would be the exit code, with no new type.
+- Rejected: the exit code of a `main` that now returns an `Int` (its last expression happens to be an `Int`) would change silently. The specification says the return value of `main` is thrown away (`[dyn.error]`), so such programs follow it. How to handle values outside the range would also be open (JS takes them modulo 256, and `exit-with-code` of WASM takes a u8).
 
-### 再開しない effect 操作 `exit(code)`
+### An effect operation `exit(code)` that does not resume
 
-- platform effect `Process { suspend fn exit(code: Int) -> Never }` と `SystemProcess` を足し，深い呼び出し先から終われるようにする．テストでは handler を差し替える．
-- 却下の理由:
-  - continuation を再開しない操作は，今の意味では「中断として巻き戻る」（`[dyn.suspend]`）．終了コードを持った第 4 の終わり方を `[fiber.cause]` に足す必要があり，`Exit.attempt`，`Fiber.await`，`Fiber.scope` がそれをどう扱うかを全部決め直すことになる
-  - `Fiber.scope` の子から呼んだときに，兄弟を中断してプロセスを終えるのか，scope の結果になるのかが決まらない
-  - ライブラリが `uses { Process }` を要求してプロセスを終えられる．`main` が決めるべきことをライブラリが決めてしまう
-  - 深い所から終わりたい場合は，error で `main` まで上げて `escape` で `ExitCode` に変えれば書ける（Summary の例）．release も正しく走る
+- Add a platform effect `Process { suspend fn exit(code: Int) -> Never }` and `SystemProcess`, so that the program can end from deep inside. Tests replace the handler.
+- Rejected:
+  - An operation that does not resume its continuation means, now, "unwind as interrupted" (`[dyn.suspend]`). A fourth way to end, carrying an exit code, would have to be added to `[fiber.cause]`, and how `Exit.attempt`, `Fiber.await` and `Fiber.scope` treat it would all have to be decided again.
+  - Called from a child of `Fiber.scope`, it is not settled whether it interrupts the siblings and ends the process or becomes the result of the scope.
+  - A library could require `uses { Process }` and end the process. The library would decide what `main` should decide.
+  - Ending from deep inside can be written by raising an error up to `main` and turning it into an `ExitCode` with `escape` (the example in Summary). The releases run correctly.
 
-### `main` に届いた error から終了コードを決める
+### Choose the exit code from an error that reaches `main`
 
-- trait（`trait ExitStatus { fn exit_code(self) -> Int }`）を error の型に impl すると，`main` に届いたときにその終了コードで終わる．`Show` を満たすかで表示を変えている今の仕組み（`[dyn.error]`）と同じ所で判断できる．
-- 却下の理由:
-  - 終了コードを決める場所が `main` の戻り値と error の型の 2 か所になり，どちらで決まったのかを読み手が追えない．同じ error 型でも `main` まで届くかどうかで終了コードが変わり，混乱を生む（作者の決定）
-  - 成功の意味の 0 以外（`grep` の「見つからない」の 1 など）を error として書くことになる
-  - `error: <値>` の 1 行は必ず出るので，usage の表示を自分で決められない
+- Implementing a trait (`trait ExitStatus { fn exit_code(self) -> Int }`) for the type of an error would make the program exit with that exit code when the error reaches `main`. It could be decided at the same place where the display now depends on whether the error satisfies `Show` (`[dyn.error]`).
+- Rejected:
+  - The exit code would be decided in two places, the return value of `main` and the type of the error, and the reader could not trace which one decided it. The same error type would give different exit codes depending on whether it reaches `main` (the author's decision).
+  - Results other than 0 that mean success (1 for "not found" of `grep`, for example) would be written as errors.
+  - The line `error: <value>` is always written, so the program could not choose its own usage message.
 
-### 1，101，130 を予約する
+### Reserve 1, 101 and 130
 
-- `exit_code(1)` などを defect にして，終了コードだけで error，defect，中断と区別できるようにする．
-- 却下の理由: 3 つは runtime が異常終了に使う番号にすぎない．予約すると `grep` の「見つからない」の 1 のような慣習が書けず，`EXIT_FAILURE` も 1 以外にせざるをえない．区別は標準エラーの 1 行で付く．
+- Make `exit_code(1)` and the others a defect, so that the exit code alone tells an error, a defect and an interruption apart.
+- Rejected: the three are only numbers the runtime uses for abnormal ends. Reserving them would make conventions such as 1 for "not found" of `grep` impossible, and `EXIT_FAILURE` would have to be something other than 1. The line on standard error tells them apart.
 
-### その場でプロセスを止める関数
+### A function that stops the process on the spot
 
-- `Process.exit(code) -> Never` を runtime の intrinsic にする．
-- 却下の理由: with の release も `Fiber.scope` の子の巻き戻しも走らない．`emela test` の中で呼ぶとテストランナーごと止まり，「the test runner exited with code ...」の失敗になる（`[cmd.test.outcome]`）．`@external` で今でも書ける回避策を std が勧めることになる．
+- Make `Process.exit(code) -> Never` an intrinsic of the runtime.
+- Rejected: neither the releases of withs nor the unwinding of the children of `Fiber.scope` would run. Called inside `emela test`, it would stop the test runner and fail with "the test runner exited with code ..." (`[cmd.test.outcome]`). std would be recommending the workaround that `@external` already allows.
 
 ## Prior art
 
-- Rust: `fn main() -> ExitCode`（`std::process::ExitCode`）と `Termination` trait．`std::process::exit` は destructor を走らせない．
-- Go: `os.Exit` は defer を走らせない．
-- Haskell: `exitWith` は `ExitCode` 例外を投げ，`bracket` の後始末が走る．
-- WASI 0.3: `wasi:cli/run` は `result<_, _>` を返し，任意のコードは `wasi:cli/exit` の `exit-with-code`（u8）．
+- Rust: `fn main() -> ExitCode` (`std::process::ExitCode`) and the `Termination` trait. `std::process::exit` does not run destructors.
+- Go: `os.Exit` does not run deferred functions.
+- Haskell: `exitWith` throws an `ExitCode` exception, and the cleanup of `bracket` runs.
+- WASI 0.3: `wasi:cli/run` returns `result<_, _>`, and any other code goes through `exit-with-code` (u8) of `wasi:cli/exit`.
 
 ## Open questions
-
-なし
 
 ## Decision
