@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-14 (Std.Process, the arguments and the standard input of the process)
+
+- `[lib.layers]`, `[api.std.process]`, `[api.std.platform]`, `[cmd.build]`, `[target.c.run]`, `[target.wasm.output]`, `[target.wasm.external]`, `[cmd.test.output]`: Add a module `Std.Process` to the platform layer of std, for what belongs to the process, and put two effects in it first. - `Args`: reads the arguments given to the process. `get(index)` takes one by position, and `list()` returns all of them as a `List[String]`. The name of the program is not included - `Stdin`: reads standard input. `read_line` reads one line, and `read_text` reads all the rest. Both are `suspend fn` The system handlers `SystemArgs` and `SystemStdin` are added to `Platform`. For tests, `TestStdin` reads from `State[StdinLines]`. There is no test handler for `Args`. `Console` does not change (`Stdout` and `Stderr` are added to this module by the separate proposal stdout-stderr, and the exit code type `ExitCode` by the separate proposal exit-code). ```emel import Std.Console.{Console} import Std.Platform.{Platform} import Std.Process.{Args, Stdin, InvalidInput, StdinFailure} fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } { (use Stdin).read_line() match { None -> () Some(line) -> { (use Console).print_line("#{prefix}#{line}") quote(prefix) } } } fn main() { with Platform { prefix = (use Args).get(0) match { Some(p) -> p None -> "> " } quote(prefix) } } ``` Adopted in the proposal `std-process` (#565).
+
 ## 2026-11-14 (The minimum version of Bun is 1.4.3)
 
 - `[target]`, `[target.js.host]`, `[cmd.build]`: The JS target assumes Bun 1.4.3 or later, not Bun 1.3 or later. Before 1.4.3, Bun does not run the work that a `beforeExit` listener schedules as Node does, and `emela test` gives different results there. Adopted in the proposal `bun-minimum-1-4-3` (#560).

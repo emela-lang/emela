@@ -1,10 +1,10 @@
 ---
 title: Std.Process, the arguments and the standard input of the process
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 565
 issue:
-decided:
+decided: 2026-11-14
 touches: [lib.layers, api.std.process (new), api.std.platform, cmd.build, target.c.run, target.wasm.output, target.wasm.external, cmd.test.output]
 requires: []
 related: []
@@ -337,6 +337,11 @@ Tests:
 
 ## Open questions
 
-None.
-
 ## Decision
+
+A CLI tool written in Emela has to receive its arguments and read its standard input; parsing the arguments is left to libraries.
+
+    Things that belong to the process are gathered in one module, Std.Process, so that the arguments, the standard input, and later the output streams and the exit code are found in one place. The effects are named after the streams (Stdin), which state what they promise: end of input, pipes and redirection.
+    Args has both get(index), returning an Option, and list(), returning the whole list.
+    Stdin starts with read_line and read_text. Reading bytes goes with a bytes version of Stdout in a later proposal, and WASM waits for the runtime to be able to wait on host streams.
+    Invalid UTF-8 is replaced in the arguments but fails in the standard input: the arguments are read once at start-up, where there is no place to handle a failure, while standard input is data that must not be changed silently.
