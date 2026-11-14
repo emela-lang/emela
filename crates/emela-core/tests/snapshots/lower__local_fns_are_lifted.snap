@@ -1,0 +1,183 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: dump(&m)
+---
+enum Option[A] {
+  Some(A)
+  None
+}
+
+enum Prelude.Ordering {
+  Less
+  Equal
+  Greater
+}
+
+error enum Prelude.ParseError {
+  ParseError(input: String)
+}
+
+enum Std.Duration.Duration {
+  Duration(milliseconds: Int64)
+}
+
+enum Std.Instant.Instant {
+  Instant(milliseconds: Int64)
+}
+
+enum Std.Map.Map[A, B] {
+  Empty
+  Node(size: Int, key: A, value: B, left: Std.Map.Map[A, B], right: Std.Map.Map[A, B])
+}
+
+enum Std.Set.Set[A] {
+  Set(inner: Std.Map.Map[A, ()])
+}
+
+enum Std.Http.Request.Method {
+  Get
+  Head
+  Post
+  Put
+  Patch
+  Delete
+  Options
+}
+
+enum Std.Http.Request.Request {
+  Request(method: Std.Http.Request.Method, url: String, headers: List[(String, String)], body: String)
+}
+
+enum Std.Http.Response.Response {
+  Response(status: Int, headers: List[(String, String)], body: String)
+}
+
+error enum Std.Http.Response.UnexpectedStatus {
+  UnexpectedStatus(status: Int, body: String)
+}
+
+error enum Std.Http.InvalidUrl {
+  InvalidUrl(url: String)
+}
+
+error enum Std.Http.ConnectionFailed {
+  ConnectionFailed(url: String, message: String)
+}
+
+error enum Std.Http.ResponseNotText {
+  ResponseNotText(url: String)
+}
+
+external enum Std.Http.HostRequest {
+}
+
+external enum Std.Http.HostResponse {
+}
+
+enum Std.Http.TestServer {
+  TestServer(respond: fn(Std.Http.Request.Request, Int) -> Option[Std.Http.Response.Response], sent: List[Std.Http.Request.Request])
+}
+
+external enum Std.Http.Incoming {
+}
+
+external enum Std.Http.Outgoing {
+}
+
+external enum Std.Http.Received {
+}
+
+external enum Std.Http.Draft {
+}
+
+error enum Std.FileSystem.FileNotFound {
+  FileNotFound(path: String)
+}
+
+error enum Std.FileSystem.FileAccessDenied {
+  FileAccessDenied(path: String)
+}
+
+error enum Std.FileSystem.NotADirectory {
+  NotADirectory(path: String)
+}
+
+error enum Std.FileSystem.IsADirectory {
+  IsADirectory(path: String)
+}
+
+error enum Std.FileSystem.DirectoryNotEmpty {
+  DirectoryNotEmpty(path: String)
+}
+
+error enum Std.FileSystem.InvalidText {
+  InvalidText(path: String)
+}
+
+error enum Std.FileSystem.FileSystemFailure {
+  FileSystemFailure(path: String, message: String)
+}
+
+external enum Std.FileSystem.Outcome {
+}
+
+enum Std.FileSystem.TestFiles {
+  TestFiles(files: List[(String, String)], directories: List[String])
+}
+
+enum Std.Cause.Cause[A] {
+  Cause(failure: fn() -> Never fails (E {A}, R {}))
+}
+
+enum Std.Cause.CauseKind {
+  Fail
+  Die
+  Interrupt
+}
+
+external enum Std.Deferred.Deferred[A] {
+}
+
+enum Std.Exit.Exit[A, B] {
+  Success(A)
+  Failure(Std.Cause.Cause[{B}])
+}
+
+external enum Std.Fiber.Fiber[A] {
+}
+
+export fn main() -> List[Int] {
+  let _%0: Int = @dbg[Int](count(10))
+  range(1, 4)
+}
+
+fn count(limit%9: Int) -> Int {
+  count$go(limit%9, 0, 0)
+}
+
+fn range(from%1: Int, to%2: Int) -> List[Int] {
+  let f%8: fn(Int, List[Int]) -> List[Int] = fn(x%6: Int, x%7: List[Int]) -> List[Int] {
+    range$onto(from%1, x%6, x%7)
+  }
+  (f%8)(to%2, []: List[Int])
+}
+
+fn range$onto(from%3: Int, to%4: Int, acc%5: List[Int]) -> List[Int] {
+  loop(from%13: Int = from%3, to%14: Int = to%4, acc%15: List[Int] = acc%5) {
+    if (to%14 <=[Int] from%13) {
+      acc%15
+    } else {
+      recur(from%13, (to%14 -[Int] 1), [(to%14 -[Int] 1), ..acc%15]: List[Int])
+    }
+  }
+}
+
+fn count$go(limit%10: Int, n%11: Int, acc%12: Int) -> Int {
+  loop(limit%16: Int = limit%10, n%17: Int = n%11, acc%18: Int = acc%12) {
+    if (n%17 ==[Int] limit%16) {
+      acc%18
+    } else {
+      recur(limit%16, (n%17 +[Int] 1), (acc%18 +[Int] 1))
+    }
+  }
+}

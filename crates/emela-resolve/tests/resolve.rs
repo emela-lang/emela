@@ -1476,3 +1476,69 @@ fn import_paths_refer_to_their_modules() {
         .collect();
     assert_eq!(named, ["Http", "Http.Client"]);
 }
+
+/// A local fn binds its name from the declaration to the end of its block and inside its own
+/// body, captures what is visible at the declaration, and can write the type parameters of the
+/// enclosing fn (`[fn.local]`, `[module.resolution]`).
+#[test]
+fn local_fn_scopes() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"fn zip[A, B](xs: List[A], ys: List[B], from: Int) -> List[(A, B)] {
+  fn onto(xs: List[A], ys: List[B], acc: List[(A, B)]) -> List[(A, B)] {
+    x = from
+    onto(xs, ys, acc)
+  }
+  onto(xs, ys, [])
+}
+
+fn length(xs: List[Int]) -> Int {
+  # A parameter of the same name hides the local fn in its body.
+  fn go(go: Int) -> Int { go }
+  # A later binding hides the local fn.
+  go = 1
+  go
+}
+
+fn hides_top_level() -> Int {
+  fn length(n: Int) -> Int { n }
+  length(1)
+}
+"##,
+    )]));
+}
+
+/// A local fn is not visible before its declaration, so two local fns cannot call each other, and
+/// its body does not see bindings that come after it (`[fn.local]`).
+#[test]
+fn local_fn_not_hoisted() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"fn f() -> Int {
+  a = before(1)
+  fn even(n: Int) -> Bool { if n == 0 { True } else { odd(n - 1) } }
+  fn odd(n: Int) -> Bool { if n == 0 { False } else { even(n - 1) } }
+  fn before(n: Int) -> Int { later }
+  later = 1
+  inner = {
+    fn hidden() -> Int { 1 }
+    hidden()
+  }
+  hidden()
+}
+"##,
+    )]));
+}
+
+/// The parameters of a local fn share one binder, as those of a top-level fn do (E0220).
+#[test]
+fn local_fn_param_duplicates() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"fn f() -> Int {
+  fn go(x: Int, x: Int) -> Int { x }
+  go(1, 2)
+}
+"##,
+    )]));
+}

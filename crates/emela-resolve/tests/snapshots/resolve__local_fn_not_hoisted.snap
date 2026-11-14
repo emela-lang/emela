@@ -1,0 +1,8 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"fn f() -> Int {\n  a = before(1)\n  fn even(n: Int) -> Bool { if n == 0 { True } else { odd(n - 1) } }\n  fn odd(n: Int) -> Bool { if n == 0 { False } else { even(n - 1) } }\n  fn before(n: Int) -> Int { later }\n  later = 1\n  inner = {\n    fn hidden() -> Int { 1 }\n    hidden()\n  }\n  hidden()\n}\n\"##,)])"
+---
+error src/main.emel@22..28 `before`: undefined value `before`
+error src/main.emel@86..89 `odd`: undefined value `odd`
+error src/main.emel@200..205 `later`: undefined value `later`
+error src/main.emel@280..286 `hidden`: undefined value `hidden`

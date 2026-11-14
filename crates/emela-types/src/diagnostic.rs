@@ -133,6 +133,8 @@ pub enum DiagnosticKind {
     OpaqueField { ty: Ty, field: SmolStr },
     /// A top-level fn parameter without a type (E0316, spec 6.1).
     MissingParamType { param: SmolStr },
+    /// A local fn parameter without a type (E0316, `[fn.local]`).
+    MissingLocalFnParamType { param: SmolStr },
     /// A parameter of a handler's init without a type (E0316, `[effect.handler]`).
     MissingInitParamType { handler: SmolStr, param: SmolStr },
     /// E0303, spec 6.5. `missing` holds examples of missing values (`Rect(_, _)`).

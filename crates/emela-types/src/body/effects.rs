@@ -23,7 +23,7 @@
 //!   (a set variable). A suspend fn implementation that may call resume later also depends on
 //!   Async (spec 8.7, `body/suspend.rs`).
 
-use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Item, Res, WithItem};
+use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Item, Res, Stmt, WithItem};
 
 use super::{BodyInfer, fn_parts};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
@@ -166,6 +166,25 @@ impl BodyInfer<'_> {
                         .add_subset_of(SetKind::Effects, body_row, Row::var(v), Origin::Lambda);
                 }
                 Row::empty()
+            }
+            // The body's R of a local fn is enclosed in its type's R, as for a lambda
+            // (`[fn.local]`). The block's R does not include it (`sub_exprs`).
+            ExprKind::Block(block) => {
+                for stmt in &block.stmts {
+                    if let Stmt::LocalFn(f) = stmt
+                        && let Some(info) = self.local_fns.get(f.local)
+                    {
+                        let (body, uses) = (info.body, info.uses.clone());
+                        let body_row = self.expr_effects(body);
+                        self.ctx.add_subset_of(
+                            SetKind::Effects,
+                            body_row,
+                            uses,
+                            Origin::LocalFn(f.local),
+                        );
+                    }
+                }
+                self.sub_effects(expr)
             }
             ExprKind::With { handlers, body } => self.with_effects(expr, handlers, *body),
             ExprKind::Call { callee, .. } => {

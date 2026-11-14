@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f() {\n  fn empty(n: Int) { [] }\n  a: List[Int] = empty(1)\n  b: List[String] = empty(2)\n}\n\"#)"
+---
+f: fn() -> ()
+  empty: fn(Int) -> List[Int]
+  n: Int
+  a: List[Int]
+  b: List[String]
+`empty(2)` mismatch: expected `List[String]`, found `List[Int]`

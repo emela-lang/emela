@@ -1,0 +1,36 @@
+# E0150: 型パラメータ，属性，pub，suspend
+fn modifiers() -> Int {
+  fn generic[A](x: A) -> A { x }
+  @test
+  fn annotated() { () }
+  pub fn public() -> Int { 1 }
+  suspend fn later() -> Int { 1 }
+  1
+}
+
+# E0151: ブロックの最後の文
+fn last() {
+  fn go(n: Int) -> Int { n }
+}
+
+fn last_in_nested() -> Int {
+  x = if True {
+    ## 呼ばれない
+    fn go() -> Int { 1 }
+  } else {
+    2
+  }
+  x
+}
+
+# 本体がない
+fn without_body() -> Int {
+  fn go() -> Int
+  go()
+}
+
+# 閉じていないブロックは行頭の宣言で終わる（回復）
+fn unclosed() -> Int {
+  x = 1
+
+fn after() -> Int { 1 }

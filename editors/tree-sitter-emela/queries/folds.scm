@@ -1,5 +1,6 @@
 [
   (function_declaration)
+  (local_function)
   (type_declaration)
   (enum_declaration)
   (error_declaration)

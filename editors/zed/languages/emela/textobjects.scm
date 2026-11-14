@@ -4,6 +4,12 @@
     (_)* @function.inside
     "}")) @function.around
 
+(local_function
+  body: (block
+    "{"
+    (_)* @function.inside
+    "}")) @function.around
+
 (lambda
   body: (_) @function.inside) @function.around
 

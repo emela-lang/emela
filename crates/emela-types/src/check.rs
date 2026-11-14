@@ -594,6 +594,7 @@ fn collect_block_refs(program: &Program, block: &Block, out: &mut Refs) {
                 collect_pat_refs(program, *pat, out);
                 collect_expr_refs(program, *value, out);
             }
+            Stmt::LocalFn(f) => collect_expr_refs(program, f.body, out),
             Stmt::Expr(e) => collect_expr_refs(program, *e, out),
         }
     }

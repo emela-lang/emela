@@ -59,6 +59,14 @@ pub(crate) fn check_internal<'p>(
                 ));
                 continue;
             }
+            // On a local fn, E0150 already reports it (`[fn.local]`).
+            if annotation
+                .syntax()
+                .parent()
+                .is_some_and(|p| p.kind() == SyntaxKind::LOCAL_FN)
+            {
+                continue;
+            }
             let top_level_fn = annotation
                 .syntax()
                 .parent()

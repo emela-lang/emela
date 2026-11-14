@@ -106,6 +106,10 @@ pub enum DiagnosticCode {
     UnusedLambda,
     /// `use` written in the place of the uses clause. `fn f() use Db` (`[grammar.decl]`)
     OldUseClause,
+    /// Type parameters, an attribute, `pub` or `suspend` on a local fn (`[fn.local]`).
+    LocalFnModifier,
+    /// A local fn as the last statement of its block, which nothing can call (`[fn.local]`).
+    UnusedLocalFn,
 }
 
 impl DiagnosticCode {
@@ -159,6 +163,8 @@ impl DiagnosticCode {
             Self::OldLambda => "E0148",
             Self::UnusedLambda => "E0149",
             Self::OldUseClause => "E0147",
+            Self::LocalFnModifier => "E0150",
+            Self::UnusedLocalFn => "E0151",
         }
     }
 }

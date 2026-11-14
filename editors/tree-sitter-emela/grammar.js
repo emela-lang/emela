@@ -407,7 +407,16 @@ module.exports = grammar({
       '}',
     ),
 
-    _statement: $ => choice($.binding, $._expression),
+    _statement: $ => choice($.binding, $.local_function, $._expression),
+
+    // `fn name(x: Int) -> T { ... }` as a statement of a block ([fn.local]). Type parameters,
+    // attributes, `pub` and `suspend` are E0150 in the compiler; the head of a top-level fn is
+    // read here so that they still highlight.
+    local_function: $ => seq(
+      optional($._modifiers),
+      $._function_head,
+      field('body', $.block),
+    ),
 
     // The left side is read as an expression and checked as a pattern later, as the compiler
     // does.
