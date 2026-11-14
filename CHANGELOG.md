@@ -7,6 +7,37 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.28.0](https://github.com/emela-lang/emela/compare/v0.27.1...v0.28.0) - 2026-11-14
+
+### Added
+
+- main が ExitCode を返して終了コードを選べるようにする ([#591](https://github.com/emela-lang/emela/pull/591)) (by @Allianaab2m)
+- Std.Process の Stdout と Stderr で改行なしの出力を書けるようにする ([#587](https://github.com/emela-lang/emela/pull/587)) (by @Allianaab2m)
+- --target native でネイティブ実行ファイルをビルドできる ([#573](https://github.com/emela-lang/emela/pull/573)) (by @Allianaab2m)
+- Std.Process でプロセスの引数と標準入力を読めるようにする ([#575](https://github.com/emela-lang/emela/pull/575)) (by @Allianaab2m)
+- Bun の最小バージョンを 1.4.3 にする ([#562](https://github.com/emela-lang/emela/pull/562)) (by @Allianaab2m)
+- EMELA_JS_HOST で JS host を選べるようにし、Bun をサポートする ([#559](https://github.com/emela-lang/emela/pull/559)) (by @Allianaab2m)
+- emela doctor で各ターゲットに必要なプログラムを確かめられるようにする ([#556](https://github.com/emela-lang/emela/pull/556)) (by @Allianaab2m)
+- [**breaking**] emelinoへの分離に伴い組み込みCバックエンドを削除 ([#538](https://github.com/emela-lang/emela/pull/538)) (by @aoi-netai)
+- ブロックの中に局所関数 fn name(...) を書ける ([#574](https://github.com/emela-lang/emela/pull/574)) (by @Allianaab2m)
+- List，Array，Map，Set の each で要素ごとに f を呼べるようにする ([#581](https://github.com/emela-lang/emela/pull/581)) (by @Allianaab2m)
+- *(wasm)* run fibers with scopes and deferred values ([#507](https://github.com/emela-lang/emela/pull/507)) (by @Allianaab2m)
+- emela を Windows（x86_64-pc-windows-msvc）向けにもビルドしてリリースする ([#578](https://github.com/emela-lang/emela/pull/578)) (by @Allianaab2m)
+- JS の launcher 名（main, $start）と重なる host export を E0438 にする ([#570](https://github.com/emela-lang/emela/pull/570)) (by @Allianaab2m)
+- Pome.toml の [pome].license を SPDX license expression として読む ([#542](https://github.com/emela-lang/emela/pull/542)) (by @Allianaab2m)
+
+### Fixed
+
+- *(types)* @entry のアダプタが予約名を 2 回 export すると E0438 が二重に出ていたのを直す ([#551](https://github.com/emela-lang/emela/pull/551)) (by @Allianaab2m)
+- *(core)* 型引数に関数を持つ値を書かれた Show で補間すると lowering が拒否していたのを直す ([#549](https://github.com/emela-lang/emela/pull/549)) (by @Allianaab2m)
+- *(codegen-c)* テストの共有オブジェクトとサニタイザの確認をプロセスごとのディレクトリで作る ([#552](https://github.com/emela-lang/emela/pull/552)) (by @Allianaab2m)
+- *(test)* LSP テストの shutdown が解析の遅れで落ちないようにする ([#577](https://github.com/emela-lang/emela/pull/577)) (by @Allianaab2m)
+
+### Other
+
+- *(syntax)* cargo-mutants で見逃していた変更を検出できるテストを足す ([#545](https://github.com/emela-lang/emela/pull/545)) (by @Allianaab2m)
+- *(resolve)* cargo-mutants で見逃していた変更を検出できるテストを足す ([#546](https://github.com/emela-lang/emela/pull/546)) (by @Allianaab2m)
+
 ## [0.27.1](https://github.com/emela-lang/emela/compare/v0.27.0...v0.27.1) - 2026-11-12
 
 ### Fixed
