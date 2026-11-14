@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-15 (Semaphore and Queue)
+
+- `[lib.layers]`, `[fiber.scope]`, `[fiber.escape]`, `[fiber.semaphore]`, `[fiber.queue]`, `[api.std.fiber]`, `[api.std.semaphore]`, `[api.std.queue]`, `[dyn.memory]`, `[diag.list]`, `[open.next]`: Two synchronization primitives are added to the effect layer of std, next to Deferred. - A Semaphore limits how many fibers run a piece of code at once. It is used only through `with_permit(s, f)`, which takes a permit, runs `f`, and gives the permit back however `f` ends. `try_with_permit` does not wait. - A Queue passes any number of values between fibers, in order, with a capacity. `offer` waits while it is full and `take` waits while it is empty. A queue can be closed: the values already in it can still be taken, and then `take` fails with `QueueClosed`. Both are made by operations of Scope, as Deferred is (`Fiber.semaphore(n)`, `Fiber.queue(n)`), and belong to that scope. Adopted in the proposal `semaphore-queue` (#515).
+
 ## 2026-11-15 (Stdout and Stderr in Std.Process, the output streams of the process)
 
 - `[api.std.process]`, `[api.std.console]`, `[api.std.platform]`, `[lib.layers]`, `[cmd.build]`, `[target.native.run]`, `[target.wasm.external]`, `[open.list]`: Add to `Std.Process` two effects for the output streams of the process, `Stdout` and `Stderr`. Each has two operations: `print`, which writes without a line ending, and `print_line`, which writes a line ending after the text. They do not fail and are Immediate. The system handlers are `SystemStdout` and `SystemStderr`, and they are part of `Platform`. The test handlers `TestStdout` and `TestStderr` append what is written to `State[StdoutText]` and `State[StderrText]`. `Std.Console` does not change: `Console` writes lines meant for people, and `Stdout` and `Stderr` are the streams of the process. ```emel import Std.Platform.{Platform} import Std.Process.{Stdout} fn main() { with Platform { (use Stdout).print("Hello, ") (use Stdout).print_line("alice!") } } ``` Adopted in the proposal `stdout-stderr` (#566).
