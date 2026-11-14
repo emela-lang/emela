@@ -5,6 +5,8 @@ expression: "parts(&m, &[\"fn main(\", \"fn Std.Fiber.fork[\", \"effect \"])"
 effect Std.Fiber.Scope[_, _] = Std.Fiber.Scope[(), ()] {
   fn fork[A](fn(evidence) -> A fails suspends) -> Std.Fiber.Fiber[A]
   fn deferred[A]() -> Std.Deferred.Deferred[A]
+  fn semaphore(Int) -> Std.Semaphore.Semaphore
+  fn queue[A](Int) -> Std.Queue.Queue[A]
 }
 
 export suspend fn main() -> Int {
@@ -49,15 +51,21 @@ export suspend fn main() -> Int {
       deferred: fn() -> any {
         fiber#deferred(s%18)
       }
+      semaphore: fn(permits%21: Int) -> any {
+        fiber#semaphore(s%18, permits%21)
+      }
+      queue: fn(capacity%22: Int) -> any {
+        fiber#queue(s%18, capacity%22)
+      }
     }
     (body%0)(provide(; Std.Fiber.Scope[_, _] = scope%19))!
   })!
 }
 
 fn Std.Fiber.fork[Int, {}, {}](f%10: fn() -> Int ev, ev%11: evidence) -> Std.Fiber.Fiber[Int] {
-  let scope%21: handler Std.Fiber.Scope[_, _] = use[Std.Fiber.Scope[_, _]](ev%11)
-  let f%22: fn() -> Int ev = f%10
-  scope%21.Std.Fiber.Scope[_, _]#fork[Int](fn(ev%23: evidence) -> Int fails {
-    (f%22)(provide(ev%23; Std.Fiber.Scope[_, _] = scope%21))
+  let scope%23: handler Std.Fiber.Scope[_, _] = use[Std.Fiber.Scope[_, _]](ev%11)
+  let f%24: fn() -> Int ev = f%10
+  scope%23.Std.Fiber.Scope[_, _]#fork[Int](fn(ev%25: evidence) -> Int fails {
+    (f%24)(provide(ev%25; Std.Fiber.Scope[_, _] = scope%23))
   })
 }

@@ -1,0 +1,41 @@
+---
+source: crates/emela-types/tests/fiber.rs
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\nimport Std.Semaphore.{Semaphore}\nimport Std.Queue.{Queue, QueueClosed}\n\nerror NotFound(id: Int)\n\ntype User(id: Int)\ntype Job(id: Int)\n\neffect Users {\n  fn find(id: Int) -> User fails NotFound\n}\n\nfn load(id: Int) -> User fails NotFound uses { Users } {\n  (use Users).find(id)\n}\n\nfn load_all(ids: List[Int]) {\n  Fiber.scope(|| {\n    db = Fiber.semaphore(10)\n    Fiber.map(ids, |id| db.with_permit(|| load(id)))\n  })\n}\n\nfn weighted(s: Semaphore, n: Int) {\n  s.with_permits(n, || load(n))\n}\n\nfn tried(s: Semaphore) {\n  s.try_with_permit(|| load(1))\n}\n\nfn tried_n(s: Semaphore) {\n  s.try_with_permits(2, || 1)\n}\n\nfn counted(s: Semaphore) {\n  s.available()\n}\n\nfn run(jobs: List[Job]) {\n  Fiber.scope(|| {\n    q = Fiber.queue(100)\n    Fiber.fork(|| {\n      jobs.each(|job| q.offer(job))\n      q.close()\n    })\n    work(q)\n  })\n}\n\nfn work(q: Queue[Job]) {\n  next = Some(q.take()) escape {\n    QueueClosed -> None\n  }\n  next match {\n    Some(job) -> work(q)\n    None -> ()\n  }\n}\n\nfn taken(q: Queue[Job]) {\n  q.take()\n}\n\nfn others(q: Queue[Job]) {\n  (q.try_offer(Job(id: 1)), q.poll(), q.size())\n}\n\nfn query(sql: String) -> List[String] {\n  [sql]\n}\n\nfn spec_11_9(sql: String) {\n  Fiber.scope(|| {\n    db = Fiber.semaphore(10) # Semaphore, belongs to the scope\n    rows = db.with_permit(|| query(sql))\n    rows\n  })\n}\n\nfn spec_11_10(job: Job) {\n  Fiber.scope(|| {\n    q = Fiber.queue(100) # Queue[A], belongs to the scope\n    q.offer(job)\n    taken = q.take()\n    taken\n  })\n}\n\"#)"
+---
+load: fn(Int) -> User fails NotFound uses { Users }
+  id: Int
+load_all: fn(List[Int]) -> List[User] fails NotFound uses { Async, Users }
+  ids: List[Int]
+  db: Semaphore
+  id: Int
+weighted: fn(Semaphore, Int) -> User fails NotFound uses { Async, Users }
+  s: Semaphore
+  n: Int
+tried: fn(Semaphore) -> Option[User] fails NotFound uses { Users }
+  s: Semaphore
+tried_n: fn(Semaphore) -> Option[Int]
+  s: Semaphore
+counted: fn(Semaphore) -> Int
+  s: Semaphore
+run: fn(List[Job]) -> () fails QueueClosed uses { Async }
+  jobs: List[Job]
+  q: Queue[Job]
+  job: Job
+work: fn(Queue[Job]) -> () uses { Async }
+  q: Queue[Job]
+  next: Option[Job]
+  job: Job
+taken: fn(Queue[Job]) -> Job fails QueueClosed uses { Async }
+  q: Queue[Job]
+others: fn(Queue[Job]) -> (Bool, Option[Job], Int)
+  q: Queue[Job]
+query: fn(String) -> List[String]
+  sql: String
+spec_11_9: fn(String) -> List[String] uses { Async }
+  sql: String
+  db: Semaphore
+  rows: List[String]
+spec_11_10: fn(Job) -> Job fails QueueClosed uses { Async }
+  job: Job
+  q: Queue[Job]
+  taken: Job

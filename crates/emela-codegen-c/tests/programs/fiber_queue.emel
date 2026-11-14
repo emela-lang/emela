@@ -13,7 +13,9 @@ handler Ticks: Tick {
 }
 
 fn spin(n: Int) -> () uses { Tick } {
-  if n == 0 { () } else {
+  if n == 0 {
+    ()
+  } else {
     (use Tick).tick()
     spin(n - 1)
   }
@@ -32,7 +34,7 @@ fn drain[A](q: Queue[A], acc: List[A]) -> List[A] uses { Async } {
   }
   next match {
     Some(x) -> drain(q, [x, ..acc])
-    None -> acc.reverse()
+    None    -> acc.reverse()
   }
 }
 
@@ -146,10 +148,16 @@ fn main() -> () fails QueueClosed uses { Async } {
     })
 
     # Defects.
-    dbg(show(Exit.attempt(|| Fiber.scope(|| {
-      q: Queue[Int] = Fiber.queue(0)
-      q.size()
-    }))))
+    dbg(
+      show(
+        Exit.attempt(
+          || Fiber.scope(|| {
+            q: Queue[Int] = Fiber.queue(0)
+            q.size()
+          }),
+        ),
+      ),
+    )
     later = Fiber.scope(|| {
       q = Fiber.queue(1)
       || q.try_offer(1)

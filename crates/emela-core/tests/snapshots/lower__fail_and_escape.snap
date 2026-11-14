@@ -66,6 +66,10 @@ error enum Std.FileSystem.FileSystemFailure {
   FileSystemFailure(path: String, message: String)
 }
 
+error enum Std.Queue.QueueClosed {
+  QueueClosed
+}
+
 export fn main() -> Int fails {
   let a%1: Int = {
     find(1)?

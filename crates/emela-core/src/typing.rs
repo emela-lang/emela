@@ -362,9 +362,7 @@ impl<'a> Typer<'a> {
             // `Fiber.scope(body: fn(scope) -> A) -> A`.
             FiberOp::Scope { .. } => self.fn_ret(first),
             // Handles whose types differ per use (`Type::Any`).
-            FiberOp::Fork | FiberOp::Deferred | FiberOp::Semaphore | FiberOp::Queue => {
-                TypeId::ANY
-            }
+            FiberOp::Fork | FiberOp::Deferred | FiberOp::Semaphore | FiberOp::Queue => TypeId::ANY,
             // `Fiber[A] -> A`, `Deferred[A] -> A`.
             FiberOp::Join | FiberOp::DeferredAwait => self.enum_arg(first, 0),
             // `Fiber[A] -> Exit[A, {}]`.

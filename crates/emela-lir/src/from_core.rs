@@ -1271,9 +1271,7 @@ impl<'s> Lower<'s> {
         };
         match op {
             FiberOp::Scope { .. } => fn_ret(self, first),
-            FiberOp::Fork | FiberOp::Deferred | FiberOp::Semaphore | FiberOp::Queue => {
-                TypeId::ANY
-            }
+            FiberOp::Fork | FiberOp::Deferred | FiberOp::Semaphore | FiberOp::Queue => TypeId::ANY,
             FiberOp::Join | FiberOp::DeferredAwait => enum_arg(self, first),
             FiberOp::Await { exit } => {
                 let a = enum_arg(self, first);

@@ -8,12 +8,27 @@ raise: ∀ A, E. fn(Cause[E]) -> A fails E
 complete: ∀ A. fn(Deferred[A], A) -> Bool
 await: ∀ A. fn(Deferred[A]) -> A uses { Async }
 poll: ∀ A. fn(Deferred[A]) -> Option[A]
+with_permit: ∀ A, E, R. fn(Semaphore, fn() -> A fails E uses { R }) -> A fails E uses { Async, R }
+with_permits: ∀ A, E, R. fn(Semaphore, Int, fn() -> A fails E uses { R }) -> A fails E uses { Async, R }
+try_with_permit: ∀ A, E, R. fn(Semaphore, fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }
+try_with_permits: ∀ A, E, R. fn(Semaphore, Int, fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }
+available: fn(Semaphore) -> Int
+offer: ∀ A. fn(Queue[A], A) -> () fails QueueClosed uses { Async }
+take: ∀ A. fn(Queue[A]) -> A fails QueueClosed uses { Async }
+try_offer: ∀ A. fn(Queue[A], A) -> Bool
+poll: ∀ A. fn(Queue[A]) -> Option[A]
+size: ∀ A. fn(Queue[A]) -> Int
+close: ∀ A. fn(Queue[A]) -> ()
 attempt: ∀ A, E, R. fn(fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }
 fork: ∀ E, R, A. fn(fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
 deferred: ∀ E, R, A. fn() -> Deferred[A]
+semaphore: ∀ E, R. fn(Int) -> Semaphore
+queue: ∀ E, R, A. fn(Int) -> Queue[A]
 scope: ∀ A, E, R. fn(fn() -> A fails E uses { Async, Scope[E, R], R }) -> A fails E uses { Async, R }
 fork: ∀ A, E, R. fn(fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A] uses { Scope[E, R] }
 deferred: ∀ A, E, R. fn() -> Deferred[A] uses { Scope[E, R] }
+semaphore: ∀ E, R. fn(Int) -> Semaphore uses { Scope[E, R] }
+queue: ∀ A, E, R. fn(Int) -> Queue[A] uses { Scope[E, R] }
 join: ∀ A. fn(Fiber[A]) -> A uses { Async }
 await: ∀ A. fn(Fiber[A]) -> Exit[A, {}] uses { Async }
 interrupt: ∀ A. fn(Fiber[A]) -> () uses { Async }

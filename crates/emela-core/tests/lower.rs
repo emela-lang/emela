@@ -819,6 +819,59 @@ fn main() -> Int uses { Log, Async } {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
+/// `with_permits` is a `with` whose init waits for the permits and whose release gives them back
+/// (`[fiber.semaphore]`); `try_with_permits` takes them first and wraps the value in `Some`.
+/// `offer` and `take` turn a closed queue into the failure `QueueClosed` (`[fiber.queue]`).
+#[test]
+fn semaphore_and_queue() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+import Std.Fiber.{Fiber, Scope}
+import Std.Semaphore.{Semaphore}
+import Std.Queue.{Queue, QueueClosed}
+
+effect Log { fn info(msg: String) -> () }
+
+fn limited(s: Semaphore) -> Int uses { Log, Async } {
+  s.with_permits(2, || {
+    (use Log).info(\"in\")
+    1
+  })
+}
+
+fn tried(s: Semaphore) -> Option[Int] {
+  s.try_with_permits(1, || s.available())
+}
+
+fn passed(q: Queue[String]) -> String fails QueueClosed uses { Async } {
+  q.offer(\"x\")
+  q.take()
+}
+
+fn main() -> Int fails QueueClosed uses { Log, Async } {
+  Fiber.scope(|| {
+    s = Fiber.semaphore(2)
+    q = Fiber.queue(1)
+    passed(q)
+    tried(s)
+    limited(s)
+  })
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| {
+            ["limited(", "tried(", "passed("]
+                .iter()
+                .any(|k| f.contains(k))
+        })
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}
+
 /// External functions (spec chapter 12). A module that names a file is rewritten to a path next to
 /// the source.
 #[test]

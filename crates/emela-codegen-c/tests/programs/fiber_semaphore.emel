@@ -15,7 +15,9 @@ handler Ticks: Tick {
 }
 
 fn spin(n: Int) -> () uses { Tick } {
-  if n == 0 { () } else {
+  if n == 0 {
+    ()
+  } else {
     (use Tick).tick()
     spin(n - 1)
   }
@@ -52,14 +54,13 @@ fn main() -> () uses { Async } {
     Fiber.scope(|| {
       s = Fiber.semaphore(3)
       gate = Fiber.deferred()
-      a = Fiber.fork(|| s.with_permits(
-        2,
-        || {
+      a = Fiber.fork(
+        || s.with_permits(2, || {
           dbg("a holds 2")
           gate.await()
           dbg("a gives 2 back")
-        },
-      ))
+        }),
+      )
       b = Fiber.fork(|| s.with_permits(3, || dbg("b holds 3")))
       c = Fiber.fork(|| s.with_permit(|| dbg("c holds 1")))
       d = Fiber.fork(|| {
@@ -92,10 +93,12 @@ fn main() -> () uses { Async } {
       dbg(show(Exit.attempt(|| s.with_permit(|| panic("broken")))))
       dbg("after a defect: #{s.available()} free")
       started = Fiber.deferred()
-      h = Fiber.fork(|| s.with_permit(|| {
-        started.complete(())
-        spin(100000)
-      }))
+      h = Fiber.fork(
+        || s.with_permit(|| {
+          started.complete(())
+          spin(100000)
+        }),
+      )
       started.await()
       dbg("held: #{s.available()} free")
       Fiber.interrupt(h)
@@ -119,26 +122,56 @@ fn main() -> () uses { Async } {
     })
 
     # Defects.
-    dbg(show(Exit.attempt(|| Fiber.scope(|| {
-      Fiber.semaphore(0)
-      ()
-    }))))
-    dbg(show(Exit.attempt(|| Fiber.scope(|| {
-      s = Fiber.semaphore(3)
-      s.with_permits(0, || ())
-    }))))
-    dbg(show(Exit.attempt(|| Fiber.scope(|| {
-      s = Fiber.semaphore(3)
-      s.with_permits(4, || ())
-    }))))
-    dbg(show(Exit.attempt(|| Fiber.scope(|| {
-      s = Fiber.semaphore(3)
-      s.try_with_permits(-1, || ())
-    }))))
-    dbg(show(Exit.attempt(|| Fiber.scope(|| {
-      s = Fiber.semaphore(3)
-      s.try_with_permits(5, || ())
-    }))))
+    dbg(
+      show(
+        Exit.attempt(
+          || Fiber.scope(|| {
+            Fiber.semaphore(0)
+            ()
+          }),
+        ),
+      ),
+    )
+    dbg(
+      show(
+        Exit.attempt(
+          || Fiber.scope(|| {
+            s = Fiber.semaphore(3)
+            s.with_permits(0, || ())
+          }),
+        ),
+      ),
+    )
+    dbg(
+      show(
+        Exit.attempt(
+          || Fiber.scope(|| {
+            s = Fiber.semaphore(3)
+            s.with_permits(4, || ())
+          }),
+        ),
+      ),
+    )
+    dbg(
+      show(
+        Exit.attempt(
+          || Fiber.scope(|| {
+            s = Fiber.semaphore(3)
+            s.try_with_permits(-1, || ())
+          }),
+        ),
+      ),
+    )
+    dbg(
+      show(
+        Exit.attempt(
+          || Fiber.scope(|| {
+            s = Fiber.semaphore(3)
+            s.try_with_permits(5, || ())
+          }),
+        ),
+      ),
+    )
     later = Fiber.scope(|| {
       s = Fiber.semaphore(1)
       || s.available()

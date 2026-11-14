@@ -1,13 +1,21 @@
 ---
 source: crates/emela-types/tests/fiber.rs
-expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nfn handle() {\n  Fiber.scope(|| Fiber.fork(|| 1))\n}\n\nfn optional() {\n  Fiber.scope(|| Some(Fiber.fork(|| 1)))\n}\n\nfn deferred() {\n  Fiber.scope(|| (Fiber.deferred(), 1))\n}\n\nfn joined() {\n  Fiber.scope(|| Fiber.join(Fiber.fork(|| 1)))\n}\n\nfn piped() {\n  (|| Fiber.fork(|| 1)) |> Fiber.scope()\n}\n\"#)"
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\nimport Std.Queue.{Queue}\n\nfn handle() {\n  Fiber.scope(|| Fiber.fork(|| 1))\n}\n\nfn optional() {\n  Fiber.scope(|| Some(Fiber.fork(|| 1)))\n}\n\nfn deferred() {\n  Fiber.scope(|| (Fiber.deferred(), 1))\n}\n\nfn joined() {\n  Fiber.scope(|| Fiber.join(Fiber.fork(|| 1)))\n}\n\nfn piped() {\n  (|| Fiber.fork(|| 1)) |> Fiber.scope()\n}\n\nfn semaphore() {\n  Fiber.scope(|| Fiber.semaphore(2))\n}\n\nfn queue() {\n  Fiber.scope(|| {\n    q: Queue[Int] = Fiber.queue(1)\n    [q]\n  })\n}\n\"#)"
 ---
 handle: fn() -> Fiber[Int] uses { Async }
 optional: fn() -> Option[Fiber[Int]] uses { Async }
 deferred: ∀ A. fn() -> (Deferred[A], Int) uses { Async }
 joined: fn() -> Int uses { Async }
 piped: fn() -> Fiber[Int] uses { Async }
+semaphore: fn() -> Semaphore uses { Async }
+queue: fn() -> List[Queue[Int]] uses { Async }
+  q: Queue[Int]
 `Fiber.scope(|| Fiber.fork(|| 1))` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
 `Fiber.scope(|| Some(Fiber.fork(|| 1)))` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
 `Fiber.scope(|| (Fiber.deferred(), 1))` EscapingFromScope { ty: "Deferred", scope: "Fiber.scope" }
 `(|| Fiber.fork(|| 1)) |> Fiber.scope()` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
+`Fiber.scope(|| Fiber.semaphore(2))` EscapingFromScope { ty: "Semaphore", scope: "Fiber.scope" }
+`Fiber.scope(|| {
+    q: Queue[Int] = Fiber.queue(1)
+    [q]
+  })` EscapingFromScope { ty: "Queue", scope: "Fiber.scope" }

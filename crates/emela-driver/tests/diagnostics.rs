@@ -2091,3 +2091,29 @@ fn undeclared() {
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
+
+/// A Semaphore or a Queue in the value of `Fiber.scope` is E0425, named by its type
+/// (`[fiber.escape]`).
+#[test]
+fn semaphore_and_queue_cannot_leave_the_scope() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"import Std.Fiber.{Fiber}
+import Std.Queue.{Queue}
+
+fn semaphore() {
+  Fiber.scope(|| Fiber.semaphore(2))
+}
+
+fn queue() -> Option[Queue[Int]] uses { Async } {
+  Fiber.scope(|| Some(Fiber.queue(1)))
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}

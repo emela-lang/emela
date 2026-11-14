@@ -37,7 +37,7 @@ export suspend fn main(ev%0: ref (evidence)) -> i32 (Int) {
     t%18: i32 (Int) = fiber join(a%17)!
     return t%18
   }
-  f%31: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%20: ref (fiber_scope)) [ev%0, f%19] {
+  f%37: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%20: ref (fiber_scope)) [ev%0, f%19] {
     f%25: ref (fn(fn(evidence) -> any suspends) -> any) = closure(g%21: ref (fn(evidence) -> any suspends)) [ev%0, s%20] {
       f%23: ref (fn() -> any suspends) = suspend closure() [g%21, ev%0] {
         t%22: ref (any) = call_indirect g%21(ev%0)!
@@ -50,11 +50,19 @@ export suspend fn main(ev%0: ref (evidence)) -> i32 (Int) {
       t%26: ref (any) = fiber deferred(s%20)
       return t%26
     }
-    scope%28: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%25, deferred: f%27 }
-    t%29: ref (evidence) = ev_extend(ev%0, [Std.Fiber.Scope[_, _]: scope%28])
-    t%30: i32 (Int) = call_indirect f%19(t%29)!
-    return t%30
+    f%30: ref (fn(Int) -> any) = closure(permits%28: i32 (Int)) [s%20] {
+      t%29: ref (any) = fiber semaphore(s%20, permits%28)
+      return t%29
+    }
+    f%33: ref (fn(Int) -> any) = closure(capacity%31: i32 (Int)) [s%20] {
+      t%32: ref (any) = fiber queue(s%20, capacity%31)
+      return t%32
+    }
+    scope%34: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%25, deferred: f%27, semaphore: f%30, queue: f%33 }
+    t%35: ref (evidence) = ev_extend(ev%0, [Std.Fiber.Scope[_, _]: scope%34])
+    t%36: i32 (Int) = call_indirect f%19(t%35)!
+    return t%36
   }
-  t%32: i32 (Int) = fiber scope(f%31)!
-  return t%32
+  t%38: i32 (Int) = fiber scope(f%37)!
+  return t%38
 }

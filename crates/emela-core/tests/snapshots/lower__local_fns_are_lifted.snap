@@ -150,6 +150,16 @@ enum Std.Cause.CauseKind {
 external enum Std.Deferred.Deferred[A] {
 }
 
+external enum Std.Semaphore.Semaphore {
+}
+
+external enum Std.Queue.Queue[A] {
+}
+
+error enum Std.Queue.QueueClosed {
+  QueueClosed
+}
+
 enum Std.Exit.Exit[A, B] {
   Success(A)
   Failure(Std.Cause.Cause[{B}])
