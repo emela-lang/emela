@@ -47,7 +47,7 @@ fn main() {
 }
 "#,
         13558,
-        0xab23_5996_96ef_6738,
+        0x585f_4ec3_0e56_9f50,
     ),
     (
         "lists_enums_strings",
@@ -82,7 +82,7 @@ fn main() {
 }
 "#,
         23769,
-        0xcfca_6c10_3b59_b5ee,
+        0x6ea0_0f3a_7db7_1192,
     ),
     (
         "floats",
@@ -97,7 +97,7 @@ fn main() {
 }
 "#,
         22830,
-        0xe050_adca_cd15_402f,
+        0xdf72_723a_0ee1_6657,
     ),
     (
         "platform_console",
@@ -111,8 +111,8 @@ fn main() {
   }
 }
 "#,
-        50320,
-        0x5f5a_837f_0f69_d2c4,
+        50412,
+        0x8aaf_3110_2f56_ae0b,
     ),
     (
         "state_and_options",
@@ -132,7 +132,7 @@ fn main() {
 }
 "#,
         15757,
-        0x817a_7ee0_a675_c756,
+        0x05e4_bc70_4e6a_02f6,
     ),
     (
         "numeric",
@@ -159,7 +159,7 @@ fn main() {
 }
 "#,
         13845,
-        0xef40_de7f_9162_c6a8,
+        0x8e04_2090_f676_0f48,
     ),
 ];
 
@@ -179,7 +179,7 @@ pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
     13643,
-    0x03f8_e970_cc43_4228,
+    0xd2e2_1852_747a_3f88,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new

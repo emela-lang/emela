@@ -1,7 +1,7 @@
 ---
 title: Stdout and Stderr in Std.Process, the output streams of the process
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 566
 issue: 582
 decided: 2026-11-15
@@ -260,7 +260,7 @@ Mark #45 as decided:
 
 ## Diagnostics
 
-- [ ] No new diagnostics.
+- [x] No new diagnostics.
 
 ## Compatibility
 

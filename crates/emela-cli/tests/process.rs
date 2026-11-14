@@ -5,8 +5,7 @@
 //! JS always runs. C runs when the C compiler starts (`EMELA_CC` or `cc`), and WASM when wasmtime
 //! 49 or later starts (`EMELA_WASMTIME` or `wasmtime`); otherwise they are skipped with a message.
 //! SystemStdin is not available on WASM yet (`[target.wasm.external]`), so standard input is
-//! checked on JS and C. Stdout and Stderr are checked on every target, except a closed standard
-//! output, which is checked on JS and C.
+//! checked on JS and C. Stdout and Stderr are checked on every target.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
@@ -518,7 +517,7 @@ fn run_until_stdout_closes(
 #[test]
 fn a_closed_stdout_ends_the_program_with_141() {
     let project = Project::new("closed-stdout", include_str!("process/closed_stdout.emel"));
-    for target in js_and_native() {
+    for target in every_target() {
         let built = project.run(&["build", "--target", target], b"");
         assert!(built.status.success(), "{target}: {}", text(&built.stderr));
         for how in ["stdout", "console"] {
@@ -546,7 +545,7 @@ fn a_closed_stdout_is_not_caught_by_attempt() {
         ),
     ] {
         let project = Project::new(name, source);
-        for target in js_and_native() {
+        for target in every_target() {
             let built = project.run(&["build", "--target", target], b"");
             assert!(
                 built.status.success(),
