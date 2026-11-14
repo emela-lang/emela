@@ -14,12 +14,12 @@ related: []
 
 ## Summary
 
-プロセスに属するものを置くモジュール `Std.Process` を std の platform 層に作り，まず 2 つの effect を置く．
+Add a module `Std.Process` to the platform layer of std, for what belongs to the process, and put two effects in it first.
 
-- `Args`: プロセスに渡された引数を読む．位置で 1 つ取る `get(index)` と，全部を `List[String]` で返す `list()`．プログラム名は含めない
-- `Stdin`: 標準入力を読む．1 行ずつ読む `read_line` と，残りを全部読む `read_text`．どちらも `suspend fn`
+- `Args`: reads the arguments given to the process. `get(index)` takes one by position, and `list()` returns all of them as a `List[String]`. The name of the program is not included
+- `Stdin`: reads standard input. `read_line` reads one line, and `read_text` reads all the rest. Both are `suspend fn`
 
-system handler `SystemArgs` と `SystemStdin` は `Platform` に入れる．テスト用に `State[StdinLines]` から読む `TestStdin` を置く．`Args` のテスト用 handler は置かない．`Console` は変えない（`Stdout` と `Stderr` は別の提案 stdout-stderr，終了コードの型 `ExitCode` は別の提案 exit-code で，どちらもこのモジュールに足す）．
+The system handlers `SystemArgs` and `SystemStdin` are added to `Platform`. For tests, `TestStdin` reads from `State[StdinLines]`. There is no test handler for `Args`. `Console` does not change (`Stdout` and `Stderr` are added to this module by the separate proposal stdout-stderr, and the exit code type `ExitCode` by the separate proposal exit-code).
 
 ```emel
 import Std.Console.{Console}
@@ -49,11 +49,11 @@ fn main() {
 
 ## Motivation
 
-- 今の Emela のプログラムは外から入力を受け取れない．`emela run` は `--` の後の引数を渡し，標準入力を引き継ぐ（`[cmd.build]`，`[target.c.run]`，`[target.wasm.run]`）が，プログラムの中から読む API がない．atlas の移植メモにも「argv も stdin も無い．入力は定数で埋め込むしかない」とある
-- CLI ツールを書くには，まず引数が要る．引数の解析（フラグ，サブコマンド，usage の表示）は Pome のライブラリに任せるとして，その材料になる `List[String]` を受け取る手段は std が持つ必要がある
-- CLI ツールの多くはパイプの途中に置かれる（`cat data.json | tool`，`git diff | tool`）．標準入力を読めないと，入力はファイルのパスを引数で受けて `Std.FileSystem` で読むしかない
-- 対話的なプログラム（REPL，確認プロンプト）も書けない
-- 回避策は Pome が `@external` で `process.argv` や `node:readline` を呼ぶこと．JS でしか動かず，使う側は `[external]` で許可が要る（`[module.pome]`）．`[ext.decl]` は「多くのプログラムが使う host の機能は std に platform effect として足す」としている
+- An Emela program cannot take input from outside today. `emela run` passes the arguments after `--` and lets the program inherit standard input (`[cmd.build]`, `[target.c.run]`, `[target.wasm.run]`), but there is no API to read them inside the program. Notes from porting programs to Emela record: "there is no argv and no stdin; input can only be embedded as constants"
+- A CLI tool needs its arguments first. Parsing them (flags, subcommands, printing usage) can be left to a library in a Pome, but std has to provide the means to receive the `List[String]` that such a library works on
+- Many CLI tools sit in the middle of a pipe (`cat data.json | tool`, `git diff | tool`). Without reading standard input, the only way to get input is to take a file path as an argument and read it with `Std.FileSystem`
+- Interactive programs (a REPL, a confirmation prompt) cannot be written either
+- The workaround is a Pome that calls `process.argv` or `node:readline` through `@external`. It works only on JS, and its users have to allow it in `[external]` (`[module.pome]`). `[ext.decl]` says that a host feature that many programs use is added to std as a platform effect
 
 ## Proposal
 
@@ -82,42 +82,42 @@ pub type StdinLines(lines: List[String])
 pub handler TestStdin: Stdin
 ```
 
-#### モジュール
+#### The module
 
-- `Std.Process` は，プロセスが 1 つずつ持つもの（引数，標準入力，後の提案で標準出力，標準エラー，終了コード）を置くモジュール
-- 今の std は「effect ごとに同じ名前のモジュール」（`Std.Clock.Clock`）だが，`Std.Process` は複数の effect を 1 つのモジュールに置く．system handler とテスト用 handler は，今と同じく effect と同じモジュールに置く
+- `Std.Process` is the module for what the process has exactly one of (its arguments and its standard input, and, in later proposals, its standard output, its standard error and its exit code)
+- In std today, each effect has a module of the same name (`Std.Clock.Clock`). `Std.Process` puts several effects in one module. System handlers and test handlers are placed in the same module as their effect, as now
 
 #### Args
 
-- `list` は，プロセスに渡された引数を渡された順に返す．プログラム名（host の実行ファイル，`main.mjs`，`main.wasm`，C の `argv[0]`）は含めない．引数がなければ `[]`
-- `get(index)` は `list` の `index` 番目（0 始まり）を返す．範囲外（負の数を含む）は `None`（`[lib.api-rules]` の「範囲外は Option」）
-- 呼ぶたびに同じ結果を返す．起動後に変わることはない
-- 各ターゲットで返すもの:
-  - `emela run`: `--` の後に書いた引数（全ターゲット）
-  - C: 実行ファイル `main` を直接起動したときは `argv[1]` 以降
-  - JS: runtime の launcher が runtime に渡した引数
-  - WASM: `wasi:cli/environment@0.3.0` の `get-arguments` から先頭の 1 つ（プログラム名）を除いたもの
-  - HTTP サービス: `[]`（`emela run` が `--` の後の引数を host に渡す形なので，プログラムには届かない）
-- UTF-8 として正しくない引数（C と，POSIX の JS host で起こりうる）は，正しくない部分を U+FFFD に置き換える．fail はしない．理由は Alternatives
-- `emela test` の中では `[]`．テストランナーが実行ファイルに渡す引数（テストの選択など）は見えない
-- `SystemArgs` は Async を要求しない．状態を持たない
-- テスト用 handler は置かない．`get` と `list` の 2 行で自分で書ける（`Std.Env` に `TestEnv` がないのと同じ扱い）
+- `list` returns the arguments given to the process, in the order given. The name of the program (the host's executable, `main.mjs`, `main.wasm`, `argv[0]` on C) is not included. Without arguments it is `[]`
+- `get(index)` returns the element of `list` at `index` (from 0). Out of range (including a negative index) is `None` (out of range is an Option, `[lib.api-rules]`)
+- Every call returns the same result. It does not change after the program starts
+- What each target returns:
+  - `emela run`: the arguments written after `--` (every target)
+  - C: `argv[1]` and after, when the executable `main` is started directly
+  - JS: the arguments that the runtime's launcher passes to the runtime
+  - WASM: the result of `get-arguments` of `wasi:cli/environment@0.3.0` without its first element (the name of the program)
+  - An HTTP service: `[]` (`emela run` passes the arguments after `--` to the host, so they do not reach the program)
+- An argument that is not valid UTF-8 (possible on C and on JS hosts on POSIX) has its invalid parts replaced with U+FFFD. It does not fail. The reasons are in Alternatives
+- Under `emela test` it is `[]`. The arguments that the test runner passes to the executable (to select tests, for example) are not visible
+- `SystemArgs` does not require Async. It has no state
+- There is no test handler. One can be written in two lines, `get` and `list` (as `Std.Env` has no `TestEnv`)
 
 #### Stdin
 
-- `read_line` は次の行を返す．行末の `\n` と，その直前の `\r` は含めない．最後の行に `\n` がなくても 1 行として返す．入力が尽きていれば `None`．`None` を返した後も，呼ぶたびに `None`
-- `read_text` は残りの入力を全部返す．改行はそのまま含む．尽きていれば `""`
-- 2 つは同じ位置を共有する．`read_line` の後の `read_text` はその続きを返す
-- 行（`read_text` なら残り全部）が UTF-8 として正しくなければ，その行を消費したうえで `InvalidInput` で fail する．置換文字には置き換えない（`[api.std.bytes]`，`[api.std.file-system]` の `InvalidText` と同じ方針）．次の `read_line` は次の行から読む
-- host から読めなかったときは `StdinFailure(message)`．`message` は host の文
-- 待っている fiber が中断されたら，読み込みは取り消される．host から受け取り済みの入力は捨てずに残し，次の読み込みが返す．行が失われることはない．行に切り分けるために runtime はもともと受け取った入力をバッファに持つので，残しても手間は増えない
-- `SystemStdin` は Async を要求する（`Platform` はすでに要求している）．他の fiber は入力を待つ間も動く
-- `emela test` では標準入力をプログラムに渡さない（`[cmd.test.output]`）．`SystemStdin` は空の入力を読む（`read_line` は `None`，`read_text` は `""`）
-- WASM ではこの提案の範囲外．runtime に host の stream を待つ仕組みが要り，`SystemClock.sleep` が WASM で動かないのと同じ理由（Implementation）
+- `read_line` returns the next line. The `\n` at the end of the line, and a `\r` immediately before it, are not included. A last line without `\n` is still returned as a line. When the input is exhausted it returns `None`, and after returning `None` it returns `None` on every call
+- `read_text` returns all the rest of the input, line terminators included. When the input is exhausted it returns `""`
+- The two share one position. `read_text` after `read_line` returns what follows
+- When a line (for `read_text`, all the rest) is not valid UTF-8, it is consumed and the operation fails with `InvalidInput`. It is not replaced with the replacement character (the same policy as `[api.std.bytes]` and `InvalidText` of `[api.std.file-system]`). The next `read_line` reads from the following line
+- When the host cannot read, it is `StdinFailure(message)`. `message` is the host's text
+- When the waiting fiber is interrupted, the read is canceled. Input already received from the host is kept, not discarded, and the next read returns it. No line is lost. The runtime keeps received input in a buffer anyway to split it into lines, so keeping it costs nothing more
+- `SystemStdin` requires Async (`Platform` already requires it). Other fibers run while it waits for input
+- `emela test` does not pass standard input to the program (`[cmd.test.output]`). `SystemStdin` reads an empty input (`read_line` is `None`, `read_text` is `""`)
+- WASM is out of the scope of this proposal. The runtime needs a way to wait for a host stream, which is also why `SystemClock.sleep` does not work on WASM (Implementation)
 
-### テスト
+### Tests
 
-`TestStdin` は `State[StdinLines]` の先頭から 1 行ずつ取り出す．`TestConsole` が `State[List[String]]` を使うので，型を分けるために `StdinLines` で包む（`[effect.state]`）．名前はストリームの名前を頭に付ける形で，stdout-stderr の提案の `StdoutText`，`StderrText` と揃える．`State.run` の最後の状態は，読まれなかった行になる．
+`TestStdin` takes lines one by one from the front of `State[StdinLines]`. `TestConsole` uses `State[List[String]]`, so the lines are wrapped in `StdinLines` to keep the types apart (`[effect.state]`). The name is prefixed with the name of the stream, matching `StdoutText` and `StderrText` of the stdout-stderr proposal. The final state of `State.run` is the lines not read.
 
 ```emel
 import Std.Console.{TestConsole}
@@ -134,12 +134,12 @@ fn quotes_each_line() {
 }
 ```
 
-- `TestStdin` の `read_text` は残りの行を `\n` でつなぎ，状態を空にする．`InvalidInput` と `StdinFailure` は出さない
-- 試作: `Stdin`，`StdinLines`，`TestStdin` をユーザーのモジュールとして書き，`emela check` と `emela test` が通ることを確かめた．`Args`（`get` と `list`）と自前の handler `FixedArgs` で Summary の `main` の形が `emela check`，`emela run`，`emela fmt` を通ることも確かめた（0.x，2026-11-14）
+- `read_text` of `TestStdin` joins the remaining lines with `\n` and empties the state. It does not raise `InvalidInput` or `StdinFailure`
+- Prototype: `Stdin`, `StdinLines` and `TestStdin` were written as a user module, and `emela check` and `emela test` pass. With `Args` (`get` and `list`) and a handler `FixedArgs` written by hand, the form of `main` in the Summary passes `emela check`, `emela run` and `emela fmt` (0.x, 2026-11-14)
 
 ### Typing rules
 
-新しい規則はない．`Args` と `Stdin` はふつうのユーザー定義 effect と同じ規則で型付けされる．
+No new rules. `Args` and `Stdin` are typed by the same rules as an ordinary user-defined effect.
 
 ## Specification changes
 
@@ -254,87 +254,89 @@ The last item becomes:
 
 ## Diagnostics
 
-- [ ] 新しい診断はない．WASM で `SystemStdin` の操作に到達すると，既存の E0412 になる（`[lib.layers]`）
+- [ ] No new diagnostics. Reaching an operation of `SystemStdin` on WASM is the existing E0412 (`[lib.layers]`)
 
 ## Compatibility
 
-- 既存のプログラムは変わらない．`Console` も変えない
-- `Platform` に `SystemArgs` と `SystemStdin` が増える．`with Platform, MyStdin { ... }` のような置き換えは新しくできるようになるだけ．`Platform` と同じ with に自分で `Args` や `Stdin` の handler を並べていたプログラムは，後に書いた方が優先されるので挙動は変わらない
-- ユーザーが自分の `Std.Process` というモジュールを持つことはできない（`Std` の下なので，`[lib.layers]`）．ユーザーの `process.emel` とはぶつからない
-- 後続の stdout-stderr と exit-code は，このモジュールに `Stdout`，`Stderr`，`ExitCode` を足す．どちらが先に採択されても `[api.std.process]` の表に行を足す形にする
-- JS で launcher を通さずに起動する方法（`node main.mjs a b`）は，今の仕様にもなく，この提案でも扱わない
+- Existing programs do not change. `Console` does not change either
+- `Platform` gains `SystemArgs` and `SystemStdin`. A replacement such as `with Platform, MyStdin { ... }` merely becomes possible. A program that already listed its own handler of `Args` or `Stdin` in the same with as `Platform` keeps its behavior, because the one written later takes precedence
+- A user cannot have a module of their own named `Std.Process` (it is under `Std`, `[lib.layers]`). It does not conflict with a user's `process.emel`
+- The following proposals stdout-stderr and exit-code add `Stdout`, `Stderr` and `ExitCode` to this module. Whichever is adopted first, each adds rows to the table of `[api.std.process]`
+- Starting a JS program without the launcher (`node main.mjs a b`) is not in the specification today, and this proposal does not address it
 
 ## Implementation
 
 Args:
 
-- JS: launcher は `process.argv` のうち `--` の後の `main.mjs` より後ろを runtime に渡す．`process.argv` の先頭何個が host とスクリプトかは host と起動の仕方（`-e` かファイルか）で変わるので，runtime が `process.argv` を直接切り出さない
-- C: runtime の `main` が `argc` と `argv` を保存し，`SystemArgs` の最初の呼び出しで UTF-8 に直して（不正な部分を U+FFFD に置き換えて）リストを作る
-- WASM: `get-arguments` を 1 回だけ呼ぶ．import は `SystemArgs` の操作に到達したときだけ足す（`get-environment` と同じ interface）
-- JS host の多くは引数を自分で文字列にする．Node は不正なバイトを U+FFFD に置き換えるので，そのまま返せば C と揃う
+- JS: the launcher passes to the runtime the part of `process.argv` after `main.mjs`, which follows `--`. How many leading elements of `process.argv` are the host and the script depends on the host and on how it is started (`-e` or a file), so the runtime does not slice `process.argv` itself
+- C: the runtime's `main` saves `argc` and `argv`, and the first call to `SystemArgs` builds the list, decoding UTF-8 with the invalid parts replaced with U+FFFD
+- WASM: `get-arguments` is called once. The import is added only when an operation of `SystemArgs` is reached (the same interface as `get-environment`)
+- Most JS hosts turn arguments into strings themselves. Node replaces invalid bytes with U+FFFD, so returning them as they are matches C
 
 Stdin:
 
-- JS: `process.stdin` の `data` を runtime のバッファに貯め，`read_line` / `read_text` の待ちをそこから満たす．待ちがないときは `pause()` し，バッファが空でなくても `unref` 相当でイベントループを保たない．`Stdin` の操作に一度も到達しないプログラムは `process.stdin` に触らない（触ると TTY のときに終わらなくなる）．UTF-8 の検査は `TextDecoder("utf-8", { fatal: true })` を行ごとに使う
-- C: fd 0 を `em_on_readable` で待つ．epoll はふつうのファイルを登録できない（`EPERM`）ので，そのときは同期で読む（ふつうのファイルは待たずに読めるので，他の fiber を止めない）．U+0000 を含む行は `em_complete_string` で返せないので，runtime の内部の完了関数で長さ付きで返す（`[ext.c-host]` の公開 API は変えない）
-- WASM: `wasi:cli/stdin@0.3.0` の `read-via-stream` が使えるが，runtime が host の stream を待つ仕組みをまだ持たない（`SystemClock.sleep` と同じ理由）．この提案では入れない
+- JS: the `data` of `process.stdin` is accumulated in a buffer of the runtime, and waiting `read_line` / `read_text` are served from it. When nothing waits, the stream is paused (`pause()`), and even with a non-empty buffer it does not keep the event loop alive (the equivalent of `unref`). A program that never reaches an operation of `Stdin` does not touch `process.stdin` (touching it keeps the program from ending on a TTY). UTF-8 is checked with `TextDecoder("utf-8", { fatal: true })` per line
+- C: fd 0 is waited on with `em_on_readable`. epoll cannot register a regular file (`EPERM`), so in that case it is read synchronously (a regular file can be read without waiting, so other fibers are not stopped). A line that contains U+0000 cannot be returned with `em_complete_string`, so it is returned with its length through an internal completion function of the runtime (the public API of `[ext.c-host]` does not change)
+- WASM: `read-via-stream` of `wasi:cli/stdin@0.3.0` exists, but the runtime does not yet have a way to wait for a host stream (the same reason as `SystemClock.sleep`). This proposal does not add it
 
-テスト:
+Tests:
 
-- `emela test` で `Args.list` が `[]`，`Args.get(0)` が `None`，`read_line` が `None` を返すこと
-- `emela run -- a 'b c' ''` で `list` が `["a", "b c", ""]` を返し，`get(2)` が `Some("")`，`get(3)` と `get(-1)` が `None` を返すこと（JS，C，WASM）．Node と Bun の両方
-- C で不正な UTF-8 の引数が U+FFFD に置き換わること
-- JS と C で `\r\n`，最後の改行なし，不正 UTF-8 の後の行，`read_line` の後の `read_text`，中断の後に行が失われないこと
+- Under `emela test`, `Args.list` returns `[]`, `Args.get(0)` returns `None`, and `read_line` returns `None`
+- With `emela run -- a 'b c' ''`, `list` returns `["a", "b c", ""]`, `get(2)` returns `Some("")`, and `get(3)` and `get(-1)` return `None` (JS, C, WASM). On both Node and Bun
+- On C, an argument that is not valid UTF-8 has U+FFFD in place of the invalid parts
+- On JS and C: `\r\n`, a last line without a line terminator, the line after invalid UTF-8, `read_text` after `read_line`, and no line lost after an interruption
 
 ## Alternatives
 
-### モジュールと名前
+### The module and the names
 
-- 役割の名前（`Input`，`Output`，`Diagnostics`）にする．Workers やブラウザのように stdin や stdout を持たない host でも読みやすい．採らない理由:
-  - 一般的な語なので，ユーザーのコードの名前と import でぶつかりやすい
-  - この effect が約束しているのは，プロセスに渡されたストリームとしての振る舞い（EOF があり，パイプやリダイレクトでつなぎ替えられ，出力とは別に診断用の出口がある）．役割の名前ではその約束が見えない
-- effect ごとにモジュールを作る（`Std.Args`，`Std.Stdin`）．今の std の形に揃う．採らない理由: 引数，標準入出力，終了コードはどれもプロセスに 1 つずつあるもので，一緒に使われる．1 つのモジュールにまとめると探す場所が 1 つで済み，`import Std.Process.{Args, Stdin, Stdout}` と 1 行で書ける
-- `Console` のモジュールに入力を足す（`Console` と `ConsoleInput`）．入出力の名前が揃わない．`Console` は人に読ませる行の出力としてそのまま残し，プロセスのストリームとしての出力は stdout-stderr で `Std.Process` に `Stdout`，`Stderr` として足す
+- Name the effects by role (`Input`, `Output`, `Diagnostics`). They read well even on hosts without stdin or stdout, such as Workers and browsers. Not adopted because:
+  - they are common words, and collide by import with names in users' code
+  - what these effects promise is the behavior of the streams given to the process (an end of input, redirection and pipes, a separate exit for diagnostics apart from the output). A role name does not show that promise
+- One module per effect (`Std.Args`, `Std.Stdin`). It keeps the current shape of std. Not adopted because: the arguments, standard input and output and the exit code are each something the process has exactly one of, and they are used together. One module is one place to look, and one line imports them: `import Std.Process.{Args, Stdin, Stdout}`
+- Add input to the module of `Console` (`Console` and `ConsoleInput`). The names of input and output do not match. `Console` stays as it is, as the output of lines for people to read, and output as a stream of the process is added to `Std.Process` as `Stdout` and `Stderr` by stdout-stderr
 
 ### Args
 
-- `Std.Env` の `Env` に `fn args()` を足す．WASI でも環境変数と引数は同じ `wasi:cli/environment` にある．採らない理由: 既存の `Env` の handler を自分で書いているプログラムがすべて E0404 で壊れる．環境変数と引数を別々に差し替えられなくなる
-- `fn main(args: List[String])` にする．main から深いところまで引数を手で渡し回すことになる．`@entry` や HTTP サービスの入口とも形が揃わない．ホストに触るものは effect で受け取るという std の形からも外れる
-- プログラム名を先頭に含める．ターゲットごとに中身が違う（JS は host のパスかスクリプト，WASM は `main.wasm`，C は起動の仕方次第）ので，含めても移植できるプログラムでは使えない
-- 操作を 1 つにする（`list` だけ，または `get` だけ）．`list` だけだと「n 番目があれば」をリストのパターンで毎回書くことになり，`get` だけだと全部を解析ライブラリに渡すときに数を知る手段がない．`Env.get` と同じく位置で引けば `Option` が返る `get` と，全部を返す `list` の両方を持つ
-- 不正な UTF-8 の引数で fail する（`list() -> List[String] fails InvalidInput`）．Stdin とは揃うが，採らない理由:
-  - 引数は起動時に OS が渡す固定の値で，読み直しても変わらない．fail しても回復の手段がない
-  - 引数を読む場所は main の直後がほとんどで，そこで fail を扱わせると CLI のすべてに `escape` が要る
-  - WASI の `get-arguments` は `list<string>` で，host がすでに文字列にしている（wasmtime は不正な引数を渡せない）．Node も U+FFFD に置き換えてから渡す．C だけ fail させると，ターゲットで結果が変わる
-  - Stdin は「読んで書き戻す」フィルタに使われるので，黙って置き換えると入力が変わったことに気づけない．引数にはその使い方がない
-- Bytes のリストで返す（`List[Bytes]`）．パスに不正なバイトを含むファイルも扱えるが，Path の扱いを決めてから後の提案で扱う
-- テスト用 handler `TestArgs` を置く．自分で 1 行で書けるので置かない（`Std.Env` と同じ）
+- Add `fn args()` to `Env` of `Std.Env`. In WASI, environment variables and arguments are in the same `wasi:cli/environment`. Not adopted because: every program that writes its own handler of `Env` breaks with E0404, and environment variables and arguments could no longer be replaced separately
+- Make it `fn main(args: List[String])`. The arguments would have to be passed by hand from main down to where they are used. It does not match the shape of `@entry` and the entry of an HTTP service. It also departs from the shape of std, in which what touches the host is received through an effect
+- Include the name of the program first. Its contents differ by target (the host's path or the script on JS, `main.wasm` on WASM, depending on how it is started on C), so a portable program cannot use it
+- Have only one operation (only `list` or only `get`). With only `list`, "if there is an n-th one" has to be written with a list pattern each time. With only `get`, there is no way to know the count when passing everything to a parsing library. Both are kept: `get`, which looks up by position and returns an `Option` as `Env.get` does, and `list`, which returns everything
+- Fail on an argument that is not valid UTF-8 (`list() -> List[String] fails InvalidInput`). It would match Stdin, but is not adopted because:
+  - arguments are fixed values that the OS passes at startup, and reading them again does not change them. A failure has no way to recover
+  - arguments are almost always read right after main starts, and handling a failure there would require an `escape` in every CLI
+  - `get-arguments` of WASI is `list<string>`, already turned into strings by the host (wasmtime cannot pass invalid arguments). Node also replaces with U+FFFD before passing them. Failing only on C would make the result differ by target
+  - Stdin is used in filters that read and write back, where silent replacement hides that the input changed. Arguments are not used that way
+- Return a list of Bytes (`List[Bytes]`). It could handle paths with invalid bytes, but is left to a later proposal, after the handling of Path is decided
+- Add a test handler `TestArgs`. It is not added, because one can be written by hand in one line (as with `Std.Env`)
 
 ### Stdin
 
-- `Console` に `read_line` を足す．入出力が 1 つの effect にまとまり，`with SystemConsole` だけで済む．採らない理由:
-  - `Console` の handler を自分で書いているプログラム（ログを捨てる handler など）が，すべて E0404 で壊れる
-  - `Console` の操作は `fn` で Immediate だが，読み込みは待つので `suspend fn` になる．effect が Immediate かどうか（`[effect.decl]`）が変わり，`TestConsole` が `Async` なしで使えるという性質も揺らぐ
-  - `TestConsole` が出力と入力の 2 つの State を持つことになる
-- `read_line` だけにする．`read_text` は `read_line` の繰り返しで書けるが，改行を復元できない（最後の改行の有無，`\r\n`）．JSON などを丸ごと読むときに元の入力をそのまま受け取れる操作が要る
-- Bytes で読む（`suspend fn read(max: Int) -> Option[Bytes]`）．バイナリの入力や，UTF-8 でない入力も扱える．TCP の提案の `read` と形が揃う．採らない理由: バイナリのフィルタには書く側の `Stdout` にも Bytes 版が要り，テキストの読み込みと混ぜたときの UTF-8 の境界の扱いも決める必要がある．`Stdout` の Bytes 版と一緒に別の提案にする．後から同じ effect に足しても既存の呼び出しは壊れない
-- WASM でも使えるようにする．`wasi:cli/stdin@0.3.0` の `read-via-stream` はあるが，runtime が host の stream を待つ仕組みをまだ持たない．その仕組みは `SystemClock.sleep` を WASM で動かすのにも要るので，両方を一緒に別の提案で扱う
-- 中断のとき，host から受け取り済みの入力を捨てる．実装は少し簡単になるが，行に切り分けるために runtime はもともと受け取った入力をバッファに持つので，残す手間はほとんど変わらない．捨てると，タイムアウト付きで読むプログラムが行を失う
-- 不正な UTF-8 を U+FFFD に置き換える．Args と揃うが，上の理由で採らない．`Bytes.decode_utf8` と `FileSystem.read_text` も置き換えないので，そちらに揃える
-- 入力を Stream として返す．std に Stream がまだない（`[lib.layers]` の effect 層で後の版）
-- `fn main(stdin: ...)` のように入口で受け取る．深い呼び出し先から読めず，テストで差し替えにくい
+- Add `read_line` to `Console`. Input and output would be one effect, and `with SystemConsole` alone would be enough. Not adopted because:
+  - every program that writes its own handler of `Console` (a handler that discards logs, for example) breaks with E0404
+  - the operations of `Console` are `fn` and Immediate, but reading waits, so it is a `suspend fn`. Whether the effect is Immediate (`[effect.decl]`) would change, and the property that `TestConsole` can be used without `Async` would no longer hold
+  - `TestConsole` would have two States, for output and for input
+- Have only `read_line`. `read_text` can be written by repeating `read_line`, but the line terminators cannot be restored (whether there was a last line terminator, `\r\n`). Reading JSON and the like as a whole needs an operation that receives the original input as it is
+- Read Bytes (`suspend fn read(max: Int) -> Option[Bytes]`). It handles binary input and input that is not UTF-8, and has the same shape as `read` of the TCP proposal. Not adopted because: a binary filter also needs a Bytes version of `Stdout` on the writing side, and how UTF-8 boundaries are handled when mixed with text reads must be decided. It is left to a separate proposal together with the Bytes version of `Stdout`. Adding it to the same effect later does not break existing calls
+- Make it work on WASM too. `read-via-stream` of `wasi:cli/stdin@0.3.0` exists, but the runtime does not yet have a way to wait for a host stream. That is also needed for `SystemClock.sleep` on WASM, so both are left to a separate proposal
+- On interruption, discard the input already received from the host. The implementation would be a little simpler, but the runtime keeps received input in a buffer anyway to split lines, so keeping it costs almost the same. Discarding it would make a program that reads with a timeout lose lines
+- Replace invalid UTF-8 with U+FFFD. It would match Args, but is not adopted for the reasons above. `Bytes.decode_utf8` and `FileSystem.read_text` do not replace either, and Stdin matches them
+- Return the input as a Stream. std has no Stream yet (a later version, in the effect layer of `[lib.layers]`)
+- Receive it at the entry, as in `fn main(stdin: ...)`. It could not be read from deep in the call stack, and is hard to replace in tests
 
 ## Prior art
 
-- Rust の `std::env::args` はプログラム名を先頭に含め，不正な Unicode の引数で panic する．`args_os` は `OsString` を返す
-- Go の `os.Args` はプログラム名を先頭に含む `[]string` で，バイト列をそのまま持つ
-- Node の `process.argv` は host とスクリプトのパスを先頭に含む
-- WASI 0.3 の `wasi:cli/environment` の `get-arguments` は `list<string>` を返す
-- Rust の `std::io::Stdin` は `read_line(&mut String)` と `lines()` を持ち，行末を含めて返す．不正 UTF-8 は `InvalidData` のエラー
-- Go の `bufio.Scanner` は行末（`\r\n` の `\r` も）を取り除いて返す
-- Node の `readline` は行末を取り除き，`\r\n` も 1 つの改行として扱う
-- WASI 0.3 の `wasi:cli/stdin` は `read-via-stream` でバイトの stream を返すだけで，行の扱いはない
+- Rust's `std::env::args` includes the name of the program first and panics on an argument that is not valid Unicode. `args_os` returns `OsString`
+- Go's `os.Args` is a `[]string` that includes the name of the program first and keeps the bytes as they are
+- Node's `process.argv` includes the paths of the host and the script first
+- `get-arguments` of `wasi:cli/environment` in WASI 0.3 returns `list<string>`
+- Rust's `std::io::Stdin` has `read_line(&mut String)` and `lines()`. `read_line` includes the line terminator. Invalid UTF-8 is an `InvalidData` error
+- Go's `bufio.Scanner` removes the line terminator (including the `\r` of `\r\n`)
+- Node's `readline` removes the line terminator and treats `\r\n` as one line break
+- `wasi:cli/stdin` of WASI 0.3 only returns a stream of bytes through `read-via-stream`, with no notion of lines
 
 ## Open questions
+
+None.
 
 ## Decision
