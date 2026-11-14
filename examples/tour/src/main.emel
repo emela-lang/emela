@@ -51,6 +51,7 @@ fn main() {
 
   dbg(Email.parse("alice@example.com") |> Option.map(Email.to_string)) # Some("alice@example.com")
   dbg(Email.parse("not an email")) # None
+  ()
 }
 
 # Run with `emela test`.
