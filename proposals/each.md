@@ -1,20 +1,20 @@
 ---
-title: each for List, Array, Map, Set and Option
+title: each for List, Array, Map and Set
 authors: [Alliana]
 status: draft
 pr: 514
 issue:
 decided:
-touches: [lib.api-rules, api.list, api.option, api.std.array, api.std.map, api.std.set]
+touches: [lib.api-rules, api.list, api.std.array, api.std.map, api.std.set]
 requires: [array]
 related: []
 ---
 
-# each for List, Array, Map, Set and Option
+# each for List, Array, Map and Set
 
 ## Summary
 
-`each(xs, f)` calls `f` on each element, in the order of the collection, for its effects, and returns `()`. It is added to List, Array, Map, Set and Option.
+`each(xs, f)` calls `f` on each element, in the order of the collection, for its effects, and returns `()`. It is added to List, Array, Map and Set.
 
 `[lib.api-rules]` also gains a rule for every function of the standard library that calls `f` once per element (`map`, `filter`, `fold`, `find`, ...): it calls `f` in the order of the collection, at most once per element, and not after the result is decided or `f` has failed.
 
@@ -29,7 +29,7 @@ List.each(List.range(0, n), |i| {
 
 - Running an effect for each element is written with `map` today, and the collection of `()` it builds is thrown away. Four places in this repository do this: `examples/clock`, `examples/hello`, `examples/http` and `crates/emela-codegen-c/tests/programs/effect_labels.emel` (`_ = List.map(["x", "y"], log.log)`). A reader cannot tell from the call whether the result is wanted.
 - `[api.list]` says only that `map` "applies `f` to each element". It does not say in which order, so a program that prints or sleeps inside `map` (as `examples/clock` does) depends on an order the specification does not give. The descriptions disagree among themselves: `Array.map` says "from the first", `List.map` says nothing, and `List.any` says where it stops. Adding `each` alone does not give `map`, `filter` or `find` an order, and code that fails or logs inside them depends on it as much as code inside `each` does.
-- The alternatives are a recursive helper (a `match` on `[]` and `[x, ..rest]`) or `fold` with `from: ()`. Both are longer than the intent. For Map and Set, `fold` is the only way, and for Option it is a `match`.
+- The alternatives are a recursive helper (a `match` on `[]` and `[x, ..rest]`) or `fold` with `from: ()`. Both are longer than the intent. For Map and Set, `fold` is the only way.
 
 ## Proposal
 
@@ -46,7 +46,6 @@ pub fn each[A](xs: List[A], f: fn(A) -> ()) -> ()
   | `Array.each(a, f)` | From index 0 to the last |
   | `Map.each(m, f)` | In key order, `f(key, value)` |
   | `Set.each(s, f)` | In the order of the elements (the order of `Set.fold`) |
-  | `Option.each(opt, f)` | Once with the contents if `Some`; not at all if `None` |
 
 - The fails and uses of `f` are omitted inside a parameter type, so they are hidden set variables (`[type.fn]`): the errors and effects of `f` are those of the call. When `f` fails, the remaining elements are not visited and the error propagates.
 - `f` returns `()`. Passing a function that returns a value is a type mismatch, so a call that should have been `map` is found.
@@ -101,12 +100,6 @@ Add the row, after `fold`:
 
 | `each` | `each[A](s: Set[A], f: fn(A) -> ()) -> ()` | Emela | Calls `f` on each element in order. Stops at the first failure |
 
-### `[api.option]`
-
-Add the row, after `map`:
-
-| `each` | `each[A](opt: Option[A], f: fn(A) -> ()) -> ()` | Emela | Calls `f` on the contents if `Some` |
-
 ## Diagnostics
 
 - [ ] None.
@@ -117,7 +110,7 @@ Additive. The order rule changes no result, because the functions are pure apart
 
 ## Implementation
 
-- `emela-core/lib/core/list.emel` and `option.emel`; `emela-core/lib/std/array.emel`, `map.emel` and `set.emel`. All are written in Emela: by recursion for List, by index for Array, by the same traversal as `fold` for Map and Set, and by a match for Option.
+- `emela-core/lib/core/list.emel`; `emela-core/lib/std/array.emel`, `map.emel` and `set.emel`. All are written in Emela: by recursion for List, by index for Array, and by the same traversal as `fold` for Map and Set.
 - `Map.map_values` in `emela-core/lib/std/map.emel`: build the left subtree, then call `f` on the value, then build the right subtree, so that `f` is called in key order.
 - Rewrite the four places listed in Motivation to `List.each`.
 - Tests: programs under `emela-codegen-c/tests/programs/` that print in `each` for each type and fail in the middle, also in `wasm_parity.rs`. Programs that record the order of calls in `map`, `filter`, `filter_map`, `flat_map`, `partition`, `fold`, `find_index` and `map_values`, and where `any`, `all` and `find` stop.
@@ -130,11 +123,12 @@ Additive. The order rule changes no result, because the functions are pure apart
 - **Stating the order in each row of the tables.** Repeats the same words in every module, and a collection added later has to repeat them again. One rule in `[lib.api-rules]` covers them.
 - **Including `sort_by` in the rule.** Fixes the number and the pairs of comparisons, which ties the implementation to one algorithm.
 - **A concurrent `each` in `Std.Fiber`.** Calls `f` on the elements concurrently and discards the values, as `Fiber.map` does without its result. Not here: this proposal fixes the order of calls, which a concurrent function does not have, and no program in this repository discards the result of `Fiber.map` today. It belongs with Semaphore and Queue, or a later proposal, if running several workers needs it.
-- **Only List.** Leaves `fold` with `from: ()` for Map and Set, and a match for Option. The same name in every collection lets code move between them.
+- **Only List.** Leaves `fold` with `from: ()` for Map and Set. The same name in every collection lets code move between them.
+- **`Option.each` as well.** No code in this repository would use it: the one `None -> ()` arm is in a function that fails on `Some`. A `match` is enough, and Option has no other function that treats it as a collection (`fold`, `filter`). It can be added together with such functions.
 
 ## Prior art
 
-- Rust: `Iterator::for_each`, `Option::inspect`. Ruby: `Array#each`, `Hash#each`. Kotlin: `Iterable.forEach`, `Map.forEach`. Effect (TypeScript): `Effect.forEach` with `discard: true`.
+- Rust: `Iterator::for_each`. Ruby: `Array#each`, `Hash#each`. Kotlin: `Iterable.forEach`, `Map.forEach`. Effect (TypeScript): `Effect.forEach` with `discard: true`.
 
 ## Open questions
 
