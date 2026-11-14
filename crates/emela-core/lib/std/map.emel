@@ -109,6 +109,18 @@ pub fn fold[K, V, B](m: Map[K, V], from: B, f: fn(B, K, V) -> B) -> B {
   }
 }
 
+## Calls `f` on each pair in key order. Stops at the first failure.
+pub fn each[K, V](m: Map[K, V], f: fn(K, V) -> ()) -> () {
+  m match {
+    Empty -> ()
+    Node(key:, value:, left:, right:, ..) -> {
+      each(left, f)
+      f(key, value)
+      each(right, f)
+    }
+  }
+}
+
 ## The pairs in key order.
 pub fn to_list[K, V](m: Map[K, V]) -> List[(K, V)] {
   to_list_onto(m, [])
@@ -124,17 +136,17 @@ pub fn values[K, V](m: Map[K, V]) -> List[V] {
   m.to_list().map(|(_, value)| value)
 }
 
-## `f` on each value. The keys stay.
+## `f` on each value. The keys stay. `f` is called in key order (`[lib.api-rules]`), so the left
+## subtree is built before the value of the node, and the right one after it.
 pub fn map_values[K, V, W](m: Map[K, V], f: fn(V) -> W) -> Map[K, W] {
   m match {
     Empty -> Empty
-    Node(size:, key:, value:, left:, right:) -> Node(
-      size:,
-      key:,
-      value: f(value),
-      left: map_values(left, f),
-      right: map_values(right, f),
-    )
+    Node(size:, key:, value:, left:, right:) -> {
+      left = map_values(left, f)
+      value = f(value)
+      right = map_values(right, f)
+      Node(size:, key:, value:, left:, right:)
+    }
   }
 }
 

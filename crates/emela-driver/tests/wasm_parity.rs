@@ -845,6 +845,15 @@ fn main() {
         "array_set_negative",
         include_str!("../../emela-codegen-c/tests/programs/array_set_negative.emel"),
     ),
+    // `[lib.api-rules]`: `each`, and the order in which the standard library calls `f`.
+    (
+        "each",
+        include_str!("../../emela-codegen-c/tests/programs/each.emel"),
+    ),
+    (
+        "call_order",
+        include_str!("../../emela-codegen-c/tests/programs/call_order.emel"),
+    ),
     (
         "local_fns",
         r#"
