@@ -14,19 +14,19 @@ fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { ... }
 pub fn find(id: Int) -> User fails NotFound uses { Users } { ... }
 ```
 
-- In a top-level fn, the parameter types are written (omitting them is a compile error (E0316)). In an anonymous function they can be omitted. The return type, `fails`, and `uses` can be omitted. The meaning when they are omitted is defined in 7.4 and 9.3.
+- In a top-level fn and a local fn (6.9), the parameter types are written (omitting them is a compile error (E0316)). In an anonymous function they can be omitted. The return type, `fails`, and `uses` can be omitted. The meaning when they are omitted is defined in 7.4 and 9.3.
 - The body is a block, and the value of the last expression is the return value. There is no `return`.
 - An anonymous function is written `|x| x + 1`. The parameters are written between `|` and `|`, separated by `,` (`|acc, x| acc + x`). An anonymous function without parameters is written with the token `||` (`|| fetch(1)`). Parameter types can be omitted. There is no annotation of the return type.
 - The body is one expression and extends as far to the right as possible: it includes `|>`, binary operators, and postfix `match` and `escape`. It ends where an expression ends: at a `,` or a closing bracket, at the end of a statement, and at the end of an arm. A body of several statements is a block, `|x| { ... }`. A `{` after the parameter list always starts a block, because records and constructors are written with parentheses (5.1).
 - Since the body takes everything to its right, an anonymous function that is called, piped, or used as the left operand of an operator is enclosed in parentheses (`(|x| x + 1)(2)`).
-- `fn` is written only in declarations and in function types. `fn(...)` in an expression is a compile error (E0148).
+- `fn` is written only in declarations, local fns (6.9) and function types. `fn(...)` in an expression is a compile error (E0148).
 - A parameter of an anonymous function can be a pattern instead of a name (`|(key, value)| ...`, `|acc, _| acc`, `|Request(url:, ..)| url`). A type, when written, comes after the pattern (`|(a, b): (Int, Int)| a + b`).
   - A parameter pattern is limited, as for bindings, to patterns that always match (6.3, E0317).
   - `|p| body` means the same as `|t| { p = t; body }`. Parameters are matched from left to right. Binding the same name in two parameters is a compile error (E0220).
   - Inside the parameter list, a `|` at bracket depth zero closes the list. A parameter type whose error set has two or more items is enclosed in parentheses (`|f: (fn() -> Int fails Timeout | Refused)| f()`).
-  - The parameters of top-level fns, fns in impls and handlers, and operations of traits and effects are limited to names. This is because a parameter name also serves as the label of a named argument (6.2) and as the link to the declaration. Values of anonymous functions have no parameter names and are called by position only (6.2), so making a parameter a pattern loses nothing.
+  - The parameters of top-level fns, local fns, fns in impls and handlers, and operations of traits and effects are limited to names. This is because a parameter name also serves as the label of a named argument (6.2) and as the link to the declaration. Values of anonymous functions have no parameter names and are called by position only (6.2), so making a parameter a pattern loses nothing.
 
-- A top-level fn and a constructor with fields become function values when their names are written without calling them (`List.map(xs, Some)`).
+- A top-level fn, a local fn, and a constructor with fields become function values when their names are written without calling them (`List.map(xs, Some)`).
 
 ## 6.2 Arguments and argument names `[fn.args]`
 
@@ -44,7 +44,7 @@ connect(host: "localhost", port: 5432)
 - When the variable name and the argument name are the same, it can be shortened to `NotFound(id:)`. The same holds in patterns: `User(name:)` binds `name`.
 - Constructors with named fields follow the same rule, so both `Circle(1.0)` and `Circle(radius: 1.0)` can be written.
 - Parameter names are part of the public API, and renaming one is a breaking change.
-- Named arguments can be used only when calling an fn or a constructor referred to by name, and when calling an operation on a capability value (`log.info(msg: "hi")`, where the argument names are the parameter names in the declaration of the effect operation). Function values such as local variables and lambdas have no parameter names (the function type `fn(A) -> B` has no names), so they can be called with positional arguments only (E0306).
+- Named arguments can be used only when calling an fn (a top-level fn or a local fn) or a constructor referred to by name, and when calling an operation on a capability value (`log.info(msg: "hi")`, where the argument names are the parameter names in the declaration of the effect operation). Function values such as local variables and lambdas have no parameter names (the function type `fn(A) -> B` has no names), so they can be called with positional arguments only (E0306).
 - A wrong number of arguments is E0305, a label with no matching parameter is E0306, and passing to the same parameter twice is E0307. A call that has a label error (E0306, E0307) does not also get an error for the number of arguments.
 
 ## 6.3 Blocks and bindings `[fn.block]`
@@ -56,11 +56,11 @@ count = count + 1 # rebinding with the same name
 pairs: List[(String, Int)] = List.zip(names, scores)
 ```
 
-- A binding is written `pattern = expr`. There is no declaration keyword.
+- A binding is written `pattern = expr`. There is no declaration keyword. A local fn (6.9) is also a binding of its name.
 - Variables are immutable, and there is no reassignment. Binding the same name again makes the new binding visible from then on.
 - A binding pattern is limited to patterns that always match. The same holds for parameter patterns of anonymous functions (6.1). Matching that can fail is written with match. The check is the same as the exhaustiveness check (6.5), and the error shows examples of the missing patterns.
 - The value of a block `{ ... }` is the value of its last expression.
-- Bindings inside a block are not generalized. Only top-level functions and consts are polymorphic.
+- Bindings inside a block are not generalized, and neither are local fns. Only top-level functions and consts are polymorphic.
 - A binding of an anonymous function (`f = |x| x + 1`) is not generalized, is called with positional arguments only (6.2), and cannot refer to itself, because the name is visible only after the binding.
 - An anonymous function written as a statement that is not the last statement of its block is a compile error (E0149). Its value is always discarded, so it is never useful. A line that starts with `||` starts such an anonymous function (2.5), so the rule also keeps `x = a⏎|| b`, which once bound `a || b`, from binding `a` and dropping `|| b`.
 
@@ -173,7 +173,7 @@ scores
 ## 6.8 Repetition `[fn.loop]`
 
 - There is no for or while. Repetition is written with recursion or with functions such as `List.map` and `List.fold`.
-- A tail call to the function itself is guaranteed not to consume stack. The same holds for functions that contain suspend operations.
+- A tail call to the function itself is guaranteed not to consume stack. For a local fn, a call to its own name inside its body, where the name refers to that local fn, is a call to itself. The same holds for functions that contain suspend operations.
 - Tail calls between mutually recursive functions are not guaranteed. The compiler detects them and warns.
 
 The tail positions are the following.
@@ -184,8 +184,30 @@ The tail positions are the following.
 
 The following are not tail positions.
 
-- The body of an anonymous function (a call there is not a call to the function itself)
+- The body of an anonymous function and the body of a local fn, as positions of the enclosing function (a call there to the enclosing function is not a call to the function itself)
 - The target expression of `escape` (the escape arms can run after it)
 - The body of `with` (the handler's release runs after it)
 
 The linter warns that a call to the function itself that looks like a tail call inside the target of an escape or the body of a with is "not guaranteed".
+
+## 6.9 Local functions `[fn.local]`
+
+```emel
+pub fn range(from: Int, to: Int) -> List[Int] {
+  ## Builds from the back, so `to - 1` cannot overflow.
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  onto(to, [])
+}
+```
+
+- A block can contain a local fn, a statement written `fn name(params) [signature] block`. Its parameters, return type, `fails` and `uses` follow the rules of a top-level fn.
+- A local fn cannot have type parameters, attributes, `pub` or `suspend` (E0150).
+- A local fn cannot be the last statement of its block (E0151). Nothing after it can call it.
+- A doc comment (`##`) can be written before a local fn (2.2). The language server shows it on hover. Generated documentation does not include it.
+- The declaration binds the name as a value. The name is visible from the declaration to the end of the block, and inside the local fn's own body. It is not visible before the declaration, so local fns cannot be mutually recursive.
+- The body can refer to every variable visible at the declaration (it captures them, as an anonymous function does). A captured variable keeps the value it had at the declaration.
+- A local fn is a binding, and follows the shadowing rules of 6.3. A later binding or local fn of the same name hides it. Inside its body, its name refers to itself unless a parameter of the same name hides it. It can hide a top-level fn or an imported name of the same name inside the block. None of these is warned about.
+- A local fn is not generalized (6.3). The type parameters of the enclosing fn can be written in its signature and body.
+- A local fn is not found by a method call (9.4), and cannot be called from a test (13.1), because its name is visible only inside its block.

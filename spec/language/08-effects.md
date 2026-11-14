@@ -55,7 +55,7 @@ fn greet(id: Int) {
 - `use X` is an expression that returns a value representing the capability of effect X. It can appear anywhere in a function.
 - Operations can be called only through a capability value, in the form `log.info(...)`. There is no form that calls them directly by effect name (`Logger.info(...)`).
 - Writing an operation of a capability value without calling it, as `log.info`, gives a function value. The capability value is evaluated at that position, and the type of the function value contains the capability's effect (as for a closure that captures a capability).
-- Calling an operation of a capability value adds its effect to R and the operation's `fails` to E. The type of a closure that captures a capability value also contains that effect (the `copy` example below).
+- Calling an operation of a capability value adds its effect to R and the operation's `fails` to E. The type of a closure or a local fn that captures a capability value also contains that effect (the `copy` example below).
 - Passing a capability value as an argument, putting it into a data structure (a constructor, a list, a tuple), and returning it from a function are all compile errors. Only the top-level type of the value is checked.
   - Passing it as an argument of a call is E0408. A constructor argument puts it into a data structure, so it is E0409.
   - Putting it into a list, a tuple, or a field of a record update is E0409.
@@ -104,7 +104,7 @@ fn run[R](f: fn() -> () uses { Logger, R }) -> () uses { R } {
 - H is a handler or a layer. Label items (`L`, `L by P`) can also be written (8.9). When several are listed with commas, a later one takes precedence for the same effect. However, an explicit `L by P` takes precedence over provision through `default` (8.9) regardless of order. A layer is expanded into its handlers before being listed. A handler overridden by a later handler is not even initialized (the E of its init is not included in the E of the with).
 - An item can be written as `H(arguments)`. The arguments are evaluated outside the with, in the order the items are written, before any init runs. The effects provided by the items of the same with cannot be used in the arguments. The E and R of the arguments of a handler that is not overridden are added to the E and R of the with. The arguments of a handler overridden by a later item are not evaluated, and their E and R are not included in the E and R of the with; they are still resolved and type-checked.
 - `use X` refers to the handler provided by the innermost with as seen from the position where it is written. If the same function has no such with, it refers to the one passed from the caller.
-- `use X` inside an anonymous function first looks at the withs that enclose the anonymous function (in the same top-level function). If there is none, it refers to the one passed from the side that calls the anonymous function. This is because the R of an anonymous function is enclosed in the anonymous function's type (9.4) and does not appear in the R of the enclosing function.
+- `use X` inside an anonymous function or a local fn first looks at the withs that enclose the function (in the same top-level function). If there is none, it refers to the one passed from the side that calls the function. This is because the R of these functions is enclosed in their types (9.4) and does not appear in the R of the enclosing function.
 - A capability value taken out on the outer side keeps referring to the outer handler even if an inner with overrides the same effect.
 - The R of main MUST be empty except for Async. main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E0230). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a uses clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
 
@@ -191,7 +191,7 @@ fn main() {
 
 ## 8.6 Capabilities must not leak `[effect.escape]`
 
-A capability value, and closures that capture it, cannot leave the with that provides it.
+A capability value, and closures and local fns that capture it, cannot leave the with that provides it.
 
 ```emel
 fn make_greeter() {
