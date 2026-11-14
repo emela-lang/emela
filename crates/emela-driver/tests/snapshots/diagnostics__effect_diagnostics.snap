@@ -92,6 +92,15 @@ error[E0410]: a capability cannot be returned from a function
     │    ╰─── 
 ────╯
 
+warning[W0304]: the value of type `Int` returned by `main` is discarded
+    ╭─[ main.emel:44:4 ]
+    │
+ 44 │ fn main() {
+    │    ──┬─  
+    │      ╰─── 
+────╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
 error[E0402]: effect `Clock` is not provided in `main`
     ╭─[ main.emel:45:4 ]
     │
@@ -110,4 +119,4 @@ error[E0402]: effect `Logger` is not provided in test function `logs`
 ────╯
    = help: provide it with `with`
 
-13 errors
+13 errors, 1 warning

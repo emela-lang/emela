@@ -152,6 +152,7 @@ fn resuming_twice_is_a_defect() {
 
 fn main() {
   with TwiceClock { (use Clock).sleep(1) }
+  ()
 }
 "#,
     );

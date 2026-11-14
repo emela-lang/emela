@@ -20,6 +20,69 @@ use emela_driver::{
 /// `string_graphemes` is skipped unless Node's ICU is Unicode 17.x: the JS target segments with
 /// the host's `Intl.Segmenter`, while WASM uses the vendored Unicode 17.0.0 tables (spec 18.1 #18).
 const PROGRAMS: &[(&str, &str)] = &[
+    // `[dyn.error]`: the exit code that main returns, after its output (`[target.wasm.output]`).
+    (
+        "exit_code",
+        r#"
+import Std.Process.{EXIT_FAILURE, EXIT_SUCCESS, ExitCode}
+
+fn main() -> ExitCode {
+  dbg((EXIT_SUCCESS, EXIT_FAILURE, Process.exit_code(255).exit_code_to_int()))
+  dbg(EXIT_SUCCESS == Process.exit_code(0))
+  Process.exit_code(42)
+}
+"#,
+    ),
+    (
+        "exit_code_zero",
+        r#"
+import Std.Process.{EXIT_SUCCESS, ExitCode}
+
+fn main() -> ExitCode {
+  EXIT_SUCCESS
+}
+"#,
+    ),
+    (
+        "exit_code_runtime_number",
+        r#"
+import Std.Process.{ExitCode}
+
+fn main() -> ExitCode {
+  Process.exit_code(130)
+}
+"#,
+    ),
+    (
+        "exit_code_out_of_range",
+        r#"
+import Std.Process.{ExitCode}
+
+fn main() -> ExitCode {
+  Process.exit_code(256)
+}
+"#,
+    ),
+    (
+        "exit_code_error",
+        r#"
+import Std.Process.{ExitCode}
+
+error Usage
+
+fn main() -> ExitCode fails Usage {
+  fail Usage
+}
+"#,
+    ),
+    (
+        "exit_code_discarded",
+        r#"
+fn main() -> Int {
+  2
+}
+"#,
+    ),
     (
         "xorshift",
         r#"

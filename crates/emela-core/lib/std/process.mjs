@@ -191,3 +191,12 @@ function write(fd, text) {
 export const writeStdout = (text) => write(1, text);
 
 export const writeStderr = (text) => write(2, text);
+
+// ---- ExitCode ----
+
+// The exit code of a `main` that returns an `ExitCode` (`exit_with` in process.emel). The launcher
+// leaves `process.exitCode` alone when main ends with a value, so the host exits with this code
+// after the writes have finished.
+export const setExitCode = (code) => {
+  process.exitCode = code;
+};

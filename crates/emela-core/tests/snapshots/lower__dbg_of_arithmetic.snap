@@ -54,6 +54,10 @@ enum Std.Process.StderrText {
   StderrText(text: String)
 }
 
+enum Std.Process.ExitCode {
+  ExitCode(Int)
+}
+
 enum Std.Http.Request.Method {
   Get
   Head

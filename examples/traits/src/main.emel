@@ -42,6 +42,7 @@ fn main() {
   dbg(by_priority) # Map.from_list([(Low, 1), (High, 2)])
 
   dbg(Set.from_list(["b", "a", "b"])) # Set.from_list(["a", "b"])
+  ()
 }
 
 @test

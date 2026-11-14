@@ -114,7 +114,7 @@ fn build_writes_the_executable() {
     if !have_cc() {
         return;
     }
-    let (fs, input) = project("fn main() { dbg(1 + 1) }\n");
+    let (fs, input) = project("fn main() {\n  dbg(1 + 1)\n  ()\n}\n");
     let dir = out_dir("build");
     let (analysis, entry) = build(
         &fs,
@@ -149,6 +149,7 @@ effect Tick {
 
 fn main() {
   with Clock { (use Tick).tick() }
+  ()
 }
 "##;
     let (analysis, output) = run_c("missing", main, &mut CoreC::default());
@@ -325,7 +326,7 @@ fn main() {}
 
 #[test]
 fn cc_problems_are_e0907_and_e0908() {
-    let main = "fn main() { dbg(1) }\n";
+    let main = "fn main() {\n  dbg(1)\n  ()\n}\n";
     let (analysis, output) = run_c(
         "no-cc",
         main,
@@ -365,7 +366,7 @@ fn cc_problems_are_e0907_and_e0908() {
 /// cannot be started, and the help points to `EMELA_CC_ARGS`.
 #[test]
 fn a_compiler_with_flags_in_its_name_points_to_emela_cc_args() {
-    let main = "fn main() { dbg(1) }\n";
+    let main = "fn main() {\n  dbg(1)\n  ()\n}\n";
     let (analysis, output) = run_c(
         "cc-with-flags",
         main,
@@ -404,7 +405,7 @@ fn emela_cc_args_come_after_the_sources() {
     )
     .unwrap();
     std::fs::set_permissions(&cc, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let (fs, input) = project("fn main() { dbg(1) }\n");
+    let (fs, input) = project("fn main() {\n  dbg(1)\n  ()\n}\n");
     let out = dir.join("out");
     let (analysis, entry) = build(
         &fs,
@@ -1065,6 +1066,7 @@ fn host_calls_back(n: Int) -> Int uses {}
 fn main() {
   dbg("main")
   dbg(host_calls_back(1))
+  ()
 }
 "##;
 

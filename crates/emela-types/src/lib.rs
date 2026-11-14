@@ -10,6 +10,7 @@ mod const_cycle;
 mod coverage;
 mod diagnostic;
 mod display;
+mod entry_main;
 mod error;
 mod exhaustiveness;
 mod export;
@@ -34,6 +35,7 @@ pub use diagnostic::{
     SuspendingCall,
 };
 pub use display::{SchemeDisplay, TyDisplay};
+pub use entry_main::is_exit_code;
 pub use error::{TypeError, TypeErrorKind};
 pub use exhaustiveness::{
     Arm, CtorTable, Lit, MatchCheck, Pat, TyShape, VariantShape, WITNESS_LIMIT, Witness,

@@ -14,6 +14,7 @@ with RemoteKv(url: (use Config).url()), FakeKv: init [FakeKv]
 with AuditKv by RemoteKv(url: (use Config).url()): init [AuditKv by RemoteKv]
 with EnvConfig: init [EnvConfig]
 with EnvConfig, RemoteKv((use Config).url()): init [EnvConfig, RemoteKv]
+`main` MainValueDiscarded { ty: "String" }
 --- R
 {   with EnvConfig, RemoteKv(url: (use Config).url()) { (use Kv).get("a") } }: Config
 with EnvConfig, RemoteKv(url: (use Config).url()) { (use Kv).get("a") }: Config

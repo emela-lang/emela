@@ -1,0 +1,6 @@
+import Std.Process.{ExitCode}
+
+# `[dyn.error]`: an `ExitCode` may be 101, the number of a defect; nothing is written to stderr.
+fn main() -> ExitCode {
+  Process.exit_code(101)
+}
