@@ -1,8 +1,10 @@
-# What the process has exactly one of: its arguments (Args) and its standard input (Stdin)
-# (`[api.std.process]`; the platform and test layers of `[lib.layers]`).
+# What the process has exactly one of: its arguments (Args), its standard input (Stdin), and its
+# standard output and standard error (Stdout, Stderr) (`[api.std.process]`; the platform and test
+# layers of `[lib.layers]`).
 #
-# Use them as `(use Args).get(0)` and `(use Stdin).read_line()`, and provide them with
-# `with SystemArgs, SystemStdin { ... }`, or with `with Platform { ... }` from `Std.Platform`.
+# Use them as `(use Args).get(0)`, `(use Stdin).read_line()` and `(use Stdout).print("? ")`, and
+# provide them with `with SystemArgs, SystemStdin, SystemStdout { ... }`, or with
+# `with Platform { ... }` from `Std.Platform`.
 #
 # The host gives the arguments as a count and an element at an index: a List cannot cross the
 # external function boundary (`[ext.boundary]`), so the list is built here.
@@ -187,4 +189,85 @@ pub handler TestStdin: Stdin {
     st.set(StdinLines(lines: []))
     resume(String.join(lines, "\n"))
   }
+}
+
+# ---- Stdout and Stderr ----
+
+## Writes to the standard output of the process. Does not fail and does not suspend.
+pub effect Stdout {
+  ## Writes `text` as is.
+  fn print(text: String) -> ()
+  ## Writes `text`, then `\n`.
+  fn print_line(text: String) -> ()
+}
+
+## Writes to the standard error of the process. Does not fail and does not suspend.
+pub effect Stderr {
+  ## Writes `text` as is.
+  fn print(text: String) -> ()
+  ## Writes `text`, then `\n`.
+  fn print_line(text: String) -> ()
+}
+
+# The host writes through the same path as SystemConsole and `dbg`, so that writes mixed between
+# them keep their order, and it handles a closed standard output or standard error
+# (`[api.std.process]`): on JS the runtime's synchronous write to the file descriptor, on native
+# the `FILE *` of the runtime, and on WASM the one stream the runtime holds for each.
+
+@external(js, "./process.mjs", "writeStdout")
+@external(c, "./process.c", "emela_process_write_stdout")
+@external(wasm, "wasi:cli/stdout@0.3.0", "write-via-stream")
+fn write_stdout(text: String) -> ()
+
+@external(js, "./process.mjs", "writeStderr")
+@external(c, "./process.c", "emela_process_write_stderr")
+@external(wasm, "wasi:cli/stderr@0.3.0", "write-via-stream")
+fn write_stderr(text: String) -> ()
+
+## The standard output of the process: file descriptor 1, written synchronously, on JS, `stdout`
+## on native, and `wasi:cli/stdout` on WASM. Has no state.
+pub handler SystemStdout: Stdout {
+  fn print(text) { write_stdout(text) }
+  fn print_line(text) { write_stdout("#{text}\n") }
+}
+
+## The standard error of the process: file descriptor 2, written synchronously, on JS, `stderr`
+## on native, and `wasi:cli/stderr` on WASM. Has no state.
+pub handler SystemStderr: Stderr {
+  fn print(text) { write_stderr(text) }
+  fn print_line(text) { write_stderr("#{text}\n") }
+}
+
+## The state of TestStdout: everything written so far.
+pub type StdoutText(text: String)
+
+## The state of TestStderr: everything written so far.
+pub type StderrText(text: String)
+
+## The test handler of Stdout. It appends what is written to `text` of `State[StdoutText]`, so use
+## it inside `State.run`:
+##
+## ```emela
+## (_, out) = State.run(StdoutText(text: ""), || with TestStdout { (use Stdout).print("a") })
+## assert out.text == "a"
+## ```
+##
+## `print_line` appends `\n` after the text.
+pub handler TestStdout: Stdout {
+  fn print(text) { append_stdout(text) }
+  fn print_line(text) { append_stdout("#{text}\n") }
+}
+
+## The test handler of Stderr, the same as TestStdout with `State[StderrText]`.
+pub handler TestStderr: Stderr {
+  fn print(text) { append_stderr(text) }
+  fn print_line(text) { append_stderr("#{text}\n") }
+}
+
+fn append_stdout(text: String) -> () uses { State[StdoutText] } {
+  (use State[StdoutText]).update(|out| StdoutText(text: "#{out.text}#{text}"))
+}
+
+fn append_stderr(text: String) -> () uses { State[StderrText] } {
+  (use State[StderrText]).update(|err| StderrText(text: "#{err.text}#{text}"))
 }

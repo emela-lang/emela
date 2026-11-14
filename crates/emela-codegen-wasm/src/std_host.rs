@@ -2,7 +2,7 @@
 //!
 //! A program's own `@external(wasm, ...)` is not a component import: a component can only import
 //! interfaces its WIT world declares, and custom host WIT is not implemented. The bundled `Std`
-//! modules do name a few WASI 0.3 functions (`Std.Console` stdout/stderr, `Std.Env`,
+//! modules do name a few WASI 0.3 functions (`Std.Console` and `Std.Process` stdout/stderr, `Std.Env`,
 //! the arguments of `Std.Process`, `Std.Random`, `Std.Clock.now` and `Std.Clock.sleep`); each of those externals is a runtime
 //! wrapper with its own encoding of the host's result. `Std.FileSystem` names
 //! `emela:runtime/filesystem@0.1.0`, a runtime label rather than a WIT interface: one operation
@@ -22,6 +22,10 @@ pub(crate) enum StdHost {
     ConsoleOut,
     /// `Std.Console.print_error_line`: a String, then a newline, on stderr.
     ConsoleErr,
+    /// `Std.Process.write_stdout` (SystemStdout): a String as is, on stdout.
+    ProcessOut,
+    /// `Std.Process.write_stderr` (SystemStderr): a String as is, on stderr.
+    ProcessErr,
     /// `Std.Env.has`: whether the environment holds the name.
     EnvHas,
     /// `Std.Env.get`: the value of the name.
@@ -97,6 +101,8 @@ impl StdHost {
         match self {
             StdHost::ConsoleOut => "print_line",
             StdHost::ConsoleErr => "print_error_line",
+            StdHost::ProcessOut => "print_stdout",
+            StdHost::ProcessErr => "print_stderr",
             StdHost::EnvHas => "env_has",
             StdHost::EnvGet => "env_get",
             StdHost::ArgCount => "args_count",
@@ -135,7 +141,10 @@ impl StdHost {
     }
 
     pub(crate) fn is_console(self) -> bool {
-        matches!(self, StdHost::ConsoleOut | StdHost::ConsoleErr)
+        matches!(
+            self,
+            StdHost::ConsoleOut | StdHost::ConsoleErr | StdHost::ProcessOut | StdHost::ProcessErr
+        )
     }
 
     pub(crate) fn is_env(self) -> bool {
@@ -208,6 +217,8 @@ impl StdHost {
 const STD_HOSTS: &[(&str, StdHost)] = &[
     ("Std.Console.console_log", StdHost::ConsoleOut),
     ("Std.Console.console_error", StdHost::ConsoleErr),
+    ("Std.Process.write_stdout", StdHost::ProcessOut),
+    ("Std.Process.write_stderr", StdHost::ProcessErr),
     ("Std.Env.env_has", StdHost::EnvHas),
     ("Std.Env.env_get", StdHost::EnvGet),
     ("Std.Process.arg_count", StdHost::ArgCount),
