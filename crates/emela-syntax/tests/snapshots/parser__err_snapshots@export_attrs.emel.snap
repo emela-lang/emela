@@ -586,10 +586,10 @@ error[E0146]@109..120: expected `@export(target, "name")`
 error[E0146]@146..172: expected `@export(target, "name")`
 error[E0146]@214..215: expected `@export(target, "name")`
 error[E0146]@248..253: expected `@export(target, "name")`
-error[E0140]@291..294: unknown target `jvm` in `@export`: expected `js`, `wasm` or `c`
+error[E0140]@291..294: unknown language `jvm` in `@export`: expected `js`, `wasm` or `c`
 error[E0146]@343..349: string interpolation is not allowed in `@export`
 error[E0146]@391..399: on target `js`, the middle argument of `@export` must be `"default"`
-error[E0146]@438..462: on target `c`, `@export` takes one name: `@export(c, "name")`
+error[E0146]@438..462: on the native target, `@export` takes one name: `@export(c, "name")`
 error[E0146]@553..563: expected `@export(target, "name")`
 error[E0146]@589..605: `@export` is written on a top-level fn with a body
 error[E0130]@609..616: a function without a body must be `@external`

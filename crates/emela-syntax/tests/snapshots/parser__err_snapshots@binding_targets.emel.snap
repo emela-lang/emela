@@ -123,5 +123,5 @@ ROOT@0..319
   NEWLINE@318..319 "\n"
 error[E0125]@145..151: invalid left-hand side of binding: expected a pattern
 error[E0125]@162..168: invalid left-hand side of binding: expected a pattern
-error[E0138]@301..304: the first argument of `@external` must be a target name such as `js`
+error[E0138]@301..304: the first argument of `@external` must be a language name such as `js`
 error[E0110]@305..306: expected name or literal

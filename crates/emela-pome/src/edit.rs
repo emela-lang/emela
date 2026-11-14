@@ -136,7 +136,7 @@ emela = "0.20.1"
 "github.com/acme/http" = { version = "v1.4.0", module = "AcmeHttp" }
 
 [build]
-target = "c"
+target = "native"
 "#;
 
     fn p(s: &str) -> SourcePath {

@@ -5,7 +5,7 @@ import Std.Fiber.{Fiber, Scope}
 fn print(s: String) -> () uses {}
 
 # main's inferred type has a type parameter (the child only panics, so joining it returns
-# nothing) and set parameters; the C target instantiates them instead of skipping main.
+# nothing) and set parameters; the native target instantiates them instead of skipping main.
 fn main() {
   print("start")
   Fiber.scope(|| {

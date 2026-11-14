@@ -31,7 +31,7 @@ fn c_backend() -> Option<CoreC> {
 fn failures(name: &str, main: &str) -> Vec<(Target, String, TestOutcome)> {
     let mut found = failures_on(name, main, Target::Js);
     if c_backend().is_some() {
-        found.extend(failures_on(name, main, Target::C));
+        found.extend(failures_on(name, main, Target::Native));
     }
     found
 }
@@ -67,7 +67,7 @@ fn failures_on(name: &str, main: &str, target: Target) -> Vec<(Target, String, T
             |_| {},
             &mut out,
         ),
-        Target::C => test(
+        Target::Native => test(
             &fs,
             &input,
             &mut frontend,
@@ -100,7 +100,7 @@ fn test_file_system_follows_the_rules() {
 fn system_file_system_on_a_temporary_directory() {
     let mut targets = vec![Target::Js];
     if c_backend().is_some() {
-        targets.push(Target::C);
+        targets.push(Target::Native);
     }
     for target in targets {
         // A fresh directory per target: the tests write into it.

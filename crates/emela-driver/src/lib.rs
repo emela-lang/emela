@@ -40,7 +40,10 @@ mod tokens;
 mod wasm;
 
 pub use actions::{CodeAction, CodeActionKind};
-pub use c::{C_ENTRY_FILE, C_EXECUTABLE, CC_ENV, CoreC, build_executable, cc_command, run_native};
+pub use c::{
+    C_ENTRY_FILE, C_EXECUTABLE, CC_ARGS_ENV, CC_ENV, CoreC, build_executable, cc_command,
+    run_native,
+};
 pub use complete::{Completion, CompletionKind};
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
 pub use doc::{DocChild, DocItem, DocKind, DocModule, collect_docs, render_html, render_markdown};
@@ -65,8 +68,8 @@ pub use nav::{
 pub use new::{NewFile, NewPome, new};
 pub use output::{BuildOutput, OutputFile, write_files, write_output};
 pub use pipeline::{
-    Analysis, Backend, C_OUT_DIR, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, Dependencies,
-    DependencyPome, DependencyRef, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, LexOnly, NoJsBackend,
+    Analysis, Backend, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, Dependencies, DependencyPome,
+    DependencyRef, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, LexOnly, NATIVE_OUT_DIR, NoJsBackend,
     Parsed, RunOptions, Runner, SOURCE_DIR, TEST_DIR, WASM_OUT_DIR, build, check, run,
 };
 pub use pome::project_dependencies;
@@ -79,9 +82,9 @@ pub use run::{
 pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
 pub use structure::{FoldKind, FoldRange, folding_ranges, selection_ranges};
-pub use target::{Target, enclosing_project_target, project_target};
+pub use target::{Target, deprecated_target_warning, enclosing_project_target, project_target};
 pub use testing::{
-    AGENT_ENV_VARS, C_TEST_OUT_DIR, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, Reporter,
+    AGENT_ENV_VARS, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, NATIVE_TEST_OUT_DIR, Reporter,
     TEST_ANNOTATION, TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestDef, TestFn, TestModule,
     TestOptions, TestOutcome, TestReport, TestResult, collect_tests, default_test_out_dir,
     default_test_out_dir_for, is_test_fn, runs_in_agent, test,

@@ -103,7 +103,7 @@ pub fn try_lower_with(
         paths: Default::default(),
         shown_paths,
         bundled_files,
-        target: None,
+        language: None,
     };
     let lowered = lower(&input, roots).map(|l| l.module);
     if let Ok(m) = &lowered {
@@ -115,9 +115,11 @@ pub fn try_lower_with(
             .map(|e| {
                 let (what, span) = match e {
                     LowerError::Unsupported { what, span } => (what.clone(), span),
-                    LowerError::MissingExternal { name, target, span } => {
-                        (format!("missing {target} external {name}"), span)
-                    }
+                    LowerError::MissingExternal {
+                        name,
+                        language,
+                        span,
+                    } => (format!("missing {language} external {name}"), span),
                     LowerError::MissingCoreFile { path, span } => {
                         (format!("missing core file {path}"), span)
                     }

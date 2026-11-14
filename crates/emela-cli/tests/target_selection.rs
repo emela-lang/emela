@@ -99,7 +99,7 @@ fn embedded_std_modules_are_no_longer_bundled() {
 
 #[test]
 fn dependency_targets_are_checked_for_library_only_builds() {
-    for target in ["js", "c", "wasm"] {
+    for target in ["js", "native", "wasm"] {
         for supported in [true, false] {
             let temp = tempfile::tempdir().unwrap();
             let root = temp.path();
@@ -118,7 +118,7 @@ fn dependency_targets_are_checked_for_library_only_builds() {
             let declared = if supported {
                 target
             } else if target == "js" {
-                "c"
+                "native"
             } else {
                 "js"
             };
@@ -143,4 +143,61 @@ fn dependency_targets_are_checked_for_library_only_builds() {
             assert!(!app.join("target").exists(), "{target}/{supported}");
         }
     }
+}
+
+/// `[target.native]`, `[cmd.build]`: `--target native` and the deprecated `--target c` build the
+/// executable `main` and the header `emela.h` into `target/emela/native`; `c` reports W0903 first.
+#[test]
+fn the_native_target_and_its_deprecated_name() {
+    let have_cc = Command::new("cc")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !have_cc {
+        eprintln!("skipping: cannot start the C compiler `cc`");
+        return;
+    }
+    for (name, warns) in [("native", false), ("c", true)] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        write(root, "Pome.toml", "");
+        write(root, "src/main.emel", "fn main() {}\n");
+        let output = emela(root, &["build", "--target", name]);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{name}: {stderr}");
+        assert_eq!(
+            stderr.starts_with(
+                "warning[W0903]: target `c` is deprecated; use `native`\n   = help: `c` is removed in 0.29\n"
+            ),
+            warns,
+            "{name}: {stderr}"
+        );
+        assert!(root.join("target/emela/native/main").is_file(), "{name}");
+        assert!(root.join("target/emela/native/emela.h").is_file(), "{name}");
+        assert!(!root.join("target/emela/c").exists(), "{name}");
+    }
+}
+
+/// `[cmd.test.out-dir]`: the test output of the native target is `target/emela/test-native`.
+#[test]
+fn native_tests_build_into_test_native() {
+    let have_cc = Command::new("cc")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !have_cc {
+        eprintln!("skipping: cannot start the C compiler `cc`");
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(root, "Pome.toml", "");
+    write(
+        root,
+        "src/main.emel",
+        "@test\nfn works() { assert 1 == 1 }\n",
+    );
+    let output = emela(root, &["test", "--target", "native"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(root.join("target/emela/test-native/main").is_file());
 }

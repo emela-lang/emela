@@ -111,12 +111,12 @@ fn grapheme_builtins_are_rejected() {
         error_of("fn main() { print(Int.to_string(String.length(\"a\"))) }\n"),
         (
             CErrorKind::Unsupported,
-            "`String.length` needs the Unicode grapheme cluster tables, which target `c` does not support yet".into()
+            "`String.length` needs the Unicode grapheme cluster tables, which target `native` does not support yet".into()
         )
     );
     assert_eq!(
         error_of("fn main() { print(String.join(String.split(\"ab\", \"\"), \",\")) }\n").1,
-        "`String.split` with an empty separator needs the Unicode grapheme cluster tables, which target `c` does not support yet"
+        "`String.split` with an empty separator needs the Unicode grapheme cluster tables, which target `native` does not support yet"
     );
 }
 
@@ -156,7 +156,7 @@ fn main() -> () uses { Async } {
     );
     let got = run("split_defect", &src).expect("cc is available");
     let message = "`String.split` with an empty separator on non-ASCII text needs the Unicode \
-                   grapheme cluster tables, which target `c` does not support yet";
+                   grapheme cluster tables, which target `native` does not support yet";
     assert_eq!(
         (got.code, got.stdout.as_str(), got.stderr.as_str()),
         (
@@ -180,6 +180,6 @@ fn main() { on(|x| x) }
     assert_eq!(kind, CErrorKind::Callback);
     assert_eq!(
         message,
-        "external function `on` takes a callback, which target `c` does not support yet"
+        "external function `on` takes a callback, which target `native` does not support yet"
     );
 }

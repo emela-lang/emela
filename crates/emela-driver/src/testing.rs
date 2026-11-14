@@ -47,8 +47,9 @@ use crate::target::Target;
 /// directory for a single file). Kept apart from the normal build (`target/emela/js`) because the
 /// output differs: it exports the test functions.
 pub const JS_TEST_OUT_DIR: &str = "target/emela/test";
-/// The default C output directory for tests (`--target c`), relative like [`JS_TEST_OUT_DIR`].
-pub const C_TEST_OUT_DIR: &str = "target/emela/test-c";
+/// The default output directory of the native target for tests (`--target native`,
+/// `[cmd.test.out-dir]`), relative like [`JS_TEST_OUT_DIR`].
+pub const NATIVE_TEST_OUT_DIR: &str = "target/emela/test-native";
 /// The default WASM output directory for tests (`--target wasm`), relative like
 /// [`JS_TEST_OUT_DIR`].
 pub const WASM_TEST_OUT_DIR: &str = "target/emela/test-wasm";
@@ -64,7 +65,7 @@ pub fn default_test_out_dir(input: &Input) -> PathBuf {
 pub fn default_test_out_dir_for(input: &Input, target: Target) -> PathBuf {
     match target {
         Target::Js => input.base.join(JS_TEST_OUT_DIR),
-        Target::C => input.base.join(C_TEST_OUT_DIR),
+        Target::Native => input.base.join(NATIVE_TEST_OUT_DIR),
         Target::Wasm => input.base.join(WASM_TEST_OUT_DIR),
     }
 }

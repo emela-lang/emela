@@ -30,7 +30,7 @@ use crate::{CError, CErrorKind, COutput, RUNTIME_H_FILE};
 /// What the generated `main` runs.
 pub(crate) enum Run {
     /// The entry's `main` (its monomorphized copy), if any, and the exported fns (their copies)
-    /// with their host names (`[target.c.export]`).
+    /// with their host names (`[target.native.export]`).
     Main(Option<FnId>, Vec<(FnId, Vec<String>)>),
     /// Test functions, with their names.
     Tests(Vec<(String, FnId)>),
@@ -1593,7 +1593,7 @@ impl<'m> Emitter<'m> {
             (
                 CErrorKind::Callback,
                 format!(
-                    "external function `{}` takes a callback, which target `c` does not support yet",
+                    "external function `{}` takes a callback, which target `native` does not support yet",
                     f.name
                 ),
             )
@@ -1645,7 +1645,7 @@ impl<'m> Emitter<'m> {
         (thunk, ret)
     }
 
-    /// The C functions of the exported fns (`[target.c.export]`): for each host name, a function
+    /// The C functions of the exported fns (`[target.native.export]`): for each host name, a function
     /// with external linkage and the prototype of the table in `[ext.boundary]`. It stores its
     /// arguments in statics and runs a thunk as one launch; the thunk converts them, calls the fn
     /// and stores the converted value. A fn with a callback is not supported yet.
@@ -1799,7 +1799,7 @@ impl<'m> Emitter<'m> {
             self.errors.push(CError::new(
                 CErrorKind::BoundaryType,
                 format!(
-                    "exported function `{function}` {verb} `{name}`, which target `c` does not support yet"
+                    "exported function `{function}` {verb} `{name}`, which target `native` does not support yet"
                 ),
             ));
             return;
@@ -1808,7 +1808,7 @@ impl<'m> Emitter<'m> {
         // code of its own yet (the form of callbacks in C is open, 18.1 #38).
         let what = if matches!(self.core().ty(ty), Type::Fn(_)) {
             format!(
-                "exported function `{function}` takes a callback, which target `c` does not support yet"
+                "exported function `{function}` takes a callback, which target `native` does not support yet"
             )
         } else {
             let name = emela_lir::core_ty(self.core(), ty);

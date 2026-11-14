@@ -91,7 +91,7 @@ pub enum WasmErrorKind {
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,
     /// A `suspend fn` external function with `@external(wasm, ...)`. (E0428 was retired once the
-    /// C target learned to run them; WASM reports it without a code.)
+    /// native target learned to run them; WASM reports it without a code.)
     SuspendExternal,
     /// A bug in the compiler (the IR failed a verifier, ...).
     Internal,

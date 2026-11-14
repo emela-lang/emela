@@ -47,25 +47,25 @@ use suspend::Specialization;
 pub enum LowerError {
     /// Not supported in the IR yet. `what` describes what, in English.
     Unsupported { what: String, span: Option<Span> },
-    /// An external function reachable from the entry has no `@external` for the build target
-    /// (spec 12.1). `span` is the position of the function name.
+    /// An external function reachable from the entry has no `@external` for the language of the
+    /// build target (`[ext.decl]`). `span` is the position of the function name.
     MissingExternal {
         name: String,
-        target: String,
+        language: String,
         span: Option<Span>,
     },
     /// The file named by `@external(js, "./x.mjs", …)` in bundled core is not among the bundled
     /// host files (`LowerInput::bundled_files`). An error in the bundled sources. `path` is the
     /// specifier as written.
     MissingCoreFile { path: String, span: Option<Span> },
-    /// An exported fn that may suspend, on the `c` target (E0441, `[target.c.export]`). `name` is
+    /// An exported fn that may suspend, on the native target (E0441, `[target.native.export]`). `name` is
     /// the fn, or the fn with `@entry` for an export made by `@entry`. `span` is the `@export` or
     /// the `@entry`.
     SuspendingExport { name: String, span: Option<Span> },
     /// An `@export(wasm, ...)` written by a user, on the `wasm` target (`[target.wasm.external]`).
     /// `span` is the `@export` or the `@entry`.
     WasmExport { name: String, span: Option<Span> },
-    /// `@entry(Http.serve)` on the `c` target (E0442, `[target.c.unsupported]`). `span` is the
+    /// `@entry(Http.serve)` on the native target (E0442, `[target.native.unsupported]`). `span` is the
     /// `@entry`.
     HttpServiceOnC { span: Option<Span> },
 }
@@ -121,14 +121,15 @@ pub struct LowerInput<'a> {
     /// specifiers of core modules are looked up here instead of next to the source, become
     /// `HostModule::Bundled`, and the files are put in `Module::bundled_files`.
     pub bundled_files: &'a [(&'a str, &'a str)],
-    /// The build target (`"js"`). With `Some` and `Roots::Exported` or `Roots::Tests`, the result
+    /// The language of the build target (`"js"`, `"wasm"` or `"c"`, `[ext.decl]`): the
+    /// `@external` and `@export` annotations of this language take effect. With `Some` and `Roots::Exported` or `Roots::Tests`, the result
     /// is monomorphized ([`crate::monomorphize_traced`]) from the roots (the exported functions, a
     /// generic one instantiated at `Any`; or the test functions, `Lowered::tests` then naming
     /// their copies), and then external functions reachable from the entry (main, or the test
-    /// functions) are checked for an `@external` for that target (spec 12.1), on the monomorphized
+    /// functions) are checked for an `@external` for that language (spec 12.1), on the monomorphized
     /// IR and only when lowering found no other error. check and the LSP do not lower; lowering
     /// tests pick no target, so `None` keeps the polymorphic IR.
-    pub target: Option<&'a str>,
+    pub language: Option<&'a str>,
 }
 
 /// Collects every place that cannot be lowered and returns them all in `Err`. Self tail calls
@@ -169,7 +170,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         roots,
     };
     if roots == Roots::Exported {
-        cx.collect_host_exports(input.target);
+        cx.collect_host_exports(input.language);
         cx.module.http_service = emela_types::is_http_service(hir);
     }
     cx.declare_enums();
@@ -222,7 +223,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     }
     // Target-neutral, so done once here: every backend gets self tail calls as loops (16.3).
     crate::tail::loopify(&mut cx.module);
-    let (Some(target), Roots::Exported | Roots::Public | Roots::Tests) = (input.target, roots)
+    let (Some(target), Roots::Exported | Roots::Public | Roots::Tests) = (input.language, roots)
     else {
         return Ok(Lowered {
             module: cx.module,
@@ -2239,7 +2240,7 @@ impl<'a> Lowerer<'a> {
         for def in defs {
             self.errors.push(LowerError::MissingExternal {
                 name: self.hir.defs[def].name.to_string(),
-                target: target.to_owned(),
+                language: target.to_owned(),
                 span: self.hir.defs[def].span,
             });
         }
@@ -3427,14 +3428,14 @@ impl<'a> Lowerer<'a> {
                 && !bounded)
     }
 
-    /// Fills [`Lowerer::host_exports`] with the exports for `target` (every target for `None`),
-    /// and reports the ones the target cannot expose: one that may suspend on `c` (E0441), and on
-    /// `wasm` any written by a user (`[target.wasm.external]`; only `Std.Http.serve`, the entry
+    /// Fills [`Lowerer::host_exports`] with the exports for `language` (every language for
+    /// `None`), and reports the ones the build target cannot expose: one that may suspend on the
+    /// native target, whose language is `c` (E0441), and on `wasm` any written by a user (`[target.wasm.external]`; only `Std.Http.serve`, the entry
     /// adapter of the bundled `Std`, is exposed by the runtime).
-    fn collect_host_exports(&mut self, target: Option<&str>) {
+    fn collect_host_exports(&mut self, language: Option<&str>) {
         for exposed in emela_types::host_exports(self.hir, self.entry) {
             let entry = self.hir.entry_exports.iter().find(|e| e.def == exposed.def);
-            if target == Some("c")
+            if language == Some("c")
                 && let Some(e) = entry.filter(|e| emela_types::is_http_serve(self.hir, e.adapter))
             {
                 // `serve` has no `@export(c, ...)`, so nothing would be exposed and the program
@@ -3446,7 +3447,7 @@ impl<'a> Lowerer<'a> {
             let exports: Vec<HostExport> = exposed
                 .exports
                 .iter()
-                .filter(|e| target.is_none_or(|t| e.target == t))
+                .filter(|e| language.is_none_or(|l| e.target == l))
                 .map(|e| {
                     let (interface, name) = match e.args.as_slice() {
                         [interface, name] => (Some(interface.clone()), name.clone()),
@@ -3469,7 +3470,7 @@ impl<'a> Lowerer<'a> {
                 .name
                 .to_string();
             let span = Some(exposed.entry.unwrap_or(exposed.exports[0].span));
-            match target {
+            match language {
                 Some("c") if self.fn_suspends(exposed.def, 0) => {
                     self.errors
                         .push(LowerError::SuspendingExport { name, span });

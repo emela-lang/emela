@@ -82,7 +82,7 @@ fn library_build_only_typechecks_and_never_calls_backend_hooks() {
         ),
     ]);
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
-    for target in [Target::Js, Target::C, Target::Wasm] {
+    for target in [Target::Js, Target::Native, Target::Wasm] {
         let options = options(&format!("check-only-{}", target.name()));
         let (analysis, entry) = build(
             &fs,
@@ -155,7 +155,7 @@ fn library_run_is_e0230_even_if_lib_defines_main() {
     ] {
         let fs = MemoryFiles::new([("app/Pome.toml", ""), ("app/src/lib.emel", source)]);
         let input = Input::resolve(&fs, Path::new("app")).unwrap();
-        for target in [Target::Js, Target::C, Target::Wasm] {
+        for target in [Target::Js, Target::Native, Target::Wasm] {
             let options = options(&format!("run-{name}-{}", target.name()));
             let mut called = 0;
             let (analysis, output) = run(

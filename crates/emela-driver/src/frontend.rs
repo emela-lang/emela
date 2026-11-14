@@ -568,7 +568,7 @@ pub(crate) fn lower_typed(
         paths,
         shown_paths,
         bundled_files: emela_core::bundled_files(),
-        target: Some(target.external_target()),
+        language: Some(target.language()),
     };
     match emela_core::lower(&input, roots) {
         Ok(lowered) => {

@@ -1,0 +1,23 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+warning[W0903]: target `c` is deprecated; use `native`
+   ╭─[ Pome.toml:8:10 ]
+   │
+ 8 │ target = "c"
+   │          ─┬─  
+   │           ╰─── 
+───╯
+   = help: `c` is removed in 0.29
+
+warning[W0903]: target `c` is deprecated; use `native`
+   ╭─[ Pome.toml:5:18 ]
+   │
+ 5 │ targets = ["js", "c"]
+   │                  ─┬─  
+   │                   ╰─── 
+───╯
+   = help: `c` is removed in 0.29
+
+2 warnings

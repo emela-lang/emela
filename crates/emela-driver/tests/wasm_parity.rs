@@ -923,7 +923,7 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Box<Analysis
             &options,
             |_, _| {},
         ),
-        Target::C => unreachable!("parity compares js and wasm"),
+        Target::Native => unreachable!("parity compares js and wasm"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {

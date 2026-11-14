@@ -40,7 +40,10 @@ pub struct Manifest {
 }
 
 /// The targets `[pome].targets` may name (spec chapter 16).
-pub const TARGETS: [&str; 3] = ["js", "wasm", "c"];
+pub const TARGETS: [&str; 3] = ["js", "wasm", "native"];
+/// The deprecated name of the target `native` (`[target.native]`). `[pome].targets` still accepts
+/// it; emela-driver reports W0903 for it and reads it as `native`.
+pub const DEPRECATED_NATIVE_TARGET: &str = "c";
 
 /// An entry of `[dependencies]` or `[dev-dependencies]`: "this version or above".
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,7 +140,7 @@ impl Manifest {
             .targets
             .iter()
             .flatten()
-            .find(|t| !TARGETS.contains(&t.as_str()))
+            .find(|t| !TARGETS.contains(&t.as_str()) && t.as_str() != DEPRECATED_NATIVE_TARGET)
         {
             return Err(ManifestError(format!(
                 "`[pome].targets`: unknown target `{unknown}` (expected one of {})",
@@ -277,6 +280,13 @@ target = "c"
             .unwrap_err()
             .to_string();
         assert!(error.contains("unknown target `c-embedded`"), "{error}");
+        assert!(
+            error.contains("(expected one of js, wasm, native)"),
+            "{error}"
+        );
+        // `[target.native]`: `c` is a deprecated name of `native`, still accepted.
+        let m = Manifest::parse(&format!("{base}targets = [\"native\", \"c\"]\n")).unwrap();
+        assert_eq!(m.targets, Some(vec!["native".to_string(), "c".to_string()]));
     }
 
     /// `[pome.manifest]`: a `license` that is not a string or not an SPDX license expression does

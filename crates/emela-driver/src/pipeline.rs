@@ -40,8 +40,8 @@ pub const ENTRY_FILE: &str = "main.emel";
 /// The default JS output directory, relative to the project (or to the file's directory for a
 /// single file).
 pub const JS_OUT_DIR: &str = "target/emela/js";
-/// The default C output directory (`--target c`), relative like [`JS_OUT_DIR`].
-pub const C_OUT_DIR: &str = "target/emela/c";
+/// The default output directory of the native target (`--target native`, `[target.native.output]`), relative like [`JS_OUT_DIR`].
+pub const NATIVE_OUT_DIR: &str = "target/emela/native";
 /// The default WASM output directory (`--target wasm`), relative like [`JS_OUT_DIR`].
 pub const WASM_OUT_DIR: &str = "target/emela/wasm";
 /// The default output directory of `emela doc`, relative like [`JS_OUT_DIR`].
@@ -280,7 +280,7 @@ impl Input {
     pub fn default_out_dir_for(&self, target: Target) -> PathBuf {
         match target {
             Target::Js => self.base.join(JS_OUT_DIR),
-            Target::C => self.base.join(C_OUT_DIR),
+            Target::Native => self.base.join(NATIVE_OUT_DIR),
             Target::Wasm => self.base.join(WASM_OUT_DIR),
         }
     }
@@ -644,6 +644,13 @@ pub fn check<F: Frontend>(
                 &manifest,
                 &mut analysis.sources,
             ));
+            analysis
+                .diagnostics
+                .extend(crate::target::deprecated_targets(
+                    &text,
+                    &manifest,
+                    &mut analysis.sources,
+                ));
         }
     }
     if let Some(entry) = &input.entry {

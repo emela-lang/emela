@@ -1,7 +1,8 @@
-//! The C target (spec chapter 16) through the `emela build`, `run` and `test` paths: the output
-//! is compiled with cc (`EMELA_CC` or `cc`) and run. Tests that need cc are skipped, with a
+//! The native target (`[target.native]`) through the `emela build`, `run` and `test` paths: the
+//! output is compiled with the C compiler (`EMELA_CC` or `cc`) and run. Tests that need cc are skipped, with a
 //! message, when it cannot start.
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -38,7 +39,7 @@ fn project(main: &str) -> (MemoryFiles, Input) {
     (fs, input)
 }
 
-/// Builds and runs `main` on the C target.
+/// Builds and runs `main` on the native target.
 fn run_c(name: &str, main: &str, backend: &mut CoreC) -> (Analysis, Option<RunOutput>) {
     let (fs, input) = project(main);
     let options = RunOptions {
@@ -50,7 +51,7 @@ fn run_c(name: &str, main: &str, backend: &mut CoreC) -> (Analysis, Option<RunOu
     let result = run(
         &fs,
         &input,
-        &mut Lower::default().with_target(Target::C),
+        &mut Lower::default().with_target(Target::Native),
         backend,
         &options,
         |_, _| {},
@@ -118,7 +119,7 @@ fn build_writes_the_executable() {
     let (analysis, entry) = build(
         &fs,
         &input,
-        &mut Lower::default().with_target(Target::C),
+        &mut Lower::default().with_target(Target::Native),
         &mut CoreC::default(),
         &dir,
     );
@@ -156,7 +157,7 @@ fn main() {
         codes(&analysis),
         [(
             Some("E0412"),
-            "external function `now` has no `@external` for target `c`"
+            "external function `now` has no `@external(c, ...)` for target `native`"
         )]
     );
 }
@@ -173,13 +174,13 @@ fn main() { take(|x| x) }
         codes(&analysis),
         [(
             Some("E0427"),
-            "external function `take` takes a callback, which target `c` does not support yet"
+            "external function `take` takes a callback, which target `native` does not support yet"
         )]
     );
 }
 
 /// An exported fn with a callback is not supported on C yet; it is not E0427, which is about
-/// external functions (`[target.c.export]`).
+/// external functions (`[target.native.export]`).
 #[test]
 fn exported_callbacks_are_rejected() {
     let main = r##"@export(c, "apply")
@@ -192,12 +193,12 @@ fn main() {}
         codes(&analysis),
         [(
             None,
-            "exported function `apply` takes a callback, which target `c` does not support yet"
+            "exported function `apply` takes a callback, which target `native` does not support yet"
         )]
     );
 }
 
-/// `[ext.boundary]`: the C target does not support Bytes at the boundary yet. An external
+/// `[ext.boundary]`: the native target does not support Bytes at the boundary yet. An external
 /// function reachable from the entry, or an exported fn, that takes or returns Bytes is E0443.
 #[test]
 fn bytes_at_the_boundary_are_e0443() {
@@ -218,11 +219,11 @@ fn main() { write_file(read_file("a")) }
         [
             (
                 Some("E0443"),
-                "external function `write_file` takes `Bytes`, which target `c` does not support yet"
+                "external function `write_file` takes `Bytes`, which target `native` does not support yet"
             ),
             (
                 Some("E0443"),
-                "external function `read_file` returns `Bytes`, which target `c` does not support yet"
+                "external function `read_file` returns `Bytes`, which target `native` does not support yet"
             ),
         ]
     );
@@ -243,17 +244,17 @@ fn main() {}
         [
             (
                 Some("E0443"),
-                "exported function `size` takes `Bytes`, which target `c` does not support yet"
+                "exported function `size` takes `Bytes`, which target `native` does not support yet"
             ),
             (
                 Some("E0443"),
-                "exported function `empty` returns `Bytes`, which target `c` does not support yet"
+                "exported function `empty` returns `Bytes`, which target `native` does not support yet"
             ),
         ]
     );
 }
 
-/// `[ext.boundary]`: the C target does not support Array at the boundary yet either. An external
+/// `[ext.boundary]`: the native target does not support Array at the boundary yet either. An external
 /// function reachable from the entry, or an exported fn, that takes or returns a type that is an
 /// Array (of any element type, Bytes and nested arrays included) is E0443.
 #[test]
@@ -283,15 +284,15 @@ fn main() {
         [
             (
                 Some("E0443"),
-                "external function `sum` takes `Array[Int]`, which target `c` does not support yet"
+                "external function `sum` takes `Array[Int]`, which target `native` does not support yet"
             ),
             (
                 Some("E0443"),
-                "external function `rows` returns `Array[String]`, which target `c` does not support yet"
+                "external function `rows` returns `Array[String]`, which target `native` does not support yet"
             ),
             (
                 Some("E0443"),
-                "external function `chunks` takes `Array[Array[Bytes]]`, which target `c` does not support yet"
+                "external function `chunks` takes `Array[Array[Bytes]]`, which target `native` does not support yet"
             ),
         ]
     );
@@ -312,11 +313,11 @@ fn main() {}
         [
             (
                 Some("E0443"),
-                "exported function `size` takes `Array[Int]`, which target `c` does not support yet"
+                "exported function `size` takes `Array[Int]`, which target `native` does not support yet"
             ),
             (
                 Some("E0443"),
-                "exported function `names` returns `Array[String]`, which target `c` does not support yet"
+                "exported function `names` returns `Array[String]`, which target `native` does not support yet"
             ),
         ]
     );
@@ -339,14 +340,92 @@ fn cc_problems_are_e0907_and_e0908() {
             .1
             .starts_with("cannot start `/nonexistent/emela-test-cc`")
     );
+    // `[target.native.cc]`: the help when it is not found.
+    assert_eq!(
+        analysis.diagnostics[0].notes,
+        [
+            "help: install a C11 compiler and add it to PATH as `cc`, or set EMELA_CC to the compiler"
+        ]
+    );
 
-    // A compiler that fails.
+    // A compiler that fails. The message names no emitted file (`[target.native.cc]`).
     let (analysis, output) = run_c("bad-cc", main, &mut CoreC::with_cc("false", &[]));
     assert!(output.is_none());
     let found = codes(&analysis);
-    assert_eq!(found.len(), 1, "{found:?}");
-    assert_eq!(found[0].0, Some("E0908"));
-    assert!(found[0].1.starts_with("`false` failed to compile `"));
+    assert_eq!(
+        found,
+        [(
+            Some("E0908"),
+            "`false` failed to compile the output of target `native`"
+        )]
+    );
+}
+
+/// `[target.native.cc]`: the whole value of `EMELA_CC` names one program, so a value with flags
+/// cannot be started, and the help points to `EMELA_CC_ARGS`.
+#[test]
+fn a_compiler_with_flags_in_its_name_points_to_emela_cc_args() {
+    let main = "fn main() { dbg(1) }\n";
+    let (analysis, output) = run_c(
+        "cc-with-flags",
+        main,
+        &mut CoreC::with_cc("cc -fsanitize=address", &[]),
+    );
+    assert!(output.is_none());
+    assert_eq!(
+        codes(&analysis),
+        [(
+            Some("E0907"),
+            "cannot start `cc -fsanitize=address`: No such file or directory (os error 2)"
+        )]
+    );
+    assert_eq!(
+        analysis.diagnostics[0].notes,
+        ["help: EMELA_CC names only the compiler; pass flags in EMELA_CC_ARGS"]
+    );
+}
+
+/// `[target.native.cc]`: one invocation compiles every source, and the flags of `EMELA_CC_ARGS`
+/// come at the end of the command line, after every source file. `[target.native.output]`: the
+/// output directory has the executable `main` and the header `emela.h`.
+#[test]
+fn emela_cc_args_come_after_the_sources() {
+    let dir = out_dir("cc-args");
+    std::fs::create_dir_all(&dir).unwrap();
+    // Records its arguments, one per line, and makes `main`.
+    let cc = dir.join("record-cc");
+    let log = dir.join("args.txt");
+    std::fs::write(
+        &cc,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\ntouch main\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&cc, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (fs, input) = project("fn main() { dbg(1) }\n");
+    let out = dir.join("out");
+    let (analysis, entry) = build(
+        &fs,
+        &input,
+        &mut Lower::default().with_target(Target::Native),
+        &mut CoreC::with_cc(&cc, &["-std=c23", "-lsqlite3"]),
+        &out,
+    );
+    assert_eq!(codes(&analysis), []);
+    assert_eq!(entry.unwrap(), out.join(C_EXECUTABLE));
+    assert!(out.join("emela.h").exists());
+    let args = std::fs::read_to_string(&log).unwrap();
+    let args: Vec<&str> = args.lines().collect();
+    let last_source = args.iter().rposition(|a| a.ends_with(".c")).unwrap();
+    assert_eq!(&args[args.len() - 2..], ["-std=c23", "-lsqlite3"]);
+    assert!(last_source < args.len() - 2, "{args:?}");
+    // The project's C sources are compiled as C11 or later, with threads and the math library.
+    assert!(args.contains(&"-std=c11"), "{args:?}");
+    assert!(args.contains(&"-pthread"), "{args:?}");
+    assert!(args.contains(&"-lm"), "{args:?}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -390,7 +469,7 @@ fn raises_a_defect() {
     let (analysis, report) = test(
         &fs,
         &input,
-        &mut LowerTests::default().with_target(Target::C),
+        &mut LowerTests::default().with_target(Target::Native),
         &mut CoreC::default(),
         &options,
         |_| {},
@@ -473,7 +552,7 @@ fn without_show() {
             TestOutcome::Defect("assertion failed: a == b".to_owned()),
         ),
     ];
-    for target in [Target::Js, Target::C] {
+    for target in [Target::Js, Target::Native] {
         let options = TestOptions {
             out_dir: out_dir(&format!("assert-inspect-{target}")),
             js_host: emela_driver::js_host_program(),
@@ -524,7 +603,12 @@ fn build_target_from_pome_toml() {
         project_target(&fs, &input).map_err(|d| (d.code, d.message))
     };
     assert_eq!(read(""), Ok(None));
-    assert_eq!(read("[build]\ntarget = \"c\"\n"), Ok(Some(Target::C)));
+    assert_eq!(
+        read("[build]\ntarget = \"native\"\n"),
+        Ok(Some(Target::Native))
+    );
+    // `[target.native]`: `c` is a deprecated name of `native`.
+    assert_eq!(read("[build]\ntarget = \"c\"\n"), Ok(Some(Target::Native)));
     assert_eq!(
         read("[build]\ntarget = \"node\"\n"),
         Err((
@@ -840,7 +924,7 @@ fn suspend_externals_complete_later() {
     let (analysis, output) = run(
         &OsFs,
         &input,
-        &mut Lower::default().with_target(Target::C),
+        &mut Lower::default().with_target(Target::Native),
         &mut leak_checked(),
         &options,
         |_, _| {},
@@ -876,7 +960,7 @@ fn suspend_externals_misbehaving() {
     let (analysis, report) = test(
         &OsFs,
         &input,
-        &mut LowerTests::default().with_target(Target::C),
+        &mut LowerTests::default().with_target(Target::Native),
         &mut sanitized(),
         &options,
         |_| {},
@@ -984,7 +1068,7 @@ fn main() {
 }
 "##;
 
-/// `[target.c.export]`: each `@export(c, "name")` is a function with external linkage and the
+/// `[target.native.export]`: each `@export(c, "name")` is a function with external linkage and the
 /// prototype of `[ext.boundary]`. Called before main, the first call starts the runtime. Called
 /// while a launch is running on the same thread (here, from a host function main called), it is a
 /// defect.
@@ -1008,7 +1092,7 @@ fn exported_functions_are_called_from_c() {
     let (analysis, output) = run(
         &OsFs,
         &input,
-        &mut Lower::default().with_target(Target::C),
+        &mut Lower::default().with_target(Target::Native),
         &mut leak_checked(),
         &options,
         |_, _| {},

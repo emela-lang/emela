@@ -1,4 +1,4 @@
-//! The C target's acceptance corpus (`crates/emela-codegen-c/tests/programs`) run on the WASM
+//! The native target's acceptance corpus (`crates/emela-codegen-c/tests/programs`) run on the WASM
 //! target.
 //!
 //! Each `NAME.emel` has `NAME.expected`, the exit code, stdout and stderr of the JS target. The

@@ -27,8 +27,9 @@ repository describes the 0.1x language, not the 0.20 series.
 
 Prebuilt binaries are published for macOS (Apple Silicon) and Linux (x86_64).
 Running the generated JavaScript (`emela run`, `emela test`) needs Node.js 22
-or later. The C target (`--target c`) needs a C11 compiler as `cc` (or set
-`EMELA_CC`). The WASM target (`--target wasm`) needs Wasmtime 49 or later, run as a
+or later. The native target (`--target native`) needs a C11 compiler as `cc` and the
+C headers and library of the system (or set `EMELA_CC`, and pass flags in
+`EMELA_CC_ARGS`; `emela doctor` checks them). The WASM target (`--target wasm`) needs Wasmtime 49 or later, run as a
 WASI 0.3 component with `-S p3=y` (or set `EMELA_WASMTIME`).
 
 ```sh
@@ -158,15 +159,16 @@ $ emela test
 ## Commands
 
 Each command takes a project directory or an entry file, and defaults to `.`.
-`run`, `build` and `test` take `--target js` (the default), `--target c`, which
-compiles to C and builds a native executable with `cc`, or `--target wasm`, which
+`run`, `build` and `test` take `--target js` (the default), `--target native`, which
+builds an executable for this machine with its C compiler (`--target c` is a
+deprecated name, removed in 0.29), or `--target wasm`, which
 writes a WASI 0.3 component `main.wasm` (`target/emela/wasm`) and runs it with `wasmtime`;
 `[build] target = "..."` in `Pome.toml` changes the default. JS and WASM run
-every construct of the language. The C target does not have `String.length`,
+every construct of the language. The native target does not have `String.length`,
 `String.chars`, callbacks across `@external` or HTTP services yet
 ([`[target.native.unsupported]`](spec/targets/native.md)). The client of `Std.Http`
 (`SystemHttp`) runs only on JS: a program that sends a request does not
-compile for C or WASM (E0412, [`[target.wasm.external]`](spec/targets/wasm.md)).
+compile for native or WASM (E0412, [`[target.wasm.external]`](spec/targets/wasm.md)).
 
 | Command        | Does                                                                                   |
 | -------------- | -------------------------------------------------------------------------------------- |
@@ -603,7 +605,7 @@ Set.from_list(["a", "b"])
   start (`node` by default). Browsers are not a target.
 - Some checks that scopes, fiber handles and `Deferred` values do not escape
   run at run time (a defect such as `fiber scope was used after it ended`).
-- The C target runs on macOS (arm64) and Linux (x86_64) only, and lacks the
+- The native target runs on macOS (arm64) and Linux (x86_64 with glibc) only, and lacks the
   constructs listed under [Commands](#commands).
 - The questions still open are in [`spec/open-questions.md`](spec/open-questions.md).
 

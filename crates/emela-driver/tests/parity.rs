@@ -1,9 +1,9 @@
-//! The same programs on the JS and the C target (spec chapter 16: every target gives the same
+//! The same programs on the JS and the native target (spec chapter 16: every target gives the same
 //! observable result). Each example project (`examples/*`) and each program of emela-codegen-c's
 //! tests (`crates/emela-codegen-c/tests/programs/*.emel`) runs on both, and stdout, stderr and the
 //! exit code must agree; the tests of each example must give the same results too. The C runtime
 //! is compiled with its leak check (`-DEMELA_LEAK_CHECK`), so a leaked allocation shows up as a
-//! difference (exit code 99). Examples the C target cannot build yet are listed in
+//! difference (exit code 99). Examples the native target cannot build yet are listed in
 //! [`NOT_ON_C`] with the diagnostic that stops them.
 //!
 //! Needs node and a C compiler (`EMELA_CC` or `cc`); without cc the tests are skipped with a
@@ -18,11 +18,11 @@ use emela_driver::{
 };
 
 /// Examples that do not build on C yet, and the code of the first diagnostic that stops them (no
-/// code: the C target's "not supported yet").
+/// code: the native target's "not supported yet").
 const NOT_ON_C: &[(&str, Option<&str>)] = &[
     // SystemHttp has no `@external(c, ...)` yet (spec 15.2).
     ("http", Some("E0412")),
-    // HTTP services are not supported on C (`[target.c.unsupported]`).
+    // HTTP services are not supported on C (`[target.native.unsupported]`).
     ("http-service", Some("E0442")),
 ];
 
@@ -105,7 +105,7 @@ fn run_on(
             &options,
             |_, _| {},
         ),
-        Target::C => run(&OsFs, &input, &mut frontend, c, &options, |_, _| {}),
+        Target::Native => run(&OsFs, &input, &mut frontend, c, &options, |_, _| {}),
         Target::Wasm => unreachable!("parity compares js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
@@ -151,7 +151,7 @@ fn test_on(
             |_| {},
             &mut out,
         ),
-        Target::C => test(&OsFs, &input, &mut frontend, c, &options, |_| {}, &mut out),
+        Target::Native => test(&OsFs, &input, &mut frontend, c, &options, |_| {}, &mut out),
         Target::Wasm => unreachable!("parity compares js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
@@ -202,7 +202,7 @@ fn examples_run_the_same_on_js_and_c() {
     // same ones.
     let on_c = in_clean_cwd(|| {
         map_in_parallel(&examples, &c, |(name, dir), c| {
-            run_on(dir, Target::C, c, name)
+            run_on(dir, Target::Native, c, name)
         })
     });
     // The examples that do not build on C are not run on JS either: some of them write files in
@@ -252,7 +252,7 @@ fn example_tests_give_the_same_results_on_js_and_c() {
     let failures = in_parallel(&examples, &c, |(name, dir), c| {
         let js = test_on(dir, Target::Js, c, name)
             .unwrap_or_else(|a| panic!("the tests of {name} fail on JS: {:?}", messages(&a)));
-        match test_on(dir, Target::C, c, name) {
+        match test_on(dir, Target::Native, c, name) {
             Ok(on_c) if on_c == js => None,
             Ok(on_c) => Some(format!("{name}: JS gives {js:?}\nC gives {on_c:?}")),
             Err(analysis) => Some(format!(
@@ -284,7 +284,7 @@ fn codegen_programs_run_the_same_on_js_and_c() {
         let dir_name = format!("program-{name}");
         let js = run_on(path, Target::Js, c, &dir_name)
             .unwrap_or_else(|a| panic!("{name} does not run on JS: {:?}", messages(&a)));
-        match run_on(path, Target::C, c, &dir_name) {
+        match run_on(path, Target::Native, c, &dir_name) {
             Ok(on_c) if on_c == js => None,
             Ok(on_c) => Some(format!("{name}: JS gives {js:?}\nC gives {on_c:?}")),
             Err(analysis) => Some(format!(
@@ -429,7 +429,7 @@ fn after_the_others() {
     let fs = emela_driver::MemoryFiles::new([("app/Pome.toml", ""), ("app/src/main.emel", main)]);
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let mut outcomes = Vec::new();
-    for target in [Target::Js, Target::C] {
+    for target in [Target::Js, Target::Native] {
         let options = TestOptions {
             out_dir: out_dir(&format!("suspending-tests-{target}")),
             js_host: emela_driver::js_host_program(),
@@ -450,7 +450,7 @@ fn after_the_others() {
                 |_| {},
                 &mut out,
             ),
-            Target::C => test(
+            Target::Native => test(
                 &fs,
                 &input,
                 &mut frontend,
