@@ -14,6 +14,14 @@ error enum Prelude.ParseError {
   ParseError(input: String)
 }
 
+error enum Std.Process.InvalidInput {
+  InvalidInput
+}
+
+error enum Std.Process.StdinFailure {
+  StdinFailure(message: String)
+}
+
 error enum Std.Http.Response.UnexpectedStatus {
   UnexpectedStatus(status: Int, body: String)
 }

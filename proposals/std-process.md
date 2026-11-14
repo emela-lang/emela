@@ -1,9 +1,9 @@
 ---
 title: Std.Process, the arguments and the standard input of the process
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 565
-issue:
+issue: 572
 decided: 2026-11-14
 touches: [lib.layers, api.std.process (new), api.std.platform, cmd.build, target.native.run, target.wasm.output, target.wasm.external, cmd.test.output]
 requires: []
@@ -254,7 +254,7 @@ The last item becomes:
 
 ## Diagnostics
 
-- [ ] No new diagnostics. Reaching an operation of `SystemStdin` on WASM is the existing E0412 (`[lib.layers]`)
+- [x] No new diagnostics. Reaching an operation of `SystemStdin` on WASM is the existing E0412 (`[lib.layers]`)
 
 ## Compatibility
 

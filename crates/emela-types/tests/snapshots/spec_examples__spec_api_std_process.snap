@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r##\"\nimport Std.Console.{Console}\nimport Std.Platform.{Platform}\nimport Std.Process.{Args, Stdin, InvalidInput, StdinFailure}\n\nfn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {\n  (use Stdin).read_line() match {\n    None -> ()\n    Some(line) -> {\n      (use Console).print_line(\"#{prefix}#{line}\")\n      quote(prefix)\n    }\n  }\n}\n\nfn main() {\n  with Platform {\n    prefix = (use Args).get(0) match {\n      Some(p) -> p\n      None    -> \"> \"\n    }\n    quote(prefix)\n  }\n}\n\"##)"
+---
+quote: fn(String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin }
+  prefix: String
+  line: String
+main: fn() -> () fails InvalidInput | StdinFailure uses { Async }
+  p: String
+  prefix: String

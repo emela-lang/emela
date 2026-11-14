@@ -658,6 +658,39 @@ fn basics() -> Option[Int] {
     ));
 }
 
+/// `[api.std.process]`: the example of reading standard input, and the form of `main` in the
+/// proposal (`proposals/std-process.md`), with the arguments and `Platform`.
+#[test]
+fn spec_api_std_process() {
+    insta::assert_snapshot!(render_bodies(
+        r##"
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+import Std.Process.{Args, Stdin, InvalidInput, StdinFailure}
+
+fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {
+  (use Stdin).read_line() match {
+    None -> ()
+    Some(line) -> {
+      (use Console).print_line("#{prefix}#{line}")
+      quote(prefix)
+    }
+  }
+}
+
+fn main() {
+  with Platform {
+    prefix = (use Args).get(0) match {
+      Some(p) -> p
+      None    -> "> "
+    }
+    quote(prefix)
+  }
+}
+"##
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Code the text declares to be errors
 

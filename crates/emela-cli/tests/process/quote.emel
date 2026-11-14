@@ -1,0 +1,26 @@
+# The example of `[api.std.process]`: each line of standard input with the prefix in the first
+# argument.
+
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+import Std.Process.{Args, InvalidInput, Stdin, StdinFailure}
+
+fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {
+  (use Stdin).read_line() match {
+    None -> ()
+    Some(line) -> {
+      (use Console).print_line("#{prefix}#{line}")
+      quote(prefix)
+    }
+  }
+}
+
+fn main() {
+  with Platform {
+    prefix = (use Args).get(0) match {
+      Some(p) -> p
+      None    -> "> "
+    }
+    quote(prefix)
+  }
+}
