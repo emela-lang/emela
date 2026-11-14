@@ -186,10 +186,24 @@ pub fn fiber_may_defect(op: FiberOp) -> bool {
         | FiberOp::Deferred
         | FiberOp::Complete
         | FiberOp::Poll
+        // A Semaphore or Queue used after its scope ended, or made with a bad size; a wait
+        // that is interrupted or stopped by the end of the scope (spec 11.9, 11.10).
+        | FiberOp::Semaphore
+        | FiberOp::Queue
+        | FiberOp::Acquire
+        | FiberOp::TryAcquire
+        | FiberOp::Available
+        | FiberOp::Offer
+        | FiberOp::Take
+        | FiberOp::TryOffer
+        | FiberOp::QueuePoll
+        | FiberOp::Size
+        | FiberOp::Close
         // `attempt` turns the function's defects into a `Failure`, but not an interruption, nor a
         // defect while the fiber unwinds by one (spec 11.5).
         | FiberOp::Attempt { .. } => true,
-        FiberOp::CauseKind { .. } | FiberOp::CauseToString => false,
+        // Giving permits back after the scope ended does nothing (spec 11.9).
+        FiberOp::CauseKind { .. } | FiberOp::CauseToString | FiberOp::Release => false,
     }
 }
 

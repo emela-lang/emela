@@ -68,7 +68,7 @@ enum {
    * because the Heap IR dups and drops it as a reference: a raw host pointer would get its first
    * bytes written as a count. */
   EM_KIND_HOST = 3,
-  /* An object of the runtime (a fiber, a scope, a Deferred, a resume): `fin` releases what it
+  /* An object of the runtime (a fiber, a scope, a Deferred, a Semaphore, a Queue, a resume): `fin` releases what it
    * holds before it is freed. */
   EM_KIND_RUNTIME = 4,
   /* An Array (`[api.std.array]`): slot 0 the length n, then the n elements. `refs[0]` is 1 if
@@ -376,6 +376,18 @@ em_ref em_fiber_attempt(em_ref f, int32_t repr);
 int32_t em_deferred_complete(em_ref d, em_word value, int32_t repr);
 em_word em_deferred_await(em_ref d, int32_t repr);
 em_ref em_deferred_poll(em_ref d, int32_t repr);
+em_ref em_fiber_semaphore(em_ref scope, int32_t permits);
+em_ref em_fiber_queue(em_ref scope, int32_t capacity);
+void em_semaphore_acquire(em_ref s, int32_t n);
+int32_t em_semaphore_try_acquire(em_ref s, int32_t n);
+void em_semaphore_release(em_ref s, int32_t n);
+int32_t em_semaphore_available(em_ref s);
+em_word em_queue_offer(em_ref q, em_word value, int32_t repr);
+em_word em_queue_take(em_ref q, int32_t repr);
+int32_t em_queue_try_offer(em_ref q, em_word value, int32_t repr);
+em_ref em_queue_poll(em_ref q, int32_t repr);
+int32_t em_queue_size(em_ref q);
+void em_queue_close(em_ref q);
 int32_t em_cause_kind(em_ref c);
 em_ref em_cause_to_string(em_ref c);
 void em_cause_raise(em_ref c);

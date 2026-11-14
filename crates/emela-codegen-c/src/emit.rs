@@ -1189,6 +1189,45 @@ impl<'m> Emitter<'m> {
                 Self::assign(cx, dst, &call("em_cause_to_string", &a[..1]));
             }
             FiberOp::CauseRaise { .. } => cx.w.stmt(&call("em_cause_raise", &a[..1])),
+            FiberOp::Semaphore => Self::assign(cx, dst, &call("em_fiber_semaphore", &a[..2])),
+            FiberOp::Queue => Self::assign(cx, dst, &call("em_fiber_queue", &a[..2])),
+            FiberOp::Acquire => cx.w.stmt(&call("em_semaphore_acquire", &a[..2])),
+            FiberOp::TryAcquire => {
+                Self::assign(cx, dst, &call("em_semaphore_try_acquire", &a[..2]));
+            }
+            FiberOp::Release => cx.w.stmt(&call("em_semaphore_release", &a[..2])),
+            FiberOp::Available => {
+                Self::assign(cx, dst, &call("em_semaphore_available", &a[..1]));
+            }
+            FiberOp::Offer | FiberOp::TryOffer => {
+                // A value without representation is passed as the zero word, as for complete.
+                let repr = args.get(1).map_or(Repr::Void, |o| Self::operand_repr(f, o));
+                let w = match args.get(1) {
+                    Some(o) if repr != Repr::Void => self.word(f, o),
+                    _ => "(em_word){.l = 0}".to_owned(),
+                };
+                let name = if op == FiberOp::Offer {
+                    "em_queue_offer"
+                } else {
+                    "em_queue_try_offer"
+                };
+                let e = call(name, [a[0].as_str(), w.as_str(), repr_code(repr)]);
+                if op == FiberOp::Offer {
+                    word(cx, e);
+                } else {
+                    Self::assign(cx, dst, &e);
+                }
+            }
+            FiberOp::Take => {
+                let repr = dst_ty.map_or(Repr::Void, |t| self.inner_repr(t));
+                word(cx, op_call("em_queue_take", repr));
+            }
+            FiberOp::QueuePoll => {
+                let repr = dst_ty.map_or(Repr::Void, |t| self.inner_repr(t));
+                Self::assign(cx, dst, &op_call("em_queue_poll", repr));
+            }
+            FiberOp::Size => Self::assign(cx, dst, &call("em_queue_size", &a[..1])),
+            FiberOp::Close => cx.w.stmt(&call("em_queue_close", &a[..1])),
         }
     }
 

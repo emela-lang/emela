@@ -1,0 +1,34 @@
+exit: 0
+--- stdout
+--- stderr
+"producer a done"
+"producer b done"
+"producer c done"
+[1, 2, 3, 10, 100, 20]
+"size while they wait: 0"
+"try_offer: True"
+"size after: 0"
+"first took x"
+"second took y"
+None
+[True, True, False]
+2
+[Some(1), Some(2), None]
+0
+"drained [1, 2, 3]"
+"offer after close: error: QueueClosed"
+"offer escaped: closed"
+"try_offer after close: False, size 0"
+None
+"left in full: [\"kept\"]"
+"taker: closed"
+"offerer: closed"
+"offerer: interrupted"
+[Some(1), None]
+"taker: interrupted"
+"second taker got 3"
+"defect: queue needs a capacity of at least 1, but got 0"
+"defect: queue was used after its scope ended"
+"defect: queue was used after its scope ended"
+"inner scope ends"
+"waiter: defect: queue was used after its scope ended"

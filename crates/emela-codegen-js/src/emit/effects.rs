@@ -188,10 +188,13 @@ impl Emitter<'_> {
     /// }
     /// ```
     pub(super) fn with_(&mut self, binds: &[WithBind], body: &Expr, dest: &Dest) {
-        let mut open: Vec<(String, String, &Release)> = Vec::new();
+        let mut open: Vec<(Option<String>, String, &Release)> = Vec::new();
         for b in binds {
             let name = self.bind(b);
             if let Some(r) = &b.release {
+                // A binding of `()` holds no handler value, so nothing is marked released (the
+                // permits of `Semaphore.with_permits`; the LIR has no operand for it either).
+                let name = (self.m.locals[b.var].ty != TypeId::UNIT).then_some(name);
                 let thrown = self.tmp();
                 self.line(&format!("let {thrown};"));
                 self.line("try {");
@@ -227,9 +230,11 @@ impl Emitter<'_> {
             let merge = self.rt("$releaseDefect");
             self.line("} catch ($e) {");
             self.line(&format!("  throw {merge}({thrown}, $e, {handler});"));
-            let retire = self.rt("$retire");
             self.line("} finally {");
-            self.line(&format!("  {retire}({name}, {handler});"));
+            if let Some(name) = name {
+                let retire = self.rt("$retire");
+                self.line(&format!("  {retire}({name}, {handler});"));
+            }
             if let Some(h) = hold {
                 let f = self.rt("$unhold");
                 self.line(&format!("  {f}({h});"));

@@ -1,0 +1,52 @@
+# Queue (spec 11.10): passes values between fibers in order, up to a capacity. It can be closed
+# to say that no more values will come.
+#
+# Only the `queue` operation of `Scope` (or `Fiber.queue(n)`) makes one, so it belongs to a scope
+# and cannot leave it (spec 11.8):
+#
+#   Fiber.scope(|| {
+#     q = Fiber.queue(100)
+#     Fiber.fork(|| {
+#       jobs.each(|job| q.offer(job))
+#       q.close()
+#     })
+#     work(q)
+#   })
+#
+# The functions are built in: the runtime holds the values and the lines of waiting fibers.
+# Lowering turns them into concurrency operations of the Core IR, not rows of the builtin table.
+
+## Values of type `A` in order, up to a capacity. Held by the runtime.
+@external
+pub type Queue[A]
+
+## The queue is closed (and, for `take`, empty).
+pub error QueueClosed
+
+## Adds `value` at the end. Waits while the queue is full. Fails with `QueueClosed` if the queue is
+## closed, or is closed while this waits; the value is then not added.
+@intrinsic
+pub fn offer[A](q: Queue[A], value: A) -> () fails QueueClosed uses { Async }
+
+## Removes the value at the front and returns it. Waits while the queue is empty. Fails with
+## `QueueClosed` once the queue is closed and empty.
+@intrinsic
+pub fn take[A](q: Queue[A]) -> A fails QueueClosed uses { Async }
+
+## Adds `value` and returns True if the queue is neither full nor closed. Otherwise returns False
+## and adds nothing. Does not suspend.
+@intrinsic
+pub fn try_offer[A](q: Queue[A], value: A) -> Bool
+
+## Removes the value at the front and returns it as `Some`, or returns `None` if the queue is
+## empty. Does not suspend.
+@intrinsic
+pub fn poll[A](q: Queue[A]) -> Option[A]
+
+## The number of values in the queue.
+@intrinsic
+pub fn size[A](q: Queue[A]) -> Int
+
+## Closes the queue. The values in it can still be taken. Closing a closed queue does nothing.
+@intrinsic
+pub fn close[A](q: Queue[A]) -> ()

@@ -188,7 +188,9 @@ impl<'a> Typer<'a> {
                     | FiberOp::Await { .. }
                     | FiberOp::Attempt { .. }
                     | FiberOp::DeferredAwait
-                    | FiberOp::Poll => args.first().map(|a| self.type_of(a)),
+                    | FiberOp::Poll
+                    | FiberOp::Take
+                    | FiberOp::QueuePoll => args.first().map(|a| self.type_of(a)),
                     _ => None,
                 };
                 self.fiber_result(*op, first)
@@ -353,14 +355,16 @@ impl<'a> Typer<'a> {
     }
 
     /// The type of a concurrency operation. `first` is the type of its first argument, needed by
-    /// `Scope`, `Join`, `Await`, `Attempt`, `DeferredAwait` and `Poll`.
+    /// `Scope`, `Join`, `Await`, `Attempt`, `DeferredAwait`, `Poll`, `Take` and `QueuePoll`.
     pub fn fiber_result(&mut self, op: FiberOp, first: Option<TypeId>) -> TypeId {
         let first = first.unwrap_or(TypeId::ANY);
         match op {
             // `Fiber.scope(body: fn(scope) -> A) -> A`.
             FiberOp::Scope { .. } => self.fn_ret(first),
             // Handles whose types differ per use (`Type::Any`).
-            FiberOp::Fork | FiberOp::Deferred => TypeId::ANY,
+            FiberOp::Fork | FiberOp::Deferred | FiberOp::Semaphore | FiberOp::Queue => {
+                TypeId::ANY
+            }
             // `Fiber[A] -> A`, `Deferred[A] -> A`.
             FiberOp::Join | FiberOp::DeferredAwait => self.enum_arg(first, 0),
             // `Fiber[A] -> Exit[A, {}]`.
@@ -373,10 +377,15 @@ impl<'a> Typer<'a> {
                 let a = self.fn_ret(first);
                 self.exit_type(exit, a)
             }
-            FiberOp::Interrupt => TypeId::UNIT,
-            FiberOp::Complete => TypeId::BOOL,
-            // `Deferred[A] -> Option[A]`.
-            FiberOp::Poll => {
+            FiberOp::Interrupt | FiberOp::Acquire | FiberOp::Release | FiberOp::Close => {
+                TypeId::UNIT
+            }
+            FiberOp::Complete | FiberOp::TryAcquire | FiberOp::Offer | FiberOp::TryOffer => {
+                TypeId::BOOL
+            }
+            FiberOp::Available | FiberOp::Size => TypeId::INT,
+            // `Deferred[A] -> Option[A]`, `Queue[A] -> Option[A]`.
+            FiberOp::Poll | FiberOp::Take | FiberOp::QueuePoll => {
                 let a = self.enum_arg(first, 0);
                 self.option(a)
             }

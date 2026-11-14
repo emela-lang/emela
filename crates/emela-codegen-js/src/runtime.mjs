@@ -126,9 +126,14 @@ class $Await {
 // A yield for fairness (11.1): the fiber goes to the end of the queue.
 const $PAUSE = Object.freeze({});
 
-// A request of a fiber operation (chapter 11). `run(fiber, wake)` returns what to pass to the waiting fiber right
-// away (`{ mode, value }`), or undefined to suspend it until `wake(mode, value)` is called. A `closing` request
+// A request of a fiber operation (chapter 11). `run(fiber, wake, wait)` returns what to pass to the waiting fiber
+// right away (`{ mode, value }`), or undefined to suspend it until `wake(mode, value)` is called. A `closing` request
 // (a scope waiting for its children) is not cut short when the run is unwound.
+//
+// `wake("served", value)` continues with `value` even if an interruption arrived after the wake: the fiber was given
+// what it waited for (permits, a value of a queue) and no longer waits, so the interruption takes effect at its next
+// suspension point instead, and nothing it was given is lost (11.9, 11.10). A request that keeps the fiber in a line
+// sets `wait.onDrop` to leave the line when the fiber is interrupted while it waits.
 class $FiberRequest {
   constructor(run, closing = false) {
     this.run = run;
@@ -425,9 +430,9 @@ class $Fiber {
   }
 
   // Continues the main continuation queued with `mode` and `value`. If an interruption arrived in the meantime, it is
-  // delivered instead.
-  resume(gen, end, mode, value) {
-    if (end === this.end && mode !== "throw" && this.interrupting()) {
+  // delivered instead, unless the fiber was `served` (`$FiberRequest`).
+  resume(gen, end, mode, value, served = false) {
+    if (!served && end === this.end && mode !== "throw" && this.interrupting()) {
       mode = "throw";
       value = this.deliver();
     }
@@ -586,8 +591,10 @@ function $advance(root, fiber, gen, end, mode, input) {
     // Within the same fiber it continues on the spot; otherwise it is queued.
     const cont = (mode, value) => {
       if (!take()) return;
+      const served = mode === "served";
+      if (served) mode = "next";
       if ($current === fiber) $step(root, fiber, gen, end, mode, value);
-      else root.schedule(() => fiber.resume(gen, end, mode, value));
+      else root.schedule(() => fiber.resume(gen, end, mode, value, served));
     };
     if (request === $PAUSE) {
       fiber.budget = $BUDGET;
@@ -615,7 +622,7 @@ function $advance(root, fiber, gen, end, mode, input) {
       return;
     }
     const now =
-      request instanceof $FiberRequest ? request.run(fiber, cont) : $performOp(root, fiber, cont, request, wait);
+      request instanceof $FiberRequest ? request.run(fiber, cont, wait) : $performOp(root, fiber, cont, request, wait);
     if (now === undefined) {
       suspend();
       return;
@@ -726,8 +733,10 @@ class $Scope {
     // No more forks: the body ended or something failed (11.8).
     this.closed = false;
     this.bodyDone = false;
-    // The scope returned; its handles and Deferreds can no longer be used (11.8).
+    // The scope returned; its handles, Deferreds, Semaphores and Queues can no longer be used (11.8).
     this.ended = false;
+    // Its Semaphores and Queues: fibers of other scopes still waiting on them when it ends stop waiting (11.8).
+    this.cells = [];
     // The first failure (a Fail or Die `$Cause`) of the body or a child; the result of the scope.
     this.first = undefined;
     // Called when the last child ends while the scope waits for them.
@@ -797,6 +806,7 @@ export function* $scope(body) {
     }
   }
   scope.ended = true;
+  for (const cell of scope.cells) cell.end();
   const first = scope.first;
   if (first !== undefined) {
     if (first.kind === $CAUSE_FAIL) return first.value;
@@ -935,6 +945,210 @@ export function $deferredAwait(d) {
 export function $poll(d) {
   if (d.scope.ended) throw new $Defect("deferred was polled after its scope ended");
   return d.full ? { $tag: 0, $0: d.value } : $None;
+}
+
+// ---- Semaphore and Queue (11.9, 11.10) ----
+//
+// Fibers wait in first-in first-out lines. A fiber given what it waits for (permits, a value, the news that the
+// queue is closed) is taken out of the line and woken as `served`. A fiber interrupted while it waits leaves its
+// line when its wait is dropped (`wait.onDrop`).
+
+function $leave(line, entry) {
+  const i = line.indexOf(entry);
+  if (i >= 0) line.splice(i, 1);
+}
+
+// Wakes every fiber still in `lines` with the defect `message` (a fiber of another scope, 11.8).
+function $endLines(lines, message) {
+  for (const line of lines) {
+    const entries = line.splice(0);
+    for (const entry of entries) entry.wake("throw", new $Defect(message));
+  }
+}
+
+class $SemaphoreCell {
+  constructor(scope, permits) {
+    this.scope = scope;
+    this.permits = permits;
+    this.free = permits;
+    // `{ n, wake }`, in the order the fibers started to wait.
+    this.line = [];
+  }
+
+  // Gives permits to the fibers at the front of the line while enough are free for the first.
+  serve() {
+    while (this.line.length > 0 && this.line[0].n <= this.free) {
+      const entry = this.line.shift();
+      this.free -= entry.n;
+      entry.wake("served", undefined);
+    }
+  }
+
+  end() {
+    $endLines([this.line], "semaphore was used after its scope ended");
+  }
+}
+
+function $semaphoreDefect(s, n, name) {
+  if (s.scope.ended) return new $Defect("semaphore was used after its scope ended");
+  if (n < 1) return new $Defect(`\`${name}\` needs at least 1 permit, but got ${n}`);
+  if (n > s.permits) return new $Defect(`\`${name}\` asked for ${n} permits of a semaphore with ${s.permits}`);
+  return undefined;
+}
+
+// `s.semaphore(permits)` (11.9).
+export function $semaphore(scope, permits) {
+  if (scope.closed) throw new $Defect("fiber scope was used after it ended");
+  if (permits < 1) throw new $Defect(`semaphore needs at least 1 permit, but got ${permits}`);
+  const s = new $SemaphoreCell(scope, permits);
+  scope.cells.push(s);
+  return s;
+}
+
+// The init of `with_permits` (11.9): waits until `n` permits are free and no fiber is ahead in the line.
+export function $acquire(s, n) {
+  return new $FiberRequest((_, wake, wait) => {
+    const defect = $semaphoreDefect(s, n, "with_permits");
+    if (defect !== undefined) return { mode: "throw", value: defect };
+    if (s.line.length === 0 && s.free >= n) {
+      s.free -= n;
+      return { mode: "next", value: undefined };
+    }
+    const entry = { n, wake };
+    s.line.push(entry);
+    wait.onDrop = () => {
+      $leave(s.line, entry);
+      s.serve();
+    };
+    return undefined;
+  });
+}
+
+// `try_with_permits` (11.9): takes the permits only if no fiber waits and enough are free.
+export function $tryAcquire(s, n) {
+  const defect = $semaphoreDefect(s, n, "try_with_permits");
+  if (defect !== undefined) throw defect;
+  if (s.line.length > 0 || s.free < n) return false;
+  s.free -= n;
+  return true;
+}
+
+// The release of `with_permits` (11.9). After the scope ended nobody can take the permits, so it does nothing.
+export function $release(s, n) {
+  if (s.scope.ended) return;
+  s.free += n;
+  s.serve();
+}
+
+// `Semaphore.available(s)` (11.9).
+export function $available(s) {
+  if (s.scope.ended) throw new $Defect("semaphore was used after its scope ended");
+  return s.free;
+}
+
+class $QueueCell {
+  constructor(scope, capacity) {
+    this.scope = scope;
+    this.capacity = capacity;
+    this.items = [];
+    this.closed = false;
+    // `{ wake }` of fibers waiting to take (only while `items` is empty), and `{ value, wake }` of fibers waiting to
+    // offer (only while `items` is full).
+    this.takers = [];
+    this.offerers = [];
+  }
+
+  // Adds `value`: to the first fiber waiting to take, or at the end. The caller has checked that it fits.
+  put(value) {
+    if (this.takers.length > 0) this.takers.shift().wake("served", { $tag: 0, $0: value });
+    else this.items.push(value);
+  }
+
+  // Removes the value at the front; the value of the first fiber waiting to offer takes its place at the end.
+  shift() {
+    const value = this.items.shift();
+    if (this.offerers.length > 0) {
+      const entry = this.offerers.shift();
+      this.items.push(entry.value);
+      entry.wake("served", true);
+    }
+    return value;
+  }
+
+  end() {
+    $endLines([this.takers, this.offerers], "queue was used after its scope ended");
+  }
+}
+
+function $queueCheck(q) {
+  if (q.scope.ended) throw new $Defect("queue was used after its scope ended");
+}
+
+// `s.queue(capacity)` (11.10).
+export function $queue(scope, capacity) {
+  if (scope.closed) throw new $Defect("fiber scope was used after it ended");
+  if (capacity < 1) throw new $Defect(`queue needs a capacity of at least 1, but got ${capacity}`);
+  const q = new $QueueCell(scope, capacity);
+  scope.cells.push(q);
+  return q;
+}
+
+// `Queue.offer(q, value)` (11.10). False when the queue is closed (lowering makes it the failure `QueueClosed`).
+export function $offer(q, value) {
+  return new $FiberRequest((_, wake, wait) => {
+    if (q.scope.ended) return { mode: "throw", value: new $Defect("queue was used after its scope ended") };
+    if (q.closed) return { mode: "next", value: false };
+    if (q.items.length < q.capacity) {
+      q.put(value);
+      return { mode: "next", value: true };
+    }
+    const entry = { value, wake };
+    q.offerers.push(entry);
+    wait.onDrop = () => $leave(q.offerers, entry);
+    return undefined;
+  });
+}
+
+// `Queue.take(q)` (11.10). `None` when the queue is closed and empty.
+export function $take(q) {
+  return new $FiberRequest((_, wake, wait) => {
+    if (q.scope.ended) return { mode: "throw", value: new $Defect("queue was used after its scope ended") };
+    if (q.items.length > 0) return { mode: "next", value: { $tag: 0, $0: q.shift() } };
+    if (q.closed) return { mode: "next", value: $None };
+    const entry = { wake };
+    q.takers.push(entry);
+    wait.onDrop = () => $leave(q.takers, entry);
+    return undefined;
+  });
+}
+
+// `Queue.try_offer(q, value)` (11.10).
+export function $tryOffer(q, value) {
+  $queueCheck(q);
+  if (q.closed || q.items.length >= q.capacity) return false;
+  q.put(value);
+  return true;
+}
+
+// `Queue.poll(q)` (11.10).
+export function $queuePoll(q) {
+  $queueCheck(q);
+  return q.items.length > 0 ? { $tag: 0, $0: q.shift() } : $None;
+}
+
+// `Queue.size(q)` (11.10).
+export function $size(q) {
+  $queueCheck(q);
+  return q.items.length;
+}
+
+// `Queue.close(q)` (11.10). The fibers waiting to take or to offer stop with `QueueClosed`.
+export function $close(q) {
+  $queueCheck(q);
+  if (q.closed) return;
+  q.closed = true;
+  for (const entry of q.takers.splice(0)) entry.wake("served", $None);
+  for (const entry of q.offerers.splice(0)) entry.wake("served", false);
 }
 
 // `CauseKind` (`Fail`, `Die`, `Interrupt`, in that order).

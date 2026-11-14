@@ -1,0 +1,181 @@
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
+import Std.Cause.{Cause}
+import Std.Deferred.{Deferred}
+import Std.Semaphore.{Semaphore}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+fn main() -> () uses { Async } {
+  with Ticks {
+    # At most 2 of the 5 fibers hold a permit at once.
+    ns = Fiber.scope(|| {
+      s = Fiber.semaphore(2)
+      Fiber.map(
+        [1, 2, 3, 4, 5],
+        |i| s.with_permit(|| {
+          dbg("start #{i}, #{s.available()} free")
+          spin(1500)
+          dbg("end #{i}")
+          i * 10
+        }),
+      )
+    })
+    dbg(ns)
+
+    # First in, first out: a fiber that asks for more permits than are free makes the fibers
+    # behind it wait, and try_with_permit does not go ahead of it.
+    Fiber.scope(|| {
+      s = Fiber.semaphore(3)
+      gate = Fiber.deferred()
+      a = Fiber.fork(|| s.with_permits(
+        2,
+        || {
+          dbg("a holds 2")
+          gate.await()
+          dbg("a gives 2 back")
+        },
+      ))
+      b = Fiber.fork(|| s.with_permits(3, || dbg("b holds 3")))
+      c = Fiber.fork(|| s.with_permit(|| dbg("c holds 1")))
+      d = Fiber.fork(|| {
+        dbg("try while b waits: #{s.try_with_permit(|| 1)}, #{s.available()} free")
+        gate.complete(())
+      })
+      a.join()
+      b.join()
+      c.join()
+      d.join()
+    })
+
+    # try_with_permit while full, and permits counted per call.
+    Fiber.scope(|| {
+      s = Fiber.semaphore(1)
+      dbg(s.try_with_permit(|| s.try_with_permit(|| 1)))
+      t = Fiber.semaphore(2)
+      dbg(t.with_permit(|| t.with_permit(|| t.available())))
+      dbg(t.try_with_permits(2, || t.available()))
+      dbg(t.available())
+    })
+
+    # The permits come back however f ends.
+    Fiber.scope(|| {
+      s = Fiber.semaphore(1)
+      r = s.with_permit(|| boom()) escape { Boom -> -1 }
+      dbg("after an error: #{r}, #{s.available()} free")
+      t = s.try_with_permit(|| boom()) escape { Boom -> None }
+      dbg("after an error in try: #{t}, #{s.available()} free")
+      dbg(show(Exit.attempt(|| s.with_permit(|| panic("broken")))))
+      dbg("after a defect: #{s.available()} free")
+      started = Fiber.deferred()
+      h = Fiber.fork(|| s.with_permit(|| {
+        started.complete(())
+        spin(100000)
+      }))
+      started.await()
+      dbg("held: #{s.available()} free")
+      Fiber.interrupt(h)
+      dbg("after an interruption: #{s.available()} free")
+    })
+
+    # A fiber interrupted while it waits leaves the line and takes no permit.
+    Fiber.scope(|| {
+      s = Fiber.semaphore(2)
+      gate = Fiber.deferred()
+      ready = Fiber.deferred()
+      Fiber.fork(|| s.with_permit(|| gate.await()))
+      big = Fiber.fork(|| s.with_permits(2, || dbg("big runs")))
+      Fiber.fork(|| s.with_permit(|| dbg("small runs")))
+      Fiber.fork(|| ready.complete(()))
+      ready.await()
+      dbg("try while big waits: #{s.try_with_permit(|| 0)}")
+      Fiber.interrupt(big)
+      dbg("big: #{show(Fiber.await(big))}, #{s.available()} free")
+      gate.complete(())
+    })
+
+    # Defects.
+    dbg(show(Exit.attempt(|| Fiber.scope(|| {
+      Fiber.semaphore(0)
+      ()
+    }))))
+    dbg(show(Exit.attempt(|| Fiber.scope(|| {
+      s = Fiber.semaphore(3)
+      s.with_permits(0, || ())
+    }))))
+    dbg(show(Exit.attempt(|| Fiber.scope(|| {
+      s = Fiber.semaphore(3)
+      s.with_permits(4, || ())
+    }))))
+    dbg(show(Exit.attempt(|| Fiber.scope(|| {
+      s = Fiber.semaphore(3)
+      s.try_with_permits(-1, || ())
+    }))))
+    dbg(show(Exit.attempt(|| Fiber.scope(|| {
+      s = Fiber.semaphore(3)
+      s.try_with_permits(5, || ())
+    }))))
+    later = Fiber.scope(|| {
+      s = Fiber.semaphore(1)
+      || s.available()
+    })
+    dbg(show(Exit.attempt(|| later())))
+    with_later = Fiber.scope(|| {
+      s = Fiber.semaphore(1)
+      || s.with_permit(|| 1)
+    })
+    dbg(show(Exit.attempt(|| with_later())))
+
+    # A fiber of another scope still waiting when the scope ends stops with a defect. The permit
+    # a fiber of another scope gives back after the end is dropped.
+    Fiber.scope(|| {
+      leak = Fiber.deferred()
+      holding = Fiber.deferred()
+      holder = Fiber.fork(|| {
+        s: Semaphore = leak.await()
+        s.with_permit(|| {
+          holding.complete(())
+          spin(6000)
+        })
+        dbg("the holder ended")
+      })
+      Fiber.fork(|| {
+        s: Semaphore = leak.await()
+        holding.await()
+        dbg("waiter: #{show(Exit.attempt(|| s.with_permits(2, || 0)))}")
+      })
+      Fiber.scope(|| {
+        s = Fiber.semaphore(2)
+        leak.complete(s)
+        spin(3000)
+        dbg("inner scope ends")
+      })
+      holder.join()
+    })
+    ()
+  }
+}

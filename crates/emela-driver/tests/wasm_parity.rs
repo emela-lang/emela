@@ -854,6 +854,16 @@ fn main() {
         "call_order",
         include_str!("../../emela-codegen-c/tests/programs/call_order.emel"),
     ),
+    // `[fiber.semaphore]` and `[fiber.queue]`: the lines of waiting fibers, interruption while
+    // waiting, and the end of the scope.
+    (
+        "fiber_semaphore",
+        include_str!("../../emela-codegen-c/tests/programs/fiber_semaphore.emel"),
+    ),
+    (
+        "fiber_queue",
+        include_str!("../../emela-codegen-c/tests/programs/fiber_queue.emel"),
+    ),
     (
         "local_fns",
         r#"

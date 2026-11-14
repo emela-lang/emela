@@ -1,0 +1,42 @@
+exit: 0
+--- stdout
+--- stderr
+"start 1, 1 free"
+"start 2, 0 free"
+"end 1"
+"end 2"
+"start 3, 0 free"
+"start 4, 0 free"
+"end 3"
+"end 4"
+"start 5, 1 free"
+"end 5"
+[10, 20, 30, 40, 50]
+"a holds 2"
+"try while b waits: None, 1 free"
+"a gives 2 back"
+"b holds 3"
+"c holds 1"
+Some(None)
+0
+Some(0)
+2
+"after an error: -1, 1 free"
+"after an error in try: None, 1 free"
+"defect: broken"
+"after a defect: 1 free"
+"held: 0 free"
+"after an interruption: 1 free"
+"try while big waits: None"
+"small runs"
+"big: interrupted, 1 free"
+"defect: semaphore needs at least 1 permit, but got 0"
+"defect: `with_permits` needs at least 1 permit, but got 0"
+"defect: `with_permits` asked for 4 permits of a semaphore with 3"
+"defect: `try_with_permits` needs at least 1 permit, but got -1"
+"defect: `try_with_permits` asked for 5 permits of a semaphore with 3"
+"defect: semaphore was used after its scope ended"
+"defect: semaphore was used after its scope ended"
+"inner scope ends"
+"waiter: defect: semaphore was used after its scope ended"
+"the holder ended"

@@ -40,7 +40,7 @@ mod fiber;
 mod local_fn;
 mod suspend;
 
-use fiber::{AttemptCall, ForkCall, ScopeCall};
+use fiber::{AttemptCall, ForkCall, PermitsCall, QueueCall, ScopeCall};
 use local_fn::Lifted;
 use suspend::Specialization;
 
@@ -426,6 +426,10 @@ enum Target {
     Fork(Box<ForkCall>),
     /// `Exit.attempt(f)`（11.5）．
     Attempt(Box<AttemptCall>),
+    /// `Semaphore.with_permits` and `try_with_permits` (spec 11.9).
+    Permits(Box<PermitsCall>),
+    /// `Queue.offer` and `Queue.take` (spec 11.10).
+    Queue(Box<QueueCall>),
 }
 
 /// What is needed to lower `State.run(initial, body)`. Locals are allocated up front.
@@ -592,6 +596,8 @@ impl Target {
             Target::Scope(scope) => scope.apply(args),
             Target::Fork(fork) => fork.apply(args),
             Target::Attempt(attempt) => attempt.apply(args),
+            Target::Permits(permits) => permits.apply(args),
+            Target::Queue(queue) => queue.apply(args),
         }
     }
 }

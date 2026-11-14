@@ -20,6 +20,8 @@
 import Std.Clock.{Clock}
 import Std.Deferred.{Deferred}
 import Std.Exit.{Exit}
+import Std.Queue.{Queue}
+import Std.Semaphore.{Semaphore}
 
 ## The handle of a fiber that produces a value of type `A`. Held by the runtime. It cannot leave
 ## the `Fiber.scope` that started it (spec 11.8).
@@ -35,6 +37,10 @@ pub effect Scope[E, R] {
   fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]
   ## Makes a `Deferred` that belongs to the scope (spec 11.7).
   fn deferred[A]() -> Deferred[A]
+  ## Makes a `Semaphore` with `permits` permits that belongs to the scope (spec 11.9).
+  fn semaphore(permits: Int) -> Semaphore
+  ## Makes an empty `Queue` of capacity `capacity` that belongs to the scope (spec 11.10).
+  fn queue[A](capacity: Int) -> Queue[A]
 }
 
 ## Runs `body` with a scope to start fibers in, and returns its value after every child has
@@ -60,6 +66,18 @@ pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
 ## Makes a `Deferred` that belongs to the innermost scope. Same as `(use Scope).deferred()`.
 pub fn deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] } {
   (use Scope).deferred()
+}
+
+## Makes a `Semaphore` with `permits` permits that belongs to the innermost scope. Same as
+## `(use Scope).semaphore(permits)`.
+pub fn semaphore[E, R](permits: Int) -> Semaphore uses { Scope[E, R] } {
+  (use Scope).semaphore(permits)
+}
+
+## Makes an empty `Queue` of capacity `capacity` that belongs to the innermost scope. Same as
+## `(use Scope).queue(capacity)`.
+pub fn queue[A, E, R](capacity: Int) -> Queue[A] uses { Scope[E, R] } {
+  (use Scope).queue(capacity)
 }
 
 ## Waits for the fiber to end and returns its value. Joining a fiber interrupted with `interrupt`

@@ -1413,11 +1413,11 @@ impl Expr {
 /// operations they follow from the operation. The two that vary carry them in the variant
 /// (`Scope { fails }`, from the body's E, and `Attempt { suspends }`, from `f`'s R).
 ///
-/// Scopes (the `Scope` capability value), fiber handles (`Fiber[A]`), Deferreds and causes
-/// (`Cause[E]`) are opaque values chosen by the backend. Capability values may be put in evidence
-/// tables with `Expr::Provide`. Exit (`Std.Exit`) and CauseKind (`Std.Cause`) are represented like
-/// user enums, with constructor order given by `EXIT_SUCCESS`, `EXIT_FAILURE` and `CAUSE_FAIL`,
-/// `CAUSE_DIE`, `CAUSE_INTERRUPT`.
+/// Scopes (the `Scope` capability value), fiber handles (`Fiber[A]`), Deferreds, Semaphores,
+/// Queues and causes (`Cause[E]`) are opaque values chosen by the backend. Capability values may
+/// be put in evidence tables with `Expr::Provide`. Exit (`Std.Exit`) and CauseKind (`Std.Cause`)
+/// are represented like user enums, with constructor order given by `EXIT_SUCCESS`,
+/// `EXIT_FAILURE` and `CAUSE_FAIL`, `CAUSE_DIE`, `CAUSE_INTERRUPT`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FiberOp {
     /// `Fiber.scope(body)` (spec 11.2). `[body]`, where `body` is a function value taking the
@@ -1452,6 +1452,40 @@ pub enum FiberOp {
     /// `Deferred.poll(d)` (spec 11.7). `[deferred]`. The value is Prelude's Option
     /// (`Module::option_enum`).
     Poll,
+    /// `s.semaphore(permits)` (spec 11.9). `[scope, permits]`. The value is a new Semaphore with
+    /// `permits` permits; a defect if `permits` is less than 1.
+    Semaphore,
+    /// `s.queue(capacity)` (spec 11.10). `[scope, capacity]`. The value is a new empty Queue; a
+    /// defect if `capacity` is less than 1.
+    Queue,
+    /// Waits until `n` permits of the semaphore are free and takes them (spec 11.9).
+    /// `[semaphore, n]`. The value is `()`. It is the init of the `with` that
+    /// `Semaphore.with_permits` lowers to, whose release is `Release`: a fiber interrupted while it
+    /// waits takes no permit. Defects name `with_permits`.
+    Acquire,
+    /// Takes `n` permits if they are free and no fiber waits (spec 11.9). `[semaphore, n]`. The
+    /// value is a Bool. Not a suspension point. Defects name `try_with_permits`.
+    TryAcquire,
+    /// Gives `n` permits back (spec 11.9). `[semaphore, n]`. The value is `()`. Not a suspension
+    /// point.
+    Release,
+    /// `Semaphore.available(s)` (spec 11.9). `[semaphore]`. The value is an Int.
+    Available,
+    /// `Queue.offer(q, value)` without the failure (spec 11.10). `[queue, value]`. Waits while the
+    /// queue is full. The value is a Bool: False when the queue is closed (lowering turns it into
+    /// the failure `QueueClosed`).
+    Offer,
+    /// `Queue.take(q)` without the failure (spec 11.10). `[queue]`. Waits while the queue is empty.
+    /// The value is Prelude's Option: `None` when the queue is closed and empty.
+    Take,
+    /// `Queue.try_offer(q, value)` (spec 11.10). `[queue, value]`. The value is a Bool.
+    TryOffer,
+    /// `Queue.poll(q)` (spec 11.10). `[queue]`. The value is Prelude's Option.
+    QueuePoll,
+    /// `Queue.size(q)` (spec 11.10). `[queue]`. The value is an Int.
+    Size,
+    /// `Queue.close(q)` (spec 11.10). `[queue]`. The value is `()`.
+    Close,
     /// `Cause.kind(c)` (spec 11.5). `[cause]`. The value is of the `kind` enum (CauseKind).
     CauseKind { kind: EnumId },
     /// `Cause.to_string(c)` (spec 11.5). `[cause]`. `error: …`, `defect: …` or `interrupted`.
@@ -1476,7 +1510,15 @@ pub const CAUSE_INTERRUPT: usize = 2;
 impl FiberOp {
     pub fn arity(self) -> usize {
         match self {
-            FiberOp::Fork | FiberOp::Complete => 2,
+            FiberOp::Fork
+            | FiberOp::Complete
+            | FiberOp::Semaphore
+            | FiberOp::Queue
+            | FiberOp::Acquire
+            | FiberOp::TryAcquire
+            | FiberOp::Release
+            | FiberOp::Offer
+            | FiberOp::TryOffer => 2,
             _ => 1,
         }
     }
@@ -1487,10 +1529,22 @@ impl FiberOp {
             | FiberOp::Join
             | FiberOp::Await { .. }
             | FiberOp::Interrupt
-            | FiberOp::DeferredAwait => true,
+            | FiberOp::DeferredAwait
+            | FiberOp::Acquire
+            | FiberOp::Offer
+            | FiberOp::Take => true,
             FiberOp::Attempt { suspends, .. } => suspends,
             FiberOp::Fork
             | FiberOp::Deferred
+            | FiberOp::Semaphore
+            | FiberOp::Queue
+            | FiberOp::TryAcquire
+            | FiberOp::Release
+            | FiberOp::Available
+            | FiberOp::TryOffer
+            | FiberOp::QueuePoll
+            | FiberOp::Size
+            | FiberOp::Close
             | FiberOp::Complete
             | FiberOp::Poll
             | FiberOp::CauseKind { .. }
@@ -1520,6 +1574,18 @@ impl FiberOp {
             FiberOp::Complete => "complete",
             FiberOp::DeferredAwait => "deferred_await",
             FiberOp::Poll => "poll",
+            FiberOp::Semaphore => "semaphore",
+            FiberOp::Queue => "queue",
+            FiberOp::Acquire => "acquire",
+            FiberOp::TryAcquire => "try_acquire",
+            FiberOp::Release => "release",
+            FiberOp::Available => "available",
+            FiberOp::Offer => "offer",
+            FiberOp::Take => "take",
+            FiberOp::TryOffer => "try_offer",
+            FiberOp::QueuePoll => "queue_poll",
+            FiberOp::Size => "size",
+            FiberOp::Close => "close",
             FiberOp::CauseKind { .. } => "cause_kind",
             FiberOp::CauseToString => "cause_to_string",
             FiberOp::CauseRaise { .. } => "cause_raise",

@@ -53,6 +53,8 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Platform", include_str!("../lib/std/platform.emel")),
     ("Std.Cause", include_str!("../lib/std/cause.emel")),
     ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
+    ("Std.Semaphore", include_str!("../lib/std/semaphore.emel")),
+    ("Std.Queue", include_str!("../lib/std/queue.emel")),
     ("Std.Exit", include_str!("../lib/std/exit.emel")),
     ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
 ];
@@ -187,6 +189,15 @@ mod tests {
         ("Std.Deferred", "complete"),
         ("Std.Deferred", "await"),
         ("Std.Deferred", "poll"),
+        ("Std.Semaphore", "with_permits"),
+        ("Std.Semaphore", "try_with_permits"),
+        ("Std.Semaphore", "available"),
+        ("Std.Queue", "offer"),
+        ("Std.Queue", "take"),
+        ("Std.Queue", "try_offer"),
+        ("Std.Queue", "poll"),
+        ("Std.Queue", "size"),
+        ("Std.Queue", "close"),
     ];
 
     /// Every row is declared exactly once, with the table's parameter and return types and number

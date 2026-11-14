@@ -1271,7 +1271,9 @@ impl<'s> Lower<'s> {
         };
         match op {
             FiberOp::Scope { .. } => fn_ret(self, first),
-            FiberOp::Fork | FiberOp::Deferred => TypeId::ANY,
+            FiberOp::Fork | FiberOp::Deferred | FiberOp::Semaphore | FiberOp::Queue => {
+                TypeId::ANY
+            }
             FiberOp::Join | FiberOp::DeferredAwait => enum_arg(self, first),
             FiberOp::Await { exit } => {
                 let a = enum_arg(self, first);
@@ -1281,9 +1283,14 @@ impl<'s> Lower<'s> {
                 let a = fn_ret(self, first);
                 exit_type(self, exit, a)
             }
-            FiberOp::Interrupt => TypeId::UNIT,
-            FiberOp::Complete => TypeId::BOOL,
-            FiberOp::Poll => {
+            FiberOp::Interrupt | FiberOp::Acquire | FiberOp::Release | FiberOp::Close => {
+                TypeId::UNIT
+            }
+            FiberOp::Complete | FiberOp::TryAcquire | FiberOp::Offer | FiberOp::TryOffer => {
+                TypeId::BOOL
+            }
+            FiberOp::Available | FiberOp::Size => TypeId::INT,
+            FiberOp::Poll | FiberOp::Take | FiberOp::QueuePoll => {
                 let a = enum_arg(self, first);
                 let option = self.sh.core.option_enum();
                 self.intern(Type::Enum(option, vec![a]))

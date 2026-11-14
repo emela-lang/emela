@@ -1,0 +1,52 @@
+# Semaphore (spec 11.9): limits how many fibers run a piece of code at the same time.
+#
+# Only the `semaphore` operation of `Scope` (or `Fiber.semaphore(n)`) makes one, so it belongs to
+# a scope and cannot leave it (spec 11.8):
+#
+#   Fiber.scope(|| {
+#     db = Fiber.semaphore(10)
+#     Fiber.map(ids, |id| db.with_permit(|| load(id)))
+#   })
+#
+# `with_permits`, `try_with_permits` and `available` are built in: the runtime holds the permits
+# and the line of waiting fibers. Lowering turns them into concurrency operations of the Core IR,
+# not rows of the builtin table.
+
+## A fixed number of permits. Held by the runtime.
+@external
+pub type Semaphore
+
+## Waits for a permit, runs `f`, and gives the permit back however `f` ends. Same as
+## `with_permits(s, 1, f)`.
+pub fn with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> A
+  fails E
+  uses { Async, R } {
+  with_permits(s, 1, f)
+}
+
+## Waits until `n` permits are free and takes them, runs `f`, and gives the `n` permits back when
+## `f` ends: with a value, an error, a defect or an interruption. Waiting fibers are served in the
+## order they started to wait.
+@intrinsic
+pub fn with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> A
+  fails E
+  uses { Async, R }
+
+## Runs `f` with a permit only if one can be taken without waiting. Same as
+## `try_with_permits(s, 1, f)`.
+pub fn try_with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> Option[A]
+  fails E
+  uses { R } {
+  try_with_permits(s, 1, f)
+}
+
+## Takes `n` permits if they are free and no fiber is waiting, runs `f` as `with_permits` does, and
+## returns `Some` of its value. Otherwise returns `None` without running `f`. Does not suspend.
+@intrinsic
+pub fn try_with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> Option[A]
+  fails E
+  uses { R }
+
+## The number of permits that no fiber holds. Does not suspend.
+@intrinsic
+pub fn available(s: Semaphore) -> Int

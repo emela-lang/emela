@@ -17,8 +17,8 @@
 //! equal, and also when:
 //!
 //! - `A` is `Never` (the value never arrives);
-//! - either is `Any` (inside Scope's handler and the handles of `fiber#fork` and `fiber#deferred`,
-//!   `Type::Any`);
+//! - either is `Any` (inside Scope's handler and the handles of `fiber#fork`, `fiber#deferred`,
+//!   `fiber#semaphore` and `fiber#queue`, `Type::Any`);
 //! - `B` is `Evidence` and `A` is `()`: where there is no evidence table, `()` is passed (the callee
 //!   does not use it, as the type checker has checked R);
 //! - both are function types whose parameters and return types are compatible (parameters the
@@ -998,8 +998,23 @@ impl<'a> Verifier<'a> {
                     }
                 }
             }
-            // `deferred: Deferred[A]`, `value: A`.
-            FiberOp::Complete => {
+            // `scope`, `permits` or `capacity`.
+            FiberOp::Semaphore | FiberOp::Queue => {
+                if let Some(t) = first {
+                    self.expect(t, TypeId::FIBER_SCOPE, "scope");
+                }
+                if let Some(&n) = tys.get(1) {
+                    self.expect(n, TypeId::INT, "size");
+                }
+            }
+            // `semaphore`, `n: Int`.
+            FiberOp::Acquire | FiberOp::TryAcquire | FiberOp::Release => {
+                if let Some(&n) = tys.get(1) {
+                    self.expect(n, TypeId::INT, "n");
+                }
+            }
+            // `deferred: Deferred[A]`, `value: A`; `queue: Queue[A]`, `value: A`.
+            FiberOp::Complete | FiberOp::Offer | FiberOp::TryOffer => {
                 if let (Some(d), Some(&v)) = (first, tys.get(1)) {
                     let a = self.t.enum_arg(d, 0);
                     self.expect(v, a, "value");

@@ -2458,6 +2458,7 @@ impl<'m> Builder<'m> {
         args: &[Operand],
     ) {
         match op {
+            FiberOp::Semaphore | FiberOp::Queue | FiberOp::Acquire | FiberOp::TryAcquire | FiberOp::Release | FiberOp::Available | FiberOp::Offer | FiberOp::Take | FiberOp::TryOffer | FiberOp::QueuePoll | FiberOp::Size | FiberOp::Close => todo!("TEMP semaphore/queue"),
             FiberOp::Scope { .. } => {
                 let ret = self.operand_fn_ret(cx, &args[0]);
                 let repr = self.repr(ret);
