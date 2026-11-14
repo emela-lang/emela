@@ -13,7 +13,7 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 - For `native`, the command writes the executable `main` and the header `emela.h` to the output directory, with other implementation-defined files (`[target.native.output]`). The C compiler is chosen as in `[target.native.cc]` (E0907, E0908).
 - The exit code is as follows.
   - 1 if the diagnostics include an error. 0 if there are only warnings.
-  - When `run` reaches the program, the exit code of the program: 0, or the value of the `ExitCode` that `main` returned (`[dyn.error]`), when main ends with a value; 1 for an error (14.3); 101 for a defect (7.5); 130 for an interruption (14.5).
+  - When `run` reaches the program, the exit code of the program: 0, or the value of the `ExitCode` that `main` returned (`[dyn.error]`), when main ends with a value; 1 for an error (14.3); 101 for a defect (7.5); 130 for an interruption (14.5); 141 for a write to a closed standard output (`[api.std.process]`).
   - 128 + the signal number when stopped by a signal.
 
 Build target and output directory:
@@ -55,6 +55,7 @@ Running the program (JS):
 | An error that reached `main` (14.3) | `error: <display of the error value>` | 1 |
 | defect (7.5) | `defect: <message>` | 101 |
 | Ended while suspended without being resumed (14.5) | `interrupted` | 130 |
+| A write to a closed standard output (`[api.std.process]`) | nothing | 141 |
 | An exception that is not a defect | the JS host's stack display | 1 |
 
 - The display of the error value is the same as inspect (10.6) if the error type satisfies Show (for `error DbError(message: String) derive Show`, `error: DbError(message: "down")`), and only the name otherwise (`error: Retry`).

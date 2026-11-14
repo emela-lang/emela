@@ -433,6 +433,8 @@ fn main() {
 }
 ```
 
+- Console writes one line meant for people at a time. To write to the output streams of the process without a line ending, use Stdout and Stderr of `Std.Process` (`[api.std.process]`). Writes mixed between SystemConsole and SystemStdout or SystemStderr keep their order.
+
 ### Std.Process (`std/process.emel`, `std/process.mjs`, `std/process.c`) `[api.std.process]`
 
 The platform layer and the test layer (`[lib.layers]`). What the process has exactly one of.
@@ -446,6 +448,14 @@ The platform layer and the test layer (`[lib.layers]`). What the process has exa
 | `SystemStdin` | `handler SystemStdin: Stdin` | The standard input of the process. `process.stdin` on JS and file descriptor 0 on native. Requires Async. Has no state |
 | `StdinLines` | `type StdinLines(lines: List[String])` | The state of TestStdin: the lines not read yet |
 | `TestStdin` | `handler TestStdin: Stdin` | Kept in `State[StdinLines]` and resumes immediately. Does not raise InvalidInput or StdinFailure |
+| `Stdout` | `effect Stdout { fn print(text: String) -> (); fn print_line(text: String) -> () }` | Writes to the standard output of the process. `print` writes `text` as is, and `print_line` writes `text` followed by `\n`. Does not fail |
+| `Stderr` | `effect Stderr { fn print(text: String) -> (); fn print_line(text: String) -> () }` | The same for the standard error of the process |
+| `SystemStdout` | `handler SystemStdout: Stdout` | File descriptor 1, written synchronously, on JS, `stdout` on native, and `write-via-stream` of `wasi:cli/stdout@0.3.0` on WASM. Has no state |
+| `SystemStderr` | `handler SystemStderr: Stderr` | File descriptor 2, written synchronously, on JS, `stderr` on native, and `write-via-stream` of `wasi:cli/stderr@0.3.0` on WASM. Has no state |
+| `StdoutText` | `type StdoutText(text: String)` | The state of TestStdout: everything written so far |
+| `StderrText` | `type StderrText(text: String)` | The state of TestStderr: everything written so far |
+| `TestStdout` | `handler TestStdout: Stdout` | Appends what is written to `text` of `State[StdoutText]`, with `\n` after the text of `print_line` |
+| `TestStderr` | `handler TestStderr: Stderr` | Appends what is written to `text` of `State[StderrText]`, with `\n` after the text of `print_line` |
 | `ExitCode` | `opaque type ExitCode` | The exit code of a program. Its contents are an Int from 0 to 255 |
 | `exit_code` | `exit_code(code: Int) -> ExitCode` | The exit code `code`. A `code` outside 0 to 255 is a defect. Implemented in Emela |
 | `exit_code_to_int` | `exit_code_to_int(code: ExitCode) -> Int` | The number of the exit code. Implemented in Emela |
@@ -473,6 +483,18 @@ Stdin:
 - Under `emela test`, standard input is not passed to the program (`[cmd.test.output]`). SystemStdin reads it as an empty input.
 - `read_line` of TestStdin removes the first element of `lines` and returns it, or returns `None` when `lines` is empty. `read_text` returns the elements of `lines` joined with `\n` and sets `lines` to `[]`.
 
+Stdout and Stderr:
+
+- Stdout and Stderr are the output streams of the process; Console (`[api.std.console]`) writes lines meant for people. Stdout and Stderr write text without adding a line ending (`print`), and are meant for data that goes to a pipe or a file and for prompts.
+- Stdout and Stderr are Immediate (9.5): their operations do not suspend.
+- What is written to one stream arrives in the order written. SystemStdout and `print_line` of SystemConsole write to standard output through the same path, and SystemStderr, `print_error_line` of SystemConsole and `dbg` write to standard error through the same path, so writes mixed between them keep their order. The order relative to output that an external function writes to the host directly is not specified.
+- Before SystemStderr, `print_error_line` of SystemConsole or `dbg` writes to standard error, what has been written to standard output is handed to the host, so that the two streams directed to the same destination keep the order written. Before an operation of SystemStdin waits for input, what has been written to standard output is handed to the host.
+- When the program ends, in any of the ways of `[cmd.build]`, everything written so far is written out before the exit code is set.
+- `\n` inside `text` is written as is; it is not converted to another line ending.
+- SystemStdout and SystemStderr need a host that gives the process a standard output and a standard error. The hosts of the JS target (`[target]`) do. Their behavior on other hosts is not specified.
+- When a write to standard output fails because the reader has closed it (a pipe whose reading end is closed), the operation does not return. The fiber that wrote unwinds as interrupted from that point, running the releases of its handlers from the inside out, and every other fiber of the program is interrupted (`[fiber.interrupt]`). After that, writes to standard output are discarded. When the unwinding of main finishes, the program exits with exit code 141 and writes nothing to standard error (no `interrupted` line). The same holds for writes of `print_line` of SystemConsole to standard output.
+- When a write to standard error fails because the reader has closed it, the program continues. That write and every later write to standard error (SystemStderr, `print_error_line` of SystemConsole, `dbg`, and the lines that the runtime writes when execution stops) are discarded.
+
 ExitCode:
 
 - A `main` whose return type is `ExitCode` chooses the exit code of the program with its value (`[dyn.error]`). Every value from 0 to 255 can be chosen, including 1, 101 and 130. `ExitCode` is a value: making one uses no effect, and no handler is needed.
@@ -494,6 +516,18 @@ fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console,
       (use Console).print_line("#{prefix}#{line}")
       quote(prefix)
     }
+  }
+}
+```
+
+```emel
+import Std.Platform.{Platform}
+import Std.Process.{Stdout}
+
+fn main() {
+  with Platform {
+    (use Stdout).print("Hello, ")
+    (use Stdout).print_line("alice!")
   }
 }
 ```
@@ -738,7 +772,7 @@ The value layer (`[lib.layers]`). Pure functions that build path strings. Only `
 
 | Declaration | Contents | Description |
 |---|---|---|
-| `Platform` | `layer Platform { SystemConsole, SystemArgs, SystemStdin, SystemClock, SystemRandom, SystemEnv, SystemHttp, SystemFileSystem }` | A bundle of the System handlers. To replace some of them, list the replacements after it, as in `with Platform, TestClock { ... }` |
+| `Platform` | `layer Platform { SystemConsole, SystemArgs, SystemStdin, SystemStdout, SystemStderr, SystemClock, SystemRandom, SystemEnv, SystemHttp, SystemFileSystem }` | A bundle of the System handlers. To replace some of them, list the replacements after it, as in `with Platform, TestClock { ... }` |
 
 - The order of the list has no meaning (`[effect.layer]`). SystemStdin, SystemClock, SystemHttp, and SystemFileSystem require Async, so Async remains in the R of `with Platform { ... }`. In main and test functions, the runtime provides Async.
 

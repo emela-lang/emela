@@ -32,6 +32,7 @@ This section defines what can be observed about the component emitted with `--ta
   | Handler | Host function |
   |---|---|
   | `SystemConsole` (`print_line`, `print_error_line`) | `write-via-stream` of `wasi:cli/stdout@0.3.0` and `wasi:cli/stderr@0.3.0`. The text, then a newline |
+  | `SystemStdout` (`print`, `print_line`), `SystemStderr` (`print`, `print_line`) | `write-via-stream` of `wasi:cli/stdout@0.3.0` and `wasi:cli/stderr@0.3.0`, on the same streams as `SystemConsole`. The text, then a newline for `print_line` |
   | `SystemArgs` (`get`, `list`) | `get-arguments` of `wasi:cli/environment@0.3.0`, called once per run. The list without its first element |
   | `SystemEnv` (`get`) | `get-environment` of `wasi:cli/environment@0.3.0`, called once per run. The value of the first entry with the name, or `None` |
   | `SystemRandom` (`int`, `float`) | `get-random-u64` of `wasi:random/random@0.3.0`. `int` is the low 32 bits as a signed integer; `float` is the top 53 bits times 2^-53, in `[0, 1)` |
