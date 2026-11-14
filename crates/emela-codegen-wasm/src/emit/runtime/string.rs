@@ -63,10 +63,9 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "str_new" => i32s(1),                           // p
         "str_eq" => i32s(3),                            // la, lb, i
         "str_cmp" => i32s(6),                           // la, lb, n, i, x, y
-        "str_append" => i32s(5),                        // la, lb, p, off, i
+        "str_append" => i32s(4),                        // la, lb, p, off
         "str_starts_with" | "str_ends_with" => i32s(3), // n, m, i
         "str_find" => i32s(4),                          // n, m, i, j
-        "copy_range" => i32s(1),                        // i
         "str_slice" => i32s(1),                         // p
         "str_split" => i32s(8),                         // head..cell
         "str_join" => i32s(7),                          // total, p, first, out, pos, len
@@ -275,38 +274,21 @@ fn str_append(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 /// Copies `len` bytes of the source string `src` (a local) to the string `dst` (a local) starting
-/// at the byte offset in `off` (a local). Reuses local `I` (index 6).
+/// at the byte offset in `off` (a local).
+///
+/// The destination is a fresh string in every caller, so the regions do not overlap; `memory.copy`
+/// also has memmove semantics in case they ever do.
 fn copy_bytes(ins: &mut InstructionSink, dst: u32, off: u32, src: u32, len: u32) {
-    const I: u32 = 6;
-    ins.i32_const(0);
-    ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(I);
-    ins.local_get(len);
-    ins.i32_ge_u();
-    ins.br_if(1);
     ins.local_get(dst);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
     ins.local_get(off);
     ins.i32_add();
-    ins.local_get(I);
-    ins.i32_add();
     ins.local_get(src);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
-    ins.local_get(I);
-    ins.i32_add();
-    ins.i32_load8_u(mem(0, 1));
-    ins.i32_store8(mem(0, 1));
-    ins.local_get(I);
-    ins.i32_const(1);
-    ins.i32_add();
-    ins.local_set(I);
-    ins.br(0);
-    ins.end();
-    ins.end();
+    ins.local_get(len);
+    ins.memory_copy(0, 0);
 }
 
 fn str_byte_size(ins: &mut InstructionSink) {
@@ -507,39 +489,21 @@ fn str_find(ins: &mut InstructionSink) {
 }
 
 /// Copies `len` bytes from `src + 20 + src_off` to `dst + 20 + dst_off`.
+///
+/// `memory.copy` is memmove, so a source and destination range of the same string may overlap.
 fn copy_range(ins: &mut InstructionSink) {
-    const I: u32 = 5;
-    ins.i32_const(0);
-    ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(I);
-    ins.local_get(4);
-    ins.i32_ge_u();
-    ins.br_if(1);
     ins.local_get(0);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
     ins.local_get(1);
-    ins.i32_add();
-    ins.local_get(I);
     ins.i32_add();
     ins.local_get(2);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
     ins.local_get(3);
     ins.i32_add();
-    ins.local_get(I);
-    ins.i32_add();
-    ins.i32_load8_u(mem(0, 1));
-    ins.i32_store8(mem(0, 1));
-    ins.local_get(I);
-    ins.i32_const(1);
-    ins.i32_add();
-    ins.local_set(I);
-    ins.br(0);
-    ins.end();
-    ins.end();
+    ins.local_get(4);
+    ins.memory_copy(0, 0);
 }
 
 /// `str_slice(s, off, len)`: a new string of `len` bytes of `s` from byte `off`.
