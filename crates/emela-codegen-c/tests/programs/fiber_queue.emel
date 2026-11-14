@@ -44,6 +44,8 @@ fn main() -> () fails QueueClosed uses { Async } {
     # started.
     got = Fiber.scope(|| {
       q = Fiber.queue(1)
+      dbg(q)
+      dbg([q])
       Fiber.fork(|| {
         [1, 2, 3].each(|x| q.offer(x))
         dbg("producer a done")

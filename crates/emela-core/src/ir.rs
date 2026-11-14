@@ -539,6 +539,20 @@ pub const OPTION_SOME: usize = 0;
 pub const OPTION_NONE: usize = 1;
 
 impl EnumDef {
+    /// How the debug display (`dbg`) shows a value of an external type that the runtime holds:
+    /// a Semaphore as `<semaphore>` and a Queue as `<queue>` (`[trait.builtin]`,
+    /// `[fiber.semaphore]`, `[fiber.queue]`). `None` for every other type.
+    pub fn runtime_display(&self) -> Option<&'static str> {
+        if !self.external {
+            return None;
+        }
+        match self.name.as_str() {
+            "Std.Semaphore.Semaphore" => Some("<semaphore>"),
+            "Std.Queue.Queue" => Some("<queue>"),
+            _ => None,
+        }
+    }
+
     /// Prelude's `enum Option[A] { Some(A), None }`. `a` is `Type::Param(0)`.
     pub fn option(a: TypeId) -> Self {
         EnumDef {

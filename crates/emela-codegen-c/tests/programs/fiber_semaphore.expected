@@ -1,6 +1,8 @@
 exit: 0
 --- stdout
 --- stderr
+<semaphore>
+Some(<semaphore>)
 "start 1, 1 free"
 "start 2, 0 free"
 "end 1"

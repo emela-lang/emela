@@ -1,6 +1,8 @@
 exit: 0
 --- stdout
 --- stderr
+<queue>
+[<queue>]
 "producer a done"
 "producer b done"
 "producer c done"

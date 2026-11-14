@@ -215,6 +215,10 @@ impl Lower<'_> {
             Type::Enum(id, args) => {
                 let def = &self.sh.core.enums[id];
                 let (count, external, name) = (def.variants.len(), def.external, def.name.clone());
+                if let Some(text) = def.runtime_display() {
+                    self.term(Term::Return(Some(string(text))));
+                    return;
+                }
                 let body = |l: &mut Self, k| {
                     let ctor = CtorRef {
                         enum_id: id,
