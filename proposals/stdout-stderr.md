@@ -5,7 +5,7 @@ status: draft
 pr: 566
 issue:
 decided:
-touches: [api.std.process (new), api.std.console, api.std.platform, lib.layers, cmd.build, target.c.run, target.wasm.external, open.list]
+touches: [api.std.process, api.std.console, api.std.platform, lib.layers, cmd.build, target.native.run, target.wasm.external, open.list]
 requires: [std-process]
 related: []
 ---
@@ -175,8 +175,8 @@ Add to the table of `Std.Process` (`std/process.emel`, `std/process.mjs`, `std/p
 |---|---|---|
 | `Stdout` | `effect Stdout { fn print(text: String) -> (); fn print_line(text: String) -> () }` | Writes to the standard output of the process. `print` writes `text` as is, and `print_line` writes `text` followed by `\n`. Does not fail |
 | `Stderr` | `effect Stderr { fn print(text: String) -> (); fn print_line(text: String) -> () }` | The same for the standard error of the process |
-| `SystemStdout` | `handler SystemStdout: Stdout` | File descriptor 1, written synchronously, on JS, `stdout` on C, and `write-via-stream` of `wasi:cli/stdout@0.3.0` on WASM. Has no state |
-| `SystemStderr` | `handler SystemStderr: Stderr` | File descriptor 2, written synchronously, on JS, `stderr` on C, and `write-via-stream` of `wasi:cli/stderr@0.3.0` on WASM. Has no state |
+| `SystemStdout` | `handler SystemStdout: Stdout` | File descriptor 1, written synchronously, on JS, `stdout` on native, and `write-via-stream` of `wasi:cli/stdout@0.3.0` on WASM. Has no state |
+| `SystemStderr` | `handler SystemStderr: Stderr` | File descriptor 2, written synchronously, on JS, `stderr` on native, and `write-via-stream` of `wasi:cli/stderr@0.3.0` on WASM. Has no state |
 | `StdoutText` | `type StdoutText(text: String)` | The state of TestStdout: everything written so far |
 | `StderrText` | `type StderrText(text: String)` | The state of TestStderr: everything written so far |
 | `TestStdout` | `handler TestStdout: Stdout` | Appends what is written to `text` of `State[StdoutText]`, with `\n` after the text of `print_line` |
@@ -240,7 +240,7 @@ Add a row to the table of how execution stops, after the row of `interrupted`:
 |---|---|---|
 | A write to a closed standard output (`[api.std.process]`) | nothing | 141 |
 
-### `[target.c.run]`
+### `[target.native.run]`
 
 Add:
 
