@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-14 (each for List, Array, Map and Set)
+
+- `[lib.api-rules]`, `[api.list]`, `[api.std.array]`, `[api.std.map]`, `[api.std.set]`: `each(xs, f)` calls `f` on each element, in the order of the collection, for its effects, and returns `()`. It is added to List, Array, Map and Set. `[lib.api-rules]` also gains a rule for every function of the standard library that calls `f` once per element (`map`, `filter`, `fold`, `find`, ...): it calls `f` in the order of the collection, at most once per element, and not after the result is decided or `f` has failed. ```emel List.each(List.range(0, n), |i| { clock.sleep(100) console.print_line("#{n - i}") }) ``` Adopted in the proposal `each` (#514).
+
 ## 2026-11-07 (Array)
 
 - `[lib.layers]`, `[api.std.array]`, `[ext.boundary]`, `[target.js.value]`, `[target.impl-hint]`, `[diag.list]`: Add `Array[A]`, an immutable sequence of fixed length with O(1) access by position, to the value layer of std as `Std.Array`. Its representation is a flat block of elements. `set` returns a new array; on WASM and C, it updates the array in place when the argument is the last reference to it, so a loop that threads one array through `set` runs in O(1) per step there. A sequence is built as a List and turned into an Array; Array has no operation that grows an array. `Array[A]` becomes a boundary type of external functions on the JS target, where it is a JS `Array`. Adopted in the proposal `array` (#508).

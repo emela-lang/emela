@@ -1,10 +1,10 @@
 ---
 title: each for List, Array, Map and Set
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 514
 issue:
-decided:
+decided: 2026-11-14
 touches: [lib.api-rules, api.list, api.std.array, api.std.map, api.std.set]
 requires: [array, method-call]
 related: []
@@ -132,6 +132,6 @@ Additive. The order rule changes no result, because the functions are pure apart
 
 ## Open questions
 
-- None.
-
 ## Decision
+
+Running an effect for each element was written with `map`, and the list of `()` it built was thrown away, so a reader could not tell whether the result was wanted. `each` says so, and its `f` returns `()`, so a call that should have been `map` is a type error. The order in which `f` is called was stated for `Array.map` and not for `List.map`, while effects and failures inside `map`, `filter` or `find` depend on it as much as inside `each`. One rule in the API conventions covers every function that calls `f` per element, now and in collections added later: the order of the collection, at most once per element, and no call after the result is decided or `f` has failed. `sort_by` is left out so the sorting algorithm can change, and `Std.Fiber` is left out because it runs concurrently. `Map.map_values` is changed to follow the rule. `Option.each` is not added, since no code would use it and Option has no other function that treats it as a collection. A concurrent `each` belongs with Semaphore and Queue, where running several workers may need it.
