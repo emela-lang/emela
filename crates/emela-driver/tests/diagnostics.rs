@@ -1972,3 +1972,33 @@ fn single_file_does_not_read_a_license() {
         analysis.diagnostics
     );
 }
+
+/// The launcher exports the entry's `main` even when that fn has a `js` `@export` of its own
+/// (`[target.js.module]`), so `@export(js, "main")` on `main` duplicates it (E0438).
+#[test]
+fn main_exported_as_main_duplicates_the_launcher_export() {
+    let output = export_diagnostics(&[(
+        "home/main.emel",
+        r#"@export(js, "main")
+fn main() -> Int { 1 }
+"#,
+    )]);
+    assert_eq!(output.matches("error[E0438]").count(), 1, "{output}");
+}
+
+/// A bare entry adapter is not exposed by itself (`[ext.entry]`), so its `@export(js, "main")`
+/// does not take the launcher's `main` until an `@entry` uses it.
+#[test]
+fn an_unused_entry_adapter_does_not_take_main() {
+    assert_eq!(
+        export_diagnostics(&[(
+            "home/main.emel",
+            r#"@export(js, "main")
+fn serve(app: fn(Int) -> Int fails {} uses {}) -> Int { app(1) }
+
+fn main() {}
+"#,
+        )]),
+        ""
+    );
+}
