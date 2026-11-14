@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-15 (Stdout and Stderr in Std.Process, the output streams of the process)
+
+- `[api.std.process]`, `[api.std.console]`, `[api.std.platform]`, `[lib.layers]`, `[cmd.build]`, `[target.native.run]`, `[target.wasm.external]`, `[open.list]`: Add to `Std.Process` two effects for the output streams of the process, `Stdout` and `Stderr`. Each has two operations: `print`, which writes without a line ending, and `print_line`, which writes a line ending after the text. They do not fail and are Immediate. The system handlers are `SystemStdout` and `SystemStderr`, and they are part of `Platform`. The test handlers `TestStdout` and `TestStderr` append what is written to `State[StdoutText]` and `State[StderrText]`. `Std.Console` does not change: `Console` writes lines meant for people, and `Stdout` and `Stderr` are the streams of the process. ```emel import Std.Platform.{Platform} import Std.Process.{Stdout} fn main() { with Platform { (use Stdout).print("Hello, ") (use Stdout).print_line("alice!") } } ``` Adopted in the proposal `stdout-stderr` (#566).
+
 ## 2026-11-14 (each for List, Array, Map and Set)
 
 - `[lib.api-rules]`, `[api.list]`, `[api.std.array]`, `[api.std.map]`, `[api.std.set]`: `each(xs, f)` calls `f` on each element, in the order of the collection, for its effects, and returns `()`. It is added to List, Array, Map and Set. `[lib.api-rules]` also gains a rule for every function of the standard library that calls `f` once per element (`map`, `filter`, `fold`, `find`, ...): it calls `f` in the order of the collection, at most once per element, and not after the result is decided or `f` has failed. ```emel List.each(List.range(0, n), |i| { clock.sleep(100) console.print_line("#{n - i}") }) ``` Adopted in the proposal `each` (#514).
