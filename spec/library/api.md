@@ -263,7 +263,7 @@ The value layer (`[lib.layers]`). An immutable sequence of fixed length, read by
 - `lower_bound` bisects as follows, so its result is the same on every target even when `a` is not sorted. Start with `low = 0` and `high = size(a)`. While `low < high`, let `mid = (low + high) / 2`; if the element at `mid` is less than `value`, set `low = mid + 1`, otherwise set `high = mid`. The result is `low`. It compares O(log n) times.
 - `binary_search(a, value)` is `Some(i)` where `i = lower_bound(a, value)`, if `i < size(a)` and the element at `i` is equal to `value`, and `None` otherwise.
 - `size`, `get` and `is_empty` are O(1). `set` is O(n), where n is `size(a)`, except as below. `slice` is O(`to - from`) or less. `append`, `concat`, `repeat`, `from_list`, `to_list`, `reverse`, `map`, `fold` and `find_index` are O(n) in the number of elements of the result or of the argument, and `sort` and `sort_by` are O(n log n).
-- On the WASM and C targets, `set` MUST be O(1) when the argument `a` is a variable (a parameter or a local binding) that is not used after the call on any path, and no other variable or value that is still in use refers to the same array (a closure that captured it, a tuple, a record or a list that holds it, the state of State, or another variable bound to it). In other cases, a target MAY still update in place when it can determine that the array is not shared. The JS target always copies. The result is the same in every case.
+- On the WASM and native targets, `set` MUST be O(1) when the argument `a` is a variable (a parameter or a local binding) that is not used after the call on any path, and no other variable or value that is still in use refers to the same array (a closure that captured it, a tuple, a record or a list that holds it, the state of State, or another variable bound to it). In other cases, a target MAY still update in place when it can determine that the array is not shared. The JS target always copies. The result is the same in every case.
 
 impl: `impl Array[A: Eq]: Eq`, `impl Array[A: Ord]: Ord`, `impl Array[A: Show]: Show`. Two arrays are equal when they have equal elements in the same order. Ord is lexicographic (if the common prefix is equal, the shorter one is smaller). Show is the source form `Array.from_list([1, 2, 3])`, so the output can be pasted back as an expression. Values inside are displayed as in `[trait.builtin]` (a String in `"`). An array inside another value is displayed the same way (`[Array.from_list([1])]`).
 
@@ -339,7 +339,7 @@ The platform layer and the test layer (`[lib.layers]`).
 | Declaration | Contents | Description |
 |---|---|---|
 | `Console` | `effect Console { fn print_line(text: String) -> (); fn print_error_line(text: String) -> () }` | Writes one line at a time to standard output and standard error. Does not fail |
-| `SystemConsole` | `handler SystemConsole: Console` | The host's standard output and standard error (`console.log` and `console.error` on JS, `stdout` and `stderr` on C). Has no state |
+| `SystemConsole` | `handler SystemConsole: Console` | The host's standard output and standard error (`console.log` and `console.error` on JS, `stdout` and `stderr` on native). Has no state |
 | `TestConsole` | `handler TestConsole: Console` | Appends the lines of `print_line` to `State[List[String]]` in the order written. Discards `print_error_line`. Used inside `State.run` |
 
 ```emel
@@ -352,13 +352,65 @@ fn main() {
 }
 ```
 
+### Std.Process (`std/process.emel`, `std/process.mjs`, `std/process.c`) `[api.std.process]`
+
+The platform layer and the test layer (`[lib.layers]`). What the process has exactly one of.
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Args` | `effect Args { fn get(index: Int) -> Option[String]; fn list() -> List[String] }` | The arguments of the process, in order, without the name of the program. `list` returns all of them, and `get` the one at `index` (from 0), or `None` when `index` is out of range |
+| `SystemArgs` | `handler SystemArgs: Args` | The arguments given by the host. Has no state |
+| error | `InvalidInput`, `StdinFailure(message: String)` | InvalidInput when standard input is not valid UTF-8. StdinFailure when the host cannot read standard input; `message` is the host's text |
+| `Stdin` | `effect Stdin { suspend fn read_line() -> Option[String] fails InvalidInput \| StdinFailure; suspend fn read_text() -> String fails InvalidInput \| StdinFailure }` | Reads standard input as text (UTF-8). `read_line` returns the next line without its line terminator, and `None` at the end of the input. `read_text` returns the rest of the input, line terminators included, and `""` at the end of the input |
+| `SystemStdin` | `handler SystemStdin: Stdin` | The standard input of the process. `process.stdin` on JS and file descriptor 0 on native. Requires Async. Has no state |
+| `StdinLines` | `type StdinLines(lines: List[String])` | The state of TestStdin: the lines not read yet |
+| `TestStdin` | `handler TestStdin: Stdin` | Kept in `State[StdinLines]` and resumes immediately. Does not raise InvalidInput or StdinFailure |
+
+Args:
+
+- `list` of SystemArgs returns the same list on every call, and `get(index)` returns its element at `index`, or `None` when `index` is negative or not less than its length. The list is:
+  - for `emela run`, the arguments written after `--` (`[cmd.build]`), on every target;
+  - on native, `argv[1]` and after;
+  - on JS, the arguments that the runtime's launcher passes to the runtime;
+  - on WASM, the result of `get-arguments` of `wasi:cli/environment@0.3.0` without its first element;
+  - `[]` for an HTTP service (`[lib.http-service]`) and under `emela test` (`[cmd.test.output]`).
+- An argument that is not valid UTF-8 is decoded with each maximal invalid subsequence replaced by U+FFFD. Neither operation fails.
+
+Stdin:
+
+- A line ends at `\n`. The `\n`, and a `\r` immediately before it, are not part of the line. The text after the last `\n`, if not empty, is the last line. Once `read_line` has returned `None`, every later call returns `None` and every later `read_text` returns `""`.
+- `read_line` and `read_text` read from the same position. `read_text` after `read_line` returns the input that follows the line.
+- When a line (for `read_text`, the rest of the input) is not valid UTF-8, it is consumed and the operation fails with InvalidInput. Invalid UTF-8 is not replaced with the replacement character, as in `[api.std.bytes]`. The next `read_line` starts at the following line. U+0000 is read as is on every target.
+- When the fiber waiting in an operation of SystemStdin is interrupted (11.4), the operation is canceled. Input that the host has already delivered is kept and returned by the next operation; no input is lost.
+- Waiting for input does not stop other fibers on any target.
+- SystemStdin does not hold the host open: a program that has no operation of Stdin waiting ends when its main ends, even if standard input is still open (a terminal, for example).
+- Under `emela test`, standard input is not passed to the program (`[cmd.test.output]`). SystemStdin reads it as an empty input.
+- `read_line` of TestStdin removes the first element of `lines` and returns it, or returns `None` when `lines` is empty. `read_text` returns the elements of `lines` joined with `\n` and sets `lines` to `[]`.
+
+impl (`[trait.derive]`): StdinLines has `derive Eq, Show`. Both errors have `derive Show`.
+
+```emel
+import Std.Console.{Console}
+import Std.Process.{Args, Stdin, InvalidInput, StdinFailure}
+
+fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {
+  (use Stdin).read_line() match {
+    None -> ()
+    Some(line) -> {
+      (use Console).print_line("#{prefix}#{line}")
+      quote(prefix)
+    }
+  }
+}
+```
+
 ### Std.Clock (`std/clock.emel`, `std/clock.mjs`, `std/clock.c`) `[api.std.clock]`
 
 | Declaration | Contents | Description |
 |---|---|---|
 | `Clock` | `effect Clock { suspend fn sleep(ms: Int) -> (); fn now() -> Instant }` | Waits (a negative value is the same as 0). The current point in time |
-| `SystemClock` | `handler SystemClock: Clock` | `sleep` waits on `setTimeout` through an `@external suspend fn` (an interruption clears the timer, `[ext.call]`), and `now` is `Date.now()` (`timespec_get` on C). On C, `sleep` waits on a timer of the runtime's event loop (`em_after`); when interrupted, it completes at once and clears the timer (`[ext.c-host]`). Has no state. Requires Async (`[effect.async]`) |
-| `TestClock` | `handler TestClock: Clock` | The time is a virtual time in `State[Instant]` (`[effect.state]`). `sleep(ms)` really waits; when no fiber can make progress and the host has no pending work, the clock advances to the earliest scheduled time and wakes that sleeper (at the same time, in call order; a negative value is 0). `now` is that time. Requires Async. The waiting external function `when_stalled` is held by the runtime on both JS and C (`em_when_stalled` on C) |
+| `SystemClock` | `handler SystemClock: Clock` | `sleep` waits on `setTimeout` through an `@external suspend fn` (an interruption clears the timer, `[ext.call]`), and `now` is `Date.now()` (`timespec_get` on native). On native, `sleep` waits on a timer of the runtime's event loop (`em_after`); when interrupted, it completes at once and clears the timer (`[ext.c-host]`). Has no state. Requires Async (`[effect.async]`) |
+| `TestClock` | `handler TestClock: Clock` | The time is a virtual time in `State[Instant]` (`[effect.state]`). `sleep(ms)` really waits; when no fiber can make progress and the host has no pending work, the clock advances to the earliest scheduled time and wakes that sleeper (at the same time, in call order; a negative value is 0). `now` is that time. Requires Async. The waiting external function `when_stalled` is held by the runtime on both JS and native (`em_when_stalled` on native) |
 
 - The time that sleep waits follows the precision of the timer, and its accuracy is not guaranteed.
 - When a TestClock sleep wakes up, if the time in the state is already later than the wake-up time, the time is not advanced (nor moved back).
@@ -368,7 +420,7 @@ fn main() {
 | Declaration | Contents | Description |
 |---|---|---|
 | `Random` | `effect Random { fn int() -> Int; fn float() -> Float }` | A value uniform over the whole range of Int. A value uniform over 0 inclusive to 1 exclusive |
-| `SystemRandom` | `handler SystemRandom: Random` | Draws with `crypto.getRandomValues` on JS, and `arc4random_buf` (macOS) or `getrandom` (Linux) on C. Has no state |
+| `SystemRandom` | `handler SystemRandom: Random` | Draws with `crypto.getRandomValues` on JS, and `arc4random_buf` (macOS) or `getrandom` (Linux) on native. Has no state |
 
 - `float` of SystemRandom returns a uniform 53-bit integer divided by 2^53. Every value from 0 inclusive to 1 exclusive in steps of 2^-53 appears with the same probability.
 
@@ -377,7 +429,7 @@ fn main() {
 | Declaration | Contents | Description |
 |---|---|---|
 | `Env` | `effect Env { fn get(name: String) -> Option[String] }` | The value of an environment variable. `None` if it is not set. An empty value is `Some("")` |
-| `SystemEnv` | `handler SystemEnv: Env` | Reads `process.env` on JS and `getenv` on C. Has no state |
+| `SystemEnv` | `handler SystemEnv: Env` | Reads `process.env` on JS and `getenv` on native. Has no state |
 
 - `get` of SystemEnv sees only names set as environment variables of the process. Even on the JS host, it does not pick up names from the object prototype (such as `toString`) as values.
 
@@ -388,15 +440,13 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
 | `Fiber` | `@external type Fiber[A]` | runtime | A handle to a fiber. Cannot be leaked out of the scope (`[fiber.escape]`) |
-| `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | How a fiber ended |
 | `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]; fn deferred[A]() -> Deferred[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
 | `scope` | `scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) -> A fails E uses { Async, R }` | intrinsic | Runs the body and returns the value after all children have finished. Children use the handlers in effect where `scope` was called |
-| `fork` | `fork[A, E, R](f: fn() -> A fails E uses { R }) -> Fiber[A] uses { Scope[E, R] }` | Emela | `(use Scope).fork(f)` |
+| `fork` | `fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A] uses { Scope[E, R] }` | Emela | `(use Scope).fork(f)` |
 | `deferred` | `deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] }` | Emela | `(use Scope).deferred()` |
 | `join` | `join[A](fiber: Fiber[A]) -> A uses { Async }` | intrinsic | Waits for the child to finish and returns its value. A defect if the child was interrupted |
-| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | intrinsic | Waits for the child to finish and returns how it ended |
+| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | intrinsic | Waits for the child to finish and returns how it ended (`Exit` of `Std.Exit`) |
 | `interrupt` | `interrupt[A](fiber: Fiber[A]) -> () uses { Async }` | intrinsic | Interrupts the child and waits until its unwinding finishes |
-| `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | intrinsic | Runs `f` in place and turns Fail and Die into values. Does not catch an interruption of the calling fiber itself |
 | `all` | `all[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[A] fails E uses { Async, R }` | Emela | Runs all of them concurrently and collects the results in the original order |
 | `race` | `race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }` | Emela | Takes the first one to finish and interrupts the rest |
 | `both` | `both[A, B, E, R](f: fn() -> A fails E uses { R }, g: fn() -> B fails E uses { R }) -> (A, B) fails E uses { Async, R }` | Emela | Runs the two concurrently and returns a pair |
@@ -405,6 +455,15 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 
 - `all` and `map` launch all children first, then join them in the original order.
 - `timeout` launches a child that puts `Some(f())` into a Deferred and a child that waits ms with Clock and then puts None, and returns whichever was put first. Time is measured with the Clock handler at the call site, so inside TestClock it is measured in virtual time.
+
+### Std.Exit (`std/exit.emel`) `[api.std.exit]`
+
+How a computation ended, and `attempt`, which turns errors and defects into that value (`[fiber.cause]`). Used with `import Std.Exit.{Success, Failure}`.
+
+| Declaration | Signature | Implementation | Description |
+|---|---|---|---|
+| `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | How a computation ended |
+| `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | intrinsic | Runs `f` in place and turns Fail and Die into values. Starts no fiber. Does not catch an interruption of the calling fiber itself |
 
 ### Std.Cause (`std/cause.emel`) `[api.std.cause]`
 
@@ -416,7 +475,7 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 | `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`, `defect: …`, `interrupted` |
 | `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | Raises it again. Fail fails, Die is a defect, and Interrupt unwinds as an interruption |
 
-impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions, so it does not satisfy Eq, Ord, or Show (display it with `to_string` or dbg). For the same reason, Exit of Std.Fiber does not satisfy them either.
+impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions, so it does not satisfy Eq, Ord, or Show (display it with `to_string` or dbg). For the same reason, Exit of Std.Exit does not satisfy them either.
 
 ### Std.Deferred (`std/deferred.emel`) `[api.std.deferred]`
 
@@ -517,14 +576,14 @@ The platform layer and the test layer (`[lib.layers]`). Handles only text (UTF-8
 | `list_directory` | `suspend fn list_directory(path: String) -> List[String] fails FileNotFound \| FileAccessDenied \| NotADirectory \| FileSystemFailure` | Only the names, sorted by name (lexicographic order of code points) |
 | `create_directory` | `suspend fn create_directory(path: String) -> () fails FileAccessDenied \| NotADirectory \| FileSystemFailure` | Also creates the parents. Does nothing if the directory already exists. NotADirectory if a file is at that path or along the way |
 | `remove` | `suspend fn remove(path: String) -> () fails FileNotFound \| FileAccessDenied \| DirectoryNotEmpty \| FileSystemFailure` | Deletes a file or an empty directory |
-| `SystemFileSystem` | `handler SystemFileSystem: FileSystem` | `node:fs/promises` on JS. On C, it calls the POSIX functions synchronously inside an external function and completes immediately (other fibers are also stopped during reads and writes). Has no state |
+| `SystemFileSystem` | `handler SystemFileSystem: FileSystem` | `node:fs/promises` on JS. On native, it calls the POSIX functions synchronously inside an external function and completes immediately (other fibers are also stopped during reads and writes). Has no state |
 | `TestFiles` | `type TestFiles(files: List[(String, String)], directories: List[String])` | The state of TestFileSystem. files is in path order. The ancestors of files and directories are also treated as directories |
 | `TestFileSystem` | `handler TestFileSystem: FileSystem` | Kept in `State[TestFiles]` and resumes immediately. Errors follow the same rules as SystemFileSystem. Does not raise FileAccessDenied, InvalidText, or FileSystemFailure |
 
 - SystemFileSystem maps host errors as follows. ENOENT and ENOTDIR are FileNotFound, EACCES and EPERM are FileAccessDenied, and everything else is FileSystemFailure (message is the host's text). However, EISDIR in read_text, write_text, and append_text is IsADirectory; ENOTDIR in list_directory is NotADirectory; ENOTDIR and EEXIST in create_directory are NotADirectory; and ENOTEMPTY and EEXIST in remove are DirectoryNotEmpty.
 - exists and is_directory look at the target that a symbolic link points to. remove does not follow symbolic links and deletes the link itself.
 - An operation of FileSystem is not canceled partway when the waiting fiber is interrupted.
-- On the C target, SystemFileSystem fails with FileSystemFailure when it reads a file that contains U+0000 (it cannot be passed as a C string). The message of FileSystemFailure has the form `EIO: Input/output error, open 'a.txt'`, and the descriptive text is that of the host's C library.
+- On the native target, SystemFileSystem fails with FileSystemFailure when it reads a file that contains U+0000 (it cannot be passed as a C string). The message of FileSystemFailure has the form `EIO: Input/output error, open 'a.txt'`. The descriptive text is that of the C library of the OS, and MAY differ between operating systems.
 - TestFileSystem compares paths as strings (`a/b` and `./a/b` are different paths). The paths treated as directories are the paths in directories and the ancestors (following Path.parent) of the paths in files or directories. `/` is always a directory. A path with no parent (`a.txt`) can be written regardless of a parent.
 - create_directory of TestFileSystem adds to directories the ancestors that are not yet directories and the path itself. If the path is already a directory, the state does not change. remove adds the ancestors of the removed path to directories. A directory that existed only as an ancestor of files remains after its last file is removed. directories is also kept in path order.
 - In TestFileSystem, a path that has a file among its ancestors is FileNotFound in read_text, write_text, append_text, and remove, and NotADirectory in list_directory and create_directory.
@@ -559,9 +618,9 @@ The value layer (`[lib.layers]`). Pure functions that build path strings. Only `
 
 | Declaration | Contents | Description |
 |---|---|---|
-| `Platform` | `layer Platform { SystemConsole, SystemClock, SystemRandom, SystemEnv, SystemHttp, SystemFileSystem }` | A bundle of the System handlers. To replace some of them, list the replacements after it, as in `with Platform, TestClock { ... }` |
+| `Platform` | `layer Platform { SystemConsole, SystemArgs, SystemStdin, SystemClock, SystemRandom, SystemEnv, SystemHttp, SystemFileSystem }` | A bundle of the System handlers. To replace some of them, list the replacements after it, as in `with Platform, TestClock { ... }` |
 
-- The order of the list has no meaning (`[effect.layer]`). SystemClock, SystemHttp, and SystemFileSystem require Async, so Async remains in the R of `with Platform { ... }`. In main and test functions, the runtime provides Async.
+- The order of the list has no meaning (`[effect.layer]`). SystemStdin, SystemClock, SystemHttp, and SystemFileSystem require Async, so Async remains in the R of `with Platform { ... }`. In main and test functions, the runtime provides Async.
 
 ```emel
 import Std.Platform.{Platform}

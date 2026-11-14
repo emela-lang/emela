@@ -5,10 +5,11 @@
 //! variables are shown as `?0` without following bindings; to show the resolved form, pass the
 //! type through `InferCtx::resolve` first.
 //!
-//! An empty error set or effect set in a function type drops the whole `fails` or `use` clause.
+//! An empty error set or effect set in a function type drops the whole `fails` or `uses` clause.
 //! Inside a parameter type, however, dropping them would read as "anything", so they are shown
-//! as `fails {}` and `use {}` (spec 9.2). When a function returns a function type and the outer
-//! function type has a `fails` or `use` clause, the return type is parenthesized so it is clear
+//! as `fails {}` and `uses {}` (spec 9.2). The set of a uses clause always has braces
+//! (`uses { Logger }`, `[type.inference]`). When a function returns a function type and the outer
+//! function type has a `fails` or `uses` clause, the return type is parenthesized so it is clear
 //! which function the clause belongs to (spec 5.5).
 //!
 //! Capability value types (`Ty::Cap`) cannot be written in source, so they are shown as the
@@ -27,6 +28,7 @@ impl Row {
         RowDisplay {
             row: self,
             effects: false,
+            clause: false,
             ty: TyDisplay {
                 ty: &Ty::Never,
                 cons,
@@ -41,6 +43,7 @@ impl Row {
         RowDisplay {
             row: self,
             effects: false,
+            clause: false,
             ty: TyDisplay {
                 ty: &Ty::Never,
                 cons,
@@ -52,11 +55,23 @@ impl Row {
 }
 
 impl Row {
-    /// The effect-set form (spec 17.4): `Logger` for one element, `{ Logger, Clock }` for two or
-    /// more, `{}` if empty. Takes the names of `Bound(i)` from `bound`.
+    /// The effect-set form of a set type argument (spec 17.4): `Logger` for one element,
+    /// `{ Logger, Clock }` for two or more, `{}` if empty. Also names one effect alone
+    /// (`State[Int]`). Takes the names of `Bound(i)` from `bound`.
     pub fn display_effects<'a>(&'a self, cons: &'a TyCons, bound: &'a [TyParam]) -> RowDisplay<'a> {
         RowDisplay {
             effects: true,
+            ..self.display_with(cons, bound)
+        }
+    }
+
+    /// The set of a uses clause (`[type.inference]`): always in braces, `{ Logger }`,
+    /// `{ Logger, Clock }`, `{}`. The caller writes `uses` before it. Takes the names of
+    /// `Bound(i)` from `bound`.
+    pub fn display_uses<'a>(&'a self, cons: &'a TyCons, bound: &'a [TyParam]) -> RowDisplay<'a> {
+        RowDisplay {
+            effects: true,
+            clause: true,
             ..self.display_with(cons, bound)
         }
     }
@@ -75,11 +90,13 @@ impl Ty {
 }
 
 /// Error sets separate elements with ` | `. Effect sets with two or more elements are wrapped
-/// in braces as `{ A, B }` and separated with `, `.
+/// in braces as `{ A, B }` and separated with `, `; the set of a uses clause always is.
 pub struct RowDisplay<'a> {
     row: &'a Row,
     /// Whether to use the effect-set form.
     effects: bool,
+    /// The set of a uses clause, in braces even with one element.
+    clause: bool,
     /// Context for displaying types inside elements (its `ty` is unused).
     ty: TyDisplay<'a>,
 }
@@ -89,7 +106,7 @@ impl fmt::Display for RowDisplay<'_> {
         if self.row.is_empty() {
             return f.write_str("{}");
         }
-        let braces = self.effects && self.row.elems().len() > 1;
+        let braces = self.effects && (self.clause || self.row.elems().len() > 1);
         if braces {
             f.write_str("{ ")?;
         }
@@ -220,6 +237,7 @@ impl fmt::Display for TyDisplay<'_> {
                     let row = RowDisplay {
                         row: &fun.fails,
                         effects: false,
+                        clause: false,
                         ty: self.child(&fun.ret),
                     };
                     write!(f, " fails {row}")?;
@@ -228,9 +246,10 @@ impl fmt::Display for TyDisplay<'_> {
                     let row = RowDisplay {
                         row: &fun.uses,
                         effects: true,
+                        clause: true,
                         ty: self.child(&fun.ret),
                     };
-                    write!(f, " use {row}")?;
+                    write!(f, " uses {row}")?;
                 }
                 Ok(())
             }
@@ -239,6 +258,7 @@ impl fmt::Display for TyDisplay<'_> {
                 let row = RowDisplay {
                     row,
                     effects: *kind == SetKind::Effects,
+                    clause: false,
                     ty: self.child(self.ty),
                 };
                 write!(f, "{row}")

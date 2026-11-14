@@ -155,7 +155,7 @@ fn checks_root_names() {
 
 #[test]
 fn allows_external_only_when_the_project_says_so() {
-    let router = "@external(js, \"./x.mjs\", \"f\")\nfn f() -> Int use {}\n\npub fn route() -> Int { f() }\n";
+    let router = "@external(js, \"./x.mjs\", \"f\")\nfn f() -> Int uses {}\n\npub fn route() -> Int { f() }\n";
     let app = "import Quince\n\nfn main() -> Int { Quince.answer() }\n";
     let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(
@@ -172,7 +172,7 @@ fn allows_external_only_when_the_project_says_so() {
     );
 
     // Allowed, but a `pub` external fn would let the host be reached without an effect.
-    let public = "@external(js, \"./x.mjs\", \"f\")\npub fn f() -> Int use {}\n\npub fn route() -> Int { f() }\n";
+    let public = "@external(js, \"./x.mjs\", \"f\")\npub fn f() -> Int uses {}\n\npub fn route() -> Int { f() }\n";
     let found = diagnostics(&files(app, public), allowed.clone());
     assert!(found.iter().any(|d| d.starts_with("E0237")), "{found:?}");
 
@@ -190,7 +190,7 @@ fn allows_external_only_when_the_project_says_so() {
 /// `@external` only).
 #[test]
 fn allows_entry_adapters_only_when_the_project_says_so() {
-    let router = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) }\n\npub fn route() -> Int { 1 }\n";
+    let router = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }\n\npub fn route() -> Int { 1 }\n";
     let app = "import Quince.Router\n\n@entry(Router.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() -> Int { 1 }\n";
     let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(
@@ -332,5 +332,27 @@ fn a_test_module_shares_the_names_of_the_source_root() {
             .any(|d| d.starts_with("E0204 duplicate module `Sort`"))
             && found.contains(&"E0203 module name `Lib` is reserved".to_string()),
         "{found:?}"
+    );
+}
+
+/// `[pome.manifest]`: a `[pome].license` that is not an SPDX license expression is not reported
+/// in the `Pome.toml` of a dependency (a published version cannot be changed).
+#[test]
+fn does_not_report_the_license_of_a_dependency() {
+    let bad = "[pome]\nname = \"github.com/acme/quince\"\nversion = \"0.1.0\"\nemela = \"0.27.0\"\nlicense = \"MIT/Apache-2.0\"\n";
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "import Quince\n\nfn main() -> Int { Quince.answer() }\n",
+        ),
+        ("deps/quince/Pome.toml", bad),
+        ("deps/quince/src/lib.emel", "pub fn answer() -> Int { 1 }\n"),
+        ("deps/http-kit/Pome.toml", "[pome]\nlicense = 1\n"),
+        ("deps/http-kit/src/lib.emel", "pub fn get() -> Int { 3 }\n"),
+    ]);
+    assert_eq!(
+        diagnostics(&fs, dependencies(None, COMPILER)),
+        Vec::<String>::new()
     );
 }

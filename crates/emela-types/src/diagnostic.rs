@@ -133,6 +133,8 @@ pub enum DiagnosticKind {
     OpaqueField { ty: Ty, field: SmolStr },
     /// A top-level fn parameter without a type (E0316, spec 6.1).
     MissingParamType { param: SmolStr },
+    /// A local fn parameter without a type (E0316, `[fn.local]`).
+    MissingLocalFnParamType { param: SmolStr },
     /// A parameter of a handler's init without a type (E0316, `[effect.handler]`).
     MissingInitParamType { handler: SmolStr, param: SmolStr },
     /// E0303, spec 6.5. `missing` holds examples of missing values (`Rect(_, _)`).
@@ -196,7 +198,7 @@ pub enum DiagnosticKind {
         expected: usize,
         found: usize,
     },
-    /// An `@external` fn with `use` omitted, or an `@external suspend fn`, used outside a handler
+    /// An `@external` fn with `uses` omitted, or an `@external suspend fn`, used outside a handler
     /// operation's body (E0407, spec 12.2). `suspend` is true for the latter (the note differs).
     ExternalOutsideHandler { name: SmolStr, suspend: bool },
     /// E0408, spec 8.2.
@@ -375,7 +377,7 @@ pub enum ImmediateSource {
 /// Where the set that R must be contained in came from ([`DiagnosticKind::UnhandledEffects`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectContext {
-    /// A `use` clause written on the fn (spec 9.3).
+    /// A `uses` clause written on the fn (spec 9.3).
     Declared,
     /// A const's value, which cannot have effects (spec 5.6).
     Const,

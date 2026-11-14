@@ -7,12 +7,16 @@
     _+ @function.inner
     "}")) @function.outer
 
-(lambda
+(local_function
   body: (block
     .
     "{"
     _+ @function.inner
     "}")) @function.outer
+
+; The body of a lambda is a block or any other expression (`|x| x + 1`).
+(lambda
+  body: (_) @function.inner) @function.outer
 
 (operation) @function.outer
 

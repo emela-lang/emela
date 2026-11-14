@@ -1,0 +1,20 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(x: Int) -> Int {\n  fn go(n) -> Int { 1 }\n  fn sub(a: Int, b: Int) -> Int { a - b }\n  fn double(n: Int) -> Int { n * 2 }\n  a = sub(c: 1, b: 2)\n  b = sub(1)\n  c = x.double()\n  go(1)\n}\n\"#)"
+---
+f: fn(Int) -> Int
+  x: Int
+  go: fn({unknown}) -> Int
+  n: {unknown}
+  sub: fn(Int, Int) -> Int
+  a: Int
+  b: Int
+  double: fn(Int) -> Int
+  n: Int
+  a: Int
+  b: Int
+  c: {unknown}
+`n` MissingLocalFnParamType { param: "n" }
+`c` UnknownLabel { callee: "sub", label: "c" }
+`sub(1)` WrongArgCount { callee: Some("sub"), expected: 2, found: 1 }
+`double` type `Int` has no fields (`double`)

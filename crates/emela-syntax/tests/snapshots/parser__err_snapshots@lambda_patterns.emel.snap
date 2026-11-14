@@ -3,10 +3,10 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/lambda_patterns.emel
 ---
-ROOT@0..208
+ROOT@0..202
   COMMENT@0..123 "# 無名関数の引数に書けるのはパターンだけ．トップレベルの fn の引数は名前に限る（6.1）"
   NEWLINE@123..124 "\n"
-  FN_DECL@124..162
+  FN_DECL@124..156
     FN_KW@124..126 "fn"
     WHITESPACE@126..127 " "
     LOWER_NAME@127..128 "f"
@@ -14,94 +14,88 @@ ROOT@0..208
       L_PAREN@128..129 "("
       R_PAREN@129..130 ")"
     WHITESPACE@130..131 " "
-    BLOCK_EXPR@131..162
+    BLOCK_EXPR@131..156
       L_BRACE@131..132 "{"
       NEWLINE@132..133 "\n"
       WHITESPACE@133..135 "  "
-      BINDING@135..153
+      BINDING@135..151
         NAME_REF@135..136
           LOWER_NAME@135..136 "g"
         WHITESPACE@136..137 " "
         EQ@137..138 "="
         WHITESPACE@138..139 " "
-        LAMBDA_EXPR@139..153
-          FN_KW@139..141 "fn"
-          PARAM_LIST@141..151
-            L_PAREN@141..142 "("
-            PARAM@142..143
-              ERROR@142..143
-                PLUS@142..143 "+"
-            COMMA@143..144 ","
-            WHITESPACE@144..145 " "
-            PARAM@145..151
-              TUPLE_PAT@145..151
-                L_PAREN@145..146 "("
-                IDENT_PAT@146..147
-                  LOWER_NAME@146..147 "a"
-                COMMA@147..148 ","
-                WHITESPACE@148..149 " "
-                IDENT_PAT@149..150
-                  LOWER_NAME@149..150 "b"
-                R_PAREN@150..151 ")"
-          WHITESPACE@151..152 " "
-          NAME_REF@152..153
-            LOWER_NAME@152..153 "c"
-      ERROR@153..160
-        R_PAREN@153..154 ")"
-        WHITESPACE@154..155 " "
-        L_BRACE@155..156 "{"
-        WHITESPACE@156..157 " "
-        LOWER_NAME@157..158 "a"
-        WHITESPACE@158..159 " "
-        R_BRACE@159..160 "}"
-      NEWLINE@160..161 "\n"
-      R_BRACE@161..162 "}"
-  NEWLINE@162..163 "\n"
-  NEWLINE@163..164 "\n"
-  FN_DECL@164..172
-    FN_KW@164..166 "fn"
-    WHITESPACE@166..167 " "
-    LOWER_NAME@167..170 "top"
-    PARAM_LIST@170..172
-      L_PAREN@170..171 "("
-      PARAM@171..172
-        ERROR@171..172
-          L_PAREN@171..172 "("
-  ERROR@172..208
-    LOWER_NAME@172..173 "a"
-    COMMA@173..174 ","
-    WHITESPACE@174..175 " "
-    LOWER_NAME@175..176 "b"
-    R_PAREN@176..177 ")"
-    COLON@177..178 ":"
+        LAMBDA_EXPR@139..151
+          PARAM_LIST@139..149
+            PIPE@139..140 "|"
+            PARAM@140..141
+              ERROR@140..141
+                PLUS@140..141 "+"
+            COMMA@141..142 ","
+            WHITESPACE@142..143 " "
+            PARAM@143..149
+              TUPLE_PAT@143..149
+                L_PAREN@143..144 "("
+                IDENT_PAT@144..145
+                  LOWER_NAME@144..145 "a"
+                COMMA@145..146 ","
+                WHITESPACE@146..147 " "
+                IDENT_PAT@147..148
+                  LOWER_NAME@147..148 "b"
+                R_PAREN@148..149 ")"
+          WHITESPACE@149..150 " "
+          NAME_REF@150..151
+            LOWER_NAME@150..151 "c"
+      ERROR@151..154
+        PIPE@151..152 "|"
+        WHITESPACE@152..153 " "
+        LOWER_NAME@153..154 "a"
+      NEWLINE@154..155 "\n"
+      R_BRACE@155..156 "}"
+  NEWLINE@156..157 "\n"
+  NEWLINE@157..158 "\n"
+  FN_DECL@158..166
+    FN_KW@158..160 "fn"
+    WHITESPACE@160..161 " "
+    LOWER_NAME@161..164 "top"
+    PARAM_LIST@164..166
+      L_PAREN@164..165 "("
+      PARAM@165..166
+        ERROR@165..166
+          L_PAREN@165..166 "("
+  ERROR@166..202
+    LOWER_NAME@166..167 "a"
+    COMMA@167..168 ","
+    WHITESPACE@168..169 " "
+    LOWER_NAME@169..170 "b"
+    R_PAREN@170..171 ")"
+    COLON@171..172 ":"
+    WHITESPACE@172..173 " "
+    L_PAREN@173..174 "("
+    TYPE_NAME@174..177 "Int"
+    COMMA@177..178 ","
     WHITESPACE@178..179 " "
-    L_PAREN@179..180 "("
-    TYPE_NAME@180..183 "Int"
-    COMMA@183..184 ","
+    TYPE_NAME@179..182 "Int"
+    R_PAREN@182..183 ")"
+    R_PAREN@183..184 ")"
     WHITESPACE@184..185 " "
-    TYPE_NAME@185..188 "Int"
-    R_PAREN@188..189 ")"
-    R_PAREN@189..190 ")"
-    WHITESPACE@190..191 " "
-    THIN_ARROW@191..193 "->"
+    THIN_ARROW@185..187 "->"
+    WHITESPACE@187..188 " "
+    TYPE_NAME@188..191 "Int"
+    WHITESPACE@191..192 " "
+    L_BRACE@192..193 "{"
     WHITESPACE@193..194 " "
-    TYPE_NAME@194..197 "Int"
+    LOWER_NAME@194..195 "a"
+    WHITESPACE@195..196 " "
+    PLUS@196..197 "+"
     WHITESPACE@197..198 " "
-    L_BRACE@198..199 "{"
+    LOWER_NAME@198..199 "b"
     WHITESPACE@199..200 " "
-    LOWER_NAME@200..201 "a"
-    WHITESPACE@201..202 " "
-    PLUS@202..203 "+"
-    WHITESPACE@203..204 " "
-    LOWER_NAME@204..205 "b"
-    WHITESPACE@205..206 " "
-    R_BRACE@206..207 "}"
-    NEWLINE@207..208 "\n"
-error[E0110]@142..143: expected parameter name or pattern
-error[E0110]@152..153: expected `)`
-error[E0110]@152..153: expected `{`
-error[E0122]@153..154: expected newline or `}` after statement
-error[E0130]@167..170: a function without a body must be `@external`
-error[E0110]@171..172: expected parameter name
-error[E0110]@172..173: expected `)`
-error[E0122]@172..173: expected newline after declaration
+    R_BRACE@200..201 "}"
+    NEWLINE@201..202 "\n"
+error[E0110]@140..141: expected parameter name or pattern
+error[E0110]@150..151: expected `|`
+error[E0122]@151..152: expected newline or `}` after statement
+error[E0130]@161..164: a function without a body must be `@external`
+error[E0110]@165..166: expected parameter name
+error[E0110]@166..167: expected `)`
+error[E0122]@166..167: expected newline after declaration

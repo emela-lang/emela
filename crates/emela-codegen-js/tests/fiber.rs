@@ -412,7 +412,7 @@ impl Kit {
         fail(ctor(self.oops, vec![]))
     }
 
-    /// `Fiber.scope(fn(s) { body })`．
+    /// `Fiber.scope(|s| body)`．
     fn scope(&self, s: Local, fails: bool, body: Expr) -> Expr {
         let ty = self.scope_body_ty[usize::from(fails)];
         fiber(
@@ -421,7 +421,7 @@ impl Kit {
         )
     }
 
-    /// `s.fork(fn() { body })`．
+    /// `s.fork(|| body)`．
     fn fork(&self, s: Local, body: Expr) -> Expr {
         let ty = self.thunk_ty[1];
         fiber(
@@ -430,7 +430,7 @@ impl Kit {
         )
     }
 
-    /// `Fiber.attempt(fn() { body })`．
+    /// `Exit.attempt(|| body)`．
     fn attempt(&self, suspends: bool, body: Expr) -> Expr {
         let ty = self.thunk_ty[usize::from(suspends)];
         let f = if suspends {

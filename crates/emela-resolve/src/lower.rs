@@ -76,6 +76,7 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         type_params: Vec::new(),
         self_type: false,
         type_arg: false,
+        ignored_type_params: Vec::new(),
     };
     let item = match &pending.item {
         ast::Item::Import(_) => return,
@@ -140,6 +141,9 @@ struct Lower<'r, 'a> {
     /// appear there too (set type arguments, `Handler[NotFound, Db]` in spec 9.2); whether an
     /// effect is allowed in that position is checked by type inference.
     type_arg: bool,
+    /// The type parameters written on the local fns being lowered, which are E0150
+    /// (`[fn.local]`). Their uses are not reported again as undefined.
+    ignored_type_params: Vec<SmolStr>,
 }
 
 /// Names bound by one pattern (or parameter list). Binding the same name twice is reported.
@@ -412,7 +416,7 @@ impl Lower<'_, '_> {
         }
     }
 
-    /// `-> T fails E use R`. `node` is a FN_DECL or OP_SIG.
+    /// `-> T fails E uses { R }`. `node` is a FN_DECL or OP_SIG.
     fn signature(
         &mut self,
         node: &SyntaxNode,
@@ -431,7 +435,7 @@ impl Lower<'_, '_> {
             .map(|c| self.error_set(&c));
         let uses = node
             .children()
-            .find(|n| n.kind() == USE_CLAUSE)
+            .find(|n| n.kind() == USES_CLAUSE)
             .map(|c| self.effect_set(&c));
         FnSig {
             type_params,
@@ -990,7 +994,7 @@ impl Lower<'_, '_> {
                     .map(|c| self.error_set(&c));
                 let uses = node
                     .children()
-                    .find(|n| n.kind() == USE_CLAUSE)
+                    .find(|n| n.kind() == USES_CLAUSE)
                     .map(|c| self.effect_set(&c));
                 TypeKind::Fn {
                     params,
@@ -1013,6 +1017,9 @@ impl Lower<'_, '_> {
         if let Some(def) = self.lookup_type_param(&name) {
             self.refer(range, RefTarget::Def(def));
             return Res::Def(def);
+        }
+        if self.ignored_type_params.contains(&name) {
+            return Res::Err;
         }
         let candidates: Vec<SmolStr> = self
             .type_params
@@ -1463,13 +1470,21 @@ impl Lower<'_, '_> {
                 self.push_scope();
                 let (params, lets) =
                     self.lambda_params(node.children().find_map(ast::ParamList::cast));
-                let body = self.child_expr(node, 0);
+                let mut body = self.child_expr(node, 0);
                 self.pop_scope();
-                // `fn(p) { body }` is `fn(t) { p = t; body }` (spec 6.1).
-                if !lets.is_empty()
-                    && let ExprKind::Block(block) = &mut self.r.program.exprs[body].kind
-                {
-                    block.stmts.splice(0..0, lets);
+                // `|p| body` is `|t| { p = t; body }` (`[fn.decl]`). A body that is not a block
+                // (`|(a, b)| a + b`) is put in one, spanning the body.
+                if !lets.is_empty() {
+                    if let ExprKind::Block(block) = &mut self.r.program.exprs[body].kind {
+                        block.stmts.splice(0..0, lets);
+                    } else {
+                        let range = self.r.program.exprs[body].span.range;
+                        let block = Block {
+                            stmts: lets,
+                            tail: Some(body),
+                        };
+                        body = self.alloc_expr(ExprKind::Block(block), range);
+                    }
                 }
                 ExprKind::Lambda { params, body }
             }
@@ -1482,13 +1497,15 @@ impl Lower<'_, '_> {
         let mut stmts = Vec::new();
         let children: Vec<SyntaxNode> = node
             .children()
-            .filter(|c| c.kind() == BINDING || is_expr(c.kind()))
+            .filter(|c| matches!(c.kind(), BINDING | LOCAL_FN) || is_expr(c.kind()))
             .collect();
         let mut tail = None;
         for (i, child) in children.iter().enumerate() {
             let last = i + 1 == children.len();
             if child.kind() == BINDING {
                 stmts.push(self.binding(child));
+            } else if let Some(f) = ast::LocalFn::cast(child.clone()) {
+                stmts.push(self.local_fn(&f));
             } else {
                 let e = self.expr(child);
                 if last {
@@ -1514,6 +1531,48 @@ impl Lower<'_, '_> {
         };
         self.bind_all(binder);
         Stmt::Let { pat, ty, value }
+    }
+
+    /// A local fn (`[fn.local]`). Its name is bound in the block's scope before the body is
+    /// resolved, so the body can call it, and stays bound to the end of the block. The parameters
+    /// are in a scope of their own, inside it, so a parameter of the same name hides it. Type
+    /// names resolve in the scope of the enclosing declaration, its type parameters included.
+    fn local_fn(&mut self, f: &ast::LocalFn) -> Stmt {
+        let node = f.syntax();
+        let (name, range) = match f.name() {
+            Some(token) => token_name(&token),
+            None => (SmolStr::default(), node.text_range()),
+        };
+        let local = self.alloc_local(name.clone(), LocalKind::LocalFn, range);
+        if !name.is_empty() {
+            let mut binder = Binder::default();
+            binder.names.push((name, local));
+            self.bind_all(binder);
+        }
+        let ignored = self.ignored_type_params.len();
+        let written = node
+            .children()
+            .filter(|n| n.kind() == TYPE_PARAM_LIST)
+            .flat_map(|list| list.descendants_with_tokens())
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == UPPER_NAME)
+            .map(|t| SmolStr::new(t.text()));
+        self.ignored_type_params.extend(written);
+        self.push_scope();
+        let params = self.params(f.param_list(), LocalKind::Param);
+        let sig = self.signature(node, Vec::new(), params, false);
+        let body = match f.body() {
+            Some(b) => self.block(&b),
+            None => self.alloc_expr(ExprKind::Missing, node.text_range()),
+        };
+        self.pop_scope();
+        self.ignored_type_params.truncate(ignored);
+        Stmt::LocalFn(Box::new(LocalFn {
+            local,
+            sig,
+            body,
+            span: self.span(node.text_range()),
+        }))
     }
 
     /// Arms of match and escape. Each arm pushes a scope; pattern names are visible in the guard
@@ -2098,17 +2157,8 @@ impl Lower<'_, '_> {
                     _ => PatKind::Missing,
                 }
             }
-            // `-1`: the syntax checks accept only `-` before a number literal.
-            PREFIX_EXPR
-                if child_token(node, MINUS).is_some()
-                    && node.children().count() == 1
-                    && node.first_child().is_some_and(|c| {
-                        c.kind() == LITERAL
-                            && (child_token(&c, INT).is_some() || child_token(&c, FLOAT).is_some())
-                    }) =>
-            {
-                pat_literal(node)
-            }
+            // `-1`: the syntax checks accept only `-` before a number literal (E0125).
+            PREFIX_EXPR => pat_literal(node),
             UNIT_EXPR => PatKind::Unit,
             PAREN_EXPR => {
                 return match node.children().find(|c| is_expr(c.kind())) {
@@ -2208,7 +2258,7 @@ impl Lower<'_, '_> {
     }
 }
 
-/// The `X` of `use X` (not an element of a `use` clause).
+/// The `X` of `use X` (not an element of a `uses` clause).
 fn path_in_use_expr(path: &ast::Path) -> bool {
     path.syntax().parent().is_some_and(|p| p.kind() == USE_EXPR)
 }
@@ -2421,4 +2471,76 @@ fn is_pat(kind: SyntaxKind) -> bool {
             | TUPLE_PAT
             | LIST_PAT
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The values of the STRING_TEXT tokens of `src`, in order.
+    fn texts(src: &str) -> Vec<String> {
+        emela_syntax::parse(src)
+            .syntax()
+            .descendants_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == STRING_TEXT)
+            .map(|t| string_text(&t))
+            .collect()
+    }
+
+    #[test]
+    fn 複数行文字列は閉じる行のインデントと前後の改行を除く() {
+        // The example of `[lex.literal]`, with the interpolation as the separate part it is.
+        let src = "fn f() {\n  query = \"\"\"\n    SELECT *\n    FROM users\n    WHERE id = #{id}\n    \"\"\"\n}";
+        assert_eq!(texts(src), ["SELECT *\nFROM users\nWHERE id = ", ""]);
+    }
+
+    #[test]
+    fn 補間の後の部品は行の途中から始まる() {
+        let src = "fn f() {\n  s = \"\"\"\n    a #{x}  b\n      c\n    \"\"\"\n}";
+        assert_eq!(texts(src), ["a ", "  b\n  c"]);
+    }
+
+    #[test]
+    fn 空白だけの行は閉じる行より浅くてよい() {
+        let src = "fn f() {\n  s = \"\"\"\n    a\n  \n\t\n    b\n    \"\"\"\n}";
+        assert_eq!(texts(src), ["a\n\n\nb"]);
+    }
+
+    #[test]
+    fn 複数行文字列の改行は_crlf_でもよい() {
+        let src = "fn f() {\r\n  s = \"\"\"\r\n    a\r\n    \"\"\"\r\n}";
+        assert_eq!(texts(src), ["a"]);
+    }
+
+    #[test]
+    fn 複数行文字列のエスケープは字下げを除いた後に解く() {
+        // `\n` does not start a line, so the indentation after it is kept.
+        let src = "fn f() {\n  s = \"\"\"\n    a\\n    b\n    \"\"\"\n}";
+        assert_eq!(texts(src), ["a\n    b"]);
+    }
+
+    #[test]
+    fn 七つのエスケープ() {
+        assert_eq!(
+            unescape(r#"\" \\ \n \t \r \# \u{41}"#),
+            "\" \\ \n \t \r # A"
+        );
+        assert_eq!(unescape(r"\u{1F600}!"), "😀!");
+        assert_eq!(unescape(r"a\u{62}c\u{64}"), "abcd");
+    }
+
+    /// Invalid escapes are reported by the lexer and kept as written.
+    #[test]
+    fn 不正なエスケープは書いたまま残す() {
+        assert_eq!(unescape(r"\q"), r"\q");
+        assert_eq!(unescape(r"\u{D800}x"), r"\u{D800}x");
+        assert_eq!(unescape(r"\u41"), r"\u41");
+        assert_eq!(unescape("a\\"), "a\\");
+    }
+
+    #[test]
+    fn ふつうの文字列はエスケープだけを解く() {
+        assert_eq!(texts("fn f() { \"  a\\tb  \" }"), ["  a\tb  "]);
+    }
 }

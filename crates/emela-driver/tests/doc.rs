@@ -98,7 +98,7 @@ pub const LIMIT: Int = 3
 ## Indented lines stay indented:
 ##
 ##     find(1)
-pub fn find(id: Int) -> Point fails NotFound | Timeout use { Log } {
+pub fn find(id: Int) -> Point fails NotFound | Timeout uses { Log } {
   (use Log).info("find")
   if id < 0 { fail NotFound(id:) }
   Point(x: id, y: id)
@@ -162,7 +162,7 @@ fn core_docs_cover_core_and_std() {
     // The invisible sets of a function-typed parameter are shown as in hover (spec 9.2).
     assert_eq!(
         signature("List", "map"),
-        "fn map[A, B](xs: List[A], f: fn(A) -> B fails E(f) use R(f)) -> List[B] fails E(f) use R(f)"
+        "fn map[A, B](xs: List[A], f: fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }"
     );
     // Opaque types show no fields (spec 4.4).
     assert_eq!(

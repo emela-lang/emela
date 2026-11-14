@@ -6,7 +6,13 @@
 //! - Check the constraints beyond the spec 17.3 grammar that syntax alone decides (whether
 //!   `@external` is needed, empty enums, the shape of handler and impl fns).
 //! - Check the arguments of `@external` (spec 12.1, 12.3) and of `@export` (spec 12.7, 16.6.2).
-//! - Report the old impl and handler heads with the head to write instead (E0144, E0145).
+//! - Report the old impl and handler heads with the head to write instead (E0144, E0145), the
+//!   old effect clause `use` with the uses clause to write instead (E0147), and the old form of an
+//!   anonymous function with the closure to write instead (E0148).
+//! - Report an anonymous function written as a statement that is not the last of its block
+//!   (E0149).
+//! - Report what a local fn cannot have (E0150) and a local fn as the last statement of its
+//!   block (E0151).
 
 use rowan::TextRange;
 
@@ -63,12 +69,23 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             }
         }
         OP_SIG => {
-            if let Some(clause) = child_kind(node, USE_CLAUSE) {
+            if let Some(clause) = child_kind(node, USES_CLAUSE) {
                 error(
                     out,
                     clause.text_range(),
                     DiagnosticCode::UseOnEffectOp,
-                    "effect operations cannot have a `use` clause",
+                    "effect operations cannot have a `uses` clause",
+                );
+            }
+        }
+        USES_CLAUSE => {
+            if let Some((keyword, uses)) = crate::rewrite::old_uses_clause(node) {
+                let old = crate::rewrite::old_uses_text(node);
+                error(
+                    out,
+                    keyword.text_range(),
+                    DiagnosticCode::OldUseClause,
+                    &format!("write `{uses}` instead of `{old}`"),
                 );
             }
         }
@@ -109,6 +126,35 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 );
             }
         }
+        LAMBDA_EXPR => {
+            if let Some((_, rewritten, head)) = crate::rewrite::old_lambda(node) {
+                // A rewrite that spans lines is long; its parameter list is enough to show it.
+                let shown = if rewritten.contains('\n') {
+                    format!("{head} ...")
+                } else {
+                    rewritten
+                };
+                out.push(Diagnostic {
+                    range: old_lambda_head(node),
+                    code: DiagnosticCode::OldLambda,
+                    message: "anonymous functions are written `|x| body`".to_owned(),
+                    help: Some(format!("write `{shown}`")),
+                });
+            }
+        }
+        BLOCK_EXPR => {
+            unused_lambdas(node, out);
+            unused_local_fn(node, out);
+        }
+        LOCAL_FN => {
+            local_fn_modifiers(node, out);
+            // An attribute is already reported as one; what it would say on a top-level fn
+            // (E0146 for `@export`) is not added.
+            for child in node.children().filter(|c| c.kind() != ANNOTATION) {
+                walk(&child, out);
+            }
+            return;
+        }
         UNDERSCORE_EXPR => error(
             out,
             node.text_range(),
@@ -128,6 +174,82 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
 }
 
+/// From `fn` to the end of the parameter list of the old form of an anonymous function.
+fn old_lambda_head(node: &SyntaxNode) -> TextRange {
+    let start = node.text_range().start();
+    let end =
+        child_kind(node, PARAM_LIST).map_or(node.text_range().end(), |l| l.text_range().end());
+    TextRange::new(start, end)
+}
+
+/// E0149: the value of an anonymous function written as a statement before the last one is
+/// discarded (`[fn.block]`). A line that starts with `||` starts such a function (`[lex.continuation]`),
+/// so the help names the way to continue a line with the logical or.
+fn unused_lambdas(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let stmts: Vec<SyntaxNode> = block.children().filter(|n| n.kind() != ERROR).collect();
+    let Some((_, init)) = stmts.split_last() else {
+        return;
+    };
+    for stmt in init.iter().filter(|s| s.kind() == LAMBDA_EXPR) {
+        out.push(Diagnostic {
+            range: stmt.text_range(),
+            code: DiagnosticCode::UnusedLambda,
+            message: "this anonymous function is never used".to_owned(),
+            help: crate::rewrite::starts_line_with_or(stmt)
+                .then(|| crate::rewrite::OR_AT_LINE_START_HELP.to_owned()),
+        });
+    }
+}
+
+/// E0150: what a top-level fn can have and a local fn cannot (`[fn.local]`). Each is reported
+/// where it is written.
+fn local_fn_modifiers(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let mut found: Vec<(TextRange, &str)> = Vec::new();
+    for element in node.children_with_tokens() {
+        let what = match element.kind() {
+            ANNOTATION => "a local function cannot have attributes",
+            PUB_KW => "a local function cannot be `pub`",
+            SUSPEND_KW => "a local function cannot be `suspend`",
+            TYPE_PARAM_LIST => "a local function cannot have type parameters",
+            _ => continue,
+        };
+        found.push((element.text_range(), what));
+    }
+    for (range, message) in found {
+        out.push(Diagnostic {
+            range,
+            code: DiagnosticCode::LocalFnModifier,
+            message: message.to_owned(),
+            help: Some("remove it".to_owned()),
+        });
+    }
+}
+
+/// E0151: a local fn as the last statement of its block is visible to nothing after it, so it
+/// can never be called (`[fn.local]`).
+fn unused_local_fn(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let Some(last) = block.children().filter(|n| n.kind() != ERROR).last() else {
+        return;
+    };
+    if last.kind() != LOCAL_FN {
+        return;
+    }
+    let name = last
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == LOWER_NAME);
+    let (range, shown) = match &name {
+        Some(name) => (name.text_range(), name.text().to_owned()),
+        None => (last.text_range(), String::new()),
+    };
+    out.push(Diagnostic {
+        range,
+        code: DiagnosticCode::UnusedLocalFn,
+        message: format!("local function `{shown}` is never called"),
+        help: Some("call it after the declaration".to_owned()),
+    });
+}
+
 /// Accepts only the expression shapes that correspond to spec 17.6 patterns.
 fn binding_target(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     let ok = match node.kind() {
@@ -137,9 +259,8 @@ fn binding_target(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         PREFIX_EXPR => {
             has_token(node, MINUS)
                 && node.children().count() == 1
-                && node.first_child().is_some_and(|c| {
-                    c.kind() == LITERAL && (has_token(&c, INT) || has_token(&c, FLOAT))
-                })
+                // A LITERAL holds a number; strings are STRING.
+                && node.first_child().is_some_and(|c| c.kind() == LITERAL)
         }
         STRING => node.children().all(|c| c.kind() != INTERP),
         TUPLE_EXPR | LIST_EXPR => {
@@ -230,7 +351,7 @@ fn fn_decl(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         Some(IMPL_DECL) => {
             for clause in node
                 .children()
-                .filter(|c| matches!(c.kind(), RET_TYPE | FAILS_CLAUSE | USE_CLAUSE))
+                .filter(|c| matches!(c.kind(), RET_TYPE | FAILS_CLAUSE | USES_CLAUSE))
             {
                 error(
                     out,
@@ -532,5 +653,6 @@ fn error(out: &mut Vec<Diagnostic>, range: TextRange, code: DiagnosticCode, mess
         range,
         code,
         message: message.to_owned(),
+        help: None,
     });
 }

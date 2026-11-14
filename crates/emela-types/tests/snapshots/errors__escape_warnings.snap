@@ -6,8 +6,8 @@ steady: fn() -> Int
 fy: fn(Int) -> Int fails Bad
   n: Int
 never_raised: fn() -> Int
-unknown: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) use R(f)) -> A fails E(f) use R(f)
-  f: fn() -> '0 fails '1 use '2
+unknown: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) uses { R(f) }) -> A fails E(f) uses { R(f) }
+  f: fn() -> '0 fails '1 uses { '2 }
 redundant: fn() -> Int
 guarded: fn() -> Int
   n: Int

@@ -4,11 +4,14 @@
     (_)* @function.inside
     "}")) @function.around
 
-(lambda
+(local_function
   body: (block
     "{"
     (_)* @function.inside
     "}")) @function.around
+
+(lambda
+  body: (_) @function.inside) @function.around
 
 (operation) @function.around
 

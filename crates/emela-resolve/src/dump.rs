@@ -145,7 +145,8 @@ impl Dumper<'_> {
                 self.fn_body(1, &f.sig, f.body);
             }
             Item::Type(t) => {
-                self.line(0, format!("type {name}{flags}"));
+                let intrinsic = if t.is_intrinsic { " intrinsic" } else { "" };
+                self.line(0, format!("type {name}{flags}{intrinsic}"));
                 self.type_params(1, &t.type_params);
                 self.fields(1, &t.fields);
                 if !t.derives.is_empty() {
@@ -189,7 +190,8 @@ impl Dumper<'_> {
                 self.expr(1, c.value);
             }
             Item::Effect(e) => {
-                self.line(0, format!("effect {name}{flags}"));
+                let intrinsic = if e.is_intrinsic { " intrinsic" } else { "" };
+                self.line(0, format!("effect {name}{flags}{intrinsic}"));
                 if let Some(label) = &e.label {
                     let default = if label.default { " default" } else { "" };
                     let base = self.res(label.base);
@@ -309,7 +311,7 @@ impl Dumper<'_> {
         }
         if let Some(uses) = &sig.uses {
             let uses = self.effect_list(&uses.items);
-            self.line(depth, format!("use {{{uses}}}"));
+            self.line(depth, format!("uses {{{uses}}}"));
         }
         if let Some(body) = body {
             self.line(depth, "body");
@@ -409,12 +411,12 @@ impl Dumper<'_> {
                 }
                 if let Some(uses) = uses {
                     let uses = self.effect_list(&uses.items);
-                    let _ = write!(s, " use {{{uses}}}");
+                    let _ = write!(s, " uses {{{uses}}}");
                 }
                 s
             }
             TypeKind::ErrorSet(set) => format!("fails {{{}}}", self.res_list(&set.items)),
-            TypeKind::EffectSet(set) => format!("use {{{}}}", self.effect_list(&set.items)),
+            TypeKind::EffectSet(set) => format!("uses {{{}}}", self.effect_list(&set.items)),
             TypeKind::Missing => "missing".to_owned(),
         }
     }
@@ -531,6 +533,27 @@ impl Dumper<'_> {
                             self.line(depth + 1, format!("let {pat}{ty} ="));
                             self.expr(depth + 2, *value);
                         }
+                        Stmt::LocalFn(f) => {
+                            let name = self.local(f.local);
+                            let params: Vec<String> = f
+                                .sig
+                                .params
+                                .iter()
+                                .map(|p| {
+                                    let ty =
+                                        p.ty.map(|t| format!(": {}", self.ty(t)))
+                                            .unwrap_or_default();
+                                    format!("{}{ty}", self.local(p.local))
+                                })
+                                .collect();
+                            let ret = f
+                                .sig
+                                .ret
+                                .map(|t| format!(" -> {}", self.ty(t)))
+                                .unwrap_or_default();
+                            self.line(depth + 1, format!("fn {name}({}){ret}", params.join(", ")));
+                            self.expr(depth + 2, f.body);
+                        }
                         Stmt::Expr(e) => self.expr(depth + 1, *e),
                     }
                 }
@@ -583,7 +606,8 @@ impl Dumper<'_> {
                         match item.by {
                             Some((by, _)) => {
                                 let by = self.res(by);
-                                format!("{label} by {by}{}", parens(&item.by_init_args))
+                                let by_args = self.ty_args(&item.by_args);
+                                format!("{label} by {by}{by_args}{}", parens(&item.by_init_args))
                             }
                             None => label,
                         }

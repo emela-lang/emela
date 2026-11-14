@@ -142,14 +142,14 @@ fn paren_pat(p: &mut Parser<'_>) {
 fn list_pat(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump_kind(L_BRACK);
-    let mut count = 0;
+    let mut has_element = false;
     let mut seen_rest = false;
     while !p.at(R_BRACK) && !p.at_eof() {
         if seen_rest {
             p.error(DiagnosticCode::RestNotLast, "`..` must come last");
         }
         if p.at(DOT2) {
-            if count == 0 {
+            if !has_element {
                 p.error(
                     DiagnosticCode::RestWithoutElements,
                     "`..` needs at least one element before it",
@@ -158,7 +158,7 @@ fn list_pat(p: &mut Parser<'_>) {
             rest_pat(p, true);
             seen_rest = true;
         } else {
-            count += 1;
+            has_element = true;
             pattern(p);
         }
         if !p.eat(COMMA) {

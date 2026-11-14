@@ -5,8 +5,8 @@ expression: "render_bodies(r#\"\ntype User(id: Int, name: String)\n  derive Show
 rename: fn(User, String) -> User
   user: User
   name: String
-names: ∀ E(f), R(f). fn(List[User], fn(User) -> String fails E(f) use R(f)) -> List[String] fails E(f) use R(f)
+names: ∀ E(f), R(f). fn(List[User], fn(User) -> String fails E(f) uses { R(f) }) -> List[String] fails E(f) uses { R(f) }
   xs: List[User]
-  f: fn(User) -> String fails '0 use '1
+  f: fn(User) -> String fails '0 uses { '1 }
 shown: fn(User) -> String
   user: User

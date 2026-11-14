@@ -24,6 +24,15 @@ git_only = true
 features_always_increment_minor = true
 # Distribution is the `emela` binary tarball, not crates.io packages.
 publish = false
+# The version describes the `emela` binary: the language, std, tools and diagnostics.
+# The Rust API of the crates is outside it and can change in any release; a project
+# that uses the crates (emelino uses the frontend through git dependencies) pins them
+# to a release tag. With the check on, cargo-semver-checks reports a new pub field of
+# a crate's struct as breaking and release-plz bumps the minor in 0.x: a release of
+# only fixes became v0.28.0 (#533), and every Pome written for 0.27 would get W0203.
+# The version is decided by the commit types alone (`feat:` bumps the minor, `fix:`
+# and `perf:` the patch).
+semver_check = false
 # emela-cli turns it back on below; `release-plz.yml` attaches the tarballs.
 git_release_enable = false
 # Only the `emela` package is tagged (see [[package]] below). Suppressing the
@@ -124,10 +133,6 @@ name = "emela-codegen-c"
 version_group = "emela"
 
 [[package]]
-name = "emela-codegen-emb"
-version_group = "emela"
-
-[[package]]
 name = "emela-fmt"
 version_group = "emela"
 
@@ -165,7 +170,6 @@ changelog_include = [
   "emela-codegen-js",
   "emela-codegen-wasm",
   "emela-codegen-c",
-  "emela-codegen-emb",
   "emela-fmt",
   "emela-driver",
   "emela-lsp",

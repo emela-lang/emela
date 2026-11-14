@@ -450,10 +450,10 @@ fn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }
 fn names(users: List[User], f: fn(User) -> String) -> List[String] { todo() }
 
 fn f(users: List[User]) -> Int {
-  inc = fn(x) { x + 1 }
-  typed = fn(x: Int) { x * 2 }
-  a = apply(fn(n) { n * 3 }, 1)
-  b = names(users, fn(u) { u.name })
+  inc = |x| x + 1
+  typed = |x: Int| x * 2
+  a = apply(|n| n * 3, 1)
+  b = names(users, |u| u.name)
   c = inc(1)
   a
 }
@@ -466,10 +466,10 @@ fn lambda_errors() {
 fn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }
 
 fn f() -> Int {
-  a = apply(fn(n) { "s" }, 1)
-  b = apply(fn(n, m) { n }, 1)
-  c = apply(fn(n: String) { 1 }, 1)
-  g = fn(u) { u.name }
+  a = apply(|n| "s", 1)
+  b = apply(|n, m| n, 1)
+  c = apply(|n: String| 1, 1)
+  g = |u| u.name
   1
 }
 "#));
@@ -727,11 +727,11 @@ fn lambda_param_patterns() {
 type User(id: Int, name: String)
 
 fn f(us: List[User], ps: List[(Int, Bool)], os: List[Option[Int]]) -> List[Int] {
-  a = List.map(us, fn(User(id:, ..)) { id })
-  b = List.map(ps, fn((n, _)) { n })
-  c = List.map(os, fn(Some(x)) { x })
-  d = List.map(ps, fn((n, True)) { n })
-  e = List.fold(ps, from: 0, f: fn(acc, (n, _): (Int, Bool)) { acc + n })
+  a = List.map(us, |User(id:, ..)| id)
+  b = List.map(ps, |(n, _)| n)
+  c = List.map(os, |Some(x)| x)
+  d = List.map(ps, |(n, True)| n)
+  e = List.fold(ps, from: 0, f: |acc, (n, _): (Int, Bool)| acc + n)
   List.flatten([a, b, c, d, [e]])
 }
 "#));
@@ -756,7 +756,7 @@ const BRANCH = if True { OTHER } else { 0 }
 const OTHER = BRANCH
 const LAZY = False && LAZY2
 const LAZY2 = LAZY
-const LAMBDA = fn() { LAMBDA2() }
+const LAMBDA = || LAMBDA2()
 const LAMBDA2 = LAMBDA
 const CALL = f()
 
@@ -860,6 +860,78 @@ fn computed_redundant(n: Int) -> Int {
 fn computed_binding(s: Shape) -> Int {
   COMPUTED = s
   0
+}
+"#));
+}
+
+/// A local fn has the function type of its signature, can use the type parameters of the
+/// enclosing fn, calls itself at the type being inferred, takes named arguments by its parameter
+/// names, and is a function value when written without a call (`[fn.local]`, `[type.rules]`).
+#[test]
+fn local_fns() {
+    insta::assert_snapshot!(run(r#"
+pub fn range(from: Int, to: Int) -> List[Int] {
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  onto(to, [])
+}
+
+fn first[A](xs: List[A], fallback: A) -> A {
+  fn go(ys: List[A]) -> A {
+    ys match {
+      [y, ..] -> y
+      [] -> fallback
+    }
+  }
+  go(xs)
+}
+
+fn inferred(x: Int) {
+  fn twice(n: Int) { n * 2 }
+  twice(x)
+}
+
+fn named(x: Int) -> Int {
+  fn sub(a: Int, b: Int) -> Int { a - b }
+  sub(b: 1, a: x)
+}
+
+fn as_value() -> fn(Int) -> Int {
+  fn inc(n: Int) -> Int { n + 1 }
+  f = inc
+  f
+}
+"#));
+}
+
+/// A local fn is not generalized: the unknown parts of its type are shared by every use
+/// (`[fn.block]`).
+#[test]
+fn local_fn_not_generalized() {
+    insta::assert_snapshot!(run(r#"
+fn f() {
+  fn empty(n: Int) { [] }
+  a: List[Int] = empty(1)
+  b: List[String] = empty(2)
+}
+"#));
+}
+
+/// The parameter types of a local fn are written (E0316). A wrong label and a wrong number of
+/// arguments are reported with its name. A method call does not find a local fn
+/// (`[fn.local]`).
+#[test]
+fn local_fn_errors() {
+    insta::assert_snapshot!(run(r#"
+fn f(x: Int) -> Int {
+  fn go(n) -> Int { 1 }
+  fn sub(a: Int, b: Int) -> Int { a - b }
+  fn double(n: Int) -> Int { n * 2 }
+  a = sub(c: 1, b: 2)
+  b = sub(1)
+  c = x.double()
+  go(1)
 }
 "#));
 }

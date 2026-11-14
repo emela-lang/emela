@@ -37,9 +37,11 @@ use crate::named;
 
 mod builtin_impls;
 mod fiber;
+mod local_fn;
 mod suspend;
 
 use fiber::{AttemptCall, ForkCall, ScopeCall};
+use local_fn::Lifted;
 use suspend::Specialization;
 
 /// Why something that passed type checking could not be lowered.
@@ -78,8 +80,8 @@ pub enum Roots {
     Exported,
     /// The entry module's `main` and its `pub` fns, except test functions and fns with a
     /// trait-bounded type parameter (no impl could be chosen for a caller that sees every type
-    /// the same). Not a build of a target in the specification: the embedded C backend
-    /// (`emela-codegen-emb`) exports these until it moves to `@export`.
+    /// the same). Available to external backends that select public entry points instead of
+    /// the host exports of a built-in target.
     Public,
     /// The test functions (`LowerInput::tests`), for `emela test`.
     Tests,
@@ -167,6 +169,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         prelude_trait_fns: FxHashMap::default(),
         host_exports: Vec::new(),
         roots,
+        local_fns: ArenaMap::default(),
+        fn_name: String::new(),
     };
     if roots == Roots::Exported {
         cx.collect_host_exports(input.target);
@@ -330,6 +334,11 @@ struct Lowerer<'a> {
     /// the order of `emela_types::host_exports`. Filled only for `Roots::Exported`.
     host_exports: Vec<Exposed>,
     roots: Roots,
+    /// Local fns of the function being lowered → the functions they were lifted to
+    /// (`local_fn.rs`). Only [`Lowerer::local_fn`] adds to it.
+    local_fns: ArenaMap<LocalId, Lifted>,
+    /// The IR name of the function being lowered, which names the local fns lifted from it.
+    fn_name: String,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without
@@ -379,6 +388,15 @@ enum Target {
     /// The function, its type arguments (`Callee::Direct::ty_args`), the mark, and the evidence
     /// table appended as the last argument (when calling a function with a non-empty R).
     Direct(FnId, Vec<TypeId>, Call, Option<Expr>),
+    /// A local fn lifted to a function of the module (`local_fn.rs`): a direct call whose
+    /// arguments start with `captures`. `ev` is as in `Direct`.
+    Lifted {
+        f: FnId,
+        ty_args: Vec<TypeId>,
+        call: Call,
+        captures: Vec<Expr>,
+        ev: Option<Expr>,
+    },
     Builtin {
         op: Builtin,
         ty_args: Vec<TypeId>,
@@ -405,7 +423,7 @@ enum Target {
     Scope(Box<ScopeCall>),
     /// `s.fork(f)`（11.2）．
     Fork(Box<ForkCall>),
-    /// `Fiber.attempt(f)`（11.5）．
+    /// `Exit.attempt(f)`（11.5）．
     Attempt(Box<AttemptCall>),
 }
 
@@ -511,7 +529,7 @@ impl StateRun {
 }
 
 /// The mark of a call.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Call {
     fails: bool,
     suspends: bool,
@@ -524,6 +542,18 @@ impl Target {
             Target::Direct(f, ty_args, call, ev) => Expr::Call {
                 callee: Callee::Direct { f, ty_args },
                 args: args.into_iter().chain(ev).collect(),
+                fails: call.fails,
+                suspends: call.suspends,
+            },
+            Target::Lifted {
+                f,
+                ty_args,
+                call,
+                captures,
+                ev,
+            } => Expr::Call {
+                callee: Callee::Direct { f, ty_args },
+                args: captures.into_iter().chain(args).chain(ev).collect(),
                 fails: call.fails,
                 suspends: call.suspends,
             },
@@ -581,7 +611,7 @@ impl<'a> Lowerer<'a> {
                         let id = self.module.option_enum();
                         self.enums.insert(def, id);
                     }
-                    // A built-in type is `TypeId::BYTES` (`Lowerer::ty`).
+                    // A built-in type is `Type::Bytes` or `Type::Array` (`Lowerer::ty`).
                     Some(Item::Type(t)) if t.is_intrinsic => {}
                     Some(Item::Type(t)) => {
                         let id = self.declare_enum(def, t.type_params.len());
@@ -718,8 +748,17 @@ impl<'a> Lowerer<'a> {
             Ty::List(t) => Type::List(self.ty(t)),
             Ty::Named(con, args) => {
                 let def = self.types.ty_table.def(*con);
+                // The built-in types of `@intrinsic` declarations (`[api.std.bytes]`,
+                // `[api.std.array]`), told apart by their type parameter: `Bytes` has none, and
+                // `Array[A]` has the element type.
                 if matches!(self.hir.item(def), Some(Item::Type(t)) if t.is_intrinsic) {
-                    return TypeId::BYTES;
+                    return match args.first() {
+                        None => TypeId::BYTES,
+                        Some(elem) => {
+                            let elem = self.ty(elem);
+                            self.module.intern(Type::Array(elem))
+                        }
+                    };
                 }
                 match self.enums.get(def) {
                     Some(&id) => Type::Enum(id, args.iter().map(|t| self.ty(t)).collect()),
@@ -861,6 +900,8 @@ impl<'a> Lowerer<'a> {
         self.ev = None;
         self.bound.clear();
         self.locals = ArenaMap::default();
+        self.local_fns = ArenaMap::default();
+        self.fn_name = self.module.functions[id].name.clone();
         self.current_def = Some(def);
         self.spec = spec;
         let (mut params, body) = match hir.item(def) {
@@ -2043,6 +2084,8 @@ impl<'a> Lowerer<'a> {
         self.ev = None;
         self.bound.clear();
         self.locals = ArenaMap::default();
+        self.local_fns = ArenaMap::default();
+        self.fn_name = self.module.functions[f].name.clone();
         self.current_def = Some(layer);
         self.spec = 0;
         let ret = self.ty(self.expr_ty(arg));
@@ -2086,37 +2129,9 @@ impl<'a> Lowerer<'a> {
                 suspends,
             };
         }
-        let outer = self.ev;
         let p = self.ev_local();
         ps.push(p);
-        let (ctx, prelude) = if self.bound.is_empty() {
-            (p, None)
-        } else {
-            let c = self.ev_local();
-            let bindings = self
-                .bound
-                .clone()
-                .into_iter()
-                .map(|(e, h)| (self.effect_id(&e), Expr::Var(h)))
-                .collect();
-            (
-                c,
-                Some(Expr::Provide {
-                    base: Some(Box::new(Expr::Var(p))),
-                    bindings,
-                }),
-            )
-        };
-        self.ev = Some(ctx);
-        let mut body = self.expr(body);
-        self.ev = outer;
-        if let Some(value) = prelude.filter(|_| mentions(&body, ctx)) {
-            body = Expr::Let {
-                var: ctx,
-                value: Box::new(value),
-                body: Box::new(body),
-            };
-        }
+        let body = self.body_with_ev(p, body);
         Expr::Lambda {
             params: ps,
             ty,
@@ -2409,7 +2424,12 @@ impl<'a> Lowerer<'a> {
             {
                 return Expr::Lit(Lit::Unit);
             }
-            Res::Local(l) => return Expr::Var(self.local(l)),
+            Res::Local(l) => {
+                return match self.lifted(res) {
+                    Some(lifted) => self.lifted_value(id, &lifted),
+                    None => Expr::Var(self.local(l)),
+                };
+            }
             Res::Def(def) => def,
             Res::Err => return self.unsupported("unresolved name", span),
         };
@@ -2540,7 +2560,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Turns a reference (`id`) to a builtin or constructor into a lambda that just calls it:
-    /// `List.map(xs, Some)` becomes `List.map(xs, fn(x) { Some(x) })`. The arity comes from the
+    /// `List.map(xs, Some)` becomes `List.map(xs, |x| Some(x))`. The arity comes from the
     /// reference's type.
     ///
     /// If the reference type's R needs an evidence table, the lambda takes the table as its last
@@ -2588,6 +2608,12 @@ impl<'a> Lowerer<'a> {
             fails: self.callee_fails(callee),
             suspends: self.ty_suspends(self.expr_ty(callee)),
         };
+        // A local fn called by its name (`[fn.local]`).
+        if let ExprKind::Path(res) = hir.exprs[callee].kind
+            && let Some(lifted) = self.lifted(res)
+        {
+            return Ok(self.lifted_target(&lifted));
+        }
         let ev = self
             .ty_takes_ev(self.expr_ty(callee))
             .then(|| self.ev_arg());
@@ -2810,7 +2836,7 @@ impl<'a> Lowerer<'a> {
             suspends: self.row_suspends(&body.uses),
         };
         let base = self.ev.map(Expr::Var);
-        // `State.run(initial: S, body: fn() -> A use { State[S] }) -> (A, S)` (spec 8.8).
+        // `State.run(initial: S, body: fn() -> A uses { State[S] }) -> (A, S)` (spec 8.8).
         let state = match f.params.first() {
             Some(s) => self.ty(s),
             None => TypeId::UNIT,
@@ -2993,24 +3019,22 @@ impl<'a> Lowerer<'a> {
                 (None, BinOp::Eq | BinOp::Ne) => Some(self.eq_op_ty(None)),
                 (None, _) => None,
             };
-            if unshowable(&self.module, ty, true).is_none() {
-                // Monomorphization shows the sides through a written Show impl (spec 10.6).
-                if prim_op_ty(self.expr_ty(*lhs)).is_none() {
-                    self.prelude_trait_fn_id("Show", "show");
-                }
-                let (l, r) = (self.expr(*lhs), self.expr(*rhs));
-                if let Some(op_ty) = op_ty {
-                    return Assert::compare(bin, op_ty, ty, l, r, text);
-                }
-                // An ordering through `Ord.compare`: the sides are bound first and shown if it
-                // fails (spec 13.2).
-                let (a, b) = (
-                    self.module.local("left", ty),
-                    self.module.local("right", ty),
-                );
-                let decide = self.compare(*op, ty, Expr::Var(a), Expr::Var(b), c.span);
-                return Assert::shown(decide, bin, ty, (a, l), (b, r), text);
+            // Monomorphization shows the sides through a written Show impl (spec 10.6).
+            if prim_op_ty(self.expr_ty(*lhs)).is_none() {
+                self.prelude_trait_fn_id("Show", "show");
             }
+            let (l, r) = (self.expr(*lhs), self.expr(*rhs));
+            if let Some(op_ty) = op_ty {
+                return Assert::compare(bin, op_ty, ty, l, r, text);
+            }
+            // An ordering through `Ord.compare`: the sides are bound first and shown if it
+            // fails (spec 13.2).
+            let (a, b) = (
+                self.module.local("left", ty),
+                self.module.local("right", ty),
+            );
+            let decide = self.compare(*op, ty, Expr::Var(a), Expr::Var(b), c.span);
+            return Assert::shown(decide, bin, ty, (a, l), (b, r), text);
         }
         let cond = self.expr(cond);
         Assert::bool(cond, text)
@@ -3146,9 +3170,11 @@ impl<'a> Lowerer<'a> {
             .map(|part| match part {
                 HirStrPart::Text(s) => StrPart::Lit(s.clone()),
                 HirStrPart::Interp(e) => {
+                    // The type checker has checked Show (spec 10.6), except for a capability
+                    // value, which data cannot hold, so only the value itself can be one.
                     let ty = self.ty(self.expr_ty(*e));
-                    if let Some(what) = unshowable(&self.module, ty, false) {
-                        self.report(what, self.hir.exprs[*e].span);
+                    if matches!(self.module.ty(ty), Type::Handler(_)) {
+                        self.report("showing a capability value", self.hir.exprs[*e].span);
                     }
                     // Monomorphization shows by structure where Show gives the same, and calls
                     // `Show.show` otherwise (spec 10.3, 10.6).
@@ -3172,6 +3198,10 @@ impl<'a> Lowerer<'a> {
         for stmt in &block.stmts {
             let (pat, value) = match stmt {
                 Stmt::Let { pat, value, .. } => (Some(*pat), *value),
+                Stmt::LocalFn(f) => {
+                    self.local_fn(f);
+                    continue;
+                }
                 Stmt::Expr(e) => (None, *e),
             };
             let value_ty = self.expr_ty(value);
@@ -3675,20 +3705,6 @@ fn is_atomic(e: &Expr) -> bool {
         e,
         Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } | Expr::Lambda { .. }
     )
-}
-
-/// Why the type cannot be shown, if it cannot. Type parameters are resolved by
-/// monomorphization, which also substitutes the types carried by `StrPart::Value` and
-/// `AssertCond::Compare`. Functions cannot be shown in interpolation (spec 10.6), but the Show
-/// check comes with traits; the debug display (`inspect`) shows them as `<fn>`.
-fn unshowable(m: &Module, ty: TypeId, inspect: bool) -> Option<&'static str> {
-    match m.ty(ty) {
-        Type::Fn(_) if !inspect => Some("showing a function"),
-        Type::Handler(_) => Some("showing a capability value"),
-        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(|&t| unshowable(m, t, inspect)),
-        Type::List(t) => unshowable(m, *t, inspect),
-        _ => None,
-    }
 }
 
 /// Records in `out[i]` what `Ty::Bound(i)` in `pattern` corresponds to in `actual`.

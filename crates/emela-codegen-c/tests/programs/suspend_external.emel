@@ -4,7 +4,7 @@ import Std.Fiber.{Fiber}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 @external(js, "./sleep.mjs", "sleep")
 @external(c, "./sleep.c", "emela_test_sleep")
@@ -22,7 +22,7 @@ fn main() {
   with Naps {
     nap = use Nap
     print("#{nap.nap(5)}")
-    print("#{Fiber.all([fn() { nap.nap(30) }, fn() { nap.nap(10) }])}")
-    print("#{Fiber.race([fn() { nap.nap(60000) }, fn() { nap.nap(1) }])}")
+    print("#{Fiber.all([|| nap.nap(30), || nap.nap(10)])}")
+    print("#{Fiber.race([|| nap.nap(60000), || nap.nap(1)])}")
   }
 }

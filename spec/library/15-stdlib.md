@@ -28,20 +28,23 @@ The standard library is divided into two parts: core, which cannot be separated 
 | core | Short names (`List`, `String`). Usable without an import | The Prelude and the modules of the types the compiler knows as syntax (numbers, String, List, Option, Bool; literals, interpolation, `..`, and so on). They correspond one to one with the table of built-in functions, so they work only with the same version of the compiler |
 | std | Under `Std` (`Std.Console`). Used through an import | Everything else. Modules that can be written in pure Emela and the platform handlers can be distributed separately from the compiler. The effect layer that has `@intrinsic` (State, Fiber) works only with the same version of the runtime |
 
+The compiler does not bundle `Std.Embedded.*` modules.
+
 Within std, modules are divided into four layers by their nature.
 
 | Layer | Nature | Contents |
 |---|---|---|
 | value | Pure and independent of the host | Instant, Duration, Path, Bytes, Array. Collections (Map, Set) in 0.24 |
-| effect | Concurrency and state | State, Fiber, Cause, Deferred (0.20). Queue, Semaphore, Schedule, Stream (later versions. A limit on the number of tasks running at the same time comes before Http) |
-| platform | Effect declarations and the host handlers | Console, Clock, Random, Env, FileSystem, Http |
+| effect | Concurrency and state | State, Fiber, Exit, Cause, Deferred (0.20). Queue, Semaphore, Schedule, Stream (later versions. A limit on the number of tasks running at the same time comes before Http) |
+| platform | Effect declarations and the host handlers | Console, Process (Args, Stdin), Clock, Random, Env, FileSystem, Http |
 | test | Replacements for testing | Handlers such as TestClock and TestConsole. They keep their state in State (8.8), so they are used inside `State.run`. Value comparison helpers, generators, and property testing are not placed in std (below) |
 
 - The helpers for test assertions (comparison helpers that take the contents out of an Option, generators, property testing) are distributed as the Pome `github.com/emela-lang/brix` and used as a test dependency (4.7). The test layer of std has only the replacement handlers, placed in the same module as their effect. Assertion helpers are a matter of style on which people differ, and a running program does not need them, so they grow separately from the compiler version.
 - Modules are placed under `Std` so that adding a module to std does not turn a user's file name into a reserved name (4.1). A user can write `http.emel` without conflicting with `Std.Http`.
 - A platform handler does not expose target names such as Js or Wasm in user code. One handler lists the `@external` of its external functions for each target (12.1), and the target being built decides which one is used. An external function reachable from the entry that has no annotation for that target is a compile error (E0412).
-- A platform handler also lists `@external` for the `c` target. The operations of a suspend fn are also mapped to C in the form of 12.6. A handler that has no C implementation yet (Http) has no `c` annotation, and calling its operations is a compile error (E0412) (as in 12.1, operations that are not called are not checked).
-- A system handler that uses the host has a name prefixed with `System` (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemEnv`, `SystemFileSystem`, `SystemHttp`). A test handler is prefixed with `Test` (`TestClock`, `TestConsole`). Both are placed in the same module as their effect (`import Std.Clock.{Clock, SystemClock, TestClock}`).
+- A platform handler also lists `@external(c, ...)` for the native target. The operations of a suspend fn are also mapped to C in the form of 12.6. A handler that has no C implementation yet (Http) has no `c` annotation, and calling its operations is a compile error (E0412) (as in 12.1, operations that are not called are not checked).
+- A system handler that uses the host has a name prefixed with `System` (`SystemConsole`, `SystemArgs`, `SystemStdin`, `SystemClock`, `SystemRandom`, `SystemEnv`, `SystemFileSystem`, `SystemHttp`). A test handler is prefixed with `Test` (`TestClock`, `TestConsole`, `TestStdin`). Both are placed in the same module as their effect (`import Std.Clock.{Clock, SystemClock, TestClock}`).
+- A platform module usually declares one effect and has the name of that effect (`Std.Clock`). `Std.Process` declares several effects, one for each thing the process has exactly one of (its arguments and its standard input), and their handlers (`import Std.Process.{Args, Stdin, SystemStdin}`).
 - The layer `Platform`, which bundles all System handlers, is placed in `Std.Platform`. main is usually written `with Platform { ... }`, and to replace some of them, the replacements are listed after it, as in `with Platform, TestClock { ... }` (8.3). No bundle of test handlers is provided (TestClock and TestConsole require separate States, so bundling them only nests `State.run` and makes nothing easier).
 
 ```emel
@@ -214,7 +217,7 @@ pub fn app(request: Request) -> Response {
 - When the fn ends with an error or a defect, one line describing the cause (`Cause.to_string`) is written to standard error, and the response has status 500. The cause is not written in the response.
 - When the launch ends with an interruption (it stalled, `[dyn.suspend]`), no response is made, and the host gets an error: on JS the Promise that `fetch` returned rejects (`[target.js.module]`). `serve.mjs` then writes `interrupted` to standard error and answers with status 500.
 - The responses with status 405, 400 and 500 above have the body `Method Not Allowed`, `Bad Request` and `Internal Server Error`, with `content-type: text/plain;charset=UTF-8`.
-- On JS, `serve` is the property `fetch` of the default export of `main.mjs` (`[target.js.module]`). On WASM, `main.wasm` is a component of the world `wasi:http/service@0.3.0` that exports `handle` of `wasi:http/handler@0.3.0` (`[target.wasm.output]`). The C target does not support HTTP services yet (`[target.c.unsupported]`).
+- On JS, `serve` is the property `fetch` of the default export of `main.mjs` (`[target.js.module]`). On WASM, `main.wasm` is a component of the world `wasi:http/service@0.3.0` that exports `handle` of `wasi:http/handler@0.3.0` (`[target.wasm.output]`). The native target does not support HTTP services yet (`[target.native.unsupported]`).
 
 ## 15.4 API conventions `[lib.api-rules]`
 

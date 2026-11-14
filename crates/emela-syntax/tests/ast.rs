@@ -23,7 +23,7 @@ fn 部分更新の_spread() {
 
 #[test]
 fn 無名関数の引数のパターン() {
-    let parse = parse("fn f() {\n  g = fn(x: Int, (a, b): (Int, Int), _) { a }\n}");
+    let parse = parse("fn f() {\n  g = |x: Int, (a, b): (Int, Int), _| a\n}");
     assert!(parse.diagnostics().is_empty(), "{}", parse.debug_dump());
     let list = parse
         .tree()
@@ -52,4 +52,24 @@ fn 無名関数の引数のパターン() {
             s("", "_", ""),
         ]
     );
+}
+
+#[test]
+fn 局所関数は文になる() {
+    let src = "fn f() -> Int {\n  ## 説明\n  fn go(n: Int) -> Int { n }\n  go(1)\n}";
+    let parse = parse(src);
+    assert!(parse.diagnostics().is_empty(), "{}", parse.debug_dump());
+    let body = parse.tree().fn_decls().next().unwrap().body().unwrap();
+    let stmts: Vec<_> = body.stmts().collect();
+    let Stmt::LocalFn(local) = &stmts[0] else {
+        panic!("expected a local fn: {stmts:?}");
+    };
+    assert_eq!(local.name().unwrap().text(), "go");
+    assert_eq!(local.param_list().unwrap().params().count(), 1);
+    assert_eq!(local.ret_type().unwrap().text().to_string(), "Int");
+    assert_eq!(local.body().unwrap().syntax().text().to_string(), "{ n }");
+    assert!(local.syntax().text().to_string().starts_with("## 説明"));
+    assert!(matches!(stmts[1], Stmt::Expr(Expr::CallExpr(_))));
+    // A local fn is not a declaration of the module.
+    assert_eq!(parse.tree().fn_decls().count(), 1);
 }

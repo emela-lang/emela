@@ -7,6 +7,8 @@ pub struct Diagnostic {
     pub range: TextRange,
     pub code: DiagnosticCode,
     pub message: String,
+    /// Printed as `= help: …` by the driver.
+    pub help: Option<String>,
 }
 
 /// Codes match the list in spec appendix A. A code once assigned is never reused.
@@ -75,9 +77,9 @@ pub enum DiagnosticCode {
     TypedHandlerParam,
     /// An impl or handler fn without a body.
     MissingBody,
-    /// A return type, fails or use on an impl fn. The types come from the trait declaration.
+    /// A return type, fails or uses on an impl fn. The types come from the trait declaration.
     SignatureInImpl,
-    /// A `use` clause on an effect operation (spec 8.1).
+    /// A `uses` clause on an effect operation (spec 8.1).
     UseOnEffectOp,
     /// A fn's `@external` arguments are not `(target, "a")` or `(target, "a", "b")` (spec 12.1):
     /// the target is missing or not a name, an argument is not a string, or there are not one or
@@ -98,6 +100,16 @@ pub enum DiagnosticCode {
     OldImplHead,
     /// `implements` in a handler head. `handler H implements E` (spec 8.4)
     OldHandlerHead,
+    /// `fn(...)` written as an expression, the old form of an anonymous function (`[fn.decl]`).
+    OldLambda,
+    /// An anonymous function as a statement that is not the last of its block (`[fn.block]`).
+    UnusedLambda,
+    /// `use` written in the place of the uses clause. `fn f() use Db` (`[grammar.decl]`)
+    OldUseClause,
+    /// Type parameters, an attribute, `pub` or `suspend` on a local fn (`[fn.local]`).
+    LocalFnModifier,
+    /// A local fn as the last statement of its block, which nothing can call (`[fn.local]`).
+    UnusedLocalFn,
 }
 
 impl DiagnosticCode {
@@ -148,6 +160,11 @@ impl DiagnosticCode {
             Self::OldImplHead => "E0144",
             Self::OldHandlerHead => "E0145",
             Self::MalformedExport => "E0146",
+            Self::OldLambda => "E0148",
+            Self::UnusedLambda => "E0149",
+            Self::OldUseClause => "E0147",
+            Self::LocalFnModifier => "E0150",
+            Self::UnusedLocalFn => "E0151",
         }
     }
 }

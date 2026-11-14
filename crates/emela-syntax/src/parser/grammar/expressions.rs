@@ -1,8 +1,9 @@
 //! Expressions (spec 17.5).
 
+use super::items::{at_local_fn_start, newlines_with_doc};
 use super::patterns::pattern;
 use super::types::{effect_type_args, path, type_};
-use super::{lambda_param_list, literal};
+use super::{closure_param_list, literal, old_lambda_param_list};
 use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{CompletedMarker, Parser};
@@ -58,17 +59,38 @@ pub(crate) fn stmt(p: &mut Parser<'_>) {
     m.complete(p, BINDING);
 }
 
-/// `"{" { stmt NL } "}"`
+/// `"{" { stmt NL } "}"`. `stmt = binding | local_fn | expr`.
+///
+/// A local fn (`[fn.local]`) and a top-level declaration both start with `fn` at the start of a
+/// line. When the braces of the input balance, it is a local fn, as the grammar says. When they
+/// do not, a `}` is missing or extra somewhere, and the parser cannot tell which block it belongs
+/// to. Then a `fn` is a local fn only if its line is indented deeper than the line of this
+/// block's `{`; otherwise it ends the block, so that recovery from a missing `}` keeps the
+/// declarations after it at the top level or in their impl or handler. A program whose braces
+/// do not balance already has an error, so layout never changes the meaning of a valid program.
 pub(crate) fn block(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
+    let indent = p.line_indent();
     p.bump_kind(L_BRACE);
     loop {
-        while p.eat(NEWLINE) {}
-        if p.at(R_BRACE) || p.at_eof() || p.at_decl_start() {
+        let doc = newlines_with_doc(p);
+        let local_fn = at_local_fn_start(p) && (p.braces_balance || p.line_indent() > indent);
+        if !local_fn && (p.at(R_BRACE) || p.at_eof() || p.at_decl_start()) {
+            if let Some(doc) = doc {
+                doc.abandon(p);
+            }
             break;
         }
         let before = p.position();
-        stmt(p);
+        if local_fn {
+            let m = doc.unwrap_or_else(|| p.start());
+            super::items::local_fn(p, m);
+        } else {
+            if let Some(doc) = doc {
+                doc.abandon(p);
+            }
+            stmt(p);
+        }
         if p.position() == before {
             // A diagnostic was reported but no token was consumed (e.g. `=` at line start).
             bump_error(p);
@@ -268,9 +290,20 @@ fn expr_bp(p: &mut Parser<'_>, min: u8) -> Option<CompletedMarker> {
     Some(lhs)
 }
 
-/// `( "!" | "-" ) unary | "use" type_ref [ "[" type { "," type } "]" ] | postfix`
+/// `( "!" | "-" ) unary | "use" type_ref [ "[" type { "," type } "]" ] | lambda | postfix`
 fn unary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     match p.current() {
+        // `lambda = ( "||" | "|" [ lambda_param { "," lambda_param } ] "|" ) expr`. `|` and `||`
+        // never start any other operand, so in operand position they start an anonymous
+        // function. The body is an `expr`, so it takes everything to its right
+        // (`[grammar.expr]`), and nothing follows the lambda in the same expression.
+        PIPE | PIPE2 => {
+            let m = p.start();
+            closure_param_list(p);
+            // A newline right after the list ends the statement; `expr` reports the missing body.
+            expr(p);
+            Some(m.complete(p, LAMBDA_EXPR))
+        }
         BANG | MINUS => {
             let m = p.start();
             p.bump();
@@ -372,11 +405,13 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
             with_expr(p);
             WITH_EXPR
         }
-        // `lambda = "fn" "(" [ params ] ")" block`
+        // The old form `fn(params) { ... }` (E0148, reported by validation). It is read into the
+        // node of an anonymous function, so the later passes need not tell the forms apart, and
+        // the formatter rewrites it (`[fmt.closure]`).
         FN_KW => {
             p.bump();
             if p.at(L_PAREN) {
-                lambda_param_list(p);
+                old_lambda_param_list(p);
             } else {
                 p.expect(L_PAREN);
             }
@@ -430,14 +465,14 @@ fn paren_expr(p: &mut Parser<'_>) -> SyntaxKind {
 /// `"[" [ expr { "," expr } [ "," ".." expr ] ] "]"`
 fn list_expr(p: &mut Parser<'_>) {
     p.bump_kind(L_BRACK);
-    let mut count = 0;
+    let mut has_element = false;
     let mut seen_rest = false;
     while !p.at(R_BRACK) && !p.at_eof() {
         if seen_rest {
             p.error(DiagnosticCode::RestNotLast, "`..` must come last");
         }
         if p.at(DOT2) {
-            if count == 0 {
+            if !has_element {
                 p.error(
                     DiagnosticCode::RestWithoutElements,
                     "`..` needs at least one element before it",
@@ -446,7 +481,7 @@ fn list_expr(p: &mut Parser<'_>) {
             rest_expr(p);
             seen_rest = true;
         } else {
-            count += 1;
+            has_element = true;
             expr(p);
         }
         if !p.eat(COMMA) {

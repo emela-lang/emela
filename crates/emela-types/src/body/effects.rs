@@ -15,7 +15,7 @@
 //!   variables whose solutions exclude those effects; nothing is removed from set type
 //!   parameters (sets with unknown contents).
 //! - A lambda encloses its body's R in its function type.
-//! - A body's R is contained in the declared R. Without a `use` clause the declared R is a set
+//! - A body's R is contained in the declared R. Without a `uses` clause the declared R is a set
 //!   variable, and the body's R becomes its solution as is (spec 9.3). The bodies of `main` and
 //!   test functions must have an empty R apart from Async (spec 8.3, 13.3), since the runtime
 //!   provides Async.
@@ -23,7 +23,7 @@
 //!   (a set variable). A suspend fn implementation that may call resume later also depends on
 //!   Async (spec 8.7, `body/suspend.rs`).
 
-use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Item, Res, WithItem};
+use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Item, Res, Stmt, WithItem};
 
 use super::{BodyInfer, fn_parts};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
@@ -65,7 +65,7 @@ impl BodyInfer<'_> {
                             Origin::Closed(def),
                         );
                     }
-                    // When `main` or a test function has a `use` clause, only report that it is
+                    // When `main` or a test function has a `uses` clause, only report that it is
                     // not empty.
                     if !closed || parts.sig.is_none_or(|sig| sig.uses.is_none()) {
                         self.ctx
@@ -166,6 +166,25 @@ impl BodyInfer<'_> {
                         .add_subset_of(SetKind::Effects, body_row, Row::var(v), Origin::Lambda);
                 }
                 Row::empty()
+            }
+            // The body's R of a local fn is enclosed in its type's R, as for a lambda
+            // (`[fn.local]`). The block's R does not include it (`sub_exprs`).
+            ExprKind::Block(block) => {
+                for stmt in &block.stmts {
+                    if let Stmt::LocalFn(f) = stmt
+                        && let Some(info) = self.local_fns.get(f.local)
+                    {
+                        let (body, uses) = (info.body, info.uses.clone());
+                        let body_row = self.expr_effects(body);
+                        self.ctx.add_subset_of(
+                            SetKind::Effects,
+                            body_row,
+                            uses,
+                            Origin::LocalFn(f.local),
+                        );
+                    }
+                }
+                self.sub_effects(expr)
             }
             ExprKind::With { handlers, body } => self.with_effects(expr, handlers, *body),
             ExprKind::Call { callee, .. } => {

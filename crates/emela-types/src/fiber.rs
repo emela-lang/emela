@@ -2,7 +2,7 @@
 //!
 //! A built-in effect is an `@intrinsic effect` of the bundled sources (`Scope`). Its provider is
 //! the `@intrinsic` fn of the same module whose parameter function type names the effect in its
-//! `use` clause (`Fiber.scope`). The types the effect's operations return (`Fiber`, `Deferred`)
+//! `uses` clause (`Fiber.scope`). The types the effect's operations return (`Fiber`, `Deferred`)
 //! are the handles that cannot leave the provider (E0425, spec 11.8).
 //!
 //! Everything here is found from the declarations, not from names, so the checks follow the
@@ -99,7 +99,7 @@ impl Fibers {
     }
 }
 
-/// The built-in effect named in the `use` clause of the function type `ty`, if any.
+/// The built-in effect named in the `uses` clause of the function type `ty`, if any.
 fn names_effect(program: &Program, ty: TypeId, effects: &[DefId]) -> Option<DefId> {
     let TypeKind::Fn { uses, .. } = &program.types[ty].kind else {
         return None;

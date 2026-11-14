@@ -1,6 +1,6 @@
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 effect Wait {
   suspend fn wait() -> Int
@@ -26,7 +26,7 @@ handler Res(label: String): Name {
   release { print("release #{self.label}") }
 }
 
-fn waits() -> Int use { Wait, Name } {
+fn waits() -> Int uses { Wait, Name } {
   n = (use Wait).wait()
   print("after wait #{n}")
   n

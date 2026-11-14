@@ -5,12 +5,12 @@ input_file: crates/emela-fmt/test_data/signature_continuation.emel
 ---
 pub fn get(url: String) -> Response
   fails InvalidUrl | ConnectionFailed | ResponseNotText
-  use Http {
+  uses { Http } {
   fails = 1
   x
 }
 
-fn short() -> Int fails Boom use Log { 1 }
+fn short() -> Int fails Boom uses { Log } { 1 }
 
 effect Store {
   fn load(id: Int) -> Item
@@ -20,7 +20,7 @@ effect Store {
 
 @external(js, "./x.mjs", "now")
 fn now() -> Int
-  use {}
+  uses {}
 
 fn long_params(first_argument: String, second_argument: String, third_argument: Int) -> Int
   fails Boom {
@@ -29,7 +29,7 @@ fn long_params(first_argument: String, second_argument: String, third_argument: 
 
 pub fn fetch_profile(user_id: Int, token: String) -> Profile
   fails NotFound | Unauthorized
-  use { Http, Log } {
+  uses { Http, Log } {
   todo()
 }
 
@@ -37,11 +37,13 @@ pub fn fetch_everything(
   first_identifier: Int,
   second_identifier: Int,
   authorization_token: String,
-) -> Profile fails NotFound | Unauthorized | Timeout use { Http, Log, Clock } {
+) -> Profile fails NotFound | Unauthorized | Timeout uses { Http, Log, Clock } {
   todo()
 }
 
-fn exactly_fits_on_one_line_with_the_brace(user_id: Int) -> Profile fails NotFound use Http { 1 }
+fn exactly_fits_on_one_line_with_the_brace(user_id: Int) -> Profile fails NotFound uses { Http } {
+  1
+}
 
 effect Remote {
   fn fetch_remote_document(identifier: Int, revision: Int) -> Document
@@ -51,4 +53,4 @@ effect Remote {
 @external(js, "./x.mjs", "load")
 fn load_external(path: String, options: String) -> String
   fails LoadFailed | ParseFailed
-  use { Async }
+  uses { Async }

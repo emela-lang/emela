@@ -6,6 +6,100 @@ This is the record of changes to the specification. New entries are added at the
 
 - `[lib.api-rules]`, `[api.list]`, `[api.std.array]`, `[api.std.map]`, `[api.std.set]`: `each(xs, f)` calls `f` on each element, in the order of the collection, for its effects, and returns `()`. It is added to List, Array, Map and Set. `[lib.api-rules]` also gains a rule for every function of the standard library that calls `f` once per element (`map`, `filter`, `fold`, `find`, ...): it calls `f` in the order of the collection, at most once per element, and not after the result is decided or `f` has failed. ```emel List.each(List.range(0, n), |i| { clock.sleep(100) console.print_line("#{n - i}") }) ``` Adopted in the proposal `each` (#514).
 
+## 2026-11-14 (Std.Process, the arguments and the standard input of the process)
+
+- `[lib.layers]`, `[api.std.process]`, `[api.std.platform]`, `[cmd.build]`, `[target.native.run]`, `[target.wasm.output]`, `[target.wasm.external]`, `[cmd.test.output]`: Add a module `Std.Process` to the platform layer of std, for what belongs to the process, and put two effects in it first. `Args` reads the arguments given to the process: `get(index)` takes one by position, and `list()` returns all of them as a `List[String]`, without the name of the program. `Stdin` reads standard input: `read_line` reads one line, and `read_text` reads all the rest; both are `suspend fn`. The system handlers `SystemArgs` and `SystemStdin` are added to `Platform`. For tests, `TestStdin` reads from `State[StdinLines]`. There is no test handler for `Args`. `Console` does not change. Adopted in the proposal `std-process` (#565).
+
+## 2026-11-14 (Local functions)
+
+- `[fn.decl]`, `[fn.local]`, `[fn.args]`, `[fn.block]`, `[fn.loop]`, `[lex.comment]`, `[module.resolution]`, `[type.inference]`, `[type.rules]`, `[effect.use]`, `[effect.with]`, `[effect.escape]`, `[grammar.expr]`, `[diag.list]`: A block MAY contain a named function, a local function, written in the same form as a top-level fn: `fn name(x: T) -> U { ... }`. Its name is visible after the declaration and inside its own body, so it can call itself, and a tail call to itself is guaranteed not to consume stack. It captures the variables visible at the declaration, as an anonymous function does. It is not generalized, but it can use the type parameters of the enclosing function. Adopted in the proposal `local-fn` (#502).
+
+## 2026-11-14 (The C target becomes the native target)
+
+- `[target]`, `[target.c]`, `[target.c.output]`, `[target.c.cc]`, `[target.c.run]`, `[target.c.unsupported]`, `[target.c.event-loop]`, `[target.c.export]`, `[ext.decl]`, `[ext.host-type]`, `[ext.boundary]`, `[ext.c-host]`, `[ext.export]`, `[module.name]`, `[module.pome]`, `[lib.layers]`, `[api.std.file-system]`, `[cmd.build]`, `[cmd.doctor]`, `[cmd.test.out-dir]`, `[lsp.completion]`, `[open.list]`, `[diag.list]`: The build target `c` is renamed `native`. It still emits C, but C becomes an intermediate form: the specification promises a native executable made by the C compiler and linker of the machine that builds, and the header `emela.h` for host sources, not the emitted C files. The program links against the C library of that machine. Differences between the C libraries and headers of operating systems are resolved by compiling the C on that machine with its own headers; the compiler still does not read C headers, and Emela source has no construct that depends on the OS. The first argument of `@external` and `@export` is redefined as the language of the code that is linked with, not the build target. It stays `c` for the native target. Each target has one such language: `native` uses `c`, `js` uses `js`, and `wasm` uses `wasm`. The C compiler is named by `EMELA_CC` alone, and its flags are given by a new variable `EMELA_CC_ARGS`. `emela doctor` checks that the C compiler can compile and link a program against the C library. The build target `c` is deprecated in 0.28 and removed in 0.29. Adopted in the proposal `native-target` (#564).
+- The section names below were renamed when the C target became the native target. They are kept for references from earlier history and proposals, and MUST NOT be reused.
+
+### The C target (renamed) `[target.c]`
+
+Renamed to `[target.native]`.
+
+### C output (renamed) `[target.c.output]`
+
+Renamed to `[target.native.output]`.
+
+### Invoking the C compiler (renamed) `[target.c.cc]`
+
+Renamed to `[target.native.cc]`.
+
+### Running on C (renamed) `[target.c.run]`
+
+Renamed to `[target.native.run]`.
+
+### Constructs not supported yet on C (renamed) `[target.c.unsupported]`
+
+Renamed to `[target.native.unsupported]`.
+
+### C event loop (renamed) `[target.c.event-loop]`
+
+Renamed to `[target.native.event-loop]`.
+
+### C exported functions (renamed) `[target.c.export]`
+
+Renamed to `[target.native.export]`.
+
+## 2026-11-14 (The minimum version of Bun is 1.4.3)
+
+- `[target]`, `[target.js.host]`, `[cmd.build]`: The JS target assumes Bun 1.4.3 or later, not Bun 1.3 or later. Before 1.4.3, Bun does not run the work that a `beforeExit` listener schedules as Node does, and `emela test` gives different results there. Adopted in the proposal `bun-minimum-1-4-3` (#560).
+
+## 2026-11-14 (JS hosts are Node and Bun, chosen with EMELA_JS_HOST)
+
+- `[target]`, `[target.js.host]`, `[cmd.build]`, `[cmd.doctor]`, `[cmd.test.out-dir]`, `[diag.list]`: `emela run` and `emela test` run the JS output with the host named by the environment variable `EMELA_JS_HOST`. Its value is a command, started in the same way as `EMELA_NODE` today. `EMELA_NODE` is deprecated and is read, with a warning, for one more minor version. The hosts that the JS target assumes become Node and Bun; Deno is no longer one of them. The version check before a run reads the version from inside the host, so that it knows Bun from Node and compares each with its own minimum. Adopted in the proposal `js-host-variable` (#504).
+
+## 2026-11-10 (Separate microcontroller support)
+
+- `[target]`, `[module.pome]`, `[lib.layers]`, `[cmd]`, `[cmd.build]`, `[cmd.doctor]`: Remove the embedded C backend, the `c-embedded` target, the `flash` command, the board and runtime configuration options, and the bundled `Std.Embedded.*` modules. Microcontroller support is maintained in the separate emelino repository. The native C target and the shared frontend and Flow APIs remain available.
+- The retired section names below are retained for references from earlier history and proposals. They no longer define supported behavior and MUST NOT be reused.
+
+### Embedded C target (retired) `[target.c-embedded]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded C output (retired) `[target.c-embedded.output]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded boards (retired) `[target.c-embedded.board]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded entry (retired) `[target.c-embedded.entry]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded project configuration (retired) `[target.c-embedded.project]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Embedded runtime configuration (retired) `[target.c-embedded.config]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+### Firmware flashing (retired) `[cmd.flash]`
+
+Informative. Removed on 2026-11-10 when microcontroller support moved to emelino.
+
+## 2026-11-10 (emela doctor)
+
+- `[cmd]`, `[cmd.doctor]`, `[target.c-embedded.board]`: Add the command `emela doctor`. It resolves the external programs that each build target uses (node, cc, wasmtime, the tools of the embedded target) and the routes used to fetch Pomes, by the same rules as the commands that use them, and reports what is missing. Adopted in the proposal `doctor-command` (#535).
+
+## 2026-11-09 (License of a Pome in Pome.toml)
+
+- `[module.pome]`, `[pome.manifest]`, `[cmd.pome]`: Add `license` to `[pome]`, so that a Pome declares its license as an SPDX license expression. It can be omitted. Tools such as the indexer of pkgs.emela.dev read this value instead of guessing the license from the files of the repository. Adopted in the proposal `pome-license` (#524).
+
+## 2026-11-07 (Move attempt and Exit to Std.Exit)
+
+- `[fiber]`, `[fiber.cause]`, `[error.defect]`, `[lib.layers]`, `[api.std.fiber]`, `[api.std.exit]`, `[api.std.cause]`, `[target.c.unsupported]`, `[dyn.memory]`, `[target.unspecified]`: `attempt` and the enum `Exit` (`Success`, `Failure`) move from `Std.Fiber` to a new module `Std.Exit`. `Fiber.attempt(f)` becomes `Exit.attempt(f)`. `Cause` stays in `Std.Cause`, and `Fiber.await` returns the `Exit` of `Std.Exit`. The old names are removed without a deprecation period. Adopted in the proposal `std-exit` (#501).
+
 ## 2026-11-07 (Array)
 
 - `[lib.layers]`, `[api.std.array]`, `[ext.boundary]`, `[target.js.value]`, `[target.impl-hint]`, `[diag.list]`: Add `Array[A]`, an immutable sequence of fixed length with O(1) access by position, to the value layer of std as `Std.Array`. Its representation is a flat block of elements. `set` returns a new array; on WASM and C, it updates the array in place when the argument is the last reference to it, so a loop that threads one array through `set` runs in O(1) per step there. A sequence is built as a List and turned into an Array; Array has no operation that grows an array. `Array[A]` becomes a boundary type of external functions on the JS target, where it is a JS `Array`. Adopted in the proposal `array` (#508).

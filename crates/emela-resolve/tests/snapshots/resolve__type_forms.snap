@@ -1,0 +1,32 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"error Timeout\nerror Refused\neffect Log {\n  fn info(msg: String) -> ()\n}\neffect State[S] {\n  fn get() -> S\n}\ntype Box[A](value: A)\n\nfn run[E, R](\n  f: fn(Int) -> Box[Int] fails E | Timeout uses { R, Log },\n  h: Handler[Timeout | Refused, { Log, State[Int] }],\n) -> Int fails E uses { R, State[Box[Int]] } {\n  1\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+error Main.Timeout
+error Main.Refused
+effect Main.Log
+  op Main.Log.info
+    param msg#0: String
+    ret ()
+effect Main.State
+  type-param Main.State.S
+  op Main.State.get
+    ret Main.State.S
+type Main.Box
+  type-param Main.Box.A
+  field value: Main.Box.A
+  ctor Main.Box.Box
+fn Main.run
+  type-param Main.run.E
+  type-param Main.run.R
+  param f#1: fn(Int) -> Main.Box[Int] fails {Main.run.E, Main.Timeout} uses {Main.run.R, Main.Log}
+  param h#2: <error>[fails {Main.Timeout, Main.Refused}, uses {Main.Log, Main.State[Int]}]
+  ret Int
+  fails {Main.run.E}
+  uses {Main.run.R, Main.State[Main.Box[Int]]}
+  body
+    block
+      1
+== diagnostics
+error src/main.emel@210..217 `Handler`: undefined type `Handler`

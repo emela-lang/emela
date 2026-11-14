@@ -1,0 +1,49 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0148]: anonymous functions are written `|x| body`
+   ╭─[ main.emel:2:21 ]
+   │
+ 2 │   ys = List.map(xs, fn(x) { x + 1 })
+   │                     ──┬──  
+   │                       ╰──── 
+───╯
+   = help: write `|x| x + 1`
+
+error[E0148]: anonymous functions are written `|x| body`
+   ╭─[ main.emel:3:16 ]
+   │
+ 3 │   List.map(ys, fn(y) {
+   │                ──┬──  
+   │                  ╰──── 
+───╯
+   = help: write `|y| ...`
+
+error[E0149]: this anonymous function is never used
+    ╭─[ main.emel:10:3 ]
+    │
+ 10 │   |x| x
+    │   ──┬──  
+    │     ╰──── 
+────╯
+
+error[E0149]: this anonymous function is never used
+    ╭─[ main.emel:16:3 ]
+    │
+ 16 │   || b
+    │   ──┬─  
+    │     ╰─── 
+────╯
+   = help: a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses
+
+error[E0301]: type mismatch: expected `Bool`, found `fn() -> Bool`
+    ╭─[ main.emel:22:3 ]
+    │
+ 22 │   || b
+    │   ──┬─  
+    │     ╰─── 
+────╯
+   = help: a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses
+
+5 errors

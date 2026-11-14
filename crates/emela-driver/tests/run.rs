@@ -62,13 +62,13 @@ fn run_with(
     sources: &[(&str, &str)],
     js: &str,
     args: &[&str],
-    node: PathBuf,
+    js_host: PathBuf,
 ) -> (Analysis, Option<RunOutput>) {
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
-        node,
+        js_host,
         args: args.iter().map(Into::into).collect(),
         output: Output::Capture,
     };
@@ -246,7 +246,7 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -373,13 +373,13 @@ fn run_source_with(name: &str, main: &str, frontend: &mut Lower) -> RunOutput {
 }
 
 /// Like `run_source_with`, with a given node executable.
-fn run_source_in(name: &str, main: &str, frontend: &mut Lower, node: PathBuf) -> RunOutput {
+fn run_source_in(name: &str, main: &str, frontend: &mut Lower, js_host: PathBuf) -> RunOutput {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
-        node,
+        js_host,
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -431,7 +431,7 @@ fn run_without_main_stops_before_node() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir("no-main"),
-        node: PathBuf::from("/nonexistent/node"),
+        js_host: PathBuf::from("/nonexistent/node"),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -489,7 +489,7 @@ fn js_exports_are_called_by_the_host() {
 pub fn add(a: Int, b: Int) -> Int { a + b }
 
 @export(js, "greet")
-fn greet(name: String, suffix: fn(String) -> String fails {} use {}) -> String {
+fn greet(name: String, suffix: fn(String) -> String fails {} uses {}) -> String {
   "hello, #{suffix(name)}"
 }
 
@@ -509,7 +509,7 @@ fn late_boom(n: Int) -> Int {
 }
 
 @export(js, "default", "run")
-fn run(app: fn(Int) -> Int fails {} use {}, x: Int) -> Int { app(x) + 1 }
+fn run(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) + 1 }
 
 @entry(run)
 fn twice(x: Int) -> Int { x * 2 }
@@ -564,16 +564,16 @@ fn js_bytes_cross_as_uint8_array() {
     let main = r##"import Std.Bytes.{Bytes}
 
 @external(js, "globalThis.hostBytes")
-fn host_bytes() -> Bytes use {}
+fn host_bytes() -> Bytes uses {}
 
 @external(js, "globalThis.laterBytes")
 suspend fn later_bytes() -> Bytes
 
 @external(js, "globalThis.mutate")
-fn mutate() -> () use {}
+fn mutate() -> () uses {}
 
 @external(js, "globalThis.apply")
-fn apply(f: fn(Bytes) -> Int) -> Int use {}
+fn apply(f: fn(Bytes) -> Int) -> Int uses {}
 
 effect Source {
   suspend fn next() -> Bytes
@@ -666,6 +666,191 @@ await m.later().catch((e) => console.log(e.name, e.message));
              Defect argument `1` of `apply` is not a `Uint8Array`\n\
              07\n\
              Defect external function `later_bytes` returned a value that is not a `Uint8Array`\n",
+            ""
+        )
+    );
+}
+
+/// The entry's `main` is exported for the launcher even when it also has a host export, so
+/// `emela run` still calls it.
+#[test]
+fn main_with_a_host_export_runs() {
+    let output = run_source(
+        "main-host-export",
+        "@export(js, \"run\")\nfn main() -> Int {\n  dbg(41)\n  42\n}\n",
+    );
+    assert_eq!(text(&output.stdout), "");
+    assert_eq!(text(&output.stderr), "41\n");
+    assert_eq!(output.code, 0);
+}
+
+/// `[target.js.value]`, `[ext.boundary]`: an Array crosses as a JS `Array` whose elements are
+/// represented by the same table. One from JS (a return value, a value a suspend fn resolves to, an
+/// argument of a callback or of an exported fn) must satisfy `Array.isArray`; it is copied, each
+/// element converted as a single value would be (a String normalized, a nested Array and a Bytes
+/// checked and copied), and a hole read as `undefined`. An Array passed to JS is a JS `Array`.
+#[test]
+fn js_arrays_cross_as_js_arrays() {
+    let main = r##"import Std.Array.{Array}
+import Std.Bytes.{Bytes}
+
+@external(js, "globalThis.hostRows")
+fn host_rows() -> Array[String] uses {}
+
+@external(js, "globalThis.hostGrid")
+fn host_grid() -> Array[Array[Int]] uses {}
+
+@external(js, "globalThis.hostChunks")
+fn host_chunks() -> Array[Bytes] uses {}
+
+@external(js, "globalThis.hostUnits")
+fn host_units() -> Array[()] uses {}
+
+@external(js, "globalThis.laterRows")
+suspend fn later_rows() -> Array[String]
+
+@external(js, "globalThis.mutate")
+fn mutate() -> () uses {}
+
+@external(js, "globalThis.sum")
+fn sum(xs: Array[Int]) -> Int uses {}
+
+@external(js, "globalThis.apply")
+fn apply(f: fn(Array[Int]) -> Int) -> Int uses {}
+
+effect Source {
+  suspend fn next() -> Array[String]
+}
+
+handler HostSource: Source {
+  suspend fn next(resume) { resume(later_rows()) }
+}
+
+@export(js, "size")
+fn size(a: Array[Int]) -> Int { Array.size(a) }
+
+@export(js, "echo")
+fn echo(a: Array[Array[String]]) -> Array[Array[String]] {
+  Array.append(a, Array.from_list([Array.from_list(["end"])]))
+}
+
+@export(js, "rows")
+fn rows() -> String { "#{host_rows()}" }
+
+@export(js, "copied")
+fn copied() -> String {
+  a = host_rows()
+  mutate()
+  "#{a}"
+}
+
+@export(js, "grid")
+fn grid() -> String { "#{host_grid()}" }
+
+@export(js, "chunks")
+fn chunks() -> Int { Array.size(host_chunks()) }
+
+@export(js, "units")
+fn units() -> Int { Array.size(host_units()) }
+
+@export(js, "summed")
+fn summed() -> Int { sum(Array.from_list([1, 2, 3])) }
+
+@export(js, "later")
+fn later() -> String { with HostSource { "#{(use Source).next()}" } }
+
+@export(js, "applied")
+fn applied() -> Int { apply(Array.size) }
+
+fn main() { dbg(size(Array.empty())) }
+"##;
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let dir = out_dir("js-array");
+    let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    assert!(entry.is_some());
+    let harness = r#"import * as m from "./main.mjs";
+const show = (f) => { try { console.log(f()); } catch (e) { console.log(e.name, e.message); } };
+const rows = ["a", "b\uD800"];
+globalThis.hostRows = () => rows;
+globalThis.mutate = () => { rows[0] = "changed"; rows.push("more"); };
+show(() => m.rows());
+show(() => m.copied());
+globalThis.hostRows = () => new Int32Array(2);
+show(() => m.rows());
+globalThis.hostRows = () => ({ length: 1, 0: "a" });
+show(() => m.rows());
+globalThis.hostRows = () => "ab";
+show(() => m.rows());
+globalThis.hostGrid = () => [[1, 2], [], [3]];
+show(() => m.grid());
+globalThis.hostGrid = () => [[1], 2];
+show(() => m.grid());
+globalThis.hostGrid = () => [[1], , [2]];
+show(() => m.grid());
+globalThis.hostChunks = () => [new Uint8Array(1), Buffer.from("ab")];
+show(() => m.chunks());
+globalThis.hostChunks = () => [new Uint8Array(1), [1]];
+show(() => m.chunks());
+globalThis.hostUnits = () => new Array(3);
+show(() => m.units());
+show(() => m.size([1, 2, 3]));
+show(() => m.size([]));
+show(() => m.size(new Int32Array(2)));
+show(() => m.size("abc"));
+const out = m.echo([["x"], ["y", "z"]]);
+console.log(Array.isArray(out), Array.isArray(out[0]), JSON.stringify(out));
+show(() => m.echo([["x"], "y"]));
+globalThis.sum = (xs) => { console.log(Array.isArray(xs)); return xs.reduce((a, b) => a + b, 0); };
+show(() => m.summed());
+globalThis.apply = (f) => f([4, 5]);
+show(() => m.applied());
+globalThis.apply = (f) => f(new Set([1]));
+show(() => m.applied());
+globalThis.laterRows = async () => ["later"];
+console.log(await m.later());
+globalThis.laterRows = async () => "later";
+await m.later().catch((e) => console.log(e.name, e.message));
+"#;
+    std::fs::write(dir.join("harness.mjs"), harness).unwrap();
+    let out = std::process::Command::new("node")
+        .arg("harness.mjs")
+        .current_dir(&dir)
+        .output()
+        .expect("cannot start node");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        (text(&out.stdout), text(&out.stderr)),
+        (
+            "Array.from_list([\"a\", \"b\u{FFFD}\"])\n\
+             Array.from_list([\"a\", \"b\u{FFFD}\"])\n\
+             Defect external function `host_rows` returned a value that is not an array\n\
+             Defect external function `host_rows` returned a value that is not an array\n\
+             Defect external function `host_rows` returned a value that is not an array\n\
+             Array.from_list([Array.from_list([1, 2]), Array.from_list([]), Array.from_list([3])])\n\
+             Defect external function `host_grid` returned a value that is not an array\n\
+             Defect external function `host_grid` returned a value that is not an array\n\
+             2\n\
+             Defect external function `host_chunks` returned a value that is not a `Uint8Array`\n\
+             3\n\
+             3\n\
+             0\n\
+             Defect argument `a` of `size` is not an array\n\
+             Defect argument `a` of `size` is not an array\n\
+             true true [[\"x\"],[\"y\",\"z\"],[\"end\"]]\n\
+             Defect argument `a` of `echo` is not an array\n\
+             true\n\
+             6\n\
+             2\n\
+             Defect argument `1` of `apply` is not an array\n\
+             Array.from_list([\"later\"])\n\
+             Defect external function `later_rows` returned a value that is not an array\n",
             ""
         )
     );
@@ -1145,7 +1330,7 @@ fn released_handlers_are_defects_when_used() {
   with SystemConsole, EnvConfig {
     f = with Pool {
       users = use Users
-      fn() { users.find(1) }
+      || users.find(1)
     }
     with Spare { (use Console).print_line(f()) }
   }
@@ -1200,13 +1385,13 @@ fn lists_strings_and_int64_run_through_core() {
   xs = [3, 1, 2]
   dbg((List.take(xs, 2), List.drop(xs, 2), List.take(xs, -1), List.drop(xs, 5)))
   none: List[Int] = []
-  dbg((List.last(xs), List.last(none), List.find_index(xs, fn(x) { x == 2 })))
-  dbg(List.flat_map(xs, fn(x) { [x, x] }))
-  dbg(List.filter_map(xs, fn(x) { if x > 1 { Some(x * 10) } else { None } }))
+  dbg((List.last(xs), List.last(none), List.find_index(xs, |x| x == 2)))
+  dbg(List.flat_map(xs, |x| [x, x]))
+  dbg(List.filter_map(xs, |x| if x > 1 { Some(x * 10) } else { None }))
   dbg(List.enumerate(["a", "b"]))
   dbg(List.unzip([(1, "a"), (2, "b")]))
   pairs = [(2, "a"), (1, "b"), (2, "c"), (1, "d")]
-  dbg(List.sort_by(pairs, fn(a, b) {
+  dbg(List.sort_by(pairs, |a, b| {
     (x, _) = a
     (y, _) = b
     Ord.compare(x, y)
@@ -1540,7 +1725,7 @@ import Std.Clock.{Clock, SystemClock}
 import Std.Instant.{Instant}
 import Std.Duration.{Duration}
 
-fn elapsed(start: Instant) -> Duration use { Clock } {
+fn elapsed(start: Instant) -> Duration uses { Clock } {
   (use Clock).now() |> Instant.since(start)
 }
 
@@ -1574,7 +1759,7 @@ import Std.Clock.{Clock, SystemClock}
 import Std.Instant.{Instant}
 import Std.Duration.{Duration}
 
-fn nap(clock_name: String, ms: Int) -> String use { Clock } {
+fn nap(clock_name: String, ms: Int) -> String uses { Clock } {
   clock = use Clock
   start = clock.now()
   clock.sleep(ms)
@@ -1586,7 +1771,7 @@ fn main() {
   with SystemConsole, SystemClock {
     c = use Console
     c.print_line(nap("js", 50))
-    List.map([30, 10, 20], fn(ms) { nap("js #{ms}", ms) }) |> List.map(c.print_line)
+    List.map([30, 10, 20], |ms| nap("js #{ms}", ms)) |> List.map(c.print_line)
     c.print_line("done")
   }
 }
@@ -1638,32 +1823,32 @@ import Std.State.{State}
 
 error Boom
 
-fn count() -> Int use { State[Int] } {
+fn count() -> Int uses { State[Int] } {
   st = use State[Int]
-  st.update(fn(n) { n + 1 })
+  st.update(|n| n + 1)
   st.get()
 }
 
-fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+fn modify[S](f: fn(S) -> S fails {} uses {}) -> S uses { State[S] } {
   (use State[S]).update(f)
   (use State[S]).get()
 }
 
-fn twice[T](f: fn(T) -> T fails {} use {}) -> T use State[T] {
+fn twice[T](f: fn(T) -> T fails {} uses {}) -> T uses { State[T] } {
   modify(f)
   modify(f)
 }
 
-fn both() -> String use { State[Int], State[String] } {
-  n = modify(fn(n) { n + 1 })
+fn both() -> String uses { State[Int], State[String] } {
+  n = modify(|n| n + 1)
   (use State[String]).set("n=#{n}")
-  twice(fn(s) { String.append(s, "!") })
+  twice(|s| String.append(s, "!"))
 }
 
-fn peek() { modify(fn(x) { x }) }
+fn peek() { modify(|x| x) }
 
 fn failing() -> Int fails Boom {
-  (_, last) = State.run(1, fn() {
+  (_, last) = State.run(1, || {
     (use State[Int]).set(5)
     fail Boom
   })
@@ -1673,14 +1858,14 @@ fn failing() -> Int fails Boom {
 fn main() {
   with SystemConsole {
     c = use Console
-    (n, last) = State.run(0, fn() { count() + count() })
+    (n, last) = State.run(0, || count() + count())
     c.print_line("#{n} #{last}")
-    ((s, inner), outer) = State.run(10, fn() { State.run("", fn() { both() }) })
+    ((s, inner), outer) = State.run(10, || State.run("", || both()))
     c.print_line("#{s} #{inner} #{outer}")
-    (v, same) = State.run(7, fn() { peek() })
+    (v, same) = State.run(7, || peek())
     c.print_line("#{v} #{same}")
     f = modify
-    (g, h) = State.run(3, fn() { f(fn(k) { k * 4 }) })
+    (g, h) = State.run(3, || f(|k| k * 4))
     c.print_line("#{g} #{h}")
     c.print_line("#{failing() escape { Boom -> -1 }}")
   }
@@ -1706,12 +1891,12 @@ import Std.State.{State}
 import Std.Instant.{Instant}
 import Std.Duration.{Duration}
 
-fn greet(name: String) -> () use { Console } {
+fn greet(name: String) -> () uses { Console } {
   (use Console).print_line("Hello, #{name}!")
   (use Console).print_error_line("dropped")
 }
 
-fn elapsed() -> Duration use { Clock } {
+fn elapsed() -> Duration uses { Clock } {
   clock = use Clock
   start = clock.now()
   clock.sleep(1500)
@@ -1720,14 +1905,14 @@ fn elapsed() -> Duration use { Clock } {
 }
 
 fn main() {
-  (_, lines) = State.run([], fn() {
+  (_, lines) = State.run([], || {
     with TestConsole {
       greet("alice")
       greet("bob")
     }
   })
   start = Instant.from_unix_milliseconds(Int64.from_int(1000))
-  (d, end) = State.run(start, fn() { with TestClock { elapsed() } })
+  (d, end) = State.run(start, || with TestClock { elapsed() })
   with SystemConsole {
     c = use Console
     c.print_line(String.join(lines, "|"))
@@ -1752,17 +1937,17 @@ fn state_run_keeps_the_state_across_suspension() {
 import Std.Clock.{Clock, SystemClock}
 import Std.State.{State}
 
-fn tick() -> () use { State[Int], Clock } {
+fn tick() -> () uses { State[Int], Clock } {
   (use Clock).sleep(10)
-  (use State[Int]).update(fn(n) { n + 1 })
+  (use State[Int]).update(|n| n + 1)
 }
 
 fn main() {
-  (_, n) = State.run(0, fn() {
+  (_, n) = State.run(0, || {
     with SystemClock {
       tick()
       tick()
-      List.map([1, 2, 3], fn(x) { tick() })
+      List.map([1, 2, 3], |x| tick())
     }
   })
   with SystemConsole { (use Console).print_line("#{n}") }
@@ -1793,8 +1978,8 @@ fn main() {
     (use Console).print_line("now > 0: #{now > Int64.from_int(0)}")
   }
   start = Instant.from_unix_milliseconds(Int64.from_int(5))
-  (_, end) = State.run(start, fn() { with Platform, TestClock { (use Clock).sleep(10) } })
-  (_, lines) = State.run([], fn() { with Platform, TestConsole { (use Console).print_line("x") } })
+  (_, end) = State.run(start, || with Platform, TestClock { (use Clock).sleep(10) })
+  (_, lines) = State.run([], || with Platform, TestConsole { (use Console).print_line("x") })
   with Platform {
     (use Console).print_line("#{Instant.to_unix_milliseconds(end)} #{lines}")
   }
@@ -1835,7 +2020,7 @@ fn main() {
     c.print_line(String.append("ab", "cd"))
     c.print_line("#{List.flatten([[1], [], [2, 3]])}")
     c.print_line("#{Float.from_int(7)} #{Int64.from_int(-1)}")
-    c.print_line("#{Option.or(None, 5)} #{List.fold([1, 2, 3], from: 10, f: fn(a, b) { a + b })}")
+    c.print_line("#{Option.or(None, 5)} #{List.fold([1, 2, 3], from: 10, f: |a, b| a + b)}")
   }
 }
 "##,
@@ -1887,7 +2072,7 @@ fn method(req: Request) -> String {
 
 fn main() {
   server = TestServer(respond: reply, sent: [])
-  (out, after) = State.run(server, fn() {
+  (out, after) = State.run(server, || {
     with TestHttp {
       a = Http.get("https://example.com/a")
       b = Http.post("https://example.com/b", "body")
@@ -1900,7 +2085,7 @@ fn main() {
   with SystemConsole {
     c = use Console
     c.print_line(out)
-    c.print_line(String.join(List.map(after.sent, fn(req) { "#{method(req)} #{req.url} #{req.body}" }), ", "))
+    c.print_line(String.join(List.map(after.sent, |req| "#{method(req)} #{req.url} #{req.body}"), ", "))
     c.print_line(Request.encode_query([("q", "東 京"), ("a&b", "c=d"), ("page", "2")]))
     c.print_line("#{Response.require_ok(Response.new(204, "")).status}")
     c.print_line("#{Response.require_ok(Response.new(404, "nf")).status}" escape {
@@ -2033,18 +2218,18 @@ import Std.Http.{Http, InvalidUrl, ConnectionFailed, ResponseNotText}
 import Std.Http.Request.{Request, Get, Head, Post}
 
 fn picked(headers: List[(String, String)]) -> List[(String, String)] {
-  List.filter(headers, fn(pair) {
+  List.filter(headers, |pair| {
     (name, _) = pair
     name == "content-type" || name == "set-cookie" || name == "x-multi"
   })
 }
 
-fn show(req: Request) -> String fails InvalidUrl | ConnectionFailed | ResponseNotText use { Http } {
+fn show(req: Request) -> String fails InvalidUrl | ConnectionFailed | ResponseNotText uses { Http } {
   res = (use Http).send(req)
   "#{res.status} #{picked(res.headers)} #{res.body}"
 }
 
-fn attempt(req: Request) -> String use { Http } {
+fn attempt(req: Request) -> String uses { Http } {
   show(req) escape {
     InvalidUrl(url:) -> "invalid #{url}"
     ConnectionFailed(url:, message:) -> if String.contains(message, "ECONNREFUSED") { "refused" } else { "failed" }

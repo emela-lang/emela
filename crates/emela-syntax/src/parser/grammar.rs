@@ -26,7 +26,8 @@ fn delimited(
     p.bump_kind(open);
     while p.eat(NEWLINE) {}
     while !p.at(close) && !p.at_eof() {
-        element(p);
+        // A `|` inside brackets is not the end of a closure's parameter list.
+        p.with_closure_params(false, &mut element);
         while p.eat(NEWLINE) {}
         if !p.eat(COMMA) {
             break;
@@ -57,31 +58,60 @@ fn param_list(p: &mut Parser<'_>) {
     m.complete(p, PARAM_LIST);
 }
 
-/// `"(" [ lambda_param { "," lambda_param } ] ")"`．`lambda_param = pattern [ ":" type ]`
-/// (spec 6.1). A plain name keeps the shape of [`param_list`] (a `LOWER_NAME` token directly
-/// under `PARAM`); any other pattern becomes a pattern node under `PARAM`.
-fn lambda_param_list(p: &mut Parser<'_>) {
+/// The parameters of the old form of an anonymous function, `fn(x) { ... }` (E0148, reported by
+/// validation): `"(" [ lambda_param { "," lambda_param } ] ")"`. It is still read so that the
+/// formatter and the quick fix can rewrite it (`[fmt.closure]`).
+fn old_lambda_param_list(p: &mut Parser<'_>) {
     let m = p.start();
-    delimited(p, L_PAREN, R_PAREN, |p| {
-        let param = p.start();
-        let named = p.eat(LOWER_NAME) || p.eat(SELF_KW);
-        if named {
-            // The shape of `param_list`.
-        } else if patterns::at_pattern_start(p) {
-            patterns::pattern(p);
-        } else {
-            p.err_recover(
-                DiagnosticCode::ExpectedToken,
-                "expected parameter name or pattern",
-                &[COMMA, R_PAREN, L_BRACE, NEWLINE],
-            );
-        }
-        if p.eat(COLON) {
-            types::type_(p);
-        }
-        param.complete(p, PARAM);
-    });
+    delimited(p, L_PAREN, R_PAREN, lambda_param);
     m.complete(p, PARAM_LIST);
+}
+
+/// `"||" | "|" [ lambda_param { "," lambda_param } ] "|"` (`[grammar.expr]`). The list is a
+/// PARAM_LIST whose PARAMs have the shape of the old form's.
+///
+/// The list does not span lines: outside brackets a newline inside it is a statement separator,
+/// and is reported as a missing parameter.
+fn closure_param_list(p: &mut Parser<'_>) {
+    let m = p.start();
+    if p.eat(PIPE2) {
+        m.complete(p, PARAM_LIST);
+        return;
+    }
+    p.bump_kind(PIPE);
+    p.with_closure_params(true, |p| {
+        while !p.at(PIPE) && !p.at_eof() {
+            lambda_param(p);
+            if !p.eat(COMMA) {
+                break;
+            }
+        }
+    });
+    p.expect(PIPE);
+    m.complete(p, PARAM_LIST);
+}
+
+/// `lambda_param = pattern [ ":" type ]` (`[fn.decl]`). A plain name keeps the shape of
+/// [`param_list`] (a `LOWER_NAME` token directly under `PARAM`); any other pattern becomes a
+/// pattern node under `PARAM`.
+fn lambda_param(p: &mut Parser<'_>) {
+    let param = p.start();
+    let named = p.eat(LOWER_NAME) || p.eat(SELF_KW);
+    if named {
+        // The shape of `param_list`.
+    } else if patterns::at_pattern_start(p) {
+        patterns::pattern(p);
+    } else {
+        p.err_recover(
+            DiagnosticCode::ExpectedToken,
+            "expected parameter name or pattern",
+            &[COMMA, R_PAREN, PIPE, L_BRACE, NEWLINE],
+        );
+    }
+    if p.eat(COLON) {
+        types::type_(p);
+    }
+    param.complete(p, PARAM);
 }
 
 /// Interpolation contents are read with `interp`.

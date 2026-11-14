@@ -82,7 +82,7 @@ import Std.State.{State}
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
+  (_, end) = State.run(start, || {
     with TestClock {
       clock = use Clock
       dbg(Instant.to_unix_milliseconds(clock.now()))
@@ -104,6 +104,51 @@ fn main() {
     };
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stderr, "0\n1000\n1000\n1000\n2147484647\n2147484647\n");
+}
+
+#[test]
+fn several_fibers_sleep_in_the_order_of_their_wake_times() {
+    // Two fibers sleep for different times in the same TestClock. When nothing can go on, the
+    // earliest sleeper wakes first (spec 8.8); the later one wakes after it, and the virtual time
+    // ends at the later wake time. The observable lines are the order and the times, not the
+    // handler's update at call time (an open question in the handoff).
+    let Some(_) = wasmtime() else { return };
+    let Some(run) = run(
+        "clock-many-sleepers",
+        r##"
+import Std.Fiber.{Fiber, Scope}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+fn sleeper(label: String, ms: Int) -> () uses { Clock } {
+  (use Clock).sleep(ms)
+  dbg("#{label} #{Instant.to_unix_milliseconds((use Clock).now())}")
+  ()
+}
+
+fn main() -> () uses { Async } {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  (_, end) = State.run(start, || {
+    with TestClock {
+      Fiber.scope(|| {
+        a = Fiber.fork(|| sleeper("a", 100))
+        b = Fiber.fork(|| sleeper("b", 50))
+        Fiber.join(a)
+        Fiber.join(b)
+        ()
+      })
+    }
+  })
+  dbg("end #{Instant.to_unix_milliseconds(end)}")
+  ()
+}
+"##,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stderr, "\"b 50\"\n\"a 100\"\n\"end 100\"\n");
 }
 
 #[test]
@@ -130,7 +175,7 @@ handler OuterHandler: Outer {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
+  (_, end) = State.run(start, || {
     with TestClock {
       with OuterHandler {
         dbg("go #{(use Outer).go()}")
@@ -181,7 +226,7 @@ handler Retrying: Retry {
     clock = use Clock
     clock.sleep(100)
     clock.sleep(50)
-    List.map(List.range(0, 3), fn(i) { clock.sleep(10) })
+    List.map(List.range(0, 3), |i| clock.sleep(10))
     n = (use Ping).ping()
     resume(n)
   }
@@ -189,7 +234,7 @@ handler Retrying: Retry {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
+  (_, end) = State.run(start, || {
     with TestClock {
       with Pinging, Retrying {
         dbg("go #{(use Retry).go()}")
@@ -233,7 +278,7 @@ handler Ignoring: Outer {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  State.run(start, fn() {
+  State.run(start, || {
     with TestClock {
       with Ignoring {
         dbg("go #{(use Outer).go()}")
@@ -248,4 +293,76 @@ fn main() {
     };
     assert_eq!(run.code, 130, "{}", run.stderr);
     assert_eq!(run.stderr, "\"not resuming\"\ninterrupted\n");
+}
+
+#[test]
+fn an_abandoned_sleeper_does_not_poison_the_next_run() {
+    // The first test resumes its caller, then goes to sleep; spec 14.5 does not wait for that
+    // implementation continuation, so the run ends with a live TestClock wait. The wait's list
+    // links must be reset before the next run, whose own sleep must not follow a stale tail.
+    let Some(_) = wasmtime() else { return };
+    let src = r#"
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+effect Job {
+  suspend fn run() -> Int
+}
+
+handler Later: Job {
+  suspend fn run(resume) {
+    resume(7)
+    (use Clock).sleep(1)
+    dbg("impl woke")
+    ()
+  }
+}
+
+@test
+fn leaves_a_sleeping_implementation() -> () {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, || {
+    with TestClock {
+      with Later {
+        dbg((use Job).run())
+        ()
+      }
+    }
+  })
+  ()
+}
+
+@test
+fn sleeps_after_the_run() -> () {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, || {
+    with TestClock {
+      (use Clock).sleep(1)
+      dbg("after")
+    }
+  })
+  ()
+}
+"#;
+    let bytes = to_wasm_tests(
+        src,
+        &["leaves_a_sleeping_implementation", "sleeps_after_the_run"],
+    )
+    .unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"));
+    wasmparser::validate(&bytes).unwrap_or_else(|e| panic!("the module is not valid: {e}"));
+    let run = run_bytes(&out_dir("clock-abandoned-sleeper"), &bytes);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    // The abandoned continuation must not be woken by the next run's TestClock.
+    assert!(!run.stderr.contains("impl woke"), "{}", run.stderr);
+    assert!(run.stderr.contains("\"after\""), "{}", run.stderr);
+    for name in ["leaves_a_sleeping_implementation", "sleeps_after_the_run"] {
+        assert!(
+            run.stdout.contains(&format!(
+                "\x1eemela-test {{\"event\":\"result\",\"name\":\"{name}\",\"outcome\":\"ok\"}}"
+            )),
+            "{name}: {}",
+            run.stdout
+        );
+    }
 }

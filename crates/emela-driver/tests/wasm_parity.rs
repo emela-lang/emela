@@ -3,7 +3,7 @@
 //! write to stderr (JS `console.error`, WASM `wasi:cli/stderr.write-via-stream`), so their output
 //! can be compared without host functions.
 //!
-//! Needs node (`EMELA_NODE` or `node`) and wasmtime (`EMELA_WASMTIME` or `wasmtime`); without
+//! Needs node (`EMELA_JS_HOST` or `node`) and wasmtime (`EMELA_WASMTIME` or `wasmtime`); without
 //! wasmtime the tests are skipped with a message, like the C tests without a C compiler.
 
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 
 use emela_driver::{
     Analysis, CoreJs, CoreWasm, Input, Lower, MemoryFiles, Output, RunOptions, Target,
-    node_program, run, wasmtime_program,
+    js_host_program, run, wasmtime_program,
 };
 
 /// Programs that use only the pure language and `dbg`, so both targets must run them the same way.
@@ -33,7 +33,7 @@ fn next(seed: Int) -> Int {
 fn main() {
   seeds = [0, 1, -1, 8, 20261013, 0 - 2147483647 - 1, 2147483647]
   dbg(List.map(seeds, next))
-  dbg(List.map(seeds, fn(seed) { next(next(next(seed))) % 1000 }))
+  dbg(List.map(seeds, |seed| next(next(next(seed))) % 1000))
 }
 "#,
     ),
@@ -108,7 +108,7 @@ fn main() {
         "closures",
         r#"
 fn adder(a: Int) -> fn(Int) -> Int {
-  fn(b: Int) { a + b }
+  |b: Int| a + b
 }
 fn main() {
   add2 = adder(2)
@@ -156,7 +156,7 @@ handler Hi: Greet {
   fn hello(name) { "hi #{name}" }
 }
 
-fn greet(name: String) -> String use Greet {
+fn greet(name: String) -> String uses { Greet } {
   (use Greet).hello(name)
 }
 
@@ -216,8 +216,8 @@ fn convert(id: Int) -> Int fails Converted {
 
 fn main() {
   dbg(List.map([1, 3, 4, 9, 0], describe))
-  dbg(or_else(fn() { find(2) }, -2))
-  dbg(or_else(fn() { find(0) }, -2))
+  dbg(or_else(|| find(2), -2))
+  dbg(or_else(|| find(0), -2))
   dbg(convert(0) escape { Converted -> -3 })
 }
 "#,
@@ -229,7 +229,7 @@ error Nope
 error Retry(after: fn() -> Int)
 
 fn retry(n: Int) -> Int fails Retry {
-  if n > 0 { fail Retry(after: fn() { n }) }
+  if n > 0 { fail Retry(after: || n) }
   n
 }
 
@@ -250,7 +250,7 @@ fn bump(lines: List[String]) -> List[String] {
 }
 
 fn main() {
-  (_, final) = State.run([], fn() {
+  (_, final) = State.run([], || {
     st = use State[List[String]]
     st.update(bump)
     st.update(bump)
@@ -319,10 +319,10 @@ effect Hits of State[Int]
 effect Misses of State[Int]
 
 fn count(hit: Bool) {
-  if hit { (use Hits).update(fn(n) { n + 1 }) } else { (use Misses).update(fn(n) { n + 1 }) }
+  if hit { (use Hits).update(|n| n + 1) } else { (use Misses).update(|n| n + 1) }
 }
 
-fn tally() -> (Int, Int) use { Hits, Misses } {
+fn tally() -> (Int, Int) uses { Hits, Misses } {
   count(True)
   count(False)
   count(True)
@@ -337,9 +337,9 @@ fn main() {
   with PrintLog, Audit by AuditLog {
     with Tagged { c() }
   }
-  (_, misses) = State.run(0, fn() {
+  (_, misses) = State.run(0, || {
     with Misses by State[Int] {
-      (counts, hits) = State.run(0, fn() { with Hits by State[Int] { tally() } })
+      (counts, hits) = State.run(0, || with Hits by State[Int] { tally() })
       (h, m) = counts
       _ = dbg("tally #{h} #{m}, hits #{hits}")
     }
@@ -617,7 +617,7 @@ fn main() {
   dbg(show_any([Some(Name(value: "n"))]))
   dbg(twice)
   dbg(Button(label: Name(value: "dbg"), on_click: twice))
-  dbg_any([(1, fn(x: Int) { x + 1 })])
+  dbg_any([(1, |x: Int| x + 1)])
   dbg_any([Button(label: Name(value: "g"), on_click: twice)])
   dbg("top")
 }
@@ -645,7 +645,7 @@ impl Box[A: Size]: Size {
   fn double(self) { 0 }
 }
 
-fn total[A: Size](xs: List[A]) -> Int { List.fold(xs, 0, fn(acc, x) { acc + Size.size(x) }) }
+fn total[A: Size](xs: List[A]) -> Int { List.fold(xs, 0, |acc, x| acc + Size.size(x)) }
 
 fn main() {
   p = Point(x: 1, y: 2)
@@ -663,7 +663,7 @@ fn main() {
 error Retry(after: fn() -> Int)
 
 fn attempt(n: Int) -> Int fails Retry {
-  if n > 1 { fail Retry(after: fn() { n }) }
+  if n > 1 { fail Retry(after: || n) }
   n
 }
 
@@ -782,7 +782,7 @@ fn main() {
     (
         "attempt",
         r#"
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
 error Boom
@@ -802,20 +802,20 @@ fn cause[A, E](e: Exit[A, E]) {
 }
 
 fn main() {
-  dbg(Fiber.attempt(fn() { 40 + 2 }))
-  dbg(Fiber.attempt(fn() { "text" }))
-  dbg(Fiber.attempt(fn() { 0.5 }))
-  dbg(Fiber.attempt(fn() { () }))
-  dbg(Fiber.attempt(fn() { boom() }))
-  cause(Fiber.attempt(fn() { boom() }))
-  cause(Fiber.attempt(fn() { fail NotFound(id: 7) }))
-  cause(Fiber.attempt(fn() { panic("bad") }))
-  dbg(Fiber.attempt(fn() { boom() }) match {
+  dbg(Exit.attempt(|| 40 + 2))
+  dbg(Exit.attempt(|| "text"))
+  dbg(Exit.attempt(|| 0.5))
+  dbg(Exit.attempt(|| ()))
+  dbg(Exit.attempt(|| boom()))
+  cause(Exit.attempt(|| boom()))
+  cause(Exit.attempt(|| fail NotFound(id: 7)))
+  cause(Exit.attempt(|| panic("bad")))
+  dbg(Exit.attempt(|| boom()) match {
     Success(v) -> v
     Failure(c) -> Cause.raise(c)
   } escape { Boom -> -1 })
-  cause(Fiber.attempt(fn() {
-    Fiber.attempt(fn() { panic("again") }) match {
+  cause(Exit.attempt(|| {
+    Exit.attempt(|| panic("again")) match {
       Success(v) -> v
       Failure(c) -> Cause.raise(c)
     }
@@ -832,22 +832,87 @@ fn main() {
         "bytes_hex_defect",
         include_str!("../../emela-codegen-c/tests/programs/bytes_hex_defect.emel"),
     ),
+    // `[api.std.array]`: the same programs as the JS and C parity tests.
+    (
+        "array",
+        include_str!("../../emela-codegen-c/tests/programs/array.emel"),
+    ),
+    (
+        "array_set_defect",
+        include_str!("../../emela-codegen-c/tests/programs/array_set_defect.emel"),
+    ),
+    (
+        "array_set_negative",
+        include_str!("../../emela-codegen-c/tests/programs/array_set_negative.emel"),
+    ),
+    (
+        "local_fns",
+        r#"
+error Boom(at: Int)
+
+fn range(from: Int, to: Int) -> List[Int] {
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  onto(to, [])
+}
+
+fn first[A](xs: List[A], fallback: A) -> A {
+  fn go(ys: List[A]) -> A {
+    ys match {
+      [y, ..] -> y
+      [] -> fallback
+    }
+  }
+  go(xs)
+}
+
+fn len(xs: List[Int]) -> Int {
+  fn go(ys: List[Int]) -> Int {
+    ys match {
+      [] -> 0
+      [_, ..rest] -> 1 + go(rest)
+    }
+  }
+  go(xs)
+}
+
+fn check(n: Int) -> Int fails Boom {
+  fn go(i: Int) -> Int fails Boom { if i == n { fail Boom(at: i) } else { i } }
+  go(3)
+}
+
+fn main() {
+  base = 10
+  fn add(a: Int, b: Int) -> Int { base + a - b }
+  f = add
+  fn down(n: Int, acc: Int) -> Int { if n == 0 { acc } else { down(n - 1, acc + 1) } }
+  dbg(range(1, 5))
+  dbg(first([7, 8], 0))
+  dbg(first([], "none"))
+  dbg(len(range(0, 100)))
+  dbg(add(b: 1, a: 5))
+  dbg(f(2, 1))
+  dbg(List.map([1, 2], |x| add(x, 0)))
+  dbg(down(1000000, 0))
+  dbg(check(3) escape { Boom(at:) -> 0 - at })
+  dbg(check(4) escape { Boom(at:) -> 0 - at })
+}
+"#,
+    ),
 ];
 
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops
-/// them (the WASM target's "not supported yet", which has no diagnostic code any more).
-const NOT_ON_WASM: &[(&str, &str, &str)] = &[(
-    "fibers",
-    "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
-    "fibers are not supported on target `wasm`",
-)];
+/// them. `[target.wasm.unsupported]` lists no construct, so the list is empty; it stays so a
+/// future unsupported construct is added here with its diagnostic.
+const NOT_ON_WASM: &[(&str, &str, &str)] = &[];
 
 /// The Unicode version of the Node used for the JS target (`process.versions.unicode`).
 fn node_unicode() -> Option<&'static str> {
     static VERSION: OnceLock<Option<String>> = OnceLock::new();
     VERSION
         .get_or_init(|| {
-            let output = Command::new(node_program())
+            let output = Command::new(js_host_program())
                 .arg("-e")
                 .arg("process.stdout.write(process.versions.unicode)")
                 .output()
@@ -895,9 +960,9 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Box<Analysis
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: match target {
+        js_host: match target {
             Target::Wasm => wasmtime_program(),
-            _ => node_program(),
+            _ => js_host_program(),
         },
         args: Vec::new(),
         output: Output::Capture,
@@ -913,7 +978,7 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Box<Analysis
             &options,
             |_, _| {},
         ),
-        Target::C | Target::CEmbedded => unreachable!("parity compares js and wasm"),
+        Target::C => unreachable!("parity compares js and wasm"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {

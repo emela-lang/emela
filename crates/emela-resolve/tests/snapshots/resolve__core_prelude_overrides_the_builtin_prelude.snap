@@ -1,0 +1,16 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run_with_core(&[(\"main.emel\",\n\"fn f(o: Option[Int], h: Helper, s: Secret) -> Ordering { Less }\\n\",)],\n&[(\"prelude.emel\",\n\"import Extra.{Helper}\\npub enum Option[A] {\\n  Some(A)\\n  None\\n}\\ntype Secret(x: Int)\\n\",),\n(\"extra.emel\", \"pub type Helper(x: Int)\\n\"),],)"
+---
+== Main (src/main.emel)
+fn Main.f
+  param o#0: Prelude.Option[Int]
+  param h#1: <error>
+  param s#2: <error>
+  ret Ordering
+  body
+    block
+      Ordering.Less
+== diagnostics
+error src/main.emel@24..30 `Helper`: undefined type `Helper`
+error src/main.emel@35..41 `Secret`: undefined type `Secret`

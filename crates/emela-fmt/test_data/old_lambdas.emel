@@ -1,0 +1,27 @@
+# 前の形 fn(params) { body } は書き換える（E0148）
+fn old(xs: List[Int]) {
+  ys = xs |> List.map(fn(x) { x + 1 })
+  thunk = fn() { fetch(1) }
+  pairs = List.map(xs, fn((a, b), _) { a })
+  typed = fn(f: fn() -> Int fails Timeout | Refused) { f() }
+  one = fn(f: fn() -> Int fails Timeout) { f() }
+  called = fn(x) { x }(1)
+  field = fn() { p }.name
+  operand = fn() { 1 } == fn() { 2 }
+  matched = fn() { 1 } match {
+    _ -> 0
+  }
+  inner = fn(x) { fn(y) { x + y } }
+  block = fn(x) {
+    y = x + 1
+    y * 2
+  }
+  multi = fn() {
+    x
+  }
+  hugged = Fiber.scope(fn() {
+    a = Fiber.fork(fn() { fetch(1) })
+    Fiber.join(a)
+  })
+  last = fn(x) { x }
+}

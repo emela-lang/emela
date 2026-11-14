@@ -9,7 +9,7 @@
 pub const PRELUDE: &str = "Prelude";
 
 /// The namespace for std modules (spec 15.2). std modules have names like
-/// `Std.Console` and `Std.Embedded.Gpio` and are imported. `std.emel` and `std/` directly under
+/// `Std.Console` and `Std.Bytes` and are imported. `std.emel` and `std/` directly under
 /// the source root are reserved (spec 4.1).
 pub const STD: &str = "Std";
 
@@ -24,6 +24,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("Int64", include_str!("../lib/core/int64.emel")),
     ("Float", include_str!("../lib/core/float.emel")),
     ("Bool", include_str!("../lib/core/bool.emel")),
+    ("Std.Array", include_str!("../lib/std/array.emel")),
     ("Std.Bytes", include_str!("../lib/std/bytes.emel")),
     ("Std.Duration", include_str!("../lib/std/duration.emel")),
     ("Std.Instant", include_str!("../lib/std/instant.emel")),
@@ -51,31 +52,8 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Platform", include_str!("../lib/std/platform.emel")),
     ("Std.Cause", include_str!("../lib/std/cause.emel")),
     ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
+    ("Std.Exit", include_str!("../lib/std/exit.emel")),
     ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
-    (
-        "Std.Embedded.Peripheral",
-        include_str!("../lib/std/embedded/peripheral.emel"),
-    ),
-    (
-        "Std.Embedded.Gpio",
-        include_str!("../lib/std/embedded/gpio.emel"),
-    ),
-    (
-        "Std.Embedded.Uart",
-        include_str!("../lib/std/embedded/uart.emel"),
-    ),
-    (
-        "Std.Embedded.I2c",
-        include_str!("../lib/std/embedded/i2c.emel"),
-    ),
-    (
-        "Std.Embedded.Spi",
-        include_str!("../lib/std/embedded/spi.emel"),
-    ),
-    (
-        "Std.Embedded.Board",
-        include_str!("../lib/std/embedded/board.emel"),
-    ),
 ];
 
 /// Bundled host files as (path relative to `lib/`, contents) pairs. These are the files that
@@ -153,6 +131,7 @@ mod tests {
             Sig::Bool => "Bool".into(),
             Sig::String => "String".into(),
             Sig::Bytes => "Bytes".into(),
+            Sig::Array(t) => format!("Array[{}]", render(*t)),
             Sig::Unit => "()".into(),
             Sig::Never => "Never".into(),
             Sig::List(t) => format!("List[{}]", render(*t)),
@@ -198,7 +177,7 @@ mod tests {
         ("Std.Fiber", "join"),
         ("Std.Fiber", "await"),
         ("Std.Fiber", "interrupt"),
-        ("Std.Fiber", "attempt"),
+        ("Std.Exit", "attempt"),
         ("Std.Cause", "kind"),
         ("Std.Cause", "to_string"),
         ("Std.Cause", "raise"),

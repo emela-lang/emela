@@ -1,6 +1,6 @@
 # Postfix match (spec 6.5): binding, pipe result, escape after it, nesting, line continuation.
 fn name_of(id: Int) -> String {
-  name = users |> List.find(fn(u) { u.id == id }) match {
+  name = users |> List.find(|u| u.id == id) match {
     Some(u) -> u.name
     None -> "guest"
   }

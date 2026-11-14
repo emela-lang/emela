@@ -1,7 +1,7 @@
 ---
 title: Array
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 508
 issue:
 decided: 2026-11-07
@@ -202,8 +202,8 @@ The row of E0443 becomes:
 
 ## Diagnostics
 
-- [ ] Changed: E0443 covers every type that target `c` does not support at the boundary yet, now Bytes and `Array[A]`.
-- [ ] `Array[fn(...) -> ...]` at the boundary is not a boundary type, so it is the existing errors for a non-boundary type (the check of `@external`, and E0436 for `@export`).
+- [x] Changed: E0443 covers every type that target `c` does not support at the boundary yet, now Bytes and `Array[A]`.
+- [x] `Array[fn(...) -> ...]` at the boundary is not a boundary type, so it is the existing errors for a non-boundary type (the check of `@external`, and E0436 for `@export`).
 
 ## Compatibility
 

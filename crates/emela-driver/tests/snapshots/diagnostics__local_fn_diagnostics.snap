@@ -1,0 +1,76 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0150]: a local function cannot have type parameters
+   ╭─[ main.emel:8:13 ]
+   │
+ 8 │   fn generic[A](x: A) -> A { x }
+   │             ─┬─  
+   │              ╰─── 
+───╯
+   = help: remove it
+
+error[E0150]: a local function cannot have attributes
+   ╭─[ main.emel:9:3 ]
+   │
+ 9 │   @test
+   │   ──┬──  
+   │     ╰──── 
+───╯
+   = help: remove it
+
+error[E0150]: a local function cannot be `pub`
+    ╭─[ main.emel:11:3 ]
+    │
+ 11 │   pub fn public() -> Int { 1 }
+    │   ─┬─  
+    │    ╰─── 
+────╯
+   = help: remove it
+
+error[E0150]: a local function cannot be `suspend`
+    ╭─[ main.emel:12:3 ]
+    │
+ 12 │   suspend fn later() -> Int { 1 }
+    │   ───┬───  
+    │      ╰───── 
+────╯
+   = help: remove it
+
+error[E0151]: local function `go` is never called
+    ╭─[ main.emel:17:6 ]
+    │
+ 17 │   fn go(n: Int) -> Int { n }
+    │      ─┬  
+    │       ╰── 
+────╯
+   = help: call it after the declaration
+
+error[E0316]: parameter `n` of a local function needs a type
+    ╭─[ main.emel:21:9 ]
+    │
+ 21 │   fn go(n) -> Int { 1 }
+    │         ┬  
+    │         ╰── 
+────╯
+
+error[E0318]: unhandled error `Boom`
+    ╭─[ main.emel:26:20 ]
+    │
+ 26 │   fn go() -> Int { fail Boom }
+    │                    ────┬────  
+    │                        ╰────── 
+────╯
+   = help: handle it with `escape`, or declare it with `fails`
+
+error[E0402]: effect `Log` is not declared in `uses`
+    ╭─[ main.emel:32:11 ]
+    │
+ 32 │     log = use Log
+    │           ───┬───  
+    │              ╰───── 
+────╯
+   = help: add it to `uses` or provide it with `with`
+
+8 errors

@@ -217,7 +217,7 @@ fn selections_are_strictly_nested_and_handle_empty_or_broken_files() {
 /// bound names, the hidden parameter is not completed, and the pattern gets one type hint.
 #[test]
 fn lambda_parameter_patterns_in_ide_queries() {
-    let text = "fn main() -> Int {\n  List.fold([(1, True)], from: 0, f: fn(acc, (count, _)) {\n    acc + count\n  })\n}\n";
+    let text = "fn main() -> Int {\n  List.fold([(1, True)], from: 0, f: |acc, (count, _)| {\n    acc + count\n  })\n}\n";
     let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
     let file = analysis
         .sources
@@ -254,7 +254,7 @@ fn lambda_parameter_patterns_in_ide_queries() {
         .map(|h| (h.offset, h.label))
         .collect();
     let after_acc = at(text, ", (count");
-    let after_pattern = at(text, ")) {") + TextSize::from(1);
+    let after_pattern = at(text, ")| {") + TextSize::from(1);
     assert_eq!(
         hints,
         [
@@ -284,4 +284,103 @@ fn init_parameters_are_completed_in_init() {
     let in_op = labels("key }");
     assert!(!in_op.iter().any(|l| l == "binding"), "{in_op:?}");
     assert!(in_op.iter().any(|l| l == "key"), "{in_op:?}");
+}
+
+/// `[lsp.completion]`: `@intrinsic` and `@internal` are offered only in the bundled core
+/// sources, where they can be written (E0224, E0229).
+#[test]
+fn core_only_attributes_are_completed_in_core() {
+    let text = "@\nfn main() {}\n";
+    let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
+    let labels = |file, offset| -> Vec<String> {
+        Typecheck::complete(&program, &analysis, file, offset)
+            .into_iter()
+            .map(|c| c.label)
+            .collect()
+    };
+    let main = analysis
+        .sources
+        .file_id(Path::new("/app/src/main.emel"))
+        .unwrap();
+    let user = labels(main, TextSize::from(1));
+    assert_eq!(user, ["external", "export", "entry", "test", "deprecated"]);
+    let (core, offset) = analysis
+        .files
+        .iter()
+        .filter(|&(m, _)| analysis.modules.is_core(m))
+        .find_map(|(_, &file)| {
+            let at = analysis.sources[file].text().find("@intrinsic")?;
+            Some((file, TextSize::try_from(at + 1).unwrap()))
+        })
+        .expect("a core source with @intrinsic");
+    let core = labels(core, offset);
+    for name in ["external", "intrinsic", "internal"] {
+        assert!(core.iter().any(|l| l == name), "{name}: {core:?}");
+    }
+}
+
+/// `[fn.local]`: hover shows a local fn's type and doc comment, document symbols list it under
+/// the enclosing function, completion offers its name from the declaration on and inside its
+/// body, rename stays in its block, and its omitted signature is shown as a hint.
+#[test]
+fn local_fns_in_ide_queries() {
+    let text = "fn main() -> Int {\n  before = 1\n  ## Counts up.\n  fn go(n: Int) {\n    if n == 0 { n } else { go(n - 1) }\n  }\n  go(3)\n}\n\nfn other() -> Int {\n  fn go(m: Int) -> Int { m }\n  go(1)\n}\n";
+    let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
+    let file = analysis
+        .sources
+        .file_id(Path::new("/app/src/main.emel"))
+        .unwrap();
+    let hover = |needle: &str| {
+        Typecheck::hover(&program, &analysis, file, at(text, needle))
+            .unwrap()
+            .contents
+    };
+    for needle in ["go(n: Int)", "go(3)"] {
+        let shown = hover(needle);
+        assert!(shown.contains("go: fn(Int) -> Int"), "{shown}");
+        assert!(shown.contains("Counts up."), "{shown}");
+    }
+
+    let symbols = emela_driver::document_symbols(text);
+    let main = &symbols[0];
+    assert_eq!(main.name, "main");
+    let children: Vec<&str> = main.children.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(children, ["go"]);
+
+    let labels = |needle: &str| -> Vec<String> {
+        Typecheck::complete(&program, &analysis, file, at(text, needle))
+            .into_iter()
+            .map(|c| c.label)
+            .collect()
+    };
+    let before = labels("1\n  ##");
+    assert!(!before.iter().any(|l| l == "go"), "{before:?}");
+    let in_body = labels("n == 0");
+    assert!(in_body.iter().any(|l| l == "go"), "{in_body:?}");
+    assert!(in_body.iter().any(|l| l == "n"), "{in_body:?}");
+    let after = labels("go(3)");
+    assert!(after.iter().any(|l| l == "go"), "{after:?}");
+    assert!(!after.iter().any(|l| l == "n"), "{after:?}");
+
+    let ranges = Typecheck::document_highlights(&program, &analysis, file, at(text, "go(3)"));
+    let starts: Vec<TextSize> = ranges.iter().map(|r| r.start()).collect();
+    assert_eq!(
+        starts,
+        [
+            at(text, "go(n: Int)"),
+            at(text, "go(n - 1)"),
+            at(text, "go(3)")
+        ]
+    );
+
+    let range = TextRange::up_to(TextSize::of(text));
+    let hints: Vec<(TextSize, String)> = Typecheck::inlay_hints(&program, &analysis, file, range)
+        .into_iter()
+        .map(|h| (h.offset, h.label))
+        .collect();
+    let after_params = at(text, " {\n    if n");
+    assert!(
+        hints.contains(&(after_params, "-> Int".to_owned())),
+        "{hints:?}"
+    );
 }

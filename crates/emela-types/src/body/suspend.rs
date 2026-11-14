@@ -347,6 +347,8 @@ impl Walker<'_> {
                 for stmt in &block.stmts {
                     match stmt {
                         Stmt::Let { value, .. } => self.expr(*value, in_lambda),
+                        // The body of a local fn runs where it is called, as a lambda's does.
+                        Stmt::LocalFn(f) => self.expr(f.body, true),
                         Stmt::Expr(e) => self.expr(*e, in_lambda),
                     }
                 }

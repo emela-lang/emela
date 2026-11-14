@@ -46,11 +46,11 @@ fn lambdas_close_over_errors() {
 error Boom
 
 fn make() {
-  fn() { fail Boom }
+  || fail Boom
 }
 
 fn call_local() {
-  f = fn() { fail Boom }
+  f = || fail Boom
   f()
 }
 
@@ -70,17 +70,17 @@ fn generalizes_set_variables() {
 error Boom
 
 fn caller() {
-  fn(g) { g() }
+  |g| g()
 }
 
 fn twice() {
-  fn(g) { g() + g() }
+  |g| g() + g()
 }
 
 fn use_it() {
   call = caller()
-  a = call(fn() { 1 })
-  b = call(fn() { fail Boom })
+  a = call(|| 1)
+  b = call(|| fail Boom)
   (a, b)
 }
 "#
@@ -158,7 +158,7 @@ fn apply_x(f: fn(Int) -> Int, x: Int) -> Int fails Boom {
 }
 
 fn use_apply() {
-  apply(fn(n) { if n > 0 { n } else { fail Boom } }, 1)
+  apply(|n| if n > 0 { n } else { fail Boom }, 1)
 }
 "#
     ));
@@ -173,11 +173,11 @@ fn callbacks_in_negative_position() {
 error Boom
 
 fn with_callback(f: fn(fn() -> Int) -> Int) -> Int {
-  f(fn() { 1 })
+  f(|| 1)
 }
 
 fn bad_callback(f: fn(fn() -> Int) -> Int) -> Int {
-  f(fn() { fail Boom })
+  f(|| fail Boom)
 }
 "#
     ));
@@ -267,20 +267,20 @@ fn error_param[E](err: E) -> Int {
 }
 
 fn inferred() {
-  fn(g) { g() escape { _ -> 0 } }
+  |g| g() escape { _ -> 0 }
 }
 
 fn local() {
-  f = fn() { load(2) }
+  f = || load(2)
   f() escape { _ -> 0 }
 }
 
 fn caller() -> Int {
-  or_else(fn() { load(3) }, 0) + set_param(fn() { load(4) }) + inferred()(fn() { load(5) })
+  or_else(|| load(3), 0) + set_param(|| load(4)) + inferred()(|| load(5))
 }
 
 fn hidden_caller() {
-  hidden(fn() { load(6) }, 0)
+  hidden(|| load(6), 0)
 }
 "#
     ));
@@ -383,7 +383,7 @@ fn total_by_fields() -> Int {
 }
 
 fn local() -> Int {
-  f = fn() { find(2) }
+  f = || find(2)
   f() escape { NotFound(id: 2) -> 0 }
 }
 "#
@@ -453,6 +453,47 @@ fn overridden() -> String {
 
 layer Failing {
   RemoteKv(url: url())
+}
+"#
+    ));
+}
+
+/// A local fn encloses its body's E in its type, and the E surfaces where it is called. Its
+/// written `-> T` and `fails` are enforced as for a top-level fn (E0318). The E of a function
+/// parameter whose `fails` is omitted is part of its E, and calls that pass functions with
+/// different errors give the union (`[fn.local]`, `[type.inference]`).
+#[test]
+fn local_fn_errors() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+error Other
+
+fn inferred(x: Int) {
+  fn go(n: Int) { if n == 0 { fail Boom } else { n } }
+  go(x)
+}
+
+fn declared(x: Int) -> Int fails Boom {
+  fn go(n: Int) -> Int fails Boom { if n == 0 { fail Boom } else { n } }
+  go(x)
+}
+
+fn unhandled(x: Int) -> Int fails Boom {
+  fn go(n: Int) -> Int { fail Boom }
+  go(x)
+}
+
+fn not_declared() -> Int {
+  fn go(n: Int) -> Int fails Other { fail Boom }
+  1
+}
+
+fn union_of_arguments() {
+  fn call(f: fn() -> Int) -> Int { f() }
+  a = call(|| fail Boom)
+  b = call(|| fail Other)
+  a + b
 }
 "#
     ));

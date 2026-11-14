@@ -3,7 +3,7 @@
 //! A [`BodyInfer`] is created per group of mutually referring definitions (a strongly connected
 //! component of the call graph), and expressions are inferred bottom-up. On a type mismatch, a
 //! diagnostic with the expression's span is pushed and inference continues. Definitions without
-//! a declared type (fns without a return type or `use` clause, consts without a type) are
+//! a declared type (fns without a return type or `uses` clause, consts without a type) are
 //! referred to monomorphically within the group and generalized once the group is inferred
 //! ([`crate::check`]). Handlers are definitions in the group too: their operation bodies are
 //! inferred and their dependencies (the R of the operation bodies) computed.
@@ -11,8 +11,8 @@
 use crate::sparse::SparseMap;
 use emela_resolve::hir::{
     Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnSig, HandlerItem,
-    Item, Label, ListRest, Literal, LocalId, Param, PatArg, PatId, PatKind, Program, Res, Span,
-    Stmt, StrPart, SupplyArgs, TypeId, UnaryOp, WithItem, int_literal_value,
+    Item, Label, ListRest, Literal, LocalFn, LocalId, Param, PatArg, PatId, PatKind, Program, Res,
+    Span, Stmt, StrPart, SupplyArgs, TypeId, UnaryOp, WithItem, int_literal_value,
 };
 use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
@@ -106,6 +106,24 @@ struct HandlerPart {
     release: bool,
 }
 
+/// A local fn of a body being inferred (`[fn.local]`), for computing E and R once the types are
+/// settled.
+struct LocalFnInfo {
+    /// The parameter names, the labels of its named arguments (`[fn.args]`).
+    labels: Vec<Option<SmolStr>>,
+    body: ExprId,
+    /// The E and R of its type. The E and R of the body are contained in them.
+    fails: Row,
+    uses: Row,
+    /// Whether its E is declared (`-> T` is written, with or without `fails`). Then the E of the
+    /// body is checked against it (E0318); otherwise it is a set variable.
+    fails_declared: bool,
+    /// Whether `fails` is written, for the message of E0318.
+    fails_written: bool,
+    /// Whether `uses` is written. Then the R of the body is checked against it (E0402).
+    uses_written: bool,
+}
+
 /// Handler facts computed in earlier groups.
 pub(crate) struct HandlerFacts<'a> {
     /// Dependencies (the union of the R of init, release and the operation bodies).
@@ -147,6 +165,8 @@ pub(crate) struct BodyInfer<'a> {
     /// Lambda expressions → the set variables of their type's error and effect sets, which
     /// include the body's E and R (`body/errors.rs`, `body/effects.rs`).
     lambda_rows: SparseMap<ExprId, (RowVar, RowVar)>,
+    /// Local fns (`[fn.local]`), by the local that names them.
+    local_fns: SparseMap<LocalId, LocalFnInfo>,
     /// Set variables for the dependencies and the init E of the group's handlers.
     pending_handlers: Vec<(DefId, RowVar, RowVar)>,
     handler_bodies: Vec<HandlerBody>,
@@ -160,7 +180,7 @@ pub(crate) struct BodyInfer<'a> {
     ///
     /// Such a reference replaces the written type parameters, and the parts not yet known, with
     /// fresh type variables. Unifying with the definition's type directly would leak its type
-    /// parameters into the other definitions. The `R` of a referenced fn without a `use` clause
+    /// parameters into the other definitions. The `R` of a referenced fn without a `uses` clause
     /// goes through the same check.
     deferred: Vec<DeferredRef>,
     locals: SparseMap<LocalId, Ty>,
@@ -285,6 +305,7 @@ impl<'a> BodyInfer<'a> {
             pending: Vec::new(),
             defs: Vec::new(),
             lambda_rows: SparseMap::new(),
+            local_fns: SparseMap::new(),
             pending_handlers: Vec::new(),
             handler_bodies: Vec::new(),
             handler_parts: Vec::new(),
@@ -410,7 +431,7 @@ impl<'a> BodyInfer<'a> {
                     }
                     None => (self.ctx.new_var(), Row::var(self.ctx.new_row_var())),
                 };
-                // Without a `use` clause, R is inferred from the body (spec 9.3).
+                // Without a `uses` clause, R is inferred from the body (spec 9.3).
                 let uses = match item.sig.uses {
                     Some(_) => {
                         fn_params.declared_uses(program, self.ty_table, &item.sig, &mut self.diags)
@@ -1158,7 +1179,7 @@ impl<'a> BodyInfer<'a> {
         });
     }
 
-    /// An `@external` fn with `use` omitted and an `@external suspend fn` can only be used inside
+    /// An `@external` fn with `uses` omitted and an `@external suspend fn` can only be used inside
     /// handler operation bodies (spec 12.2). Checked on every reference, not only calls, so they
     /// cannot be smuggled out as function values.
     fn check_external(&mut self, def: DefId, span: Span) {
@@ -1199,6 +1220,7 @@ impl<'a> BodyInfer<'a> {
                         ty: bound_ty,
                     });
                 }
+                Stmt::LocalFn(f) => self.infer_local_fn(f),
                 Stmt::Expr(expr) => {
                     self.infer_expr(*expr);
                 }
@@ -1212,6 +1234,100 @@ impl<'a> BodyInfer<'a> {
             (Some(expr), None) => self.infer_expr(expr),
             (None, expected) => self.unit_at(span, expected),
         }
+    }
+
+    /// A local fn (`[fn.local]`), checked at its position in the block. Its name is bound to its
+    /// function type before the body is checked, so a call to itself in the body has the type
+    /// being inferred and is not generalized (`[type.rules]`).
+    ///
+    /// The signature follows `[type.inference]` as for a top-level fn: parameter types are
+    /// written (E0316), an omitted return type is inferred with E, an omitted `fails` with a
+    /// return type means no errors, and an omitted `uses` is inferred. The E and R of function
+    /// types in the parameters whose clauses are omitted are set variables shared by every use,
+    /// and those the body can call are part of the declared E and R. The E and R of the body are
+    /// constrained to the type's E and R when E and R are computed (`body/errors.rs`,
+    /// `body/effects.rs`); the declaration itself has none.
+    fn infer_local_fn(&mut self, f: &LocalFn) {
+        let program = self.program;
+        let mut hidden_fails = Row::empty();
+        let mut hidden_uses = Row::empty();
+        let mut params = Vec::new();
+        for p in &f.sig.params {
+            let ty = match p.ty {
+                Some(ty) => {
+                    let mut scope = Scope {
+                        params: &self.type_params,
+                        kinds: &self.param_kinds,
+                        omitted: Omitted::Local {
+                            ctx: &mut self.ctx,
+                            positive: &mut hidden_fails,
+                            positive_uses: &mut hidden_uses,
+                        },
+                        sets: true,
+                        self_ty: self.self_ty.as_ref(),
+                    };
+                    self.ty_table
+                        .lower_in(program, &mut scope, ty, true, &mut self.diags)
+                }
+                None => {
+                    let local = &program.locals[p.local];
+                    self.diags.push(Diagnostic {
+                        span: Some(local.span),
+                        kind: DiagnosticKind::MissingLocalFnParamType {
+                            param: local.name.clone(),
+                        },
+                    });
+                    Ty::Error
+                }
+            };
+            self.set_local(p.local, ty.clone());
+            params.push(ty);
+        }
+        let ret = match f.sig.ret {
+            Some(ty) => self.lower_type(ty),
+            None => self.ctx.new_var(),
+        };
+        let scope = Scope {
+            params: &self.type_params,
+            kinds: &self.param_kinds,
+            omitted: Omitted::Empty,
+            sets: true,
+            self_ty: self.self_ty.as_ref(),
+        };
+        let fails_declared = f.sig.ret.is_some();
+        let fails = if fails_declared {
+            let written = match &f.sig.fails {
+                Some(set) => self
+                    .ty_table
+                    .lower_error_set(program, &scope, set, &mut self.diags),
+                None => Row::empty(),
+            };
+            written.union(&hidden_fails)
+        } else {
+            Row::var(self.ctx.new_row_var())
+        };
+        let uses = match &f.sig.uses {
+            Some(set) => self
+                .ty_table
+                .lower_effect_set(program, &scope, set, &mut self.diags)
+                .union(&hidden_uses),
+            None => Row::var(self.ctx.new_row_var()),
+        };
+        let ty = Ty::func_sets(params, ret.clone(), fails.clone(), uses.clone());
+        self.set_local(f.local, ty);
+        self.local_fns.insert(
+            f.local,
+            LocalFnInfo {
+                labels: param_labels(program, &f.sig.params),
+                body: f.body,
+                fails,
+                uses,
+                fails_declared,
+                fails_written: f.sig.fails.is_some(),
+                uses_written: f.sig.uses.is_some(),
+            },
+        );
+        self.check_expr(f.body, &ret);
     }
 
     /// The type of a reference to a function value, with fresh set variables added to E and R. A
@@ -1400,11 +1516,21 @@ impl<'a> BodyInfer<'a> {
         let program = self.program;
         let sigs = self.sigs;
 
-        let (callee_name, labels) = match &program.exprs[callee].kind {
-            ExprKind::Path(Res::Def(def)) => (
+        // A local fn called by its name takes named arguments (`[fn.args]`). Its labels are
+        // recorded at its declaration, which comes before every call to it.
+        let local_labels = match &program.exprs[callee].kind {
+            ExprKind::Path(Res::Local(local)) => self
+                .local_fns
+                .get(*local)
+                .map(|info| (&program.locals[*local].name, info.labels.clone())),
+            _ => None,
+        };
+        let (callee_name, labels) = match (&program.exprs[callee].kind, &local_labels) {
+            (ExprKind::Path(Res::Def(def)), _) => (
                 Some(&program.defs[*def].name),
                 sigs.get(*def).map(|sig| sig.labels.as_slice()),
             ),
+            (_, Some((name, labels))) => (Some(*name), Some(labels.as_slice())),
             _ => (None, None),
         };
         // `x.f(a)` may be a method call (`[type.rules]`).

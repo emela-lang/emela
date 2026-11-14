@@ -22,7 +22,7 @@ handler SampleUsers: Users {
   }
 }
 
-# Inferred: fails NotFound | Invalid, use Users.
+# Inferred: fails NotFound | Invalid, uses { Users }.
 fn greeting(id: Int) {
   if id < 0 { fail Invalid(reason: "negative id") }
   user = (use Users).find(id)

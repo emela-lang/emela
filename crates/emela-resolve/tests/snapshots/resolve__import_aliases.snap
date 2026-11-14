@@ -1,0 +1,5 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"aa/item.emel\", \"pub fn f() { 1 }\\n\"),\n(\"bb/item.emel\", \"pub fn g() { 1 }\\n\"), (\"cc.emel\", \"pub fn h() { 1 }\\n\"),\n(\"main.emel\", \"import Aa.Item\\nimport Bb.Item\\nimport Cc\\nimport Cc\\n\"),])"
+---
+error src/main.emel@25..29 `Item`: duplicate `Item`

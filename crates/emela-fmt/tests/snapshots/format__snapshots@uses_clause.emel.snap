@@ -1,0 +1,25 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/uses_clause.emel
+---
+# uses 節の正規形（[fmt.signature]）．
+fn a() -> Int uses { Db } { 1 }
+fn b() -> Int uses { Db } { 1 }
+fn c[R](f: fn() -> () uses { R }) -> () uses { R, Log } { f() }
+fn d() -> Int
+  fails Boom
+  uses { # 効果の集合の中
+    Db,
+  } {
+  1
+}
+
+@external(js, "./x.mjs", "now")
+fn now() -> Int
+  uses {}
+
+fn e(h: Handler[E, Db]) -> Int uses {} {
+  uses = use Log
+  uses
+}

@@ -1,8 +1,8 @@
 //! Lowering concurrency (spec chapter 11).
 //!
-//! `@intrinsic` functions of `Std.Fiber`, `Std.Cause` and `Std.Deferred` are lowered to
-//! `Expr::Fiber` in the Core IR ([`FiberFn`]). The capability value of the builtin effect Scope is
-//! a handler value that lowering builds where `Fiber.scope` is called ([`ScopeCall`]). The
+//! `@intrinsic` functions of `Std.Fiber`, `Std.Exit`, `Std.Cause` and `Std.Deferred` are lowered
+//! to `Expr::Fiber` in the Core IR ([`FiberFn`]). The capability value of the builtin effect Scope
+//! is a handler value that lowering builds where `Fiber.scope` is called ([`ScopeCall`]). The
 //! operations fork and deferred become ordinary operation calls; only fork wraps the child
 //! function at the call site ([`ForkCall`]).
 //!
@@ -55,7 +55,7 @@ impl FiberFn {
             ("Std.Fiber", "join") => FiberFn::Join,
             ("Std.Fiber", "await") => FiberFn::Await,
             ("Std.Fiber", "interrupt") => FiberFn::Interrupt,
-            ("Std.Fiber", "attempt") => FiberFn::Attempt,
+            ("Std.Exit", "attempt") => FiberFn::Attempt,
             ("Std.Deferred", "complete") => FiberFn::Complete,
             ("Std.Deferred", "await") => FiberFn::DeferredAwait,
             ("Std.Deferred", "poll") => FiberFn::Poll,
@@ -251,7 +251,7 @@ impl ForkCall {
     }
 }
 
-/// What is needed to lower `Fiber.attempt(f)`. If `f`'s R needs a table, `f` is wrapped in a
+/// What is needed to lower `Exit.attempt(f)`. If `f`'s R needs a table, `f` is wrapped in a
 /// parameterless function that calls it with the current table (the runtime calls `f` with no
 /// arguments).
 pub(super) struct AttemptCall {
@@ -266,7 +266,7 @@ pub(super) struct AttemptCall {
 
 impl AttemptCall {
     pub(super) fn apply(self, args: Vec<Expr>) -> Expr {
-        let [f]: [Expr; 1] = args.try_into().expect("Fiber.attempt takes one argument");
+        let [f]: [Expr; 1] = args.try_into().expect("Exit.attempt takes one argument");
         let op = FiberOp::Attempt {
             exit: self.exit,
             suspends: self.f_call.suspends,
@@ -346,7 +346,7 @@ impl Lowerer<'_> {
             },
             FiberFn::Attempt => {
                 let (Some(exit), Some(f_ty)) = (self.ret_enum(&fn_ty), fn_ty.params.first()) else {
-                    return Some(Err(self.unsupported("Fiber.attempt", span)));
+                    return Some(Err(self.unsupported("Exit.attempt", span)));
                 };
                 let f_call = Call {
                     fails: matches!(f_ty, Ty::Fn(f) if !f.fails.is_empty()),

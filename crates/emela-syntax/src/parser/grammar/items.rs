@@ -2,7 +2,9 @@
 
 use super::expressions::{block, expr, supply};
 use super::param_list;
-use super::types::{effect_type_args, effects_and_errors, path, ret_type, type_};
+use super::types::{
+    effect_type_args, effects_and_errors, old_uses_clause_on_next_line, path, ret_type, type_,
+};
 use crate::SyntaxKind::*;
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{Marker, Parser};
@@ -230,8 +232,49 @@ fn skip_to_decl(p: &mut Parser<'_>) {
 
 /// `[ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")" [ signature ] [ block ]`
 ///
-/// `signature = [ "->" type [ "fails" error_set ] ] [ "use" effect_set ]`
+/// `signature = [ "->" type [ "fails" error_set ] ] [ "uses" effect_set ]`
 fn fn_decl(p: &mut Parser<'_>, m: Marker) {
+    fn_head_and_body(p);
+    m.complete(p, FN_DECL);
+}
+
+/// `local_fn = "fn" lower_name "(" [ params ] ")" [ signature ] block` (`[fn.local]`), a statement
+/// of a block. `m` is opened before its doc comment, if any.
+///
+/// The parser also reads the attributes, `pub`, `suspend` and type parameters of a top-level fn
+/// into the node, and validation reports them (E0150). A missing body is reported here.
+pub(crate) fn local_fn(p: &mut Parser<'_>, m: Marker) {
+    while p.at(AT) {
+        annotation(p);
+        while p.eat(NEWLINE) {}
+    }
+    p.eat(PUB_KW);
+    let has_body = fn_head_and_body(p);
+    if !has_body {
+        p.error(
+            DiagnosticCode::ExpectedToken,
+            "expected `{` and the body of the local function",
+        );
+    }
+    m.complete(p, LOCAL_FN);
+}
+
+/// Whether the parser is at the start of a local fn: `fn` and a name, or the attributes, `pub`
+/// and `suspend` that a top-level fn can have before `fn`. A statement cannot start with any of
+/// them otherwise.
+pub(crate) fn at_local_fn_start(p: &Parser<'_>) -> bool {
+    match p.current() {
+        FN_KW => p.nth(1) == LOWER_NAME,
+        SUSPEND_KW => p.nth(1) == FN_KW,
+        PUB_KW => matches!(p.nth(1), FN_KW | SUSPEND_KW),
+        AT => true,
+        _ => false,
+    }
+}
+
+/// The part of a fn from `suspend` to its body, shared by top-level and local fns. Returns
+/// whether there is a body.
+fn fn_head_and_body(p: &mut Parser<'_>) -> bool {
     p.eat(SUSPEND_KW);
     p.expect(FN_KW);
     decl_name(p, LOWER_NAME);
@@ -251,11 +294,14 @@ fn fn_decl(p: &mut Parser<'_>, m: Marker) {
             "expected `->` before `fails`",
         );
     }
-    effects_and_errors(p);
+    if !effects_and_errors(p) {
+        old_uses_clause_on_next_line(p);
+    }
     if p.at(L_BRACE) {
         block(p);
+        return true;
     }
-    m.complete(p, FN_DECL);
+    false
 }
 
 /// `"[" type_param { "," type_param } "]"`．`type_param = ( upper_name | type_name ) [ ":" bound { "+" bound } ]`
@@ -562,7 +608,7 @@ fn effect_decl(p: &mut Parser<'_>, m: Marker) {
 /// `[ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")" "->" type [ "fails" error_set ]`
 ///
 /// Type parameters are only allowed on built-in effects (spec 8.1); the type checker reports E0426.
-/// A `use` clause is read too, and validation reports it over the clause (E0137, like E0136 for
+/// A uses clause is read too, and validation reports it over the clause (E0137, like E0136 for
 /// impl fns), so that the `{` or newline after it does not pile up syntax errors.
 fn op_sig(p: &mut Parser<'_>, m: Marker) {
     p.eat(SUSPEND_KW);
@@ -581,7 +627,9 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
     } else {
         p.expect(THIN_ARROW);
     }
-    effects_and_errors(p);
+    if !effects_and_errors(p) {
+        old_uses_clause_on_next_line(p);
+    }
     m.complete(p, OP_SIG);
 }
 

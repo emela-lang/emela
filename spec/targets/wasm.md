@@ -10,7 +10,7 @@ This section defines what can be observed about the component emitted with `--ta
 - `main.wasm` is a WASI 0.3 component.
   - When the program is an HTTP service (`[lib.http-service]`), `main.wasm` is a component of the world `wasi:http/service@0.3.0`. It exports `wasi:http/handler@0.3.0` and does not export `wasi:cli/run@0.3.0`. A request without a scheme has the scheme `http`, and one without an authority has an empty authority (`[lib.http-service]`).
   - Otherwise it exports the interface `wasi:cli/run@0.3.0`, whose `run` calls `pub fn main` of the entry module. If the entry module has no `main`, `run` does nothing and returns.
-- The component always imports `wasi:cli/stdout@0.3.0`, `wasi:cli/stderr@0.3.0` and `wasi:cli/exit@0.3.0`. It also imports `wasi:cli/environment@0.3.0`, `wasi:random/random@0.3.0` and `wasi:clocks/system-clock@0.3.0`, each only when the entry reaches a host function of `Std.Env`, `Std.Random` or `Std.Clock` that uses it (`[target.wasm.external]`). An HTTP service also imports `wasi:http/types@0.3.0`. It imports nothing else. Standard output and standard error are each written through one stream passed to `write-via-stream`, and an exit code other than 0 is passed with `exit-with-code`. The output of `dbg` is written to standard error.
+- The component always imports `wasi:cli/stdout@0.3.0`, `wasi:cli/stderr@0.3.0` and `wasi:cli/exit@0.3.0`. It also imports `wasi:cli/environment@0.3.0`, `wasi:random/random@0.3.0` and `wasi:clocks/system-clock@0.3.0`, each only when the entry reaches a host function of `Std.Env` or `Std.Process`, `Std.Random` or `Std.Clock` that uses it (`[target.wasm.external]`). An HTTP service also imports `wasi:http/types@0.3.0`. It imports nothing else. Standard output and standard error are each written through one stream passed to `write-via-stream`, and an exit code other than 0 is passed with `exit-with-code`. The output of `dbg` is written to standard error.
 - The bytes of a write are handed to the host before the write returns. If the host stops reading a stream, later writes to it are dropped without an error.
 
 ## 16.8.2 Running `[target.wasm.run]`
@@ -32,12 +32,13 @@ This section defines what can be observed about the component emitted with `--ta
   | Handler | Host function |
   |---|---|
   | `SystemConsole` (`print_line`, `print_error_line`) | `write-via-stream` of `wasi:cli/stdout@0.3.0` and `wasi:cli/stderr@0.3.0`. The text, then a newline |
+  | `SystemArgs` (`get`, `list`) | `get-arguments` of `wasi:cli/environment@0.3.0`, called once per run. The list without its first element |
   | `SystemEnv` (`get`) | `get-environment` of `wasi:cli/environment@0.3.0`, called once per run. The value of the first entry with the name, or `None` |
   | `SystemRandom` (`int`, `float`) | `get-random-u64` of `wasi:random/random@0.3.0`. `int` is the low 32 bits as a signed integer; `float` is the top 53 bits times 2^-53, in `[0, 1)` |
   | `SystemClock` (`now`) | `now` of `wasi:clocks/system-clock@0.3.0`. Unix epoch milliseconds, `seconds * 1000 + nanoseconds / 1_000_000` with the division truncated |
 
 - An `@export(wasm, ...)` written by a user is a compile error with no code: `` exported function `f` has a `wasm` export, which the WASI 0.3 component target does not support yet ``. The entry adapters of the bundled `Std` are exposed by the runtime.
-- `SystemClock.sleep`, `Std.FileSystem` and the client of `Std.Http` (`SystemHttp`) are not available on WASM yet. The entry adapter `Http.serve` is (`[lib.http-service]`).
+- `SystemClock.sleep`, `SystemStdin`, `Std.FileSystem` and the client of `Std.Http` (`SystemHttp`) are not available on WASM yet. The entry adapter `Http.serve` is (`[lib.http-service]`).
 
 ## 16.8.4 Constructs not supported yet `[target.wasm.unsupported]`
 

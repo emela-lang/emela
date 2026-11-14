@@ -1,0 +1,75 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/closure_param_edges.emel
+---
+ROOT@0..168
+  COMMENT@0..118 "# 無名関数の引数の並びの端: 末尾のコンマ，空白を挟んだ空の並び，負の数のパターン"
+  NEWLINE@118..119 "\n"
+  FN_DECL@119..167
+    FN_KW@119..121 "fn"
+    WHITESPACE@121..122 " "
+    LOWER_NAME@122..123 "f"
+    PARAM_LIST@123..125
+      L_PAREN@123..124 "("
+      R_PAREN@124..125 ")"
+    WHITESPACE@125..126 " "
+    BLOCK_EXPR@126..167
+      L_BRACE@126..127 "{"
+      NEWLINE@127..128 "\n"
+      WHITESPACE@128..130 "  "
+      BINDING@130..140
+        NAME_REF@130..131
+          LOWER_NAME@130..131 "g"
+        WHITESPACE@131..132 " "
+        EQ@132..133 "="
+        WHITESPACE@133..134 " "
+        LAMBDA_EXPR@134..140
+          PARAM_LIST@134..138
+            PIPE@134..135 "|"
+            PARAM@135..136
+              LOWER_NAME@135..136 "x"
+            COMMA@136..137 ","
+            PIPE@137..138 "|"
+          WHITESPACE@138..139 " "
+          NAME_REF@139..140
+            LOWER_NAME@139..140 "x"
+      NEWLINE@140..141 "\n"
+      WHITESPACE@141..143 "  "
+      BINDING@143..152
+        NAME_REF@143..144
+          LOWER_NAME@143..144 "h"
+        WHITESPACE@144..145 " "
+        EQ@145..146 "="
+        WHITESPACE@146..147 " "
+        LAMBDA_EXPR@147..152
+          PARAM_LIST@147..150
+            PIPE@147..148 "|"
+            WHITESPACE@148..149 " "
+            PIPE@149..150 "|"
+          WHITESPACE@150..151 " "
+          LITERAL@151..152
+            INT@151..152 "1"
+      NEWLINE@152..153 "\n"
+      WHITESPACE@153..155 "  "
+      BINDING@155..165
+        NAME_REF@155..156
+          LOWER_NAME@155..156 "k"
+        WHITESPACE@156..157 " "
+        EQ@157..158 "="
+        WHITESPACE@158..159 " "
+        LAMBDA_EXPR@159..165
+          PARAM_LIST@159..163
+            PIPE@159..160 "|"
+            PARAM@160..162
+              LITERAL_PAT@160..162
+                MINUS@160..161 "-"
+                LITERAL@161..162
+                  INT@161..162 "1"
+            PIPE@162..163 "|"
+          WHITESPACE@163..164 " "
+          LITERAL@164..165
+            INT@164..165 "0"
+      NEWLINE@165..166 "\n"
+      R_BRACE@166..167 "}"
+  NEWLINE@167..168 "\n"

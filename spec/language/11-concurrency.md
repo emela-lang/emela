@@ -1,6 +1,6 @@
 # 11. Concurrency `[fiber]`
 
-The unit of concurrency is the fiber, and a fiber can be launched only inside a scope. There is no dedicated syntax for asynchrony or concurrency (async, await). Everything is expressed with standard library functions and effects. The concurrency tools are in `Std.Fiber` (Scope, Fiber, Exit), `Std.Cause` and `Std.Deferred`.
+The unit of concurrency is the fiber, and a fiber can be launched only inside a scope. There is no dedicated syntax for asynchrony or concurrency (async, await). Everything is expressed with standard library functions and effects. The concurrency tools are in `Std.Fiber` (Scope, Fiber), `Std.Exit` (Exit, attempt), `Std.Cause` and `Std.Deferred`.
 
 The foundation (Fiber.scope, the operations of Scope, join, await, interrupt, attempt, Deferred, Cause) is `@intrinsic` and implemented by the runtime, because it needs operations that cannot be written in Emela.
 
@@ -53,7 +53,8 @@ pub fn scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) ->
 - `Fiber.fork(f)` and `Fiber.deferred()` are functions that wrap `(use Scope).fork(f)` and `(use Scope).deferred()`. These are the usual way, and `s = use Scope` is written only to refer to an outer scope.
 
 ```emel
-pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A] uses { Scope[E, R] } {
+pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
+  uses { Scope[E, R] } {
   (use Scope).fork(f)
 }
 pub fn deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] } { (use Scope).deferred() }
@@ -146,7 +147,7 @@ Whether an allocation failure is observable as a `Die` cause is implementation-d
 A cause is represented by `Cause[E]` in `Std.Cause`. As in 7.1, no type can be made for a value that is "one of E", so Cause is an opaque type from which the error value inside cannot be taken out. It can only be inspected for its kind and raised again. After raising it again, the caller can receive it as a concrete error by writing escape.
 
 ```emel
-pub enum Exit[A, E] { Success(A), Failure(Cause[E]) } # Std.Fiber
+pub enum Exit[A, E] { Success(A), Failure(Cause[E]) } # Std.Exit
 
 pub opaque type Cause[E] # Std.Cause
 pub enum CauseKind { Fail, Die, Interrupt }
@@ -161,7 +162,7 @@ There are four ways to receive a result.
 |---|---|---|
 | `join` | `join[A](fiber: Fiber[A]) -> A uses { Async }` | Waits for the child to finish and returns its value |
 | `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | Waits for the child to finish and returns how it ended |
-| `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | Runs f in place and turns Fail and Die into values |
+| `Exit.attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | Runs f in place and turns Fail and Die into values. It starts no fiber |
 | `Cause.raise` | As above | Raises a received cause again |
 
 - Only the fiber that calls join or await waits. Other fibers keep running in the meantime. Nothing marks the caller (8.2).
@@ -175,7 +176,7 @@ There are four ways to receive a result.
 
 ```emel
 s.fork(|| {
-  Fiber.attempt(|| handle(conn)) match {
+  Exit.attempt(|| handle(conn)) match {
     Success(_) -> ()
     Failure(cause) -> (use Console).print_error_line(Cause.to_string(cause))
   }

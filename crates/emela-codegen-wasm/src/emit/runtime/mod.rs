@@ -39,6 +39,7 @@ fn always(_: &Builder) -> bool {
 }
 
 mod alloc;
+pub(crate) mod array;
 pub(super) mod async_bridge;
 pub(super) mod attempt;
 mod bytes;
@@ -48,6 +49,7 @@ mod console;
 mod constant;
 mod defect;
 mod env;
+pub(super) mod fiber;
 mod float;
 pub(super) mod fs;
 mod host;
@@ -72,7 +74,7 @@ const MODULES: &[RuntimeModule] = &[
     RuntimeModule {
         funcs: alloc::FUNCS,
         locals: alloc::locals,
-        setup: no_setup,
+        setup: alloc::setup,
         emit: alloc::emit,
         used: always,
     },
@@ -232,6 +234,21 @@ const MODULES: &[RuntimeModule] = &[
         setup: no_setup,
         emit: bytes::emit,
         used: bytes::used,
+    },
+    RuntimeModule {
+        funcs: fiber::FUNCS,
+        locals: fiber::locals,
+        // The fiber runtime's statics belong to `emit::suspend::prepare`, like the scheduler's.
+        setup: no_setup,
+        emit: fiber::emit,
+        used: super::suspend::used,
+    },
+    RuntimeModule {
+        funcs: array::FUNCS,
+        locals: array::locals,
+        setup: no_setup,
+        emit: array::emit,
+        used: array::used,
     },
 ];
 

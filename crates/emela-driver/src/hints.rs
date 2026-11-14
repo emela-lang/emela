@@ -4,10 +4,12 @@
 //! (spec 9.3).
 
 use emela_resolve::ModuleId;
-use emela_resolve::hir::{BinaryOp, DefKind, ExprId, ExprKind, Item, LocalId, PatKind, Stmt};
-use emela_syntax::SyntaxKind;
+use emela_resolve::hir::{
+    BinaryOp, DefKind, ExprId, ExprKind, FnSig, Item, LocalId, PatKind, Stmt,
+};
 use emela_syntax::ast::{self, AstNode};
-use emela_types::{Row, Ty, TyParam};
+use emela_syntax::{SyntaxKind, SyntaxNode};
+use emela_types::{FnTy, Row, Ty, TyParam};
 use line_index::{TextRange, TextSize};
 
 use crate::frontend::TypedProgram;
@@ -26,7 +28,7 @@ pub struct InlayHint {
 pub enum HintKind {
     /// Types of bindings and parameters (`: Int`).
     Type,
-    /// E and R of calls (`fails NotFound use Logger`).
+    /// E and R of calls (`fails NotFound uses { Logger }`).
     Effect,
     /// Omitted annotations of fns (`-> Int fails NotFound`).
     Signature,
@@ -67,14 +69,13 @@ struct Hints<'a> {
 }
 
 impl Hints<'_> {
-    /// Omitted annotations of top-level fns: `-> T fails E use R` if the return type is omitted
-    /// (E and R only when not empty), or `use R` if only the use clause is omitted. Hidden sets
-    /// are shown as is (as in hover).
+    /// Omitted annotations of top-level fns and local fns ([`Self::signature`]). Hidden sets are
+    /// shown as is (as in hover).
     fn signatures(&mut self, text: &str) {
         let hir = &self.program.hir;
         let types = &self.program.types;
-        let cons = &types.ty_table.cons;
-        for item in emela_syntax::parse(text).tree().items() {
+        let tree = emela_syntax::parse(text).tree();
+        for item in tree.items() {
             let ast::Item::Fn(f) = item else { continue };
             if f.body().is_none() {
                 continue;
@@ -95,36 +96,76 @@ impl Hints<'_> {
             let Ty::Fn(fn_ty) = &sig.scheme.ty else {
                 continue;
             };
-            let params = &sig.scheme.params;
-            let node = f.syntax();
-            let end_of = |kind: SyntaxKind| {
-                node.children()
-                    .find(|n| n.kind() == kind)
-                    .map(|n| n.text_range().end())
-            };
-            let Some(after_params) = end_of(SyntaxKind::PARAM_LIST) else {
+            let params = sig.scheme.params.clone();
+            self.signature(f.syntax(), &item.sig, fn_ty, &params);
+        }
+        self.local_fn_signatures(&tree);
+    }
+
+    /// Omitted annotations of local fns (`[fn.local]`), as for top-level fns. Their types use the
+    /// type parameters of the enclosing definition.
+    fn local_fn_signatures(&mut self, tree: &ast::SourceFile) {
+        let hir = &self.program.hir;
+        let types = &self.program.types;
+        let mut sigs: Vec<(TextRange, &FnSig, LocalId)> = Vec::new();
+        for (_, expr) in hir.exprs.iter() {
+            if expr.span.module != self.module {
+                continue;
+            }
+            if let ExprKind::Block(block) = &expr.kind {
+                for stmt in &block.stmts {
+                    if let Stmt::LocalFn(f) = stmt {
+                        sigs.push((hir.locals[f.local].span.range, &f.sig, f.local));
+                    }
+                }
+            }
+        }
+        for f in tree.syntax().descendants().filter_map(ast::LocalFn::cast) {
+            let Some(name) = f.name() else { continue };
+            let Some(&(_, sig, local)) = sigs.iter().find(|(r, _, _)| *r == name.text_range())
+            else {
                 continue;
             };
-            let uses = (item.sig.uses.is_none() && !fn_ty.uses.is_empty())
-                .then(|| format!("use {}", fn_ty.uses.display_effects(cons, params)));
-            if item.sig.ret.is_none() {
-                let mut label = format!("-> {}", fn_ty.ret.display_with(cons, params));
-                if !fn_ty.fails.is_empty() {
-                    label.push_str(&format!(
-                        " fails {}",
-                        fn_ty.fails.display_with(cons, params)
-                    ));
-                }
-                if let Some(uses) = uses {
-                    label.push_str(&format!(" {uses}"));
-                }
-                self.push(after_params, label, HintKind::Signature);
-            } else if let Some(uses) = uses {
-                let at = end_of(SyntaxKind::FAILS_CLAUSE)
-                    .or_else(|| end_of(SyntaxKind::RET_TYPE))
-                    .unwrap_or(after_params);
-                self.push(at, uses, HintKind::Signature);
+            let Some(Ty::Fn(fn_ty)) = types.locals.get(local) else {
+                continue;
+            };
+            let params = self.params(name.text_range().start());
+            self.signature(f.syntax(), sig, fn_ty, &params);
+        }
+    }
+
+    /// `-> T fails E uses { R }` after the parameters of `node` (a FN_DECL or LOCAL_FN) if its
+    /// return type is omitted (E and R only when not empty), or `uses { R }` if only the uses
+    /// clause is omitted.
+    fn signature(&mut self, node: &SyntaxNode, sig: &FnSig, fn_ty: &FnTy, params: &[TyParam]) {
+        let cons = &self.program.types.ty_table.cons;
+        let end_of = |kind: SyntaxKind| {
+            node.children()
+                .find(|n| n.kind() == kind)
+                .map(|n| n.text_range().end())
+        };
+        let Some(after_params) = end_of(SyntaxKind::PARAM_LIST) else {
+            return;
+        };
+        let uses = (sig.uses.is_none() && !fn_ty.uses.is_empty())
+            .then(|| format!("uses {}", fn_ty.uses.display_uses(cons, params)));
+        if sig.ret.is_none() {
+            let mut label = format!("-> {}", fn_ty.ret.display_with(cons, params));
+            if !fn_ty.fails.is_empty() {
+                label.push_str(&format!(
+                    " fails {}",
+                    fn_ty.fails.display_with(cons, params)
+                ));
             }
+            if let Some(uses) = uses {
+                label.push_str(&format!(" {uses}"));
+            }
+            self.push(after_params, label, HintKind::Signature);
+        } else if let Some(uses) = uses {
+            let at = end_of(SyntaxKind::FAILS_CLAUSE)
+                .or_else(|| end_of(SyntaxKind::RET_TYPE))
+                .unwrap_or(after_params);
+            self.push(at, uses, HintKind::Signature);
         }
     }
 
@@ -152,6 +193,8 @@ impl Hints<'_> {
                                 }
                                 calls.push(*value);
                             }
+                            // Its signature is shown by `local_fn_signatures`.
+                            Stmt::LocalFn(_) => {}
                             Stmt::Expr(e) => calls.push(*e),
                         }
                     }
@@ -232,7 +275,7 @@ impl Hints<'_> {
             parts.push(format!("fails {}", errors.display_with(cons, &params)));
         }
         if !effects.is_empty() {
-            parts.push(format!("use {}", effects.display_effects(cons, &params)));
+            parts.push(format!("uses {}", effects.display_uses(cons, &params)));
         }
         self.push(e.span.range.end(), parts.join(" "), HintKind::Effect);
     }

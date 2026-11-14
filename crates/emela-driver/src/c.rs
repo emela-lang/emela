@@ -136,16 +136,17 @@ fn diagnostics(errors: Vec<CError>) -> Vec<Diagnostic> {
             let d = Diagnostic::error(e.message);
             match e.kind {
                 CErrorKind::Callback => d.with_code(code::CALLBACK_EXTERNAL),
-                CErrorKind::Bytes => d.with_code(code::BYTES_ON_C),
+                CErrorKind::BoundaryType => d.with_code(code::BOUNDARY_TYPE_ON_C),
                 CErrorKind::Unsupported | CErrorKind::Internal => d,
             }
         })
         .collect()
 }
 
-/// `EMELA_CC` (the program and its flags) if set, otherwise `cc`.
-pub fn cc_command() -> (PathBuf, Vec<String>) {
-    let configured = std::env::var(CC_ENV).ok().filter(|v| !v.trim().is_empty());
+pub(crate) fn cc_command_in(env: &dyn Fn(&str) -> Option<OsString>) -> (PathBuf, Vec<String>) {
+    let configured = env(CC_ENV)
+        .and_then(|v| v.into_string().ok())
+        .filter(|v| !v.trim().is_empty());
     match configured {
         Some(value) => {
             let mut words = value.split_whitespace().map(str::to_owned);
@@ -154,6 +155,11 @@ pub fn cc_command() -> (PathBuf, Vec<String>) {
         }
         None => (PathBuf::from("cc"), Vec::new()),
     }
+}
+
+/// `EMELA_CC` (the program and its flags) if set, otherwise `cc`.
+pub fn cc_command() -> (PathBuf, Vec<String>) {
+    cc_command_in(&|key| std::env::var_os(key))
 }
 
 /// Compiles `sources` (relative to `out_dir`, or absolute) with `cc` and `flags` into the
@@ -208,9 +214,7 @@ fn cc_spawn_error(cc: &Path, err: &io::Error) -> Diagnostic {
     let d = Diagnostic::error(format!("cannot start `{}`: {err}", cc.display()))
         .with_code(code::CC_UNAVAILABLE);
     match err.kind() {
-        io::ErrorKind::NotFound => d.with_note(format!(
-            "install a C11 compiler and add it to PATH as `cc`, or set {CC_ENV} to the compiler"
-        )),
+        io::ErrorKind::NotFound => d.with_note(cc_missing_help()),
         _ => d,
     }
 }
@@ -232,4 +236,8 @@ pub fn run_native(
     output: Output,
 ) -> Result<RunOutput, Diagnostic> {
     native_command(program, args).run(output)
+}
+
+pub(crate) fn cc_missing_help() -> String {
+    format!("install a C11 compiler and add it to PATH as `cc`, or set {CC_ENV} to the compiler")
 }

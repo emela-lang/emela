@@ -644,6 +644,10 @@ pub enum Type {
     /// `Std.Bytes.Bytes` (`[api.std.bytes]`), the built-in type of an `@intrinsic` type
     /// declaration. Immutable; the `Builtin::Bytes*` functions make and read it.
     Bytes,
+    /// `Std.Array.Array[A]` (`[api.std.array]`), the built-in type of an `@intrinsic` type
+    /// declaration with one type parameter: the element type. Immutable as seen by the program;
+    /// the `Builtin::Array*` functions make and read it.
+    Array(TypeId),
     Unit,
     Never,
     /// Two or more elements.
@@ -817,7 +821,7 @@ impl TypeTable {
         let has_param = match &ty {
             Type::Param(_) => true,
             Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(|&t| self.has_param(t)),
-            Type::List(t) | Type::Cell(t) => self.has_param(*t),
+            Type::List(t) | Type::Array(t) | Type::Cell(t) => self.has_param(*t),
             Type::Fn(f) => {
                 f.params.iter().any(|&t| self.has_param(t))
                     || self.has_param(f.ret)
@@ -896,6 +900,7 @@ impl TypeTable {
             Type::Set(_) => return TypeId::UNIT,
             Type::Tuple(ts) => Type::Tuple(ts.iter().map(|&t| self.erase_sets(t)).collect()),
             Type::List(t) => Type::List(self.erase_sets(t)),
+            Type::Array(t) => Type::Array(self.erase_sets(t)),
             Type::Enum(id, ts) => Type::Enum(id, ts.iter().map(|&t| self.erase_sets(t)).collect()),
             Type::Cell(t) => Type::Cell(self.erase_sets(t)),
             Type::Fn(f) => Type::Fn(FnType {
@@ -952,6 +957,7 @@ pub fn subst_type<S: TypeStore + ?Sized>(s: &mut S, ty: TypeId, args: &[TypeId])
         Type::Param(i) => return args.get(i).copied().unwrap_or(ty),
         Type::Tuple(ts) => Type::Tuple(subst_all(s, &ts, args)),
         Type::List(t) => Type::List(subst_type(s, t, args)),
+        Type::Array(t) => Type::Array(subst_type(s, t, args)),
         Type::Enum(id, ts) => Type::Enum(id, subst_all(s, &ts, args)),
         Type::Cell(t) => Type::Cell(subst_type(s, t, args)),
         Type::Handler(e) => Type::Handler(s.map_effect(e)),
@@ -1409,7 +1415,7 @@ impl Expr {
 ///
 /// Scopes (the `Scope` capability value), fiber handles (`Fiber[A]`), Deferreds and causes
 /// (`Cause[E]`) are opaque values chosen by the backend. Capability values may be put in evidence
-/// tables with `Expr::Provide`. Exit (`Std.Fiber`) and CauseKind (`Std.Cause`) are represented like
+/// tables with `Expr::Provide`. Exit (`Std.Exit`) and CauseKind (`Std.Cause`) are represented like
 /// user enums, with constructor order given by `EXIT_SUCCESS`, `EXIT_FAILURE` and `CAUSE_FAIL`,
 /// `CAUSE_DIE`, `CAUSE_INTERRUPT`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1434,7 +1440,7 @@ pub enum FiberOp {
     /// `Fiber.interrupt(h)` (spec 11.4). `[fiber]`. Interrupts the child and waits until it has
     /// unwound. The value is `()`.
     Interrupt,
-    /// `Fiber.attempt(f)` (spec 11.5). `[f]`. Calls `f` on the spot and turns Fail and Die into
+    /// `Exit.attempt(f)` (spec 11.5). `[f]`. Calls `f` on the spot and turns Fail and Die into
     /// `Failure` of the `exit` enum. Interrupt is not caught. `suspends` tells whether `f` may
     /// suspend (the same rule as `Callee::Indirect` of `Expr::Call::suspends`).
     Attempt { exit: EnumId, suspends: bool },

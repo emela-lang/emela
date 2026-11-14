@@ -90,12 +90,12 @@ fn a_show_defect_while_showing_a_cause_is_reported_at_the_end() {
         &format!(
             "{}{SHOW_DEFECTS}{}",
             r#"
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 "#,
             r#"
 fn main() {
-  Fiber.attempt(fn() { fail Evil }) match {
+  Exit.attempt(|| fail Evil) match {
     Success(_) -> dbg("success")
     Failure(c) -> dbg(Cause.to_string(c))
   }

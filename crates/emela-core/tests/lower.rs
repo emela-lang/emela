@@ -127,6 +127,32 @@ fn entry_exports_main_and_export_fns() {
     assert_eq!(names, [(None, "api"), (Some("default"), "api")]);
 }
 
+/// External backends can still select the entry's public functions without host annotations.
+#[test]
+fn public_roots_remain_available_to_external_backends() {
+    let m = try_lower(
+        &[
+            (
+                "main.emel",
+                "import Other\nfn main() {}\npub fn api() -> Int { helper() }\nfn helper() -> Int { 42 }\nfn unused() {}\n",
+            ),
+            ("other.emel", "pub fn unrelated() {}\n"),
+        ],
+        Roots::Public,
+    )
+    .unwrap();
+    let mut names = fn_names(&m);
+    names.sort_unstable();
+    assert_eq!(names, ["api", "helper", "main"]);
+    let exported: Vec<_> = m
+        .functions
+        .iter()
+        .filter(|(_, f)| f.exported)
+        .map(|(_, f)| f.name.as_str())
+        .collect();
+    assert_eq!(exported, ["main", "api"]);
+}
+
 #[test]
 fn self_tail_calls_come_out_as_loops() {
     // Lowering loopifies once for every backend (spec 16.3).
@@ -136,6 +162,44 @@ fn self_tail_calls_come_out_as_loops() {
     )]);
     let (_, count) = m.functions.iter().find(|(_, f)| f.name == "count").unwrap();
     assert!(matches!(count.body, Expr::Loop { .. }), "{}", dump(&m));
+}
+
+/// A local fn becomes a function of the module (lambda lifting). The variables it captures are
+/// passed first, and its self tail call comes out as a loop (`[fn.local]`, `[fn.loop]`).
+#[test]
+fn local_fns_are_lifted() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+fn main() -> List[Int] {
+  dbg(count(10))
+  range(1, 4)
+}
+
+fn count(limit: Int) -> Int {
+  fn go(n: Int, acc: Int) -> Int {
+    if n == limit { acc } else { go(n + 1, acc + 1) }
+  }
+  go(0, 0)
+}
+
+fn range(from: Int, to: Int) -> List[Int] {
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  f = onto
+  f(to, [])
+}
+",
+    )]);
+    let (_, go) = m
+        .functions
+        .iter()
+        .find(|(_, f)| f.name == "count$go")
+        .unwrap_or_else(|| panic!("{}", dump(&m)));
+    assert_eq!(go.params.len(), 3, "{}", dump(&m));
+    assert!(matches!(go.body, Expr::Loop { .. }), "{}", dump(&m));
+    insta::assert_snapshot!(dump(&m));
 }
 
 #[test]
@@ -323,7 +387,7 @@ fn lambdas_and_wrapped_functions() {
         "\
 fn main() {
   k = 10
-  add_k = fn(x) { x + k }
+  add_k = |x| x + k
   dbg(add_k(1))
   dbg(List.map([1, 2], Some))
   dbg(List.map([\"a\", \"bc\"], String.length))
@@ -533,8 +597,8 @@ fn main() {
   with Fixed, ClockStamp {
     clock = use Clock
     dbg(stamped(\"a\") escape { Late -> \"late\" })
-    dbg(apply(fn() { clock.now() + (use Clock).now() }))
-    dbg(List.map([1], fn(x) { x + (use Clock).now() }))
+    dbg(apply(|| clock.now() + (use Clock).now()))
+    dbg(List.map([1], |x| x + (use Clock).now()))
     f = clock.now
     dbg(f())
   }
@@ -688,16 +752,16 @@ fn state_run_and_effect_type_args() {
     let m = lower_files(&[(
         "main.emel",
         "\
-import Std.State.{State}\n\nfn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+import Std.State.{State}\n\nfn modify[S](f: fn(S) -> S fails {} uses {}) -> S uses { State[S] } {
   (use State[S]).update(f)
   (use State[S]).get()
 }
 
 fn main() {
-  dbg(State.run(\"\", fn() {
-    State.run(1, fn() {
+  dbg(State.run(\"\", || {
+    State.run(1, || {
       (use State[String]).set(\"x\")
-      modify(fn(n) { n + 1 })
+      modify(|n| n + 1)
     })
   }))
 }
@@ -722,20 +786,21 @@ fn fiber_scope_fork_and_attempt() {
     let m = lower_files(&[(
         "main.emel",
         "\
-import Std.Fiber.{Fiber, Scope, Exit}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 effect Log { fn info(msg: String) -> () }
 
-fn main() -> Int use { Log, Async } {
-  Fiber.scope(fn() {
+fn main() -> Int uses { Log, Async } {
+  Fiber.scope(|| {
     s = use Scope
-    a = s.fork(fn() { (use Log).info(\"a\") })
-    b = Fiber.fork(fn() { 2 })
+    a = s.fork(|| (use Log).info(\"a\"))
+    b = Fiber.fork(|| 2)
     d = s.deferred()
     Deferred.complete(d, 1)
     Fiber.join(a)
-    e = Fiber.attempt(fn() { (use Log).info(\"e\") })
+    e = Exit.attempt(|| (use Log).info(\"e\"))
     Fiber.join(b) + Deferred.await(d)
   })
 }
@@ -795,10 +860,10 @@ fn main() {
 const HOST_TEST: &str = "\
 @external(js, \"./host/../host_test.mjs\", \"now\")
 @external(wasm, \"env\", \"now\")
-pub fn now() -> Int use {}
+pub fn now() -> Int uses {}
 
 @external(js, \"./missing.mjs\", \"gone\")
-pub fn gone() -> Int use {}
+pub fn gone() -> Int uses {}
 ";
 
 /// Bundled JS files. `host_test.mjs` imports `helper.mjs` relatively.
@@ -876,7 +941,7 @@ fn after(ms: Int, f: fn() -> ()) -> ()
 suspend fn fetch_text(url: String) -> String
 
 handler SystemClock: Clock {
-  suspend fn sleep(ms, resume) { after(ms, fn() { resume(ms) }) }
+  suspend fn sleep(ms, resume) { after(ms, || resume(ms)) }
   fn now() { 0 }
 }
 
@@ -890,16 +955,16 @@ handler FetchingClock: Clock {
   fn now() { 0 }
 }
 
-fn naps(xs: List[Int]) -> List[Int] use Clock {
+fn naps(xs: List[Int]) -> List[Int] uses { Clock } {
   clock = use Clock
-  List.map(xs, fn(ms) { clock.sleep(ms) + clock.now() })
+  List.map(xs, |ms| clock.sleep(ms) + clock.now())
 }
 
 fn main() {
   with SystemClock { dbg(naps([1, 2])) }
   with InstantClock { dbg((use Clock).sleep(1)) }
   with FetchingClock { dbg((use Clock).sleep(1)) }
-  dbg(List.map([1], fn(x) { x }))
+  dbg(List.map([1], |x| x))
 }
 ",
     )]);
@@ -943,7 +1008,7 @@ effect Clock {
 fn after(ms: Int, f: fn() -> ()) -> ()
 
 handler SystemClock: Clock {
-  suspend fn sleep(ms, resume) { after(ms, fn() { resume(ms) }) }
+  suspend fn sleep(ms, resume) { after(ms, || resume(ms)) }
   fn now() { 42 }
 }
 
@@ -1009,7 +1074,7 @@ fn method_calls_lower_as_calls() {
         module("Show.show(rename(u, \"b\"))")
     );
     assert_eq!(
-        module("[u.show()].map(fn(s) { s.append(\"!\") }).join(\",\")"),
-        module("List.join(List.map([Show.show(u)], fn(s) { String.append(s, \"!\") }), \",\")")
+        module("[u.show()].map(|s| s.append(\"!\")).join(\",\")"),
+        module("List.join(List.map([Show.show(u)], |s| String.append(s, \"!\")), \",\")")
     );
 }

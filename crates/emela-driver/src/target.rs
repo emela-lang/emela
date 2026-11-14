@@ -16,21 +16,18 @@ pub enum Target {
     Js,
     /// C compiled with cc to a native executable (Tier 2).
     C,
-    /// C sources for an embedded board and its runtime configuration.
-    CEmbedded,
     /// WebAssembly (WASI) run with `wasmtime` (Tier 1).
     Wasm,
 }
 
 impl Target {
     /// The names `--target` and `[build].target` accept.
-    pub const NAMES: [&'static str; 4] = ["js", "c", "c-embedded", "wasm"];
+    pub const NAMES: [&'static str; 3] = ["js", "c", "wasm"];
 
     pub fn parse(name: &str) -> Option<Target> {
         match name {
             "js" => Some(Target::Js),
             "c" => Some(Target::C),
-            "c-embedded" => Some(Target::CEmbedded),
             "wasm" => Some(Target::Wasm),
             _ => None,
         }
@@ -41,17 +38,13 @@ impl Target {
         match self {
             Target::Js => "js",
             Target::C => "c",
-            Target::CEmbedded => "c-embedded",
             Target::Wasm => "wasm",
         }
     }
 
-    /// The external ABI shared by the native and embedded C backends.
+    /// The target name used by external bindings.
     pub fn external_target(self) -> &'static str {
-        match self {
-            Target::CEmbedded => "c",
-            target => target.name(),
-        }
+        self.name()
     }
 }
 
@@ -96,6 +89,36 @@ fn target_in(text: &str, path: &Path) -> Result<Option<Target>, Diagnostic> {
                 .at(Location::Path(path.to_owned())),
         ),
     }
+}
+
+/// The build target of the project that contains `path` (`[cmd.doctor]`): `[build].target` of
+/// the nearest `Pome.toml` above it, else `js`. `None` outside a project.
+///
+/// Unlike [`Input::resolve`], any path in the project is accepted, not only the project directory
+/// and the source and test roots, and no dependency is resolved, so nothing is fetched.
+pub fn enclosing_project_target(
+    fs: &dyn FileSystem,
+    path: &Path,
+) -> Result<Option<Target>, Diagnostic> {
+    let not_found = || {
+        Diagnostic::error(format!("`{}` not found", path.display())).with_code(code::PATH_NOT_FOUND)
+    };
+    let absolute = fs.absolute(path).map_err(|_| not_found())?;
+    if !fs.is_file(&absolute) && !fs.is_dir(&absolute) {
+        return Err(not_found());
+    }
+    let Some(project) = absolute
+        .ancestors()
+        .find(|dir| fs.is_file(&dir.join(PROJECT_FILE)))
+    else {
+        return Ok(None);
+    };
+
+    let manifest = project.join(PROJECT_FILE);
+    let Ok(text) = fs.read_to_string(&manifest) else {
+        return Ok(Some(Target::default()));
+    };
+    Ok(Some(target_in(&text, &manifest)?.unwrap_or_default()))
 }
 
 fn quoted(names: &[&str]) -> String {

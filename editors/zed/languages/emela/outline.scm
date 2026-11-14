@@ -8,6 +8,10 @@
   "fn" @context
   name: (_) @name) @item
 
+(local_function
+  "fn" @context
+  name: (_) @name) @item
+
 (operation
   "suspend"? @context
   "fn" @context

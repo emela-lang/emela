@@ -47,6 +47,12 @@ pub(super) fn quickfixes(
             Some(c) if c == DiagnosticCode::OldHandlerHead.as_str() => {
                 old_handler_head(tree.syntax(), span.range)
             }
+            Some(c) if c == DiagnosticCode::OldLambda.as_str() => {
+                old_lambda(tree.syntax(), span.range)
+            }
+            Some(c) if c == DiagnosticCode::OldUseClause.as_str() => {
+                old_uses_clause(tree.syntax(), span.range)
+            }
             _ => None,
         };
         if let Some((title, edits)) = edits {
@@ -100,6 +106,33 @@ fn old_handler_head(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
         .filter(|n| n.kind() == SyntaxKind::HANDLER_DECL)
         .find_map(|n| rewrite::old_handler_head(&n).filter(|(t, _, _)| t.text_range() == range))?;
     Some((format!("Rewrite as `{head}`"), vec![(edit, ":".to_owned())]))
+}
+
+/// `fn(x) { x + 1 }` -> `|x| x + 1` (E0148, `[fn.decl]`). The diagnostic covers `fn` and the
+/// parameter list; the edit replaces the whole function.
+fn old_lambda(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
+    let (edit, text, head) = root
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::LAMBDA_EXPR && n.text_range().start() == range.start())
+        .find_map(|n| rewrite::old_lambda(&n))?;
+    Some((format!("Rewrite as `{head} ...`"), vec![(edit, text)]))
+}
+
+/// `use Db` -> `uses { Db }` (E0147, `[lsp.code-action]`). The diagnostic points at `use`; the
+/// whole clause is replaced with its canonical form.
+fn old_uses_clause(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
+    let (clause, uses) = root
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::USES_CLAUSE)
+        .find_map(|n| {
+            rewrite::old_uses_clause(&n)
+                .filter(|(t, _)| t.text_range() == range)
+                .map(|(_, uses)| (n, uses))
+        })?;
+    Some((
+        format!("Rewrite as `{uses}`"),
+        vec![(clause.text_range(), uses)],
+    ))
 }
 
 fn nearby_name(
@@ -393,8 +426,8 @@ fn extend_annotation(
         (
             program.types.effects.get(body)?,
             &ty.uses,
-            SyntaxKind::USE_CLAUSE,
-            "use",
+            SyntaxKind::USES_CLAUSE,
+            "uses",
         )
     } else {
         (
@@ -414,7 +447,7 @@ fn extend_annotation(
     let cons = &program.types.ty_table.cons;
     let params = &sig.scheme.params;
     let value = if effects {
-        row.display_effects(cons, params).to_string()
+        row.display_uses(cons, params).to_string()
     } else {
         row.display_with(cons, params).to_string()
     };

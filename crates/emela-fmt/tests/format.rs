@@ -135,8 +135,8 @@ fn 複数行の文字列の中身は変えない() {
 fn 中身のないブロックの行末のコメントの後に空行を入れない() {
     assert_eq!(format("fn a() { # c\n}\n").unwrap(), "fn a() { # c\n}\n");
     assert_eq!(
-        format("fn a() {\n  f(fn(y) { # d\n  })\n}\n").unwrap(),
-        "fn a() {\n  f(fn(y) { # d\n  })\n}\n"
+        format("fn a() {\n  f(|y| { # d\n  })\n}\n").unwrap(),
+        "fn a() {\n  f(|y| { # d\n  })\n}\n"
     );
     assert_eq!(
         format("fn a() {\n  x match { # e\n  }\n}\n").unwrap(),
@@ -155,18 +155,18 @@ fn escape_の_wildcard_arm() {
     assert_eq!(format(src).unwrap(), src);
 }
 
-/// A signature that does not fit moves its `fails` and `use` clauses to their own lines first
+/// A signature that does not fit moves its `fails` and `uses` clauses to their own lines first
 /// (rule 4 of spec 2.5); the parameter list breaks only if the first line is still too long.
 #[test]
-fn 長い宣言は_fails_と_use_から折る() {
-    let src = "fn longsig(aaaa: Int, bbbb: String) -> Result[Int, String] fails NotFound | DbError use { Io, Clock, Random, Http } {\n  x\n}\n";
-    let expected = "fn longsig(aaaa: Int, bbbb: String) -> Result[Int, String]\n  fails NotFound | DbError\n  use { Io, Clock, Random, Http } {\n  x\n}\n";
+fn 長い宣言は_fails_と_uses_から折る() {
+    let src = "fn longsig(aaaa: Int, bbbb: String) -> Result[Int, String] fails NotFound | DbError uses { Io, Clock, Random, Http } {\n  x\n}\n";
+    let expected = "fn longsig(aaaa: Int, bbbb: String) -> Result[Int, String]\n  fails NotFound | DbError\n  uses { Io, Clock, Random, Http } {\n  x\n}\n";
     assert_eq!(format(src).unwrap(), expected);
     // Narrower than the first line: the parameter list breaks too.
     let narrow = format_with_width(src, 40).unwrap();
     assert_eq!(
         narrow,
-        "fn longsig(\n  aaaa: Int,\n  bbbb: String,\n) -> Result[Int, String]\n  fails NotFound | DbError\n  use { Io, Clock, Random, Http } {\n  x\n}\n"
+        "fn longsig(\n  aaaa: Int,\n  bbbb: String,\n) -> Result[Int, String]\n  fails NotFound | DbError\n  uses { Io, Clock, Random, Http } {\n  x\n}\n"
     );
     // A parameter list that breaks keeps the clauses on its last line while they fit.
     let params = "fn f(aaaaaaaa: Int, bbbbbbbb: Int, cccccccc: Int) -> Int fails Boom {\n  a\n}\n";
@@ -176,19 +176,101 @@ fn 長い宣言は_fails_と_use_から折る() {
     );
     // One that fits stays on one line; a clause the source put on its own line stays there.
     assert_eq!(
-        format("fn f() -> Int fails Boom use Log { 1 }\n").unwrap(),
-        "fn f() -> Int fails Boom use Log { 1 }\n"
+        format("fn f() -> Int fails Boom uses { Log } { 1 }\n").unwrap(),
+        "fn f() -> Int fails Boom uses { Log } { 1 }\n"
     );
     assert_eq!(
-        format("fn f() -> Int\n  use Log { 1 }\n").unwrap(),
-        "fn f() -> Int\n  use Log { 1 }\n"
+        format("fn f() -> Int\n  uses { Log } { 1 }\n").unwrap(),
+        "fn f() -> Int\n  uses { Log } { 1 }\n"
     );
+}
+
+/// `[fmt.signature]`: a uses clause always has braces, and the old clause (E0147) becomes one.
+#[test]
+fn uses_節は波括弧で書き前の形の_use_は書き換える() {
+    let cases = [
+        // Braces around a bare name: an effect and a set type parameter alike.
+        (
+            "fn f() -> Int uses Db { 1 }\n",
+            "fn f() -> Int uses { Db } { 1 }\n",
+        ),
+        (
+            "fn f[R](g: fn() -> () uses R) uses R { g() }\n",
+            "fn f[R](g: fn() -> () uses { R }) uses { R } { g() }\n",
+        ),
+        (
+            "fn f() -> Int uses State[Int] { 1 }\n",
+            "fn f() -> Int uses { State[Int] } { 1 }\n",
+        ),
+        // The old clause, with and without braces, in a signature and in a function type.
+        (
+            "fn f() -> Int use Db { 1 }\n",
+            "fn f() -> Int uses { Db } { 1 }\n",
+        ),
+        (
+            "fn f() -> Int fails E use { Db, Log } { 1 }\n",
+            "fn f() -> Int fails E uses { Db, Log } { 1 }\n",
+        ),
+        (
+            "fn f(g: fn() -> () fails {} use {}) { g() }\n",
+            "fn f(g: fn() -> () fails {} uses {}) { g() }\n",
+        ),
+        (
+            "trait Go {\n  fn go(self) -> () use Db\n}\n",
+            "trait Go {\n  fn go(self) -> () uses { Db }\n}\n",
+        ),
+        // The old clause on its own line, which rule 4 no longer continues, stays there.
+        (
+            "fn f() -> Int\n  use Db {\n  1\n}\n",
+            "fn f() -> Int\n  uses { Db } {\n  1\n}\n",
+        ),
+        (
+            "@external(js, \"./x.mjs\", \"now\")\nfn now() -> Int\n  use {}\nfn g() { 1 }\n",
+            "@external(js, \"./x.mjs\", \"now\")\nfn now() -> Int\n  uses {}\nfn g() { 1 }\n",
+        ),
+        // Already canonical.
+        (
+            "fn f() -> Int\n  fails Boom\n  uses { Db } {\n  1\n}\n",
+            "fn f() -> Int\n  fails Boom\n  uses { Db } {\n  1\n}\n",
+        ),
+        // `use` as an expression and set type arguments of named types are not touched.
+        (
+            "fn f(h: Handler[E, Db]) {\n  log = use Log\n  (use Db).get()\n}\n",
+            "fn f(h: Handler[E, Db]) {\n  log = use Log\n  (use Db).get()\n}\n",
+        ),
+        // `uses` as a name.
+        (
+            "fn f(uses: Int) -> Int {\n  uses + 1\n}\n",
+            "fn f(uses: Int) -> Int {\n  uses + 1\n}\n",
+        ),
+    ];
+    for (src, expected) in cases {
+        let out = format(src).unwrap_or_else(|e| panic!("{src}: {e:?}"));
+        assert_eq!(out, expected, "{src}");
+        check("uses", src, 100);
+    }
+}
+
+/// E0137 (a uses clause on an effect operation) is a syntax error for the formatter, also when
+/// the clause is written in the old form.
+#[test]
+fn effect_operation_の_uses_節は整形しない() {
+    for src in [
+        "effect Store {\n  fn get() -> Int uses { Db }\n}\n",
+        "effect Store {\n  fn get() -> Int use Db\n}\n",
+    ] {
+        let Err(FormatError::Syntax(diagnostics)) = format(src) else {
+            panic!("{src} was formatted");
+        };
+        let codes: Vec<_> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert_eq!(codes, ["E0137"], "{src}");
+    }
 }
 
 #[test]
 fn 補間の中は幅で折らない() {
-    let src = "fn a() {\n  s = \"#{ f(fn(x) {\n    x\n  }) }\"\n}\n";
-    let expected = "fn a() {\n  s = \"#{f(fn(x) {\n    x\n  })}\"\n}\n";
+    let src = "fn a() {\n  s = \"#{ f(|x| {\n    x\n  }) }\"\n}\n";
+    let expected = "fn a() {\n  s = \"#{f(|x| {\n    x\n  })}\"\n}\n";
     for width in [100, 10] {
         assert_eq!(
             format_with_width(src, width).unwrap(),

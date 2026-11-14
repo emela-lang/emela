@@ -71,7 +71,7 @@ impl SourceFile {
 }
 
 ast_node!(
-    /// `pub fn name[A](x: Int) -> T fails E use R { ... }`
+    /// `pub fn name[A](x: Int) -> T fails E uses { R } { ... }`
     FnDecl,
     FN_DECL
 );
@@ -97,6 +97,32 @@ impl FnDecl {
             .first_child()
     }
     /// `None` for an `@external` declaration.
+    pub fn body(&self) -> Option<BlockExpr> {
+        child(&self.0)
+    }
+}
+
+ast_node!(
+    /// `fn onto(to: Int, acc: List[Int]) -> List[Int] { ... }`, a statement of a block
+    /// (`[fn.local]`). Its children are laid out as in [`FnDecl`].
+    LocalFn,
+    LOCAL_FN
+);
+
+impl LocalFn {
+    pub fn name(&self) -> Option<SyntaxToken> {
+        token(&self.0, LOWER_NAME)
+    }
+    pub fn param_list(&self) -> Option<ParamList> {
+        child(&self.0)
+    }
+    /// The `T` of `-> T`, as an untyped node.
+    pub fn ret_type(&self) -> Option<SyntaxNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == RET_TYPE)?
+            .first_child()
+    }
     pub fn body(&self) -> Option<BlockExpr> {
         child(&self.0)
     }
@@ -161,13 +187,16 @@ impl BlockExpr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Stmt {
     Binding(Binding),
+    LocalFn(LocalFn),
     Expr(Expr),
 }
 
 impl Stmt {
     fn cast(node: SyntaxNode) -> Option<Self> {
-        if node.kind() == BINDING {
-            return Some(Stmt::Binding(Binding(node)));
+        match node.kind() {
+            BINDING => return Some(Stmt::Binding(Binding(node))),
+            LOCAL_FN => return Some(Stmt::LocalFn(LocalFn(node))),
+            _ => {}
         }
         Expr::cast(node).map(Stmt::Expr)
     }
@@ -356,7 +385,7 @@ mod tests {
     #[test]
     fn fn_宣言の名前と引数と本体() {
         let file = source_file(
-            "pub fn find(id: Int, self) -> User fails NotFound use Users { todo() }\n@external(js, \"tick\")\nsuspend fn tick()",
+            "pub fn find(id: Int, self) -> User fails NotFound uses { Users } { todo() }\n@external(js, \"tick\")\nsuspend fn tick()",
         );
         let fns: Vec<_> = file.fn_decls().collect();
         assert_eq!(fns.len(), 2);
@@ -412,5 +441,51 @@ mod tests {
             panic!("expected a literal")
         };
         assert_eq!(one.number().unwrap().text(), "1");
+    }
+
+    #[test]
+    fn import_と型引数と式の種類() {
+        let file = source_file(
+            "import Data.Json\nfn id[A](x: A) -> A {\n  { x }\n  \"s\"\n  [x]\n}\nfn g() { 1 }",
+        );
+        let imports: Vec<_> = file.imports().collect();
+        assert_eq!(imports.len(), 1);
+
+        let fns: Vec<_> = file.fn_decls().collect();
+        assert_eq!(fns[0].type_params().unwrap().text().to_string(), "[A]");
+        assert!(fns[1].type_params().is_none());
+
+        let stmts: Vec<_> = fns[0].body().unwrap().stmts().collect();
+        assert!(matches!(&stmts[0], Stmt::Expr(Expr::BlockExpr(_))));
+        let Stmt::Expr(Expr::Literal(string)) = &stmts[1] else {
+            panic!("expected a string literal")
+        };
+        assert!(string.is_string());
+        let Stmt::Expr(Expr::Other(list)) = &stmts[2] else {
+            panic!("expected a list as an untyped expression")
+        };
+        assert_eq!(list.kind(), LIST_EXPR);
+
+        let Some(Stmt::Expr(Expr::Literal(one))) = fns[1].body().unwrap().stmts().next() else {
+            panic!("expected a number literal")
+        };
+        assert!(!one.is_string());
+    }
+
+    #[test]
+    fn 名前の参照はその名前のトークンを返す() {
+        let file = source_file("fn f() { count }");
+        let Some(Stmt::Expr(Expr::NameRef(name))) = file
+            .fn_decls()
+            .next()
+            .unwrap()
+            .body()
+            .unwrap()
+            .stmts()
+            .next()
+        else {
+            panic!("expected a name")
+        };
+        assert_eq!(name.token().unwrap().text(), "count");
     }
 }

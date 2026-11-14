@@ -82,6 +82,9 @@
 (function_declaration
   name: (identifier) @function)
 
+(local_function
+  name: (identifier) @function)
+
 (operation
   name: (identifier) @function)
 
@@ -184,6 +187,7 @@
   "with"
   "assert"
   "fails"
+  "uses"
   "derive"
   "of"
   "default"
@@ -249,6 +253,13 @@
   "{"
   "}"
 ] @punctuation.bracket
+
+; The bars around the parameters of a lambda (`|x|`, `||`) are brackets, not operators.
+(lambda_parameters
+  [
+    "|"
+    "||"
+  ] @punctuation.bracket)
 
 (interpolation
   [

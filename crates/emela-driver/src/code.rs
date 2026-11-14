@@ -66,6 +66,8 @@ pub const SHADOWS_PRELUDE: &str = "W0202";
 pub const OLDER_COMPILER_DEPENDENCY: &str = "W0203";
 /// A Pome in `[external] allow` that is not depended on (spec 4.7).
 pub const UNUSED_EXTERNAL_ALLOW: &str = "W0204";
+/// `[pome].license` is not a string or not an SPDX license expression (spec `[pome.manifest]`).
+pub const LICENSE_NOT_AN_EXPRESSION: &str = "W0205";
 
 // E03xx: types
 pub const TYPE_MISMATCH: &str = "E0301";
@@ -172,18 +174,22 @@ pub const SUSPENDING_EXPORT: &str = "E0441";
 
 // HTTP services (`[lib.http-service]`)
 pub const HTTP_SERVICE_ON_C: &str = "E0442";
-// Bytes at the boundary on the C target (`[ext.boundary]`)
-pub const BYTES_ON_C: &str = "E0443";
+// Bytes and Arrays at the boundary on the C target (`[ext.boundary]`)
+pub const BOUNDARY_TYPE_ON_C: &str = "E0443";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";
 pub const CANNOT_READ: &str = "E0902";
 pub const CANNOT_WRITE_OUTPUT: &str = "E0903";
+/// The JS host could not be started, or is older than the JS target supports for it
+/// (`--target js`, `[cmd.build]`).
 pub const NODE_UNAVAILABLE: &str = "E0904";
 pub const NO_JS_BACKEND: &str = "E0905";
 pub const INVALID_JS_OUTPUT: &str = "E0906";
 // The C target's cc (spec appendix B)
 pub const CC_UNAVAILABLE: &str = "E0907";
 pub const CC_FAILED: &str = "E0908";
-/// The `wasmtime` executable could not be started (`--target wasm`).
+/// The `wasmtime` executable could not be started, or is too old (`--target wasm`).
 pub const WASMTIME_UNAVAILABLE: &str = "E0909";
+/// `EMELA_NODE` was read to choose the JS host (`[cmd.build]`).
+pub const NODE_ENV_DEPRECATED: &str = "W0902";

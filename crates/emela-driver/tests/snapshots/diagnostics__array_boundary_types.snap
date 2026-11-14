@@ -1,0 +1,29 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "export_diagnostics(&[(\"home/main.emel\",\nr#\"import Std.Array.{Array}\nimport Std.Bytes.{Bytes}\n\n@external\ntype Conn\n\n@export(js, \"ok\")\npub fn ok(a: Array[Int], b: Array[Array[String]], c: Array[Bytes], d: Array[Conn], e: Array[()]) -> Array[Float] { Array.empty() }\n\n@export(js, \"callbacks\")\npub fn callbacks(fs: Array[fn(Int) -> Int fails {} use {}]) -> Int { 0 }\n\n@export(js, \"lists\")\npub fn lists() -> Array[List[Int]] { Array.empty() }\n\n@export(js, \"deep\")\npub fn deep(a: Array[Array[Option[Int]]]) -> Int { 0 }\n\nfn main() {}\n\"#,)])"
+---
+error[E0436]: exported function `callbacks` cannot take `Array[fn(Int) -> Int]`
+    ╭─[ main.emel:10:1 ]
+    │
+ 10 │ @export(js, "callbacks")
+    │ ────────────┬───────────  
+    │             ╰───────────── 
+────╯
+
+error[E0436]: exported function `lists` cannot return `Array[List[Int]]`
+    ╭─[ main.emel:13:1 ]
+    │
+ 13 │ @export(js, "lists")
+    │ ──────────┬─────────  
+    │           ╰─────────── 
+────╯
+
+error[E0436]: exported function `deep` cannot take `Array[Array[Option[Int]]]`
+    ╭─[ main.emel:16:1 ]
+    │
+ 16 │ @export(js, "deep")
+    │ ─────────┬─────────  
+    │          ╰─────────── 
+────╯
+
+3 errors

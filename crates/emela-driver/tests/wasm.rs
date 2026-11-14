@@ -52,7 +52,7 @@ fn run_wasm_files(name: &str, files: &[(&str, &str)]) -> (Analysis, Option<RunOu
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
-        node: wasmtime_program(),
+        js_host: wasmtime_program(),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -106,7 +106,7 @@ import Std.Clock.{Clock, SystemClock}
 
 fn main() {
   with SystemClock {
-    nap = fn() { (use Clock).sleep(1) }
+    nap = || (use Clock).sleep(1)
     nap()
     dbg("slept")
   }
@@ -214,7 +214,7 @@ fn test_wasm(name: &str, main: &str) -> (Analysis, Vec<(String, TestOutcome)>) {
     let (fs, input) = project(main);
     let options = TestOptions {
         out_dir: out_dir(name),
-        node: wasmtime_program(),
+        js_host: wasmtime_program(),
         filter: None,
         output: Output::Capture,
         reporter: emela_driver::Reporter::Plain,
@@ -389,24 +389,18 @@ fn the_test_protocol_escapes_messages() {
 }
 
 #[test]
-fn unsupported_features_are_diagnostics() {
+fn fibers_are_supported() {
+    if !have_wasmtime() {
+        return;
+    }
+    // `[target.wasm.unsupported]` lists no construct: a fiber scope emits and runs.
     let (analysis, output) = run_wasm(
-        "unsupported",
-        "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
+        "fibers",
+        "import Std.Fiber.{Fiber}\nfn main() -> () uses { Async } {\n  Fiber.scope(|| ())\n}\n",
     );
-    assert!(analysis.has_errors());
-    assert!(output.is_none());
-    let messages: Vec<&str> = analysis
-        .diagnostics
-        .iter()
-        .map(|d| d.message.as_str())
-        .collect();
-    assert!(
-        messages
-            .iter()
-            .any(|m| m.contains("fibers are not supported on target `wasm`")),
-        "{messages:?}"
-    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.expect("the program ran");
+    assert_eq!(output.code, 0);
 }
 
 #[test]
@@ -421,7 +415,7 @@ fn the_system_clock_sleep_runs_under_wasmtime() {
         r#"
 import Std.Clock.{Clock, SystemClock}
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with SystemClock {
     (use Clock).sleep(0)
     ()
