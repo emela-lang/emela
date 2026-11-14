@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-15 (Stdout and Stderr in Std.Process, the output streams of the process)
+
+- `[api.std.process]`, `[api.std.console]`, `[api.std.platform]`, `[lib.layers]`, `[cmd.build]`, `[target.native.run]`, `[target.wasm.external]`, `[open.list]`: Add to `Std.Process` two effects for the output streams of the process, `Stdout` and `Stderr`. Each has two operations: `print`, which writes without a line ending, and `print_line`, which writes a line ending after the text. They do not fail and are Immediate. The system handlers are `SystemStdout` and `SystemStderr`, and they are part of `Platform`. The test handlers `TestStdout` and `TestStderr` append what is written to `State[StdoutText]` and `State[StderrText]`. `Std.Console` does not change: `Console` writes lines meant for people, and `Stdout` and `Stderr` are the streams of the process. ```emel import Std.Platform.{Platform} import Std.Process.{Stdout} fn main() { with Platform { (use Stdout).print("Hello, ") (use Stdout).print_line("alice!") } } ``` Adopted in the proposal `stdout-stderr` (#566).
+
 ## 2026-11-14 (Std.Process, the arguments and the standard input of the process)
 
 - `[lib.layers]`, `[api.std.process]`, `[api.std.platform]`, `[cmd.build]`, `[target.native.run]`, `[target.wasm.output]`, `[target.wasm.external]`, `[cmd.test.output]`: Add a module `Std.Process` to the platform layer of std, for what belongs to the process, and put two effects in it first. `Args` reads the arguments given to the process: `get(index)` takes one by position, and `list()` returns all of them as a `List[String]`, without the name of the program. `Stdin` reads standard input: `read_line` reads one line, and `read_text` reads all the rest; both are `suspend fn`. The system handlers `SystemArgs` and `SystemStdin` are added to `Platform`. For tests, `TestStdin` reads from `State[StdinLines]`. There is no test handler for `Args`. `Console` does not change. Adopted in the proposal `std-process` (#565).

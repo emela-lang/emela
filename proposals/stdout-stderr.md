@@ -1,10 +1,10 @@
 ---
 title: Stdout and Stderr in Std.Process, the output streams of the process
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 566
 issue:
-decided:
+decided: 2026-11-15
 touches: [api.std.process, api.std.console, api.std.platform, lib.layers, cmd.build, target.native.run, target.wasm.external, open.list]
 requires: [std-process]
 related: []
@@ -332,6 +332,11 @@ pub effect Stderr of Output
 
 ## Open questions
 
-None.
-
 ## Decision
+
+- A program cannot write without a newline today, so it cannot show a prompt before `Stdin.read_line` or build a line piece by piece (`[open.list]` #45). `Stdout` and `Stderr` add `print` and `print_line` to `Std.Process`, next to `Args` and `Stdin`.
+- `Console` stays as a line meant for a person, and it works on any host. `Stdout` and `Stderr` are the streams of the process, and they are separate effects, so the type of a function shows which stream it writes to and a test can replace each one. `Console` does not depend on them, so existing programs and handlers do not change.
+- Writing to the same stream through `Console`, `Stdout`, `Stderr`, `dbg` and the runtime keeps the order in which the program wrote. On JS, every write goes through one path that writes to the fd synchronously, because mixing it with `console.log` reorders lines in Node when the reader is slow.
+- The operations are Immediate and do not fail. A writer waits while the reader is slow, so the buffer does not grow.
+- When the reader closes standard output, the program unwinds as an interruption, runs its releases, and ends with exit code 141, which is the same code a C program gets from SIGPIPE, and prints no line. When only standard error is closed, its writes are discarded and the program goes on.
+- What `SystemStdout` and `SystemStderr` do on a host without stdout is unspecified. Such a host is outside the JS target, and `Console` covers it.
