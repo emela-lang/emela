@@ -36,6 +36,7 @@ use crate::mono::Monomorphized;
 use crate::named;
 
 mod builtin_impls;
+mod derive_std;
 mod fiber;
 mod local_fn;
 mod suspend;
@@ -1109,6 +1110,10 @@ impl<'a> Lowerer<'a> {
             if in_core && list_or_option {
                 structural.push(f);
             }
+        }
+        // Encode, Decode, ObjectKey and Shaped of std: generic functions, like written impls.
+        if spec == 0 {
+            impls.extend(self.std_derived_impls(def, trait_def));
         }
         let derived = self.derived(trait_def, def);
         let id = self.fns[&(def, spec)];

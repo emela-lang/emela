@@ -1,0 +1,134 @@
+import Std.Dynamic.{Decode, Encode, ObjectKey, DecodeError, DecodeErrors, Segment, Key, Index}
+import Std.Json.{SyntaxError}
+import Std.Json
+import Std.Map.{Map}
+import Std.Shape.{Shaped}
+
+# The derivations of Encode, Decode, ObjectKey and Shaped (`[trait.derive]`), with the attributes
+# `@key` and `@tag` (`[kw.annotation]`).
+
+type TodoView(id: String, @key("dueAt") due_at: Option[String], done: Bool)
+  derive Eq, Encode, Decode, Shaped
+
+enum Tree[A] {
+  Leaf
+  Node(left: Tree[A], value: A, right: Tree[A])
+  @tag("pair")
+  Pair(A, A)
+} derive Eq, Encode, Decode, Shaped
+
+enum Status {
+  @tag("open")
+  Open
+  @tag("done")
+  Done
+} derive Eq, Ord, ObjectKey
+
+type Code(value: String) derive Eq, Ord, ObjectKey
+
+type Board(counts: Map[Status, Int], codes: Map[Code, Bool]) derive Eq, Encode, Decode
+
+type Team(name: String, lead: Option[Member]) derive Shaped
+
+type Member(name: String, team: Option[Team]) derive Shaped
+
+type Page[A](items: List[A], next: Option[Int]) derive Shaped
+
+pub opaque type Email(value: String) derive Encode, Shaped
+
+fn path(p: List[Segment]) -> String {
+  p.map(|s| {
+    s match {
+      Key(k)   -> ".#{k}"
+      Index(i) -> "[#{i}]"
+    }
+  }).join("")
+}
+
+fn first[A: Decode](proxy: Option[A], text: String) -> String {
+  {
+    a: A = Json.decode(text)
+    "decoded"
+  } escape {
+    DecodeError(expected:, actual: _, path: p) -> "#{expected} at #{path(p)}"
+    SyntaxError(message:, offset: _)           -> message
+  }
+}
+
+fn all[A: Decode](proxy: Option[A], text: String) -> List[String] {
+  {
+    a: A = Json.decode_all(text)
+    ["decoded"]
+  } escape {
+    DecodeErrors(errors:)            -> errors.map(|e| "#{e.expected} at #{path(e.path)}")
+    SyntaxError(message:, offset: _) -> [message]
+  }
+}
+
+fn main() {
+  views: Option[TodoView] = None
+  trees: Option[Tree[Int]] = None
+  forests: Option[List[Tree[Int]]] = None
+  boards: Option[Board] = None
+  # A type is an object of its fields by key; None is written as null.
+  view = TodoView(id: "1", due_at: None, done: False)
+  dbg(Json.encode(view))
+  dbg(Json.encode(TodoView(id: "2", due_at: Some("today"), done: True)))
+  # A missing key reads as null, and unknown keys are ignored.
+  read: TodoView = Json.decode("{\"id\":\"1\",\"done\":false,\"extra\":1}") escape {
+    _ -> panic("not read")
+  }
+  dbg(read == view)
+
+  # An enum is its tag and contents: an object, items, or no value.
+  tree = Node(left: Leaf, value: 1, right: Pair(2, 3))
+  dbg(Json.encode(tree))
+  back: Tree[Int] = Json.decode(Json.encode(tree)) escape { _ -> panic("not read") }
+  dbg(back == tree)
+
+  # `from_dynamic` stops at the first failure.
+  dbg(first(views, "{\"id\":1,\"done\":\"no\"}"))
+  dbg(first(trees, "{\"tag\":\"Elm\"}"))
+  dbg(first(trees, "{\"tag\":\"pair\",\"value\":[1]}"))
+  dbg(first(trees, "[]"))
+
+  # `from_dynamic_all` collects every failure in declaration order, each with its path.
+  dbg(all(views, "{\"id\":1,\"dueAt\":2,\"done\":\"no\"}"))
+  dbg(
+    all(
+      trees,
+      "{\"tag\":\"Node\",\"value\":{\"left\":null,\"value\":\"x\",\"right\":{\"tag\":\"pair\",\"value\":[1]}}}",
+    ),
+  )
+  dbg(all(trees, "{\"tag\":\"pair\",\"value\":[\"a\",\"b\"]}"))
+  dbg(all(forests, "[{\"tag\":\"Leaf\"},{\"tag\":\"Elm\"},{\"tag\":\"pair\",\"value\":[1,null]}]"))
+  dbg(all(views, "{\"id\":\"1\",\"done\":true}"))
+
+  # ObjectKey: the tag of an enum without contents, or the key of the one field.
+  board = Board(
+    counts: Map.from_list([(Open, 1), (Done, 2)]),
+    codes: Map.from_list([(Code(value: "a"), True)]),
+  )
+  dbg(Json.encode(board))
+  board_back: Board = Json.decode(Json.encode(board)) escape { _ -> panic("not read") }
+  dbg(board_back == board)
+  dbg(first(boards, "{\"counts\":{\"closed\":1},\"codes\":{}}"))
+  dbg(ObjectKey.to_key(Done))
+  dbg(Code(value: "x").to_key())
+  key: Status = ObjectKey.from_key("open") escape { _ -> panic("not read") }
+  dbg(key)
+
+  # Shaped: the keys and tags name the fields and variants; a type met again is a Ref.
+  p: Option[TodoView] = None
+  dbg(Shaped.shape(p))
+  t: Option[Tree[String]] = None
+  dbg(Shaped.shape(t))
+  team: Option[Team] = None
+  dbg(Shaped.shape(team))
+  page: Option[Page[Member]] = None
+  dbg(Shaped.shape(page))
+
+  # An opaque type shows its contents.
+  e: Option[Email] = None
+  dbg(Shaped.shape(e))
+}

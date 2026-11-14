@@ -1,7 +1,7 @@
 ---
 title: Dynamic, Shape and JSON in std, with derived Encode, Decode and Shaped
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 503
 issue:
 decided: 2026-11-15
@@ -371,12 +371,12 @@ In #3, record that Encode, Decode and Shaped are derived by the compiler with th
 
 ## Diagnostics
 
-- [ ] E0326: widen the list of derivable traits. A user trait declared with one of these names is E0326, as now.
-- [ ] E0336 (new): `derive Decode` and `derive ObjectKey` on an opaque type.
-- [ ] E0339 (new): a form that cannot derive `ObjectKey`.
-- [ ] E0337 (new): a repeated key or tag after `@key` and `@tag`.
-- [ ] E0338 (new): the place and the argument of `@key` and `@tag`.
-- [ ] W0303: derived Encode, Decode and Shaped are also subject to "never required anywhere". Passing a value to a function with the bound (`Json.encode(view)`) counts as requiring it.
+- [x] E0326: widen the list of derivable traits. A user trait declared with one of these names is E0326, as now.
+- [x] E0336: `derive Decode` and `derive ObjectKey` on an opaque type.
+- [x] E0339: a form that cannot derive `ObjectKey`.
+- [x] E0337: a repeated key or tag after `@key` and `@tag`.
+- [x] E0338: the place and the argument of `@key` and `@tag`.
+- [x] W0303: derived Encode, Decode and Shaped are also subject to "never required anywhere". Passing a value to a function with the bound (`Json.encode(view)`) counts as requiring it.
 
 ## Compatibility
 

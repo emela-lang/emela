@@ -1,0 +1,28 @@
+exit: 0
+--- stdout
+--- stderr
+"{\"done\":false,\"dueAt\":null,\"id\":\"1\"}"
+"{\"done\":true,\"dueAt\":\"today\",\"id\":\"2\"}"
+True
+"{\"tag\":\"Node\",\"value\":{\"left\":{\"tag\":\"Leaf\"},\"right\":{\"tag\":\"pair\",\"value\":[2,3]},\"value\":1}}"
+True
+"text at .id"
+"one of Leaf, Node, pair at .tag"
+"2 items at .value"
+"fields at "
+["text at .id", "text at .dueAt", "bool at .done"]
+["fields at .value.left", "number at .value.value", "2 items at .value.right.value"]
+["number at .value[0]", "number at .value[1]"]
+["one of Leaf, Node, pair at [1].tag", "number at [2].value[1]"]
+["decoded"]
+"{\"codes\":{\"a\":true},\"counts\":{\"done\":2,\"open\":1}}"
+True
+"one of open, done at .counts.closed"
+"done"
+"x"
+Open
+Record(name: "TodoView", fields: [Field(name: "id", shape: String), Field(name: "dueAt", shape: Option(String)), Field(name: "done", shape: Bool)])
+Variants(name: "Tree[String]", variants: [Variant(name: "Leaf", contents: NoFields), Variant(name: "Node", contents: NamedFields([Field(name: "left", shape: Ref("Tree[String]")), Field(name: "value", shape: String), Field(name: "right", shape: Ref("Tree[String]"))])), Variant(name: "pair", contents: PositionalFields([String, String]))])
+Record(name: "Team", fields: [Field(name: "name", shape: String), Field(name: "lead", shape: Option(Record(name: "Member", fields: [Field(name: "name", shape: String), Field(name: "team", shape: Option(Ref("Team")))])))])
+Record(name: "Page[Member]", fields: [Field(name: "items", shape: List(Record(name: "Member", fields: [Field(name: "name", shape: String), Field(name: "team", shape: Option(Record(name: "Team", fields: [Field(name: "name", shape: String), Field(name: "lead", shape: Option(Ref("Member")))])))]))), Field(name: "next", shape: Option(Int))])
+Record(name: "Email", fields: [Field(name: "value", shape: String)])

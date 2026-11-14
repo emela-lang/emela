@@ -854,6 +854,11 @@ fn main() {
         "call_order",
         include_str!("../../emela-codegen-c/tests/programs/call_order.emel"),
     ),
+    // `[trait.derive]`: derived Encode, Decode, ObjectKey and Shaped, with `@key` and `@tag`.
+    (
+        "derive_encode_decode",
+        include_str!("../../emela-codegen-c/tests/programs/derive_encode_decode.emel"),
+    ),
     (
         "local_fns",
         r#"

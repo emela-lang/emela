@@ -1,0 +1,122 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "[view, tree, keys].join(\"\\n\")"
+---
+fn View: Encode.to_dynamic[A](self%758: View[A]) -> Std.Dynamic.Dynamic {
+  match self%758 {
+    View.View(id: x%759, due_at: x%760) -> Std.Dynamic.object([("id", Std.Dynamic.Encode.to_dynamic[String](x%759)), ("dueAt", Std.Dynamic.Encode.to_dynamic[Option[A]](x%760))]: List[(String, Std.Dynamic.Dynamic)])
+  }
+}
+
+fn View: Decode.from_dynamic_all[A](d%789: Std.Dynamic.Dynamic) -> View[A] fails {
+  let a%790: Std.Dynamic.Attempt[String] = Std.Dynamic.derived_field_all[String](d%789, "id")
+  let a%791: Std.Dynamic.Attempt[Option[A]] = Std.Dynamic.derived_field_all[Option[A]](d%789, "dueAt")
+  let checked%792: () = Std.Dynamic.derived_check([Std.Dynamic.errors_of[String](a%790), Std.Dynamic.errors_of[Option[A]](a%791)]: List[List[Std.Dynamic.DecodeError]])?
+  View.View[A](id: Std.Dynamic.derived_decoded[String](a%790), due_at: Std.Dynamic.derived_decoded[Option[A]](a%791))
+}
+
+fn View: Decode.from_dynamic[A](d%806: Std.Dynamic.Dynamic) -> View[A] fails {
+  View.View[A](id: Std.Dynamic.derived_field[String](d%806, "id")?, due_at: Std.Dynamic.derived_field[Option[A]](d%806, "dueAt")?)
+}
+
+fn View: Shaped.shape_in[A](proxy%941: Option[View[A]], visiting%942: List[String]) -> Std.Shape.Shape {
+  let name%943: String = Std.Shape.generic_name("View", [Std.Shape.Shaped.shape_in[A](Std.Shape.derived_proxy[A](), visiting%942)]: List[Std.Shape.Shape])
+  if Std.Shape.derived_visited(name%943, visiting%942) {
+    Std.Shape.derived_ref(name%943)
+  } else {
+    let visiting%944: List[String] = Std.Shape.derived_enter(name%943, visiting%942)
+    Std.Shape.derived_record(name%943, [Std.Shape.derived_field("id", Std.Shape.Shaped.shape_in[String](Std.Shape.derived_proxy[String](), visiting%944)), Std.Shape.derived_field("dueAt", Std.Shape.Shaped.shape_in[Option[A]](Std.Shape.derived_proxy[Option[A]](), visiting%944))]: List[Std.Shape.Field])
+  }
+}
+
+
+fn Tree: Encode.to_dynamic(self%761: Tree) -> Std.Dynamic.Dynamic {
+  match self%761 {
+    Tree.Leaf -> Std.Dynamic.derived_unit_variant("Leaf")
+    Tree.Node(left: x%762, value: x%763) -> Std.Dynamic.derived_variant("Node", Std.Dynamic.object([("left", Std.Dynamic.Encode.to_dynamic[Tree](x%762)), ("value", Std.Dynamic.Encode.to_dynamic[Int](x%763))]: List[(String, Std.Dynamic.Dynamic)]))
+    Tree.Pair(x%764, x%765) -> Std.Dynamic.derived_variant("pair", Std.Dynamic.derived_items([Std.Dynamic.Encode.to_dynamic[Int](x%764), Std.Dynamic.Encode.to_dynamic[Int](x%765)]: List[Std.Dynamic.Dynamic]))
+  }
+}
+
+fn Tree: Decode.from_dynamic_all(d%793: Std.Dynamic.Dynamic) -> Tree fails {
+  let tag%794: String = Std.Dynamic.derived_tag_all(d%793)?
+  if (tag%794 ==[String] "Leaf") {
+    Tree.Leaf
+  } else {
+    if (tag%794 ==[String] "Node") {
+      let a%799: Std.Dynamic.Attempt[Tree] = Std.Dynamic.derived_contents_field_all[Tree](d%793, "left")
+      let a%800: Std.Dynamic.Attempt[Int] = Std.Dynamic.derived_contents_field_all[Int](d%793, "value")
+      let checked%801: () = Std.Dynamic.derived_check([Std.Dynamic.errors_of[Tree](a%799), Std.Dynamic.errors_of[Int](a%800)]: List[List[Std.Dynamic.DecodeError]])?
+      Tree.Node(left: Std.Dynamic.derived_decoded[Tree](a%799), value: Std.Dynamic.derived_decoded[Int](a%800))
+    } else {
+      if (tag%794 ==[String] "pair") {
+        let checked%798: () = Std.Dynamic.derived_contents_items_all(d%793, 2)?
+        let a%795: Std.Dynamic.Attempt[Int] = Std.Dynamic.derived_contents_index_all[Int](d%793, 0)
+        let a%796: Std.Dynamic.Attempt[Int] = Std.Dynamic.derived_contents_index_all[Int](d%793, 1)
+        let checked%797: () = Std.Dynamic.derived_check([Std.Dynamic.errors_of[Int](a%795), Std.Dynamic.errors_of[Int](a%796)]: List[List[Std.Dynamic.DecodeError]])?
+        Tree.Pair(Std.Dynamic.derived_decoded[Int](a%795), Std.Dynamic.derived_decoded[Int](a%796))
+      } else {
+        Std.Dynamic.derived_unknown_tag_all[Tree]("one of Leaf, Node, pair", tag%794)?
+      }
+    }
+  }
+}
+
+fn Tree: Decode.from_dynamic(d%807: Std.Dynamic.Dynamic) -> Tree fails {
+  let tag%808: String = Std.Dynamic.tag(d%807)?
+  if (tag%808 ==[String] "Leaf") {
+    Tree.Leaf
+  } else {
+    if (tag%808 ==[String] "Node") {
+      Tree.Node(left: Std.Dynamic.derived_contents_field[Tree](d%807, "left")?, value: Std.Dynamic.derived_contents_field[Int](d%807, "value")?)
+    } else {
+      if (tag%808 ==[String] "pair") {
+        let checked%809: () = Std.Dynamic.derived_contents_items(d%807, 2)?
+        Tree.Pair(Std.Dynamic.derived_contents_index[Int](d%807, 0)?, Std.Dynamic.derived_contents_index[Int](d%807, 1)?)
+      } else {
+        Std.Dynamic.derived_unknown_tag[Tree]("one of Leaf, Node, pair", tag%808)?
+      }
+    }
+  }
+}
+
+fn Tree: Shaped.shape_in(proxy%945: Option[Tree], visiting%946: List[String]) -> Std.Shape.Shape {
+  let name%947: String = "Tree"
+  if Std.Shape.derived_visited(name%947, visiting%946) {
+    Std.Shape.derived_ref(name%947)
+  } else {
+    let visiting%948: List[String] = Std.Shape.derived_enter(name%947, visiting%946)
+    Std.Shape.derived_variants(name%947, [Std.Shape.derived_no_fields("Leaf"), Std.Shape.derived_named_fields("Node", [Std.Shape.derived_field("left", Std.Shape.Shaped.shape_in[Tree](Std.Shape.derived_proxy[Tree](), visiting%948)), Std.Shape.derived_field("value", Std.Shape.Shaped.shape_in[Int](Std.Shape.derived_proxy[Int](), visiting%948))]: List[Std.Shape.Field]), Std.Shape.derived_positional_fields("pair", [Std.Shape.Shaped.shape_in[Int](Std.Shape.derived_proxy[Int](), visiting%948), Std.Shape.Shaped.shape_in[Int](Std.Shape.derived_proxy[Int](), visiting%948)]: List[Std.Shape.Shape])]: List[Std.Shape.Variant])
+  }
+}
+
+
+fn Status: ObjectKey.to_key(self%773: Status) -> String {
+  match self%773 {
+    Status.Open -> "open"
+    Status.Done -> "Done"
+  }
+}
+
+fn Status: ObjectKey.from_key(key%823: String) -> Status fails {
+  let tag%824: String = key%823
+  if (tag%824 ==[String] "open") {
+    Status.Open
+  } else {
+    if (tag%824 ==[String] "Done") {
+      Status.Done
+    } else {
+      Std.Dynamic.derived_unknown_key[Status]("one of open, Done", tag%824)?
+    }
+  }
+}
+
+fn Code: ObjectKey.to_key(self%774: Code) -> String {
+  match self%774 {
+    Code.Code(value: x%775) -> Std.Dynamic.ObjectKey.to_key[String](x%775)
+  }
+}
+
+fn Code: ObjectKey.from_key(key%825: String) -> Code fails {
+  Code.Code(value: Std.Dynamic.ObjectKey.from_key[String](key%825)?)
+}
