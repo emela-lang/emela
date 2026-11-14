@@ -5,7 +5,7 @@ status: draft
 pr: 515
 issue:
 decided:
-touches: [lib.layers, fiber.scope, fiber.escape, fiber.semaphore (new), fiber.queue (new), api.std.fiber, api.std.semaphore (new), api.std.queue (new), dyn.memory, diag.list, glossary.context, open.next]
+touches: [lib.layers, fiber.scope, fiber.escape, fiber.semaphore (new), fiber.queue (new), api.std.fiber, api.std.semaphore (new), api.std.queue (new), dyn.memory, diag.list, open.next]
 requires: [each]
 related: []
 ---
@@ -100,7 +100,7 @@ fn work(q: Queue[Job]) {
 - A fiber interrupted while it waits leaves the line. An interrupted offer adds nothing.
 - `try_offer(q, value)` adds value if the queue is not full and not closed, and returns True. Otherwise it returns False. `poll(q)` removes and returns the value at the front as `Some`, or returns `None` if the queue is empty. Neither suspends.
 - `size(q)` is the number of values in the queue.
-- `close(q)` closes the queue. Closing a closed queue does nothing.
+- `close(q)` closes the queue. Closing a closed queue does nothing. There is no function that asks whether a queue is closed: the answer could change before the next call, as with `available`.
   - The values already in the queue stay, and `take` and `poll` return them in order.
   - `take` on a closed queue that is empty fails with `QueueClosed`. Fibers waiting to take when the queue is closed fail with `QueueClosed`.
   - `offer` on a closed queue fails with `QueueClosed` and adds nothing. Fibers waiting to offer when the queue is closed fail with `QueueClosed`, and their values are not added.
@@ -109,6 +109,7 @@ fn work(q: Queue[Job]) {
 ### Belonging to a scope
 
 - Semaphores and queues belong to the scope that made them, as Deferreds do. Every operation on one whose scope has ended is a defect. A fiber still waiting on one when its scope ends is interrupted with the other children of that scope.
+- A fiber of another scope can still be waiting on one when its scope ends, if the Semaphore or Queue was leaked at run time. That fiber stops waiting with the defect `semaphore was used after its scope ended` (or `queue ...`), as any later use would.
 - The type of the value of `Fiber.scope` MUST NOT contain `Semaphore` or `Queue` (E0425).
 
 ### Typing rules
@@ -176,7 +177,7 @@ The third item becomes:
 
 After the item on the messages of Deferred, add:
 
-- The messages for Semaphores and Queues are `semaphore was used after its scope ended` and `queue was used after its scope ended`.
+- The messages for Semaphores and Queues are `semaphore was used after its scope ended` and `queue was used after its scope ended`. A fiber that is not a child of the scope and is still waiting on the Semaphore or Queue when the scope ends stops waiting with the same defect.
 
 In the table, the third and fourth rows become:
 
@@ -307,13 +308,6 @@ The row of E0425 becomes:
 
 | E0425 | The type of the value of `Fiber.scope` contains `Fiber`, `Deferred`, `Semaphore` or `Queue` (11.8). The note is ``= note: every fiber has ended once `Fiber.scope` returns, so the value would be of no use outside it`` | ``a `Fiber` cannot leave the `Fiber.scope` that started it`` |
 
-### `[glossary.context]`
-
-Add the rows:
-
-| semaphore, permit | セマフォ、許可 |
-| queue, capacity, close (a queue) | キュー、容量、閉じる |
-
 ### `[open.next]`
 
 The item "Remaining for 0.20" no longer lists a limit on how many run at once (Semaphore) and Queue.
@@ -338,7 +332,6 @@ The path is the one Deferred takes.
 - `emela-core`: new `FiberOp` variants for creating, `with_permits`, `try_with_permits`, `available`, and the Queue operations, with the ones that wait marked as suspending (`ir.rs`, `lower/fiber.rs`, `verify.rs`).
 - `emela-lir`: `from_core.rs`, `verify.rs`.
 - Runtimes: JS (`runtime.mjs`), C (`emela_runtime.c`) and WASM. Each keeps the waiting fibers in first-in first-out lists, removes a fiber from its list when it is interrupted, and checks that the scope has not ended. `with_permits` gives the permits back on every way `f` ends, as a with runs its releases.
-- `c-embedded` does not support them in this proposal. Using them on that target is a compile error (`[target.c-embedded]`: which constructs it supports is implementation-defined).
 - Tests: programs under `emela-codegen-c/tests/programs/` (a limit of 2 with 5 fibers, the first-in first-out order, interruption while waiting, `try_with_permit` while full, a queue of capacity 1 with several producers, close with values left, close with waiting fibers, use after the scope ended), also in `wasm_parity.rs`.
 
 ## Alternatives
@@ -351,6 +344,9 @@ The path is the one Deferred takes.
 - **`take` on a closed queue returning `Option[A]`.** Rejected: a closed queue is the end of the values, not an absence (`[lib.api-rules]`), and an error lets a consumer loop end with an escape arm that removes `QueueClosed` from E.
 - **Closing a queue by interrupting the waiting fibers.** Rejected: an interruption cannot be received by escape, and the cases in which a fiber is interrupted are fixed (11.4).
 - **Queues without a capacity, and queues that drop new or old values when full.** Not added: without a capacity, a fast producer grows memory without bound. Dropping can be written with `try_offer` and `poll`.
+- **A Semaphore that lets a later fiber needing fewer permits go first.** More permits are used at once, but a fiber asking for many permits can wait forever behind a stream of small requests. Rejected for strict first-in first-out, which is also the simpler rule. For the same reason `try_with_permits` returns `None` while a fiber is waiting, so that it does not go ahead of the line.
+- **Only the one-permit forms.** Rejected: a limit by weight (bytes, rows) needs n permits, and the rules and defects for n are already fixed.
+- **`is_closed(q)`, and the name `shutdown`.** `is_closed` is not added: as with `available`, its answer can change before the next call, and it can be added later without breaking anything. `close` names what the producer does; the queue still gives out the values already in it.
 
 ## Prior art
 
@@ -360,12 +356,5 @@ The path is the one Deferred takes.
 - Go: buffered channels; a receive from a closed and empty channel returns the zero value and `false`.
 
 ## Open questions
-
-- Strict first-in first-out for Semaphore: a fiber that asks for more permits than are free makes the fibers behind it wait. The alternative lets a later fiber that needs fewer permits go first, at the risk of starving the larger one.
-- Whether `try_with_permits` returns `None` while a fiber is waiting, even if enough permits are free.
-- Whether to have the n-permit forms (`with_permits`, `try_with_permits`) now, or only the one-permit forms.
-- The name `close` (or `shutdown`), and whether to add `is_closed(q) -> Bool`.
-- Whether a fiber of another scope that still waits on a Semaphore or Queue when its scope ends (reached through a run-time leak) ends with the defect `... was used after its scope ended`.
-- Whether `c-embedded` support is part of this proposal.
 
 ## Decision
