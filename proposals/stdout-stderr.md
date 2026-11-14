@@ -14,7 +14,7 @@ related: []
 
 ## Summary
 
-`Std.Process` に，プロセスの出力ストリームを表す 2 つの effect `Stdout` と `Stderr` を足す．どちらも操作は改行なしで書く `print` と，改行を付けて書く `print_line` の 2 つで，失敗せず，Immediate．system handler は `SystemStdout` と `SystemStderr` で，`Platform` に入る．テスト用の `TestStdout` と `TestStderr` は，書かれた文字列をそれぞれ `State[StdoutText]` と `State[StderrText]` に足していく．`Std.Console` は変えない．`Console` は人に向けた行単位の出力，`Stdout` と `Stderr` はプロセスのストリームとして使い分ける．
+Add to `Std.Process` two effects for the output streams of the process, `Stdout` and `Stderr`. Each has two operations: `print`, which writes without a line ending, and `print_line`, which writes a line ending after the text. They do not fail and are Immediate. The system handlers are `SystemStdout` and `SystemStderr`, and they are part of `Platform`. The test handlers `TestStdout` and `TestStderr` append what is written to `State[StdoutText]` and `State[StderrText]`. `Std.Console` does not change: `Console` writes lines meant for people, and `Stdout` and `Stderr` are the streams of the process.
 
 ```emel
 import Std.Platform.{Platform}
@@ -30,24 +30,24 @@ fn main() {
 
 ## Motivation
 
-- 改行なしで書く手段がない（`[open.list]` #45）．プロンプト（`name? ` を出して同じ行で入力を待つ）や，1 行に書き足していく出力が書けない．`Std.Process` に `Stdin` が入る（`std-process`）と，プロンプトはすぐに要る．
-- CLI ツールは標準出力をデータの出口として使う．パイプやファイルに流れる出力を，書いたバイト列のまま（行に区切らず）出したい．
-- 標準出力と標準エラーを別々に要求し，別々に差し替えたい．
-  - 結果を標準出力に，進み具合や警告を標準エラーに書くツールでは，関数の型から，どちらに書くかが読めるとよい．
-  - いまの `TestConsole` は `print_error_line` を捨てる．標準エラーに書いた内容をテストで確かめるには，`Console` の handler を自分で書くしかない．
-- `Console` はこのまま残す．広く使われていて，「人に読ませる 1 行を出す」という意味で分かりやすい．
+- There is no way to write without a line ending (`[open.list]` #45). A prompt (writing `name? ` and waiting for input on the same line) and output that grows on one line cannot be written. Now that `Stdin` is in `Std.Process` (`std-process`), prompts are needed right away.
+- A CLI tool uses its standard output as the exit for its data. Output that goes to a pipe or a file should be written as the text written, not split into lines.
+- Standard output and standard error should be required and replaced separately.
+  - In a tool that writes its results to standard output and its progress and warnings to standard error, the type of a function should tell which one it writes to.
+  - `TestConsole` discards `print_error_line`. To check in a test what was written to standard error, one has to write a handler of `Console` by hand.
+- `Console` stays. It is widely used, and its meaning, writing one line for a person to read, is clear.
 
-いまの仕様で回避する方法: `@external` で `process.stdout.write` を呼ぶ handler を自分で書く．`[external]` を許したプロジェクトでしか使えず，ターゲットごとに書き分ける必要がある（`[ext.decl]`）．
+The workaround in the current specification: write a handler with `@external` that calls `process.stdout.write`. It works only in projects that allow `[external]`, and has to be written for each target (`[ext.decl]`).
 
 ## Proposal
 
 ### Syntax
 
-変更なし．
+No change.
 
 ### Meaning
 
-`Std.Process` に次を足す（handler の本体は省いた宣言の一覧）．
+Add the following to `Std.Process` (declarations, with the bodies of the handlers left out).
 
 ```
 pub effect Stdout {
@@ -70,41 +70,41 @@ pub handler TestStdout: Stdout # State[StdoutText]
 pub handler TestStderr: Stderr # State[StderrText]
 ```
 
-- `print(text)` は `text` をそのまま書く．`print_line(text)` は `text` と改行（`\n`）を書く．`text` の中の改行は変換しない．
-- 操作は失敗せず，suspend しない（Immediate）．
-- 同じストリームに書いたものは，書いた順に届く．`Stdout` と `Console.print_line` を混ぜても，`Stderr` と `Console.print_error_line` や `dbg` を混ぜても，順序は保たれる（下の「Console との関係」）．
-- `Stderr`，`Console.print_error_line`，`dbg` が標準エラーに書く前に，それまで標準出力に書いたものはホストに渡される．`2>&1` で同じ出口に向けても，書いた順に並ぶ．いまの C の `print_error_line` はすでに `fflush(stdout)` してから書いているので，いまの挙動を仕様に書くだけになる．JS は fd に同期で書く経路で，自前のバッファを持たないので，何もしなくても満たされる．
-- `Stdin`（`std-process`）が入力を待つ前に，それまで `Stdout` に書いたものはホストに渡される．`print("name? ")` の直後に `read_line` を呼ぶと，プロンプトが見えてから入力を待つ．
-- プログラムが終わるとき（`[cmd.build]` の終了コード表のどの終わり方でも），それまでに書いたものはすべて書き切られる．いまの `Console` と同じ保証．
-- 読み手が閉じた標準出力に書くと，プログラムは終わる．閉じた標準エラーへの書き込みは捨てて続ける（下の「閉じたパイプ」）．
+- `print(text)` writes `text` as is. `print_line(text)` writes `text` and a line ending (`\n`). Line endings inside `text` are not converted.
+- The operations do not fail and do not suspend (Immediate).
+- What is written to one stream arrives in the order written. Mixing `Stdout` with `Console.print_line`, or `Stderr` with `Console.print_error_line` or `dbg`, keeps the order (see "Relation to Console" below).
+- Before `Stderr`, `Console.print_error_line` or `dbg` writes to standard error, what has been written to standard output is handed to the host. With `2>&1` directing both to the same destination, the output is in the order written. The C `print_error_line` already writes after `fflush(stdout)`, so this puts the current behavior into the specification. JS writes synchronously to the file descriptor and has no buffer of its own, so it holds without any extra work.
+- Before `Stdin` (`std-process`) waits for input, what has been written to `Stdout` is handed to the host. Calling `read_line` right after `print("name? ")` waits for input after the prompt is visible.
+- When the program ends (in any of the ways in the table of exit codes of `[cmd.build]`), everything written so far is written out. This is the guarantee `Console` has now.
+- A write to a standard output whose reader has closed it ends the program. Writes to a closed standard error are discarded and the program continues (see "Closed pipes" below).
 
-#### Console との関係
+#### Relation to Console
 
-`Console` は `Stdout` に依存させない．`SystemConsole` が `Stdout` と `Stderr` を要求する handler になると，`with SystemConsole { ... }` だけで書いたコードが通らなくなり，stdout を持たない host で `Console` が使えなくなるため．2 つは別の約束をする．
+`Console` does not depend on `Stdout`. If `SystemConsole` were a handler that requires `Stdout` and `Stderr`, code written with only `with SystemConsole { ... }` would no longer compile, and `Console` could not be used on hosts without a standard output. The two make different promises.
 
-| | `Console` | `Stdout`，`Stderr` |
+| | `Console` | `Stdout`, `Stderr` |
 |---|---|---|
-| 意味 | 人に向けた 1 行 | プロセスの出力ストリーム |
-| 単位 | 行（必ず改行が付く） | 文字列（`print` は改行なし） |
-| 使える host | どの host でも．stdout がない host では host のログ（JS の `console.log`，`console.error`） | stdout と stderr を持つ host だけ |
-| 使う所 | ログ，診断，HTTP サービスの出力 | CLI ツールのデータ出力，プロンプト |
+| Meaning | One line for people | The output streams of the process |
+| Unit | A line (always with a line ending) | Text (`print` adds no line ending) |
+| Hosts | Every host. On a host without a standard output, the log of the host (`console.log` and `console.error` on JS) | Only hosts with a standard output and a standard error |
+| Used for | Logs, diagnostics, output of HTTP services | Data output of CLI tools, prompts |
 
-- 同じ出口に 2 つの effect で書けるので，混ぜたときの順序を保証する．`SystemConsole` と `SystemStdout`（`SystemStderr`）は，同じストリームの同じバッファを通して書く．
-  - JS: stdout を持つ host では，`SystemConsole`，`SystemStdout`，`SystemStderr`，`dbg`，runtime が書く `error:`，`defect:`，`interrupted` の行を，すべて fd に同期で書く 1 本の経路（下の `writeAll`）に通す．`console.log` と同期の書き込みを混ぜると，読み手が遅いとき Node で順序が崩れる（下の試作）ので，混ぜない．`@external` でユーザーが `console.log` を直接呼んだ出力との順序は保証しない．
-  - C: どちらも `stdout`，`stderr` の `FILE *` に書くので保たれる．
-  - WASM: runtime が持つ 1 本のストリームに書く（`[target.wasm.output]`）ので保たれる．
-- `Console` は残すので，`Stdout` を使わないプログラムには何も変わらない．
+- Two effects can write to the same destination, so the order of mixed writes is guaranteed. `SystemConsole` and `SystemStdout` (`SystemStderr`) write through the same buffer of the same stream.
+  - JS: on a host with a standard output, `SystemConsole`, `SystemStdout`, `SystemStderr`, `dbg` and the `error:`, `defect:` and `interrupted` lines that the runtime writes all go through one path that writes synchronously to the file descriptor (`writeAll` below). Mixing `console.log` with synchronous writes loses the order in Node when the reader is slow (see the prototype below), so they are not mixed. The order relative to output that the user writes by calling `console.log` directly through `@external` is not guaranteed.
+  - C: both write to the `FILE *` of `stdout` and `stderr`, so the order holds.
+  - WASM: both write to the one stream the runtime holds (`[target.wasm.output]`), so the order holds.
+- `Console` stays, so nothing changes for programs that do not use `Stdout`.
 
-#### stdout を持たない host
+#### Hosts without a standard output
 
-- JS ターゲットが前提にする host は Node と Bun だけで，どちらも `process.stdout` を持つ（`[target]`）．ブラウザはターゲットではなく，platform handler の振る舞いは決めない．Cloudflare Workers のような host 固有のものは，ターゲット固有の Pome に置く（`[ext]`）．
-- そのため，仕様の上では「stdout がない host」は JS ターゲットの外にあり，`SystemStdout` と `SystemStderr` もそこでの振る舞いを決めない（unspecified）．`Console` と違って，そこで host のログへ流すことはしない．`print` は行に区切れないので，ログに流すと出力の形が変わる．
-- コンパイル時に弾けるのはターゲット単位まで（E0412，`[lib.layers]`）．同じ JS ターゲットの中で Node と Workers を区別する手段はないので，「到達したらコンパイルエラー」にはできない．実行時に defect にする案も，host を見分ける規則を仕様に持ち込むことになるので採らない．
-- `main.mjs` の default export を HTTP サービスとして別の host に載せる使い方では，`Console` を使えばどこでも動く．`Stdout` は CLI として動かすときのもの．
+- The hosts the JS target assumes are Node and Bun, and both have `process.stdout` (`[target]`). The browser is not a target, and the behavior of the platform handlers there is not decided. Things specific to a host, such as Cloudflare Workers, belong in a target-specific Pome (`[ext]`).
+- So in the specification, a host without a standard output is outside the JS target, and the behavior of `SystemStdout` and `SystemStderr` there is not specified. Unlike `Console`, they do not fall back to the log of the host. `print` cannot be split into lines, so sending it to a log would change the shape of the output.
+- What can be rejected at compile time is limited to the target (E0412, `[lib.layers]`). Within the JS target there is no way to tell Node from Workers, so "a compile error when reached" is not possible. Making it a defect at run time would bring rules for identifying hosts into the specification, so that is not done either.
+- When the default export of `main.mjs` runs as an HTTP service on another host, `Console` works everywhere. `Stdout` is for running as a CLI.
 
-#### テスト
+#### Tests
 
-`TestStdout` と `TestStderr` は，書かれた文字列を状態の `text` の後ろに足していく．`print_line` は改行も足す．2 つが同じ `State[String]` を取り合わないように，型 `StdoutText` と `StderrText` で包む（`[effect.state]`）．
+`TestStdout` and `TestStderr` append what is written to `text` of their state. `print_line` appends the line ending as well. So that the two do not share one `State[String]`, the text is wrapped in the types `StdoutText` and `StderrText` (`[effect.state]`).
 
 ```emel
 import Main.{greet}
@@ -121,49 +121,49 @@ fn greets() {
 }
 ```
 
-- 状態を行のリストではなく文字列にしたのは，`print` があるため．`print("a")` と `print_line("b")` は 1 行 `ab` になる．行のリストにすると，最後の行が閉じているかを別に持つ必要がある．
-- `TestConsole` は変えない．
+- The state is text rather than a list of lines because of `print`. `print("a")` followed by `print_line("b")` is one line `ab`. With a list of lines, whether the last line is closed would have to be kept separately.
+- `TestConsole` does not change.
 
-#### 閉じたパイプ
+#### Closed pipes
 
-`tool | head -1` では，`head` が 1 行読んで終わると，パイプの読み口が閉じる．そのあと `tool` が書くと，書き込み先がない．
+In `tool | head -1`, once `head` has read one line and exits, the reading end of the pipe is closed. When `tool` writes after that, there is nowhere to write to.
 
-- 黙って捨てて続ける案は採らない．出力し続けるプログラム（無限に行を作るものなど）が，出力の行き先がないまま止まらなくなる．
-- 中断（`[fiber.interrupt]`）を送るだけでは足りない．中断は次の suspension point で効くが，`Stdout` は Immediate なので，書くだけのループは suspension point に来ない．
-- そこで，書き込みそのものを止める点にする．
-  1. 標準出力への書き込みが，読み手が閉じたために失敗したら，書いた fiber はその操作から戻らず，その時点から中断として巻き戻る（`[dyn.suspend]` の「その場で中断として巻き戻る」と同じ形）．release は内側から走る．
-  2. プログラムの他の fiber もすべて中断される（次の suspension point で効く）．
-  3. 以後，標準出力への書き込みは捨てる（release の中の書き込みなど）．
-  4. main の巻き戻しが終わったら，標準エラーには何も書かずに，終了コード 141 で終わる．`interrupted` の 1 行は出さない．`| head` で切るのはふつうの使い方で，毎回 1 行出るのはうるさい．141 は，いまの C ターゲットが SIGPIPE で終わるときの値（128 + 13）と同じで，シェルが「パイプを閉じられて終わった」と見分けられる．
-  5. `Console` と `dbg` の書き込みも同じ扱いにする．同じストリームに書くので，片方だけ続けても意味がない．
-  6. 閉じたのが標準エラーだけのときは，プログラムを終わらせない．以後の標準エラーへの書き込み（`Stderr`，`Console.print_error_line`，`dbg`，runtime の `error:` などの行）は捨てる．ログの出口が閉じただけで本体を止めない．
-- 操作は失敗しない（`fails` を持たない）ので，fail にはしない．`Stdout` を使う関数すべてに error を足すことになる．
-- `emela test` の中では，`TestStdout` などはパイプに書かないので起きない．`SystemStdout` で書いたときは，テストランナーの出力の扱い（`[cmd.test.output]`）による．
-- 試作（Node 22.23，Bun 1.4.4，macOS，2026-11-14）: `fs.writeSync(1, ...)` は閉じたパイプで同期に `EPIPE` を投げた（Node は 377 行目，Bun は 2 行目）．`process.stdout.write` はエラーをイベントで後から知らせるので，書くだけのループの中では気づけない．JS の `SystemStdout` は fd に同期で書く経路を使う．
+- Discarding silently and continuing is not chosen. A program that keeps writing (one that produces lines forever, for example) would never stop, with nowhere for its output to go.
+- Sending an interruption (`[fiber.interrupt]`) alone is not enough. An interruption takes effect at the next suspension point, but `Stdout` is Immediate, so a loop that only writes never reaches one.
+- So the write itself is the point where the program stops.
+  1. When a write to standard output fails because the reader has closed it, the fiber that wrote does not return from the operation, and unwinds as interrupted from that point (the form "unwinds as interrupted on the spot" of `[dyn.suspend]`). Releases run from the inside out.
+  2. Every other fiber of the program is interrupted as well (taking effect at its next suspension point).
+  3. After that, writes to standard output are discarded (writes inside releases, for example).
+  4. When the unwinding of main finishes, the program exits with exit code 141 and writes nothing to standard error. No `interrupted` line is written. Cutting output with `| head` is ordinary use, and a line every time would be noise. 141 is the value the C target exits with on SIGPIPE today (128 + 13), so a shell can tell that the program ended because its pipe was closed.
+  5. Writes of `Console` and `dbg` are treated the same way. They write to the same stream, so continuing only one of them has no use.
+  6. When only standard error is closed, the program does not end. Later writes to standard error (`Stderr`, `Console.print_error_line`, `dbg`, and lines the runtime writes such as `error:`) are discarded. Closing the exit for logs alone does not stop the program.
+- The operations do not fail (they have no `fails`), so this is not a failure. Making it one would add an error to every function that uses `Stdout`.
+- Inside `emela test`, `TestStdout` and the other test handlers do not write to a pipe, so this does not happen. What is written with `SystemStdout` follows how the test runner handles output (`[cmd.test.output]`).
+- Prototype (Node 22.23, Bun 1.4.4, macOS, 2026-11-14): `fs.writeSync(1, ...)` threw `EPIPE` synchronously on a closed pipe (at line 377 on Node, at line 2 on Bun). `process.stdout.write` reports the error later through an event, so a loop that only writes cannot notice it. The JS `SystemStdout` uses the path that writes synchronously to the file descriptor.
 
-#### ターゲットごとの実装
+#### Implementation on each target
 
 | | `SystemStdout` | `SystemStderr` |
 |---|---|---|
-| JS | fd 1 に同期で書く（`fs.writeSync`） | fd 2 に同期で書く |
-| C | `fputs` を `stdout` に | `stdout` を `fflush` してから `fputs` を `stderr` に（いまの `print_error_line` と同じ） |
-| WASM | `wasi:cli/stdout@0.3.0` の `write-via-stream` | `wasi:cli/stderr@0.3.0` の `write-via-stream` |
+| JS | Writes synchronously to file descriptor 1 (`fs.writeSync`) | Writes synchronously to file descriptor 2 |
+| C | `fputs` to `stdout` | `fflush` of `stdout`, then `fputs` to `stderr` (as `print_error_line` does now) |
+| WASM | `write-via-stream` of `wasi:cli/stdout@0.3.0` | `write-via-stream` of `wasi:cli/stderr@0.3.0` |
 
-#### 試作（Node 22.23，Bun 1.4.4，macOS，2026-11-14）
+#### Prototype (Node 22.23, Bun 1.4.4, macOS, 2026-11-14)
 
-- `console.log` と `process.stdout.write` を 1 行ずつ交互に 100,000 行書き，1,000 行ごとに `console.error` と `process.stderr.write` を交互に書いた．
-  - 標準出力をパイプに向けたとき，ファイルに向けたとき，`2>&1` で標準エラーと同じパイプに向けたとき，どれも両方の host で順序の入れ替わりは 0．標準エラーの行も，直前に書いた標準出力の行のすぐ後に並んだ．
-- 50,000 行をパイプに書いたあと，`process.exit` を標準エラーへの書き込みのコールバックで呼ぶ（launcher が defect で終わるときの形）と，両方の host で 50,000 行すべてが届いた．書き切りの保証は今の launcher のまま守れる．
-- 読み手が先に閉じたパイプ（`| head -1`）に書くと，`process.stdout.write` は `EPIPE` の例外で落ちる．`console.log` は黙って捨てる．`process.stdout.on("error", ...)` を付けると黙って捨てる形に揃う．C はいまも SIGPIPE で終わる（終了コード 141）．
-- `process.stdout` を一度でも初期化すると（`console.log` がそうする），fd 1 はノンブロッキングになる．このとき読み手が遅い（`| (sleep 1; wc -c)`）と，`fs.writeSync(1, ...)` は `EAGAIN` を投げる．13 MB 書いて Node で約 15 万回，Bun で約 76 万回．`process.stdout` を初期化しなければ 0 回．
-- `EAGAIN` のとき `Atomics.wait` で 1 ms 待ってから残りを書き直す `writeAll` にすると，両方の host で全量が届いた．CPU 時間は約 35 ms で，空回りしない．`| head -1` では `EPIPE` が同期に投げられ，Node は 83 行，Bun は 231 行書いたところで止まった．
-- 読み手が遅いときに `console.log` と `writeAll` を 1 行ずつ交互に書くと，Node では 20,000 行のうち 19,933 行の順序が崩れた（Bun は 0）．読み手が速いときは両方とも 0．`console.log` は `EAGAIN` を受けると libuv のキューに積んで後から書くので，同期の書き込みに追い越される．そのため，stdout を持つ host では runtime の書き込みをすべて `writeAll` に通す．
-- `Atomics.wait` は待つ間イベントループを止めるが，`Stdout` は Immediate で書き込みは同期なので，設計と矛盾しない．読み手が遅いと書き手が待つので，バッファも伸びない．ブラウザのメインスレッドでは `Atomics.wait` が使えないが，そこは stdout を持たない host で，振る舞いを決めない範囲．
-- `Stdout`，`Stderr`，`TestStdout`，`TestStderr` をユーザーのモジュールとして書き（JS は `process.stdout.write` を呼ぶ `@external`），`emela check`，`emela test`，`emela run` が通ることを確かめた（emela 0.27.0）．
+- Wrote 100,000 lines alternating one by one between `console.log` and `process.stdout.write`, and every 1,000 lines wrote alternately with `console.error` and `process.stderr.write`.
+  - With standard output directed to a pipe, to a file, and to the same pipe as standard error with `2>&1`, no line was out of order on either host. Each line of standard error came right after the line last written to standard output.
+- After writing 50,000 lines to a pipe, calling `process.exit` in the callback of a write to standard error (how the launcher ends on a defect) delivered all 50,000 lines on both hosts. The current launcher keeps the guarantee that everything is written out.
+- Writing to a pipe whose reader closed first (`| head -1`), `process.stdout.write` crashed with an `EPIPE` exception. `console.log` discarded silently. With `process.stdout.on("error", ...)` attached, it also discarded silently. C still ends on SIGPIPE (exit code 141).
+- Once `process.stdout` has been initialized (`console.log` does that), file descriptor 1 is non-blocking. Then, with a slow reader (`| (sleep 1; wc -c)`), `fs.writeSync(1, ...)` throws `EAGAIN`: about 150,000 times on Node and about 760,000 times on Bun for 13 MB written. Without initializing `process.stdout`, zero times.
+- With `writeAll`, which on `EAGAIN` waits 1 ms with `Atomics.wait` and writes the rest again, everything arrived on both hosts. CPU time was about 35 ms, with no busy loop. With `| head -1`, `EPIPE` was thrown synchronously, and writing stopped after 83 lines on Node and 231 lines on Bun.
+- Writing alternately one line at a time with `console.log` and `writeAll` to a slow reader, 19,933 of 20,000 lines were out of order on Node (0 on Bun). With a fast reader, 0 on both. On `EAGAIN`, `console.log` queues the write in libuv and writes later, so synchronous writes overtake it. That is why, on a host with a standard output, every write of the runtime goes through `writeAll`.
+- `Atomics.wait` blocks the event loop while it waits, which does not conflict with the design because `Stdout` is Immediate and its writes are synchronous. With a slow reader the writer waits, so no buffer grows. `Atomics.wait` is not available on the main thread of a browser, but that is a host without a standard output, where the behavior is not decided.
+- `Stdout`, `Stderr`, `TestStdout` and `TestStderr` were written as a user module (on JS, with an `@external` that calls `process.stdout.write`), and `emela check`, `emela test` and `emela run` passed (emela 0.27.0).
 
 ### Typing rules
 
-新しい規則はない．`Stdout` と `Stderr` は，ふつうのユーザー定義 effect と同じ規則で型付けされる．
+No new rules. `Stdout` and `Stderr` are typed by the same rules as any user-defined effect.
 
 ## Specification changes
 
@@ -260,38 +260,38 @@ Mark #45 as decided:
 
 ## Diagnostics
 
-- [ ] 新しい診断はない．
+- [ ] No new diagnostics.
 
 ## Compatibility
 
-- 既存のコードはそのまま動く．`Console`，`SystemConsole`，`TestConsole` は変えない．
-- `Platform` に `SystemStdout` と `SystemStderr` が入る．ユーザーが `Stdout` や `Stderr` という名前の effect を自分で宣言していても，`Std.Process` から import しなければぶつからない（`[module.resolution]`）．`with Platform, MyStdout` のように同じ effect の handler を後に並べると，後の方が使われる（8.3）．
-- `Std.Process` は `std-process` が作るモジュールなので，新しい予約名は増えない（`[lib.layers]`）．
+- Existing code keeps working. `Console`, `SystemConsole` and `TestConsole` do not change.
+- `SystemStdout` and `SystemStderr` are added to `Platform`. An effect the user declares with the name `Stdout` or `Stderr` does not conflict unless `Std.Process`'s is imported (`[module.resolution]`). When a handler of the same effect is listed after it, as in `with Platform, MyStdout`, the later one is used (8.3).
+- `Std.Process` is the module that `std-process` creates, so no new reserved name is added (`[lib.layers]`).
 
 ## Implementation
 
-- `crates/emela-core/lib/std/process.emel` に宣言を足す（`std-process` が作るファイル）．
-- JS: `std/process.mjs` に fd 1 と fd 2 へ同期で書く関数（`fs.writeSync`）を置く．`EPIPE` を受けたら runtime に知らせ，書いた fiber をその場で中断として巻き戻す．fd がノンブロッキングのとき（`process.stdout` を初期化したあとや，親プロセスがそうしたとき）の `EAGAIN` は，`Atomics.wait` で 1 ms 待って残りを書き直す（`writeAll`，試作で確かめた）．`SystemConsole`，`dbg`，runtime が書く `error:`，`defect:`，`interrupted` の行も，閉じたパイプの規則と順序の保証のため，stdout を持つ host では同じ経路に移す．stdout を持たない host では今のまま `console.log`，`console.error`．
-- C: `std/process.c` に置く．`SystemStderr` は `fflush(stdout)` してから書く．`SystemStdin` が待つ前にも `fflush(stdout)` する．runtime は起動時に SIGPIPE を無視し，`fputs` や `fflush` の `EPIPE` で閉じたパイプを知る．
-- WASM: runtime がすでに持つ stdout と stderr のストリームを使う．`print` は改行を付けない分岐を足すだけ．閉じたストリームを `write-via-stream` でどう知るかは未確認．WASM の stream の扱いは `std-process` でも範囲外にしているので，閉じたパイプの規則は WASM では実装で確かめてから合わせる．
-- `Std.Platform` の `Platform` に 2 つの handler を足す．
+- Add the declarations to `crates/emela-core/lib/std/process.emel` (the file that `std-process` creates).
+- JS: put functions that write synchronously to file descriptors 1 and 2 (`fs.writeSync`) in `std/process.mjs`. On `EPIPE`, tell the runtime, and unwind the fiber that wrote as interrupted on the spot. When the file descriptor is non-blocking (after `process.stdout` has been initialized, or when the parent process made it so), wait 1 ms with `Atomics.wait` on `EAGAIN` and write the rest again (`writeAll`, checked in the prototype). On a host with a standard output, also move `SystemConsole`, `dbg` and the `error:`, `defect:` and `interrupted` lines of the runtime to the same path, for the rule on closed pipes and the guarantee of order. On a host without a standard output, keep `console.log` and `console.error` as now.
+- C: put them in `std/process.c`. `SystemStderr` writes after `fflush(stdout)`. `SystemStdin` also calls `fflush(stdout)` before waiting. The runtime ignores SIGPIPE at startup and detects a closed pipe from `EPIPE` of `fputs` or `fflush`.
+- WASM: use the stdout and stderr streams the runtime already holds. `print` needs only a branch that adds no line ending. How `write-via-stream` reports a closed stream has not been checked. Streams on WASM are also out of scope in `std-process`, so the rule on closed pipes is matched on WASM after checking it in the implementation.
+- Add the two handlers to `Platform` of `Std.Platform`.
 
 ## Alternatives
 
-### `Stdout` を足さず，`Console` に `print` と `print_error` を足す
+### Add `print` and `print_error` to `Console` instead of adding `Stdout`
 
-- 出口が 1 つの effect にまとまり，2 つの effect で同じ出口に書く状態が生まれない．
-- `Console` を実装したユーザー定義の handler がすべて壊れる（E0404）．
-- 標準出力と標準エラーを別々に要求したり差し替えたりできない問題は残る．
-- `Console` が「どの host でも動く行の出力」でなくなる．`print` は stdout のない host で host のログに流せない．
+- There is one effect per destination, so two effects never write to the same destination.
+- Every user-defined handler of `Console` breaks (E0404).
+- Standard output and standard error still cannot be required or replaced separately.
+- `Console` would no longer be "line output that works on every host". `print` cannot go to the log of a host without a standard output.
 
-### `Console` を `Stdout` と `Stderr` で置き換える
+### Replace `Console` with `Stdout` and `Stderr`
 
-- 出口ごとに effect が 1 つになり，2 つの effect で同じ出口に書く状態が生まれない．
-- `Console` はほぼすべての `main` で使われているので，すべてのプログラムを書き換えることになる．
-- `Console` の「人に向けた 1 行」という意味と，stdout を持たない host でも使えることが失われる．作者はこの案を採らず，`Console` を残すと決めた．
+- There is one effect per destination, so two effects never write to the same destination.
+- `Console` is used in almost every `main`, so every program would have to be rewritten.
+- The meaning of `Console`, one line for people, and its use on hosts without a standard output would be lost. The author did not take this and decided to keep `Console`.
 
-### 1 つの effect `Output` と，その label `Stdout`，`Stderr`
+### One effect `Output`, with the labels `Stdout` and `Stderr`
 
 ```emel
 pub effect Output {
@@ -304,34 +304,34 @@ pub effect Stdout of Output
 pub effect Stderr of Output
 ```
 
-- 出力先を受け取る関数を 1 つ書けば，標準出力にも標準エラーにも，ユーザーの書いたファイル出力にも向けられる（`Stdout by FileOutput`）．
-- label には handler を書けない（E0433）．`SystemOutput` はどちらのストリームに書くかを知らないので，`Stdout by SystemOutput(1)` のように handler の引数で渡すことになる．`Platform` の中身が複雑になり，`SystemOutput(2)` を `Stdout` に差し込む誤りも書けてしまう．
-- テスト用 handler も 1 つになるが，2 つの label に同じ `TestOutput` を差すと同じ `State` を取り合う．
-- 別々の effect にしても，ユーザーは `effect AuditLog of Stderr` のように label を作れる．共通の `Output` は後から足せる．
+- One function that takes an output can be directed to standard output, to standard error, or to a file output the user writes (`Stdout by FileOutput`).
+- A label cannot have a handler written for it (E0433). `SystemOutput` does not know which stream to write to, so the stream would be passed as an argument of the handler, as in `Stdout by SystemOutput(1)`. The contents of `Platform` become complicated, and the mistake of putting `SystemOutput(2)` into `Stdout` can be written.
+- There would be one test handler too, but putting the same `TestOutput` into both labels makes them share one `State`.
+- With separate effects, the user can still make a label such as `effect AuditLog of Stderr`. A common `Output` can be added later.
 
-### 書き込みを `suspend fn` にする
+### Make writes `suspend fn`
 
-- パイプの相手が読まないときに書き手を待たせられる（背圧）．
-- `Stdout` を使う関数がすべて Async を要求するようになり，Immediate が要る所（`[effect.async]`）で出力できなくなる．
-- JS は同期で書き，`EAGAIN` のときはその場で待つ．C の `stdio` もバッファが一杯なら書き込みで待つ．どちらも書き手を止めて背圧をかけられるので，`Console` と同じく Immediate にする．待つ間は他の fiber も止まる．
+- The writer could be made to wait when the other end of the pipe does not read (backpressure).
+- Every function that uses `Stdout` would require Async, and output would be impossible where Immediate is required (`[effect.async]`).
+- JS writes synchronously and waits on the spot on `EAGAIN`. C `stdio` also waits in the write when its buffer is full. Both stop the writer and apply backpressure, so the operations are Immediate, as in `Console`. Other fibers also stop while it waits.
 
-### 閉じたパイプで終わらせ方を変える案
+### Other ways to end on a closed pipe
 
-- 黙って捨てて続ける．出力し続けるプログラムが止まらなくなるので採らない．
-- 終了コードを 0 にする．`head` で切るのはふつうの使い方とみなす案．ただし，本当に出力を書き切れなかったことを利用者が終了コードで確かめられなくなる．141 は，いまの C が SIGPIPE で終わるときの値（128 + 13）と同じで，`set -o pipefail` を使う利用者が選んで扱える．
-- 終了コードを 130 にする（中断と同じ）．Ctrl-C で止めた場合と見分けられなくなる．
-- `interrupted` の 1 行を出す．`| head` で切るたびに 1 行出てうるさい．
-- release を走らせず，その場でプロセスを止める．単純だが，release が走らない．ほかの中断と揃えて巻き戻す．
-- `Console` と `dbg` には当てない．同じストリームに書くので，片方だけ続けても意味がない．
-- 標準エラーが閉じたときも終わらせる．ログの出口が閉じただけで本体が止まるのは困るので，捨てて続ける．
+- Discard silently and continue. A program that keeps writing would never stop, so this is not taken.
+- Exit with exit code 0, treating cutting with `head` as ordinary use. But then the user cannot check from the exit code that the output really could not be written out. 141 is the value the C target exits with on SIGPIPE today (128 + 13), and a user of `set -o pipefail` can choose how to handle it.
+- Exit with exit code 130 (as for an interruption). It could not be told apart from stopping with Ctrl-C.
+- Write the `interrupted` line. A line every time output is cut with `| head` is noise.
+- Stop the process on the spot without running releases. Simple, but releases do not run. It unwinds as other interruptions do.
+- Not apply it to `Console` and `dbg`. They write to the same stream, so continuing only one of them has no use.
+- End the program when standard error is closed too. Stopping the program only because the exit for logs closed is a problem, so writes are discarded and the program continues.
 
 ## Prior art
 
-- プロセスに 3 つの標準ストリーム（入力，出力，エラー）を渡し，それぞれ別のハンドルとして扱う形は，POSIX のファイル記述子 0，1，2 と，WASI 0.3 の `wasi:cli/stdin`，`wasi:cli/stdout`，`wasi:cli/stderr` インターフェースに見られる．WASI は 3 つを別々のインターフェースにしており，コンポーネントは使うものだけを import する．
-- 書き込める出口を effect の型で分けると，型シグネチャからどのストリームに書くかが読める．能力ベースの I/O（capability-based I/O）の一例．
+- Giving a process three standard streams (input, output and error), each handled as a separate handle, is found in the file descriptors 0, 1 and 2 of POSIX and in the `wasi:cli/stdin`, `wasi:cli/stdout` and `wasi:cli/stderr` interfaces of WASI 0.3. WASI makes the three separate interfaces, and a component imports only the ones it uses.
+- Separating the destinations that can be written to by the type of an effect lets a type signature tell which stream a function writes to. It is an instance of capability-based I/O.
 
 ## Open questions
 
-なし．
+None.
 
 ## Decision
