@@ -132,8 +132,9 @@ effect_item = type_ref [ "[" type { "," type } "]" ] | upper_name   (* an effect
 
 ```ebnf
 block      = "{" { stmt NL } "}"
-stmt       = binding | expr
+stmt       = binding | local_fn | expr
 binding    = pattern [ ":" type ] "=" expr
+local_fn   = "fn" lower_name "(" [ params ] ")" [ signature ] block
 
 expr       = "fail" expr
            | "assert" expr
@@ -172,10 +173,13 @@ lambda_param = pattern [ ":" type ]
 ```
 
 - The body of a lambda is an `expr`, so it extends as far to the right as possible. A lambda is never followed by anything in the same expression; to call it or apply an operator to it, it is enclosed in parentheses.
+- A statement that starts with `fn` followed by a lower_name is a local_fn (6.9). `fn` followed by `(` in an expression is a compile error (E0148).
+- Type parameters, attributes, `pub` and `suspend` on a local_fn are a compile error (E0150).
+- A doc comment can come before a local_fn on its own lines (2.2).
 - Inside the parameter list of a lambda, a `|` at bracket depth zero closes the list, and the `error_set` of a function type there has one item. Two or more items are written inside parentheses (`"(" type ")"`).
 - `||` in operand position is a lambda without parameters; after an operand it is the operator of `or_expr`.
 
-- When the last statement of a block is an expression, its value is the value of the block. When the last statement is a binding, the value of the block is `()`.
+- When the last statement of a block is an expression, its value is the value of the block. When the last statement is a binding, the value of the block is `()`. The last statement cannot be a local_fn (E0151).
 - Whether a statement is a binding or an expression is decided by whether a sequence that reads as a pattern is immediately followed by `=` or `:`.
 - To call an operation of `use X` in place, wrap it in parentheses: `(use X).op(...)`. Writing `.` or `(` directly after `use X` is a compile error (E0121).
 - In an argument list, a positional argument cannot follow a named argument.

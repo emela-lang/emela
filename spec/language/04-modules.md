@@ -114,6 +114,7 @@ The names in a module are split into three namespaces (types, constructors, and 
 - Immediate (9.5) and Async (8.7) are visible without an import.
 - The modules of the bundled core go into the same table as the source modules and are always read, even in single-file mode. Being writable on the left of `.` without an import, and resolving a name in a type position to a core type, apply only to core modules whose name has a single segment.
 - Binding the same name twice in one pattern or one parameter list is a compile error (E0220). In a binding, the right-hand side is resolved first, and then the names of the pattern are added.
+- A local fn binds its name in the value namespace from the declaration to the end of its block, and inside its own body. Inside the block it hides a top-level fn, a const or an import of the same name. A type name in a local fn is resolved in the scope of the enclosing declaration, including its type parameters.
 - `self` is visible inside the operations and the release of a handler. It is not visible inside init (because init is the side that creates the handler value). A handler with fields has a constructor with the same name, and init can write `PostgresUsers(conn: ...)`.
 - The top-level constructor pattern of an escape arm is limited to errors (E0217). `_` is allowed (7.3). A variable passes name resolution but is a compile error in type checking (E0320, 7.3).
 - If a name in an import list is not found, it is E0212. If it is found but none of the definitions are pub, it is E0214.
