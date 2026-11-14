@@ -62,7 +62,7 @@ bound        = type_ref
 
 type_decl    = "type" type_name [ type_params ] [ "(" [ fields ] ")" ] [ derive ]
 enum_decl    = "enum" type_name [ type_params ] "{" variant { sep variant } "}" [ derive ]
-variant      = type_name [ "(" ( fields | type { "," type } ) ")" ]
+variant      = { annotation } type_name [ "(" ( fields | type { "," type } ) ")" ]
 error_decl   = "error" type_name [ "(" [ fields ] ")" ] [ derive ]
 fields       = field { "," field }
 field        = { annotation } lower_name ":" type
