@@ -50,6 +50,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
+    # Git Bash on Windows, so the same steps run on every runner.
+    defaults:
+      run:
+        shell: bash
     strategy:
       matrix:
         include:
@@ -57,6 +61,8 @@ jobs:
             os: ubuntu-latest
           - target: aarch64-apple-darwin
             os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
     steps:
@@ -91,21 +97,29 @@ jobs:
             exit 1
           fi
 
-      # Same naming as release-plz.yml; install.sh fetches emela-<tag>-<target>.tar.gz.
-      - name: Package tarball
+      # Same naming as release-plz.yml: a tarball on Linux and macOS, which install.sh fetches as
+      # emela-<tag>-<target>.tar.gz, and a zip with `emela.exe` on Windows.
+      - name: Package
         run: |
+          name="emela-$TAG-${{ matrix.target }}"
           mkdir -p package
-          cp target/${{ matrix.target }}/release/emela package/
           cp LICENSE package/
           cp crates/emela-codegen-wasm/data/unicode/17.0.0/LICENSE.txt package/LICENSE-UNICODE
-          tar czf "emela-$TAG-${{ matrix.target }}.tar.gz" \
-            -C package emela LICENSE LICENSE-UNICODE
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp target/${{ matrix.target }}/release/emela.exe package/
+            (cd package && 7z a -tzip "../$name.zip" emela.exe LICENSE LICENSE-UNICODE)
+          else
+            cp target/${{ matrix.target }}/release/emela package/
+            tar czf "$name.tar.gz" -C package emela LICENSE LICENSE-UNICODE
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: emela-${{ matrix.target }}
-          path: emela-*.tar.gz
+          path: |
+            emela-*.tar.gz
+            emela-*.zip
           if-no-files-found: error
 
   publish:
@@ -130,8 +144,8 @@ jobs:
       - name: Create prerelease and upload tarballs
         run: |
           if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release upload "$TAG" ./emela-*.tar.gz --clobber
+            gh release upload "$TAG" ./emela-*.tar.gz ./emela-*.zip --clobber
           else
-            gh release create "$TAG" ./emela-*.tar.gz \
+            gh release create "$TAG" ./emela-*.tar.gz ./emela-*.zip \
               --prerelease --verify-tag --generate-notes --title "$TAG"
           fi
