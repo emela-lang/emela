@@ -106,16 +106,9 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
 
 // ---- when the module is needed ----
 
-/// Whether the program reaches a Float builtin that this module implements.
+/// Whether reachable code reaches a Float builtin that this module implements.
 pub(super) fn used(b: &Builder) -> bool {
-    b.m.functions.iter().any(|(_, f)| {
-        f.stmts.iter().any(|(_, s)| {
-            matches!(
-                s,
-                Stmt::Let { value: Value::Builtin { op, .. }, .. } if implemented(*op)
-            )
-        })
-    })
+    b.reaches_builtin(implemented)
 }
 
 fn implemented(op: Builtin) -> bool {
