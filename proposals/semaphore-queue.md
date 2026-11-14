@@ -1,10 +1,10 @@
 ---
 title: Semaphore and Queue
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 515
 issue:
-decided:
+decided: 2026-11-15
 touches: [lib.layers, fiber.scope, fiber.escape, fiber.semaphore (new), fiber.queue (new), api.std.fiber, api.std.semaphore (new), api.std.queue (new), dyn.memory, diag.list, open.next]
 requires: [each]
 related: []
@@ -358,3 +358,5 @@ The path is the one Deferred takes.
 ## Open questions
 
 ## Decision
+
+A Deferred is filled once, so fibers had no way to pass a sequence of values, and nothing limited how many of them run at once. Writing a limit by hand with State and Deferreds loses the permit of a fiber interrupted while it waits, and puts a Deferred in State. Semaphore and Queue are made by Scope, as Deferred is, so they belong to the scope that made them and E0425 and the run-time checks cover them. A Semaphore is used only through `with_permits`, which gives the permits back however `f` ends; `acquire` and `release` are left out because Emela has no other construct that runs code however a computation ends, and they can be added later. Waiting fibers are served strictly first-in first-out, so a fiber that asks for many permits is never starved by smaller requests, and `try_with_permits` does not go ahead of the line. The n-permit forms are kept for limits by weight. A Queue always has a capacity, so a fast producer cannot grow memory without bound. Closing it lets the consumer take the values left and then end on `QueueClosed`, an error rather than an absence. There is no `is_closed`, since its answer can change before the next call, as with `available`. A fiber of another scope still waiting when the scope ends stops with the same defect as any use after the scope ended.
