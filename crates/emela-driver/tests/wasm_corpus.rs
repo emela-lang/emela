@@ -1,4 +1,4 @@
-//! The C target's acceptance corpus (`crates/emela-codegen-c/tests/programs`) run on the WASM
+//! The native target's acceptance corpus (`crates/emela-codegen-c/tests/programs`) run on the WASM
 //! target.
 //!
 //! Each `NAME.emel` has `NAME.expected`, the exit code, stdout and stderr of the JS target. The
@@ -46,7 +46,7 @@ const SKIPPED: &[Skipped] = &[
     Skipped {
         feature: "custom sleep host and fiber",
         reason: "the program's `sleep` has no WASM host, and its races need fibers",
-        expected_failures: &["has no `@external` for target `wasm`"],
+        expected_failures: &["has no `@external(wasm, ...)` for target `wasm`"],
         programs: &["suspend_external"],
     },
 ];

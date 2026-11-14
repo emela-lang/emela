@@ -40,6 +40,17 @@ pub(crate) fn add(
         if let Some(emela) = &pome.emela {
             diagnostics.extend(check_compiler_version(pome, emela, &manifest));
         }
+        // `[target.native]`: the deprecated build target `c` in the Pome's `[pome].targets`.
+        if pome
+            .targets
+            .iter()
+            .flatten()
+            .any(|t| t == Target::DEPRECATED_NATIVE)
+        {
+            diagnostics.push(
+                crate::target::deprecated_target_warning().at(Location::Path(manifest.clone())),
+            );
+        }
     }
 
     for allowed in &dependencies.allow_external {
@@ -253,7 +264,12 @@ pub fn check_dependency_targets(dependencies: &Dependencies, target: Target) -> 
         let Some(targets) = &pome.targets else {
             continue;
         };
-        if targets.iter().any(|t| t == target.name()) {
+        // The deprecated name `c` reads as `native` (`[target.native]`).
+        let targets: Vec<&str> = targets
+            .iter()
+            .map(|t| Target::parse(t).map_or(t.as_str(), |known| known.name()))
+            .collect();
+        if targets.contains(&target.name()) {
             continue;
         }
         let required_by = if dependencies.project.iter().any(|r| r.pome == i) {

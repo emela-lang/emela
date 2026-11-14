@@ -63,7 +63,7 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Vec<String>>
             &options,
             |_, _| {},
         ),
-        Target::C => {
+        Target::Native => {
             let (cc, flags) = cc_command();
             let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
             let mut backend = CoreC::with_cc(cc, &flags);
@@ -94,7 +94,7 @@ fn compare(name: &str, src: &str) -> Option<Outcome> {
     let (cc, _) = cc_command();
     let tools = [
         (Target::Js, js_host_program()),
-        (Target::C, cc),
+        (Target::Native, cc),
         (Target::Wasm, wasmtime_program()),
     ];
     for (target, program) in &tools {

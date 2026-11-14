@@ -370,7 +370,7 @@ em_ref em_string_split(em_ref s, em_ref sep) {
          * among the builtins that may raise one). */
         em_raise_cstr(
             "`String.split` with an empty separator on non-ASCII text needs the Unicode grapheme "
-            "cluster tables, which target `c` does not support yet");
+            "cluster tables, which target `native` does not support yet");
         return NULL;
       }
     }
@@ -3937,7 +3937,7 @@ int32_t em_arg_count(void) { return em_argc > INT32_MAX ? INT32_MAX : (int32_t)e
 
 const char *em_arg_at(int32_t i) { return i >= 0 && i < em_argc ? em_argv[i] : ""; }
 
-/* ---- Exported functions (`[target.c.export]`) ---- */
+/* ---- Exported functions (`[target.native.export]`) ---- */
 
 void em_export_enter(const char *function) {
   /* `em_root_cur` is the running launch: the mark that Emela code is running on this thread. */

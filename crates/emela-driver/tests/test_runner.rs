@@ -1199,7 +1199,7 @@ fn run_on(
             |_| {},
             &mut out,
         ),
-        Target::C => {
+        Target::Native => {
             let (cc, flags) = cc_command();
             if !starts(&cc, &flags) {
                 return None;
@@ -1251,7 +1251,7 @@ fn run_everywhere_with(
     reporter: Reporter,
 ) -> (String, Vec<(String, Option<String>)>) {
     let mut first: Option<(String, Vec<_>)> = None;
-    for target in [Target::Js, Target::C, Target::Wasm] {
+    for target in [Target::Js, Target::Native, Target::Wasm] {
         let Some((analysis, report, out)) = run_on(name, fs, input, target, reporter) else {
             continue;
         };

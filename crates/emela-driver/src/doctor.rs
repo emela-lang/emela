@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::Target;
+use crate::c::CC_ARGS_ENV;
 use emela_pome::fetch::config::{Config, Source};
 
 pub(crate) struct Version {
@@ -43,6 +44,9 @@ struct ProgramCheck {
     version: Option<String>,
     message: Option<String>,
     help: Option<String>,
+    /// The value of `EMELA_CC_ARGS` for the C compiler when it is set, shown on a line of its own
+    /// (`[cmd.doctor]`).
+    args: Option<String>,
 }
 
 struct Spec {
@@ -329,6 +333,7 @@ fn check(spec: &Spec, env: &dyn Fn(&str) -> Option<OsString>) -> ProgramCheck {
         version,
         message,
         help,
+        args: None,
     }
 }
 
@@ -366,18 +371,107 @@ fn wasmtime_spec(env: &dyn Fn(&str) -> Option<OsString>) -> Spec {
 }
 
 fn cc_spec(env: &dyn Fn(&str) -> Option<OsString>) -> Spec {
+    let program = crate::c::cc_command_in(env).0;
     Spec {
         name: "cc".to_owned(),
-        who: "target `c`",
-        program: crate::c::cc_command_in(env).0,
+        who: "target `native`",
+        program: program.clone(),
         probe: Probe::VersionFlag {
             parse: cc_version,
             min_major: None,
         },
         needs: "a C compiler".into(),
-        missing_help: Some(crate::c::cc_missing_help()),
+        missing_help: Some(crate::c::cc_unavailable_help(&program)),
         too_old_help: None,
     }
+}
+
+/// The second step of the check of the C compiler (`[cmd.doctor]`): once it starts, it compiles
+/// and links [`cc_probe`] in a temporary directory with the command of a build, including
+/// `EMELA_CC_ARGS`. The executable is not started. Also records `EMELA_CC_ARGS` when it is set.
+fn check_cc_links(p: &mut ProgramCheck, env: &dyn Fn(&str) -> Option<OsString>) {
+    p.args = env(CC_ARGS_ENV)
+        .map(|v| v.to_string_lossy().into_owned())
+        .filter(|v| !v.trim().is_empty());
+    if p.status != Status::Ok {
+        return;
+    }
+    let (_, args) = crate::c::cc_command_in(env);
+    let Some(failure) = compile_probe(&p.executable, &args) else {
+        return;
+    };
+    p.status = Status::Failed;
+    p.message = Some(format!(
+        "target `native` needs a C compiler that compiles and links against the C library, but `{}` failed: {failure}",
+        p.executable.display()
+    ));
+    p.help = Some(
+        "install the C headers and the C library of the system, or set EMELA_CC to another compiler"
+            .to_owned(),
+    );
+}
+
+/// Compiles and links [`cc_probe`] with `cc` and `args` in a new temporary directory, which is
+/// removed afterwards. `None` when it succeeds; otherwise the first line of the standard error
+/// that reports an error (the first line that is not blank when none says `error`).
+fn compile_probe(cc: &Path, args: &[String]) -> Option<String> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let dir = std::env::temp_dir().join(format!("emela-doctor-{}-{nanos}", std::process::id()));
+    let result = (|| {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join(PROBE_FILE), cc_probe()).map_err(|e| e.to_string())?;
+        let output = crate::c::cc_invocation(cc, args, &dir, &[PathBuf::from(PROBE_FILE)])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let lines = || stderr.lines().map(str::trim).filter(|l| !l.is_empty());
+        Err(lines()
+            .find(|l| l.to_ascii_lowercase().contains("error"))
+            .or_else(|| lines().next())
+            .map_or_else(|| output.status.to_string(), str::to_owned))
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    result.err()
+}
+
+const PROBE_FILE: &str = "probe.c";
+
+/// The program the check of the C compiler compiles: the feature test macros of the runtime, and
+/// every system header that the runtime includes (read from its sources, so that the two stay
+/// the same), with a `main` that needs the math library and threads at link time.
+fn cc_probe() -> String {
+    let mut text = String::from(
+        "#define _POSIX_C_SOURCE 200809L\n#if defined(__APPLE__)\n#define _DARWIN_C_SOURCE\n#endif\n",
+    );
+    for line in runtime_headers() {
+        writeln!(text, "{line}").unwrap();
+    }
+    text.push_str(
+        "#include <math.h>\n#include <pthread.h>\n\nint main(void) {\n    pthread_t self = pthread_self();\n    (void)self;\n    return (int)floor(0.5);\n}\n",
+    );
+    text
+}
+
+/// The `#include <...>` lines of the runtime's sources, each once, in order.
+fn runtime_headers() -> Vec<&'static str> {
+    let mut lines: Vec<&'static str> = Vec::new();
+    for source in [
+        emela_codegen_c::EMELA_H,
+        emela_codegen_c::RUNTIME_H,
+        emela_codegen_c::RUNTIME_C,
+    ] {
+        for line in source.lines().map(str::trim) {
+            if line.starts_with("#include <") && !lines.contains(&line) {
+                lines.push(line);
+            }
+        }
+    }
+    lines
 }
 
 fn git_spec() -> Spec {
@@ -439,15 +533,24 @@ fn mask_userinfo(url: &str) -> String {
 fn report(required: Option<Target>, env: &dyn Fn(&str) -> Option<OsString>) -> Report {
     let specs: [(Target, Vec<Spec>); 3] = [
         (Target::Js, vec![js_host_spec(env)]),
-        (Target::C, vec![cc_spec(env)]),
+        (Target::Native, vec![cc_spec(env)]),
         (Target::Wasm, vec![wasmtime_spec(env)]),
     ];
     let targets = specs
         .into_iter()
-        .map(|(target, spec)| TargetReport {
-            target,
-            required: required == Some(target),
-            programs: spec.iter().map(|spec| check(spec, env)).collect(),
+        .map(|(target, spec)| {
+            let mut programs: Vec<ProgramCheck> =
+                spec.iter().map(|spec| check(spec, env)).collect();
+            if target == Target::Native {
+                for p in &mut programs {
+                    check_cc_links(p, env);
+                }
+            }
+            TargetReport {
+                target,
+                required: required == Some(target),
+                programs,
+            }
         })
         .collect();
 
@@ -504,6 +607,21 @@ fn heading(out: &mut String, color: bool, name: &str, required: bool) {
 
 /// The line of one program, and the line of its help when it fails.
 fn program(out: &mut String, color: bool, p: &ProgramCheck) {
+    program_result(out, color, p);
+    if let Some(args) = &p.args {
+        // A setting, not a result, so the label is not colored.
+        item(
+            out,
+            false,
+            "",
+            None,
+            "args",
+            &format!("{args} ({CC_ARGS_ENV})"),
+        );
+    }
+}
+
+fn program_result(out: &mut String, color: bool, p: &ProgramCheck) {
     match &p.message {
         None => {
             let version = p
@@ -850,7 +968,8 @@ mod process_tests {
         let env = vars(&[
             ("EMELA_JS_HOST", "/opt/bun/bin/bun"),
             ("EMELA_WASMTIME", "/opt/wasmtime/wasmtime"),
-            ("EMELA_CC", "clang -fsanitize=address"),
+            ("EMELA_CC", "/opt/my tools/clang"),
+            ("EMELA_CC_ARGS", " -std=c23  -lsqlite3 "),
         ]);
         assert_eq!(
             crate::js_host::js_host_in(&env).program,
@@ -860,11 +979,13 @@ mod process_tests {
             crate::run::wasmtime_program_in(&env),
             PathBuf::from("/opt/wasmtime/wasmtime")
         );
+        // `[target.native.cc]`: `EMELA_CC` is one program, not split at whitespace;
+        // `EMELA_CC_ARGS` is split.
         assert_eq!(
             crate::c::cc_command_in(&env),
             (
-                PathBuf::from("clang"),
-                vec!["-fsanitize=address".to_owned()]
+                PathBuf::from("/opt/my tools/clang"),
+                vec!["-std=c23".to_owned(), "-lsqlite3".to_owned()]
             )
         );
     }
@@ -1069,20 +1190,35 @@ mod process_tests {
         assert_eq!(check.help, None);
     }
 
+    /// A C compiler that reports its version, and otherwise records its arguments in `args.txt`
+    /// and runs `compile` (a shell command) in the directory of the build.
+    fn fake_cc(dir: &Path, compile: &str) -> PathBuf {
+        let log = dir.join("args.txt");
+        fake(
+            dir,
+            "clang",
+            &format!(
+                "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'Apple clang version 17.0.0 (clang-1700)'; echo 'Target: arm64'; exit 0; fi\nprintf '%s\\n' \"$@\" > '{}'\n{compile}\n",
+                log.display()
+            ),
+            0o755,
+        )
+    }
+
+    /// The check of the native target: the first step, and then [`check_cc_links`].
+    fn check_native(env: &dyn Fn(&str) -> Option<OsString>) -> ProgramCheck {
+        let mut p = check(&cc_spec(env), env);
+        check_cc_links(&mut p, env);
+        p
+    }
+
     #[test]
     fn a_c_compiler_from_emela_cc() {
-        // Only the program of `EMELA_CC` is started; its flags are not passed to `--version`.
         let dir = tempfile::tempdir().unwrap();
-        let cc = fake(
-            dir.path(),
-            "clang",
-            "#!/bin/sh\n[ \"$1\" = --version ] || exit 1\necho 'Apple clang version 17.0.0 (clang-1700)'\necho 'Target: arm64'\n",
-            0o755,
-        );
+        let cc = fake_cc(dir.path(), "touch main");
         let empty = tempfile::tempdir().unwrap();
-        let program = format!("{} -fsanitize=address", cc.display());
-        let env = on_path(empty.path(), &[("EMELA_CC", &program)]);
-        let check = check(&cc_spec(&env), &env);
+        let env = on_path(empty.path(), &[("EMELA_CC", cc.to_str().unwrap())]);
+        let check = check_native(&env);
         assert_eq!(check.name, "cc");
         assert_eq!(check.status, Status::Ok);
         assert_eq!(check.executable, cc);
@@ -1090,20 +1226,111 @@ mod process_tests {
             check.version.as_deref(),
             Some("Apple clang version 17.0.0 (clang-1700)")
         );
+        assert_eq!(check.args, None);
+    }
+
+    /// `[cmd.doctor]`: the C compiler compiles and links a program that includes the headers of
+    /// the runtime, with the command line of a build and `EMELA_CC_ARGS` at the end. The
+    /// temporary directory is removed afterwards.
+    #[test]
+    fn the_c_compiler_compiles_and_links_a_program() {
+        let dir = tempfile::tempdir().unwrap();
+        let copy = dir.path().join("probe-copy.c");
+        let cc = fake_cc(
+            dir.path(),
+            &format!(
+                "cp probe.c '{}'; pwd > '{}'",
+                copy.display(),
+                dir.path().join("pwd.txt").display()
+            ),
+        );
+        let empty = tempfile::tempdir().unwrap();
+        let env = on_path(
+            empty.path(),
+            &[
+                ("EMELA_CC", cc.to_str().unwrap()),
+                ("EMELA_CC_ARGS", "-std=c23 -lsqlite3"),
+            ],
+        );
+        let check = check_native(&env);
+        assert_eq!(check.status, Status::Ok);
+        assert_eq!(check.args.as_deref(), Some("-std=c23 -lsqlite3"));
+        let args = std::fs::read_to_string(dir.path().join("args.txt")).unwrap();
+        let args: Vec<&str> = args.lines().collect();
+        assert_eq!(
+            &args[args.len() - 4..],
+            ["probe.c", "-lm", "-std=c23", "-lsqlite3"]
+        );
+        assert!(
+            args.contains(&"probe.c") && args.contains(&"-std=c11"),
+            "{args:?}"
+        );
+        let probe = std::fs::read_to_string(&copy).unwrap();
+        for header in [
+            "<stdio.h>",
+            "<pthread.h>",
+            "<poll.h>",
+            "<math.h>",
+            "<stdint.h>",
+        ] {
+            assert!(probe.contains(&format!("#include {header}")), "{probe}");
+        }
+        let build_dir = std::fs::read_to_string(dir.path().join("pwd.txt")).unwrap();
+        assert!(!Path::new(build_dir.trim()).exists(), "{build_dir}");
+    }
+
+    #[test]
+    fn a_c_compiler_that_cannot_compile_against_the_c_library() {
+        let dir = tempfile::tempdir().unwrap();
+        let cc = fake_cc(
+            dir.path(),
+            "echo 'In file included from probe.c:5:' >&2; echo \"probe.c:5:10: fatal error: 'stdio.h' file not found\" >&2; echo '1 error generated.' >&2; exit 1",
+        );
+        let empty = tempfile::tempdir().unwrap();
+        let env = on_path(empty.path(), &[("EMELA_CC", cc.to_str().unwrap())]);
+        let check = check_native(&env);
+        assert_eq!(check.status, Status::Failed);
+        assert_eq!(
+            check.message.unwrap(),
+            format!(
+                "target `native` needs a C compiler that compiles and links against the C library, but `{}` failed: probe.c:5:10: fatal error: 'stdio.h' file not found",
+                cc.display()
+            )
+        );
+        assert_eq!(
+            check.help.as_deref(),
+            Some(
+                "install the C headers and the C library of the system, or set EMELA_CC to another compiler"
+            )
+        );
+    }
+
+    /// `[target.native.cc]`: a value of `EMELA_CC` with whitespace names one program, so it is
+    /// not found, and the help is that of E0907 for it.
+    #[test]
+    fn a_c_compiler_with_flags_in_emela_cc() {
+        let empty = tempfile::tempdir().unwrap();
+        let env = on_path(empty.path(), &[("EMELA_CC", "clang -fsanitize=address")]);
+        let check = check_native(&env);
+        assert_eq!(check.status, Status::Missing);
+        assert_eq!(
+            check.help.as_deref(),
+            Some("EMELA_CC names only the compiler; pass flags in EMELA_CC_ARGS")
+        );
     }
 
     #[test]
     fn a_missing_c_compiler() {
         let empty = tempfile::tempdir().unwrap();
         let env = on_path(empty.path(), &[]);
-        let check = check(&cc_spec(&env), &env);
+        let check = check_native(&env);
         assert_eq!(check.status, Status::Missing);
         assert_eq!(check.executable, PathBuf::from("cc"));
         assert_eq!(
             check.message.as_deref(),
-            Some("target `c` needs a C compiler, but `cc` is not on PATH")
+            Some("target `native` needs a C compiler, but `cc` is not on PATH")
         );
-        // The note of E0907.
+        // The help of E0907.
         assert_eq!(
             check.help.as_deref(),
             Some(
@@ -1267,7 +1494,7 @@ mod process_tests {
             targets(&report),
             [
                 (Target::Js, false),
-                (Target::C, false),
+                (Target::Native, false),
                 (Target::Wasm, false)
             ]
         );
@@ -1281,7 +1508,7 @@ mod process_tests {
             targets(&report),
             [
                 (Target::Js, false),
-                (Target::C, false),
+                (Target::Native, false),
                 (Target::Wasm, true)
             ]
         );
@@ -1398,8 +1625,8 @@ mod process_tests {
         js
           missing  target `js` needs Node 22 or later or Bun 1.4.3 or later, but `node` is not on PATH
                    install Node.js 22 or later or Bun 1.4.3 or later and add it to PATH, or set EMELA_JS_HOST to the JS host
-        c
-          missing  target `c` needs a C compiler, but `cc` is not on PATH
+        native
+          missing  target `native` needs a C compiler, but `cc` is not on PATH
                    install a C11 compiler and add it to PATH as `cc`, or set EMELA_CC to the compiler
         wasm (required)
           missing  target `wasm` needs wasmtime 49 or later, but `wasmtime` is not on PATH
@@ -1413,6 +1640,27 @@ mod process_tests {
         ");
     }
 
+    /// `[cmd.doctor]`: when `EMELA_CC_ARGS` is set, the line of the C compiler is followed by a
+    /// line with its value.
+    #[test]
+    fn emela_cc_args_is_shown_under_the_c_compiler() {
+        let p = ProgramCheck {
+            name: "cc".to_owned(),
+            status: Status::Ok,
+            executable: PathBuf::from("/usr/bin/cc"),
+            version: Some("cc 14".to_owned()),
+            message: None,
+            help: None,
+            args: Some("-std=c23 -lsqlite3".to_owned()),
+        };
+        let mut out = String::new();
+        program(&mut out, false, &p);
+        insta::assert_snapshot!(out, @r"
+          ok       cc cc 14 (/usr/bin/cc)
+          args     -std=c23 -lsqlite3 (EMELA_CC_ARGS)
+        ");
+    }
+
     #[test]
     fn text_when_some_are_installed() {
         let text = some_installed(|report| render_text(report, EMELA, false));
@@ -1421,7 +1669,7 @@ mod process_tests {
 
         js (required)
           ok       node 24.11.0 ([DIR]/node)
-        c
+        native
           ok       cc Apple clang version 17.0.0 (clang-1700) ([DIR]/cc)
         wasm
           too-old  target `wasm` needs wasmtime 49 or later, but `[DIR]/wasmtime` is 20.0.0
@@ -1507,7 +1755,7 @@ mod process_tests {
 
         js (required)
         ✓ ok       node 24.11.0 ([DIR]/node)
-        c
+        native
         ✓ ok       cc Apple clang version 17.0.0 (clang-1700) ([DIR]/cc)
         wasm
         ✗ too-old  target `wasm` needs wasmtime 49 or later, but `[DIR]/wasmtime` is 20.0.0
@@ -1556,11 +1804,11 @@ mod process_tests {
                         )],
                     },
                     {
-                        "target": "c",
+                        "target": "native",
                         "required": false,
                         "programs": [missing(
                             "cc",
-                            "target `c` needs a C compiler, but `cc` is not on PATH",
+                            "target `native` needs a C compiler, but `cc` is not on PATH",
                             "install a C11 compiler and add it to PATH as `cc`, or set EMELA_CC to the compiler",
                         )],
                     },

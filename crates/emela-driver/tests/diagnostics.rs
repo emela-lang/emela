@@ -932,7 +932,10 @@ fn main() { dbg(label(User(name: "ann"))) }
 #[test]
 fn pub_fns_are_not_exported() {
     let files = [("home/main.emel", CONSTRAINED_PUB_FNS)];
-    for frontend in [Lower::default(), Lower::default().with_target(Target::C)] {
+    for frontend in [
+        Lower::default(),
+        Lower::default().with_target(Target::Native),
+    ] {
         let mut frontend = frontend;
         let analysis = check_files(&files, "home/main.emel", &mut frontend);
         assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
@@ -1148,7 +1151,7 @@ fn main() {}
 }
 
 /// What each target cannot expose: an export that may suspend on `c` (E0441,
-/// `[target.c.export]`), a callback on `c` (not supported yet), and on `wasm` any `@export(wasm, ...)`
+/// `[target.native.export]`), a callback on `c` (not supported yet), and on `wasm` any `@export(wasm, ...)`
 /// a user writes (`[target.wasm.external]`), also through `@entry`. Each target reports only its
 /// own exports, and check (no target) reports none.
 #[test]
@@ -1180,7 +1183,7 @@ fn main() {}
 "#,
     )];
     let mut out = String::new();
-    for target in [Target::Js, Target::C, Target::Wasm] {
+    for target in [Target::Js, Target::Native, Target::Wasm] {
         let analysis = check_files(
             &files,
             "home/main.emel",
@@ -1195,7 +1198,7 @@ fn main() {}
 }
 
 /// `[lib.http-service]`: `@entry(Http.serve)` takes an fn from `Request` to `Response` whose E is
-/// anything and whose R is empty apart from Async (E0440 otherwise). The C target does not support
+/// anything and whose R is empty apart from Async (E0440 otherwise). The native target does not support
 /// HTTP services (E0442); an entry adapter of the program's own named `serve` in a module `Http`
 /// is not one. check (no target) reports nothing.
 #[test]
@@ -1248,7 +1251,7 @@ pub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }
     ];
     let mut out = String::new();
     for entry in ["home/main.emel", "other/main.emel", "own/main.emel"] {
-        for target in [Target::Js, Target::C] {
+        for target in [Target::Js, Target::Native] {
             let analysis = check_files(&files, entry, &mut Lower::default().with_target(target));
             out.push_str(&format!("== {entry} {}\n", target.name()));
             out.push_str(&render(&analysis.diagnostics, &analysis.sources, false));
@@ -1392,7 +1395,8 @@ fn only_called_operations_are_checked_for_the_target() {
     assert_eq!(render_main("(use Clock).now()"), "");
     let called = render_main("(use Clock).sleep(1)");
     assert!(
-        called.contains("external function `wasm_sleep` has no `@external` for target `js`"),
+        called
+            .contains("external function `wasm_sleep` has no `@external(js, ...)` for target `js`"),
         "{called}"
     );
     // An operation used as a value counts as used.
@@ -1437,7 +1441,9 @@ fn operations_are_checked_per_effect_instance() {
     assert_eq!(render_main("(use Store[String]).put(\"a\")"), "");
     let int = render_main("(use Store[Int]).put(1)");
     assert!(
-        int.contains("external function `wasm_log_int` has no `@external` for target `js`"),
+        int.contains(
+            "external function `wasm_log_int` has no `@external(js, ...)` for target `js`"
+        ),
         "{int}"
     );
 }
@@ -1953,6 +1959,36 @@ fn license_that_is_not_an_spdx_expression() {
             analysis.diagnostics
         );
     }
+}
+
+/// `[target.native]`: the build target `c` in `[build].target` and in `[pome].targets` of the
+/// project's `Pome.toml` is W0903 at each value, and the check goes on. `native` is not reported.
+#[test]
+fn deprecated_build_target_c() {
+    let check_manifest = |manifest: &str| {
+        check_files(
+            &[
+                ("app/Pome.toml", manifest),
+                ("app/src/main.emel", "let x = 1\n"),
+            ],
+            "app",
+            &mut LexOnly,
+        )
+    };
+    let analysis = check_manifest(
+        "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.28.0\"\ntargets = [\"js\", \"c\"]\n\n[build]\ntarget = \"c\"\n",
+    );
+    assert_eq!(analysis.error_count(), 0);
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+
+    let analysis = check_manifest(
+        "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.28.0\"\ntargets = [\"native\"]\n\n[build]\ntarget = \"native\"\n",
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
 }
 
 /// A single file has no `Pome.toml` of its own, so there is no license to check.

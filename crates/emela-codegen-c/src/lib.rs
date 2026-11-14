@@ -1,4 +1,4 @@
-//! Emits C11 from the Heap IR: the C target (spec chapter 16, Tier 2).
+//! Emits C11 from the Heap IR: the native target (`[target.native]`, Tier 2).
 //!
 //! [`compile`] runs the whole pipeline from lowered Core IR: monomorphisation
 //! (`emela_core::monomorphize_from`, from the entry), the Flow IR (`emela_lir::from_core`), the
@@ -6,7 +6,7 @@
 //! reference counting)
 //! and then this crate's emitter, which follows the Heap IR mechanically. The C runtime
 //! ([`RUNTIME_C`], [`RUNTIME_H`]) is embedded and written next to the output; the caller compiles
-//! both with cc (the flags are in `[target.c.cc]`).
+//! both with the C compiler (`[target.native.cc]`; the command line is emela-driver's).
 //!
 //! Suspending functions are emitted from the Heap IR's state machines, and the runtime schedules
 //! fibers the way the JS runtime does (spec chapter 11, 14.5). `suspend fn` external functions
@@ -85,12 +85,12 @@ pub struct CError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CErrorKind {
-    /// A feature the C target does not support yet (Unicode tables).
+    /// A feature the native target does not support yet (Unicode tables).
     Unsupported,
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,
     /// An external function reachable from the entry, or an exported fn, takes or returns a type
-    /// the C target does not support at the boundary yet: Bytes or an Array (E0443,
+    /// the native target does not support at the boundary yet: Bytes or an Array (E0443,
     /// `[ext.boundary]`).
     BoundaryType,
     /// A bug in the compiler (the IR failed a verifier, ...).
@@ -114,7 +114,7 @@ impl std::fmt::Display for CError {
 
 /// Compiles lowered Core IR (self tail calls loopified, as `emela_core::lower` leaves it) to C.
 pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<CError>> {
-    // With `Entry::Main`, main (if any) comes first, then the exported fns (`[target.c.export]`).
+    // With `Entry::Main`, main (if any) comes first, then the exported fns (`[target.native.export]`).
     let mains: Vec<FnId> = match entry {
         Entry::Main => core
             .functions

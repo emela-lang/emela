@@ -230,7 +230,7 @@ fn incomplete_impl_is_rejected_by_every_command_and_target() {
     );
     assert!(!check.stderr.contains("`default`"));
     for command in ["build", "run", "test"] {
-        for target in ["js", "c", "wasm"] {
+        for target in ["js", "native", "wasm"] {
             let run = project.emela(&[command, "--target", target]);
             assert_eq!(run.code, Some(1), "{command} {target}: {run:?}");
             assert_eq!(run.stderr, check.stderr, "{command} {target}");
@@ -343,7 +343,7 @@ fn library_only_project_uses_lib_as_entry_for_check_and_test() {
         assert_eq!((check.code, check.stderr.as_str()), (Some(0), ""));
 
         // Build before running tests so their output cannot mask an unwanted build artifact.
-        for target in ["js", "c", "wasm"] {
+        for target in ["js", "native", "wasm"] {
             for path in [".", "src"] {
                 let build = project.emela(&["build", path, "--target", target]);
                 assert_eq!((build.code, build.stderr.as_str()), (Some(0), ""));

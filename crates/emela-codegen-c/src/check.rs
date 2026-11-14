@@ -1,7 +1,7 @@
-//! What the C target does not support yet, found on the Flow IR before the Heap IR passes.
+//! What the native target does not support yet, found on the Flow IR before the Heap IR passes.
 //!
 //! The check runs after monomorphisation from the entry, so it only sees what the entry reaches
-//! (`[target.c.unsupported]`).
+//! (`[target.native.unsupported]`).
 
 use emela_core::{Builtin, Type};
 use emela_lir::{Const, Function, Module, Operand, Stmt, Value};
@@ -9,7 +9,7 @@ use emela_lir::{Const, Function, Module, Operand, Stmt, Value};
 use crate::{CError, CErrorKind};
 
 /// Every construct reachable from the entry (the module holds only reachable functions after
-/// monomorphisation) that the C target cannot compile yet.
+/// monomorphisation) that the native target cannot compile yet.
 pub(crate) fn unsupported(m: &Module) -> Vec<CError> {
     let mut found = Found::default();
     for (_, f) in m.functions.iter() {
@@ -52,7 +52,7 @@ fn external(m: &Module, f: &Function, found: &mut Found) {
             Type::Fn(_) => found.report(
                 CErrorKind::Callback,
                 format!(
-                    "external function `{name}` {verb} a callback, which target `c` does not support yet"
+                    "external function `{name}` {verb} a callback, which target `native` does not support yet"
                 ),
             ),
             Type::Bytes | Type::Array(_) => {
@@ -60,7 +60,7 @@ fn external(m: &Module, f: &Function, found: &mut Found) {
                 found.report(
                     CErrorKind::BoundaryType,
                     format!(
-                        "external function `{name}` {verb} `{ty}`, which target `c` does not support yet"
+                        "external function `{name}` {verb} `{ty}`, which target `native` does not support yet"
                     ),
                 );
             }
@@ -72,7 +72,7 @@ fn external(m: &Module, f: &Function, found: &mut Found) {
 fn value_unsupported(value: &Value, found: &mut Found) {
     let graphemes = |what: &str| {
         format!(
-            "{what} needs the Unicode grapheme cluster tables, which target `c` does not support yet"
+            "{what} needs the Unicode grapheme cluster tables, which target `native` does not support yet"
         )
     };
     let Value::Builtin { op, args } = value else {

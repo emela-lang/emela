@@ -48,7 +48,7 @@ fn target_lines(output: &Output) -> Vec<String> {
     stdout(output)
         .lines()
         .filter(|line| {
-            ["js", "c", "wasm", "c-embedded"]
+            ["js", "native", "wasm", "c", "c-embedded"]
                 .iter()
                 .any(|t| *line == *t || *line == format!("{t} (required)"))
         })
@@ -71,7 +71,7 @@ fn the_first_line_is_the_version() {
 fn outside_a_project_nothing_is_required() {
     let dir = dir_with(&[]);
     let output = emela(dir.path(), &["doctor"]);
-    assert_eq!(target_lines(&output), ["js", "c", "wasm"]);
+    assert_eq!(target_lines(&output), ["js", "native", "wasm"]);
     // Every program is missing, but none is required.
     assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
 }
@@ -80,7 +80,7 @@ fn outside_a_project_nothing_is_required() {
 fn the_target_of_the_project_is_required() {
     let dir = project(Some("wasm"));
     let output = emela(dir.path(), &["doctor"]);
-    assert_eq!(target_lines(&output), ["js", "c", "wasm (required)"]);
+    assert_eq!(target_lines(&output), ["js", "native", "wasm (required)"]);
     assert_eq!(output.status.code(), Some(1));
 }
 
@@ -89,33 +89,54 @@ fn a_project_without_a_target_requires_js() {
     // The build target of a project is `[build].target`, else `js` (`[cmd.build]`).
     let dir = project(None);
     let output = emela(dir.path(), &["doctor"]);
-    assert_eq!(target_lines(&output), ["js (required)", "c", "wasm"]);
+    assert_eq!(target_lines(&output), ["js (required)", "native", "wasm"]);
     assert_eq!(output.status.code(), Some(1));
 }
 
 #[test]
 fn the_target_flag_replaces_the_project_target() {
     let dir = project(Some("wasm"));
+    let output = emela(dir.path(), &["doctor", "--target", "native"]);
+    assert_eq!(target_lines(&output), ["js", "native (required)", "wasm"]);
+}
+
+/// `[target.native]`: `--target c` and `[build].target = "c"` select the native target and
+/// report W0903.
+#[test]
+fn the_deprecated_target_c_selects_native() {
+    let dir = project(Some("wasm"));
     let output = emela(dir.path(), &["doctor", "--target", "c"]);
-    assert_eq!(target_lines(&output), ["js", "c (required)", "wasm"]);
+    assert_eq!(target_lines(&output), ["js", "native (required)", "wasm"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("warning[W0903]: target `c` is deprecated; use `native`"),
+        "{stderr}"
+    );
+
+    let dir = project(Some("c"));
+    let output = emela(dir.path(), &["doctor"]);
+    assert_eq!(target_lines(&output), ["js", "native (required)", "wasm"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("warning[W0903]"), "{stderr}");
+    assert!(stderr.contains("Pome.toml:2:10"), "{stderr}");
 }
 
 #[test]
 fn the_target_flag_outside_a_project() {
     let dir = dir_with(&[]);
     let output = emela(dir.path(), &["doctor", "--target", "wasm"]);
-    assert_eq!(target_lines(&output), ["js", "c", "wasm (required)"]);
+    assert_eq!(target_lines(&output), ["js", "native", "wasm (required)"]);
     assert_eq!(output.status.code(), Some(1));
 }
 
 #[test]
 fn the_path_names_the_project() {
     let dir = dir_with(&[
-        ("app/Pome.toml", "[build]\ntarget = \"c\"\n"),
+        ("app/Pome.toml", "[build]\ntarget = \"native\"\n"),
         ("app/src/main.emel", "fn main() {}\n"),
     ]);
     let output = emela(dir.path(), &["doctor", "app"]);
-    assert_eq!(target_lines(&output), ["js", "c (required)", "wasm"]);
+    assert_eq!(target_lines(&output), ["js", "native (required)", "wasm"]);
 }
 
 #[test]
@@ -152,7 +173,7 @@ fn json_is_one_object() {
             )
         })
         .collect();
-    assert_eq!(targets, [("js", false), ("c", false), ("wasm", true)]);
+    assert_eq!(targets, [("js", false), ("native", false), ("wasm", true)]);
     assert_eq!(output.status.code(), Some(1));
 }
 

@@ -217,14 +217,14 @@ jobs:
           version: 49.0.3
       - name: Build
         run: cargo build --bin emela --locked
-      - name: Test on JS, C and WASM
+      - name: Test on JS, native and WASM
         working-directory: tests/laws
         run: |
           emela="$GITHUB_WORKSPACE/target/debug/emela"
           "$emela" pome install
           "$emela" fmt --check
           "$emela" test --target js
-          "$emela" test --target c
+          "$emela" test --target native
           "$emela" test --target wasm
 
   # The one check branch protection requires. A skipped job (documentation only)

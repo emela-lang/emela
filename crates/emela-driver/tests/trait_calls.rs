@@ -41,7 +41,7 @@ fn run_on(name: &str, main: &str, target: Target) -> (Analysis, Option<RunOutput
     };
     let mut frontend = Lower::default().with_target(target);
     let result = match target {
-        Target::C => {
+        Target::Native => {
             let mut c = c_backend().expect("checked by the caller");
             run(&fs, &input, &mut frontend, &mut c, &options, |_, _| {})
         }
@@ -55,7 +55,7 @@ fn run_on(name: &str, main: &str, target: Target) -> (Analysis, Option<RunOutput
 fn stderr_of(name: &str, main: &str) -> String {
     let mut outputs = Vec::new();
     let targets: &[Target] = if c_backend().is_some() {
-        &[Target::Js, Target::C]
+        &[Target::Js, Target::Native]
     } else {
         &[Target::Js]
     };
@@ -357,7 +357,7 @@ fn main() {
 "##;
     let expected = "defect: assertion failed: [Ver(major: 1, note: \"a\")] != [Ver(major: 1, note: \"b\")]\n  left: [Ver(major: 1, note: \"a\")]\n right: [Ver(major: 1, note: \"b\")]\n";
     let targets: &[Target] = if c_backend().is_some() {
-        &[Target::Js, Target::C]
+        &[Target::Js, Target::Native]
     } else {
         &[Target::Js]
     };
@@ -473,7 +473,7 @@ Secret(name: <g>, code: 7)
 /// The targets to run on: JS, and C if a C compiler is there.
 fn targets() -> &'static [Target] {
     if c_backend().is_some() {
-        &[Target::Js, Target::C]
+        &[Target::Js, Target::Native]
     } else {
         &[Target::Js]
     }
