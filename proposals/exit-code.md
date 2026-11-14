@@ -5,7 +5,7 @@ status: draft
 pr: 567
 issue:
 decided:
-touches: [dyn.error, effect.with, diag.list, cmd.build, target.c.run, target.wasm.output, ext.export, lib.layers, api.std.process (new)]
+touches: [dyn.error, effect.with, diag.list, cmd.build, target.native.run, target.wasm.output, ext.export, lib.layers, api.std.process]
 requires: [std-process]
 related: [std-exit, stdout-stderr]
 ---
@@ -156,7 +156,7 @@ and add a row at the top of the table:
 | `main` ended with a value of `ExitCode` (`[dyn.error]`) | nothing | the exit code of the value |
 ```
 
-### `[target.c.run]`
+### `[target.native.run]`
 
 Add after the second item:
 
