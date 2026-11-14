@@ -1,7 +1,7 @@
 ---
 title: each for List, Array, Map and Set
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 514
 issue:
 decided: 2026-11-14
@@ -102,7 +102,7 @@ Add the row, after `fold`:
 
 ## Diagnostics
 
-- [ ] None.
+- [x] None.
 
 ## Compatibility
 

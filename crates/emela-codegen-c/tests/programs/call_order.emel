@@ -1,0 +1,69 @@
+# The order in which the functions of the standard library call `f` (`[lib.api-rules]`): in the
+# order of the collection, at most once per element, not after the result is decided, and not
+# after `f` fails.
+
+import Std.Array.{Array}
+import Std.Map.{Map}
+import Std.Set.{Set}
+
+error Stop(at: Int)
+
+fn seen[A: Show](label: String, x: A) -> A {
+  dbg("#{label} #{inspect(x)}")
+  x
+}
+
+fn even(label: String, x: Int) -> Bool {
+  seen(label, x) % 2 == 0
+}
+
+fn lists() {
+  xs = [3, 1, 4, 2, 5]
+  dbg(List.map(xs, |x| seen("map", x) * 10))
+  dbg(List.filter(xs, |x| even("filter", x)))
+  dbg(List.filter_map(xs, |x| if even("filter_map", x) { Some(x) } else { None }))
+  dbg(List.flat_map(xs, |x| [seen("flat_map", x)]))
+  dbg(List.partition(xs, |x| even("partition", x)))
+  dbg(List.fold(xs, from: 0, f: |acc, x| acc + seen("fold", x)))
+  dbg(List.find_index(xs, |x| even("find_index", x)))
+  dbg(List.find(xs, |x| even("find", x)))
+  dbg(List.any(xs, |x| even("any", x)))
+  dbg(List.all(xs, |x| !even("all", x)))
+}
+
+fn arrays() {
+  a = Array.from_list([3, 1, 4, 2, 5])
+  dbg(Array.map(a, |x| seen("Array.map", x) * 10))
+  dbg(Array.fold(a, from: 0, f: |acc, x| acc + seen("Array.fold", x)))
+  dbg(Array.find_index(a, |x| even("Array.find_index", x)))
+}
+
+fn maps_and_sets() {
+  m = Map.from_list([(1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f"), (7, "g")])
+  dbg(Map.map_values(m, |value| seen("map_values", value)))
+  dbg(Map.fold(m, from: 0, f: |acc, key, _| acc + seen("Map.fold", key)))
+  dbg(Map.filter(m, |key, _| even("Map.filter", key)))
+  s = Set.from_list([7, 6, 5, 4, 3, 2, 1])
+  dbg(Set.fold(s, from: 0, f: |acc, x| acc + seen("Set.fold", x)))
+}
+
+fn fails_at_three(label: String, x: Int) -> Int fails Stop {
+  if x == 3 { fail Stop(at: x) }
+  seen(label, x)
+}
+
+fn stops() {
+  dbg(List.map([1, 2, 3, 4], |x| fails_at_three("failing map", x)) escape { Stop(at:) -> [at] })
+  dbg(
+    Map.map_values(Map.from_list([(1, 1), (2, 2), (3, 3), (4, 4)]), |x| {
+      fails_at_three("failing map_values", x)
+    }) escape { Stop(at:) -> Map.empty() },
+  )
+}
+
+fn main() {
+  lists()
+  arrays()
+  maps_and_sets()
+  stops()
+}
