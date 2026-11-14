@@ -16,6 +16,7 @@
 #include <math.h>
 #include <poll.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +30,9 @@
 #define EM_EXIT_LEAK 99
 /* The run was unwound as interrupted (spec 14.5). */
 #define EM_EXIT_INTERRUPTED 130
+/* A write to a standard output whose reader has closed it ended the program
+ * (`[api.std.process]`): 128 + SIGPIPE, which the runtime ignores. */
+#define EM_EXIT_CLOSED_STDOUT 141
 
 em_ref em_defect = NULL;
 em_ref em_failure = NULL;
@@ -883,9 +887,7 @@ em_ref em_show_string(em_ref s) {
 }
 
 void em_debug_print(em_ref s) {
-  fflush(stdout);
-  fwrite(EM_STR_BYTES(s), 1, EM_STR_LEN(s), stderr);
-  fputc('\n', stderr);
+  em_write_stderr(EM_STR_BYTES(s), EM_STR_LEN(s), true);
 }
 
 /* ---- Defects ---- */
@@ -3914,6 +3916,96 @@ em_ref em_deferred_poll(em_ref o, int32_t repr) {
   return em_some(d->value, repr == EM_REPR_REF);
 }
 
+/* ---- Standard output and standard error (`[api.std.process]`) ----
+ *
+ * SystemStdout, SystemStderr, SystemConsole (`std/process.c`, `std/console.c`), `dbg` and the
+ * lines of `em_exit` all write to the `FILE *` of `stdout` and `stderr` through these, so writes
+ * keep their order. A write to standard error first flushes standard output, so that the two
+ * keep the order written when they go to the same place.
+ *
+ * The runtime ignores SIGPIPE (`em_start`), so a write to a pipe whose reader has closed it fails
+ * with EPIPE instead of ending the process. `stdout` is buffered, so the failure shows up at the
+ * write or flush that hands the buffer to the host, which may be a later write than the one whose
+ * text was lost, or the flush before a write to standard error. Either way, that write does not
+ * return normally: every other fiber of the run is interrupted (11.4), the fiber that wrote
+ * unwinds as interrupted, and later writes to standard output are discarded. `em_exit` then
+ * writes nothing and exits with 141. A closed standard error discards the write. Other write
+ * errors are ignored, as they were before these streams were specified. */
+
+static bool em_stdout_closed = false;
+static bool em_stderr_closed = false;
+/* Standard output was found closed where no interruption can be raised (the flush before
+ * SystemStdin waits, `em_flush_stdout_before_wait`). The next write to it raises the
+ * interruption. */
+static bool em_stdout_lost = false;
+
+/* Whether `f` failed because its reader has closed it. Clears its error, so that a later write
+ * is not taken for a failure too. */
+static bool em_reader_gone(FILE *f) {
+  bool failed = ferror(f) != 0;
+  int error = errno;
+  clearerr(f);
+  return failed && error == EPIPE;
+}
+
+/* Standard output has been found closed. Raises the interruption that unwinds the current fiber
+ * (the pending defect), unless the run has already ended. */
+static void em_close_stdout(void) {
+  em_stdout_closed = true;
+  em_root *r = em_root_cur;
+  if (r != NULL && !r->over) {
+    for (size_t i = 0; i < r->fibers.len; i++) {
+      em_fiber *f = r->fibers.items[i];
+      if (f != em_cur) em_interrupt_fiber(f, NULL);
+    }
+  }
+  if (em_defect == NULL) em_raise_take(em_interrupted_new(NULL));
+}
+
+/* Hands what `stdout` holds to the host. False when standard output has been found closed. */
+static bool em_flush_stdout(void) {
+  if (em_stdout_closed) return false;
+  if (em_stdout_lost) {
+    em_close_stdout();
+    return false;
+  }
+  errno = 0;
+  if (fflush(stdout) != 0 && em_reader_gone(stdout)) {
+    em_close_stdout();
+    return false;
+  }
+  clearerr(stdout);
+  return true;
+}
+
+void em_flush_stdout_before_wait(void) {
+  if (em_stdout_closed || em_stdout_lost) return;
+  errno = 0;
+  if (fflush(stdout) != 0 && em_reader_gone(stdout)) em_stdout_lost = true;
+  clearerr(stdout);
+}
+
+void em_write_stdout(const char *bytes, size_t n, bool newline) {
+  if (em_stdout_closed) return;
+  if (em_stdout_lost) {
+    em_close_stdout();
+    return;
+  }
+  errno = 0;
+  fwrite(bytes, 1, n, stdout);
+  if (newline) fputc('\n', stdout);
+  if (em_reader_gone(stdout)) em_close_stdout();
+}
+
+void em_write_stderr(const char *bytes, size_t n, bool newline) {
+  em_flush_stdout();
+  if (em_stderr_closed) return;
+  errno = 0;
+  fwrite(bytes, 1, n, stderr);
+  if (newline) fputc('\n', stderr);
+  if (em_reader_gone(stderr)) em_stderr_closed = true;
+}
+
 /* ---- The program ---- */
 
 static bool em_started = false;
@@ -3925,6 +4017,8 @@ static char **em_argv = NULL;
 void em_start(int argc, char **argv) {
   if (em_started) return;
   em_started = true;
+  /* A write to a closed pipe fails with EPIPE instead (`[target.native.run]`). */
+  signal(SIGPIPE, SIG_IGN);
   if (argc > 1 && argv != NULL) {
     em_argc = argc - 1;
     em_argv = argv + 1;
@@ -4050,15 +4144,22 @@ void em_test_done(void) {
 }
 
 static void em_write_line(FILE *f, const char *prefix, em_ref s) {
-  fputs(prefix, f);
-  if (s != NULL) fwrite(EM_STR_BYTES(s), 1, EM_STR_LEN(s), f);
-  fputc('\n', f);
+  (void)f;
+  em_write_stderr(prefix, strlen(prefix), s == NULL);
+  if (s != NULL) em_write_stderr(EM_STR_BYTES(s), EM_STR_LEN(s), true);
 }
 
 int em_exit(void (*cleanup)(void)) {
   int code = 0;
-  fflush(stdout);
-  if (em_is_interrupted(em_defect)) {
+  em_flush_stdout();
+  if (em_stdout_closed) {
+    /* However main ended, after a write to a closed standard output (`[api.std.process]`). */
+    code = EM_EXIT_CLOSED_STDOUT;
+    if (em_failure != NULL) {
+      em_drop(em_failure);
+      em_failure = NULL;
+    }
+  } else if (em_is_interrupted(em_defect)) {
     em_write_line(stderr, "interrupted", NULL);
     code = EM_EXIT_INTERRUPTED;
   } else if (em_defect != NULL) {
@@ -4078,7 +4179,8 @@ int em_exit(void (*cleanup)(void)) {
   if (cleanup != NULL) cleanup();
   em_drop(em_last_retired);
   em_last_retired = NULL;
-  fflush(stdout);
+  em_flush_stdout();
+  if (em_stdout_closed) code = EM_EXIT_CLOSED_STDOUT;
 #ifdef EMELA_LEAK_CHECK
   bool check = true;
 #else

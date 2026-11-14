@@ -63,6 +63,7 @@ const SOURCES: &[(&str, &str)] = &[
 const HOST_FILES: &[(&str, &str)] = &[
     ("std/random.mjs", include_str!("../lib/std/random.mjs")),
     ("std/env.mjs", include_str!("../lib/std/env.mjs")),
+    ("std/console.mjs", include_str!("../lib/std/console.mjs")),
     ("std/process.mjs", include_str!("../lib/std/process.mjs")),
     ("std/clock.mjs", include_str!("../lib/std/clock.mjs")),
     ("std/http.mjs", include_str!("../lib/std/http.mjs")),

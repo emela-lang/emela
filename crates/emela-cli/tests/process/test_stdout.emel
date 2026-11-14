@@ -1,0 +1,45 @@
+# TestStdout and TestStderr (`[api.std.process]`), which `emela test` checks on every target.
+
+import Std.Process.{Stderr, StderrText, Stdout, StdoutText, TestStderr, TestStdout}
+import Std.State.{State}
+
+fn greet(name: String) -> () uses { Stdout, Stderr } {
+  (use Stdout).print("Hello, ")
+  (use Stdout).print_line("#{name}!")
+  (use Stderr).print_line("greeted #{name}")
+}
+
+@test
+fn greets() {
+  ((_, err), out) = State.run(StdoutText(text: ""), || {
+    State.run(StderrText(text: ""), || with TestStdout, TestStderr { greet("alice") })
+  })
+  assert out.text == "Hello, alice!\n"
+  assert err.text == "greeted alice\n"
+}
+
+@test
+fn print_appends_as_is_and_print_line_appends_a_newline() {
+  (_, out) = State.run(StdoutText(text: "x"), || {
+    with TestStdout {
+      s = use Stdout
+      s.print("a")
+      s.print_line("b")
+      s.print("")
+      s.print_line("")
+      s.print("c\r\nd\n")
+    }
+  })
+  assert out.text == "xab\n\nc\r\nd\n"
+}
+
+@test
+fn stderr_has_its_own_state() {
+  (_, err) = State.run(StderrText(text: ""), || {
+    with TestStderr {
+      (use Stderr).print("e")
+      (use Stderr).print_line("f")
+    }
+  })
+  assert err.text == "ef\n"
+}

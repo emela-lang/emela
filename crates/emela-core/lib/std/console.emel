@@ -11,18 +11,19 @@ pub effect Console {
   fn print_error_line(text: String) -> ()
 }
 
-@external(js, "console.log")
+@external(js, "./console.mjs", "printLine")
 @external(c, "./console.c", "emela_console_print_line")
 @external(wasm, "wasi:cli/stdout@0.3.0", "write-via-stream")
 fn console_log(text: String) -> ()
 
-@external(js, "console.error")
+@external(js, "./console.mjs", "printErrorLine")
 @external(c, "./console.c", "emela_console_print_error_line")
 @external(wasm, "wasi:cli/stderr@0.3.0", "write-via-stream")
 fn console_error(text: String) -> ()
 
-## Writes to the host's standard output and standard error (JS `console.log` and `console.error`,
-## C `stdout` and `stderr`). Stateless.
+## Writes to the host's standard output and standard error, through the same path as SystemStdout
+## and SystemStderr of `Std.Process` (JS: file descriptors 1 and 2, or `console.log` and
+## `console.error` on a host without them; C `stdout` and `stderr`). Stateless.
 pub handler SystemConsole: Console {
   fn print_line(text) { console_log(text) }
   fn print_error_line(text) { console_error(text) }

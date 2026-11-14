@@ -1,0 +1,10 @@
+exit: 0
+--- stdout
+ab
+c
+d
+e
+no newline--- stderr
+xy
+1
+z

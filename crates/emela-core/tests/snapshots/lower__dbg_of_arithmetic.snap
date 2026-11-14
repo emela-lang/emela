@@ -46,6 +46,14 @@ enum Std.Process.StdinLines {
   StdinLines(lines: List[String])
 }
 
+enum Std.Process.StdoutText {
+  StdoutText(text: String)
+}
+
+enum Std.Process.StderrText {
+  StderrText(text: String)
+}
+
 enum Std.Http.Request.Method {
   Get
   Head
