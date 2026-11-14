@@ -2,7 +2,7 @@
 title: Std.Tcp, a TCP client as a platform effect
 authors: [Alliana]
 status: draft
-pr:
+pr: 563
 issue:
 decided:
 touches: [lib.layers, api.std.tcp (new), target.js, target.c, target.wasm.output, target.wasm.run, target.wasm.external, diag.list]
