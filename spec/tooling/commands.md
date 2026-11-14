@@ -10,7 +10,7 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 - The JS host is the command in the environment variable `EMELA_JS_HOST` if it is set and not empty, otherwise the command in `EMELA_NODE` if it is set and not empty, otherwise `node` on PATH. It MUST accept the options `--input-type=module -e` as node does; Node and Bun do.
 - `EMELA_NODE` is deprecated. When it is read, W0902 is reported, also when `EMELA_JS_HOST` is set and takes precedence. It is read until the minor version after the one that deprecates it.
 - For `js`, before starting the program, the command reads the version of the JS host by starting it with `--input-type=module -e` and a module that writes `bun <process.versions.bun>` when `process.versions.bun` is defined, and `node <process.versions.node>` otherwise. A host that wrote `bun` is Bun, and is compared with the minimum version of Bun that `[target]` requires; a host that wrote `node` is compared with the minimum version of Node. When the version is older than the minimum, it is E0904 and the program is not started: the message is ``` `<executable>` is <Host> <version>, but target `js` needs <Host> <minimum> or later ```, with the note `install Node.js 22 or later or Bun 1.4.3 or later, or set EMELA_JS_HOST to a newer JS host`. `<executable>` is the command of the JS host, `<Host>` is `Node` or `Bun`, `<version>` is the version written by the host, and `<minimum>` is the minimum that `[target]` gives for that host. If the version cannot be read, including when the host cannot be started, the program is started. The same check is made by `emela test` (`[cmd.test]`).
-- For `c`, the command writes `main.c`, translated from the entry, and the C sources of the runtime to the output directory, and places the executable `main` compiled with cc. The cc used is the environment variable `EMELA_CC` if set, and otherwise `cc` on PATH (E0907, E0908).
+- For `native`, the command writes the executable `main` and the header `emela.h` to the output directory, with other implementation-defined files (`[target.native.output]`). The C compiler is chosen as in `[target.native.cc]` (E0907, E0908).
 - The exit code is as follows.
   - 1 if the diagnostics include an error. 0 if there are only warnings.
   - When `run` reaches the program, the exit code of the program (0, 1 for an error (14.3), 101 for a defect (7.5), 130 for an interruption (14.5)).
@@ -18,8 +18,8 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 
 Build target and output directory:
 
-- `build`, `run`, and `test` select the build target with `--target <js|c|wasm>`. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `js` (`[module.pome]`). `check` takes no build target.
-- The default output directory of `build` and `run` is `target/emela/<target>` (`target/emela/js`, `target/emela/c`, `target/emela/wasm`) in the project (in single-file mode, in the directory that contains the file). The default output directory of `test` is as in `[cmd.test.out-dir]`. `--out-dir` changes the output directory of `build` and `run` for every target.
+- `build`, `run`, and `test` select the build target with `--target <js|native|wasm>`. `--target c` selects `native` and reports W0903. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `js` (`[module.pome]`). `check` takes no build target.
+- The default output directory of `build` and `run` is `target/emela/<target>` (`target/emela/js`, `target/emela/native`, `target/emela/wasm`) in the project (in single-file mode, in the directory that contains the file). The default output directory of `test` is as in `[cmd.test.out-dir]`. `--out-dir` changes the output directory of `build` and `run` for every target.
 - Giving `build` or `run` a file inside the test root is a compile error (E0208, ``... is under the test root, which only check and test read``). `build` and `run` do not read the test root.
 
 Entry and main:
@@ -38,7 +38,7 @@ JS output:
 Starting the program:
 
 - Before starting the program, `run` writes one line ``running `<command>` `` to standard error, for every build target. The line comes after the diagnostics and before any output of the program. It is not written when the program is not started (an error in the diagnostics, the JS host too old (E0904), or wasmtime too old (E0909)). When the command is written but cannot be started (the JS host or the executable not found), the diagnostic about it follows the line.
-- `<command>` is the program that is started followed by its arguments, separated by single spaces: the JS host with its options for `js`, the executable `main` for `c`, and wasmtime with its options for `wasm` (`[target.wasm.output]`), each followed by the arguments after `--`.
+- `<command>` is the program that is started followed by its arguments, separated by single spaces: the JS host with its options for `js`, the executable `main` for `native`, and wasmtime with its options for `wasm` (`[target.wasm.output]`), each followed by the arguments after `--`.
 - Each word is written as is when it is not empty and consists only of ASCII letters, digits and the characters `-_./=:@%+,`. Otherwise it is enclosed in single quotes, and each `'` inside it is written as `'\''`. Pasting the line into a POSIX shell starts the same command.
 - For `js`, the module that the JS host runs with `-e` to load the entry is written as `<launcher>` (``running `node --input-type=module -e <launcher> -- target/emela/js/main.mjs` ``). This word alone does not follow the quoting rule above.
 
@@ -69,20 +69,22 @@ Diagnostics and help:
 ## emela doctor `[cmd.doctor]`
 
 - Reports, for each build target, whether the external programs it uses can be found and started and whether their versions are new enough, and reports the routes used to fetch Pomes. It installs nothing, changes no environment variables, and does not go to the network.
-- Takes one path, which defaults to `.`. When the path is in a project (4.1), the build target of the project (`[cmd.build]`) is required. Outside a project, no target is required. `--target <js|c|wasm>` makes that target required instead.
+- Takes one path, which defaults to `.`. When the path is in a project (4.1), the build target of the project (`[cmd.build]`) is required. Outside a project, no target is required. `--target <js|native|wasm>` makes that target required instead.
 - Each program is resolved by the same rule as the command that uses it, and is checked as follows.
 
   | Target | Program | Rule | Passes when |
   |---|---|---|---|
   | `js` | the JS host | `[cmd.build]` | it starts and the version read as in `[cmd.build]` is one that `[target]` supports for that host |
-  | `c` | the C compiler | `[target.c.cc]` | it starts; the first line of its `--version` is reported as its version |
+  | `native` | the C compiler | `[target.native.cc]` | it starts, and it compiles and links a program against the C library; the first line of its `--version` is reported as its version |
   | `wasm` | wasmtime | `[target.wasm.run]` | it starts and its major version is 49 or later |
+- For `native`, after the C compiler starts, the command compiles and links a small C program in a temporary directory, which it removes afterwards. The program includes the headers that the runtime uses, and the command line has the same flags as a build, including those of `EMELA_CC_ARGS` at the same position. The executable is not started. When the program cannot be compiled or linked, the status is `failed`, the message contains the first line of the standard error of the C compiler that reports an error, and the help is ``install the C headers and the C library of the system, or set EMELA_CC to another compiler``.
+- When `EMELA_CC_ARGS` is set, the line of the C compiler is followed by a line with its value.
 - For `js`, the report names the host and its version as the host wrote them (`node 24.11.0`, `bun 1.4.4`).
 - A program passes or fails with one of these reasons: it was not found, it could not be started, its version is older than required, or its version could not be read. A program whose version could not be read passes, as in `[target.wasm.run]`.
 - The Pome section reports the values in effect of `EMELA_POMEPROXY` and `EMELA_POMESUMDB`, the number of prefixes in `EMELA_POMEPRIVATE` (`[module.pome]`), and whether git starts. The prefixes themselves are not written, so that the output can be pasted into a public report. git is required when `EMELA_POMEPRIVATE` is set or when `direct` is the only entry of `EMELA_POMEPROXY`. The userinfo part of a URL (`user:token@`) is written as `***@`. Nothing is fetched and no proxy is contacted.
 - Output without `--format`, written to standard output:
   - The first line is the same as `emela --version`, followed by a blank line.
-  - For each target in the order `js`, `c`, `wasm`, a line with the target's name, followed by ` (required)` when required. Under it, one line per program, indented by two spaces: `ok`, `missing`, `too-old` or `failed`, then the program's name and version and the executable resolved in parentheses, or a sentence that names the target and the program that it lacks. A program that fails is followed by a line with the help of the diagnostic that the command using it would report (E0904, E0907, E0909), aligned with the sentence.
+  - For each target in the order `js`, `native`, `wasm`, a line with the target's name, followed by ` (required)` when required. Under it, one line per program, indented by two spaces: `ok`, `missing`, `too-old` or `failed`, then the program's name and version and the executable resolved in parentheses, or a sentence that names the target and the program that it lacks. A program that fails is followed by a line with the help of the diagnostic that the command using it would report (E0904, E0907, E0909), aligned with the sentence.
   - Then a blank line and the Pome section in the same form.
   - Color is used under the same conditions as diagnostics (`[diag]`). When it is, the first of the two spaces before `ok` is written as `✓`, and the first of the two spaces before `missing`, `too-old` and `failed` as `✗`. Without color, the lines are as described above.
 - With `--format json`, the command writes one JSON object to standard output instead:

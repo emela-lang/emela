@@ -164,7 +164,7 @@ writes a WASI 0.3 component `main.wasm` (`target/emela/wasm`) and runs it with `
 `[build] target = "..."` in `Pome.toml` changes the default. JS and WASM run
 every construct of the language. The C target does not have `String.length`,
 `String.chars`, callbacks across `@external` or HTTP services yet
-([`[target.c.unsupported]`](spec/targets/c.md)). The client of `Std.Http`
+([`[target.native.unsupported]`](spec/targets/native.md)). The client of `Std.Http`
 (`SystemHttp`) runs only on JS: a program that sends a request does not
 compile for C or WASM (E0412, [`[target.wasm.external]`](spec/targets/wasm.md)).
 

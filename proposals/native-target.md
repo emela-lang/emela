@@ -3,7 +3,7 @@ title: The C target becomes the native target
 authors: [Alliana]
 status: accepted
 pr: 564
-issue:
+issue: 568
 decided: 2026-11-14
 touches: [target, target.c, target.c.output, target.c.cc, target.c.run, target.c.unsupported, target.c.event-loop, target.c.export, ext.decl, ext.host-type, ext.boundary, ext.c-host, ext.export, module.name, module.pome, lib.layers, api.std.file-system, cmd.build, cmd.doctor, cmd.test.out-dir, lsp.completion, open.list, diag.list]
 requires: []
