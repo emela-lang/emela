@@ -70,5 +70,5 @@ This is the list of points that are not yet agreed on. To decide one, write a pr
 - [x] Decide 1, 4, 5, and 6 of 18.1. They directly affect the implementation of type checking (1, 5, 6, and 7 are decided; 4 was decided on 2026-10-13)
 - [x] Decide the format of the conformance tests based on Chapters 2 and 17, and start implementing the lexer and the parser (the lexer is implemented; the parser is in progress)
 - [x] Things decided in the specification that the implementation does not handle yet. alpha.3 (suspend, Async), alpha.4 (handlers with state, layer, State), and alpha.5 (fiber, FileSystem, the Http client) handled them. For those not handled, a diagnostic without a code, `not supported yet: ...`, is emitted
-- [ ] Remaining for 0.20: the Http server, a limit on how many run at once (Semaphore), and Queue. In 0.24, Trait, collections (18.1 #36), and JSON
+- [ ] Remaining for 0.20: the Http server. In 0.24, Trait, collections (18.1 #36), and JSON
 - [ ] 0.22: capture set (making the run-time checks in the tables of 8.6 and 11.8 static)

@@ -13,7 +13,7 @@ fn main() {
   with SystemConsole {
     console = use Console
     console.print_line("hi")
-    List.map(["Emela", "world"], greet)
+    List.each(["Emela", "world"], greet)
     console.print_error_line("done")
   }
 }

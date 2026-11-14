@@ -38,6 +38,8 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | std layer | 層 | The value, effect, platform and test layers of std ([lib.layers]). A `layer` declaration is always written in code font |
 | level | 層（1.2 の日常の層、基盤の層） | The everyday level and the foundation level of the language ([intro.layers]) |
 | unwind | 巻き戻す（継続） | Running releases while a computation is abandoned |
+| semaphore, permit | セマフォ、許可 | A Semaphore and what a fiber takes from it to run ([fiber.semaphore]) |
+| queue, capacity, close (a queue) | キュー、容量、閉じる | A Queue, how many values it holds, and saying no more values will come ([fiber.queue]) |
 | wrap around | 巻き戻る（整数のあふれ） | Two's complement overflow ([target.number]) |
 | requirement | 依存（ハンドラ） | See requires(H) above |
 | version requirement | 要求（Pome の version） | The minimum version a `Pome.toml` asks for ([module.pome]) |

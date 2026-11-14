@@ -56,7 +56,7 @@ fn f() {
 
 fn direct() {
   log = use Audit
-  _ = List.map(["x", "y"], log.log)
+  List.each(["x", "y"], log.log)
   (use Debug).log("direct debug")
 }
 

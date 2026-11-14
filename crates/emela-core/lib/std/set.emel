@@ -44,6 +44,11 @@ pub fn fold[A, B](s: Set[A], from: B, f: fn(B, A) -> B) -> B {
   s.inner.fold(from: from, f: |acc, x, _| f(acc, x))
 }
 
+## Calls `f` on each value in order. Stops at the first failure.
+pub fn each[A](s: Set[A], f: fn(A) -> ()) -> () {
+  s.inner.each(|x, _| f(x))
+}
+
 ## The values in order.
 pub fn to_list[A](s: Set[A]) -> List[A] {
   s.inner.keys()

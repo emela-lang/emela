@@ -9,6 +9,17 @@ pub fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {
   xs.fold(from: [], f: |acc, x| [f(x), ..acc]).reverse()
 }
 
+## Calls `f` on each element, from the first to the last. Stops at the first failure.
+pub fn each[A](xs: List[A], f: fn(A) -> ()) -> () {
+  xs match {
+    [] -> ()
+    [x, ..rest] -> {
+      f(x)
+      each(rest, f)
+    }
+  }
+}
+
 ## Keeps the order.
 pub fn filter[A](xs: List[A], f: fn(A) -> Bool) -> List[A] {
   xs.fold(from: [], f: |acc, x| if f(x) { [x, ..acc] } else { acc }).reverse()

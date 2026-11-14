@@ -1,0 +1,37 @@
+---
+source: crates/emela-types/tests/errors.rs
+assertion_line: 508
+expression: "render_errors(r#\"\nimport Std.Array.{Array}\nimport Std.Map.{Map}\nimport Std.Set.{Set}\n\nerror Boom\n\nfn check(n: Int) -> () fails Boom { if n < 0 { fail Boom } }\n\nfn lists(xs: List[Int]) {\n  List.each(xs, check)\n  xs.each(|_| ())\n}\n\nfn arrays(a: Array[Int]) {\n  Array.each(a, check)\n}\n\nfn maps(m: Map[Int, String]) {\n  Map.each(m, |key, _| check(key))\n}\n\nfn sets(s: Set[Int]) {\n  Set.each(s, check)\n}\n\nfn returns_a_value(xs: List[Int]) {\n  List.each(xs, |x| x + 1)\n}\n\"#)"
+---
+check: fn(Int) -> () fails Boom
+  n: Int
+lists: fn(List[Int]) -> () fails Boom
+  xs: List[Int]
+  _: Int
+arrays: fn(Array[Int]) -> () fails Boom
+  a: Array[Int]
+maps: fn(Map[Int, String]) -> () fails Boom
+  m: Map[Int, String]
+  key: Int
+  _: String
+sets: fn(Set[Int]) -> () fails Boom
+  s: Set[Int]
+returns_a_value: fn(List[Int]) -> ()
+  xs: List[Int]
+  x: Int
+`x + 1` mismatch: expected `()`, found `Int`
+--- E
+{ if n < 0 { fail Boom } }: Boom
+if n < 0 { fail Boom }: Boom
+{ fail Boom }: Boom
+fail Boom: Boom
+{   List.each(xs, check)   xs.each(|_| ()) }: Boom
+List.each(xs, check): Boom
+{   Array.each(a, check) }: Boom
+Array.each(a, check): Boom
+{   Map.each(m, |key, _| check(key)) }: Boom
+Map.each(m, |key, _| check(key)): Boom
+check(key): Boom
+check(key): Boom
+{   Set.each(s, check) }: Boom
+Set.each(s, check): Boom

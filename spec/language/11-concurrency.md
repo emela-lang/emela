@@ -39,6 +39,8 @@ pub effect Scope[E, R] {
     f: fn() -> A fails E uses { Scope[E, R], R },
   ) -> Fiber[A] # the Scope inside a child is this scope itself
   fn deferred[A]() -> Deferred[A]
+  fn semaphore(permits: Int) -> Semaphore
+  fn queue[A](capacity: Int) -> Queue[A]
 }
 
 @intrinsic
@@ -50,7 +52,7 @@ pub fn scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) ->
 - Scope is a built-in effect, and only `Fiber.scope` can provide it. Users cannot write a handler for Scope (E0413). Writing such a handler in a with provides nothing. `use Scope` can be written.
 - A `use` expression of a built-in effect MAY omit the type arguments (`use Scope`). Omitted type arguments are inferred. They cannot be omitted in a uses clause or a handler head (E0423, the same rule as State in 8.1).
 - The operations of Scope have their own type parameters (`fork[A]`) and set type parameters (E, R). Both are allowed only for built-in effects (8.1).
-- `Fiber.fork(f)` and `Fiber.deferred()` are functions that wrap `(use Scope).fork(f)` and `(use Scope).deferred()`. These are the usual way, and `s = use Scope` is written only to refer to an outer scope.
+- `Fiber.fork(f)`, `Fiber.deferred()`, `Fiber.semaphore(permits)` and `Fiber.queue(capacity)` are functions that wrap the operations of `use Scope` of the same names. These are the usual way, and `s = use Scope` is written only to refer to an outer scope.
 
 ```emel
 pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
@@ -58,6 +60,12 @@ pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
   (use Scope).fork(f)
 }
 pub fn deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] } { (use Scope).deferred() }
+pub fn semaphore[E, R](permits: Int) -> Semaphore uses { Scope[E, R] } {
+  (use Scope).semaphore(permits)
+}
+pub fn queue[A, E, R](capacity: Int) -> Queue[A] uses { Scope[E, R] } {
+  (use Scope).queue(capacity)
+}
 ```
 
 - A fork can happen only where Scope is provided: inside the function passed to Fiber.scope and inside functions called from it. Helper functions do not take the scope as a parameter. They take it with `use Scope` (capability values cannot be passed as arguments. 8.2). The Scope in R shows which scope a fork goes to. In nested scopes, `use Scope` refers to the innermost scope. To fork into an outer scope, use a capability value taken out in the outer scope (8.3).
@@ -81,7 +89,7 @@ Fiber.scope(|| {
 - With this rule, the types prevent a child from using the handler of a with that ends before the child. The exception is when the same effect is also provided outside the scope, and a closure created inside a with in the scope body (or a capability value taken out there) is passed to a child. The child then uses the inner handler, and if that with ends first, it is a defect by the run-time check of 8.6 (capture sets in 0.22 stop it statically).
 - fork is not a suspension point (the operations of Scope are fn). The child goes into the queue and starts running the next time the parent suspends. A child interrupted before it starts running ends with Interrupt without calling f.
 - The result of the scope is the first Fail or Die among the body and the children, or otherwise the way the body ended. If a child ends with a defect while the body is unwinding because of an interruption from outside, that defect becomes the result (the same direction as a defect in a release in 14.4).
-- The scope closes when a child fails (11.8). A fork or deferred during the unwinding caused by a sibling's failure is a defect and goes into the notes.
+- The scope closes when a child fails (11.8). A fork, deferred, semaphore or queue during the unwinding caused by a sibling's failure is a defect and goes into the notes.
 - fork requires Async. Async is not put in the type of the fork operation. It is expressed by the Async that remains in the R of Fiber.scope (because the uses clause of `Fiber.fork` has no Async).
 - There are no detached fibers that outlive their parent. Long-running work is forked in a scope directly under main.
 
@@ -117,7 +125,7 @@ users = Fiber.map(ids, |id| fetch(id))
 
 - Something to run later is wrapped in `|| ...` and passed. The style is direct and does not make the computation itself a value, so the wrapping cannot be avoided. The syntax of anonymous functions keeps it short (6.1).
 - A version that takes the first success (ignoring children that fail, and failing with the last cause if all of them fail) can be written on top of `attempt` (11.5) and Deferred.
-- A limit on how many run at the same time ("1000 items, at most 10 concurrently") will be added together with Queue or Semaphore (15.2).
+- A limit on how many run at the same time ("1000 items, at most 10 concurrently") is written with a Semaphore (11.9): `Fiber.map(ids, |id| db.with_permit(|| load(id)))`.
 
 ## 11.4 Interruption `[fiber.interrupt]`
 
@@ -217,20 +225,84 @@ d = (use Scope).deferred() # Deferred[A], belongs to the scope
 
 ## 11.8 No leaking `[fiber.escape]`
 
-The Scope capability, fiber handles (`Fiber[A]`) and Deferreds cannot be leaked out of their scope.
+The Scope capability, fiber handles (`Fiber[A]`), Deferreds, Semaphores and Queues cannot be leaked out of their scope.
 
 - Scope is a capability, so the capability rules (8.2, 8.6) apply as they are. Passing it as an argument, putting it in data, or returning it is a compile error (E0408 to E0410).
-- If the type of the value of `Fiber.scope` contains `Fiber` or `Deferred` anywhere, it is a compile error (E0425). This includes `Option[Fiber[User]]`. The type of the value is examined all the way through after the sets are solved. One diagnostic is reported at the call to Fiber.scope (including a pipe, `f |> Fiber.scope()`). Outside the scope the children have already finished, so no correct program is rejected.
-- Leaks that the types do not stop (putting it in State, capturing it in a closure and returning it) are checked at run time. An operation of Scope on a finished scope, and join, await or interrupt on a handle or complete or await on a Deferred of a finished scope, are defects (`fiber scope was used after it ended`, `fiber was joined after its scope ended`, and so on).
+- If the type of the value of `Fiber.scope` contains `Fiber`, `Deferred`, `Semaphore` or `Queue` anywhere, it is a compile error (E0425). This includes `Option[Fiber[User]]`. The type of the value is examined all the way through after the sets are solved. One diagnostic is reported at the call to Fiber.scope (including a pipe, `f |> Fiber.scope()`). Outside the scope the children have already finished, so no correct program is rejected.
+- Leaks that the types do not stop (putting it in State, capturing it in a closure and returning it) are checked at run time. An operation of Scope on a finished scope; join, await or interrupt on a handle of a finished scope; complete, await or poll on a Deferred of a finished scope; and any function of `Std.Semaphore` or `Std.Queue` on a Semaphore or Queue of a finished scope are defects (`fiber scope was used after it ended`, `fiber was joined after its scope ended`, and so on).
 - A scope closes when its body returns a value or when a child fails. A fork after it closes is a defect.
 - The messages are `fiber scope was used after it ended`, `fiber was joined after its scope ended` (the same form for awaited and interrupted), and `deferred was completed after its scope ended` (the same form for awaited). poll is checked in the same way.
 - The message of the defect for poll on a Deferred of a finished scope is `deferred was polled after its scope ended`.
+- The messages for Semaphores and Queues are `semaphore was used after its scope ended` and `queue was used after its scope ended`. A fiber that is not a child of the scope and is still waiting on the Semaphore or Queue when the scope ends stops waiting with the same defect.
 
-When capture sets (8.6) arrive in 0.22, handles and Deferreds will be treated as "values that hold the capability of the scope that created them", and all of these will be stopped statically. A program that is a compile error in 0.20 is also a compile error in 0.22. The only programs that stop compiling when upgrading are those that were run-time defects in 0.20.
+When capture sets (8.6) arrive in 0.22, handles, Deferreds, Semaphores and Queues will be treated as "values that hold the capability of the scope that created them", and all of these will be stopped statically. A program that is a compile error in 0.20 is also a compile error in 0.22. The only programs that stop compiling when upgrading are those that were run-time defects in 0.20.
 
 | How it leaks | 0.20 | 0.22 |
 |---|---|---|
 | Passing a capability value (including Scope) as an argument, putting it in data, returning it | Static (E0408 to E0410) | Static |
 | Taking a closure that captures a capability out of a with or a scope | Run time (stateful handlers and Scope) | Static |
-| Returning a value whose type contains `Fiber` or `Deferred` from Fiber.scope | Static (E0425) | Static |
-| Putting a `Fiber` or `Deferred` in State, or capturing it in a closure and taking it out | Run time | Static |
+| Returning a value whose type contains `Fiber`, `Deferred`, `Semaphore` or `Queue` from Fiber.scope | Static (E0425) | Static |
+| Putting a `Fiber`, `Deferred`, `Semaphore` or `Queue` in State, or capturing it in a closure and taking it out | Run time | Static |
+
+## 11.9 Semaphore `[fiber.semaphore]`
+
+A Semaphore limits how many fibers run a piece of code at the same time. It has a fixed number of permits, and a fiber runs the code while it holds some of them.
+
+```emel
+db = Fiber.semaphore(10) # Semaphore, belongs to the scope
+rows = db.with_permit(|| query(sql))
+```
+
+| Function (`Std.Semaphore`) | Type | Meaning |
+|---|---|---|
+| `with_permit` | `with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | `with_permits(s, 1, f)` |
+| `with_permits` | `with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | Waits for n permits, runs `f`, and gives them back |
+| `try_with_permit` | `try_with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | `try_with_permits(s, 1, f)` |
+| `try_with_permits` | `try_with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | Runs `f` only if n permits can be taken without waiting |
+| `available` | `available(s: Semaphore) -> Int` | The number of free permits. Does not suspend |
+
+- To tie its lifetime to the scope, a Semaphore can be created only by the Scope operation `semaphore`. `permits` less than 1 is a defect (`semaphore needs at least 1 permit, but got 0`).
+- `with_permits(s, n, f)` waits until n permits are free and takes them. It then runs `f`, and gives the n permits back when `f` ends, however it ends: with a value, an error, a defect or an interruption. The releases of the withs inside `f` run before the permits are given back. The result of `with_permits` is the result of `f`.
+- `try_with_permits(s, n, f)` takes n permits if they are free and no fiber is waiting on s, runs `f` as `with_permits` does, and returns `Some` of the value of `f`. Otherwise it returns `None` without running `f`. It is not a suspension point.
+- `n` less than 1 is a defect (`` `with_permits` needs at least 1 permit, but got 0 ``). `n` greater than the number of permits s was made with is a defect (`` `with_permits` asked for 4 permits of a semaphore with 3 ``). The same holds for `try_with_permits`, with its name in the message.
+- Fibers that wait are served in the order they started to wait. Permits given back go to the first waiting fiber when enough are free for it. While it waits, no fiber behind it takes permits, even if fewer permits would be enough. Fibers that receive their permits resume at a later suspension point of the fiber that gave them back (11.1); giving permits back does not suspend.
+- A fiber interrupted while it waits leaves the line without taking any permit. The interruption takes effect there (11.4).
+- Permits are counted per call. A `with_permits` inside `f` of a `with_permits` on the same semaphore takes further permits. When no fiber can make progress, the fibers are interrupted as in `[dyn.suspend]`.
+- Fibers forked inside `f` do not hold the permits. The permits are given back when `f` ends, which, when `f` contains a Fiber.scope, is after that scope's children have ended.
+- `available(s)` counts the permits that no fiber holds. Another fiber can run between `available` and a later call, so `available` cannot be used to check and take atomically.
+- A Semaphore is a mutable container (14.6). It has no Eq and no Show; dbg shows it as `<semaphore>`.
+
+## 11.10 Queue `[fiber.queue]`
+
+A Queue passes values between fibers in order. It holds up to a fixed number of values, and it can be closed to say that no more values will come.
+
+```emel
+q = Fiber.queue(100) # Queue[A], belongs to the scope
+q.offer(job)
+job = q.take()
+```
+
+| Function (`Std.Queue`) | Type | Meaning |
+|---|---|---|
+| `offer` | `offer[A](q: Queue[A], value: A) -> () fails QueueClosed uses { Async }` | Adds value at the end. Waits while the queue is full |
+| `take` | `take[A](q: Queue[A]) -> A fails QueueClosed uses { Async }` | Removes the value at the front. Waits while the queue is empty |
+| `try_offer` | `try_offer[A](q: Queue[A], value: A) -> Bool` | Adds value if the queue is neither full nor closed. Does not suspend |
+| `poll` | `poll[A](q: Queue[A]) -> Option[A]` | Removes the value at the front if there is one. Does not suspend |
+| `size` | `size[A](q: Queue[A]) -> Int` | The number of values in the queue |
+| `close` | `close[A](q: Queue[A]) -> ()` | Closes the queue |
+
+```emel
+pub error QueueClosed
+```
+
+- To tie its lifetime to the scope, a Queue can be created only by the Scope operation `queue`. `capacity` less than 1 is a defect (`queue needs a capacity of at least 1, but got 0`).
+- `offer(q, value)` adds value at the end of q. While q holds `capacity` values, it waits. `take(q)` removes the value at the front of q and returns it. While q is empty, it waits.
+- Fibers that wait to offer and fibers that wait to take are each served in the order they started to wait. A value offered while fibers wait to take goes to the first of them. When a value is taken while fibers wait to offer, the value of the first of them is added at the end and that fiber resumes. The values therefore come out in the order their offers started.
+- A fiber interrupted while it waits leaves the line. An interrupted offer adds nothing. The interruption takes effect there (11.4).
+- `try_offer(q, value)` adds value and returns True if q is neither full nor closed. Otherwise it returns False and adds nothing. A value it adds while fibers wait to take goes to the first of them. `poll(q)` removes the value at the front and returns it as `Some`, or returns `None` if q is empty. Neither is a suspension point.
+- `close(q)` closes q. Closing a closed queue does nothing. After q is closed:
+  - the values already in q stay, and `take` and `poll` return them in order;
+  - `take` on q when it is empty fails with QueueClosed, and so do the fibers waiting to take when q is closed;
+  - `offer` fails with QueueClosed and adds nothing, and so do the fibers waiting to offer when q is closed; their values are not added;
+  - `try_offer` returns False.
+- A Queue is a mutable container (14.6). It has no Eq and no Show; dbg shows it as `<queue>`.

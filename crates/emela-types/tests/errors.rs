@@ -498,3 +498,43 @@ fn union_of_arguments() {
 "#
     ));
 }
+
+/// `each` of List, Array, Map and Set (`[api.list]`, `[api.std.array]`, `[api.std.map]`,
+/// `[api.std.set]`): `f` returns `()`, and the errors of `f` are those of the call, since the
+/// `fails` of `f` is a hidden set variable (`[type.fn]`). A function that returns a value is a
+/// type mismatch.
+#[test]
+fn each_takes_the_errors_of_f() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+import Std.Array.{Array}
+import Std.Map.{Map}
+import Std.Set.{Set}
+
+error Boom
+
+fn check(n: Int) -> () fails Boom { if n < 0 { fail Boom } }
+
+fn lists(xs: List[Int]) {
+  List.each(xs, check)
+  xs.each(|_| ())
+}
+
+fn arrays(a: Array[Int]) {
+  Array.each(a, check)
+}
+
+fn maps(m: Map[Int, String]) {
+  Map.each(m, |key, _| check(key))
+}
+
+fn sets(s: Set[Int]) {
+  Set.each(s, check)
+}
+
+fn returns_a_value(xs: List[Int]) {
+  List.each(xs, |x| x + 1)
+}
+"#
+    ));
+}

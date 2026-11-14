@@ -444,10 +444,12 @@ Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
 | `Fiber` | `@external type Fiber[A]` | runtime | A handle to a fiber. Cannot be leaked out of the scope (`[fiber.escape]`) |
-| `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]; fn deferred[A]() -> Deferred[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
+| `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]; fn deferred[A]() -> Deferred[A]; fn semaphore(permits: Int) -> Semaphore; fn queue[A](capacity: Int) -> Queue[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
 | `scope` | `scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) -> A fails E uses { Async, R }` | intrinsic | Runs the body and returns the value after all children have finished. Children use the handlers in effect where `scope` was called |
 | `fork` | `fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A] uses { Scope[E, R] }` | Emela | `(use Scope).fork(f)` |
 | `deferred` | `deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] }` | Emela | `(use Scope).deferred()` |
+| `semaphore` | `semaphore[E, R](permits: Int) -> Semaphore uses { Scope[E, R] }` | Emela | `(use Scope).semaphore(permits)` |
+| `queue` | `queue[A, E, R](capacity: Int) -> Queue[A] uses { Scope[E, R] }` | Emela | `(use Scope).queue(capacity)` |
 | `join` | `join[A](fiber: Fiber[A]) -> A uses { Async }` | intrinsic | Waits for the child to finish and returns its value. A defect if the child was interrupted |
 | `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | intrinsic | Waits for the child to finish and returns how it ended (`Exit` of `Std.Exit`) |
 | `interrupt` | `interrupt[A](fiber: Fiber[A]) -> () uses { Async }` | intrinsic | Interrupts the child and waits until its unwinding finishes |
@@ -489,6 +491,30 @@ impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions,
 | `complete` | `complete[A](d: Deferred[A], value: A) -> Bool` | intrinsic | Puts in the value and returns True only the first time. False from the second time on |
 | `await` | `await[A](d: Deferred[A]) -> A uses { Async }` | intrinsic | Waits until a value is put in |
 | `poll` | `poll[A](d: Deferred[A]) -> Option[A]` | intrinsic | `Some` if a value is in. Does not wait |
+
+### Std.Semaphore (`std/semaphore.emel`) `[api.std.semaphore]`
+
+| Declaration | Signature | Implementation | Description |
+|---|---|---|---|
+| `Semaphore` | `@external type Semaphore` | runtime | A fixed number of permits. Only `semaphore` of Scope can create one |
+| `with_permit` | `with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | Emela | `with_permits(s, 1, f)` |
+| `with_permits` | `with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | intrinsic | Waits for n permits, runs `f`, and gives them back however `f` ends |
+| `try_with_permit` | `try_with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | Emela | `try_with_permits(s, 1, f)` |
+| `try_with_permits` | `try_with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | intrinsic | Runs `f` only if n permits can be taken without waiting |
+| `available` | `available(s: Semaphore) -> Int` | intrinsic | The number of free permits |
+
+### Std.Queue (`std/queue.emel`) `[api.std.queue]`
+
+| Declaration | Signature | Implementation | Description |
+|---|---|---|---|
+| `Queue` | `@external type Queue[A]` | runtime | Values in order, up to a capacity. Only `queue` of Scope can create one |
+| `QueueClosed` | `error QueueClosed` | Emela | The queue is closed (and, for `take`, empty) |
+| `offer` | `offer[A](q: Queue[A], value: A) -> () fails QueueClosed uses { Async }` | intrinsic | Adds value at the end. Waits while full |
+| `take` | `take[A](q: Queue[A]) -> A fails QueueClosed uses { Async }` | intrinsic | Removes the value at the front. Waits while empty |
+| `try_offer` | `try_offer[A](q: Queue[A], value: A) -> Bool` | intrinsic | Adds value if neither full nor closed |
+| `poll` | `poll[A](q: Queue[A]) -> Option[A]` | intrinsic | Removes the value at the front if there is one |
+| `size` | `size[A](q: Queue[A]) -> Int` | intrinsic | The number of values |
+| `close` | `close[A](q: Queue[A]) -> ()` | intrinsic | Closes the queue. The values in it can still be taken |
 
 ### Std.Http (`std/http.emel`, `std/http.mjs`) `[api.std.http]`
 

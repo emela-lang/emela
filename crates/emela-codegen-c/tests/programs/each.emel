@@ -1,0 +1,81 @@
+# `each` of List, Array, Map and Set (`[api.list]`, `[api.std.array]`, `[api.std.map]`,
+# `[api.std.set]`): `f` is called on each element in the order of the collection, the value is
+# `()`, and the first failure of `f` stops it (`[lib.api-rules]`).
+
+import Std.Array.{Array}
+import Std.Map.{Map}
+import Std.Set.{Set}
+
+error Stop(at: Int)
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler DbgLog: Log {
+  fn log(msg) { seen(msg) }
+}
+
+fn seen[A](x: A) -> () {
+  dbg(x)
+  ()
+}
+
+fn upto_three(x: Int) -> () fails Stop {
+  if x == 3 { fail Stop(at: x) }
+  seen(x)
+}
+
+fn in_order() {
+  seen("List")
+  dbg(List.each([3, 1, 2], seen))
+  [10, 20].each(|x| seen(x + 1))
+  List.each(List.range(0, 0), seen)
+  seen("Array")
+  dbg(Array.each(Array.from_list(["c", "a", "b"]), seen))
+  Array.each(Array.empty(), seen)
+  seen("Map")
+  m = Map.from_list([(5, "e"), (3, "c"), (1, "a"), (4, "d"), (2, "b")])
+  dbg(Map.each(m, |key, value| seen((key, value))))
+  Map.each(Map.empty(), |key, value| seen((key, value)))
+  seen("Set")
+  dbg(Set.each(Set.from_list([5, 1, 4, 1, 3]), seen))
+  Set.each(Set.empty(), seen)
+}
+
+fn stops() {
+  List.each([1, 2, 3, 4], upto_three) escape { Stop(at:) -> seen("List stopped at #{at}") }
+  Array.each(Array.from_list([1, 2, 3, 4]), upto_three) escape {
+    Stop(at:) -> seen("Array stopped at #{at}")
+  }
+  Map.each(
+    Map.from_list([(4, "d"), (3, "c"), (2, "b"), (1, "a")]),
+    |key, _| upto_three(key),
+  ) escape { Stop(at:) -> seen("Map stopped at #{at}") }
+  Set.each(Set.from_list([4, 3, 2, 1]), upto_three) escape {
+    Stop(at:) -> seen("Set stopped at #{at}")
+  }
+}
+
+# A long List or Array uses no stack, even when `f` can fail (`[fn.loop]`).
+fn long() {
+  xs = List.range(0, 1000000)
+  List.each(xs, |x| if x < 0 { fail Stop(at: x) }) escape { Stop(at:) -> seen(at) }
+  Array.each(Array.from_list(xs), |x| if x < 0 { fail Stop(at: x) }) escape {
+    Stop(at:) -> seen(at)
+  }
+  seen("long")
+}
+
+fn effects() {
+  log = use Log
+  List.each(["x", "y"], log.log)
+  Map.each(Map.from_list([("k", 1)]), |key, value| log.log("#{key}=#{value}"))
+}
+
+fn main() {
+  in_order()
+  stops()
+  long()
+  with DbgLog { effects() }
+}
