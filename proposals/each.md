@@ -129,6 +129,7 @@ Additive. The order rule changes no result, because the functions are pure apart
 - **Stating the order of `map` instead of adding `each`.** This proposal states the order too, but the order alone does not remove the collection of `()` or say that the result is unused.
 - **Stating the order in each row of the tables.** Repeats the same words in every module, and a collection added later has to repeat them again. One rule in `[lib.api-rules]` covers them.
 - **Including `sort_by` in the rule.** Fixes the number and the pairs of comparisons, which ties the implementation to one algorithm.
+- **A concurrent `each` in `Std.Fiber`.** Calls `f` on the elements concurrently and discards the values, as `Fiber.map` does without its result. Not here: this proposal fixes the order of calls, which a concurrent function does not have, and no program in this repository discards the result of `Fiber.map` today. It belongs with Semaphore and Queue, or a later proposal, if running several workers needs it.
 - **Only List.** Leaves `fold` with `from: ()` for Map and Set, and a match for Option. The same name in every collection lets code move between them.
 
 ## Prior art
