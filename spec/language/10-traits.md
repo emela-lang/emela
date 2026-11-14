@@ -184,7 +184,7 @@ dbg (15.1) is the only exception: it does not require Show and shows a value of 
 - A type that satisfies Show is displayed the same as with inspect.
 - A type that does not satisfy Show is represented in the same constructing form as a derived Show. Where an inner value's type satisfies Show, that part uses the Show implementation. The contents of opaque types are also shown.
 - A function value is shown as `<fn>`.
-- A value of an `@external type` is shown as `<external Name>`, where `Name` is the name of the type, on every target. Its contents belong to the host and are not shown.
+- A value of an `@external type` is shown as `<external Name>`, where `Name` is the name of the type, on every target. Its contents belong to the host and are not shown. A Semaphore and a Queue, which the runtime holds, are shown as `<semaphore>` and `<queue>` (11.9, 11.10).
 - This constructing form is only written to standard error, and a program has no way to receive it as a string. Strings shown to users are made with interpolation and Show.
 
 ## 10.7 What traits do not have `[trait.not]`
