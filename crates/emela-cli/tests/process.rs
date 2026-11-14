@@ -110,18 +110,18 @@ fn have_wasmtime() -> bool {
     ok
 }
 
-/// JS, and C when cc starts.
-fn js_and_c() -> Vec<&'static str> {
+/// JS, and native when cc starts.
+fn js_and_native() -> Vec<&'static str> {
     let mut targets = vec!["js"];
     if have_cc() {
-        targets.push("c");
+        targets.push("native");
     }
     targets
 }
 
-/// JS, C when cc starts, and WASM when wasmtime starts.
+/// JS, native when cc starts, and WASM when wasmtime starts.
 fn every_target() -> Vec<&'static str> {
-    let mut targets = js_and_c();
+    let mut targets = js_and_native();
     if have_wasmtime() {
         targets.push("wasm");
     }
@@ -155,7 +155,7 @@ fn system_stdin_reads_an_empty_input_under_test() {
     assert_tests_pass(
         "system-stdin",
         include_str!("process/system_stdin.emel"),
-        &js_and_c(),
+        &js_and_native(),
     );
 }
 
@@ -191,7 +191,7 @@ fn invalid_utf8_in_an_argument_is_replaced() {
 
     let project = Project::new("args-invalid", include_str!("process/args.emel"));
     let arg = std::ffi::OsStr::from_bytes(b"\xffx\xe3\x81");
-    for target in js_and_c() {
+    for target in js_and_native() {
         let args = ["run", "--target", target, "--"].map(std::ffi::OsStr::new);
         let mut args = args.to_vec();
         args.push(arg);
@@ -209,7 +209,7 @@ fn invalid_utf8_in_an_argument_is_replaced() {
 #[test]
 fn quote_reads_each_line() {
     let project = Project::new("quote", include_str!("process/quote.emel"));
-    for target in js_and_c() {
+    for target in js_and_native() {
         let out = project.run(&["run", "--target", target, "--", "# "], b"x\r\ny\n\nlast");
         assert_eq!(
             (out.status.code(), text(&out.stdout)),
@@ -240,7 +240,7 @@ fn wait(mut child: Child, limit: Duration, what: &str) -> Output {
 #[test]
 fn stdin_lines_text_and_interruption() {
     let project = Project::new("stdin", include_str!("process/stdin.emel"));
-    for target in js_and_c() {
+    for target in js_and_native() {
         let mut child = project
             .emela(&["run", "--target", target].map(std::ffi::OsStr::new))
             .stdin(Stdio::piped())
@@ -295,7 +295,7 @@ fn stdin_lines_text_and_interruption() {
 #[test]
 fn open_stdin_does_not_keep_the_program_running() {
     let project = Project::new("open-stdin", include_str!("process/open_stdin.emel"));
-    for target in js_and_c() {
+    for target in js_and_native() {
         // Built first, so that the limit below is about the program and not the compiler.
         let built = project.run(&["build", "--target", target], b"");
         assert!(built.status.success(), "{target}: {}", text(&built.stderr));
