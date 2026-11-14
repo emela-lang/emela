@@ -1,0 +1,337 @@
+# The shape of a type (`[api.std.shape]`): its fields, its variants and the types inside them, read
+# without a value. `Dynamic` is the contents of one value; a `Shape` describes every value of a
+# type, so a schema of the JSON that `Encode` writes can be built from it before any value
+# arrives. The compiler derives `Shaped` (`[trait.derive]`).
+
+import Std.Array.{Array}
+import Std.Bytes.{Bytes}
+import Std.Map.{Map}
+import Std.Set.{Set}
+import Std.Dynamic.{Dynamic, Number, Text}
+import Std.Dynamic.Number
+
+## The shape of a type. The variants are named after the types they describe (`Int`, `List`), and
+## are meant to be written with the module (`Shape.Int`): `Bool` is also a variant of `Dynamic`.
+pub enum Shape {
+  Bool
+  Int
+  Int64
+  Float
+  String
+  Bytes
+  ## Any value (`Dynamic` itself).
+  Any
+  List(Shape)
+  Option(Shape)
+  Map(key: Shape, value: Shape)
+  ## A type with fields, by the name of the type. The name of a type with type parameters
+  ## carries its type arguments (`generic_name`).
+  Record(name: String, fields: List[Field])
+  ## An enum, by the name of the enum, named as for `Record`.
+  Variants(name: String, variants: List[Variant])
+  ## A type that appears again inside itself, by its name (`Node(left: Tree, ...)`).
+  Ref(String)
+  ## A type known by its name, with the shape of its contents: an opaque type whose constructor
+  ## checks the contents (`Quantity`, an Int of at least 1).
+  Named(name: String, shape: Shape)
+  ## `shape` with notes on it. The notes of this module are written with `description`,
+  ## `minimum` and the other functions below; a reader passes on the keys it does not know.
+  Annotated(shape: Shape, notes: List[(String, Dynamic)])
+} derive Eq, Show
+
+pub type Field(name: String, shape: Shape) derive Eq, Show
+
+## A variant of an enum, with the contents in the form it is declared in.
+pub type Variant(name: String, contents: Contents) derive Eq, Show
+
+pub enum Contents {
+  NoFields
+  PositionalFields(List[Shape])
+  NamedFields(List[Field])
+} derive Eq, Show
+
+## A type whose shape is known. `proxy` only carries the type: a trait function selects its impl
+## from the types of its arguments, and there is no way to write the type argument at the call.
+## Write `p: Option[User] = None` and call `Shaped.shape(p)`, or use `of_value` and `of_parameter`.
+##
+## An impl writes `shape_in`. `visiting` holds the names of the records and enums being read
+## around this one, innermost first: a type already there is written as `Ref` instead of being
+## read again, so types that refer to each other (`Team` with a `Member`, `Member` with a `Team`)
+## end. `visit` does this for a named type; an impl for a type with type arguments passes
+## `visiting` on to them.
+pub trait Shaped {
+  fn shape_in(proxy: Option[Self], visiting: List[String]) -> Shape
+
+  fn shape(proxy: Option[Self]) -> Shape {
+    Shaped.shape_in(proxy, [])
+  }
+}
+
+## The shape of the record or enum `name`: `Ref(name)` if it is already being read in
+## `visiting`, otherwise `build` with `name` added to `visiting`.
+##
+## ```emela
+## impl Team: Shaped {
+##   fn shape_in(proxy, visiting) {
+##     Shape.visit("Team", visiting, |visiting| {
+##       lead: Option[Member] = None
+##       Record(name: "Team", fields: [Field(name: "lead", shape: Shaped.shape_in(lead, visiting))])
+##     })
+##   }
+## }
+## ```
+pub fn visit(name: String, visiting: List[String], build: fn(List[String]) -> Shape) -> Shape {
+  if visiting.any(|n| n == name) {
+    Ref(name)
+  } else {
+    build([name, ..visiting])
+  }
+}
+
+impl Bool: Shaped {
+  fn shape_in(proxy, visiting) { Bool }
+}
+
+impl Int: Shaped {
+  fn shape_in(proxy, visiting) { Int }
+}
+
+impl Int64: Shaped {
+  fn shape_in(proxy, visiting) { Int64 }
+}
+
+impl Float: Shaped {
+  fn shape_in(proxy, visiting) { Float }
+}
+
+impl String: Shaped {
+  fn shape_in(proxy, visiting) { String }
+}
+
+impl Bytes: Shaped {
+  fn shape_in(proxy, visiting) { Bytes }
+}
+
+impl Dynamic: Shaped {
+  fn shape_in(proxy, visiting) { Any }
+}
+
+impl List[A: Shaped]: Shaped {
+  fn shape_in(proxy, visiting) {
+    item: Option[A] = None
+    List(Shaped.shape_in(item, visiting))
+  }
+}
+
+impl Array[A: Shaped]: Shaped {
+  fn shape_in(proxy, visiting) {
+    item: Option[A] = None
+    List(Shaped.shape_in(item, visiting))
+  }
+}
+
+impl Set[A: Shaped]: Shaped {
+  fn shape_in(proxy, visiting) {
+    item: Option[A] = None
+    List(Shaped.shape_in(item, visiting))
+  }
+}
+
+impl Option[A: Shaped]: Shaped {
+  fn shape_in(proxy, visiting) {
+    inner: Option[A] = None
+    Option(Shaped.shape_in(inner, visiting))
+  }
+}
+
+impl Map[K: Shaped, V: Shaped]: Shaped {
+  fn shape_in(proxy, visiting) {
+    key: Option[K] = None
+    value: Option[V] = None
+    Map(key: Shaped.shape_in(key, visiting), value: Shaped.shape_in(value, visiting))
+  }
+}
+
+## The shape of the type of `value`.
+pub fn of_value[A: Shaped](value: A) -> Shape {
+  Shaped.shape(Some(value))
+}
+
+## The shape of the parameter of `f`, without calling it. A router reads the type of the input
+## of a handler this way.
+pub fn of_parameter[A: Shaped, B, E, R](f: fn(A) -> B fails E uses { R }) -> Shape {
+  proxy: Option[A] = None
+  Shaped.shape(proxy)
+}
+
+## `shape` with the note `name` added after its notes. A note of the same name already there is
+## replaced.
+pub fn annotate(shape: Shape, name: String, value: Dynamic) -> Shape {
+  shape match {
+    Annotated(shape: inner, notes:) -> Annotated(
+      shape: inner,
+      notes: notes.filter(|(n, _)| n != name).append([(name, value)]),
+    )
+    _ -> Annotated(shape:, notes: [(name, value)])
+  }
+}
+
+## A description for people.
+pub fn description(shape: Shape, text: String) -> Shape {
+  annotate(shape, "description", Text(text))
+}
+
+## A regular expression that a string matches. Only described.
+pub fn pattern(shape: Shape, regex: String) -> Shape {
+  annotate(shape, "pattern", Text(regex))
+}
+
+## The name of a known form of string (`"date-time"`, `"email"`, `"uuid"`). Only described, as for
+## `pattern`.
+pub fn format(shape: Shape, name: String) -> Shape {
+  annotate(shape, "format", Text(name))
+}
+
+## The least number allowed. Only described, as are the notes below: nothing in this module checks
+## them.
+pub fn minimum(shape: Shape, n: Int) -> Shape {
+  annotate(shape, "minimum", number(n))
+}
+
+## The greatest number allowed.
+pub fn maximum(shape: Shape, n: Int) -> Shape {
+  annotate(shape, "maximum", number(n))
+}
+
+## The least length of a string, counted in code points.
+pub fn min_length(shape: Shape, n: Int) -> Shape {
+  annotate(shape, "min_length", number(n))
+}
+
+## The greatest length of a string, counted in code points.
+pub fn max_length(shape: Shape, n: Int) -> Shape {
+  annotate(shape, "max_length", number(n))
+}
+
+## The least number of items of a list.
+pub fn min_items(shape: Shape, n: Int) -> Shape {
+  annotate(shape, "min_items", number(n))
+}
+
+## The greatest number of items of a list.
+pub fn max_items(shape: Shape, n: Int) -> Shape {
+  annotate(shape, "max_items", number(n))
+}
+
+fn number(n: Int) -> Dynamic {
+  Number(Number.from_int(n))
+}
+
+## `shape` without its notes and names: what its values are made of.
+pub fn strip(shape: Shape) -> Shape {
+  shape match {
+    Annotated(shape: inner, notes: _) -> strip(inner)
+    Named(name: _, shape: inner)      -> strip(inner)
+    _                                 -> shape
+  }
+}
+
+## The value of the note `name` on `shape`, looking through names, or `None`.
+pub fn note(shape: Shape, name: String) -> Option[Dynamic] {
+  shape match {
+    Annotated(shape: inner, notes:) -> notes.find(|(n, _)| n == name) match {
+      Some((_, value)) -> Some(value)
+      None             -> note(inner, name)
+    }
+    Named(name: _, shape: inner) -> note(inner, name)
+    _                            -> None
+  }
+}
+
+## The names of the fields of a record, in declared order, looking through notes and names.
+## Empty for any other shape.
+pub fn field_names(shape: Shape) -> List[String] {
+  strip(shape) match {
+    Record(name: _, fields:) -> fields.map(|field| field.name)
+    _                        -> []
+  }
+}
+
+## The name of `shape` as a type is written: `Int`, `List[String]`, `Page[Member]`. Notes are not
+## part of it.
+pub fn name_of(shape: Shape) -> String {
+  shape match {
+    Bool                         -> "Bool"
+    Int                          -> "Int"
+    Int64                        -> "Int64"
+    Float                        -> "Float"
+    String                       -> "String"
+    Bytes                        -> "Bytes"
+    Any                          -> "Dynamic"
+    List(item)                   -> generic_name("List", [item])
+    Option(inner)                -> generic_name("Option", [inner])
+    Map(key:, value:)            -> generic_name("Map", [key, value])
+    Record(name:, fields: _)     -> name
+    Variants(name:, variants: _) -> name
+    Ref(name)                    -> name
+    Named(name:, shape: _)       -> name
+    Annotated(shape:, notes: _)  -> name_of(shape)
+  }
+}
+
+## The name of a type with type parameters, from its name and the shapes of its type arguments:
+## `generic_name("Page", [member])` is `"Page[Member]"`. Without arguments, `name` as it is.
+pub fn generic_name(name: String, arguments: List[Shape]) -> String {
+  if arguments.is_empty() {
+    name
+  } else {
+    "#{name}[#{arguments.map(name_of).join(", ")}]"
+  }
+}
+
+# The functions below are what a derived impl of Shaped calls (`[trait.derive]`, `derive.rs` of the
+# compiler), looked up by name. It makes what `visit(name, visiting, build)` makes, with `build`
+# taken apart: `derived_visited` is the case of `Ref`, and the shapes of the fields are read with
+# `derived_enter(name, visiting)`.
+
+# `None`, the proxy of a type.
+fn derived_proxy[A]() -> Option[A] {
+  None
+}
+
+# Whether `name` is being read in `visiting`.
+fn derived_visited(name: String, visiting: List[String]) -> Bool {
+  visiting.any(|n| n == name)
+}
+
+fn derived_ref(name: String) -> Shape {
+  Ref(name)
+}
+
+fn derived_enter(name: String, visiting: List[String]) -> List[String] {
+  [name, ..visiting]
+}
+
+fn derived_record(name: String, fields: List[Field]) -> Shape {
+  Record(name:, fields:)
+}
+
+fn derived_variants(name: String, variants: List[Variant]) -> Shape {
+  Variants(name:, variants:)
+}
+
+fn derived_field(name: String, shape: Shape) -> Field {
+  Field(name:, shape:)
+}
+
+fn derived_no_fields(name: String) -> Variant {
+  Variant(name:, contents: NoFields)
+}
+
+fn derived_positional_fields(name: String, shapes: List[Shape]) -> Variant {
+  Variant(name:, contents: PositionalFields(shapes))
+}
+
+fn derived_named_fields(name: String, fields: List[Field]) -> Variant {
+  Variant(name:, contents: NamedFields(fields))
+}

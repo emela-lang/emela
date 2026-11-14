@@ -1,0 +1,19 @@
+import Std.Map
+import Std.Dynamic.{Fields, Items, Text}
+
+@test
+fn writes_the_tag_and_the_value() {
+  payload = Fields(Map.from_list([("side", Text("a"))]))
+  assert Dynamic.variant("Square", Some(payload))
+    == Fields(Map.from_list([("tag", Text("Square")), ("value", payload)]))
+}
+
+@test
+fn writes_only_the_tag_without_a_value() {
+  assert Dynamic.variant("Empty", None) == Fields(Map.from_list([("tag", Text("Empty"))]))
+}
+
+@test
+fn round_trips_with_tag() {
+  assert Dynamic.variant("Ok", Some(Items([Text("a")]))).tag() == "Ok"
+}

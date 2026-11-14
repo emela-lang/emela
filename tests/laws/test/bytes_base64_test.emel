@@ -1,0 +1,82 @@
+import Std.Bytes.{Bytes}
+
+fn text(s: String) -> Bytes {
+  Bytes.encode_utf8(s)
+}
+
+# 0 to 255, in order.
+fn every_byte() -> Bytes {
+  Bytes.from_list(List.range(0, 256)).or(Bytes.empty())
+}
+
+# RFC 4648 section 10.
+const VECTORS: List[(String, String)] = [
+  ("", ""),
+  ("f", "Zg=="),
+  ("fo", "Zm8="),
+  ("foo", "Zm9v"),
+  ("foob", "Zm9vYg=="),
+  ("fooba", "Zm9vYmE="),
+  ("foobar", "Zm9vYmFy"),
+]
+
+@test
+fn to_base64_writes_the_test_vectors_of_rfc_4648() {
+  assert VECTORS.map(|(plain, _)| Bytes.to_base64(text(plain))) == VECTORS.map(|(_, e)| e)
+}
+
+@test
+fn from_base64_reads_the_test_vectors_of_rfc_4648() {
+  assert VECTORS.map(|(_, e)| Bytes.from_base64(e)) == VECTORS.map(|(plain, _)| Some(text(plain)))
+}
+
+@test
+fn the_standard_alphabet_has_plus_and_slash() {
+  b = Bytes.hex("fbff")
+  assert Bytes.to_base64(b) == "+/8="
+  assert Bytes.from_base64("+/8=") == Some(b)
+  assert Bytes.to_base64(text("hi?")) == "aGk/"
+}
+
+@test
+fn every_byte_goes_and_comes_back() {
+  all = every_byte()
+  assert Bytes.from_base64(Bytes.to_base64(all)) == Some(all)
+  assert Bytes.to_base64(all).code_points().length() == 344
+}
+
+@test
+fn the_padding_is_required() {
+  assert Bytes.from_base64("Zg") == None
+  assert Bytes.from_base64("Zm8") == None
+  assert Bytes.from_base64("Zm9vYg") == None
+}
+
+@test
+fn a_length_that_is_not_a_multiple_of_4_is_none() {
+  assert Bytes.from_base64("Z") == None
+  assert Bytes.from_base64("Zm9vY") == None
+}
+
+@test
+fn misplaced_padding_is_none() {
+  assert Bytes.from_base64("=Zm9") == None
+  assert Bytes.from_base64("Z=g=") == None
+  assert Bytes.from_base64("Zg==Zg==") == None
+  assert Bytes.from_base64("Zm8=Zm8=") == None
+  assert Bytes.from_base64("Zg=a") == None
+}
+
+@test
+fn any_other_character_is_none() {
+  assert Bytes.from_base64("Zm9v\n") == None
+  assert Bytes.from_base64("Zm 9") == None
+  assert Bytes.from_base64("-_8=") == None
+  assert Bytes.from_base64("Zm9*") == None
+}
+
+@test
+fn unused_bits_that_are_not_zero_are_none() {
+  assert Bytes.from_base64("Zh==") == None
+  assert Bytes.from_base64("Zm9=") == None
+}

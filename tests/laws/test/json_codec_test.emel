@@ -1,0 +1,44 @@
+import Std.Dynamic.{Dynamic, Decode, Encode, DecodeError, Text, Items}
+import Std.Json.{SyntaxError}
+
+type User(name: String, tags: List[String])
+  derive Eq
+
+impl User: Encode {
+  fn to_dynamic(self) {
+    Dynamic.object([("name", Text(self.name)), ("tags", Items(self.tags.map(|t| Text(t))))])
+  }
+}
+
+impl User: Decode {
+  fn from_dynamic(d) {
+    User(name: d.field("name", Dynamic.string), tags: d.field("tags", Dynamic.list(Dynamic.string)))
+  }
+}
+
+@test
+fn encodes() {
+  assert Json.encode(User(name: "a", tags: ["x"])) == "{\"name\":\"a\",\"tags\":[\"x\"]}"
+}
+
+@test
+fn decodes() {
+  user: User = Json.decode("{\"name\":\"a\",\"tags\":[\"x\"]}")
+  assert user == User(name: "a", tags: ["x"])
+}
+
+fn kind(text: String) -> String {
+  {
+    user: User = Json.decode(text)
+    "ok"
+  } escape {
+    SyntaxError(..) -> "syntax"
+    DecodeError(..) -> "decode"
+  }
+}
+
+@test
+fn fails_with_either_error() {
+  assert kind("{") == "syntax"
+  assert kind("{\"name\":1}") == "decode"
+}

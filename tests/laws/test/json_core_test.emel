@@ -1,0 +1,35 @@
+import Std.Dynamic.{DecodeError, Key, Index, Segment}
+import Std.Json.{SyntaxError}
+
+fn failed_at(text: String) -> List[Segment] {
+  {
+    xs: List[List[Int]] = Json.decode(text)
+    []
+  } escape {
+    DecodeError(path:, ..) -> path
+    SyntaxError(..)        -> [Key("syntax")]
+  }
+}
+
+@test
+fn encodes_core_types() {
+  assert Json.encode(42) == "42"
+  assert Json.encode("a") == "\"a\""
+  assert Json.encode([[1, 2], []]) == "[[1,2],[]]"
+  assert Json.encode(["a", "b"]) == "[\"a\",\"b\"]"
+}
+
+@test
+fn decodes_core_types() {
+  n: Int = Json.decode("42")
+  s: String = Json.decode("\"a\"")
+  xs: List[List[Int]] = Json.decode("[[1,2],[]]")
+  assert n == 42
+  assert s == "a"
+  assert xs == [[1, 2], []]
+}
+
+@test
+fn reports_the_path_inside_lists() {
+  assert failed_at("[[1],[2,\"x\"]]") == [Index(1), Index(1)]
+}

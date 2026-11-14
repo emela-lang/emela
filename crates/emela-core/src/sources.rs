@@ -30,6 +30,13 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Instant", include_str!("../lib/std/instant.emel")),
     ("Std.Map", include_str!("../lib/std/map.emel")),
     ("Std.Set", include_str!("../lib/std/set.emel")),
+    (
+        "Std.Dynamic.Number",
+        include_str!("../lib/std/dynamic/number.emel"),
+    ),
+    ("Std.Dynamic", include_str!("../lib/std/dynamic.emel")),
+    ("Std.Shape", include_str!("../lib/std/shape.emel")),
+    ("Std.Json", include_str!("../lib/std/json.emel")),
     ("Std.State", include_str!("../lib/std/state.emel")),
     ("Std.Console", include_str!("../lib/std/console.emel")),
     ("Std.Process", include_str!("../lib/std/process.emel")),

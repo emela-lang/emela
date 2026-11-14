@@ -1,0 +1,185 @@
+# Numbers of `Dynamic` (`[api.std.dynamic.number]`): a sign, decimal digits and an exponent, of any
+# size and precision, so that a number read from text keeps every digit.
+
+pub opaque type Number(negative: Bool, digits: String, exponent: Int) derive Eq, Show
+
+pub error OutOfRange(number: Number) derive Show
+
+## Reads a number in the JSON grammar: an optional `-`, an integer part without leading zeros,
+## an optional `.` and fraction, and an optional `e` or `E` with an optional sign and digits.
+## Fails also when the normalized exponent is outside the range of Int.
+pub fn parse(s: String) -> Number fails ParseError {
+  chars = characters(s)
+  (negative, after_sign) = chars match {
+    ["-", ..rest] -> (True, rest)
+    _             -> (False, chars)
+  }
+  (whole, after_whole) = span_digits(after_sign)
+  whole match {
+    []           -> fail ParseError(input: s)
+    ["0", _, ..] -> fail ParseError(input: s)
+    _            -> ()
+  }
+  (fraction, after_fraction) = after_whole match {
+    [".", ..rest] -> span_digits(rest)
+    _             -> ([], after_whole)
+  }
+  if after_whole != after_fraction && fraction == [] {
+    fail ParseError(input: s)
+  }
+  exponent = after_fraction match {
+    []                                  -> 0
+    [e, ..rest] if e == "e" || e == "E" -> exponent_part(s, rest)
+    _                                   -> fail ParseError(input: s)
+  }
+  shifted = exponent.checked_add(-fraction.length()) match {
+    Some(e) -> normalize(negative, whole.append(fraction), e)
+    None    -> None
+  }
+  shifted match {
+    Some(n) -> n
+    None    -> fail ParseError(input: s)
+  }
+}
+
+# Reads the sign and digits after `e`, which must run to the end of the input `s`.
+fn exponent_part(s: String, chars: List[String]) -> Int fails ParseError {
+  (sign, after_sign) = chars match {
+    ["-", ..rest] -> ("-", rest)
+    ["+", ..rest] -> ("", rest)
+    _             -> ("", chars)
+  }
+  (digits, after) = span_digits(after_sign)
+  if digits == [] || after != [] {
+    fail ParseError(input: s)
+  }
+  Int.parse("#{sign}#{String.concat(digits)}")
+}
+
+pub fn from_int(n: Int) -> Number {
+  read(n.to_string())
+}
+
+pub fn from_int64(n: Int64) -> Number {
+  read(n.to_string())
+}
+
+## `None` for NaN and the infinities, which no number can hold.
+pub fn from_float(f: Float) -> Option[Number] {
+  s = f.to_string()
+  if f.is_nan() || s == "Infinity" || s == "-Infinity" {
+    None
+  } else {
+    Some(read(s))
+  }
+}
+
+pub fn to_int(n: Number) -> Int fails OutOfRange {
+  if n.exponent < 0 || n.exponent > 10 {
+    fail OutOfRange(n)
+  }
+
+  sign = if n.negative { "-" } else { "" }
+
+  Int.parse("#{sign}#{n.digits}#{zeros(n.exponent)}") escape {
+    ParseError(..) -> fail OutOfRange(n)
+  }
+}
+
+pub fn to_int64(n: Number) -> Int64 fails OutOfRange {
+  if n.exponent < 0 || n.exponent > 19 {
+    fail OutOfRange(n)
+  }
+
+  s = "#{n.digits}#{zeros(n.exponent)}"
+  limit = if n.negative { "9223372036854775808" } else { "9223372036854775807" }
+  length = s.code_points().length()
+  if length > 19 || length == 19 && s > limit {
+    fail OutOfRange(n)
+  }
+
+  # Accumulates downwards so that the minimum value, which has no positive counterpart, fits.
+  below = s.code_points().fold(0, |acc: Int64, c| {
+    acc * 10 - Int64.from_int(c - 48)
+  })
+  if n.negative { below } else { -below }
+}
+
+pub fn to_float(n: Number) -> Float {
+  Float.parse(n.to_string()) escape {
+    ParseError(..) -> panic("to_string wrote a number that Float.parse cannot read")
+  }
+}
+
+## Integral values up to 21 digits are written in full (`1500`), values with a short enough
+## fraction with a point (`0.25`), and the rest with an exponent (`1.5e300`).
+pub fn to_string(n: Number) -> String {
+  sign = if n.negative { "-" } else { "" }
+  chars = characters(n.digits)
+  length = chars.length()
+  # The conditions compare the exponent instead of `length + exponent`, which leaves the range of
+  # Int for an exponent near its maximum.
+  body = if n.exponent >= 0 && n.exponent <= 21 - length {
+    "#{n.digits}#{zeros(n.exponent)}"
+  } else if n.exponent < 0 && n.exponent > -length {
+    point = length + n.exponent
+    "#{chars.take(point).join("")}.#{chars.drop(point).join("")}"
+  } else if n.exponent < 0 && n.exponent > -6 - length {
+    "0.#{zeros(-(length + n.exponent))}#{n.digits}"
+  } else {
+    fraction = if length == 1 { "" } else { ".#{chars.drop(1).join("")}" }
+    scale = Int64.from_int(n.exponent) + Int64.from_int(length - 1)
+    "#{chars.take(1).join("")}#{fraction}e#{scale.to_string()}"
+  }
+  "#{sign}#{body}"
+}
+
+fn zeros(count: Int) -> String {
+  List.range(0, count).map(|_| "0").join("")
+}
+
+# Reads what `Int.to_string`, `Int64.to_string` and `Float.to_string` write, which is always in
+# the grammar of `parse`.
+fn read(s: String) -> Number {
+  parse(s) escape {
+    ParseError(..) -> panic("#{s} is not in the grammar of parse")
+  }
+}
+
+# Splits off the leading digits of `chars`.
+fn span_digits(chars: List[String]) -> (List[String], List[String]) {
+  chars match {
+    [c, ..rest] if c >= "0" && c <= "9" -> {
+      (digits, after) = span_digits(rest)
+      ([c, ..digits], after)
+    }
+    _ -> ([], chars)
+  }
+}
+
+# Drops leading zeros of `digits`, and moves trailing zeros into the exponent. `None` when the
+# exponent leaves the range of Int.
+fn normalize(negative: Bool, digits: List[String], exponent: Int) -> Option[Number] {
+  significant = drop_zeros(digits)
+  trailing = significant.length() - drop_zeros(significant.reverse()).length()
+  kept = significant.take(significant.length() - trailing)
+  kept match {
+    [] -> Some(Number(negative: False, digits: "0", exponent: 0))
+    _ -> exponent.checked_add(trailing).map(|e| {
+      Number(negative:, digits: String.concat(kept), exponent: e)
+    })
+  }
+}
+
+fn drop_zeros(digits: List[String]) -> List[String] {
+  digits match {
+    ["0", ..rest] -> drop_zeros(rest)
+    _             -> digits
+  }
+}
+
+# The characters of `s` one code point each. The grammar is ASCII, so no character joins another
+# into one grapheme cluster.
+fn characters(s: String) -> List[String] {
+  s.code_points().filter_map(String.from_code_point)
+}

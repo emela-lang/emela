@@ -1,0 +1,622 @@
+# Values in no particular format (`[api.std.dynamic]`): what a format such as JSON parses into and
+# writes from. `Encode` turns a value into a `Dynamic` and `Decode` builds a value from one; the
+# compiler derives both (`[trait.derive]`).
+
+import Std.Array.{Array}
+import Std.Bytes.{Bytes}
+import Std.Map.{Map}
+import Std.Set.{Set}
+import Std.Dynamic.Number.{OutOfRange}
+
+pub enum Dynamic {
+  Null
+  Bool(Bool)
+  Number(Number.Number)
+  Text(String)
+  Items(List[Dynamic])
+  Fields(Map[String, Dynamic])
+  Binary(Bytes)
+} derive Eq, Show
+
+pub enum Segment {
+  Key(String)
+  Index(Int)
+}
+  derive Eq, Show
+
+pub error DecodeError(expected: String, actual: Dynamic, path: List[Segment])
+
+impl DecodeError: Show {
+  fn show(self) {
+    path = self.path.map(|p| {
+      p match {
+        Key(k)   -> ".#{k}"
+        Index(i) -> "[#{i}]"
+      }
+    }).join("")
+
+    "expected: #{self.expected}, actual: #{self.actual.kind()} at #{path}"
+  }
+}
+
+pub trait Encode {
+  fn to_dynamic(self) -> Dynamic
+}
+
+## Every failure of `from_dynamic_all`, in the order the parts were read. Never empty.
+pub error DecodeErrors(errors: List[DecodeError])
+
+impl DecodeErrors: Show {
+  fn show(self) {
+    self.errors.map(Show.show).join("; ")
+  }
+}
+
+pub trait Decode {
+  fn from_dynamic(d: Dynamic) -> Self fails DecodeError
+
+  ## Reads like `from_dynamic`, but reads every part and fails with all the failures. An impl
+  ## that only writes `from_dynamic` stops at its first failure, which this wraps.
+  fn from_dynamic_all(d: Dynamic) -> Self fails DecodeErrors {
+    Decode.from_dynamic(d) escape {
+      DecodeError(expected:, actual:, path:) -> fail DecodeErrors(
+        errors: [DecodeError(expected:, actual:, path:)],
+      )
+    }
+  }
+}
+
+## The result of reading one part while collecting failures.
+pub enum Attempt[A] {
+  Decoded(A)
+  Failed(List[DecodeError])
+}
+
+pub trait ObjectKey: Ord {
+  fn to_key(self) -> String
+  fn from_key(key: String) -> Self fails DecodeError
+}
+
+pub fn kind(value: Dynamic) -> String {
+  value match {
+    Null      -> "null"
+    Bool(_)   -> "bool"
+    Number(_) -> "number"
+    Text(_)   -> "text"
+    Items(_)  -> "items"
+    Fields(_) -> "fields"
+    Binary(_) -> "binary"
+  }
+}
+
+pub fn string(value: Dynamic) -> String fails DecodeError {
+  value match {
+    Text(s) -> s
+    _       -> fail DecodeError(expected: "text", actual: value, path: [])
+  }
+}
+
+pub fn bytes(value: Dynamic) -> Bytes fails DecodeError {
+  value match {
+    Binary(b) -> b
+    _         -> fail DecodeError(expected: "binary", actual: value, path: [])
+  }
+}
+
+pub fn bool(value: Dynamic) -> Bool fails DecodeError {
+  value match {
+    Bool(b) -> b
+    _       -> fail DecodeError(expected: "bool", actual: value, path: [])
+  }
+}
+
+pub fn int(value: Dynamic) -> Int fails DecodeError {
+  value match {
+    Number(n) -> n.to_int() escape {
+      OutOfRange(n) -> fail DecodeError(expected: "int", actual: value, path: [])
+    }
+    _ -> fail DecodeError(expected: "number", actual: value, path: [])
+  }
+}
+
+pub fn int64(value: Dynamic) -> Int64 fails DecodeError {
+  value match {
+    Number(n) -> n.to_int64() escape {
+      OutOfRange(n) -> fail DecodeError(expected: "int64", actual: value, path: [])
+    }
+    _ -> fail DecodeError(expected: "number", actual: value, path: [])
+  }
+}
+
+pub fn float(value: Dynamic) -> Float fails DecodeError {
+  value match {
+    Number(n) -> n.to_float()
+    _         -> fail DecodeError(expected: "number", actual: value, path: [])
+  }
+}
+
+fn each[A](xs: List[Dynamic], i: Int, item: fn(Dynamic) -> A fails DecodeError) -> List[A]
+  fails DecodeError {
+  xs match {
+    []          -> []
+    [x, ..rest] -> [at(Index(i), item, x), ..each(rest, i + 1, item)]
+  }
+}
+
+fn at_all[A](segment: Segment, decoder: fn(Dynamic) -> A fails DecodeErrors, value: Dynamic) -> A
+  fails DecodeErrors {
+  decoder(value) escape {
+    DecodeErrors(errors:) -> fail DecodeErrors(errors: errors.map(|e| under(segment, e)))
+  }
+}
+
+fn under(segment: Segment, e: DecodeError) -> DecodeError {
+  DecodeError(expected: e.expected, actual: e.actual, path: [segment, ..e.path])
+}
+
+fn one(e: DecodeError) -> DecodeErrors {
+  DecodeErrors(errors: [e])
+}
+
+# The values of `attempts`, or every failure among them.
+fn all_decoded[A](attempts: List[Attempt[A]]) -> List[A] fails DecodeErrors {
+  errors = attempts.flat_map(errors_of)
+  if errors.is_empty() {
+    attempts.filter_map(|a| {
+      a match {
+        Decoded(x) -> Some(x)
+        Failed(_)  -> None
+      }
+    })
+  } else {
+    fail DecodeErrors(errors:)
+  }
+}
+
+fn at[A](segment: Segment, decoder: fn(Dynamic) -> A fails DecodeError, value: Dynamic) -> A
+  fails DecodeError {
+  decoder(value) escape {
+    DecodeError(expected:, actual:, path:) -> fail DecodeError(
+      expected:,
+      actual:,
+      path: [segment, ..path],
+    )
+  }
+}
+
+pub fn list[A](
+  item: fn(Dynamic) -> A fails DecodeError,
+) -> fn(Dynamic) -> List[A] fails DecodeError {
+  |value| {
+    value match {
+      Items(xs) -> each(xs, 0, item)
+      _         -> fail DecodeError(expected: "items", actual: value, path: [])
+    }
+  }
+}
+
+pub fn optional[A](
+  decoder: fn(Dynamic) -> A fails DecodeError,
+) -> fn(Dynamic) -> Option[A] fails DecodeError {
+  |value| {
+    value match {
+      Null -> None
+      _    -> Some(decoder(value))
+    }
+  }
+}
+
+pub fn dict[V](
+  value: fn(Dynamic) -> V fails DecodeError,
+) -> fn(Dynamic) -> Map[String, V] fails DecodeError {
+  |subject| {
+    subject match {
+      Fields(m) -> m.fold(Map.empty(), |acc, key, x| {
+        acc.insert(key, at(Key(key), value, x))
+      })
+      _ -> fail DecodeError(expected: "fields", actual: subject, path: [])
+    }
+  }
+}
+
+pub fn index[A](
+  n: Int,
+  decoder: fn(Dynamic) -> A fails DecodeError,
+) -> fn(Dynamic) -> A fails DecodeError {
+  |value| {
+    value match {
+      Items(xs) -> at(
+        Index(n),
+        decoder,
+        xs.get(n).or_fail(
+          DecodeError(expected: "at least #{n + 1} items", actual: value, path: []),
+        ),
+      )
+      _ -> fail DecodeError(expected: "items", actual: value, path: [])
+    }
+  }
+}
+
+pub fn field[A](value: Dynamic, name: String, decoder: fn(Dynamic) -> A fails DecodeError) -> A
+  fails DecodeError {
+  value match {
+    Fields(m) -> at(Key(name), decoder, m.get(name).or(Null))
+    _         -> fail DecodeError(expected: "fields", actual: value, path: [])
+  }
+}
+
+## The elements of Items that has exactly `n` elements.
+pub fn items(value: Dynamic, n: Int) -> List[Dynamic] fails DecodeError {
+  value match {
+    Items(xs) if xs.length() == n -> xs
+    Items(_) -> fail DecodeError(expected: "#{n} items", actual: value, path: [])
+    _        -> fail DecodeError(expected: "items", actual: value, path: [])
+  }
+}
+
+## The value of `f`, or its failures instead of failing.
+pub fn attempt[A](f: fn() -> A fails DecodeErrors) -> Attempt[A] {
+  Decoded(f()) escape {
+    DecodeErrors(errors:) -> Failed(errors)
+  }
+}
+
+## The failures of `a`: empty when it was decoded.
+pub fn errors_of[A](a: Attempt[A]) -> List[DecodeError] {
+  a match {
+    Decoded(_)     -> []
+    Failed(errors) -> errors
+  }
+}
+
+## `field` for a decoder that fails with every failure. `name` is added in front of the path of
+## each.
+pub fn field_all[A](value: Dynamic, name: String, decoder: fn(Dynamic) -> A fails DecodeErrors) -> A
+  fails DecodeErrors {
+  value match {
+    Fields(m) -> at_all(Key(name), decoder, m.get(name).or(Null))
+    _         -> fail one(DecodeError(expected: "fields", actual: value, path: []))
+  }
+}
+
+## `index` for a decoder that fails with every failure.
+pub fn index_all[A](
+  n: Int,
+  decoder: fn(Dynamic) -> A fails DecodeErrors,
+) -> fn(Dynamic) -> A fails DecodeErrors {
+  |value| {
+    value match {
+      Items(xs) -> xs.get(n) match {
+        Some(x) -> at_all(Index(n), decoder, x)
+        None -> fail one(DecodeError(expected: "at least #{n + 1} items", actual: value, path: []))
+      }
+      _ -> fail one(DecodeError(expected: "items", actual: value, path: []))
+    }
+  }
+}
+
+pub fn tag(value: Dynamic) -> String fails DecodeError {
+  value.field("tag", string)
+}
+
+pub fn object(fields: List[(String, Dynamic)]) -> Dynamic {
+  Fields(Map.from_list(fields))
+}
+
+pub fn variant(tag: String, value: Option[Dynamic]) -> Dynamic {
+  value match {
+    Some(payload) -> object([("tag", Text(tag)), ("value", payload)])
+    None          -> object([("tag", Text(tag))])
+  }
+}
+
+impl Int: Encode {
+  fn to_dynamic(self) {
+    Number.from_int(self) |> Number()
+  }
+}
+
+impl Int: Decode {
+  fn from_dynamic(d) {
+    int(d)
+  }
+}
+
+impl Int64: Encode {
+  fn to_dynamic(self) {
+    Number.from_int64(self) |> Number()
+  }
+}
+
+impl Int64: Decode {
+  fn from_dynamic(d) {
+    int64(d)
+  }
+}
+
+impl Float: Encode {
+  fn to_dynamic(self) {
+    Number.from_float(self).map(|n| Number(n)).or(Null)
+  }
+}
+
+impl Float: Decode {
+  fn from_dynamic(d) {
+    float(d)
+  }
+}
+
+impl String: Encode {
+  fn to_dynamic(self) {
+    Text(self)
+  }
+}
+
+impl String: Decode {
+  fn from_dynamic(d) {
+    string(d)
+  }
+}
+
+impl String: ObjectKey {
+  fn to_key(self) {
+    self
+  }
+
+  fn from_key(key) {
+    key
+  }
+}
+
+impl Bool: Encode {
+  fn to_dynamic(self) {
+    Bool(self)
+  }
+}
+
+impl Bool: Decode {
+  fn from_dynamic(d) {
+    bool(d)
+  }
+}
+
+impl Bytes: Encode {
+  fn to_dynamic(self) {
+    Binary(self)
+  }
+}
+
+## Reads only Binary. Text is not read as base64 or hexadecimal: the format of the text is the
+## caller's to choose.
+impl Bytes: Decode {
+  fn from_dynamic(d) {
+    bytes(d)
+  }
+}
+
+impl List[A: Encode]: Encode {
+  fn to_dynamic(self) {
+    self.map(Encode.to_dynamic) |> Items()
+  }
+}
+
+impl List[A: Decode]: Decode {
+  fn from_dynamic(d) {
+    list(Decode.from_dynamic)(d)
+  }
+
+  fn from_dynamic_all(d) {
+    d match {
+      Items(xs) -> {
+        attempts: List[Attempt[A]] = xs.enumerate().map(|(i, x)| {
+          attempt(|| at_all(Index(i), Decode.from_dynamic_all, x))
+        })
+        all_decoded(attempts)
+      }
+      _ -> fail one(DecodeError(expected: "items", actual: d, path: []))
+    }
+  }
+}
+
+impl Option[A: Encode]: Encode {
+  fn to_dynamic(self) {
+    self match {
+      Some(x) -> x.to_dynamic()
+      None    -> Null
+    }
+  }
+}
+
+impl Option[A: Decode]: Decode {
+  fn from_dynamic(d) {
+    optional(Decode.from_dynamic)(d)
+  }
+
+  fn from_dynamic_all(d) {
+    d match {
+      Null -> None
+      _    -> Some(Decode.from_dynamic_all(d))
+    }
+  }
+}
+
+impl Map[K: ObjectKey, V: Encode]: Encode {
+  fn to_dynamic(self) {
+    self.fold(Map.empty(), |acc, key, value| {
+      acc.insert(key.to_key(), value.to_dynamic())
+    })
+      |> Fields()
+  }
+}
+
+impl Map[K: ObjectKey, V: Decode]: Decode {
+  fn from_dynamic(d) {
+    fields = dict(Decode.from_dynamic)(d)
+    fields.fold(Map.empty(), |acc, key, value| {
+      acc.insert(at(Key(key), |_| ObjectKey.from_key(key), Text(key)), value)
+    })
+  }
+
+  fn from_dynamic_all(d) {
+    d match {
+      Fields(m) -> {
+        attempts: List[Attempt[(K, V)]] = m.to_list().map(|(name, x)| {
+          attempt(|| {
+            key: Attempt[K] = attempt(|| {
+              at_all(Key(name), |_| one_of(|| ObjectKey.from_key(name)), Text(name))
+            })
+            value: Attempt[V] = attempt(|| at_all(Key(name), Decode.from_dynamic_all, x))
+            (key, value) match {
+              (Decoded(k), Decoded(v)) -> (k, v)
+              _ -> fail DecodeErrors(errors: key.errors_of().append(value.errors_of()))
+            }
+          })
+        })
+        all_decoded(attempts) |> Map.from_list()
+      }
+      _ -> fail one(DecodeError(expected: "fields", actual: d, path: []))
+    }
+  }
+}
+
+# `f`, failing with its one failure as DecodeErrors.
+fn one_of[A](f: fn() -> A fails DecodeError) -> A fails DecodeErrors {
+  f() escape {
+    DecodeError(expected:, actual:, path:) -> fail one(DecodeError(expected:, actual:, path:))
+  }
+}
+
+impl Array[A: Encode]: Encode {
+  fn to_dynamic(self) {
+    self.to_list().map(Encode.to_dynamic) |> Items()
+  }
+}
+
+impl Array[A: Decode]: Decode {
+  fn from_dynamic(d) {
+    list(Decode.from_dynamic)(d) |> Array.from_list()
+  }
+
+  fn from_dynamic_all(d) {
+    xs: List[A] = Decode.from_dynamic_all(d)
+    Array.from_list(xs)
+  }
+}
+
+impl Set[A: Encode]: Encode {
+  fn to_dynamic(self) {
+    self.to_list().map(Encode.to_dynamic) |> Items()
+  }
+}
+
+## Reads Items in order and drops repeated elements.
+impl Set[A: Decode + Ord]: Decode {
+  fn from_dynamic(d) {
+    list(Decode.from_dynamic)(d) |> Set.from_list()
+  }
+
+  fn from_dynamic_all(d) {
+    xs: List[A] = Decode.from_dynamic_all(d)
+    Set.from_list(xs)
+  }
+}
+
+# The functions below are what the derived impls of Encode, Decode and ObjectKey call
+# (`[trait.derive]`, `derive.rs` of the compiler). The compiler looks them up by name; they take no
+# functions, so a derived impl is only calls of them and of the trait functions.
+
+# The contents of a variant written by a derived Encode.
+fn derived_variant(tag: String, contents: Dynamic) -> Dynamic {
+  variant(tag, Some(contents))
+}
+
+# A variant without contents written by a derived Encode.
+fn derived_unit_variant(tag: String) -> Dynamic {
+  variant(tag, None)
+}
+
+# Items, for the positional contents of a variant.
+fn derived_items(xs: List[Dynamic]) -> Dynamic {
+  Items(xs)
+}
+
+# The field `name` of `value`, read by `Decode.from_dynamic`.
+fn derived_field[A: Decode](value: Dynamic, name: String) -> A fails DecodeError {
+  field(value, name, Decode.from_dynamic)
+}
+
+# The field `name` of the contents of the variant `value`.
+fn derived_contents_field[A: Decode](value: Dynamic, name: String) -> A fails DecodeError {
+  field(value, "value", |contents| field(contents, name, Decode.from_dynamic))
+}
+
+# Checks that the contents of the variant `value` are Items with `n` elements.
+fn derived_contents_items(value: Dynamic, n: Int) -> () fails DecodeError {
+  field(value, "value", |contents| {
+    items(contents, n)
+    ()
+  })
+}
+
+# The element `i` of the contents of the variant `value`.
+fn derived_contents_index[A: Decode](value: Dynamic, i: Int) -> A fails DecodeError {
+  field(value, "value", index(i, Decode.from_dynamic))
+}
+
+# A tag that names no variant.
+fn derived_unknown_tag[A](expected: String, tag: String) -> A fails DecodeError {
+  fail DecodeError(expected:, actual: Text(tag), path: [Key("tag")])
+}
+
+# The tag of `value`, failing with every failure.
+fn derived_tag_all(value: Dynamic) -> String fails DecodeErrors {
+  one_of(|| tag(value))
+}
+
+# A tag that names no variant, failing with every failure.
+fn derived_unknown_tag_all[A](expected: String, tag: String) -> A fails DecodeErrors {
+  fail one(DecodeError(expected:, actual: Text(tag), path: [Key("tag")]))
+}
+
+# The field `name` of `value` read by `Decode.from_dynamic_all`, or its failures.
+fn derived_field_all[A: Decode](value: Dynamic, name: String) -> Attempt[A] {
+  attempt(|| field_all(value, name, Decode.from_dynamic_all))
+}
+
+# The field `name` of the contents of the variant `value`, or its failures.
+fn derived_contents_field_all[A: Decode](value: Dynamic, name: String) -> Attempt[A] {
+  attempt(|| {
+    field_all(value, "value", |contents| field_all(contents, name, Decode.from_dynamic_all))
+  })
+}
+
+# Checks that the contents of the variant `value` are Items with `n` elements.
+fn derived_contents_items_all(value: Dynamic, n: Int) -> () fails DecodeErrors {
+  one_of(|| derived_contents_items(value, n))
+}
+
+# The element `i` of the contents of the variant `value`, or its failures.
+fn derived_contents_index_all[A: Decode](value: Dynamic, i: Int) -> Attempt[A] {
+  attempt(|| field_all(value, "value", index_all(i, Decode.from_dynamic_all)))
+}
+
+# Fails with the failures of the parts, in order, if there are any.
+fn derived_check(errors: List[List[DecodeError]]) -> () fails DecodeErrors {
+  all = List.flatten(errors)
+  if !all.is_empty() {
+    fail DecodeErrors(errors: all)
+  }
+}
+
+# The value of a part that `derived_check` found decoded.
+fn derived_decoded[A](a: Attempt[A]) -> A {
+  a match {
+    Decoded(x) -> x
+    Failed(_)  -> panic("a derived Decode read a part that failed")
+  }
+}
+
+# A key that names no variant, for a derived ObjectKey.
+fn derived_unknown_key[A](expected: String, key: String) -> A fails DecodeError {
+  fail DecodeError(expected:, actual: Text(key), path: [])
+}

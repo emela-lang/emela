@@ -1,0 +1,22 @@
+import Std.Dynamic.{Dynamic, Items, Text, Null, Index, Segment, DecodeError}
+
+@test
+fn decodes_each_item() {
+  decode = Dynamic.list(Dynamic.string)
+  assert decode(Items([Text("a"), Text("b")])) == ["a", "b"]
+}
+
+fn failed_at(value: Dynamic) -> List[Segment] {
+  decode = Dynamic.list(Dynamic.list(Dynamic.string))
+  {
+    decode(value)
+    []
+  } escape {
+    DecodeError(path:, ..) -> path
+  }
+}
+
+@test
+fn reports_the_index_of_a_failure() {
+  assert failed_at(Items([Items([Text("a")]), Items([Text("b"), Null])])) == [Index(1), Index(1)]
+}

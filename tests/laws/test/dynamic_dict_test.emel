@@ -1,0 +1,24 @@
+import Std.Map
+import Std.Dynamic.{Dynamic, Fields, Text, Null, Key, Segment, DecodeError}
+
+fn failed_at(value: Dynamic) -> List[Segment] {
+  decode = Dynamic.dict(Dynamic.string)
+  {
+    decode(value)
+    []
+  } escape {
+    DecodeError(path:, ..) -> path
+  }
+}
+
+@test
+fn decodes_each_value() {
+  decode = Dynamic.dict(Dynamic.string)
+  value = Fields(Map.from_list([("a", Text("x")), ("b", Text("y"))]))
+  assert decode(value) == Map.from_list([("a", "x"), ("b", "y")])
+}
+
+@test
+fn reports_the_key_of_a_failure() {
+  assert failed_at(Fields(Map.from_list([("a", Text("x")), ("b", Null)]))) == [Key("b")]
+}

@@ -1,0 +1,77 @@
+import Std.Dynamic.Number.{Number, OutOfRange}
+
+fn parsed(s: String) -> Option[String] {
+  Some(Number.parse(s).to_string()) escape {
+    ParseError(..) -> None
+  }
+}
+
+@test
+fn reads_the_json_forms() {
+  assert parsed("0") == Some("0")
+  assert parsed("-0") == Some("0")
+  assert parsed("0.0") == Some("0")
+  assert parsed("1.0") == Some("1")
+  assert parsed("10e-1") == Some("1")
+  assert parsed("1E5") == Some("100000")
+  assert parsed("1.5e+3") == Some("1500")
+  assert parsed("-0.25") == Some("-0.25")
+  assert parsed("1.5e300") == Some("1.5e300")
+  assert parsed("123456789012345678901234567890") == Some("1.2345678901234567890123456789e29")
+}
+
+@test
+fn normalizes_to_the_same_value() {
+  assert Number.parse("1") == Number.parse("1.0")
+  assert Number.parse("1") == Number.parse("1e0")
+  assert Number.parse("1") == Number.parse("10e-1")
+  assert Number.parse("1500") == Number.from_int(1500)
+  assert Number.parse("-0") == Number.from_int(0)
+}
+
+@test
+fn rejects_what_json_does_not_allow() {
+  assert parsed("") == None
+  assert parsed("-") == None
+  assert parsed("+1") == None
+  assert parsed("01") == None
+  assert parsed("-01") == None
+  assert parsed("1.") == None
+  assert parsed(".5") == None
+  assert parsed("1e") == None
+  assert parsed("1e+") == None
+  assert parsed("1x") == None
+  assert parsed(" 1") == None
+  assert parsed("1 ") == None
+  assert parsed("Infinity") == None
+  assert parsed("NaN") == None
+  assert parsed("0x10") == None
+}
+
+@test
+fn rejects_an_exponent_outside_int() {
+  assert parsed("1e2147483647") == Some("1e2147483647")
+  assert parsed("12e2147483646") == Some("1.2e2147483647")
+  assert parsed("1e2147483648") == None
+  assert parsed("1e-2147483648") != None
+  assert parsed("0.1e-2147483648") == None
+  assert parsed("10e2147483647") == None
+}
+
+@test
+fn keeps_every_digit() {
+  big = Number.parse("123456789012345678901234567890")
+  assert big.to_float() == 1.2345678901234568e29
+  {
+    big.to_int64()
+    assert False
+  } escape {
+    OutOfRange(..) -> ()
+  }
+}
+
+@test
+fn rounds_a_huge_number_to_infinity() {
+  assert Number.parse("1e400").to_float() == 1.0 / 0.0
+  assert Number.parse("1e-400").to_float() == 0.0
+}

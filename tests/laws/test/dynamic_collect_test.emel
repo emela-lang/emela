@@ -1,0 +1,127 @@
+import Std.Map.{Map}
+import Std.Dynamic.{
+  Dynamic,
+  Decode,
+  DecodeError,
+  DecodeErrors,
+  Decoded,
+  Text,
+  Null,
+  Items,
+  Bool,
+  Key,
+  Index,
+  Segment,
+}
+
+# What `derive Decode` is meant to generate for this type.
+type Body(title: String, tags: List[String], due: Option[String]) derive Eq
+
+impl Body: Decode {
+  fn from_dynamic(d) {
+    Body(
+      title: d.field("title", Decode.from_dynamic),
+      tags: d.field("tags", Decode.from_dynamic),
+      due: d.field("due", Decode.from_dynamic),
+    )
+  }
+
+  fn from_dynamic_all(d) {
+    title = Dynamic.attempt(|| d.field_all("title", Decode.from_dynamic_all))
+    tags = Dynamic.attempt(|| d.field_all("tags", Decode.from_dynamic_all))
+    due = Dynamic.attempt(|| d.field_all("due", Decode.from_dynamic_all))
+    (title, tags, due) match {
+      (Decoded(title), Decoded(tags), Decoded(due)) -> Body(title:, tags:, due:)
+      _ -> fail DecodeErrors(
+        errors: [title.errors_of(), tags.errors_of(), due.errors_of()].flatten(),
+      )
+    }
+  }
+}
+
+# A type that only writes `from_dynamic`.
+type Flag(on: Bool)
+
+impl Flag: Decode {
+  fn from_dynamic(d) {
+    Flag(on: d.field("on", Decode.from_dynamic))
+  }
+}
+
+fn failures[A: Decode](d: Dynamic, proxy: Option[A]) -> List[(String, List[Segment])] {
+  read: fn() -> A fails DecodeErrors = || Decode.from_dynamic_all(d)
+  Dynamic.attempt(read).errors_of().map(|e| (e.expected, e.path))
+}
+
+@test
+fn every_failure_of_a_record_is_kept_in_order() {
+  p: Option[Body] = None
+  d = Dynamic.object([("title", Null), ("tags", Items([Text("a"), Null, Bool(True)]))])
+  assert failures(d, p)
+    == [
+      ("text", [Key("title")]),
+      ("text", [Key("tags"), Index(1)]),
+      ("text", [Key("tags"), Index(2)]),
+    ]
+}
+
+@test
+fn a_good_value_is_read() {
+  d = Dynamic.object([("title", Text("t")), ("tags", Items([])), ("due", Text("d"))])
+  body: Body = Decode.from_dynamic_all(d) escape {
+    DecodeErrors(..) -> panic("failed")
+  }
+  assert body == Body(title: "t", tags: [], due: Some("d"))
+}
+
+@test
+fn an_impl_with_only_from_dynamic_stops_at_its_first_failure() {
+  p: Option[List[Flag]] = None
+  d = Items([Dynamic.object([]), Dynamic.object([("on", Bool(True))]), Text("x")])
+  assert failures(d, p) == [("bool", [Index(0), Key("on")]), ("fields", [Index(2)])]
+}
+
+@test
+fn failures_of_the_values_of_a_map_are_kept() {
+  p: Option[Map[String, Int]] = None
+  d = Dynamic.object([("a", Text("1")), ("b", Dynamic.object([]))])
+  assert failures(d, p) == [("number", [Key("a")]), ("number", [Key("b")])]
+}
+
+@test
+fn none_is_read_from_null() {
+  p: Option[Option[Int]] = None
+  assert failures(Null, p) == []
+  assert failures(Text("x"), p) == [("number", [])]
+}
+
+@test
+fn items_checks_the_number_of_elements() {
+  assert Items([Null, Null]).items(2) == [Null, Null]
+  found = {
+    Items([Null, Null, Null]).items(2)
+    ""
+  } escape {
+    DecodeError(expected:, ..) -> expected
+  }
+  assert found == "2 items"
+}
+
+@test
+fn index_all_adds_the_position() {
+  read = Dynamic.index_all(1, Decode.from_dynamic_all)
+  r: fn() -> Int fails DecodeErrors = || read(Items([Null, Text("x")]))
+  paths = Dynamic.attempt(r).errors_of().map(|e| e.path)
+  assert paths == [[Index(1)]]
+}
+
+@test
+fn the_failures_are_shown_together() {
+  e = DecodeErrors(
+    errors: [
+      DecodeError(expected: "text", actual: Null, path: [Key("title")]),
+      DecodeError(expected: "number", actual: Null, path: [Key("n")]),
+    ],
+  )
+  assert e.show() == "expected: text, actual: null at .title; expected: number, actual: null at .n"
+}

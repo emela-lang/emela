@@ -1,0 +1,45 @@
+import Std.Bytes.{Bytes}
+import Std.Dynamic.{Dynamic, Binary, Text, Items, Null, Decode, Encode, DecodeError}
+
+fn failure(value: Dynamic) -> (String, String) {
+  {
+    Dynamic.bytes(value)
+    ("", "")
+  } escape {
+    DecodeError(expected:, actual:, ..) -> (expected, actual.kind())
+  }
+}
+
+@test
+fn bytes_reads_binary() {
+  b = Bytes.hex("00ff10")
+  assert Dynamic.bytes(Binary(b)) == b
+  assert Dynamic.bytes(Binary(Bytes.empty())) == Bytes.empty()
+  assert Binary(b).kind() == "binary"
+}
+
+@test
+fn bytes_does_not_read_text() {
+  assert failure(Text("AP8Q")) == ("binary", "text")
+  assert failure(Text("00ff10")) == ("binary", "text")
+  assert failure(Items([])) == ("binary", "items")
+  assert failure(Null) == ("binary", "null")
+}
+
+@test
+fn bytes_encode_and_decode_as_binary() {
+  b = Bytes.hex("89504e47")
+  assert b.to_dynamic() == Binary(b)
+  decoded: Bytes = Decode.from_dynamic(Binary(b))
+  assert decoded == b
+  list: List[Bytes] = Decode.from_dynamic(Items([Binary(b), Binary(Bytes.empty())]))
+  assert list == [b, Bytes.empty()]
+}
+
+@test
+fn binary_is_equal_by_its_bytes() {
+  assert Binary(Bytes.hex("0001")) == Binary(Bytes.from_list([0, 1]).or(Bytes.empty()))
+  assert Binary(Bytes.hex("0001")) != Binary(Bytes.hex("0100"))
+  assert Binary(Bytes.empty()) != Text("")
+  assert "#{Binary(Bytes.hex("0a"))}" == "Binary(Bytes.hex(\"0a\"))"
+}

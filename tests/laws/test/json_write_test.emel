@@ -1,0 +1,56 @@
+import Std.Bytes.{Bytes}
+import Std.Map
+import Std.Dynamic.{Dynamic, Null, Bool, Text, Items, Fields, Binary}
+import Std.Dynamic.Number
+import Std.Json
+
+fn number(n: Int) -> Dynamic {
+  Dynamic.Number(Number.from_int(n))
+}
+
+@test
+fn writes_literals() {
+  assert Json.to_string(Null) == "null"
+  assert Json.to_string(Bool(True)) == "true"
+  assert Json.to_string(Bool(False)) == "false"
+  assert Json.to_string(number(-1500)) == "-1500"
+  assert Json.to_string(Json.parse("0.25")) == "0.25"
+}
+
+@test
+fn writes_arrays_and_objects() {
+  assert Json.to_string(Items([])) == "[]"
+  assert Json.to_string(Fields(Map.empty())) == "{}"
+  assert Json.to_string(Items([number(1), Null, Items([])])) == "[1,null,[]]"
+  assert Json.to_string(Fields(Map.from_list([("b", number(2)), ("a", Text("x"))])))
+    == "{\"a\":\"x\",\"b\":2}"
+}
+
+@test
+fn escapes_strings() {
+  assert Json.to_string(Text("aあ😀/")) == "\"aあ😀/\""
+  assert Json.to_string(Text("\"\\\n\r\t\u{8}\u{c}")) == "\"\\\"\\\\\\n\\r\\t\\b\\f\""
+  assert Json.to_string(Text("\u{0}\u{1f}")) == "\"\\u0000\\u001f\""
+  assert Json.to_string(Fields(Map.from_list([("k\"", Null)]))) == "{\"k\\\"\":null}"
+}
+
+@test
+fn round_trips() {
+  s = "{\"a\":[1,-0.5,1e-7,\"x\\ny\",true,null,{}],\"b\":{\"c\":\"\\u0001あ\"}}"
+  assert Json.to_string(Json.parse(s)) == s
+  assert Json.parse(Json.to_string(Json.parse(s))) == Json.parse(s)
+}
+
+@test
+fn writes_binary_as_standard_base64() {
+  assert Json.to_string(Binary(Bytes.empty())) == "\"\""
+  assert Json.to_string(Binary(Bytes.hex("fbff"))) == "\"+/8=\""
+  assert Json.to_string(Items([Binary(Bytes.encode_utf8("foobar"))])) == "[\"Zm9vYmFy\"]"
+}
+
+@test
+fn reads_binary_back_as_text() {
+  b = Bytes.hex("00ff10")
+  assert Json.parse(Json.to_string(Binary(b))) == Text("AP8Q")
+  assert Bytes.from_base64("AP8Q") == Some(b)
+}
