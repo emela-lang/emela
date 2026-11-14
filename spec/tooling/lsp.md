@@ -162,7 +162,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 - The candidates returned depend on the context determined from the text before the cursor, as follows.
   - Inside a comment (`#` or `##`, from the character after `#` to the end of the line) or inside the text of a string literal (`"` or `"""`): nothing. Inside an interpolation `#{ }` of a string, the contexts below apply as in code.
   - Right after `@`, with only a partially typed name: the attribute names `external`, `export`, `entry`, `test` and `deprecated` (`[kw.annotation]`). In the bundled core sources, `intrinsic` and `internal` follow them; elsewhere they are not shown, since writing them there is a compile error (E0224, E0229).
-  - In the first argument of `@external(` and `@export(`, with only a partially typed name: the target names `js`, `wasm` and `c` (`[ext.decl]`, `[ext.export]`).
+  - In the first argument of `@external(` and `@export(`, with only a partially typed name: the language names `js`, `wasm` and `c` (`[ext.decl]`, `[ext.export]`).
   - Before `{` on an `import` line: the next segment after the module name (`Log` for `import Util.`). Names of functions and types, and the module itself, are not shown.
   - Inside `import A.{`: the pub definitions of module A (including enum variants).
   - After `.`, when the left side is a sequence of capitalized names: the name to the left of `.` is looked up in the same order as `[module.resolution]` (imported modules, core modules, Traits). For a module, its pub definitions. For a Trait, its functions.

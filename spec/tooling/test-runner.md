@@ -11,7 +11,7 @@ This appendix defines the externally visible behavior of `emela test`. How to wr
 - The filter selects the tests whose names contain it as a substring (case-sensitive) (`[test.command]`).
 - If checking finds errors, no test is run, the diagnostics are printed to standard error, and the command ends with exit code 1.
 - Every selected test function is either run, or reported with the reason it cannot be run. A test function is never dropped silently. A test function whose inferred type still has type parameters is run with the default instantiation (an ordinary type parameter becomes `Never`, a set type parameter the empty set), on every target.
-- `--target <js|c|wasm>` selects the build target. When it is omitted, it is determined as for `build` (`[cmd.build]`). The results are displayed the same way for every target.
+- `--target <js|native|wasm>` selects the build target. When it is omitted, it is determined as for `build` (`[cmd.build]`). The results are displayed the same way for every target.
 
 ## Reporters `[cmd.test.reporter]`
 
@@ -126,7 +126,7 @@ test result: FAILED. 1 passed; 1 failed; 0 filtered out
 
 ## Output directory `[cmd.test.out-dir]`
 
-- The test output is written to `<project>/target/emela/test` for a project, and to `target/emela/test` in the directory that contains the file in single-file mode. If the target is `c`, the directory is `test-c`, and if `wasm`, `test-wasm`. `--out-dir` changes it.
+- The test output is written to `<project>/target/emela/test` for a project, and to `target/emela/test` in the directory that contains the file in single-file mode. If the target is `native`, the directory is `test-native`, and if `wasm`, `test-wasm`. `--out-dir` changes it.
 - The test output exports the selected test functions, and is separate from the normal build output. It does not overwrite the normal build output (`target/emela/js` and so on).
 - For the JS target, the command writes to the output directory `main.mjs`, which exports the test functions, the runtime `emela_runtime.mjs`, and the launcher module `emela_test.mjs`, which runs the tests. `emela test` runs the launcher module with the JS host (`[cmd.build]`). Test functions of modules other than the entry are exported with the test name (`Util.in_util`) as a string name.
 - For the WASM target, the command writes a single `main.wasm` that bundles the selected test functions to the output directory. `emela test` runs it with `wasmtime run -S p3=y main.wasm` (`[target.wasm.run]`). The test functions are run one at a time, in order.

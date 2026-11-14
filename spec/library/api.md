@@ -263,7 +263,7 @@ The value layer (`[lib.layers]`). An immutable sequence of fixed length, read by
 - `lower_bound` bisects as follows, so its result is the same on every target even when `a` is not sorted. Start with `low = 0` and `high = size(a)`. While `low < high`, let `mid = (low + high) / 2`; if the element at `mid` is less than `value`, set `low = mid + 1`, otherwise set `high = mid`. The result is `low`. It compares O(log n) times.
 - `binary_search(a, value)` is `Some(i)` where `i = lower_bound(a, value)`, if `i < size(a)` and the element at `i` is equal to `value`, and `None` otherwise.
 - `size`, `get` and `is_empty` are O(1). `set` is O(n), where n is `size(a)`, except as below. `slice` is O(`to - from`) or less. `append`, `concat`, `repeat`, `from_list`, `to_list`, `reverse`, `map`, `fold` and `find_index` are O(n) in the number of elements of the result or of the argument, and `sort` and `sort_by` are O(n log n).
-- On the WASM and C targets, `set` MUST be O(1) when the argument `a` is a variable (a parameter or a local binding) that is not used after the call on any path, and no other variable or value that is still in use refers to the same array (a closure that captured it, a tuple, a record or a list that holds it, the state of State, or another variable bound to it). In other cases, a target MAY still update in place when it can determine that the array is not shared. The JS target always copies. The result is the same in every case.
+- On the WASM and native targets, `set` MUST be O(1) when the argument `a` is a variable (a parameter or a local binding) that is not used after the call on any path, and no other variable or value that is still in use refers to the same array (a closure that captured it, a tuple, a record or a list that holds it, the state of State, or another variable bound to it). In other cases, a target MAY still update in place when it can determine that the array is not shared. The JS target always copies. The result is the same in every case.
 
 impl: `impl Array[A: Eq]: Eq`, `impl Array[A: Ord]: Ord`, `impl Array[A: Show]: Show`. Two arrays are equal when they have equal elements in the same order. Ord is lexicographic (if the common prefix is equal, the shorter one is smaller). Show is the source form `Array.from_list([1, 2, 3])`, so the output can be pasted back as an expression. Values inside are displayed as in `[trait.builtin]` (a String in `"`). An array inside another value is displayed the same way (`[Array.from_list([1])]`).
 
@@ -339,7 +339,7 @@ The platform layer and the test layer (`[lib.layers]`).
 | Declaration | Contents | Description |
 |---|---|---|
 | `Console` | `effect Console { fn print_line(text: String) -> (); fn print_error_line(text: String) -> () }` | Writes one line at a time to standard output and standard error. Does not fail |
-| `SystemConsole` | `handler SystemConsole: Console` | The host's standard output and standard error (`console.log` and `console.error` on JS, `stdout` and `stderr` on C). Has no state |
+| `SystemConsole` | `handler SystemConsole: Console` | The host's standard output and standard error (`console.log` and `console.error` on JS, `stdout` and `stderr` on native). Has no state |
 | `TestConsole` | `handler TestConsole: Console` | Appends the lines of `print_line` to `State[List[String]]` in the order written. Discards `print_error_line`. Used inside `State.run` |
 
 ```emel
@@ -357,8 +357,8 @@ fn main() {
 | Declaration | Contents | Description |
 |---|---|---|
 | `Clock` | `effect Clock { suspend fn sleep(ms: Int) -> (); fn now() -> Instant }` | Waits (a negative value is the same as 0). The current point in time |
-| `SystemClock` | `handler SystemClock: Clock` | `sleep` waits on `setTimeout` through an `@external suspend fn` (an interruption clears the timer, `[ext.call]`), and `now` is `Date.now()` (`timespec_get` on C). On C, `sleep` waits on a timer of the runtime's event loop (`em_after`); when interrupted, it completes at once and clears the timer (`[ext.c-host]`). Has no state. Requires Async (`[effect.async]`) |
-| `TestClock` | `handler TestClock: Clock` | The time is a virtual time in `State[Instant]` (`[effect.state]`). `sleep(ms)` really waits; when no fiber can make progress and the host has no pending work, the clock advances to the earliest scheduled time and wakes that sleeper (at the same time, in call order; a negative value is 0). `now` is that time. Requires Async. The waiting external function `when_stalled` is held by the runtime on both JS and C (`em_when_stalled` on C) |
+| `SystemClock` | `handler SystemClock: Clock` | `sleep` waits on `setTimeout` through an `@external suspend fn` (an interruption clears the timer, `[ext.call]`), and `now` is `Date.now()` (`timespec_get` on native). On native, `sleep` waits on a timer of the runtime's event loop (`em_after`); when interrupted, it completes at once and clears the timer (`[ext.c-host]`). Has no state. Requires Async (`[effect.async]`) |
+| `TestClock` | `handler TestClock: Clock` | The time is a virtual time in `State[Instant]` (`[effect.state]`). `sleep(ms)` really waits; when no fiber can make progress and the host has no pending work, the clock advances to the earliest scheduled time and wakes that sleeper (at the same time, in call order; a negative value is 0). `now` is that time. Requires Async. The waiting external function `when_stalled` is held by the runtime on both JS and native (`em_when_stalled` on native) |
 
 - The time that sleep waits follows the precision of the timer, and its accuracy is not guaranteed.
 - When a TestClock sleep wakes up, if the time in the state is already later than the wake-up time, the time is not advanced (nor moved back).
@@ -368,7 +368,7 @@ fn main() {
 | Declaration | Contents | Description |
 |---|---|---|
 | `Random` | `effect Random { fn int() -> Int; fn float() -> Float }` | A value uniform over the whole range of Int. A value uniform over 0 inclusive to 1 exclusive |
-| `SystemRandom` | `handler SystemRandom: Random` | Draws with `crypto.getRandomValues` on JS, and `arc4random_buf` (macOS) or `getrandom` (Linux) on C. Has no state |
+| `SystemRandom` | `handler SystemRandom: Random` | Draws with `crypto.getRandomValues` on JS, and `arc4random_buf` (macOS) or `getrandom` (Linux) on native. Has no state |
 
 - `float` of SystemRandom returns a uniform 53-bit integer divided by 2^53. Every value from 0 inclusive to 1 exclusive in steps of 2^-53 appears with the same probability.
 
@@ -377,7 +377,7 @@ fn main() {
 | Declaration | Contents | Description |
 |---|---|---|
 | `Env` | `effect Env { fn get(name: String) -> Option[String] }` | The value of an environment variable. `None` if it is not set. An empty value is `Some("")` |
-| `SystemEnv` | `handler SystemEnv: Env` | Reads `process.env` on JS and `getenv` on C. Has no state |
+| `SystemEnv` | `handler SystemEnv: Env` | Reads `process.env` on JS and `getenv` on native. Has no state |
 
 - `get` of SystemEnv sees only names set as environment variables of the process. Even on the JS host, it does not pick up names from the object prototype (such as `toString`) as values.
 
@@ -524,14 +524,14 @@ The platform layer and the test layer (`[lib.layers]`). Handles only text (UTF-8
 | `list_directory` | `suspend fn list_directory(path: String) -> List[String] fails FileNotFound \| FileAccessDenied \| NotADirectory \| FileSystemFailure` | Only the names, sorted by name (lexicographic order of code points) |
 | `create_directory` | `suspend fn create_directory(path: String) -> () fails FileAccessDenied \| NotADirectory \| FileSystemFailure` | Also creates the parents. Does nothing if the directory already exists. NotADirectory if a file is at that path or along the way |
 | `remove` | `suspend fn remove(path: String) -> () fails FileNotFound \| FileAccessDenied \| DirectoryNotEmpty \| FileSystemFailure` | Deletes a file or an empty directory |
-| `SystemFileSystem` | `handler SystemFileSystem: FileSystem` | `node:fs/promises` on JS. On C, it calls the POSIX functions synchronously inside an external function and completes immediately (other fibers are also stopped during reads and writes). Has no state |
+| `SystemFileSystem` | `handler SystemFileSystem: FileSystem` | `node:fs/promises` on JS. On native, it calls the POSIX functions synchronously inside an external function and completes immediately (other fibers are also stopped during reads and writes). Has no state |
 | `TestFiles` | `type TestFiles(files: List[(String, String)], directories: List[String])` | The state of TestFileSystem. files is in path order. The ancestors of files and directories are also treated as directories |
 | `TestFileSystem` | `handler TestFileSystem: FileSystem` | Kept in `State[TestFiles]` and resumes immediately. Errors follow the same rules as SystemFileSystem. Does not raise FileAccessDenied, InvalidText, or FileSystemFailure |
 
 - SystemFileSystem maps host errors as follows. ENOENT and ENOTDIR are FileNotFound, EACCES and EPERM are FileAccessDenied, and everything else is FileSystemFailure (message is the host's text). However, EISDIR in read_text, write_text, and append_text is IsADirectory; ENOTDIR in list_directory is NotADirectory; ENOTDIR and EEXIST in create_directory are NotADirectory; and ENOTEMPTY and EEXIST in remove are DirectoryNotEmpty.
 - exists and is_directory look at the target that a symbolic link points to. remove does not follow symbolic links and deletes the link itself.
 - An operation of FileSystem is not canceled partway when the waiting fiber is interrupted.
-- On the C target, SystemFileSystem fails with FileSystemFailure when it reads a file that contains U+0000 (it cannot be passed as a C string). The message of FileSystemFailure has the form `EIO: Input/output error, open 'a.txt'`, and the descriptive text is that of the host's C library.
+- On the native target, SystemFileSystem fails with FileSystemFailure when it reads a file that contains U+0000 (it cannot be passed as a C string). The message of FileSystemFailure has the form `EIO: Input/output error, open 'a.txt'`. The descriptive text is that of the C library of the OS, and MAY differ between operating systems.
 - TestFileSystem compares paths as strings (`a/b` and `./a/b` are different paths). The paths treated as directories are the paths in directories and the ancestors (following Path.parent) of the paths in files or directories. `/` is always a directory. A path with no parent (`a.txt`) can be written regardless of a parent.
 - create_directory of TestFileSystem adds to directories the ancestors that are not yet directories and the path itself. If the path is already a directory, the state does not change. remove adds the ancestors of the removed path to directories. A directory that existed only as an ancestor of files remains after its last file is removed. directories is also kept in path order.
 - In TestFileSystem, a path that has a file among its ancestors is FileNotFound in read_text, write_text, append_text, and remove, and NotADirectory in list_directory and create_directory.

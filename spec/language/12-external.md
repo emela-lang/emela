@@ -21,17 +21,25 @@ suspend fn fetch_text(url: String) -> String
 ```
 
 - The parameter types and the return type are always written. The compiler cannot see inside the function, so it does not infer them.
-- One `@external` is written per target. A fn MAY have annotations for several targets. Two annotations for the same target on the same fn is a compile error (E0139).
-- The arguments of `@external` on a fn have the form `(target, "name")` or `(target, "file", "name")` only (E0138). The target is `js`, `wasm` or `c` (E0140). The strings cannot contain interpolation.
+- One `@external` is written per language. A fn MAY have annotations for several languages. Two annotations for the same language on the same fn is a compile error (E0139).
+- The arguments of `@external` on a fn have the form `(language, "name")` or `(language, "file", "name")` only (E0138). The language names the language of the code that is linked with: `js`, `wasm` or `c` (E0140). The strings cannot contain interpolation.
+- Each build target uses one language. An annotation takes effect when its language is the language of the build target.
+
+  | Build target | Language |
+  |---|---|
+  | `js` | `js` |
+  | `wasm` | `wasm` |
+  | `native` | `c` |
+
 - If the first argument of `@external` on a fn is not a name, the remaining arguments of that annotation are not checked. An annotation whose arguments could not be parsed (one with a syntax error) is not checked for the form of `@external`.
-- An unknown target name gives only E0140 and is not counted as a duplicate of the same target (E0139). For a duplicate, E0139 is reported on the target name of the second and later annotations.
+- An unknown language name gives only E0140 and is not counted as a duplicate of the same language (E0139). For a duplicate, E0139 is reported on the language name of the second and later annotations.
 - The strings of `@external` MAY be multiline strings.
-- A fn with no annotation for the build target is a compile error only when it is reachable from the entry point (main for `emela build` and `emela run`, the test functions for `emela test`). When a handler is written in a with, the fns called from the bodies of its init and release become reachable. A fn called from an operation body becomes reachable only when that operation is called or used as a value somewhere in reachable code (effects with different type arguments are different effects, as in `[effect.decl]`: calling `put` of `Store[String]` does not make the `put` of a handler for `Store[Int]` reachable). Unreachable fns are not checked, so even though the bundled `SystemConsole` has only a JS `@external`, reading it in a WASM build is not a compile error as long as it is not used. Writing `with Platform` still builds for a target that has no annotation for Http, as long as Http is not used.
+- A fn with no annotation for the language of the build target is a compile error (E0412) only when it is reachable from the entry point (main for `emela build` and `emela run`, the test functions for `emela test`). When a handler is written in a with, the fns called from the bodies of its init and release become reachable. A fn called from an operation body becomes reachable only when that operation is called or used as a value somewhere in reachable code (effects with different type arguments are different effects, as in `[effect.decl]`: calling `put` of `Store[String]` does not make the `put` of a handler for `Store[Int]` reachable). Unreachable fns are not checked, so even though the bundled `SystemConsole` has only a JS `@external`, reading it in a WASM build is not a compile error as long as it is not used. Writing `with Platform` still builds for a target that has no annotation for Http, as long as Http is not used.
 - In a library-only project (4.1), the external functions reachable from public functions are checked instead of those reachable from an entry point.
 - This check runs in build, run and test. `emela check` and the LSP do not choose a target, so they do not run this check.
-- An external function that is emitted without being reachable (copied out of a public fn) and has no annotation for the target is a defect when called.
+- An external function that is emitted without being reachable (copied out of a public fn) and has no annotation for the language of the build target is a defect when called.
 - A file (`"./http_ffi.mjs"`) is referred to by a path relative to the directory of the source that contains the declaration (starting with `./` or `../`). The JS output copies the non-`.emel` files under the source root of the Pome that holds the referred file into the output directory, and reads them there by relative path (in single-file mode, only the referred files are copied). They are placed under `emela_project/` for the project, `emela_tests/` for the test root during testing (13.4), `emela_pomes/<source path>@<version>/` for dependencies, and `emela_core/` for the bundled core, in the same layout as under the source root. The output still works when the whole output directory is moved elsewhere. A file MAY read other files of the same Pome by relative path.
-- For `c`, `(target, "name")` refers to a C function resolved at link time (one from libc or an OS library). `(target, "file", "name")` refers to a C source (`.c`) by a path relative to the directory of the source that contains the declaration, and the compiler compiles that file with cc together with the output and links it. The `.c` files that the bundled std refers to are bundled with the compiler together with std.
+- For `c`, `(c, "name")` refers to a C function resolved at link time (one from the C library or another library of the OS). It is for C functions whose prototype is made of the C types of 12.4 only. A C function whose use needs a structure, a macro or a constant of the C library is called through a C source that converts them to boundary types. `(c, "file", "name")` refers to a C source (`.c`) by a path relative to the directory of the source that contains the declaration, and the compiler compiles that file together with the output and links it (`[target.native.cc]`). The `.c` files that the bundled std refers to are bundled with the compiler together with std.
 - The prototype of a C function is determined from the types of the Emela declaration by the table in 12.4. The compiler does not read C headers. The behavior when the types of the declaration and the host function do not match is unspecified.
 - A call is written the same way as a call to an ordinary function.
 
@@ -62,7 +70,7 @@ type Connection
 An `@external type` with no fields is an opaque type that represents a host object. The annotation takes no arguments. Emela can only pass its values around.
 
 - Writing an argument list on the annotation of an `@external type` is E0141, even an empty `()`. Two `@external` without arguments on the same type give no diagnostic.
-- On the `c` target, a value of an `@external type` is a host pointer (`void *`). Emela neither frees nor inspects this value. Resources are freed from the release of a handler, by calling an external function that frees them (14.6).
+- On the native target, a value of an `@external type` is a host pointer (`void *`). Emela neither frees nor inspects this value. Resources are freed from the release of a handler, by calling an external function that frees them (14.6).
 
 ## 12.4 Boundary types `[ext.boundary]`
 
@@ -80,7 +88,7 @@ List and user-defined types cannot be passed directly. They are converted inside
 - A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.
 - An Array received from the host is copied when it crosses the boundary, and each element is converted as a value of type `A` received from the host would be (a String element is normalized as in 12.5, and a nested Array is copied by this rule). A later change to the host's array does not change the Array. An Array passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own array or a copy is implementation-defined.
 
-On the `c` target, the types map to C types by the following table.
+For the language `c`, the types map to C types by the following table.
 
 | Emela type | C parameter | C return value |
 |---|---|---|
@@ -93,14 +101,14 @@ On the `c` target, the types map to C types by the following table.
 | `@external type` | `void *` | `void *` |
 | Function type | None (E0427) | None (E0427) |
 
-- A host function MUST be defined with external linkage. The generated `main.c` declares host functions with the prototypes this table determines. Parameters are in the order of the declaration, and a function with no parameters takes `(void)` (`void host(void)`).
-- The generated `main.c` includes only the runtime header, so a host function whose name is the same as a declaration in a standard C header does not cause conflicting declarations.
+- A host function MUST be defined with external linkage. The emitted C declares host functions with the prototypes this table determines. Parameters are in the order of the declaration, and a function with no parameters takes `(void)` (`void host(void)`).
+- The emitted C includes only the runtime header, so a host function whose name is the same as a declaration in a standard C header does not cause conflicting declarations.
 - A String is passed to C as a pointer to its NUL-terminated UTF-8 bytes. The memory is owned by the runtime: the host MUST NOT modify or free it, and the pointer is valid only until the host function returns, even for an external function declared as `suspend fn` (not until the completion of the task, 12.6). If the C side uses the string later, it copies the string. Whether the runtime passes its own bytes or a copy is implementation-defined.
 - When the string contains U+0000, it is a defect before the call (a C string cannot represent it). In this case the host function is not called, and the message is `a string passed to C contains U+0000`.
 - A String received from C is copied into an Emela string, and freed with `free` right after the copy. Sequences that are not valid UTF-8 are replaced with the replacement character (U+FFFD) (the same idea as the normalization in 12.5). The replacement is one replacement character per maximal subpart of an invalid sequence. A returned NULL is a defect. The message is ``external function `f` returned NULL`` (`X` is the name of the external function).
 - A C type not in the table, such as `size_t` or `int`, is converted to a type in the table by a small function written on the C side. The compiler does not guess the width of integers.
-- The first version of the C target (0.21) does not support parameters and return values of function types. When the build target is `c` and an external function reachable from the entry point takes or returns a callback, it is a compile error (E0427). The form of callbacks (a pair of a function pointer and a context) and how long the C side can keep them are decided in 18.1 #38.
-- The C target does not support Bytes and Array at the boundary yet. When the build target is `c` and an external function reachable from the entry, or an exported fn, takes or returns a type that contains Bytes or an Array, it is a compile error (E0443). The C form (a pointer and a length) is decided together with callbacks (18.1 #38).
+- The native target does not support parameters and return values of function types. When the build target is `native` and an external function reachable from the entry point takes or returns a callback, it is a compile error (E0427). The form of callbacks (a pair of a function pointer and a context) and how long the C side can keep them are decided in 18.1 #38.
+- The native target does not support Bytes and Array at the boundary yet. When the build target is `native` and an external function reachable from the entry, or an exported fn, takes or returns a type that contains Bytes or an Array, it is a compile error (E0443). The C form (a pointer and a length) is decided together with callbacks (18.1 #38).
 
 ## 12.5 Exceptions and failures `[ext.exception]`
 
@@ -114,7 +122,7 @@ On the `c` target, the types map to C types by the following table.
 
 ## 12.6 Asynchronous host functions in C `[ext.c-host]`
 
-A C function cannot return a value that completes later, so an external function declared as `suspend fn` on the `c` target is written so that it reports completion to the runtime later. The runtime provides the following types and functions in the header `emela.h`, which it writes to the output directory. The `.c` file of an external function includes it.
+A C function cannot return a value that completes later, so an external function declared as `suspend fn` on the native target is written so that it reports completion to the runtime later. The runtime provides the following types and functions in the header `emela.h`, which it writes to the output directory. The `.c` file of an external function includes it.
 
 ```c
 #include "emela.h"
@@ -147,16 +155,16 @@ void host_sleep(int32_t ms, em_task *task) {
 - Completions from other threads reach the fibers on the runtime's thread in the order they arrive. Copying a String and receiving an `@external type` value happen on the runtime's thread.
 - When an `em_` function that is not a completion function is called outside the runtime's thread, the runtime prints `emela: <function> was called outside the runtime's thread` to standard error and aborts.
 - As functions that register waits in the event loop, the runtime provides `em_after(ms, task, callback, ctx)` (after a number of milliseconds), and `em_on_readable(fd, task, callback, ctx)` and `em_on_writable(fd, task, callback, ctx)` (when a file descriptor is ready). The callback is called on the runtime's thread and usually calls a completion function inside it.
-- A callback is called with `(task, ctx)` as arguments. A negative `ms` for `em_after` counts as 0. The deadlines and order of timers are in `[target.c.event-loop]`.
+- A callback is called with `(task, ctx)` as arguments. A negative `ms` for `em_after` counts as 0. The deadlines and order of timers are in `[target.native.event-loop]`.
 - A file descriptor registration fires only once. When the descriptor is ready, the runtime removes the registration and then calls the callback. To wait again, register again.
 - Completing a task removes the timers and file descriptors registered for that task, and their callbacks are no longer called. Passing a completed task to `em_after`, `em_on_readable`, `em_on_writable` or `em_on_cancel` does nothing.
 - When the waiting fiber is interrupted (11.4), the callback registered with `em_on_cancel(task, callback, ctx)` is called (notification of cancellation, 12.2). Even after the interruption, the C side calls a completion function exactly once (the value is discarded). This frees the storage of `task`.
-- Besides when the waiting fiber is interrupted, the runtime cancels a task and calls its `em_on_cancel` callback when the launch has stalled and discarded continuations are unwound (`[target.c.event-loop]`), when the launch ends, and when an operation that was not resumed on the spot in a non-suspending context is unwound (`[effect.async]`, `[dyn.suspend]`).
+- Besides when the waiting fiber is interrupted, the runtime cancels a task and calls its `em_on_cancel` callback when the launch has stalled and discarded continuations are unwound (`[target.native.event-loop]`), when the launch ends, and when an operation that was not resumed on the spot in a non-suspending context is unwound (`[effect.async]`, `[dyn.suspend]`).
 - Calling `em_on_cancel` again on the same task replaces the previous callback. Calling `em_on_cancel` before completion on a task that has already been canceled calls the callback on the spot.
 - The bundled `sleep` completes right away inside its cancellation callback. This also removes the timer.
 - Registrations left after the launch ends are discarded. Tasks that have not completed are not freed (another thread can complete them later, and that completion discards its value).
 - When the event loop has no registered waits, only uncompleted `task`s remain, and every fiber has stopped, the continuations are treated as continuations discarded while suspended (14.5).
-- A host function that hands a task to another thread MUST keep the event loop waiting with its own registration (an `em_after` with a long deadline, for example). Tasks held by other threads alone do not keep the launch from being considered stalled (`[target.c.event-loop]`). The registration is removed on completion.
+- A host function that hands a task to another thread MUST keep the event loop waiting with its own registration (an `em_after` with a long deadline, for example). Tasks held by other threads alone do not keep the launch from being considered stalled (`[target.native.event-loop]`). The registration is removed on completion.
 - The types and the function signatures of `emela.h` can change between versions, like any other API.
 
 ## 12.7 Exported functions `[ext.export]`
@@ -169,13 +177,13 @@ pub fn on_tick() -> () { ... }
 pub fn add(a: Int, b: Int) -> Int { a + b }
 ```
 
-- `@export` is written on a top-level fn with a body. Writing it on any other declaration, or on a fn without a body, is E0146. Its arguments have the form `(target, "name")` or `(target, "interface", "name")`, as for `@external` (12.1). One `@export` is written per target name; a fn MAY have several for the same target. Malformed arguments are E0146, and an unknown target is E0140.
+- `@export` is written on a top-level fn with a body. Writing it on any other declaration, or on a fn without a body, is E0146. Its arguments have the form `(language, "name")` or `(language, "interface", "name")`, as for `@external` (12.1). A fn MAY have several `@export` for the same language. Malformed arguments are E0146, and an unknown language is E0140. An `@export` takes effect when its language is the language of the build target.
 - An `@export` fn exposes itself to the host under each name. Each call by the host is one launch, as main is.
 - The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402).
 - A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} uses {}` (`f: fn(Int) -> String fails {} uses {}`). Otherwise its E and R are not empty (E0402).
 - An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
-- Two exports with the same name for the same target, from `@export`, `@entry` or the launcher of `main.mjs` (`[target.js.module]`), are a compile error (E0438).
-- How each target exposes the fn is in `[target.js.module]`, `[target.c.export]` and `[target.wasm.external]`.
+- Two exports with the same name for the same language, from `@export`, `@entry` or the launcher of `main.mjs` (`[target.js.module]`), are a compile error (E0438).
+- How each target exposes the fn is in `[target.js.module]`, `[target.native.export]` and `[target.wasm.external]`.
 
 ## 12.8 Entry adapters `[ext.entry]`
 
