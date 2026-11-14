@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-14 (Std.Process, the arguments and the standard input of the process)
+
+- `[lib.layers]`, `[api.std.process]`, `[api.std.platform]`, `[cmd.build]`, `[target.native.run]`, `[target.wasm.output]`, `[target.wasm.external]`, `[cmd.test.output]`: Add a module `Std.Process` to the platform layer of std, for what belongs to the process, and put two effects in it first. `Args` reads the arguments given to the process: `get(index)` takes one by position, and `list()` returns all of them as a `List[String]`, without the name of the program. `Stdin` reads standard input: `read_line` reads one line, and `read_text` reads all the rest; both are `suspend fn`. The system handlers `SystemArgs` and `SystemStdin` are added to `Platform`. For tests, `TestStdin` reads from `State[StdinLines]`. There is no test handler for `Args`. `Console` does not change. Adopted in the proposal `std-process` (#565).
+
 ## 2026-11-14 (Local functions)
 
 - `[fn.decl]`, `[fn.local]`, `[fn.args]`, `[fn.block]`, `[fn.loop]`, `[lex.comment]`, `[module.resolution]`, `[type.inference]`, `[type.rules]`, `[effect.use]`, `[effect.with]`, `[effect.escape]`, `[grammar.expr]`, `[diag.list]`: A block MAY contain a named function, a local function, written in the same form as a top-level fn: `fn name(x: T) -> U { ... }`. Its name is visible after the declaration and inside its own body, so it can call itself, and a tail call to itself is guaranteed not to consume stack. It captures the variables visible at the declaration, as an anonymous function does. It is not generalized, but it can use the type parameters of the enclosing function. Adopted in the proposal `local-fn` (#502).

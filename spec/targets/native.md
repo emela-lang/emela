@@ -38,7 +38,7 @@ The native target makes an executable for the machine that runs the compiler. Th
 
 ## 16.7.3 Running `[target.native.run]`
 
-- `emela run --target native` starts `main` in the output directory. It passes the arguments after `--`, and the program inherits standard input. The exit code is as in `[cmd.build]`.
+- `emela run --target native` starts `main` in the output directory. It passes the arguments after `--`, and the program inherits standard input. `Args.list` of SystemArgs returns `argv[1]` and after (`[api.std.process]`). The exit code is as in `[cmd.build]`.
 - An error, a defect or an interruption that reaches the entry point is printed to standard error as one line, `error: <value>`, `defect: <message>` or `interrupted` respectively, and the program exits with exit code 1, 101 or 130 (`[dyn.error]`, `[error.defect]`, `[dyn.suspend]`).
 - `emela test --target native` runs the selected test functions in order, in one process of one executable. State (the values of evaluated consts, for example) carries over between tests. The output of results and the exit code are as in `[test.command]`, and the result of each test is one of success, error, defect or interruption.
 - If the environment variable `EMELA_LEAK_CHECK` is not empty, the executable checks at exit whether any allocations have not been freed yet. If there are, it prints `emela: leak check: <count> allocations are still live` to standard error and exits with exit code 99.
