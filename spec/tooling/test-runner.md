@@ -61,7 +61,7 @@ test result: FAILED. 2 passed; 1 failed; 0 filtered out
 - If there is at least one failure, then after a blank line and `failures:`, the command prints, for each failed test, a blank line, the line `---- <name> ----`, the line ` --> <location>` if the failure has a location, and the details of the failure ("Kinds of results" below). Then it prints a blank line, `failures:`, and the names of the failed tests, one per line, each preceded by four spaces.
 - Finally, it prints a blank line and the summary line `test result: <ok|FAILED>. <number passed> passed; <number failed> failed; <number excluded by the filter> filtered out`. If there are no failures, it is `ok`.
 - The elapsed time is not printed, so that tests that compare output get the same output from the same input.
-- What the program writes to standard output while tests run appears as is between the result lines. The program's standard error goes to standard error as is. Standard input is not passed to the program.
+- What the program writes to standard output while tests run appears as is between the result lines. The program's standard error goes to standard error as is. Standard input is not passed to the program: `SystemStdin` reads an empty input, and `SystemArgs` returns `[]` (`[api.std.process]`).
 
 ### pretty
 
