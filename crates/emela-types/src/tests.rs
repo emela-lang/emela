@@ -343,7 +343,7 @@ fn display_types() {
             [Ty::func([Ty::INT], Ty::INT)],
             Ty::func([Ty::INT], Ty::INT)
         )),
-        "fn(fn(Int) -> Int fails {} use {}) -> fn(Int) -> Int"
+        "fn(fn(Int) -> Int fails {} uses {}) -> fn(Int) -> Int"
     );
     assert_eq!(d(Ty::Bound(0)), "'0");
 }
@@ -403,7 +403,7 @@ fn display_fails() {
     );
     assert_eq!(
         scheme.display(&cons).to_string(),
-        "∀ A, E. fn(fn() -> A fails DbError | E use {}) -> A fails E | A"
+        "∀ A, E. fn(fn() -> A fails DbError | E uses {}) -> A fails E | A"
     );
     assert_eq!(Row::empty().display(&cons).to_string(), "{}");
 }
@@ -415,13 +415,13 @@ fn display_uses() {
     let clock = tag(&mut cons, 1, "Clock");
     let boom = tag(&mut cons, 2, "Boom");
     let d = |ty: Ty, cons: &TyCons| ty.display(cons).to_string();
-    // One effect is shown bare, two or more in braces (spec 17.4), after fails.
+    // A uses clause always has braces (`[type.inference]`), and comes after fails.
     assert_eq!(
         d(
             Ty::func_sets([], Ty::UNIT, Row::empty(), Row::tag(logger)),
             &cons
         ),
-        "fn() -> () use Logger"
+        "fn() -> () uses { Logger }"
     );
     assert_eq!(
         d(
@@ -436,15 +436,15 @@ fn display_uses() {
             ),
             &cons
         ),
-        "fn() -> () fails Boom use { Logger, Clock }"
+        "fn() -> () fails Boom uses { Logger, Clock }"
     );
-    // A function return type is parenthesized if the outer type has a use clause.
+    // A function return type is parenthesized if the outer type has a uses clause.
     assert_eq!(
         d(
             Ty::func_sets([], Ty::func([], Ty::INT), Row::empty(), Row::tag(logger)),
             &cons
         ),
-        "fn() -> (fn() -> Int) use Logger"
+        "fn() -> (fn() -> Int) uses { Logger }"
     );
     // Set type parameters.
     let scheme = Scheme::new(
@@ -463,10 +463,25 @@ fn display_uses() {
     );
     assert_eq!(
         scheme.display(&cons).to_string(),
-        "∀ R. fn(fn() -> Int fails {} use R) -> Int use { Clock, R }"
+        "∀ R. fn(fn() -> Int fails {} uses { R }) -> Int uses { Clock, R }"
     );
     // A capability value's type is shown as the expression that creates it.
     assert_eq!(d(Ty::Cap(Tag::new(logger)), &cons), "use Logger");
+    // A set type argument of a named type keeps one element bare (`Handler[E, Db]`).
+    assert_eq!(
+        d(Ty::Set(SetKind::Effects, Row::tag(logger)), &cons),
+        "Logger"
+    );
+    // The set of a uses clause always has braces; one effect named alone does not.
+    assert_eq!(
+        Row::tag(logger).display_uses(&cons, &[]).to_string(),
+        "{ Logger }"
+    );
+    assert_eq!(Row::empty().display_uses(&cons, &[]).to_string(), "{}");
+    assert_eq!(
+        Row::tag(logger).display_effects(&cons, &[]).to_string(),
+        "Logger"
+    );
 }
 
 /// Function types' E is not equated by unification but turned into inclusion constraints,

@@ -683,4 +683,166 @@ mod tests {
         assert_eq!(show.self_ty().unwrap().text().to_string(), "List[A]");
         assert_eq!(show.fns().count(), 1);
     }
+
+    #[test]
+    fn 宣言の名前() {
+        let items = items(
+            "error Down(message: String)\nenum Shape {\n  Circle\n}\neffect Clock {\n  fn now() -> Int\n}\nhandler Fixed: Clock {\n  fn now() { 0 }\n}\nlayer App { Fixed }\ntrait Ord {\n  fn compare(self) -> Int\n}",
+        );
+        let names: Vec<String> = items
+            .iter()
+            .map(|item| match item {
+                Item::Error(d) => text(d.name()),
+                Item::Enum(d) => text(d.name()),
+                Item::Effect(d) => text(d.name()),
+                Item::Handler(d) => text(d.name()),
+                Item::Layer(d) => text(d.name()),
+                Item::Trait(d) => text(d.name()),
+                _ => panic!("unexpected item"),
+            })
+            .collect();
+        assert_eq!(names, ["Down", "Shape", "Clock", "Fixed", "App", "Ord"]);
+
+        let Item::Error(down) = &items[0] else {
+            unreachable!()
+        };
+        assert_eq!(
+            text(down.field_list().unwrap().fields().next().unwrap().name()),
+            "message"
+        );
+        let Item::Enum(shape) = &items[1] else {
+            unreachable!()
+        };
+        assert_eq!(text(shape.variants().next().unwrap().name()), "Circle");
+        let Item::Effect(clock) = &items[2] else {
+            unreachable!()
+        };
+        let now = clock.ops().next().unwrap();
+        assert_eq!(text(now.name()), "now");
+        assert_eq!(now.param_list().unwrap().params().count(), 0);
+        assert!(now.type_params().is_none());
+        assert!(clock.type_params().is_none() && clock.label().is_none());
+        let Item::Handler(fixed) = &items[3] else {
+            unreachable!()
+        };
+        assert!(fixed.field_list().is_none() && fixed.effect_type_args().is_none());
+    }
+
+    #[test]
+    fn 注釈と_opaque_を書かない宣言() {
+        let items = items("type User(id: Int)");
+        let Item::Type(user) = &items[0] else {
+            unreachable!()
+        };
+        assert!(!user.is_opaque() && !user.is_pub());
+        assert!(!user.has_annotation("external"));
+    }
+
+    #[test]
+    fn 型引数のある効果とハンドラ() {
+        let items = items(
+            "effect State[S] {\n  fn get() -> S\n  fn fork[A](f: A) -> A\n}\nhandler Counter(start: Int): State[Int] {\n  init(start: Int) { Counter(start:) }\n  release { () }\n  fn get() { self.start }\n  fn fork(f) { f }\n}",
+        );
+        let Item::Effect(state) = &items[0] else {
+            unreachable!()
+        };
+        assert_eq!(state.type_params().unwrap().text().to_string(), "[S]");
+        let ops: Vec<_> = state.ops().collect();
+        assert!(ops[0].type_params().is_none());
+        assert_eq!(ops[1].type_params().unwrap().text().to_string(), "[A]");
+
+        let Item::Handler(counter) = &items[1] else {
+            unreachable!()
+        };
+        assert_eq!(
+            text(
+                counter
+                    .field_list()
+                    .unwrap()
+                    .fields()
+                    .next()
+                    .unwrap()
+                    .name()
+            ),
+            "start"
+        );
+        assert_eq!(
+            counter.effect_type_args().unwrap().text().to_string(),
+            "[Int]"
+        );
+        let init_params: Vec<_> = counter.init_params().unwrap().params().collect();
+        assert_eq!(text(init_params[0].name()), "start");
+        assert_eq!(
+            counter.init().unwrap().syntax().text().to_string(),
+            "{ Counter(start:) }"
+        );
+        assert_eq!(
+            counter.release().unwrap().syntax().text().to_string(),
+            "{ () }"
+        );
+    }
+
+    #[test]
+    fn init_に括弧がなければ引数はない() {
+        let items = items("handler Hd: Ev {\n  init { Hd }\n}");
+        let Item::Handler(h) = &items[0] else {
+            unreachable!()
+        };
+        assert!(h.init().is_some() && h.init_params().is_none());
+    }
+
+    #[test]
+    fn 効果のラベル() {
+        let items = items("effect Audit of State[Int]\neffect Debug of Console default");
+        let Item::Effect(audit) = &items[0] else {
+            unreachable!()
+        };
+        let label = audit.label().unwrap();
+        assert_eq!(label.base().unwrap().syntax().text().to_string(), "State");
+        assert_eq!(label.base_type_args().unwrap().text().to_string(), "[Int]");
+        assert!(!label.is_default());
+
+        let Item::Effect(debug) = &items[1] else {
+            unreachable!()
+        };
+        let label = debug.label().unwrap();
+        assert!(label.base_type_args().is_none());
+        assert!(label.is_default());
+    }
+
+    #[test]
+    fn layer_の要素と_init_の引数() {
+        let items = items("layer App { Env, Kv(binding: \"KV\") }");
+        let Item::Layer(app) = &items[0] else {
+            unreachable!()
+        };
+        let members: Vec<_> = app.members().collect();
+        let paths: Vec<_> = members
+            .iter()
+            .map(|m| m.path().unwrap().syntax().text().to_string())
+            .collect();
+        assert_eq!(paths, ["Env", "Kv"]);
+        assert!(members[0].arg_list().is_none());
+        assert_eq!(
+            members[1].arg_list().unwrap().text().to_string(),
+            "(binding: \"KV\")"
+        );
+        assert!(Supply::cast(app.syntax().clone()).is_none());
+    }
+
+    #[test]
+    fn 実装の型名と型引数() {
+        let items = items(
+            "impl Map[K: Eq, V]: Show {\n  fn show(self) { \"\" }\n}\nimpl User: Show {\n  fn show(self) { \"\" }\n}",
+        );
+        let Item::Impl(map) = &items[0] else {
+            unreachable!()
+        };
+        assert_eq!(map.self_path().unwrap().syntax().text().to_string(), "Map");
+        assert_eq!(map.type_params().unwrap().text().to_string(), "[K: Eq, V]");
+        let Item::Impl(user) = &items[1] else {
+            unreachable!()
+        };
+        assert!(user.type_params().is_none());
+    }
 }

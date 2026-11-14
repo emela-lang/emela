@@ -25,13 +25,13 @@ pub struct HoverInfo {
 ///   inferred). Suspend fns (effect operations and external functions) get `suspend` before the
 ///   type.
 /// - A handler name: `handler H(fields): E` (`E[Int]` with type arguments), plus
-///   `init(params) fails E` if init has parameters or an E, and `use R` if it has dependencies
+///   `init(params) fails E` if init has parameters or an E, and `uses { R }` if it has dependencies
 ///   (shows whether Async remains).
-/// - A layer name: `layer L { handlers in initialization order }`, plus `use R` for dependencies
+/// - A layer name: `layer L { handlers in initialization order }`, plus `uses { R }` for dependencies
 ///   unmet inside the layer.
 /// - A label name, or a reference to one: its declaration, `effect Debug of Log default`.
 /// - A reference to a definition or local: likewise `name: type`.
-/// - Any other expression: its type, plus `fails E` if E is not empty and `use R` if R is not
+/// - Any other expression: its type, plus `fails E` if E is not empty and `uses { R }` if R is not
 ///   empty.
 ///
 /// The innermost (shortest) one is chosen.
@@ -231,7 +231,7 @@ fn hover_type(
             contents: code(&text),
         });
     }
-    // Label names, and references to labels (`use { Audit }`, `with Audit by H`, issue #255).
+    // Label names, and references to labels (`uses { Audit }`, `with Audit by H`, issue #255).
     if let Some((def, data)) = def
         && let Some(text) = label_text(program, def)
     {
@@ -318,7 +318,7 @@ fn hover_type(
                     }
                     let effects = types.effects.get(expr).cloned().unwrap_or_else(Row::empty);
                     if !effects.is_empty() {
-                        text.push_str(&format!("\nuse {}", effects.display_effects(cons, &params)));
+                        text.push_str(&format!("\nuses {}", effects.display_uses(cons, &params)));
                     }
                     text
                 }
@@ -333,7 +333,7 @@ fn hover_type(
 }
 
 /// `handler H(fields): E` (`E[Int]` with type arguments), plus `init(params) fails E` if init
-/// has parameters (`[effect.handler]`) or an E (part of the with's E, spec 9.4), and `use R` if
+/// has parameters (`[effect.handler]`) or an E (part of the with's E, spec 9.4), and `uses { R }` if
 /// it has dependencies (shows whether Async remains, spec 8.7). `None` if `def` is not a
 /// handler.
 pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String> {
@@ -394,12 +394,12 @@ pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String>
     if let Some(deps) = types.handler_uses.get(def)
         && !deps.is_empty()
     {
-        text.push_str(&format!("\nuse {}", deps.display_effects(cons, &[])));
+        text.push_str(&format!("\nuses {}", deps.display_uses(cons, &[])));
     }
     Some(text)
 }
 
-/// `layer L { handlers in initialization order }`, plus `use R` for dependencies unmet inside
+/// `layer L { handlers in initialization order }`, plus `uses { R }` for dependencies unmet inside
 /// the layer (spec 8.5). `None` if `def` is not a layer.
 pub(crate) fn layer_text(program: &TypedProgram, def: DefId) -> Option<String> {
     let hir = &program.hir;
@@ -413,8 +413,8 @@ pub(crate) fn layer_text(program: &TypedProgram, def: DefId) -> Option<String> {
     let mut text = format!("layer {} {{ {} }}", hir.defs[def].name, names.join(", "));
     if !layer.uses.is_empty() {
         text.push_str(&format!(
-            "\nuse {}",
-            layer.uses.display_effects(&types.ty_table.cons, &[])
+            "\nuses {}",
+            layer.uses.display_uses(&types.ty_table.cons, &[])
         ));
     }
     Some(text)

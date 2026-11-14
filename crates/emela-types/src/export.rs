@@ -17,9 +17,11 @@ use emela_resolve::hir::{
 use rowan::TextRange;
 use smol_str::SmolStr;
 
+use crate::check::CheckOptions;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::lower::TyTable;
-use crate::signature::Signatures;
+use crate::row::RowElem;
+use crate::signature::{Signature, Signatures};
 use crate::ty::{Prim, Ty};
 
 /// Whether `def` is an entry adapter: an `@export` fn whose first parameter has a function type
@@ -320,6 +322,7 @@ pub(crate) fn check(
     program: &Program,
     ty_table: &TyTable,
     sigs: &Signatures,
+    options: &CheckOptions,
     diags: &mut Vec<Diagnostic>,
 ) {
     for (def, item) in program.items.iter() {
@@ -386,6 +389,87 @@ pub(crate) fn check(
             });
         }
     }
+    reserved_js_names(program, sigs, options, diags);
+}
+
+/// The names `main.mjs` already exports (`[target.js.module]`) and a two-argument
+/// `@export(js, "name")` may not take: `main` when the entry has a `main` ([`CheckOptions::main`],
+/// which excludes tests), and `$start` when the entry's `main` or a fn with an `@export(js, ...)`
+/// may suspend. The `$start` of a fn with several exports is emitted only for a `js` export, and
+/// tests are not in the output of a build. An export with one of these names is a duplicate of the
+/// launcher's export (E0438).
+///
+/// Reported once per name, at the first such export in source order (at the `@entry` for an export
+/// it makes). Later exports of the same name are [`duplicates`]' diagnostics.
+fn reserved_js_names(
+    program: &Program,
+    sigs: &Signatures,
+    options: &CheckOptions,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let Some(entry) = options.entry else {
+        return;
+    };
+    let suspended = |def: DefId| sigs.get(def).is_some_and(|sig| may_suspend(program, sig));
+    let exposed = host_exports(program, Some(entry));
+    let start = options.main.is_some_and(suspended)
+        || exposed
+            .iter()
+            .any(|e| e.exports.iter().any(|x| x.target == "js") && suspended(e.def));
+    for name in ["main", "$start"] {
+        if (name == "main" && options.main.is_none()) || (name == "$start" && !start) {
+            continue;
+        }
+        let spans: Vec<Span> = exposed
+            .iter()
+            .flat_map(|exposed| {
+                exposed
+                    .exports
+                    .iter()
+                    // Only the named form collides; the three-argument form is a property of
+                    // the default export object.
+                    .filter(|export| {
+                        export.target == "js" && export.args.len() == 1 && export.args[0] == name
+                    })
+                    .map(|export| exposed.entry.unwrap_or(export.span))
+            })
+            .collect();
+        let Some(&span) = spans
+            .iter()
+            .min_by_key(|span| (span.module, span.range.start()))
+        else {
+            continue;
+        };
+        // Two such exports at the same place (an `@entry` whose adapter exports the name twice)
+        // are already reported there by `duplicates`.
+        if spans.iter().filter(|&&s| s == span).count() > 1 {
+            continue;
+        }
+        diags.push(Diagnostic {
+            span: Some(span),
+            kind: DiagnosticKind::DuplicateExport {
+                name: SmolStr::new(name),
+                target: SmolStr::new("js"),
+            },
+        });
+    }
+}
+
+/// Whether the R of `sig` contains `Async`, the only effect an `@export` fn may have
+/// (`[ext.export]`). An open set counts as maybe suspending, because JavaScript then needs
+/// `$start` ([`reserved_js_names`]).
+fn may_suspend(program: &Program, sig: &Signature) -> bool {
+    let Some(async_) = program.prelude_def("Async") else {
+        return true;
+    };
+    let Ty::Fn(f) = &sig.scheme.ty else {
+        return false;
+    };
+    f.uses.elems().iter().any(|e| match e {
+        RowElem::Tag(t) => t.def == async_,
+        RowElem::Bound(_) | RowElem::Var(_) => true,
+        RowElem::Of(_) => false,
+    })
 }
 
 /// E0402 when the E of `def` is not empty. A hidden set variable of a parameter's function type
@@ -426,20 +510,23 @@ fn def_module(program: &Program, def: DefId) -> Option<ModuleId> {
     }
 }
 
-/// `[ext.boundary]`: Int, Int64, Float, Bool, String, `()`, an `@external type`, and function
-/// types made of these.
+/// `[ext.boundary]`: Int, Int64, Float, Bool, String, Bytes, `()`, an `@external type`, `Array[A]`
+/// of a boundary type `A` other than a function type, and function types made of these.
 fn is_boundary(program: &Program, ty_table: &TyTable, ty: &Ty) -> bool {
     match ty {
         Ty::Prim(
             Prim::Int | Prim::Int64 | Prim::Float | Prim::Bool | Prim::String | Prim::Unit,
         ) => true,
-        Ty::Named(con, args) => {
-            args.is_empty()
-                && matches!(
-                    program.item(ty_table.def(*con)),
-                    Some(Item::Type(t)) if t.ctor.is_none()
-                )
-        }
+        Ty::Named(con, args) => match program.item(ty_table.def(*con)) {
+            // `Array[A]` (`[ext.boundary]`), the built-in type with a type parameter, when its
+            // element type is a boundary type other than a function type.
+            Some(Item::Type(t)) if t.is_intrinsic && !args.is_empty() => args
+                .iter()
+                .all(|a| !matches!(a, Ty::Fn(_)) && is_boundary(program, ty_table, a)),
+            // `Bytes` and `@external type`s.
+            Some(Item::Type(t)) => args.is_empty() && t.ctor.is_none(),
+            _ => false,
+        },
         Ty::Fn(f) => {
             f.params.iter().all(|p| is_boundary(program, ty_table, p))
                 && is_boundary(program, ty_table, &f.ret)

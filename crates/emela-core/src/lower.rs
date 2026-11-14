@@ -78,8 +78,8 @@ pub enum Roots {
     Exported,
     /// The entry module's `main` and its `pub` fns, except test functions and fns with a
     /// trait-bounded type parameter (no impl could be chosen for a caller that sees every type
-    /// the same). Not a build of a target in the specification: the embedded C backend
-    /// (`emela-codegen-emb`) exports these until it moves to `@export`.
+    /// the same). Available to external backends that select public entry points instead of
+    /// the host exports of a built-in target.
     Public,
     /// The test functions (`LowerInput::tests`), for `emela test`.
     Tests,
@@ -405,7 +405,7 @@ enum Target {
     Scope(Box<ScopeCall>),
     /// `s.fork(f)`（11.2）．
     Fork(Box<ForkCall>),
-    /// `Fiber.attempt(f)`（11.5）．
+    /// `Exit.attempt(f)`（11.5）．
     Attempt(Box<AttemptCall>),
 }
 
@@ -581,7 +581,7 @@ impl<'a> Lowerer<'a> {
                         let id = self.module.option_enum();
                         self.enums.insert(def, id);
                     }
-                    // A built-in type is `TypeId::BYTES` (`Lowerer::ty`).
+                    // A built-in type is `Type::Bytes` or `Type::Array` (`Lowerer::ty`).
                     Some(Item::Type(t)) if t.is_intrinsic => {}
                     Some(Item::Type(t)) => {
                         let id = self.declare_enum(def, t.type_params.len());
@@ -718,8 +718,17 @@ impl<'a> Lowerer<'a> {
             Ty::List(t) => Type::List(self.ty(t)),
             Ty::Named(con, args) => {
                 let def = self.types.ty_table.def(*con);
+                // The built-in types of `@intrinsic` declarations (`[api.std.bytes]`,
+                // `[api.std.array]`), told apart by their type parameter: `Bytes` has none, and
+                // `Array[A]` has the element type.
                 if matches!(self.hir.item(def), Some(Item::Type(t)) if t.is_intrinsic) {
-                    return TypeId::BYTES;
+                    return match args.first() {
+                        None => TypeId::BYTES,
+                        Some(elem) => {
+                            let elem = self.ty(elem);
+                            self.module.intern(Type::Array(elem))
+                        }
+                    };
                 }
                 match self.enums.get(def) {
                     Some(&id) => Type::Enum(id, args.iter().map(|t| self.ty(t)).collect()),
@@ -2540,7 +2549,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Turns a reference (`id`) to a builtin or constructor into a lambda that just calls it:
-    /// `List.map(xs, Some)` becomes `List.map(xs, fn(x) { Some(x) })`. The arity comes from the
+    /// `List.map(xs, Some)` becomes `List.map(xs, |x| Some(x))`. The arity comes from the
     /// reference's type.
     ///
     /// If the reference type's R needs an evidence table, the lambda takes the table as its last
@@ -2810,7 +2819,7 @@ impl<'a> Lowerer<'a> {
             suspends: self.row_suspends(&body.uses),
         };
         let base = self.ev.map(Expr::Var);
-        // `State.run(initial: S, body: fn() -> A use { State[S] }) -> (A, S)` (spec 8.8).
+        // `State.run(initial: S, body: fn() -> A uses { State[S] }) -> (A, S)` (spec 8.8).
         let state = match f.params.first() {
             Some(s) => self.ty(s),
             None => TypeId::UNIT,
@@ -2993,24 +3002,22 @@ impl<'a> Lowerer<'a> {
                 (None, BinOp::Eq | BinOp::Ne) => Some(self.eq_op_ty(None)),
                 (None, _) => None,
             };
-            if unshowable(&self.module, ty, true).is_none() {
-                // Monomorphization shows the sides through a written Show impl (spec 10.6).
-                if prim_op_ty(self.expr_ty(*lhs)).is_none() {
-                    self.prelude_trait_fn_id("Show", "show");
-                }
-                let (l, r) = (self.expr(*lhs), self.expr(*rhs));
-                if let Some(op_ty) = op_ty {
-                    return Assert::compare(bin, op_ty, ty, l, r, text);
-                }
-                // An ordering through `Ord.compare`: the sides are bound first and shown if it
-                // fails (spec 13.2).
-                let (a, b) = (
-                    self.module.local("left", ty),
-                    self.module.local("right", ty),
-                );
-                let decide = self.compare(*op, ty, Expr::Var(a), Expr::Var(b), c.span);
-                return Assert::shown(decide, bin, ty, (a, l), (b, r), text);
+            // Monomorphization shows the sides through a written Show impl (spec 10.6).
+            if prim_op_ty(self.expr_ty(*lhs)).is_none() {
+                self.prelude_trait_fn_id("Show", "show");
             }
+            let (l, r) = (self.expr(*lhs), self.expr(*rhs));
+            if let Some(op_ty) = op_ty {
+                return Assert::compare(bin, op_ty, ty, l, r, text);
+            }
+            // An ordering through `Ord.compare`: the sides are bound first and shown if it
+            // fails (spec 13.2).
+            let (a, b) = (
+                self.module.local("left", ty),
+                self.module.local("right", ty),
+            );
+            let decide = self.compare(*op, ty, Expr::Var(a), Expr::Var(b), c.span);
+            return Assert::shown(decide, bin, ty, (a, l), (b, r), text);
         }
         let cond = self.expr(cond);
         Assert::bool(cond, text)
@@ -3146,9 +3153,11 @@ impl<'a> Lowerer<'a> {
             .map(|part| match part {
                 HirStrPart::Text(s) => StrPart::Lit(s.clone()),
                 HirStrPart::Interp(e) => {
+                    // The type checker has checked Show (spec 10.6), except for a capability
+                    // value, which data cannot hold, so only the value itself can be one.
                     let ty = self.ty(self.expr_ty(*e));
-                    if let Some(what) = unshowable(&self.module, ty, false) {
-                        self.report(what, self.hir.exprs[*e].span);
+                    if matches!(self.module.ty(ty), Type::Handler(_)) {
+                        self.report("showing a capability value", self.hir.exprs[*e].span);
                     }
                     // Monomorphization shows by structure where Show gives the same, and calls
                     // `Show.show` otherwise (spec 10.3, 10.6).
@@ -3675,20 +3684,6 @@ fn is_atomic(e: &Expr) -> bool {
         e,
         Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } | Expr::Lambda { .. }
     )
-}
-
-/// Why the type cannot be shown, if it cannot. Type parameters are resolved by
-/// monomorphization, which also substitutes the types carried by `StrPart::Value` and
-/// `AssertCond::Compare`. Functions cannot be shown in interpolation (spec 10.6), but the Show
-/// check comes with traits; the debug display (`inspect`) shows them as `<fn>`.
-fn unshowable(m: &Module, ty: TypeId, inspect: bool) -> Option<&'static str> {
-    match m.ty(ty) {
-        Type::Fn(_) if !inspect => Some("showing a function"),
-        Type::Handler(_) => Some("showing a capability value"),
-        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(|&t| unshowable(m, t, inspect)),
-        Type::List(t) => unshowable(m, *t, inspect),
-        _ => None,
-    }
 }
 
 /// Records in `out[i]` what `Ty::Bound(i)` in `pattern` corresponds to in `actual`.

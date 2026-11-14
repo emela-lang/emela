@@ -1,7 +1,7 @@
 # @external の引数の形（12.1，12.3）．
 @external(js, "Math.sin")
 @external(wasm, "env", "sin")
-fn ok_both(x: Float) -> Float use {}
+fn ok_both(x: Float) -> Float uses {}
 
 @external
 fn no_args() -> ()

@@ -1,0 +1,51 @@
+import Std.Fiber.{Fiber}
+import Std.Exit.{Exit, Success, Failure}
+import Std.Cause.{Cause}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+error Empty
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn fail_late() -> String fails Empty uses { Tick } {
+  spin(100000)
+  fail Empty
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+## An interruption is not an error, so an arm `_` does not handle it (`[error.escape]`,
+## `[fiber.cause]`).
+fn main() -> () uses { Async } {
+  with Ticks {
+    Fiber.scope(|| {
+      h = Fiber.fork(|| fail_late() escape { _ -> "caught" })
+      spin(1000)
+      Fiber.interrupt(h)
+      print("await #{show(Fiber.await(h))}")
+    })
+  }
+}

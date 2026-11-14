@@ -2,7 +2,9 @@
 
 use super::expressions::{block, expr, supply};
 use super::param_list;
-use super::types::{effect_type_args, effects_and_errors, path, ret_type, type_};
+use super::types::{
+    effect_type_args, effects_and_errors, old_uses_clause_on_next_line, path, ret_type, type_,
+};
 use crate::SyntaxKind::*;
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{Marker, Parser};
@@ -230,7 +232,7 @@ fn skip_to_decl(p: &mut Parser<'_>) {
 
 /// `[ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")" [ signature ] [ block ]`
 ///
-/// `signature = [ "->" type [ "fails" error_set ] ] [ "use" effect_set ]`
+/// `signature = [ "->" type [ "fails" error_set ] ] [ "uses" effect_set ]`
 fn fn_decl(p: &mut Parser<'_>, m: Marker) {
     p.eat(SUSPEND_KW);
     p.expect(FN_KW);
@@ -251,7 +253,9 @@ fn fn_decl(p: &mut Parser<'_>, m: Marker) {
             "expected `->` before `fails`",
         );
     }
-    effects_and_errors(p);
+    if !effects_and_errors(p) {
+        old_uses_clause_on_next_line(p);
+    }
     if p.at(L_BRACE) {
         block(p);
     }
@@ -562,7 +566,7 @@ fn effect_decl(p: &mut Parser<'_>, m: Marker) {
 /// `[ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")" "->" type [ "fails" error_set ]`
 ///
 /// Type parameters are only allowed on built-in effects (spec 8.1); the type checker reports E0426.
-/// A `use` clause is read too, and validation reports it over the clause (E0137, like E0136 for
+/// A uses clause is read too, and validation reports it over the clause (E0137, like E0136 for
 /// impl fns), so that the `{` or newline after it does not pile up syntax errors.
 fn op_sig(p: &mut Parser<'_>, m: Marker) {
     p.eat(SUSPEND_KW);
@@ -581,7 +585,9 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
     } else {
         p.expect(THIN_ARROW);
     }
-    effects_and_errors(p);
+    if !effects_and_errors(p) {
+        old_uses_clause_on_next_line(p);
+    }
     m.complete(p, OP_SIG);
 }
 

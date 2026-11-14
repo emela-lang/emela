@@ -91,7 +91,7 @@ fn const_memoisation_and_release_notes_agree_on_targets() {
     // The same two-test pairs on every target: `BROKEN` is evaluated once and both tests get the
     // same defect; `SELF` is evaluated again in each test; a failing release adds a note to the
     // self-reference defect without wrapping it (spec 5.6, 14.4).
-    if !have_tool("EMELA_NODE", "node")
+    if !have_tool("EMELA_JS_HOST", "node")
         || !have_tool("EMELA_CC", "cc")
         || !have_tool("EMELA_WASMTIME", "wasmtime")
     {

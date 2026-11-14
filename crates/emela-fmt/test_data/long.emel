@@ -1,4 +1,4 @@
-fn long_signature(first_argument: String, second_argument: List[Int], third_argument: fn(Int) -> Bool) -> Map[String, List[Int]] fails ParseError | IoError use { Io, Clock } {
+fn long_signature(first_argument: String, second_argument: List[Int], third_argument: fn(Int) -> Bool) -> Map[String, List[Int]] fails ParseError | IoError uses { Io, Clock } {
   todo()
 }
 
@@ -9,12 +9,18 @@ fn long_expressions() {
   sum = a_long_operand_name_number_one + a_long_operand_name_number_two + another_long_operand_name
   difference = a_long_operand_name_number_one - a_long_operand_name_number_two - another_long_operand
   piped = input_values |> List.filter(is_valid_value) |> List.map(transform_value) |> List.fold(init: 0, f: add)
-  mapped = List.map(input_values_that_are_long, fn(value) { transform_the_value_with_a_long_function(value) })
-  hugged = Fiber.scope(fn(s) { s.fork(fn() { fetch_user_profile_and_orders_for_the_current_session(1) }) })
+  mapped = List.map(input_values_that_are_long, |value| transform_the_value_with_a_long_function(value))
+  hugged = Fiber.scope(|s| s.fork(|| fetch_user_profile_and_orders_for_the_current_session(1)))
+  mapped_block = List.map(input_values_that_are_long, |value| {
+    transform_the_value_with_a_long_function(value)
+  })
+  hugged_block = Fiber.scope(|s| {
+    s.fork(|| fetch_user_profile_and_orders_for_the_current_session(1))
+  })
   nested = outer_function(inner_function(first_inner_argument, second_inner_argument), another_argument_here)
   tuple = (first_element_of_the_tuple, second_element_of_the_tuple, third_element_of_the_tuple_value)
   named = Profile(user: fetch_the_user_record(user_id), orders: fetch_the_order_list(user_id), extra: 1)
-  xs |> List.map(fn(x) {
+  xs |> List.map(|x| {
     x + 1
   })
 }

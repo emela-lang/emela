@@ -1,0 +1,37 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+warning[W0302]: no error is raised here
+   ╭─[ main.emel:7:25 ]
+   │
+ 7 │   a = steady() escape { _ -> 0 }
+   │                         ┬  
+   │                         ╰── 
+───╯
+
+warning[W0301]: unreachable match arm
+    ╭─[ main.emel:10:5 ]
+    │
+ 10 │     Boom -> 1
+    │     ──┬─  
+    │       ╰─── 
+────╯
+
+error[E0320]: a `_` escape arm cannot have a guard
+    ╭─[ main.emel:12:28 ]
+    │
+ 12 │   c = boom() escape { _ if a > 0 -> 0 }
+    │                            ──┬──  
+    │                              ╰──── 
+────╯
+
+error[E0320]: escape arms must match an error constructor or `_`
+    ╭─[ main.emel:13:23 ]
+    │
+ 13 │   d = boom() escape { e -> 0 }
+    │                       ┬  
+    │                       ╰── 
+────╯
+
+2 errors, 2 warnings

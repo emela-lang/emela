@@ -112,6 +112,8 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::Panic
         | Builtin::Todo
         | Builtin::AssertFail
+        // A position out of range (`[api.std.array]`).
+        | Builtin::ArraySet
         // Target c splits by grapheme clusters only ASCII text so far, and an empty separator
         // that turns up at run time on other text is a defect there.
         | Builtin::StringSplit => true,
@@ -126,6 +128,12 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::StringTrim
         | Builtin::StringCodePoints
         | Builtin::StringFromCodePoint
+        | Builtin::ArrayFromList
+        | Builtin::ArrayToList
+        | Builtin::ArraySize
+        | Builtin::ArrayGet
+        | Builtin::ArraySlice
+        | Builtin::ArrayConcat
         | Builtin::BytesFromList
         | Builtin::BytesToList
         | Builtin::BytesSize

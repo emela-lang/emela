@@ -6,19 +6,19 @@ kind: ∀ E. fn(Cause[E]) -> CauseKind
 to_string: ∀ E. fn(Cause[E]) -> String
 raise: ∀ A, E. fn(Cause[E]) -> A fails E
 complete: ∀ A. fn(Deferred[A], A) -> Bool
-await: ∀ A. fn(Deferred[A]) -> A use Async
+await: ∀ A. fn(Deferred[A]) -> A uses { Async }
 poll: ∀ A. fn(Deferred[A]) -> Option[A]
-fork: ∀ E, R, A. fn(fn() -> A fails E use { Scope[E, R], R }) -> Fiber[A]
+attempt: ∀ A, E, R. fn(fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }
+fork: ∀ E, R, A. fn(fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
 deferred: ∀ E, R, A. fn() -> Deferred[A]
-scope: ∀ A, E, R. fn(fn() -> A fails E use { Async, Scope[E, R], R }) -> A fails E use { Async, R }
-fork: ∀ A, E, R. fn(fn() -> A fails E use { Scope[E, R], R }) -> Fiber[A] use Scope[E, R]
-deferred: ∀ A, E, R. fn() -> Deferred[A] use Scope[E, R]
-join: ∀ A. fn(Fiber[A]) -> A use Async
-await: ∀ A. fn(Fiber[A]) -> Exit[A, {}] use Async
-interrupt: ∀ A. fn(Fiber[A]) -> () use Async
-attempt: ∀ A, E, R. fn(fn() -> A fails E use R) -> Exit[A, E] use R
-all: ∀ A, E, R. fn(List[fn() -> A fails E use R]) -> List[A] fails E use { Async, R }
-race: ∀ A, E, R. fn(List[fn() -> A fails E use R]) -> A fails E use { Async, R }
-both: ∀ A, B, E, R. fn(fn() -> A fails E use R, fn() -> B fails E use R) -> (A, B) fails E use { Async, R }
-map: ∀ A, B, E, R. fn(List[A], fn(A) -> B fails E use R) -> List[B] fails E use { Async, R }
-timeout: ∀ A, E, R. fn(Int, fn() -> A fails E use R) -> Option[A] fails E use { Async, Clock, R }
+scope: ∀ A, E, R. fn(fn() -> A fails E uses { Async, Scope[E, R], R }) -> A fails E uses { Async, R }
+fork: ∀ A, E, R. fn(fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A] uses { Scope[E, R] }
+deferred: ∀ A, E, R. fn() -> Deferred[A] uses { Scope[E, R] }
+join: ∀ A. fn(Fiber[A]) -> A uses { Async }
+await: ∀ A. fn(Fiber[A]) -> Exit[A, {}] uses { Async }
+interrupt: ∀ A. fn(Fiber[A]) -> () uses { Async }
+all: ∀ A, E, R. fn(List[fn() -> A fails E uses { R }]) -> List[A] fails E uses { Async, R }
+race: ∀ A, E, R. fn(List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }
+both: ∀ A, B, E, R. fn(fn() -> A fails E uses { R }, fn() -> B fails E uses { R }) -> (A, B) fails E uses { Async, R }
+map: ∀ A, B, E, R. fn(List[A], fn(A) -> B fails E uses { R }) -> List[B] fails E uses { Async, R }
+timeout: ∀ A, E, R. fn(Int, fn() -> A fails E uses { R }) -> Option[A] fails E uses { Async, Clock, R }

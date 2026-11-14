@@ -1,0 +1,6 @@
+exit: 1
+--- stdout
+--- stderr
+0
+-1
+error: Nope

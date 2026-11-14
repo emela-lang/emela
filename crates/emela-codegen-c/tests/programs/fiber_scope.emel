@@ -2,7 +2,7 @@ import Std.Fiber.{Fiber, Scope}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 error Boom
 
@@ -28,7 +28,7 @@ handler Inner: Name {
   fn name() { "inner" }
 }
 
-fn spin(n: Int) -> () use { Tick } {
+fn spin(n: Int) -> () uses { Tick } {
   if n == 0 { () } else {
     (use Tick).tick()
     spin(n - 1)
@@ -36,7 +36,7 @@ fn spin(n: Int) -> () use { Tick } {
 }
 
 ## Takes `ticks` hundred suspending calls, then prints and returns `n * 10`.
-fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
+fn fetch(n: Int, ticks: Int) -> Int uses { Tick } {
   spin(ticks * 100)
   print("fetched #{n}")
   n * 10
@@ -44,39 +44,39 @@ fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
 
 fn boom() -> Int fails Boom { fail Boom }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks, Outer {
-    total = Fiber.scope(fn() {
+    total = Fiber.scope(|| {
       s = use Scope
-      a = s.fork(fn() { fetch(1, 60) })
-      b = Fiber.fork(fn() { fetch(2, 10) })
+      a = s.fork(|| fetch(1, 60))
+      b = Fiber.fork(|| fetch(2, 10))
       Fiber.join(a) + Fiber.join(b)
     })
     print("total #{total}")
-    Fiber.scope(fn() {
-      outside = fn() { print((use Name).name()) }
+    Fiber.scope(|| {
+      outside = || print((use Name).name())
       with Inner {
         a = Fiber.fork(outside)
-        b = Fiber.fork(fn() { print((use Name).name()) })
+        b = Fiber.fork(|| print((use Name).name()))
         print("body #{(use Name).name()}")
         Fiber.join(a)
         Fiber.join(b)
       }
     })
-    Fiber.scope(fn() {
-      a = Fiber.fork(fn() {
-        b = Fiber.fork(fn() { fetch(2, 10) })
+    Fiber.scope(|| {
+      a = Fiber.fork(|| {
+        b = Fiber.fork(|| fetch(2, 10))
         print("child")
         Fiber.join(b)
       })
       print("joined #{Fiber.join(a)}")
     })
-    r = Fiber.scope(fn() {
+    r = Fiber.scope(|| {
       outer = use Scope
-      late = outer.fork(fn() { fetch(9, 50) })
-      inner = Fiber.scope(fn() {
-        Fiber.fork(fn() {
-          h = Fiber.fork(fn() { boom() })
+      late = outer.fork(|| fetch(9, 50))
+      inner = Fiber.scope(|| {
+        Fiber.fork(|| {
+          h = Fiber.fork(|| boom())
           Fiber.join(h)
         })
         spin(100000)
@@ -86,10 +86,10 @@ fn main() -> () use { Async } {
       Fiber.join(late)
     })
     print("outer #{r}")
-    floats = Fiber.scope(fn() {
-      x = Fiber.fork(fn() { 1.5 })
-      y = Fiber.fork(fn() { Int64.from_int(7) })
-      u = Fiber.fork(fn() { print("unit child") })
+    floats = Fiber.scope(|| {
+      x = Fiber.fork(|| 1.5)
+      y = Fiber.fork(|| Int64.from_int(7))
+      u = Fiber.fork(|| print("unit child"))
       Fiber.join(u)
       "#{Fiber.join(x)} #{Fiber.join(y)}"
     })

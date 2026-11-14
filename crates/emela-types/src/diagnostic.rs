@@ -155,13 +155,18 @@ pub enum DiagnosticKind {
     /// A non-error value passed to `fail`, or a single-error type parameter instantiated with a
     /// non-error type (E0319, spec 7.2).
     NotAnError { found: Ty },
-    /// An `escape` arm pattern that is not an error constructor (E0320, spec 7.3).
+    /// An `escape` arm pattern that is neither an error constructor nor `_`: a variable (E0320,
+    /// `[error.escape]`).
     EscapeArmNotError,
+    /// An `escape` arm `_` with a guard (E0320, `[error.escape]`). Reported at the guard.
+    EscapeWildcardGuard,
     /// A function value's E not contained in the expected function type's E (E0321, spec 7.4,
     /// 9.2). `expected` and `found` are displayed sets (`Timeout | E`, or `{}` if empty).
     ErrorSetMismatch { expected: SmolStr, found: SmolStr },
     /// An `escape` arm catching an error the expression cannot raise (W0302, spec 7.3). A warning.
     UnraisedError { error: SmolStr },
+    /// An `escape` arm `_` on an expression whose E is empty (W0302, `[diag.list]`). A warning.
+    NoErrorRaised,
     /// A label item of `with` (`with L`, `L by P`) whose provided effect the body never uses
     /// (W0401, issue #255). `label` is the label written. Only when the body's R is fully known
     /// (no sets with unknown contents).
@@ -191,7 +196,7 @@ pub enum DiagnosticKind {
         expected: usize,
         found: usize,
     },
-    /// An `@external` fn with `use` omitted, or an `@external suspend fn`, used outside a handler
+    /// An `@external` fn with `uses` omitted, or an `@external suspend fn`, used outside a handler
     /// operation's body (E0407, spec 12.2). `suspend` is true for the latter (the note differs).
     ExternalOutsideHandler { name: SmolStr, suspend: bool },
     /// E0408, spec 8.2.
@@ -370,7 +375,7 @@ pub enum ImmediateSource {
 /// Where the set that R must be contained in came from ([`DiagnosticKind::UnhandledEffects`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectContext {
-    /// A `use` clause written on the fn (spec 9.3).
+    /// A `uses` clause written on the fn (spec 9.3).
     Declared,
     /// A const's value, which cannot have effects (spec 5.6).
     Const,
@@ -399,6 +404,7 @@ impl DiagnosticKind {
             self,
             DiagnosticKind::UnreachableArm
                 | DiagnosticKind::UnraisedError { .. }
+                | DiagnosticKind::NoErrorRaised
                 | DiagnosticKind::UnusedLabelProvider { .. }
                 | DiagnosticKind::UnusedDerive { .. }
         )

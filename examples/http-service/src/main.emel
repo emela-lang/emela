@@ -1,5 +1,5 @@
 # An HTTP service. The host calls `app` once for each request (`emela run` starts a server on
-# 127.0.0.1:8080; Deno, Bun and Workers call the `fetch` of `main.mjs` themselves). `app` is an
+# 127.0.0.1:8080; Bun and Workers call the `fetch` of `main.mjs` themselves). `app` is an
 # ordinary fn, so the tests call it directly with requests built as values.
 
 import Std.Http
@@ -31,7 +31,7 @@ fn route(request: Request) -> Response fails NotANumber {
 ## The sum of the values of the query, each a number (`?a=1&b=2`). A value that is not a number
 ## fails, which the service answers with 500.
 fn sum(pairs: List[(String, String)]) -> Int fails NotANumber {
-  List.fold(pairs, from: 0, f: fn(total, (_, value)) {
+  List.fold(pairs, from: 0, f: |total, (_, value)| {
     total + (Int.parse(value) escape { ParseError(input:) -> fail NotANumber(text: input) })
   })
 }

@@ -1,5 +1,5 @@
 //! HTTP services on the JS target (`[lib.http-service]`, `[target.js.module]`, `[cmd.build]`): the
-//! `fetch` of the default export of `main.mjs`, called by a harness the way Deno, Bun and Workers
+//! `fetch` of the default export of `main.mjs`, called by a harness the way Bun and Workers
 //! call it, and `serve.mjs`, which `emela run` starts.
 //!
 //! Needs node; the WASM test also needs wasmtime (`EMELA_WASMTIME` or `wasmtime`), and is skipped
@@ -392,16 +392,35 @@ fn serve_mjs_address() {
     );
 }
 
+/// A script standing in for node: `--version` prints a version new enough for `[target]`, and
+/// anything else prints its arguments, so the command that started it shows.
+#[cfg(unix)]
+fn echo_node(dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join("node");
+    std::fs::write(
+        &path,
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo v22.0.0; exit 0; fi\necho \"$@\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
 /// `emela run` of an HTTP service needs no `main` (no E0230) and runs `node serve.mjs` with the
-/// arguments after `--` (`[cmd.build]`). `echo` stands in for node, so the command shows.
+/// arguments after `--` (`[cmd.build]`). [`echo_node`] stands in for node, so the command shows.
+#[cfg(unix)]
 #[test]
 fn run_starts_serve_mjs() {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", APP)];
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let node_dir = out_dir("run-node");
     let options = RunOptions {
         out_dir: out_dir("run"),
-        node: PathBuf::from("echo"),
+        js_host: echo_node(&node_dir),
         args: vec!["--addr".into(), "127.0.0.1:0".into()],
         output: Output::Capture,
     };
@@ -416,6 +435,7 @@ fn run_starts_serve_mjs() {
     let serve = options.out_dir.join("serve.mjs");
     let exists = serve.exists();
     let _ = std::fs::remove_dir_all(&options.out_dir);
+    let _ = std::fs::remove_dir_all(&node_dir);
     assert!(
         analysis.diagnostics.is_empty(),
         "{:?}",
@@ -460,8 +480,8 @@ import Std.State.{State}
 
 @test
 fn fetches() {
-  server = TestServer(respond: fn(req, n) { Some(Response.new(200, "ok")) }, sent: [])
-  (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
+  server = TestServer(respond: |req, n| Some(Response.new(200, "ok")), sent: [])
+  (res, after) = State.run(server, || with TestHttp { Http.get("https://example.com") })
   assert res.body == "ok"
   assert List.length(after.sent) == 1
 }
@@ -501,7 +521,10 @@ impl Served {
         let started = std::time::Instant::now();
         loop {
             let text = std::fs::read_to_string(&served.log).unwrap_or_default();
-            let found = text.lines().find_map(|line| {
+            // Only lines the server has finished writing: a line read halfway (`Serving HTTP on
+            // http:`) would give a broken address.
+            let complete = &text[..text.rfind('\n').map_or(0, |i| i + 1)];
+            let found = complete.lines().find_map(|line| {
                 line.strip_prefix("listening on ")
                     .or_else(|| line.strip_prefix("Serving HTTP on "))
             });

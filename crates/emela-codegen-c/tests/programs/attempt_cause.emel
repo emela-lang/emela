@@ -1,4 +1,4 @@
-import Std.Fiber.{Fiber, Exit, Success, Failure}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
@@ -6,7 +6,7 @@ import Std.State.{State}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 error Boom
 
@@ -61,28 +61,28 @@ fn show[A, E](e: Exit[A, E]) -> String {
   }
 }
 
-fn nap(ms: Int) -> () use { Clock } {
+fn nap(ms: Int) -> () uses { Clock } {
   (use Clock).sleep(ms)
   print("slept #{ms}")
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   # In place: values of every representation, an error, a defect.
-  dbg(Fiber.attempt(fn() { 1 + 1 }))
-  dbg(Fiber.attempt(fn() { "s" }))
-  dbg(Fiber.attempt(fn() { 1.5 }))
-  dbg(Fiber.attempt(fn() { True }))
-  dbg(Fiber.attempt(fn() { () }))
-  dbg(Fiber.attempt(fn() { Point(x: 1, y: 2.0) }))
-  dbg(Fiber.attempt(fn() { [1, 2] }))
-  dbg(Fiber.attempt(fn() { boom() }))
-  print(show(Fiber.attempt(fn() { boom() })))
-  print(show(Fiber.attempt(fn() { fail NotFound(id: 3) })))
-  print(show(Fiber.attempt(fn() { panic("bad") })))
-  print(show(Fiber.attempt(fn() { zero(7) })))
+  dbg(Exit.attempt(|| 1 + 1))
+  dbg(Exit.attempt(|| "s"))
+  dbg(Exit.attempt(|| 1.5))
+  dbg(Exit.attempt(|| True))
+  dbg(Exit.attempt(|| ()))
+  dbg(Exit.attempt(|| Point(x: 1, y: 2.0)))
+  dbg(Exit.attempt(|| [1, 2]))
+  dbg(Exit.attempt(|| boom()))
+  print(show(Exit.attempt(|| boom())))
+  print(show(Exit.attempt(|| fail NotFound(id: 3))))
+  print(show(Exit.attempt(|| panic("bad"))))
+  print(show(Exit.attempt(|| zero(7))))
   dbg(
     Cause.kind(
-      Fiber.attempt(fn() { boom() }) match {
+      Exit.attempt(|| boom()) match {
         Success(_) -> panic("no")
         Failure(c) -> c
       },
@@ -91,7 +91,7 @@ fn main() -> () use { Async } {
   # The releases run before attempt returns, from the inside.
   print(
     show(
-      Fiber.attempt(fn() {
+      Exit.attempt(|| {
         with Res {
           print("body #{(use Name).name()}")
           panic("inside")
@@ -101,7 +101,7 @@ fn main() -> () use { Async } {
   )
   print(
     show(
-      Fiber.attempt(fn() {
+      Exit.attempt(|| {
         with Res {
           with BadRes { boom() }
         }
@@ -110,7 +110,7 @@ fn main() -> () use { Async } {
   )
   print(
     show(
-      Fiber.attempt(fn() {
+      Exit.attempt(|| {
         with BadRes { panic("first") }
       }),
     ),
@@ -118,27 +118,27 @@ fn main() -> () use { Async } {
   # Nested.
   print(
     show(
-      Fiber.attempt(fn() {
-        inner = Fiber.attempt(fn() { panic("inner") })
+      Exit.attempt(|| {
+        inner = Exit.attempt(|| panic("inner"))
         print("inner #{show(inner)}")
         boom()
       }),
     ),
   )
   # Raising a cause again.
-  raised = Fiber.attempt(fn() { boom() }) match {
+  raised = Exit.attempt(|| boom()) match {
     Success(v) -> v
     Failure(c) -> Cause.raise(c)
   } escape { Boom -> -1 }
   print("raised #{raised}")
-  again = Fiber.attempt(fn() {
-    Fiber.attempt(fn() { panic("twice") }) match {
+  again = Exit.attempt(|| {
+    Exit.attempt(|| panic("twice")) match {
       Success(v) -> v
       Failure(c) -> Cause.raise(c)
     }
   })
   print("again #{show(again)}")
-  found = Fiber.attempt(fn() { fail NotFound(id: 9) }) match {
+  found = Exit.attempt(|| fail NotFound(id: 9)) match {
     Success(_) -> 0
     Failure(c) -> Cause.raise(c)
   } escape { NotFound(id) -> id }
@@ -147,7 +147,7 @@ fn main() -> () use { Async } {
   with Ticks {
     print(
       show(
-        Fiber.attempt(fn() {
+        Exit.attempt(|| {
           (use Tick).tick()
           boom()
         }),
@@ -155,23 +155,23 @@ fn main() -> () use { Async } {
     )
   }
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  _ = State.run(start, fn() {
+  _ = State.run(start, || {
     with TestClock {
       dbg(
-        Fiber.attempt(fn() {
+        Exit.attempt(|| {
           nap(10)
           42
         }),
       )
       dbg(
-        Fiber.attempt(fn() {
+        Exit.attempt(|| {
           nap(10)
           "after"
         }),
       )
       print(
         show(
-          Fiber.attempt(fn() {
+          Exit.attempt(|| {
             nap(10)
             boom()
           }),
@@ -179,7 +179,7 @@ fn main() -> () use { Async } {
       )
       print(
         show(
-          Fiber.attempt(fn() {
+          Exit.attempt(|| {
             with Res {
               nap(10)
               print("woke #{(use Name).name()}")
@@ -190,9 +190,9 @@ fn main() -> () use { Async } {
       )
       print(
         show(
-          Fiber.attempt(fn() {
+          Exit.attempt(|| {
             with Res {
-              inner = Fiber.attempt(fn() {
+              inner = Exit.attempt(|| {
                 nap(5)
                 fail NotFound(id: 4)
               })
@@ -203,7 +203,7 @@ fn main() -> () use { Async } {
           }),
         ),
       )
-      raised2 = Fiber.attempt(fn() {
+      raised2 = Exit.attempt(|| {
         nap(1)
         boom()
       }) match {

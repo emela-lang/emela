@@ -24,7 +24,7 @@ export suspend fn main() -> i32 (Int) {
     f%14: ref (fn() -> Int) = closure() [] {
       return 3
     }
-    e%15: ref (Std.Fiber.Exit[Int, ()]) = fiber attempt(f%14)
+    e%15: ref (Std.Exit.Exit[Int, ()]) = fiber attempt(f%14)
     t%16: ref (List[Int]) = fiber join(a%11)!
     t%17: i32 (Int) = call List.length[Int](t%16)
     return t%17

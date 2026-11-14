@@ -1,0 +1,5 @@
+import Std.Array.{Array}
+
+fn main() {
+  dbg(Array.set(Array.repeat(0, 2), -1, 5))
+}

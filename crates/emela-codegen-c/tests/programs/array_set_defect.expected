@@ -1,0 +1,5 @@
+exit: 101
+--- stdout
+--- stderr
+Array.from_list(["a", "b", "z"])
+defect: Array.set was given position 3 in an array of size 3

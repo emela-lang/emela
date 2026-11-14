@@ -1,0 +1,14 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\", \"fn f(m: Map[Int, Int], t: Time) -> Int { 1 }\\n\",)])"
+---
+== Main (src/main.emel)
+fn Main.f
+  param m#0: @Map.Map[Int, Int]
+  param t#1: <error>
+  ret Int
+  body
+    block
+      1
+== diagnostics
+error src/main.emel@26..30 `Time`: undefined type `Time`

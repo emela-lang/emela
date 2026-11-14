@@ -23,7 +23,7 @@ fn 部分更新の_spread() {
 
 #[test]
 fn 無名関数の引数のパターン() {
-    let parse = parse("fn f() {\n  g = fn(x: Int, (a, b): (Int, Int), _) { a }\n}");
+    let parse = parse("fn f() {\n  g = |x: Int, (a, b): (Int, Int), _| a\n}");
     assert!(parse.diagnostics().is_empty(), "{}", parse.debug_dump());
     let list = parse
         .tree()

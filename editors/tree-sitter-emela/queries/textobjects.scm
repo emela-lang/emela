@@ -7,12 +7,9 @@
     _+ @function.inner
     "}")) @function.outer
 
+; The body of a lambda is a block or any other expression (`|x| x + 1`).
 (lambda
-  body: (block
-    .
-    "{"
-    _+ @function.inner
-    "}")) @function.outer
+  body: (_) @function.inner) @function.outer
 
 (operation) @function.outer
 

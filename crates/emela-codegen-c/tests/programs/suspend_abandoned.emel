@@ -3,7 +3,7 @@ import Std.Deferred.{Deferred}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 effect Tick {
   suspend fn tick() -> ()
@@ -13,7 +13,7 @@ handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
-fn spin(n: Int) -> () use { Tick } {
+fn spin(n: Int) -> () uses { Tick } {
   if n == 0 { () } else {
     (use Tick).tick()
     spin(n - 1)
@@ -48,17 +48,17 @@ handler SlowRes: Name {
 
 ## Nothing resumes the continuations waiting for the Deferred: when the run stalls, every fiber
 ## unwinds as interrupted and runs its releases from the inside (spec 14.5).
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks, Res {
-    Fiber.scope(fn() {
+    Fiber.scope(|| {
       d = Fiber.deferred()
-      Fiber.fork(fn() {
+      Fiber.fork(|| {
         with SlowRes {
           Deferred.await(d)
           print("never")
         }
       })
-      Fiber.fork(fn() {
+      Fiber.fork(|| {
         with Res {
           spin(2000)
           print("child waits")

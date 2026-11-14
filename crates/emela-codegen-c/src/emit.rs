@@ -1117,10 +1117,12 @@ impl<'m> Emitter<'m> {
     }
 
     /// The representation of the first type argument of the enum type `ty` (`Exit[A, E]`,
-    /// `Option[A]`), or of the value of the function type `ty`.
+    /// `Option[A]`), of the elements of the array type `ty`, or of the value of the function type
+    /// `ty`.
     fn inner_repr(&self, ty: TypeId) -> Repr {
         match self.core().ty(ty) {
             Type::Enum(_, args) => args.first().map_or(Repr::Void, |&a| self.repr(a)),
+            Type::Array(elem) => self.repr(*elem),
             Type::Fn(ft) => self.repr(ft.ret),
             _ => Repr::Ref,
         }
@@ -1327,6 +1329,27 @@ impl<'m> Emitter<'m> {
             Builtin::BytesSlice => named("em_bytes_slice"),
             Builtin::BytesConcat => named("em_bytes_concat"),
             Builtin::BytesEncodeUtf8 | Builtin::BytesDecodeValidUtf8 => named("em_bytes_same"),
+            // Arrays (`[api.std.array]`): the runtime reads from an array's descriptor whether its
+            // elements are references, and is told so where it makes one from a list.
+            Builtin::ArrayFromList | Builtin::ArrayConcat => {
+                let elem_ref = dst.is_some_and(|d| self.inner_repr(f.vars[d].ty) == Repr::Ref);
+                let flag = if elem_ref { "true" } else { "false" };
+                let name = if op == Builtin::ArrayFromList {
+                    "em_array_from_list"
+                } else {
+                    "em_array_concat"
+                };
+                call(name, [a[0].as_str(), flag])
+            }
+            Builtin::ArrayToList => named("em_array_to_list"),
+            Builtin::ArraySize => named("em_array_size"),
+            Builtin::ArrayGet => named("em_array_get"),
+            // Consumes the array (`heap::rc`); the value is passed as a word.
+            Builtin::ArraySet => {
+                let value = self.word(f, &args[2]);
+                call("em_array_set", [a[0].clone(), a[1].clone(), value])
+            }
+            Builtin::ArraySlice => named("em_array_slice"),
             Builtin::IntToString => named("em_int_to_string"),
             Builtin::IntParse => named("em_int_parse"),
             Builtin::IntCheckedAdd => named("em_int_checked_add"),
@@ -1770,12 +1793,13 @@ impl<'m> Emitter<'m> {
 
     /// `verb` is `takes` or `returns`.
     fn export_type_error(&mut self, function: &str, ty: TypeId, verb: &str) {
-        // Bytes is E0443 for exported fns too (`[ext.boundary]`).
-        if *self.core().ty(ty) == Type::Bytes {
+        // Bytes and Arrays are E0443 for exported fns too (`[ext.boundary]`).
+        if matches!(self.core().ty(ty), Type::Bytes | Type::Array(_)) {
+            let name = emela_lir::core_ty(self.core(), ty);
             self.errors.push(CError::new(
-                CErrorKind::Bytes,
+                CErrorKind::BoundaryType,
                 format!(
-                    "exported function `{function}` {verb} `Bytes`, which target `c` does not support yet"
+                    "exported function `{function}` {verb} `{name}`, which target `c` does not support yet"
                 ),
             ));
             return;

@@ -10,7 +10,7 @@ use std::process::Command;
 
 use emela_driver::{
     Analysis, CoreC, CoreJs, CoreWasm, Input, Lower, MemoryFiles, Output, RunOptions, Target,
-    cc_command, node_program, run, wasmtime_program,
+    cc_command, js_host_program, run, wasmtime_program,
 };
 
 type Outcome = (i32, String, String);
@@ -45,9 +45,9 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Vec<String>>
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: match target {
+        js_host: match target {
             Target::Wasm => wasmtime_program(),
-            _ => node_program(),
+            _ => js_host_program(),
         },
         args: Vec::new(),
         output: Output::Capture,
@@ -76,7 +76,6 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Vec<String>>
                 |_, _| {},
             )
         }
-        Target::CEmbedded => unreachable!("this test compares js, c and wasm"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {
@@ -94,7 +93,7 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Vec<String>>
 fn compare(name: &str, src: &str) -> Option<Outcome> {
     let (cc, _) = cc_command();
     let tools = [
-        (Target::Js, node_program()),
+        (Target::Js, js_host_program()),
         (Target::C, cc),
         (Target::Wasm, wasmtime_program()),
     ];
@@ -150,7 +149,7 @@ handler Res: Name {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Res {
     with Ignores {
       dbg("body #{(use Wait).wait()}")
@@ -192,7 +191,7 @@ handler Res: Name {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
     with Res {
       with Ignores {
@@ -247,7 +246,7 @@ handler InnerRes: Name {
   release { dbg("release inner") }
 }
 
-fn caller() -> Int use { Go } {
+fn caller() -> Int uses { Go } {
   with OuterRes {
     v = (use Go).go()
     dbg("caller got #{v}")
@@ -255,7 +254,7 @@ fn caller() -> Int use { Go } {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ignores {
     with Slow {
       dbg("main got #{caller()}")
@@ -320,7 +319,7 @@ import Std.State.{State}
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
+  (_, end) = State.run(start, || {
     with TestClock {
       clock = use Clock
       dbg(Instant.to_unix_milliseconds(clock.now()))
@@ -379,7 +378,7 @@ handler Retrying: Retry {
     clock = use Clock
     clock.sleep(100)
     clock.sleep(50)
-    List.map(List.range(0, 3), fn(i) { clock.sleep(10) })
+    List.map(List.range(0, 3), |i| clock.sleep(10))
     n = (use Ping).ping()
     resume(n)
   }
@@ -387,7 +386,7 @@ handler Retrying: Retry {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (_, end) = State.run(start, fn() {
+  (_, end) = State.run(start, || {
     with TestClock {
       with Pinging, Retrying {
         dbg("go #{(use Retry).go()}")
@@ -429,7 +428,7 @@ handler Retrying: Retry {
     clock = use Clock
     clock.sleep(10)
     clock.sleep(10)
-    List.map(List.range(0, 3), fn(i) { clock.sleep(10) })
+    List.map(List.range(0, 3), |i| clock.sleep(10))
     n = (use Ping).ping()
     resume(n)
   }
@@ -515,7 +514,7 @@ handler Going: Outer {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  State.run(start, fn() {
+  State.run(start, || {
     with TestClock {
       with MainRes {
         with Going {
@@ -590,7 +589,7 @@ handler Retrying: Retry {
 
 fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  State.run(start, fn() {
+  State.run(start, || {
     with TestClock {
       with MainRes {
         with Dropping, Retrying {
@@ -614,6 +613,213 @@ fn a_cascade_after_a_resume_keeps_the_outer_operation() {
             130,
             String::new(),
             "\"go woke\"\n\"ping not resuming\"\n\"release main\"\ninterrupted\n".to_owned()
+        )
+    );
+}
+
+/// A fairness yield inside an operation implementation leaves the implementation as the
+/// implementation (spec 11.1, 14.5): after its `resume`, the caller's continuation still runs to
+/// the end. A pause that was queued as the main continuation would end the run at the
+/// implementation's end and silently drop the rest of `main`.
+const YIELD_INSIDE_IMPLEMENTATION: &str = r#"
+import Std.Fiber.{Fiber, Scope}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+effect Retry {
+  suspend fn go() -> Int
+}
+
+handler Retrying: Retry {
+  suspend fn go(resume) {
+    (use Clock).sleep(1)
+    spin(1998)
+    resume(1)
+  }
+}
+
+fn main() -> () uses { Async } {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  (_, end) = State.run(start, || {
+    Fiber.scope(|| {
+      with TestClock {
+        with Ticks, Retrying {
+          dbg("go #{(use Retry).go()}")
+          spin(2000)
+          dbg("after resume")
+          (use Clock).sleep(10)
+          dbg("after sleep")
+          ()
+        }
+        ()
+      }
+    })
+  })
+  dbg("end #{end |> Instant.to_unix_milliseconds}")
+  ()
+}
+"#;
+
+#[test]
+fn a_fairness_yield_inside_an_implementation_keeps_the_caller() {
+    let Some(outcome) = compare("yield-inside-implementation", YIELD_INSIDE_IMPLEMENTATION) else {
+        return;
+    };
+    assert_eq!(
+        outcome,
+        (
+            0,
+            String::new(),
+            "\"go 1\"\n\"after resume\"\n\"after sleep\"\n\"end 11\"\n".to_owned()
+        )
+    );
+}
+
+/// A wake queued before a scope body returns does not deliver its value to an interrupted child
+/// (spec 11.4): the finish of the body interrupts the child, and the queued job delivers the
+/// interruption instead of resuming the child's continuation.
+const WAKE_BEFORE_SCOPE_CLOSE: &str = r#"
+import Std.Fiber.{Fiber, Scope}
+import Std.Deferred.{Deferred}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+fn main() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, || {
+    with TestClock {
+      v = Fiber.scope(|| {
+        d = Fiber.deferred()
+        h = Fiber.fork(|| {
+          n = Deferred.await(d)
+          dbg("child got #{n}")
+          n
+        })
+        (use Clock).sleep(10)
+        Deferred.complete(d, 5)
+        dbg("body returns")
+        1
+      })
+      dbg("scope #{v}")
+    }
+  })
+}
+"#;
+
+#[test]
+fn a_queued_wake_delivers_a_pending_interruption() {
+    let Some(outcome) = compare("wake-before-scope-close", WAKE_BEFORE_SCOPE_CLOSE) else {
+        return;
+    };
+    assert_eq!(
+        outcome,
+        (
+            0,
+            String::new(),
+            "\"body returns\"\n\"scope 1\"\n".to_owned()
+        )
+    );
+}
+
+/// Interrupting a child unwinds every implementation it is nested in, innermost first (spec
+/// 14.5): the inner implementation's sleep is abandoned with the outer one, so its continuation
+/// does not run after the scope ends.
+const NESTED_IMPLEMENTATIONS_INTERRUPTED: &str = r#"
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
+import Std.Cause.{Cause}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+effect Inner {
+  suspend fn inner() -> Int
+}
+
+effect Outer {
+  suspend fn outer() -> Int
+}
+
+handler SlowInner: Inner {
+  suspend fn inner(resume) {
+    (use Clock).sleep(100)
+    dbg("inner ran")
+    resume(1)
+  }
+}
+
+handler CallingOuter: Outer {
+  suspend fn outer(resume) {
+    (use Clock).sleep(10)
+    n = (use Inner).inner()
+    dbg("outer after inner")
+    resume(n)
+  }
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+fn main() -> () uses { Async } {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, || {
+    with TestClock {
+      with CallingOuter, SlowInner {
+        Fiber.scope(|| {
+          h = Fiber.fork(|| (use Outer).outer())
+          (use Clock).sleep(20)
+          (use Clock).sleep(30)
+          Fiber.interrupt(h)
+          (use Clock).sleep(200)
+          dbg("child #{show(Fiber.await(h))}")
+          ()
+        })
+        ()
+      }
+    }
+  })
+  dbg("after scope")
+  ()
+}
+"#;
+
+#[test]
+fn interrupting_a_child_unwinds_nested_implementations() {
+    let Some(outcome) = compare(
+        "nested-implementations-interrupted",
+        NESTED_IMPLEMENTATIONS_INTERRUPTED,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        outcome,
+        (
+            0,
+            String::new(),
+            "\"child interrupted\"\n\"after scope\"\n".to_owned()
         )
     );
 }

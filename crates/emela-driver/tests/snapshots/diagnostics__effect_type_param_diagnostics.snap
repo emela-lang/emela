@@ -36,14 +36,14 @@ error[E0304]: wrong number of type arguments: `Cell` takes 1, found 2
     │                           ╰────────── 
 ────╯
 
-error[E0402]: effect `Cell[String]` is not declared in `use`
+error[E0402]: effect `Cell[String]` is not declared in `uses`
     ╭─[ main.emel:31:6 ]
     │
  31 │     (use Cell[String]).get()
     │      ────────┬───────  
     │              ╰───────── 
 ────╯
-   = help: add it to `use` or provide it with `with`
+   = help: add it to `uses` or provide it with `with`
 
 error[E0421]: effect `Cell[Int]` is provided by both `Zero` and `One` in layer `Twice`
     ╭─[ main.emel:43:3 ]

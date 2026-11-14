@@ -1,10 +1,11 @@
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 import Std.Deferred.{Deferred}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
-fn print(s: String) -> () use {}
+fn print(s: String) -> () uses {}
 
 effect Tick {
   suspend fn tick() -> ()
@@ -14,7 +15,7 @@ handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
-fn spin(n: Int) -> () use { Tick } {
+fn spin(n: Int) -> () uses { Tick } {
   if n == 0 { () } else {
     (use Tick).tick()
     spin(n - 1)
@@ -70,7 +71,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
 }
 
 ## Recursion that suspends at the bottom: the frames are resumed one by one by the driver loop.
-fn deep(n: Int) -> Int use { Tick } {
+fn deep(n: Int) -> Int uses { Tick } {
   if n == 0 {
     spin(2000)
     0
@@ -79,10 +80,10 @@ fn deep(n: Int) -> Int use { Tick } {
   }
 }
 
-fn main() -> () use { Async } {
+fn main() -> () uses { Async } {
   with Ticks {
-    Fiber.scope(fn() {
-      h = Fiber.fork(fn() {
+    Fiber.scope(|| {
+      h = Fiber.fork(|| {
         with SlowRes {
           spin(100000)
         }
@@ -92,10 +93,10 @@ fn main() -> () use { Async } {
       Fiber.interrupt(h)
       print("interrupted #{show(Fiber.await(h))}")
     })
-    bad = Fiber.attempt(fn() {
-      Fiber.scope(fn() {
-        h = Fiber.fork(fn() {
-          Fiber.attempt(fn() {
+    bad = Exit.attempt(|| {
+      Fiber.scope(|| {
+        h = Fiber.fork(|| {
+          Exit.attempt(|| {
             with BadRes {
               spin(100000)
             }
@@ -111,12 +112,12 @@ fn main() -> () use { Async } {
     })
     print("bad #{show(bad)}")
     with Slowly {
-      Fiber.scope(fn() {
-        h = Fiber.fork(fn() { (use Slow).slow(100000) })
+      Fiber.scope(|| {
+        h = Fiber.fork(|| (use Slow).slow(100000))
         spin(1500)
         Fiber.interrupt(h)
         print("slow #{show(Fiber.await(h))}")
-        k = Fiber.fork(fn() { (use Slow).slow(1000) })
+        k = Fiber.fork(|| (use Slow).slow(1000))
         print("slow joined #{Fiber.join(k)}")
       })
     }

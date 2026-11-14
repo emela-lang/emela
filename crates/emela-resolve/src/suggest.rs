@@ -59,4 +59,29 @@ mod tests {
         assert_eq!(best_match("mpa", &names), None);
         assert_eq!(best_match("zzz", &names), None);
     }
+
+    #[test]
+    fn 先頭の削除も一つの編集() {
+        assert_eq!(levenshtein("ab", "b"), 1);
+        assert_eq!(levenshtein("abc", "c"), 2);
+    }
+
+    /// A six-character name allows two edits; a five-character one only one.
+    #[test]
+    fn 許す距離は名前の長さの三分の一() {
+        let names: Vec<SmolStr> = ["kittxx", "abxxx"].map(Into::into).to_vec();
+        assert_eq!(best_match("kitten", &names).as_deref(), Some("kittxx"));
+        assert_eq!(best_match("abcde", &names), None);
+    }
+
+    #[test]
+    fn 近いほうを選び同じ距離なら先の候補を選ぶ() {
+        let farther_first: Vec<SmolStr> = ["counxx", "countx", "counte"].map(Into::into).to_vec();
+        assert_eq!(
+            best_match("counter", &farther_first).as_deref(),
+            Some("counte")
+        );
+        let tied: Vec<SmolStr> = ["countx", "countz"].map(Into::into).to_vec();
+        assert_eq!(best_match("counter", &tied).as_deref(), Some("countx"));
+    }
 }

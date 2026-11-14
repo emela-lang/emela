@@ -1,0 +1,116 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/recovery_edges.emel
+---
+ROOT@0..298
+  COMMENT@0..104 "# 文の後ろの余りは，入れ子の波括弧の中の改行を越えて行末まで読み飛ばす"
+  NEWLINE@104..105 "\n"
+  FN_DECL@105..142
+    FN_KW@105..107 "fn"
+    WHITESPACE@107..108 " "
+    LOWER_NAME@108..112 "skip"
+    PARAM_LIST@112..114
+      L_PAREN@112..113 "("
+      R_PAREN@113..114 ")"
+    WHITESPACE@114..115 " "
+    BLOCK_EXPR@115..142
+      L_BRACE@115..116 "{"
+      NEWLINE@116..117 "\n"
+      WHITESPACE@117..119 "  "
+      BINDING@119..124
+        NAME_REF@119..120
+          LOWER_NAME@119..120 "a"
+        WHITESPACE@120..121 " "
+        EQ@121..122 "="
+        WHITESPACE@122..123 " "
+        LITERAL@123..124
+          INT@123..124 "1"
+      WHITESPACE@124..125 " "
+      ERROR@125..136
+        R_PAREN@125..126 ")"
+        WHITESPACE@126..127 " "
+        L_BRACE@127..128 "{"
+        WHITESPACE@128..129 " "
+        LOWER_NAME@129..130 "b"
+        NEWLINE@130..131 "\n"
+        WHITESPACE@131..133 "  "
+        LOWER_NAME@133..134 "c"
+        WHITESPACE@134..135 " "
+        R_BRACE@135..136 "}"
+      NEWLINE@136..137 "\n"
+      WHITESPACE@137..139 "  "
+      NAME_REF@139..140
+        LOWER_NAME@139..140 "d"
+      NEWLINE@140..141 "\n"
+      R_BRACE@141..142 "}"
+  NEWLINE@142..143 "\n"
+  NEWLINE@143..144 "\n"
+  COMMENT@144..224 "# パターンの文字列の補間は，入れ子の補間ごと読み飛ばす"
+  NEWLINE@224..225 "\n"
+  FN_DECL@225..297
+    FN_KW@225..227 "fn"
+    WHITESPACE@227..228 " "
+    LOWER_NAME@228..234 "interp"
+    PARAM_LIST@234..245
+      L_PAREN@234..235 "("
+      PARAM@235..244
+        LOWER_NAME@235..236 "s"
+        COLON@236..237 ":"
+        WHITESPACE@237..238 " "
+        PATH_TYPE@238..244
+          PATH@238..244
+            TYPE_NAME@238..244 "String"
+      R_PAREN@244..245 ")"
+    WHITESPACE@245..246 " "
+    BLOCK_EXPR@246..297
+      L_BRACE@246..247 "{"
+      NEWLINE@247..248 "\n"
+      WHITESPACE@248..250 "  "
+      MATCH_EXPR@250..295
+        NAME_REF@250..251
+          LOWER_NAME@250..251 "s"
+        WHITESPACE@251..252 " "
+        MATCH_KW@252..257 "match"
+        WHITESPACE@257..258 " "
+        MATCH_ARM_LIST@258..295
+          L_BRACE@258..259 "{"
+          NEWLINE@259..260 "\n"
+          WHITESPACE@260..264 "    "
+          MATCH_ARM@264..280
+            LITERAL_PAT@264..275
+              STRING@264..275
+                STRING_QUOTE@264..265 "\""
+                INTERP@265..274
+                  INTERP_START@265..267 "#{"
+                  ERROR@267..273
+                    STRING_QUOTE@267..268 "\""
+                    INTERP_START@268..270 "#{"
+                    LOWER_NAME@270..271 "x"
+                    INTERP_END@271..272 "}"
+                    STRING_QUOTE@272..273 "\""
+                  INTERP_END@273..274 "}"
+                STRING_QUOTE@274..275 "\""
+            WHITESPACE@275..276 " "
+            THIN_ARROW@276..278 "->"
+            WHITESPACE@278..279 " "
+            LITERAL@279..280
+              INT@279..280 "1"
+          NEWLINE@280..281 "\n"
+          WHITESPACE@281..285 "    "
+          MATCH_ARM@285..291
+            WILDCARD_PAT@285..286
+              UNDERSCORE@285..286 "_"
+            WHITESPACE@286..287 " "
+            THIN_ARROW@287..289 "->"
+            WHITESPACE@289..290 " "
+            LITERAL@290..291
+              INT@290..291 "2"
+          NEWLINE@291..292 "\n"
+          WHITESPACE@292..294 "  "
+          R_BRACE@294..295 "}"
+      NEWLINE@295..296 "\n"
+      R_BRACE@296..297 "}"
+  NEWLINE@297..298 "\n"
+error[E0122]@125..126: expected newline or `}` after statement
+error[E0117]@267..268: string interpolation is not allowed in a pattern

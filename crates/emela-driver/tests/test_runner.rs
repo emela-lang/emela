@@ -77,7 +77,7 @@ fn run_tests_with<P, F: Frontend<Program = P>, B: TestBackend<P>>(
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = TestOptions {
         out_dir: out_dir(name),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         filter: filter.map(Into::into),
         output: Output::Capture,
         reporter,
@@ -573,7 +573,7 @@ fn missing_node_is_a_diagnostic() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = TestOptions {
         out_dir: out_dir("no-node"),
-        node: PathBuf::from("/nonexistent/node"),
+        js_host: PathBuf::from("/nonexistent/node"),
         filter: None,
         output: Output::Capture,
         reporter: Reporter::Plain,
@@ -650,7 +650,7 @@ fn fails() {
         ),
         (
             "app/src/util.emel",
-            "@test\nfn in_util() {\n  assert List.map([1], fn(x) { x + 1 }) == [2]\n}\n",
+            "@test\nfn in_util() {\n  assert List.map([1], |x| x + 1) == [2]\n}\n",
         ),
     ];
     let (analysis, report, out) = run_tests(
@@ -749,6 +749,40 @@ fn escapes() {
 }
 
 #[test]
+fn an_error_without_show_is_named_in_a_test_result() {
+    // The display of an error in a test result is the same as for an error reaching main
+    // (`[cmd.test.outcome]`, `[dyn.error]`): the name only when the type does not satisfy Show.
+    // Every target shows the same.
+    let sources = &[
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "\
+error Nope
+
+@test
+fn fails() {
+  fail Nope
+}
+
+@test
+fn passes() {
+  assert 1 + 1 == 2
+}
+",
+        ),
+    ];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let (out, _) = run_everywhere("error-name", &fs, &input);
+    assert!(out.contains("---- fails ----\nerror: Nope\n"), "{out}");
+    assert!(
+        out.contains("test result: FAILED. 1 passed; 1 failed"),
+        "{out}"
+    );
+}
+
+#[test]
 fn tests_provide_effects_with_handlers() {
     // A test function's R is empty, so handlers are provided with `with` (spec 13.3). A failure in
     // the body of a swapped-in handler's operation propagates to the operation's caller.
@@ -773,7 +807,7 @@ handler DownStore: Store {
 
 fn total(keys: List[String]) -> Int fails Down {
   store = use Store
-  List.fold(keys, 0, fn(acc, k) { acc + store.get(k) })
+  List.fold(keys, 0, |acc, k| acc + store.get(k))
 }
 
 @test
@@ -1047,11 +1081,11 @@ import Std.Duration.{Duration}
 
 error Boom
 
-fn greet(id: Int) -> () use { Console } {
+fn greet(id: Int) -> () uses { Console } {
   (use Console).print_line("Hello, #{id}!")
 }
 
-fn wait_twice() -> Duration use { Clock } {
+fn wait_twice() -> Duration uses { Clock } {
   clock = use Clock
   start = clock.now()
   clock.sleep(250)
@@ -1061,24 +1095,24 @@ fn wait_twice() -> Duration use { Clock } {
 
 @test
 fn greets() {
-  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+  (_, lines) = State.run([], || with TestConsole { greet(1) })
   assert lines == ["Hello, 1!"]
 }
 
 @test
 fn clock_moves() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-  (d, end) = State.run(start, fn() { with TestClock { wait_twice() } })
+  (d, end) = State.run(start, || with TestClock { wait_twice() })
   assert Duration.to_milliseconds(d) == Int64.from_int(1000)
   assert Instant.to_unix_milliseconds(end) == Int64.from_int(1000)
 }
 
 @test
 fn two_states() {
-  ((_, s), n) = State.run(1, fn() {
-    State.run("a", fn() {
-      (use State[Int]).update(fn(n) { n + 41 })
-      (use State[String]).update(fn(s) { String.append(s, "b") })
+  ((_, s), n) = State.run(1, || {
+    State.run("a", || {
+      (use State[Int]).update(|n| n + 41)
+      (use State[String]).update(|s| String.append(s, "b"))
     })
   })
   assert n == 42
@@ -1087,7 +1121,7 @@ fn two_states() {
 
 @test
 fn failure_drops_the_state() {
-  State.run(0, fn() {
+  State.run(0, || {
     (use State[Int]).set(1)
     fail Boom
   })
@@ -1148,7 +1182,7 @@ fn run_on(
     let mut frontend = LowerTests::default().with_target(target);
     let options = TestOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: emela_driver::node_program(),
+        js_host: emela_driver::js_host_program(),
         filter: None,
         output: Output::Capture,
         reporter,
@@ -1194,7 +1228,6 @@ fn run_on(
                 &mut out,
             )
         }
-        Target::CEmbedded => unreachable!("this test compares js, c and wasm"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     Some((analysis, report, String::from_utf8(out).unwrap()))
@@ -1418,14 +1451,14 @@ fn agent_failures_show_where_the_assert_is() {
 }
 
 /// Each test is a run of its own: after a test that stalls and unwinds as interrupted, the next
-/// test's `Fiber.attempt` catches a defect again (`[fiber.cause]`). The same on every target.
+/// test's `Exit.attempt` catches a defect again (`[fiber.cause]`). The same on every target.
 #[test]
 fn an_attempt_after_a_stalled_test_catches_a_defect() {
     let fs = MemoryFiles::new([
         ("app/Pome.toml", ""),
         (
             "app/src/main.emel",
-            r#"import Std.Fiber.{Fiber, Success, Failure}
+            r#"import Std.Exit.{Success, Failure}
 import Std.Cause.{Cause}
 
 effect Wait {
@@ -1437,13 +1470,13 @@ handler Parked: Wait {
 }
 
 @test
-fn stalls() -> () use { Async } {
+fn stalls() -> () uses { Async } {
   with Parked { _ = (use Wait).wait() }
 }
 
 @test
-fn catches() -> () use { Async } {
-  Fiber.attempt(fn() { panic("caught") }) match {
+fn catches() -> () uses { Async } {
+  Exit.attempt(|| panic("caught")) match {
     Success(_) -> assert False
     Failure(c) -> assert Cause.to_string(c) == "defect: caught"
   }

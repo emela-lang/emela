@@ -1,0 +1,123 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"lib.emel\", \"pub trait Named {}\\npub type Thing(x: Int)\\n\",),\n(\"main.emel\",\nr##\"import Lib\ntype User(id: Int)\neffect Log {\n  fn info(msg: String) -> ()\n  fn info(code: Int) -> Int\n}\neffect Audit of Log\neffect State[S] {\n  fn get() -> S\n}\nhandler Quiet: Audit {\n  fn info(msg) { () }\n}\nhandler Pg(conn: Int): Log {\n  fn info(msg) { () }\n}\nenum Shape {\n  Dot\n}\neffect Spawn {\n  fn fork[T](x: T) -> T\n  fn join(x: T) -> Int\n}\n@intrinsic\ntype Raw\n@intrinsic\neffect Hidden {}\n\n@entry(Lib.Thing.make)\nfn serve() { 1 }\n\nfn first[A](a: A) -> A { a }\nfn second(x: A) -> Int { 1 }\nfn conn(p: Pg) -> Int { 1 }\n\nimpl User: Lib.Named {\n  fn name(self) {\n    f = |self| self\n    1\n  }\n}\nimpl User: Lib.Thing {}\n\nfn effects(o: Option[Int], p: User) -> Int uses { State[Int], Audit } {\n  s = use State[Int]\n  Some(v) = o\n  q = Nope(id: 1, ..p)\n  r = Dot(id: 1, ..p)\n  with Audit by State[Int] { 1 }\n  1\n}\n\"##,),])"
+---
+== Lib (src/lib.emel)
+trait Lib.Named pub
+type Lib.Thing pub
+  field x: Int
+  ctor Lib.Thing.Thing
+== Main (src/main.emel)
+type Main.User
+  field id: Int
+  ctor Main.User.User
+effect Main.Log
+  op Main.Log.info
+    param msg#0: String
+    ret ()
+effect Main.Audit
+  of Main.Log
+effect Main.State
+  type-param Main.State.S
+  op Main.State.get
+    ret Main.State.S
+handler Main.Quiet: Main.Audit
+  fn info -> <error> self#1
+    param msg#2
+    body
+      block
+        ()
+handler Main.Pg: Main.Log
+  field conn: Int
+  ctor Main.Pg.Pg
+  fn info -> Main.Log.info self#3
+    param msg#4
+    body
+      block
+        ()
+enum Main.Shape
+  variant Main.Shape.Dot
+effect Main.Spawn
+  op Main.Spawn.fork
+    type-param Main.Spawn.fork.T
+    param x#5: Main.Spawn.fork.T
+    ret Main.Spawn.fork.T
+  op Main.Spawn.join
+    param x#6: <error>
+    ret Int
+type Main.Raw
+effect Main.Hidden
+fn Main.serve entry(<error>)
+  body
+    block
+      1
+fn Main.first
+  type-param Main.first.A
+  param a#7: Main.first.A
+  ret Main.first.A
+  body
+    block
+      a#7
+fn Main.second
+  param x#8: <error>
+  ret Int
+  body
+    block
+      1
+fn Main.conn
+  param p#9: <error>
+  ret Int
+  body
+    block
+      1
+impl Main.User: Lib.Named
+  fn name -> <error>
+    param self#10
+    body
+      block
+        let f#11 =
+          lambda(self#12)
+            self#12
+        1
+impl Main.User: <error>
+fn Main.effects
+  param o#13: Option[Int]
+  param p#14: Main.User
+  ret Int
+  uses {Main.State[Int], Main.Audit}
+  body
+    block
+      let s#15 =
+        use Main.State[Int]
+      let Option.Some(v#16) =
+        o#13
+      let q#17 =
+        update
+          <error>
+          id:
+            1
+          ..
+            p#14
+      let r#18 =
+        update
+          Main.Shape.Dot
+          id:
+            1
+          ..
+            p#14
+      with Main.Audit by Main.State[Int]
+        block
+          1
+      1
+== diagnostics
+error src/main.emel@77..81 `info`: duplicate `info`
+error src/main.emel@331..332 `T`: undefined type parameter `T`
+error src/main.emel@343..353 `@intrinsic`: `@intrinsic` can only be used in the bundled core sources
+error src/main.emel@363..373 `@intrinsic`: `@intrinsic` can only be used in the bundled core sources
+error src/main.emel@403..408 `Thing`: expected module or trait, found type `Thing`
+error src/main.emel@475..476 `A`: undefined type parameter `A`
+error src/main.emel@502..504 `Pg`: expected type, found handler `Pg`
+error src/main.emel@548..552 `name`: `Named` has no `name`
+error src/main.emel@608..613 `Thing`: expected trait, found type `Thing`
+error src/main.emel@731..735 `Nope`: undefined constructor `Nope` (did you mean `None`?)
+error src/main.emel@754..757 `Dot`: enum variant `Dot` cannot be updated

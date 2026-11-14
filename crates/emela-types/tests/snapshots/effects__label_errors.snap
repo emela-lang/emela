@@ -2,11 +2,11 @@
 source: crates/emela-types/tests/effects.rs
 expression: "render_handlers(r#\"\neffect Log {\n  fn log(msg: String) -> ()\n}\n\neffect Other {\n  fn other() -> ()\n}\n\neffect Audit of Log\neffect Nested of Audit\neffect Bad of Async\n\nhandler PrintLog: Log {\n  fn log(msg) { () }\n}\n\nhandler OtherH: Other {\n  fn other() { () }\n}\n\nhandler AuditH: Audit {\n  fn log(msg) { () }\n}\n\nfn a() { (use Log).log(\"a\") }\n\nfn uses_audit() { (use Audit).log(\"x\") }\n\nfn main() {\n  with Log { a() }\n  with Log by PrintLog { a() }\n  with PrintLog, Audit by OtherH { uses_audit() }\n  with PrintLog, Audit by PrintLog, Audit by Log { uses_audit() }\n}\n\nfn undefault() {\n  with PrintLog { uses_audit() }\n}\n\nfn unused(f: fn() -> ()) {\n  with PrintLog, Audit by PrintLog { a() }\n  with PrintLog, Audit by PrintLog { f() }\n}\n\"#)"
 ---
-a: fn() -> () use Log
-uses_audit: fn() -> () use Audit
-main: fn() -> () use { Log, Audit }
-undefault: fn() -> () use Audit
-unused: ∀ E(f), R(f). fn(fn() -> () fails E(f) use R(f)) -> () fails E(f) use R(f)
+a: fn() -> () uses { Log }
+uses_audit: fn() -> () uses { Audit }
+main: fn() -> () uses { Log, Audit }
+undefault: fn() -> () uses { Audit }
+unused: ∀ E(f), R(f). fn(fn() -> () fails E(f) uses { R(f) }) -> () fails E(f) uses { R(f) }
 handler PrintLog: use {}
 handler OtherH: use {}
 handler AuditH: use {}

@@ -190,7 +190,7 @@ pub enum SyntaxKind {
     ANNOT_ARG,
     /// `Http.serve`, the argument of `@entry` (spec 17.3 `qualified`)
     ANNOT_PATH,
-    /// `pub fn find(id: Int) -> User fails NotFound use Users { ... }`
+    /// `pub fn find(id: Int) -> User fails NotFound uses { Users } { ... }`
     FN_DECL,
     /// `type User(id: Int, name: String) derive Eq`
     TYPE_DECL,
@@ -260,7 +260,7 @@ pub enum SyntaxKind {
     TUPLE_TYPE,
     /// `(fn(Int) -> String)`
     PAREN_TYPE,
-    /// `fn(A) -> B fails E use R`
+    /// `fn(A) -> B fails E uses { R }`
     FN_TYPE,
     /// The parameters of a function type. `(A, B)`
     PARAM_TYPE_LIST,
@@ -270,8 +270,8 @@ pub enum SyntaxKind {
     FAILS_CLAUSE,
     /// `{}` `NotFound | DbError` `E`
     ERROR_SET,
-    /// `use R`
-    USE_CLAUSE,
+    /// `uses { R }`. Also the old clause `uses { R }` (E0147), read as the same node.
+    USES_CLAUSE,
     /// `{ Io, Clock }` `Users` `R`
     EFFECT_SET,
 
@@ -379,7 +379,7 @@ pub enum SyntaxKind {
     SUPPLY,
     /// `find(id) escape { NotFound(_) -> guest() }`
     ESCAPE_EXPR,
-    /// `fn(n) { n + 1 }`
+    /// `|n| n + 1`
     LAMBDA_EXPR,
     /// `(x: Int, f)`
     PARAM_LIST,
@@ -509,5 +509,49 @@ impl SyntaxKind {
                 | Self::VARIANT
                 | Self::DERIVE_CLAUSE
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn token_kinds() -> impl Iterator<Item = SyntaxKind> {
+        (0..=SyntaxKind::EOF as u16).map(SyntaxKind::from_raw)
+    }
+
+    #[test]
+    fn すべてのトークンに固有の名前がある() {
+        for kind in token_kinds() {
+            assert_ne!(kind.describe(), "syntax node", "{kind:?}");
+        }
+        assert_eq!(SyntaxKind::ROOT.describe(), "syntax node");
+    }
+
+    /// Every punctuation token and reserved word is named by its own text in backquotes. The text
+    /// comes from the lexer, not from the table under test.
+    #[test]
+    fn 記号と予約語は書いたとおりの綴りで呼ぶ() {
+        let src = concat!(
+            "fn type enum error const trait impl effect handler layer import pub opaque suspend ",
+            "if else match fail escape use with assert self Self as _ ",
+            "( ) [ ] { } , . .. : = -> | |> + - * / % ! == != < <= > >= && || @ ",
+            "\"#{x}\"\n\"\"\"\nt\n\"\"\"\n",
+        );
+        let mut seen = BTreeSet::new();
+        for token in crate::lexer::lex(src).tokens {
+            let described = token.kind.describe();
+            if !described.starts_with('`') {
+                continue;
+            }
+            let text = &src[token.range];
+            assert_eq!(described, format!("`{text}`"), "{:?}", token.kind);
+            seen.insert(token.kind);
+        }
+        let backquoted: BTreeSet<_> = token_kinds()
+            .filter(|k| k.describe().starts_with('`'))
+            .collect();
+        assert_eq!(seen, backquoted);
     }
 }

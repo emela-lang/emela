@@ -91,7 +91,7 @@ fn run_on(
     let input = Input::resolve(&OsFs, path).unwrap();
     let options = RunOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: emela_driver::node_program(),
+        js_host: emela_driver::js_host_program(),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -106,7 +106,7 @@ fn run_on(
             |_, _| {},
         ),
         Target::C => run(&OsFs, &input, &mut frontend, c, &options, |_, _| {}),
-        Target::Wasm | Target::CEmbedded => unreachable!("parity compares js and c"),
+        Target::Wasm => unreachable!("parity compares js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {
@@ -133,7 +133,7 @@ fn test_on(
     let input = Input::resolve(&OsFs, path).unwrap();
     let options = TestOptions {
         out_dir: out_dir(&format!("{name}-test-{target}")),
-        node: emela_driver::node_program(),
+        js_host: emela_driver::js_host_program(),
         filter: None,
         output: Output::Capture,
         reporter: emela_driver::Reporter::Plain,
@@ -152,7 +152,7 @@ fn test_on(
             &mut out,
         ),
         Target::C => test(&OsFs, &input, &mut frontend, c, &options, |_| {}, &mut out),
-        Target::Wasm | Target::CEmbedded => unreachable!("parity compares js and c"),
+        Target::Wasm => unreachable!("parity compares js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match report {
@@ -368,14 +368,14 @@ handler Ignores: Wait {
   suspend fn wait(resume) { () }
 }
 
-fn spin(n: Int) -> () use { Tick } {
+fn spin(n: Int) -> () uses { Tick } {
   if n == 0 { () } else {
     (use Tick).tick()
     spin(n - 1)
   }
 }
 
-fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
+fn fetch(n: Int, ticks: Int) -> Int uses { Tick } {
   spin(ticks * 100)
   n * 10
 }
@@ -387,30 +387,30 @@ fn explode() -> Int { panic("child") }
 @test
 fn joins() {
   with Ticks {
-    xs = Fiber.all([fn() { fetch(1, 20) }, fn() { fetch(2, 10) }])
+    xs = Fiber.all([|| fetch(1, 20), || fetch(2, 10)])
     assert xs == [10, 20]
   }
 }
 
 @test
 fn child_error() {
-  Fiber.scope(fn() {
-    h = Fiber.fork(fn() { boom() })
+  Fiber.scope(|| {
+    h = Fiber.fork(|| boom())
     Fiber.join(h)
   })
 }
 
 @test
 fn child_defect() {
-  Fiber.scope(fn() {
-    h = Fiber.fork(fn() { explode() })
+  Fiber.scope(|| {
+    h = Fiber.fork(|| explode())
     Fiber.join(h)
   })
 }
 
 @test
 fn waits_forever() {
-  Fiber.scope(fn() {
+  Fiber.scope(|| {
     d = Fiber.deferred()
     Deferred.await(d) + 1
   })
@@ -432,7 +432,7 @@ fn after_the_others() {
     for target in [Target::Js, Target::C] {
         let options = TestOptions {
             out_dir: out_dir(&format!("suspending-tests-{target}")),
-            node: emela_driver::node_program(),
+            js_host: emela_driver::js_host_program(),
             filter: None,
             output: Output::Capture,
             reporter: emela_driver::Reporter::Plain,
@@ -459,7 +459,7 @@ fn after_the_others() {
                 |_| {},
                 &mut out,
             ),
-            Target::Wasm | Target::CEmbedded => unreachable!("parity compares js and c"),
+            Target::Wasm => unreachable!("parity compares js and c"),
         };
         let _ = std::fs::remove_dir_all(&options.out_dir);
         assert!(!analysis.has_errors(), "{:?}", messages(&analysis));

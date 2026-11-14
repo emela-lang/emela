@@ -1,0 +1,2 @@
+## Tests helpers for Emela: `Brix.Assert` checks the contents of an Option, and `Brix.Pbt.Gen` with
+## `Brix.Pbt.Property` run property-based tests with shrinking.

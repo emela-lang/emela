@@ -1,0 +1,107 @@
+import Pbt.Gen.{Gen, Tree}
+import Std.Exit.{Success, Failure}
+import Std.Cause
+
+## Reproducible settings. max_size is in 0..1000; shrink_limit counts candidate evaluations.
+pub type Config(seed: Int, cases: Int, max_size: Int, shrink_limit: Int)
+
+## Fixed defaults
+pub fn config() -> Config {
+  Config(seed: 20261013, cases: 100, max_size: 100, shrink_limit: 1000)
+}
+
+pub fn check[A: Show, E, R](gen: Gen[A], f: fn(A) -> () fails E uses { R }) -> () uses { R } {
+  check_with(gen, config(), f)
+}
+
+pub fn check_with[A: Show, E, R](
+  gen: Gen[A],
+  config: Config,
+  f: fn(A) -> () fails E uses { R },
+) -> ()
+  uses { R } {
+  if config.cases <= 0 || config.max_size < 0 || config.max_size > 1000 || config.shrink_limit < 0 {
+    panic("Property: invalid config (cases > 0, max_size in 0..1000, shrink_limit >= 0 required)")
+  }
+  run_cases(gen, config, f, config.seed, 0)
+}
+
+fn context(config: Config, seed: Int, index: Int, size: Int) -> String {
+  "seed=#{config.seed} case=#{index} case_seed=#{seed} size=#{size}"
+}
+
+fn run_cases[A: Show, E, R](
+  gen: Gen[A],
+  config: Config,
+  f: fn(A) -> () fails E uses { R },
+  seed: Int,
+  index: Int,
+) -> () uses { R } {
+  if index < config.cases {
+    size = index % (config.max_size + 1)
+    info = context(config, seed, index, size)
+    (tree, rest) = Exit.attempt(|| Gen.sample(gen, seed, size)) match {
+      Success(value) -> value
+      Failure(cause) -> panic("Property generator failed (#{info}): #{Cause.to_string(cause)}")
+    }
+    Exit.attempt(|| f(tree.value)) match {
+      Success(_) -> run_cases(gen, config, f, rest, index + 1)
+      Failure(cause) -> {
+        (smallest, reason, tried) = shrink(
+          tree,
+          Cause.to_string(cause),
+          f,
+          config.shrink_limit,
+          0,
+          info,
+        )
+        panic(
+          "Property failed (#{info})\noriginal: #{inspect(tree.value)}\ncounterexample: #{inspect(smallest.value)}\nshrink_attempts=#{tried} limit=#{config.shrink_limit}\n#{reason}",
+        )
+      }
+    }
+  }
+}
+
+fn shrink[A, E, R](
+  tree: Tree[A],
+  reason: String,
+  f: fn(A) -> () fails E uses { R },
+  budget: Int,
+  tried: Int,
+  info: String,
+) -> (Tree[A], String, Int) uses { R } {
+  if budget == 0 {
+    (tree, reason, tried)
+  } else {
+    children = Exit.attempt(|| (tree.children)()) match {
+      Success(value) -> value
+      Failure(cause) -> panic(
+        "Property generator failed during shrinking (#{info}): #{Cause.to_string(cause)}",
+      )
+    }
+    search(children, tree, reason, f, budget, tried, info)
+  }
+}
+
+fn search[A, E, R](
+  children: List[Tree[A]],
+  best: Tree[A],
+  reason: String,
+  f: fn(A) -> () fails E uses { R },
+  budget: Int,
+  tried: Int,
+  info: String,
+) -> (Tree[A], String, Int) uses { R } {
+  if budget == 0 {
+    (best, reason, tried)
+  } else {
+    children match {
+      [] -> (best, reason, tried)
+      [child, ..rest] -> Exit.attempt(|| f(child.value)) match {
+        Success(_)     -> search(rest, best, reason, f, budget - 1, tried + 1, info)
+        Failure(cause) -> shrink(child, Cause.to_string(cause), f, budget - 1, tried + 1, info)
+      }
+    }
+  }
+}

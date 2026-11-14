@@ -198,12 +198,12 @@ import Std.Random.{Random, SystemRandom}
 
 fn main() {
   with SystemRandom {
-    ints = List.map(List.range(0, 200), fn(_) { (use Random).int() })
-    floats = List.map(List.range(0, 200), fn(_) { (use Random).float() })
-    dbg(List.all(ints, fn(x) { x >= -2147483647 - 1 && x <= 2147483647 }))
-    dbg(List.any(ints, fn(x) { x < 0 }))
-    dbg(List.all(floats, fn(x) { x >= 0.0 && x < 1.0 }))
-    dbg(List.any(floats, fn(x) { x > 0.5 }))
+    ints = List.map(List.range(0, 200), |_| (use Random).int())
+    floats = List.map(List.range(0, 200), |_| (use Random).float())
+    dbg(List.all(ints, |x| x >= -2147483647 - 1 && x <= 2147483647))
+    dbg(List.any(ints, |x| x < 0))
+    dbg(List.all(floats, |x| x >= 0.0 && x < 1.0))
+    dbg(List.any(floats, |x| x > 0.5))
   }
 }
 "#,
@@ -388,7 +388,7 @@ import Std.Instant.{Instant}
 import Std.State.{State}
 
 fn main() {
-  (_, lines) = State.run([], fn() {
+  (_, lines) = State.run([], || {
     with TestConsole {
       c = use Console
       c.print_line("a")
@@ -398,7 +398,7 @@ fn main() {
   })
   dbg(lines)
   start = Instant.from_unix_milliseconds(Int64.from_int(1000))
-  (_, t) = State.run(start, fn() {
+  (_, t) = State.run(start, || {
     with TestClock {
       (use Clock).now()
     }
@@ -424,7 +424,7 @@ import Std.Http.Request.{Get}
 
 fn main() {
   with SystemHttp {
-    look = fn() { (use Http).send(Request.new(Get, "https://example.com")).status }
+    look = || (use Http).send(Request.new(Get, "https://example.com")).status
     dbg(look() escape {
       InvalidUrl(url: _) -> 0
       ConnectionFailed(url: _, message: _) -> 0
@@ -491,7 +491,7 @@ fn twice(f: fn() -> Int fails InvalidUrl | ConnectionFailed | ResponseNotText) {
 
 fn main() {
   with SystemHttp {
-    twice(fn() { (use Http).send(Request.new(Get, "https://example.com")).status })
+    twice(|| (use Http).send(Request.new(Get, "https://example.com")).status)
   }
 }
 "#,
@@ -507,8 +507,8 @@ import Std.Http.Request.{Get}
 
 fn main() {
   with SystemHttp {
-    look = fn() { (use Http).send(Request.new(Get, "https://example.com")).status }
-    outer = fn() { look() }
+    look = || (use Http).send(Request.new(Get, "https://example.com")).status
+    outer = || look()
     dbg(outer() escape {
       InvalidUrl(url: _) -> 0
       ConnectionFailed(url: _, message: _) -> 0

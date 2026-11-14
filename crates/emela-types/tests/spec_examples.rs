@@ -106,7 +106,47 @@ fn add(x: Int, y: Int) -> Int {
 fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { List.map(xs, f) }
 
 fn inc() -> fn(Int) -> Int {
-  fn(x) { x + 1 }
+  |x| x + 1
+}
+"#
+    ));
+}
+
+/// 6.1 Anonymous functions (`[fn.decl]`): parameters between `|`, `||` without parameters,
+/// patterns as parameters, a body that takes everything to its right, a call in parentheses, and a
+/// parameter type whose error set is parenthesized. 6.3: a binding of an anonymous function.
+/// 2.5: a line that starts with `||` is an anonymous function.
+#[test]
+fn spec_6_1_anonymous_functions() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+error Timeout
+error Refused
+type Request(url: String, method: String)  # 補
+
+fn fetch(n: Int) -> Int { n }  # 補
+
+fn closures(xs: List[Int], pairs: List[(String, Int)], reqs: List[Request]) -> Int {
+  ys = xs |> List.map(|x| x + 1)
+  total = List.fold(ys, 0, |acc, x| acc + x)
+  thunk = || fetch(1)
+  keys = List.map(pairs, |(key, _)| key)
+  first = |acc, _| acc
+  urls = List.map(reqs, |Request(url:, ..)| url)
+  sum = |(a, b): (Int, Int)| a + b
+  run = |f: (fn() -> Int fails Timeout | Refused)| f()
+  f = |x| x + 1
+  n = (|x| x + 1)(2)
+  m = List.map(ys, |x| x match {
+    0 -> 1
+    _ -> x
+  })
+  total + thunk() + sum((1, 2)) + f(n) + first(1, "a")
+}
+
+fn make(n: Int) -> fn() -> Int {
+  m = n * 2
+  || m
 }
 "#
     ));
@@ -214,11 +254,11 @@ fn spec_9_2_compose() {
     insta::assert_snapshot!(render_bodies(
         r##"
 fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
-  fn(x) { g(f(x)) }
+  |x| g(f(x))
 }
 
 fn use_it() -> String {
-  h = compose(fn(n: Int) { n + 1 }, fn(n) { "#{n}" })
+  h = compose(|n: Int| n + 1, |n| "#{n}")
   h(1)
 }
 "##
@@ -235,14 +275,14 @@ type Request(path: String)  # 補
 type Response(body: String)  # 補
 error NotFound  # 補
 
-type Handler[E, R](run: fn(Request) -> Response fails E use R)
+type Handler[E, R](run: fn(Request) -> Response fails E uses { R })
 
-fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E use R {  # 補
+fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E uses { R } {  # 補
   h.run(req)
 }
 
 fn not_found() -> Handler[NotFound, Never] {  # 補．効果の集合の位置に型を書くと E0323
-  Handler(run: fn(req) { fail NotFound })
+  Handler(run: |req| fail NotFound)
 }
 "#
     ));
@@ -302,7 +342,7 @@ fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
 }
 
 fn find(users: List[User], id: Int) {  # 補
-  user = List.find(users, fn(u) { u.id == id }) |> or_fail(NotFound(id:))
+  user = List.find(users, |u| u.id == id) |> or_fail(NotFound(id:))
   user
 }
 
@@ -355,6 +395,44 @@ fn as_value(id: Int) {
     NotFound(_) -> None
   }
   found
+}
+"#
+    ));
+}
+
+/// 7.3 An arm `_`: falling back to a default, turning any error into a defect, and falling back on
+/// any error of a function received as an argument. The calls have no errors.
+#[test]
+fn spec_7_3_escape_wildcard() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type Config(name: String)  # 補
+error NotFound  # 補
+error InvalidText  # 補
+
+fn load_config(path: String) -> Config fails NotFound | InvalidText { fail NotFound }  # 補
+fn default_config() -> Config { Config(name: "default") }  # 補
+
+fn fallback(path: String) -> Config {  # 補
+  config = load_config(path) escape {
+    _ -> default_config()
+  }
+  config
+}
+
+fn bundled(path: String) -> Config {  # 補
+  config = load_config(path) escape {
+    _ -> panic("the bundled config must load")
+  }
+  config
+}
+
+fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
+  f() escape { _ -> default }
+}
+
+fn callers(path: String) -> Config {  # 補
+  or_else(|| load_config(path), default_config())
 }
 "#
     ));
@@ -414,11 +492,11 @@ fn load(id: Int) -> User fails NotFound | DbError {
 fn retry[A, E](f: fn() -> A fails Timeout | E) -> A fails Timeout | E { f() }
 
 fn only_db() {  # 補
-  retry(fn() { if True { fail Timeout } else { fail DbError } })
+  retry(|| if True { fail Timeout } else { fail DbError })
 }
 
 fn no_timeout() {  # 補．Timeout を起こさない関数を渡してもよい
-  retry(fn() { fail DbError })
+  retry(|| fail DbError)
 }
 "#
     ));
@@ -513,6 +591,54 @@ fn round_trip() -> Option[String] {
   Bytes.decode_utf8(Bytes.slice(data, 4, 6))
 }
 "#
+    ));
+}
+
+/// `[api.std.array]`: the functions of `Std.Array` with their types, Eq, Ord and Show, as in the
+/// examples of the proposal (`proposals/array.md`), and `Array[A]` at the boundary
+/// (`[ext.boundary]`).
+#[test]
+fn spec_api_std_array() {
+    insta::assert_snapshot!(render_bodies(
+        r##"
+import Std.Array.{Array}
+
+@external(js, "./host.mjs", "sum")
+fn sum(xs: Array[Int]) -> Int
+
+fn histogram(bytes: List[Int], counts: Array[Int]) -> Array[Int] {
+  bytes match {
+    [] -> counts
+    [b, ..rest] -> {
+      n = Array.get(counts, b) |> Option.or(0)
+      histogram(rest, Array.set(counts, b, n + 1))
+    }
+  }
+}
+
+fn bump_twice(counts: Array[Int], b: Int) -> (Array[Int], Array[Int]) {
+  (Array.set(counts, b, 1), counts)
+}
+
+fn basics() -> Option[Int] {
+  a = Array.from_list([30, 10, 20])
+  size = Array.size(a)
+  first = Array.get(a, 1)
+  b = Array.set(a, 0, 31)
+  sorted = Array.sort(a)
+  listed = Array.to_list(sorted)
+  part = Array.slice(a, 1, 9)
+  text = inspect(a)
+  joined = Array.concat([a, Array.empty(), Array.append(a, b)])
+  names = Array.map(a, |x| "#{x}")
+  total = Array.fold(a, 0, |acc, x| acc + x)
+  at = Array.find_index(names, |x| x == "10")
+  by = Array.sort_by(Array.reverse(a), |x, y| Ord.compare(y, x))
+  low = Array.lower_bound(sorted, 15)
+  same = a == b && a < b && Array.is_empty(Array.repeat("x", 0))
+  Array.binary_search(sorted, 20)
+}
+"##
     ));
 }
 
@@ -753,7 +879,7 @@ handler ReplicaDb: Db {  # 補
   fn execute(rows) { () }
 }
 
-fn copy(read: fn() -> Rows use { Db }, write: fn(Rows) -> () use { Db }) {
+fn copy(read: fn() -> Rows uses { Db }, write: fn(Rows) -> () uses { Db }) {
   write(read())
 }
 
@@ -762,7 +888,7 @@ fn main() {  # 補
     primary = use Db
     with ReplicaDb {
       replica = use Db
-      copy(fn() { replica.query("...") }, fn(rows) { primary.execute(rows) })
+      copy(|| replica.query("..."), |rows| primary.execute(rows))
     }
   }
 }
@@ -809,8 +935,8 @@ fn run() {  # 補．ConsoleLogger だけでは Clock が残る
 }
 
 /// 8.3 `with` and invisible effect sets. `with` removes nothing from a parameter function's
-/// invisible set. Writing `use { Logger, R }` lets `with` remove Logger and passes as
-/// `-> () use R`.
+/// invisible set. Writing `uses { Logger, R }` lets `with` remove Logger and passes as
+/// `-> () uses { R }`.
 #[test]
 fn spec_8_3_with_and_set_variables() {
     insta::assert_snapshot!(render_bodies(
@@ -829,17 +955,17 @@ handler ConsoleLogger: Logger {  # 補
 
 fn run_hidden(f: fn() -> ()) { with ConsoleLogger { f() } }  # 補．仕様の `run(f: fn() -> ())`
 
-fn run[R](f: fn() -> () use { Logger, R }) -> () use R {
+fn run[R](f: fn() -> () uses { Logger, R }) -> () uses { R } {
   with ConsoleLogger { f() }      # R は R だけ。Logger は消える
 }
 
 fn callers() {  # 補
-  a = run(fn() {
+  a = run(|| {
     (use Logger).info("x")
     (use Clock).now()
     ()
   })
-  b = run_hidden(fn() { (use Logger).info("y") })
+  b = run_hidden(|| (use Logger).info("y"))
 }
 "#
     ));
@@ -867,7 +993,7 @@ fn date_now() -> Instant
 
 handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
-    set_timeout(ms, fn() { resume(()) })
+    set_timeout(ms, || resume(()))
   }
   fn now() { date_now() }
 }
@@ -898,8 +1024,8 @@ type Ref[A](value: A)  # 補
 
 fn update[A, R: Immediate](
   ref: Ref[A],
-  f: fn(A) -> A use R,
-) -> () use R {
+  f: fn(A) -> A uses { R },
+) -> () uses { R } {
   f(ref.value)  # 補
   ()
 }
@@ -908,12 +1034,12 @@ fn update[A, R: Immediate](
 @external(wasm, "wasi:http/client", "fetch")
 suspend fn fetch_text(url: String) -> String
 
-fn bump(r: Ref[Int]) { update(r, fn(n) { n + 1 }) }  # 補
+fn bump(r: Ref[Int]) { update(r, |n| n + 1) }  # 補
 "#
     ));
 }
 
-/// 9.2 `fn(A) -> B use {}` accepts only functions without effects. Omitted, it accepts anything,
+/// 9.2 `fn(A) -> B uses {}` accepts only functions without effects. Omitted, it accepts anything,
 /// and the effects join the caller's R.
 #[test]
 fn spec_9_2_effect_free_parameter() {
@@ -923,13 +1049,13 @@ effect Logger {  # 補
   fn info(msg: String) -> ()
 }
 
-fn run_pure(f: fn() -> Int use {}) -> Int { f() }  # 補
+fn run_pure(f: fn() -> Int uses {}) -> Int { f() }  # 補
 fn run_any(f: fn() -> Int) -> Int { f() }  # 補
 
 fn callers() {  # 補
-  a = run_any(fn() { (use Logger).info("a")
+  a = run_any(|| { (use Logger).info("a")
   1 })
-  b = run_pure(fn() { (use Logger).info("b")
+  b = run_pure(|| { (use Logger).info("b")
   1 })
   (a, b)
 }
@@ -984,8 +1110,14 @@ fn not_error_type() {
   or_fail(Some(1), "no")
 }
 
-fn catch_all() -> Int {
-  0 escape { _ -> 1 }
+fn flaky() -> Int fails NotFound { fail NotFound }  # 補
+
+fn catch_variable() -> Int {
+  flaky() escape { e -> 1 }
+}
+
+fn catch_all_guarded(c: Bool) -> Int {
+  flaky() escape { _ if c -> 1 }
 }
 "#
     ));
@@ -1002,9 +1134,9 @@ fn run(f: fn() -> Int fails {}) -> Int { f() }
 
 fn flaky() -> Int fails Timeout { fail Timeout }  # 補
 
-fn ok() -> Int { run(fn() { 1 }) }
+fn ok() -> Int { run(|| 1) }
 fn bad() -> Int { run(flaky) }
-fn bad_lambda() -> Int { run(fn() { fail Timeout }) }
+fn bad_lambda() -> Int { run(|| fail Timeout) }
 "#
     ));
 }

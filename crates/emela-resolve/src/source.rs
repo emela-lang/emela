@@ -793,5 +793,44 @@ mod tests {
         let test_only = |name: &str| map.is_test_only(main, &ModuleName::parse(name));
         assert!(test_only("Support") && test_only("Brix") && test_only("Brix.Gen"));
         assert!(!test_only("Nothing") && !map.is_test_only(test, &ModuleName::parse("Nothing")));
+        // A dependency's imports are its own business, even of names the test root has.
+        assert!(!map.is_test_only(id("Brix.Gen"), &ModuleName::parse("Support")));
+    }
+
+    #[test]
+    fn a_pome_lists_its_modules_by_their_names_inside_it() {
+        let (map, _, router, _) = packages();
+        let quince = map.package_of(router).unwrap();
+        let mut names: Vec<String> = quince.local_names().map(ToString::to_string).collect();
+        names.sort();
+        // `src/main.emel` of a dependency is not used.
+        assert_eq!(names, ["Lib", "Router", "Util"]);
+        // src/main, src/util, and the five modules of the two Pomes.
+        assert_eq!(map.len(), 7);
+        assert!(!map.is_empty());
+        assert!(ModuleMap::default().is_empty());
+    }
+
+    #[test]
+    fn a_taken_root_name_gets_the_next_free_number() {
+        let fs = MemoryFs::new(["src/util.emel", "a/src/lib.emel", "b/src/lib.emel"]);
+        let (mut map, _) = collect_modules(&fs, Path::new("src"));
+        let (a, _) = map.add_package(&fs, "a".into(), "Util".into(), Path::new("a/src"));
+        let (b, _) = map.add_package(&fs, "b".into(), "Util".into(), Path::new("b/src"));
+        assert_eq!(map.package(a).root, "Util2");
+        assert_eq!(map.package(b).root, "Util3");
+    }
+
+    #[test]
+    fn external_is_allowed_per_pome() {
+        let (mut map, _, router, client) = packages();
+        let quince = map.package_of(router).unwrap();
+        let quince_id = (0..2)
+            .find(|&i| map.package(i).root == quince.root)
+            .unwrap();
+        assert!(!map.package(quince_id).external_allowed);
+        map.allow_external(quince_id);
+        assert!(map.package_of(router).unwrap().external_allowed);
+        assert!(!map.package_of(client).unwrap().external_allowed);
     }
 }

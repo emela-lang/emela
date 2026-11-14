@@ -13,13 +13,13 @@ handler Fixed: State[Int] {
   fn update(f) { () }
 }
 
-fn count() -> Int use { State[Int], Log } {
+fn count() -> Int uses { State[Int], Log } {
   st = use State[Int]
-  (use State[Int]).update(fn(n) { n + 1 })
+  (use State[Int]).update(|n| n + 1)
   st.get()
 }
 
 pub effect Scope[E, R] {
-  fn fork[A](f: fn() -> A fails E use R) -> Fiber[A]
+  fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]
   fn deferred[A, B]() -> Deferred[A]
 }

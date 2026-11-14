@@ -1,0 +1,168 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"type Point(x: Int, y: Int)\nconst MAX: Int = 3\n\nfn ops(a: Int, b: Bool, f: Float) -> Bool {\n  c = a + a - a * a / a % a\n  d = a == a && a != a || a < a && a <= a && a > a && a >= a\n  e = !b\n  g = -f\n  h = a |> ops\n  assert b\n  i = 1_000 + 2\n  j = 2.5\n  k = \"\"\n  l = \"plain\"\n  m = \"x #{a} y #{f}\"\n  b\n}\n\nfn binding_patterns(p: Point, xs: List[Int], s: String, n: Int, o: Option[Int]) {\n  _ = p\n  Option.None = o\n  MAX = n\n  \"s\" = s\n  -1 = n\n  () = ()\n  Point(x:, y: _) = p\n  [first, ..rest] = xs\n  [only] = xs\n}\n\nfn match_patterns(n: Int, xs: List[Int], u: (), f: Float, p: Point, s: String) -> Int {\n  n match {\n    -1 -> 0\n    0 -> 1\n    MAX -> 2\n    _ -> 3\n  }\n  xs match {\n    [a, ..] -> a\n    [] -> 0\n  }\n  f match {\n    -1.5 -> 0\n    _ -> 1\n  }\n  u match {\n    () -> 0\n  }\n  p match {\n    Point(x:, ..) -> x\n  }\n  s match {\n    \"a\" -> 1\n    _ -> 2\n  }\n}\n\nfn update(p: Point) -> Point {\n  Point(x: 1, ..p)\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+type Main.Point
+  field x: Int
+  field y: Int
+  ctor Main.Point.Point
+const Main.MAX: Int
+  3
+fn Main.ops
+  param a#0: Int
+  param b#1: Bool
+  param f#2: Float
+  ret Bool
+  body
+    block
+      let c#3 =
+        Sub
+          Add
+            a#0
+            a#0
+          Rem
+            Div
+              Mul
+                a#0
+                a#0
+              a#0
+            a#0
+      let d#4 =
+        Or
+          And
+            Eq
+              a#0
+              a#0
+            Ne
+              a#0
+              a#0
+          And
+            And
+              And
+                Lt
+                  a#0
+                  a#0
+                Le
+                  a#0
+                  a#0
+              Gt
+                a#0
+                a#0
+            Ge
+              a#0
+              a#0
+      let e#5 =
+        Not
+          b#1
+      let g#6 =
+        Neg
+          f#2
+      let h#7 =
+        Pipe
+          a#0
+          Main.ops
+      assert
+        b#1
+      let i#8 =
+        Add
+          1000
+          2
+      let j#9 =
+        2.5
+      let k#10 =
+        ""
+      let l#11 =
+        "plain"
+      let m#12 =
+        interpolated
+          "x "
+          a#0
+          " y "
+          f#2
+      b#1
+fn Main.binding_patterns
+  param p#13: Main.Point
+  param xs#14: List[Int]
+  param s#15: String
+  param n#16: Int
+  param o#17: Option[Int]
+  body
+    block
+      let _ =
+        p#13
+      let <error> =
+        o#17
+      let const Main.MAX =
+        n#16
+      let "s" =
+        s#15
+      let -1 =
+        n#16
+      let () =
+        ()
+      let Main.Point.Point(x: x#18, y: _) =
+        p#13
+      let [first#19, ..rest#20] =
+        xs#14
+      let [only#21] =
+        xs#14
+fn Main.match_patterns
+  param n#22: Int
+  param xs#23: List[Int]
+  param u#24: ()
+  param f#25: Float
+  param p#26: Main.Point
+  param s#27: String
+  ret Int
+  body
+    block
+      match
+        n#22
+        arm -1
+          0
+        arm 0
+          1
+        arm const Main.MAX
+          2
+        arm _
+          3
+      match
+        xs#23
+        arm [a#28, ..]
+          a#28
+        arm []
+          0
+      match
+        f#25
+        arm -1.5
+          0
+        arm _
+          1
+      match
+        u#24
+        arm ()
+          0
+      match
+        p#26
+        arm Main.Point.Point(x: x#29, ..)
+          x#29
+      match
+        s#27
+        arm "a"
+          1
+        arm _
+          2
+fn Main.update
+  param p#30: Main.Point
+  ret Main.Point
+  body
+    block
+      update
+        Main.Point.Point
+        x:
+          1
+        ..
+          p#30
+== diagnostics
+error src/main.emel@401..405 `None`: `Option` has no `None`

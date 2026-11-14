@@ -39,21 +39,21 @@ pub fn lex(src: &str) -> Lexed {
         };
     }
     // Report what is still open at the end of the input, innermost first.
-    while lexer.modes.len() > 1 {
-        match lexer.modes.pop() {
-            Some(Mode::Str { open } | Mode::MultiStr { open }) => lexer.error(
+    while let Some(mode) = lexer.modes.pop() {
+        match mode {
+            Mode::Str { open } | Mode::MultiStr { open } => lexer.error(
                 open,
                 src.len(),
                 DiagnosticCode::UnterminatedString,
                 "unterminated string literal",
             ),
-            Some(Mode::Interp { open, .. }) => lexer.error(
+            Mode::Interp { open, .. } => lexer.error(
                 open,
                 src.len(),
                 DiagnosticCode::UnterminatedInterpolation,
                 "unterminated interpolation",
             ),
-            _ => {}
+            Mode::Code => {}
         }
     }
     continuation::mark_continuations(src, &mut lexer.lexed.tokens);
@@ -244,6 +244,7 @@ impl Lexer<'_> {
             range: range(start, end),
             code,
             message: message.into(),
+            help: None,
         });
     }
 }
@@ -432,10 +433,20 @@ impl From<RawToken> for SyntaxKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use DiagnosticCode::*;
     use SyntaxKind::*;
 
     fn kinds(src: &str) -> Vec<SyntaxKind> {
         lex(src).tokens.iter().map(|t| t.kind).collect()
+    }
+
+    /// The code and the range of each diagnostic, in order.
+    fn diagnostics(lexed: &Lexed) -> Vec<(DiagnosticCode, u32, u32)> {
+        lexed
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, d.range.start().into(), d.range.end().into()))
+            .collect()
     }
 
     #[test]
@@ -463,7 +474,10 @@ mod tests {
     fn 認識できない文字は診断を出して続ける() {
         let lexed = lex("( & ü )");
         assert_eq!(lexed.tokens.last().unwrap().kind, R_PAREN);
-        assert_eq!(lexed.diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics(&lexed),
+            [(UnrecognizedCharacter, 2, 3), (UnrecognizedCharacter, 4, 6)]
+        );
     }
 
     #[test]
@@ -487,7 +501,8 @@ mod tests {
         for src in ["1e9", "1.0e", "3px", "1.0e9x"] {
             let lexed = lex(src);
             assert_eq!(kinds(src), [ERROR_TOKEN], "{src}");
-            assert_eq!(lexed.diagnostics.len(), 1, "{src}");
+            let end = src.len() as u32;
+            assert_eq!(diagnostics(&lexed), [(InvalidNumber, 0, end)], "{src}");
         }
         // A missing exponent digit makes everything up to the sign an error.
         assert_eq!(kinds("1.0e+"), [ERROR_TOKEN, PLUS]);
@@ -587,11 +602,27 @@ mod tests {
     fn 閉じていない文字列() {
         let lexed = lex("\"\nx");
         assert_eq!(kinds("\"\nx"), [STRING_QUOTE, NEWLINE, LOWER_NAME]);
-        assert_eq!(lexed.diagnostics.len(), 1);
-        // Both the string and the interpolation are unclosed.
+        assert_eq!(diagnostics(&lexed), [(UnterminatedString, 0, 1)]);
+        // Both the string and the interpolation are unclosed, each reported from where it opens
+        // to the end of the input.
         let lexed = lex(r##""#{x"##);
         assert_eq!(kinds(r##""#{x"##), [STRING_QUOTE, INTERP_START, LOWER_NAME]);
-        assert_eq!(lexed.diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics(&lexed),
+            [
+                (UnterminatedString, 0, 4),
+                (UnterminatedInterpolation, 1, 4)
+            ]
+        );
+    }
+
+    #[test]
+    fn 複数行文字列の本体は補間とエスケープした引用符を除いて一続き() {
+        let src = "\"\"\"\n  a # b \\\"\"\" c\n  \"\"\"";
+        let lexed = lex(src);
+        assert_eq!(kinds(src), [TRIPLE_QUOTE, STRING_TEXT, TRIPLE_QUOTE]);
+        assert_eq!(&src[lexed.tokens[1].range], "\n  a # b \\\"\"\" c\n");
+        assert!(lexed.diagnostics.is_empty());
     }
 
     proptest::proptest! {

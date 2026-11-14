@@ -60,7 +60,7 @@ fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) 
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -75,7 +75,7 @@ fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) 
             &options,
             |_, _| {},
         ),
-        Target::Wasm | Target::CEmbedded => unreachable!("the fiber tests run js and c"),
+        Target::Wasm => unreachable!("the fiber tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert!(
@@ -116,7 +116,7 @@ fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutc
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = TestOptions {
         out_dir: out_dir(&format!("{name}-{target}")),
-        node: PathBuf::from("node"),
+        js_host: emela_driver::js_host_program(),
         filter: None,
         output: Output::Capture,
         reporter: emela_driver::Reporter::Plain,
@@ -143,7 +143,7 @@ fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutc
             |_| {},
             &mut out,
         ),
-        Target::Wasm | Target::CEmbedded => unreachable!("the fiber tests run js and c"),
+        Target::Wasm => unreachable!("the fiber tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert_eq!(analysis.diagnostics, [], "{target}");
@@ -159,7 +159,8 @@ fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutc
 /// `n * 10`. `Res` is a handler that prints on init and release.
 const PRELUDE: &str = r##"import Std.Console.{Console, SystemConsole}
 import Std.Clock.{Clock, SystemClock}
-import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Fiber.{Fiber, Scope}
+import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
 import Std.Deferred.{Deferred}
 
@@ -186,11 +187,11 @@ handler Res: Name {
   release { (use Console).print_line("release res") }
 }
 
-fn say(text: String) -> () use { Console } {
+fn say(text: String) -> () uses { Console } {
   (use Console).print_line(text)
 }
 
-fn fetch(n: Int, ms: Int) -> Int use { Clock, Console } {
+fn fetch(n: Int, ms: Int) -> Int uses { Clock, Console } {
   (use Clock).sleep(ms)
   say("fetched #{n}")
   n * 10
@@ -228,10 +229,10 @@ fn children_run_concurrently_and_are_joined() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    total = Fiber.scope(fn() {
+    total = Fiber.scope(|| {
       s = use Scope
-      a = s.fork(fn() { fetch(1, 60) })
-      b = Fiber.fork(fn() { fetch(2, 10) })
+      a = s.fork(|| fetch(1, 60))
+      b = Fiber.fork(|| fetch(2, 10))
       Fiber.join(a) + Fiber.join(b)
     })
     say("total #{total}")
@@ -256,18 +257,18 @@ fn combinators() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    xs = Fiber.all([fn() { fetch(1, 60) }, fn() { fetch(2, 10) }])
+    xs = Fiber.all([|| fetch(1, 60), || fetch(2, 10)])
     say("all #{xs}")
-    w = Fiber.race([fn() { fetch(3, 200) }, fn() { fetch(4, 10) }])
+    w = Fiber.race([|| fetch(3, 200), || fetch(4, 10)])
     say("race #{w}")
-    (p, q) = Fiber.both(fn() { fetch(5, 10) }, fn() { "x" })
+    (p, q) = Fiber.both(|| fetch(5, 10), || "x")
     say("both #{p} #{q}")
-    ys = Fiber.map([1, 2, 3], fn(i) { fetch(i, 100 - i * 40) })
+    ys = Fiber.map([1, 2, 3], |i| fetch(i, 100 - i * 40))
     say("map #{ys}")
-    t = Fiber.timeout(200, fn() { fetch(6, 10) })
-    u = Fiber.timeout(10, fn() { fetch(7, 1000) })
+    t = Fiber.timeout(200, || fetch(6, 10))
+    u = Fiber.timeout(10, || fetch(7, 1000))
     say("timeout #{t} #{u}")
-    r = Fiber.race([fn() { boom() }, fn() { fetch(8, 1000) }]) escape { Boom -> -1 }
+    r = Fiber.race([|| boom(), || fetch(8, 1000)]) escape { Boom -> -1 }
     say("race failed #{r}")
   }
 }
@@ -297,11 +298,11 @@ fn children_get_the_handlers_where_scope_is_called() {
             r##"
 fn main() {
   with SystemConsole, Outer {
-    Fiber.scope(fn() {
-      outside = fn() { say((use Name).name()) }
+    Fiber.scope(|| {
+      outside = || say((use Name).name())
       with Inner {
         a = Fiber.fork(outside)
-        b = Fiber.fork(fn() { say((use Name).name()) })
+        b = Fiber.fork(|| say((use Name).name()))
         say("body #{(use Name).name()}")
         Fiber.join(a)
         Fiber.join(b)
@@ -330,20 +331,20 @@ fn children_fork_siblings_into_their_own_scope() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    Fiber.scope(fn() {
-      a = Fiber.fork(fn() {
-        b = Fiber.fork(fn() { fetch(2, 10) })
+    Fiber.scope(|| {
+      a = Fiber.fork(|| {
+        b = Fiber.fork(|| fetch(2, 10))
         say("child")
         Fiber.join(b)
       })
       say("joined #{Fiber.join(a)}")
     })
-    r = Fiber.scope(fn() {
+    r = Fiber.scope(|| {
       outer = use Scope
-      late = outer.fork(fn() { fetch(9, 50) })
-      inner = Fiber.scope(fn() {
-        Fiber.fork(fn() {
-          h = Fiber.fork(fn() { boom() })
+      late = outer.fork(|| fetch(9, 50))
+      inner = Fiber.scope(|| {
+        Fiber.fork(|| {
+          h = Fiber.fork(|| boom())
           Fiber.join(h)
         })
         (use Clock).sleep(1000)
@@ -379,9 +380,9 @@ fn a_failing_child_interrupts_its_siblings() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    r = Fiber.scope(fn() {
-      Fiber.fork(fn() { with Res { (use Clock).sleep(1000) } })
-      Fiber.fork(fn() {
+    r = Fiber.scope(|| {
+      Fiber.fork(|| with Res { (use Clock).sleep(1000) })
+      Fiber.fork(|| {
         (use Clock).sleep(10)
         boom()
       })
@@ -390,8 +391,8 @@ fn main() {
       1
     }) escape { Boom -> -1 }
     say("scope #{r}")
-    v = Fiber.scope(fn() {
-      Fiber.fork(fn() { with Res { (use Clock).sleep(1000) } })
+    v = Fiber.scope(|| {
+      Fiber.fork(|| with Res { (use Clock).sleep(1000) })
       (use Clock).sleep(10)
       2
     })
@@ -421,12 +422,12 @@ fn later_failures_are_notes() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    Fiber.scope(fn() {
-      Fiber.fork(fn() {
+    Fiber.scope(|| {
+      Fiber.fork(|| {
         (use Clock).sleep(10)
         panic("first")
       })
-      Fiber.fork(fn() {
+      Fiber.fork(|| {
         with Res {
           (use Clock).sleep(1000)
         }
@@ -461,20 +462,20 @@ fn attempt_and_await() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    say(show(Fiber.attempt(fn() { boom() })))
-    say(show(Fiber.attempt(fn() { panic("bad") })))
-    say(show(Fiber.attempt(fn() { fetch(1, 1) })))
-    Fiber.scope(fn() {
-      h = Fiber.fork(fn() { with Res { (use Clock).sleep(1000) } })
+    say(show(Exit.attempt(|| boom())))
+    say(show(Exit.attempt(|| panic("bad"))))
+    say(show(Exit.attempt(|| fetch(1, 1))))
+    Fiber.scope(|| {
+      h = Fiber.fork(|| with Res { (use Clock).sleep(1000) })
       (use Clock).sleep(10)
       Fiber.interrupt(h)
       say("await #{show(Fiber.await(h))}")
-      say("join #{show(Fiber.attempt(fn() { Fiber.join(h) }))}")
-      ok = Fiber.fork(fn() { 7 })
+      say("join #{show(Exit.attempt(|| Fiber.join(h)))}")
+      ok = Fiber.fork(|| 7)
       say("await #{show(Fiber.await(ok))}")
     })
-    r = Fiber.scope(fn() {
-      Fiber.attempt(fn() { boom() }) match {
+    r = Fiber.scope(|| {
+      Exit.attempt(|| boom()) match {
         Success(v) -> v
         Failure(c) -> Cause.raise(c)
       }
@@ -506,11 +507,11 @@ fn deferred() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    Fiber.scope(fn() {
+    Fiber.scope(|| {
       d = Fiber.deferred()
-      a = Fiber.fork(fn() { Deferred.await(d) + 1 })
-      b = Fiber.fork(fn() { Deferred.await(d) + 2 })
-      Fiber.fork(fn() {
+      a = Fiber.fork(|| Deferred.await(d) + 1)
+      b = Fiber.fork(|| Deferred.await(d) + 2)
+      Fiber.fork(|| {
         (use Clock).sleep(10)
         Deferred.complete(d, 40)
       })
@@ -539,19 +540,19 @@ fn using_an_ended_scope_is_a_defect() {
             r##"
 fn main() {
   with SystemConsole {
-    join_later = Fiber.scope(fn() {
-      h = Fiber.fork(fn() { 1 })
-      fn() { Fiber.join(h) }
+    join_later = Fiber.scope(|| {
+      h = Fiber.fork(|| 1)
+      || Fiber.join(h)
     })
-    say(show(Fiber.attempt(fn() { join_later() })))
-    complete_later = Fiber.scope(fn() {
+    say(show(Exit.attempt(|| join_later())))
+    complete_later = Fiber.scope(|| {
       d = Fiber.deferred()
-      fn() { Deferred.complete(d, 1) }
+      || Deferred.complete(d, 1)
     })
-    say(show(Fiber.attempt(fn() { complete_later() })))
-    poll_later = Fiber.scope(fn() {
+    say(show(Exit.attempt(|| complete_later())))
+    poll_later = Fiber.scope(|| {
       d = Fiber.deferred()
-      fn() { Deferred.poll(d) }
+      || Deferred.poll(d)
     })
     poll_later()
     ()
@@ -586,7 +587,7 @@ fn fibers_in_tests() {
 @test
 fn joins() {
   with SystemConsole, SystemClock {
-    xs = Fiber.all([fn() { fetch(1, 20) }, fn() { fetch(2, 10) }])
+    xs = Fiber.all([|| fetch(1, 20), || fetch(2, 10)])
     assert xs == [10, 20]
   }
 }
@@ -594,22 +595,22 @@ fn joins() {
 @test
 fn races() {
   with SystemConsole, SystemClock {
-    assert Fiber.race([fn() { fetch(1, 200) }, fn() { fetch(2, 10) }]) == 20
+    assert Fiber.race([|| fetch(1, 200), || fetch(2, 10)]) == 20
   }
 }
 
 @test
 fn child_error() {
-  Fiber.scope(fn() {
-    h = Fiber.fork(fn() { boom() })
+  Fiber.scope(|| {
+    h = Fiber.fork(|| boom())
     Fiber.join(h)
   })
 }
 
 @test
 fn child_defect() {
-  Fiber.scope(fn() {
-    h = Fiber.fork(fn() { panic("child") })
+  Fiber.scope(|| {
+    h = Fiber.fork(|| panic("child"))
     Fiber.join(h)
   })
 }
@@ -644,7 +645,7 @@ fn test_clock_runs_on_virtual_time() {
             "import Std.Clock.{TestClock}\nimport Std.Console.{TestConsole}\n\
              import Std.State.{State}\nimport Std.Instant.{Instant}\n",
             r##"
-fn at(text: String) -> () use { Clock, Console } {
+fn at(text: String) -> () uses { Clock, Console } {
   ms = Instant.to_unix_milliseconds((use Clock).now())
   say("#{text} at #{ms}")
 }
@@ -655,19 +656,19 @@ fn zero() -> Instant {
 
 @test
 fn wakes_in_time_order() {
-  ((_, lines), end) = State.run(zero(), fn() {
-    State.run([], fn() {
+  ((_, lines), end) = State.run(zero(), || {
+    State.run([], || {
       with TestConsole, TestClock {
-        Fiber.scope(fn() {
-          Fiber.fork(fn() {
+        Fiber.scope(|| {
+          Fiber.fork(|| {
             (use Clock).sleep(30)
             at("a")
           })
-          Fiber.fork(fn() {
+          Fiber.fork(|| {
             (use Clock).sleep(10)
             at("b")
           })
-          Fiber.fork(fn() {
+          Fiber.fork(|| {
             (use Clock).sleep(10)
             at("c")
           })
@@ -683,9 +684,9 @@ fn wakes_in_time_order() {
 
 @test
 fn timeout_gives_up_at_once() {
-  (r, end) = State.run(zero(), fn() {
+  (r, end) = State.run(zero(), || {
     with TestClock {
-      Fiber.timeout(60000, fn() {
+      Fiber.timeout(60000, || {
         (use Clock).sleep(3600000)
         1
       })
@@ -697,9 +698,9 @@ fn timeout_gives_up_at_once() {
 
 @test
 fn timeout_returns_in_time() {
-  (r, end) = State.run(zero(), fn() {
+  (r, end) = State.run(zero(), || {
     with TestClock {
-      Fiber.timeout(60000, fn() {
+      Fiber.timeout(60000, || {
         (use Clock).sleep(10)
         5
       })
@@ -711,14 +712,14 @@ fn timeout_returns_in_time() {
 
 @test
 fn race_takes_the_earliest() {
-  (r, end) = State.run(zero(), fn() {
+  (r, end) = State.run(zero(), || {
     with TestClock {
       Fiber.race([
-        fn() {
+        || {
           (use Clock).sleep(3600000)
           1
         },
-        fn() {
+        || {
           (use Clock).sleep(10)
           2
         },

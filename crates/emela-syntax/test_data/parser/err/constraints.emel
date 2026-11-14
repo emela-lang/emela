@@ -12,7 +12,7 @@ handler Second: Logger {
   fn missing()
 }
 impl Thing: Show {
-  fn show(self) -> String fails E use Io { "" }
+  fn show(self) -> String fails E uses { Io } { "" }
   fn nobody(self)
 }
 trait Fine { fn bodyless(self) -> Int }
@@ -21,7 +21,7 @@ fn ok_external(x: Int) -> Int
 @external(wasm, "env", "ok_suspend")
 suspend fn ok_suspend() -> ()
 effect Store {
-  fn get(key: String) -> String use Db
-  fn put(key: String) -> () fails Full use { Db, Clock }
+  fn get(key: String) -> String uses { Db }
+  fn put(key: String) -> () fails Full uses { Db, Clock }
   fn ok(key: String) -> () fails Full
 }

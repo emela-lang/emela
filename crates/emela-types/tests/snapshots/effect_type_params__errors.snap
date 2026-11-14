@@ -1,12 +1,12 @@
 ---
 source: crates/emela-types/tests/effect_type_params.rs
-expression: "render(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Raise[E] {\n  fn guard(f: fn() -> () fails E) -> ()\n}\n\nhandler Generic: State {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler TooMany: State[Int, String] {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nfn omitted() { (use State).get() }\n\nfn clause() -> () use State { () }\n\nfn logger() { (use Logger[Int]).info(\"a\") }\n\nfn wrong_value() { (use State[Int]).set(\"a\") }\n\nfn undeclared() -> () use State[Int] {\n  (use State[String]).set(\"a\")\n}\n\nfn as_type(x: State[Int]) { () }\n\"#)"
+expression: "render(r#\"\nimport Std.State.{State}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Raise[E] {\n  fn guard(f: fn() -> () fails E) -> ()\n}\n\nhandler Generic: State {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler TooMany: State[Int, String] {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nfn omitted() { (use State).get() }\n\nfn clause() -> () uses { State } { () }\n\nfn logger() { (use Logger[Int]).info(\"a\") }\n\nfn wrong_value() { (use State[Int]).set(\"a\") }\n\nfn undeclared() -> () uses { State[Int] } {\n  (use State[String]).set(\"a\")\n}\n\nfn as_type(x: State[Int]) { () }\n\"#)"
 ---
-omitted: fn() -> {unknown} use State[{unknown}]
-clause: fn() -> () use State[{unknown}]
-logger: fn() -> () use Logger
-wrong_value: fn() -> () use State[Int]
-undeclared: fn() -> () use State[Int]
+omitted: fn() -> {unknown} uses { State[{unknown}] }
+clause: fn() -> () uses { State[{unknown}] }
+logger: fn() -> () uses { Logger }
+wrong_value: fn() -> () uses { State[Int] }
+undeclared: fn() -> () uses { State[Int] }
 as_type: fn({unknown}) -> ()
   x: {unknown}
 handler Generic: use {}

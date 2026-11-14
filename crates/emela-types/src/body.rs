@@ -3,7 +3,7 @@
 //! A [`BodyInfer`] is created per group of mutually referring definitions (a strongly connected
 //! component of the call graph), and expressions are inferred bottom-up. On a type mismatch, a
 //! diagnostic with the expression's span is pushed and inference continues. Definitions without
-//! a declared type (fns without a return type or `use` clause, consts without a type) are
+//! a declared type (fns without a return type or `uses` clause, consts without a type) are
 //! referred to monomorphically within the group and generalized once the group is inferred
 //! ([`crate::check`]). Handlers are definitions in the group too: their operation bodies are
 //! inferred and their dependencies (the R of the operation bodies) computed.
@@ -160,7 +160,7 @@ pub(crate) struct BodyInfer<'a> {
     ///
     /// Such a reference replaces the written type parameters, and the parts not yet known, with
     /// fresh type variables. Unifying with the definition's type directly would leak its type
-    /// parameters into the other definitions. The `R` of a referenced fn without a `use` clause
+    /// parameters into the other definitions. The `R` of a referenced fn without a `uses` clause
     /// goes through the same check.
     deferred: Vec<DeferredRef>,
     locals: SparseMap<LocalId, Ty>,
@@ -188,9 +188,9 @@ pub(crate) struct BodyInfer<'a> {
     /// Set variables that remove tags caught by `escape` from a set variable's solution
     /// (`δ ⊇ v ∖ tags`).
     row_diffs: Vec<(RowVar, RowVar, Vec<Tag>)>,
-    /// `escape` inner expressions and the errors their arms catch (arm pattern and tag), for the
-    /// W0302 check.
-    escapes: Vec<(ExprId, Vec<(PatId, DefId)>)>,
+    /// `escape` inner expressions, the errors their arms catch and their arm `_`, for the W0302
+    /// check.
+    escapes: Vec<errors::Escape>,
     /// Each expression's effect set, computed after body inference (`body/effects.rs`).
     expr_effects: SparseMap<ExprId, Row>,
     /// References to capability operations → effect operations.
@@ -410,7 +410,7 @@ impl<'a> BodyInfer<'a> {
                     }
                     None => (self.ctx.new_var(), Row::var(self.ctx.new_row_var())),
                 };
-                // Without a `use` clause, R is inferred from the body (spec 9.3).
+                // Without a `uses` clause, R is inferred from the body (spec 9.3).
                 let uses = match item.sig.uses {
                     Some(_) => {
                         fn_params.declared_uses(program, self.ty_table, &item.sig, &mut self.diags)
@@ -1158,7 +1158,7 @@ impl<'a> BodyInfer<'a> {
         });
     }
 
-    /// An `@external` fn with `use` omitted and an `@external suspend fn` can only be used inside
+    /// An `@external` fn with `uses` omitted and an `@external suspend fn` can only be used inside
     /// handler operation bodies (spec 12.2). Checked on every reference, not only calls, so they
     /// cannot be smuggled out as function values.
     fn check_external(&mut self, def: DefId, span: Span) {
@@ -1949,26 +1949,50 @@ impl<'a> BodyInfer<'a> {
         result
     }
 
-    /// The type of `escape` (spec 7.3). Arm patterns are error constructors matched against values
-    /// of that type. Arm results have the inner expression's type or Never, and the whole has the
-    /// inner expression's type. Caught tags and E are handled when the body's E is computed
-    /// (`body/errors.rs`). Arms need not be exhaustive.
+    /// The type of `escape` (`[error.escape]`). Arm patterns are error constructors matched against
+    /// values of that type, or `_`. Arm results have the inner expression's type or Never, and the
+    /// whole has the inner expression's type. Caught tags and E are handled when the body's E is
+    /// computed (`body/errors.rs`). Arms need not be exhaustive.
+    ///
+    /// Every arm below an arm `_` without a guard is unreachable (W0301), whatever the E of the
+    /// inner expression. Such arms are reported here and left out of the per-error groups, so an arm
+    /// both below `_` and covered by an arm of its error is reported once.
     fn infer_escape(&mut self, inner: ExprId, arms: &[Arm]) -> Ty {
         let program = self.program;
         let inner_ty = self.infer_expr(inner);
         let mut groups: Vec<(DefId, Ty, Vec<Arm>)> = Vec::new();
         let mut result = inner_ty;
+        let mut below_wildcard = false;
         for arm in arms {
             let p = &program.pats[arm.pat];
+            if below_wildcard {
+                self.diags.push(Diagnostic {
+                    span: Some(p.span),
+                    kind: DiagnosticKind::UnreachableArm,
+                });
+            }
             match &p.kind {
                 PatKind::Ctor {
                     res: Res::Def(def), ..
                 } if program.defs[*def].kind == DefKind::Error => {
                     let ty = self.ty_table.self_ty(*def).unwrap_or(Ty::Error);
                     self.bind_pat(arm.pat, &ty);
-                    match groups.iter_mut().find(|(d, _, _)| d == def) {
-                        Some((_, _, group)) => group.push(arm.clone()),
-                        None => groups.push((*def, ty, vec![arm.clone()])),
+                    if !below_wildcard {
+                        match groups.iter_mut().find(|(d, _, _)| d == def) {
+                            Some((_, _, group)) => group.push(arm.clone()),
+                            None => groups.push((*def, ty, vec![arm.clone()])),
+                        }
+                    }
+                }
+                // `_` binds nothing, so its type is never read.
+                PatKind::Wild => {
+                    self.bind_pat(arm.pat, &Ty::Error);
+                    match arm.guard {
+                        Some(guard) => self.diags.push(Diagnostic {
+                            span: Some(program.exprs[guard].span),
+                            kind: DiagnosticKind::EscapeWildcardGuard,
+                        }),
+                        None => below_wildcard = true,
                     }
                 }
                 // Name resolution has reported non-error constructors.

@@ -1,8 +1,9 @@
 {
   "name": "emela",
   "displayName": "Emela",
+  "icon": "./icons/emela-logo.png",
   "description": "Emela language support: diagnostics, completion and the other features of `emela lsp`, plus syntax highlighting.",
-  "version": "0.25.0",
+  "version": "0.27.0",
   "publisher": "Emela",
   "license": "Apache-2.0",
   "repository": {
@@ -28,7 +29,11 @@
         "extensions": [
           ".emel"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/emela-logo-simple.svg",
+          "dark": "./icons/emela-logo-simple.svg"
+        }
       }
     ],
     "grammars": [
@@ -70,7 +75,7 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "4.1.0",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.28.0",
     "typescript": "^5.4.0"
   }
 }
