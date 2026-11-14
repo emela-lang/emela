@@ -9,7 +9,8 @@
 
 どちらも配布物は `emela` バイナリの tarball
 `emela-<tag>-<target>.tar.gz`（`x86_64-unknown-linux-gnu` と `aarch64-apple-darwin`）
-で、`install.sh` がこの名前を引く。
+と、Windows 向けの zip `emela-<tag>-x86_64-pc-windows-msvc.zip`（中身は `emela.exe`）。
+`install.sh` は tarball の名前を引く。Windows 向けのインストーラはまだない。
 
 VSCode 拡張（`editors/vscode`）は別に出す。下の「VSCode 拡張」を見る。
 
@@ -43,7 +44,7 @@ VSCode 拡張（`editors/vscode`）は別に出す。下の「VSCode 拡張」�
 4. `release-plz.yml` が続けて動く。
    1. release-plz が `vX.Y.Z` タグを打ち、下書きの GitHub Release を作る
       （タグを打つのは `emela-cli` パッケージだけ）。
-   2. `build` が Linux と macOS で tarball を作り、Release に載せる。
+   2. `build` が Linux と macOS で tarball を、Windows で zip を作り、Release に載せる。
    3. `publish-release` が下書きを公開する。
    4. `notify-nix` が emela.nix に新しい版を知らせる。
 
@@ -57,10 +58,11 @@ VSCode 拡張（`editors/vscode`）は別に出す。下の「VSCode 拡張」�
 
 1. タグ（先頭の `v` を除く）と `emela-cli` の version（workspace の version）が
    一致するか確かめる。違えば失敗する。ビルド後に `emela --version` も確かめる。
-2. Linux（`x86_64-unknown-linux-gnu`）と macOS（`aarch64-apple-darwin`）で
-   `cargo build --release --bin emela` を走らせ、tarball に固める。
+2. Linux（`x86_64-unknown-linux-gnu`）、macOS（`aarch64-apple-darwin`）、
+   Windows（`x86_64-pc-windows-msvc`）で `cargo build --release --bin emela` を走らせ、
+   tarball（Windows は zip）に固める。
 3. GitHub Release を prerelease として作り（本文は `--generate-notes`）、
-   2つの tarball を載せる。同じタグの Release が既にあれば tarball を差し替える。
+   2つの tarball と zip を載せる。同じタグの Release が既にあれば tarball を差し替える。
 
 emela.nix には知らせない（正式版だけ）。
 
