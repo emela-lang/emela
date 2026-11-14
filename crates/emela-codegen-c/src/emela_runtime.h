@@ -388,7 +388,8 @@ void em_run(em_word (*entry)(void), int32_t repr);
 /* ---- The program ---- */
 
 /* Starts the runtime. Later calls do nothing: an exported function called before main starts it
- * (`[target.c.export]`). */
+ * (`[target.c.export]`). `argv[1]` and after are the arguments that `Args` of `Std.Process`
+ * returns; the test executable passes none (`[cmd.test.output]`). */
 void em_start(int argc, char **argv);
 
 /* ---- Exported functions (`[target.c.export]`) ----

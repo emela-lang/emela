@@ -1,7 +1,7 @@
 //! The canonical ABI helpers of the host calls that return a `list` or a `string`
-//! (`get-environment`, `get-directories`, `read-directory`): the exported `cabi_realloc` the host
+//! (`get-environment`, `get-arguments`, `get-directories`, `read-directory`): the exported `cabi_realloc` the host
 //! allocates them with, and `str_from_raw`, which copies the host's bytes into a string object.
-//! `Std.Env` and `Std.FileSystem` share them.
+//! `Std.Env`, `Std.Process` and `Std.FileSystem` share them.
 
 use super::*;
 
@@ -29,7 +29,10 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
 }
 
 pub(super) fn used(b: &Builder) -> bool {
-    b.uses_env() || b.uses_std_host(StdHost::is_fs) || b.uses_std_host(StdHost::is_http)
+    b.uses_env()
+        || b.uses_std_host(StdHost::is_args)
+        || b.uses_std_host(StdHost::is_fs)
+        || b.uses_std_host(StdHost::is_http)
 }
 
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {

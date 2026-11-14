@@ -1,0 +1,83 @@
+# The rules of `[api.std.process]` that `emela test` can check on every target: TestStdin, and
+# what SystemArgs gives under `emela test`.
+
+import Std.Console.{Console, TestConsole}
+import Std.Process.{Args, InvalidInput, Stdin, StdinFailure, StdinLines, SystemArgs, TestStdin}
+import Std.State.{State}
+
+fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {
+  (use Stdin).read_line() match {
+    None -> ()
+    Some(line) -> {
+      (use Console).print_line("#{prefix}#{line}")
+      quote(prefix)
+    }
+  }
+}
+
+@test
+fn quotes_each_line() {
+  ((_, rest), lines) = State.run([], || {
+    State.run(StdinLines(lines: ["a", "b"]), || with TestStdin, TestConsole { quote("> ") })
+  })
+  assert lines == ["> a", "> b"]
+  assert rest == StdinLines(lines: [])
+}
+
+@test
+fn read_line_takes_the_first_line_then_none() {
+  (lines, rest) = State.run(StdinLines(lines: ["a", "", "c"]), || {
+    with TestStdin {
+      s = use Stdin
+      [s.read_line(), s.read_line(), s.read_line(), s.read_line(), s.read_line()]
+    }
+  })
+  assert lines == [Some("a"), Some(""), Some("c"), None, None]
+  assert rest == StdinLines(lines: [])
+}
+
+@test
+fn read_text_joins_the_lines_left() {
+  ((first, text, after), rest) = State.run(StdinLines(lines: ["a", "b", "c"]), || {
+    with TestStdin {
+      s = use Stdin
+      (s.read_line(), s.read_text(), s.read_text())
+    }
+  })
+  assert first == Some("a")
+  assert text == "b\nc"
+  assert after == ""
+  assert rest == StdinLines(lines: [])
+}
+
+@test
+fn read_text_of_no_lines_is_empty() {
+  (text, _) = State.run(StdinLines(lines: []), || with TestStdin { (use Stdin).read_text() })
+  assert text == ""
+}
+
+@test
+fn read_line_leaves_the_lines_not_read() {
+  (_, rest) = State.run(
+    StdinLines(lines: ["a", "b"]),
+    || with TestStdin { (use Stdin).read_line() },
+  )
+  assert rest == StdinLines(lines: ["b"])
+}
+
+@test
+fn derived_impls() {
+  assert "#{StdinLines(lines: ["a"])}" == "StdinLines(lines: [\"a\"])"
+  assert "#{InvalidInput}" == "InvalidInput"
+  assert "#{StdinFailure(message: "x")}" == "StdinFailure(message: \"x\")"
+}
+
+@test
+fn system_args_are_empty_under_test() {
+  with SystemArgs {
+    a = use Args
+    assert a.list() == []
+    assert a.get(0) == None
+    assert a.get(-1) == None
+  }
+}

@@ -3,7 +3,7 @@
 //! A program's own `@external(wasm, ...)` is not a component import: a component can only import
 //! interfaces its WIT world declares, and custom host WIT is not implemented. The bundled `Std`
 //! modules do name a few WASI 0.3 functions (`Std.Console` stdout/stderr, `Std.Env`,
-//! `Std.Random`, `Std.Clock.now` and `Std.Clock.sleep`); each of those externals is a runtime
+//! the arguments of `Std.Process`, `Std.Random`, `Std.Clock.now` and `Std.Clock.sleep`); each of those externals is a runtime
 //! wrapper with its own encoding of the host's result. `Std.FileSystem` names
 //! `emela:runtime/filesystem@0.1.0`, a runtime label rather than a WIT interface: one operation
 //! takes several `wasi:filesystem` calls, which the runtime imports itself. The entry adapter of
@@ -26,6 +26,10 @@ pub(crate) enum StdHost {
     EnvHas,
     /// `Std.Env.get`: the value of the name.
     EnvGet,
+    /// `Std.Process.arg_count`: the number of arguments of the program.
+    ArgCount,
+    /// `Std.Process.arg_at`: one argument of the program.
+    ArgAt,
     /// `Std.Random.int`: 32 random bits.
     RandomInt,
     /// `Std.Random.float`: uniform in `[0, 1)`.
@@ -95,6 +99,8 @@ impl StdHost {
             StdHost::ConsoleErr => "print_error_line",
             StdHost::EnvHas => "env_has",
             StdHost::EnvGet => "env_get",
+            StdHost::ArgCount => "args_count",
+            StdHost::ArgAt => "args_at",
             StdHost::RandomInt => "random_int",
             StdHost::RandomFloat => "random_float",
             StdHost::ClockNow => "clock_now",
@@ -134,6 +140,10 @@ impl StdHost {
 
     pub(crate) fn is_env(self) -> bool {
         matches!(self, StdHost::EnvHas | StdHost::EnvGet)
+    }
+
+    pub(crate) fn is_args(self) -> bool {
+        matches!(self, StdHost::ArgCount | StdHost::ArgAt)
     }
 
     pub(crate) fn is_random(self) -> bool {
@@ -200,6 +210,8 @@ const STD_HOSTS: &[(&str, StdHost)] = &[
     ("Std.Console.console_error", StdHost::ConsoleErr),
     ("Std.Env.env_has", StdHost::EnvHas),
     ("Std.Env.env_get", StdHost::EnvGet),
+    ("Std.Process.arg_count", StdHost::ArgCount),
+    ("Std.Process.arg_at", StdHost::ArgAt),
     ("Std.Random.random_int", StdHost::RandomInt),
     ("Std.Random.random_float", StdHost::RandomFloat),
     ("Std.Clock.now_milliseconds", StdHost::ClockNow),

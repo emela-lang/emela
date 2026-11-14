@@ -1,0 +1,15 @@
+# The arguments after `--` of `emela run` (`[api.std.process]`).
+
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+import Std.Process.{Args}
+
+fn main() {
+  with Platform {
+    a = use Args
+    c = use Console
+    c.print_line("#{a.list()}")
+    c.print_line("#{a.list() == a.list()}")
+    c.print_line("#{[a.get(0), a.get(2), a.get(3), a.get(-1)]}")
+  }
+}

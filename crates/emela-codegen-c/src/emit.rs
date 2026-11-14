@@ -1817,11 +1817,12 @@ impl<'m> Emitter<'m> {
         self.errors.push(CError::new(CErrorKind::Unsupported, what));
     }
 
-    /// `int main(int argc, char **argv)`: starts the runtime, runs `body` and exits.
-    fn main_func(out: &mut Writer, body: impl FnOnce(&mut Writer)) {
+    /// `int main(int argc, char **argv)`: starts the runtime, runs `body` and exits. `start` is
+    /// the call that starts the runtime.
+    fn main_func(out: &mut Writer, start: &str, body: impl FnOnce(&mut Writer)) {
         let sig = signature("int", "main", ["int argc", "char **argv"]);
         out.func(&sig, |w| {
-            w.stmt("em_start(argc, argv)");
+            w.stmt(start);
             body(w);
             w.ret(Some("em_exit(em_cleanup)"));
         });
@@ -1834,7 +1835,9 @@ impl<'m> Emitter<'m> {
             .iter()
             .map(|(_, id)| self.entry_thunk(out, *id))
             .collect();
-        Self::main_func(out, |w| {
+        // The arguments that the test runner passes are not the program's: `Args` returns `[]`
+        // under `emela test` (`[cmd.test.output]`).
+        Self::main_func(out, "(void)argc; (void)argv; em_start(0, NULL)", |w| {
             for ((name, _), (thunk, ret)) in tests.iter().zip(thunks) {
                 w.stmt(&call("em_run", [thunk.as_str(), repr_code(ret)]));
                 w.stmt(&call(
@@ -1849,7 +1852,7 @@ impl<'m> Emitter<'m> {
     fn c_main(&mut self, out: &mut Writer, main: Option<FnId>) {
         self.cleanup(out);
         let thunk = main.map(|id| self.entry_thunk(out, id));
-        Self::main_func(out, |w| {
+        Self::main_func(out, "em_start(argc, argv)", |w| {
             if let Some((thunk, ret)) = thunk {
                 w.stmt(&call("em_run", [thunk.as_str(), repr_code(ret)]));
             }
