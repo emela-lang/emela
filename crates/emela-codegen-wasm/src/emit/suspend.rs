@@ -447,7 +447,7 @@ fn emit_machine(b: &mut Builder<'_>, mp: MachinePlan) -> (WasmFunction, WasmFunc
     let mut func = WasmFunction::new(decls);
     {
         let mut ins = func.instructions();
-        emit_restore(&mut mcx, &mut ins, &resumes);
+        emit_restore(&mut mcx, &mut ins, &resumes, n);
         ins.loop_(BlockType::Empty);
         for _ in 0..=n {
             ins.block(BlockType::Empty);
@@ -480,45 +480,52 @@ fn emit_machine(b: &mut Builder<'_>, mp: MachinePlan) -> (WasmFunction, WasmFunc
 
 /// The frame entry of a state machine: restore the saved variables of the frame's state, free the
 /// frame and dispatch to the resume point.
-fn emit_restore(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, resumes: &[ResumePoint]) {
+///
+/// The dispatch is a `br_table` over the state, like the main dispatch. State `k`'s case sits just
+/// after the `k`-th block, so a table entry is the state itself. A frame only ever holds a resume
+/// state, so every other state (and a state past the table) is unreachable, as an unknown state
+/// was before: it restored nothing, freed the frame and hit the dispatch's default.
+fn emit_restore(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, resumes: &[ResumePoint], n: u32) {
     let fr = mcx.fr;
     ins.local_get(fr);
     ins.if_(BlockType::Empty);
+    let state = mcx.state;
+    let pending = mcx.pending;
     ins.local_get(fr);
     ins.i32_load(mem(HDR + 8, 4));
-    ins.local_set(mcx.state);
+    ins.local_set(state);
     ins.i32_const(1);
-    ins.local_set(mcx.pending);
-    for r in resumes {
-        ins.local_get(mcx.state);
-        ins.i32_const(r.state as i32);
-        ins.i32_eq();
-        ins.if_(BlockType::Empty);
-        for (i, &v) in r.saved.iter().enumerate() {
-            let off = HDR + (3 + i as u32) * 8;
-            let repr = mcx.f.vars[v].repr;
-            // A variable without representation is never live, so it is never saved.
-            debug_assert_ne!(repr, Repr::Void, "a saved variable without representation");
-            if repr == Repr::Void {
-                continue;
-            }
-            ins.local_get(fr);
-            match repr {
-                Repr::I32 | Repr::Ref => ins.i32_load(mem(off, 4)),
-                Repr::I64 => ins.i64_load(mem(off, 8)),
-                Repr::F64 => ins.f64_load(mem(off, 8)),
-                Repr::Void => continue,
-            };
-            ins.local_set(mcx.local(v));
-            if repr == Repr::Ref {
-                // The reference moved from the frame into the local.
-                ins.local_get(fr);
-                ins.i32_const(0);
-                ins.i32_store(mem(off, 4));
-            }
-        }
-        ins.end();
+    ins.local_set(pending);
+    // One block per state, inside the block of an unknown state, inside the block the cases
+    // branch to for the common free. From the innermost state block, the state `k` block is at
+    // depth `k`, the unknown block at `n + 1` and the common block at `n + 2`.
+    ins.block(BlockType::Empty);
+    ins.block(BlockType::Empty);
+    for _ in 0..=n {
+        ins.block(BlockType::Empty);
     }
+    ins.local_get(state);
+    let mut targets = vec![n + 1; (n + 1) as usize];
+    for r in resumes {
+        targets[r.state as usize] = r.state;
+    }
+    ins.br_table(targets, n + 1);
+    for k in 0..=n {
+        // Close the block of state `k`; its case follows.
+        ins.end();
+        if let Some(r) = resumes.iter().find(|r| r.state == k) {
+            emit_restore_vars(mcx, ins, r);
+        }
+        // The case is inside the next state block (or the unknown block for the last state), so
+        // the common block is `n - k + 1` labels out.
+        ins.br(n - k + 1);
+    }
+    // An unknown state is unreachable: a frame only ever holds a resume state.
+    ins.end();
+    ins.unreachable();
+    ins.end();
+    // The common code of every case: free the frame, whose state and saved variables are now in
+    // the locals. Control then leaves the `if`.
     ins.local_get(fr);
     ins.i32_const(0);
     ins.i32_store(mem(HDR + 16, 4));
@@ -527,10 +534,38 @@ fn emit_restore(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, resumes: &[Res
     ins.call(drop);
     ins.else_();
     ins.i32_const(0);
-    ins.local_set(mcx.state);
+    ins.local_set(state);
     ins.i32_const(0);
-    ins.local_set(mcx.pending);
+    ins.local_set(pending);
     ins.end();
+}
+
+/// Restores the variables a frame saved at one resume point into their locals.
+fn emit_restore_vars(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, r: &ResumePoint) {
+    let fr = mcx.fr;
+    for (i, &v) in r.saved.iter().enumerate() {
+        let off = HDR + (3 + i as u32) * 8;
+        let repr = mcx.f.vars[v].repr;
+        // A variable without representation is never live, so it is never saved.
+        debug_assert_ne!(repr, Repr::Void, "a saved variable without representation");
+        if repr == Repr::Void {
+            continue;
+        }
+        ins.local_get(fr);
+        match repr {
+            Repr::I32 | Repr::Ref => ins.i32_load(mem(off, 4)),
+            Repr::I64 => ins.i64_load(mem(off, 8)),
+            Repr::F64 => ins.f64_load(mem(off, 8)),
+            Repr::Void => continue,
+        };
+        ins.local_set(mcx.local(v));
+        if repr == Repr::Ref {
+            // The reference moved from the frame into the local.
+            ins.local_get(fr);
+            ins.i32_const(0);
+            ins.i32_store(mem(off, 4));
+        }
+    }
 }
 
 /// Appends a chunk, writing the branches that the transitions recorded before the body's state
