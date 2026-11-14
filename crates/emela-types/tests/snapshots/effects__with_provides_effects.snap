@@ -10,6 +10,7 @@ main: fn() -> Int
 handler Quiet: use {}
 handler Stamped: use Clock
 handler Fixed: use {}
+`main` MainValueDiscarded { ty: "Int" }
 --- R
 {     t = (use Clock).now()     ()   }: Clock
 (use Clock).now(): Clock

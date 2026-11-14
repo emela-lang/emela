@@ -124,6 +124,7 @@ fn main() {
   dbg(p |> Show.show)
   f = Show.show
   dbg(List.map([u, p], f))
+  ()
 }
 "##;
 
@@ -159,6 +160,7 @@ fn main() {
   dbg(cmp("b", "a"))
   dbg(cmp(None, Some(1)))
   dbg(cmp(Some(3), Some(3)))
+  ()
 }
 "##;
 
@@ -230,6 +232,7 @@ fn main() {
   dbg(Ord.compare(Both(False, (1, "b")), Both(True, (0, "a"))))
   dbg(Ord.compare(Both(True, (1, "b")), Both(True, (1, "a"))))
   dbg(Show.show(Both(True, (1, "b"))))
+  ()
 }
 "##;
 
@@ -270,6 +273,7 @@ fn main() {
   dbg(Ord.compare(a, Bag(items: [1, 3], tag: None)))
   dbg(Ord.compare(Bag(items: [1], tag: None), Bag(items: [1], tag: Some("a"))))
   dbg(Eq.eq(a, a))
+  ()
 }
 "#;
     assert_eq!(
@@ -390,6 +394,7 @@ fn main() {
   dbg("#{Instant.from_unix_milliseconds(0)} #{Instant.from_unix_milliseconds(10) < Instant.from_unix_milliseconds(20)}")
   r = Request(method: Get, url: "u", headers: [], body: "")
   dbg("#{r} #{r == r} #{Fail} #{Fail == Fail}")
+  ()
 }
 "##;
     assert_eq!(
@@ -446,6 +451,7 @@ fn main() {
   dbg(inspect(Name(value: "h")))
   dbg(inspect([Box(value: "i")]))
   dbg("s")
+  ()
 }
 "##;
 
@@ -595,6 +601,7 @@ fn main() {
   dbg("#{Map.size(big)} #{Map.size(rest)} #{Map.keys(rest) == List.range(1500, 2000)}")
   s = Set.from_list([3, 1, 2, 3])
   dbg("#{s} #{Set.contains(s, 2)} #{Set.remove(s, 2)} #{Set.union(s, Set.from_list([5]))}")
+  ()
 }
 "##;
     assert_eq!(

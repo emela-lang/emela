@@ -15,6 +15,7 @@ with Hits by StrBox: init []
 with IntBox, Hits by Box[String]: init [IntBox]
 with IntBox, Hits by Box: init [IntBox]
 `of Box` MissingEffectTypeArgs { effect: "Box", params: ["T"], handler: None }
+`main` MainValueDiscarded { ty: "Int" }
 `name()` unhandled effects Names (Main)
 `StrBox` LabelMismatch { label: "Hits", base: "Box[Int]", provider: "StrBox", provided: "Box[String]" }
 `hits()` unhandled effects Hits (Main)

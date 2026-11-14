@@ -9,6 +9,7 @@ layer Pure: [RemoteKv] use {}
 layer Impure: [RemoteKv] use {}
 with Pure: init [RemoteKv]
 `use Config` unhandled effects Config (LayerArg(LayerArg { layer: "Impure", handler: "RemoteKv" }))
+`main` MainValueDiscarded { ty: "String" }
 --- R
 (use Config).url(): Config
 (use Config).url: Config

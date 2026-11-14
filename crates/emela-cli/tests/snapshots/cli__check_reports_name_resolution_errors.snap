@@ -47,4 +47,13 @@ error[E0213]: `twice` is defined more than once
     │      ╰──── 
 ────╯
 
-4 errors, 1 warning
+warning[W0304]: the value of type `Email` returned by `main` is discarded
+   ╭─[ src/main.emel:4:4 ]
+   │
+ 4 │ fn main() {
+   │    ──┬─  
+   │      ╰─── 
+───╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
+4 errors, 2 warnings

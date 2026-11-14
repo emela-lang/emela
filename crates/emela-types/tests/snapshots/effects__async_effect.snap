@@ -8,6 +8,7 @@ main: fn() -> Int uses { Async }
 handler MyAsync: use {}
 `MyAsync` AsyncHandler { handler: "MyAsync" }
 `use Async` UseAsync
+`main` MainValueDiscarded { ty: "Int" }
 --- R
 {   with MyAsync { declared() } }: Async
 with MyAsync { declared() }: Async

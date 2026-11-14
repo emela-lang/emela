@@ -46,4 +46,13 @@ error[E0301]: type mismatch: expected `Bool`, found `fn() -> Bool`
 ────╯
    = help: a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses
 
-5 errors
+warning[W0304]: the value of type `Int` returned by `main` is discarded
+    ╭─[ main.emel:25:14 ]
+    │
+ 25 │ fn main() -> Int {
+    │              ─┬─  
+    │               ╰─── 
+────╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
+5 errors, 1 warning

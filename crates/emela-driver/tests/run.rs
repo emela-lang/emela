@@ -398,15 +398,15 @@ fn const_self_reference_in_if_match_and_through_function_is_a_defect() {
     let cases = [
         (
             "const-self-if",
-            "const A: Int = if True { A } else { 0 }\nfn main() { dbg(A) }\n",
+            "const A: Int = if True { A } else { 0 }\nfn main() {\n  dbg(A)\n  ()\n}\n",
         ),
         (
             "const-self-match",
-            "const A: Int = True match {\n  True -> A\n  False -> 0\n}\nfn main() { dbg(A) }\n",
+            "const A: Int = True match {\n  True -> A\n  False -> 0\n}\nfn main() {\n  dbg(A)\n  ()\n}\n",
         ),
         (
             "const-self-indirect",
-            "const A: Int = if True { value() } else { 0 }\nfn value() -> Int { A }\nfn main() { dbg(A) }\n",
+            "const A: Int = if True { value() } else { 0 }\nfn value() -> Int { A }\nfn main() {\n  dbg(A)\n  ()\n}\n",
         ),
     ];
     for (name, source) in cases {
@@ -516,7 +516,10 @@ fn twice(x: Int) -> Int { x * 2 }
 
 pub fn hidden() -> Int { 1 }
 
-fn main() { dbg(twice(1)) }
+fn main() {
+  dbg(twice(1))
+  ()
+}
 "##;
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
@@ -605,7 +608,10 @@ fn later() -> String { with HostSource { Bytes.to_hex((use Source).next()) } }
 @export(js, "applied")
 fn applied() -> Int { apply(Bytes.size) }
 
-fn main() { dbg(size(Bytes.empty())) }
+fn main() {
+  dbg(size(Bytes.empty()))
+  ()
+}
 "##;
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
@@ -677,7 +683,7 @@ await m.later().catch((e) => console.log(e.name, e.message));
 fn main_with_a_host_export_runs() {
     let output = run_source(
         "main-host-export",
-        "@export(js, \"run\")\nfn main() -> Int {\n  dbg(41)\n  42\n}\n",
+        "@export(js, \"run\")\nfn main() -> () {\n  dbg(41)\n  ()\n}\n",
     );
     assert_eq!(text(&output.stdout), "");
     assert_eq!(text(&output.stderr), "41\n");
@@ -762,7 +768,10 @@ fn later() -> String { with HostSource { "#{(use Source).next()}" } }
 @export(js, "applied")
 fn applied() -> Int { apply(Array.size) }
 
-fn main() { dbg(size(Array.empty())) }
+fn main() {
+  dbg(size(Array.empty()))
+  ()
+}
 "##;
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
@@ -858,7 +867,7 @@ await m.later().catch((e) => console.log(e.name, e.message));
 
 #[test]
 fn source_runs_through_lowering() {
-    let output = run_source("lower-dbg", "fn main() {\n  dbg(1 + 2)\n}\n");
+    let output = run_source("lower-dbg", "fn main() {\n  dbg(1 + 2)\n  ()\n}\n");
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
         (0, "", "3\n")
@@ -901,6 +910,7 @@ fn main() {
     }
     None -> -1
   })
+  ()
 }
 "#,
     );
@@ -919,6 +929,7 @@ fn lowered_calls_reorder_named_args_and_reach_core() {
 fn main() {
   dbg(List.range(0, 3))
   dbg(scale(by: 3, n: String.length(\"emela\")))
+  ()
 }
 
 fn scale(n: Int, by: Int) -> Int {
@@ -935,7 +946,10 @@ fn scale(n: Int, by: Int) -> Int {
 #[test]
 fn lowered_int_arithmetic_wraps() {
     // Int overflow wraps at 32 bits (spec 16.1).
-    let output = run_source("lower-wrap", "fn main() {\n  dbg(2147483647 + 1)\n}\n");
+    let output = run_source(
+        "lower-wrap",
+        "fn main() {\n  dbg(2147483647 + 1)\n  ()\n}\n",
+    );
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
         (0, "", "-2147483648\n")
@@ -959,6 +973,7 @@ fn find(id: Int) -> Int fails NotFound | Unauthorized {
 fn main() {
   dbg(find(1))
   find(0)
+  ()
 }
 ",
     );
@@ -1030,6 +1045,7 @@ fn main() {
   dbg(convert(-1) escape { Unavailable(reason:) -> \"unavailable: #{reason}\" })
   dbg([1, 2] |> List.get(5) |> Option.or_fail(NotFound(id: 5)) escape { NotFound(id:) -> id * 10 })
   dbg(convert(0))
+  ()
 }
 ",
     );
@@ -1082,6 +1098,7 @@ fn main() {{
   dbg(by_guard(6))
   dbg(by_value(2) escape {{ NotFound(id:) -> id + 100 }})
   {last}
+  ()
 }}
 "
         )
@@ -1114,6 +1131,7 @@ fn search(n: Int, target: Int) -> Int fails Found {
 fn main() {
   dbg(search(1000000, 3) escape { Found(at:) -> at })
   dbg(search(1000000, -5))
+  ()
 }
 ",
     );
@@ -1403,6 +1421,7 @@ fn lists_strings_and_int64_run_through_core() {
   big = Int64.from_int(2147483647) * Int64.from_int(4)
   one = Int64.from_int(1)
   dbg((big.compare(one), Int64.min(big, one), Int64.max(big, one), Int64.abs(-big)))
+  ()
 }
 "##,
     );

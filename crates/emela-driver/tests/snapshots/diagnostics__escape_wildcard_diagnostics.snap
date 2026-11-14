@@ -2,6 +2,15 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
+warning[W0304]: the value of type `(Int, Int, Int, Int)` returned by `main` is discarded
+   ╭─[ main.emel:6:4 ]
+   │
+ 6 │ fn main() {
+   │    ──┬─  
+   │      ╰─── 
+───╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
 warning[W0302]: no error is raised here
    ╭─[ main.emel:7:25 ]
    │
@@ -34,4 +43,4 @@ error[E0320]: escape arms must match an error constructor or `_`
     │                       ╰── 
 ────╯
 
-2 errors, 2 warnings
+2 errors, 3 warnings

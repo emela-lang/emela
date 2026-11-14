@@ -52,4 +52,13 @@ error[E0320]: escape arms must match an error constructor or `_`
     │                                               ╰── 
 ────╯
 
-5 errors, 1 warning
+warning[W0304]: the value of type `Int` returned by `main` is discarded
+    ╭─[ src/main.emel:27:4 ]
+    │
+ 27 │ fn main() {
+    │    ──┬─  
+    │      ╰─── 
+────╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
+5 errors, 2 warnings
