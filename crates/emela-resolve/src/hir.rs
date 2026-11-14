@@ -118,6 +118,8 @@ pub enum LocalKind {
     PatParam,
     /// A binding `x = ...` and the variables in its pattern.
     Binding,
+    /// The name of a local fn (`[fn.local]`). Its parameters are [`LocalKind::Param`].
+    LocalFn,
     /// Variables in the patterns of match and escape arms.
     ArmBinding,
 }
@@ -470,7 +472,21 @@ pub enum Stmt {
         ty: Option<TypeId>,
         value: ExprId,
     },
+    /// `fn name(params) -> T fails E uses { R } { body }` (`[fn.local]`).
+    LocalFn(Box<LocalFn>),
     Expr(ExprId),
+}
+
+/// A local fn (`[fn.local]`). `local` is its name, visible from the declaration to the end of the
+/// block and inside `body`. `sig` has no type parameters and is not suspend (E0150 is reported
+/// by the parser; what was written there is left out).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalFn {
+    pub local: LocalId,
+    pub sig: FnSig,
+    pub body: ExprId,
+    /// The declaration, from `fn` (or its doc comment) to the end of the body.
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -829,6 +845,84 @@ impl Program {
             })) => Some(*base),
             _ => None,
         }
+    }
+
+    /// The expressions directly inside `expr`, in source order: operands, arguments, statements,
+    /// arm guards and bodies, the arguments of `with` items, and the bodies of lambdas and local
+    /// fns.
+    pub fn child_exprs(&self, expr: ExprId) -> Vec<ExprId> {
+        let mut out = Vec::new();
+        match &self.exprs[expr].kind {
+            ExprKind::Missing
+            | ExprKind::Lit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Unit
+            | ExprKind::Use { .. } => {}
+            ExprKind::Interpolated(parts) => {
+                for part in parts {
+                    if let StrPart::Interp(e) = part {
+                        out.push(*e);
+                    }
+                }
+            }
+            ExprKind::Field { base, .. } => out.push(*base),
+            ExprKind::Call { callee, args } => {
+                out.push(*callee);
+                out.extend(args.iter().map(|a| a.value));
+            }
+            ExprKind::Unary { operand, .. } => out.push(*operand),
+            ExprKind::Binary { lhs, rhs, .. } => out.extend([*lhs, *rhs]),
+            ExprKind::Tuple(elems) => out.extend(elems),
+            ExprKind::List { elems, rest } => {
+                out.extend(elems);
+                out.extend(rest);
+            }
+            ExprKind::Block(block) => {
+                for stmt in &block.stmts {
+                    match stmt {
+                        Stmt::Let { value, .. } => out.push(*value),
+                        Stmt::LocalFn(f) => out.push(f.body),
+                        Stmt::Expr(e) => out.push(*e),
+                    }
+                }
+                out.extend(block.tail);
+            }
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                out.extend([*cond, *then_branch]);
+                out.extend(else_branch);
+            }
+            ExprKind::Match {
+                scrutinee: inner,
+                arms,
+            }
+            | ExprKind::Escape { expr: inner, arms } => {
+                out.push(*inner);
+                for arm in arms {
+                    out.extend(arm.guard);
+                    out.push(arm.body);
+                }
+            }
+            ExprKind::Fail(e) | ExprKind::Assert(e) => out.push(*e),
+            ExprKind::Update { ctor, fields, base } => {
+                out.push(*ctor);
+                out.extend(fields.iter().map(|f| f.value));
+                out.push(*base);
+            }
+            ExprKind::With { handlers, body } => {
+                for item in handlers {
+                    for args in [&item.args, &item.by_init_args].into_iter().flatten() {
+                        out.extend(args.args.iter().map(|a| a.value));
+                    }
+                }
+                out.push(*body);
+            }
+            ExprKind::Lambda { body, .. } => out.push(*body),
+        }
+        out
     }
 
     /// The operations of an effect. A label has those of its base (one level: the base of a

@@ -1,0 +1,35 @@
+# Reading standard input (`[api.std.process]`). The test writes the input only after the line
+# `waiting` on standard error, so the first read is interrupted while it waits.
+
+import Std.Console.{Console}
+import Std.Fiber
+import Std.Platform.{Platform}
+import Std.Process.{InvalidInput, Stdin, StdinFailure}
+
+fn line() -> String uses { Stdin } {
+  (use Stdin).read_line() match {
+    Some(text) -> "#{String.code_points(text)}"
+    None       -> "None"
+  } escape {
+    InvalidInput           -> "InvalidInput"
+    StdinFailure(message:) -> "StdinFailure"
+  }
+}
+
+fn main() {
+  with Platform {
+    c = use Console
+    # Interrupted while waiting: what arrives later is not lost.
+    first = Fiber.timeout(50, || (use Stdin).read_line())
+    c.print_line("#{first}")
+    c.print_error_line("waiting")
+    c.print_line(line())
+    c.print_line(line())
+    c.print_line(line())
+    c.print_line(line())
+    text = (use Stdin).read_text()
+    c.print_line("#{String.code_points(text)}")
+    c.print_line(line())
+    c.print_line("#{(use Stdin).read_text() == ""}")
+  }
+}

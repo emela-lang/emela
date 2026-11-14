@@ -1,0 +1,33 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Log {\n  fn info(msg: String) -> ()\n}\n\nfn inferred() {\n  fn say(m: String) {\n    log = use Log\n    log.info(m)\n  }\n  say(\"a\")\n}\n\nfn never_called() -> Int {\n  fn say(m: String) {\n    log = use Log\n    log.info(m)\n  }\n  1\n}\n\nfn declared() uses { Log } {\n  fn say(m: String) -> () uses { Log } {\n    log = use Log\n    log.info(m)\n  }\n  say(\"a\")\n}\n\nfn undeclared() {\n  fn say(m: String) -> () uses {} {\n    log = use Log\n    log.info(m)\n  }\n  say(\"a\")\n}\n\nfn returns_capability() {\n  fn get() {\n    use Log\n  }\n  get()\n}\n\"#)"
+---
+inferred: fn() -> () uses { Log }
+never_called: fn() -> Int
+declared: fn() -> () uses { Log }
+undeclared: fn() -> ()
+returns_capability: fn() -> use Log uses { Log }
+`use Log` unhandled effects Log (Declared)
+`use Log` CapabilityReturned
+`get()` CapabilityReturned
+--- R
+{   fn say(m: String) {     log = use Log     log.info(m)   }   say("a") }: Log
+{     log = use Log     log.info(m)   }: Log
+use Log: Log
+log.info(m): Log
+say("a"): Log
+{     log = use Log     log.info(m)   }: Log
+use Log: Log
+log.info(m): Log
+{   fn say(m: String) -> () uses { Log } {     log = use Log     log.info(m)   }   say("a") }: Log
+{     log = use Log     log.info(m)   }: Log
+use Log: Log
+log.info(m): Log
+say("a"): Log
+{     log = use Log     log.info(m)   }: Log
+use Log: Log
+log.info(m): Log
+{   fn get() {     use Log   }   get() }: Log
+{     use Log   }: Log
+use Log: Log
+get(): Log

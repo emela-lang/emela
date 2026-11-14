@@ -45,6 +45,18 @@ pub(crate) struct Parser<'t> {
     /// Reading the parameter list of an anonymous function outside any bracket opened inside it.
     /// There a `|` closes the list instead of joining an error set (`[grammar.expr]`).
     pub(crate) in_closure_params: bool,
+    /// Every `{` of the input has a matching `}` and every `}` a matching `{`. Then the grammar
+    /// alone decides where a block ends ([`Parser::at_deeper_line`]).
+    pub(crate) braces_balance: bool,
+}
+
+/// The width of the leading spaces and tabs of the line that contains `offset`.
+fn line_indent(src: &str, offset: usize) -> usize {
+    let line_start = src[..offset].rfind('\n').map_or(0, |i| i + 1);
+    src[line_start..]
+        .bytes()
+        .take_while(|b| matches!(b, b' ' | b'\t'))
+        .count()
 }
 
 struct ParserToken<'t> {
@@ -54,6 +66,8 @@ struct ParserToken<'t> {
     line_start: bool,
     /// There is a doc comment `##` since the previous token.
     doc_before: bool,
+    /// The indentation of the token's line, in bytes of leading spaces and tabs.
+    line_indent: usize,
 }
 
 /// Tokens that start a declaration. Error recovery stops at one at the start of a line instead of
@@ -82,16 +96,29 @@ impl<'t> Parser<'t> {
                 text: &src[t.range],
                 line_start,
                 doc_before,
+                line_indent: line_indent(src, usize::from(t.range.start())),
             });
             line_start = t.kind == NEWLINE;
             doc_before = false;
         }
+        let mut depth = 0isize;
+        let mut braces_balance = true;
+        for t in &parser_tokens {
+            match t.kind {
+                L_BRACE => depth += 1,
+                R_BRACE => depth -= 1,
+                _ => {}
+            }
+            braces_balance &= depth >= 0;
+        }
+        braces_balance &= depth == 0;
         Parser {
             tokens: parser_tokens,
             pos: 0,
             events: Vec::new(),
             fuel: Cell::new(FUEL),
             in_closure_params: false,
+            braces_balance,
         }
     }
 
@@ -144,6 +171,11 @@ impl<'t> Parser<'t> {
         let kind = self.current();
         let line_start = self.tokens.get(self.pos).is_some_and(|t| t.line_start);
         line_start && DECL_START.contains(&kind) && !(kind == FN_KW && self.nth(1) == L_PAREN)
+    }
+
+    /// The indentation of the current token's line.
+    pub(crate) fn line_indent(&self) -> usize {
+        self.tokens.get(self.pos).map_or(0, |t| t.line_indent)
     }
 
     pub(crate) fn at_doc_comment(&self) -> bool {

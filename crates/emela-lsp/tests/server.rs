@@ -555,12 +555,28 @@ impl Client {
         (0..n).map(|_| self.diagnostics()).collect()
     }
 
-    /// Also checks that no other notification arrived before shutting down.
-    fn shutdown(mut self) {
+    /// Skips publishDiagnostics that arrive before the shutdown response. The server answers
+    /// requests between analyses, so diagnostics of the last edit come before or after the last
+    /// response depending on how long the analysis takes. Checks that nothing else arrived.
+    fn shutdown(self) {
+        self.shutdown_with(|_| {});
+    }
+
+    /// Also checks that no publishDiagnostics arrived before shutting down.
+    fn shutdown_with_nothing_published(self) {
+        self.shutdown_with(|n| panic!("arrived before the shutdown response: {n:?}"));
+    }
+
+    fn shutdown_with(mut self, mut on_diagnostics: impl FnMut(Notification)) {
         let id = self.request(Shutdown::METHOD, serde_json::Value::Null);
-        match self.recv() {
-            Message::Response(response) if response.id == id => {}
-            other => panic!("arrived before the shutdown response: {other:?}"),
+        loop {
+            match self.recv() {
+                Message::Response(response) if response.id == id => break,
+                Message::Notification(n) if n.method == PublishDiagnostics::METHOD => {
+                    on_diagnostics(n);
+                }
+                other => panic!("arrived before the shutdown response: {other:?}"),
+            }
         }
         self.notify("exit", serde_json::Value::Null);
         self.server.take().unwrap().join().unwrap();
@@ -905,7 +921,7 @@ fn watched_file_changes_recheck_the_project() {
 
     // A file that cannot change a check is ignored.
     client.watched(&[("/app/README.md", Change::CHANGED)]);
-    client.shutdown();
+    client.shutdown_with_nothing_published();
 }
 
 /// A file that an open single file imports is checked again when it changes on disk.
@@ -988,7 +1004,7 @@ fn consecutive_changes_publish_only_the_latest() {
     assert_eq!(codes(&published), ["E0101"]);
     assert_eq!(published.diagnostics[0].range, range((1, 10), (1, 11)));
     // Diagnostics for the old version never arrive (the shutdown response comes next).
-    client.shutdown();
+    client.shutdown_with_nothing_published();
 }
 
 #[test]
@@ -1432,7 +1448,6 @@ fn highlights_are_same_file_and_include_the_binding() {
         Client::position(MAIN, 2, 0),
     );
     assert!(empty.is_empty());
-    drain(&client);
     client.shutdown();
 }
 
@@ -1472,7 +1487,6 @@ fn workspace_symbols_search_unopened_modules_and_unsaved_contents() {
         json!({ "query": "no_such_symbol" }),
     );
     assert!(empty.is_empty());
-    drain(&client);
     client.shutdown();
 }
 
@@ -1529,7 +1543,6 @@ fn syntax_navigation_works_with_parse_only_and_utf16() {
         json!({ "textDocument": { "uri": uri(path) } }),
     );
     assert!(folds.is_empty());
-    drain(&client);
     client.shutdown();
 }
 
@@ -1592,7 +1605,6 @@ pub fn run() -> Int { "not an int" }
             (range((9, 2), (9, 13)), Some(uri("/app/src/multi.mjs"))),
         ]
     );
-    drain(&client);
     client.shutdown();
 }
 
@@ -1651,7 +1663,6 @@ fn type_and_implementation_navigation_with_type_errors() {
         Client::position(MAIN, 1, 9),
     );
     assert!(empty.is_empty());
-    drain(&client);
     client.shutdown();
 }
 
@@ -1997,7 +2008,6 @@ fn completion_after_dot() {
     // Nothing after an expression of unknown type.
     client.change(MAIN, 5, &NAV_MAIN.replace("  area(s)\n", "  1.\n"));
     assert_eq!(client.complete(MAIN, 19, 4), Some(vec![]));
-    drain(&client);
     client.shutdown();
 }
 
@@ -2028,7 +2038,6 @@ fn completion_in_imports() {
         labels(&client.complete(MAIN, 0, 16).unwrap()),
         ["Shape", "area"]
     );
-    drain(&client);
     client.shutdown();
 }
 
@@ -2091,18 +2100,7 @@ fn completion_of_names_in_scope() {
     assert!(names.contains(&"Shapes"), "{names:?}");
     assert!(names.contains(&"Shape"), "{names:?}");
     assert!(!names.contains(&"Log"), "{names:?}");
-    drain(&client);
     client.shutdown();
-}
-
-fn drain(client: &Client) {
-    while let Ok(message) = client
-        .connection
-        .receiver
-        .recv_timeout(Duration::from_millis(200))
-    {
-        assert!(matches!(message, Message::Notification(_)), "{message:?}");
-    }
 }
 
 #[test]
@@ -2155,7 +2153,6 @@ fn signature_help_in_calls() {
     client.change(MAIN, 2, NAV_MAIN);
     assert_eq!(client.signature(MAIN, 12, 2), None);
     assert_eq!(client.signature(MAIN, 17, 23), None);
-    drain(&client);
     client.shutdown();
 }
 
@@ -2246,7 +2243,6 @@ fn signature_help_on_the_right_of_a_pipe() {
         client.signature(MAIN, 19, 26),
         s(&fold, &["from: B", f], None)
     );
-    drain(&client);
     client.shutdown();
 }
 
@@ -2430,8 +2426,6 @@ fn quickfixes_link_only_the_diagnostic_at_the_requested_range() {
     let main = "enum Color { Red, Blue }\nfn color(x: Color) -> Int { x match { Red -> 1 } }\nfn first(count: Int) -> Int { cout }\nfn second(total: Int) -> Int { tota }\ntrait Show { fn show(self) -> String }\nimpl Color: Show {}\n";
     let files = [("/app/Pome.toml", ""), (MAIN, main)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
-    // Read the workspace's first diagnostics, or they can arrive after the last response and
-    // fail `shutdown`.
     let published = client.diagnostics();
     assert_eq!(
         codes(&published),
@@ -2570,8 +2564,6 @@ fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
         ("/app/src/io.emel", "pub fn print(s: String) -> () {}\n"),
     ];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
-    // Read the workspace's first diagnostics, or they can arrive after the last response and
-    // fail `shutdown`.
     let published = client.diagnostics();
     assert_eq!(codes(&published), ["E0211", "E0318", "E0402"]);
     for (at, code, inserted) in [
@@ -2813,7 +2805,6 @@ fn completion_after_dot_chains() {
     // Same with a partially typed name.
     client.change(MAIN, 4, &with("l.to.x"));
     assert_eq!(labels(&client.complete(MAIN, 12, 8).unwrap()), ["x", "y"]);
-    drain(&client);
     client.shutdown();
 }
 
@@ -2825,7 +2816,6 @@ fn completion_of_handler_fields() {
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let items = client.complete(MAIN, 6, 21).unwrap();
     assert_eq!(labels(&items), ["url", "port"]);
-    drain(&client);
     client.shutdown();
 }
 
@@ -2891,7 +2881,6 @@ fn completion_of_argument_labels() {
     client.change(MAIN, 4, &with("Line(from: Point("));
     let items = client.complete(MAIN, 12, 19).unwrap();
     assert_eq!(labels(&items)[..2], ["x:", "y:"]);
-    drain(&client);
     client.shutdown();
 }
 
@@ -2937,7 +2926,6 @@ fn completion_of_attributes_and_targets() {
     client.change(MAIN, 6, "@entry(\nfn main() { () }\n");
     let items = client.complete(MAIN, 0, 7).unwrap();
     assert!(!labels(&items).contains(&"wasm"), "{items:?}");
-    drain(&client);
     client.shutdown();
 }
 
@@ -2964,7 +2952,6 @@ fn completion_not_in_comments_or_strings() {
     // After the closing quote.
     let items = client.complete(MAIN, 4, 20).unwrap();
     assert!(labels(&items).contains(&"name"), "{items:?}");
-    drain(&client);
     client.shutdown();
 }
 
@@ -3127,7 +3114,6 @@ fn completion_in_clauses_and_types() {
             assert!(names.contains(&name), "{line}: {name}: {names:?}");
         }
     }
-    drain(&client);
     client.shutdown();
 }
 
@@ -3213,7 +3199,6 @@ fn doc_comments_are_markdown_and_follow_unsaved_changes() {
             .unwrap()["documentation"]
             .is_null()
     );
-    drain(&client);
     client.shutdown();
 }
 
@@ -3290,7 +3275,6 @@ fn docs_use_definition_spans_across_modules_and_std() {
         help["signatures"][0]["documentation"]["value"],
         "Unsaved docs."
     );
-    drain(&client);
     client.shutdown();
 }
 
@@ -3380,7 +3364,6 @@ fn docs_coexist_with_highlights_and_completion_based_quickfixes() {
         )
         .is_null()
     );
-    drain(&client);
     client.shutdown();
 }
 
@@ -3482,6 +3465,5 @@ fn method_calls_in_navigation_and_completion() {
     );
     let items = client.complete(MAIN, 19, 18).unwrap();
     assert!(labels(&items).contains(&"length"), "{items:?}");
-    drain(&client);
     client.shutdown();
 }

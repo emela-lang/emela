@@ -1751,3 +1751,56 @@ handler Ticking: Clock {
 "#
     ));
 }
+
+/// A local fn encloses its body's R in its type, and the R surfaces where it is called. A written
+/// `uses` is enforced as for a top-level fn (E0402). A local fn that returns a capability value is
+/// rejected as a fn is (`[fn.local]`, `[effect.use]`).
+#[test]
+fn local_fn_effects() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+fn inferred() {
+  fn say(m: String) {
+    log = use Log
+    log.info(m)
+  }
+  say("a")
+}
+
+fn never_called() -> Int {
+  fn say(m: String) {
+    log = use Log
+    log.info(m)
+  }
+  1
+}
+
+fn declared() uses { Log } {
+  fn say(m: String) -> () uses { Log } {
+    log = use Log
+    log.info(m)
+  }
+  say("a")
+}
+
+fn undeclared() {
+  fn say(m: String) -> () uses {} {
+    log = use Log
+    log.info(m)
+  }
+  say("a")
+}
+
+fn returns_capability() {
+  fn get() {
+    use Log
+  }
+  get()
+}
+"#
+    ));
+}

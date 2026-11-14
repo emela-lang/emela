@@ -1,0 +1,23 @@
+# What SystemStdin reads under `emela test` (`[api.std.process]`, `[cmd.test.output]`). Not on
+# WASM, where SystemStdin is not available yet (`[target.wasm.external]`).
+
+import Std.Platform.{Platform}
+import Std.Process.{Args, Stdin, SystemStdin}
+
+@test
+fn system_stdin_is_empty_under_test() {
+  with SystemStdin {
+    s = use Stdin
+    assert s.read_line() == None
+    assert s.read_text() == ""
+    assert s.read_line() == None
+  }
+}
+
+@test
+fn platform_provides_args_and_stdin() {
+  with Platform {
+    assert (use Args).list() == []
+    assert (use Stdin).read_line() == None
+  }
+}

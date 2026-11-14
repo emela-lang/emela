@@ -11,6 +11,8 @@
 //!   anonymous function with the closure to write instead (E0148).
 //! - Report an anonymous function written as a statement that is not the last of its block
 //!   (E0149).
+//! - Report what a local fn cannot have (E0150) and a local fn as the last statement of its
+//!   block (E0151).
 
 use rowan::TextRange;
 
@@ -140,7 +142,19 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 });
             }
         }
-        BLOCK_EXPR => unused_lambdas(node, out),
+        BLOCK_EXPR => {
+            unused_lambdas(node, out);
+            unused_local_fn(node, out);
+        }
+        LOCAL_FN => {
+            local_fn_modifiers(node, out);
+            // An attribute is already reported as one; what it would say on a top-level fn
+            // (E0146 for `@export`) is not added.
+            for child in node.children().filter(|c| c.kind() != ANNOTATION) {
+                walk(&child, out);
+            }
+            return;
+        }
         UNDERSCORE_EXPR => error(
             out,
             node.text_range(),
@@ -185,6 +199,55 @@ fn unused_lambdas(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 .then(|| crate::rewrite::OR_AT_LINE_START_HELP.to_owned()),
         });
     }
+}
+
+/// E0150: what a top-level fn can have and a local fn cannot (`[fn.local]`). Each is reported
+/// where it is written.
+fn local_fn_modifiers(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let mut found: Vec<(TextRange, &str)> = Vec::new();
+    for element in node.children_with_tokens() {
+        let what = match element.kind() {
+            ANNOTATION => "a local function cannot have attributes",
+            PUB_KW => "a local function cannot be `pub`",
+            SUSPEND_KW => "a local function cannot be `suspend`",
+            TYPE_PARAM_LIST => "a local function cannot have type parameters",
+            _ => continue,
+        };
+        found.push((element.text_range(), what));
+    }
+    for (range, message) in found {
+        out.push(Diagnostic {
+            range,
+            code: DiagnosticCode::LocalFnModifier,
+            message: message.to_owned(),
+            help: Some("remove it".to_owned()),
+        });
+    }
+}
+
+/// E0151: a local fn as the last statement of its block is visible to nothing after it, so it
+/// can never be called (`[fn.local]`).
+fn unused_local_fn(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let Some(last) = block.children().filter(|n| n.kind() != ERROR).last() else {
+        return;
+    };
+    if last.kind() != LOCAL_FN {
+        return;
+    }
+    let name = last
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == LOWER_NAME);
+    let (range, shown) = match &name {
+        Some(name) => (name.text_range(), name.text().to_owned()),
+        None => (last.text_range(), String::new()),
+    };
+    out.push(Diagnostic {
+        range,
+        code: DiagnosticCode::UnusedLocalFn,
+        message: format!("local function `{shown}` is never called"),
+        help: Some("call it after the declaration".to_owned()),
+    });
 }
 
 /// Accepts only the expression shapes that correspond to spec 17.6 patterns.

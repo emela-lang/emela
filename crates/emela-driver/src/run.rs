@@ -180,6 +180,10 @@ pub const INTERRUPTED_EXIT_CODE: i32 = 130;
 /// The `Symbol.for` key identifying failure values (`$Fail` in emela-codegen-js's runtime). The
 /// key's function returns the error value shown.
 pub const FAIL_KEY: &str = "emela.fail";
+/// The `Symbol.for` key under which the launcher passes the arguments of the program to
+/// `std/process.mjs`. Written out in [`LAUNCHER`]; a test checks that the two agree.
+#[cfg(test)]
+const ARGS_KEY: &str = "emela.args";
 
 /// A small launcher module that imports the entry, calls `main`, and maps errors reaching main
 /// and defects to exit codes. Passed to node's `-e`, so it is never written to a file.
@@ -199,6 +203,10 @@ pub const FAIL_KEY: &str = "emela.fail";
 /// child's Interrupt and never gets here (spec 11.5). Unwinding when the loop empties includes
 /// child fibers. A defect, including one inside a host callback, prints `defect: <message>` and
 /// exits with 101 (spec 7.5).
+///
+/// The arguments after the entry module are put in `globalThis[Symbol.for(ARGS_KEY)]` before the
+/// entry is imported, where `Args` of `Std.Process` reads them (`[api.std.process]`): the launcher
+/// knows that `process.argv` is the host, the entry module and then the arguments.
 ///
 /// The launcher does not import the runtime. So it tells a defect by its `name` ([`DEFECT_NAME`])
 /// rather than `instanceof`, a failure by the [`FAIL_KEY`] symbol, and takes `$start` from the
@@ -243,6 +251,7 @@ process.on("beforeExit", () => {
   process.stderr.write("interrupted\n");
   process.exitCode = 130;
 });
+globalThis[Symbol.for("emela.args")] = process.argv.slice(2);
 try {
   const entry = await import(pathToFileURL(process.argv[1]).href);
   if (typeof entry.main === "function") {
@@ -606,6 +615,7 @@ mod tests {
         assert!(LAUNCHER.contains(&format!("process.exitCode = {ERROR_EXIT_CODE};")));
         assert!(LAUNCHER.contains(&format!("process.exitCode = {INTERRUPTED_EXIT_CODE};")));
         assert!(LAUNCHER.contains(&format!("Symbol.for(\"{FAIL_KEY}\")")));
+        assert!(LAUNCHER.contains(&format!("Symbol.for(\"{ARGS_KEY}\")")));
         // The runtime's `$Fail` and the test runner use the same key.
         let key = format!("Symbol.for(\"{FAIL_KEY}\")");
         assert!(emela_codegen_js::RUNTIME.contains(&key));

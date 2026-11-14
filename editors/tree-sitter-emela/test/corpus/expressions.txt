@@ -372,3 +372,78 @@ fn f() {
               (match_arm
                 (wildcard)
                 (integer)))))))))
+
+==================
+Local functions
+==================
+fn range(from: Int, to: Int) -> List[Int] {
+  ## Builds from the back.
+  fn onto(to: Int, acc: List[Int]) -> List[Int] fails E uses { Log } {
+    onto(to - 1, acc)
+  }
+  onto(to, [])
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier)))
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (generic_type
+      (type_reference
+        (type_identifier))
+      (type_arguments
+        (type_reference
+          (type_identifier))))
+    (block
+      (comment)
+      (local_function
+        (identifier)
+        (parameters
+          (parameter
+            (identifier)
+            (type_reference
+              (type_identifier)))
+          (parameter
+            (identifier)
+            (generic_type
+              (type_reference
+                (type_identifier))
+              (type_arguments
+                (type_reference
+                  (type_identifier))))))
+        (generic_type
+          (type_reference
+            (type_identifier))
+          (type_arguments
+            (type_reference
+              (type_identifier))))
+        (fails_clause
+          (type_variable
+            (constant_identifier)))
+        (uses_clause
+          (effect_set
+            (type_reference
+              (type_identifier))))
+        (block
+          (call_expression
+            (identifier)
+            (arguments
+              (binary_expression
+                (identifier)
+                (integer))
+              (identifier)))))
+      (call_expression
+        (identifier)
+        (arguments
+          (identifier)
+          (list_expression))))))

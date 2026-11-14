@@ -82,6 +82,9 @@
 (function_declaration
   name: (identifier) @function)
 
+(local_function
+  name: (identifier) @function)
+
 (operation
   name: (identifier) @function)
 

@@ -1,7 +1,7 @@
 ---
 title: Local functions
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 502
 issue:
 decided: 2026-11-14
@@ -281,9 +281,9 @@ Replace "When the last statement is a binding, the value of the block is `()`." 
 
 ## Diagnostics
 
-- [ ] E0316 extended to local fns, with its own message
-- [ ] E0150: type parameters, attributes, `pub` and `suspend` on a local fn, one code with a message for each
-- [ ] E0151: a local fn as the last statement of its block
+- [x] E0316 extended to local fns, with its own message
+- [x] E0150: type parameters, attributes, `pub` and `suspend` on a local fn, one code with a message for each
+- [x] E0151: a local fn as the last statement of its block
 - [ ] The existing self tail call lint (`[fn.loop]`, a self call in the target of escape or the body of with) also applies to local fns
 
 ## Compatibility

@@ -104,6 +104,7 @@ pub(crate) fn symbol_kind(kind: SymbolKind) -> lsp::SymbolKind {
         SymbolKind::Const => lsp::SymbolKind::CONSTANT,
         SymbolKind::Effect | SymbolKind::Trait => lsp::SymbolKind::INTERFACE,
         SymbolKind::Op | SymbolKind::Method => lsp::SymbolKind::METHOD,
+        SymbolKind::LocalFn => lsp::SymbolKind::FUNCTION,
         SymbolKind::Handler => lsp::SymbolKind::CLASS,
         SymbolKind::Layer | SymbolKind::Impl => lsp::SymbolKind::NAMESPACE,
         SymbolKind::Field => lsp::SymbolKind::FIELD,

@@ -164,6 +164,44 @@ fn self_tail_calls_come_out_as_loops() {
     assert!(matches!(count.body, Expr::Loop { .. }), "{}", dump(&m));
 }
 
+/// A local fn becomes a function of the module (lambda lifting). The variables it captures are
+/// passed first, and its self tail call comes out as a loop (`[fn.local]`, `[fn.loop]`).
+#[test]
+fn local_fns_are_lifted() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+fn main() -> List[Int] {
+  dbg(count(10))
+  range(1, 4)
+}
+
+fn count(limit: Int) -> Int {
+  fn go(n: Int, acc: Int) -> Int {
+    if n == limit { acc } else { go(n + 1, acc + 1) }
+  }
+  go(0, 0)
+}
+
+fn range(from: Int, to: Int) -> List[Int] {
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  f = onto
+  f(to, [])
+}
+",
+    )]);
+    let (_, go) = m
+        .functions
+        .iter()
+        .find(|(_, f)| f.name == "count$go")
+        .unwrap_or_else(|| panic!("{}", dump(&m)));
+    assert_eq!(go.params.len(), 3, "{}", dump(&m));
+    assert!(matches!(go.body, Expr::Loop { .. }), "{}", dump(&m));
+    insta::assert_snapshot!(dump(&m));
+}
+
 #[test]
 fn ctors_carry_field_names_and_types() {
     let m = lower_files(&[(

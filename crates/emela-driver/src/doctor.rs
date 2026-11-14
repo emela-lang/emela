@@ -1,7 +1,6 @@
 use std::ffi::OsString;
 use std::fmt::Write;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -146,23 +145,53 @@ fn cc_version(out: &str) -> Option<Version> {
     })
 }
 
+/// Whether `path` is a file that can be started: on Unix, a file with an execute bit.
 #[cfg(unix)]
-fn find_executable(program: &Path, env: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    let is_executable = |p: &Path| {
-        p.metadata()
-            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-    };
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
 
+/// Whether `path` is a file that can be started: on Windows there is no execute bit, so any file.
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
+}
+
+/// The names `program` is looked up as. On Windows a name without an extension is also tried
+/// with each extension in `PATHEXT` (`node` is found as `node.exe` or `node.cmd`).
+fn candidates(program: &Path, env: &dyn Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
+    let mut names = vec![program.to_path_buf()];
+    if cfg!(windows) && program.extension().is_none() {
+        let pathext = env("PATHEXT").unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into());
+        for ext in pathext
+            .to_string_lossy()
+            .split(';')
+            .filter(|e| !e.is_empty())
+        {
+            let mut name = program.as_os_str().to_owned();
+            name.push(ext.to_ascii_lowercase());
+            names.push(PathBuf::from(name));
+        }
+    }
+    names
+}
+
+fn find_executable(program: &Path, env: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     if program.components().count() > 1 {
-        return is_executable(program)
-            .then(|| std::path::absolute(program).ok())
-            .flatten();
+        return candidates(program, env)
+            .into_iter()
+            .find(|p| is_executable(p))
+            .and_then(|p| std::path::absolute(p).ok());
     }
 
     env("PATH").and_then(|path| {
         std::env::split_paths(&path).find_map(|dir| {
-            let candidate = dir.join(program);
-            is_executable(&candidate).then_some(candidate)
+            candidates(program, env)
+                .into_iter()
+                .map(|name| dir.join(name))
+                .find(|candidate| is_executable(candidate))
         })
     })
 }

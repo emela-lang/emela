@@ -1184,6 +1184,18 @@ fn visible_locals(
                             );
                         }
                     }
+                    // A local fn's name from its declaration to the end of the block, its own
+                    // body included; its parameters in its body (`[fn.local]`).
+                    if let Stmt::LocalFn(f) = stmt {
+                        let start = hir.locals[f.local].span.range.start();
+                        if start <= span.range.end() {
+                            add(vec![f.local], TextRange::new(start, span.range.end()));
+                        }
+                        add(
+                            f.sig.params.iter().map(|p| p.local).collect(),
+                            span_of(f.body),
+                        );
+                    }
                 }
             }
             ExprKind::Lambda { params, body } => {

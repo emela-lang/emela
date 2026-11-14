@@ -37,9 +37,11 @@ use crate::named;
 
 mod builtin_impls;
 mod fiber;
+mod local_fn;
 mod suspend;
 
 use fiber::{AttemptCall, ForkCall, ScopeCall};
+use local_fn::Lifted;
 use suspend::Specialization;
 
 /// Why something that passed type checking could not be lowered.
@@ -168,6 +170,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         prelude_trait_fns: FxHashMap::default(),
         host_exports: Vec::new(),
         roots,
+        local_fns: ArenaMap::default(),
+        fn_name: String::new(),
     };
     if roots == Roots::Exported {
         cx.collect_host_exports(input.language);
@@ -331,6 +335,11 @@ struct Lowerer<'a> {
     /// the order of `emela_types::host_exports`. Filled only for `Roots::Exported`.
     host_exports: Vec<Exposed>,
     roots: Roots,
+    /// Local fns of the function being lowered → the functions they were lifted to
+    /// (`local_fn.rs`). Only [`Lowerer::local_fn`] adds to it.
+    local_fns: ArenaMap<LocalId, Lifted>,
+    /// The IR name of the function being lowered, which names the local fns lifted from it.
+    fn_name: String,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without
@@ -380,6 +389,15 @@ enum Target {
     /// The function, its type arguments (`Callee::Direct::ty_args`), the mark, and the evidence
     /// table appended as the last argument (when calling a function with a non-empty R).
     Direct(FnId, Vec<TypeId>, Call, Option<Expr>),
+    /// A local fn lifted to a function of the module (`local_fn.rs`): a direct call whose
+    /// arguments start with `captures`. `ev` is as in `Direct`.
+    Lifted {
+        f: FnId,
+        ty_args: Vec<TypeId>,
+        call: Call,
+        captures: Vec<Expr>,
+        ev: Option<Expr>,
+    },
     Builtin {
         op: Builtin,
         ty_args: Vec<TypeId>,
@@ -512,7 +530,7 @@ impl StateRun {
 }
 
 /// The mark of a call.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Call {
     fails: bool,
     suspends: bool,
@@ -525,6 +543,18 @@ impl Target {
             Target::Direct(f, ty_args, call, ev) => Expr::Call {
                 callee: Callee::Direct { f, ty_args },
                 args: args.into_iter().chain(ev).collect(),
+                fails: call.fails,
+                suspends: call.suspends,
+            },
+            Target::Lifted {
+                f,
+                ty_args,
+                call,
+                captures,
+                ev,
+            } => Expr::Call {
+                callee: Callee::Direct { f, ty_args },
+                args: captures.into_iter().chain(args).chain(ev).collect(),
                 fails: call.fails,
                 suspends: call.suspends,
             },
@@ -871,6 +901,8 @@ impl<'a> Lowerer<'a> {
         self.ev = None;
         self.bound.clear();
         self.locals = ArenaMap::default();
+        self.local_fns = ArenaMap::default();
+        self.fn_name = self.module.functions[id].name.clone();
         self.current_def = Some(def);
         self.spec = spec;
         let (mut params, body) = match hir.item(def) {
@@ -2053,6 +2085,8 @@ impl<'a> Lowerer<'a> {
         self.ev = None;
         self.bound.clear();
         self.locals = ArenaMap::default();
+        self.local_fns = ArenaMap::default();
+        self.fn_name = self.module.functions[f].name.clone();
         self.current_def = Some(layer);
         self.spec = 0;
         let ret = self.ty(self.expr_ty(arg));
@@ -2096,37 +2130,9 @@ impl<'a> Lowerer<'a> {
                 suspends,
             };
         }
-        let outer = self.ev;
         let p = self.ev_local();
         ps.push(p);
-        let (ctx, prelude) = if self.bound.is_empty() {
-            (p, None)
-        } else {
-            let c = self.ev_local();
-            let bindings = self
-                .bound
-                .clone()
-                .into_iter()
-                .map(|(e, h)| (self.effect_id(&e), Expr::Var(h)))
-                .collect();
-            (
-                c,
-                Some(Expr::Provide {
-                    base: Some(Box::new(Expr::Var(p))),
-                    bindings,
-                }),
-            )
-        };
-        self.ev = Some(ctx);
-        let mut body = self.expr(body);
-        self.ev = outer;
-        if let Some(value) = prelude.filter(|_| mentions(&body, ctx)) {
-            body = Expr::Let {
-                var: ctx,
-                value: Box::new(value),
-                body: Box::new(body),
-            };
-        }
+        let body = self.body_with_ev(p, body);
         Expr::Lambda {
             params: ps,
             ty,
@@ -2419,7 +2425,12 @@ impl<'a> Lowerer<'a> {
             {
                 return Expr::Lit(Lit::Unit);
             }
-            Res::Local(l) => return Expr::Var(self.local(l)),
+            Res::Local(l) => {
+                return match self.lifted(res) {
+                    Some(lifted) => self.lifted_value(id, &lifted),
+                    None => Expr::Var(self.local(l)),
+                };
+            }
             Res::Def(def) => def,
             Res::Err => return self.unsupported("unresolved name", span),
         };
@@ -2598,6 +2609,12 @@ impl<'a> Lowerer<'a> {
             fails: self.callee_fails(callee),
             suspends: self.ty_suspends(self.expr_ty(callee)),
         };
+        // A local fn called by its name (`[fn.local]`).
+        if let ExprKind::Path(res) = hir.exprs[callee].kind
+            && let Some(lifted) = self.lifted(res)
+        {
+            return Ok(self.lifted_target(&lifted));
+        }
         let ev = self
             .ty_takes_ev(self.expr_ty(callee))
             .then(|| self.ev_arg());
@@ -3182,6 +3199,10 @@ impl<'a> Lowerer<'a> {
         for stmt in &block.stmts {
             let (pat, value) = match stmt {
                 Stmt::Let { pat, value, .. } => (Some(*pat), *value),
+                Stmt::LocalFn(f) => {
+                    self.local_fn(f);
+                    continue;
+                }
                 Stmt::Expr(e) => (None, *e),
             };
             let value_ty = self.expr_ty(value);

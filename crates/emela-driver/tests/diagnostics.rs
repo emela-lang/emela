@@ -2038,3 +2038,56 @@ fn main() {}
         ""
     );
 }
+
+/// What a local fn cannot have (E0150), a local fn as the last statement of its block (E0151),
+/// a parameter without a type (E0316), and its written `fails` and `uses` (E0318, E0402), as the
+/// user sees them (`[fn.local]`, `[diag.list]`).
+#[test]
+fn local_fn_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"error Boom
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+fn modifiers() -> Int {
+  fn generic[A](x: A) -> A { x }
+  @test
+  fn annotated() -> Int { 1 }
+  pub fn public() -> Int { 1 }
+  suspend fn later() -> Int { 1 }
+  1
+}
+
+fn last() {
+  fn go(n: Int) -> Int { n }
+}
+
+fn untyped() -> Int {
+  fn go(n) -> Int { 1 }
+  go(1)
+}
+
+fn unhandled() -> Int {
+  fn go() -> Int { fail Boom }
+  go()
+}
+
+fn undeclared() {
+  fn say() -> () uses {} {
+    log = use Log
+    log.info("x")
+  }
+  say()
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}

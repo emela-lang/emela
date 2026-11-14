@@ -4,7 +4,7 @@
 //! E (error sets) and R (effect sets) do not normally appear in source, so they are shown here
 //! (spec 9.3).
 
-use emela_resolve::hir::{DefId, ExprKind, Item, RefTarget, Res};
+use emela_resolve::hir::{DefId, ExprKind, Item, LocalKind, RefTarget, Res};
 use emela_types::{Row, Ty, TyParam};
 use line_index::{TextRange, TextSize};
 
@@ -160,6 +160,26 @@ pub(crate) fn hover(
             let owner = program.types.ty_table.def(*con);
             doc = docs.field(program, analysis, owner, &name.name);
         }
+    }
+    // A local fn, at its name or a reference to it (`[fn.local]`).
+    let local = hir
+        .refs
+        .iter()
+        .find_map(|r| match r.target {
+            RefTarget::Local(l) if r.span.module == module && r.span.range.contains(offset) => {
+                Some(l)
+            }
+            _ => None,
+        })
+        .or_else(|| {
+            hir.locals.iter().find_map(|(l, data)| {
+                (data.span.module == module && data.span.range.contains(offset)).then_some(l)
+            })
+        });
+    if let Some(l) = local
+        && hir.locals[l].kind == LocalKind::LocalFn
+    {
+        doc = crate::documentation::local_fn_doc(analysis, hir.locals[l].span);
     }
     if info.is_none()
         && let Some((range, text, comment)) =

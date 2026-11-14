@@ -32,6 +32,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Set", include_str!("../lib/std/set.emel")),
     ("Std.State", include_str!("../lib/std/state.emel")),
     ("Std.Console", include_str!("../lib/std/console.emel")),
+    ("Std.Process", include_str!("../lib/std/process.emel")),
     ("Std.Random", include_str!("../lib/std/random.emel")),
     ("Std.Env", include_str!("../lib/std/env.emel")),
     ("Std.Clock", include_str!("../lib/std/clock.emel")),
@@ -62,6 +63,7 @@ const SOURCES: &[(&str, &str)] = &[
 const HOST_FILES: &[(&str, &str)] = &[
     ("std/random.mjs", include_str!("../lib/std/random.mjs")),
     ("std/env.mjs", include_str!("../lib/std/env.mjs")),
+    ("std/process.mjs", include_str!("../lib/std/process.mjs")),
     ("std/clock.mjs", include_str!("../lib/std/clock.mjs")),
     ("std/http.mjs", include_str!("../lib/std/http.mjs")),
     (
@@ -71,6 +73,7 @@ const HOST_FILES: &[(&str, &str)] = &[
     ("std/console.c", include_str!("../lib/std/console.c")),
     ("std/random.c", include_str!("../lib/std/random.c")),
     ("std/env.c", include_str!("../lib/std/env.c")),
+    ("std/process.c", include_str!("../lib/std/process.c")),
     ("std/clock.c", include_str!("../lib/std/clock.c")),
     (
         "std/file_system.c",
@@ -273,6 +276,7 @@ mod tests {
         let modules: Vec<_> = core_sources().iter().map(|(m, _)| *m).collect();
         for module in [
             "Std.Console",
+            "Std.Process",
             "Std.Random",
             "Std.Env",
             "Std.Clock",
@@ -286,6 +290,7 @@ mod tests {
         assert!(core_source("Option").unwrap().contains("pub fn or_fail"));
         for (module, handlers) in [
             ("Std.Console", &["SystemConsole", "TestConsole"][..]),
+            ("Std.Process", &["SystemArgs", "SystemStdin", "TestStdin"]),
             ("Std.Clock", &["SystemClock", "TestClock"]),
             ("Std.Random", &["SystemRandom"]),
             ("Std.Env", &["SystemEnv"]),

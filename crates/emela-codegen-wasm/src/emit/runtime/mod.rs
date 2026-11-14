@@ -39,6 +39,7 @@ fn always(_: &Builder) -> bool {
 }
 
 mod alloc;
+mod args;
 pub(crate) mod array;
 pub(super) mod async_bridge;
 pub(super) mod attempt;
@@ -168,6 +169,13 @@ const MODULES: &[RuntimeModule] = &[
         setup: no_setup,
         emit: env::emit,
         used: env::used,
+    },
+    RuntimeModule {
+        funcs: args::FUNCS,
+        locals: args::locals,
+        setup: no_setup,
+        emit: args::emit,
+        used: args::used,
     },
     RuntimeModule {
         funcs: canon::FUNCS,

@@ -30,6 +30,7 @@ impl (`[trait.derive]`): ParseError has `derive Show` (its contents are shown wh
 | Function | Signature | Implementation | Description |
 |---|---|---|---|
 | `map` | `map[A, B](xs: List[A], f: fn(A) -> B) -> List[B]` | Emela | Applies `f` to each element |
+| `each` | `each[A](xs: List[A], f: fn(A) -> ()) -> ()` | Emela | Calls `f` on each element, from the first to the last. Stops at the first failure |
 | `filter` | `filter[A](xs: List[A], f: fn(A) -> Bool) -> List[A]` | Emela | Keeps only the elements for which `f` is True |
 | `fold` | `fold[A, B](xs: List[A], from: B, f: fn(B, A) -> B) -> B` | Emela | Folds from the front |
 | `length` | `length[A](xs: List[A]) -> Int` | Emela | The number of elements |
@@ -252,6 +253,7 @@ The value layer (`[lib.layers]`). An immutable sequence of fixed length, read by
 | `concat` | `concat[A](parts: List[Array[A]]) -> Array[A]` | intrinsic | The elements of all of them in order |
 | `reverse` | `reverse[A](a: Array[A]) -> Array[A]` | Emela | The elements in reverse order |
 | `map` | `map[A, B](a: Array[A], f: fn(A) -> B) -> Array[B]` | Emela | Applies `f` to each element, from the first |
+| `each` | `each[A](a: Array[A], f: fn(A) -> ()) -> ()` | Emela | Calls `f` on each element, from the first. Stops at the first failure |
 | `fold` | `fold[A, B](a: Array[A], from: B, f: fn(B, A) -> B) -> B` | Emela | Folds from the first element |
 | `find_index` | `find_index[A](a: Array[A], f: fn(A) -> Bool) -> Option[Int]` | Emela | The position of the first element that gives True |
 | `sort_by` | `sort_by[A](a: Array[A], f: fn(A, A) -> Ordering) -> Array[A]` | Emela | Sorts in the order of `f`. Stable, with the same result as `List.sort_by` |
@@ -283,6 +285,7 @@ A mapping from keys to values. Immutable and ordered by key (the Ord order) (`[l
 | `size` | `size[K, V](m: Map[K, V]) -> Int` | Emela | The number of keys |
 | `is_empty` | `is_empty[K, V](m: Map[K, V]) -> Bool` | Emela | Whether the map is empty |
 | `fold` | `fold[K, V, B](m: Map[K, V], from: B, f: fn(B, K, V) -> B) -> B` | Emela | Folds in key order |
+| `each` | `each[K, V](m: Map[K, V], f: fn(K, V) -> ()) -> ()` | Emela | Calls `f` on each pair in key order. Stops at the first failure |
 | `to_list` | `to_list[K, V](m: Map[K, V]) -> List[(K, V)]` | Emela | The pairs in key order |
 | `keys` / `values` | `(m: Map[K, V]) -> List[K]` / `List[V]` | Emela | In key order |
 | `map_values` | `map_values[K, V, W](m: Map[K, V], f: fn(V) -> W) -> Map[K, W]` | Emela | Applies `f` to the values |
@@ -303,6 +306,7 @@ A collection of values. Immutable and in Ord order. The contents are a `Map[A, (
 | `contains` | `contains[A: Ord](s: Set[A], x: A) -> Bool` | Emela | Whether it contains the value |
 | `size` / `is_empty` | `(s: Set[A]) -> Int` / `Bool` | Emela | The number of elements / whether it is empty |
 | `fold` | `fold[A, B](s: Set[A], from: B, f: fn(B, A) -> B) -> B` | Emela | Folds in order |
+| `each` | `each[A](s: Set[A], f: fn(A) -> ()) -> ()` | Emela | Calls `f` on each element in order. Stops at the first failure |
 | `to_list` | `to_list[A](s: Set[A]) -> List[A]` | Emela | Lists in order |
 | `filter` | `filter[A](s: Set[A], f: fn(A) -> Bool) -> Set[A]` | Emela | The elements for which `f` is True |
 | `union` | `union[A: Ord](a: Set[A], b: Set[A]) -> Set[A]` | Emela | The union |
@@ -348,6 +352,58 @@ import Std.Console.{Console, SystemConsole}
 fn main() {
   with SystemConsole {
     (use Console).print_line("hi")
+  }
+}
+```
+
+### Std.Process (`std/process.emel`, `std/process.mjs`, `std/process.c`) `[api.std.process]`
+
+The platform layer and the test layer (`[lib.layers]`). What the process has exactly one of.
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Args` | `effect Args { fn get(index: Int) -> Option[String]; fn list() -> List[String] }` | The arguments of the process, in order, without the name of the program. `list` returns all of them, and `get` the one at `index` (from 0), or `None` when `index` is out of range |
+| `SystemArgs` | `handler SystemArgs: Args` | The arguments given by the host. Has no state |
+| error | `InvalidInput`, `StdinFailure(message: String)` | InvalidInput when standard input is not valid UTF-8. StdinFailure when the host cannot read standard input; `message` is the host's text |
+| `Stdin` | `effect Stdin { suspend fn read_line() -> Option[String] fails InvalidInput \| StdinFailure; suspend fn read_text() -> String fails InvalidInput \| StdinFailure }` | Reads standard input as text (UTF-8). `read_line` returns the next line without its line terminator, and `None` at the end of the input. `read_text` returns the rest of the input, line terminators included, and `""` at the end of the input |
+| `SystemStdin` | `handler SystemStdin: Stdin` | The standard input of the process. `process.stdin` on JS and file descriptor 0 on native. Requires Async. Has no state |
+| `StdinLines` | `type StdinLines(lines: List[String])` | The state of TestStdin: the lines not read yet |
+| `TestStdin` | `handler TestStdin: Stdin` | Kept in `State[StdinLines]` and resumes immediately. Does not raise InvalidInput or StdinFailure |
+
+Args:
+
+- `list` of SystemArgs returns the same list on every call, and `get(index)` returns its element at `index`, or `None` when `index` is negative or not less than its length. The list is:
+  - for `emela run`, the arguments written after `--` (`[cmd.build]`), on every target;
+  - on native, `argv[1]` and after;
+  - on JS, the arguments that the runtime's launcher passes to the runtime;
+  - on WASM, the result of `get-arguments` of `wasi:cli/environment@0.3.0` without its first element;
+  - `[]` for an HTTP service (`[lib.http-service]`) and under `emela test` (`[cmd.test.output]`).
+- An argument that is not valid UTF-8 is decoded with each maximal invalid subsequence replaced by U+FFFD. Neither operation fails.
+
+Stdin:
+
+- A line ends at `\n`. The `\n`, and a `\r` immediately before it, are not part of the line. The text after the last `\n`, if not empty, is the last line. Once `read_line` has returned `None`, every later call returns `None` and every later `read_text` returns `""`.
+- `read_line` and `read_text` read from the same position. `read_text` after `read_line` returns the input that follows the line.
+- When a line (for `read_text`, the rest of the input) is not valid UTF-8, it is consumed and the operation fails with InvalidInput. Invalid UTF-8 is not replaced with the replacement character, as in `[api.std.bytes]`. The next `read_line` starts at the following line. U+0000 is read as is on every target.
+- When the fiber waiting in an operation of SystemStdin is interrupted (11.4), the operation is canceled. Input that the host has already delivered is kept and returned by the next operation; no input is lost.
+- Waiting for input does not stop other fibers on any target.
+- SystemStdin does not hold the host open: a program that has no operation of Stdin waiting ends when its main ends, even if standard input is still open (a terminal, for example).
+- Under `emela test`, standard input is not passed to the program (`[cmd.test.output]`). SystemStdin reads it as an empty input.
+- `read_line` of TestStdin removes the first element of `lines` and returns it, or returns `None` when `lines` is empty. `read_text` returns the elements of `lines` joined with `\n` and sets `lines` to `[]`.
+
+impl (`[trait.derive]`): StdinLines has `derive Eq, Show`. Both errors have `derive Show`.
+
+```emel
+import Std.Console.{Console}
+import Std.Process.{Args, Stdin, InvalidInput, StdinFailure}
+
+fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {
+  (use Stdin).read_line() match {
+    None -> ()
+    Some(line) -> {
+      (use Console).print_line("#{prefix}#{line}")
+      quote(prefix)
+    }
   }
 }
 ```
@@ -566,9 +622,9 @@ The value layer (`[lib.layers]`). Pure functions that build path strings. Only `
 
 | Declaration | Contents | Description |
 |---|---|---|
-| `Platform` | `layer Platform { SystemConsole, SystemClock, SystemRandom, SystemEnv, SystemHttp, SystemFileSystem }` | A bundle of the System handlers. To replace some of them, list the replacements after it, as in `with Platform, TestClock { ... }` |
+| `Platform` | `layer Platform { SystemConsole, SystemArgs, SystemStdin, SystemClock, SystemRandom, SystemEnv, SystemHttp, SystemFileSystem }` | A bundle of the System handlers. To replace some of them, list the replacements after it, as in `with Platform, TestClock { ... }` |
 
-- The order of the list has no meaning (`[effect.layer]`). SystemClock, SystemHttp, and SystemFileSystem require Async, so Async remains in the R of `with Platform { ... }`. In main and test functions, the runtime provides Async.
+- The order of the list has no meaning (`[effect.layer]`). SystemStdin, SystemClock, SystemHttp, and SystemFileSystem require Async, so Async remains in the R of `with Platform { ... }`. In main and test functions, the runtime provides Async.
 
 ```emel
 import Std.Platform.{Platform}

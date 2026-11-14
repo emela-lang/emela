@@ -2822,7 +2822,40 @@
         },
         {
           "type": "SYMBOL",
+          "name": "local_function"
+        },
+        {
+          "type": "SYMBOL",
           "name": "_expression"
+        }
+      ]
+    },
+    "local_function": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "_modifiers"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_function_head"
+        },
+        {
+          "type": "FIELD",
+          "name": "body",
+          "content": {
+            "type": "SYMBOL",
+            "name": "block"
+          }
         }
       ]
     },

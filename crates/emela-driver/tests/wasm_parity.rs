@@ -845,6 +845,61 @@ fn main() {
         "array_set_negative",
         include_str!("../../emela-codegen-c/tests/programs/array_set_negative.emel"),
     ),
+    (
+        "local_fns",
+        r#"
+error Boom(at: Int)
+
+fn range(from: Int, to: Int) -> List[Int] {
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  onto(to, [])
+}
+
+fn first[A](xs: List[A], fallback: A) -> A {
+  fn go(ys: List[A]) -> A {
+    ys match {
+      [y, ..] -> y
+      [] -> fallback
+    }
+  }
+  go(xs)
+}
+
+fn len(xs: List[Int]) -> Int {
+  fn go(ys: List[Int]) -> Int {
+    ys match {
+      [] -> 0
+      [_, ..rest] -> 1 + go(rest)
+    }
+  }
+  go(xs)
+}
+
+fn check(n: Int) -> Int fails Boom {
+  fn go(i: Int) -> Int fails Boom { if i == n { fail Boom(at: i) } else { i } }
+  go(3)
+}
+
+fn main() {
+  base = 10
+  fn add(a: Int, b: Int) -> Int { base + a - b }
+  f = add
+  fn down(n: Int, acc: Int) -> Int { if n == 0 { acc } else { down(n - 1, acc + 1) } }
+  dbg(range(1, 5))
+  dbg(first([7, 8], 0))
+  dbg(first([], "none"))
+  dbg(len(range(0, 100)))
+  dbg(add(b: 1, a: 5))
+  dbg(f(2, 1))
+  dbg(List.map([1, 2], |x| add(x, 0)))
+  dbg(down(1000000, 0))
+  dbg(check(3) escape { Boom(at:) -> 0 - at })
+  dbg(check(4) escape { Boom(at:) -> 0 - at })
+}
+"#,
+    ),
 ];
 
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops
