@@ -6,7 +6,7 @@ pr: 514
 issue:
 decided:
 touches: [lib.api-rules, api.list, api.std.array, api.std.map, api.std.set]
-requires: [array]
+requires: [array, method-call]
 related: []
 ---
 
@@ -110,7 +110,7 @@ Additive. The order rule changes no result, because the functions are pure apart
 
 ## Implementation
 
-- `emela-core/lib/core/list.emel`; `emela-core/lib/std/array.emel`, `map.emel` and `set.emel`. All are written in Emela: by recursion for List, by index for Array, and by the same traversal as `fold` for Map and Set.
+- `emela-core/lib/core/list.emel`; `emela-core/lib/std/array.emel`, `map.emel` and `set.emel`. All are written in Emela: by recursion for List (a self tail call, which uses no stack even when `f` can fail; `[fn.loop]`), by index for Array, and by the same traversal as `fold` for Map and Set.
 - `Map.map_values` in `emela-core/lib/std/map.emel`: build the left subtree, then call `f` on the value, then build the right subtree, so that `f` is called in key order.
 - Rewrite the four places listed in Motivation to `List.each`.
 - Tests: programs under `emela-codegen-c/tests/programs/` that print in `each` for each type and fail in the middle, also in `wasm_parity.rs`. Programs that record the order of calls in `map`, `filter`, `filter_map`, `flat_map`, `partition`, `fold`, `find_index` and `map_values`, and where `any`, `all` and `find` stop.
