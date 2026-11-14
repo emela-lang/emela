@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\npub fn range(from: Int, to: Int) -> List[Int] {\n  ## Builds from the back, so `to - 1` cannot overflow.\n  fn onto(to: Int, acc: List[Int]) -> List[Int] {\n    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }\n  }\n  onto(to, [])\n}\n\"#)"
+---
+range: fn(Int, Int) -> List[Int]
+  from: Int
+  to: Int
+  onto: fn(Int, List[Int]) -> List[Int]
+  to: Int
+  acc: List[Int]

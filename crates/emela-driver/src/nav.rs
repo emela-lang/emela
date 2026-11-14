@@ -503,6 +503,9 @@ pub enum SymbolKind {
     /// A fn inside a trait, impl or handler.
     Method,
     Field,
+    /// A local fn (`[fn.local]`), a child of the function it is in. Not a workspace symbol,
+    /// since nothing outside its block can refer to it.
+    LocalFn,
 }
 
 /// Declarations in source order. Declarations that parsed are returned even with syntax errors;
@@ -536,6 +539,9 @@ pub fn workspace_symbols(analysis: &Analysis, query: &str) -> Vec<WorkspaceSymbo
         out: &mut Vec<WorkspaceSymbol>,
     ) {
         for symbol in symbols {
+            if symbol.kind == SymbolKind::LocalFn {
+                continue;
+            }
             if symbol.name.to_lowercase().contains(query) {
                 out.push(WorkspaceSymbol {
                     name: symbol.name.clone(),
@@ -571,7 +577,7 @@ fn item_symbol(item: &ast::Item) -> Option<DocumentSymbol> {
     use ast::Item;
     Some(match item {
         Item::Import(_) => return None,
-        Item::Fn(f) => symbol(f.syntax(), f.name()?, SymbolKind::Fn, Vec::new()),
+        Item::Fn(f) => symbol(f.syntax(), f.name()?, SymbolKind::Fn, local_fns(f.syntax())),
         Item::Type(t) => symbol(
             t.syntax(),
             t.name()?,
@@ -662,8 +668,30 @@ fn methods(fns: impl Iterator<Item = ast::FnDecl>) -> Vec<DocumentSymbol> {
             f.syntax(),
             f.name()?,
             SymbolKind::Method,
-            Vec::new(),
+            local_fns(f.syntax()),
         ))
     })
     .collect()
+}
+
+/// The local fns inside `node` that no other local fn inside it encloses, in source order, each
+/// with the local fns inside it as children.
+fn local_fns(node: &SyntaxNode) -> Vec<DocumentSymbol> {
+    let mut out = Vec::new();
+    for child in node.children() {
+        match ast::LocalFn::cast(child.clone()) {
+            Some(f) => {
+                if let Some(name) = f.name() {
+                    out.push(symbol(
+                        f.syntax(),
+                        name,
+                        SymbolKind::LocalFn,
+                        local_fns(f.syntax()),
+                    ));
+                }
+            }
+            None => out.extend(local_fns(&child)),
+        }
+    }
+    out
 }

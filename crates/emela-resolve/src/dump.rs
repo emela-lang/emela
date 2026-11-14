@@ -541,7 +541,8 @@ impl Dumper<'_> {
                                 .iter()
                                 .map(|p| {
                                     let ty =
-                                        p.ty.map(|t| format!(": {}", self.ty(t))).unwrap_or_default();
+                                        p.ty.map(|t| format!(": {}", self.ty(t)))
+                                            .unwrap_or_default();
                                     format!("{}{ty}", self.local(p.local))
                                 })
                                 .collect();

@@ -76,6 +76,7 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         type_params: Vec::new(),
         self_type: false,
         type_arg: false,
+        ignored_type_params: Vec::new(),
     };
     let item = match &pending.item {
         ast::Item::Import(_) => return,
@@ -140,6 +141,9 @@ struct Lower<'r, 'a> {
     /// appear there too (set type arguments, `Handler[NotFound, Db]` in spec 9.2); whether an
     /// effect is allowed in that position is checked by type inference.
     type_arg: bool,
+    /// The type parameters written on the local fns being lowered, which are E0150
+    /// (`[fn.local]`). Their uses are not reported again as undefined.
+    ignored_type_params: Vec<SmolStr>,
 }
 
 /// Names bound by one pattern (or parameter list). Binding the same name twice is reported.
@@ -1014,6 +1018,9 @@ impl Lower<'_, '_> {
             self.refer(range, RefTarget::Def(def));
             return Res::Def(def);
         }
+        if self.ignored_type_params.contains(&name) {
+            return Res::Err;
+        }
         let candidates: Vec<SmolStr> = self
             .type_params
             .iter()
@@ -1542,6 +1549,15 @@ impl Lower<'_, '_> {
             binder.names.push((name, local));
             self.bind_all(binder);
         }
+        let ignored = self.ignored_type_params.len();
+        let written = node
+            .children()
+            .filter(|n| n.kind() == TYPE_PARAM_LIST)
+            .flat_map(|list| list.descendants_with_tokens())
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == UPPER_NAME)
+            .map(|t| SmolStr::new(t.text()));
+        self.ignored_type_params.extend(written);
         self.push_scope();
         let params = self.params(f.param_list(), LocalKind::Param);
         let sig = self.signature(node, Vec::new(), params, false);
@@ -1550,6 +1566,7 @@ impl Lower<'_, '_> {
             None => self.alloc_expr(ExprKind::Missing, node.text_range()),
         };
         self.pop_scope();
+        self.ignored_type_params.truncate(ignored);
         Stmt::LocalFn(Box::new(LocalFn {
             local,
             sig,

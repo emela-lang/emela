@@ -74,8 +74,7 @@ pub(crate) fn block(p: &mut Parser<'_>) -> CompletedMarker {
     p.bump_kind(L_BRACE);
     loop {
         let doc = newlines_with_doc(p);
-        let local_fn =
-            at_local_fn_start(p) && (p.braces_balance || p.line_indent() > indent);
+        let local_fn = at_local_fn_start(p) && (p.braces_balance || p.line_indent() > indent);
         if !local_fn && (p.at(R_BRACE) || p.at_eof() || p.at_decl_start()) {
             if let Some(doc) = doc {
                 doc.abandon(p);
