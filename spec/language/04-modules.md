@@ -33,7 +33,7 @@ Projects and source roots:
 - If a file is given and a `Pome.toml` is found, but the file is outside both the source root and the test root, it is a compile error (E0208).
 - `<project>/test` is the test root, which holds modules used only by tests (13.1). Module names are determined by the path from the test root, using the same rules as the source root, and go into the same table as the modules of the source root. A module with the same name in both is a duplicate (E0204). Reserved names are the same, and in addition `main.emel` and `lib.emel` cannot be placed there (E0203). Single-file mode has no test root.
 - The test root is read by `check`, `test`, and the language server, and not by `build`, `run`, or `doc`. When it is not read, the modules of the test root are not part of the normal build.
-- The output directory is `<project>/target/emela/<target>` (`js`, `c`, `wasm`) for a project, and `target/emela/<target>` in the file's directory for a single file.
+- The output directory is `<project>/target/emela/<target>` (`js`, `native`, `wasm`) for a project, and `target/emela/<target>` in the file's directory for a single file.
 - Paths in diagnostics are relative to the project (for a single file, to the file's directory).
 
 ## 4.2 import `[module.import]`
@@ -149,7 +149,7 @@ license = "MIT OR Apache-2.0"            # SPDX license expression (optional)
 "github.com/emela-lang/x" = { path = "../x" }    # takes effect only when building this Pome
 
 [build]
-target = "c"                                     # default build target (js if omitted)
+target = "native"                                # default build target (js if omitted)
 ```
 
 Identity:
@@ -159,7 +159,7 @@ Identity:
 - For a github.com source path, the part up to `github.com/<owner>/<repo>` is the repository, and the segments after it are a directory inside the repository. One repository can hold multiple Pomes (`github.com/emela-lang/x/platform-cloudflare` is the Pome in the directory `platform-cloudflare` of the repository `github.com/emela-lang/x`). On other hosts, the whole source path without `/vN` is the repository, and directory Pomes are not possible.
 - The version of a directory Pome is expressed by a tag prefixed with the directory (`platform-cloudflare/v0.1.0`). Its contents are the files under that directory, and paths are relative to the directory. The tag of the Pome at the repository root stays `v0.1.0`.
 - A Pome with major version 2 or higher appends `/vN` (N is the major version) to the end of its source path (`github.com/acme/http/v2`, `github.com/emela-lang/x/platform-cloudflare/v2`). The source path without `/vN` is the location of that Pome, and it is a different Pome from the v0 and v1 Pome at the same location. Versions of a source path without `/vN` are limited to v0 and v1, and versions of a source path with `/vN` are limited to major version N. A tag that does not match is not considered a version of that Pome (it does not appear in `@v/list` and cannot be ingested). Endings such as `/v0`, `/v1`, and `/v02` cannot be written.
-- The `target` in `[build]` is the default build target for `check`, `build`, `run`, and `test` (`js`, `c`, `wasm`, chapter 16). If omitted, it is `js`. The `--target` option of a command takes precedence. Like `[replace]`, it takes effect only when building that Pome and is ignored when the Pome is depended on. An unknown target is a compile error (E0232).
+- The `target` in `[build]` is the default build target for `check`, `build`, `run`, and `test` (`js`, `native`, `wasm`, chapter 16). If omitted, it is `js`. The `--target` option of a command takes precedence. Like `[replace]`, it takes effect only when building that Pome and is ignored when the Pome is depended on. An unknown target is a compile error (E0232). `c` is a deprecated name of `native` and reports W0903 (`[target.native]`).
 - When `Pome.toml` cannot be read as TOML, or when the `target` in `[build]` is not a string, it is treated as if no `target` were specified.
 - `license` in `[pome]` declares the license under which the contents of that version are distributed, as an SPDX license expression. It is the author's declaration: no tool checks it against the files of the Pome. When it is omitted, the Pome declares no license; this does not mean any particular license. Unlike `[replace]` and `[build]`, `license` is read also when the Pome is depended on. It does not affect how any Pome is built.
 
@@ -202,7 +202,7 @@ targets = ["js"]
 - Like `[replace]`, `[external]` takes effect only when building that Pome and is ignored when the Pome is depended on. This ensures that dependencies that run host code always appear as a list in the app's `Pome.toml`.
 - A source path in `allow` that is not in the dependency graph produces a warning (W0204).
 - An `@external` fn in a dependency cannot be pub (E0237). The path to the host goes through that Pome's handlers. External functions with uses omitted and external functions that are suspend fns can be used only inside handlers in the first place (12.2), so the only path to the host visible from the depending side is effects. An external function with an explicit `uses {}` can be called from anywhere inside that Pome. An `@external` type MAY be pub (it is a value whose contents cannot be opened, and only passing it around does not touch the host).
-- `targets` in `[pome]` declares the targets the Pome runs on (`js`, `wasm`, `c`). An unknown target is an error when the manifest is read. If omitted, it is considered to cover all targets. If the `targets` of a Pome in the dependency graph does not include the build target, it is a compile error (E0238). A Pome without `@external` does not need to write it. `check` and the LSP do not decide a target, so they do not perform this check. Even if the declaration and the actual `@external` bindings disagree, the check of reachable external functions in 12.1 (E0412) is still performed.
+- `targets` in `[pome]` declares the targets the Pome runs on (`js`, `wasm`, `native`; `c` is a deprecated name of `native` and reports W0903). An unknown target is an error when the manifest is read. If omitted, it is considered to cover all targets. If the `targets` of a Pome in the dependency graph does not include the build target, it is a compile error (E0238). A Pome without `@external` does not need to write it. `check` and the LSP do not decide a target, so they do not perform this check. Even if the declaration and the actual `@external` bindings disagree, the check of reachable external functions in 12.1 (E0412) is still performed.
 - E0238 is reported in the `Pome.toml` of the Pome that declared the targets. The note shows the Pomes that depend on that Pome (`this Pome` if the Pome being built depends on it directly).
 - Target-specific parts are confined to effect handlers, and the entry decides which handlers to provide. For this reason, splitting into a Pome with only effects (usable on all targets), target-specific Pomes with handlers and `@external`, and per-target entry Pomes is recommended. There is no way to write per-target dependencies.
 
