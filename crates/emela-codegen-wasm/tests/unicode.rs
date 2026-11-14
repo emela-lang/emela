@@ -202,6 +202,10 @@ process.stdout.write(out.join("\n"));
     );
     let unicode = String::from_utf8_lossy(&output.stderr).trim().to_owned();
     if !unicode.starts_with("17.") {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "skipping: node uses Unicode {unicode}, not 17.0 (Intl.Segmenter may differ)"
+        );
         eprintln!("skipping: node uses Unicode {unicode}, not 17.0 (Intl.Segmenter may differ)");
         return None;
     }

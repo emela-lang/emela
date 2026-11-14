@@ -62,6 +62,10 @@ pub fn cc() -> Option<&'static str> {
             .output()
             .is_ok_and(|o| o.status.success());
         if !ok {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "skipping: cannot start the C compiler `{cc}` (set EMELA_CC)"
+            );
             eprintln!("skipping: cannot start the C compiler `{cc}` (set EMELA_CC)");
         }
         ok.then_some(cc)

@@ -14,6 +14,11 @@ pub fn have_wasmtime() -> bool {
     let output = match Command::new(&wasmtime).arg("--version").output() {
         Ok(output) if output.status.success() => output,
         _ => {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "skipping: cannot start `{}`",
+                wasmtime.display()
+            );
             eprintln!("skipping: cannot start `{}`", wasmtime.display());
             return false;
         }
@@ -31,6 +36,11 @@ pub fn have_wasmtime() -> bool {
     match major {
         Some(major) if major >= 49 => true,
         Some(found) => {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "skipping: wasmtime 49 or later is required, found {found} ({})",
+                text.trim()
+            );
             eprintln!(
                 "skipping: wasmtime 49 or later is required, found {found} ({})",
                 text.trim()
@@ -38,6 +48,12 @@ pub fn have_wasmtime() -> bool {
             false
         }
         None => {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "skipping: cannot read the version of `{}` ({})",
+                wasmtime.display(),
+                text.trim()
+            );
             eprintln!(
                 "skipping: cannot read the version of `{}` ({})",
                 wasmtime.display(),
