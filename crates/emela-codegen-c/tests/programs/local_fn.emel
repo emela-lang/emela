@@ -1,0 +1,110 @@
+# Local functions (`[fn.local]`): captures, calls to itself, named arguments, function values,
+# errors and effects.
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+error Boom(at: Int)
+
+effect Name {
+  fn name() -> String
+}
+
+handler Alice: Name {
+  fn name() { "alice" }
+}
+
+handler Bob: Name {
+  fn name() { "bob" }
+}
+
+pub fn range(from: Int, to: Int) -> List[Int] {
+  ## Builds from the back, so `to - 1` cannot overflow.
+  fn onto(to: Int, acc: List[Int]) -> List[Int] {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+  onto(to, [])
+}
+
+fn zip[A, B](xs: List[A], ys: List[B]) -> List[(A, B)] {
+  fn onto(xs: List[A], ys: List[B], acc: List[(A, B)]) -> List[(A, B)] {
+    (xs, ys) match {
+      ([x, ..xs_rest], [y, ..ys_rest]) -> onto(xs_rest, ys_rest, [(x, y), ..acc])
+      _ -> List.reverse(acc)
+    }
+  }
+  onto(xs, ys, [])
+}
+
+fn count(limit: Int) -> Int {
+  # A self tail call does not consume stack.
+  fn go(n: Int) -> Int {
+    if n == limit { n } else { go(n + 1) }
+  }
+  go(0)
+}
+
+fn depth(xs: List[Int]) -> Int {
+  # A call to itself that is not a tail call.
+  fn len(ys: List[Int]) -> Int {
+    ys match {
+      [] -> 0
+      [_, ..rest] -> 1 + len(rest)
+    }
+  }
+  len(xs)
+}
+
+fn checked(xs: List[Int]) -> Int fails Boom {
+  fn first_negative(ys: List[Int], i: Int) -> Int fails Boom {
+    ys match {
+      [] -> i
+      [y, ..rest] -> if y < 0 { fail Boom(at: i) } else { first_negative(rest, i + 1) }
+    }
+  }
+  first_negative(xs, 0)
+}
+
+fn greeting() -> String uses { Name } {
+  # `use Name` looks at the `with` around the declaration first.
+  with Alice {
+    fn greet(suffix: String) -> String {
+      n = use Name
+      "#{n.name()}#{suffix}"
+    }
+    inner = greet("!")
+    with Bob {
+      "#{inner} #{greet("?")}"
+    }
+  }
+}
+
+fn caller_name() -> fn() -> String uses { Name } {
+  # Without a `with` around it, `use Name` takes the handler of the caller.
+  fn who() -> String {
+    n = use Name
+    n.name()
+  }
+  who
+}
+
+fn main() {
+  print("#{range(1, 5)} #{zip([1, 2, 3], ["a", "b"])}")
+  print("#{count(1000000)} #{depth(range(0, 1000))}")
+  print("#{checked([1, 2, 3]) escape { Boom(at:) -> 0 - at }}")
+  print("#{checked([1, -2, 3]) escape { Boom(at:) -> 0 - at }}")
+  base = 10
+  fn add(a: Int, b: Int) -> Int { base + a - b }
+  base = 100
+  print("#{add(b: 1, a: 5)} #{List.map([1, 2], |x| add(x, 0))}")
+  f = add
+  print("#{f(1, 1)}")
+  fn twice(n: Int) -> Int { add(n, 0) + add(n, 0) }
+  print("#{twice(1)}")
+  print(with Bob { greeting() })
+  who = with Alice { caller_name() }
+  print(with Bob { who() })
+  add = 7
+  print("#{add}")
+}
