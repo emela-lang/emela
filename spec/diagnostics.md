@@ -184,6 +184,7 @@ error[E0204]: duplicate module `Http.Client`
 | W0301 | A redundant arm (6.5) | `unreachable match arm` |
 | W0302 | The error an escape arm receives is never raised by the original expression, or the E of the original expression is empty for an arm `_` (7.3) | ``error `Timeout` is never raised here`` / `no error is raised here` |
 | W0303 | An implementation derived for a type that is not `pub` is never required anywhere (10.5). The help is ``= help: remove it from `derive` ``. For Show, ``= help: remove it from `derive`; `dbg` then shows `Point` as constructed, and a failed `assert` no longer shows its values`` | ``derived `Ord` for `Point` is never used`` |
+| W0304 | The return type of main is none of `()`, `ExitCode` and Never (`[dyn.error]`). Points at the return type annotation of main, or at its name when the type is inferred. The help is ``= help: return `()`, or return an `ExitCode` to choose the exit code`` | ``the value of type `Int` returned by `main` is discarded`` |
 | W0901 | In `emela pome publish`, the version bump is too small for the changes to the public API (Appendix B) | ``removing `Quince.Router.mount` needs a new major version (v1.2.0 → v2.0.0)`` |
 | W0902 | `EMELA_NODE` is set (Appendix B) | `EMELA_NODE is deprecated; use EMELA_JS_HOST` |
 | W0903 | The build target `c` in `--target`, `[build].target` or `[pome].targets` (`[target.native]`). The help is ``= help: `c` is removed in 0.29`` | ``target `c` is deprecated; use `native` `` |

@@ -36,8 +36,10 @@ Within std, modules are divided into four layers by their nature.
 |---|---|---|
 | value | Pure and independent of the host | Instant, Duration, Path, Bytes, Array, Dynamic (values in no particular format, and Encode and Decode), Shape (the shapes of types, and Shaped), Json. Collections (Map, Set) in 0.24 |
 | effect | Concurrency and state | State, Fiber, Exit, Cause, Deferred (0.20), Semaphore, Queue. Schedule and Stream come in later versions |
-| platform | Effect declarations and the host handlers | Console, Process (Args, Stdin, Stdout, Stderr), Clock, Random, Env, FileSystem, Http |
+| platform | Effect declarations and the host handlers, and the value types used only with them | Console, Process (Args, Stdin, Stdout, Stderr, ExitCode), Clock, Random, Env, FileSystem, Http |
 | test | Replacements for testing | Handlers such as TestClock and TestConsole. They keep their state in State (8.8), so they are used inside `State.run`. Value comparison helpers, generators, and property testing are not placed in std (below) |
+
+- A module of the platform layer MAY declare value types that are independent of the host but have meaning only together with its effects (`Request` and `Response` of Http, `ExitCode` of Process). They are not listed in the value layer, which holds values that are useful on their own.
 
 - The helpers for test assertions (comparison helpers that take the contents out of an Option, generators, property testing) are distributed as the Pome `github.com/emela-lang/brix` and used as a test dependency (4.7). The test layer of std has only the replacement handlers, placed in the same module as their effect. Assertion helpers are a matter of style on which people differ, and a running program does not need them, so they grow separately from the compiler version.
 - Modules are placed under `Std` so that adding a module to std does not turn a user's file name into a reserved name (4.1). A user can write `http.emel` without conflicting with `Std.Http`.

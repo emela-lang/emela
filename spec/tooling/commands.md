@@ -13,7 +13,7 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 - For `native`, the command writes the executable `main` and the header `emela.h` to the output directory, with other implementation-defined files (`[target.native.output]`). The C compiler is chosen as in `[target.native.cc]` (E0907, E0908).
 - The exit code is as follows.
   - 1 if the diagnostics include an error. 0 if there are only warnings.
-  - When `run` reaches the program, the exit code of the program (0, 1 for an error (14.3), 101 for a defect (7.5), 130 for an interruption (14.5), 141 for a write to a closed standard output (`[api.std.process]`)).
+  - When `run` reaches the program, the exit code of the program: 0, or the value of the `ExitCode` that `main` returned (`[dyn.error]`), when main ends with a value; 1 for an error (14.3); 101 for a defect (7.5); 130 for an interruption (14.5); 141 for a write to a closed standard output (`[api.std.process]`).
   - 128 + the signal number when stopped by a signal.
 
 Build target and output directory:
@@ -45,12 +45,13 @@ Starting the program:
 Running the program (JS):
 
 - For an HTTP service, `run` runs `serve.mjs` (`[target.js.module]`) with the JS host with the arguments after `--`, instead of what follows.
-- `run` loads the entry module and calls the exported `main` with no arguments. The return value of `main` is discarded. Arguments to the program are passed after `--` as arguments of the JS host, and the launcher passes them to the runtime, where `Args.list` of SystemArgs returns them (`[api.std.process]`).
+- `run` loads the entry module and calls the exported `main` with no arguments. The return value of `main` is discarded, except that when the return type of `main` is `ExitCode` the program exits with its exit code. Arguments to the program are passed after `--` as arguments of the JS host, and the launcher passes them to the runtime, where `Args.list` of SystemArgs returns them (`[api.std.process]`).
 - A `main` that can suspend is awaited on the event loop until it finishes.
 - The standard error output and exit code when execution stops are as follows. The exit code is determined after writing to standard error finishes (writes to a pipe are not cut off midway).
 
 | How it stops | Standard error | Exit code |
 |---|---|---|
+| `main` ended with a value of `ExitCode` (`[dyn.error]`) | nothing | the exit code of the value |
 | An error that reached `main` (14.3) | `error: <display of the error value>` | 1 |
 | defect (7.5) | `defect: <message>` | 101 |
 | Ended while suspended without being resumed (14.5) | `interrupted` | 130 |

@@ -456,6 +456,11 @@ The platform layer and the test layer (`[lib.layers]`). What the process has exa
 | `StderrText` | `type StderrText(text: String)` | The state of TestStderr: everything written so far |
 | `TestStdout` | `handler TestStdout: Stdout` | Appends what is written to `text` of `State[StdoutText]`, with `\n` after the text of `print_line` |
 | `TestStderr` | `handler TestStderr: Stderr` | Appends what is written to `text` of `State[StderrText]`, with `\n` after the text of `print_line` |
+| `ExitCode` | `opaque type ExitCode` | The exit code of a program. Its contents are an Int from 0 to 255 |
+| `exit_code` | `exit_code(code: Int) -> ExitCode` | The exit code `code`. A `code` outside 0 to 255 is a defect. Implemented in Emela |
+| `exit_code_to_int` | `exit_code_to_int(code: ExitCode) -> Int` | The number of the exit code. Implemented in Emela |
+| `EXIT_SUCCESS` | `const EXIT_SUCCESS: ExitCode` | `exit_code(0)` |
+| `EXIT_FAILURE` | `const EXIT_FAILURE: ExitCode` | `exit_code(1)` |
 
 Args:
 
@@ -490,7 +495,15 @@ Stdout and Stderr:
 - When a write to standard output fails because the reader has closed it (a pipe whose reading end is closed), the operation does not return. The fiber that wrote unwinds as interrupted from that point, running the releases of its handlers from the inside out, and every other fiber of the program is interrupted (`[fiber.interrupt]`). After that, writes to standard output are discarded. When the unwinding of main finishes, the program exits with exit code 141 and writes nothing to standard error (no `interrupted` line). The same holds for writes of `print_line` of SystemConsole to standard output.
 - When a write to standard error fails because the reader has closed it, the program continues. That write and every later write to standard error (SystemStderr, `print_error_line` of SystemConsole, `dbg`, and the lines that the runtime writes when execution stops) are discarded.
 
+ExitCode:
+
+- A `main` whose return type is `ExitCode` chooses the exit code of the program with its value (`[dyn.error]`). Every value from 0 to 255 can be chosen, including 1, 101 and 130. `ExitCode` is a value: making one uses no effect, and no handler is needed.
+- The constants are named with the prefix `EXIT_` because a const is used through an import, not as a qualified name (`[grammar.expr]`), so its name appears in user code on its own.
+- The upper bound 255 comes from the exit status of POSIX processes and the argument of `exit-with-code` of WASI, which are 8 bits wide.
+
 impl (`[trait.derive]`): StdinLines has `derive Eq, Show`. Both errors have `derive Show`.
+
+impl of `ExitCode` (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Show`. The Show impl gives `ExitCode(2)`.
 
 ```emel
 import Std.Console.{Console}
