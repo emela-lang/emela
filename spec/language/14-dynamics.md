@@ -27,7 +27,9 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 
 - `fail e` ends the expressions being evaluated, one after another outward. When it reaches the innermost escape that has an arm matching the tag of e, that arm is evaluated, and its result is the value of the escape expression.
 - When a with is left on the way, step 3 of 14.2 runs.
-- When main ends normally, its return value is discarded without being shown, and the program exits with exit code 0. To see a value, use `dbg`.
+- When main ends normally, the program exits with exit code 0, and the return value is discarded without being shown. The exception is a main whose return type is `ExitCode` (`[api.std.process]`): the program exits with the exit code of the value. To see a value, use `dbg`.
+- The return type of main SHOULD be `()` or `ExitCode`. A main whose return type is none of `()`, `ExitCode` and Never is W0304; it still runs, and its value is discarded as above.
+- The exit code chosen by an `ExitCode` MAY be 1, 101 or 130. The exit code alone then does not tell it apart from an error, a defect or an interruption; only the line written to standard error does.
 - An error that reaches main is an abnormal termination of the program. One line `error: <the error value shown>` is printed to standard error, and the program exits with exit code 1. If the type of the error satisfies Show, it is shown the same way as by inspect (10.6) (for `error DbError(message: String) derive Show`, `error: DbError(message: "down")`). Otherwise only the name of the error is shown (`error: Retry`). The E of main does not require Show. The exit code tells it apart from a defect (exit code 101, 7.5). The E of main MAY be non-empty.
 
 ## 14.4 Defect propagation `[dyn.defect]`
