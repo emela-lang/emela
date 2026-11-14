@@ -41,7 +41,9 @@ struct Skipped {
 const SKIPPED: &[Skipped] = &[Skipped {
     feature: "http",
     reason: "the client of Std.Http (SystemHttp) has no WASM host yet",
-    expected_failures: &["external function `host_request` has no `@external` for target `wasm`"],
+    expected_failures: &[
+        "external function `host_request` has no `@external(wasm, ...)` for target `wasm`",
+    ],
     examples: &["http"],
 }];
 
