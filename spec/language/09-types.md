@@ -63,6 +63,8 @@ fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
 | fails clause | "No errors" if there is a return type | Enforces exactly that set |
 | uses clause | R is always inferred (even when a return type is written) | Enforces exactly that set. The effects of calling parameter functions (hidden set variables) are added (as for E in 7.4) |
 
+A local fn (6.9) follows the same table. Its E and R are inferred as part of the enclosing body, and its type is not generalized.
+
 E and R usually do not appear in source. The LSP displays them.
 
 An effect not included in the declared R is a compile error (E0402). The diagnostic points, for each effect, at the first expression (`use` or a call) that requires it. The first expression is determined in the same way as for E0318 (7.4).
@@ -98,10 +100,11 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `use X` | The capability of X | {} | { X } |
 | `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H)) ∪ requires(H) ∪ (R of the arguments of init) |
 | `\|x\| e` | `fn(..) -> T fails Ee uses { Re }` | {} | {} |
+| `fn f(x: A) -> T { e }` (local fn, a statement) | Binds f to `fn(A) -> T fails Ee uses { Re }` | {} | {} |
 | `if c { a } else { b }` | The common type of a and b | Ec ∪ Ea ∪ Eb | Rc ∪ Ra ∪ Rb |
 | `e match { pi -> ei }` | The common type of the arms | Ee ∪ Eei | Re ∪ Rei |
 
-- An anonymous function encloses the E and R of its body in its function type. They surface when the function is called.
+- An anonymous function and a local fn enclose the E and R of their bodies in their function types. They surface when the function is called. A reference to a local fn inside its own body has the type being inferred, and is not generalized.
 - Never can form a common type with any type. Even if one branch of an if or a match is a fail, the type of the whole is the type of the other branch.
 - When there is no expected type and the types of the branches do not match, the type of the first branch is reported as the expected type and the type of a later branch as the actual type (E0301), and checking continues with the type of the first branch as the type of the whole.
 - For a field access `x.name`, the type of x MUST already be determined to be a named type when checking reaches it. Otherwise it is a compile error (E0314). The type is not worked out backward from the field name (there is no row polymorphism).

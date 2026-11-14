@@ -4,7 +4,44 @@ This is the record of changes to the specification. New entries are added at the
 
 ## 2026-11-14 (Std.Process, the arguments and the standard input of the process)
 
-- `[lib.layers]`, `[api.std.process]`, `[api.std.platform]`, `[cmd.build]`, `[target.c.run]`, `[target.wasm.output]`, `[target.wasm.external]`, `[cmd.test.output]`: Add a module `Std.Process` to the platform layer of std, for what belongs to the process, and put two effects in it first. - `Args`: reads the arguments given to the process. `get(index)` takes one by position, and `list()` returns all of them as a `List[String]`. The name of the program is not included - `Stdin`: reads standard input. `read_line` reads one line, and `read_text` reads all the rest. Both are `suspend fn` The system handlers `SystemArgs` and `SystemStdin` are added to `Platform`. For tests, `TestStdin` reads from `State[StdinLines]`. There is no test handler for `Args`. `Console` does not change (`Stdout` and `Stderr` are added to this module by the separate proposal stdout-stderr, and the exit code type `ExitCode` by the separate proposal exit-code). ```emel import Std.Console.{Console} import Std.Platform.{Platform} import Std.Process.{Args, Stdin, InvalidInput, StdinFailure} fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } { (use Stdin).read_line() match { None -> () Some(line) -> { (use Console).print_line("#{prefix}#{line}") quote(prefix) } } } fn main() { with Platform { prefix = (use Args).get(0) match { Some(p) -> p None -> "> " } quote(prefix) } } ``` Adopted in the proposal `std-process` (#565).
+- `[lib.layers]`, `[api.std.process]`, `[api.std.platform]`, `[cmd.build]`, `[target.native.run]`, `[target.wasm.output]`, `[target.wasm.external]`, `[cmd.test.output]`: Add a module `Std.Process` to the platform layer of std, for what belongs to the process, and put two effects in it first. `Args` reads the arguments given to the process: `get(index)` takes one by position, and `list()` returns all of them as a `List[String]`, without the name of the program. `Stdin` reads standard input: `read_line` reads one line, and `read_text` reads all the rest; both are `suspend fn`. The system handlers `SystemArgs` and `SystemStdin` are added to `Platform`. For tests, `TestStdin` reads from `State[StdinLines]`. There is no test handler for `Args`. `Console` does not change. Adopted in the proposal `std-process` (#565).
+
+## 2026-11-14 (Local functions)
+
+- `[fn.decl]`, `[fn.local]`, `[fn.args]`, `[fn.block]`, `[fn.loop]`, `[lex.comment]`, `[module.resolution]`, `[type.inference]`, `[type.rules]`, `[effect.use]`, `[effect.with]`, `[effect.escape]`, `[grammar.expr]`, `[diag.list]`: A block MAY contain a named function, a local function, written in the same form as a top-level fn: `fn name(x: T) -> U { ... }`. Its name is visible after the declaration and inside its own body, so it can call itself, and a tail call to itself is guaranteed not to consume stack. It captures the variables visible at the declaration, as an anonymous function does. It is not generalized, but it can use the type parameters of the enclosing function. Adopted in the proposal `local-fn` (#502).
+
+## 2026-11-14 (The C target becomes the native target)
+
+- `[target]`, `[target.c]`, `[target.c.output]`, `[target.c.cc]`, `[target.c.run]`, `[target.c.unsupported]`, `[target.c.event-loop]`, `[target.c.export]`, `[ext.decl]`, `[ext.host-type]`, `[ext.boundary]`, `[ext.c-host]`, `[ext.export]`, `[module.name]`, `[module.pome]`, `[lib.layers]`, `[api.std.file-system]`, `[cmd.build]`, `[cmd.doctor]`, `[cmd.test.out-dir]`, `[lsp.completion]`, `[open.list]`, `[diag.list]`: The build target `c` is renamed `native`. It still emits C, but C becomes an intermediate form: the specification promises a native executable made by the C compiler and linker of the machine that builds, and the header `emela.h` for host sources, not the emitted C files. The program links against the C library of that machine. Differences between the C libraries and headers of operating systems are resolved by compiling the C on that machine with its own headers; the compiler still does not read C headers, and Emela source has no construct that depends on the OS. The first argument of `@external` and `@export` is redefined as the language of the code that is linked with, not the build target. It stays `c` for the native target. Each target has one such language: `native` uses `c`, `js` uses `js`, and `wasm` uses `wasm`. The C compiler is named by `EMELA_CC` alone, and its flags are given by a new variable `EMELA_CC_ARGS`. `emela doctor` checks that the C compiler can compile and link a program against the C library. The build target `c` is deprecated in 0.28 and removed in 0.29. Adopted in the proposal `native-target` (#564).
+- The section names below were renamed when the C target became the native target. They are kept for references from earlier history and proposals, and MUST NOT be reused.
+
+### The C target (renamed) `[target.c]`
+
+Renamed to `[target.native]`.
+
+### C output (renamed) `[target.c.output]`
+
+Renamed to `[target.native.output]`.
+
+### Invoking the C compiler (renamed) `[target.c.cc]`
+
+Renamed to `[target.native.cc]`.
+
+### Running on C (renamed) `[target.c.run]`
+
+Renamed to `[target.native.run]`.
+
+### Constructs not supported yet on C (renamed) `[target.c.unsupported]`
+
+Renamed to `[target.native.unsupported]`.
+
+### C event loop (renamed) `[target.c.event-loop]`
+
+Renamed to `[target.native.event-loop]`.
+
+### C exported functions (renamed) `[target.c.export]`
+
+Renamed to `[target.native.export]`.
 
 ## 2026-11-14 (The minimum version of Bun is 1.4.3)
 

@@ -5,7 +5,7 @@ status: accepted
 pr: 565
 issue:
 decided: 2026-11-14
-touches: [lib.layers, api.std.process (new), api.std.platform, cmd.build, target.c.run, target.wasm.output, target.wasm.external, cmd.test.output]
+touches: [lib.layers, api.std.process (new), api.std.platform, cmd.build, target.native.run, target.wasm.output, target.wasm.external, cmd.test.output]
 requires: []
 related: []
 ---
@@ -49,7 +49,7 @@ fn main() {
 
 ## Motivation
 
-- An Emela program cannot take input from outside today. `emela run` passes the arguments after `--` and lets the program inherit standard input (`[cmd.build]`, `[target.c.run]`, `[target.wasm.run]`), but there is no API to read them inside the program. Notes from porting programs to Emela record: "there is no argv and no stdin; input can only be embedded as constants"
+- An Emela program cannot take input from outside today. `emela run` passes the arguments after `--` and lets the program inherit standard input (`[cmd.build]`, `[target.native.run]`, `[target.wasm.run]`), but there is no API to read them inside the program. Notes from porting programs to Emela record: "there is no argv and no stdin; input can only be embedded as constants"
 - A CLI tool needs its arguments first. Parsing them (flags, subcommands, printing usage) can be left to a library in a Pome, but std has to provide the means to receive the `List[String]` that such a library works on
 - Many CLI tools sit in the middle of a pipe (`cat data.json | tool`, `git diff | tool`). Without reading standard input, the only way to get input is to take a file path as an argument and read it with `Std.FileSystem`
 - Interactive programs (a REPL, a confirmation prompt) cannot be written either
@@ -89,7 +89,7 @@ pub handler TestStdin: Stdin
 
 #### Args
 
-- `list` returns the arguments given to the process, in the order given. The name of the program (the host's executable, `main.mjs`, `main.wasm`, `argv[0]` on C) is not included. Without arguments it is `[]`
+- `list` returns the arguments given to the process, in the order given. The name of the program (the host's executable, `main.mjs`, `main.wasm`, `argv[0]` on native) is not included. Without arguments it is `[]`
 - `get(index)` returns the element of `list` at `index` (from 0). Out of range (including a negative index) is `None` (out of range is an Option, `[lib.api-rules]`)
 - Every call returns the same result. It does not change after the program starts
 - What each target returns:
@@ -98,7 +98,7 @@ pub handler TestStdin: Stdin
   - JS: the arguments that the runtime's launcher passes to the runtime
   - WASM: the result of `get-arguments` of `wasi:cli/environment@0.3.0` without its first element (the name of the program)
   - An HTTP service: `[]` (`emela run` passes the arguments after `--` to the host, so they do not reach the program)
-- An argument that is not valid UTF-8 (possible on C and on JS hosts on POSIX) has its invalid parts replaced with U+FFFD. It does not fail. The reasons are in Alternatives
+- An argument that is not valid UTF-8 (possible on native and on JS hosts on POSIX) has its invalid parts replaced with U+FFFD. It does not fail. The reasons are in Alternatives
 - Under `emela test` it is `[]`. The arguments that the test runner passes to the executable (to select tests, for example) are not visible
 - `SystemArgs` does not require Async. It has no state
 - There is no test handler. One can be written in two lines, `get` and `list` (as `Std.Env` has no `TestEnv`)
@@ -168,7 +168,7 @@ The platform layer and the test layer (`[lib.layers]`). What the process has exa
 | `SystemArgs` | `handler SystemArgs: Args` | The arguments given by the host. Has no state |
 | error | `InvalidInput`, `StdinFailure(message: String)` | InvalidInput when standard input is not valid UTF-8. StdinFailure when the host cannot read standard input; `message` is the host's text |
 | `Stdin` | `effect Stdin { suspend fn read_line() -> Option[String] fails InvalidInput \| StdinFailure; suspend fn read_text() -> String fails InvalidInput \| StdinFailure }` | Reads standard input as text (UTF-8). `read_line` returns the next line without its line terminator, and `None` at the end of the input. `read_text` returns the rest of the input, line terminators included, and `""` at the end of the input |
-| `SystemStdin` | `handler SystemStdin: Stdin` | The standard input of the process. `process.stdin` on JS and file descriptor 0 on C. Requires Async. Has no state |
+| `SystemStdin` | `handler SystemStdin: Stdin` | The standard input of the process. `process.stdin` on JS and file descriptor 0 on native. Requires Async. Has no state |
 | `StdinLines` | `type StdinLines(lines: List[String])` | The state of TestStdin: the lines not read yet |
 | `TestStdin` | `handler TestStdin: Stdin` | Kept in `State[StdinLines]` and resumes immediately. Does not raise InvalidInput or StdinFailure |
 
@@ -176,7 +176,7 @@ Args:
 
 - `list` of SystemArgs returns the same list on every call, and `get(index)` returns its element at `index`, or `None` when `index` is negative or not less than its length. The list is:
   - for `emela run`, the arguments written after `--` (`[cmd.build]`), on every target;
-  - on C, `argv[1]` and after;
+  - on native, `argv[1]` and after;
   - on JS, the arguments that the runtime's launcher passes to the runtime;
   - on WASM, the result of `get-arguments` of `wasi:cli/environment@0.3.0` without its first element;
   - `[]` for an HTTP service (`[lib.http-service]`) and under `emela test` (`[cmd.test.output]`).
@@ -224,11 +224,11 @@ In "Running the program (JS)", the item on arguments becomes:
 
 - `run` loads the entry module and calls the exported `main` with no arguments. The return value of `main` is discarded. Arguments to the program are passed after `--` as arguments of the JS host, and the launcher passes them to the runtime, where `Args.list` of SystemArgs returns them (`[api.std.process]`).
 
-### `[target.c.run]`
+### `[target.native.run]`
 
 The first item becomes:
 
-- `emela run --target c` starts `main` in the output directory. It passes the arguments after `--`, and the program inherits standard input. `Args.list` of SystemArgs returns `argv[1]` and after (`[api.std.process]`). The exit code is as in `[cmd.build]`.
+- `emela run --target native` starts `main` in the output directory. It passes the arguments after `--`, and the program inherits standard input. `Args.list` of SystemArgs returns `argv[1]` and after (`[api.std.process]`). The exit code is as in `[cmd.build]`.
 
 ### `[target.wasm.output]`
 
@@ -300,12 +300,12 @@ Tests:
 
 - Add `fn args()` to `Env` of `Std.Env`. In WASI, environment variables and arguments are in the same `wasi:cli/environment`. Not adopted because: every program that writes its own handler of `Env` breaks with E0404, and environment variables and arguments could no longer be replaced separately
 - Make it `fn main(args: List[String])`. The arguments would have to be passed by hand from main down to where they are used. It does not match the shape of `@entry` and the entry of an HTTP service. It also departs from the shape of std, in which what touches the host is received through an effect
-- Include the name of the program first. Its contents differ by target (the host's path or the script on JS, `main.wasm` on WASM, depending on how it is started on C), so a portable program cannot use it
+- Include the name of the program first. Its contents differ by target (the host's path or the script on JS, `main.wasm` on WASM, depending on how it is started on native), so a portable program cannot use it
 - Have only one operation (only `list` or only `get`). With only `list`, "if there is an n-th one" has to be written with a list pattern each time. With only `get`, there is no way to know the count when passing everything to a parsing library. Both are kept: `get`, which looks up by position and returns an `Option` as `Env.get` does, and `list`, which returns everything
 - Fail on an argument that is not valid UTF-8 (`list() -> List[String] fails InvalidInput`). It would match Stdin, but is not adopted because:
   - arguments are fixed values that the OS passes at startup, and reading them again does not change them. A failure has no way to recover
   - arguments are almost always read right after main starts, and handling a failure there would require an `escape` in every CLI
-  - `get-arguments` of WASI is `list<string>`, already turned into strings by the host (wasmtime cannot pass invalid arguments). Node also replaces with U+FFFD before passing them. Failing only on C would make the result differ by target
+  - `get-arguments` of WASI is `list<string>`, already turned into strings by the host (wasmtime cannot pass invalid arguments). Node also replaces with U+FFFD before passing them. Failing only on native would make the result differ by target
   - Stdin is used in filters that read and write back, where silent replacement hides that the input changed. Arguments are not used that way
 - Return a list of Bytes (`List[Bytes]`). It could handle paths with invalid bytes, but is left to a later proposal, after the handling of Path is decided
 - Add a test handler `TestArgs`. It is not added, because one can be written by hand in one line (as with `Std.Env`)

@@ -1,7 +1,7 @@
 ---
 title: The JavaScript launcher names
 authors: [isoshigi]
-status: accepted
+status: implemented
 pr: 462
 issue:
 decided: 2026-11-05

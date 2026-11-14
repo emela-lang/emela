@@ -11,7 +11,7 @@ The kind of a name is determined by case, and the end of a statement is determin
 ## 2.2 Comments `[lex.comment]`
 
 - A comment runs from `#` to the end of the line. A comment ends before the line break, and the `\r` of `\r\n` is not part of the comment.
-- `##` is a doc comment. It attaches to the declaration, variant, field, effect operation, or handler item that immediately follows it. A doc comment written between a declaration and its `derive` does not attach to the declaration.
+- `##` is a doc comment. It attaches to the declaration, local fn, variant, field, effect operation, or handler item that immediately follows it. A doc comment written between a declaration and its `derive` does not attach to the declaration.
 - There are no block comments.
 
 ## 2.3 Lexical classes of names `[lex.name]`
