@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-14 (each for List, Array, Map and Set)
+
+- `[lib.api-rules]`, `[api.list]`, `[api.std.array]`, `[api.std.map]`, `[api.std.set]`: `each(xs, f)` calls `f` on each element, in the order of the collection, for its effects, and returns `()`. It is added to List, Array, Map and Set. `[lib.api-rules]` also gains a rule for every function of the standard library that calls `f` once per element (`map`, `filter`, `fold`, `find`, ...): it calls `f` in the order of the collection, at most once per element, and not after the result is decided or `f` has failed. ```emel List.each(List.range(0, n), |i| { clock.sleep(100) console.print_line("#{n - i}") }) ``` Adopted in the proposal `each` (#514).
+
 ## 2026-11-14 (Release the compiler for Windows)
 
 - `[target]`, `[target.native]`, `[open.list]`, `[lib.layers]`, `[api.std.path]`, `[module.name]`, `[module.pome]`, `[pome.fetch]`, `[cmd.build]`, `[cmd.test.outcome]`: From 0.28, the compiler is also released for Windows on x86_64. On Windows, every command and the JS and WASM targets are supported; the native target is not (18.1 #39 stays open). `[target]` stops using "the platforms for which the compiler is released" as the definition of the platforms that the native target supports, and states the two lists separately. Adopted in the proposal `windows-release` (#576).
