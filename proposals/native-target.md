@@ -1,10 +1,10 @@
 ---
 title: The C target becomes the native target
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 564
 issue:
-decided:
+decided: 2026-11-14
 touches: [target, target.c, target.c.output, target.c.cc, target.c.run, target.c.unsupported, target.c.event-loop, target.c.export, ext.decl, ext.host-type, ext.boundary, ext.c-host, ext.export, module.name, module.pome, lib.layers, api.std.file-system, cmd.build, cmd.doctor, cmd.test.out-dir, lsp.completion, open.list, diag.list]
 requires: []
 related: [js-host-variable, doctor-command]
@@ -347,3 +347,9 @@ and the same for `[target.c.output]`, `[target.c.cc]`, `[target.c.run]`, `[targe
 ## Open questions
 
 ## Decision
+
+- C is linked with, so `@external(c, ...)` keeps naming the language; the target is named after what it produces, a native executable.
+- The emitted C is an intermediate form. Only `main` and `emela.h` are promised, so the runtime can change without a proposal.
+- Header differences are left to the C compiler of the machine that builds, and OS differences stay inside C sources. Emela source stays the same on every OS.
+- The supported platforms follow the releases of the compiler and CI. C11 stays the minimum; a newer C is chosen with `EMELA_CC_ARGS`.
+- `EMELA_CC` stops splitting at whitespace in the same version as the rename, so users revisit the settings once. `--target c` warns in 0.28 and is removed in 0.29.
