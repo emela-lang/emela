@@ -151,6 +151,8 @@ fn eager_block_refs(program: &Program, block: &Block, out: &mut Vec<DefId>) {
     for stmt in &block.stmts {
         match stmt {
             Stmt::Let { value, .. } => eager_refs(program, *value, out),
+            // The body of a local fn is not evaluated by its declaration.
+            Stmt::LocalFn(_) => {}
             Stmt::Expr(e) => eager_refs(program, *e, out),
         }
     }

@@ -152,6 +152,8 @@ impl Hints<'_> {
                                 }
                                 calls.push(*value);
                             }
+                            // Its signature is shown by `local_fn_signatures`.
+                            Stmt::LocalFn(_) => {}
                             Stmt::Expr(e) => calls.push(*e),
                         }
                     }

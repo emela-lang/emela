@@ -1,0 +1,49 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"fn zip[A, B](xs: List[A], ys: List[B], from: Int) -> List[(A, B)] {\n  fn onto(xs: List[A], ys: List[B], acc: List[(A, B)]) -> List[(A, B)] {\n    x = from\n    onto(xs, ys, acc)\n  }\n  onto(xs, ys, [])\n}\n\nfn length(xs: List[Int]) -> Int {\n  # A parameter of the same name hides the local fn in its body.\n  fn go(go: Int) -> Int { go }\n  # A later binding hides the local fn.\n  go = 1\n  go\n}\n\nfn hides_top_level() -> Int {\n  fn length(n: Int) -> Int { n }\n  length(1)\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+fn Main.zip
+  type-param Main.zip.A
+  type-param Main.zip.B
+  param xs#0: List[Main.zip.A]
+  param ys#1: List[Main.zip.B]
+  param from#2: Int
+  ret List[(Main.zip.A, Main.zip.B)]
+  body
+    block
+      fn onto#3(xs#4: List[Main.zip.A], ys#5: List[Main.zip.B], acc#6: List[(Main.zip.A, Main.zip.B)]) -> List[(Main.zip.A, Main.zip.B)]
+        block
+          let x#7 =
+            from#2
+          call
+            onto#3
+            xs#4
+            ys#5
+            acc#6
+      call
+        onto#3
+        xs#0
+        ys#1
+        list
+fn Main.length
+  param xs#8: List[Int]
+  ret Int
+  body
+    block
+      fn go#9(go#10: Int) -> Int
+        block
+          go#10
+      let go#11 =
+        1
+      go#11
+fn Main.hides_top_level
+  ret Int
+  body
+    block
+      fn length#12(n#13: Int) -> Int
+        block
+          n#13
+      call
+        length#12
+        1

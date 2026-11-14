@@ -533,6 +533,26 @@ impl Dumper<'_> {
                             self.line(depth + 1, format!("let {pat}{ty} ="));
                             self.expr(depth + 2, *value);
                         }
+                        Stmt::LocalFn(f) => {
+                            let name = self.local(f.local);
+                            let params: Vec<String> = f
+                                .sig
+                                .params
+                                .iter()
+                                .map(|p| {
+                                    let ty =
+                                        p.ty.map(|t| format!(": {}", self.ty(t))).unwrap_or_default();
+                                    format!("{}{ty}", self.local(p.local))
+                                })
+                                .collect();
+                            let ret = f
+                                .sig
+                                .ret
+                                .map(|t| format!(" -> {}", self.ty(t)))
+                                .unwrap_or_default();
+                            self.line(depth + 1, format!("fn {name}({}){ret}", params.join(", ")));
+                            self.expr(depth + 2, f.body);
+                        }
                         Stmt::Expr(e) => self.expr(depth + 1, *e),
                     }
                 }

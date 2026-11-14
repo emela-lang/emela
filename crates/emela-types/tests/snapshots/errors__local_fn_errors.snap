@@ -1,0 +1,50 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "render_errors(r#\"\nerror Boom\nerror Other\n\nfn inferred(x: Int) {\n  fn go(n: Int) { if n == 0 { fail Boom } else { n } }\n  go(x)\n}\n\nfn declared(x: Int) -> Int fails Boom {\n  fn go(n: Int) -> Int fails Boom { if n == 0 { fail Boom } else { n } }\n  go(x)\n}\n\nfn unhandled(x: Int) -> Int fails Boom {\n  fn go(n: Int) -> Int { fail Boom }\n  go(x)\n}\n\nfn not_declared() -> Int {\n  fn go(n: Int) -> Int fails Other { fail Boom }\n  1\n}\n\nfn union_of_arguments() {\n  fn call(f: fn() -> Int) -> Int { f() }\n  a = call(|| fail Boom)\n  b = call(|| fail Other)\n  a + b\n}\n\"#)"
+---
+inferred: fn(Int) -> Int fails Boom
+  x: Int
+  go: fn(Int) -> Int fails Boom
+  n: Int
+declared: fn(Int) -> Int fails Boom
+  x: Int
+  go: fn(Int) -> Int fails Boom
+  n: Int
+unhandled: fn(Int) -> Int fails Boom
+  x: Int
+  go: fn(Int) -> Int
+  n: Int
+not_declared: fn() -> Int
+  go: fn(Int) -> Int fails Other
+  n: Int
+union_of_arguments: fn() -> Int fails Boom | Other
+  call: fn(fn() -> Int fails Boom | Other uses {}) -> Int fails Boom | Other
+  f: fn() -> Int fails Boom | Other
+  a: Int
+  b: Int
+`fail Boom` unhandled errors Boom (fails written: false)
+`fail Boom` unhandled errors Boom (fails written: true)
+--- E
+{   fn go(n: Int) { if n == 0 { fail Boom } else { n } }   go(x) }: Boom
+{ if n == 0 { fail Boom } else { n } }: Boom
+if n == 0 { fail Boom } else { n }: Boom
+{ fail Boom }: Boom
+fail Boom: Boom
+go(x): Boom
+{   fn go(n: Int) -> Int fails Boom { if n == 0 { fail Boom } else { n } }   go(x) }: Boom
+{ if n == 0 { fail Boom } else { n } }: Boom
+if n == 0 { fail Boom } else { n }: Boom
+{ fail Boom }: Boom
+fail Boom: Boom
+go(x): Boom
+{ fail Boom }: Boom
+fail Boom: Boom
+{ fail Boom }: Boom
+fail Boom: Boom
+{   fn call(f: fn() -> Int) -> Int { f() }   a = call(|| fail Boom)   b = call(|| fail Other)   a + b }: Boom | Other
+{ f() }: Boom | Other
+f(): Boom | Other
+call(|| fail Boom): Boom | Other
+fail Boom: Boom
+call(|| fail Other): Boom | Other
+fail Other: Other

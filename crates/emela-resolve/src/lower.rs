@@ -1490,13 +1490,15 @@ impl Lower<'_, '_> {
         let mut stmts = Vec::new();
         let children: Vec<SyntaxNode> = node
             .children()
-            .filter(|c| c.kind() == BINDING || is_expr(c.kind()))
+            .filter(|c| matches!(c.kind(), BINDING | LOCAL_FN) || is_expr(c.kind()))
             .collect();
         let mut tail = None;
         for (i, child) in children.iter().enumerate() {
             let last = i + 1 == children.len();
             if child.kind() == BINDING {
                 stmts.push(self.binding(child));
+            } else if let Some(f) = ast::LocalFn::cast(child.clone()) {
+                stmts.push(self.local_fn(&f));
             } else {
                 let e = self.expr(child);
                 if last {
@@ -1522,6 +1524,38 @@ impl Lower<'_, '_> {
         };
         self.bind_all(binder);
         Stmt::Let { pat, ty, value }
+    }
+
+    /// A local fn (`[fn.local]`). Its name is bound in the block's scope before the body is
+    /// resolved, so the body can call it, and stays bound to the end of the block. The parameters
+    /// are in a scope of their own, inside it, so a parameter of the same name hides it. Type
+    /// names resolve in the scope of the enclosing declaration, its type parameters included.
+    fn local_fn(&mut self, f: &ast::LocalFn) -> Stmt {
+        let node = f.syntax();
+        let (name, range) = match f.name() {
+            Some(token) => token_name(&token),
+            None => (SmolStr::default(), node.text_range()),
+        };
+        let local = self.alloc_local(name.clone(), LocalKind::LocalFn, range);
+        if !name.is_empty() {
+            let mut binder = Binder::default();
+            binder.names.push((name, local));
+            self.bind_all(binder);
+        }
+        self.push_scope();
+        let params = self.params(f.param_list(), LocalKind::Param);
+        let sig = self.signature(node, Vec::new(), params, false);
+        let body = match f.body() {
+            Some(b) => self.block(&b),
+            None => self.alloc_expr(ExprKind::Missing, node.text_range()),
+        };
+        self.pop_scope();
+        Stmt::LocalFn(Box::new(LocalFn {
+            local,
+            sig,
+            body,
+            span: self.span(node.text_range()),
+        }))
     }
 
     /// Arms of match and escape. Each arm pushes a scope; pattern names are visible in the guard

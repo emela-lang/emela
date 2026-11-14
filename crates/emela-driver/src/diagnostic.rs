@@ -669,6 +669,11 @@ impl Diagnostic {
                 Some(code::MISSING_PARAM_TYPE),
                 format!("parameter `{param}` of a top-level function needs a type"),
             ),
+            TypeDiagnosticKind::MissingLocalFnParamType { param } => (
+                Severity::Error,
+                Some(code::MISSING_PARAM_TYPE),
+                format!("parameter `{param}` of a local function needs a type"),
+            ),
             TypeDiagnosticKind::MissingInitParamType { handler, param } => (
                 Severity::Error,
                 Some(code::MISSING_PARAM_TYPE),

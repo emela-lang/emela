@@ -118,6 +118,8 @@ pub enum LocalKind {
     PatParam,
     /// A binding `x = ...` and the variables in its pattern.
     Binding,
+    /// The name of a local fn (`[fn.local]`). Its parameters are [`LocalKind::Param`].
+    LocalFn,
     /// Variables in the patterns of match and escape arms.
     ArmBinding,
 }
@@ -470,7 +472,21 @@ pub enum Stmt {
         ty: Option<TypeId>,
         value: ExprId,
     },
+    /// `fn name(params) -> T fails E uses { R } { body }` (`[fn.local]`).
+    LocalFn(Box<LocalFn>),
     Expr(ExprId),
+}
+
+/// A local fn (`[fn.local]`). `local` is its name, visible from the declaration to the end of the
+/// block and inside `body`. `sig` has no type parameters and is not suspend (E0150 is reported
+/// by the parser; what was written there is left out).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalFn {
+    pub local: LocalId,
+    pub sig: FnSig,
+    pub body: ExprId,
+    /// The declaration, from `fn` (or its doc comment) to the end of the body.
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

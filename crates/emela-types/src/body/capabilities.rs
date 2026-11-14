@@ -91,6 +91,11 @@ impl BodyInfer<'_> {
                 self.reject_cap(tail(program, body), DiagnosticKind::CapabilityReturned);
             }
         }
+        // The values of local fn bodies (`[fn.local]`), as of fn bodies.
+        let local_bodies: Vec<ExprId> = self.local_fns.iter().map(|(_, f)| f.body).collect();
+        for body in local_bodies {
+            self.reject_cap(tail(program, body), DiagnosticKind::CapabilityReturned);
+        }
     }
 
     /// The value of a scope function (`Fiber.scope`) cannot contain a fiber handle or a Deferred

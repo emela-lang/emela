@@ -3181,6 +3181,10 @@ impl<'a> Lowerer<'a> {
         for stmt in &block.stmts {
             let (pat, value) = match stmt {
                 Stmt::Let { pat, value, .. } => (Some(*pat), *value),
+                Stmt::LocalFn(f) => {
+                    self.report("local function", f.span);
+                    continue;
+                }
                 Stmt::Expr(e) => (None, *e),
             };
             let value_ty = self.expr_ty(value);
