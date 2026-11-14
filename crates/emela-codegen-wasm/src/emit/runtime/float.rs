@@ -271,6 +271,48 @@ fn limbs_mul(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(1);
 }
 
+/// Multiplies the limbs by `mult` for as long as `T` holds a whole `chunk`, and subtracts the
+/// chunk from `T` each time.
+fn mul_chunks(b: &Builder, ins: &mut InstructionSink, t: u32, n: u32, chunk: i32, mult: i64) {
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(t);
+    ins.i32_const(chunk);
+    ins.i32_lt_s();
+    ins.br_if(1);
+    ins.i64_const(mult);
+    ins.local_get(n);
+    ins.call(rt(b, "limbs_mul"));
+    ins.local_set(n);
+    ins.local_get(t);
+    ins.i32_const(chunk);
+    ins.i32_sub();
+    ins.local_set(t);
+    ins.br(0);
+    ins.end();
+    ins.end();
+}
+
+/// Applies the rest of a power: each step is at least half of what can reach it, so after it
+/// `T` is below the next step, and the last step takes what is left.
+fn mul_steps(b: &Builder, ins: &mut InstructionSink, t: u32, n: u32, steps: &[(i32, i64)]) {
+    for &(step, mult) in steps {
+        ins.local_get(t);
+        ins.i32_const(step);
+        ins.i32_ge_s();
+        ins.if_(BlockType::Empty);
+        ins.i64_const(mult);
+        ins.local_get(n);
+        ins.call(rt(b, "limbs_mul"));
+        ins.local_set(n);
+        ins.local_get(t);
+        ins.i32_const(step);
+        ins.i32_sub();
+        ins.local_set(t);
+        ins.end();
+    }
+}
+
 /// `dec_build(f, e, dest)`: the exact decimal digits of `f * 2^e`, most significant first, into
 /// `dest`, and their count. `f` is the binary mantissa of a finite, non-zero binary64.
 fn dec_build(b: &mut Builder, ins: &mut InstructionSink) {
@@ -284,22 +326,8 @@ fn dec_build(b: &mut Builder, ins: &mut InstructionSink) {
     const LIMB: u32 = 11;
     const ND: u32 = 12;
     let base = area(b, AREA_LIMBS);
-    // Clear the limbs.
-    ins.i32_const(0);
-    ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(I);
-    ins.i32_const(LIMBS as i32);
-    ins.i32_ge_u();
-    ins.br_if(1);
-    elem(ins, base, I, U32_SIZE);
-    ins.i32_const(0);
-    ins.i32_store(mem(0, 4));
-    bump(ins, I);
-    ins.br(0);
-    ins.end();
-    ins.end();
+    // The limbs are not cleared: the loop below writes the limbs that hold the mantissa, and
+    // every later step reads only the limbs a step has written.
     // The mantissa, least significant limb first.
     ins.local_get(0);
     ins.local_set(V);
@@ -324,46 +352,24 @@ fn dec_build(b: &mut Builder, ins: &mut InstructionSink) {
     ins.br(0);
     ins.end();
     ins.end();
-    // `e > 0`: multiply by 2^15 chunks, then by 2. `e < 0`: by 5^13 chunks, then by 5.
+    // `e > 0`: multiply by 2^32 chunks. `e < 0`: by 5^14 chunks, the largest power of five a
+    // limb (`< 10^9`) takes without overflowing a u64, so the fewest passes over the limbs.
+    // What is left is less than the chunk and is applied in the largest pieces below it, one
+    // of each; every piece is at least half of the range that reaches it, so nothing is left.
     ins.local_get(1);
     ins.i32_const(0);
     ins.i32_gt_s();
     ins.if_(BlockType::Empty);
     ins.local_get(1);
     ins.local_set(T);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(T);
-    ins.i32_const(15);
-    ins.i32_lt_s();
-    ins.br_if(1);
-    ins.i64_const(32768);
-    ins.local_get(N);
-    ins.call(rt(b, "limbs_mul"));
-    ins.local_set(N);
-    ins.local_get(T);
-    ins.i32_const(15);
-    ins.i32_sub();
-    ins.local_set(T);
-    ins.br(0);
-    ins.end();
-    ins.end();
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(T);
-    ins.i32_eqz();
-    ins.br_if(1);
-    ins.i64_const(2);
-    ins.local_get(N);
-    ins.call(rt(b, "limbs_mul"));
-    ins.local_set(N);
-    ins.local_get(T);
-    ins.i32_const(1);
-    ins.i32_sub();
-    ins.local_set(T);
-    ins.br(0);
-    ins.end();
-    ins.end();
+    mul_chunks(b, ins, T, N, 32, 4_294_967_296);
+    mul_steps(
+        b,
+        ins,
+        T,
+        N,
+        &[(16, 65_536), (8, 256), (4, 16), (2, 4), (1, 2)],
+    );
     ins.else_();
     ins.local_get(1);
     ins.i32_const(0);
@@ -373,39 +379,8 @@ fn dec_build(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(1);
     ins.i32_sub();
     ins.local_set(T);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(T);
-    ins.i32_const(13);
-    ins.i32_lt_s();
-    ins.br_if(1);
-    ins.i64_const(1_220_703_125);
-    ins.local_get(N);
-    ins.call(rt(b, "limbs_mul"));
-    ins.local_set(N);
-    ins.local_get(T);
-    ins.i32_const(13);
-    ins.i32_sub();
-    ins.local_set(T);
-    ins.br(0);
-    ins.end();
-    ins.end();
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(T);
-    ins.i32_eqz();
-    ins.br_if(1);
-    ins.i64_const(5);
-    ins.local_get(N);
-    ins.call(rt(b, "limbs_mul"));
-    ins.local_set(N);
-    ins.local_get(T);
-    ins.i32_const(1);
-    ins.i32_sub();
-    ins.local_set(T);
-    ins.br(0);
-    ins.end();
-    ins.end();
+    mul_chunks(b, ins, T, N, 14, 6_103_515_625);
+    mul_steps(b, ins, T, N, &[(7, 78_125), (4, 625), (2, 25), (1, 5)]);
     ins.end();
     ins.end();
     // The decimal length of the top limb.
