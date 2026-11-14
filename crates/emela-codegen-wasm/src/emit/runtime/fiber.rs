@@ -65,7 +65,7 @@ const FF_ENDED: i32 = 1;
 const FF_UNWINDING: i32 = 2;
 const FF_LISTED: i32 = 4;
 /// The representation index of `Repr::Ref` (see `emit::suspend::repr_index`).
-const R_REF: i32 = 4;
+pub(super) const R_REF: i32 = 4;
 /// The budget of suspending calls before a fairness yield (spec 11.1; the C runtime's
 /// `EM_BUDGET`).
 const BUDGET: i32 = 1000;
@@ -74,14 +74,18 @@ const BUDGET: i32 = 1000;
 
 const S_FIBER: u32 = HDR; // raw: the fiber its body runs on
 const S_DEPTH: u32 = HDR + 8;
-const S_FLAGS: u32 = HDR + 16;
+pub(super) const S_FLAGS: u32 = HDR + 16;
 const S_FIRST: u32 = HDR + 24; // Ref: the first failure (a Cause)
 const S_CHEAD: u32 = HDR + 32; // raw: children that have not ended
 const S_CTAIL: u32 = HDR + 40;
 const S_CLOSER: u32 = HDR + 48; // raw: the wait for the last child
-const S_SLOTS: i32 = 7;
+/// Ref: the first of the scope's Semaphores and Queues (`runtime::line`), chained through their
+/// own counted link; raw: the last one.
+pub(super) const S_CELLS: u32 = HDR + 56;
+pub(super) const S_CELLT: u32 = HDR + 64;
+const S_SLOTS: i32 = 9;
 
-const SF_CLOSED: i32 = 1;
+pub(super) const SF_CLOSED: i32 = 1;
 const SF_BODY_DONE: i32 = 2;
 const SF_ENDED: i32 = 4;
 
@@ -120,7 +124,11 @@ pub(super) const W_TPREV: u32 = HDR + 128;
 pub(super) const W_TNEXT: u32 = HDR + 136;
 /// Ref: the operation call whose strand this continuation is (`W_END == WE_IMPL`).
 pub(super) const W_IMPL: u32 = HDR + 144;
-const W_SLOTS: i32 = 19;
+/// Ref: the Semaphore or Queue in whose line the wait is (`WK_LINE`, `runtime::line`). Dropping
+/// the wait takes it out of the line; a wait that is woken only forgets the owner, since whoever
+/// served it already took it out.
+pub(super) const W_OWNER: u32 = HDR + 152;
+const W_SLOTS: i32 = 20;
 
 /// What a wait waits for.
 pub(super) const WK_FIBER: i32 = 0; // join, await and interrupt of a child
@@ -130,6 +138,7 @@ pub(super) const WK_CLOSER: i32 = 3; // a scope waiting for its children
 pub(super) const WK_CALLER: i32 = 4; // a caller waiting for an operation implementation
 pub(super) const WK_HOST: i32 = 5; // a host timer
 pub(super) const WK_TEST: i32 = 6; // a TestClock sleeper
+pub(super) const WK_LINE: i32 = 7; // a line of a Semaphore or Queue (`runtime::line`)
 /// The verb of a wait registered on a fiber.
 const WV_JOIN: i32 = 0;
 const WV_AWAIT: i32 = 1;
@@ -180,6 +189,10 @@ pub(super) const JK_BEGIN: i32 = 1;
 pub(super) const JK_INTERRUPT: i32 = 2;
 /// A fairness yield: `J_CHAIN` is the pause wait to resume from (the C runtime's `EM_JOB_GO`).
 pub(super) const JK_GO: i32 = 3;
+/// A wake of a fiber that was given what it waited for in a line of a Semaphore or Queue
+/// (`fb_wait_served`, the C runtime's `em_job::served`): it resumes with its value even when an
+/// interruption arrived after the wake, which then takes effect at its next suspension point.
+pub(super) const JK_SERVED: i32 = 4;
 
 /// The statics and descriptors the fiber runtime uses.
 pub(crate) struct Plan {
@@ -243,6 +256,8 @@ pub(crate) struct Plan {
     pub(crate) def_interrupt: u32,
     pub(crate) failed_after: u32,
     pub(crate) note_other: u32,
+    /// The Semaphores and Queues (`runtime::line`).
+    pub(crate) line: super::line::Plan,
 }
 
 pub(super) fn plan<'a>(b: &'a Builder<'_>) -> &'a Plan {
@@ -384,6 +399,11 @@ pub(super) const FUNCS: &[Sig] = &[
         &[ValType::I32, ValType::I32, ValType::I64],
         &[],
     ),
+    (
+        "fb_wait_served",
+        &[ValType::I32, ValType::I32, ValType::I64],
+        &[],
+    ),
     ("fb_wait_chain", &[ValType::I32], &[ValType::I32]),
     ("fb_watch_add", &[ValType::I32, ValType::I32], &[]),
     ("fb_watch_remove", &[ValType::I32], &[]),
@@ -520,12 +540,12 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fb_deliver" => i32s(7),
         "fb_interrupt_fiber" => i32s(7),
         "fb_wait_new" => i32s(4),
-        "fb_wait_wake" => i32s(7),
+        "fb_wait_wake" | "fb_wait_served" => i32s(7),
         "fb_wait_chain" => i32s(5),
         "fb_watch_add" => i32s(4),
         "fb_watch_remove" => i32s(6),
         "fb_unlink_wait" => i32s(5),
-        "fb_drop_wait" => i32s(5),
+        "fb_drop_wait" => i32s(6),
         "fb_queue_push" | "fb_later_push" => i32s(9),
         "fb_later_move" => i32s(3),
         "fb_scope_body_resume" => vec![(3, ValType::I32), (1, ValType::I64)],
@@ -554,42 +574,42 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
 
 // ---- small emission helpers ----
 
-fn c(ins: &mut InstructionSink, v: i32) {
+pub(super) fn c(ins: &mut InstructionSink, v: i32) {
     ins.i32_const(v);
 }
 
-fn g(ins: &mut InstructionSink, l: u32) {
+pub(super) fn g(ins: &mut InstructionSink, l: u32) {
     ins.local_get(l);
 }
 
-fn ldl(ins: &mut InstructionSink, l: u32, off: u32) {
+pub(super) fn ldl(ins: &mut InstructionSink, l: u32, off: u32) {
     ins.local_get(l);
     ins.i32_load(mem(off, 4));
 }
 
-fn stl(ins: &mut InstructionSink, l: u32, off: u32, v: u32) {
+pub(super) fn stl(ins: &mut InstructionSink, l: u32, off: u32, v: u32) {
     ins.local_get(l);
     ins.local_get(v);
     ins.i32_store(mem(off, 4));
 }
 
-fn st_const(ins: &mut InstructionSink, l: u32, off: u32, v: i32) {
+pub(super) fn st_const(ins: &mut InstructionSink, l: u32, off: u32, v: i32) {
     ins.local_get(l);
     ins.i32_const(v);
     ins.i32_store(mem(off, 4));
 }
 
-fn call(b: &mut Builder, ins: &mut InstructionSink, name: &'static str) {
+pub(super) fn call(b: &mut Builder, ins: &mut InstructionSink, name: &'static str) {
     let f = b.rt(name);
     ins.call(f);
 }
 
-fn dropv(b: &mut Builder, ins: &mut InstructionSink, l: u32) {
+pub(super) fn dropv(b: &mut Builder, ins: &mut InstructionSink, l: u32) {
     ins.local_get(l);
     call(b, ins, "drop");
 }
 
-fn raise_msg(b: &mut Builder, ins: &mut InstructionSink, msg: u32) {
+pub(super) fn raise_msg(b: &mut Builder, ins: &mut InstructionSink, msg: u32) {
     ins.i32_const(msg as i32);
     call(b, ins, "raise");
 }
@@ -625,7 +645,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         enum_id: -1,
         name: "Scope".to_owned(),
         show: None,
-        refs: vec![false, false, false, true, false, false, false],
+        refs: vec![false, false, false, true, false, false, false, true, false],
     });
     let deferred_desc = b.desc(DescKey {
         kind: 0,
@@ -643,7 +663,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         show: None,
         refs: vec![
             true, true, false, false, false, false, false, false, false, true, false, false, false,
-            false, false, false, false, false, true,
+            false, false, false, false, false, true, true,
         ],
     });
     let node_desc = b.desc(DescKey {
@@ -765,6 +785,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     let def_interrupt = msg(b, b"fiber was interrupted after its scope ended");
     let failed_after = msg(b, b" failed after resume: ");
     let note_other = msg(b, b"note: another fiber also failed: ");
+    let line = super::line::prepare(b);
     b.fiber_plan = Some(Plan {
         cur_fiber: cells[0],
         cur_main: cells[1],
@@ -820,6 +841,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         def_interrupt,
         failed_after,
         note_other,
+        line,
     });
 }
 
@@ -858,7 +880,8 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_interrupt_fiber" => interrupt_fiber(b, ins),
         "fb_is_interrupted" => is_interrupted(b, ins),
         "fb_wait_new" => wait_new(b, ins),
-        "fb_wait_wake" => wait_wake(b, ins),
+        "fb_wait_wake" => wait_wake(b, ins, false),
+        "fb_wait_served" => wait_wake(b, ins, true),
         "fb_wait_chain" => wait_chain(b, ins),
         "fb_watch_add" => watch_add(b, ins),
         "fb_watch_remove" => watch_remove(b, ins),
@@ -1278,7 +1301,7 @@ fn wait_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(W);
     for off in [
         W_CHAIN, W_FIBER, W_TARGET, W_PREV, W_NEXT, W_LIVE, W_ONDROP, W_END, W_FLAGS, W_SEQ,
-        W_HPREV, W_HNEXT, W_TPREV, W_TNEXT, W_IMPL,
+        W_HPREV, W_HNEXT, W_TPREV, W_TNEXT, W_IMPL, W_OWNER,
     ] {
         st_const(ins, W, off, 0);
     }
@@ -1511,6 +1534,16 @@ fn unlink_wait(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     call(b, ins, "drop");
     ins.end();
     ins.end();
+    // The Semaphore or Queue of a line: a woken wait was taken out of the line by whoever served
+    // it (`fb_drop_wait` takes the owner before it gets here, to leave the line).
+    ldl(ins, 0, W_OWNER);
+    ins.local_set(P);
+    g(ins, P);
+    ins.if_(BlockType::Empty);
+    st_const(ins, 0, W_OWNER, 0);
+    g(ins, P);
+    call(b, ins, "drop");
+    ins.end();
     let _ = F;
 }
 
@@ -1522,14 +1555,30 @@ fn drop_wait(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const IW: u32 = 2;
     const CHAIN: u32 = 3;
     const F: u32 = 4;
+    const OWNER: u32 = 5;
     ldl(ins, 0, W_LIVE);
     ins.if_(BlockType::Empty);
     ins.else_();
     ins.return_();
     ins.end();
     st_const(ins, 0, W_LIVE, 0);
+    ldl(ins, 0, W_OWNER);
+    ins.local_set(OWNER);
+    st_const(ins, 0, W_OWNER, 0);
     g(ins, 0);
     call(b, ins, "fb_unlink_wait");
+    // A fiber interrupted while it waits in a line of a Semaphore or Queue leaves the line now,
+    // and a semaphore serves its line again (`wait.onDrop`; the C runtime's `w->leave`).
+    if plan(b).line.used {
+        g(ins, OWNER);
+        ins.if_(BlockType::Empty);
+        g(ins, 0);
+        g(ins, OWNER);
+        c(ins, 1);
+        call(b, ins, "fb_line_leave");
+        dropv(b, ins, OWNER);
+        ins.end();
+    }
     ldl(ins, 0, W_ONDROP);
     ins.local_set(P);
     g(ins, P);
@@ -1595,7 +1644,11 @@ fn wait_chain(_b: &mut Builder<'_>, ins: &mut InstructionSink) {
 /// A continuation of the fiber that is running resumes now, inside the wake; one of another
 /// fiber is queued (the C runtime's `em_cont`). The event loop runs with nothing stepping, so its
 /// wakes are queued too.
-fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+///
+/// `fb_wait_served(w, mode, word)` is the same for a fiber given what it waited for in a line
+/// (`served`): its queued job is a `JK_SERVED`, which does not deliver a pending interruption
+/// (the C runtime's `em_cont_served`).
+fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink, served: bool) {
     const F: u32 = 3;
     const CHAIN: u32 = 4;
     const END: u32 = 5;
@@ -1702,7 +1755,7 @@ fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.return_();
     ins.end();
     ins.end();
-    c(ins, JK_RESUME);
+    c(ins, if served { JK_SERVED } else { JK_RESUME });
     g(ins, F);
     g(ins, CHAIN);
     g(ins, END);
@@ -1808,7 +1861,11 @@ fn later_move(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(0, 4));
 }
 
-fn i32_const_cell(b: &mut Builder<'_>, ins: &mut InstructionSink, f: impl Fn(&Plan) -> u32) {
+pub(super) fn i32_const_cell(
+    b: &mut Builder<'_>,
+    ins: &mut InstructionSink,
+    f: impl Fn(&Plan) -> u32,
+) {
     ins.i32_const(cell(b, f) as i32);
 }
 
@@ -1963,7 +2020,8 @@ fn drain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
     // A queued wake resumes as the main continuation only when the fiber is not interrupted: the
     // value is not delivered, the interruption is (the C runtime's `em_fiber_resume`). A fairness
-    // yield of the main continuation is queued the same way.
+    // yield of the main continuation is queued the same way. A `JK_SERVED` wake skips this and
+    // resumes with its value.
     g(ins, KIND);
     c(ins, JK_RESUME);
     ins.i32_eq();
@@ -3219,6 +3277,8 @@ fn scope(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     st_const(ins, SO, S_CHEAD, 0);
     st_const(ins, SO, S_CTAIL, 0);
     st_const(ins, SO, S_CLOSER, 0);
+    st_const(ins, SO, S_CELLS, 0);
+    st_const(ins, SO, S_CELLT, 0);
     // Call the body with the scope capability as its argument.
     let ty = b.call_ty(&[Repr::Ref, Repr::Ref], Repr::I64);
     g(ins, 0);
@@ -3444,6 +3504,11 @@ fn scope_finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_or();
     ins.local_set(FIRST);
     stl(ins, 0, S_FLAGS, FIRST);
+    // The fibers still waiting on the scope's Semaphores and Queues stop waiting (`[fiber.escape]`).
+    if plan(b).line.used {
+        g(ins, 0);
+        call(b, ins, "fb_cells_end");
+    }
     ldl(ins, 0, S_FIRST);
     ins.local_set(FIRST);
     g(ins, FIRST);
@@ -5029,7 +5094,17 @@ fn finish_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ldl(ins, W, W_NEXT);
     ins.local_set(NEXT);
     // Take it out of every list it is in (the run's, its target's, the host or TestClock
-    // sleepers'): the heads and tails must not keep pointing at a released wait.
+    // sleepers', the line of a Semaphore or Queue): the heads and tails must not keep pointing
+    // at a released wait, and a line must not keep its fiber.
+    if plan(b).line.used {
+        ldl(ins, W, W_OWNER);
+        ins.if_(BlockType::Empty);
+        g(ins, W);
+        ldl(ins, W, W_OWNER);
+        c(ins, 0);
+        call(b, ins, "fb_line_leave");
+        ins.end();
+    }
     g(ins, W);
     call(b, ins, "fb_unlink_wait");
     dropv(b, ins, W);

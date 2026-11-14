@@ -884,13 +884,20 @@ impl<'m> Builder<'m> {
             _ => return None,
         };
         let repr = self.repr(field);
+        let (some, none) = self.option_consts(repr == Repr::Ref);
+        Some((some, none, repr))
+    }
+
+    /// The descriptor of Prelude's `Some` whose field is a reference (`field_ref`) or another
+    /// word, and the static `None` object (the same for every field).
+    pub(crate) fn option_consts(&mut self, field_ref: bool) -> (u32, u32) {
         let some = self.desc(DescKey {
             kind: 0,
             tag: OPTION_SOME as u32,
             enum_id: -1,
             name: "Some".to_owned(),
             show: None,
-            refs: vec![repr == Repr::Ref],
+            refs: vec![field_ref],
         });
         let none_desc = self.desc(DescKey {
             kind: 0,
@@ -901,7 +908,7 @@ impl<'m> Builder<'m> {
             refs: Vec::new(),
         });
         let none = self.nullary(none_desc);
-        Some((some, none, repr))
+        (some, none)
     }
 
     /// The representation of the elements of the array type `ty` (`[api.std.array]`).
@@ -2458,7 +2465,62 @@ impl<'m> Builder<'m> {
         args: &[Operand],
     ) {
         match op {
-            FiberOp::Semaphore | FiberOp::Queue | FiberOp::Acquire | FiberOp::TryAcquire | FiberOp::Release | FiberOp::Available | FiberOp::Offer | FiberOp::Take | FiberOp::TryOffer | FiberOp::QueuePoll | FiberOp::Size | FiberOp::Close => todo!("TEMP semaphore/queue"),
+            // The Semaphore and Queue operations (`runtime::line`): the operands in order, and
+            // the result, if any, in the destination.
+            FiberOp::Semaphore
+            | FiberOp::Queue
+            | FiberOp::Acquire
+            | FiberOp::TryAcquire
+            | FiberOp::Release
+            | FiberOp::Available
+            | FiberOp::Take
+            | FiberOp::QueuePoll
+            | FiberOp::Size
+            | FiberOp::Close => {
+                let (name, ret) = match op {
+                    FiberOp::Semaphore => ("fb_semaphore", Some(Repr::Ref)),
+                    FiberOp::Queue => ("fb_queue", Some(Repr::Ref)),
+                    FiberOp::Acquire => ("fb_acquire", None),
+                    FiberOp::TryAcquire => ("fb_try_acquire", Some(Repr::I32)),
+                    FiberOp::Release => ("fb_release", None),
+                    FiberOp::Available => ("fb_available", Some(Repr::I32)),
+                    FiberOp::Take => ("fb_take", Some(Repr::Ref)),
+                    FiberOp::QueuePoll => ("fb_queue_poll", Some(Repr::Ref)),
+                    FiberOp::Size => ("fb_queue_size", Some(Repr::I32)),
+                    _ => ("fb_queue_close", None),
+                };
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                let f = self.rt(name);
+                ins.call(f);
+                if let Some(repr) = ret {
+                    self.assign(cx, ins, dst, repr);
+                }
+            }
+            FiberOp::Offer | FiberOp::TryOffer => {
+                let repr = self.operand_repr_of(cx, &args[1]);
+                self.operand(cx, ins, &args[0]);
+                // A value without representation is passed as the zero word, as for complete.
+                if repr == Repr::Void {
+                    ins.i64_const(0);
+                } else {
+                    self.operand(cx, ins, &args[1]);
+                    if repr == Repr::F64 {
+                        ins.i64_reinterpret_f64();
+                    } else if repr != Repr::I64 {
+                        ins.i64_extend_i32_u();
+                    }
+                }
+                ins.i32_const(repr_code(repr));
+                let f = self.rt(if op == FiberOp::Offer {
+                    "fb_offer"
+                } else {
+                    "fb_try_offer"
+                });
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::I32);
+            }
             FiberOp::Scope { .. } => {
                 let ret = self.operand_fn_ret(cx, &args[0]);
                 let repr = self.repr(ret);

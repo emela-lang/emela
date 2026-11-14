@@ -853,3 +853,60 @@ fn main() -> () uses { Async } {
         "0\n",
     );
 }
+
+#[test]
+fn semaphores_and_queues_free_their_values_and_lines() {
+    // Two thousand scopes, each with a Queue of capacity 2 that passes twenty Strings from a
+    // producer to the body (so offerers wait in its line), a Queue closed with Strings left in it,
+    // and a Semaphore of one permit with five fibers waiting in its line. The values, the line
+    // entries and the records are freed by the end of each scope (`[fiber.semaphore]`,
+    // `[fiber.queue]`), so the run stays in six pages.
+    run_limited(
+        "memory-semaphore-queue",
+        r#"
+import Std.Fiber.{Fiber, Scope}
+import Std.Queue.{Queue, QueueClosed}
+import Std.Semaphore.{Semaphore}
+
+fn drain(q: Queue[String], n: Int) -> Int uses { Async } {
+  next = Some(q.take()) escape {
+    QueueClosed -> None
+  }
+  next match {
+    Some(s) -> drain(q, n + String.length(s))
+    None -> n
+  }
+}
+
+fn round(i: Int) -> Int uses { Async } {
+  Fiber.scope(|| {
+    q = Fiber.queue(2)
+    Fiber.fork(|| {
+      List.range(0, 20).each(|j| q.offer("value #{i} #{j}"))
+      q.close()
+    })
+    left = Fiber.queue(4)
+    left.offer("left behind #{i}")
+    left.offer("also left #{i}")
+    left.close()
+    s = Fiber.semaphore(1)
+    hs = List.range(0, 5).map(|j| Fiber.fork(|| s.with_permit(|| "held #{j}")))
+    held = List.fold(hs, 0, |acc, h| acc + String.length(Fiber.join(h)))
+    drain(q, 0) + held - held
+  }) escape {
+    QueueClosed -> 0
+  }
+}
+
+fn rounds(n: Int, total: Int) -> Int uses { Async } {
+  if n == 0 { total } else { rounds(n - 1, total + round(n % 10)) }
+}
+
+fn main() -> () uses { Async } {
+  dbg(rounds(2000, 0) > 0)
+  ()
+}
+"#,
+        "True\n",
+    );
+}
