@@ -53,7 +53,7 @@ fn main() {
         console.print_line(first_result("again"))
       }
     })
-    List.map(server.sent, |req| console.print_line("sent #{req.url}"))
+    List.each(server.sent, |req| console.print_line("sent #{req.url}"))
   }
 }
 

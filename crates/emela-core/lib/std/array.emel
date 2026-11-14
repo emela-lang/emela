@@ -94,6 +94,21 @@ fn map_from[A, B](a: Array[A], f: fn(A) -> B, i: Int, acc: List[B]) -> List[B] {
   }
 }
 
+## Calls `f` on each element, from the first. Stops at the first failure.
+pub fn each[A](a: Array[A], f: fn(A) -> ()) -> () {
+  each_from(a, f, 0)
+}
+
+fn each_from[A](a: Array[A], f: fn(A) -> (), i: Int) -> () {
+  get(a, i) match {
+    Some(x) -> {
+      f(x)
+      each_from(a, f, i + 1)
+    }
+    None -> ()
+  }
+}
+
 ## Folds from the first element: `f(f(f(from, a0), a1), a2)`.
 pub fn fold[A, B](a: Array[A], from: B, f: fn(B, A) -> B) -> B {
   fold_from(a, from, f, 0)

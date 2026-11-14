@@ -8,7 +8,7 @@ import Std.Instant.{Instant}
 fn countdown(n: Int) {
   console = use Console
   clock = use Clock
-  List.map(List.range(0, n), |i| {
+  List.each(List.range(0, n), |i| {
     clock.sleep(100)
     console.print_line("#{n - i}")
   })
