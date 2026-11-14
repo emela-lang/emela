@@ -385,7 +385,7 @@ fn reachable_runtime(
 
 /// The body of a runtime function the program cannot reach: it keeps the function's index for
 /// the calls that name it, and traps if one ever runs.
-fn stub() -> WasmFunction {
+pub(crate) fn stub() -> WasmFunction {
     let mut f = WasmFunction::new(Vec::<(u32, ValType)>::new());
     {
         let mut ins = f.instructions();
