@@ -17,6 +17,10 @@ const PROGRAM: &[(&str, &str)] = &[(
     "\
 import Std.Array.{Array}
 
+fn inc(x: Int) -> Int {
+  x + 1
+}
+
 fn main() {
   xs = Array.from_list([1, 2, 3])
   dbg(Array.get(xs, 1) |> Option.or(0))
@@ -24,8 +28,8 @@ fn main() {
     Some(x) -> x
     None -> -1
   })
-  dbg(List.fold(List.range(0, 3), 0, |acc, x| acc + x))
-  dbg(List.map(List.range(0, 3), |x| x * 2))
+  dbg(inc(List.fold(List.range(0, 3), 0, |acc, x| acc + x)))
+  dbg(List.map(List.range(0, 3), |x| inc(x * 2)))
 }
 ",
 )];
@@ -40,7 +44,10 @@ fn core_fns(m: &emela_core::Module) -> Vec<(emela_core::FnId, CoreFn)> {
             let kind = match name {
                 "Option.or" => CoreFn::OptionOr,
                 "List.fold" => CoreFn::ListFold,
+                "List.map" => CoreFn::ListMap,
                 "List.range" => CoreFn::ListRange,
+                "List.reverse" => CoreFn::ListReverse,
+                _ if name.starts_with("List.") => CoreFn::Collection,
                 _ => return None,
             };
             Some((id, kind))

@@ -175,7 +175,13 @@ export fn main() -> Bool {
   let big%1: Int64 = 549755813887i64
   let _%2: Int = @dbg[Int](x%0)
   let _%3: Int64 = @dbg[Int64]((-[Int64] big%1))
-  greet(2, "emela")
+  let times%6: Int = 2
+  let name%7: String = "emela"
+  if ((times%6 >[Int] 0) &&[Bool] (@String.length(name%7) !=[Int] 0)) {
+    true
+  } else {
+    false
+  }
 }
 
 fn greet(times%4: Int, name%5: String) -> Bool {

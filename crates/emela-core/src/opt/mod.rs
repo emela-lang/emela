@@ -26,7 +26,7 @@
 //!
 //! The fusions come before inlining: they match the calls the source wrote, and inlining a
 //! function such as `List.fold` first would dissolve the call the range fusion looks for. The
-//! inline pass is not implemented yet; the table is the order the passes run in.
+//! table is the order the passes run in.
 //!
 //! # Pass contract
 //!
@@ -48,6 +48,7 @@ use rustc_hash::FxHashMap;
 
 use crate::ir::{Expr, FnId, Lit, Module};
 
+mod inline;
 mod option;
 mod range;
 
@@ -55,7 +56,8 @@ mod range;
 ///
 /// Lowering records the IR function of every copy(`List.fold$suspend3` too) in the map it passes
 /// to [`run`]. A user's fn with the same name is a different [`FnId`], so a pass never confuses
-/// the two.
+/// the two. Inlining excludes every function recorded here: the fusions match them, and copying
+/// them into every caller would grow the output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoreFn {
     /// `Option.or`, which the Option fusion matches.
@@ -68,6 +70,10 @@ pub enum CoreFn {
     ListRange,
     /// `List.reverse`, which the `List.map` range fusion calls once at the end.
     ListReverse,
+    /// Another function of the core `List` module. Inlining leaves collection functions as calls:
+    /// the range fusion matches some of them, and copying them into every caller would grow the
+    /// output for no gain.
+    Collection,
 }
 
 /// The bundled core functions lowering identified, by IR function ([`CoreFn`]).
@@ -88,7 +94,7 @@ pub struct Stats {
     /// `List.map(List.range(lo, hi), f)` rewritten to a loop that no longer builds the range's
     /// list (the result list is still built).
     pub range_map: u32,
-    /// Calls inlined.
+    /// Calls inlined: direct calls replaced by a copy of the callee's body.
     pub inline: u32,
 }
 
@@ -130,6 +136,9 @@ pub fn run(m: &mut Module, core_fns: &CoreFns, optimize: bool) -> Stats {
     stats.merge(range::fold(m, core_fns));
     check(m);
     stats.merge(range::map(m, core_fns));
+    check(m);
+    // Inlining comes last, for the reason in the pipeline docs.
+    stats.merge(inline::inline(m, core_fns));
     check(m);
     stats
 }

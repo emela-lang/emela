@@ -1080,19 +1080,19 @@ fn method_calls_lower_as_calls() {
 }
 
 /// The optimisation switch reaches lowering (`lower_with`): with the Core IR passes switched off,
-/// the IR is the same as the default while the passes are empty, so `--no-opt` builds the same
-/// program (T01).
+/// the IR is the same as the default for a program that none of the passes changes, so `--no-opt`
+/// builds the same program (T01).
 #[test]
 fn the_optimize_switch_keeps_the_lowered_ir() {
     let files = [(
         "main.emel",
         "\
-fn sum(xs: List[Int]) -> Int {
-  List.fold(xs, 0, |a, b| a + b)
+fn sum(n: Int) -> Int {
+  if n == 0 { 0 } else { n + sum(n - 1) }
 }
 
 fn main() {
-  dbg(sum(List.range(0, 3)))
+  dbg(sum(3))
 }
 ",
     )];
