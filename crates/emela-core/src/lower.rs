@@ -96,6 +96,9 @@ pub struct Lowered {
     /// The IR function for each test function in `LowerInput::tests`, in the same order. Filled
     /// only with `Roots::Tests`.
     pub tests: Vec<FnId>,
+    /// What the Core IR optimisation passes changed (`opt::run`). Empty with `lower_with(_, _,
+    /// false)` and while no pass has fired.
+    pub stats: crate::opt::Stats,
 }
 
 pub struct LowerInput<'a> {
@@ -136,7 +139,21 @@ pub struct LowerInput<'a> {
 
 /// Collects every place that cannot be lowered and returns them all in `Err`. Self tail calls
 /// come out as `Expr::Loop` / `Expr::Recur` (`tail::loopify`).
+///
+/// The Core IR optimisation passes run, `optimize` permitting, after self tail call loopification
+/// and before the IR is checked and monomorphized (`opt::run`); all targets get them.
 pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerError>> {
+    lower_with(input, roots, true)
+}
+
+/// [`lower`] with the Core IR optimisation passes switched on or off. Lowering itself is the same
+/// either way: `optimize` only reaches `opt::run`, so a build with `--no-opt` differs from the
+/// default only by what the passes change.
+pub fn lower_with(
+    input: &LowerInput<'_>,
+    roots: Roots,
+    optimize: bool,
+) -> Result<Lowered, Vec<LowerError>> {
     let hir = input.hir;
     let mut cx = Lowerer {
         hir,
@@ -234,11 +251,16 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     }
     // Target-neutral, so done once here: every backend gets self tail calls as loops (16.3).
     crate::tail::loopify(&mut cx.module);
+    // The Core IR optimisations also run for every target, before the IR is verified and
+    // monomorphized. They preserve evaluation order, effects, failures, `with` releases and drop
+    // points.
+    let stats = crate::opt::run(&mut cx.module, optimize);
     let (Some(target), Roots::Exported | Roots::Public | Roots::Tests) = (input.language, roots)
     else {
         return Ok(Lowered {
             module: cx.module,
             tests,
+            stats,
         });
     };
     // Ill-typed IR is a lowering bug, not an error in the program. Checked before
@@ -277,6 +299,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     Ok(Lowered {
         module: mono.module,
         tests,
+        stats,
     })
 }
 
