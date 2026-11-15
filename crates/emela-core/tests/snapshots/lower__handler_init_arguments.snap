@@ -4,7 +4,7 @@ expression: "mine.join(\"\\n\\n\")"
 ---
 export fn main() -> String {
   let _%8: String = with {
-    let arg%0: Int = port()
+    let arg%0: Int = 5432
     let arg%1: String = "a"
     let self%3: Env = Env$init(arg%1)
     let h%2: handler Config = Env(self%3) release Env {

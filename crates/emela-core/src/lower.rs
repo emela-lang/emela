@@ -3889,6 +3889,8 @@ impl<'a> Lowerer<'a> {
             ("List", "map") => Some(CoreFn::ListMap),
             ("List", "range") => Some(CoreFn::ListRange),
             ("List", "reverse") => Some(CoreFn::ListReverse),
+            // The other collection functions of the core `List` module.
+            ("List", _) => Some(CoreFn::Collection),
             _ => None,
         }
     }

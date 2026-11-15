@@ -263,8 +263,16 @@ external enum Std.Fiber.Fiber[A] {
 }
 
 export fn main() -> List[Int] {
-  let _%0: Int = @dbg[Int](count(10))
-  range(1, 4)
+  let _%0: Int = @dbg[Int]({
+    let limit%19: Int = 10
+    count$go(limit%19, 0, 0)
+  })
+  let from%20: Int = 1
+  let to%21: Int = 4
+  let f%22: fn(Int, List[Int]) -> List[Int] = fn(x%23: Int, x%24: List[Int]) -> List[Int] {
+    range$onto(from%20, x%23, x%24)
+  }
+  (f%22)(to%21, []: List[Int])
 }
 
 fn count(limit%9: Int) -> Int {
