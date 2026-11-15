@@ -1650,6 +1650,16 @@ export function $arrayGet(a, i) {
   return i >= 0 && i < a.length ? { $tag: 0, $0: a[i] } : $None;
 }
 
+// The Core IR fusion of `Option.or(Array.get(a, i), d)`: `d` has already been evaluated.
+export function $arrayGetOr(a, i, d) {
+  return i >= 0 && i < a.length ? a[i] : d;
+}
+
+// The Core IR fusion of `match Array.get(a, i)`: the caller's bounds test picked the element.
+export function $arrayLoadUnchecked(a, i) {
+  return a[i];
+}
+
 export function $arraySet(a, i, value) {
   if (!(i >= 0 && i < a.length)) {
     throw new $Defect(`Array.set was given position ${i} in an array of size ${a.length}`);

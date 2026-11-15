@@ -184,6 +184,65 @@ impl<'m> Builder<'m> {
                 self.assign(cx, ins, dst, Repr::I32);
             }
             ArrayGet => self.option_call(cx, ins, dst, args, "array_get"),
+            // The Core IR fusion of `Option.or(Array.get(a, i), d)`: the element when `i` is in
+            // range, `d` (evaluated before) otherwise. As everywhere, a reference result is owned
+            // once more, so it is duped here whether it comes from the array or from `d`.
+            ArrayGetOr => {
+                let Some(dst) = dst else {
+                    self.internal(format!(
+                        "`ArrayGetOr` without a destination in {}",
+                        cx.f.name
+                    ));
+                    return;
+                };
+                let repr = self.repr(cx.f.vars[dst].ty);
+                if repr == Repr::Void {
+                    self.internal(format!("`ArrayGetOr` of () in {}", cx.f.name));
+                    return;
+                }
+                self.operand(cx, ins, &args[1]);
+                ins.i32_const(0);
+                ins.i32_ge_s();
+                self.operand(cx, ins, &args[1]);
+                self.operand(cx, ins, &args[0]);
+                ins.i32_load(mem(HDR, 4));
+                ins.i32_lt_s();
+                ins.i32_and();
+                ins.if_(BlockType::Result(val(repr)));
+                self.array_element(cx, ins, &args[0], &args[1], repr);
+                ins.else_();
+                self.operand(cx, ins, &args[2]);
+                if repr == Repr::Ref {
+                    // `d` is borrowed; the result is owned once more (`dup` consumes its
+                    // argument, so keep it in a scratch local).
+                    let tmp = cx.scratch(Repr::Ref, 0);
+                    ins.local_set(tmp);
+                    ins.local_get(tmp);
+                    let f = self.rt("dup");
+                    ins.call(f);
+                    ins.local_get(tmp);
+                }
+                ins.end();
+                self.assign(cx, ins, Some(dst), repr);
+            }
+            // The Core IR fusion of `match Array.get(a, i)`: the arms' bounds test has picked the
+            // element, so there is no check here. It is owned once more.
+            ArrayLoadUnchecked => {
+                let Some(dst) = dst else {
+                    self.internal(format!(
+                        "`ArrayLoadUnchecked` without a destination in {}",
+                        cx.f.name
+                    ));
+                    return;
+                };
+                let repr = self.repr(cx.f.vars[dst].ty);
+                if repr == Repr::Void {
+                    self.internal(format!("`ArrayLoadUnchecked` of () in {}", cx.f.name));
+                    return;
+                }
+                self.array_element(cx, ins, &args[0], &args[1], repr);
+                self.assign(cx, ins, Some(dst), repr);
+            }
             // Consumes the array (`heap::rc`); the value goes as an 8-byte word.
             ArraySet => {
                 self.operand(cx, ins, &args[0]);
@@ -372,6 +431,48 @@ impl<'m> Builder<'m> {
             other => {
                 self.internal(format!("builtin {other:?} left in {}", cx.f.name));
             }
+        }
+    }
+
+    /// Pushes element `index` of array `a` (an address in a local or on the stack), loaded as
+    /// `repr`; a reference is duped, so the value is owned once. `index` must be in range.
+    fn array_element(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        a: &Operand,
+        index: &Operand,
+        repr: Repr,
+    ) {
+        self.operand(cx, ins, a);
+        ins.i32_const((HDR + 8) as i32);
+        ins.i32_add();
+        self.operand(cx, ins, index);
+        ins.i32_const(3);
+        ins.i32_shl();
+        ins.i32_add();
+        match repr {
+            Repr::I32 => {
+                ins.i32_load(mem(0, 4));
+            }
+            Repr::I64 => {
+                ins.i64_load(mem(0, 8));
+            }
+            Repr::F64 => {
+                ins.f64_load(mem(0, 8));
+            }
+            // `dup` consumes the reference and returns nothing, so the loaded reference is kept
+            // in a scratch local: dup it, then push it again.
+            Repr::Ref => {
+                ins.i32_load(mem(0, 4));
+                let tmp = cx.scratch(Repr::Ref, 0);
+                ins.local_set(tmp);
+                ins.local_get(tmp);
+                let f = self.rt("dup");
+                ins.call(f);
+                ins.local_get(tmp);
+            }
+            Repr::Void => unreachable!("no element of the void representation"),
         }
     }
 

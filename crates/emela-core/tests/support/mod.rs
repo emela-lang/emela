@@ -110,6 +110,22 @@ pub fn lower_files_with(files: &[(&str, &str)], optimize: bool) -> Module {
     .unwrap_or_else(|e| panic!("{e:?}"))
 }
 
+/// [`lower_files_with`], also returning what the Core IR passes changed.
+pub fn lower_files_with_stats(
+    files: &[(&str, &str)],
+    optimize: bool,
+) -> (Module, emela_core::opt::Stats) {
+    let lowered = try_lower_rooted_lowered(
+        files,
+        Roots::Exported,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+        optimize,
+    )
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    (lowered.module, lowered.stats)
+}
+
 fn try_lower_rooted(
     files: &[(&str, &str)],
     roots: Roots,
@@ -117,6 +133,16 @@ fn try_lower_rooted(
     bundled_files: &[(&str, &str)],
     optimize: bool,
 ) -> Result<Module, Vec<String>> {
+    try_lower_rooted_lowered(files, roots, core, bundled_files, optimize).map(|l| l.module)
+}
+
+fn try_lower_rooted_lowered(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
+    optimize: bool,
+) -> Result<emela_core::Lowered, Vec<String>> {
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
     // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
@@ -145,9 +171,9 @@ fn try_lower_rooted(
         bundled_files,
         language: None,
     };
-    let lowered = lower_with(&input, roots, optimize).map(|l| l.module);
-    if let Ok(m) = &lowered {
-        assert_well_typed(m);
+    let lowered = lower_with(&input, roots, optimize);
+    if let Ok(l) = &lowered {
+        assert_well_typed(&l.module);
     }
     lowered.map_err(|errors| {
         errors

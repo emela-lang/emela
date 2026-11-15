@@ -1392,6 +1392,23 @@ impl<'m> Emitter<'m> {
             Builtin::ArrayToList => named("em_array_to_list"),
             Builtin::ArraySize => named("em_array_size"),
             Builtin::ArrayGet => named("em_array_get"),
+            // The Core IR fusions of `Option.or(Array.get(..), d)` and `match Array.get(..)`.
+            // They return a word, unpacked into the destination's representation.
+            Builtin::ArrayGetOr => {
+                let d = self.word(f, &args[2]);
+                let value = call("em_array_get_or", [a[0].clone(), a[1].clone(), d]);
+                match dst {
+                    Some(d) => format!("{value}.{}", acc(f.vars[d].repr)),
+                    None => value,
+                }
+            }
+            Builtin::ArrayLoadUnchecked => {
+                let value = call("em_array_load_unchecked", [a[0].clone(), a[1].clone()]);
+                match dst {
+                    Some(d) => format!("{value}.{}", acc(f.vars[d].repr)),
+                    None => value,
+                }
+            }
             // Consumes the array (`heap::rc`); the value is passed as a word.
             Builtin::ArraySet => {
                 let value = self.word(f, &args[2]);
