@@ -27,11 +27,25 @@ pub use rc::insert_rc;
 pub use suspend::{may_suspend, state_machines};
 
 use crate::ir::Module;
+use crate::opt;
 
-/// Runs every Heap IR pass on a Flow IR module.
+/// Runs every LIR optimisation and Heap IR pass on a Flow IR module.
 pub fn to_heap(m: &mut Module) {
+    let _ = to_heap_with(m, true);
+}
+
+/// [`to_heap`] with the LIR optimisation passes switched on or off.
+///
+/// The Flow IR passes run first, on the nested closures and the Flow IR control flow; then the
+/// Heap IR passes of [`to_heap`] make memory and control explicit; then the Heap IR passes run,
+/// with `dup` and `drop` explicit. The returned [`opt::Stats`] is what all of them changed, so a
+/// build that turns optimisation off gets an empty one.
+pub fn to_heap_with(m: &mut Module, optimize: bool) -> opt::Stats {
+    let mut stats = opt::run_flow(m, optimize);
     convert_closures(m);
     explicit_defects(m);
     state_machines(m);
     insert_rc(m);
+    stats.merge(opt::run_heap(m, optimize));
+    stats
 }
