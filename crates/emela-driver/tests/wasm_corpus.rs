@@ -144,7 +144,7 @@ fn run_wasm(name: &str, src: &str) -> Result<Outcome, Box<Analysis>> {
             &fs,
             &input,
             &mut Lower::default().with_target(Target::Wasm),
-            &mut CoreWasm,
+            &mut CoreWasm::default(),
             &options,
             |_, _| {},
         )

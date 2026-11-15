@@ -60,7 +60,7 @@ fn run_wasm_files(name: &str, files: &[(&str, &str)]) -> (Analysis, Option<RunOu
         &fs,
         &input,
         &mut Lower::default().with_target(Target::Wasm),
-        &mut CoreWasm,
+        &mut CoreWasm::default(),
         &options,
         |_, _| {},
     );
@@ -79,7 +79,7 @@ fn builds_the_module() {
         &fs,
         &input,
         &mut Lower::default().with_target(Target::Wasm),
-        &mut CoreWasm,
+        &mut CoreWasm::default(),
         &out_dir("build"),
     );
     assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
@@ -225,7 +225,7 @@ fn test_wasm(name: &str, main: &str) -> (Analysis, Vec<(String, TestOutcome)>) {
         &fs,
         &input,
         &mut LowerTests::default().with_target(Target::Wasm),
-        &mut CoreWasm,
+        &mut CoreWasm::default(),
         &options,
         |_| {},
         &mut out,

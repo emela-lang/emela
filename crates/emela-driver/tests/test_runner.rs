@@ -1222,7 +1222,7 @@ fn run_on(
                 fs,
                 input,
                 &mut frontend,
-                &mut CoreWasm,
+                &mut CoreWasm::default(),
                 &options,
                 |_| {},
                 &mut out,

@@ -448,6 +448,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 pub struct Lower<B = NoBuiltins> {
     typecheck: Typecheck<B>,
     target: Target,
+    optimize: bool,
 }
 
 impl Default for Lower<NoBuiltins> {
@@ -455,6 +456,7 @@ impl Default for Lower<NoBuiltins> {
         Lower {
             typecheck: Typecheck::default(),
             target: Target::Js,
+            optimize: true,
         }
     }
 }
@@ -464,12 +466,19 @@ impl<B: BuiltinModules> Lower<B> {
         Lower {
             typecheck,
             target: Target::Js,
+            optimize: true,
         }
     }
 
     /// Selects the build target whose external functions are checked during lowering (spec 12.1).
     pub fn with_target(mut self, target: Target) -> Self {
         self.target = target;
+        self
+    }
+
+    /// Turns the Core IR optimisation passes on or off (`emela build --no-opt`).
+    pub fn with_optimize(mut self, optimize: bool) -> Self {
+        self.optimize = optimize;
         self
     }
 }
@@ -507,6 +516,7 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
                 &typed,
                 emela_core::Roots::Exported,
                 self.target,
+                self.optimize,
                 &mut diagnostics,
             )
             .map(|lowered| lowered.module)
@@ -526,6 +536,9 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
 /// External functions are checked (spec 12.1) for `target`. Only build, run and test call
 /// lowering (check and the LSP do not).
 ///
+/// `optimize` reaches the Core IR optimisation passes (`emela_core::lower_with`); lowering itself
+/// is the same either way.
+///
 /// Lowering also gets each module's source path (`LowerInput::paths`), so that the file an
 /// `@external` names is resolved next to its source.
 pub(crate) fn lower_typed(
@@ -533,6 +546,7 @@ pub(crate) fn lower_typed(
     typed: &TypedProgram,
     roots: emela_core::Roots,
     target: Target,
+    optimize: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<emela_core::Lowered> {
     let entry = analysis.entry;
@@ -570,7 +584,7 @@ pub(crate) fn lower_typed(
         bundled_files: emela_core::bundled_files(),
         language: Some(target.language()),
     };
-    match emela_core::lower(&input, roots) {
+    match emela_core::lower_with(&input, roots, optimize) {
         Ok(lowered) => {
             // Ill-typed IR is a lowering bug, not an error in the program.
             #[cfg(debug_assertions)]
