@@ -27,9 +27,10 @@
 //! | Pass | Counter | Stage |
 //! |---|---|---|
 //! | [`sra`] | [`Stats::sra_tuples`] | [`run_mid`] |
-//! | `rc_cleanup` (later) | — | [`run_heap`] |
+//! | [`rc`] | [`Stats::rc_pairs`] | [`run_heap`] |
 
 pub(crate) mod escape;
+mod rc;
 mod sra;
 
 #[cfg(test)]
@@ -45,12 +46,15 @@ use crate::ir::{Module, Stage};
 pub struct Stats {
     /// Non-escaping tuples replaced by their fields (SRA).
     pub sra_tuples: u32,
+    /// `dup`/`drop` pairs removed by [`rc`], one per duplicated reference.
+    pub rc_pairs: u32,
 }
 
 impl Stats {
     /// Adds what `other` changed to these.
     pub fn merge(&mut self, other: Stats) {
         self.sra_tuples += other.sra_tuples;
+        self.rc_pairs += other.rc_pairs;
     }
 }
 
@@ -113,9 +117,21 @@ pub fn run_mid(m: &mut Module, optimize: bool) -> Stats {
 /// `with`, and drop points. A pass may remove a `dup` and its matching `drop` together, and make
 /// the last use of a reference a move, but never change when a value is released.
 ///
-/// Deopt: a function with a release that may run a finalizer or an effect is left alone.
-pub fn run_heap(_m: &mut Module, _optimize: bool) -> Stats {
-    Stats::default()
+/// Deopt: [`rc`] leaves a `dup`/`drop` pair alone when the reference it takes may be the only thing
+/// keeping the value alive (a view whose base is not the borrowed environment of the call), when
+/// the variable is consumed between the two, or when the `drop` is not reached on every path.
+pub fn run_heap(m: &mut Module, optimize: bool) -> Stats {
+    assert_eq!(
+        m.stage,
+        Stage::RefCounted,
+        "the Heap IR optimisations run after reference counting"
+    );
+    if !optimize {
+        return Stats::default();
+    }
+    let stats = rc::run(m);
+    check(m);
+    stats
 }
 
 #[cfg(test)]
@@ -260,11 +276,18 @@ mod tests {
 
     /// The total is the sum of what each stage returned.
     #[test]
-    fn merge_adds_sra_tuples() {
+    fn merge_adds_the_counters() {
         let mut total = Stats::default();
-        total.merge(Stats { sra_tuples: 2 });
-        total.merge(Stats { sra_tuples: 3 });
+        total.merge(Stats {
+            sra_tuples: 2,
+            rc_pairs: 1,
+        });
+        total.merge(Stats {
+            sra_tuples: 3,
+            rc_pairs: 4,
+        });
         total.merge(Stats::default());
         assert_eq!(total.sra_tuples, 5);
+        assert_eq!(total.rc_pairs, 5);
     }
 }

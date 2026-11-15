@@ -15,7 +15,11 @@
 //! - Views: `field`, `tuple_get`, `list_head`, `list_tail`, `env_get`, `ev_lookup`, `as_error`
 //!   and `coerce` of a `ref` read a reference out of a value they borrow. Their destination owns
 //!   nothing until a `dup` right after the statement, which the pass emits when the destination is
-//!   used later.
+//!   used later: the base may be released before that use, and the view has to keep the value
+//!   alive. A view whose base is the borrowed environment parameter (or another such view) needs
+//!   no reference for that, because the caller keeps the record alive for the whole call;
+//!   [`crate::opt`]'s `rc_cleanup` removes the reference the pass gives it anyway, and
+//!   [`super::rc_check`] accepts a borrow of such a view without one ([`Bases::borrows_from_env`]).
 //! - Consumed (ownership moves): the arguments of calls of functions, closure records and
 //!   operations (their parameters are owned), the fields of `make`, the elements of `tuple` and
 //!   `list`, the captures of `make_closure`, the table and handlers of `ev_extend`, the operations
@@ -82,19 +86,116 @@ pub(crate) fn borrowed_param(f: &Function, v: VarId) -> bool {
     f.env.is_some() && f.params.first() == Some(&v)
 }
 
+/// The variable a view reads out of, if `v` is a view: the value it names lives in the base's
+/// value, so it is alive exactly while the base is.
+pub(crate) fn view_base(f: &Function, v: &Value) -> Option<VarId> {
+    match v {
+        Value::Field { base, .. } | Value::TupleGet { base, .. } => Some(*base),
+        Value::ListHead(x) | Value::ListTail(x) => Some(*x),
+        Value::EnvGet { env, .. } => Some(*env),
+        Value::EvLookup { ev, .. } => Some(*ev),
+        Value::AsError { error, .. } => Some(*error),
+        Value::Coerce(x) if f.vars[*x].repr == Repr::Ref => Some(*x),
+        _ => None,
+    }
+}
+
 /// Whether the value reads a reference out of a value it borrows, so that its destination owns
 /// nothing until a `dup`.
 pub(crate) fn is_view(f: &Function, v: &Value) -> bool {
-    match v {
-        Value::Field { .. }
-        | Value::TupleGet { .. }
-        | Value::ListHead(_)
-        | Value::ListTail(_)
-        | Value::EnvGet { .. }
-        | Value::EvLookup { .. }
-        | Value::AsError { .. } => true,
-        Value::Coerce(x) => f.vars[*x].repr == Repr::Ref,
-        _ => false,
+    view_base(f, v).is_some()
+}
+
+/// Whether a suspension edge of the function saves `v`: a frame may keep it after the call
+/// returned suspended.
+fn saved_by_a_frame(f: &Function, v: VarId) -> bool {
+    f.stmts
+        .iter()
+        .any(|(_, s)| matches!(s, Stmt::Let { on_suspend: Some(e), .. } if e.saved.contains(&v)))
+}
+
+/// The environment parameter of a lifted function when reference counting makes it owned: a frame
+/// may save it, so it is dup'd at the start and dropped like any other owned variable.
+pub(crate) fn owned_env(f: &Function) -> Option<VarId> {
+    let p = f
+        .params
+        .first()
+        .copied()
+        .filter(|&p| borrowed_param(f, p))?;
+    saved_by_a_frame(f, p).then_some(p)
+}
+
+/// How the values of a function stay alive without their variable owning a reference: the closure
+/// record of the call, and the bases of the views read out of it or out of anything else.
+///
+/// Built once per function; the reference counting pass, the balance check and `rc_cleanup` all
+/// work from the same facts, so they agree on whether a variable can be borrowed.
+pub(crate) struct Bases {
+    /// The environment parameter, when reference counting leaves it borrowed (it is then not
+    /// [`owned_env`]). The caller keeps the closure record alive for the whole call, so the
+    /// parameter and the views read out of it can be borrowed at any point of the function and are
+    /// never dropped.
+    ///
+    /// `None` when a frame may save the environment (`insert_rc` then dup's it at the start): it is
+    /// owned like any other variable, and can be released before a view of it is last used, which
+    /// is why reference counting gives each view a reference of its own.
+    env: Option<VarId>,
+    /// The base of every counted view variable.
+    views: FxHashMap<VarId, VarId>,
+}
+
+impl Bases {
+    pub(crate) fn new(f: &Function) -> Self {
+        let env = f
+            .params
+            .first()
+            .copied()
+            .filter(|&p| borrowed_param(f, p) && !saved_by_a_frame(f, p));
+        let mut views = FxHashMap::default();
+        for (_, stmt) in f.stmts.iter() {
+            let Stmt::Let {
+                dst: Some(d),
+                value,
+                ..
+            } = stmt
+            else {
+                continue;
+            };
+            if !counted(f, *d) {
+                continue;
+            }
+            if let Some(base) = view_base(f, value) {
+                views.insert(*d, base);
+            }
+        }
+        Bases { env, views }
+    }
+
+    /// Whether `v` borrows its value from the closure record of the call: the borrowed environment
+    /// parameter, or a view read out of it (directly, or through other views such as a field of a
+    /// capture).
+    pub(crate) fn borrows_from_env(&self, v: VarId) -> bool {
+        let Some(env) = self.env else {
+            return false;
+        };
+        let mut cur = v;
+        // A view's base is defined before it, so a chain is no longer than the variables of the
+        // function.
+        for _ in 0..=self.views.len() {
+            if cur == env {
+                return true;
+            }
+            match self.views.get(&cur) {
+                Some(&base) => cur = base,
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// The base of `v`, if it is a view: the variable whose owner keeps its value alive.
+    pub(crate) fn view_base(&self, v: VarId) -> Option<VarId> {
+        self.views.get(&v).copied()
     }
 }
 
@@ -294,13 +395,7 @@ impl<'a> Counter<'a> {
             .collect();
         // A suspending function owns its environment when a frame may keep it (see the module
         // documentation).
-        let env = f.params.first().copied().filter(|&p| {
-            borrowed_param(f, p)
-                && live.contains(&p)
-                && f.stmts.iter().any(|(_, s)| {
-                    matches!(s, Stmt::Let { on_suspend: Some(e), .. } if e.saved.contains(&p))
-                })
-        });
+        let env = owned_env(f).filter(|&p| live.contains(&p));
         owned.extend(env);
         c.seq(f, body, owned, &Set::default(), None);
         if let Some(env) = env {
