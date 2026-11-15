@@ -1,0 +1,88 @@
+# The Core IR fusion of `Array.from_list(List.map(List.range(lo, hi), f))` into
+# `$Array.map_range(lo, hi, f)`: the array is made in one pass, with neither the range's list nor
+# the mapped list. Every fused form is paired with the same array written by hand here, so the two
+# must agree; the tests run this on JS and C (with the leak check) and on WASM.
+import Std.Array.{Array}
+
+# The fused form: `f(i)` for each `i` from `lo` up to `hi`.
+fn squares(lo: Int, hi: Int) -> Array[Int] {
+  Array.from_list(List.map(List.range(lo, hi), |i| i * i))
+}
+
+# The same array, written by hand: a copy filled by a self tail call (which lowers to a loop).
+fn squares_by_hand(lo: Int, hi: Int) -> Array[Int] {
+  fill(Array.repeat(0, count(lo, hi)), lo, lo, hi)
+}
+
+fn count(lo: Int, hi: Int) -> Int {
+  if hi > lo { hi - lo } else { 0 }
+}
+
+fn fill(a: Array[Int], lo: Int, i: Int, hi: Int) -> Array[Int] {
+  if i >= hi { a } else { fill(Array.set(a, i - lo, i * i), lo, i + 1, hi) }
+}
+
+# A named function as `f`, and a lambda that captures a local.
+fn tag(i: Int) -> String {
+  "s#{i}"
+}
+
+fn scaled(n: Int) -> Array[Int] {
+  Array.from_list(List.map(List.range(0, 3), |i| i * n))
+}
+
+# The bounds are evaluated once each, `lo` before `hi`, before the array is made.
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Console: Log {
+  fn log(msg) {
+    dbg(msg)
+    ()
+  }
+}
+
+fn lo_bound() -> Int uses { Log } {
+  (use Log).log("lo")
+  -1
+}
+
+fn hi_bound() -> Int uses { Log } {
+  (use Log).log("hi")
+  2
+}
+
+fn bounds() -> Array[Int] uses { Log } {
+  Array.from_list(List.map(List.range(lo_bound(), hi_bound()), |i| i * 10))
+}
+
+# A generic function: the element type is a type parameter when the fusion runs, and it can be
+# `()` once the function is instantiated, where an element has no representation.
+fn filled[A](value: A, n: Int) -> Array[A] {
+  Array.from_list(List.map(List.range(0, n), |i| value))
+}
+
+fn main() {
+  dbg(squares(0, 0))
+  dbg(squares(1, 0))
+  dbg(squares(5, 2))
+  dbg(squares(-3, 3))
+  dbg(squares(3, 6))
+  dbg(squares_by_hand(0, 0))
+  dbg(squares_by_hand(1, 0))
+  dbg(squares_by_hand(5, 2))
+  dbg(squares_by_hand(-3, 3))
+  dbg(squares_by_hand(3, 6))
+  dbg(Array.from_list(List.map(List.range(0, 4), tag)))
+  dbg(scaled(7))
+  dbg(Array.from_list(List.map(List.range(0, 3), |i| Float.from_int(i) / 2.0)))
+  dbg(Array.from_list(List.map(List.range(0, 3), |i| Int64.from_int(i) * 3)))
+  dbg(Array.size(Array.from_list(List.map(List.range(0, 100), |i| i))))
+  dbg(Array.size(filled((), 3)))
+  dbg(filled("x", 2))
+  with Console {
+    dbg(bounds())
+  }
+  ()
+}

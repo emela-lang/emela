@@ -166,6 +166,19 @@ impl Writer {
         self.open(&format!("if ({cond})"));
     }
 
+    /// `for (init; cond; step) {`, up to [`Writer::end`].
+    pub(crate) fn for_(
+        &mut self,
+        init: &str,
+        cond: &str,
+        step: &str,
+        body: impl FnOnce(&mut Self),
+    ) {
+        self.open(&format!("for ({init}; {cond}; {step})"));
+        body(self);
+        self.end();
+    }
+
     /// `} else {`, up to [`Writer::end`].
     pub(crate) fn else_begin(&mut self) {
         self.indent -= 1;

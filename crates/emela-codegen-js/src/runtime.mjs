@@ -1424,6 +1424,15 @@ export function $arrayFromList(xs) {
   return out;
 }
 
+// The Core IR fusion of `Array.from_list(List.map(List.range(lo, hi), f))`: the array of `f(i)`
+// for each `i` from `lo` up to `hi`, making neither the range nor the mapped list.
+export function $arrayMapRange(lo, hi, f) {
+  const n = hi > lo ? hi - lo : 0;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = f(lo + i);
+  return out;
+}
+
 export function $arrayToList(a) {
   return $list(a);
 }

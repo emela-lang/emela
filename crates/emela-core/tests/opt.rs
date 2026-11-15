@@ -31,6 +31,7 @@ fn main() {
   })
   dbg(inc(List.fold(List.range(0, 3), 0, |acc, x| acc + x)))
   dbg(List.map(List.range(0, 3), |x| inc(x * 2)))
+  dbg(Array.size(Array.from_list(List.map(List.range(0, 3), |x| inc(x)))))
 }
 ",
 )];
@@ -173,9 +174,11 @@ fn fusions_fire() {
     assert_eq!(stats.array_get_match, 1);
     assert_eq!(stats.range_fold, 1);
     assert_eq!(stats.range_map, 1);
+    assert_eq!(stats.map_range, 1);
     let ir = dump(&m);
     assert!(ir.contains("@$Array.get_or"), "{ir}");
     assert!(ir.contains("@$Array.load_unchecked"), "{ir}");
+    assert!(ir.contains("@$Array.map_range"), "{ir}");
     assert!(ir.contains("loop("), "{ir}");
 }
 
@@ -261,6 +264,132 @@ fn main() {
     let (_, stats) = lower_files_with_stats(&files, true);
     assert_eq!(stats.option_or, 0, "{stats:?}");
     assert_eq!(stats.array_get_match, 0, "{stats:?}");
+}
+
+/// `Array.from_list(List.map(List.range(lo, hi), f))` becomes the internal `ArrayMapRange`, whose
+/// type arguments are the element type and the type of `f`. A boundary range (negative `lo`, and
+/// `hi` not above `lo`) and an element type that is not `Int` are fused all the same.
+#[test]
+fn array_map_range_is_fused() {
+    let files = [(
+        "main.emel",
+        "\
+import Std.Array.{Array}
+
+fn doubled(n: Int) -> Array[Int] {
+  Array.from_list(List.map(List.range(0, n), |i| i * 2))
+}
+
+fn main() {
+  dbg(Array.to_list(Array.from_list(List.map(List.range(-2, 2), |i| Int.to_string(i)))))
+  dbg(Array.to_list(Array.from_list(List.map(List.range(3, 3), |i| i * 2))))
+  dbg(Array.to_list(Array.from_list(List.map(List.range(5, 2), |i| i * 2))))
+  dbg(Array.to_list(doubled(2)))
+}
+",
+    )];
+    let (m, stats) = lower_files_with_stats(&files, true);
+    assert_eq!(stats.map_range, 4, "{stats:?}");
+    let ir = dump(&m);
+    assert!(ir.contains("@$Array.map_range"), "{ir}");
+}
+
+/// The builtin has no failure edge and takes no evidence table, so an `f` that may fail or use an
+/// effect is left to the list form, which keeps it.
+#[test]
+fn array_map_range_needs_a_pure_f() {
+    let failing = [(
+        "main.emel",
+        "\
+import Std.Array.{Array}
+
+error Boom
+
+fn failing(x: Int) -> Int fails Boom {
+  x
+}
+
+fn main() {
+  dbg(Array.size(Array.from_list(List.map(List.range(0, 3), failing))) escape { Boom -> 0 })
+}
+",
+    )];
+    let (_, stats) = lower_files_with_stats(&failing, true);
+    assert_eq!(stats.map_range, 0, "{stats:?}");
+
+    let effectful = [(
+        "main.emel",
+        "\
+import Std.Array.{Array}
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Ignore: Log {
+  fn log(msg) { () }
+}
+
+fn logging(x: Int) -> Int uses { Log } {
+  (use Log).log(\"at #{x}\")
+  x
+}
+
+fn main() {
+  with Ignore {
+    dbg(Array.size(Array.from_list(List.map(List.range(0, 3), logging))))
+  }
+}
+",
+    )];
+    let (_, stats) = lower_files_with_stats(&effectful, true);
+    assert_eq!(stats.map_range, 0, "{stats:?}");
+}
+
+/// `()` has no representation, so `Array[()]` has none either and the builtin (whose elements the
+/// loop stores) is not made.
+#[test]
+fn array_map_range_of_unit_is_not_fused() {
+    let files = [(
+        "main.emel",
+        "\
+import Std.Array.{Array}
+
+fn main() {
+  dbg(Array.size(Array.from_list(List.map(List.range(0, 3), |i| ()))))
+}
+",
+    )];
+    let (_, stats) = lower_files_with_stats(&files, true);
+    assert_eq!(stats.map_range, 0, "{stats:?}");
+}
+
+/// A user's `from_list` or `map` and a `let`-bound range are not the shape: the fusion matches the
+/// bundled `Array.from_list` builtin and a direct `List.range` call.
+#[test]
+fn a_users_from_list_and_map_are_not_map_range() {
+    let files = [(
+        "main.emel",
+        "\
+import Std.Array.{Array}
+
+fn from_list(xs: List[Int]) -> List[Int] {
+  xs
+}
+
+fn map(xs: List[Int], f: fn(Int) -> Int) -> List[Int] {
+  xs
+}
+
+fn main() {
+  dbg(from_list(map([1, 2], |x| x)))
+  xs = List.range(0, 3)
+  dbg(Array.size(Array.from_list(List.map(xs, |x| x * 2))))
+}
+",
+    )];
+    let (_, stats) = lower_files_with_stats(&files, true);
+    assert_eq!(stats.map_range, 0, "{stats:?}");
 }
 
 /// The passes run before monomorphisation, so the element type of a generic `Array[A]` is still
