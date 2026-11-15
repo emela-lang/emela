@@ -1,0 +1,43 @@
+exit: 0
+--- stdout
+--- stderr
+0
+0
+0
+6
+2
+2
+-3
+[0, 2, 4, 6]
+"f evaluated"
+0
+"lo"
+"hi"
+"init"
+"f evaluated"
+"call 0"
+"call 1"
+11
+"lo"
+"hi"
+"map call 0"
+"map call 1"
+[0, 2]
+"map 0"
+"map 1"
+[0, 2]
+"failing 0"
+"failing 1"
+"failing 2"
+-1
+"failing 0"
+"failing 1"
+"failing 2"
+3
+0
+(3, 3)
+"012"
+["0", "1", "2"]
+([0, 2, 4], 3)
+[]
+[0, 2, 4]
