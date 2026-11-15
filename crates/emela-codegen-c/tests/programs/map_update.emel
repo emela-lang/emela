@@ -1,0 +1,97 @@
+# `Map.update` changes one key in one descent of the tree. `f` is called once with the value that
+# `get` would give: the value of the node of the key, or None where the key is absent. Some decides
+# insert, None decides remove, and the other pairs and the key order stay. `f` may fail, and a
+# failure leaves the map as it was.
+#
+# `keys` and `values` walk the tree in key order, the same order as `to_list`.
+
+import Std.Map.{Map}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+error Stop(at: Int)
+
+fn traced(label: String, old: Option[String]) -> Option[String] {
+  dbg("#{label} #{inspect(old)}")
+  old
+}
+
+fn stops_at_three(x: Int) -> Int fails Stop {
+  if x == 3 { fail Stop(at: x) }
+  x
+}
+
+# Updates and removes every third key of a larger map, and compares the result with the map built
+# again from its pairs.
+fn bulk() {
+  m = List.range(1, 20).fold(from: Map.empty(), f: |m, k| Map.insert(m, k, k * 10))
+  m = List.range(1, 20).fold(from: m, f: |m, k| {
+    k % 3 match {
+      0 -> Map.update(m, k, |_| None)
+      1 -> Map.update(m, k, |old| Option.map(old, |v| v + 1))
+      _ -> Map.update(m, k, |old| old)
+    }
+  })
+  print("bulk size #{Map.size(m)}")
+  print("bulk keys #{inspect(Map.keys(m))}")
+  print("bulk values #{inspect(Map.values(m))}")
+  print("bulk rebuilt #{Map.from_list(Map.to_list(m)) == m}")
+  print("bulk get #{inspect(Map.get(m, 1))} #{inspect(Map.get(m, 3))} #{inspect(Map.get(m, 19))}")
+}
+
+fn main() {
+  m = Map.from_list([(1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f"), (7, "g")])
+
+  # An existing key: f gets its value once, and the other pairs and the key order stay.
+  print("existing #{inspect(Map.update(m, 2, |old| traced("existing", old)))}")
+  print("replace #{inspect(Map.update(m, 2, |old| Option.map(old, |v| v.append("!"))))}")
+
+  # An absent key: f gets None once. Some adds the key, and None leaves the map.
+  print("absent #{inspect(Map.update(m, 8, |old| traced("absent", old)))}")
+  added = Map.update(m, 8, |old| Some(Option.or(Option.map(old, |v| v.append("8")), "h")))
+  print("add #{inspect(added)}")
+  print("absent none #{inspect(Map.update(m, 8, |_| None))}")
+
+  # None removes the key, from a leaf and from the root (four is the root of seven keys).
+  print(
+    "remove leaf #{inspect(Map.update(m, 1, |old| Option.and_then(traced("remove", old), |_| None)))}",
+  )
+  print("remove root #{inspect(Map.update(m, 4, |_| None))}")
+
+  # The empty map, with and without a value to add.
+  print("empty add #{inspect(Map.update(Map.empty(), 4, |old| traced("empty", old)))}")
+  print("empty none #{inspect(Map.update(Map.empty(), 4, |_| None))}")
+
+  # keys and values are in the order of to_list.
+  print("keys #{inspect(Map.keys(m))}")
+  print("values #{inspect(Map.values(m))}")
+  print("to_list #{inspect(Map.to_list(m))}")
+  print("empty keys #{inspect(Map.keys(Map.empty()))} #{inspect(Map.values(Map.empty()))}")
+
+  # A failing f is called once, and the failure leaves the map as it was.
+  failed = Map.update(m, 2, |old| {
+    dbg("failing #{inspect(old)}")
+    Some("#{stops_at_three(3)}")
+  }) escape {
+    Stop(at:) -> {
+      dbg("stopped at #{at}")
+      m
+    }
+  }
+  print("failing unchanged #{failed == m}")
+
+  failed_absent = Map.update(m, 8, |old| {
+    dbg("failing absent #{inspect(old)}")
+    Some("#{stops_at_three(3)}")
+  }) escape {
+    Stop(at:) -> {
+      dbg("stopped at #{at}")
+      m
+    }
+  }
+  print("failing absent unchanged #{failed_absent == m}")
+
+  bulk()
+}
