@@ -1337,7 +1337,7 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Box<Analysis
             &fs,
             &input,
             &mut frontend,
-            &mut CoreWasm,
+            &mut CoreWasm::default(),
             &options,
             |_, _| {},
         ),
