@@ -96,8 +96,8 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        21903,
-        0xf4d1_2ccf_3a31_2f1f,
+        22021,
+        0x3776_9ff8_c3c2_5c3e,
     ),
     (
         "platform_console",
