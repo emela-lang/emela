@@ -429,3 +429,30 @@ fn main() {
     assert!(!ir.contains("@$Array.get_or"), "{ir}");
     assert!(!ir.contains("@$Array.load_unchecked"), "{ir}");
 }
+
+/// A lambda handed to a fused `List.fold`/`List.map` over a range is copied into the loop rather
+/// than called through the closure it would be. The step is then straight-line code of the
+/// enclosing function, which is what lets the backends inline and hoist the array reads in it, and
+/// the closure (an allocation, plus a reference for each capture) is not made at all.
+#[test]
+fn a_range_loop_copies_in_its_lambda() {
+    let files = [(
+        "main.emel",
+        "\
+fn main() {
+  dbg(List.fold(List.range(0, 3), 0, |acc, x| acc + x))
+  dbg(List.map(List.range(0, 3), |x| x * 2))
+}
+",
+    )];
+    let (m, stats) = lower_files_with_stats(&files, true);
+    assert_eq!(stats.range_fold, 1, "{stats:?}");
+    assert_eq!(stats.range_map, 1, "{stats:?}");
+    let ir = dump(&m);
+    let main = ir.split("export fn main").nth(1).expect("main is in the dump");
+    let main = main.split("\nfn ").next().unwrap();
+    assert!(main.contains("loop("), "{main}");
+    // The dump writes a lambda as `fn(x%0: Int) -> Int {` and an indirect call as `(f%1)(...)`.
+    assert!(!main.contains("fn("), "the lambda was not copied in: {main}");
+    assert!(!main.contains("(f%"), "the call is still indirect: {main}");
+}
