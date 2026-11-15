@@ -239,6 +239,98 @@ fn main() {{
 }
 
 #[test]
+fn a_three_part_interpolation_allocates_one_string() {
+    // Three pieces are one `concat`: the runtime adds up the byte lengths, allocates one String
+    // and copies the pieces. A right-associated chain of two `String.append`s would allocate two
+    // Strings per iteration. The pieces are parameters, so they are not folded into a constant.
+    if cc().is_none() {
+        return;
+    }
+    let src = format!(
+        r##"{PRELUDE}
+fn go(i: Int, acc: Int, a: String, b: String, c: String) -> Int {{
+  if i == 0 {{
+    acc
+  }} else {{
+    s = "#{{a}}#{{b}}#{{c}}"
+    go(i - 1, acc + String.byte_size(s), a, b, c)
+  }}
+}}
+
+fn main() {{
+  print(Int.to_string(go(10, 0, "é", "a", "b\u{{0}}")))
+}}
+"##
+    );
+    let out = to_c(&src).expect("the program compiles");
+    let got = build_and_run(
+        &out_dir("concat-alloc"),
+        &out,
+        &["-O1", "-DEMELA_ALLOC_STATS"],
+    );
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    assert_eq!(
+        got.stdout, "50\n",
+        "the byte length of the pieces, ten times"
+    );
+    let report: Vec<&str> = got
+        .stderr
+        .lines()
+        .skip_while(|line| !line.starts_with("emela-alloc "))
+        .collect();
+    assert!(!report.is_empty(), "a report");
+    let counts = check_stats(&report.join("\n"));
+    let count = |n: &str| counts.iter().find(|(name, _)| name == n).map(|(_, c)| *c);
+    // One concat per iteration and one `Int.to_string` for the result.
+    assert_eq!(count("String"), Some(11), "one String per concat");
+    assert_eq!(count("cons"), None, "no list is built");
+}
+
+#[test]
+fn concat_with_at_most_one_nonempty_part_allocates_nothing() {
+    // An empty piece copies nothing. With at most one non-empty piece the result is a reference
+    // to that piece, as `em_string_append` returns the other side when one is empty, so the
+    // concatenation allocates no String at all.
+    if cc().is_none() {
+        return;
+    }
+    let src = format!(
+        r##"{PRELUDE}
+fn go(i: Int, e: String) -> Int {{
+  if i == 0 {{
+    0
+  }} else {{
+    s = "#{{e}}#{{e}}#{{e}}"
+    go(i - 1, e) + String.byte_size(s)
+  }}
+}}
+
+fn main() {{
+  print(Int.to_string(go(10, "")))
+}}
+"##
+    );
+    let out = to_c(&src).expect("the program compiles");
+    let got = build_and_run(
+        &out_dir("concat-empty-alloc"),
+        &out,
+        &["-O1", "-DEMELA_ALLOC_STATS"],
+    );
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    assert_eq!(got.stdout, "0\n");
+    let report: Vec<&str> = got
+        .stderr
+        .lines()
+        .skip_while(|line| !line.starts_with("emela-alloc "))
+        .collect();
+    assert!(!report.is_empty(), "a report");
+    let counts = check_stats(&report.join("\n"));
+    let count = |n: &str| counts.iter().find(|(name, _)| name == n).map(|(_, c)| *c);
+    // Only `Int.to_string(0)` makes a String.
+    assert_eq!(count("String"), Some(1), "empty pieces allocate no String");
+}
+
+#[test]
 fn alloc_stats_are_reported_in_a_measurement_build() {
     if cc().is_none() {
         return;

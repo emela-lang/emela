@@ -32,7 +32,7 @@ use emela_core::{Type, TypeId};
 use rustc_hash::FxHashSet;
 
 use crate::heap::live;
-use crate::ir::{Function, Module, Operand, SeqId, Stmt, Term, Value, VarId};
+use crate::ir::{Function, Module, Operand, RuntimeOp, SeqId, Stmt, Term, Value, VarId};
 
 /// The variables of `f` whose value may escape it.
 pub(crate) type Set = FxHashSet<VarId>;
@@ -221,10 +221,14 @@ impl Walk {
                 }
             }
             // A runtime operation takes and returns references the runtime owns (a pending defect,
-            // a held value). They are not plain locals.
-            Value::Runtime { args, .. } => {
+            // a held value). They are not plain locals. `concat` is the exception: it reads its
+            // parts and its value is an ordinary String, which escapes only where any String
+            // does.
+            Value::Runtime { op, args } => {
                 self.operands(args);
-                if let Some(dst) = dst {
+                if let Some(dst) = dst
+                    && *op != RuntimeOp::Concat
+                {
                     self.escaping.insert(dst);
                 }
             }

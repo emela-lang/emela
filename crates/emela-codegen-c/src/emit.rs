@@ -1095,6 +1095,16 @@ impl<'m> Emitter<'m> {
                 let a: Vec<String> = args.iter().map(|o| self.operand(o)).collect();
                 let e = match op {
                     RuntimeOp::ShowString => call("em_show_string", &a[..1]),
+                    // The parts are a compound literal, so that one String is allocated for
+                    // all of them (see `em_string_concat`); it lives until the end of the
+                    // enclosing block, which is longer than the call.
+                    RuntimeOp::Concat => call(
+                        "em_string_concat",
+                        [
+                            format!("(const em_ref[]){{{}}}", a.join(", ")),
+                            a.len().to_string(),
+                        ],
+                    ),
                     RuntimeOp::DebugPrint => call("em_debug_print", &a[..1]),
                     RuntimeOp::Retire => call("em_retire", &a[..2]),
                     RuntimeOp::Defect => call("em_raise", &a[..1]),
