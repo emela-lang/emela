@@ -24,7 +24,8 @@
 
 use emela_core::{Arm, CtorRef, EnumId, Expr, Lit, Local, Pat, Type, TypeId};
 
-use super::{Key, Lower, R, TMP, irrefutable, lit_const};
+use super::value::lit_const;
+use super::{Key, Lower, R, TMP};
 use crate::ir::{
     Case, CaseKey, Const, LabelId, Operand, PrimOp, PrimTy, Stmt, SwitchOn, Term, Value, VarId,
 };
@@ -618,6 +619,23 @@ impl Lower<'_> {
                 ));
                 self.fail_exit(fail);
             }
+        }
+    }
+}
+
+/// Whether the pattern matches every value of its type (no test).
+fn irrefutable(core: &emela_core::Module, p: &emela_core::Pat) -> bool {
+    use emela_core::Pat;
+    match p {
+        Pat::Wild | Pat::Bind(_) | Pat::Lit(Lit::Unit) => true,
+        Pat::Lit(_) => false,
+        Pat::Tuple(ps) => ps.iter().all(|p| irrefutable(core, p)),
+        Pat::Ctor { ctor, fields } => {
+            core.enums[ctor.enum_id].variants.len() == 1
+                && fields.iter().all(|p| irrefutable(core, p))
+        }
+        Pat::List { elems, rest } => {
+            elems.is_empty() && rest.as_deref().is_some_and(|r| irrefutable(core, r))
         }
     }
 }
