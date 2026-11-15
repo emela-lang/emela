@@ -55,9 +55,52 @@ static _Noreturn void em_out_of_memory(void) {
   abort();
 }
 
+/* ---- Size-class bins ----
+ *
+ * The header is 16 bytes with no room for a size class, and `aux` belongs to defects, so a block
+ * records its class only while it is free, in the first 8 bytes of the header (the reference
+ * count of a live object); `em_free` already links its free stack there. A block's class is the
+ * number of slots its descriptor has, because that is all `em_free` knows. Only fixed-size
+ * objects therefore come from a bin: strings, arrays, evidence tables, runtime objects and host
+ * boxes keep malloc and free.
+ *
+ * There is one bin per slot count from 0 to EM_BIN_MAX, so blocks of 16 to 256 bytes in steps of
+ * 8. A bin is LIFO, and blocks are neither split nor merged. em_live counts objects, not blocks,
+ * and does not change. */
+#define EM_BIN_MAX 30
+
+static em_ref em_bins[EM_BIN_MAX + 1];
+
+/* Returns the dead block `x` to its bin, or to malloc. */
+static void em_release_block(em_ref x) {
+  const em_desc *d = x->hdr.desc;
+  if (d->kind == EM_KIND_FIELDS && d->nfields <= EM_BIN_MAX) {
+    x->hdr.u.next = em_bins[d->nfields];
+    em_bins[d->nfields] = x;
+  } else {
+    free(x);
+  }
+}
+
 em_ref em_alloc(const em_desc *desc, size_t nslots) {
-  em_ref o = malloc(sizeof(em_hdr) + nslots * sizeof(em_word));
-  if (o == NULL) em_out_of_memory();
+  /* A fixed-size object takes the bin of its descriptor's slot count. `em_alloc` is called for
+   * EM_KIND_FIELDS with nslots equal to nfields (cons cells, Some, boxes, records, tuples,
+   * closures, error values, frame shells, and the copy of a defect); a call that disagrees is not
+   * binned, and is allocated at least as large as the class it returns to. */
+  size_t slots = nslots;
+  bool binned = false;
+  if (desc->kind == EM_KIND_FIELDS && desc->nfields <= EM_BIN_MAX) {
+    binned = nslots == desc->nfields;
+    slots = nslots > desc->nfields ? nslots : desc->nfields;
+  }
+  em_ref o = NULL;
+  if (binned && em_bins[slots] != NULL) {
+    o = em_bins[slots];
+    em_bins[slots] = o->hdr.u.next;
+  } else {
+    o = malloc(sizeof(em_hdr) + slots * sizeof(em_word));
+    if (o == NULL) em_out_of_memory();
+  }
   o->hdr.u.h.rc = 1;
   o->hdr.u.h.aux = 0;
   o->hdr.desc = desc;
@@ -107,7 +150,7 @@ void em_free(em_ref o) {
         break;
     }
 #undef EM_RELEASE_CHILD
-    free(x);
+    em_release_block(x);
     em_live--;
   }
 }
@@ -1776,7 +1819,7 @@ void em_frame_push(em_ref fr) {
 }
 
 void em_frame_free(em_ref fr) {
-  free(fr);
+  em_release_block(fr);
   em_live--;
 }
 
