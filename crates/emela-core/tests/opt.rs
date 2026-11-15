@@ -449,10 +449,16 @@ fn main() {
     assert_eq!(stats.range_fold, 1, "{stats:?}");
     assert_eq!(stats.range_map, 1, "{stats:?}");
     let ir = dump(&m);
-    let main = ir.split("export fn main").nth(1).expect("main is in the dump");
+    let main = ir
+        .split("export fn main")
+        .nth(1)
+        .expect("main is in the dump");
     let main = main.split("\nfn ").next().unwrap();
     assert!(main.contains("loop("), "{main}");
     // The dump writes a lambda as `fn(x%0: Int) -> Int {` and an indirect call as `(f%1)(...)`.
-    assert!(!main.contains("fn("), "the lambda was not copied in: {main}");
+    assert!(
+        !main.contains("fn("),
+        "the lambda was not copied in: {main}"
+    );
     assert!(!main.contains("(f%"), "the call is still indirect: {main}");
 }
