@@ -271,6 +271,22 @@ fn strings_extended() {
 }
 
 #[test]
+fn ascii_case_matches_the_other_targets() {
+    // The same program as `crates/emela-codegen-c/tests/programs/ascii_case.emel`, whose
+    // `.expected` is the output of the JS target: the three targets must give the same output.
+    let src = include_str!("../../emela-codegen-c/tests/programs/ascii_case.emel");
+    let expected = include_str!("../../emela-codegen-c/tests/programs/ascii_case.expected");
+    let expected = expected
+        .split_once("--- stderr\n")
+        .expect("a stderr section")
+        .1;
+    let Some(out) = stderr("ascii-case", src) else {
+        return;
+    };
+    assert_eq!(out, expected);
+}
+
+#[test]
 fn string_contains_scans_every_alignment() {
     // `str_find` skips four bytes at a time until `sub[0]` matches, then confirms byte by byte.
     // The needle starts at every offset modulo four, at the last possible start, and in the

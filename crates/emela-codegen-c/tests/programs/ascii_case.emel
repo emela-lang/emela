@@ -1,0 +1,36 @@
+# String.to_ascii_lowercase and String.to_ascii_uppercase change only ASCII letters: every other
+# character, including each byte of a multi-byte UTF-8 sequence, is copied unchanged.
+
+fn main() {
+  dbg(String.to_ascii_lowercase(""))
+  dbg(String.to_ascii_uppercase(""))
+  dbg(String.to_ascii_lowercase("aAzZ"))
+  dbg(String.to_ascii_uppercase("aAzZ"))
+  dbg(String.to_ascii_lowercase("Hello, World!"))
+  dbg(String.to_ascii_uppercase("Hello, World!"))
+  # Non-ASCII letters, other scripts and emoji stay as they are.
+  dbg(String.to_ascii_lowercase("éÄß"))
+  dbg(String.to_ascii_uppercase("éÄß"))
+  dbg(String.to_ascii_lowercase("日本語"))
+  dbg(String.to_ascii_uppercase("日本語"))
+  dbg(String.to_ascii_lowercase("🙂aZ🙂"))
+  dbg(String.to_ascii_uppercase("🙂aZ🙂"))
+  # The characters around the two ranges: A is just after @, Z just before [, a after ` and z
+  # before {.
+  dbg(String.to_ascii_lowercase("`@[\\]^_AZ{"))
+  dbg(String.to_ascii_uppercase("`@[\\]^_az{"))
+  dbg(String.to_ascii_lowercase("`{"))
+  dbg(String.to_ascii_uppercase("`{"))
+  # NUL is a byte like any other one: it is copied, not taken as the end of the string.
+  dbg(String.to_ascii_lowercase("A\u{0}Z"))
+  dbg(String.to_ascii_uppercase("a\u{0}z"))
+  dbg(String.to_ascii_lowercase("👍"))
+  dbg(String.to_ascii_uppercase("👍"))
+  # Only the bytes of ASCII letters change, so the UTF-8 length is the length of the input.
+  s = "éÄß 日本語 🙂 aAzZ @[`{"
+  assert String.byte_size(String.to_ascii_lowercase(s)) == String.byte_size(s)
+  assert String.byte_size(String.to_ascii_uppercase(s)) == String.byte_size(s)
+  # A string without ASCII letters in the other case is the same string.
+  assert String.to_ascii_lowercase("abc") == "abc"
+  assert String.to_ascii_uppercase("ABC") == "ABC"
+}
