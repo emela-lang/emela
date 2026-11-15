@@ -432,6 +432,36 @@ em_ref em_string_append(em_ref a, em_ref b) {
   return s;
 }
 
+/* The parts joined in order: their byte lengths are added up once, one String is allocated and
+ * each part is copied into it. At most one non-empty part gives a reference to a part, as
+ * `em_string_append` does, so that empty parts allocate nothing. The bytes are copied as they
+ * are: a NUL byte in a part stays a NUL byte, and the length is the sum. */
+em_ref em_string_concat(const em_ref *parts, size_t n) {
+  if (n == 0) return em_str_alloc(0);
+  size_t total = 0, nonempty = 0, last = 0;
+  for (size_t i = 0; i < n; i++) {
+    size_t len = EM_STR_LEN(parts[i]);
+    total += len;
+    if (len != 0) {
+      nonempty++;
+      last = i;
+    }
+  }
+  if (nonempty < 2) {
+    em_ref only = parts[nonempty == 0 ? 0 : last];
+    em_dup(only);
+    return only;
+  }
+  em_ref s = em_str_alloc(total);
+  char *dst = EM_STR_BYTES(s);
+  for (size_t i = 0; i < n; i++) {
+    size_t len = EM_STR_LEN(parts[i]);
+    memcpy(dst, EM_STR_BYTES(parts[i]), len);
+    dst += len;
+  }
+  return s;
+}
+
 /* The byte offset of the first `sub` in `s` at or after `from`, or -1. */
 static int64_t em_find(em_ref s, em_ref sub, size_t from) {
   size_t n = EM_STR_LEN(s), m = EM_STR_LEN(sub);

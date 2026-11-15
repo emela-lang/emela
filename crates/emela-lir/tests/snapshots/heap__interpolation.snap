@@ -5,14 +5,10 @@ expression: "parts(&m, &[\"label\", \"show$Shape\", \"show$List\"])"
 fn label(s%0: ref (Shape), n%1: i32 (Int)) -> ref (String) {
   s%2: ref (String) = call show$Shape(s%0)
   s%3: ref (String) = builtin Int.to_string(n%1)
-  s%4: ref (String) = builtin String.append(" number ", s%3)
-  drop s%3
-  s%5: ref (String) = builtin String.append(s%2, s%4)
+  s%4: ref (String) = runtime concat("shape ", s%2, " number ", s%3)
   drop s%2
-  drop s%4
-  s%6: ref (String) = builtin String.append("shape ", s%5)
-  drop s%5
-  return s%6
+  drop s%3
+  return s%4
 }
 
 fn show$Shape(x%0: ref (Shape)) -> ref (String) {
@@ -21,38 +17,30 @@ fn show$Shape(x%0: ref (Shape)) -> ref (String) {
       f%1: f64 (Float) = field x%0 Shape.Circle.radius#0
       drop x%0
       s%2: ref (String) = builtin Float.to_string(f%1)
-      s%3: ref (String) = builtin String.append(s%2, ")")
+      s%3: ref (String) = runtime concat("Circle(radius: ", s%2, ")")
       drop s%2
-      s%4: ref (String) = builtin String.append("Circle(radius: ", s%3)
-      drop s%3
-      return s%4
+      return s%3
     }
     case Shape.Named {
-      f%5: ref (String) = field x%0 Shape.Named#0
-      dup f%5
-      s%6: ref (String) = runtime show_string(f%5)
-      drop f%5
-      f%7: ref (List[Option[Int]]) = field x%0 Shape.Named#1
-      dup f%7
+      f%4: ref (String) = field x%0 Shape.Named#0
+      dup f%4
+      s%5: ref (String) = runtime show_string(f%4)
+      drop f%4
+      f%6: ref (List[Option[Int]]) = field x%0 Shape.Named#1
+      dup f%6
       drop x%0
-      s%8: ref (String) = call show$List[Option[Int]](f%7)
-      s%9: ref (String) = builtin String.append(s%8, ")")
-      drop s%8
-      s%10: ref (String) = builtin String.append(", ", s%9)
-      drop s%9
-      s%11: ref (String) = builtin String.append(s%6, s%10)
-      drop s%6
-      drop s%10
-      s%12: ref (String) = builtin String.append("Named(", s%11)
-      drop s%11
-      return s%12
+      s%7: ref (String) = call show$List[Option[Int]](f%6)
+      s%8: ref (String) = runtime concat("Named(", s%5, ", ", s%7, ")")
+      drop s%5
+      drop s%7
+      return s%8
     }
   }
   unreachable
 }
 
 fn show$List[Option[Int]](x%0: ref (List[Option[Int]])) -> ref (String) {
-  joined%10: ref (String) = loop(p%1: ref (List[Option[Int]]) = x%0, acc%2: ref (String) = "", sep%3: ref (String) = "") {
+  joined%9: ref (String) = loop(p%1: ref (List[Option[Int]]) = x%0, acc%2: ref (String) = "", sep%3: ref (String) = "") {
     empty%4: i32 (Bool) = list_is_empty p%1
     if empty%4 {
       drop p%1
@@ -64,19 +52,15 @@ fn show$List[Option[Int]](x%0: ref (List[Option[Int]])) -> ref (String) {
       dup t%6
       drop p%1
       s%7: ref (String) = call show$Option[Int](h%5)
-      s%8: ref (String) = builtin String.append(sep%3, s%7)
+      s%8: ref (String) = runtime concat(acc%2, sep%3, s%7)
+      drop acc%2
       drop sep%3
       drop s%7
-      s%9: ref (String) = builtin String.append(acc%2, s%8)
-      drop acc%2
-      drop s%8
-      recur(t%6, s%9, ", ")
+      recur(t%6, s%8, ", ")
     }
     yield acc%2
   }
-  s%11: ref (String) = builtin String.append(joined%10, "]")
-  drop joined%10
-  s%12: ref (String) = builtin String.append("[", s%11)
-  drop s%11
-  return s%12
+  s%10: ref (String) = runtime concat("[", joined%9, "]")
+  drop joined%9
+  return s%10
 }

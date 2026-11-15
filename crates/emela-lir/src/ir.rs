@@ -646,6 +646,11 @@ pub enum RuntimeOp {
     /// `(String) -> String`: a string shown inside a value or by `dbg` (spec 10.6), in `"` with
     /// the escapes of `$showString` in the JS runtime.
     ShowString,
+    /// `(String, …) -> String`: the bytes of the parts, in order, in one allocation. Made from a
+    /// string built of more than two pieces (`from_core`'s `concat`), where a chain of
+    /// `String.append` would copy the same bytes once per append. It reads its arguments (at least
+    /// two) and returns a new String; it does not store them.
+    Concat,
     /// `(String) -> ()`: writes the line to stderr (`dbg`).
     DebugPrint,
     /// `(handler, String) -> ()`: marks the handler value released, so that each of its operations
@@ -686,6 +691,7 @@ impl RuntimeOp {
     pub fn name(self) -> &'static str {
         match self {
             RuntimeOp::ShowString => "show_string",
+            RuntimeOp::Concat => "concat",
             RuntimeOp::DebugPrint => "debug_print",
             RuntimeOp::Retire => "retire",
             RuntimeOp::Defect => "defect",
@@ -699,10 +705,12 @@ impl RuntimeOp {
         }
     }
 
-    /// The representations of the arguments and of the result.
-    pub fn sig(self) -> (&'static [Repr], Repr) {
-        match self {
+    /// The representations of the arguments and of the result. `None` for [`RuntimeOp::Concat`],
+    /// whose arguments are any number (at least two) of `ref`s.
+    pub fn sig(self) -> Option<(&'static [Repr], Repr)> {
+        Some(match self {
             RuntimeOp::ShowString => (&[Repr::Ref], Repr::Ref),
+            RuntimeOp::Concat => return None,
             RuntimeOp::DebugPrint => (&[Repr::Ref], Repr::Void),
             RuntimeOp::Retire | RuntimeOp::DefectAt => (&[Repr::Ref, Repr::Ref], Repr::Void),
             RuntimeOp::Defect | RuntimeOp::DefectResume => (&[Repr::Ref], Repr::Void),
@@ -710,7 +718,7 @@ impl RuntimeOp {
             RuntimeOp::Hold | RuntimeOp::Unhold | RuntimeOp::Yield | RuntimeOp::YieldPerform => {
                 (&[], Repr::Void)
             }
-        }
+        })
     }
 }
 
