@@ -1,0 +1,17 @@
+# A mutation pair: this is the form an Option fusion takes as its input,
+# `Option.or(Array.get(a, i), d)` (T11). `option_expanded.emel` is the same
+# program with the `match` written by hand. Both must print the same.
+
+import Std.Array.{Array}
+
+fn get_or(a: Array[Int], i: Int, d: Int) -> Int {
+  Option.or(Array.get(a, i), d)
+}
+
+fn main() {
+  a = Array.from_list([10, 20, 30])
+  dbg(get_or(a, 0, -1))
+  dbg(get_or(a, 2, -1))
+  dbg(get_or(a, 3, -1))
+  dbg(get_or(a, -1, -1))
+}

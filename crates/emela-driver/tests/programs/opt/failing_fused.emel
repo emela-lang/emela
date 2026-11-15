@@ -1,0 +1,25 @@
+# A mutation pair that fails in the middle: the failing callback must run in the
+# same order and the failure must be caught at the same point.
+# `failing_expanded.emel` is the same program with the loop written by hand as a
+# fallible self tail call.
+
+error Stop(at: Int)
+
+fn visit(n: Int, stop: Int) -> () {
+  List.each(List.range(0, n), |i| {
+    if i == stop { fail Stop(at: i) }
+    dbg("visit #{i}")
+    ()
+  }) escape {
+    Stop(at:) -> {
+      dbg("stopped at #{at}")
+      ()
+    }
+  }
+}
+
+fn main() {
+  visit(5, 2)
+  visit(5, 9)
+  visit(0, 0)
+}

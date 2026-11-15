@@ -28,3 +28,6 @@ pulldown-cmark.workspace = true
 [dev-dependencies]
 insta.workspace = true
 tempfile.workspace = true
+# The differential harness builds an `Input`, which wants a `Fetcher`; `Http` is behind `net`,
+# which the workspace dependency leaves off for the targets without sockets.
+emela-pome = { workspace = true, features = ["net"] }
