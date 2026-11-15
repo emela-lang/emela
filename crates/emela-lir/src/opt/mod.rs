@@ -23,8 +23,14 @@
 //! The analyses a pass needs are shared and separately tested: [`escape`] (which values leave a
 //! function) and `crate::heap::live` (liveness). Each pass documents its preconditions,
 //! postconditions, what it preserves, when it deopts, and what it measures (parent plan §3.2).
+//!
+//! | Pass | Counter | Stage |
+//! |---|---|---|
+//! | [`sra`] | [`Stats::sra_tuples`] | [`run_mid`] |
+//! | `rc_cleanup` (later) | — | [`run_heap`] |
 
 pub(crate) mod escape;
+mod sra;
 
 #[cfg(test)]
 use std::cell::RefCell;
@@ -36,12 +42,15 @@ use crate::ir::{Module, Stage};
 /// The fields are added with the passes. An empty `Stats` says that no pass changed anything,
 /// which is what a test of a pass must not see on the corpus it runs on.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct Stats {}
+pub struct Stats {
+    /// Non-escaping tuples replaced by their fields (SRA).
+    pub sra_tuples: u32,
+}
 
 impl Stats {
     /// Adds what `other` changed to these.
     pub fn merge(&mut self, other: Stats) {
-        let Stats {} = other;
+        self.sra_tuples += other.sra_tuples;
     }
 }
 
@@ -55,7 +64,7 @@ impl Stats {
 ///
 /// Deopt: a pass gives up on a function whose values it cannot place in the Flow IR.
 pub fn run_flow(_m: &mut Module, _optimize: bool) -> Stats {
-    Stats {}
+    Stats::default()
 }
 
 /// Runs the optimisation passes that need closure conversion but not the state machines.
@@ -73,9 +82,11 @@ pub fn run_flow(_m: &mut Module, _optimize: bool) -> Stats {
 /// evidence table, a cell, a runtime object), values stored in a container, a handler or an
 /// evidence table, captured values, and values live across a suspension point.
 ///
+/// [`sra`] replaces non-escaping scalar tuples here; `rc_cleanup` runs later, in [`run_heap`].
+///
 /// This stage is the only one where SRA and closure devirtualisation are sound: running them after
 /// `state_machines` would also have to rewrite `Suspend::saved`, which this stage fixes.
-pub fn run_mid(m: &mut Module, _optimize: bool) -> Stats {
+pub fn run_mid(m: &mut Module, optimize: bool) -> Stats {
     assert_eq!(
         m.stage,
         Stage::ClosuresConverted,
@@ -83,7 +94,12 @@ pub fn run_mid(m: &mut Module, _optimize: bool) -> Stats {
     );
     #[cfg(test)]
     observe_mid_now(m);
-    Stats {}
+    if !optimize {
+        return Stats::default();
+    }
+    let stats = sra::run(m);
+    check(m);
+    stats
 }
 
 /// Runs the Heap IR optimisation passes on `m` if `optimize`, and returns what they changed.
@@ -99,7 +115,7 @@ pub fn run_mid(m: &mut Module, _optimize: bool) -> Stats {
 ///
 /// Deopt: a function with a release that may run a finalizer or an effect is left alone.
 pub fn run_heap(_m: &mut Module, _optimize: bool) -> Stats {
-    Stats {}
+    Stats::default()
 }
 
 #[cfg(test)]
@@ -123,6 +139,21 @@ fn observe_mid_now(m: &Module) {
     if let Some(observer) = MID_OBSERVER.with(|slot| slot.borrow_mut().take()) {
         observer(m);
     }
+}
+
+/// Checks that a pass left the module well typed. A failure is a compiler bug: the pass broke its
+/// postcondition, not the program.
+fn check(m: &Module) {
+    #[cfg(debug_assertions)]
+    if let Err(errors) = crate::verify(m) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!(
+            "a LIR optimisation pass produced ill-typed IR (a compiler bug):\n{}",
+            lines.join("\n")
+        );
+    }
+    #[cfg(not(debug_assertions))]
+    let _ = m;
 }
 
 #[cfg(test)]
@@ -217,13 +248,23 @@ mod tests {
         run_mid(&mut m, true);
     }
 
-    /// For now every pass is a no-op, so the dump is what closure conversion made.
+    /// A function without tuples is left as closure conversion made it.
     #[test]
-    fn mid_changes_nothing_yet() {
+    fn mid_leaves_a_function_without_tuples_alone() {
         let mut m = module_with_a_closure();
         crate::convert_closures(&mut m);
         let before = crate::dump(&m);
         run_mid(&mut m, true);
         assert_eq!(crate::dump(&m), before);
+    }
+
+    /// The total is the sum of what each stage returned.
+    #[test]
+    fn merge_adds_sra_tuples() {
+        let mut total = Stats::default();
+        total.merge(Stats { sra_tuples: 2 });
+        total.merge(Stats { sra_tuples: 3 });
+        total.merge(Stats::default());
+        assert_eq!(total.sra_tuples, 5);
     }
 }

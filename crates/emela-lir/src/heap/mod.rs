@@ -21,6 +21,7 @@ pub(crate) mod rc_check;
 pub(crate) mod suspend;
 
 pub use closures::convert_closures;
+pub(crate) use copy::compact;
 pub(crate) use defects::may_defect;
 pub use defects::{builtin_may_defect, explicit_defects, fiber_may_defect};
 pub use rc::insert_rc;
