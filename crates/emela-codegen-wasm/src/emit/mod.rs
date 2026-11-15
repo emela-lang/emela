@@ -1813,14 +1813,15 @@ impl<'m> Builder<'m> {
     }
 
     /// A switch as one nested block per case, dispatched by `br_table`, with a block around them
-    /// for the end of the switch.
+    /// for the end of the switch and a block inside it for the default.
     ///
     /// The blocks are pushed in case order, so the innermost (last pushed) block belongs to the
     /// first case: a `br_table` depth of `i` leaves the blocks of the cases before `i` and lands
-    /// after the `end` of case `i`'s block, which is where case `i`'s body starts. The exit block
-    /// is the default and also the target of the branch that ends each case body. Every one of
-    /// those blocks is on `cx.labels`, so the depth of a break or a recur out of a case body
-    /// counts them exactly as any other `if` or `block` would be counted.
+    /// after the `end` of case `i`'s block, which is where case `i`'s body starts. A gap between
+    /// variant numbers lands on the default block. A case body that falls through (`yield`) leaves
+    /// the switch at the outer block, past the default, so no case can run the default's code.
+    /// Every one of those blocks is on `cx.labels`, so the depth of a break or a recur out of a
+    /// case body counts them exactly as any other `if` or `block` would be counted.
     #[allow(clippy::too_many_arguments)]
     fn switch_table(
         &mut self,
@@ -1834,6 +1835,10 @@ impl<'m> Builder<'m> {
         width: usize,
     ) {
         let n = cases.len();
+        // The outer block is the switch's end; the next one is where a gap lands to run the
+        // default.
+        ins.block(BlockType::Empty);
+        cx.push(Lbl::Other);
         ins.block(BlockType::Empty);
         cx.push(Lbl::Other);
         for _ in 0..n {
@@ -1841,7 +1846,8 @@ impl<'m> Builder<'m> {
             cx.push(Lbl::Other);
         }
         self.push_scrutinee(cx, ins, scrutinee);
-        // A gap between variant numbers lands on the default entry, the exit block.
+        // From the innermost case block, the `n` case blocks are at depths `0..n`, the default
+        // block at `n` and the switch's end at `n + 1`.
         let mut targets = vec![n as u32; width];
         for (i, &k) in keys.iter().enumerate() {
             targets[k] = i as u32;
@@ -1852,12 +1858,10 @@ impl<'m> Builder<'m> {
             ins.end();
             let body = case.body;
             self.seq(cx, ins, body, dst);
-            if i + 1 < n {
-                // Out of the exit block: `n - 1 - i` case blocks are open above it.
-                ins.br((n - 1 - i) as u32);
-            }
+            // The case may fall through (`yield`). The switch's end is `n - i` labels out: the
+            // `n - 1 - i` case blocks left and the default block are above it.
+            ins.br((n - i) as u32);
         }
-        // The last case body is inside the exit block only; falling out of it is the exit.
         cx.pop();
         ins.end();
         match default {
@@ -1867,6 +1871,8 @@ impl<'m> Builder<'m> {
                 ins.unreachable();
             }
         }
+        cx.pop();
+        ins.end();
     }
 
     /// A switch as a chain of comparing `if` / `else`, nested once per case.
