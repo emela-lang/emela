@@ -36,13 +36,18 @@ pub fn to_heap(m: &mut Module) {
 
 /// [`to_heap`] with the LIR optimisation passes switched on or off.
 ///
-/// The Flow IR passes run first, on the nested closures and the Flow IR control flow; then the
-/// Heap IR passes of [`to_heap`] make memory and control explicit; then the Heap IR passes run,
-/// with `dup` and `drop` explicit. The returned [`opt::Stats`] is what all of them changed, so a
-/// build that turns optimisation off gets an empty one.
+/// The Flow IR passes run first, on the nested closures and the Flow IR control flow; then closure
+/// conversion lifts the closures; then the closure-level passes run, before the state machines make
+/// suspension points and frames explicit; then the Heap IR passes make memory and control explicit;
+/// then the Heap IR optimisation passes run, with `dup` and `drop` explicit. The returned
+/// [`opt::Stats`] is what all of them changed, so a build that turns optimisation off gets an
+/// empty one.
 pub fn to_heap_with(m: &mut Module, optimize: bool) -> opt::Stats {
     let mut stats = opt::run_flow(m, optimize);
     convert_closures(m);
+    // SRA and closure devirtualisation need lifted closures, and must run before `state_machines`
+    // fixes `Suspend::saved` (parent plan §4.3).
+    stats.merge(opt::run_mid(m, optimize));
     explicit_defects(m);
     state_machines(m);
     insert_rc(m);
