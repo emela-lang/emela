@@ -273,27 +273,8 @@ external enum Std.Fiber.Fiber[A] {
 }
 
 export fn main() -> String {
-  let _%0: Float = @dbg[Float]({
-    let s%90: Shape = Shape.Rect(width: 3.0, height: 2.0)
-    match s%90 {
-      Shape.Circle(r%91) -> ((r%91 *[Float] r%91) *[Float] 3.0)
-      Shape.Rect(width: w%92, height: _) if (w%92 >[Float] 10.0) -> 0.0
-      Shape.Rect(width: w%93, height: h%94) -> (w%93 *[Float] h%94)
-      Shape.Empty -> 0.0
-    }
-  })
-  let _%1: String = @dbg[String]({
-    let xs%95: List[Int] = [1, 2, 3]: List[Int]
-    match xs%95 {
-      [] -> "empty"
-      [1, .._] -> "one first"
-      [_, ..rest%96] -> if (rest%96 ==[Structural] []: List[Int]) {
-        "single"
-      } else {
-        "many"
-      }
-    }
-  })
+  let _%0: Float = @dbg[Float](area(Shape.Rect(width: 3.0, height: 2.0)))
+  let _%1: String = @dbg[String](describe([1, 2, 3]: List[Int]))
   match (1, "x") {
     (a%2, b%3) -> match Pair.Pair[Int, String](first: a%2, second: b%3) {
       Pair.Pair(first: _, second: second%4) -> @dbg[String](second%4)
@@ -347,42 +328,15 @@ fn Std.Bytes.Bytes: Eq.eq(self%29: Bytes, other%30: Bytes) -> Bool {
 }
 
 fn Std.Map.Map: Eq.eq[A, B](self%18: Std.Map.Map[A, B], other%19: Std.Map.Map[A, B]) -> Bool {
-  (({
-    let m%97: Std.Map.Map[A, B] = self%18
-    match m%97 {
-      Std.Map.Map.Empty -> 0
-      Std.Map.Map.Node(size: n%98, key: _, value: _, left: _, right: _) -> n%98
-    }
-  } ==[Int] {
-    let m%99: Std.Map.Map[A, B] = other%19
-    match m%99 {
-      Std.Map.Map.Empty -> 0
-      Std.Map.Map.Node(size: n%100, key: _, value: _, left: _, right: _) -> n%100
-    }
-  }) &&[Bool] ({
-    let m%101: Std.Map.Map[A, B] = self%18
-    Std.Map.to_list_onto[A, B](m%101, []: List[(A, B)])
-  } ==[Structural] {
-    let m%102: Std.Map.Map[A, B] = other%19
-    Std.Map.to_list_onto[A, B](m%102, []: List[(A, B)])
-  }))
+  ((Std.Map.size[A, B](self%18) ==[Int] Std.Map.size[A, B](other%19)) &&[Bool] (Std.Map.to_list[A, B](self%18) ==[Structural] Std.Map.to_list[A, B](other%19)))
 }
 
 fn Std.Set.Set: Eq.eq[A](self%9: Std.Set.Set[A], other%10: Std.Set.Set[A]) -> Bool {
-  ({
-    let s%103: Std.Set.Set[A] = self%9
-    let m%104: Std.Map.Map[A, ()] = s%103.inner#0
-    Std.Map.keys_onto[A, ()](m%104, []: List[A])
-  } ==[Structural] {
-    let s%105: Std.Set.Set[A] = other%10
-    let m%106: Std.Map.Map[A, ()] = s%105.inner#0
-    Std.Map.keys_onto[A, ()](m%106, []: List[A])
-  })
+  (Std.Set.to_list[A](self%9) ==[Structural] Std.Set.to_list[A](other%10))
 }
 
 fn Std.Set.to_list[A](s%11: Std.Set.Set[A]) -> List[A] {
-  let m%107: Std.Map.Map[A, ()] = s%11.inner#0
-  Std.Map.keys_onto[A, ()](m%107, []: List[A])
+  Std.Map.keys[A, ()](s%11.inner#0)
 }
 
 fn Std.Map.keys[A, B](m%12: Std.Map.Map[A, B]) -> List[A] {

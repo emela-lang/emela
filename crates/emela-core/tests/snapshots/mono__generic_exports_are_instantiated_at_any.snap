@@ -3,14 +3,15 @@ source: crates/emela-core/tests/mono.rs
 expression: "parts(&m, &[\"fn main(\", \"fn count\"])"
 ---
 export fn main() -> Int {
-  @dbg[Int]({
-    let n%1: Int = 1
-    let xs%2: List[()] = []: List[()]
-    (n%1 +[Int] List.length[()](xs%2))
-  })
+  @dbg[Int](count[()](1))
 }
 
 export fn count(n%0: Int) -> Int {
-  let xs%4: List[any] = []: List[any]
-  (n%0 +[Int] List.length[any](xs%4))
+  let xs%2: List[any] = []: List[any]
+  (n%0 +[Int] List.length[any](xs%2))
+}
+
+fn count[()](n%1: Int) -> Int {
+  let xs%4: List[()] = []: List[()]
+  (n%1 +[Int] List.length[()](xs%4))
 }
