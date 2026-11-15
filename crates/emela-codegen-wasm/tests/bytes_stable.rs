@@ -46,8 +46,8 @@ fn main() {
   dbg("ab" == "ab")
 }
 "#,
-        13009,
-        0x0287_5623_c2a1_4bef,
+        12979,
+        0xafba_939b_f292_aed1,
     ),
     (
         "lists_enums_strings",
@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        24156,
-        0xa77a_e2e4_b3de_7b2c,
+        24124,
+        0xf436_0157_0e71_f246,
     ),
     (
         "floats",
@@ -111,8 +111,8 @@ fn main() {
   }
 }
 "#,
-        49031,
-        0xe35f_bbca_009b_4b15,
+        49492,
+        0x6eda_9508_6c1a_021d,
     ),
     (
         "state_and_options",

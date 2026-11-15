@@ -21,7 +21,7 @@
 //! Postconditions: the call is the callee's body with fresh locals and the call's type arguments;
 //!                 each argument is evaluated once, left to right, into the fresh local of its
 //!                 parameter before the body runs. The callee stays in the module. A second run
-//!                 of the pipeline changes nothing.
+//!                 of the pipeline (which repeats every pass to a fixed point) changes nothing.
 //! Preserves: evaluation order, effects, failures, drop points and evidence. The arguments are
 //!            evaluated where they were, once each; the body runs where the call was. Since the
 //!            callee cannot fail and has no `with`, no release order can change.
