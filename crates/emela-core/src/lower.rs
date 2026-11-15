@@ -3886,7 +3886,9 @@ impl<'a> Lowerer<'a> {
         match (module.as_str(), name) {
             ("Option", "or") => Some(CoreFn::OptionOr),
             ("List", "fold") => Some(CoreFn::ListFold),
+            ("List", "map") => Some(CoreFn::ListMap),
             ("List", "range") => Some(CoreFn::ListRange),
+            ("List", "reverse") => Some(CoreFn::ListReverse),
             _ => None,
         }
     }

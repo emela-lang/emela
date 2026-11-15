@@ -26,8 +26,7 @@
 //!
 //! The fusions come before inlining: they match the calls the source wrote, and inlining a
 //! function such as `List.fold` first would dissolve the call the range fusion looks for. The
-//! range and inline passes are not implemented yet; the table is the order they are added to
-//! [`run`] in.
+//! inline pass is not implemented yet; the table is the order the passes run in.
 //!
 //! # Pass contract
 //!
@@ -47,9 +46,10 @@
 
 use rustc_hash::FxHashMap;
 
-use crate::ir::{FnId, Module};
+use crate::ir::{Expr, FnId, Lit, Module};
 
 mod option;
+mod range;
 
 /// A fn of the bundled core that a Core IR pass matches by identity, not by name.
 ///
@@ -62,8 +62,12 @@ pub enum CoreFn {
     OptionOr,
     /// `List.fold`, which the range fusion matches.
     ListFold,
-    /// `List.range`, which the range fusion matches.
+    /// `List.map`, which the range fusion matches.
+    ListMap,
+    /// `List.range`, which the range fusion removes.
     ListRange,
+    /// `List.reverse`, which the `List.map` range fusion calls once at the end.
+    ListReverse,
 }
 
 /// The bundled core functions lowering identified, by IR function ([`CoreFn`]).
@@ -123,7 +127,24 @@ pub fn run(m: &mut Module, core_fns: &CoreFns, optimize: bool) -> Stats {
     check(m);
     stats.merge(option::array_get_match(m, core_fns));
     check(m);
+    stats.merge(range::fold(m, core_fns));
+    check(m);
+    stats.merge(range::map(m, core_fns));
+    check(m);
     stats
+}
+
+/// Applies `f` to the body of every function, with the module to allocate locals in.
+///
+/// A pass takes the body out of the function, so it can allocate locals in the module and rewrite
+/// the body without borrowing the function.
+pub(super) fn each_body(m: &mut Module, f: &mut impl FnMut(&mut Module, &mut Expr)) {
+    let ids: Vec<FnId> = m.functions.iter().map(|(id, _)| id).collect();
+    for id in ids {
+        let mut body = std::mem::replace(&mut m.functions[id].body, Expr::Lit(Lit::Unit));
+        f(m, &mut body);
+        m.functions[id].body = body;
+    }
 }
 
 /// Checks that a pass left the module well typed. A failure is a compiler bug: the pass broke its

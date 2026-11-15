@@ -17,7 +17,7 @@ use crate::ir::{
     Arm, BinOp, Callee, EnumId, Expr, FnId, Lit, Local, Module, OPTION_NONE, OPTION_SOME, OpTy,
     Pat, Type, TypeId,
 };
-use crate::opt::{CoreFn, PassStats};
+use crate::opt::{CoreFn, PassStats, each_body};
 
 /// Rewrites `Option.or(Array.get(a, i), d)` to `ArrayGetOr(a, i, d)`.
 ///
@@ -66,16 +66,6 @@ pub(super) fn array_get_match(m: &mut Module, _core_fns: &FxHashMap<FnId, CoreFn
     PassStats {
         array_get_match: changed,
         ..PassStats::default()
-    }
-}
-
-/// Applies `f` to the body of every function, with the module to allocate locals in.
-fn each_body(m: &mut Module, f: &mut impl FnMut(&mut Module, &mut Expr)) {
-    let ids: Vec<FnId> = m.functions.iter().map(|(id, _)| id).collect();
-    for id in ids {
-        let mut body = std::mem::replace(&mut m.functions[id].body, Expr::Lit(Lit::Unit));
-        f(m, &mut body);
-        m.functions[id].body = body;
     }
 }
 
