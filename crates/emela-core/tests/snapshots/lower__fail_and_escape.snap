@@ -74,10 +74,7 @@ export fn main() -> Int fails {
     Unauthorized.Unauthorized -> fail NotFound.NotFound(id: 0)
   }
   let b%2: Int = Option.or_fail[Int, Unauthorized](Option.Some[Int](1), Unauthorized.Unauthorized)?
-  let c%3: Int = ({
-    let n%103: Int = a%1
-    (n%103 +[Int] 1)
-  } +[Int] b%2)
+  let c%3: Int = (pure(a%1) +[Int] b%2)
   @dbg[Int](c%3)
 }
 

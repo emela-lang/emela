@@ -3,7 +3,7 @@
 mod support;
 
 use emela_core::{EnumDef, Expr, Module, Roots, Type, TypeId, VariantFields, dump};
-use support::{lower_files, lower_files_with, try_lower, try_lower_with};
+use support::{lower_files, lower_files_with, try_lower_off, try_lower_with_off};
 
 /// Renders an enum definition as `Name[2] { Ctor(first: A, second: B), Unit }`, with type
 /// parameters as `A`, `B`, ….
@@ -130,7 +130,7 @@ fn entry_exports_main_and_export_fns() {
 /// External backends can still select the entry's public functions without host annotations.
 #[test]
 fn public_roots_remain_available_to_external_backends() {
-    let m = try_lower(
+    let m = try_lower_off(
         &[
             (
                 "main.emel",
@@ -261,7 +261,7 @@ fn greet(times: Int, name: String) -> Bool {
 
 #[test]
 fn unsupported_expressions_are_all_reported() {
-    let errors = try_lower(
+    let errors = try_lower_off(
         &[(
             "main.emel",
             "\
@@ -288,7 +288,7 @@ fn main() {
 /// in a normal build, so errors in unused core functions are only caught here.
 #[test]
 fn every_core_function_lowers() {
-    let m = match try_lower(&[("main.emel", "fn main() { 0 }\n")], Roots::All) {
+    let m = match try_lower_off(&[("main.emel", "fn main() { 0 }\n")], Roots::All) {
         Ok(m) => m,
         Err(errors) => panic!("{errors:#?}"),
     };
@@ -879,7 +879,7 @@ const HOST_TEST_JS: &[(&str, &str)] = &[
 fn lower_with_host_test(main: &str) -> Result<Module, Vec<String>> {
     let mut core = emela_core::core_sources().to_vec();
     core.push(("HostTest", HOST_TEST));
-    try_lower_with(&[("main.emel", main)], Roots::Exported, &core, HOST_TEST_JS)
+    try_lower_with_off(&[("main.emel", main)], Roots::Exported, &core, HOST_TEST_JS)
 }
 
 /// A bundled core external function's file specifier points to the bundled file, by its path
@@ -1079,25 +1079,39 @@ fn method_calls_lower_as_calls() {
     );
 }
 
-/// The optimisation switch reaches lowering (`lower_with`): with the Core IR passes switched off,
-/// the IR is the same as the default for a program that none of the passes changes, so `--no-opt`
-/// builds the same program (T01).
+/// The optimisation switch reaches lowering (`lower_with`): with the Core IR passes off the IR is
+/// the shape lowering produces (the call is still there), and with them on the pass rewrites it.
+/// The off shape is what the lowering snapshots pin and is stable across two runs (T01).
 #[test]
 fn the_optimize_switch_keeps_the_lowered_ir() {
     let files = [(
         "main.emel",
         "\
-fn sum(n: Int) -> Int {
-  if n == 0 { 0 } else { n + sum(n - 1) }
+fn inc(x: Int) -> Int {
+  x + 1
 }
 
 fn main() {
-  dbg(sum(3))
+  dbg(inc(1))
 }
 ",
     )];
-    assert_eq!(
-        dump(&lower_files_with(&files, false)),
-        dump(&lower_files_with(&files, true))
-    );
+    let off = dump(&lower_files_with(&files, false));
+    let on = dump(&lower_files_with(&files, true));
+    let off_main = off
+        .split("export fn main")
+        .nth(1)
+        .expect("main is in the dump");
+    let on_main = on
+        .split("export fn main")
+        .nth(1)
+        .expect("main is in the dump");
+    // Off is lowering's own shape: the call to `inc` is there, not its body.
+    assert!(off_main.contains("inc(1)"), "{off_main}");
+    // On runs the inlining pass: the call is gone and the body is at the call site.
+    assert!(!on_main.contains("inc(1)"), "{on_main}");
+    assert!(on_main.contains("+[Int] 1"), "{on_main}");
+    assert_ne!(off, on);
+    // Lowering twice gives the same off shape, which is what the snapshots fix.
+    assert_eq!(off, dump(&lower_files_with(&files, false)));
 }
