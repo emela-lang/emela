@@ -153,3 +153,41 @@ fn main() {
     assert_eq!(stats.option_or, 0, "{stats:?}");
     assert_eq!(stats.array_get_match, 0, "{stats:?}");
 }
+
+/// The passes run before monomorphisation, so the element type of a generic `Array[A]` is still
+/// open when they see it: the instantiation may be `()`. The fused builtins produce the element,
+/// so they need a representation (`ArrayGetOr` would carry a value without one, and
+/// `ArrayLoadUnchecked` would have no destination in the Flow IR). Neither shape is fused in a
+/// generic function, whatever it is instantiated with.
+#[test]
+fn a_generic_element_is_not_fused() {
+    let files = [(
+        "main.emel",
+        "\
+import Std.Array.{Array}
+
+fn or_default[A](a: Array[A], i: Int, d: A) -> A {
+  Array.get(a, i) |> Option.or(d)
+}
+
+fn each[A](a: Array[A]) -> () {
+  Array.get(a, 0) match {
+    Some(x) -> { dbg(x)
+      () }
+    None -> ()
+  }
+}
+
+fn main() {
+  dbg(or_default(Array.from_list([(), ()]), 0, ()))
+  each(Array.from_list([(), ()]))
+}
+",
+    )];
+    let (m, stats) = lower_files_with_stats(&files, true);
+    assert_eq!(stats.option_or, 0, "{stats:?}");
+    assert_eq!(stats.array_get_match, 0, "{stats:?}");
+    let ir = dump(&m);
+    assert!(!ir.contains("@$Array.get_or"), "{ir}");
+    assert!(!ir.contains("@$Array.load_unchecked"), "{ir}");
+}
