@@ -4,6 +4,11 @@
 //! `match Array.get(a, i) { Some(x) -> …; None -> … }` becomes a bounds test with
 //! `ArrayLoadUnchecked`. Both remove the `Some` allocation, which is most of some programs'
 //! allocations, and keep the evaluation order and every failure, effect and drop point.
+//!
+//! Both produce the element, so the element type must have a representation. The passes run
+//! before monomorphisation, which is what makes the check read a type parameter as open: it may
+//! be instantiated with `()`, and a value without representation has no destination in the Flow
+//! IR. A type parameter therefore deopts (see [`has_repr`]).
 
 use rustc_hash::FxHashMap;
 
@@ -18,13 +23,14 @@ use crate::opt::{CoreFn, PassStats};
 ///
 /// Preconditions: the callee is the bundled core `Option.or` ([`CoreFn::OptionOr`]), the call
 /// neither fails nor suspends, its one type argument is the element type of the `Array.get`, and
-/// that type is neither `()` nor `Never`.
+/// that type is known to have a representation ([`has_repr`]).
 /// Postconditions: the value is the element at `i`, or `d`; each of `a`, `i`, `d` is evaluated
 /// once, in that order. `d` is evaluated even when `i` is in range, as before.
 /// Preserves: evaluation order, failures and effects of the arguments, and drop points. The
 /// `Some` the original call made is not observable.
 /// Deopt: a call that is not this shape (an indirect call, a user's `or`, another element type,
-/// `()` or `Never`, a failing or suspending callee) is left alone.
+/// an element type that may have no representation, a failing or suspending callee) is left
+/// alone.
 /// Measures: `matmul`, `fannkuch` and `spectral` (the `Option.or` part of their `Some`
 /// allocations).
 pub(super) fn option_or(m: &mut Module, core_fns: &FxHashMap<FnId, CoreFn>) -> PassStats {
@@ -42,14 +48,15 @@ pub(super) fn option_or(m: &mut Module, core_fns: &FxHashMap<FnId, CoreFn>) -> P
 ///
 /// Preconditions: the scrutinee is a direct `Array.get(a, i)`; the arms are exactly one
 /// `Some(x)` or `Some(_)` and one `None`, in either order, with no guards; the element type is
-/// neither `()` nor `Never`.
+/// known to have a representation ([`has_repr`]).
 /// Postconditions: `a` and `i` are evaluated once each, in that order, before the test; the
 /// `Some` arm's body sees the element, and the `None` arm's body runs when `i < 0` or
 /// `i >= Array.size(a)`. The `Some` wrapper is not made.
 /// Preserves: evaluation order, failures and effects of the scrutinee and both bodies, and drop
 /// points.
 /// Deopt: a `match` on a `let`-bound scrutinee (`let t = Array.get(..); match t`) is not fused
-/// yet; neither is any other pattern shape or a guarded arm.
+/// yet; neither is any other pattern shape, a guarded arm, or an element type that may have no
+/// representation.
 /// Measures: `matmul` (its `match Array.get` is most of its `Some` allocations).
 ///
 /// `core_fns` is unused: the scrutinee is recognised by its builtin.
@@ -112,7 +119,7 @@ fn fuse_option_or(m: &Module, e: &Expr, core_fns: &FxHashMap<FnId, CoreFn>) -> O
         return None;
     }
     let elem = ty_args[0];
-    if matches!(m.ty(elem), Type::Unit | Type::Never) {
+    if !has_repr(m, elem) {
         return None;
     }
     Some(Expr::Builtin {
@@ -120,6 +127,20 @@ fn fuse_option_or(m: &Module, e: &Expr, core_fns: &FxHashMap<FnId, CoreFn>) -> O
         ty_args: vec![elem],
         args: vec![get_args[0].clone(), get_args[1].clone(), args[1].clone()],
     })
+}
+
+/// Whether a value of `ty` has a representation, from what a pass can know before
+/// monomorphisation.
+///
+/// The passes run before monomorphisation, so a type parameter is still open: the instantiation
+/// may be `()`, which has no representation. `ArrayGetOr` and `ArrayLoadUnchecked` produce the
+/// element, and a value without representation has no destination in the Flow IR; the backends
+/// reject them (or would have to drop the read). A type parameter therefore counts as having no
+/// representation, whatever it is instantiated with later.
+///
+/// The other types without representation are those a value cannot have: `()` and `Never`.
+fn has_repr(m: &Module, ty: TypeId) -> bool {
+    !matches!(m.ty(ty), Type::Unit | Type::Never | Type::Param(_))
 }
 
 fn rewrite_array_get_match(m: &mut Module, e: &mut Expr, changed: &mut u32) {
@@ -149,7 +170,7 @@ fn fuse_array_get_match(m: &mut Module, e: &mut Expr) -> bool {
         return false;
     }
     let elem = ty_args[0];
-    if matches!(m.ty(elem), Type::Unit | Type::Never) {
+    if !has_repr(m, elem) {
         return false;
     }
     let Some(option) = m.option else {
