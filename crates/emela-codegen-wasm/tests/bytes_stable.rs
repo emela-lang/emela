@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        23782,
-        0xc770_698f_5cfa_1164,
+        23822,
+        0xf3b3_f646_41bf_8a54,
     ),
     (
         "floats",
@@ -96,8 +96,8 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        21863,
-        0x1e67_dcb2_9992_420a,
+        21903,
+        0xf4d1_2ccf_3a31_2f1f,
     ),
     (
         "platform_console",
@@ -111,8 +111,8 @@ fn main() {
   }
 }
 "#,
-        43106,
-        0x76d3_b468_3994_5a67,
+        43496,
+        0x8c1f_fedf_a8df_3439,
     ),
     (
         "state_and_options",
@@ -131,8 +131,8 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        14779,
-        0xb274_07e2_5cf8_b728,
+        15208,
+        0x34d2_5e0d_ecc2_2434,
     ),
     (
         "numeric",
@@ -178,8 +178,8 @@ pub fn fails_with_an_error() -> Int fails Nope { half(3) }
 pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
-    12760,
-    0x0145_8ab1_0717_4cc9,
+    12791,
+    0xdef5_148a_e81d_7f46,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new
