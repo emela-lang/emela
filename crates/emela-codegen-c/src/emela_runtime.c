@@ -675,9 +675,53 @@ em_ref em_int_checked_add(int32_t a, int32_t b) {
   return em_some(w, false);
 }
 
+/* Writes the decimal `s` produced by `%.*e` with one added to its last mantissa digit, in a
+ * form `strtod` reads back (the exponent is not padded). `digits` holds the at most 17 digits
+ * a binary64 needs. A carry turns 9...9 into 1.000... and raises the exponent by one (9.9e+05
+ * and one unit are 1.0e+06). `em_format_float` never reaches the carry: when the nearest
+ * p-digit decimal is all 9s, the next one up (10^(e+1)) is no farther and is a candidate too. */
+static void em_next_decimal(const char *s, char *out, size_t size) {
+  const char *p = s;
+  bool negative = *p == '-';
+  if (negative) p++;
+  char digits[24];
+  int k = 0;
+  while (*p != 'e') {
+    if (*p != '.') digits[k++] = *p;
+    p++;
+  }
+  int e = atoi(p + 1);
+  int i = k - 1;
+  while (i >= 0 && digits[i] == '9') {
+    digits[i] = '0';
+    i--;
+  }
+  if (i < 0) {
+    digits[0] = '1';
+    e++;
+  } else {
+    digits[i]++;
+  }
+  digits[k] = '\0';
+  if (k == 1) {
+    snprintf(out, size, "%s%ce%c%d", negative ? "-" : "", digits[0], e < 0 ? '-' : '+',
+             e < 0 ? -e : e);
+  } else {
+    snprintf(out, size, "%s%c.%se%c%d", negative ? "-" : "", digits[0], digits + 1,
+             e < 0 ? '-' : '+', e < 0 ? -e : e);
+  }
+}
+
 /* JS `Number.prototype.toString` (the shortest digits that read back as the same number), with
- * `.0` added to a finite integral value (spec 10.6). `%.Ne` rounds correctly, so the first
- * precision that reads back gives the nearest of the shortest digits, as JS picks. */
+ * `.0` added to a finite integral value (spec 10.6). For a precision p, `%.*e` writes the
+ * nearest p-digit decimal, but that is not always the shortest round-tripping one. At a power
+ * of two x the rounding interval reaches half an ulp above x and only a quarter of an ulp
+ * below, so the nearest p-digit decimal can sit just below x while the p-digit decimal one
+ * unit up lies inside. That asymmetry exists only at a normal power of two: elsewhere the
+ * interval is symmetric, and a nearest candidate outside it has both neighbours outside. Each
+ * precision therefore tests the nearest candidate first and then, at a normal power of two,
+ * its upward neighbour; testing the nearest first also keeps the tie-break on the closest
+ * value. */
 static void em_format_float(double x, char *out, size_t size) {
   if (isnan(x)) {
     snprintf(out, size, "NaN");
@@ -691,10 +735,19 @@ static void em_format_float(double x, char *out, size_t size) {
     snprintf(out, size, "0.0");
     return;
   }
-  char buf[40];
+  unsigned long long bits;
+  memcpy(&bits, &x, sizeof bits);
+  bool power_of_two = (bits & ((1ULL << 52) - 1)) == 0 && ((bits >> 52) & 0x7ff) != 0;
+  char buf[40], up[40];
   for (int p = 1; p <= 17; p++) {
     snprintf(buf, sizeof buf, "%.*e", p - 1, x);
     if (strtod(buf, NULL) == x) break;
+    if (!power_of_two) continue;
+    em_next_decimal(buf, up, sizeof up);
+    if (strtod(up, NULL) == x) {
+      memcpy(buf, up, sizeof up);
+      break;
+    }
   }
   /* buf is `[-]d[.ddd]e(+|-)xx`. */
   const char *q = buf;
