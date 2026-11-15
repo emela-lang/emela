@@ -25,8 +25,9 @@
 //! | `inline::inline` | [`Stats::inline`] | inlining |
 //!
 //! The fusions come before inlining: they match the calls the source wrote, and inlining a
-//! function such as `List.fold` first would dissolve the call the range fusion looks for. No pass
-//! is implemented yet; the table is the order they are added to [`run`] in.
+//! function such as `List.fold` first would dissolve the call the range fusion looks for. The
+//! range and inline passes are not implemented yet; the table is the order they are added to
+//! [`run`] in.
 //!
 //! # Pass contract
 //!
@@ -44,7 +45,29 @@
 //! In debug builds [`run`] checks the module with [`crate::verify`] after a pass, so a rewrite that
 //! breaks typing fails where it was made.
 
-use crate::ir::Module;
+use rustc_hash::FxHashMap;
+
+use crate::ir::{FnId, Module};
+
+mod option;
+
+/// A fn of the bundled core that a Core IR pass matches by identity, not by name.
+///
+/// Lowering records the IR function of every copy(`List.fold$suspend3` too) in the map it passes
+/// to [`run`]. A user's fn with the same name is a different [`FnId`], so a pass never confuses
+/// the two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoreFn {
+    /// `Option.or`, which the Option fusion matches.
+    OptionOr,
+    /// `List.fold`, which the range fusion matches.
+    ListFold,
+    /// `List.range`, which the range fusion matches.
+    ListRange,
+}
+
+/// The bundled core functions lowering identified, by IR function ([`CoreFn`]).
+pub type CoreFns = FxHashMap<FnId, CoreFn>;
 
 /// What each Core IR pass changed in one [`run`], for tests and the differential harness.
 ///
@@ -88,19 +111,17 @@ pub type PassStats = Stats;
 /// Runs the Core IR optimisation passes on `m` if `optimize`, and returns what they changed.
 ///
 /// The sequence is the order in the pipeline table above; a later pass may rely on an earlier one
-/// having run. With `optimize` false the module is left untouched and `Stats` is empty.
-pub fn run(m: &mut Module, optimize: bool) -> Stats {
+/// having run. `core_fns` is what lowering recorded about the bundled core functions (`CoreFn`),
+/// by which the fusions recognise `Option.or` and the `List` functions. With `optimize` false the
+/// module is left untouched and `Stats` is empty.
+pub fn run(m: &mut Module, core_fns: &CoreFns, optimize: bool) -> Stats {
     if !optimize {
         return Stats::default();
     }
-    // The total is the sum of what every pass returns; a pass is added as
-    // `stats.merge(<pass>(m));` followed by `check(m)`, in the order of the table.
-    //
-    // `mut` stays here after a pass is added; with no passes yet nothing changes the total.
-    #[allow(unused_mut)]
     let mut stats = Stats::default();
-    // With no passes yet, `check` still runs once, so the verifier is exercised on the module the
-    // passes will rewrite. `check` is debug-only.
+    stats.merge(option::option_or(m, core_fns));
+    check(m);
+    stats.merge(option::array_get_match(m, core_fns));
     check(m);
     stats
 }
