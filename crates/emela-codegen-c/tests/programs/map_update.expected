@@ -1,0 +1,31 @@
+exit: 0
+--- stdout
+existing Map.from_list([(1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f"), (7, "g")])
+replace Map.from_list([(1, "a"), (2, "b!"), (3, "c"), (4, "d"), (5, "e"), (6, "f"), (7, "g")])
+absent Map.from_list([(1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f"), (7, "g")])
+add Map.from_list([(1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f"), (7, "g"), (8, "h")])
+absent none Map.from_list([(1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f"), (7, "g")])
+remove leaf Map.from_list([(2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f"), (7, "g")])
+remove root Map.from_list([(1, "a"), (2, "b"), (3, "c"), (5, "e"), (6, "f"), (7, "g")])
+empty add Map.from_list([])
+empty none Map.from_list([])
+keys [1, 2, 3, 4, 5, 6, 7]
+values ["a", "b", "c", "d", "e", "f", "g"]
+to_list [(1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f"), (7, "g")]
+empty keys [] []
+failing unchanged True
+failing absent unchanged True
+bulk size 13
+bulk keys [1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16, 17, 19]
+bulk values [11, 20, 41, 50, 71, 80, 101, 110, 131, 140, 161, 170, 191]
+bulk rebuilt True
+bulk get Some(11) None Some(191)
+--- stderr
+"existing Some(\"b\")"
+"absent None"
+"remove Some(\"a\")"
+"empty None"
+"failing Some(\"b\")"
+"stopped at 3"
+"failing absent None"
+"stopped at 3"
