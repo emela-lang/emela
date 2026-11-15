@@ -46,20 +46,20 @@ fn Fixed() -> handler Clock {
   }
 }
 
-fn ClockStamp(ev%89: evidence) -> handler Stamp {
+fn ClockStamp(ev%92: evidence) -> handler Stamp {
   handler ClockStamp: Stamp {
-    stamp: fn(s%90: String) -> String fails {
-      let t%91: Int = (use[Clock](ev%89)).Clock#now()
-      let _%92: () = if (t%91 >[Int] 100) {
+    stamp: fn(s%93: String) -> String fails {
+      let t%94: Int = (use[Clock](ev%92)).Clock#now()
+      let _%95: () = if (t%94 >[Int] 100) {
         fail Late.Late
       } else {
         ()
       }
-      concat(s%90 as String, "@", t%91 as Int)
+      concat(s%93 as String, "@", t%94 as Int)
     }
   }
 }
 
-fn stamped(s%87: String, ev%88: evidence) -> String fails {
-  (use[Stamp](ev%88)).Stamp#stamp(s%87)?
+fn stamped(s%90: String, ev%91: evidence) -> String fails {
+  (use[Stamp](ev%91)).Stamp#stamp(s%90)?
 }
