@@ -14,8 +14,9 @@ use emela_codegen_c::{
     EMELA_H, EMELA_H_FILE, RUNTIME_C, RUNTIME_C_FILE, RUNTIME_H, RUNTIME_H_FILE,
 };
 
-/// Checks the bins. It allocates and frees through the runtime itself, then ends with `em_exit`,
-/// whose leak check (the runtime is compiled with `-DEMELA_LEAK_CHECK`) must find nothing live.
+/// Checks the bins and the empty evidence table. It allocates and frees through the runtime
+/// itself, then ends with `em_exit`, whose leak check (the runtime is compiled with
+/// `-DEMELA_LEAK_CHECK`) must find nothing live.
 const RUNTIME_TEST: &str = r#"
 #include <stdio.h>
 
@@ -39,6 +40,24 @@ static const uint8_t trio_refs[3] = {0};
 static const em_desc trio_desc = {EM_KIND_FIELDS, 3, 0, -1, "trio", NULL, trio_refs};
 
 int main(void) {
+  /* The empty evidence table is one static object: never counted, never freed. */
+  em_ref e1 = em_ev_new(NULL, 0);
+  em_ref e2 = em_ev_new(NULL, 0);
+  check(e1 == e2, "an empty evidence table is the same static object");
+  check(e1->hdr.u.h.rc == 0, "the empty evidence table is static data");
+  check(e1->slots[0].l == 0, "the empty evidence table has no bindings");
+  em_drop(e1);
+  check(e1->hdr.u.h.rc == 0, "dropping static data leaves it alone");
+
+  /* Extending it copies nothing, and the binding is found. */
+  em_ref ev = em_ev_new(e1, 1);
+  em_ev_set(ev, 1, 0, 7, NULL);
+  check(ev != e1, "extending an empty table allocates");
+  check(ev->slots[0].l == 1, "the table has one binding");
+  check(em_ev_lookup(ev, 7) == NULL, "the binding is found");
+  em_drop(ev);
+  em_drop(e2);
+
   /* A fixed-size object comes back from the bin of its class, most recently freed first. */
   em_ref a = em_alloc(&em_desc_cons_val, 2);
   em_ref b = em_alloc(&em_desc_cons_val, 2);
