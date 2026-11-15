@@ -1,8 +1,9 @@
 //! Tests for the Core IR optimisation pipeline (`emela_core::opt`).
 //!
 //! The passes themselves have their own tests next to them. These tests fix the properties of
-//! the pipeline as a whole: running it twice changes nothing, the same source gives the same IR,
-//! `--no-opt` skips every pass, and the Option fusions fire exactly where they should.
+//! the pipeline as a whole: the first run reaches the fixed point (a second run changes nothing),
+//! the same source gives the same IR, `--no-opt` skips every pass, and the Option fusions fire
+//! exactly where they should.
 
 mod support;
 
@@ -34,6 +35,48 @@ fn main() {
 ",
 )];
 
+/// Programs whose fixed point the first sweep cannot reach: the fusion pattern is made by the
+/// body of the callee, and only inlining that body into the caller puts the pattern where the
+/// fusion looks. One sweep of the pipeline is not enough; the whole table has to run again.
+///
+/// The pattern cannot come from a call argument: inlining binds each argument to a fresh local
+/// before the body runs, so `g(List.range(0, 3))` becomes `let xs = List.range(0, 3); …` and the
+/// range fusion, which matches a direct `List.range` call, does not see it on any sweep.
+const AFTER_INLINE: &[&[(&str, &str)]] = &[
+    // `span()` is `List.range(0, 3)`, so `List.fold(span(), …)` becomes
+    // `List.fold(List.range(0, 3), …)`, which the range fusion rewrites to a loop on the second
+    // sweep.
+    &[(
+        "main.emel",
+        "\
+fn span() -> List[Int] {
+  List.range(0, 3)
+}
+
+fn main() {
+  dbg(List.fold(span(), 0, |a, b| a + b))
+}
+",
+    )],
+    // `first()` is `Array.get(Array.from_list([1]), 0)`, so `Option.or(first(), 0)` becomes
+    // `Option.or(Array.get(…), 0)`, which the Option fusion rewrites to `ArrayGetOr` on the
+    // second sweep.
+    &[(
+        "main.emel",
+        "\
+import Std.Array.{Array}
+
+fn first() -> Option[Int] {
+  Array.get(Array.from_list([1]), 0)
+}
+
+fn main() {
+  dbg(Option.or(first(), 0))
+}
+",
+    )],
+];
+
 /// Rebuilds the `core_fns` map that lowering passes to `run`, by IR name. `Lowered` does not
 /// carry the map (it belongs to lowering), and the integration test cannot see lowering's own.
 fn core_fns(m: &emela_core::Module) -> Vec<(emela_core::FnId, CoreFn)> {
@@ -55,25 +98,45 @@ fn core_fns(m: &emela_core::Module) -> Vec<(emela_core::FnId, CoreFn)> {
         .collect()
 }
 
-/// A second run of the pipeline is a no-op and leaves the IR as the first run left it. A pass
-/// that is not idempotent must be fixed, not this test: passes are applied until they agree with
-/// themselves.
+/// The first run reaches the fixed point: a second run changes nothing and leaves the IR as the
+/// first run left it. A pass that is not idempotent must be fixed, not this test: the pipeline
+/// repeats the whole table until a sweep changes nothing.
+///
+/// A program whose first sweep is enough reports `passes == 1`; the programs whose fusion pattern
+/// only appears once inlining has run need a second sweep, so `passes == 2`. A run on a module
+/// that is already at the fixed point changes nothing and reports `passes == 1`.
 #[test]
 fn a_second_run_is_a_no_op() {
-    let mut m = lower_files_with(PROGRAM, true);
-    let mut ids: CoreFns = Default::default();
-    for (id, kind) in core_fns(&m) {
-        ids.insert(id, kind);
+    let cases = [
+        ("program", PROGRAM, 1),
+        ("range after inline", AFTER_INLINE[0], 2),
+        ("option after inline", AFTER_INLINE[1], 2),
+    ];
+    for (name, files, passes) in cases {
+        // Lowered with the passes off, so the first `run` has all the work to do.
+        let mut m = lower_files_with(files, false);
+        let mut ids: CoreFns = Default::default();
+        for (id, kind) in core_fns(&m) {
+            ids.insert(id, kind);
+        }
+        let first = opt::run(&mut m, &ids, true);
+        assert!(
+            !first.is_empty(),
+            "{name}: the first run changed nothing: {first:?}"
+        );
+        assert_eq!(first.passes, passes, "{name}: {first:?}");
+        let once = dump(&m);
+        let second = opt::run(&mut m, &ids, true);
+        assert!(
+            second.is_empty(),
+            "{name}: a second run changed the IR: {second:?}"
+        );
+        assert_eq!(
+            second.passes, 1,
+            "{name}: a run at the fixed point takes one sweep: {second:?}"
+        );
+        assert_eq!(dump(&m), once, "{name}");
     }
-    let first = opt::run(&mut m, &ids, true);
-    let once = dump(&m);
-    let second = opt::run(&mut m, &ids, true);
-    assert!(
-        first.is_empty(),
-        "the program was already optimised by lowering: {first:?}"
-    );
-    assert!(second.is_empty(), "a second run changed the IR: {second:?}");
-    assert_eq!(dump(&m), once);
 }
 
 /// The same source lowers to the same IR every time. A pass must not let hash iteration order or
