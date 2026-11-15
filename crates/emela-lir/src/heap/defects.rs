@@ -138,6 +138,7 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::ArrayGet
         | Builtin::ArrayGetOr
         | Builtin::ArrayLoadUnchecked
+        | Builtin::ArrayMapRange
         | Builtin::ArraySlice
         | Builtin::ArrayConcat
         | Builtin::BytesFromList

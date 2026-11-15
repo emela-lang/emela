@@ -1,0 +1,16 @@
+# A mutation pair: this is the shape the array map-range fusion takes as its input (T17),
+# `Array.from_list(List.map(List.range(lo, hi), f))`, which becomes `$Array.map_range(lo, hi, f)`.
+# `array_map_range_expanded.emel` is the same program with the loop written by hand. Both must
+# print the same, with the passes on and off.
+import Std.Array.{Array}
+
+fn squares(lo: Int, hi: Int) -> Array[Int] {
+  Array.from_list(List.map(List.range(lo, hi), |i| i * i))
+}
+
+fn main() {
+  dbg(squares(0, 0))
+  dbg(squares(0, 5))
+  dbg(squares(-3, 2))
+  dbg(squares(4, 1))
+}

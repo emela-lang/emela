@@ -21,6 +21,7 @@ pub(super) const FUNCS: &[Sig] = &[
         &[ValType::I32, ValType::I32],
         &[ValType::I32],
     ),
+    ("array_new", &[ValType::I32, ValType::I32], &[ValType::I32]),
     (
         "array_to_list",
         &[ValType::I32, ValType::I32],
@@ -56,6 +57,7 @@ pub(super) const FUNCS: &[Sig] = &[
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "array_from_list" => i32s(5), // n, p, a, at, refs
+        "array_new" => i32s(1),       // out
         "array_to_list" => i32s(3),   // head, i, cell
         "array_get" => i32s(1),       // cell
         "array_set" => i32s(5),       // n, out, shown, msg, size
@@ -69,6 +71,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
     match name {
         "array_from_list" => array_from_list(b, ins),
+        "array_new" => array_new(b, ins),
         "array_to_list" => array_to_list(b, ins),
         "array_get" => array_get(b, ins),
         "array_set" => array_set(b, ins),
@@ -98,6 +101,7 @@ fn is_array(op: Builtin) -> bool {
             | Builtin::ArraySet
             | Builtin::ArraySlice
             | Builtin::ArrayConcat
+            | Builtin::ArrayMapRange
     )
 }
 
@@ -225,6 +229,23 @@ fn array_from_list(b: &Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.local_get(A);
+}
+
+/// `array_new(n, desc)`: a new array of `n` elements, uninitialized. `$Array.map_range` writes
+/// every element before the array can be read or dropped; an element type with no representation
+/// writes nothing and has no reference elements to drop.
+fn array_new(b: &Builder, ins: &mut InstructionSink) {
+    const OUT: u32 = 2;
+    new_array(
+        b,
+        ins,
+        0,
+        |ins| {
+            ins.local_get(1);
+        },
+        OUT,
+    );
+    ins.local_get(OUT);
 }
 
 /// `array_to_list(a, cons_desc)`: the elements as a list, built from the last element to the

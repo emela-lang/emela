@@ -1419,6 +1419,68 @@ impl<'m> Emitter<'m> {
                     None => value,
                 }
             }
+            // The Core IR fusion of `Array.from_list(List.map(List.range(lo, hi), f))`: one array,
+            // filled by calling `f` for each position. `f` is pure and takes one `Int`, so the
+            // closure call is the environment and that value, returning the element's
+            // representation. Every element is written before the array can be read or dropped
+            // (`em_array_new` leaves them uninitialized).
+            Builtin::ArrayMapRange => {
+                let Some(d) = dst else {
+                    self.internal(format!(
+                        "`ArrayMapRange` without a destination in {}",
+                        f.name
+                    ));
+                    return;
+                };
+                // A type parameter can become `()` after monomorphization: its elements have no
+                // representation, so the loop calls `f` for each position and stores nothing (the
+                // slots stay zero).
+                let elem = self.inner_repr(f.vars[d].ty);
+                let array = var(d);
+                let lo = format!("{array}_lo");
+                let hi = format!("{array}_hi");
+                let fun = format!("{array}_f");
+                let count = format!("{array}_n");
+                let i = format!("{array}_i");
+                let elem_ref = if elem == Repr::Ref { "true" } else { "false" };
+                // The count is 64-bit, as in the runtime's array functions: `hi - lo` is exact
+                // there even for a range longer than `Int.MAX` (which cannot be an array anyway,
+                // and is out of memory). The argument stays an `Int` by wrapping, as `i + 1`
+                // does.
+                let step = format!(
+                    "(({} (*)(em_ref, int32_t))em_closure_fn({fun}))({fun}, \
+                     (int32_t)((uint32_t){lo} + (uint32_t){i}))",
+                    cty(elem)
+                );
+                cx.w.block(|w| {
+                    w.decl("int32_t", &lo, Some(&a[0]));
+                    w.decl("int32_t", &hi, Some(&a[1]));
+                    w.decl("em_ref", &fun, Some(&a[2]));
+                    w.decl(
+                        "int64_t",
+                        &count,
+                        Some(&format!("(int64_t){hi} - (int64_t){lo}")),
+                    );
+                    w.decl("int64_t", &i, Some("0"));
+                    w.if_(&format!("{count} < 0"), |w| w.assign(&count, "0"));
+                    w.assign(
+                        &array,
+                        &call("em_array_new", [count.clone(), elem_ref.to_owned()]),
+                    );
+                    w.for_(
+                        &format!("{i} = 0"),
+                        &format!("{i} < {count}"),
+                        &format!("{i}++"),
+                        |w| match elem {
+                            Repr::Void => w.stmt(&step),
+                            _ => {
+                                w.assign(&format!("{array}->slots[1 + {i}].{}", acc(elem)), &step);
+                            }
+                        },
+                    );
+                });
+                return;
+            }
             // Consumes the array (`heap::rc`); the value is passed as a word.
             Builtin::ArraySet => {
                 let value = self.word(f, &args[2]);

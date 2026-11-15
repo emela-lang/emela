@@ -297,6 +297,7 @@ fn codegen_programs() -> Vec<PathBuf> {
 /// the corpus instead, which takes long enough to keep out of the usual test run.
 const DEFAULT_PROGRAMS: &[&str] = &[
     "array",
+    "array_map_range",
     "call_order",
     "closures",
     "data",
@@ -364,7 +365,7 @@ fn wasm_programs_are_the_same_with_and_without_optimisation() {
     }
     let dir = root().join("crates/emela-codegen-c/tests/programs");
     let mut failures = Vec::new();
-    for name in ["array", "core_bool"] {
+    for name in ["array", "array_map_range", "core_bool"] {
         let path = dir.join(format!("{name}.emel"));
         if let Some(failure) = compare_wasm(&path, &format!("wasm-{name}")) {
             failures.push(failure);
@@ -378,6 +379,10 @@ fn wasm_programs_are_the_same_with_and_without_optimisation() {
 const PAIRS: &[(&str, &str)] = &[
     ("option_fused.emel", "option_expanded.emel"),
     ("range_fused.emel", "range_expanded.emel"),
+    (
+        "array_map_range_fused.emel",
+        "array_map_range_expanded.emel",
+    ),
     ("effectful_fused.emel", "effectful_expanded.emel"),
     ("failing_fused.emel", "failing_expanded.emel"),
     ("with_release_fused.emel", "with_release_expanded.emel"),
