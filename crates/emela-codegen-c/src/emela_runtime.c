@@ -55,6 +55,69 @@ static _Noreturn void em_out_of_memory(void) {
   abort();
 }
 
+/* ---- Allocation statistics (-DEMELA_ALLOC_STATS) ----
+ *
+ * A measurement build reports at exit, on standard error, how many objects it allocated for each
+ * descriptor name, the most numerous first and ties by name, and then the total. The report is
+ * printed once, after everything else, so that it does not mix with a program's own output or with
+ * the leak check. A normal build has neither the table nor a test in `em_alloc`: the report is a
+ * diagnostic for measurements, not part of the cost of the program. */
+#ifdef EMELA_ALLOC_STATS
+
+#define EM_STAT_NAMES 256
+
+typedef struct em_stat {
+  const char *name;
+  uint64_t count;
+} em_stat;
+
+static em_stat em_stats[EM_STAT_NAMES];
+static size_t em_stat_len = 0;
+static uint64_t em_stat_total = 0;
+/* Whether the report is registered, which happens on the first allocation. */
+static bool em_stat_registered = false;
+
+static int em_stat_order(const void *a, const void *b) {
+  const em_stat *x = a;
+  const em_stat *y = b;
+  if (x->count != y->count) return x->count > y->count ? -1 : 1;
+  return strcmp(x->name, y->name);
+}
+
+static void em_stat_report(void) {
+  /* Sorted in place: nothing else reads the table. */
+  qsort(em_stats, em_stat_len, sizeof(em_stats[0]), em_stat_order);
+  for (size_t i = 0; i < em_stat_len; i++) {
+    fprintf(stderr, "emela-alloc %s %" PRIu64 "\n", em_stats[i].name, em_stats[i].count);
+  }
+  fprintf(stderr, "emela-alloc-total %" PRIu64 "\n", em_stat_total);
+  fflush(stderr);
+}
+
+static void em_stat_count(const em_desc *desc) {
+  if (!em_stat_registered) {
+    em_stat_registered = true;
+    atexit(em_stat_report);
+  }
+  em_stat_total++;
+  const char *name = desc->name != NULL ? desc->name : "?";
+  for (size_t i = 0; i < em_stat_len; i++) {
+    if (em_stats[i].name == name || strcmp(em_stats[i].name, name) == 0) {
+      em_stats[i].count++;
+      return;
+    }
+  }
+  /* More names than the table holds: the total still counts them, and leaving the name out keeps
+   * the report bounded. */
+  if (em_stat_len < EM_STAT_NAMES) {
+    em_stats[em_stat_len].name = name;
+    em_stats[em_stat_len].count = 1;
+    em_stat_len++;
+  }
+}
+
+#endif
+
 /* ---- Size-class bins ----
  *
  * The header is 16 bytes with no room for a size class, and `aux` belongs to defects, so a block
@@ -83,6 +146,9 @@ static void em_release_block(em_ref x) {
 }
 
 em_ref em_alloc(const em_desc *desc, size_t nslots) {
+#ifdef EMELA_ALLOC_STATS
+  em_stat_count(desc);
+#endif
   /* A fixed-size object takes the bin of its descriptor's slot count. `em_alloc` is called for
    * EM_KIND_FIELDS with nslots equal to nfields (cons cells, Some, boxes, records, tuples,
    * closures, error values, frame shells, and the copy of a defect); a call that disagrees is not

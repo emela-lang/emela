@@ -1,15 +1,17 @@
-//! The allocator of the C runtime: size-class bins for fixed-size objects.
+//! The allocator of the C runtime: size-class bins for fixed-size objects, the static empty
+//! evidence table, and the allocation statistics that a `-DEMELA_ALLOC_STATS` build prints.
 //!
 //! The bins are checked from C, because what they guarantee (a block of one size class coming
 //! back for the next object of that class, and not for one of another class) is not visible from
-//! Emela.
+//! Emela. The statistics are checked through a compiled Emela program, because the contract with
+//! the benchmark harness is the text on standard error.
 
 mod common;
 
-use std::process::Command;
+use std::process::{Command, Output};
 use std::time::Duration;
 
-use common::{cc, out_dir, run_with_timeout};
+use common::{PRELUDE, build_and_run, cc, out_dir, run_with_timeout, to_c};
 use emela_codegen_c::{
     EMELA_H, EMELA_H_FILE, RUNTIME_C, RUNTIME_C_FILE, RUNTIME_H, RUNTIME_H_FILE,
 };
@@ -113,9 +115,9 @@ int main(void) {
 }
 "#;
 
-/// Builds a C program against the runtime and runs it. The program ends with `em_exit`, so the
-/// leak check is part of what it checks.
-fn run_c(name: &str, main_c: &str) -> (i32, String, String) {
+/// Builds a C program against the runtime and runs it, with the leak check compiled in. The
+/// program need not reach `em_exit`, so that a test can check how it failed.
+fn run_c_output(name: &str, main_c: &str) -> Output {
     let cc = cc().expect("checked by the caller");
     let dir = out_dir(name);
     std::fs::write(dir.join("main.c"), main_c).unwrap();
@@ -145,11 +147,14 @@ fn run_c(name: &str, main_c: &str) -> (i32, String, String) {
         String::from_utf8_lossy(&built.stderr)
     );
     let mut command = Command::new(dir.join("main"));
-    command
-        .env_remove("EMELA_ALLOC_STATS")
-        .env_remove("EMELA_LEAK_CHECK")
-        .current_dir(&dir);
-    let ran = run_with_timeout(command, Duration::from_secs(120)).expect("the program timed out");
+    command.env_remove("EMELA_LEAK_CHECK").current_dir(&dir);
+    run_with_timeout(command, Duration::from_secs(120)).expect("the program timed out")
+}
+
+/// Builds a C program against the runtime and runs it. The program ends with `em_exit`, so the
+/// leak check is part of what it checks.
+fn run_c(name: &str, main_c: &str) -> (i32, String, String) {
+    let ran = run_c_output(name, main_c);
     (
         ran.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&ran.stdout).into_owned(),
@@ -164,4 +169,130 @@ fn fixed_size_objects_are_reused_by_size_class() {
     }
     let (code, stdout, stderr) = run_c("alloc-bins", RUNTIME_TEST);
     assert_eq!((code, stdout.as_str(), stderr.as_str()), (0, "", ""));
+}
+
+/// The lines of `emela-alloc NAME COUNT` and the last `emela-alloc-total COUNT`, checked against
+/// the contract with the benchmark harness: most numerous first, ties by name, and the total is
+/// the sum of the counts.
+fn check_stats(stderr: &str) -> Vec<(String, u64)> {
+    let mut lines: Vec<&str> = stderr.lines().collect();
+    let total: u64 = lines
+        .pop()
+        .expect("a total line")
+        .strip_prefix("emela-alloc-total ")
+        .expect("the total last")
+        .parse()
+        .expect("a total");
+    let mut counts = Vec::new();
+    for line in lines {
+        let rest = line
+            .strip_prefix("emela-alloc ")
+            .unwrap_or_else(|| panic!("a name and a count, not {line:?}"));
+        let (name, count) = rest.rsplit_once(' ').expect("a name and a count");
+        counts.push((name.to_owned(), count.parse::<u64>().expect("a count")));
+    }
+    let sum: u64 = counts.iter().map(|(_, n)| n).sum();
+    assert_eq!(total, sum, "the total is the sum of the counts");
+    for pair in counts.windows(2) {
+        assert!(
+            pair[0].1 > pair[1].1 || (pair[0].1 == pair[1].1 && pair[0].0 < pair[1].0),
+            "the report is by count, and ties by name: {pair:?}"
+        );
+    }
+    counts
+}
+
+#[test]
+fn alloc_stats_are_reported_in_a_measurement_build() {
+    if cc().is_none() {
+        return;
+    }
+    let src = format!(
+        r#"{PRELUDE}
+effect Name {{
+  fn name() -> String
+}}
+
+handler Res: Name {{
+  init {{ Res }}
+  fn name() {{ "res" }}
+}}
+
+fn main() {{
+  xs = [1, 2, 3] |> List.map(|x| x + 1)
+  dbg(Int.to_string(List.fold(xs, 0, |acc, x| acc + x)))
+  with Res {{
+    dbg((use Name).name())
+  }}
+}}
+"#
+    );
+    let out = to_c(&src).expect("the program compiles");
+    // A normal build has neither the table nor a call in `em_alloc`, so it cannot report.
+    let quiet = build_and_run(&out_dir("alloc-stats-quiet"), &out, &["-O1"]);
+    assert_eq!(quiet.code, 0, "{}", quiet.stderr);
+    assert!(
+        !quiet.stderr.lines().any(|l| l.starts_with("emela-alloc")),
+        "a normal build reports nothing: {:?}",
+        quiet.stderr
+    );
+    let got = build_and_run(
+        &out_dir("alloc-stats"),
+        &out,
+        &["-O1", "-DEMELA_ALLOC_STATS"],
+    );
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    // The program's own output on standard error comes first, then the report, at exit.
+    let (head, report) = got.stderr.split_once("\nemela-alloc ").expect("a report");
+    let report = format!("emela-alloc {report}");
+    assert_eq!(head, "\"9\"\n\"res\"");
+    let counts = check_stats(&report);
+    let count = |n: &str| counts.iter().find(|(name, _)| name == n).map(|(_, c)| *c);
+    assert!(count("cons").is_some(), "a list allocates cons cells");
+    assert!(count("String").is_some());
+    // The empty evidence tables that `List.fold` builds are the static singleton, not
+    // allocations, so no `evidence` line appears.
+    assert_eq!(count("evidence"), None);
+}
+
+/// An allocation larger than the address-space limit ends the program in `em_out_of_memory`,
+/// which reports it and aborts. This fixes what the current implementation does, not a promise of
+/// the language: `[dyn.memory]` leaves the behaviour of an allocation failure to the
+/// implementation, so only the message and that it ends abnormally are checked here.
+#[cfg(all(unix, target_pointer_width = "64"))]
+#[test]
+fn an_allocation_failure_ends_the_program() {
+    use std::os::unix::process::ExitStatusExt;
+
+    if cc().is_none() {
+        return;
+    }
+    // 1 << 37 slots of 8 bytes is 1 TiB, and the product stays within size_t, so that malloc
+    // fails instead of the size wrapping.
+    //
+    // A virtual-memory limit well below the request makes the failure follow from the program
+    // rather than from the host: without it, a host with vm.overcommit_memory=1 may let the 1 TiB
+    // mapping succeed.
+    let src = r#"
+#include <sys/resource.h>
+
+#include "emela_runtime.h"
+
+static const uint8_t plain[1] = {0};
+static const em_desc huge_desc = {EM_KIND_FIELDS, 1, 0, -1, "huge", NULL, plain};
+
+int main(void) {
+  struct rlimit limit = {(rlim_t)256 << 20, (rlim_t)256 << 20};
+  if (setrlimit(RLIMIT_AS, &limit) != 0) return 2;
+  em_alloc(&huge_desc, (size_t)1 << 37);
+  return em_exit(NULL);
+}
+"#;
+    let ran = run_c_output("alloc-out-of-memory", src);
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stderr),
+        "emela: out of memory\n",
+        "the message, and nothing else: the leak check does not run on this path"
+    );
+    assert_eq!(ran.status.signal(), Some(6), "the program aborts");
 }

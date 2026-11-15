@@ -440,4 +440,18 @@ void em_test_done(void);
  * `cleanup` releases the program's const values. */
 int em_exit(void (*cleanup)(void));
 
+/* ---- Measurement builds ----
+ *
+ * Two preprocessor definitions add diagnostics for measurements to the runtime's compilation (a
+ * build passes them to the C compiler, for example in EMELA_CC_ARGS). Neither is part of the
+ * language; a normal build has neither.
+ *
+ * - `-DEMELA_LEAK_CHECK` makes the leak check of `em_exit` unconditional. Without it the check
+ *   runs only when the environment variable EMELA_LEAK_CHECK is set.
+ * - `-DEMELA_ALLOC_STATS` counts the objects allocated for each descriptor name and, at exit,
+ *   prints the counts on standard error, the most numerous first and ties by name, then their
+ *   total: one `emela-alloc NAME COUNT` line per name and a last `emela-alloc-total COUNT`. The
+ *   report is a diagnostic, so the build pays for it: a table and a call in `em_alloc` that a
+ *   normal build does not have. */
+
 #endif
