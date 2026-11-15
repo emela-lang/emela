@@ -94,19 +94,23 @@ fn optimize_false_changes_nothing() {
     assert_eq!(dump(&m), before);
 }
 
-/// Both fusions fire on the shapes they are for, and the dump shows the internal builtins.
+/// The fusions fire on the shapes they are for, and the dump shows the internal builtins and the
+/// loop the range becomes.
 #[test]
-fn option_fusions_fire() {
+fn fusions_fire() {
     let (m, stats) = lower_files_with_stats(PROGRAM, true);
     assert_eq!(stats.option_or, 1);
     assert_eq!(stats.array_get_match, 1);
+    assert_eq!(stats.range_fold, 1);
+    assert_eq!(stats.range_map, 1);
     let ir = dump(&m);
     assert!(ir.contains("@$Array.get_or"), "{ir}");
     assert!(ir.contains("@$Array.load_unchecked"), "{ir}");
+    assert!(ir.contains("loop("), "{ir}");
 }
 
-/// A user's `or` has the same name and shape as the core one, but is a different function: the
-/// fusion matches the identity lowering recorded, not the name.
+/// A user's `fold`, `map` or `range` has the same name and shape as the core ones, but is a
+/// different function: the fusion matches the identity lowering recorded, not the name.
 #[test]
 fn a_users_or_is_not_fused() {
     let files = [(
@@ -128,6 +132,41 @@ fn main() {
     )];
     let (_, stats) = lower_files_with_stats(&files, true);
     assert_eq!(stats.option_or, 0, "{stats:?}");
+}
+
+/// The same for a user's `fold`, `map` and `range`.
+#[test]
+fn a_users_list_functions_are_not_fused() {
+    let files = [(
+        "main.emel",
+        "\
+fn range(from: Int, to: Int) -> List[Int] {
+  if to <= from { [] } else { [to - 1, ..range(from, to - 1)] }
+}
+
+fn fold(xs: List[Int], from: Int, f: fn(Int, Int) -> Int) -> Int {
+  xs match {
+    [] -> from
+    [x, ..rest] -> fold(rest, f(from, x), f)
+  }
+}
+
+fn map(xs: List[Int], f: fn(Int) -> Int) -> List[Int] {
+  xs match {
+    [] -> []
+    [x, ..rest] -> [f(x), ..map(rest, f)]
+  }
+}
+
+fn main() {
+  dbg(fold(range(0, 3), 0, |acc, x| acc + x))
+  dbg(map(range(0, 3), |x| x * 2))
+}
+",
+    )];
+    let (_, stats) = lower_files_with_stats(&files, true);
+    assert_eq!(stats.range_fold, 0, "{stats:?}");
+    assert_eq!(stats.range_map, 0, "{stats:?}");
 }
 
 /// `()` and `Never` have no representation, so an `Array` of them is not fused (`ArrayGetOr`
