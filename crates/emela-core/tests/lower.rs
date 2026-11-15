@@ -3,7 +3,7 @@
 mod support;
 
 use emela_core::{EnumDef, Expr, Module, Roots, Type, TypeId, VariantFields, dump};
-use support::{lower_files, try_lower, try_lower_with};
+use support::{lower_files, lower_files_with, try_lower, try_lower_with};
 
 /// Renders an enum definition as `Name[2] { Ctor(first: A, second: B), Unit }`, with type
 /// parameters as `A`, `B`, ….
@@ -1298,4 +1298,27 @@ fn main() {
         .expect("the init of the inner handler");
     // `path`, the cell of what it opens, and the evidence table.
     assert_eq!(init.params.len(), 3);
+}
+
+/// The optimisation switch reaches lowering (`lower_with`): with the Core IR passes switched off,
+/// the IR is the same as the default while the passes are empty, so `--no-opt` builds the same
+/// program (T01).
+#[test]
+fn the_optimize_switch_keeps_the_lowered_ir() {
+    let files = [(
+        "main.emel",
+        "\
+fn sum(xs: List[Int]) -> Int {
+  List.fold(xs, 0, |a, b| a + b)
+}
+
+fn main() {
+  dbg(sum(List.range(0, 3)))
+}
+",
+    )];
+    assert_eq!(
+        dump(&lower_files_with(&files, false)),
+        dump(&lower_files_with(&files, true))
+    );
 }
