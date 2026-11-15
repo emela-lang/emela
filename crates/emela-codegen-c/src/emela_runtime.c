@@ -176,6 +176,14 @@ static const em_desc em_desc_none = {EM_KIND_FIELDS, 0, 1, -1, "None", NULL, em_
 static em_hdr em_none_obj = EM_STATIC_HDR(&em_desc_none);
 #define EM_NONE ((em_ref)&em_none_obj)
 
+/* The empty evidence table: `em_ev_new(NULL, 0)` is the evidence of a call that needs none, and
+ * it costs no allocation. Static data (count 0) is never counted or freed, as `EM_NONE` is. */
+static struct {
+  em_hdr hdr;
+  em_word slots[1];
+} em_empty_evidence_obj = {EM_STATIC_HDR(&em_desc_evidence), {{0}}};
+#define EM_EMPTY_EVIDENCE ((em_ref)&em_empty_evidence_obj)
+
 static em_ref em_some(em_word w, bool ref) {
   em_ref o = em_alloc(ref ? &em_desc_some_ref : &em_desc_some_val, 1);
   o->slots[0] = w;
@@ -1121,6 +1129,12 @@ void em_const_release(em_const *c) {
 
 em_ref em_ev_new(em_ref base, int64_t n) {
   int64_t len = base == NULL ? 0 : base->slots[0].l;
+  if (len + n == 0) {
+    /* An empty table is one static object; consuming `base` drops nothing, since it is static
+     * (a count of 0) or empty too. */
+    em_drop(base);
+    return EM_EMPTY_EVIDENCE;
+  }
   em_ref ev = em_alloc(&em_desc_evidence, (size_t)(1 + 2 * (len + n)));
   ev->slots[0].l = len + n;
   for (int64_t k = 0; k < len; k++) {
