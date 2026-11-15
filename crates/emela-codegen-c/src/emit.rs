@@ -1366,6 +1366,8 @@ impl<'m> Emitter<'m> {
             Builtin::StringTrim => named("em_string_trim"),
             Builtin::StringCodePoints => named("em_string_code_points"),
             Builtin::StringFromCodePoint => named("em_string_from_code_point"),
+            Builtin::StringAsciiLower => named("em_string_ascii_lower"),
+            Builtin::StringAsciiUpper => named("em_string_ascii_upper"),
             // A Bytes has the representation of a String (a byte length and the bytes), so the
             // size and the steps between text and bytes are those of a String.
             Builtin::BytesSize => named("em_string_byte_size"),

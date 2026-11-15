@@ -577,6 +577,25 @@ em_ref em_string_from_code_point(int32_t n) {
   return em_some(w, true);
 }
 
+/* Copies `s`, replacing the bytes from `lo` to `hi` with themselves plus `delta`. Every other
+ * byte, including each byte of a multi-byte UTF-8 sequence, is copied as it is, so the result has
+ * the byte length of `s`. The bytes are written once, into one String. */
+static em_ref em_ascii_case(em_ref s, unsigned char lo, unsigned char hi, int delta) {
+  size_t n = EM_STR_LEN(s);
+  const unsigned char *from = (const unsigned char *)EM_STR_BYTES(s);
+  em_ref out = em_str_alloc(n);
+  unsigned char *to = (unsigned char *)EM_STR_BYTES(out);
+  for (size_t i = 0; i < n; i++) {
+    unsigned char c = from[i];
+    to[i] = (unsigned char)(c >= lo && c <= hi ? c + delta : c);
+  }
+  return out;
+}
+
+em_ref em_string_ascii_lower(em_ref s) { return em_ascii_case(s, 'A', 'Z', 'a' - 'A'); }
+
+em_ref em_string_ascii_upper(em_ref s) { return em_ascii_case(s, 'a', 'z', 'A' - 'a'); }
+
 /* ---- Bytes (`[api.std.bytes]`) ----
  *
  * A Bytes is a String object (slot 0 the length, then the bytes and a NUL that is not part of

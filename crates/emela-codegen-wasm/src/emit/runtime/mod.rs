@@ -41,6 +41,7 @@ fn always(_: &Builder) -> bool {
 mod alloc;
 mod args;
 pub(crate) mod array;
+mod ascii;
 pub(super) mod async_bridge;
 pub(super) mod attempt;
 mod bytes;
@@ -266,6 +267,15 @@ const MODULES: &[RuntimeModule] = &[
         emit: line::emit,
         used: line::used,
     },
+    // Appended last, so a program that does not change ASCII case keeps every function index (and
+    // the bytes) of the modules before this one.
+    RuntimeModule {
+        funcs: ascii::FUNCS,
+        locals: ascii::locals,
+        setup: no_setup,
+        emit: ascii::emit,
+        used: ascii::used,
+    },
 ];
 
 /// Reserves the runtime functions in the function index space.
@@ -306,7 +316,7 @@ fn rt(b: &Builder, name: &'static str) -> u32 {
 /// Writes the static data of every module, then emits every runtime function body, in `MODULES`
 /// order.
 ///
-/// The Float, Bytes, Array and Unicode runtimes are a set of independent entry points, so a
+/// The Float, Bytes, Array, Unicode and ASCII runtimes are a set of independent entry points, so a
 /// program that calls one does not pay for the others: only the functions the emitted bodies
 /// reach from [`Builder::rt_used`] keep their body, and every other one becomes a trap. The
 /// function index does not move (the frame of a runtime call is decided in `register`), and the
@@ -368,9 +378,15 @@ pub(crate) fn emit(b: &mut Builder) {
 /// reachable call to a trap. The other modules keep every body: they share helpers, host imports
 /// or an exported function (`cabi_realloc`).
 fn trimmable(module: &RuntimeModule) -> bool {
-    [float::FUNCS, bytes::FUNCS, array::FUNCS, unicode::FUNCS]
-        .iter()
-        .any(|funcs| std::ptr::eq(*funcs, module.funcs))
+    [
+        float::FUNCS,
+        bytes::FUNCS,
+        array::FUNCS,
+        unicode::FUNCS,
+        ascii::FUNCS,
+    ]
+    .iter()
+    .any(|funcs| std::ptr::eq(*funcs, module.funcs))
 }
 
 /// The functions reachable from `roots` through the call graph `calls` of one module.

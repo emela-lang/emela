@@ -128,6 +128,10 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::StringTrim
         | Builtin::StringCodePoints
         | Builtin::StringFromCodePoint
+        // Only ASCII letters change case, so there is no case to reject. Allocation failure
+        // aborts in the C runtime rather than being a defect (`[dyn.memory]`).
+        | Builtin::StringAsciiLower
+        | Builtin::StringAsciiUpper
         | Builtin::ArrayFromList
         | Builtin::ArrayToList
         | Builtin::ArraySize

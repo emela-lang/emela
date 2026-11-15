@@ -24,6 +24,8 @@ pub(crate) fn runtime_name(op: Builtin) -> &'static str {
         Builtin::StringTrim => "$strtrim",
         Builtin::StringCodePoints => "$strcodepoints",
         Builtin::StringFromCodePoint => "$strfromcodepoint",
+        Builtin::StringAsciiLower => "$strAsciiLower",
+        Builtin::StringAsciiUpper => "$strAsciiUpper",
         Builtin::IntToString => "$showInt",
         Builtin::IntParse => "$iparse",
         Builtin::IntCheckedAdd => "$icheckedAdd",
