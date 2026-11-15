@@ -1,0 +1,23 @@
+exit: 0
+--- stdout
+--- stderr
+Array.from_list([])
+Array.from_list([])
+Array.from_list([])
+Array.from_list([9, 4, 1, 0, 1, 4])
+Array.from_list([9, 16, 25])
+Array.from_list([])
+Array.from_list([])
+Array.from_list([])
+Array.from_list([9, 4, 1, 0, 1, 4])
+Array.from_list([9, 16, 25])
+Array.from_list(["s0", "s1", "s2", "s3"])
+Array.from_list([0, 7, 14])
+Array.from_list([0.0, 0.5, 1.0])
+Array.from_list([0, 3, 6])
+100
+3
+Array.from_list(["x", "x"])
+"lo"
+"hi"
+Array.from_list([-10, 0, 10])

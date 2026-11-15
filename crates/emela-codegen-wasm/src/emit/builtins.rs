@@ -243,6 +243,94 @@ impl<'m> Builder<'m> {
                 self.array_element(cx, ins, &args[0], &args[1], repr);
                 self.assign(cx, ins, Some(dst), repr);
             }
+            // The Core IR fusion of `Array.from_list(List.map(List.range(lo, hi), f))`: one array,
+            // filled by calling `f` with each position from `lo`. `f` is pure and takes one `Int`,
+            // so the indirect call is the closure and that value and returns the element's
+            // representation. An element is stored only after `f` returns it, so the array's
+            // zeroed elements are never read.
+            ArrayMapRange => {
+                let Some(dst) = dst else {
+                    self.internal(format!(
+                        "`ArrayMapRange` without a destination in {}",
+                        cx.f.name
+                    ));
+                    return;
+                };
+                // A type parameter can become `()` after monomorphization: its elements have no
+                // representation, so the loop calls `f` for each position and stores nothing.
+                let elem = self.array_elem_repr(cx.f.vars[dst].ty);
+                let Operand::Var(fun) = &args[2] else {
+                    self.internal(format!("a closure that is not a value in {}", cx.f.name));
+                    return;
+                };
+                let fun = cx.local(*fun);
+                let out = cx.local(dst);
+                let desc = self.array_desc(cx.f.vars[dst].ty);
+                // The count, then the position in the array (0-based): both fit in one scratch
+                // local, because the loop reads the count from the array's length.
+                let at = cx.scratch(Repr::I32, 0);
+                self.operand(cx, ins, &args[1]);
+                self.operand(cx, ins, &args[0]);
+                ins.i32_gt_s();
+                ins.if_(BlockType::Result(ValType::I32));
+                self.operand(cx, ins, &args[1]);
+                self.operand(cx, ins, &args[0]);
+                ins.i32_sub();
+                ins.else_();
+                ins.i32_const(0);
+                ins.end();
+                ins.local_set(at);
+                ins.local_get(at);
+                ins.i32_const(desc as i32);
+                let new = self.rt("array_new");
+                ins.call(new);
+                ins.local_set(out);
+                ins.i32_const(0);
+                ins.local_set(at);
+                ins.block(BlockType::Empty);
+                ins.loop_(BlockType::Empty);
+                ins.local_get(at);
+                ins.local_get(out);
+                ins.i32_load(mem(HDR, 4));
+                ins.i32_ge_u();
+                ins.br_if(1);
+                // The address of element `at`.
+                ins.local_get(out);
+                ins.i32_const((HDR + 8) as i32);
+                ins.i32_add();
+                ins.local_get(at);
+                ins.i32_const(3);
+                ins.i32_shl();
+                ins.i32_add();
+                // `f(lo + at)`: the closure, its argument, then the function's table index.
+                let ty = self.call_ty(&[Repr::Ref, Repr::I32], elem);
+                ins.local_get(fun);
+                self.operand(cx, ins, &args[0]);
+                ins.local_get(at);
+                ins.i32_add();
+                ins.local_get(fun);
+                ins.i32_load(mem(HDR, 4));
+                ins.call_indirect(0, ty);
+                match elem {
+                    Repr::I32 | Repr::Ref => {
+                        ins.i32_store(mem(0, 4));
+                    }
+                    Repr::I64 => {
+                        ins.i64_store(mem(0, 8));
+                    }
+                    Repr::F64 => {
+                        ins.f64_store(mem(0, 8));
+                    }
+                    Repr::Void => {}
+                }
+                ins.local_get(at);
+                ins.i32_const(1);
+                ins.i32_add();
+                ins.local_set(at);
+                ins.br(0);
+                ins.end();
+                ins.end();
+            }
             // Consumes the array (`heap::rc`); the value goes as an 8-byte word.
             ArraySet => {
                 self.operand(cx, ins, &args[0]);
