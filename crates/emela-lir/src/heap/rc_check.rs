@@ -13,7 +13,8 @@
 use rustc_hash::FxHashMap;
 
 use super::rc::{
-    Mode, borrowed_param, counted, is_view, landings, suspend_saved, term_consumes, value_uses,
+    Bases, Mode, borrowed_param, counted, is_view, landings, suspend_saved, term_consumes,
+    value_uses,
 };
 use crate::ir::{Function, LabelId, Module, SeqId, Stmt, SwitchOn, Term, VarId};
 
@@ -22,6 +23,7 @@ pub(crate) fn check(m: &Module, f: &Function) -> Vec<String> {
     let mut c = Check {
         m,
         f,
+        bases: Bases::new(f),
         scope: Vec::new(),
         slots: Vec::new(),
         labels: FxHashMap::default(),
@@ -63,6 +65,9 @@ struct Slot {
 struct Check<'a> {
     m: &'a Module,
     f: &'a Function,
+    /// What keeps a value alive when the variable owns no reference
+    /// ([`Bases::borrows_from_env`](super::rc::Bases::borrows_from_env)).
+    bases: Bases,
     /// Counted variables in scope, in definition order.
     scope: Vec<VarId>,
     slots: Vec<Slot>,
@@ -97,7 +102,7 @@ impl Check<'_> {
     }
 
     fn borrow(&mut self, tokens: &Tokens, v: VarId) {
-        if tokens[ix(v)] < 1 && !borrowed_param(self.f, v) {
+        if tokens[ix(v)] < 1 && !self.bases.borrows_from_env(v) {
             let name = self.name(v);
             self.error(format!(
                 "{name} is used without a reference (after its last one)"
