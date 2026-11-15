@@ -17,6 +17,8 @@
 
 use crate::ir::Module;
 
+pub(crate) mod escape;
+
 /// What each LIR pass changed in one run, for tests and the differential harness.
 ///
 /// The fields are added with the passes. An empty `Stats` says that no pass changed anything,
