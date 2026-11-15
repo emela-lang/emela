@@ -271,6 +271,55 @@ fn strings_extended() {
 }
 
 #[test]
+fn string_contains_scans_every_alignment() {
+    // `str_find` skips four bytes at a time until `sub[0]` matches, then confirms byte by byte.
+    // The needle starts at every offset modulo four, at the last possible start, and in the
+    // byte-wise tail; a candidate whose first byte matches but whose rest does not is rejected.
+    let Some(out) = stderr(
+        "string-find-scan",
+        r#"
+fn main() {
+  dbg(String.contains("hello world", "o w"))
+  dbg(String.contains("abc---------", "abc"))
+  dbg(String.contains("xabc--------", "abc"))
+  dbg(String.contains("xxabc-------", "abc"))
+  dbg(String.contains("xxxabc------", "abc"))
+  dbg(String.contains("xxxxabc-----", "abc"))
+  dbg(String.contains("xxxxxabc----", "abc"))
+  dbg(String.contains("xxxxxxabc---", "abc"))
+  dbg(String.contains("xxxxxxxabc--", "abc"))
+  dbg(String.contains("-------abc", "abc"))
+  dbg(String.contains("--------abc", "abc"))
+  dbg(String.contains("---------abc", "abc"))
+  dbg(String.contains("----------abc", "abc"))
+  dbg(String.contains("xabd--------", "abc"))
+  dbg(String.contains("aaaab", "aab"))
+  dbg(String.contains("aaab", "aac"))
+  dbg(String.contains("abc", "abcd"))
+  dbg(String.contains("abcabc", "cab"))
+  dbg(String.contains("hello", "o"))
+  long = String.join(List.map(List.range(0, 20), |_| "0123456789"), "")
+  dbg(String.contains(long, "8901"))
+  dbg(String.contains(long, "89ab"))
+  dbg(String.contains(long, "6789"))
+  dbg(String.length(long))
+  dbg(String.split("aXbXcXd", "X"))
+  dbg(String.split("a,b,c,d,e,f,g,h", ","))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\n\
+         False\nTrue\nFalse\nFalse\nTrue\nTrue\nTrue\nFalse\nTrue\n200\n\
+         [\"a\", \"b\", \"c\", \"d\"]\n\
+         [\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\"]\n"
+    );
+}
+
+#[test]
 fn split_with_an_empty_separator_splits_by_graphemes() {
     // A separator that is empty only at run time reaches the runtime, which splits per grapheme
     // cluster like `String.chars` (16.2).
