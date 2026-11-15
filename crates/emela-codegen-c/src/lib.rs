@@ -16,6 +16,7 @@
 
 mod check;
 mod emit;
+mod layout;
 mod names;
 mod writer;
 
@@ -126,6 +127,22 @@ pub fn compile_with(
     entry: &Entry,
     optimize: bool,
 ) -> Result<COutput, Vec<CError>> {
+    compile_with_values(core, entry, optimize, true)
+}
+
+/// [`compile_with`] with the by-value layout of records and tuples (`layout`, private) switched
+/// on or off.
+///
+/// `values` is not an optimisation of the program: it chooses the memory representation of a
+/// value that the specification leaves implementation-defined (`[target.unspecified]`), so the
+/// two builds agree on everything observable except the number of allocations and when one runs
+/// out of memory. A test builds a program both ways to compare them.
+pub fn compile_with_values(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+    values: bool,
+) -> Result<COutput, Vec<CError>> {
     // With `Entry::Main`, main (if any) comes first, then the exported fns (`[target.native.export]`).
     let mains: Vec<FnId> = match entry {
         Entry::Main => core
@@ -211,7 +228,7 @@ pub fn compile_with(
     {
         return Err(internal("the Heap IR verifier", errors));
     }
-    emit::emit(&lir, &entry)
+    emit::emit(&lir, &entry, values)
 }
 
 fn internal<E: std::fmt::Display>(stage: &str, errors: Vec<E>) -> Vec<CError> {
