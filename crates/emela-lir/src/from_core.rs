@@ -25,6 +25,7 @@
 //! function is still converted, with a placeholder in its place.
 
 mod captures;
+mod concat;
 mod derive;
 mod pat;
 
@@ -35,6 +36,7 @@ use emela_core::{
 use la_arena::Arena;
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use self::concat::Piece;
 use crate::dump::core_ty;
 use crate::ir::{
     Callee, Closure, Const, FnId, Function, LabelData, LabelId, Module, OnFail, Operand, PrimOp,
@@ -259,12 +261,6 @@ struct Lower<'s> {
     fails: bool,
     /// Values read while matching, visible in the current sequence (see [`Open::cache_mark`]).
     cache: Vec<(Key, VarId)>,
-}
-
-/// A piece of a string to build.
-enum Piece {
-    Text(String),
-    Op(Operand),
 }
 
 impl<'s> Lower<'s> {
@@ -1435,12 +1431,15 @@ impl<'s> Lower<'s> {
         } else {
             a.text.clone()
         };
-        let msg = self.concat(vec![
-            Piece::Text(format!("assertion failed: {head}\n  left: ")),
-            Piece::Op(left),
-            Piece::Text("\n right: ".into()),
-            Piece::Op(right),
-        ]);
+        let msg = concat::build(
+            self,
+            vec![
+                Piece::Text(format!("assertion failed: {head}\n  left: ")),
+                Piece::Op(left),
+                Piece::Text("\n right: ".into()),
+                Piece::Op(right),
+            ],
+        );
         self.term(Term::Defect(msg, a.location.clone()));
         let else_ = self.close();
         self.push(Stmt::If {
@@ -1475,55 +1474,11 @@ impl<'s> Lower<'s> {
                 }
             }
         }
-        let s = self.concat(pieces);
+        let s = concat::build(self, pieces);
         Ok(Val {
             op: Some(s),
             ty: TypeId::STRING,
         })
-    }
-
-    /// Concatenates the pieces with `String.append`, merging adjacent texts.
-    ///
-    /// The chain associates to the right: `a + (b + c)` rather than `(a + b) + c`. A String is
-    /// immutable and append is associative, so the value is the same. Interpolation usually puts
-    /// the string it grows first (a fold's accumulator) and short suffixes after it, and the right
-    /// chain then copies that first piece once instead of once per later piece. The pieces are
-    /// operands only (constants and variables), so no evaluation order changes.
-    fn concat(&mut self, pieces: Vec<Piece>) -> Operand {
-        let mut ops: Vec<Operand> = Vec::new();
-        let mut text: Option<String> = None;
-        for p in pieces {
-            match p {
-                Piece::Text(t) | Piece::Op(Operand::Const(Const::String(t))) if t.is_empty() => {}
-                Piece::Text(t) | Piece::Op(Operand::Const(Const::String(t))) => {
-                    text.get_or_insert_with(String::new).push_str(&t);
-                }
-                Piece::Op(o) => {
-                    if let Some(t) = text.take() {
-                        ops.push(Operand::Const(Const::String(t)));
-                    }
-                    ops.push(o);
-                }
-            }
-        }
-        if let Some(t) = text {
-            ops.push(Operand::Const(Const::String(t)));
-        }
-        let mut ops = ops.into_iter().rev();
-        let Some(mut acc) = ops.next() else {
-            return Operand::Const(Const::String(String::new()));
-        };
-        for o in ops {
-            acc = Operand::Var(self.assign(
-                "s",
-                TypeId::STRING,
-                Value::Builtin {
-                    op: Builtin::StringAppend,
-                    args: vec![o, acc],
-                },
-            ));
-        }
-        acc
     }
 }
 
