@@ -4,8 +4,24 @@
 // fail (spec 12.5): `{ error, message, text, names }`. `error` is "" on success, or the name of the
 // Emela error to fail with. Each operation maps the host's error codes to the errors its `fails`
 // lists, and anything else to "FileSystemFailure" with the host's message.
+//
+// `with Platform` imports this module even when the program never touches a file, so it must load
+// on a host without `node:fs` too: the docs playground runs programs in a browser Worker, where a
+// static `import "node:fs/promises"` would fail the whole program. There, every operation fails
+// with FileSystemFailure. Node and Bun give the module through `process.getBuiltinModule`; a Node
+// older than 22.3 (which lacks it) imports it.
 
-import * as fs from "node:fs/promises";
+const fs =
+  globalThis.process?.getBuiltinModule?.("node:fs/promises") ??
+  (globalThis.process?.versions?.node === undefined ? undefined : await import("node:fs/promises")) ??
+  new Proxy(
+    {},
+    {
+      get: () => async () => {
+        throw new Error("this host has no file system");
+      },
+    },
+  );
 
 const ok = (fields) => ({ error: "", message: "", text: "", names: [], ...fields });
 const failed = (error, message) => ({ error, message, text: "", names: [] });

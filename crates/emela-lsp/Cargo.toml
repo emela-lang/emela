@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 emela-driver.workspace = true
-emela-pome.workspace = true
+emela-pome = { workspace = true, features = ["net"] }
 lsp-server.workspace = true
 lsp-types.workspace = true
 serde.workspace = true
