@@ -1728,12 +1728,12 @@ impl<'m> Builder<'m> {
                         if cx.f.vars[v].repr == Repr::Ref {
                             Scrutinee::Tag(v)
                         } else {
-                            Scrutinee::Lit(v)
+                            Scrutinee::Variant(v)
                         }
                     }
                     SwitchOn::Lit(v) => Scrutinee::Lit(v),
                 };
-                self.switch_chain(cx, ins, &cases, 0, &default, dst, scrutinee);
+                self.switch(cx, ins, &cases, &default, dst, scrutinee);
             }
             Stmt::Loop {
                 dst,
@@ -1772,9 +1772,110 @@ impl<'m> Builder<'m> {
         }
     }
 
-    /// A switch as a chain of comparing `if` / `else`, nested once per case. Not `br_table`: the
-    /// chain is simpler, and the depths of the branches out of it are counted the same way as
-    /// for any other `if`.
+    /// A switch on an enum tag whose variant keys are dense enough is dispatched with `br_table`;
+    /// everything else (a sparse table, a switch on a literal, too few cases) stays the chain of
+    /// comparing `if`s. A literal switch cannot use a table: its keys are arbitrary `i32`s, and
+    /// an `i64` one is not the `i32` a `br_table` indexes with.
+    fn switch(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        cases: &[emela_lir::Case],
+        default: &Option<SeqId>,
+        dst: Option<VarId>,
+        scrutinee: Scrutinee,
+    ) {
+        if matches!(scrutinee, Scrutinee::Lit(_)) {
+            return self.switch_chain(cx, ins, cases, 0, default, dst, scrutinee);
+        }
+        // The verifier gives a tag switch only variant keys, in range of the enum, each once.
+        let mut keys = Vec::with_capacity(cases.len());
+        for case in cases {
+            match &case.key {
+                CaseKey::Variant(k) => keys.push(*k),
+                CaseKey::Lit(_) => {
+                    self.internal(format!("a literal case in a tag switch in {}", cx.f.name));
+                    return;
+                }
+            }
+        }
+        let Some(max) = keys.iter().copied().max() else {
+            return self.switch_chain(cx, ins, cases, 0, default, dst, scrutinee);
+        };
+        // A table entry costs a byte; a case of the chain costs a comparison and its `if`, which
+        // is more. A table wider than that is not worth it, nor is one for a couple of cases,
+        // where the dispatch is one more label than the comparison it replaces.
+        let width = max.saturating_add(1);
+        if cases.len() < SWITCH_TABLE_MIN_CASES || width > SWITCH_TABLE_WIDTH_SCALE * cases.len() {
+            return self.switch_chain(cx, ins, cases, 0, default, dst, scrutinee);
+        }
+        self.switch_table(cx, ins, cases, &keys, default, dst, scrutinee, width);
+    }
+
+    /// A switch as one nested block per case, dispatched by `br_table`, with a block around them
+    /// for the end of the switch and a block inside it for the default.
+    ///
+    /// The blocks are pushed in case order, so the innermost (last pushed) block belongs to the
+    /// first case: a `br_table` depth of `i` leaves the blocks of the cases before `i` and lands
+    /// after the `end` of case `i`'s block, which is where case `i`'s body starts. A gap between
+    /// variant numbers lands on the default block. A case body that falls through (`yield`) leaves
+    /// the switch at the outer block, past the default, so no case can run the default's code.
+    /// Every one of those blocks is on `cx.labels`, so the depth of a break or a recur out of a
+    /// case body counts them exactly as any other `if` or `block` would be counted.
+    #[allow(clippy::too_many_arguments)]
+    fn switch_table(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        cases: &[emela_lir::Case],
+        keys: &[usize],
+        default: &Option<SeqId>,
+        dst: Option<VarId>,
+        scrutinee: Scrutinee,
+        width: usize,
+    ) {
+        let n = cases.len();
+        // The outer block is the switch's end; the next one is where a gap lands to run the
+        // default.
+        ins.block(BlockType::Empty);
+        cx.push(Lbl::Other);
+        ins.block(BlockType::Empty);
+        cx.push(Lbl::Other);
+        for _ in 0..n {
+            ins.block(BlockType::Empty);
+            cx.push(Lbl::Other);
+        }
+        self.push_scrutinee(cx, ins, scrutinee);
+        // From the innermost case block, the `n` case blocks are at depths `0..n`, the default
+        // block at `n` and the switch's end at `n + 1`.
+        let mut targets = vec![n as u32; width];
+        for (i, &k) in keys.iter().enumerate() {
+            targets[k] = i as u32;
+        }
+        ins.br_table(targets, n as u32);
+        for (i, case) in cases.iter().enumerate() {
+            cx.pop();
+            ins.end();
+            let body = case.body;
+            self.seq(cx, ins, body, dst);
+            // The case may fall through (`yield`). The switch's end is `n - i` labels out: the
+            // `n - 1 - i` case blocks left and the default block are above it.
+            ins.br((n - i) as u32);
+        }
+        cx.pop();
+        ins.end();
+        match default {
+            Some(d) => self.seq(cx, ins, *d, dst),
+            // Exhaustive without a default, as the verifier requires: the entry is not taken.
+            None => {
+                ins.unreachable();
+            }
+        }
+        cx.pop();
+        ins.end();
+    }
+
+    /// A switch as a chain of comparing `if` / `else`, nested once per case.
     #[allow(clippy::too_many_arguments)]
     fn switch_chain(
         &mut self,
@@ -1808,7 +1909,7 @@ impl<'m> Builder<'m> {
             }
         }
         match scrutinee {
-            Scrutinee::Tag(_) => ins.i32_eq(),
+            Scrutinee::Tag(_) | Scrutinee::Variant(_) => ins.i32_eq(),
             Scrutinee::Lit(v) => match cx.f.vars[v].repr {
                 Repr::I64 => ins.i64_eq(),
                 _ => ins.i32_eq(),
@@ -1831,7 +1932,7 @@ impl<'m> Builder<'m> {
                 let tag = self.rt("tag");
                 ins.call(tag);
             }
-            Scrutinee::Lit(v) => {
+            Scrutinee::Variant(v) | Scrutinee::Lit(v) => {
                 ins.local_get(cx.local(v));
             }
         }
@@ -2853,10 +2954,23 @@ impl<'m> Builder<'m> {
     }
 }
 
+/// Below this many cases, the chain of comparing `if`s is shorter than the nested blocks and the
+/// dispatch of a table.
+const SWITCH_TABLE_MIN_CASES: usize = 3;
+
+/// How many table entries (bytes) a case of the chain may be worth. A chain case is a comparison
+/// and its `if`, which is more than one byte, so the table may be this much wider than the switch
+/// has cases.
+const SWITCH_TABLE_WIDTH_SCALE: usize = 8;
+
 /// A switch's scrutinee.
 #[derive(Clone, Copy)]
 enum Scrutinee {
+    /// An enum value with a heap representation: the tag is read with the `tag` runtime function.
     Tag(VarId),
+    /// An enum value whose representation is its variant number.
+    Variant(VarId),
+    /// A literal `i32` or `i64` value.
     Lit(VarId),
 }
 
