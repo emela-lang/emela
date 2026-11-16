@@ -274,9 +274,11 @@ em_ref em_bytes_same(em_ref b);
  * `em_array_set`, which consumes the array: it writes in place when that was the last reference
  * (a count of 1), and copies otherwise. */
 em_ref em_array_from_list(em_ref xs, bool ref);
-/* A new array of `n` elements, uninitialized: what `$Array.map_range` fills. Its loop writes every
- * element before the array can be read or dropped; an element type with no representation writes
- * nothing and has no reference elements to drop. */
+/* A new array of `n` elements, uninitialized: what `$Array.map_range` fills. Its loop writes each
+ * element before the next call; a defect from the mapped function stops the loop there, shortens
+ * the array to the elements already written and releases it, so no unwritten slot is ever
+ * released. An element type with no representation writes nothing, and such an array has no
+ * reference elements to drop. */
 em_ref em_array_new(int64_t n, bool ref);
 em_ref em_array_to_list(em_ref a);
 int32_t em_array_size(em_ref a);

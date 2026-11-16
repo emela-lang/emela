@@ -1685,7 +1685,9 @@ function $arrayFromList(xs) {
 }
 
 // The Core IR fusion of `Array.from_list(List.map(List.range(lo, hi), f))`: the array of `f(i)`
-// for each `i` from `lo` up to `hi`, making neither the range nor the mapped list.
+// for each `i` from `lo` up to `hi`, making neither the range nor the mapped list. A defect from
+// `f` is thrown out of the loop like any other defect; the unfinished array is left to the
+// collector.
 function $arrayMapRange(lo, hi, f) {
   const n = hi > lo ? hi - lo : 0;
   const out = new Array(n);

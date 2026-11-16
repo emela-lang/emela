@@ -1407,8 +1407,12 @@ impl<'m> Emitter<'m> {
             // The Core IR fusion of `Array.from_list(List.map(List.range(lo, hi), f))`: one array,
             // filled by calling `f` for each position. `f` is pure and takes one `Int`, so the
             // closure call is the environment and that value, returning the element's
-            // representation. Every element is written before the array can be read or dropped
-            // (`em_array_new` leaves them uninitialized).
+            // representation. `em_array_new` leaves the elements uninitialized, so a defect from
+            // `f` stops the loop at the first one, shortens the array to the elements already
+            // written and releases it: nothing else releases the destination of a statement that
+            // defects, because a destination is not live before its own statement. Nothing else
+            // leaves the loop early (`f` neither fails nor suspends, and the builtin has no
+            // interruption point).
             Builtin::ArrayMapRange => {
                 let Some(d) = dst else {
                     self.internal(format!(
@@ -1456,11 +1460,24 @@ impl<'m> Emitter<'m> {
                         &format!("{i} = 0"),
                         &format!("{i} < {count}"),
                         &format!("{i}++"),
-                        |w| match elem {
-                            Repr::Void => w.stmt(&step),
-                            _ => {
-                                w.assign(&format!("{array}->slots[1 + {i}].{}", acc(elem)), &step);
+                        |w| {
+                            match elem {
+                                Repr::Void => w.stmt(&step),
+                                _ => {
+                                    w.assign(&format!("{array}->slots[1 + {i}].{}", acc(elem)), &step);
+                                }
                             }
+                            // A defect from `f` (nobody wrote it into the type) ends the loop
+                            // where it happens: the elements from `i` on were never written, so
+                            // the length becomes the count written. The array is the statement's
+                            // destination, which a landing does not own on the defect path (a
+                            // destination is not live before its own statement), so the array is
+                            // released here, and the landing unwinds without it.
+                            w.if_("em_defect != NULL", |w| {
+                                w.assign(&format!("{array}->slots[0].l"), &i);
+                                w.stmt(&call("em_drop", [array.clone()]));
+                                w.stmt("break");
+                            });
                         },
                     );
                 });
