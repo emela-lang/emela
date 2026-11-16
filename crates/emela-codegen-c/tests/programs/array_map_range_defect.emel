@@ -1,0 +1,16 @@
+# A defect raised by the mapped function of a fused `Array.from_list(List.map(List.range(..), f))`
+# stops the loop at the first one: the array is shortened to the elements already written, so the
+# drop that unwinds releases those and nothing after them, and no statement after the map runs. An
+# element is a `String`, so dropping an unwritten slot would release an uninitialized pointer (the
+# leak check and the sanitizers see that).
+import Std.Array.{Array}
+
+fn mapped(i: Int) -> String {
+  dbg("map #{i}")
+  if i == 2 { panic("boom") } else { Int.to_string(i) }
+}
+
+fn main() {
+  xs = Array.from_list(List.map(List.range(0, 5), mapped))
+  dbg(Array.size(xs))
+}

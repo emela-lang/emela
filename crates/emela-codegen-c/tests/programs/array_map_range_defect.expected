@@ -1,0 +1,7 @@
+exit: 101
+--- stdout
+--- stderr
+"map 0"
+"map 1"
+"map 2"
+defect: boom

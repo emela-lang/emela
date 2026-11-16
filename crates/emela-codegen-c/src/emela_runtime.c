@@ -733,11 +733,12 @@ em_ref em_array_from_list(em_ref xs, bool ref) {
   return a;
 }
 
-/* A new array of `n` elements, uninitialized: what `$Array.map_range` fills. Its loop writes every
- * element before the array can be read or dropped; an element type with no representation writes
- * nothing, and such an array has no reference elements to drop (its descriptor's `refs[0]` is 0).
- * There is no failure, suspension or interruption point between the allocation and the last
- * element, because `f` is pure. */
+/* A new array of `n` elements, uninitialized: what `$Array.map_range` fills. Its loop writes each
+ * element before the next call; a defect from the mapped function stops the loop there, shortens
+ * the array to the elements already written and releases it, so no uninitialized slot is ever
+ * released. An element type with no representation writes nothing, and such an array has no
+ * reference elements to drop (its descriptor's `refs[0]` is 0). No failure, suspension or
+ * interruption point lies between the allocation and the last element, because `f` is pure. */
 em_ref em_array_new(int64_t n, bool ref) { return em_array_alloc(n, ref); }
 
 em_ref em_array_to_list(em_ref a) {

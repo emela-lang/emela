@@ -176,8 +176,9 @@ pub enum Builtin {
     /// order. What the Core IR pass that fuses
     /// `Array.from_list(List.map(List.range(lo, hi), f))` makes (`opt::range`); it builds neither
     /// the range nor the mapped list. `f` is pure (no evidence table, no failure, no suspension)
-    /// and is called `max(0, hi - lo)` times. The type arguments are the element type and the
-    /// type of `f`.
+    /// and is called `max(0, hi - lo)` times, unless it raises a defect: a defect is not part of
+    /// its type, so it stops the call at the first one, and the array is released with the
+    /// elements already written. The type arguments are the element type and the type of `f`.
     ArrayMapRange,
 }
 

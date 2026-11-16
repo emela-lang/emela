@@ -1,0 +1,7 @@
+exit: 0
+--- stdout
+--- stderr
+"defect: boom"
+"defect: boom"
+"made 5"
+"made 0"
