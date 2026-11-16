@@ -80,17 +80,10 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
     true
 }
 
-/// Whether the program uses an Array builtin. A program without arrays keeps the same bytes: the
-/// functions here are left out, and so is the branch of `drop` for arrays.
+/// Whether reachable code uses an Array builtin. A program without arrays keeps the same bytes:
+/// the functions here are left out, and so is the branch of `drop` for arrays.
 pub(crate) fn used(b: &Builder) -> bool {
-    b.m.functions.iter().any(|(_, f)| {
-        f.stmts.iter().any(|(_, s)| {
-            matches!(
-                s,
-                Stmt::Let { value: Value::Builtin { op, .. }, .. } if is_array(*op)
-            )
-        })
-    })
+    b.reaches_builtin(is_array)
 }
 
 fn is_array(op: Builtin) -> bool {

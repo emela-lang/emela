@@ -320,6 +320,35 @@ fn main() {
 }
 
 #[test]
+fn an_unused_operation_keeps_its_runtime() {
+    // The operation is never performed, so the reach walk does not reach its body. The body is
+    // emitted as a trap stub, but the reachable-only gates must still leave the Float runtime out
+    // (and the program must compile): an unreachable body that called `float_parse` would be an
+    // internal error, not a user diagnostic.
+    let Some(out) = stderr(
+        "unused-op-runtime",
+        r#"
+effect Weird {
+  fn value() -> Float
+}
+
+handler WeirdHandler: Weird {
+  fn value() { Float.parse("1") escape { ParseError(_) -> 0.0 } }
+}
+
+fn main() {
+  with WeirdHandler {
+    dbg("hi")
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "\"hi\"\n");
+}
+
+#[test]
 fn split_with_an_empty_separator_splits_by_graphemes() {
     // A separator that is empty only at run time reaches the runtime, which splits per grapheme
     // cluster like `String.chars` (16.2).

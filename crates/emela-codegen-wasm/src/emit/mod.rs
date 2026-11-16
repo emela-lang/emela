@@ -29,7 +29,7 @@ mod runtime;
 mod runtimeop;
 mod suspend;
 
-use emela_core::{EnumId, FiberOp, OPTION_NONE, OPTION_SOME, Type, TypeId};
+use emela_core::{Builtin, EnumId, FiberOp, OPTION_NONE, OPTION_SOME, Type, TypeId};
 use emela_lir::{
     Callee, CaseKey, Const, FnId, Function, LabelId, Module, OnFail, Operand, PrimOp, PrimTy, Repr,
     SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of,
@@ -224,6 +224,12 @@ pub(crate) struct Builder<'m> {
     /// The runtime functions the IR bodies call. A runtime module's `setup` reads it to leave
     /// out static data the program never reaches.
     pub(crate) rt_used: FxHashSet<&'static str>,
+    /// The IR functions the entry reaches (`check::Reach`). The runtime gates read it so that a
+    /// feature only reachable code uses is emitted.
+    pub(crate) reachable: FxHashSet<FnId>,
+    /// The runtime functions the runtime body being emitted calls. `runtime::emit` reads it to
+    /// trim the runtimes whose entry points are independent (see `runtime::trimmable`).
+    pub(crate) rt_calls: std::cell::RefCell<FxHashSet<&'static str>>,
     /// The `show` function of each error enum (spec 10.6), as a table index for the descriptor.
     pub(crate) error_shows: FxHashMap<EnumId, u32>,
     pub(crate) entry_index: u32,
@@ -280,6 +286,8 @@ impl<'m> Builder<'m> {
             table_funcs: Vec::new(),
             rt: FxHashMap::default(),
             rt_used: FxHashSet::default(),
+            reachable: FxHashSet::default(),
+            rt_calls: std::cell::RefCell::new(FxHashSet::default()),
             error_shows: FxHashMap::default(),
             entry_index: 0,
             callback_index: 0,
@@ -363,6 +371,20 @@ impl<'m> Builder<'m> {
     /// Whether a supported WASI host is used (and so its runtime wrapper and import are needed).
     pub(crate) fn uses_std_host(&self, which: fn(StdHost) -> bool) -> bool {
         self.std_hosts.iter().any(|&(_, host)| which(host))
+    }
+
+    /// Whether reachable code has a `Builtin` that `op` accepts. The runtime gates read it so a
+    /// feature that only unreachable code uses is not emitted.
+    pub(crate) fn reaches_builtin(&self, mut used: impl FnMut(Builtin) -> bool) -> bool {
+        self.m.functions.iter().any(|(id, f)| {
+            self.reachable.contains(&id)
+                && f.stmts.iter().any(|(_, stmt)| {
+                    matches!(
+                        stmt,
+                        Stmt::Let { value: Value::Builtin { op, .. }, .. } if used(*op)
+                    )
+                })
+        })
     }
 
     pub(crate) fn uses_console(&self) -> bool {
@@ -593,7 +615,42 @@ impl<'m> Builder<'m> {
             .is_some_and(|e| e.binding("wasm").is_some())
     }
 
+    /// Whether the entry reaches the body of `f`. Every function keeps its index (a call, a
+    /// closure record or the table names it); only the body of an unreachable one is left out.
+    /// The roots that are not calls stay: a const is evaluated from its own cell, an error's
+    /// `show` function is named by its descriptor, and the trapping stubs of the hosts are
+    /// reserved separately (`reserve_traps`). A static closure and a table entry are reached
+    /// through the `MakeClosure`/`FnRef` that names them, which the walk follows.
+    fn keeps_body(&self, id: FnId, f: &Function) -> bool {
+        self.reachable.contains(&id)
+            || f.constant
+            || self.m.error_shows.iter().any(|&(_, show)| show == id)
+    }
+
     fn build(&mut self, entry: &Run, reach: &check::Reach) {
+        // The runtime gates read which functions the entry reaches. The Flow IR walk the
+        // diagnostics use does not see the functions the Heap IR passes append (a lifted closure
+        // body is its own function there), so the set is walked again on the Heap IR. A const is
+        // evaluated eagerly when the module starts and an error's `show` runs when the error is
+        // shown, so neither is called from the entry: both are roots too, and the builtins they
+        // use keep their runtime.
+        let mut roots = entry.roots();
+        roots.extend(self.m.error_shows.iter().map(|&(_, show)| show));
+        roots.extend(
+            self.m
+                .functions
+                .iter()
+                .filter(|(_, f)| f.constant)
+                .map(|(id, _)| id),
+        );
+        let heap_reach = check::reach(self.m, &roots);
+        self.reachable = self
+            .m
+            .functions
+            .iter()
+            .filter(|(id, _)| heap_reach.contains(*id))
+            .map(|(id, _)| id)
+            .collect();
         self.service = matches!(entry, Run::Service(_));
         self.tests = matches!(entry, Run::Tests(_));
         // The imports (the WASI host and the externals with a wasm binding) take the lowest
@@ -1093,6 +1150,13 @@ impl<'m> Builder<'m> {
         let mut bodies = Vec::new();
         for (id, f) in m.functions.iter() {
             if self.imported(id) {
+                continue;
+            }
+            if !self.keeps_body(id, f) {
+                // The index space keeps every function (calls and table entries name it), but a
+                // body the entry cannot reach costs three bytes instead of its code. A const is
+                // always kept, so this one is not a const and has a single body.
+                bodies.push(runtime::stub());
                 continue;
             }
             if f.constant {
