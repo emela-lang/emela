@@ -79,8 +79,8 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fs_write_all" => vec![(1, ValType::I64), (9, ValType::I32)],
         // new array, new capacity
         "fs_names_push" => i32s(2),
-        // i, j, a, b
-        "fs_names_sort" => i32s(4),
+        // start, end, root, child, a, b
+        "fs_names_sort" => i32s(6),
         // outcome, error name
         "fs_outcome" => i32s(2),
         // root, descriptor, text
@@ -1603,93 +1603,153 @@ fn names_push(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(0, 4));
 }
 
-/// `fs_names_sort()`: insertion sort of the listed names by UTF-8 byte order.
+/// Emits the address of name slot `index` of the last listing, plus `offset` bytes.
+fn names_slot(ins: &mut InstructionSink, p: Plan, index: u32, offset: i32) {
+    ins.i32_const(p.names as i32);
+    ins.i32_load(mem(0, 4));
+    ins.i32_const((HDR as i32) + offset);
+    ins.i32_add();
+    ins.local_get(index);
+    ins.i32_const(3);
+    ins.i32_shl();
+    ins.i32_add();
+}
+
+/// `fs_names_sort()`: heapsort of the listed names by UTF-8 byte order.
+///
+/// The slots hold pointers and are sorted in place, so no array is allocated. The names are
+/// not repeated, so the order does not depend on stability.
 fn names_sort(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const I: u32 = 0;
-    const J: u32 = 1;
-    const A: u32 = 2;
-    const B: u32 = 3;
+    const START: u32 = 0;
+    const END: u32 = 1;
+    const ROOT: u32 = 2;
+    const CHILD: u32 = 3;
+    const A: u32 = 4;
+    const B: u32 = 5;
     let p = plan(b);
     let cmp = b.rt("str_cmp");
-    ins.i32_const(1);
-    ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(I);
+    // Fewer than two names are already in order.
     ins.i32_const(p.count as i32);
     ins.i32_load(mem(0, 4));
-    ins.i32_ge_u();
-    ins.br_if(1);
-    ins.local_get(I);
-    ins.local_set(J);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(J);
-    ins.i32_eqz();
-    ins.br_if(1);
-    // A = slot[j - 1], B = slot[j].
-    ins.i32_const(p.names as i32);
+    ins.i32_const(2);
+    ins.i32_lt_u();
+    ins.if_(BlockType::Empty);
+    ins.return_();
+    ins.end();
+    // `start` walks down the parents while the max heap is built. It then stays zero while the
+    // largest remaining name is swapped to the end and the rest is sifted again.
+    ins.i32_const(p.count as i32);
     ins.i32_load(mem(0, 4));
-    ins.i32_const(HDR as i32);
-    ins.i32_add();
-    ins.local_get(J);
+    ins.i32_const(1);
+    ins.i32_shr_u();
+    ins.local_set(START);
+    ins.i32_const(p.count as i32);
+    ins.i32_load(mem(0, 4));
     ins.i32_const(1);
     ins.i32_sub();
-    ins.i32_const(3);
-    ins.i32_shl();
-    ins.i32_add();
+    ins.local_set(END);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(START);
+    ins.i32_const(0);
+    ins.i32_gt_u();
+    ins.if_(BlockType::Empty);
+    ins.local_get(START);
+    ins.i32_const(1);
+    ins.i32_sub();
+    ins.local_set(START);
+    ins.else_();
+    // One name left: the array is in order.
+    ins.local_get(END);
+    ins.i32_eqz();
+    ins.br_if(2);
+    // Move the root (the largest name) to `end` and shrink the heap.
+    ins.i32_const(0);
+    ins.local_set(ROOT);
+    names_slot(ins, p, ROOT, 0);
     ins.i32_load(mem(0, 4));
     ins.local_set(A);
-    ins.i32_const(p.names as i32);
+    names_slot(ins, p, END, 0);
     ins.i32_load(mem(0, 4));
-    ins.i32_const(HDR as i32);
-    ins.i32_add();
-    ins.local_get(J);
-    ins.i32_const(3);
+    ins.local_set(B);
+    names_slot(ins, p, ROOT, 0);
+    ins.local_get(B);
+    ins.i32_store(mem(0, 4));
+    names_slot(ins, p, END, 0);
+    ins.local_get(A);
+    ins.i32_store(mem(0, 4));
+    ins.local_get(END);
+    ins.i32_const(1);
+    ins.i32_sub();
+    ins.local_set(END);
+    ins.end();
+    // Sift the name at `start` down until the heap holds again below `end`.
+    ins.local_get(START);
+    ins.local_set(ROOT);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(ROOT);
+    ins.i32_const(1);
     ins.i32_shl();
+    ins.i32_const(1);
     ins.i32_add();
+    ins.local_set(CHILD);
+    // A root without a child is a leaf.
+    ins.local_get(CHILD);
+    ins.local_get(END);
+    ins.i32_gt_u();
+    ins.br_if(1);
+    // Take the right child when it exists and holds the larger name.
+    ins.local_get(CHILD);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_get(END);
+    ins.i32_le_u();
+    ins.if_(BlockType::Empty);
+    names_slot(ins, p, CHILD, 0);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(A);
+    names_slot(ins, p, CHILD, 8);
     ins.i32_load(mem(0, 4));
     ins.local_set(B);
     ins.local_get(A);
     ins.local_get(B);
     ins.call(cmp);
     ins.i32_const(0);
-    ins.i32_le_s();
-    ins.br_if(1);
-    // slot[j - 1] = B; slot[j] = A.
-    ins.i32_const(p.names as i32);
-    ins.i32_load(mem(0, 4));
-    ins.i32_const(HDR as i32);
-    ins.i32_add();
-    ins.local_get(J);
+    ins.i32_lt_s();
+    ins.if_(BlockType::Empty);
+    ins.local_get(CHILD);
     ins.i32_const(1);
-    ins.i32_sub();
-    ins.i32_const(3);
-    ins.i32_shl();
     ins.i32_add();
+    ins.local_set(CHILD);
+    ins.end();
+    ins.end();
+    // The heap holds when the root is not smaller than the child.
+    names_slot(ins, p, ROOT, 0);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(A);
+    names_slot(ins, p, CHILD, 0);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(B);
+    ins.local_get(A);
+    ins.local_get(B);
+    ins.call(cmp);
+    ins.i32_const(0);
+    ins.i32_lt_s();
+    ins.i32_eqz();
+    ins.br_if(1);
+    // slot[root] = B; slot[child] = A.
+    names_slot(ins, p, ROOT, 0);
     ins.local_get(B);
     ins.i32_store(mem(0, 4));
-    ins.i32_const(p.names as i32);
-    ins.i32_load(mem(0, 4));
-    ins.i32_const(HDR as i32);
-    ins.i32_add();
-    ins.local_get(J);
-    ins.i32_const(3);
-    ins.i32_shl();
-    ins.i32_add();
+    names_slot(ins, p, CHILD, 0);
     ins.local_get(A);
     ins.i32_store(mem(0, 4));
-    ins.local_get(J);
-    ins.i32_const(1);
-    ins.i32_sub();
-    ins.local_set(J);
+    ins.local_get(CHILD);
+    ins.local_set(ROOT);
     ins.br(0);
     ins.end();
     ins.end();
-    ins.local_get(I);
-    ins.i32_const(1);
-    ins.i32_add();
-    ins.local_set(I);
     ins.br(0);
     ins.end();
     ins.end();
