@@ -161,6 +161,13 @@ const N_TARGET: u32 = HDR + 8; // Ref
 const N_SLOTS: i32 = 2;
 
 // ---- the queue's job records ----
+//
+// A job is a tagged union: its kind says which of the fields are live. A wake does not allocate
+// for it: the run's queue and the later list take slots from a static ring, and only a full ring
+// falls back to a heap job. The ring is threaded as a free list through `J_NEXT`; a slot goes
+// back to it only when the job is fully drained (`fb_job_free`), so a queued job is never
+// overwritten. Both storages have the same layout, so the `J_*` offsets address either; the
+// address tells which one a job used (the ring is static data below the heap).
 
 const J_KIND: u32 = HDR;
 const J_END: u32 = HDR + 8;
@@ -174,6 +181,13 @@ const J_NEXT: u32 = HDR + 56;
 /// reference (see `drain`).
 const J_REPR: u32 = HDR + 60;
 const J_SLOTS: i32 = 8;
+/// The job slots the run's queue and later list share: the static job ring's capacity. When every
+/// slot is in use, `queue_push` makes the job on the heap instead, so a full ring never drops a
+/// job (see `fb_job_free`).
+const JOB_ENTRIES: u32 = 64;
+/// The bytes of a ring slot: the header and the eight job slots, so a ring slot and a heap job
+/// have the same layout.
+const JOB_BYTES: u32 = HDR + J_SLOTS as u32 * 8;
 
 pub(super) const JK_RESUME: i32 = 0;
 pub(super) const JK_BEGIN: i32 = 1;
@@ -199,6 +213,9 @@ pub(crate) struct Plan {
     /// `later`; every 16th fairness yield goes here).
     pub(crate) lhead: u32,
     pub(crate) ltail: u32,
+    /// The job ring's base and the head of its free list (`J_NEXT` links a free slot to the next).
+    pub(crate) job_ring: u32,
+    pub(crate) job_free: u32,
     pub(crate) pauses: u32,
     /// The run's result: 0 for a value, 1 for a failure, 2 for a defect. A strand that finishes
     /// after the run ended must not take it out of `G_DEFECT`/`G_FAILURE`.
@@ -385,6 +402,7 @@ pub(super) const FUNCS: &[Sig] = &[
         &[],
     ),
     ("fb_wait_chain", &[ValType::I32], &[ValType::I32]),
+    ("fb_job_free", &[ValType::I32], &[]),
     ("fb_watch_add", &[ValType::I32, ValType::I32], &[]),
     ("fb_watch_remove", &[ValType::I32], &[]),
     (
@@ -522,6 +540,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fb_wait_new" => i32s(4),
         "fb_wait_wake" => i32s(7),
         "fb_wait_chain" => i32s(5),
+        "fb_job_free" => i32s(1),
         "fb_watch_add" => i32s(4),
         "fb_watch_remove" => i32s(6),
         "fb_unlink_wait" => i32s(5),
@@ -765,6 +784,17 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     let def_interrupt = msg(b, b"fiber was interrupted after its scope ended");
     let failed_after = msg(b, b" failed after resume: ");
     let note_other = msg(b, b"note: another fiber also failed: ");
+    // The job ring and its free list. The queue takes a slot per wake instead of allocating; a
+    // run releases every job before the next one starts (`finish_run`), so the list is ready then.
+    let job_ring = b.alloc_static(JOB_ENTRIES * JOB_BYTES);
+    let mut free = 0;
+    for i in (0..JOB_ENTRIES).rev() {
+        let slot = job_ring + i * JOB_BYTES;
+        b.write_u32(slot + J_NEXT, free);
+        free = slot;
+    }
+    let job_free = b.alloc_static(4);
+    b.write_u32(job_free, free);
     b.fiber_plan = Some(Plan {
         cur_fiber: cells[0],
         cur_main: cells[1],
@@ -778,6 +808,8 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         qtail: cells[8],
         lhead: cells[21],
         ltail: cells[22],
+        job_ring,
+        job_free,
         pauses: cells[9],
         run_mode: cells[23],
         run_word: cells[24],
@@ -860,6 +892,7 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_wait_new" => wait_new(b, ins),
         "fb_wait_wake" => wait_wake(b, ins),
         "fb_wait_chain" => wait_chain(b, ins),
+        "fb_job_free" => job_free(b, ins),
         "fb_watch_add" => watch_add(b, ins),
         "fb_watch_remove" => watch_remove(b, ins),
         "fb_queue_push" => queue_push(b, ins, |p| (p.qhead, p.qtail)),
@@ -1731,10 +1764,21 @@ fn queue_push(b: &mut Builder<'_>, ins: &mut InstructionSink, list: impl Fn(&Pla
     }
     ins.return_();
     ins.end();
+    // A slot from the ring; when it is full, a heap job, so that no job is dropped or overwritten.
+    // `fb_job_free` tells the two apart and returns the storage the job used.
+    i32_const_cell(b, ins, |p| p.job_free);
+    ins.i32_load(mem(0, 4));
+    ins.local_tee(J);
+    ins.if_(BlockType::Empty);
+    i32_const_cell(b, ins, |p| p.job_free);
+    ldl(ins, J, J_NEXT);
+    ins.i32_store(mem(0, 4));
+    ins.else_();
     c(ins, J_SLOTS);
     c(ins, desc as i32);
     call(b, ins, "alloc");
     ins.local_set(J);
+    ins.end();
     stl(ins, J, J_KIND, 0);
     stl(ins, J, J_END, 3);
     stl(ins, J, J_FIBER, 1);
@@ -1812,6 +1856,41 @@ fn i32_const_cell(b: &mut Builder<'_>, ins: &mut InstructionSink, f: impl Fn(&Pl
     ins.i32_const(cell(b, f) as i32);
 }
 
+/// `fb_job_free(job)`: give back the storage of a job whose references the caller has released
+/// already (`drain` moved them into its locals and cleared their slots; `finish_run` releases
+/// them before it calls this). A ring slot goes back onto the free list; a job the full ring
+/// could not take is freed on the heap. The ring is static data below the heap, so the address
+/// tells which storage the job used.
+fn job_free(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const J: u32 = 0;
+    let base = plan(b).job_ring;
+    g(ins, J);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.return_();
+    ins.end();
+    g(ins, J);
+    c(ins, base as i32);
+    ins.i32_ge_u();
+    g(ins, J);
+    c(ins, (base + JOB_ENTRIES * JOB_BYTES) as i32);
+    ins.i32_lt_u();
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    // Back onto the free list; its queue link is not needed any more.
+    g(ins, J);
+    i32_const_cell(b, ins, |p| p.job_free);
+    ins.i32_load(mem(0, 4));
+    ins.i32_store(mem(J_NEXT, 4));
+    i32_const_cell(b, ins, |p| p.job_free);
+    g(ins, J);
+    ins.i32_store(mem(0, 4));
+    ins.else_();
+    // A heap job: its slots hold no references any more, so `drop` only frees the shell.
+    dropv(b, ins, J);
+    ins.end();
+}
+
 /// The same for a cell of the suspend runtime.
 fn sic(
     b: &mut Builder<'_>,
@@ -1875,7 +1954,8 @@ fn drain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     st_const(ins, J, J_FIBER, 0);
     st_const(ins, J, J_CHAIN, 0);
     st_const(ins, J, J_PERF, 0);
-    dropv(b, ins, J);
+    g(ins, J);
+    call(b, ins, "fb_job_free");
     i32_const_cell(b, ins, |p| p.run_over);
     ins.i32_load(mem(0, 4));
     ins.if_(BlockType::Empty);
@@ -5086,7 +5166,15 @@ fn finish_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
         ins.br_if(1);
         ldl(ins, W, J_NEXT);
         ins.local_set(NEXT);
-        dropv(b, ins, W);
+        // The run ended before the job ran: its references are still in the record. Clear them
+        // before `fb_job_free`, which then only returns the storage.
+        for off in [J_FIBER, J_CHAIN, J_PERF] {
+            ldl(ins, W, off);
+            call(b, ins, "drop");
+            st_const(ins, W, off, 0);
+        }
+        g(ins, W);
+        call(b, ins, "fb_job_free");
         g(ins, NEXT);
         ins.local_set(W);
         ins.br(0);
