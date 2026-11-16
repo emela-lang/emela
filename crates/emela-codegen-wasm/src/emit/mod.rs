@@ -1761,8 +1761,28 @@ impl<'m> Builder<'m> {
             Stmt::Protect { .. } => self.internal(format!("protect left in {}", cx.f.name)),
             Stmt::Dup(v) => {
                 ins.local_get(cx.local(v));
-                let dup = self.rt("dup");
-                ins.call(dup);
+                // `dup`: count the object unless it is null or static (rc == 0).
+                let obj = cx.scratch(Repr::I32, 0);
+                let rc = cx.scratch(Repr::Ref, 0);
+                ins.local_set(obj);
+                ins.local_get(obj);
+                ins.i32_eqz();
+                ins.if_(BlockType::Empty);
+                ins.else_();
+                ins.local_get(obj);
+                ins.i32_load(mem(0, 4));
+                ins.local_set(rc);
+                ins.local_get(rc);
+                ins.i32_eqz();
+                ins.if_(BlockType::Empty);
+                ins.else_();
+                ins.local_get(obj);
+                ins.local_get(rc);
+                ins.i32_const(1);
+                ins.i32_add();
+                ins.i32_store(mem(0, 4));
+                ins.end();
+                ins.end();
             }
             Stmt::Drop(v) => {
                 ins.local_get(cx.local(v));
@@ -1927,15 +1947,19 @@ impl<'m> Builder<'m> {
 
     fn push_scrutinee(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, s: Scrutinee) {
         match s {
-            Scrutinee::Tag(v) => {
-                ins.local_get(cx.local(v));
-                let tag = self.rt("tag");
-                ins.call(tag);
-            }
+            Scrutinee::Tag(v) => self.tag_value(cx, ins, v),
             Scrutinee::Variant(v) | Scrutinee::Lit(v) => {
                 ins.local_get(cx.local(v));
             }
         }
+    }
+
+    /// The variant number of a heap enum value: the tag of its descriptor. The runtime's `tag` is
+    /// these three instructions, so the emitter writes them where it reads a tag.
+    fn tag_value(&mut self, cx: &FnCtx, ins: &mut InstructionSink, v: VarId) {
+        ins.local_get(cx.local(v));
+        ins.i32_load(mem(8, 4));
+        ins.i32_load(mem(DESC_TAG, 4));
     }
 
     fn value(
@@ -2010,9 +2034,7 @@ impl<'m> Builder<'m> {
             }
             Value::Tag(v) => {
                 if cx.f.vars[*v].repr == Repr::Ref {
-                    ins.local_get(cx.local(*v));
-                    let tag = self.rt("tag");
-                    ins.call(tag);
+                    self.tag_value(cx, ins, *v);
                 } else {
                     ins.local_get(cx.local(*v));
                 }
