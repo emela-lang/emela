@@ -60,8 +60,9 @@ fn main() {
 
 #[test]
 fn a_finished_operation_call_frees_its_record() {
-    // A `suspend fn` operation call makes a perform record, its resume function and the name of
-    // the operation for diagnostics; all of them are freed once the call returns.
+    // A `suspend fn` operation call makes a perform record and its resume function; both are
+    // freed once the call returns. The name of the operation for diagnostics is not built unless
+    // a diagnostic is produced.
     run_limited(
         "memory-operation",
         r#"
