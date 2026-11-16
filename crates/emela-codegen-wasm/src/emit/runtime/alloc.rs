@@ -349,6 +349,13 @@ fn out_of_memory(b: &Builder, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     ins.unreachable();
     ins.end();
+    out_of_memory_loud(b, ins);
+}
+
+/// [`out_of_memory`] for a caller other than [`heap_reserve`], which has no quiet flag: writes the
+/// line, best effort, and traps. An `array_new` count that cannot fit in the i32 `alloc` sizes its
+/// block with ends here rather than in a wrapped block (issue #494).
+pub(super) fn out_of_memory_loud(b: &Builder, ins: &mut InstructionSink) {
     let message = *b
         .rt_data
         .get(OOM_MESSAGE_KEY)
