@@ -2,7 +2,7 @@
 title: Predicate function names with ?
 authors: []
 status: draft
-pr: 618
+pr: 619
 issue:
 decided:
 touches: [lex.name, grammar.lex, grammar.decl, grammar.expr, module.import, module.resolution, fn.decl, fn.local, trait.decl, trait.impl, trait.call, effect.decl, effect.handler, effect.use, type.rules, ext.decl, ext.export, ext.entry, fmt.space, lsp.completion, lsp.navigation, lsp.rename, diag.list]
