@@ -21,7 +21,7 @@ pub(super) const FUNCS: &[Sig] = &[
         &[ValType::I32, ValType::I32],
         &[ValType::I32],
     ),
-    ("array_new", &[ValType::I32, ValType::I32], &[ValType::I32]),
+    ("array_new", &[ValType::I64, ValType::I32], &[ValType::I32]),
     (
         "array_to_list",
         &[ValType::I32, ValType::I32],
@@ -57,7 +57,7 @@ pub(super) const FUNCS: &[Sig] = &[
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "array_from_list" => i32s(5), // n, p, a, at, refs
-        "array_new" => i32s(1),       // out
+        "array_new" => i32s(2),       // n, out
         "array_to_list" => i32s(3),   // head, i, cell
         "array_get" => i32s(1),       // cell
         "array_set" => i32s(5),       // n, out, shown, msg, size
@@ -231,15 +231,40 @@ fn array_from_list(b: &Builder, ins: &mut InstructionSink) {
     ins.local_get(A);
 }
 
+/// The largest element count an array can hold: `alloc` computes the block size in an i32, so a
+/// count whose `(n + 1) * 8 + HDR` bytes do not fit is out of memory (issue #494).
+const MAX_ELEMS: i64 = (i32::MAX as i64 - HDR as i64) / 8 - 1;
+
 /// `array_new(n, desc)`: a new array of `n` elements, uninitialized. `$Array.map_range` writes
-/// every element before the array can be read or dropped; an element type with no representation
-/// writes nothing and has no reference elements to drop.
+/// each element before the next call; a defect from the mapped function stops the loop there,
+/// shortens the array to the elements already written and releases it, so no uninitialized slot is
+/// ever released. An element type with no representation writes nothing and has no reference
+/// elements to drop.
+///
+/// `n` is an i64 because `hi - lo` of an `Int` range is up to 2^32. A count that no wasm32 object
+/// can hold is out of memory, like a failed `heap_reserve`: `alloc` would otherwise compute a
+/// wrapped i32 block size, store a negative length and let the fill loop write past the block.
 fn array_new(b: &Builder, ins: &mut InstructionSink) {
-    const OUT: u32 = 2;
+    const N: u32 = 2;
+    const OUT: u32 = 3;
+    // `n < 0`, or `(n + 1) * 8 + HDR` past the largest i32: neither can be an array.
+    ins.local_get(0);
+    ins.i64_const(0);
+    ins.i64_lt_s();
+    ins.local_get(0);
+    ins.i64_const(MAX_ELEMS);
+    ins.i64_gt_s();
+    ins.i32_or();
+    ins.if_(BlockType::Empty);
+    super::alloc::out_of_memory_loud(b, ins);
+    ins.end();
+    ins.local_get(0);
+    ins.i32_wrap_i64();
+    ins.local_set(N);
     new_array(
         b,
         ins,
-        0,
+        N,
         |ins| {
             ins.local_get(1);
         },

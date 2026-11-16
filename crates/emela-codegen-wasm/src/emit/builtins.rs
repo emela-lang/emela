@@ -266,21 +266,25 @@ impl<'m> Builder<'m> {
                 let fun = cx.local(*fun);
                 let out = cx.local(dst);
                 let desc = self.array_desc(cx.f.vars[dst].ty);
-                // The count, then the position in the array (0-based): both fit in one scratch
-                // local, because the loop reads the count from the array's length.
+                // The count goes to `array_new` in 64 bits: `hi - lo` is up to 2^32, which an i32
+                // would wrap to a negative count (and so to a tiny array). The position in the
+                // array (0-based) is an i32, and the loop reads the count from the array's length.
+                let count = cx.scratch(Repr::I64, 0);
                 let at = cx.scratch(Repr::I32, 0);
                 self.operand(cx, ins, &args[1]);
+                ins.i64_extend_i32_s();
                 self.operand(cx, ins, &args[0]);
-                ins.i32_gt_s();
-                ins.if_(BlockType::Result(ValType::I32));
-                self.operand(cx, ins, &args[1]);
-                self.operand(cx, ins, &args[0]);
-                ins.i32_sub();
+                ins.i64_extend_i32_s();
+                ins.i64_sub();
+                ins.local_set(count);
+                ins.local_get(count);
+                ins.i64_const(0);
+                ins.i64_lt_s();
+                ins.if_(BlockType::Result(ValType::I64));
+                ins.i64_const(0);
                 ins.else_();
-                ins.i32_const(0);
+                ins.local_get(count);
                 ins.end();
-                ins.local_set(at);
-                ins.local_get(at);
                 ins.i32_const(desc as i32);
                 let new = self.rt("array_new");
                 ins.call(new);
