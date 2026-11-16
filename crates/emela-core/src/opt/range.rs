@@ -7,7 +7,8 @@
 //!
 //! `Array.from_list(List.map(List.range(lo, hi), f))` builds neither the range nor the mapped
 //! list: it becomes the internal `ArrayMapRange(lo, hi, f)`, which makes the array in one pass
-//! ([`map_array`]).
+//! ([`map_array`]). A defect from `f` is not in its type; the loop stops at the first one and
+//! releases the array with the elements already written.
 
 use crate::intrinsics::Builtin;
 use crate::ir::{BinOp, Callee, Expr, FnId, Lit, Local, Module, OpTy, Type, TypeId};
@@ -48,8 +49,9 @@ pub(super) fn fold(m: &mut Module, core_fns: &CoreFns) -> PassStats {
 /// `f` is evaluated even when the range is empty. Neither the range's cons cells nor the mapped
 /// list are made, and the array is made once.
 /// Preserves: evaluation order, the calls of `f` and their failures, effects and suspension
-/// points, and drop points. The array holds the values `f` returns, owned as the list's elements
-/// were.
+/// points, and drop points. A defect is not part of `f`'s type: it stops the loop at the first
+/// one, and the array, which is made before the first call, is released with the elements already
+/// written. The array holds the values `f` returns, owned as the list's elements were.
 /// Deopt: a call that is not this shape is left alone, as in [`fold`]; so is an effectful,
 /// failing or suspending `f` (the internal builtin has no failure edge and takes no evidence
 /// table), and an element type without a representation.
@@ -157,7 +159,8 @@ fn fuse_map_array(m: &mut Module, e: &Expr, core_fns: &CoreFns) -> Option<Expr> 
     }
     let f_ty = param_type(m, *f, 1, ty_args);
     // A pure `f` takes no evidence table and cannot fail or suspend. The builtin has no failure
-    // edge, so anything else is left to the list form, which keeps it.
+    // edge, so anything else is left to the list form, which keeps it. A defect is not part of a
+    // function type, so the builtin may raise one too; the loop stops at the first.
     let Type::Fn(ft) = m.ty(f_ty) else {
         return None;
     };

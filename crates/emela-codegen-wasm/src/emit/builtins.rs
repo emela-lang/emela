@@ -246,8 +246,10 @@ impl<'m> Builder<'m> {
             // The Core IR fusion of `Array.from_list(List.map(List.range(lo, hi), f))`: one array,
             // filled by calling `f` with each position from `lo`. `f` is pure and takes one `Int`,
             // so the indirect call is the closure and that value and returns the element's
-            // representation. An element is stored only after `f` returns it, so the array's
-            // zeroed elements are never read.
+            // representation. An element is stored only after `f` returns it, and a defect from
+            // `f` ends the loop at the first one, shortens the array to the elements already
+            // written and releases it: nothing else releases the destination of a statement that
+            // defects, because a destination is not live before its own statement.
             ArrayMapRange => {
                 let Some(dst) = dst else {
                     self.internal(format!(
@@ -327,6 +329,22 @@ impl<'m> Builder<'m> {
                     }
                     Repr::Void => {}
                 }
+                // A defect from `f` (nobody wrote it into the type) ends the loop where it
+                // happens: the elements from `at` on were never written, so the length becomes
+                // the count written. The array is the statement's destination, which a landing
+                // does not own on the defect path (a destination is not live before its own
+                // statement), so the array is released here, and the landing unwinds without it.
+                // `br 2` leaves the `if`, the loop and the block around it.
+                ins.global_get(G_DEFECT);
+                ins.if_(BlockType::Empty);
+                ins.local_get(out);
+                ins.local_get(at);
+                ins.i32_store(mem(HDR, 4));
+                ins.local_get(out);
+                let drop = self.rt("drop");
+                ins.call(drop);
+                ins.br(2);
+                ins.end();
                 ins.local_get(at);
                 ins.i32_const(1);
                 ins.i32_add();

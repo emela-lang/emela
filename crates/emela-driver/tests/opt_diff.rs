@@ -298,6 +298,7 @@ fn codegen_programs() -> Vec<PathBuf> {
 const DEFAULT_PROGRAMS: &[&str] = &[
     "array",
     "array_map_range",
+    "array_map_range_defect",
     "call_order",
     "closures",
     "data",
