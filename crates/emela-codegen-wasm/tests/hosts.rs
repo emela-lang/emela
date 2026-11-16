@@ -134,6 +134,39 @@ fn main() {
 }
 
 #[test]
+fn env_indexes_many_names() {
+    // The runtime builds an open-addressing table on the first lookup. More than eight names
+    // double its capacity and make the lookups probe past a taken slot.
+    if wasmtime().is_none() {
+        return;
+    }
+    let names: Vec<String> = (0..20).map(|i| format!("EMELA_TEST_MANY_{i:02}")).collect();
+    let mut body = String::new();
+    for name in &names {
+        body.push_str(&format!("    dbg((use Env).get(\"{name}\"))\n"));
+    }
+    body.push_str("    dbg((use Env).get(\"EMELA_TEST_MANY_MISSING\"))\n");
+    let src = format!(
+        "import Std.Env.{{Env, SystemEnv}}\n\nfn main() {{\n  with SystemEnv {{\n{body}  }}\n}}\n"
+    );
+    let bytes = compile_checked(&src);
+    let dir = out_dir("env-many");
+    let run = run_bytes_with_command(&dir, &bytes, |command| {
+        command.arg("-S").arg("inherit-env=n");
+        for (i, name) in names.iter().enumerate() {
+            command.arg("--env").arg(format!("{name}=value-{i}"));
+        }
+    });
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    let mut expected = String::new();
+    for i in 0..names.len() {
+        expected.push_str(&format!("Some(\"value-{i}\")\n"));
+    }
+    expected.push_str("None\n");
+    assert_eq!(run.stderr, expected, "{}", run.stderr);
+}
+
+#[test]
 fn env_never_observes_non_utf8_bytes() {
     // `get-environment` returns WIT `string`s, so a non-UTF-8 variable has no representation.
     // wasmtime 49 rejects the inherited environment before the program starts (a host may also

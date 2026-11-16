@@ -34,6 +34,9 @@ pub(crate) enum StdHost {
     ArgCount,
     /// `Std.Process.arg_at`: one argument of the program.
     ArgAt,
+    /// `Std.Process.set_exit_code`: writes out the output and exits with the code that main
+    /// returned as an `ExitCode` (`[target.wasm.output]`).
+    ExitCode,
     /// `Std.Random.int`: 32 random bits.
     RandomInt,
     /// `Std.Random.float`: uniform in `[0, 1)`.
@@ -107,6 +110,7 @@ impl StdHost {
             StdHost::EnvGet => "env_get",
             StdHost::ArgCount => "args_count",
             StdHost::ArgAt => "args_at",
+            StdHost::ExitCode => "exit",
             StdHost::RandomInt => "random_int",
             StdHost::RandomFloat => "random_float",
             StdHost::ClockNow => "clock_now",
@@ -223,6 +227,7 @@ const STD_HOSTS: &[(&str, StdHost)] = &[
     ("Std.Env.env_get", StdHost::EnvGet),
     ("Std.Process.arg_count", StdHost::ArgCount),
     ("Std.Process.arg_at", StdHost::ArgAt),
+    ("Std.Process.set_exit_code", StdHost::ExitCode),
     ("Std.Random.random_int", StdHost::RandomInt),
     ("Std.Random.random_float", StdHost::RandomFloat),
     ("Std.Clock.now_milliseconds", StdHost::ClockNow),

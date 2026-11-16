@@ -1,6 +1,6 @@
-# What the process has exactly one of: its arguments (Args), its standard input (Stdin), and its
-# standard output and standard error (Stdout, Stderr) (`[api.std.process]`; the platform and test
-# layers of `[lib.layers]`).
+# What the process has exactly one of: its arguments (Args), its standard input (Stdin), its
+# standard output and standard error (Stdout, Stderr), and its exit code (ExitCode)
+# (`[api.std.process]`; the platform and test layers of `[lib.layers]`).
 #
 # Use them as `(use Args).get(0)`, `(use Stdin).read_line()` and `(use Stdout).print("? ")`, and
 # provide them with `with SystemArgs, SystemStdin, SystemStdout { ... }`, or with
@@ -270,4 +270,54 @@ fn append_stdout(text: String) -> () uses { State[StdoutText] } {
 
 fn append_stderr(text: String) -> () uses { State[StderrText] } {
   (use State[StderrText]).update(|err| StderrText(text: "#{err.text}#{text}"))
+}
+
+# ---- ExitCode ----
+
+# `[api.std.process]` declares `opaque type ExitCode`; from outside, an opaque type and an opaque
+# enum look the same. It is an enum because only a variant has a positional field, which gives the
+# derived Show `ExitCode(2)` that the section asks for.
+
+## The exit code of a program, an Int from 0 to 255. A `main` that returns one exits with it
+## (`[dyn.error]`). Making one uses no effect.
+pub opaque enum ExitCode {
+  ExitCode(Int)
+}
+  derive Eq, Show
+
+## The exit code `code`. A defect if `code` is outside 0 to 255: the exit status of a POSIX process
+## and the argument of `exit-with-code` of WASI are 8 bits wide.
+pub fn exit_code(code: Int) -> ExitCode {
+  if code < 0 || code > 255 {
+    panic("exit code #{code} is out of range 0 to 255")
+  } else {
+    ExitCode(code)
+  }
+}
+
+## The number of the exit code.
+pub fn exit_code_to_int(code: ExitCode) -> Int {
+  ExitCode(n) = code
+  n
+}
+
+pub const EXIT_SUCCESS: ExitCode = exit_code(0)
+pub const EXIT_FAILURE: ExitCode = exit_code(1)
+
+# The exit code of a `main` that returns an `ExitCode`. Lowering calls `exit_with` with the value
+# of such a `main` once it has returned, that is after the releases of its withs have run and the
+# children of its `Fiber.scope`s have ended (`emela_core::lower`). Nothing else calls them.
+
+## Makes the program exit with `code` when it ends normally: JS sets `process.exitCode`, native
+## keeps it for the runtime's exit, and WASM writes out the output and calls `exit-with-code` at
+## once (`[target.wasm.output]`).
+@external(js, "./process.mjs", "setExitCode")
+@external(c, "./process.c", "emela_process_set_exit_code")
+@external(wasm, "wasi:cli/exit@0.3.0", "exit-with-code")
+fn set_exit_code(code: Int) -> () uses {}
+
+## 0 is how a program ends anyway, so only another code goes to the host.
+fn exit_with(code: ExitCode) -> () {
+  n = exit_code_to_int(code)
+  if n == 0 { () } else { set_exit_code(n) }
 }

@@ -1,0 +1,6 @@
+import Std.Process.{ExitCode}
+
+# `[api.std.process]`: a code outside 0 to 255 is a defect, not taken modulo 256.
+fn main() -> ExitCode {
+  Process.exit_code(256)
+}

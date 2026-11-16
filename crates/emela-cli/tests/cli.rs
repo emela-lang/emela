@@ -255,7 +255,7 @@ fn check_clean_project() {
         "clean",
         &[
             ("Pome.toml", ""),
-            ("src/main.emel", "import Json\n\nfn main() { 1 }\n"),
+            ("src/main.emel", "import Json\n\nfn main() { () }\n"),
             ("src/json.emel", ""),
         ],
     );
@@ -293,7 +293,7 @@ fn build_writes_js() {
         "build-js",
         &[
             ("Pome.toml", ""),
-            ("src/main.emel", "fn main() {\n  dbg(1 + 2)\n}\n"),
+            ("src/main.emel", "fn main() {\n  dbg(1 + 2)\n  ()\n}\n"),
         ],
     );
     let run = project.emela(&["build"]);
@@ -312,7 +312,7 @@ fn build_reports_unsupported_expressions() {
             // Capability values cannot be shown.
             (
                 "src/main.emel",
-                "import Std.Console.{Console, SystemConsole}\n\nfn main() {\n  with SystemConsole {\n    c = use Console\n    dbg(\"#{c}\")\n  }\n}\n",
+                "import Std.Console.{Console, SystemConsole}\n\nfn main() {\n  with SystemConsole {\n    c = use Console\n    dbg(\"#{c}\")\n  }\n  ()\n}\n",
             ),
         ],
     );
@@ -386,7 +386,7 @@ fn explicit_library_file_remains_a_file_entry_and_binary_entry_takes_priority() 
             ("Pome.toml", ""),
             (
                 "src/lib.emel",
-                "fn main() { dbg(42) }\n@test\nfn in_lib() { assert True }\n",
+                "fn main() {\n  dbg(42)\n  ()\n}\n@test\nfn in_lib() { assert True }\n",
             ),
         ],
     );
@@ -401,7 +401,7 @@ fn explicit_library_file_remains_a_file_entry_and_binary_entry_takes_priority() 
 
     std::fs::write(
         project.path().join("src/main.emel"),
-        "fn main() { dbg(7) }\n@test\nfn in_main() { assert True }\n",
+        "fn main() {\n  dbg(7)\n  ()\n}\n@test\nfn in_main() { assert True }\n",
     )
     .unwrap();
     let run = project.emela(&["run"]);
@@ -603,7 +603,7 @@ fn single_file_reads_only_imported_files() {
     let clean = Project::new(
         "single-clean",
         &[
-            ("main.emel", "fn main() { 1 }\n"),
+            ("main.emel", "fn main() { () }\n"),
             ("scratch.emel", "fn broken( {\n"),
         ],
     );
@@ -721,7 +721,7 @@ fn check_resolves_bundled_core() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "fn main() -> Int {\n  xs = List.map([1, 2], |x| x * 2)\n  Option.or(List.head(xs), 0) + String.length(\"abc\")\n}\n",
+                "fn main() {\n  xs = List.map([1, 2], |x| x * 2)\n  Option.or(List.head(xs), 0) + String.length(\"abc\")\n  ()\n}\n",
             ),
         ],
     );
@@ -760,7 +760,7 @@ fn run_reports_unhandled_error_with_exit_code_1() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "error NotFound(id: Int) derive Show\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  dbg(find(0) escape { NotFound(_) -> 0 })\n  dbg(find(-1))\n}\n",
+                "error NotFound(id: Int) derive Show\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  dbg(find(0) escape { NotFound(_) -> 0 })\n  dbg(find(-1))\n  ()\n}\n",
             ),
         ],
     );
@@ -813,6 +813,7 @@ fn main() {
   dbg([int(-2147483647 - 1), int(-16), int(-3), int(-1), int(1)])
   dbg([long(-9223372036854775807 - 1), long(-5), long(5)])
   dbg([float(-1.5), float(0.0), float(-0.0), float(1.5)])
+  ()
 }
 "#,
             ),
@@ -1073,6 +1074,7 @@ fn second() {
 fn main() {
   dbg(ANSWER + ANSWER)
   dbg(ANSWER)
+  ()
 }
 "#,
             ),
@@ -1111,7 +1113,7 @@ fn const_cycles() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "const A = f()\n\nfn f() -> Int { A + 1 }\n\nfn main() {\n  dbg(A)\n}\n",
+                "const A = f()\n\nfn f() -> Int { A + 1 }\n\nfn main() {\n  dbg(A)\n  ()\n}\n",
             ),
         ],
     );

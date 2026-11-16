@@ -723,6 +723,15 @@ impl Diagnostic {
                     format!("derived `{trait_name}` for `{ty}` is never used"),
                 )
             }
+            TypeDiagnosticKind::MainValueDiscarded { ty } => {
+                help =
+                    Some("return `()`, or return an `ExitCode` to choose the exit code".to_owned());
+                (
+                    Severity::Warning,
+                    Some(code::MAIN_VALUE_DISCARDED),
+                    format!("the value of type `{ty}` returned by `main` is discarded"),
+                )
+            }
             TypeDiagnosticKind::UnreachableArm => (
                 Severity::Warning,
                 Some(code::UNREACHABLE_MATCH_ARM),

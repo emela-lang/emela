@@ -1,0 +1,12 @@
+import Std.Process.{EXIT_SUCCESS, ExitCode}
+
+error UsageError(message: String) derive Show
+
+fn run(args: List[String]) -> ExitCode fails UsageError {
+  if args == [] { fail UsageError(message: "no file") } else { EXIT_SUCCESS }
+}
+
+# `[dyn.error]`: an error that reaches a main returning `ExitCode` still exits with 1.
+fn main() -> ExitCode fails UsageError {
+  run([])
+}

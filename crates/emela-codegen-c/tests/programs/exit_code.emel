@@ -1,0 +1,34 @@
+import Std.Process.{EXIT_FAILURE, EXIT_SUCCESS, ExitCode}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res: Name {
+  init { Res }
+  fn name() { "res" }
+  release { print("release") }
+}
+
+# `[api.std.process]`: the constants, the conversions and the derived Eq and Show.
+fn check() -> () {
+  print("#{EXIT_SUCCESS} #{EXIT_FAILURE}")
+  print("#{EXIT_SUCCESS.exit_code_to_int()} #{Process.exit_code_to_int(EXIT_FAILURE)}")
+  print("#{Process.exit_code(0) == EXIT_SUCCESS} #{Process.exit_code(255) == EXIT_FAILURE}")
+  print("#{Process.exit_code(255)}")
+}
+
+# `[dyn.error]`: the program exits with the code that main returns, after the releases of its
+# withs have run and its output is written.
+fn main() -> ExitCode {
+  check()
+  with Res {
+    print("body #{(use Name).name()}")
+    dbg("to stderr")
+    Process.exit_code(3)
+  }
+}

@@ -1,0 +1,34 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: out
+---
+warning[W0304]: the value of type `Int` returned by `main` is discarded
+   ╭─[ main.emel:1:14 ]
+   │
+ 1 │ fn main() -> Int {
+   │              ─┬─  
+   │               ╰─── 
+───╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
+1 warning
+warning[W0304]: the value of type `String` returned by `main` is discarded
+   ╭─[ main.emel:1:4 ]
+   │
+ 1 │ fn main() {
+   │    ──┬─  
+   │      ╰─── 
+───╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
+1 warning
+warning[W0304]: the value of type `List[Int]` returned by `main` is discarded
+   ╭─[ main.emel:1:14 ]
+   │
+ 1 │ fn main() -> List[Int] {
+   │              ────┬────  
+   │                  ╰────── 
+───╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
+1 warning

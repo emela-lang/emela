@@ -396,7 +396,7 @@ fn unused_derives_of_private_types_are_reported() {
 
 #[test]
 fn a_derive_used_through_a_generic_type_counts() {
-    let main = "type Point(x: Int) derive Eq\ntype Box[A](value: A) derive Eq\nfn main() -> Bool { Eq.eq(Box(value: Point(x: 1)), Box(value: Point(x: 2))) }\n";
+    let main = "type Point(x: Int) derive Eq\ntype Box[A](value: A) derive Eq\nfn main() {\n  Eq.eq(Box(value: Point(x: 1)), Box(value: Point(x: 2)))\n  ()\n}\n";
     assert_eq!(diagnostics(main), Vec::<String>::new());
 }
 

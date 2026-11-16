@@ -7,6 +7,7 @@ handler RemoteKv: use {}
 handler QuietLog: use {}
 `RemoteKv` MissingInitArgs { handler: "RemoteKv", params: ["url"] }
 `RemoteKv` MissingInitArgs { handler: "RemoteKv", params: ["url"] }
+`main` MainValueDiscarded { ty: "String" }
 --- R
 { (use Kv).get("a") }: Kv
 (use Kv).get("a"): Kv

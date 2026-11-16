@@ -422,7 +422,8 @@ void em_test_done(void);
 /* Ends the run: reports a pending defect (`defect: ...`, 101) or failure (`error: ...`, 1),
  * releases what the runtime holds and, with the environment variable EMELA_LEAK_CHECK set (or
  * the runtime compiled with -DEMELA_LEAK_CHECK), reports live allocations (exit code 99).
- * Returns the exit code. `cleanup` releases the program's const values. */
+ * Returns the exit code: otherwise 0, or the `ExitCode` that main returned (`em_set_exit_code`).
+ * `cleanup` releases the program's const values. */
 int em_exit(void (*cleanup)(void));
 
 #endif

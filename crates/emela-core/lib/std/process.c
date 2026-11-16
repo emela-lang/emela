@@ -283,3 +283,11 @@ char *emela_stdin_taken(void) {
 void emela_process_write_stdout(const char *text) { em_write_stdout(text, strlen(text), false); }
 
 void emela_process_write_stderr(const char *text) { em_write_stderr(text, strlen(text), false); }
+
+/* ---- ExitCode ---- */
+
+/* In the runtime (emela_runtime.c), not in emela.h: the code `em_exit` returns when the run did
+ * not end with an error, a defect or an interruption. */
+void em_set_exit_code(int32_t code);
+
+void emela_process_set_exit_code(int32_t code) { em_set_exit_code(code); }

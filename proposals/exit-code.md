@@ -1,9 +1,9 @@
 ---
 title: Choosing the exit code with the return value of main
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 567
-issue:
+issue: 586
 decided: 2026-11-15
 touches: [dyn.error, effect.with, diag.list, cmd.build, target.native.run, target.wasm.output, ext.export, lib.layers, api.std.process]
 requires: [std-process]
@@ -178,7 +178,7 @@ No text change. `ExitCode` is not a boundary type (12.4), so an `@export` fn or 
 
 ## Diagnostics
 
-- [ ] W0304: a `main` whose return type is none of `()`, `ExitCode` and Never. The message is ``the value of type `Int` returned by `main` is discarded``, and the help is ``= help: return `()`, or return an `ExitCode` to choose the exit code``. It points at the annotation of the return type, or at the name `main` when the type is inferred. It is the first free number of W03xx (warnings about types).
+- [x] W0304: a `main` whose return type is none of `()`, `ExitCode` and Never. The message is ``the value of type `Int` returned by `main` is discarded``, and the help is ``= help: return `()`, or return an `ExitCode` to choose the exit code``. It points at the annotation of the return type, or at the name `main` when the type is inferred. It is the first free number of W03xx (warnings about types).
 - A value outside the range of `exit_code` is a defect at run time, and no diagnostic is added. The message is `exit code <n> is out of range 0 to 255`.
 
 ## Compatibility

@@ -47,7 +47,6 @@ pub(super) const FUNCS: &[Sig] = &[
         &[],
     ),
     ("where_new", &[ValType::I32, ValType::I32], &[ValType::I32]),
-    ("handler_name", &[ValType::I32], &[ValType::I32]),
     ("unwind_sync", &[ValType::I32], &[]),
 ];
 
@@ -59,8 +58,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "perform_new" => i32s(6),
         // 1: the perform, 2: the input word (i64), 3-6: temporaries.
         "perform_end" => vec![(1, ValType::I32), (1, ValType::I64), (5, ValType::I32)],
-        "handler_name" => i32s(5),
-        "where_new" => i32s(2),
+        "where_new" => i32s(3),
         "resume_with" => i32s(4),
         "sync_leave" => i32s(3),
         "unwind_sync" => i32s(6),
@@ -71,6 +69,8 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
 /// The slots of a `perform` record (see `emit::suspend`'s descriptor).
 pub(super) const P_USED: u32 = HDR;
 pub(super) const P_PHASE: u32 = HDR + 8;
+/// The operation's name in the two diagnostics, or 0. Built from [`P_PREFIX`] and [`P_DESC`] when
+/// a diagnostic is produced; see `resume_with` for the one case where it is built earlier.
 pub(super) const P_WHERE: u32 = HDR + 16;
 pub(super) const P_NOW_MODE: u32 = HDR + 24;
 pub(super) const P_NOW_WORD: u32 = HDR + 32;
@@ -86,7 +86,13 @@ pub(super) const P_NEXT: u32 = HDR + 72;
 pub(super) const P_PREVMAIN: u32 = HDR + 80;
 /// The operation's result representation (for an implementation that ends after a resume).
 pub(super) const P_REPR: u32 = HDR + 88;
-const P_SLOTS: i32 = 12;
+/// The static prefix of the operation's name (`operation `op` of handler ``, shared by every call
+/// of that operation) and the descriptor of the handler value (both static data, so neither is a
+/// reference the record has to keep or drop). The rest of the name comes from the descriptor when
+/// a diagnostic is built.
+const P_PREFIX: u32 = HDR + 96;
+const P_DESC: u32 = HDR + 104;
+const P_SLOTS: i32 = 14;
 
 /// A frame's slots.
 const F_RESUME: u32 = HDR;
@@ -110,7 +116,6 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "sync_leave" => sync_leave(b, ins),
         "resume_with" => resume_with(b, ins),
         "where_new" => where_new(b, ins),
-        "handler_name" => handler_name(b, ins),
         "unwind_sync" => unwind_sync(b, ins),
         _ => return false,
     }
@@ -206,54 +211,51 @@ fn interrupted(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 
 // ---- strings for the diagnostics ----
 
-fn handler_name(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const D: u32 = 1;
-    const PTR: u32 = 2;
+/// `where_new(prefix, desc)`: the operation's name in a diagnostic, `prefix` followed by the name
+/// of the handler's descriptor and a closing backtick, in one string. The prefix is static and
+/// `desc` is the handler's descriptor (static data), so the text is built from what the record
+/// keeps without keeping the handler value alive.
+fn where_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const PLEN: u32 = 2;
     const LEN: u32 = 3;
-    const I: u32 = 4;
-    const S: u32 = 5;
+    const S: u32 = 4;
     ins.local_get(0);
-    ins.i32_load(mem(8, 4));
-    ins.local_set(D);
-    ins.local_get(D);
-    ins.i32_load(mem(DESC_NAME, 4));
-    ins.local_set(PTR);
-    ins.local_get(D);
+    ins.i32_load(mem(HDR, 4));
+    ins.local_set(PLEN);
+    ins.local_get(1);
     ins.i32_load(mem(DESC_NAMELEN, 4));
     ins.local_set(LEN);
+    ins.local_get(PLEN);
     ins.local_get(LEN);
+    ins.i32_add();
     ins.i32_const(1);
     ins.i32_add();
     let str_new = b.rt("str_new");
     ins.call(str_new);
     ins.local_set(S);
-    ins.i32_const(0);
-    ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(I);
+    // The prefix, then the name.
+    ins.local_get(S);
+    ins.i32_const((HDR + 4) as i32);
+    ins.i32_add();
+    ins.local_get(0);
+    ins.i32_const((HDR + 4) as i32);
+    ins.i32_add();
+    ins.local_get(PLEN);
+    ins.memory_copy(0, 0);
+    ins.local_get(S);
+    ins.i32_const((HDR + 4) as i32);
+    ins.i32_add();
+    ins.local_get(PLEN);
+    ins.i32_add();
+    ins.local_get(1);
+    ins.i32_load(mem(DESC_NAME, 4));
     ins.local_get(LEN);
-    ins.i32_ge_u();
-    ins.br_if(1);
+    ins.memory_copy(0, 0);
+    // The closing backtick.
     ins.local_get(S);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
-    ins.local_get(I);
-    ins.i32_add();
-    ins.local_get(PTR);
-    ins.local_get(I);
-    ins.i32_add();
-    ins.i32_load8_u(mem(0, 1));
-    ins.i32_store8(mem(0, 1));
-    ins.local_get(I);
-    ins.i32_const(1);
-    ins.i32_add();
-    ins.local_set(I);
-    ins.br(0);
-    ins.end();
-    ins.end();
-    ins.local_get(S);
-    ins.i32_const((HDR + 4) as i32);
+    ins.local_get(PLEN);
     ins.i32_add();
     ins.local_get(LEN);
     ins.i32_add();
@@ -262,38 +264,25 @@ fn handler_name(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(S);
 }
 
-fn where_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const NAME: u32 = 2;
-    const WHERE: u32 = 3;
-    let name = b.rt("handler_name");
-    ins.local_get(1);
-    ins.call(name);
-    ins.local_set(NAME);
-    ins.local_get(0);
-    ins.local_get(NAME);
-    let append = b.rt("str_append");
-    ins.call(append);
-    ins.local_set(WHERE);
-    let drop = b.rt("drop");
-    ins.local_get(NAME);
-    ins.call(drop);
-    ins.local_get(WHERE);
+/// Pushes the operation's name of the perform record in local `p`, from the prefix and the
+/// handler's descriptor the record keeps. The diagnostics call this only when they are produced.
+fn push_where(b: &mut Builder<'_>, ins: &mut InstructionSink, p: u32) {
+    ins.local_get(p);
+    ins.i32_load(mem(P_PREFIX, 4));
+    ins.local_get(p);
+    ins.i32_load(mem(P_DESC, 4));
+    let where_new = b.rt("where_new");
+    ins.call(where_new);
 }
 
 // ---- `suspend fn` operation calls ----
 
 fn perform_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const WHERE: u32 = 4;
     const P: u32 = 5;
     const RS: u32 = 6;
     let perform_desc = cell(b, |p| p.perform_desc);
     let resume_desc = cell(b, |p| p.resume_desc);
     let sync_depth = cell(b, |p| p.sync_depth);
-    ins.local_get(0);
-    ins.local_get(1);
-    let where_new = b.rt("where_new");
-    ins.call(where_new);
-    ins.local_set(WHERE);
     ins.i32_const(P_SLOTS);
     ins.i32_const(perform_desc as i32);
     let alloc = b.rt("alloc");
@@ -305,9 +294,19 @@ fn perform_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(P);
     ins.i32_const(1);
     ins.i32_store(mem(P_PHASE, 4));
+    // The record names the operation without keeping the handler value: the prefix and the
+    // handler's descriptor are static data, and `push_where` builds the text only when a
+    // diagnostic needs it (spec 14.5).
     ins.local_get(P);
-    ins.local_get(WHERE);
+    ins.i32_const(0);
     ins.i32_store(mem(P_WHERE, 4));
+    ins.local_get(P);
+    ins.local_get(1);
+    ins.i32_load(mem(8, 4));
+    ins.i32_store(mem(P_DESC, 4));
+    ins.local_get(P);
+    ins.local_get(0);
+    ins.i32_store(mem(P_PREFIX, 4));
     ins.local_get(P);
     ins.i32_const(-1);
     ins.i32_store(mem(P_NOW_MODE, 4));
@@ -369,6 +368,7 @@ fn perform_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 fn resume_with(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const P: u32 = 4;
     const W: u32 = 5;
+    const WHERE: u32 = 6;
     let run_over = super::fiber::plan(b).run_over;
     ins.local_get(0);
     ins.i32_load(mem(HDR + 8, 4));
@@ -398,16 +398,19 @@ fn resume_with(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(drop);
     ins.end();
     let twice = cell(b, |p| p.twice_prefix);
+    push_where(b, ins, P);
+    ins.local_set(WHERE);
     ins.i32_const(twice as i32);
-    ins.local_get(P);
-    ins.i32_load(mem(P_WHERE, 4));
+    ins.local_get(WHERE);
     let append = b.rt("str_append");
     ins.call(append);
     ins.local_set(W); // reused as the message temporary
+    let drop = b.rt("drop");
+    ins.local_get(WHERE);
+    ins.call(drop);
     let raise = b.rt("raise");
     ins.local_get(W);
     ins.call(raise);
-    let drop = b.rt("drop");
     ins.local_get(W);
     ins.call(drop);
     ins.return_();
@@ -427,6 +430,15 @@ fn resume_with(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i64_store(mem(P_NOW_WORD, 8));
     ins.return_();
     ins.end();
+    // The implementation is suspended, so the record outlives this resume: `fb_settled_impl`
+    // reads the operation's name of a record that resumed (spec 14.5) and cannot build it, so
+    // build it here. While the implementation is still being called the record is released at
+    // `perform_end`, and then the diagnostics build the name themselves.
+    push_where(b, ins, P);
+    ins.local_set(WHERE);
+    ins.local_get(P);
+    ins.local_get(WHERE);
+    ins.i32_store(mem(P_WHERE, 4));
     // The implementation is suspended: wake the caller's wait. It is the same fiber, so the
     // caller runs now, inside this call of `resume`.
     ins.local_get(P);
@@ -515,6 +527,7 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const W: u32 = 4;
     const TMP: u32 = 5;
     const C: u32 = 6;
+    const WHERE: u32 = 7;
     let susp_wait = susp_wait_cell(b);
     let cur_main = cur_main_cell(b);
     let out_mode = cell(b, |p| p.out_mode);
@@ -535,6 +548,18 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     // The implementation suspended. Take the continuation captured inside the call (the C
     // runtime's `em_take_suspension(NULL, &chain)`) and attach it to the request as the
     // implementation's own strand (`end = EM_END_IMPL`).
+    // If it had already resumed the caller in place, the record outlives this call and
+    // `fb_settled_impl` reads the operation's name of a record that resumed (spec 14.5), so build
+    // it now; otherwise a later resume builds it.
+    ins.local_get(P);
+    ins.i32_load(mem(P_USED, 4));
+    ins.if_(BlockType::Empty);
+    push_where(b, ins, P);
+    ins.local_set(WHERE);
+    ins.local_get(P);
+    ins.local_get(WHERE);
+    ins.i32_store(mem(P_WHERE, 4));
+    ins.end();
     ins.i32_const(0);
     let take = b.rt("frame_take");
     ins.call(take);
@@ -598,8 +623,9 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let show = b.rt("show_failure");
     ins.call(show);
     ins.local_set(TMP);
-    ins.local_get(P);
-    ins.i32_load(mem(P_WHERE, 4));
+    push_where(b, ins, P);
+    ins.local_set(WHERE);
+    ins.local_get(WHERE);
     ins.i32_const(super::fiber::plan(b).failed_after as i32);
     let append = b.rt("str_append");
     ins.call(append);
@@ -610,6 +636,8 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(CHAIN);
     let drop = b.rt("drop");
     ins.local_get(W);
+    ins.call(drop);
+    ins.local_get(WHERE);
     ins.call(drop);
     ins.local_get(TMP);
     ins.call(drop);

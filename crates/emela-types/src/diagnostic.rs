@@ -46,6 +46,9 @@ pub enum DiagnosticKind {
     /// A derived impl of a type that is not `pub`, which nothing requires (W0303, spec 10.5). A
     /// warning.
     UnusedDerive { trait_name: SmolStr, ty: SmolStr },
+    /// The entry's `main` returns `ty`, which is none of `()`, `ExitCode` and Never (W0304,
+    /// `[dyn.error]`). A warning: the value is discarded.
+    MainValueDiscarded { ty: SmolStr },
     /// A trait is its own supertrait (E0329, spec 10.1). `cycle` starts and ends with the same
     /// trait.
     SupertraitCycle { cycle: Vec<SmolStr> },
@@ -409,6 +412,7 @@ impl DiagnosticKind {
                 | DiagnosticKind::NoErrorRaised
                 | DiagnosticKind::UnusedLabelProvider { .. }
                 | DiagnosticKind::UnusedDerive { .. }
+                | DiagnosticKind::MainValueDiscarded { .. }
         )
     }
 }

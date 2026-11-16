@@ -19,6 +19,15 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// A sequence of statements in a function: a function body or a closure body nested in it.
 type Body = (FnId, SeqId);
 
+/// A closure body deferred until some reachable code performs its handler operation.
+enum Waiting {
+    /// A body nested in `f`: the Flow IR keeps a closure body in the arena of the function that
+    /// builds it.
+    Body(Body),
+    /// The function of a lifted closure: the Heap IR makes a closure body its own function.
+    Function(FnId),
+}
+
 /// What the entry reaches.
 #[derive(Debug, Default)]
 pub(crate) struct Reach {
@@ -70,7 +79,7 @@ struct Walk<'m> {
     seen: FxHashSet<Body>,
     work: Vec<Body>,
     /// The bodies of handler operations not performed yet.
-    waiting: FxHashMap<(EffectId, usize), Vec<Body>>,
+    waiting: FxHashMap<(EffectId, usize), Vec<Waiting>>,
 }
 
 impl Walk<'_> {
@@ -89,8 +98,11 @@ impl Walk<'_> {
 
     fn perform(&mut self, op: (EffectId, usize)) {
         if self.reach.performed.insert(op) {
-            for body in self.waiting.remove(&op).unwrap_or_default() {
-                self.reach(body);
+            for waiting in self.waiting.remove(&op).unwrap_or_default() {
+                match waiting {
+                    Waiting::Body(body) => self.reach(body),
+                    Waiting::Function(fid) => self.reach_fn(fid),
+                }
             }
         }
     }
@@ -138,9 +150,25 @@ impl Walk<'_> {
                 let body = (fid, closure.body);
                 match dst.and_then(|dst| self.handler_op(fid, dst)) {
                     Some(op) if !self.reach.performed.contains(&op) => {
-                        self.waiting.entry(op).or_default().push(body);
+                        self.waiting
+                            .entry(op)
+                            .or_default()
+                            .push(Waiting::Body(body));
                     }
                     _ => self.reach(body),
+                }
+            }
+            // The Heap IR lifts a closure body into its own function (`heap::convert_closures`),
+            // so a walk over that stage reaches the function rather than a nested body.
+            Value::MakeClosure { function, .. } => {
+                match dst.and_then(|dst| self.handler_op(fid, dst)) {
+                    Some(op) if !self.reach.performed.contains(&op) => {
+                        self.waiting
+                            .entry(op)
+                            .or_default()
+                            .push(Waiting::Function(*function));
+                    }
+                    _ => self.reach_fn(*function),
                 }
             }
             Value::FnRef(callee) => self.reach_fn(*callee),

@@ -444,7 +444,7 @@ fn bundled_core_typechecks_cleanly() {
     let analysis = check_files(
         &[(
             "home/main.emel",
-            "fn main() -> Int {\n  xs = List.map([1, 2], |x| x + 1)\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
+            "fn main() {\n  xs = List.map([1, 2], |x| x + 1)\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n  ()\n}\n",
         )],
         "home/main.emel",
         &mut frontend,
@@ -899,6 +899,7 @@ handler UnusedClock: Clock {
 
 fn main() {
   with WasmClock { dbg((use Clock).now()) }
+  ()
 }
 "#;
 
@@ -926,7 +927,10 @@ pub fn label[A: Show](x: A) -> String { Show.show(x) }
 
 pub fn pair[A, B: Show + Eq](a: A, b: B) -> B { b }
 
-fn main() { dbg(label(User(name: "ann"))) }
+fn main() {
+  dbg(label(User(name: "ann")))
+  ()
+}
 "#;
 
 #[test]
@@ -1381,6 +1385,7 @@ handler HostClock: Clock {
 
 fn main() {
   with HostClock { dbg(CALL) }
+  ()
 }
 "#;
 
@@ -1472,6 +1477,7 @@ fn main() {
   k = Secret.key()
   f = Secret.key
   dbg(Secret.hint() + Friend.peek())
+  ()
 }
 
 @internal
@@ -1738,11 +1744,12 @@ impl Int: Doubled {
   fn doubled(self) { self * 2 }
 }
 
-fn main() -> Int {
+fn main() {
   s = Factory.unit()
   t = s.grow(by: 2)
   label = t.show()
   label.length() + t.area().doubled() + ["a", "b"].join(", ").length()
+  ()
 }
 "#,
             ),
@@ -1766,7 +1773,7 @@ fn bytes_names_stay_free() {
         ),
         (
             "app/src/main.emel",
-            "import Bytes\n\nfn main() {\n  dbg(Bytes.count(Bytes.Bytes(value: 1)))\n}\n",
+            "import Bytes\n\nfn main() {\n  dbg(Bytes.count(Bytes.Bytes(value: 1)))\n  ()\n}\n",
         ),
     ];
     let analysis = check_files(&files, "app", &mut Typecheck::default());
@@ -1807,7 +1814,7 @@ fn array_names_stay_free() {
         ),
         (
             "app/src/main.emel",
-            "import Array\n\nfn main() {\n  dbg(Array.count(Array.Array(n: 1)))\n}\n",
+            "import Array\n\nfn main() {\n  dbg(Array.count(Array.Array(n: 1)))\n  ()\n}\n",
         ),
     ];
     let analysis = check_files(&files, "app", &mut Typecheck::default());
@@ -2090,4 +2097,78 @@ fn undeclared() {
         &mut frontend,
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// W0304: a `main` whose return type is none of `()`, `ExitCode` and Never (`[dyn.error]`,
+/// `[effect.with]`). Points at the annotation of the return type, or at the name `main` when the
+/// type is inferred.
+#[test]
+fn main_return_value_discarded() {
+    let mut out = String::new();
+    for src in [
+        "fn main() -> Int {\n  2\n}\n",
+        "fn main() {\n  \"done\"\n}\n",
+        "fn main() -> List[Int] {\n  [1]\n}\n",
+    ] {
+        let mut frontend = Typecheck::default();
+        let analysis = check_files(&[("home/main.emel", src)], "home/main.emel", &mut frontend);
+        out.push_str(&render(&analysis.diagnostics, &analysis.sources, false));
+    }
+    insta::assert_snapshot!(out);
+}
+
+/// A `main` that returns `()`, an `ExitCode` or Never gets no W0304 (`[dyn.error]`), and neither
+/// does a fn named `main` that is not the entry's.
+#[test]
+fn main_return_types_without_warning() {
+    for (path, files) in [
+        (
+            "home/main.emel",
+            vec![("home/main.emel", "fn main() {\n  ()\n}\n")],
+        ),
+        (
+            "home/main.emel",
+            vec![(
+                "home/main.emel",
+                "import Std.Process.{ExitCode}\n\nfn main() -> ExitCode {\n  Process.exit_code(2)\n}\n",
+            )],
+        ),
+        (
+            "home/main.emel",
+            vec![(
+                "home/main.emel",
+                "import Std.Process.{EXIT_FAILURE}\n\nfn main() {\n  EXIT_FAILURE\n}\n",
+            )],
+        ),
+        (
+            "home/main.emel",
+            vec![(
+                "home/main.emel",
+                "fn main() -> Never {\n  panic(\"stop\")\n}\n",
+            )],
+        ),
+        (
+            "home/main.emel",
+            vec![(
+                "home/main.emel",
+                "error Stop\n\nfn main() {\n  fail Stop\n}\n",
+            )],
+        ),
+        (
+            "app",
+            vec![
+                ("app/Pome.toml", ""),
+                (
+                    "app/src/main.emel",
+                    "import Tool\n\nfn main() {\n  n = Tool.main()\n  dbg(n)\n  ()\n}\n",
+                ),
+                ("app/src/tool.emel", "pub fn main() -> Int {\n  2\n}\n"),
+            ],
+        ),
+    ] {
+        let mut frontend = Typecheck::default();
+        let analysis = check_files(&files, path, &mut frontend);
+        let rendered = render(&analysis.diagnostics, &analysis.sources, false);
+        assert!(analysis.diagnostics.is_empty(), "{files:?}\n{rendered}");
+    }
 }

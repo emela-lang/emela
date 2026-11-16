@@ -11,4 +11,13 @@ error[E0203]: module name `Std` is reserved
 error[E0203]: module name `List` is reserved
    ─[ src/list.emel ]
 
-3 errors
+warning[W0304]: the value of type `Int` returned by `main` is discarded
+   ╭─[ src/main.emel:3:4 ]
+   │
+ 3 │ fn main() { Instant.f() }
+   │    ──┬─  
+   │      ╰─── 
+───╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
+3 errors, 1 warning

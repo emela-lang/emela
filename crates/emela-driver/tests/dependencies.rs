@@ -9,7 +9,7 @@ use emela_driver::{
 
 // The project depends on quince (github.com/acme/quince); quince depends on http-kit, which it
 // calls `Web`. Both the project and quince have a module `Util`.
-const APP: &str = "import Quince\nimport Quince.Router\nimport Util\n\nfn main() -> Int { Quince.answer() + Router.route() + Util.one() }\n";
+const APP: &str = "import Quince\nimport Quince.Router\nimport Util\n\nfn main() {\n  Quince.answer() + Router.route() + Util.one()\n  ()\n}\n";
 
 fn files(app: &str, router: &str) -> MemoryFiles {
     MemoryFiles::new([
@@ -110,7 +110,7 @@ fn imports_dependencies_by_their_root_names() {
 
 #[test]
 fn hides_dependencies_of_dependencies() {
-    let app = "import Web\nimport HttpKit\n\nfn main() -> Int { 1 }\n";
+    let app = "import Web\nimport HttpKit\n\nfn main() { () }\n";
     let found = diagnostics(&files(app, ROUTER), dependencies(None, COMPILER));
     assert_eq!(
         found,
@@ -123,8 +123,7 @@ fn hides_dependencies_of_dependencies() {
 
 #[test]
 fn renames_a_dependency_on_the_depending_side() {
-    let app =
-        "import Quin\nimport Quin.Router\n\nfn main() -> Int { Quin.answer() + Router.route() }\n";
+    let app = "import Quin\nimport Quin.Router\n\nfn main() {\n  Quin.answer() + Router.route()\n  ()\n}\n";
     assert_eq!(
         diagnostics(&files(app, ROUTER), dependencies(Some("Quin"), COMPILER)),
         Vec::<String>::new()
@@ -135,7 +134,7 @@ fn renames_a_dependency_on_the_depending_side() {
 fn checks_root_names() {
     let check = |module: &str| {
         diagnostics(
-            &files("fn main() -> Int { 1 }\n", ROUTER),
+            &files("fn main() { () }\n", ROUTER),
             dependencies(Some(module), COMPILER),
         )
     };
@@ -156,7 +155,7 @@ fn checks_root_names() {
 #[test]
 fn allows_external_only_when_the_project_says_so() {
     let router = "@external(js, \"./x.mjs\", \"f\")\nfn f() -> Int uses {}\n\npub fn route() -> Int { f() }\n";
-    let app = "import Quince\n\nfn main() -> Int { Quince.answer() }\n";
+    let app = "import Quince\n\nfn main() {\n  Quince.answer()\n  ()\n}\n";
     let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(
         found.iter().any(|d| d
@@ -191,7 +190,7 @@ fn allows_external_only_when_the_project_says_so() {
 #[test]
 fn allows_entry_adapters_only_when_the_project_says_so() {
     let router = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }\n\npub fn route() -> Int { 1 }\n";
-    let app = "import Quince.Router\n\n@entry(Router.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() -> Int { 1 }\n";
+    let app = "import Quince.Router\n\n@entry(Router.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() { () }\n";
     let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(
         found.iter().any(|d| d
@@ -310,7 +309,7 @@ fn test_diagnostics(fs: &MemoryFiles, deps: Dependencies, tests: bool) -> Vec<St
 #[test]
 fn the_test_root_sees_the_dev_dependencies() {
     let (fs, deps) = with_test_root(
-        "import Sort\n\nfn main() -> Int { List.length(Sort.sort([1])) }\n",
+        "import Sort\n\nfn main() {\n  List.length(Sort.sort([1]))\n  ()\n}\n",
         &[],
     );
     assert_eq!(
@@ -323,7 +322,7 @@ fn the_test_root_sees_the_dev_dependencies() {
 
 #[test]
 fn the_source_root_cannot_import_test_modules_or_dev_dependencies() {
-    let main = "import Brix\nimport Support\n\nfn main() -> Int { 1 }\n";
+    let main = "import Brix\nimport Support\n\nfn main() { () }\n";
     let (fs, deps) = with_test_root(main, &[]);
     assert_eq!(
         test_diagnostics(&fs, deps, true),
@@ -337,7 +336,7 @@ fn the_source_root_cannot_import_test_modules_or_dev_dependencies() {
 #[test]
 fn a_test_module_shares_the_names_of_the_source_root() {
     let (fs, deps) = with_test_root(
-        "fn main() -> Int { 1 }\n",
+        "fn main() { () }\n",
         &[
             ("app/test/sort.emel", "pub fn other() -> Int { 1 }\n"),
             ("app/test/lib.emel", ""),
@@ -362,7 +361,7 @@ fn does_not_report_the_license_of_a_dependency() {
         ("app/Pome.toml", ""),
         (
             "app/src/main.emel",
-            "import Quince\n\nfn main() -> Int { Quince.answer() }\n",
+            "import Quince\n\nfn main() {\n  Quince.answer()\n  ()\n}\n",
         ),
         ("deps/quince/Pome.toml", bad),
         ("deps/quince/src/lib.emel", "pub fn answer() -> Int { 1 }\n"),

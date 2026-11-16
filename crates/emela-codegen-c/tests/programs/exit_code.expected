@@ -1,0 +1,10 @@
+exit: 3
+--- stdout
+ExitCode(0) ExitCode(1)
+0 1
+True False
+ExitCode(255)
+body res
+release
+--- stderr
+"to stderr"
