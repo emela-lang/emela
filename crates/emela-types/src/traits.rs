@@ -429,6 +429,14 @@ fn register_derives(
 /// contents or a type with one field (E0339).
 fn derive_form_error(program: &Program, ty_def: DefId, trait_name: &str) -> Option<DiagnosticKind> {
     let ty = program.defs[ty_def].name.clone();
+    if matches!(trait_name, "Encode" | "Decode" | "ObjectKey" | "Shaped")
+        && matches!(program.item(ty_def), Some(Item::Type(t)) if t.ctor.is_none())
+    {
+        return Some(DiagnosticKind::HostDerive {
+            trait_name: trait_name.into(),
+            ty,
+        });
+    }
     if matches!(trait_name, "Decode" | "ObjectKey") && program.defs[ty_def].is_opaque {
         return Some(DiagnosticKind::OpaqueDerive {
             trait_name: trait_name.into(),

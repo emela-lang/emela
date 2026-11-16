@@ -25,12 +25,25 @@
 
 use emela_resolve::hir::{DefId, DefKind, DefModule, Fields, Item};
 use emela_types::Ty;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::Lowerer;
 use crate::ir::{Arm, BinOp, Callee, CtorRef, Expr, FnId, Lit, Local, OpTy, Pat, Type, TypeId};
 
 const DYNAMIC: &str = "Std.Dynamic";
 const SHAPE: &str = "Std.Shape";
+
+/// The definitions of `Std.Dynamic` and `Std.Shape` that derived impls use, and the names of the IR
+/// functions, each gathered once instead of by a scan per use.
+#[derive(Default)]
+pub(super) struct Lookups {
+    /// `(module, name, kind)` → definition, for the modules [`DYNAMIC`] and [`SHAPE`]. `None`
+    /// until first used.
+    defs: Option<FxHashMap<(&'static str, String, DefKind), DefId>>,
+    /// The names of `Module::functions[..named]`.
+    names: FxHashSet<String>,
+    named: usize,
+}
 
 /// A constructor of a deriving type: its fields with their types (the type parameters of the
 /// type as `Type::Param`) and keys, and its tag.
@@ -112,6 +125,10 @@ impl Lowerer<'_> {
                 Item::Error(_) => (vec![ty_def], Vec::new(), false),
                 _ => return None,
             };
+        // A host type has no constructor (E0336 rejects deriving for it).
+        if ctors.is_empty() && !is_enum {
+            return None;
+        }
         let mut out = Vec::with_capacity(ctors.len());
         for (i, ctor) in ctors.into_iter().enumerate() {
             let fields = match hir.item(ctor) {
@@ -164,13 +181,23 @@ impl Lowerer<'_> {
         d: &Deriving,
     ) -> FnId {
         let base = format!("{}: {trait_name}.{fn_name}", d.name);
+        let names = &mut self.derive_std.names;
+        names.extend(
+            self.module
+                .functions
+                .iter()
+                .skip(self.derive_std.named)
+                .map(|(_, f)| f.name.clone()),
+        );
         let mut name = base.clone();
         let mut i = 2;
-        while self.module.functions.iter().any(|(_, f)| f.name == name) {
+        while names.contains(&name) {
             name = format!("{base}#{i}");
             i += 1;
         }
         let f = self.module.declare(&name, false);
+        self.derive_std.names.insert(name);
+        self.derive_std.named = self.module.functions.len();
         let dynamic = self.std_type(DYNAMIC, "Dynamic", Vec::new());
         let (params, ret, body) = match op {
             Op::Encode => {
@@ -345,7 +372,8 @@ impl Lowerer<'_> {
                     (*t, read)
                 })
                 .collect();
-            return self.all_or_fail(d, c, parts);
+            let value = self.all_or_fail(d, c, parts);
+            return self.check_fields(c, "derived_fields_all", v, value);
         }
         let tag = self.std_call(DYNAMIC, "derived_tag_all", Vec::new(), vec![var(v)]);
         self.by_tag(d, tag, "derived_unknown_tag_all", |cx, c| {
@@ -363,7 +391,8 @@ impl Lowerer<'_> {
                         (*t, read)
                     })
                     .collect();
-                return cx.all_or_fail(d, c, parts);
+                let value = cx.all_or_fail(d, c, parts);
+                return cx.check_fields(c, "derived_contents_fields_all", v, value);
             }
             let n = int(c.fields.len());
             let check = cx.std_call(
@@ -389,6 +418,16 @@ impl Lowerer<'_> {
             let value = cx.all_or_fail(d, c, parts);
             cx.then(check, value)
         })
+    }
+
+    /// `check(v); value` when `c` has fields: `check` fails once if `v` (or the contents of the
+    /// variant `v`) is not Fields, instead of once per field.
+    fn check_fields(&mut self, c: &Ctor, check: &str, v: Local, value: Expr) -> Expr {
+        if c.fields.is_empty() {
+            return value;
+        }
+        let check = self.std_call(DYNAMIC, check, Vec::new(), vec![var(v)]);
+        self.then(check, value)
     }
 
     /// Reads every part into an `Attempt` in order, fails with all their failures if any failed
@@ -692,7 +731,7 @@ impl Lowerer<'_> {
     /// A call of the function `name` of the std module `module`.
     fn std_call(
         &mut self,
-        module: &str,
+        module: &'static str,
         name: &str,
         ty_args: Vec<TypeId>,
         args: Vec<Expr>,
@@ -718,7 +757,7 @@ impl Lowerer<'_> {
     }
 
     /// The type `name` of the std module `module` with the type arguments `args`.
-    fn std_type(&mut self, module: &str, name: &str, args: Vec<TypeId>) -> TypeId {
+    fn std_type(&mut self, module: &'static str, name: &str, args: Vec<TypeId>) -> TypeId {
         let id = self
             .std_def(module, name, DefKind::Type)
             .or_else(|| self.std_def(module, name, DefKind::Enum))
@@ -728,23 +767,30 @@ impl Lowerer<'_> {
         self.module.intern(Type::Enum(id, args))
     }
 
-    /// The definition `name` of kind `kind` in the bundled module `module`.
-    fn std_def(&self, module: &str, name: &str, kind: DefKind) -> Option<DefId> {
+    /// The definition `name` of kind `kind` in the bundled module `module` ([`DYNAMIC`] or
+    /// [`SHAPE`]).
+    fn std_def(&mut self, module: &'static str, name: &str, kind: DefKind) -> Option<DefId> {
         let hir = self.hir;
-        hir.defs
-            .iter()
-            .find(|(_, d)| {
-                d.kind == kind
-                    && d.name == name
-                    && match d.module {
-                        DefModule::Source(m) => hir
-                            .modules
-                            .get(m)
-                            .is_some_and(|items| items.is_core && items.name.to_string() == module),
-                        _ => false,
-                    }
-            })
-            .map(|(def, _)| def)
+        let defs = self.derive_std.defs.get_or_insert_with(|| {
+            let mut defs = FxHashMap::default();
+            for (def, d) in hir.defs.iter() {
+                let DefModule::Source(m) = d.module else {
+                    continue;
+                };
+                let Some(items) = hir.modules.get(m).filter(|items| items.is_core) else {
+                    continue;
+                };
+                let module = [DYNAMIC, SHAPE]
+                    .into_iter()
+                    .find(|&std| items.name.to_string() == std);
+                if let Some(module) = module {
+                    defs.entry((module, d.name.to_string(), d.kind))
+                        .or_insert(def);
+                }
+            }
+            defs
+        });
+        defs.get(&(module, name.to_owned(), kind)).copied()
     }
 }
 

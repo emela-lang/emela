@@ -1336,6 +1336,11 @@ impl Diagnostic {
                     format!("cannot derive `{trait_name}` for opaque type `{ty}`"),
                 )
             }
+            TypeDiagnosticKind::HostDerive { trait_name, ty } => (
+                Severity::Error,
+                Some(code::OPAQUE_DERIVE),
+                format!("cannot derive `{trait_name}` for host type `{ty}`"),
+            ),
             TypeDiagnosticKind::ObjectKeyForm { ty, reason } => (
                 Severity::Error,
                 Some(code::OBJECT_KEY_FORM),

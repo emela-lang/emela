@@ -135,11 +135,17 @@ pub fn float(value: Dynamic) -> Float fails DecodeError {
   }
 }
 
-fn each[A](xs: List[Dynamic], i: Int, item: fn(Dynamic) -> A fails DecodeError) -> List[A]
-  fails DecodeError {
+# `item` of each element of `xs`, the first at `Index(i)`, after the reversed `done`. A tail call,
+# so a long list takes no stack.
+fn each[A](
+  xs: List[Dynamic],
+  i: Int,
+  item: fn(Dynamic) -> A fails DecodeError,
+  done: List[A],
+) -> List[A] fails DecodeError {
   xs match {
-    []          -> []
-    [x, ..rest] -> [at(Index(i), item, x), ..each(rest, i + 1, item)]
+    []          -> done.reverse()
+    [x, ..rest] -> each(rest, i + 1, item, [at(Index(i), item, x), ..done])
   }
 }
 
@@ -189,7 +195,7 @@ pub fn list[A](
 ) -> fn(Dynamic) -> List[A] fails DecodeError {
   |value| {
     value match {
-      Items(xs) -> each(xs, 0, item)
+      Items(xs) -> each(xs, 0, item, [])
       _         -> fail DecodeError(expected: "items", actual: value, path: [])
     }
   }
@@ -576,6 +582,24 @@ fn derived_tag_all(value: Dynamic) -> String fails DecodeErrors {
 # A tag that names no variant, failing with every failure.
 fn derived_unknown_tag_all[A](expected: String, tag: String) -> A fails DecodeErrors {
   fail one(DecodeError(expected:, actual: Text(tag), path: [Key("tag")]))
+}
+
+# Checks that `value` is Fields, once, before a derived Decode reads each field with
+# `derived_field_all`: otherwise every field would fail with the same failure.
+fn derived_fields_all(value: Dynamic) -> () fails DecodeErrors {
+  one_of(|| fields_of(value))
+}
+
+# Checks that the contents of the variant `value` are Fields, as `derived_fields_all` does.
+fn derived_contents_fields_all(value: Dynamic) -> () fails DecodeErrors {
+  one_of(|| field(value, "value", fields_of))
+}
+
+fn fields_of(value: Dynamic) -> () fails DecodeError {
+  value match {
+    Fields(_) -> ()
+    _         -> fail DecodeError(expected: "fields", actual: value, path: [])
+  }
 }
 
 # The field `name` of `value` read by `Decode.from_dynamic_all`, or its failures.

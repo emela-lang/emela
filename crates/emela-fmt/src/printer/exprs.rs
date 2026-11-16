@@ -202,7 +202,6 @@ impl Printer {
         })
     }
 
-    /// Puts a space between children when `space(prev, cur)` is true.
     /// A variant. Each attribute goes on its own line above the name (`@tag("open")⏎Open`).
     fn variant(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
@@ -219,6 +218,7 @@ impl Printer {
         out
     }
 
+    /// Puts a space between children when `space(prev, cur)` is true.
     fn seq(&mut self, node: &SyntaxNode, space: impl Fn(SyntaxKind, SyntaxKind) -> bool) -> Doc {
         let mut out = RcDoc::nil();
         let mut prev = None;

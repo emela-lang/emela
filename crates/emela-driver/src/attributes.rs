@@ -1,14 +1,14 @@
 //! Checks of the field attributes `@key` and `@tag` (`[kw.annotation]`).
 //!
-//! `@key("...")` goes on a field of a type or of the named contents of a variant, and `@tag("...")`
-//! on a variant, each with one string literal (E0338). The keys of the fields of one type or
+//! `@key("...")` goes on a field of a type (an error declaration is one) or of the named contents
+//! of a variant, and `@tag("...")` on a variant, each once and with one string literal (E0338). The keys of the fields of one type or
 //! variant, and the tags of the variants of one enum, are distinct once the attributes are applied
 //! (E0337). Name resolution reads their values into the HIR (`emela_resolve::string_attr_value`)
 //! for the derivations; these checks only need the syntax, so they run beside the checks of
 //! `@test` and `@internal`.
 
 use emela_resolve::ModuleId;
-use emela_syntax::ast::{self, AstNode, HasAttrs};
+use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{Parse, SyntaxKind, SyntaxNode};
 use smol_str::SmolStr;
 use std::collections::HashMap;
@@ -61,6 +61,12 @@ pub(crate) fn check_key_tag<'p>(
                     code::MISPLACED_KEY_TAG,
                     annotation.syntax(),
                 ));
+            } else if repeats_earlier(&annotation, name) {
+                diagnostics.push(error(
+                    format!("`@{name}` can only be placed once"),
+                    code::MISPLACED_KEY_TAG,
+                    annotation.syntax(),
+                ));
             } else if emela_resolve::string_attr_value(&annotation).is_none() {
                 diagnostics.push(error(
                     format!("`@{name}` takes one string literal"),
@@ -71,17 +77,14 @@ pub(crate) fn check_key_tag<'p>(
         }
         for node in tree.syntax().descendants() {
             match node.kind() {
-                SyntaxKind::FIELD_LIST
-                    if node.parent().is_some_and(|p| {
-                        matches!(p.kind(), SyntaxKind::TYPE_DECL | SyntaxKind::VARIANT)
-                    }) =>
-                {
+                SyntaxKind::FIELD_LIST if node.parent().is_some_and(|p| fields_owner(p.kind())) => {
                     let named = node
                         .children()
                         .filter_map(ast::Field::cast)
                         .filter_map(|f| {
                             let name = f.name()?;
-                            let key = attr_value(&f, KEY).unwrap_or_else(|| name.text().into());
+                            let key = emela_resolve::string_attr(&f, KEY)
+                                .unwrap_or_else(|| name.text().into());
                             Some((key, SmolStr::from(name.text()), f.syntax().clone()))
                         });
                     for (key, first, second, node) in repeated(named) {
@@ -98,7 +101,8 @@ pub(crate) fn check_key_tag<'p>(
                         .filter_map(ast::Variant::cast)
                         .filter_map(|v| {
                             let name = v.name()?;
-                            let tag = attr_value(&v, TAG).unwrap_or_else(|| name.text().into());
+                            let tag = emela_resolve::string_attr(&v, TAG)
+                                .unwrap_or_else(|| name.text().into());
                             Some((tag, SmolStr::from(name.text()), v.syntax().clone()))
                         });
                     for (tag, first, second, node) in repeated(named) {
@@ -116,7 +120,8 @@ pub(crate) fn check_key_tag<'p>(
     diagnostics
 }
 
-/// Whether `@key` is on a field of a type or of the named contents of a variant.
+/// Whether `@key` is on a field of a type, of an error declaration or of the named contents of a
+/// variant.
 fn on_field(annotation: &ast::Annotation) -> bool {
     let owner = annotation
         .syntax()
@@ -125,14 +130,22 @@ fn on_field(annotation: &ast::Annotation) -> bool {
         .and_then(|f| f.parent())
         .filter(|l| l.kind() == SyntaxKind::FIELD_LIST)
         .and_then(|l| l.parent());
-    owner.is_some_and(|o| matches!(o.kind(), SyntaxKind::TYPE_DECL | SyntaxKind::VARIANT))
+    owner.is_some_and(|o| fields_owner(o.kind()))
 }
 
-/// The valid argument of the first attribute `name`.
-fn attr_value(node: &impl HasAttrs, name: &str) -> Option<SmolStr> {
-    node.annotations()
-        .find(|a| a.name().is_some_and(|n| n.text() == name))
-        .and_then(|a| emela_resolve::string_attr_value(&a))
+/// The declarations whose FIELD_LIST holds fields that `@key` applies to.
+fn fields_owner(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::TYPE_DECL | SyntaxKind::ERROR_DECL | SyntaxKind::VARIANT
+    )
+}
+
+/// Whether an attribute `name` comes before `annotation` on the same declaration.
+fn repeats_earlier(annotation: &ast::Annotation, name: &str) -> bool {
+    std::iter::successors(annotation.syntax().prev_sibling(), |n| n.prev_sibling())
+        .filter_map(ast::Annotation::cast)
+        .any(|a| a.name().is_some_and(|n| n.text() == name))
 }
 
 /// For each element whose key an earlier one has: the key, the earlier name, its own name and its

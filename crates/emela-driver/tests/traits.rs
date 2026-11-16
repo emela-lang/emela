@@ -411,10 +411,30 @@ fn object_key_is_derived_only_for_enums_without_contents_and_types_with_one_fiel
 }
 
 #[test]
+fn encode_decode_object_key_and_shaped_cannot_be_derived_for_a_host_type() {
+    let main = format!(
+        "{STD_TRAITS}@external\ntype Handle derive Eq, Encode, Decode, ObjectKey, Shaped\n"
+    );
+    let errors: Vec<String> = errors(&main)
+        .into_iter()
+        .filter(|e| e.starts_with("E0336"))
+        .collect();
+    assert_eq!(
+        errors,
+        [
+            "E0336 cannot derive `Encode` for host type `Handle` @ Encode",
+            "E0336 cannot derive `Decode` for host type `Handle` @ Decode",
+            "E0336 cannot derive `ObjectKey` for host type `Handle` @ ObjectKey",
+            "E0336 cannot derive `Shaped` for host type `Handle` @ Shaped",
+        ]
+    );
+}
+
+#[test]
 fn key_and_tag_take_one_string_literal_in_their_place() {
     let main = "type Bad(@key(x) a: Int, @key(\"a\", \"b\") b: Int, @key(\"#{1}\") c: Int, @key(1) d: Int, @tag(\"t\") e: Int)\n\
-         enum Status {\n  @key(\"k\")\n  Open\n  @tag\n  Done\n}\n\
-         error Oops(@key(\"x\") a: Int)\n\
+         enum Status {\n  @key(\"k\")\n  Open\n  @tag\n  Done\n  @tag(\"a\")\n  @tag(\"b\")\n  Twice\n}\n\
+         error Oops(@key(\"x\") a: Int, @key(\"y\") @key(\"z\") b: Int)\n\
          @tag(\"f\")\nfn f() {}\n";
     assert_eq!(
         errors(main),
@@ -426,7 +446,8 @@ fn key_and_tag_take_one_string_literal_in_their_place() {
             "E0338 `@tag` can only be placed on a variant @ @tag(\"t\")",
             "E0338 `@key` can only be placed on a field @ @key(\"k\")",
             "E0338 `@tag` takes one string literal @ @tag",
-            "E0338 `@key` can only be placed on a field @ @key(\"x\")",
+            "E0338 `@tag` can only be placed once @ @tag(\"b\")",
+            "E0338 `@key` can only be placed once @ @key(\"z\")",
             "E0338 `@tag` can only be placed on a variant @ @tag(\"f\")",
         ]
     );
@@ -435,7 +456,8 @@ fn key_and_tag_take_one_string_literal_in_their_place() {
 #[test]
 fn keys_and_tags_are_distinct_after_the_attributes() {
     let main = "type View(due: Int, @key(\"due\") due_at: Int, @key(\"x\") a: Int, @key(\"x\") b: Int)\n\
-         enum Status {\n  @tag(\"done\")\n  Done\n  @tag(\"done\")\n  Closed\n  Open\n  @tag(\"Open\")\n  Again(@key(\"k\") p: Int, k: Int)\n}\n";
+         enum Status {\n  @tag(\"done\")\n  Done\n  @tag(\"done\")\n  Closed\n  Open\n  @tag(\"Open\")\n  Again(@key(\"k\") p: Int, k: Int)\n}\n\
+         error Oops(@key(\"b\") a: Int, b: Int)\n";
     assert_eq!(
         errors(main),
         [
@@ -444,6 +466,7 @@ fn keys_and_tags_are_distinct_after_the_attributes() {
             "E0337 tag `done` is used by both `Done` and `Closed` @ @tag(\"done\")\n  Closed",
             "E0337 tag `Open` is used by both `Open` and `Again` @ @tag(\"Open\")\n  Again(@key(\"k\") p: Int, k: Int)",
             "E0337 key `k` is used by both `p` and `k` @ k: Int",
+            "E0337 key `b` is used by both `a` and `b` @ b: Int",
         ]
     );
 }

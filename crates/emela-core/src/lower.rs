@@ -173,6 +173,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         roots,
         local_fns: ArenaMap::default(),
         fn_name: String::new(),
+        derive_std: derive_std::Lookups::default(),
     };
     if roots == Roots::Exported {
         cx.collect_host_exports(input.language);
@@ -341,6 +342,8 @@ struct Lowerer<'a> {
     local_fns: ArenaMap<LocalId, Lifted>,
     /// The IR name of the function being lowered, which names the local fns lifted from it.
     fn_name: String,
+    /// What the derived impls of std traits look up, once (`derive_std.rs`).
+    derive_std: derive_std::Lookups,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without

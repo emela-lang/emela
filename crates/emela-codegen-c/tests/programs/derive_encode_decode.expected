@@ -15,6 +15,9 @@ True
 ["number at .value[0]", "number at .value[1]"]
 ["one of Leaf, Node, pair at [1].tag", "number at [2].value[1]"]
 ["decoded"]
+["fields at "]
+["fields at .value"]
+30000
 "{\"codes\":{\"a\":true},\"counts\":{\"done\":2,\"open\":1}}"
 True
 "one of open, done at .counts.closed"

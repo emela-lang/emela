@@ -103,6 +103,15 @@ fn main() {
   dbg(all(trees, "{\"tag\":\"pair\",\"value\":[\"a\",\"b\"]}"))
   dbg(all(forests, "[{\"tag\":\"Leaf\"},{\"tag\":\"Elm\"},{\"tag\":\"pair\",\"value\":[1,null]}]"))
   dbg(all(views, "{\"id\":\"1\",\"done\":true}"))
+  # A value that is not an object fails once, not once per field.
+  dbg(all(views, "42"))
+  dbg(all(trees, "{\"tag\":\"Node\",\"value\":1}"))
+
+  # A long list is read without growing the stack.
+  long: List[Int] = Json.decode("[#{List.range(0, 30000).map(|i| "#{i}").join(",")}]") escape {
+    _ -> panic("not read")
+  }
+  dbg(long.length())
 
   # ObjectKey: the tag of an enum without contents, or the key of the one field.
   board = Board(

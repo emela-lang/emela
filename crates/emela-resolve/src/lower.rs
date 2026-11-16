@@ -2369,7 +2369,8 @@ pub fn string_attr_value(annotation: &ast::Annotation) -> Option<SmolStr> {
 }
 
 /// The argument of the first attribute `name` of `node`, if it is valid ([`string_attr_value`]).
-fn string_attr(node: &impl HasAttrs, name: &str) -> Option<SmolStr> {
+/// A second attribute of the same name is E0338.
+pub fn string_attr(node: &impl HasAttrs, name: &str) -> Option<SmolStr> {
     node.annotations()
         .find(|a| a.name().is_some_and(|n| n.text() == name))
         .and_then(|a| string_attr_value(&a))

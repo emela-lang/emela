@@ -75,3 +75,21 @@ fn 字句の診断を構文の診断より先に並べる() {
         "{dump}"
     );
 }
+
+/// Telling an annotated variant from the next declaration looks over the whole argument list of
+/// the attribute, which may be longer than the parser's fuel.
+#[test]
+fn 長い属性の引数を先読みしても止まらない() {
+    let args = vec!["1"; 300].join(", ");
+    for src in [
+        format!("enum Status {{\n  @deprecated({args})\n  Open\n}}\n"),
+        format!("enum Status {{\n  @deprecated({args}"),
+    ] {
+        let parse = parse(&src);
+        assert!(
+            parse.debug_dump().contains("VARIANT"),
+            "{}",
+            parse.debug_dump()
+        );
+    }
+}
