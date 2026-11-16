@@ -615,6 +615,18 @@ impl<'m> Builder<'m> {
             .is_some_and(|e| e.binding("wasm").is_some())
     }
 
+    /// Whether the entry reaches the body of `f`. Every function keeps its index (a call, a
+    /// closure record or the table names it); only the body of an unreachable one is left out.
+    /// The roots that are not calls stay: a const is evaluated from its own cell, an error's
+    /// `show` function is named by its descriptor, and the trapping stubs of the hosts are
+    /// reserved separately (`reserve_traps`). A static closure and a table entry are reached
+    /// through the `MakeClosure`/`FnRef` that names them, which the walk follows.
+    fn keeps_body(&self, id: FnId, f: &Function) -> bool {
+        self.reachable.contains(&id)
+            || f.constant
+            || self.m.error_shows.iter().any(|&(_, show)| show == id)
+    }
+
     fn build(&mut self, entry: &Run, reach: &check::Reach) {
         // The runtime gates read which functions the entry reaches. The Flow IR walk the
         // diagnostics use does not see the functions the Heap IR passes append (a lifted closure
@@ -1138,6 +1150,13 @@ impl<'m> Builder<'m> {
         let mut bodies = Vec::new();
         for (id, f) in m.functions.iter() {
             if self.imported(id) {
+                continue;
+            }
+            if !self.keeps_body(id, f) {
+                // The index space keeps every function (calls and table entries name it), but a
+                // body the entry cannot reach costs three bytes instead of its code. A const is
+                // always kept, so this one is not a const and has a single body.
+                bodies.push(runtime::stub());
                 continue;
             }
             if f.constant {
