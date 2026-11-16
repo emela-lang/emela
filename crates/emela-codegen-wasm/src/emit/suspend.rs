@@ -48,9 +48,6 @@ pub(crate) struct Plan {
     /// The innermost active operation, whose implementation the event resumes (see
     /// `runtime::async_bridge`).
     pub(crate) sleep_op: u32,
-    pub(crate) queue: u32,
-    pub(crate) qhead: u32,
-    pub(crate) qlen: u32,
     pub(crate) sync_depth: u32,
     /// The descriptor of a `perform` record (the state of an operation call).
     pub(crate) perform_desc: u32,
@@ -60,10 +57,8 @@ pub(crate) struct Plan {
     pub(crate) interrupted: u32,
     /// The descriptor of an interruption (a static one, or one of a scope's body).
     pub(crate) interrupted_desc: u32,
-    /// The static pieces of the two resume diagnostics.
+    /// The static piece of the resume diagnostic.
     pub(crate) twice_prefix: u32,
-    pub(crate) after_prefix: u32,
-    pub(crate) queue_full: u32,
     /// Whether the run unwinds as interrupted (`runtime::attempt`). Allocated only when the
     /// program uses `Exit.attempt` or `Std.Cause`, so other programs keep their bytes.
     pub(crate) unwinding: u32,
@@ -168,17 +163,12 @@ pub(crate) fn reserve(b: &mut Builder<'_>) {
             out_word: 0,
             pending: 0,
             sleep_op: 0,
-            queue: 0,
-            qhead: 0,
-            qlen: 0,
             sync_depth: 0,
             perform_desc: 0,
             resume_desc: 0,
             interrupted: 0,
             interrupted_desc: 0,
             twice_prefix: 0,
-            after_prefix: 0,
-            queue_full: 0,
             unwinding: 0,
             attempt_table: 0,
             resume_table: [0; 5],
@@ -199,9 +189,6 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         b.alloc_static(8), // output word
         b.alloc_static(4), // the outermost perform of the current suspension cascade
         b.alloc_static(4), // the innermost active perform record
-        b.alloc_static(QUEUE_ENTRIES * QUEUE_STRIDE),
-        b.alloc_static(4), // queue head
-        b.alloc_static(4), // queue length
         b.alloc_static(4), // sync depth
     ];
     let perform_desc = b.desc(DescKey {
@@ -234,8 +221,6 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     });
     let interrupted = b.nullary(interrupted_desc);
     let twice_prefix = b.string_literal(b"resume called twice in ");
-    let after_prefix = b.string_literal(b" failed after resume: ");
-    let queue_full = b.string_literal(b"internal error: the WASM scheduler queue overflowed");
     let mut resume_table = [0u32; 5];
     for (i, name) in [
         "resume_void",
@@ -275,26 +260,14 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     plan.out_word = cells[5];
     plan.pending = cells[6];
     plan.sleep_op = cells[7];
-    plan.queue = cells[8];
-    plan.qhead = cells[9];
-    plan.qlen = cells[10];
-    plan.sync_depth = cells[11];
+    plan.sync_depth = cells[8];
     plan.perform_desc = perform_desc;
     plan.resume_desc = resume_desc;
     plan.interrupted = interrupted;
     plan.interrupted_desc = interrupted_desc;
     plan.twice_prefix = twice_prefix;
-    plan.after_prefix = after_prefix;
-    plan.queue_full = queue_full;
     plan.resume_table = resume_table;
 }
-
-/// The number of jobs the continuation queue holds. Without fibers or a host callback at most
-/// one continuation waits at a time; the queue is the FIFO any future wakeups go through. The
-/// scheduler indexes the same static (`runtime::sched`), so both use these constants.
-pub(crate) const QUEUE_ENTRIES: u32 = 64;
-/// The bytes of one job (`{chain: i32, mode: i32, word: i64}`).
-pub(crate) const QUEUE_STRIDE: u32 = 16;
 
 /// The most states one function's dispatch may have. A state is a nested block in the emitted
 /// dispatch, and WebAssembly engines take quadratic time and memory to compile very deep nesting
