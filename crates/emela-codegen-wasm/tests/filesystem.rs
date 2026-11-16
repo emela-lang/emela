@@ -338,10 +338,19 @@ fn a_large_text_grows_the_read_buffer() {
 #[test]
 fn a_long_listing_reads_several_chunks() {
     // 40 entries do not fit one `read-directory` chunk (16 records), so the loop reads again.
-    let src = "import Std.FileSystem.{FileSystem, SystemFileSystem}\n\nfn main() {\n  with SystemFileSystem {\n    fs = use FileSystem\n    fs.create_directory(\"m\")\n    List.fold(List.range(0, 40), from: (), f: |_, i| fs.write_text(\"m/#{i}.txt\", \"\"))\n    names = fs.list_directory(\"m\")\n    dbg(List.length(names))\n    dbg(List.all(names, |n| String.ends_with(n, \".txt\")))\n  }\n}\n";
+    // The whole listing is compared: the names are sorted with the in-place heapsort, so the
+    // order is part of what this test checks.
+    let src = "import Std.FileSystem.{FileSystem, SystemFileSystem}\n\nfn main() {\n  with SystemFileSystem {\n    fs = use FileSystem\n    fs.create_directory(\"m\")\n    List.fold(List.range(0, 40), from: (), f: |_, i| fs.write_text(\"m/#{i}.txt\", \"\"))\n    names = fs.list_directory(\"m\")\n    dbg(List.length(names))\n    dbg(List.all(names, |n| String.ends_with(n, \".txt\")))\n    dbg(names)\n  }\n}\n";
     let Some(run) = run_fs("fs-many", &[], src) else {
         return;
     };
     assert_eq!(run.code, 0, "{}", run.stderr);
-    assert_eq!(run.stderr, "40\nTrue\n");
+    let mut names: Vec<String> = (0..40).map(|i| format!("\"{i}.txt\"")).collect();
+    names.sort();
+    assert_eq!(
+        run.stderr,
+        format!("40\nTrue\n[{}]\n", names.join(", ")),
+        "{}",
+        run.stderr
+    );
 }
