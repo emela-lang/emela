@@ -197,6 +197,32 @@ jobs:
             echo "::endgroup::"
           done
 
+  # The compiler for the browser (crates/emela-playground), which the playground of the docs
+  # site runs: it still builds for wasm32, and what it compiles runs without node.
+  playground:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: playground
+      - id: bindgen
+        name: Read the wasm-bindgen version
+        run: awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print "version=" $3; exit }' Cargo.lock >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build
+        run: scripts/build-playground.sh
+      - name: Compile and run a program with it
+        run: node crates/emela-playground/smoke.mjs
+
   # The properties of core and std, checked with brix on the compiler just built.
   # brix comes through the proxy and is checked against the hash in Pome.lock.
   laws:
@@ -341,7 +367,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [changes, lint, test, test-bun, examples, laws, spec, proposal-adopted, windows]
+    needs: [changes, lint, test, test-bun, examples, playground, laws, spec, proposal-adopted, windows]
     runs-on: ubuntu-latest
     steps:
       - name: Sum up the jobs

@@ -78,8 +78,10 @@ export class $Fail {
 }
 
 // Turns an exception thrown by an external function (spec 12.5) into a defect. A defect (raised inside an Emela
-// callback) is kept as is. The message is prefixed with the exception's name (`TypeError: …`).
+// callback) is kept as is, and so is the runtime's own interruption, which a write of the bundled std raises on a
+// closed standard output (`$output`). The message is prefixed with the exception's name (`TypeError: …`).
 export function $foreign(error) {
+  if (error instanceof $Interrupted) return error;
   if (error instanceof Error) {
     return error.name === "Defect" ? error : new $Defect(`${error.name}: ${error.message}`);
   }
@@ -199,10 +201,14 @@ export function* $maybe(result) {
 // The fiber being stepped, or null outside the scheduler (in host callbacks).
 let $current = null;
 
+// The runs that have not ended: the ones a closed standard output interrupts (`$output`).
+const $roots = new Set();
+
 class $Root {
   constructor(done) {
     this.done = done;
     this.over = false;
+    $roots.add(this);
     // Tasks (functions) waiting to run, and whether the queue is being drained.
     this.queue = [];
     this.running = false;
@@ -246,6 +252,7 @@ class $Root {
   finish(ok, value) {
     if (this.over) return;
     this.over = true;
+    $roots.delete(this);
     this.queue = [];
     // Stops what the continuations left behind still wait for (timers, requests), so the host can exit.
     for (const wait of this.waits) wait.controller?.abort();
@@ -518,6 +525,7 @@ export function $sync(result) {
   while (out === undefined && root.waits.size > 0) root.interrupt();
   if (out === undefined) {
     root.over = true;
+    $roots.delete(root);
     throw new $Interrupted();
   }
   if (!out.ok) throw out.value;
@@ -1118,16 +1126,96 @@ export function $todo() {
   throw new $Defect("not yet implemented");
 }
 
+// ---- Standard output and standard error ([api.std.process]) ----
+//
+// On a host with a standard output, every write of the program goes through `$output`: SystemStdout,
+// SystemStderr, SystemConsole, `dbg`, the lines the launcher writes when execution stops, and the results of the
+// test runner. It writes synchronously to file descriptor 1 or 2, so writes keep their order across all of them,
+// also when both descriptors are one pipe: there is no buffer to hand over before a write to standard error or a
+// wait for standard input. `console.log` is not mixed in, because Node queues its write when the descriptor would
+// block and synchronous writes would overtake it.
+//
+// A host has a standard output when it gives `node:fs` through `process.getBuiltinModule` (Node and Bun). On any
+// other host (a browser, a Worker), writes go to `console.log` and `console.error` without their final `\n`, which
+// is all `Console` promises there; what SystemStdout does there is not specified.
+
+const $fs = (() => {
+  try {
+    return globalThis.process?.getBuiltinModule?.("node:fs");
+  } catch {
+    return undefined;
+  }
+})();
+const $hasStdout = typeof $fs?.writeSync === "function";
+
+// Set once a write found the reader of the descriptor gone. Later writes to it are discarded.
+let $stdoutClosed = false;
+let $stderrClosed = false;
+// What `$writeAll` waits on for 1 ms when the descriptor would block.
+let $waitCell;
+const $encoder = new TextEncoder();
+
+// Writes every byte of `bytes` to `fd`. A descriptor that someone made non-blocking (Node does for a pipe once
+// `process.stdout` is touched) refuses a write with EAGAIN while the reader is behind: the writer waits 1 ms and
+// writes the rest again, so a slow reader slows the program instead of a buffer growing.
+function $writeAll(fd, bytes) {
+  let at = 0;
+  while (at < bytes.length) {
+    try {
+      at += $fs.writeSync(fd, bytes, at, bytes.length - at);
+    } catch (error) {
+      if (error?.code !== "EAGAIN") throw error;
+      $waitCell ??= new Int32Array(new SharedArrayBuffer(4));
+      Atomics.wait($waitCell, 0, 0, 1);
+    }
+  }
+}
+
+// Writes `text` to standard output (`fd` 1) or standard error (`fd` 2).
+//
+// A write to a standard output whose reader has closed it (EPIPE) does not return: every fiber of every run is
+// interrupted (11.4), and the fiber that wrote unwinds as interrupted from here. The launcher then exits with 141
+// and writes nothing. A closed standard error discards the write, and the program goes on. Other errors of the
+// host (no descriptor at all) discard the write, as `console.log` does.
+export function $output(fd, text) {
+  if (!$hasStdout) {
+    const line = text.endsWith("\n") ? text.slice(0, -1) : text;
+    if (fd === 2) console.error(line);
+    else console.log(line);
+    return;
+  }
+  if (fd === 2 ? $stderrClosed : $stdoutClosed) return;
+  try {
+    $writeAll(fd, $encoder.encode(text));
+  } catch (error) {
+    if (error?.code !== "EPIPE") return;
+    if (fd === 2) {
+      $stderrClosed = true;
+      return;
+    }
+    $stdoutClosed = true;
+    for (const root of [...$roots]) {
+      for (const fiber of [...root.fibers]) {
+        if (fiber !== $current) fiber.interrupt(null);
+      }
+    }
+    throw new $Interrupted();
+  }
+}
+
+// std/process.mjs, std/console.mjs, the launcher and the test runner reach the output through this key, since the
+// runtime may be inlined into the output. `stdoutClosed()` tells the launcher to exit with 141.
+globalThis[Symbol.for("emela.output")] = { write: $output, stdoutClosed: () => $stdoutClosed };
+
 // The Prelude's `dbg(value)`. `show` is the display function generated from the value's type.
-// `console.error` rather than `process.stderr`, so it also works in browsers.
 export function $dbg(value, show) {
-  console.error(show(value));
+  $output(2, `${show(value)}\n`);
   return value;
 }
 
 // `dbg(value)` for a value shown through its Show impl: the shown text, printed as it is.
 export function $debugPrint(text) {
-  console.error(text);
+  $output(2, `${text}\n`);
 }
 
 // The Prelude's `inspect(value)` (spec 10.6). `show` is the display function generated from the

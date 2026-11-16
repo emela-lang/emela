@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r##\"\nimport Std.Platform.{Platform}\nimport Std.Process.{Stderr, StderrText, Stdout, StdoutText, TestStderr, TestStdout}\nimport Std.State.{State}\n\nfn main() {\n  with Platform {\n    (use Stdout).print(\"Hello, \")\n    (use Stdout).print_line(\"alice!\")\n  }\n}\n\nfn greet(name: String) -> () uses { Stdout, Stderr } {\n  (use Stdout).print_line(\"Hello, #{name}!\")\n  (use Stderr).print_line(\"greeted #{name}\")\n}\n\nfn greets() -> Bool {\n  ((_, err), out) = State.run(StdoutText(text: \"\"), || {\n    State.run(StderrText(text: \"\"), || with TestStdout, TestStderr { greet(\"alice\") })\n  })\n  out.text == \"Hello, alice!\\n\" && err.text == \"greeted alice\\n\"\n}\n\"##)"
+---
+main: fn() -> () uses { Async }
+greet: fn(String) -> () uses { Stdout, Stderr }
+  name: String
+greets: fn() -> Bool
+  err: StderrText
+  out: StdoutText

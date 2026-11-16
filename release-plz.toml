@@ -149,6 +149,12 @@ name = "emela-pome"
 version_group = "emela"
 
 [[package]]
+name = "emela-playground"
+version_group = "emela"
+# New since v0.27.1: remove once a release tag contains the crate (see the note above).
+git_tag_name = "emela-playground-v{{ version }}"
+
+[[package]]
 name = "emela-cli"
 version_group = "emela"
 # The binary crate (it builds the `emela` binary) cuts the one release tag.
@@ -174,5 +180,6 @@ changelog_include = [
   "emela-driver",
   "emela-lsp",
   "emela-pome",
+  "emela-playground",
 ]
 

@@ -63,10 +63,9 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "str_new" => i32s(1),                           // p
         "str_eq" => i32s(3),                            // la, lb, i
         "str_cmp" => i32s(6),                           // la, lb, n, i, x, y
-        "str_append" => i32s(5),                        // la, lb, p, off, i
+        "str_append" => i32s(4),                        // la, lb, p, off
         "str_starts_with" | "str_ends_with" => i32s(3), // n, m, i
-        "str_find" => i32s(4),                          // n, m, i, j
-        "copy_range" => i32s(1),                        // i
+        "str_find" => i32s(7),                          // n, m, i, j, first, spread, zero
         "str_slice" => i32s(1),                         // p
         "str_split" => i32s(8),                         // head..cell
         "str_join" => i32s(7),                          // total, p, first, out, pos, len
@@ -275,38 +274,21 @@ fn str_append(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 /// Copies `len` bytes of the source string `src` (a local) to the string `dst` (a local) starting
-/// at the byte offset in `off` (a local). Reuses local `I` (index 6).
+/// at the byte offset in `off` (a local).
+///
+/// The destination is a fresh string in every caller, so the regions do not overlap; `memory.copy`
+/// also has memmove semantics in case they ever do.
 fn copy_bytes(ins: &mut InstructionSink, dst: u32, off: u32, src: u32, len: u32) {
-    const I: u32 = 6;
-    ins.i32_const(0);
-    ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(I);
-    ins.local_get(len);
-    ins.i32_ge_u();
-    ins.br_if(1);
     ins.local_get(dst);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
     ins.local_get(off);
     ins.i32_add();
-    ins.local_get(I);
-    ins.i32_add();
     ins.local_get(src);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
-    ins.local_get(I);
-    ins.i32_add();
-    ins.i32_load8_u(mem(0, 1));
-    ins.i32_store8(mem(0, 1));
-    ins.local_get(I);
-    ins.i32_const(1);
-    ins.i32_add();
-    ins.local_set(I);
-    ins.br(0);
-    ins.end();
-    ins.end();
+    ins.local_get(len);
+    ins.memory_copy(0, 0);
 }
 
 fn str_byte_size(ins: &mut InstructionSink) {
@@ -430,11 +412,21 @@ fn byte_at(ins: &mut InstructionSink, str: u32, i: u32, extra: u32) {
 }
 
 /// `str_find(s, sub, from)`: the byte offset of the first `sub` at or after `from`, or -1.
+///
+/// The scan skips starts whose first byte differs from `sub[0]` four bytes at a time: a word load
+/// plus the "has a zero byte" bit trick (applied to the word XOR the first byte broadcast) names
+/// the first candidate in the word, and `ctz` picks it. That load never leaves the bytes of `s`,
+/// so it cannot run past the object; the last few starts and the confirmation of a candidate are
+/// byte-wise. Only the first byte is skipped this way, so the result is exactly that of the
+/// byte-by-byte scan.
 fn str_find(ins: &mut InstructionSink) {
     const N: u32 = 3;
     const M: u32 = 4;
     const I: u32 = 5;
     const J: u32 = 6;
+    const FIRST: u32 = 7;
+    const SPREAD: u32 = 8;
+    const ZERO: u32 = 9;
     ins.local_get(0);
     ins.i32_load(mem(HDR, 4));
     ins.local_set(N);
@@ -454,10 +446,102 @@ fn str_find(ins: &mut InstructionSink) {
     ins.i32_const(-1);
     ins.return_();
     ins.end();
+    ins.local_get(1);
+    ins.i32_const((HDR + 4) as i32);
+    ins.i32_add();
+    ins.i32_load8_u(mem(0, 1));
+    ins.local_set(FIRST);
+    // `sub[0]` repeated in all four bytes of a word.
+    ins.local_get(FIRST);
+    ins.i32_const(0x0101_0101);
+    ins.i32_mul();
+    ins.local_set(SPREAD);
     ins.local_get(2);
     ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
+    ins.block(BlockType::Empty); // OUTER: the scan, left when no start is left
+    ins.loop_(BlockType::Empty); // SCAN
+    // No start at `i` is left when `i + m` is past the haystack.
+    ins.local_get(I);
+    ins.local_get(M);
+    ins.i32_add();
+    ins.local_get(N);
+    ins.i32_gt_u();
+    ins.br_if(1);
+    ins.block(BlockType::Empty); // AFTER_SCAN: the candidate `i` is ready
+    // Word-at-a-time skip. Leaves at `i + 4 > n` for the byte-wise tail.
+    ins.block(BlockType::Empty); // WORD_OUT
+    ins.loop_(BlockType::Empty); // WORD
+    ins.local_get(I);
+    ins.i32_const(4);
+    ins.i32_add();
+    ins.local_get(N);
+    ins.i32_gt_u();
+    ins.br_if(1);
+    // `z = word(s + 20 + i) XOR first`.
+    ins.local_get(0);
+    ins.i32_const((HDR + 4) as i32);
+    ins.i32_add();
+    ins.local_get(I);
+    ins.i32_add();
+    ins.i32_load(mem(0, 1));
+    ins.local_get(SPREAD);
+    ins.i32_xor();
+    ins.local_set(ZERO);
+    // `z = (z - 0x01010101) & ~z & 0x80808080`: the high bit of a byte is set when that byte of
+    // the word equals `first`; the lowest set high bit is the first candidate.
+    ins.local_get(ZERO);
+    ins.i32_const(0x0101_0101);
+    ins.i32_sub();
+    ins.local_get(ZERO);
+    ins.i32_const(-1);
+    ins.i32_xor();
+    ins.i32_and();
+    ins.i32_const(0x8080_8080u32 as i32);
+    ins.i32_and();
+    ins.local_set(ZERO);
+    ins.local_get(ZERO);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.local_get(I);
+    ins.i32_const(4);
+    ins.i32_add();
+    ins.local_set(I);
+    ins.br(1); // continue WORD (the `if` is label 0)
+    ins.end();
+    ins.local_get(I);
+    ins.local_get(ZERO);
+    ins.i32_ctz();
+    ins.i32_const(3);
+    ins.i32_shr_u();
+    ins.i32_add();
+    ins.local_set(I);
+    ins.br(2); // leave AFTER_SCAN: confirm the candidate
+    ins.end(); // WORD
+    ins.end(); // WORD_OUT
+    // The byte-wise tail, where a four-byte load would leave the bytes of `s`.
+    ins.block(BlockType::Empty); // TAIL_OUT
+    ins.loop_(BlockType::Empty); // TAIL
+    ins.local_get(I);
+    ins.local_get(M);
+    ins.i32_add();
+    ins.local_get(N);
+    ins.i32_gt_u();
+    ins.br_if(1);
+    byte_at(ins, 0, I, 0);
+    ins.local_get(FIRST);
+    ins.i32_ne();
+    ins.if_(BlockType::Empty);
+    ins.local_get(I);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(I);
+    ins.br(1); // continue TAIL
+    ins.end();
+    ins.br(1); // leave TAIL_OUT: confirm the candidate
+    ins.end(); // TAIL
+    ins.end(); // TAIL_OUT
+    ins.end(); // AFTER_SCAN
+    // Confirm `sub` at `i`. The candidate can be past the last start when the word scan found it.
     ins.local_get(I);
     ins.local_get(M);
     ins.i32_add();
@@ -501,45 +585,27 @@ fn str_find(ins: &mut InstructionSink) {
     ins.i32_add();
     ins.local_set(I);
     ins.br(0);
-    ins.end();
-    ins.end();
+    ins.end(); // SCAN
+    ins.end(); // OUTER
     ins.i32_const(-1);
 }
 
 /// Copies `len` bytes from `src + 20 + src_off` to `dst + 20 + dst_off`.
+///
+/// `memory.copy` is memmove, so a source and destination range of the same string may overlap.
 fn copy_range(ins: &mut InstructionSink) {
-    const I: u32 = 5;
-    ins.i32_const(0);
-    ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(I);
-    ins.local_get(4);
-    ins.i32_ge_u();
-    ins.br_if(1);
     ins.local_get(0);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
     ins.local_get(1);
-    ins.i32_add();
-    ins.local_get(I);
     ins.i32_add();
     ins.local_get(2);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
     ins.local_get(3);
     ins.i32_add();
-    ins.local_get(I);
-    ins.i32_add();
-    ins.i32_load8_u(mem(0, 1));
-    ins.i32_store8(mem(0, 1));
-    ins.local_get(I);
-    ins.i32_const(1);
-    ins.i32_add();
-    ins.local_set(I);
-    ins.br(0);
-    ins.end();
-    ins.end();
+    ins.local_get(4);
+    ins.memory_copy(0, 0);
 }
 
 /// `str_slice(s, off, len)`: a new string of `len` bytes of `s` from byte `off`.

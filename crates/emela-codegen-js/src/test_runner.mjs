@@ -6,8 +6,14 @@
 
 const $TEST_EVENT = "\x1eemela-test ";
 
+// Through the runtime's output, the same synchronous path as what the program writes to standard output, so that
+// the results come after it ([api.std.process]). Without the runtime (no test can suspend or write), through
+// `process.stdout`.
 function $testReport(event) {
-  process.stdout.write($TEST_EVENT + JSON.stringify(event) + "\n");
+  const text = $TEST_EVENT + JSON.stringify(event) + "\n";
+  const output = globalThis[Symbol.for("emela.output")];
+  if (output === undefined) process.stdout.write(text);
+  else output.write(1, text);
 }
 
 // If the value returned by a test function is an unhandled error (13.3), returns its display.

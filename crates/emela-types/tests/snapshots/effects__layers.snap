@@ -36,6 +36,7 @@ with LoopA: init []
 `ConsoleLogger` DuplicateLayerEffect { layer: "Twice", effect: "Logger", first: "ConsoleLogger", second: "ConsoleLogger" }
 `LoopA` LayerCycle { cycle: ["LoopA", "LoopB", "LoopA"] }
 `HPing` HandlerCycle { cycle: ["HPing", "HPong", "HPing"] }
+`main` MainValueDiscarded { ty: "String" }
 --- R
 {     (use Logger).info("now")     1   }: Logger
 (use Logger).info("now"): Logger

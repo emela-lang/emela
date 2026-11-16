@@ -1,0 +1,18 @@
+import Std.Fiber.{Fiber}
+import Std.Process.{ExitCode}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+# `[dyn.error]`: a main that suspends returns its `ExitCode` after every child of `Fiber.scope`
+# has ended.
+fn main() -> ExitCode uses { Async } {
+  n = Fiber.scope(|| {
+    a = Fiber.fork(|| 40)
+    b = Fiber.fork(|| 2)
+    Fiber.join(a) + Fiber.join(b)
+  })
+  print("joined #{n}")
+  Process.exit_code(n)
+}

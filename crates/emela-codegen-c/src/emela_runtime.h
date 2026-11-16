@@ -287,6 +287,11 @@ int32_t em_float_round(double x);
 int32_t em_float_truncate(double x);
 em_ref em_show_string(em_ref s);
 void em_debug_print(em_ref s);
+/* Writes `n` bytes, and `\n` when `newline`, to standard output or standard error, handling a
+ * closed one as `[api.std.process]` says. Also called by the bundled `std/console.c` and
+ * `std/process.c`, which declare them, since they are not part of `emela.h`. */
+void em_write_stdout(const char *bytes, size_t n, bool newline);
+void em_write_stderr(const char *bytes, size_t n, bool newline);
 
 /* ---- The host boundary (spec 12.4, 12.5) ---- */
 
@@ -417,7 +422,8 @@ void em_test_done(void);
 /* Ends the run: reports a pending defect (`defect: ...`, 101) or failure (`error: ...`, 1),
  * releases what the runtime holds and, with the environment variable EMELA_LEAK_CHECK set (or
  * the runtime compiled with -DEMELA_LEAK_CHECK), reports live allocations (exit code 99).
- * Returns the exit code. `cleanup` releases the program's const values. */
+ * Returns the exit code: otherwise 0, or the `ExitCode` that main returned (`em_set_exit_code`).
+ * `cleanup` releases the program's const values. */
 int em_exit(void (*cleanup)(void));
 
 #endif

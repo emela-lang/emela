@@ -1,9 +1,9 @@
 ---
 title: Stdout and Stderr in Std.Process, the output streams of the process
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 566
-issue:
+issue: 582
 decided: 2026-11-15
 touches: [api.std.process, api.std.console, api.std.platform, lib.layers, cmd.build, target.native.run, target.wasm.external, open.list]
 requires: [std-process]
@@ -260,7 +260,7 @@ Mark #45 as decided:
 
 ## Diagnostics
 
-- [ ] No new diagnostics.
+- [x] No new diagnostics.
 
 ## Compatibility
 

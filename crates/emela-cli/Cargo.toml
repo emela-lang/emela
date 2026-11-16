@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 emela-driver.workspace = true
 emela-lsp.workspace = true
-emela-pome.workspace = true
+emela-pome = { workspace = true, features = ["net"] }
 clap.workspace = true
 
 [[bin]]

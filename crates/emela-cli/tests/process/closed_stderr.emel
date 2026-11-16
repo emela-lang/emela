@@ -1,0 +1,22 @@
+# Writing to a standard error whose reader has closed it (`[api.std.process]`): the writes are
+# discarded and the program goes on. Standard output gets `done` at the end.
+
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+import Std.Process.{Stderr, Stdout}
+
+fn errors(i: Int) -> () uses { Console, Stderr } {
+  if i < 20000 {
+    (use Stderr).print_line("error #{i}")
+    (use Console).print_error_line("console error #{i}")
+    dbg(i)
+    errors(i + 1)
+  }
+}
+
+fn main() {
+  with Platform {
+    errors(0)
+    (use Stdout).print_line("done")
+  }
+}

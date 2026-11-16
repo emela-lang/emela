@@ -291,20 +291,37 @@ pub(super) fn i32s(n: u32) -> Vec<(u32, ValType)> {
 }
 
 fn rt(b: &Builder, name: &'static str) -> u32 {
+    b.rt_calls.borrow_mut().insert(name);
     b.rt[name]
 }
 
 /// Writes the static data of every module, then emits every runtime function body, in `MODULES`
 /// order.
+///
+/// The Float, Bytes, Array and Unicode runtimes are a set of independent entry points, so a
+/// program that calls one does not pay for the others: only the functions the emitted bodies
+/// reach from [`Builder::rt_used`] keep their body, and every other one becomes a trap. The
+/// function index does not move (the frame of a runtime call is decided in `register`), and the
+/// trapped ones are only named by bodies the program cannot run, so the calls validate.
 pub(crate) fn emit(b: &mut Builder) {
     for module in MODULES {
         (module.setup)(b);
     }
+    // The runtime functions already emitted bodies name (the IR, the state machines and the
+    // runtime modules before this one). A trimmable module keeps the closure of these roots over
+    // the calls its own bodies make.
+    let mut roots: FxHashSet<&'static str> = b.rt_used.clone();
     for module in MODULES {
         if !(module.used)(b) {
             continue;
         }
+        let mut bodies = Vec::with_capacity(module.funcs.len());
+        let mut module_calls: FxHashMap<&'static str, FxHashSet<&'static str>> =
+            FxHashMap::default();
         for (name, ..) in module.funcs {
+            // The calls a body makes are the body's edges in the runtime call graph. Clearing the
+            // set first keeps the calls of the bodies emitted before this one out of them.
+            b.rt_calls.borrow_mut().clear();
             let mut f = WasmFunction::new((module.locals)(name));
             {
                 let mut ins = f.instructions();
@@ -314,7 +331,66 @@ pub(crate) fn emit(b: &mut Builder) {
                 }
                 ins.end();
             }
-            b.bodies.push(f);
+            module_calls.insert(name, std::mem::take(&mut *b.rt_calls.borrow_mut()));
+            bodies.push((name, f));
+        }
+        let needed = reachable_runtime(&roots, &module_calls);
+        if trimmable(module) {
+            for (name, f) in bodies {
+                b.bodies
+                    .push(if needed.contains(name) { f } else { stub() });
+            }
+        } else {
+            b.bodies.extend(bodies.into_iter().map(|(_, f)| f));
+        }
+        // The calls of the bodies the roots reach are the roots of the modules after this one (a
+        // body may name a function of a later module: the string runtime's `str_split` names the
+        // grapheme functions). A call of a body the roots do not reach stays out: the body is
+        // emitted but no reachable code runs it.
+        for name in &needed {
+            if let Some(calls) = module_calls.get(name) {
+                roots.extend(calls.iter().copied());
+            }
         }
     }
+}
+
+/// Whether a module's bodies are gated by their call graph. These runtimes are independent entry
+/// points (a program that shows a Float does not parse one), so trimming them cannot leave a
+/// reachable call to a trap. The other modules keep every body: they share helpers, host imports
+/// or an exported function (`cabi_realloc`).
+fn trimmable(module: &RuntimeModule) -> bool {
+    [float::FUNCS, bytes::FUNCS, array::FUNCS, unicode::FUNCS]
+        .iter()
+        .any(|funcs| std::ptr::eq(*funcs, module.funcs))
+}
+
+/// The functions reachable from `roots` through the call graph `calls` of one module.
+fn reachable_runtime(
+    roots: &FxHashSet<&'static str>,
+    calls: &FxHashMap<&'static str, FxHashSet<&'static str>>,
+) -> FxHashSet<&'static str> {
+    let mut needed = FxHashSet::default();
+    let mut work: Vec<&'static str> = roots.iter().copied().collect();
+    while let Some(name) = work.pop() {
+        if !needed.insert(name) {
+            continue;
+        }
+        if let Some(next) = calls.get(name) {
+            work.extend(next.iter().copied());
+        }
+    }
+    needed
+}
+
+/// The body of a runtime function the program cannot reach: it keeps the function's index for
+/// the calls that name it, and traps if one ever runs.
+pub(crate) fn stub() -> WasmFunction {
+    let mut f = WasmFunction::new(Vec::<(u32, ValType)>::new());
+    {
+        let mut ins = f.instructions();
+        ins.unreachable();
+        ins.end();
+    }
+    f
 }

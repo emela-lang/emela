@@ -1,0 +1,48 @@
+# Writing to a standard output whose reader has closed it (`[api.std.process]`): the fiber that
+# wrote unwinds as interrupted, running the releases, the other fibers are interrupted, later
+# writes to standard output are discarded, and the program exits with 141 without writing
+# `interrupted`. The first argument says what writes the lines: `stdout` (the default) or
+# `console`, which writes to the same stream and is handled the same way.
+
+import Std.Clock.{Clock}
+import Std.Console.{Console}
+import Std.Fiber.{Fiber}
+import Std.Platform.{Platform}
+import Std.Process.{Args, Stderr, Stdout}
+
+effect Guard {
+  fn check() -> ()
+}
+
+handler Released: Guard {
+  init { Released }
+  fn check() { () }
+  release {
+    (use Stdout).print_line("discarded")
+    (use Stderr).print_line("released")
+  }
+}
+
+fn forever(how: String, i: Int) -> () uses { Console, Stdout } {
+  how match {
+    "console" -> (use Console).print_line("line #{i}")
+    _         -> (use Stdout).print_line("line #{i}")
+  }
+  forever(how, i + 1)
+}
+
+fn main() -> () uses { Async } {
+  with Platform {
+    how = (use Args).get(0) match {
+      Some(how) -> how
+      None      -> "stdout"
+    }
+    Fiber.scope(|| {
+      Fiber.fork(|| with Released { (use Clock).sleep(600000) })
+      # Lets the forked fiber start and enter its `with` before the writes, which never suspend.
+      (use Clock).sleep(10)
+      with Released { forever(how, 0) }
+    })
+    (use Stderr).print_line("not reached")
+  }
+}

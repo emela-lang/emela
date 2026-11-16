@@ -1,0 +1,30 @@
+# `closed_stdout.emel` in a program that suspends but forks no fiber. What unwinds is not caught
+# by `Exit.attempt`, and the program exits with 141 after the release ran.
+
+import Std.Clock.{Clock}
+import Std.Exit.{Exit}
+import Std.Platform.{Platform}
+import Std.Process.{Stderr, Stdout}
+
+effect Guard {
+  fn check() -> ()
+}
+
+handler Released: Guard {
+  init { Released }
+  fn check() { () }
+  release { (use Stderr).print_line("released") }
+}
+
+fn forever(i: Int) -> () uses { Stdout } {
+  (use Stdout).print_line("line #{i}")
+  forever(i + 1)
+}
+
+fn main() -> () uses { Async } {
+  with Platform {
+    (use Clock).sleep(1)
+    _ = Exit.attempt(|| with Released { forever(0) })
+    (use Stderr).print_line("caught")
+  }
+}

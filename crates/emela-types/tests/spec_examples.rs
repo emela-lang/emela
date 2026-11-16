@@ -691,6 +691,39 @@ fn main() {
     ));
 }
 
+/// `[api.std.process]`: the example of Stdout, and the test of TestStdout and TestStderr in the
+/// proposal (`proposals/stdout-stderr.md`). The operations are Immediate, so `greet` is not a
+/// suspend fn.
+#[test]
+fn spec_api_std_process_stdout() {
+    insta::assert_snapshot!(render_bodies(
+        r##"
+import Std.Platform.{Platform}
+import Std.Process.{Stderr, StderrText, Stdout, StdoutText, TestStderr, TestStdout}
+import Std.State.{State}
+
+fn main() {
+  with Platform {
+    (use Stdout).print("Hello, ")
+    (use Stdout).print_line("alice!")
+  }
+}
+
+fn greet(name: String) -> () uses { Stdout, Stderr } {
+  (use Stdout).print_line("Hello, #{name}!")
+  (use Stderr).print_line("greeted #{name}")
+}
+
+fn greets() -> Bool {
+  ((_, err), out) = State.run(StdoutText(text: ""), || {
+    State.run(StderrText(text: ""), || with TestStdout, TestStderr { greet("alice") })
+  })
+  out.text == "Hello, alice!\n" && err.text == "greeted alice\n"
+}
+"##
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Code the text declares to be errors
 

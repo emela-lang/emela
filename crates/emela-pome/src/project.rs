@@ -685,6 +685,7 @@ fn write(file: &Path, text: &str) -> Result<(), PomeError> {
         Ok(m) => m.permissions(),
         Err(_) => fs::metadata(dir).map_err(io)?.permissions(),
     };
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut perms = perms;
     #[cfg(unix)]
     if !file.exists() {
