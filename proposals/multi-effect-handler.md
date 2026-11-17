@@ -23,13 +23,13 @@ related: []
 - ロックを取ったファイル，一時ファイル: 読む面と書く面が同じファイルハンドルを使う
 - Db のトランザクション: 読むだけの関数を `use Query`，書く関数を `use Execute` と分けて書きたいが，トランザクションの中では両方が同じ接続，同じトランザクションを使わなければならない
 
-handler は effect をちょうど1つ実装する（`[effect.handler]`）ので，今は全部の操作を持つ effect（`Tx`）の handler を作り，面ごとに `Tx` へ転送するだけの handler を書く．
+handler は effect をちょうど1つ実装する（`[effect.handler]`）ので，今は全部の操作を持つ effect（`Tx`）の handler を作り，面ごとに `Tx` へ転送するだけの handler（`Tx` を requirement に持つ）を書いて，同じ with に並べる．
 
 ```emel
-with Tx by db.begin(), Query by TxQuery, Execute by TxExecute { ... }
+with PostgresTxAll(url: "..."), TxQuery, TxExecute { ... }
 ```
 
-面の数だけ転送の handler とラベルの組み合わせが要る．
+面の数だけ転送の handler が要る．
 
 handler member（`handler-member`）と組み合わせると，原点の例（読むだけ，書くだけ，ロック，一時ファイル）がそのまま書ける．
 
