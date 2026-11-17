@@ -275,6 +275,59 @@ fn check_clean_project() {
     assert_eq!(run.status.code(), Some(0));
 }
 
+/// `[cmd.build]`, `[cmd.test]`: `check`, `build`, `run` and `test` take `--experimental-<name>`.
+/// A name of no known experimental feature is the warning W0206, not an unknown-argument error,
+/// and the command goes on. Arguments after `--` are the program's.
+#[test]
+fn experimental_flags_of_an_unknown_feature_are_warnings() {
+    let project = Project::new(
+        "experimental-flags",
+        &[
+            ("app/Pome.toml", ""),
+            ("app/src/main.emel", "fn main() {\n  dbg(1)\n  ()\n}\n"),
+            ("app/test/main_test.emel", "@test\nfn passes() { () }\n"),
+            ("single/main.emel", "fn main() {\n  dbg(2)\n  ()\n}\n"),
+        ],
+    );
+    let run = project.emela(&["check", "--experimental-from-the-future", "app"]);
+    assert_eq!(run.code, Some(0), "{run:?}");
+    insta::assert_snapshot!(run.stderr, @r"
+    warning[W0206]: unknown experimental feature `from-the-future`
+
+    1 warning
+    ");
+    for args in [
+        &["build", "app", "--experimental-from-the-future"][..],
+        &["run", "--experimental-from-the-future", "app"],
+        &["test", "--experimental-from-the-future", "app"],
+        &["run", "--experimental-from-the-future", "single/main.emel"],
+        &[
+            "check",
+            "single/main.emel",
+            "--experimental-from-the-future",
+        ],
+    ] {
+        let run = project.emela(args);
+        assert_eq!(run.code, Some(0), "{args:?}: {run:?}");
+        assert!(
+            run.stderr
+                .contains("warning[W0206]: unknown experimental feature `from-the-future`"),
+            "{args:?}: {run:?}"
+        );
+    }
+    let run = project.emela(&[
+        "run",
+        "single/main.emel",
+        "--",
+        "--experimental-from-the-future",
+    ]);
+    assert_eq!(run.code, Some(0), "{run:?}");
+    assert!(!run.stderr.contains("W0206"), "{run:?}");
+    // Only `check`, `build`, `run` and `test` take the flags.
+    let run = project.emela(&["fmt", "--check", "--experimental-from-the-future", "app"]);
+    assert_eq!(run.code, Some(2), "{run:?}");
+}
+
 #[test]
 fn check_missing_path() {
     let project = Project::new("missing", &[]);

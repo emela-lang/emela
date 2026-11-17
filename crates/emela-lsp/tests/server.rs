@@ -787,6 +787,25 @@ fn reports_a_license_that_is_not_an_spdx_expression() {
     client.shutdown();
 }
 
+/// `[lsp.project]`, `[pome.manifest]`: the server reads `[experimental]` of the project as the
+/// commands do, so an unknown name is W0206 at the key in `Pome.toml`.
+#[test]
+fn reports_an_unknown_experimental_feature() {
+    let manifest = "[pome]\nname = \"github.com/me/app\"\nversion = \"0.1.0\"\nemela = \"0.29.0\"\n\n[experimental]\nfrom-the-future = true\n";
+    let files = [
+        ("/app/Pome.toml", manifest),
+        ("/app/src/main.emel", "const X = 1\n"),
+    ];
+    let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri("/app/Pome.toml"));
+    assert_eq!(codes(&published), ["W0206"]);
+    let diagnostic = &published.diagnostics[0];
+    assert_eq!(diagnostic.range, range((6, 0), (6, 15)));
+    assert_eq!(diagnostic.severity, Some(lsp::DiagnosticSeverity::WARNING));
+    client.shutdown();
+}
+
 #[test]
 fn close_reverts_to_disk() {
     let files = [

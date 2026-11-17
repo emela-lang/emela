@@ -116,6 +116,12 @@ impl Diagnostic {
         self
     }
 
+    /// Marks a diagnostic produced by the experimental feature `name` with the note
+    /// ``experimental feature `name` `` (spec `[intro.experimental]`).
+    pub fn from_experimental_feature(self, name: &str) -> Self {
+        self.with_note(format!("experimental feature `{name}`"))
+    }
+
     /// Printed as `= help: …`. Stored as a note rather than a new field, to keep the error side
     /// of `Result` small.
     pub fn with_help(self, help: impl AsRef<str>) -> Self {

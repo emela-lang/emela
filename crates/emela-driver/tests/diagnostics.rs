@@ -1998,6 +1998,94 @@ fn deprecated_build_target_c() {
     );
 }
 
+/// `[pome.manifest]`: an unknown name in `[experimental]` is W0206 at the key, whatever its value,
+/// and a value that is not a boolean is W0207 at the value. The check goes on (`[intro.experimental]`:
+/// no experimental feature is known yet, so every name is unknown).
+#[test]
+fn experimental_settings_of_the_project() {
+    let manifest = |table: &str| {
+        format!(
+            "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.29.0\"\n\n[experimental]\n{table}"
+        )
+    };
+    let check_manifest = |manifest: &str| {
+        check_files(
+            &[
+                ("app/Pome.toml", manifest),
+                ("app/src/main.emel", "let x = 1\n"),
+            ],
+            "app",
+            &mut LexOnly,
+        )
+    };
+
+    let analysis = check_manifest(&manifest("from-the-future = true\nalso-unknown = false\n"));
+    assert_eq!(analysis.error_count(), 0);
+    insta::assert_snapshot!(
+        "experimental_unknown_feature",
+        render(&analysis.diagnostics, &analysis.sources, false)
+    );
+
+    let analysis = check_manifest(&manifest("from-the-future = \"yes\"\n"));
+    assert_eq!(analysis.error_count(), 0);
+    insta::assert_snapshot!(
+        "experimental_not_a_boolean",
+        render(&analysis.diagnostics, &analysis.sources, false)
+    );
+
+    for clean in [
+        manifest(""),
+        // `[experimental]` is a table of its own; a key of that name elsewhere is not read.
+        "[build]\nexperimental = 1\n".into(),
+        // Without a `[pome]` (a project without dependencies may have an empty `Pome.toml`).
+        String::new(),
+    ] {
+        let analysis = check_manifest(&clean);
+        assert!(
+            analysis.diagnostics.is_empty(),
+            "{clean:?}: {:?}",
+            analysis.diagnostics
+        );
+    }
+}
+
+/// `[cmd.build]`: a flag `--experimental-<name>` that names no known experimental feature is not
+/// an error but W0206, without a location. The same name twice is reported once. In single-file
+/// mode the flags are read too.
+#[test]
+fn experimental_flags() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        ("app/src/main.emel", "let x = 1\n"),
+        ("single/main.emel", "let x = 1\n"),
+    ]);
+    for path in ["app", "single/main.emel"] {
+        let mut input = Input::resolve(&fs, Path::new(path)).unwrap();
+        input.experimental = vec!["from-the-future".into(), "from-the-future".into()];
+        let (analysis, _) = check(&fs, &input, &mut LexOnly);
+        assert_eq!(analysis.error_count(), 0, "{path}");
+        insta::assert_snapshot!(
+            "experimental_unknown_flag",
+            render(&analysis.diagnostics, &analysis.sources, false)
+        );
+    }
+}
+
+/// A diagnostic produced by an experimental feature carries the note
+/// ``= note: experimental feature `name` `` (`[intro.experimental]`).
+#[test]
+fn experimental_feature_note() {
+    let diagnostic = Diagnostic::warning("something the feature checks")
+        .with_code("W0000")
+        .from_experimental_feature("some-feature");
+    insta::assert_snapshot!(render(&[diagnostic], &SourceDb::new(), false), @r"
+    warning[W0000]: something the feature checks
+       = note: experimental feature `some-feature`
+
+    1 warning
+    ");
+}
+
 /// A single file has no `Pome.toml` of its own, so there is no license to check.
 #[test]
 fn single_file_does_not_read_a_license() {

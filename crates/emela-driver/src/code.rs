@@ -68,6 +68,11 @@ pub const OLDER_COMPILER_DEPENDENCY: &str = "W0203";
 pub const UNUSED_EXTERNAL_ALLOW: &str = "W0204";
 /// `[pome].license` is not a string or not an SPDX license expression (spec `[pome.manifest]`).
 pub const LICENSE_NOT_AN_EXPRESSION: &str = "W0205";
+/// An experimental feature named in `[experimental]` or by a flag `--experimental-<name>` is
+/// unknown, stable or removed (spec `[intro.experimental]`).
+pub const UNKNOWN_EXPERIMENTAL_FEATURE: &str = "W0206";
+/// A value of `[experimental]` is not a boolean (spec `[pome.manifest]`).
+pub const EXPERIMENTAL_NOT_A_BOOLEAN: &str = "W0207";
 
 // E03xx: types
 pub const TYPE_MISMATCH: &str = "E0301";
