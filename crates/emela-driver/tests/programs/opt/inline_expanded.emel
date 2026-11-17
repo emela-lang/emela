@@ -1,0 +1,21 @@
+# The hand-written expansion of `inline_fused.emel`: each call to a small function is replaced by
+# its body, with the arguments bound once, left to right. `zero`'s `Body` is now built in `main`,
+# where the scalar replacement of aggregates can see it does not escape.
+
+type Body(x: Int, y: Int)
+
+fn main() {
+  bodies = [Body(x: 1, y: 2)]
+  b = Option.or(List.get(bodies, 0), Body(x: 0, y: 0))
+  c = Option.or(List.get(bodies, 1), Body(x: 0, y: 0))
+  dbg((b.x, b.y, c.x, c.y))
+  a = {
+    dbg("a 1")
+    1
+  }
+  b2 = {
+    dbg("b 2")
+    2
+  }
+  dbg(a + b2)
+}
