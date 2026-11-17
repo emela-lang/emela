@@ -133,6 +133,7 @@ warning[W0402]: a value that holds `log` leaves the `with` that provides it
 - 0.28: inference, `holds:`, the capability elements of R and W0402 always apply. E0444 applies with `capture-checking`.
 - During the period of warnings, until the next minor version, code that takes the capability of a handler without state out of its with is found and fixed.
 - 0.29: E0444 becomes the default. W0402 and E0425 are retired, the run-time check of `[effect.escape]` is removed, and `capture-checking` becomes stable (`[intro.experimental]`). That is a separate change of the specification, recorded when it is made.
+- One path is not tracked statically: a callback passed to an `@external` fn (`[ext.boundary]`) can be kept by the host and called after the with ends, and its R may contain Immediate effects, so it may hold a capability. The run-time check catches this now. The change for 0.29 MUST decide how this path is checked before the run-time check is removed, from what the period of `capture-checking` shows in real code. The candidates are: a value passed to an `@external` fn counts as leaving every with that provides a root it holds; or the run-time check stays only for values that the host calls back.
 
 ## Specification changes
 
@@ -206,7 +207,7 @@ Add:
 
 Replace the item "0.22: capture set" with:
 
-> - [ ] 0.29: make E0444 the default, retire W0402 and E0425, and remove the run-time check of 8.6 (`capture-checking`)
+> - [ ] 0.29: make E0444 the default, retire W0402 and E0425, and remove the run-time check of 8.6 (`capture-checking`). Before the run-time check is removed, decide how a callback passed to an `@external` fn and kept by the host is checked (12.4)
 
 ## Diagnostics
 
@@ -243,7 +244,5 @@ Replace the item "0.22: capture set" with:
 - Region-based escape analysis: rejecting values that refer to a region after it ends.
 
 ## Open questions
-
-- A callback passed to an `@external` fn can be kept by the host and called after the with ends (`[ext.boundary]`). Its R may contain Immediate effects, so it may hold a capability. The run-time check catches this now. Before the run-time check is removed in 0.29, decide one of: a value passed to an `@external` fn counts as leaving every with that provides a root it holds; or the run-time check stays only for values that the host calls back.
 
 ## Decision
