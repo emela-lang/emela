@@ -485,19 +485,6 @@ backendの名前依存も二段階に分ける。文字列intrinsicはJSの`emit
 - **export:** JS の emitter は非識別子名に対する文字列 export と default object の文字列キーを既に扱う。Cの外部公開名は別経路であり、既存の C 識別子検証（`names::is_c_identifier` の呼び出し側）を維持する。`@export(c, "host_ready") pub fn ready?() -> Bool` は内部名の文字種と外部名を分離できる例である。`@export(c, "ready?")` を内部名として置換し救済してはならない。host名の診断の仕様化に不足があれば別の既存ギャップとして扱い、本案で新ABIを作らない。
 - **WASM の境界:** `[target.wasm.external]` はユーザー定義の WASM import/export をまだ許さない。`?`付きの内部関数が生成できることとhost公開できることは別であり、後者の対応をこの提案に含めない（`[open.list]` #56）。
 
-### 調査範囲・既存提案
-
-`proposals/README.md`、`TEMPLATE.md`、`spec/README.md`、`glossary.md`、両スキルを参照し、`scripts/spec.py index` / `show` / `refs` / `proposals` で関連節を調べた。ローカルの `proposals/` と `[open.list]` に同じ機能を決めた記述は見つからなかった。
-
-GitHub は読み取り専用のコネクターで `repo:emela-lang/emela` に対して proposal ラベルの全状態検索（上限100件）と、`predicate`、`"question mark"`、`"述語"` の PR/Issue 検索を実施した。これらの語で直接重複する提案は見つからなかったが、別表現の全履歴を網羅したという保証ではない。Git コマンド、Issue/PR 作成は行っていない。
-
-関連する既存提案:
-
-- [Method calls #454](https://github.com/emela-lang/emela/pull/454): ローカルの proposal は `implemented`。`x.f` の制約と探索規則を維持する。
-- [Local functions #502](https://github.com/emela-lang/emela/pull/502): ローカルの proposal は `accepted`、仕様には反映されている。実装Issue [#571](https://github.com/emela-lang/emela/issues/571) が検索で見つかったが、ローカル fn の現在の実行可否は未検証であり、採択と実装を同一視しない。
-- [Exported functions and entries #427](https://github.com/emela-lang/emela/pull/427): 明示的なhost名とソース名の区別を維持する。
-- [The C target becomes the native target #564](https://github.com/emela-lang/emela/pull/564): ローカルの proposal は `accepted`。古い `[target.c.*]` ではなく現在の `[target.native.*]` を参照する。
-
 ### 検証結果と必要な適合テスト
 
 PATH（`Get-Command` / `where.exe`）、既存の `target` 配下、通常のユーザー用bin配置を探索したが、実行可能な Emela CLI は見つからなかった。`crates/emela-cli/build.rs` は Git コマンドを呼ぶため、Git操作禁止を守る目的でCLIのビルドも行わなかった。現在のコンパイラの振る舞いを実行確認したという主張はしない。
@@ -549,39 +536,6 @@ PATH（`Get-Command` / `where.exe`）、既存の `target` 配下、通常のユ
 | 移行の回帰 | 現行APIを読む利用者とcore/std自体の開発 | 依存読込みと直接開発を区別し、API移行と有効化時期の方針に合わせる |
 
 実装時には Lexer のトークン範囲、Parser/CST、解決ID、型/E/R、Formatter出力、LSP編集範囲、backend実行結果をそれぞれ対応する既存テスト群で検査する。今回これらの実装テストは追加・実行しない。2026-11-16の修正でもコード例のCLI整形・実行は行っていない。
-
-### 追加の受け入れ条件とB2適合テスト
-
-以下を実装・後続の命名Proposalのレビュー条件とする。未採択の例外を先に実装するための指示ではない。
-
-- Q2は`?`付き関数の戻り値だけ、Q3はBool関数の`?`不足だけを扱い、警告Aの採否はQ2にのみ置く。B1/B2はQ3で代替として選び重複報告しない。
-- 現行仕様と実装から特殊なBool関数を棚卸しし、Eq.eq・derive・intrinsic・組込みAPI・entry・外部名と全backendの依存を確認する。名前で認識する処理と単なるAPI参照、IRのBuiltin/ID参照を区別する。
-- 推論後の型による全数調査で戻り値省略・private helper・ローカルfnも確認し、未確認項目を完了扱いしない。判明した追加項目も同じ分類表へ追記する。
-- 例外を採る場合は維持すべき規約等の理由を示し、処理系を対応させて改名する案と比較する。特殊扱いだけを免除理由にしない。
-- 標準ライブラリ統一を維持し、個別名・例外・移行は後続Proposalへ残す。Q2/Q3やB2の適用方針を採択済みと扱わない。
-
-| 分類 | ケース | 条件付きの期待／確認事項 |
-|---|---|---|
-| Q2/Q3分離 | `ready? -> String`、`ready -> Bool` | 前者はQ2/Aだけ、後者はQ3/B2だけ。Q2規約のみとQ3/B2も併用可能 |
-| 正常系 | `ready? -> Bool`、`has_key? -> Bool` | B1/B2の接尾辞不足なし。has_削除を求めない |
-| 警告系 | `contains -> Bool`、`is_ready -> Bool` | B2なら両者に一度ずつ。B1なら後者のみ。Q3警告なしなら双方なし |
-| 例外 | 組込みEq.eqと、利用者の通常の`eq -> Bool` | Eqを例外に選んだ場合のみ組込みの役割を除外。利用者の同名関数を文字列一致で免除しない |
-| 例外候補 | Boolを返すmain、Bool.parse、明示host名を持つ外部fn | 原則適用/明示例外/段階的適用の決定ごとに期待を固定。例外未決の段階で免除テストを確定しない |
-| derive回帰 | `derive Eq`と手書きimpl、`==`/`!=`、List/OptionのEq | 宣言と生成名・演算子解決が一致。派生実装へ重複警告なし。改名案なら全経路を同期 |
-| intrinsic回帰 | contains/starts_with/ends_with、Deferred.complete | 新ソース名でも同じBuiltin/FiberOpへ到達し、JS/C/WASMで同じ結果。改名しない場合も既存経路を維持 |
-| 外部境界回帰 | env_has、host_exists、host_is_directoryのソース名とhost名 | 明示host名とWASM std host表を区別し、対応変更後も同じ外部関数へ到達 |
-| Trait/Effect/型推論 | 推論Bool、明示Bool、Trait/operation宣言と複数実装 | 同一の型基準、宣言単位の警告。Ord.compareの結果がOrderingであることも確認 |
-| entry/test回帰 | mainの探索、任意名の@test、外部export | entry・test収集・host公開名を壊さず、改名によるテストフィルタの変化も検査 |
-
-### 下書き作成後の批判的レビュー
-
-2026-11-16の再レビューでは、確定した対象範囲をOpen questionsから切り分け、Bool制約なし・警告なしを暗黙に選ぶ旧記述を修正した。A/B1/B2の表・診断候補・テストはすべて条件付きであり、作者の警告への前向きな意向を採用決定に置き換えていない。今回の具体的な標準API変更と `has_` の機械的削除は含めていない。将来の標準ライブラリ統一自体は確定方針として反映し、B1/B2の選択は未決のままとした。
-
-1. **Motivationは好みの範囲を出ない。** 計算能力は増えず、Bool制約を選べば名前と結果型の静的保証も得られる。既存の `is_` / `has_` に具体的な保守上の不利益がなければ、現状維持にはコスト面の利点があった。ただし現在の作者方針は導入後の標準ライブラリ統一であり、その実施方法を後続で具体化する。
-2. **限定することで別の非対称性が生まれる。** 関数値を受け取る引数には `?` を付けられない一方で、非Boolを返す名前付きfnの扱いは未決である。前者は確定した範囲の帰結、後者はQ2の判断として区別する。
-3. **一貫性を広げすぎない。** 既存の裸のメソッド値の禁止、effect operation参照の許可、Traitの戻り値省略が `()` になる規則を再確認した。接尾辞を理由にこれらを変更しない。
-4. **ツールと将来構文のコストが主な負担。** 内部コード生成は既存のID・名前表を再利用できる見込みがあるが、CSTの名前アクセサ、Renameの字句クラス例外、補完中の不完全なソース、将来の後置`?`の制約は残る。新ABIは不要と見込む一方、Bool制約を選ぶ場合の型検査コストは独立に評価する。
-5. **レビューで範囲外の拡張を除いた。** semantic tokensが現在はcapability変数だけを返す事実に合わせ、関数のsemantic token新設を含めないようにした。EBNFは宣言・import・式・`@entry`の裸/修飾参照を接続し、パターンや属性名を意図せず広げない形にした。
 
 ## Alternatives
 
