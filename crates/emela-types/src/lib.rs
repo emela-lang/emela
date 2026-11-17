@@ -5,6 +5,7 @@
 //! E and R are computed with set union and difference.
 
 mod body;
+mod capture;
 mod check;
 mod const_cycle;
 mod coverage;
@@ -29,6 +30,7 @@ mod ty;
 #[cfg(test)]
 mod tests;
 
+pub use capture::{Captures, Held, Provider};
 pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
 pub use diagnostic::{
     Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, LabelBaseReason, LayerArg,
@@ -52,6 +54,6 @@ pub use scheme::Scheme;
 pub use signature::{InitParams, Signature, Signatures};
 pub use traits::{ImplHead, Traits, Unsatisfied, head_def};
 pub use ty::{
-    FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData, TyConId, TyConKind,
-    TyCons, TyParam, TyVar,
+    CapElem, FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData, TyConId,
+    TyConKind, TyCons, TyParam, TyVar,
 };

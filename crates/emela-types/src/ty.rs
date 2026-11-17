@@ -15,7 +15,7 @@ use ena::unify::{NoError, UnifyKey, UnifyValue};
 use la_arena::{Arena, ArenaMap, Idx};
 use smol_str::SmolStr;
 
-pub use crate::row::{Row, RowElem, RowVar, SetKind, Tag};
+pub use crate::row::{CapElem, Row, RowElem, RowVar, SetKind, Tag};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Prim {
@@ -282,6 +282,22 @@ impl Ty {
 
     pub fn named(id: TyConId, args: impl IntoIterator<Item = Ty>) -> Ty {
         Ty::Named(id, args.into_iter().collect())
+    }
+
+    /// The type with every capability element of its sets replaced by its effect
+    /// (`[effect.use]`). A capability names a local variable, so it cannot appear in the type of
+    /// a top-level definition.
+    pub fn widened(&self) -> Ty {
+        match self {
+            Ty::Fn(f) => Ty::Fn(Box::new(FnTy {
+                params: f.params.iter().map(Ty::widened).collect(),
+                ret: f.ret.widened(),
+                fails: f.fails.widened().map_tys(Ty::widened),
+                uses: f.uses.widened().map_tys(Ty::widened),
+            })),
+            Ty::Set(kind, row) => Ty::Set(*kind, row.widened().map_tys(Ty::widened)),
+            ty => ty.map_children(Ty::widened),
+        }
     }
 
     /// Visits the immediate child types, including types inside a function type's error set

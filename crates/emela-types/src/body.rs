@@ -27,7 +27,7 @@ use crate::infer::{InferCtx, Origin, SetKind, substitute, substitute_bound};
 use crate::lower::{
     Omitted, Scope, TyTable, effect_params, has_omitted_fails, is_intrinsic_effect,
 };
-use crate::row::{Row, RowElem, RowVar, Tag};
+use crate::row::{CapElem, Row, RowElem, RowVar, Tag};
 use crate::signature::{FnParams, Signature, Signatures, param_labels};
 use crate::traits::Traits;
 use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
@@ -185,6 +185,18 @@ pub(crate) struct BodyInfer<'a> {
     deferred: Vec<DeferredRef>,
     locals: SparseMap<LocalId, Ty>,
     local_owner: SparseMap<LocalId, DefId>,
+    /// The anonymous function or local fn whose body is being inferred: the lambda expression, or
+    /// the body of the local fn. `None` in the body of the definition itself.
+    binder: Option<ExprId>,
+    /// The binder each local variable is bound in ([`Self::binder`]). A local used inside another
+    /// binder is captured (`[effect.use]`).
+    local_binder: SparseMap<LocalId, Option<ExprId>>,
+    /// While computing R: the `with` expressions enclosing the expression, innermost last, with
+    /// the effects they provide (`body/effects.rs`).
+    with_stack: Vec<(ExprId, Vec<Tag>)>,
+    /// Local variables bound to `use E` → the `with` that provides E there (its root,
+    /// `[effect.escape]`). Their capability elements are removed from R where that `with` ends.
+    cap_roots: SparseMap<LocalId, ExprId>,
     /// Field access expressions → field indices.
     fields: SparseMap<ExprId, usize>,
     /// Call, pipe and update expressions → the arguments reordered by position.
@@ -205,9 +217,10 @@ pub(crate) struct BodyInfer<'a> {
     coverage: Vec<CoverageSite>,
     /// Each expression's error set, computed after body inference (`body/errors.rs`).
     expr_rows: SparseMap<ExprId, Row>,
-    /// Set variables that remove tags caught by `escape` from a set variable's solution
-    /// (`δ ⊇ v ∖ tags`).
-    row_diffs: Vec<(RowVar, RowVar, Vec<Tag>)>,
+    /// Set variables that remove elements from a set variable's solution (`δ ⊇ v ∖ elems`): the
+    /// tags caught by `escape` or provided by `with`, and the capabilities whose root or binding
+    /// ends (`[effect.use]`). A tag removes only the same tag, not a capability of that effect.
+    row_diffs: Vec<(RowVar, RowVar, Vec<RowElem>)>,
     /// `escape` inner expressions, the errors their arms catch and their arm `_`, for the W0302
     /// check.
     escapes: Vec<errors::Escape>,
@@ -325,6 +338,10 @@ impl<'a> BodyInfer<'a> {
             coverage: Vec::new(),
             expr_rows: SparseMap::new(),
             row_diffs: Vec::new(),
+            binder: None,
+            local_binder: SparseMap::default(),
+            with_stack: Vec::new(),
+            cap_roots: SparseMap::default(),
             escapes: Vec::new(),
             expr_effects: SparseMap::new(),
             ops: SparseMap::new(),
@@ -343,6 +360,7 @@ impl<'a> BodyInfer<'a> {
     /// Switches to the definition about to be inferred, taking its module and type parameters.
     fn enter(&mut self, def: DefId) {
         self.current = Some(def);
+        self.binder = None;
         self.module = self.program.defs[def].module.clone();
         self.self_ty = None;
         (self.type_params, self.param_kinds) = match self.program.item(def) {
@@ -822,6 +840,7 @@ impl<'a> BodyInfer<'a> {
     /// Also records which definition's body the local belongs to.
     fn set_local(&mut self, local: LocalId, ty: Ty) {
         self.locals.insert(local, ty);
+        self.local_binder.insert(local, self.binder);
         if let Some(def) = self.current {
             self.local_owner.insert(local, def);
         }
@@ -868,6 +887,8 @@ impl<'a> BodyInfer<'a> {
             let (scheme, rows, tys) =
                 self.ctx
                     .generalize_bounded(&ty, params, &[], &self.immediate_vars);
+            // A capability of the body cannot be named outside it (`[effect.use]`).
+            let scheme = crate::Scheme::new(scheme.params, scheme.ty.widened());
             inferred.push((def, Signature { scheme, labels }));
             generalized_rows.push((def, rows));
             generalized_tys.push((def, tys));
@@ -1249,6 +1270,7 @@ impl<'a> BodyInfer<'a> {
     /// `body/effects.rs`); the declaration itself has none.
     fn infer_local_fn(&mut self, f: &LocalFn) {
         let program = self.program;
+        let outer = self.binder.replace(f.body);
         let mut hidden_fails = Row::empty();
         let mut hidden_uses = Row::empty();
         let mut params = Vec::new();
@@ -1314,7 +1336,10 @@ impl<'a> BodyInfer<'a> {
             None => Row::var(self.ctx.new_row_var()),
         };
         let ty = Ty::func_sets(params, ret.clone(), fails.clone(), uses.clone());
+        // The name belongs to the enclosing body; the parameters and the body to the local fn.
+        let inner = std::mem::replace(&mut self.binder, outer);
         self.set_local(f.local, ty);
+        self.binder = inner;
         self.local_fns.insert(
             f.local,
             LocalFnInfo {
@@ -1328,6 +1353,7 @@ impl<'a> BodyInfer<'a> {
             },
         );
         self.check_expr(f.body, &ret);
+        self.binder = outer;
     }
 
     /// The type of a reference to a function value, with fresh set variables added to E and R. A
@@ -1749,6 +1775,7 @@ impl<'a> BodyInfer<'a> {
             Some(Ty::Fn(f)) if f.params.len() == params.len() => Some(*f),
             _ => None,
         };
+        let outer = self.binder.replace(expr);
 
         let mut param_tys = Vec::new();
         for (i, param) in params.iter().enumerate() {
@@ -1776,6 +1803,7 @@ impl<'a> BodyInfer<'a> {
             }
             None => self.infer_expr(body),
         };
+        self.binder = outer;
 
         let row = self.ctx.new_row_var();
         let uses = self.ctx.new_row_var();
@@ -1845,7 +1873,10 @@ impl<'a> BodyInfer<'a> {
     /// The type of a capability operation `log.info` (spec 8.2): the declared operation type with
     /// the effect added to R. Effect type parameters are replaced with the capability value's
     /// type arguments (`get` of `use State[Int]` is `fn() -> Int`, spec 8.1).
-    fn infer_op(&mut self, expr: ExprId, tag: &Tag, name: &Label) -> Ty {
+    ///
+    /// When `base` is a capability value captured by the closure or local fn being inferred, the
+    /// R is the capability itself (`uses { primary }`, `[effect.use]`); it widens to the effect.
+    fn infer_op(&mut self, expr: ExprId, base: ExprId, tag: &Tag, name: &Label) -> Ty {
         let program = self.program;
         let effect = tag.def;
         // A label has the operations of its base (issue #255).
@@ -1887,10 +1918,28 @@ impl<'a> BodyInfer<'a> {
             rows.extend(fresh_rows);
             substitute(&sig.scheme.ty, &tys, &rows)
         });
+        let uses = match self.captured_capability(base) {
+            Some(local) => Row::from_elems([RowElem::Cap(CapElem {
+                local,
+                name: program.locals[local].name.clone(),
+                tag: tag.clone(),
+            })]),
+            None => Row::of_tag(tag.clone()),
+        };
         match ty {
-            Some(Ty::Fn(f)) => Ty::func_sets(f.params, f.ret, f.fails, Row::of_tag(tag.clone())),
+            Some(Ty::Fn(f)) => Ty::func_sets(f.params, f.ret, f.fails, uses),
             _ => Ty::Error,
         }
+    }
+
+    /// The local variable `expr` refers to, if it is bound outside the closure or local fn being
+    /// inferred.
+    fn captured_capability(&self, expr: ExprId) -> Option<LocalId> {
+        let ExprKind::Path(Res::Local(local)) = self.program.exprs[expr].kind else {
+            return None;
+        };
+        let bound = self.local_binder.get(local)?;
+        (*bound != self.binder).then_some(local)
     }
 
     /// The type of field `field` of type definition `type_def` applied to `args`. Fields come from

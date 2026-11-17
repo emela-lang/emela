@@ -408,6 +408,16 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
             .diags
             .iter()
             .map(|d| {
+                // `[effect.escape]`: E0444 instead of W0402 where the module's Pome enables
+                // `capture-checking` (`[intro.experimental]`).
+                if let emela_types::DiagnosticKind::CaptureEscape { .. } = d.kind {
+                    let as_error = d.span.is_some_and(|s| {
+                        analysis
+                            .experimental(s.module)
+                            .is_enabled(crate::experimental::CAPTURE_CHECKING)
+                    });
+                    return Diagnostic::from_capture_escape(d, &analysis.files, as_error);
+                }
                 let out = Diagnostic::from_type(d, &types.ty_table.cons, &analysis.files);
                 let at_or_line = d.span.is_some_and(|s| {
                     self.parse_of(s.module)

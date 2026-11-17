@@ -252,6 +252,10 @@ impl InferCtx {
                 None => Row::var(*v),
             },
             RowElem::Tag(t) => Row::of_tag(t.map_args(|a| self.resolve(a))),
+            RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
+                tag: c.tag.map_args(|a| self.resolve(a)),
+                ..c.clone()
+            })]),
             e => Row::from_elems([e.clone()]),
         })
     }
@@ -754,6 +758,10 @@ fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u
             },
             RowElem::Of(t) => Row::from_elems([RowElem::Of(replace_vars(t, map, rows))]),
             RowElem::Tag(t) => Row::of_tag(t.map_args(|a| replace_vars(a, map, rows))),
+            RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
+                tag: c.tag.map_args(|a| replace_vars(a, map, rows)),
+                ..c.clone()
+            })]),
             e => Row::from_elems([e.clone()]),
         })
     };
@@ -816,6 +824,10 @@ pub(crate) fn substitute_row(row: &Row, tys: &[Ty], rows: &[Row]) -> Row {
             .unwrap_or_else(|| Row::from_elems([e.clone()])),
         RowElem::Of(t) => Row::from_elems([RowElem::Of(substitute(t, tys, rows))]),
         RowElem::Tag(t) => Row::of_tag(t.map_args(|a| substitute(a, tys, rows))),
+        RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
+            tag: c.tag.map_args(|a| substitute(a, tys, rows)),
+            ..c.clone()
+        })]),
         e => Row::from_elems([e.clone()]),
     })
 }

@@ -125,6 +125,9 @@ pub const UNUSED_DERIVE: &str = "W0303";
 /// `[dyn.error]`: the entry's `main` returns a type other than `()`, `ExitCode` and Never.
 pub const MAIN_VALUE_DISCARDED: &str = "W0304";
 pub const UNUSED_LABEL_PROVIDER: &str = "W0401";
+/// `[effect.escape]`, `[fiber.escape]`: a value that holds a root leaves the `with` or the
+/// `Fiber.scope` that provides it. E0444 with the experimental feature `capture-checking`.
+pub const CAPTURE_ESCAPE: &str = "W0402";
 
 // E04xx: effects and handlers (spec chapter 8)
 pub const UNKNOWN_OPERATION: &str = "E0401";
@@ -183,6 +186,8 @@ pub const SUSPENDING_EXPORT: &str = "E0441";
 pub const HTTP_SERVICE_ON_C: &str = "E0442";
 // Bytes and Arrays at the boundary on the native target (`[ext.boundary]`)
 pub const BOUNDARY_TYPE_ON_C: &str = "E0443";
+// Capture sets with the experimental feature `capture-checking` (`[effect.escape]`)
+pub const CAPTURE_ESCAPE_ERROR: &str = "E0444";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

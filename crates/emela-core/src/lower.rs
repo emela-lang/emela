@@ -788,7 +788,8 @@ impl<'a> Lowerer<'a> {
         let hir = self.hir;
         let async_ = hir.prelude_def("Async");
         let mut set = SetSummary::default();
-        for e in row.elems() {
+        // A capability is summarized as its effect (`[effect.use]`).
+        for e in row.widened().elems() {
             match e {
                 RowElem::Bound(i) => set.params.push(self.module.type_param(*i as usize)),
                 RowElem::Var(v) => match self.generalized_row_param(*v) {
@@ -804,6 +805,7 @@ impl<'a> Lowerer<'a> {
                 }
                 RowElem::Tag(t) if Some(t.def) == async_ => set.suspends = true,
                 RowElem::Tag(_) | RowElem::Of(_) => set.fails = true,
+                RowElem::Cap(_) => unreachable!("widened above"),
             }
         }
         set.params.sort();
@@ -1806,7 +1808,7 @@ impl<'a> Lowerer<'a> {
             cx.types
                 .effects
                 .get(body)
-                .is_some_and(|r| r.tags().any(|t| !cx.is_immediate_effect(t.def)))
+                .is_some_and(|r| r.effect_tags().any(|t| !cx.is_immediate_effect(t.def)))
         };
         let init = self.module.declare(&format!("{name}$init"), false);
         self.module.functions[init].suspends = h.init.is_some_and(|b| suspends(self, b));
@@ -2819,7 +2821,7 @@ impl<'a> Lowerer<'a> {
         let module = &self.hir.defs[self.hir_def_of(callee)].module;
         let Some(tag) = body
             .uses
-            .tags()
+            .effect_tags()
             .find(|t| {
                 let d = &self.hir.defs[t.def];
                 d.kind == DefKind::Effect && d.name == "State" && d.module == *module
