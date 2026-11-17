@@ -1,0 +1,29 @@
+# The hand-written expansion of `failing_fused.emel`: the same failing body as a
+# fallible self tail call, caught with the same `escape`.
+
+error Stop(at: Int)
+
+fn visit(n: Int, stop: Int) -> () {
+  go(0, n, stop) escape {
+    Stop(at:) -> {
+      dbg("stopped at #{at}")
+      ()
+    }
+  }
+}
+
+fn go(i: Int, n: Int, stop: Int) -> () fails Stop {
+  if i >= n {
+    ()
+  } else {
+    if i == stop { fail Stop(at: i) }
+    dbg("visit #{i}")
+    go(i + 1, n, stop)
+  }
+}
+
+fn main() {
+  visit(5, 2)
+  visit(5, 9)
+  visit(0, 0)
+}

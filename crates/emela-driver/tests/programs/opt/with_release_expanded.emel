@@ -1,0 +1,33 @@
+# The hand-written expansion of `with_release_fused.emel`: the same fold as a
+# self tail call, inside the same `with`.
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Session: Log {
+  release {
+    dbg("close")
+    ()
+  }
+  fn log(msg) {
+    dbg("#{msg}")
+    ()
+  }
+}
+
+fn sum_range(n: Int) -> Int {
+  go(0, n, 0)
+}
+
+fn go(i: Int, n: Int, acc: Int) -> Int {
+  if i >= n { acc } else { go(i + 1, n, acc + i) }
+}
+
+fn main() {
+  with Session {
+    dbg(sum_range(4))
+    (use Log).log("inside")
+  }
+  dbg("after")
+}
