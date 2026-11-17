@@ -14,19 +14,19 @@ related: []
 
 ## Summary
 
-仕様に「実験的な機能」の区分を足す．実験的な機能は `Pome.toml` の `[experimental]` で Pome ごとに有効にし，コマンドのフラグ `--experimental-<name>` でもその実行だけ有効にできる．互換性の保証の外に置く．仕様の中では，その機能の節に「Experimental」の印を付けて書く．最初の機能は capture checking（`capture-checking`）を想定する．
+Add a category of experimental features to the specification. A Pome enables an experimental feature in the `[experimental]` table of its `Pome.toml`, and a command enables it for one run with a flag `--experimental-<name>`. Experimental features are outside the compatibility guarantees. Their rules are written where they belong, marked "Experimental". The first feature is expected to be capture checking (`capture-checking`).
 
 ## Motivation
 
-capture checking（`capture-checking`）には非互換がある．状態を持たない handler の capability を with の外へ出すコードは，今は動くが，コンパイルエラーになる．いきなり既定にすると，既存のコードが一度に壊れる．
+Capture checking (`capture-checking`) is not compatible with every program that compiles now: code that takes the capability of a handler without state out of its with runs today, and becomes a compile error. Making it the default at once would break that code in one step.
 
-- 推論と表示を先に入れ，検査を警告の期間を経てエラーにしたい
-- 推論の既定（本体のない宣言の扱い）や診断の文面は，実際のコードに当てて直したい．その間に変えても，互換性を破ったことにならない区分が要る
+- The inference and its display should come first, and the check should become an error after a period of warnings.
+- The defaults of the inference (for declarations without a body) and the text of the diagnostics should be adjusted against real code. Changing them during that period should not count as breaking compatibility.
 
-今の仕様には，この区分がない．
+The specification has no such category.
 
-- 仕様に入った規則は，すべて互換性の対象として読める
-- 実験のためのコマンドの引数や設定がない．`[intro.reading]` は「Informative」の節（`[target.impl-hint]` など）を区別しているが，「まだ変わりうる規範」の区分はない
+- Every rule in the specification reads as covered by compatibility.
+- There is no command flag or setting for trying a feature. `[intro.reading]` tells informative sections (`[target.impl-hint]` and others) apart, but there is no category for normative rules that may still change.
 
 ## Proposal
 
@@ -38,7 +38,7 @@ capture checking（`capture-checking`）には非互換がある．状態を持�
 capture-checking = true
 ```
 
-- `[experimental]` の各キーは実験的な機能の名前，値は真偽値
+- Each key of `[experimental]` is the name of an experimental feature, and its value is a boolean.
 
 ```sh
 emela run --experimental-capture-checking
@@ -46,32 +46,36 @@ emela check --experimental-capture-checking --experimental-other-feature
 emela run --experimental-capture-checking hello.emel   # single-file mode
 ```
 
-- `check`，`build`，`run`，`test` は，実験的な機能ごとに `--experimental-<name>` のフラグを受け付ける．フラグの名前は機能の名前から決まる．複数の機能を有効にするときはフラグを並べる
+- `check`, `build`, `run` and `test` take a flag `--experimental-<name>` for each experimental feature. The name of the flag follows from the name of the feature. To enable several features, write several flags.
 
 ### Meaning
 
-- 実験的な機能は，仕様の `[intro.experimental]` の一覧に名前があるものだけ．それぞれ，導入した版と，何を変えるかを書く
-- 有効にした機能は，その Pome のモジュールを検査し，ビルドするときに働く．依存先の Pome では，依存先の `Pome.toml` の `[experimental]` が働く（`[replace]` や `[external]` と違い，依存されたときにも読む）
-  - capture checking のように「どの Pome のコードで違反が見つかったか」で警告かエラーかが決まる機能は，これで Pome ごとに決まる
-  - Pome の境界をまたいで意味が変わる機能（構文，型の表現，実行時の動作）を実験にするときは，その機能の節で，依存先と依存元の設定が違う場合を決める
-- 実験的な機能は互換性の保証の外にある
-  - どの版でも，意味を変えたり，取り除いたりしてよい
-  - 既定にした（実験を終えた）機能の名前は，しばらく受け付け，効果がないことを警告する
-  - 取り除いた機能の名前は，効果がないことを警告する
-- 知らない名前（新しいコンパイラにしかない機能など）は警告にする．ビルドは止めない
-- 実験的な機能が出す診断は，`= note: experimental feature `capture-checking`` を付ける
-- コマンドの `--experimental-<name>` は，その実行の間だけ，ビルドする Pome（single-file mode ではそのファイルと，そこから import で届くファイル）でその機能を有効にする
-  - `Pome.toml` の `[experimental]` に足す形で働く．`Pome.toml` で有効にした機能をフラグで無効にすることはできない
-  - 依存先の Pome には働かない．依存先はそれぞれの `[experimental]` で検査される
-  - single-file mode には `Pome.toml` がないので，実験を試す方法はフラグだけになる
-  - 言語サーバーはフラグを知らないので，`Pome.toml` の設定で働く．フラグでだけ有効にした機能は，エディタの診断に出ない
-- `--experimental-` で始まる知らないフラグは，知らないコマンドの引数としてエラーにせず，`[experimental]` の知らないキーと同じく警告にする．古いコンパイラで新しい機能のフラグを付けても，ビルドは止まらない
-- `--help` は，そのコンパイラが知っている実験的な機能のフラグを一覧する
-- 仕様の中では，実験的な機能の規則を，ふつうの規則と同じ場所に書き，段落の頭に「Experimental (`capture-checking`).」の印を付ける
+- The experimental features are those listed in `[intro.experimental]`, each with the version that introduced it and what it changes.
+- A name is lower-case English words joined by `-` (`capture-checking`).
+- An enabled feature applies when the modules of that Pome are checked and built. For a dependency, the `[experimental]` of the dependency's own `Pome.toml` applies. Unlike `[replace]` and `[external]`, `[experimental]` is also read when the Pome is depended on.
+  - A feature whose diagnostics are warnings or errors depending on where the violation is (capture checking) is therefore decided per Pome.
+  - A feature that changes meaning across Pome boundaries (syntax, the representation of types, behavior at run time) decides, in its own rules, what happens when a dependency and the Pome that depends on it differ.
+- Experimental features are outside the compatibility guarantees.
+  - Any version MAY change or remove any of them.
+  - The name of a feature that has become stable is accepted for at least one minor version, with a warning that it has no effect.
+  - The name of a removed feature is accepted with a warning that it has no effect.
+  - A Pome that enables a feature declares only the minimum compiler version in `[pome].emela`, as now. There is no upper bound.
+- An unknown name (a feature of a newer compiler) is a warning. The build does not stop.
+- Diagnostics produced by an experimental feature carry the note ``= note: experimental feature `name` ``.
+- A flag `--experimental-<name>` enables the feature for that run only, for the Pome being built (in single-file mode, for the file and the files it reaches by import).
+  - It adds to the `[experimental]` of `Pome.toml`. A flag cannot disable a feature enabled in `Pome.toml`.
+  - It does not apply to dependencies. Each dependency is checked with its own `[experimental]`.
+  - Single-file mode has no `Pome.toml`, so a flag is the only way to try a feature there.
+  - The language server does not know the flags of a command, and applies only `Pome.toml`. A feature enabled only by a flag does not show in the diagnostics of an editor. No tool reports this difference.
+- A flag that starts with `--experimental-` and does not name a known feature is not an unknown-argument error. It is the same warning as an unknown key of `[experimental]`, so an older compiler given the flag of a newer feature still builds.
+- `--help` lists the flags of the experimental features that the compiler knows.
+- Only `check`, `build`, `run` and `test` take the flags. Whether `fmt`, `doc` and `pome` take them is decided by the proposal of a feature that needs it (a feature that changes the syntax).
+- In the specification, the rules of an experimental feature are written where they belong, and each item that belongs to one starts with "Experimental (`name`)." The mark is put per item: within the section of one feature, an item without the mark applies always, and an item with the mark applies only when the feature is enabled.
+- Tools do not list the experimental features that dependencies enable, and `emela doctor` does not show them.
 
 ### Typing rules
 
-なし．各機能の規則による．
+None. Each feature has its own rules.
 
 ## Specification changes
 
@@ -81,21 +85,24 @@ Add as 1.5:
 
 > ## 1.5 Experimental features `[intro.experimental]`
 >
-> An experimental feature is a part of the specification that is not yet stable. A Pome enables it in the `[experimental]` table of its `Pome.toml` (`[module.pome]`).
+> An experimental feature is a part of the specification that is not yet stable. A Pome enables it in the `[experimental]` table of its `Pome.toml` (`[module.pome]`), and a command enables it for one run with a flag `--experimental-<name>` (`[cmd.build]`).
 >
-> - The rules of an experimental feature are written where they belong, and each paragraph or item that belongs to one starts with "Experimental (`name`)."
-> - Experimental features are outside the compatibility guarantees of this document. A later version MAY change or remove any of them.
-> - When an experimental feature becomes stable, its rules lose the mark, and the name is accepted in `[experimental]` with a warning (W02xx) for at least one minor version.
+> - The name of a feature is lower-case English words joined by `-`.
+> - The rules of an experimental feature are written where they belong. Each item that belongs to one starts with "Experimental (`name`)." Within the section of a feature, an item without the mark applies always, and an item with the mark applies only when the feature is enabled.
+> - Experimental features are outside the compatibility guarantees of this document. Any version MAY change or remove any of them. A Pome that enables one declares only the minimum compiler version in `[pome].emela`.
+> - When an experimental feature becomes stable, its rules lose the mark, and its name is accepted in `[experimental]` and as a flag for at least one minor version, with a warning (W0206) that it has no effect. The name of a removed feature is accepted with the same warning.
+> - Diagnostics produced by an experimental feature carry the note ``= note: experimental feature `name` ``.
 >
 > | Name | Since | What it changes |
 > |---|---|---|
-> | `capture-checking` | 0.28 | Values that hold a capability and leave its with are compile errors instead of warnings (`[effect.escape]`) |
+>
+> There is no experimental feature yet. Each proposal that adds one adds a row.
 
 ### `[intro.reading]`
 
 Add:
 
-> - A section or item marked "Experimental" applies only when its feature is enabled (`[intro.experimental]`).
+> - An item marked "Experimental (`name`)." applies only when that feature is enabled (`[intro.experimental]`).
 
 ### `[module.pome]`
 
@@ -103,24 +110,25 @@ Add to the example:
 
 > ```toml
 > [experimental]
-> capture-checking = true                          # experimental features (1.5)
+> # name = true                                  # experimental features (1.5)
 > ```
 
 Add:
 
-> - `[experimental]` enables experimental features (`[intro.experimental]`) for the modules of that Pome. Unlike `[replace]` and `[external]`, it is also read when the Pome is depended on: each Pome in the dependency graph is checked with its own `[experimental]`.
+> - `[experimental]` enables experimental features (`[intro.experimental]`) for the modules of that Pome. Unlike `[replace]` and `[external]`, it is also read when the Pome is depended on: each Pome in the dependency graph is checked with its own `[experimental]`. A feature that changes meaning across Pome boundaries states in its own rules what happens when the settings of two Pomes differ.
 
 ### `[pome.manifest]`
 
 Add:
 
-> - The keys of `[experimental]` are names of experimental features, and the values are booleans. An unknown name, or a name of a feature that is stable or removed, is a warning (W02xx) at the key, when building that Pome. A value that is not a boolean is a warning (W02xx), and the key has no effect.
+> - The keys of `[experimental]` are names of experimental features, and the values are booleans. An unknown name, or the name of a feature that is stable or removed, is a warning (W0206) at the key, when building that Pome. A value that is not a boolean is a warning (W0207), and the key has no effect.
 
 ### `[cmd.build]`
 
 Add:
 
-> - `check`, `build` and `run` take a flag `--experimental-<name>` for each experimental feature `name` (`[intro.experimental]`). It enables that feature for that run, for the Pome being built (in single-file mode, for the files read), in addition to the `[experimental]` of its `Pome.toml`. It does not apply to dependencies, and it cannot disable a feature enabled in `Pome.toml`. A flag that starts with `--experimental-` and does not name a known experimental feature, or names a stable or removed one, is not an error: it is the same warning as for a key of `[experimental]` (W02xx). `--help` lists the flags of the experimental features the compiler knows.
+> - `check`, `build` and `run` take a flag `--experimental-<name>` for each experimental feature `name` (`[intro.experimental]`). It enables that feature for that run, for the Pome being built (in single-file mode, for the files read), in addition to the `[experimental]` of its `Pome.toml`. It does not apply to dependencies, and it cannot disable a feature enabled in `Pome.toml`. A flag that starts with `--experimental-` and does not name a known experimental feature, or names a stable or removed one, is not an error: it is the warning W0206. `--help` lists the flags of the experimental features the compiler knows.
+> - The language server applies only `Pome.toml` (`[lsp.project]`), so a feature enabled only by a flag does not show in the diagnostics of an editor.
 
 ### `[cmd.test]`
 
@@ -132,37 +140,40 @@ Add:
 
 Add:
 
-> - The language server applies the `[experimental]` of each Pome, as the commands do.
+> - The language server applies the `[experimental]` of each Pome, as the commands do. It has no flags for experimental features.
 
 ### `[diag.list]`
 
-> | W02xx | A key of `[experimental]` is not a known experimental feature, or the feature is stable or removed (`[intro.experimental]`) | ``unknown experimental feature `capture-check` `` / ``experimental feature `capture-checking` is now stable and always on`` |
-> | W02xx | A value of `[experimental]` is not a boolean | ```[experimental].capture-checking` must be `true` or `false` `` |
+> | W0206 | An experimental feature named in `[experimental]` or by a flag `--experimental-<name>` is unknown, stable or removed (`[intro.experimental]`) | ``unknown experimental feature `name` `` / ``experimental feature `name` is now stable and always on`` / ``experimental feature `name` was removed`` |
+> | W0207 | A value of `[experimental]` is not a boolean | ``[experimental].name` must be `true` or `false` `` |
 
 ## Diagnostics
 
-- [ ] An unknown, stable or removed experimental feature: W02xx
-- [ ] A value that is not a boolean: W02xx
-- [ ] The note `= note: experimental feature `name`` on diagnostics produced by an experimental feature
+- [x] An unknown, stable or removed experimental feature, in `[experimental]` or as a flag: W0206
+- [x] A value of `[experimental]` that is not a boolean: W0207
+- [x] The note ``= note: experimental feature `name` `` on diagnostics produced by an experimental feature
 
 ## Compatibility
 
-追加だけ．`[experimental]` は今は読まれないので，書いてある既存の `Pome.toml` はない見込み．
+The change only adds. `[experimental]` is not read now, so no existing `Pome.toml` is expected to have it. A flag that starts with `--experimental-` is an unknown argument now.
 
 ## Implementation
 
-- emela-pome: `[experimental]` の読み込み，警告
-- emela-cli，emela-lsp: Pome ごとの設定を検査に渡す
-- emela-types など: 機能ごとの分岐
+- emela-pome: reading `[experimental]`, W0206 and W0207
+- emela-cli: the flags `--experimental-<name>`, the list in `--help`, passing the setting of each Pome to the checker
+- emela-lsp: passing the setting of each Pome to the checker
+- emela-types and others: the rules of each feature
 
 ## Alternatives
 
-- コマンドの引数だけにする: `check`，`build`，`test` と言語サーバーで設定がずれる．言語サーバーはコマンドの引数を知らない．依存先の Pome の設定も表せない．`Pome.toml` を正にし，フラグはその実行だけ足す形にした
-- 名前を取る1つのフラグ（`--experimental <name>`）: 引数は1つで足りるが，`--help` やシェルの補完に機能の名前が出ない．機能ごとのフラグでも，名前は機能の名前から機械的に決まるので，コマンドの側に機能ごとの定義は増えない
-- 環境変数（`EMELA_EXPERIMENTAL`）: 同じ理由でずれる．Pome ごとの設定を表せない
-- ソースの属性（`@experimental(capture_checking)` をモジュールに付ける）: モジュールごとに違う設定になり，境界をまたぐ機能で扱いが増える．Pome 単位で足りる
-- 実験の区分を作らず，警告の期間だけを仕様に書く: 推論の既定や診断の文面を変えるたびに，非互換の変更として記録することになる
-- edition（`[open.list]` #12）で切り替える: edition は予約語のような大きな切り替えのためのもので，機能ごとに試す用途には粗い
+- Only command flags: the setting differs between `check`, `build`, `test` and the language server, which does not know the flags of a command. The setting of a dependency cannot be expressed. `Pome.toml` is the source of the setting, and a flag adds to it for one run.
+- One flag that takes a name (`--experimental <name>`): one argument is enough, but the names of the features do not show in `--help` or in shell completion. With a flag per feature, the name of the flag still follows mechanically from the name of the feature, so a command does not define anything per feature.
+- An environment variable (`EMELA_EXPERIMENTAL`): it differs between tools for the same reason, and cannot express the setting of each Pome.
+- An attribute in source (`@experimental(capture_checking)` on a module): the setting differs per module, and a feature that crosses module boundaries needs more rules. A setting per Pome is enough.
+- No category, only a period of warnings written in the specification: every change to the defaults of the inference or to the text of a diagnostic would be recorded as an incompatible change.
+- Editions (`[open.list]` #12): an edition is for a large switch such as new reserved words, and is too coarse for trying one feature.
+- Telling the Pome that depends on a dependency that the dependency enables an experimental feature: not needed until a feature changes meaning across Pome boundaries. It can be added by such a feature.
+- An upper bound of the compiler version for a Pome that enables a feature: experimental features are outside the compatibility guarantees, and the version that changes one is recorded in `spec/history.md`.
 
 ## Prior art
 
@@ -170,13 +181,5 @@ Add:
 - Experimental flags declared in a project manifest: Kotlin compiler options in the build script, TypeScript `compilerOptions`.
 
 ## Open questions
-
-- 依存先の Pome が実験的な機能を有効にしているとき，依存元に知らせるか（`emela pome` の一覧や警告）．実験的な機能は互換性の保証の外にあるので，依存先がコンパイラの更新で壊れうる
-- 実験的な機能を使う Pome の `[pome].emela`（最小のコンパイラの版）．機能の意味が版ごとに変わりうるので，最小の版だけでは足りない．上限も書けるようにするか
-- 1つの機能の中を段階に分ける（capture checking の「推論と表示はいつも，検査のエラーは実験」）とき，常に働く部分と実験の部分を，機能の節の中でどう書き分けるか
-- 機能の名前の書き方（`capture-checking` のように `-` でつなぐ）
-- `emela doctor` に，有効になっている実験的な機能を出すか
-- フラグでだけ有効にした機能が言語サーバーの診断に出ないことを，どこかで知らせるか（`run` の出力の1行目など）
-- フラグを `fmt`，`doc`，`pome` のコマンドにも持たせるか．構文を変える実験的な機能が出たときに要る
 
 ## Decision
