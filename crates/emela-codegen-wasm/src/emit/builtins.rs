@@ -97,6 +97,18 @@ impl<'m> Builder<'m> {
                 ins.call(f);
                 self.assign(cx, ins, dst, Repr::Ref);
             }
+            // `runtime/ascii.rs`, a trimmable module: the body is only emitted for a program that
+            // changes ASCII case.
+            StringAsciiLower | StringAsciiUpper => {
+                self.operand(cx, ins, &args[0]);
+                let name = match op {
+                    StringAsciiLower => "str_ascii_lower",
+                    _ => "str_ascii_upper",
+                };
+                let f = self.rt(name);
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
             // The builtins that return `Option[A]`: the runtime builds the `Some` from the
             // descriptor and gives back the static `None`.
             IntParse => self.option_call(cx, ins, dst, args, "int_parse"),
