@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-18 (Capture checking)
+
+- `[intro.experimental]`, `[effect.escape]`, `[effect.use]`, `[fiber.escape]`, `[type.fn]`, `[type.rules]`, `[lsp.hover]`, `[diag.list]`, `[open.next]`: Infer, together with its type, the set of capabilities that a value holds (its capture set), and report a value that leaves the with that provides one of them. The R of a function gets a second kind of element: besides the name of an effect (`Db`), a capability itself (`primary`, a parameter `from`). The capture set is not written in source; the language server and the diagnostics show it. In 0.28 the inference, the display and the new elements of R always apply, and leaving a with is a warning. With the experimental feature `capture-checking` (`[intro.experimental]`) it is a compile error. A later version makes the error the default. Adopted in the proposal `capture-checking` (#621).
+
 ## 2026-11-18 (Experimental features)
 
 - `[intro.experimental]`, `[intro.reading]`, `[module.pome]`, `[pome.manifest]`, `[cmd.build]`, `[cmd.test]`, `[lsp.project]`, `[diag.list]`: Add a category of experimental features to the specification. A Pome enables an experimental feature in the `[experimental]` table of its `Pome.toml`, and a command enables it for one run with a flag `--experimental-<name>`. Experimental features are outside the compatibility guarantees. Their rules are written where they belong, marked "Experimental". The first feature is expected to be capture checking (`capture-checking`). Adopted in the proposal `experimental-features` (#620).
