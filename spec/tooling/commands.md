@@ -16,6 +16,11 @@ This appendix defines the externally visible behavior of the `emela` command. `e
   - When `run` reaches the program, the exit code of the program: 0, or the value of the `ExitCode` that `main` returned (`[dyn.error]`), when main ends with a value; 1 for an error (14.3); 101 for a defect (7.5); 130 for an interruption (14.5); 141 for a write to a closed standard output (`[api.std.process]`).
   - 128 + the signal number when stopped by a signal.
 
+Experimental features:
+
+- `check`, `build` and `run` take a flag `--experimental-<name>` for each experimental feature `name` (`[intro.experimental]`). It enables that feature for that run, for the Pome being built (in single-file mode, for the files read), in addition to the `[experimental]` of its `Pome.toml`. It does not apply to dependencies, and it cannot disable a feature enabled in `Pome.toml`. A flag that starts with `--experimental-` and does not name a known experimental feature, or names a stable or removed one, is not an error: it is the warning W0206. `--help` lists the flags of the experimental features the compiler knows.
+- The language server applies only `Pome.toml` (`[lsp.project]`), so a feature enabled only by a flag does not show in the diagnostics of an editor.
+
 Build target and output directory:
 
 - `build`, `run`, and `test` select the build target with `--target <js|native|wasm>`. `--target c` selects `native` and reports W0903. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `js` (`[module.pome]`). `check` takes no build target.
