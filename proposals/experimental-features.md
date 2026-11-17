@@ -14,7 +14,7 @@ related: []
 
 ## Summary
 
-仕様に「実験的な機能」の区分を足す．実験的な機能は `Pome.toml` の `[experimental]` で Pome ごとに有効にし，コマンドの `--experimental <name>` でもその実行だけ有効にできる．互換性の保証の外に置く．仕様の中では，その機能の節に「Experimental」の印を付けて書く．最初の機能は capture checking（`capture-checking`）を想定する．
+仕様に「実験的な機能」の区分を足す．実験的な機能は `Pome.toml` の `[experimental]` で Pome ごとに有効にし，コマンドのフラグ `--experimental-<name>` でもその実行だけ有効にできる．互換性の保証の外に置く．仕様の中では，その機能の節に「Experimental」の印を付けて書く．最初の機能は capture checking（`capture-checking`）を想定する．
 
 ## Motivation
 
@@ -41,12 +41,12 @@ capture-checking = true
 - `[experimental]` の各キーは実験的な機能の名前，値は真偽値
 
 ```sh
-emela run --experimental capture-checking
-emela check --experimental capture-checking --experimental other-feature
-emela run --experimental capture-checking hello.emel   # single-file mode
+emela run --experimental-capture-checking
+emela check --experimental-capture-checking --experimental-other-feature
+emela run --experimental-capture-checking hello.emel   # single-file mode
 ```
 
-- `check`，`build`，`run`，`test` は `--experimental <name>` を受け付ける．何度でも書ける
+- `check`，`build`，`run`，`test` は，実験的な機能ごとに `--experimental-<name>` のフラグを受け付ける．フラグの名前は機能の名前から決まる．複数の機能を有効にするときはフラグを並べる
 
 ### Meaning
 
@@ -60,12 +60,13 @@ emela run --experimental capture-checking hello.emel   # single-file mode
   - 取り除いた機能の名前は，効果がないことを警告する
 - 知らない名前（新しいコンパイラにしかない機能など）は警告にする．ビルドは止めない
 - 実験的な機能が出す診断は，`= note: experimental feature `capture-checking`` を付ける
-- コマンドの `--experimental <name>` は，その実行の間だけ，ビルドする Pome（single-file mode ではそのファイルと，そこから import で届くファイル）でその機能を有効にする
+- コマンドの `--experimental-<name>` は，その実行の間だけ，ビルドする Pome（single-file mode ではそのファイルと，そこから import で届くファイル）でその機能を有効にする
   - `Pome.toml` の `[experimental]` に足す形で働く．`Pome.toml` で有効にした機能をフラグで無効にすることはできない
   - 依存先の Pome には働かない．依存先はそれぞれの `[experimental]` で検査される
   - single-file mode には `Pome.toml` がないので，実験を試す方法はフラグだけになる
   - 言語サーバーはフラグを知らないので，`Pome.toml` の設定で働く．フラグでだけ有効にした機能は，エディタの診断に出ない
-- 知らない名前をフラグに書いたときは，`[experimental]` の知らないキーと同じく警告にする
+- `--experimental-` で始まる知らないフラグは，知らないコマンドの引数としてエラーにせず，`[experimental]` の知らないキーと同じく警告にする．古いコンパイラで新しい機能のフラグを付けても，ビルドは止まらない
+- `--help` は，そのコンパイラが知っている実験的な機能のフラグを一覧する
 - 仕様の中では，実験的な機能の規則を，ふつうの規則と同じ場所に書き，段落の頭に「Experimental (`capture-checking`).」の印を付ける
 
 ### Typing rules
@@ -119,13 +120,13 @@ Add:
 
 Add:
 
-> - `check`, `build` and `run` take `--experimental <name>`, any number of times. It enables the experimental feature `name` (`[intro.experimental]`) for that run, for the Pome being built (in single-file mode, for the files read), in addition to the `[experimental]` of its `Pome.toml`. It does not apply to dependencies, and it cannot disable a feature enabled in `Pome.toml`. An unknown, stable or removed name is the same warning as for a key of `[experimental]` (W02xx).
+> - `check`, `build` and `run` take a flag `--experimental-<name>` for each experimental feature `name` (`[intro.experimental]`). It enables that feature for that run, for the Pome being built (in single-file mode, for the files read), in addition to the `[experimental]` of its `Pome.toml`. It does not apply to dependencies, and it cannot disable a feature enabled in `Pome.toml`. A flag that starts with `--experimental-` and does not name a known experimental feature, or names a stable or removed one, is not an error: it is the same warning as for a key of `[experimental]` (W02xx). `--help` lists the flags of the experimental features the compiler knows.
 
 ### `[cmd.test]`
 
 Add:
 
-> - `test` takes `--experimental <name>`, as `[cmd.build]`.
+> - `test` takes the flags `--experimental-<name>`, as `[cmd.build]`.
 
 ### `[lsp.project]`
 
@@ -157,7 +158,7 @@ Add:
 ## Alternatives
 
 - コマンドの引数だけにする: `check`，`build`，`test` と言語サーバーで設定がずれる．言語サーバーはコマンドの引数を知らない．依存先の Pome の設定も表せない．`Pome.toml` を正にし，フラグはその実行だけ足す形にした
-- 機能ごとのフラグ（`--experimental-capture-check`）: 機能が増えるたびにコマンドの引数が増える．`--experimental <name>` の1つで足りる
+- 名前を取る1つのフラグ（`--experimental <name>`）: 引数は1つで足りるが，`--help` やシェルの補完に機能の名前が出ない．機能ごとのフラグでも，名前は機能の名前から機械的に決まるので，コマンドの側に機能ごとの定義は増えない
 - 環境変数（`EMELA_EXPERIMENTAL`）: 同じ理由でずれる．Pome ごとの設定を表せない
 - ソースの属性（`@experimental(capture_checking)` をモジュールに付ける）: モジュールごとに違う設定になり，境界をまたぐ機能で扱いが増える．Pome 単位で足りる
 - 実験の区分を作らず，警告の期間だけを仕様に書く: 推論の既定や診断の文面を変えるたびに，非互換の変更として記録することになる
