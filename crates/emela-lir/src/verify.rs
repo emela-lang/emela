@@ -1254,12 +1254,36 @@ impl Checker<'_> {
                     _ => Expect::Exactly(r),
                 }
             }
-            Value::Runtime { op, args } => {
-                let (params, ret) = op.sig();
-                let expected: Vec<Option<Repr>> = params.iter().map(|&r| Some(r)).collect();
-                self.args(args, &expected, &format!("runtime {}", op.name()));
-                Expect::Exactly(ret)
-            }
+            Value::Runtime { op, args } => match op.sig() {
+                Some((params, ret)) => {
+                    let expected: Vec<Option<Repr>> = params.iter().map(|&r| Some(r)).collect();
+                    self.args(args, &expected, &format!("runtime {}", op.name()));
+                    Expect::Exactly(ret)
+                }
+                // `concat` takes any number of strings; the lowering never makes one of fewer
+                // than two parts (two would be a plain `String.append`).
+                None => {
+                    if args.len() < 2 {
+                        self.error(
+                            ErrorKind::Arity,
+                            format!(
+                                "runtime {}: expected at least 2 arguments, found {}",
+                                op.name(),
+                                args.len()
+                            ),
+                        );
+                    }
+                    for (i, a) in args.iter().enumerate() {
+                        let r = self.operand(a);
+                        self.expect(
+                            r,
+                            Repr::Ref,
+                            &format!("runtime {}: argument {i}", op.name()),
+                        );
+                    }
+                    Expect::Exactly(Repr::Ref)
+                }
+            },
         }
     }
 

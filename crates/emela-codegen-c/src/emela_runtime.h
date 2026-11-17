@@ -250,6 +250,9 @@ int32_t em_str_eq(em_ref a, em_ref b);
 int32_t em_str_cmp(em_ref a, em_ref b);
 int32_t em_string_byte_size(em_ref s);
 em_ref em_string_append(em_ref a, em_ref b);
+/* The parts joined in order in one allocation (at least two): each part is borrowed and the result
+ * is owned. At most one non-empty part returns a reference to that part, as `em_string_append`. */
+em_ref em_string_concat(const em_ref *parts, size_t n);
 int32_t em_string_contains(em_ref s, em_ref sub);
 int32_t em_string_starts_with(em_ref s, em_ref prefix);
 int32_t em_string_ends_with(em_ref s, em_ref suffix);

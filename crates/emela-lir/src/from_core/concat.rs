@@ -1,19 +1,28 @@
 //! Strings built from pieces: interpolation and assert messages, concatenated with
-//! `String.append`.
+//! `String.append` or one `concat`.
 //!
-//! Two lowerings of the syntax are here, both known from the syntax alone (no analysis):
+//! Three lowerings of the syntax are here, all known from the syntax alone (no analysis):
 //!
 //! - Adjacent texts are merged into one, and empty strings are dropped ([`normalize`]).
-//! - The chain associates to the right ([`chain`]): `a + (b + c)` rather than `(a + b) + c`. A
-//!   String is immutable and append is associative, so the value is the same. Interpolation
-//!   usually puts the string it grows first (a fold's accumulator) and short suffixes after it,
-//!   and the right chain then copies that first piece once instead of once per later piece. The
-//!   operands are values only (constants and variables), so no evaluation order changes.
+//! - Two pieces are appended in that order; a single piece is itself and no piece is the empty
+//!   string.
+//! - Three or more pieces are one `concat` ([`RuntimeOp::Concat`]): the runtime adds up the byte
+//!   lengths, allocates one String and copies the pieces into it. A chain of appends would copy
+//!   the bytes once per append (`a + (b + c)` allocates twice for three pieces) and hold the
+//!   intermediate strings. The value is the same, byte for byte; what changes is how many
+//!   allocations the copy takes and so when a program runs out of memory. The pieces are values
+//!   only (constants and variables), so no evaluation order changes.
+//!
+//! With two pieces the chain associates to the right ([`chain`]): `a + (b + c)` rather than
+//! `(a + b) + c`. A String is immutable and append is associative, so the value is the same.
+//! Interpolation usually puts the string it grows first (a fold's accumulator) and short suffixes
+//! after it, and the right chain then copies that first piece once instead of once per later
+//! piece.
 
 use emela_core::{Builtin, TypeId};
 
 use super::Lower;
-use crate::ir::{Const, Operand, Value};
+use crate::ir::{Const, Operand, RuntimeOp, Value};
 
 /// A piece of a string to build.
 pub(super) enum Piece {
@@ -63,9 +72,21 @@ pub(super) fn chain(
     acc
 }
 
-/// The string of `pieces`: `String.append` in a right-associated chain ([`chain`]).
+/// The string of `pieces`: one `concat` for three or more pieces, otherwise `String.append` in a
+/// right-associated chain ([`chain`]).
 pub(super) fn build(lower: &mut Lower<'_>, pieces: Vec<Piece>) -> Operand {
-    chain(normalize(pieces), |left, right| {
+    let ops = normalize(pieces);
+    if ops.len() > 2 {
+        return Operand::Var(lower.assign(
+            "s",
+            TypeId::STRING,
+            Value::Runtime {
+                op: RuntimeOp::Concat,
+                args: ops,
+            },
+        ));
+    }
+    chain(ops, |left, right| {
         Operand::Var(lower.assign(
             "s",
             TypeId::STRING,
@@ -79,13 +100,13 @@ pub(super) fn build(lower: &mut Lower<'_>, pieces: Vec<Piece>) -> Operand {
 
 #[cfg(test)]
 mod tests {
-    use emela_core::{Builtin, TypeId};
+    use emela_core::TypeId;
     use la_arena::Arena;
     use rustc_hash::{FxHashMap, FxHashSet};
 
     use super::{Piece, build, chain, normalize};
     use crate::from_core::{Lower, Shared};
-    use crate::ir::{Const, Operand, Stmt, Value};
+    use crate::ir::{Const, Operand, RuntimeOp, Stmt, Value};
 
     fn shared() -> Shared {
         Shared {
@@ -116,8 +137,8 @@ mod tests {
         Operand::Var(lower.var(hint, TypeId::STRING))
     }
 
-    /// The pairs of operands of the `String.append` statements of `lower`, in creation order.
-    fn appends(lower: &Lower<'_>) -> Vec<(Operand, Operand)> {
+    /// The argument lists of the `concat` statements of `lower`, in creation order.
+    fn concats(lower: &Lower<'_>) -> Vec<Vec<Operand>> {
         lower
             .f
             .stmts
@@ -125,19 +146,19 @@ mod tests {
             .filter_map(|(_, stmt)| match stmt {
                 Stmt::Let {
                     value:
-                        Value::Builtin {
-                            op: Builtin::StringAppend,
+                        Value::Runtime {
+                            op: RuntimeOp::Concat,
                             args,
                         },
                     ..
-                } => Some((args[0].clone(), args[1].clone())),
+                } => Some(args.clone()),
                 _ => None,
             })
             .collect()
     }
 
-    /// The destination of each `String.append` statement of `lower`, in creation order.
-    fn append_dsts(lower: &Lower<'_>) -> Vec<Operand> {
+    /// The destination of each `concat` statement of `lower`, in creation order.
+    fn concat_dsts(lower: &Lower<'_>) -> Vec<Operand> {
         lower
             .f
             .stmts
@@ -146,8 +167,8 @@ mod tests {
                 Stmt::Let {
                     dst: Some(dst),
                     value:
-                        Value::Builtin {
-                            op: Builtin::StringAppend,
+                        Value::Runtime {
+                            op: RuntimeOp::Concat,
                             ..
                         },
                     ..
@@ -231,10 +252,10 @@ mod tests {
         assert_eq!(result, const_int(12));
     }
 
-    /// An assert with two sides: the texts and the shown sides in a right-associated chain, the
-    /// leading text outermost.
+    /// An assert with two sides: its four pieces are one `concat`, which copies them in order
+    /// into a single allocation.
     #[test]
-    fn assert_message_is_a_right_associated_chain() {
+    fn assert_message_is_one_concat() {
         let mut sh = shared();
         let mut lower = Lower::new(&mut sh, "test");
         let left = var(&mut lower, "left");
@@ -249,17 +270,59 @@ mod tests {
                 Piece::Op(right.clone()),
             ],
         );
-        let appends = appends(&lower);
-        let dsts = append_dsts(&lower);
-        assert_eq!(appends.len(), 3);
         assert_eq!(
-            appends,
-            vec![
-                (const_str("\n right: "), right),
-                (left, dsts[0].clone()),
-                (const_str(head), dsts[1].clone()),
-            ]
+            concats(&lower),
+            vec![vec![const_str(head), left, const_str("\n right: "), right]]
         );
-        assert_eq!(msg, dsts[2]);
+        assert_eq!(msg, concat_dsts(&lower)[0]);
+    }
+
+    /// Three pieces are one `concat`, in source order.
+    #[test]
+    fn three_pieces_are_one_concat() {
+        let mut sh = shared();
+        let mut lower = Lower::new(&mut sh, "test");
+        let a = var(&mut lower, "a");
+        let b = var(&mut lower, "b");
+        let c = var(&mut lower, "c");
+        let s = build(
+            &mut lower,
+            vec![
+                Piece::Op(a.clone()),
+                Piece::Op(b.clone()),
+                Piece::Op(c.clone()),
+            ],
+        );
+        assert_eq!(concats(&lower), vec![vec![a, b, c]]);
+        assert_eq!(s, concat_dsts(&lower)[0]);
+    }
+
+    /// Two pieces are one `String.append`: it already copies once and needs no runtime helper.
+    #[test]
+    fn two_pieces_are_one_append() {
+        let mut sh = shared();
+        let mut lower = Lower::new(&mut sh, "test");
+        let a = var(&mut lower, "a");
+        let b = var(&mut lower, "b");
+        let s = build(&mut lower, vec![Piece::Op(a.clone()), Piece::Op(b.clone())]);
+        assert!(concats(&lower).is_empty());
+        let appends: Vec<_> = lower
+            .f
+            .stmts
+            .iter()
+            .filter_map(|(_, stmt)| match stmt {
+                Stmt::Let {
+                    dst: Some(dst),
+                    value:
+                        Value::Builtin {
+                            op: emela_core::Builtin::StringAppend,
+                            args,
+                        },
+                    ..
+                } => Some((Operand::Var(*dst), args.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(appends, vec![(s, vec![a, b])]);
     }
 }
