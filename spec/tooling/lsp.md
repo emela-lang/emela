@@ -31,6 +31,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 - In single-file mode, only the files reachable from the entry through imports are read (`[module.name]`).
 - If a folder in `workspaceFolders` of initialize (or `rootUri` if absent) has a `Pome.toml`, the server checks that project and reports diagnostics even before any file is opened. It does nothing for folders without `Pome.toml`.
 - The check that produces diagnostics is the same as `emela check`. Because no target is chosen, target-dependent checks are not run (`[ext.decl]`).
+- The language server applies the `[experimental]` of each Pome, as the commands do. It has no flags for experimental features.
 - When answering a request, the server checks again with the contents at that point. When changes arrive in succession, the server reads all arrived notifications before checking, and if more changes have arrived after the check, it checks again without sending that result.
 
 ## Diagnostics `[lsp.diagnostics]`
