@@ -1,10 +1,10 @@
 ---
 title: Experimental features
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 620
 issue:
-decided:
+decided: 2026-11-18
 touches: [intro.experimental (new), intro.reading, module.pome, pome.manifest, cmd.build, cmd.test, lsp.project, diag.list]
 requires: []
 related: []
@@ -183,3 +183,7 @@ The change only adds. `[experimental]` is not read now, so no existing `Pome.tom
 ## Open questions
 
 ## Decision
+
+Capture checking is not compatible with every program that compiles now, and its inference defaults and diagnostics need to be tried against real code before they become fixed rules. The specification had no place for rules that may still change, so every such change would have been recorded as an incompatible one. Experimental features give that place, outside the compatibility guarantees.
+
+`Pome.toml` is the source of the setting, so the commands and the language server agree, and each Pome in the dependency graph is checked with its own setting. A flag per feature, `--experimental-<name>`, lets a run try a feature without editing `Pome.toml`, and is the only way in single-file mode. Naming the feature in the flag keeps it visible in `--help` and in shell completion.
