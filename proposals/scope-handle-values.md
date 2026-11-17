@@ -2,7 +2,7 @@
 title: Values taken out of the handles of a scope
 authors: [Alliana]
 status: draft
-pr:
+pr: 645
 issue:
 decided:
 touches: [effect.escape, fiber.escape]
