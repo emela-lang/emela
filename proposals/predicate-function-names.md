@@ -1,6 +1,6 @@
 ---
 title: Predicate function names with ?
-authors: [skytomo]
+authors: [skytomo221]
 status: draft
 pr: 619
 issue:
