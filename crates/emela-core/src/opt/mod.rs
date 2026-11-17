@@ -18,6 +18,7 @@
 //!
 //! | Pass | Counters | Added by |
 //! |---|---|---|
+//! | `hoist::hoist` | [`Stats::hoist`] | Loop hoisting |
 //! | `option::option_or` | [`Stats::option_or`] | Option fusion |
 //! | `option::array_get_match` | [`Stats::array_get_match`] | Option fusion |
 //! | `range::fold` | [`Stats::range_fold`] | range fusion |
@@ -25,10 +26,12 @@
 //! | `range::map` | [`Stats::range_map`] | range fusion |
 //! | `inline::inline` | [`Stats::inline`] | inlining |
 //!
-//! The fusions come before inlining: they match the calls the source wrote, and inlining a
-//! function such as `List.fold` first would dissolve the call the range fusion looks for. The
-//! table is the order within one sweep. `range::map_array` comes before `range::map`, which would
-//! otherwise rewrite the `List.map` inside the `Array.from_list` it is looking for.
+//! The hoisting runs first: it matches the `match Array.get` that the Option fusion replaces by a
+//! bounds test, and the loop that the range fusion makes, so it needs the sweep after both. The
+//! fusions come before inlining: they match the calls the source wrote, and inlining a function
+//! such as `List.fold` first would dissolve the call the range fusion looks for. The table is the
+//! order within one sweep. `range::map_array` comes before `range::map`, which would otherwise
+//! rewrite the `List.map` inside the `Array.from_list` it is looking for.
 //!
 //! # Fixed point
 //!
@@ -79,6 +82,7 @@ use rustc_hash::FxHashMap;
 
 use crate::ir::{Expr, FnId, Lit, Module};
 
+mod hoist;
 mod inline;
 mod option;
 mod range;
@@ -118,6 +122,9 @@ pub type CoreFns = FxHashMap<FnId, CoreFn>;
 /// nothing changed; [`Stats::is_empty`] ignores it.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Stats {
+    /// Parts of a loop that do not change between its iterations copied out of it, and a bounds
+    /// test unswitched out of it.
+    pub hoist: u32,
     /// `Option.or(Array.get(a, i), d)` rewritten to the internal `ArrayGetOr`.
     pub option_or: u32,
     /// `match Array.get(a, i) { Some(x) -> …; None -> … }` rewritten to a bounds test and a load.
@@ -145,6 +152,7 @@ impl Stats {
     /// A pass returns a [`PassStats`] with `passes` zero, so merging the passes of one sweep leaves
     /// the sweep count alone; merging the results of two runs adds their sweeps.
     pub fn merge(&mut self, other: Stats) {
+        self.hoist += other.hoist;
         self.option_or += other.option_or;
         self.array_get_match += other.array_get_match;
         self.range_fold += other.range_fold;
@@ -159,7 +167,8 @@ impl Stats {
     /// [`Stats::passes`] is not a change: a sweep that changed nothing still counts as a sweep, so
     /// the `Stats` of a converged run is empty with `passes` of one or more.
     pub fn is_empty(&self) -> bool {
-        self.option_or == 0
+        self.hoist == 0
+            && self.option_or == 0
             && self.array_get_match == 0
             && self.range_fold == 0
             && self.range_map == 0
@@ -195,6 +204,8 @@ pub fn run(m: &mut Module, core_fns: &CoreFns, optimize: bool) -> Stats {
     let mut converged = false;
     for _ in 0..MAX_PASSES {
         let mut sweep = Stats::default();
+        sweep.merge(hoist::hoist(m));
+        check(m);
         sweep.merge(option::option_or(m, core_fns));
         check(m);
         sweep.merge(option::array_get_match(m, core_fns));

@@ -306,14 +306,43 @@ em_ref em_array_from_list(em_ref xs, const em_desc *desc);
  * writes nothing, and such an array has no reference elements to drop. */
 em_ref em_array_new(int64_t n, const em_desc *desc);
 em_ref em_array_to_list(em_ref a);
-int32_t em_array_size(em_ref a);
+/* An array is an EM_KIND_ARRAY object: slot 0 the length n, then the n elements, one after
+ * another in the slots. An element is one `em_word`, or, in an array of a record or tuple that the
+ * emitter holds by value, the bytes of the value: `value_size` in the array's descriptor says
+ * which. The layout and the word reads are here rather than in `emela_runtime.c` because a
+ * program's inner loops call them once per element. Through a call, neither the length nor a
+ * bounds test folds into the loop around it, and neither the C compiler nor the LIR can then
+ * hoist or merge them.
+ *
+ * These reads are for an array whose elements are one `em_word`. An array of values held by value
+ * is read by the `_agg` functions below, which copy the element out; the emitter picks between
+ * the two from the element type (`layout::element`).
+ *
+ * The reads are told whether their elements are references (`ref`) instead of reading that from
+ * the descriptor, as `em_array_get` and `em_array_set` still do: the caller knows the element type
+ * statically, and the flag lets the inlined body omit a load and a branch per element. An array is
+ * made with a descriptor that says the same (`em_array_from_list`, `em_array_concat`), so both
+ * ways agree. */
+#define EM_ARRAY_LEN(a) ((a)->slots[0].l)
+#define EM_ARRAY_REFS(a) ((a)->hdr.desc->refs[0] != 0)
+static inline int32_t em_array_size(em_ref a) { return (int32_t)EM_ARRAY_LEN(a); }
 em_ref em_array_get(em_ref a, int32_t index);
 /* The Core IR fusion of `Option.or(Array.get(a, index), d)`. `d` is borrowed; a reference
  * result (the element or `d`) is owned once more. */
-em_word em_array_get_or(em_ref a, int32_t index, em_word d);
+static inline em_word em_array_get_or(em_ref a, int32_t index, bool ref, em_word d) {
+  if (index < 0 || index >= EM_ARRAY_LEN(a)) {
+    if (ref) em_dup(d.p);
+    return d;
+  }
+  if (ref) em_dup(a->slots[1 + index].p);
+  return a->slots[1 + index];
+}
 /* The Core IR fusion of `match Array.get(a, index)`: the caller has checked that `index` is in
  * range. A reference result is owned once more. */
-em_word em_array_load_unchecked(em_ref a, int32_t index);
+static inline em_word em_array_load_unchecked(em_ref a, int32_t index, bool ref) {
+  if (ref) em_dup(a->slots[1 + index].p);
+  return a->slots[1 + index];
+}
 em_ref em_array_set(em_ref a, int32_t index, em_word value);
 em_ref em_array_slice(em_ref a, int32_t from, int32_t to);
 em_ref em_array_concat(em_ref parts, const em_desc *desc);

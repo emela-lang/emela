@@ -9,6 +9,10 @@
 //! list: it becomes the internal `ArrayMapRange(lo, hi, f)`, which makes the array in one pass
 //! ([`map_array`]). A defect from `f` is not in its type; the loop stops at the first one and
 //! releases the array with the elements already written.
+//!
+//! When `f` is a lambda literal, its body is copied into the loop instead of being called through
+//! the closure ([`inlined_step`]). That is the common shape of a fused loop, and it is what lets
+//! the rest of the pipeline look inside the loop's step.
 
 use crate::intrinsics::Builtin;
 use crate::ir::{BinOp, Callee, Expr, FnId, Lit, Local, Module, OpTy, Type, TypeId};
@@ -22,9 +26,11 @@ use crate::opt::{CoreFn, CoreFns, PassStats, each_body};
 /// Postconditions: `f` is called once for each `i` in `lo..hi` (`max(0, hi - lo)` times), in
 /// ascending order, with the accumulator and `i`; the result is the last accumulator, or `init`
 /// when the range is empty. `lo`, `hi`, `init` and `f` are evaluated once each, in that order,
-/// before the loop; `f` is evaluated even when the range is empty.
+/// before the loop; `f` is evaluated even when the range is empty. A lambda literal as `f` is
+/// copied in rather than called ([`inlined_step`]), so it is not made at all.
 /// Preserves: evaluation order, the calls of `f` and their failures, effects and suspension
-/// points, and drop points. Only the range's cons cells are no longer made.
+/// points, and drop points. Only the range's cons cells are no longer made, and the closure of an
+/// inlined lambda is not made.
 /// Deopt: a call that is not this shape (a user's `fold` or `range`, another element type, a
 /// `let`-bound range, failing or suspending marks on the range) is left alone.
 /// Measures: `nqueens`, `matmul` and `spectral` (the cons cells of their ranges).
@@ -76,10 +82,11 @@ pub(super) fn map_array(m: &mut Module, core_fns: &CoreFns) -> PassStats {
 /// Postconditions: `f` is called once for each `i` in `lo..hi`, in ascending order, and the result
 /// is `List.map`'s list (each element replaced, in order). The list is built in reverse and
 /// [`CoreFn::ListReverse`] is called once at the end. `lo`, `hi` and `f` are evaluated once each,
-/// in that order, before the loop; `f` is evaluated even when the range is empty.
+/// in that order, before the loop; `f` is evaluated even when the range is empty. A lambda literal
+/// as `f` is copied in rather than called ([`inlined_step`]), so it is not made at all.
 /// Preserves: evaluation order, the calls of `f` and their failures, effects and suspension
-/// points, and drop points. The range's cons cells and its recursion are no longer made; the
-/// result list and the reverse still are.
+/// points, and drop points. The range's cons cells, the recursion of the range and the closure of
+/// an inlined lambda are no longer made; the result list and the reverse still are.
 /// Deopt: a call that is not this shape is left alone, as in [`fold`].
 /// Measures: the list forms of the range fusion. An `Array.from_list(List.map(List.range(…), f))`
 /// is [`map_array`]'s case, which this pass sees only when that fusion gave up (an effectful `f`,
@@ -306,18 +313,31 @@ fn fold_loop(
     let lo_local = m.local("lo", TypeId::INT);
     let hi_local = m.local("hi", TypeId::INT);
     let init_local = m.local("init", b);
-    let f_local = m.local("f", f_ty);
     let i = m.local("i", TypeId::INT);
     let acc = m.local("acc", b);
-    let mut call_args = vec![Expr::Var(acc), Expr::Var(i)];
-    if takes_ev {
-        call_args.push(ev);
-    }
-    let step = Expr::Call {
-        callee: Callee::Indirect(Box::new(Expr::Var(f_local))),
-        args: call_args,
-        fails,
-        suspends,
+    // The step is `f(acc, i)`, or the body of a lambda `f` with those two parameters: a lambda has
+    // this one call site (the loop is in the function that made it), so copying the body in
+    // removes an indirect call and a closure from every iteration.
+    let (step, closure) = match if takes_ev {
+        None
+    } else {
+        inlined_step(&f, &[acc, i])
+    } {
+        Some(body) => (body, None),
+        None => {
+            let f_local = m.local("f", f_ty);
+            let mut call_args = vec![Expr::Var(acc), Expr::Var(i)];
+            if takes_ev {
+                call_args.push(ev);
+            }
+            let call = Expr::Call {
+                callee: Callee::Indirect(Box::new(Expr::Var(f_local))),
+                args: call_args,
+                fails,
+                suspends,
+            };
+            (call, Some(f_local))
+        }
     };
     let body = Expr::If {
         cond: Box::new(less_than(i, hi_local)),
@@ -329,6 +349,14 @@ fn fold_loop(
         inits: vec![Expr::Var(lo_local), Expr::Var(init_local)],
         body: Box::new(body),
     };
+    let inner = match closure {
+        Some(f_local) => Expr::Let {
+            var: f_local,
+            value: Box::new(f),
+            body: Box::new(loop_),
+        },
+        None => loop_,
+    };
     Expr::Let {
         var: lo_local,
         value: Box::new(lo),
@@ -338,11 +366,7 @@ fn fold_loop(
             body: Box::new(Expr::Let {
                 var: init_local,
                 value: Box::new(init),
-                body: Box::new(Expr::Let {
-                    var: f_local,
-                    value: Box::new(f),
-                    body: Box::new(loop_),
-                }),
+                body: Box::new(inner),
             }),
         }),
     }
@@ -364,20 +388,30 @@ fn map_loop(
 ) -> Expr {
     let lo_local = m.local("lo", TypeId::INT);
     let hi_local = m.local("hi", TypeId::INT);
-    let f_local = m.local("f", f_ty);
     let i = m.local("i", TypeId::INT);
     let list_b = m.list(b);
     let acc = m.local("acc", list_b);
     let xs = m.local("xs", list_b);
-    let mut call_args = vec![Expr::Var(i)];
-    if takes_ev {
-        call_args.push(ev);
-    }
-    let step = Expr::Call {
-        callee: Callee::Indirect(Box::new(Expr::Var(f_local))),
-        args: call_args,
-        fails,
-        suspends,
+    let (step, closure) = match if takes_ev {
+        None
+    } else {
+        inlined_step(&f, &[i])
+    } {
+        Some(body) => (body, None),
+        None => {
+            let f_local = m.local("f", f_ty);
+            let mut call_args = vec![Expr::Var(i)];
+            if takes_ev {
+                call_args.push(ev);
+            }
+            let call = Expr::Call {
+                callee: Callee::Indirect(Box::new(Expr::Var(f_local))),
+                args: call_args,
+                fails,
+                suspends,
+            };
+            (call, Some(f_local))
+        }
     };
     let cons = Expr::List {
         elem: b,
@@ -415,19 +449,70 @@ fn map_loop(
         value: Box::new(loop_),
         body: Box::new(reverse_call),
     };
+    let inner = match closure {
+        Some(f_local) => Expr::Let {
+            var: f_local,
+            value: Box::new(f),
+            body: Box::new(reversed),
+        },
+        None => reversed,
+    };
     Expr::Let {
         var: lo_local,
         value: Box::new(lo),
         body: Box::new(Expr::Let {
             var: hi_local,
             value: Box::new(hi),
-            body: Box::new(Expr::Let {
-                var: f_local,
-                value: Box::new(f),
-                body: Box::new(reversed),
-            }),
+            body: Box::new(inner),
         }),
     }
+}
+
+/// The body of `f` with its parameters replaced by `args`, when `f` is a lambda that takes exactly
+/// those parameters and no evidence table.
+///
+/// `List.fold(List.range(..), .., |acc, i| ..)` and `List.map(List.range(..), |i| ..)` hand the
+/// loop a closure whose only call site is the loop's step, in the function that made it. Copying
+/// the body in removes an indirect call and a closure (an allocation, plus a reference for each
+/// capture) from every iteration, and leaves the step as straight-line code that the LIR and the C
+/// compiler can see through: after this, `Array.get(a, i)` in the step is an expression of the
+/// enclosing function, not a call into a closure.
+///
+/// Creating a lambda value has no effect (its free variables are captured as they are, and the
+/// capture set is computed later), so not creating it changes nothing observable: memory use and
+/// when a program runs out of memory are implementation-defined (`[effect.handler]`).
+///
+/// Deopt: `f` is not a lambda, takes an evidence table (a third parameter), suspends, or its
+/// parameters do not line up with the loop's variables.
+fn inlined_step(f: &Expr, args: &[Local]) -> Option<Expr> {
+    let Expr::Lambda {
+        params,
+        body,
+        suspends: false,
+        ..
+    } = f
+    else {
+        return None;
+    };
+    if params.len() != args.len() {
+        return None;
+    }
+    let mut body = (**body).clone();
+    substitute(&mut body, params, args);
+    Some(body)
+}
+
+/// Replaces every `Var(params[i])` in `e` by `Var(args[i])`. Locals are unique in a function, so
+/// no binding inside the body can capture a parameter, and the arguments are the loop's own
+/// variables, so the replacement cannot duplicate or reorder an evaluation.
+fn substitute(e: &mut Expr, params: &[Local], args: &[Local]) {
+    if let Expr::Var(l) = e {
+        if let Some(i) = params.iter().position(|p| p == l) {
+            *l = args[i];
+        }
+        return;
+    }
+    crate::tail::for_each_child_mut(e, &mut |c| substitute(c, params, args));
 }
 
 fn less_than(i: Local, hi: Local) -> Expr {
