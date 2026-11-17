@@ -73,6 +73,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - A suspend fn (an effect operation and `@external suspend fn`): `suspend` is put before the type.
   - The type of a capability value is shown as `use Logger` (`log: use Logger`). For an effect with type arguments, `use State[Int]`.
   - The type of a handler value shows only the handler's name (`self: PostgresUsers`).
+- On a function or a value that may hold capabilities, the hover shows a line `holds: ...` with the roots it may hold, and for each root the with that provides it. A root is shown by the variable of its binding, the parameter that received it, the handler of an unbound with item, or the name of the effect for a `use E` provided by the caller.
 - Among the things containing the cursor position, the innermost (the one with the shortest range) is chosen. The end position of a range is not included.
 - For a document that cannot be type checked, the server returns `null`.
 - If the definition has a `##` documentation comment (`[lex.comment]`), it is shown as Markdown after the code block, separated by a horizontal rule (`[lsp.doc]`).
