@@ -59,7 +59,7 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Vec<String>>
             &fs,
             &input,
             &mut frontend,
-            &mut CoreWasm,
+            &mut CoreWasm::default(),
             &options,
             |_, _| {},
         ),

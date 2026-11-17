@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use emela_core::{LowerError, LowerInput, Module, Roots, lower};
+use emela_core::{LowerError, LowerInput, Module, Roots, lower_with};
 use emela_resolve::hir::Program;
 use emela_resolve::{
     MemoryFs, ModuleId, ModuleMap, ModuleName, NoBuiltins, build_import_graph, collect_modules,
@@ -84,6 +84,39 @@ pub fn try_lower_with(
     core: &[(&str, &str)],
     bundled_files: &[(&str, &str)],
 ) -> Result<Module, Vec<String>> {
+    try_lower_rooted(files, roots, core, bundled_files, true)
+}
+
+/// [`try_lower_with`] with the Core IR optimisations turned on or off.
+pub fn try_lower_with_opt(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
+    optimize: bool,
+) -> Result<Module, Vec<String>> {
+    try_lower_rooted(files, roots, core, bundled_files, optimize)
+}
+
+/// Lowers from the exported roots, with the Core IR optimisations turned on or off.
+pub fn lower_files_with(files: &[(&str, &str)], optimize: bool) -> Module {
+    try_lower_with_opt(
+        files,
+        Roots::Exported,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+        optimize,
+    )
+    .unwrap_or_else(|e| panic!("{e:?}"))
+}
+
+fn try_lower_rooted(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
+    optimize: bool,
+) -> Result<Module, Vec<String>> {
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
     assert!(types.diags.is_empty(), "{:?}", types.diags);
@@ -105,7 +138,7 @@ pub fn try_lower_with(
         bundled_files,
         language: None,
     };
-    let lowered = lower(&input, roots).map(|l| l.module);
+    let lowered = lower_with(&input, roots, optimize).map(|l| l.module);
     if let Ok(m) = &lowered {
         assert_well_typed(m);
     }

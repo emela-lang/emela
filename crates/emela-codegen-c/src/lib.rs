@@ -114,6 +114,18 @@ impl std::fmt::Display for CError {
 
 /// Compiles lowered Core IR (self tail calls loopified, as `emela_core::lower` leaves it) to C.
 pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<CError>> {
+    compile_with(core, entry, true)
+}
+
+/// [`compile`] with the LIR optimisation passes (`emela_lir::to_heap_with`) switched on or off.
+///
+/// Optimisation never changes what the program prints, its exit status or the order of effects,
+/// failures and releases; a build uses this to compile the same program both ways.
+pub fn compile_with(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+) -> Result<COutput, Vec<CError>> {
     // With `Entry::Main`, main (if any) comes first, then the exported fns (`[target.native.export]`).
     let mains: Vec<FnId> = match entry {
         Entry::Main => core
@@ -193,7 +205,7 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<
     if !errors.is_empty() {
         return Err(errors);
     }
-    emela_lir::to_heap(&mut lir);
+    emela_lir::to_heap_with(&mut lir, optimize);
     if cfg!(debug_assertions)
         && let Err(errors) = emela_lir::verify(&lir)
     {

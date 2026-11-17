@@ -57,6 +57,9 @@ enum Command {
         /// The target [default: `[build].target` of Pome.toml, or js]
         #[arg(long, value_enum)]
         target: Option<TargetArg>,
+        /// Compile without the IR optimisation passes (for differential testing)
+        #[arg(long, hide = true)]
+        no_opt: bool,
     },
     /// Compile and run: on Node.js, as a native executable (`--target native`), or with wasmtime
     /// (`--target wasm`)
@@ -72,6 +75,9 @@ enum Command {
         /// Arguments passed to the program (write them after `--`)
         #[arg(last = true)]
         args: Vec<OsString>,
+        /// Compile without the IR optimisation passes (for differential testing)
+        #[arg(long, hide = true)]
+        no_opt: bool,
     },
     /// Run the functions marked `@test`
     Test {
@@ -89,6 +95,9 @@ enum Command {
         /// plain otherwise]
         #[arg(long, value_enum)]
         reporter: Option<ReporterArg>,
+        /// Compile without the IR optimisation passes (for differential testing)
+        #[arg(long, hide = true)]
+        no_opt: bool,
     },
     /// Format the sources in place
     Fmt {
@@ -221,20 +230,30 @@ fn main() -> ExitCode {
             path,
             out_dir,
             target,
-        } => build(&path_or_current(path), out_dir, target),
+            no_opt,
+        } => build(&path_or_current(path), out_dir, target, !no_opt),
         Command::Run {
             path,
             out_dir,
             target,
             args,
-        } => run(&path_or_current(path), out_dir, target, args),
+            no_opt,
+        } => run(&path_or_current(path), out_dir, target, args, !no_opt),
         Command::Test {
             path,
             filter,
             out_dir,
             target,
             reporter,
-        } => test(&path_or_current(path), filter, out_dir, target, reporter),
+            no_opt,
+        } => test(
+            &path_or_current(path),
+            filter,
+            out_dir,
+            target,
+            reporter,
+            !no_opt,
+        ),
         Command::Fmt { paths, check } => fmt(paths, check),
         Command::Doc {
             path,
@@ -332,7 +351,12 @@ fn resolve_target(input: &Input, flag: Option<TargetArg>, default: Target) -> Op
     Some(target)
 }
 
-fn build(path: &Path, out_dir: Option<PathBuf>, target: Option<TargetArg>) -> ExitCode {
+fn build(
+    path: &Path,
+    out_dir: Option<PathBuf>,
+    target: Option<TargetArg>,
+    optimize: bool,
+) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path, false) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
@@ -340,17 +364,23 @@ fn build(path: &Path, out_dir: Option<PathBuf>, target: Option<TargetArg>) -> Ex
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
     let out_dir = out_dir.unwrap_or_else(|| input.default_out_dir_for(target));
-    let mut frontend = Lower::default().with_target(target);
+    let mut frontend = Lower::default().with_target(target).with_optimize(optimize);
     let (analysis, _) = match target {
         Target::Js => emela_driver::build(&OsFs, &input, &mut frontend, &mut CoreJs, &out_dir),
         Target::Native => emela_driver::build(
             &OsFs,
             &input,
             &mut frontend,
-            &mut CoreC::default(),
+            &mut CoreC::default().with_optimize(optimize),
             &out_dir,
         ),
-        Target::Wasm => emela_driver::build(&OsFs, &input, &mut frontend, &mut CoreWasm, &out_dir),
+        Target::Wasm => emela_driver::build(
+            &OsFs,
+            &input,
+            &mut frontend,
+            &mut CoreWasm::default().with_optimize(optimize),
+            &out_dir,
+        ),
     };
     report(&analysis)
 }
@@ -360,6 +390,7 @@ fn run(
     out_dir: Option<PathBuf>,
     target: Option<TargetArg>,
     args: Vec<OsString>,
+    optimize: bool,
 ) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path, false) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
@@ -374,9 +405,21 @@ fn run(
         output: Output::Inherit,
     };
     match target {
-        Target::Js => run_with(&input, &options, target, &mut CoreJs),
-        Target::Native => run_with(&input, &options, target, &mut CoreC::default()),
-        Target::Wasm => run_with(&input, &options, target, &mut CoreWasm),
+        Target::Js => run_with(&input, &options, target, &mut CoreJs, optimize),
+        Target::Native => run_with(
+            &input,
+            &options,
+            target,
+            &mut CoreC::default().with_optimize(optimize),
+            optimize,
+        ),
+        Target::Wasm => run_with(
+            &input,
+            &options,
+            target,
+            &mut CoreWasm::default().with_optimize(optimize),
+            optimize,
+        ),
     }
 }
 
@@ -385,6 +428,7 @@ fn run_with<B: Backend<emela_driver::CoreModule>>(
     options: &RunOptions,
     target: Target,
     backend: &mut B,
+    optimize: bool,
 ) -> ExitCode {
     // Diagnostics go out before the program starts, so warnings show first even if it never
     // ends. The command follows them, so it is the last line before the program's own output.
@@ -393,7 +437,7 @@ fn run_with<B: Backend<emela_driver::CoreModule>>(
     let (analysis, output) = emela_driver::run(
         &OsFs,
         input,
-        &mut Lower::default().with_target(target),
+        &mut Lower::default().with_target(target).with_optimize(optimize),
         backend,
         options,
         |analysis, command| {
@@ -427,6 +471,7 @@ fn test(
     out_dir: Option<PathBuf>,
     target: Option<TargetArg>,
     reporter: Option<ReporterArg>,
+    optimize: bool,
 ) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path, true) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
@@ -449,9 +494,21 @@ fn test(
         color: stdout_color(),
     };
     match target {
-        Target::Js => test_with(&input, &options, target, &mut CoreJs),
-        Target::Native => test_with(&input, &options, target, &mut CoreC::default()),
-        Target::Wasm => test_with(&input, &options, target, &mut CoreWasm),
+        Target::Js => test_with(&input, &options, target, &mut CoreJs, optimize),
+        Target::Native => test_with(
+            &input,
+            &options,
+            target,
+            &mut CoreC::default().with_optimize(optimize),
+            optimize,
+        ),
+        Target::Wasm => test_with(
+            &input,
+            &options,
+            target,
+            &mut CoreWasm::default().with_optimize(optimize),
+            optimize,
+        ),
     }
 }
 
@@ -460,6 +517,7 @@ fn test_with<B: TestBackend<TestModule>>(
     options: &TestOptions,
     target: Target,
     backend: &mut B,
+    optimize: bool,
 ) -> ExitCode {
     // Results go to stdout, diagnostics to stderr. Diagnostics go out before the tests start.
     let mut diagnostics_code = ExitCode::SUCCESS;
@@ -468,7 +526,9 @@ fn test_with<B: TestBackend<TestModule>>(
     let (analysis, report) = emela_driver::test(
         &OsFs,
         input,
-        &mut LowerTests::default().with_target(target),
+        &mut LowerTests::default()
+            .with_target(target)
+            .with_optimize(optimize),
         backend,
         options,
         |analysis| {

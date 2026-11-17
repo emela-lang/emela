@@ -20,8 +20,10 @@
  *
  * followed by 8-byte slots (`em_word`). Static data is marked by a count of 0 (as in Roc), so
  * string literals, constructors without fields and closures without captures cost neither an
- * allocation nor counting, and `em_dup` / `em_drop` need no other test. While an object is being freed, its first 8 bytes hold
- * the link of the free stack, so freeing never recurses (long lists and deep enums).
+ * allocation nor counting, and `em_dup` / `em_drop` need no other test. While an object is being
+ * freed, or is free in a size-class bin (fixed-size objects of at most 256 bytes; see
+ * `em_alloc`), its first 8 bytes hold the link of the free list or bin, so freeing never recurses
+ * (long lists and deep enums).
  *
  * Strings are UTF-8 with their length in slot 0 and the bytes (with a terminating NUL that is
  * not part of the string) from slot 1. Lists are cons cells (slot 0 the head, slot 1 the tail).
@@ -425,5 +427,19 @@ void em_test_done(void);
  * Returns the exit code: otherwise 0, or the `ExitCode` that main returned (`em_set_exit_code`).
  * `cleanup` releases the program's const values. */
 int em_exit(void (*cleanup)(void));
+
+/* ---- Measurement builds ----
+ *
+ * Two preprocessor definitions add diagnostics for measurements to the runtime's compilation (a
+ * build passes them to the C compiler, for example in EMELA_CC_ARGS). Neither is part of the
+ * language; a normal build has neither.
+ *
+ * - `-DEMELA_LEAK_CHECK` makes the leak check of `em_exit` unconditional. Without it the check
+ *   runs only when the environment variable EMELA_LEAK_CHECK is set.
+ * - `-DEMELA_ALLOC_STATS` counts the objects allocated for each descriptor name and, at exit,
+ *   prints the counts on standard error, the most numerous first and ties by name, then their
+ *   total: one `emela-alloc NAME COUNT` line per name and a last `emela-alloc-total COUNT`. The
+ *   report is a diagnostic, so the build pays for it: a table and a call in `em_alloc` that a
+ *   normal build does not have. */
 
 #endif
