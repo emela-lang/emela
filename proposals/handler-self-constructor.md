@@ -1,10 +1,10 @@
 ---
 title: Self(...) in the init of a handler
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 623
 issue:
-decided:
+decided: 2026-11-18
 touches: [effect.handler, grammar.expr, diag.list]
 requires: []
 related: [handler-init-arguments]
@@ -132,3 +132,5 @@ The change only adds. `Self` can be written only in the position of a type now, 
 ## Open questions
 
 ## Decision
+
+The expression that makes the value of a handler at the end of its init has the same form as the with item that calls the init, though the two mean different things, and renaming a handler means rewriting its init too. `Self(...)` names the value being made without repeating the handler's name. It is limited to where `H(...)` can already be written, so E0418 and the guarantee that init and release run are unchanged. Patterns, record updates, and traits and impls are left out, because there is no place for them in a handler or they are a separate question about types. Neither form is preferred by the formatter or a lint.
