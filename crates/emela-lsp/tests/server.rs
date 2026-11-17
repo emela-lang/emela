@@ -2308,6 +2308,33 @@ fn rename_across_files() {
     client.shutdown();
 }
 
+/// `[effect.handler]`: `Self` in an init names the handler. Definition goes to the handler; renaming
+/// the handler keeps `Self`, and `Self` itself cannot be renamed.
+#[test]
+fn self_in_init_refers_to_the_handler() {
+    let src = "effect Log {\n  fn log(msg: String) -> ()\n}\n\nhandler Tagged(tag: String): Log {\n  init { Self(tag: \"a\") }\n  fn log(msg) { () }\n}\n\nfn main() {\n  with Tagged { (use Log).log(\"x\") }\n}\n";
+    let path = "/tmp/main.emel";
+    let mut client = Client::initialize(&[(path, src)], None, Typecheck::default);
+    assert_eq!(
+        client.definition(path, 5, 9),
+        location(path, (4, 8), (4, 14))
+    );
+    let edit = |s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
+    assert_eq!(
+        client.rename(path, 4, 9, "Labelled"),
+        Ok(vec![
+            edit((4, 8), (4, 14), "Labelled"),
+            edit((10, 7), (10, 13), "Labelled"),
+        ])
+    );
+    assert_eq!(client.prepare_rename(path, 5, 9), None);
+    assert_eq!(
+        client.rename(path, 5, 9, "Labelled"),
+        Err("this name cannot be renamed".to_owned())
+    );
+    client.shutdown();
+}
+
 /// Shorthand named arguments and field patterns keep their labels. Names in the bundled core
 /// cannot be renamed.
 #[test]

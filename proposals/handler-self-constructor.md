@@ -1,7 +1,7 @@
 ---
 title: Self(...) in the init of a handler
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 623
 issue:
 decided: 2026-11-18

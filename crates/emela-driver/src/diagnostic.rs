@@ -303,6 +303,24 @@ impl Diagnostic {
                 };
                 (Severity::Error, code::SELF_OUTSIDE, message.to_owned())
             }
+            DiagnosticKind::SelfValueOutside => {
+                help = Some(
+                    "inside a handler's `init`, `Self(...)` constructs that handler".to_owned(),
+                );
+                (
+                    Severity::Error,
+                    code::SELF_OUTSIDE,
+                    "`Self` can only be used as a value in the `init` of a handler".to_owned(),
+                )
+            }
+            DiagnosticKind::SelfUpdate => {
+                help = Some("`Self` constructs a handler from its fields only".to_owned());
+                (
+                    Severity::Error,
+                    code::INVALID_UPDATE_TARGET,
+                    "cannot update `Self` with `..`".to_owned(),
+                )
+            }
             DiagnosticKind::EffectAsType { name } => {
                 help = Some(format!(
                     "a capability cannot be passed around; take `use {name}` where it is needed, or pass a closure that captures it"
