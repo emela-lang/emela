@@ -39,6 +39,8 @@ mod signature;
 mod source;
 mod structure;
 mod target;
+#[cfg(all(test, unix))]
+mod test_program;
 mod testing;
 mod tokens;
 mod wasm;

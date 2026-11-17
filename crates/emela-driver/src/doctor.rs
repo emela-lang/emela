@@ -782,14 +782,13 @@ mod tests {
 #[cfg(all(test, unix))]
 mod process_tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
-    /// Writes `script` to `dir/name` with the permission bits `mode`. The file is closed before
-    /// it is started, so it is not busy.
+    /// Writes `script` to `dir/name` with the permission bits `mode`. The child of a `fork` in
+    /// another test must never inherit the file open for writing, or starting it fails with
+    /// `ETXTBSY`; [`crate::test_program::write`] writes it from a child process for that.
     fn fake(dir: &Path, name: &str, script: &str, mode: u32) -> PathBuf {
         let path = dir.join(name);
-        std::fs::write(&path, script).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+        crate::test_program::write(&path, script, mode);
         path
     }
 
