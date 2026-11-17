@@ -5,7 +5,7 @@ status: accepted
 pr: 645
 issue:
 decided: 2026-11-18
-touches: [effect.escape, fiber.escape]
+touches: [effect.escape, fiber.escape, open.next]
 requires: []
 related: [capture-checking]
 ---
