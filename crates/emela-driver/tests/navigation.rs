@@ -146,6 +146,7 @@ fn workspace_symbols_exclude_dependencies_and_core() {
             targets: None,
             version: "v1.0.0".into(),
             dependencies: Vec::new(),
+            experimental: Default::default(),
         }],
         project: vec![DependencyRef {
             pome: 0,

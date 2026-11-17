@@ -222,6 +222,7 @@ fn pome_and_std_docs_in_all_three_queries() {
             targets: None,
             version: "v1.0.0".into(),
             dependencies: vec![],
+            experimental: Default::default(),
         }],
         project: vec![DependencyRef {
             pome: 0,
