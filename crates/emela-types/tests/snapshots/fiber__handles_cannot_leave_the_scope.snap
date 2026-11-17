@@ -8,10 +8,10 @@ deferred: ∀ A. fn() -> (Deferred[A], Int) uses { Async }
 joined: fn() -> Int uses { Async }
 piped: fn() -> Fiber[Int] uses { Async }
 `Fiber.scope(|| Fiber.fork(|| 1))` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
-`Fiber.fork(|| 1)` CaptureEscape { root: "Scope", scope: Some("Fiber.scope"), provided_at: Span { module: Idx::<ModuleData>(0), range: 50..61 } }
+`Fiber.fork(|| 1)` warning: holds `Scope` and leaves the `Fiber.scope` that provides it
 `Fiber.scope(|| Some(Fiber.fork(|| 1)))` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
-`Some(Fiber.fork(|| 1))` CaptureEscape { root: "Scope", scope: Some("Fiber.scope"), provided_at: Span { module: Idx::<ModuleData>(0), range: 104..115 } }
+`Some(Fiber.fork(|| 1))` warning: holds `Scope` and leaves the `Fiber.scope` that provides it
 `Fiber.scope(|| (Fiber.deferred(), 1))` EscapingFromScope { ty: "Deferred", scope: "Fiber.scope" }
-`(Fiber.deferred(), 1)` CaptureEscape { root: "Scope", scope: Some("Fiber.scope"), provided_at: Span { module: Idx::<ModuleData>(0), range: 164..175 } }
+`(Fiber.deferred(), 1)` warning: holds `Scope` and leaves the `Fiber.scope` that provides it
 `(|| Fiber.fork(|| 1)) |> Fiber.scope()` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
-`Fiber.fork(|| 1)` CaptureEscape { root: "Scope", scope: Some("Fiber.scope"), provided_at: Span { module: Idx::<ModuleData>(0), range: 309..320 } }
+`Fiber.fork(|| 1)` warning: holds `Scope` and leaves the `Fiber.scope` that provides it

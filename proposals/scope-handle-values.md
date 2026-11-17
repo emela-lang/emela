@@ -1,7 +1,7 @@
 ---
 title: Values taken out of the handles of a scope
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 645
 issue:
 decided: 2026-11-18
@@ -75,7 +75,7 @@ Replace the item for 0.29 with:
 
 ## Diagnostics
 
-- [ ] None added. W0402 and E0444 are no longer reported for a value taken out of a handle.
+- [x] None added. W0402 and E0444 are no longer reported for a value taken out of a handle.
 
 ## Compatibility
 

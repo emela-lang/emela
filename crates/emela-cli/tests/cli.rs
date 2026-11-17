@@ -275,6 +275,40 @@ fn check_clean_project() {
     assert_eq!(run.status.code(), Some(0));
 }
 
+/// `[intro.experimental]`, `[effect.escape]`: `capture-checking` is an experimental feature.
+/// Without it a value that leaves the `with` providing a capability it holds is the warning W0402
+/// and the command succeeds; with `--experimental-capture-checking` it is E0444 and the command
+/// fails. `--help` lists the flag.
+#[test]
+fn capture_checking_flag() {
+    let project = Project::new(
+        "capture-checking",
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/main.emel",
+                "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\nfn leak() -> fn() -> () {\n  with Quiet {\n    log = use Logger\n    || log.info(\"hi\")\n  }\n}\n\nfn main() {\n  leak()\n  ()\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["check", "app"]);
+    assert_eq!(run.code, Some(0), "{run:?}");
+    assert!(run.stderr.contains("warning[W0402]"), "{run:?}");
+    let run = project.emela(&["check", "--experimental-capture-checking", "app"]);
+    assert_eq!(run.code, Some(1), "{run:?}");
+    assert!(run.stderr.contains("error[E0444]"), "{run:?}");
+    assert!(
+        run.stderr
+            .contains("= note: experimental feature `capture-checking`"),
+        "{run:?}"
+    );
+    let help = project.emela(&["check", "--help"]);
+    assert!(
+        help.stdout.contains("--experimental-capture-checking"),
+        "{help:?}"
+    );
+}
+
 /// `[cmd.build]`, `[cmd.test]`: `check`, `build`, `run` and `test` take `--experimental-<name>`.
 /// A name of no known experimental feature is the warning W0206, not an unknown-argument error,
 /// and the command goes on. Arguments after `--` are the program's.

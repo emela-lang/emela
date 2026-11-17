@@ -186,6 +186,7 @@ pub(crate) fn check_group(
         let shown = Shown {
             input,
             names: &names,
+            cache: Default::default(),
         };
         for (expr, holds) in exprs {
             state.captures.exprs.insert(expr, shown.list(&holds));
@@ -698,7 +699,6 @@ impl<'a, 'b> Cx<'a, 'b> {
             let holds = self.without_scope_roots_of_handles(holds, &args, &arg_tys, ret_ty);
             return Val::of(holds);
         };
-        let mut args = args;
         if bodyless {
             // `[effect.escape]`, `[fiber.escape]`: a handle passes on what it holds except the
             // roots of scopes, unless the value returned is itself a handle.
@@ -852,6 +852,7 @@ impl<'a, 'b> Cx<'a, 'b> {
         let shown = Shown {
             input: self.input,
             names: &self.names,
+            cache: Default::default(),
         };
         let root = shown.name(root);
         self.diags.push(Diagnostic {
@@ -1038,13 +1039,23 @@ fn children(program: &Program, expr: ExprId) -> Vec<ExprId> {
 struct Shown<'a, 'b> {
     input: &'a Input<'b>,
     names: &'a FxHashMap<Holder, LocalId>,
+    /// Each root shown once: many expressions hold the same roots.
+    cache: std::cell::RefCell<FxHashMap<Holder, Held>>,
 }
 
 impl Shown<'_, '_> {
     fn list(&self, holds: &Holds) -> Vec<Held> {
         let mut out: Vec<Held> = Vec::new();
         for &h in holds {
-            let held = self.held(h);
+            let cached = self.cache.borrow().get(&h).cloned();
+            let held = match cached {
+                Some(held) => held,
+                None => {
+                    let held = self.held(h);
+                    self.cache.borrow_mut().insert(h, held.clone());
+                    held
+                }
+            };
             if !out.contains(&held) {
                 out.push(held);
             }

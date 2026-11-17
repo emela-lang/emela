@@ -1,0 +1,18 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: error
+---
+error[E0444]: a value that holds `log` cannot leave the `with` that provides it
+    ╭─[ src/main.emel:12:5 ]
+    │
+ 10 │   with FileLogger {
+    │        ─────┬────  
+    │             ╰────── `log` is released at the end of this `with`
+    │ 
+ 12 │     || log.info("hi")
+    │     ────────┬────────  
+    │             ╰────────── the value of the body holds `log`
+────╯
+   = note: experimental feature `capture-checking`
+
+1 error

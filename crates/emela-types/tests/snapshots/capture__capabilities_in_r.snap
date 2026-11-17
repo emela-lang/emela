@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/capture.rs
+expression: "render(&with_prelude(r#\"\nfn run(f: fn() -> Int uses { Db }) -> Int { f() }\n\nfn widened() -> Int {\n  with PrimaryDb {\n    p = use Db\n    with ReplicaDb {\n      f = || p.query(\"x\")\n      g = || (use Db).query(\"y\")\n      run(f) + run(g)\n    }\n  }\n}\n\nfn pure_rejects() -> Int {\n  with PrimaryDb {\n    p = use Db\n    h: fn() -> Int uses {} = || p.query(\"x\")\n    h()\n  }\n}\n\"#))"
+---
+run: ∀ E(f). fn(fn() -> Int fails E(f) uses { Db }) -> Int fails E(f) uses { Db }
+  f: fn() -> Int fails '0 uses { Db }  holds: f
+widened: fn() -> Int
+  p: use Db  holds: p (with PrimaryDb)
+  f: fn() -> Int uses { p }  holds: p (with PrimaryDb)
+  g: fn() -> Int uses { Db }
+pure_rejects: fn() -> Int
+  p: use Db  holds: p (with PrimaryDb)
+  h: fn() -> Int  holds: p (with PrimaryDb)
+`|| p.query("x")` effect set mismatch: expected `uses {}`, found `uses { p }`

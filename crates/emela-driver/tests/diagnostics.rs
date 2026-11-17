@@ -1999,8 +1999,7 @@ fn deprecated_build_target_c() {
 }
 
 /// `[pome.manifest]`: an unknown name in `[experimental]` is W0206 at the key, whatever its value,
-/// and a value that is not a boolean is W0207 at the value. The check goes on (`[intro.experimental]`:
-/// no experimental feature is known yet, so every name is unknown).
+/// and a value that is not a boolean is W0207 at the value. The check goes on.
 #[test]
 fn experimental_settings_of_the_project() {
     let manifest = |table: &str| {
@@ -2084,6 +2083,72 @@ fn experimental_feature_note() {
 
     1 warning
     ");
+}
+
+/// `[effect.escape]`, `[diag.list]`: a value that holds a root and leaves the `with` that
+/// provides it is W0402, with labels at the `with` item and at the value. With the experimental
+/// feature `capture-checking`, from `[experimental]` or from the flag, it is E0444 with the note of
+/// the feature (`[intro.experimental]`), and the name is known (no W0206).
+#[test]
+fn capture_escape() {
+    let main = "\
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler FileLogger: Logger {
+  fn info(msg) { () }
+}
+
+fn make_greeter() -> fn() -> () {
+  with FileLogger {
+    log = use Logger
+    || log.info(\"hi\")
+  }
+}
+";
+    let manifest = |table: &str| {
+        format!(
+            "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.28.0\"\n\n[experimental]\n{table}"
+        )
+    };
+    let run = |manifest: &str, flags: &[&str]| {
+        let fs = MemoryFiles::new([("app/Pome.toml", manifest), ("app/src/main.emel", main)]);
+        let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
+        input.experimental = flags.iter().map(|f| f.to_string()).collect();
+        let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
+        render(&analysis.diagnostics, &analysis.sources, false)
+    };
+    insta::assert_snapshot!("capture_escape_warning", run(&manifest(""), &[]));
+    let error = run(&manifest("capture-checking = true\n"), &[]);
+    insta::assert_snapshot!("capture_escape_error", error);
+    assert_eq!(run(&manifest(""), &["capture-checking"]), error);
+    assert_eq!(
+        run(&manifest("capture-checking = false\n"), &[]),
+        run(&manifest(""), &[])
+    );
+}
+
+/// `[fiber.escape]`: the value of `Fiber.scope` that holds its Scope is W0402, labelled at the
+/// callee.
+#[test]
+fn capture_escape_from_a_scope() {
+    let main = "\
+import Std.Fiber.{Fiber, Scope}
+
+fn leak() -> fn() -> Int {
+  Fiber.scope(|| {
+    h = Fiber.fork(|| 1)
+    || Fiber.join(h)
+  })
+}
+";
+    let analysis = check_files(
+        &[("app/Pome.toml", ""), ("app/src/main.emel", main)],
+        "app",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
 /// A single file has no `Pome.toml` of its own, so there is no license to check.
