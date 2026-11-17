@@ -1,10 +1,10 @@
 ---
 title: Values taken out of the handles of a scope
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 645
 issue:
-decided:
+decided: 2026-11-18
 touches: [effect.escape, fiber.escape]
 requires: []
 related: [capture-checking]
@@ -127,3 +127,7 @@ Simpler, but `Fiber.join` of a `Fiber[Fiber[A]]` would return a handle of the sc
 ## Open questions
 
 ## Decision
+
+The defaults of capture sets for declarations without a body make the value that `Fiber.join`, `Deferred.await`, `Queue.take` and `Semaphore.with_permits` return hold the root of the scope, so correct programs, and `Fiber.all`, `race`, `both`, `map` and `timeout` of the standard library, get W0402. The value taken out of a handle does not belong to the scope, so dropping the root there misses no leak that the rules of `capture-checking` would catch, and a handle taken out of a handle is still found by the type of the return value.
+
+Tracking the contents of handles would also follow values put into a Deferred or a Queue, but it needs a second set per handle and a new part in the summary of every function. That path is not tracked by `capture-checking` either, and the run-time checks catch it until 0.29, so it is left as a decision for the change that removes those checks.
