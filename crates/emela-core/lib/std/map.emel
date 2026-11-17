@@ -6,9 +6,9 @@
 #
 # The tree is the Map itself (an opaque enum). `[lib.layers]` declares `pub opaque type Map[K, V]`;
 # from outside, an opaque type and an opaque enum look the same. Recursion goes as deep as the
-# tree, O(log n), so it is not made a self tail call (nor are `to_list` and `fold`). Eq and Show
-# are written impls, so `==`, interpolation, `inspect` and `dbg` all go through them, never
-# through the structure.
+# tree, O(log n), so it is not made a self tail call (nor are `to_list`, `keys`, `values` and
+# `fold`). Eq and Show are written impls, so `==`, interpolation, `inspect` and `dbg` all go
+# through them, never through the structure.
 #
 # `balance` takes the heavy child apart with a pattern and a guard and hands its parts to
 # `rotate_left` / `rotate_right`, which choose a single or a double rotation. The shape of the
@@ -63,12 +63,28 @@ pub fn remove[K: Ord, V](m: Map[K, V], key: K) -> Map[K, V] {
   }
 }
 
+# `update` goes down the tree once, like `insert` and `remove`, so the path is copied once whichever
+# of insert and remove the result of `f` asks for. `f` is called where the search settles, with the
+# value `get` would give: the value of the node of the key, or `None` at the empty child below which
+# the key is absent. The number of comparisons is not part of the meaning of `update`, so `f` is
+# still called once, and a failure of `f` leaves the map as it was.
+
 ## `f` gets the value of `key` (`None` if it is not there). `Some` sets the value, and `None`
-## removes the key.
+## removes the key. `f` is called once.
 pub fn update[K: Ord, V](m: Map[K, V], key: K, f: fn(Option[V]) -> Option[V]) -> Map[K, V] {
-  f(get(m, key)) match {
-    Some(value) -> insert(m, key, value)
-    None        -> remove(m, key)
+  m match {
+    Empty -> f(None) match {
+      Some(value) -> node(key, value, Empty, Empty)
+      None        -> Empty
+    }
+    Node(size:, key: node_key, value: node_value, left:, right:) -> key.compare(node_key) match {
+      Less    -> balance(node_key, node_value, update(left, key, f), right)
+      Greater -> balance(node_key, node_value, left, update(right, key, f))
+      Equal -> f(Some(node_value)) match {
+        Some(value) -> Node(size:, key:, value:, left:, right:)
+        None        -> glue(left, right)
+      }
+    }
   }
 }
 
@@ -128,12 +144,12 @@ pub fn to_list[K, V](m: Map[K, V]) -> List[(K, V)] {
 
 ## The keys in order.
 pub fn keys[K, V](m: Map[K, V]) -> List[K] {
-  m.to_list().map(|(key, _)| key)
+  keys_onto(m, [])
 }
 
 ## The values in key order.
 pub fn values[K, V](m: Map[K, V]) -> List[V] {
-  m.to_list().map(|(_, value)| value)
+  values_onto(m, [])
 }
 
 ## `f` on each value. The keys stay. `f` is called in key order (`[lib.api-rules]`), so the left
@@ -308,7 +324,10 @@ fn remove_max[K, V](key: K, value: V, left: Map[K, V], right: Map[K, V]) -> (K, 
   }
 }
 
-# ---- Lists of pairs ----
+# ---- Lists ----
+#
+# `to_list`, `keys` and `values` walk the tree once each and cons the result directly, in key
+# order, without building the pairs of `to_list` on the way to the keys or the values.
 
 ## The pairs of `m` in key order, in front of `acc`.
 fn to_list_onto[K, V](m: Map[K, V], acc: List[(K, V)]) -> List[(K, V)] {
@@ -318,6 +337,22 @@ fn to_list_onto[K, V](m: Map[K, V], acc: List[(K, V)]) -> List[(K, V)] {
       left,
       [(key, value), ..to_list_onto(right, acc)],
     )
+  }
+}
+
+## The keys of `m` in order, in front of `acc`.
+fn keys_onto[K, V](m: Map[K, V], acc: List[K]) -> List[K] {
+  m match {
+    Empty                         -> acc
+    Node(key:, left:, right:, ..) -> keys_onto(left, [key, ..keys_onto(right, acc)])
+  }
+}
+
+## The values of `m` in key order, in front of `acc`.
+fn values_onto[K, V](m: Map[K, V], acc: List[V]) -> List[V] {
+  m match {
+    Empty                           -> acc
+    Node(value:, left:, right:, ..) -> values_onto(left, [value, ..values_onto(right, acc)])
   }
 }
 
