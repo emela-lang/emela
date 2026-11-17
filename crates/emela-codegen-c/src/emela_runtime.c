@@ -722,6 +722,26 @@ em_ref em_array_get(em_ref a, int32_t index) {
   return em_some(a->slots[1 + index], ref);
 }
 
+/* `Option.or(Array.get(a, index), d)`: the element at `index`, or `d` (d is borrowed). The
+ * element or `d` is owned once more, as for every builtin. */
+em_word em_array_get_or(em_ref a, int32_t index, em_word d) {
+  bool ref = EM_ARRAY_REFS(a);
+  if (index < 0 || index >= EM_ARRAY_LEN(a)) {
+    if (ref) em_dup(d.p);
+    return d;
+  }
+  if (ref) em_dup(a->slots[1 + index].p);
+  return a->slots[1 + index];
+}
+
+/* `match Array.get(a, index)`, in the arm that the caller's bounds test picked. The element is
+ * owned once more. */
+em_word em_array_load_unchecked(em_ref a, int32_t index) {
+  bool ref = EM_ARRAY_REFS(a);
+  if (ref) em_dup(a->slots[1 + index].p);
+  return a->slots[1 + index];
+}
+
 em_ref em_array_set(em_ref a, int32_t index, em_word value) {
   int64_t n = EM_ARRAY_LEN(a);
   if (index < 0 || index >= n) {

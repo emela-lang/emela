@@ -163,6 +163,15 @@ pub enum Builtin {
     /// expression outside the message (`[test.assert]`). What monomorphization makes of an assert
     /// whose sides are shown through a written Show impl. The location is a string literal.
     AssertFail,
+    /// `Array.get_or(a, index, d)`: the element at `index`, or `d`. What the Core IR pass that
+    /// fuses `Option.or(Array.get(a, index), d)` makes (`opt::option`). Every argument is
+    /// evaluated once, in `a`, `index`, `d` order, and `d` is evaluated even when `index` is in
+    /// range. A reference result (the element or `d`) is owned once more, as for every builtin.
+    ArrayGetOr,
+    /// `Array.load_unchecked(a, index)`: the element at `index`. What the Core IR pass that fuses
+    /// `match Array.get(a, index) { … }` makes (`opt::option`); the caller has checked that
+    /// `index` is in range. A reference result is owned once more.
+    ArrayLoadUnchecked,
 }
 
 /// `@intrinsic` declarations (module name, function name) that lowering maps as runtime handlers.
@@ -458,6 +467,16 @@ impl Builtin {
                 ..info(Some("$Debug"), "print", &[String], Unit)
             },
             Builtin::AssertFail => info(Some("$Assert"), "fail", &[String, String], Never),
+            // Internal builtins of the Array module used only by the Core IR passes. They are not
+            // in `ALL`, so sources cannot call them.
+            Builtin::ArrayGetOr => BuiltinInfo {
+                ty_params: 1,
+                ..info(Some("$Array"), "get_or", &[ARR, Int, Param(0)], Param(0))
+            },
+            Builtin::ArrayLoadUnchecked => BuiltinInfo {
+                ty_params: 1,
+                ..info(Some("$Array"), "load_unchecked", &[ARR, Int], Param(0))
+            },
         }
     }
 
