@@ -98,8 +98,6 @@ fn work(k%0: i32 (Int), ev%1: ref (evidence)) -> i32 (Int) fails defects {
 
 fn Counted$closure0(env%0: ref (fn() -> Int)) -> i32 (Int) env[Counted] {
   self%1: ref (Counted) = env_get env%0#0
-  dup self%1
   t%2: i32 (Int) = field self%1 Counted.Counted.n#0
-  drop self%1
   return t%2
 }

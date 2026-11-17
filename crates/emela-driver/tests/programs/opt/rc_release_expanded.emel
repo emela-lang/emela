@@ -1,0 +1,41 @@
+# The hand-written expansion of `rc_release_fused.emel`: the same fold as a self
+# tail call with the array as a parameter, so no closure captures it, inside the
+# same `with`. The releases of `with` must run at the same points as in the fused
+# form, and the output must agree.
+
+import Std.Array.{Array}
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Session: Log {
+  release {
+    dbg("close")
+    ()
+  }
+  fn log(msg) {
+    dbg(msg)
+    ()
+  }
+}
+
+fn add_at(a: Array[Int], i: Int, acc: Int) -> Int uses { Log } {
+  (use Log).log("at #{i}")
+  acc + (Array.get(a, i) |> Option.or(0))
+}
+
+fn go(a: Array[Int], n: Int, i: Int, acc: Int) -> Int uses { Log } {
+  if i >= n { acc } else { go(a, n, i + 1, add_at(a, i, acc)) }
+}
+
+fn total(n: Int) -> Int uses { Log } {
+  go(Array.from_list(List.range(0, n)), n, 0, 0)
+}
+
+fn main() {
+  with Session {
+    dbg(total(4))
+  }
+  dbg("after")
+}

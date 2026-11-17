@@ -68,13 +68,9 @@ fn report(x%0: i32 (Int), ev%1: ref (evidence)) -> i32 (Int) defects {
 
 fn Prefixed$closure0(env%0: ref (fn(String) -> ()), msg%1: ref (String)) -> void (()) env[Prefixed] {
   self%2: ref (Prefixed) = env_get env%0#0
-  dup self%2
   t%3: ref (String) = field self%2 Prefixed.Prefixed.prefix#0
-  dup t%3
-  drop self%2
   s%4: ref (String) = builtin String.append(t%3, msg%1)
   drop msg%1
-  drop t%3
   s%5: ref (String) = runtime show_string(s%4)
   drop s%4
   runtime debug_print(s%5)

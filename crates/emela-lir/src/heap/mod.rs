@@ -16,7 +16,7 @@ mod closures;
 mod copy;
 mod defects;
 pub(crate) mod live;
-mod rc;
+pub(crate) mod rc;
 pub(crate) mod rc_check;
 pub(crate) mod suspend;
 

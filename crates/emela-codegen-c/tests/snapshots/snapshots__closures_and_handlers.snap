@@ -226,9 +226,7 @@ static int32_t e7_Fixed_closure0(em_ref v0) {
   em_ref v1 = 0;
   int32_t v2 = 0;
   v1 = v0->slots[1].p;
-  em_dup(v1);
   v2 = v1->slots[0].i;
-  em_drop(v1);
   return v2;
 }
 
