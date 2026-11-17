@@ -82,6 +82,8 @@ The proposals that make capabilities values (`capability-type`, `handler-member`
   - the return value of an effect operation may also hold its handler,
   - a function type inside a declaration is pure, as now (`[type.fn]`), so it holds nothing.
 - The hover of the language server shows the capture set of a return value or a value on a line `holds:`.
+- A root, and a capability element of R, is shown by the name attached to it: the variable of a binding (`p`, `src`), the parameter that received it (`from`), the handler of a with item that is not bound (`ConsoleLogger`), or the name of the effect for a `use E` that the caller provides (`Db`). When two roots have the same name, the hover adds where each is provided (`p (with PrimaryDb, line 4)`). A function can return only values that hold its parameters or roots from outside it (a root made inside would leave its with), so a return value always has such a name.
+- No syntax is defined for writing a capture set.
 
 ```text
 fn pick(primary: use Db, replica: use Db, write: Bool) -> use Db uses {}
@@ -129,8 +131,8 @@ warning[W0402]: a value that holds `log` leaves the `with` that provides it
 ### Rollout
 
 - 0.28: inference, `holds:`, the capability elements of R and W0402 always apply. E0444 applies with `capture-checking`.
-- During the period of warnings, code that takes the capability of a handler without state out of its with is found and fixed.
-- A later version makes E0444 the default, retires W0402 and E0425, and decides whether the run-time check stays. That is a separate change, recorded when it is made.
+- During the period of warnings, until the next minor version, code that takes the capability of a handler without state out of its with is found and fixed.
+- 0.29: E0444 becomes the default. W0402 and E0425 are retired, the run-time check of `[effect.escape]` is removed, and `capture-checking` becomes stable (`[intro.experimental]`). That is a separate change of the specification, recorded when it is made.
 
 ## Specification changes
 
@@ -149,7 +151,7 @@ Replace the items from "The compiler tracks which capabilities a value holds ...
 > - The capture set of the return value of a function is inferred from its body. For a declaration without a body (an effect operation, a trait function, an `@external` fn, the function type of a parameter), the return value holds what its arguments hold, and the return value of an operation also holds the handler.
 > - If the value of a with body holds a root of that with, it is a warning (W0402).
 > - Experimental (`capture-checking`). It is a compile error (E0444) instead.
-> - The check at run time stays: calling an operation of a handler that has already been released is a defect (`handler PostgresUsers was used after release`). It applies only to handlers that have fields, init, or release.
+> - The check at run time stays while the error is not the default: calling an operation of a handler that has already been released is a defect (`handler PostgresUsers was used after release`). It applies only to handlers that have fields, init, or release.
 > - The capture set is not written in source. The language server shows it (`[lsp.hover]`).
 
 ### `[effect.use]`
@@ -191,7 +193,7 @@ Add:
 
 Add:
 
-> - On a function or a value that may hold capabilities, the hover shows a line `holds: ...` with the roots it may hold, and for each root the with that provides it.
+> - On a function or a value that may hold capabilities, the hover shows a line `holds: ...` with the roots it may hold, and for each root the with that provides it. A root is shown by the variable of its binding, the parameter that received it, the handler of an unbound with item, or the name of the effect for a `use E` provided by the caller.
 
 ### `[diag.list]`
 
@@ -204,13 +206,13 @@ Add:
 
 Replace the item "0.22: capture set" with:
 
-> - [ ] capture set: make E0444 the default and retire W0402 and E0425 (`capture-checking`)
+> - [ ] 0.29: make E0444 the default, retire W0402 and E0425, and remove the run-time check of 8.6 (`capture-checking`)
 
 ## Diagnostics
 
 - [x] A value that holds a root leaves its with or `Fiber.scope`: W0402, or E0444 with `capture-checking`
-- [ ] E0425: kept until the error is the default
-- [ ] The run-time defect `handler X was used after release`: kept
+- [x] E0425: kept until the error is the default (0.29)
+- [x] The run-time defect `handler X was used after release`: kept until the error is the default, then removed
 
 ## Compatibility
 
@@ -231,6 +233,8 @@ Replace the item "0.22: capture set" with:
 - Stop by the name of the type (extending E0425): every type has to be walked (`Option[Fiber[User]]`), and two values of the same type from different withs cannot be told apart.
 - Keep R to the names of effects: the R of a function that receives the resource of a handler member as a parameter cannot be satisfied, and a captured handler cannot be told apart from the one where the function is called.
 - Make the error the default at once: code that runs now breaks in one version, and the defaults of the inference cannot be adjusted against real code first.
+- Report a change of the capture set of a pub function in a compatibility check of Pome: the return type, `fails` and `uses` of a pub function can be inferred too (`[module.pub-signature]`), and Pome has no compatibility check for any of them. A check of the inferred signatures of pub functions can cover capture sets together, when one is added.
+
 
 ## Prior art
 
@@ -240,10 +244,6 @@ Replace the item "0.22: capture set" with:
 
 ## Open questions
 
-- When the capture set of a pub function changes with its body, a caller can break. Whether Pome's compatibility check reports it, or it is only shown.
-- Whether to add a syntax for writing a capture set, when a correct program is rejected by the conservative defaults.
-- Whether the run-time check stays after the error becomes the default. A value that reaches a released handler through the host (a callback of an `@external` fn) cannot be tracked statically.
-- The name shown for a capability element of R. A parameter name (`from`) works for parameters; what is shown where there is none (the return type of a function that returns a closure).
-- Whether existing code relies on "a handler without state keeps working when taken out of the with" (`[effect.escape]`), which decides how long the period of warnings is.
+- A callback passed to an `@external` fn can be kept by the host and called after the with ends (`[ext.boundary]`). Its R may contain Immediate effects, so it may hold a capability. The run-time check catches this now. Before the run-time check is removed in 0.29, decide one of: a value passed to an `@external` fn counts as leaving every with that provides a root it holds; or the run-time check stays only for values that the host calls back.
 
 ## Decision
