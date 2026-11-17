@@ -1,10 +1,10 @@
 ---
 title: Capture checking
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 621
 issue:
-decided:
+decided: 2026-11-18
 touches: [intro.experimental, effect.escape, effect.use, fiber.escape, type.fn, type.rules, lsp.hover, diag.list, open.next]
 requires: [experimental-features]
 related: []
@@ -246,3 +246,7 @@ Replace the item "0.22: capture set" with:
 ## Open questions
 
 ## Decision
+
+`[effect.escape]` already says that a value holding a capability cannot leave the with that provides it, but the check runs only at run time: a handler without state is never checked, and a value that is never called is never found. R also has only the granularity of the name of an effect, so it cannot tell a captured handler from the one provided where a function is called. Making capabilities values (`capability-type`, `handler-member`) depends on that distinction.
+
+Capture sets are inferred and shown by the language server, not written in source. Emela has a fixed kind of capability, immutable variables and lifetimes that are always nested, so inference with conservative defaults is enough for now. The check starts as a warning, and as an error behind the experimental feature, so that the defaults and the diagnostics can be tried against real code before 0.29 makes the error the default and removes the run-time check.
