@@ -25,39 +25,70 @@
 //!   the region neither consumes nor drops, or the value lives in the closure record
 //!   ([`Bases::borrows_from_env`]).
 //!
-//! A view of anything else is left alone: the reference the `dup` takes may be the only thing
-//! keeping its base alive.
+//! A view of anything else is left alone by default: the reference the `dup` takes may be the only
+//! thing keeping its base alive.
+//!
+//! # A view of a live local base (`LirRules::rc_borrow`)
+//!
+//! With [`LirRules::rc_borrow`](super::LirRules::rc_borrow) the pass also removes the pair of a
+//! counted view whose base chain ends at a local variable, when that root variable keeps the value
+//! alive across the whole region:
+//!
+//! - the statement before the `dup` is the `let` that defines the view (the shape reference
+//!   counting emits: a view that is live after its definition gets its reference right after it);
+//! - the root owns the only reference to its value at that point (B6, [`ownership`]: the fact after
+//!   the view's definition is `Known(true)`), and it is live after it (B4, [`liveness`]);
+//! - the region neither takes, adds nor releases the root's reference: no `dup`, `drop`, consuming
+//!   use, loop initial value, frame save or redefinition of the root on any path from the `dup` to
+//!   the paired `drop`. A view reads its value out of its base, so a root that owns a reference and
+//!   keeps it on every path keeps the value alive for the whole region.
+//!
+//! A call consumes its arguments under the calling convention, so a region that contains a call
+//! that consumes the view (or the root) deopts: removing the `dup` would underflow the callee.
+//! Call-site borrow elision is not part of this rule; it needs the calling convention to change
+//! (C2/PR-026).
 //!
 //! # Contract
 //!
-//! Preconditions: the module is at [`Stage::RefCounted`] (`insert_rc` has run); the pass runs in
-//! [`super::run_heap`].
-//!
-//! Postconditions: the module is still at [`Stage::RefCounted`] and passes the verifier: every
-//! remaining `dup` has its `drop` on every path, and the variables of a removed pair are still
-//! used and still owned by what owns them.
-//!
+//! ```text
+//! Rule ID: rc-cleanup/borrow-local
+//! Theory: Perceus reference counting. A view never owns the value it reads; it only needs a
+//!         reference of its own because its base may be released before the view's last use.
+//!         When the base is uniquely owned and not released in the region, the base's reference
+//!         is enough, and the `dup`/`drop` pair is counting work with no keep-alive function.
+//! Equation: dup v; …; drop v  ⇒  …            (v a view, base live and unique on every path)
+//! Preconditions: the module is at Stage::RefCounted (`insert_rc` has run); the pass runs in
+//!         `run_heap`. For a local-base pair (flag on): the analyses answer for the function and
+//!         prove the root unique and live; the view's definition is the statement before the dup.
+//! Postconditions: the module is still at Stage::RefCounted and passes the verifier: every
+//!         remaining `dup` has its `drop` on every path, and the variables of a removed pair are
+//!         still used and still owned by what owns them.
 //! Preserves: evaluation order, effects, failure landings, defect landings, the evidence tables,
-//! drop points, and the order and count of the releases of `with`. It removes only references that
-//! are given back inside the region: the `drop` of a pair cannot be the one that frees the value,
-//! because the `dup` of the pair proved that a reference is held elsewhere, so no release (and so
-//! no finalizer or effect a release may run) moves or disappears. What changes is the count a value
-//! carries in the region (one lower), and so memory use, in-place `Array.set`, and when a program
-//! runs out of memory (implementation defined).
-//!
-//! Deopt: a view whose base is not the borrowed environment (the reference may be what keeps the
-//! base alive), a variable that is consumed or duplicated inside the region, a path that leaves the
-//! sequence without giving the reference back (`recur`, `break`, `return`, `fail`, `unwind`, or the
-//! end of the body), and a statement the pass does not model (`protect`, which the Heap IR does not
-//! have).
-//!
-//! Measures: [`Stats::rc_pairs`], the pairs removed.
+//!         drop points, `Suspend::saved`, and the order and count of the releases of `with` and of
+//!         the remaining drops. The `drop` of a pair cannot be the one that frees the value,
+//!         because the `dup` proved a reference is held elsewhere; no release (and so no
+//!         finalizer or effect a release may run) moves or disappears. What changes is the count a
+//!         value carries in the region (one lower), and so memory use, in-place `Array.set`, and
+//!         when a program runs out of memory (implementation defined).
+//! Deopt: a view whose base is not the borrowed environment unless the local-base proof above
+//!         holds; a variable that is consumed (a call, `Array.set`, a container, a terminator) or
+//!         duplicated inside the region; the root being dropped, duplicated, consumed or saved by
+//!         a frame inside the region; a path that leaves the sequence without giving the reference
+//!         back (`recur`, `break`, `return`, `fail`, `unwind`, or the end of the body); a statement
+//!         the pass does not model (`protect`, which the Heap IR does not have); and `Unknown` from
+//!         B4/B6, which is counted as `Stats::rc_borrow_deopts`.
+//! Budget: one pass over the statements of each function, repeated until a round removes nothing;
+//!         the two analyses run once per module when the flag is on.
+//! Measures: Stats::rc_pairs (all pairs), Stats::rc_borrow_pairs (the local-base pairs),
+//!         Stats::rc_borrow_deopts (pairs left alone because B4/B6 answered Unknown).
+//! ```
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::Stats;
+use super::analysis::{Fact, liveness, ownership};
 use crate::heap::compact;
-use crate::heap::rc::{Bases, Mode, value_uses};
+use crate::heap::rc::{Bases, Mode, counted, value_uses};
 use crate::ir::{FnId, Function, Module, Operand, SeqId, Stmt, StmtId, Term, Value, VarId};
 
 /// Removes every `dup`/`drop` pair of every function that the contract allows.
@@ -68,26 +99,52 @@ use crate::ir::{FnId, Function, Module, Operand, SeqId, Stmt, StmtId, Term, Valu
 /// terminates because every round removes at least one statement. A changed function is rebuilt
 /// with `heap::compact`, which drops the removed statements and numbers what is left in the order
 /// met.
-pub(crate) fn run(m: &mut Module) -> Stats {
+///
+/// `borrow` is [`LirRules::rc_borrow`](super::LirRules::rc_borrow): when it is off, only the pairs
+/// the pass has always removed. When it is on, the analyses the local-base proof needs are computed
+/// once for the module. A removed `dup`/`drop` pair is two fewer references; it can only remove a
+/// "not unique" event, so a fact from the module before the round stays sound (it may be more
+/// conservative than the rewritten function).
+pub(crate) fn run(m: &mut Module, borrow: bool) -> Stats {
     let mut stats = Stats::default();
+    let (live, own) = if borrow {
+        (liveness::analyze(m).known(), ownership::analyze(m).known())
+    } else {
+        (None, None)
+    };
     let functions: Vec<FnId> = m.functions.iter().map(|(id, _)| id).collect();
     for id in functions {
         if m.functions[id].body.is_none() {
             continue;
         }
+        let ctx = Ctx {
+            borrow,
+            live: live.as_ref().and_then(|sets| sets.get(&id)),
+            own: own.as_ref().and_then(|sets| sets.get(&id)),
+        };
         let mut f = m.functions[id].clone();
         let mut removed = 0;
+        let mut borrowed = 0;
+        // The analysis was computed for the module before this function changed. A candidate that
+        // survives a round survives every later round, so the deopts are counted once.
+        let mut first = true;
         loop {
-            let plan = plan(m, &f);
+            let plan = plan(m, &f, ctx);
+            if first {
+                stats.rc_borrow_deopts += plan.deopts;
+                first = false;
+            }
             if plan.count == 0 {
                 break;
             }
             plan.apply(&mut f);
             removed += plan.count;
+            borrowed += plan.borrowed;
         }
         if removed > 0 {
             m.functions[id] = compact(&f);
             stats.rc_pairs += removed;
+            stats.rc_borrow_pairs += borrowed;
         }
     }
     stats
@@ -100,6 +157,31 @@ struct Plan {
     remove: FxHashSet<StmtId>,
     /// Pairs, the counter's contribution.
     count: u32,
+    /// The pairs that needed the local-base proof.
+    borrowed: u32,
+    /// Candidates the local-base proof left alone because B4 or B6 answered `Unknown`.
+    deopts: u32,
+}
+
+/// What the pass knows about the function it plans.
+#[derive(Clone, Copy, Default)]
+struct Ctx<'a> {
+    /// Whether to elide the reference of a view of a live local base.
+    borrow: bool,
+    /// The variables live after each `let` of the function (B4).
+    live: Option<&'a FxHashMap<StmtId, FxHashSet<VarId>>>,
+    /// The ownership facts after each `let` of the function (B6).
+    own: Option<&'a FxHashMap<StmtId, ownership::StatementFacts>>,
+}
+
+/// The base a local view reads out of, as far as the flag's proof got.
+enum Base {
+    /// The counted root of the view chain, and its facts are known.
+    Root(VarId),
+    /// A rule of the proof failed: keep the pair.
+    Unsafe,
+    /// B4 or B6 has no answer: keep the pair and count a deopt.
+    Unknown,
 }
 
 impl Plan {
@@ -111,7 +193,7 @@ impl Plan {
 }
 
 /// The pairs of `f` that can be removed in one round.
-fn plan(m: &Module, f: &Function) -> Plan {
+fn plan(m: &Module, f: &Function, ctx: Ctx<'_>) -> Plan {
     let bases = Bases::new(f);
     let mut plan = Plan::default();
     for (seq, s) in f.seqs.iter() {
@@ -119,13 +201,25 @@ fn plan(m: &Module, f: &Function) -> Plan {
             let Stmt::Dup(v) = f.stmts[id] else {
                 continue;
             };
-            // Only a variable that keeps its value alive without the reference, or a view of the
-            // closure record, may lose it.
-            if bases.view_base(v).is_some() && !bases.borrows_from_env(v) {
-                continue;
-            }
+            // A view of the closure record, or a variable that keeps its value alive by itself,
+            // needs no further proof. A view of anything else needs the local-base proof below.
+            let guard = if bases.view_base(v).is_some() && !bases.borrows_from_env(v) {
+                if !ctx.borrow {
+                    continue;
+                }
+                match local_base(f, &bases, seq, i, v, ctx) {
+                    Base::Root(root) => Some(root),
+                    Base::Unsafe => continue,
+                    Base::Unknown => {
+                        plan.deopts += 1;
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
             let mut drops = Vec::new();
-            match region(m, f, seq, i + 1, v, &mut drops) {
+            match region(m, f, seq, i + 1, v, guard, &mut drops) {
                 Some(Ends::Closed) => {}
                 // A path that reaches the end of the body without giving the reference back, or
                 // that leaves through a terminator: not a pair.
@@ -139,9 +233,70 @@ fn plan(m: &Module, f: &Function) -> Plan {
             plan.remove.insert(id);
             plan.remove.extend(drops);
             plan.count += 1;
+            if guard.is_some() {
+                plan.borrowed += 1;
+            }
         }
     }
     plan
+}
+
+/// The counted root of the view chain that starts at `v`, when the root keeps the value alive
+/// across the region of the `dup` at `i`.
+///
+/// The chain is `v`'s base, its base, and so on. The root is the first variable that is not a
+/// view; the environment is not one (a pair that borrows from it is the pass's original case). A
+/// view of a root that is not counted, or a `dup` that does not immediately follow the view's
+/// definition, is a shape the proof does not cover.
+fn local_base(f: &Function, bases: &Bases, seq: SeqId, i: usize, v: VarId, ctx: Ctx<'_>) -> Base {
+    let mut root = v;
+    let mut found = false;
+    for _ in 0..=f.vars.len() {
+        match bases.view_base(root) {
+            Some(base) => {
+                if bases.borrows_from_env(root) {
+                    return Base::Unsafe;
+                }
+                root = base;
+            }
+            None => {
+                found = true;
+                break;
+            }
+        }
+    }
+    if !found || root == v || !counted(f, root) {
+        return Base::Unsafe;
+    }
+    let Some(prev) = i.checked_sub(1).map(|p| f.seqs[seq].stmts[p]) else {
+        return Base::Unsafe;
+    };
+    if !matches!(f.stmts[prev], Stmt::Let { dst: Some(d), .. } if d == v) {
+        return Base::Unsafe;
+    }
+    // B6: the root owns the only reference to its value after the view is defined.
+    let Some(own) = ctx.own else {
+        return Base::Unknown;
+    };
+    let Some(facts) = own.get(&prev) else {
+        return Base::Unknown;
+    };
+    match facts.get(&root) {
+        Some(Fact::Known(true)) => {}
+        Some(Fact::Known(false)) => return Base::Unsafe,
+        Some(Fact::Unknown) | None => return Base::Unknown,
+    }
+    // B4: the root is live where the region starts.
+    let Some(live) = ctx.live else {
+        return Base::Unknown;
+    };
+    let Some(after) = live.get(&prev) else {
+        return Base::Unknown;
+    };
+    if !after.contains(&root) {
+        return Base::Unsafe;
+    }
+    Base::Root(root)
 }
 
 /// What a statement may do with a variable's references.
@@ -215,15 +370,24 @@ fn action(m: &Module, f: &Function, id: StmtId, v: VarId) -> Action {
 
 /// Whether every path from `from` on in the sequence reaches a `drop v` before it does anything
 /// else with the variable's references. The drops that end the region are collected in `drops`.
+///
+/// `guard` is the root whose reference must keep the value alive: no path may take, add or release
+/// it before the region closes. `None` for a variable that keeps its value alive by itself.
 fn region(
     m: &Module,
     f: &Function,
     seq: SeqId,
     from: usize,
     v: VarId,
+    guard: Option<VarId>,
     drops: &mut Vec<StmtId>,
 ) -> Option<Ends> {
     for &id in &f.seqs[seq].stmts[from..] {
+        if let Some(g) = guard
+            && !matches!(action(m, f, id, g), Action::Borrow)
+        {
+            return None;
+        }
         match action(m, f, id, v) {
             Action::Consume => return None,
             Action::Drop => {
@@ -231,7 +395,7 @@ fn region(
                 return Some(Ends::Closed);
             }
             Action::Borrow => {
-                if let Ends::Closed = statement(m, f, id, v, drops)? {
+                if let Ends::Closed = statement(m, f, id, v, guard, drops)? {
                     // Every path through the statement ends at one of its own drops; what follows
                     // only runs for paths that gave the reference back.
                     return Some(Ends::Closed);
@@ -243,6 +407,14 @@ fn region(
         // A `yield` continues after the statement that holds this sequence, which is the scan of
         // the enclosing sequence: the path is still open there.
         Term::Yield(value) => {
+            if let Some(g) = guard
+                && value
+                    .as_ref()
+                    .is_some_and(|o| matches!(o, Operand::Var(x) if *x == g))
+            {
+                // The yielded value is consumed: the root no longer owns a reference.
+                return None;
+            }
             let consumed = value
                 .as_ref()
                 .is_some_and(|o| matches!(o, Operand::Var(x) if *x == v));
@@ -271,6 +443,7 @@ fn statement(
     f: &Function,
     id: StmtId,
     v: VarId,
+    guard: Option<VarId>,
     drops: &mut Vec<StmtId>,
 ) -> Option<Ends> {
     let mut seqs: Vec<SeqId> = Vec::new();
@@ -314,7 +487,7 @@ fn statement(
         // reference back before it does: the variable is in its scope with a reference that the
         // `dup` added.
         for s in seqs {
-            match region(m, f, s, 0, v, drops)? {
+            match region(m, f, s, 0, v, guard, drops)? {
                 Ends::Closed => {}
                 Ends::Open => return None,
             }
@@ -327,7 +500,7 @@ fn statement(
     let mut all_closed = true;
     let mut all_open = true;
     for s in seqs {
-        match region(m, f, s, 0, v, drops)? {
+        match region(m, f, s, 0, v, guard, drops)? {
             Ends::Closed => all_open = false,
             Ends::Open => all_closed = false,
         }
@@ -389,8 +562,13 @@ mod tests {
 
         /// Runs the pass at the stage of its precondition and checks the result.
         fn run(&mut self) -> Stats {
+            self.run_with(false)
+        }
+
+        /// [`Self::run`] with [`LirRules::rc_borrow`](super::super::LirRules::rc_borrow) on or off.
+        fn run_with(&mut self, borrow: bool) -> Stats {
             self.m.stage = Stage::RefCounted;
-            let stats = super::run(&mut self.m);
+            let stats = super::run(&mut self.m, borrow);
             if let Err(errors) = verify(&self.m) {
                 let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
                 panic!("rc_cleanup produced invalid IR:\n{}", lines.join("\n"));
@@ -405,7 +583,12 @@ mod tests {
         /// The pairs the pass would remove from `function` (a unit of the analysis, without
         /// needing a module the verifier accepts).
         fn pairs(&self, function: &Function) -> u32 {
-            plan(&self.m, function).count
+            plan(&self.m, function, Ctx::default()).count
+        }
+
+        /// The plan of `function` under `ctx`, without applying it.
+        fn plan_of(&self, function: &Function, ctx: Ctx<'_>) -> Plan {
+            plan(&self.m, function, ctx)
         }
     }
 
@@ -714,7 +897,7 @@ mod tests {
         let mut f = b.finish();
         f.env = Some(vec![list]);
         f.defects = true;
-        assert_eq!(plan(&fx.m, &f).count, 0);
+        assert_eq!(plan(&fx.m, &f, Ctx::default()).count, 0);
     }
 
     /// A frame that may save the environment parameter makes it owned (`heap::rc` dup's it at the
@@ -750,7 +933,7 @@ mod tests {
             !bases.borrows_from_env(d),
             "a view of an owned environment is not borrowed"
         );
-        assert_eq!(plan(&fx.m, &f).count, 0);
+        assert_eq!(plan(&fx.m, &f, Ctx::default()).count, 0);
     }
 
     /// A second run changes nothing.
@@ -772,5 +955,75 @@ mod tests {
         let after_first = crate::dump(&fx.m);
         assert_eq!(fx.run().rc_pairs, 0);
         assert_eq!(crate::dump(&fx.m), after_first);
+    }
+
+    /// A fresh list whose tail is read into a view, used once, with the list used again before its
+    /// drop: the view's base is uniquely owned and alive across the region, so the flag removes the
+    /// pair. This is the shape reference counting emits for a local base.
+    #[test]
+    fn a_pair_of_a_view_of_a_live_local_is_removed_with_the_flag() {
+        let mut fx = Fixture::new();
+        let list = fx.list;
+        let id = fx.build("local", |b| {
+            b.set_ret(TypeId::INT);
+            let root = b.assign(
+                "root",
+                list,
+                Value::List {
+                    elems: vec![Const::Int(1).into(), Const::Int(2).into()],
+                    tail: None,
+                },
+            );
+            let t = b.assign("t", list, Value::ListTail(root));
+            b.stmt(Stmt::Dup(t));
+            let h = b.assign("h", TypeId::INT, Value::ListHead(t));
+            b.stmt(Stmt::Drop(t));
+            let _e = b.assign("e", TypeId::BOOL, Value::ListIsEmpty(root));
+            b.stmt(Stmt::Drop(root));
+            b.term(Term::Return(Some(h.into())));
+        });
+        assert_eq!(fx.run_with(false).rc_borrow_pairs, 0);
+        assert_eq!(fx.run_with(true).rc_borrow_pairs, 1);
+        let text = fx.dump(id);
+        assert_eq!(text.matches("dup").count(), 0, "{text}");
+        assert_eq!(text.matches("drop").count(), 1, "{text}");
+    }
+
+    /// The facts the local-base proof needs may be missing: the pair is left alone and counted as
+    /// a deopt, not read as "safe".
+    #[test]
+    fn an_unknown_ownership_fact_deopts_a_local_view() {
+        let mut fx = Fixture::new();
+        let list = fx.list;
+        let id = fx.build("unknown", |b| {
+            b.set_ret(TypeId::INT);
+            let root = b.assign(
+                "root",
+                list,
+                Value::List {
+                    elems: vec![Const::Int(1).into(), Const::Int(2).into()],
+                    tail: None,
+                },
+            );
+            let t = b.assign("t", list, Value::ListTail(root));
+            b.stmt(Stmt::Dup(t));
+            let h = b.assign("h", TypeId::INT, Value::ListHead(t));
+            b.stmt(Stmt::Drop(t));
+            let _e = b.assign("e", TypeId::BOOL, Value::ListIsEmpty(root));
+            b.stmt(Stmt::Drop(root));
+            b.term(Term::Return(Some(h.into())));
+        });
+        fx.m.stage = Stage::RefCounted;
+        let f = fx.m.functions[id].clone();
+        let plan = fx.plan_of(
+            &f,
+            Ctx {
+                borrow: true,
+                live: None,
+                own: None,
+            },
+        );
+        assert_eq!(plan.count, 0, "an unknown fact removed a pair");
+        assert_eq!(plan.deopts, 1);
     }
 }

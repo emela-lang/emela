@@ -35,7 +35,7 @@
 //! | [`analysis`] (`escape`, `liveness`, `borrow`, `ownership`) | — | every stage | `escape` and its parameter summary implemented (B3/PR-022); the others answer `Unknown` until B4/PR-023 and B6/PR-024 |
 //! | [`sra`] | [`Stats::sra_tuples`], [`Stats::sra_records`] | [`run_mid`] | scalar tuples; scalar records behind [`LirRules::sra_records`] (C5/PR-043). The closure half of C5 is deferred to E5/PR-037 |
 //! | [`devirt`] | [`Stats::devirt`] | [`run_mid`] | closure records only called in their function (E5/PR-037) |
-//! | [`rc`] cleanup | [`Stats::rc_pairs`] | [`run_heap`] | `dup`/`drop` pairs; C1/PR-025 generalises it |
+//! | [`rc`] cleanup | [`Stats::rc_pairs`], [`Stats::rc_borrow_pairs`] | [`run_heap`] | `dup`/`drop` pairs; C1/PR-025 adds the local-base borrow elision behind [`LirRules::rc_borrow`] |
 //! | drop specialisation | — | [`run_heap`] | not implemented (C3/PR-027) |
 //! | reuse / FBIP | — | [`run_heap`] | not implemented (C4/PR-042) |
 //! | DCE / suspension frame pruning | — | [`run_heap`] | not implemented (C7/PR-028) |
@@ -46,13 +46,14 @@
 //! # Feature flags
 //!
 //! [`LirRules`] has one flag per LIR pass that exists today ([`sra`], [`devirt`] and the `rc`
-//! cleanup), plus one that extends SRA to records, and [`Options`] holds them.
-//! [`run_mid_with`] and [`run_heap_with`] take the options; [`run_mid`] and [`run_heap`] keep
-//! their old signatures and use [`Options::default`], which leaves the stage's output as it was
-//! before closure devirtualisation existed and before records were decomposed. The flags are a
-//! programmatic API only: no command-line flag is added in this skeleton. Closure devirtualisation
-//! is off by default; the later LIR passes (drop specialisation, reuse, DCE, frame pruning) get
-//! their own flags when they land.
+//! cleanup), one that extends SRA to records, and one for the `rc` cleanup's local-base borrow
+//! elision ([`LirRules::rc_borrow`]), and [`Options`] holds them. [`run_mid_with`] and
+//! [`run_heap_with`] take the options; [`run_mid`] and [`run_heap`] keep their old signatures and
+//! use [`Options::default`], which leaves the stage's output as it was before closure
+//! devirtualisation and the borrow elision existed and before records were decomposed. The flags
+//! are a programmatic API only: no command-line flag is added in this skeleton. Closure
+//! devirtualisation and the borrow elision are off by default; the later LIR passes (drop
+//! specialisation, reuse, DCE, frame pruning) get their own flags when they land.
 //!
 //! [`LirRules::sra_records`] is off by default so that a default build's output, the WASM byte pins
 //! and the differential tests stay what they were. It only takes part when [`LirRules::sra`] is on
@@ -88,6 +89,11 @@ pub struct Stats {
     /// Values [`devirt`] left alone: a `make_closure` candidate whose uses, escape fact or call
     /// sites did not fit, and a function whose escape set was `Unknown`.
     pub devirt_deopts: u32,
+    /// The pairs of `rc_pairs` that needed [`LirRules::rc_borrow`]: a view of a uniquely owned
+    /// local base that stays alive for the region.
+    pub rc_borrow_pairs: u32,
+    /// Pairs [`rc`] left alone because liveness or ownership answered `Unknown`, one per pair.
+    pub rc_borrow_deopts: u32,
 }
 
 impl Stats {
@@ -99,6 +105,8 @@ impl Stats {
         self.rc_pairs += other.rc_pairs;
         self.devirt += other.devirt;
         self.devirt_deopts += other.devirt_deopts;
+        self.rc_borrow_pairs += other.rc_borrow_pairs;
+        self.rc_borrow_deopts += other.rc_borrow_deopts;
     }
 }
 
@@ -121,6 +129,10 @@ pub struct LirRules {
     pub devirt: bool,
     /// `rc` cleanup at [`run_heap`]: `dup`/`drop` pairs removed.
     pub rc_cleanup: bool,
+    /// The `rc` cleanup's local-base borrow elision at [`run_heap`]: also remove the pair of a view
+    /// of a uniquely owned local base that stays alive for the whole region. Off by default, so a
+    /// default build's output is unchanged; it needs the liveness (B4) and ownership (B6) facts.
+    pub rc_borrow: bool,
 }
 
 impl LirRules {
@@ -131,6 +143,7 @@ impl LirRules {
             sra_records: true,
             devirt: true,
             rc_cleanup: true,
+            rc_borrow: true,
         }
     }
 
@@ -141,20 +154,22 @@ impl LirRules {
             sra_records: false,
             devirt: false,
             rc_cleanup: false,
+            rc_borrow: false,
         }
     }
 }
 
 impl Default for LirRules {
-    /// The passes that are on by default: SRA and the `rc` cleanup. Record SRA and closure
-    /// devirtualisation are off until a later change turns them on, so a default build's output is
-    /// unchanged.
+    /// The passes that are on by default: SRA and the `rc` cleanup. Record SRA, closure
+    /// devirtualisation and the local-base borrow elision are off until a later change turns them
+    /// on, so a default build's output is unchanged.
     fn default() -> Self {
         Self {
             sra: true,
             sra_records: false,
             devirt: false,
             rc_cleanup: true,
+            rc_borrow: false,
         }
     }
 }
@@ -163,7 +178,7 @@ impl Default for LirRules {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
     /// Which LIR passes to run. [`LirRules::default`] by default: SRA and the `rc` cleanup, with
-    /// record SRA and closure devirtualisation off.
+    /// record SRA, closure devirtualisation and the borrow elision off.
     pub rules: LirRules,
 }
 
@@ -256,10 +271,12 @@ pub fn run_mid_with(m: &mut Module, options: Options) -> Stats {
 /// the last use of a reference a move, but never change when a value is released.
 ///
 /// Deopt: [`rc`] leaves a `dup`/`drop` pair alone when the reference it takes may be the only thing
-/// keeping the value alive (a view whose base is not the borrowed environment of the call), when
-/// the variable is consumed between the two, or when the `drop` is not reached on every path.
+/// keeping the value alive (a view whose base is not the borrowed environment of the call, or, with
+/// [`LirRules::rc_borrow`], a local base whose uniqueness or liveness is not known), when the
+/// variable is consumed between the two, or when the `drop` is not reached on every path.
 ///
-/// This is [`run_heap_with`] with [`Options::default`] (every pass on).
+/// This is [`run_heap_with`] with [`Options::default`] (the `rc` cleanup on, without the local-base
+/// borrow elision).
 pub fn run_heap(m: &mut Module, optimize: bool) -> Stats {
     if !optimize {
         assert_eq!(
@@ -284,7 +301,7 @@ pub fn run_heap_with(m: &mut Module, options: Options) -> Stats {
     );
     let mut stats = Stats::default();
     if options.rules.rc_cleanup {
-        stats.merge(rc::run(m));
+        stats.merge(rc::run(m, options.rules.rc_borrow));
         check(m);
     }
     stats
@@ -441,6 +458,8 @@ mod tests {
             rc_pairs: 1,
             devirt: 4,
             devirt_deopts: 2,
+            rc_borrow_pairs: 1,
+            rc_borrow_deopts: 1,
         });
         total.merge(Stats {
             sra_tuples: 3,
@@ -449,6 +468,8 @@ mod tests {
             rc_pairs: 4,
             devirt: 5,
             devirt_deopts: 1,
+            rc_borrow_pairs: 2,
+            rc_borrow_deopts: 2,
         });
         total.merge(Stats::default());
         assert_eq!(total.sra_tuples, 5);
@@ -457,20 +478,24 @@ mod tests {
         assert_eq!(total.rc_pairs, 5);
         assert_eq!(total.devirt, 9);
         assert_eq!(total.devirt_deopts, 3);
+        assert_eq!(total.rc_borrow_pairs, 3);
+        assert_eq!(total.rc_borrow_deopts, 3);
     }
 
-    /// `LirRules::all` turns every flag on; `none` turns every flag off. Record SRA and closure
-    /// devirtualisation are off in `Default`, so a default build keeps the output as it was before
-    /// C5/PR-043 and E5/PR-037.
+    /// `LirRules::all` turns every flag on; `none` turns every flag off. Record SRA, closure
+    /// devirtualisation and the local-base borrow elision are off in `Default`, so a default build
+    /// keeps the output as it was before C5/PR-043, E5/PR-037 and C1/PR-025.
     #[test]
     fn the_lir_rule_flags_have_conservative_defaults() {
         let all = LirRules::all();
-        assert!(all.sra && all.sra_records && all.rc_cleanup && all.devirt);
+        assert!(all.sra && all.sra_records && all.rc_cleanup && all.devirt && all.rc_borrow);
         let default = LirRules::default();
         assert!(default.sra && default.rc_cleanup);
-        assert!(!default.sra_records && !default.devirt);
+        assert!(!default.sra_records && !default.devirt && !default.rc_borrow);
         let none = LirRules::none();
-        assert!(!none.sra && !none.sra_records && !none.rc_cleanup && !none.devirt);
+        assert!(
+            !none.sra && !none.sra_records && !none.rc_cleanup && !none.devirt && !none.rc_borrow
+        );
     }
 
     /// A stage whose pass is off does not run: the module and the counters are untouched.

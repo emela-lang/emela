@@ -7,6 +7,12 @@
 //! leaving the function or a scope, and edges into a join point (the end of a compound statement,
 //! a loop head) that bring different references.
 //!
+//! A view may be borrowed without a reference of its own while a variable of its base chain owns
+//! one ([`Check::kept_by_a_base`]): the value it names lives in the base. The reference counting
+//! pass gives every live view a reference of its own, and `opt::rc`'s local-base rule removes that
+//! reference when it proves the base stays alive for the whole region; the check agrees with the
+//! rule.
+//!
 //! The ownership rules are shared with the pass, so a mistake in the rules themselves is not
 //! caught here.
 
@@ -102,12 +108,30 @@ impl Check<'_> {
     }
 
     fn borrow(&mut self, tokens: &Tokens, v: VarId) {
-        if tokens[ix(v)] < 1 && !self.bases.borrows_from_env(v) {
+        if tokens[ix(v)] < 1 && !self.bases.borrows_from_env(v) && !self.kept_by_a_base(tokens, v) {
             let name = self.name(v);
             self.error(format!(
                 "{name} is used without a reference (after its last one)"
             ));
         }
+    }
+
+    /// Whether a variable in the view chain above `v` owns a reference, which keeps the value `v`
+    /// names alive: a view reads its value out of its base, so the base's reference is enough while
+    /// the base holds it. `opt::rc`'s local-base rule removes the reference it gives a view when it
+    /// proves the base stays alive for the whole region; this is the balance condition of that
+    /// output ([`super::rc::Bases::view_base`] names the chain). Each use is checked separately, so
+    /// a base released before a later use is still reported there.
+    fn kept_by_a_base(&self, tokens: &Tokens, v: VarId) -> bool {
+        let mut cur = v;
+        for _ in 0..self.f.vars.len() {
+            match self.bases.view_base(cur) {
+                Some(base) if tokens[ix(base)] > 0 => return true,
+                Some(base) => cur = base,
+                None => return false,
+            }
+        }
+        false
     }
 
     /// Leaves to the slot (or out of the function with `None`) with the state.
