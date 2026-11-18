@@ -67,6 +67,15 @@
 (handler_declaration
   name: (type_identifier) @type.definition)
 
+(handler_member
+  name: (type_identifier) @type.definition)
+
+(with_item
+  name: (identifier) @variable)
+
+(member_supply
+  member: (type_identifier) @type)
+
 (layer_declaration
   name: (type_identifier) @type.definition)
 

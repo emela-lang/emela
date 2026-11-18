@@ -257,9 +257,22 @@ module.exports = grammar({
       optional('default'),
     ),
 
-    _operation_list: $ => itemList($, $.operation),
+    _operation_list: $ => itemList($, choice($.operation, $.handler_member)),
 
     operation: $ => seq(repeat($.annotation), $._function_head),
+
+    // A handler member of an effect ([effect.decl]).
+    handler_member: $ => seq(
+      repeat($.annotation),
+      optional('suspend'),
+      'handler',
+      field('name', $.type_identifier),
+      field('parameters', $.parameters),
+      ':',
+      field('effect', $.type_reference),
+      optional(field('type_arguments', $.type_arguments)),
+      optional(seq(optional($._signature_continues), $.fails_clause)),
+    ),
 
     handler_declaration: $ => seq(
       optional($._modifiers),
@@ -276,6 +289,8 @@ module.exports = grammar({
       $.handler_init,
       $.handler_release,
       $.function_declaration,
+      // An inner handler, which implements a handler member ([effect.handler]).
+      $.handler_declaration,
     )),
 
     handler_init: $ => seq(
@@ -306,6 +321,14 @@ module.exports = grammar({
     supply: $ => seq(
       field('handler', $.type_reference),
       optional(field('arguments', $.arguments)),
+    ),
+
+    // A handler member of a capability ([effect.with]).
+    member_supply: $ => seq(
+      field('capability', $.identifier),
+      '.',
+      field('member', $.type_identifier),
+      field('arguments', $.arguments),
     ),
 
     trait_declaration: $ => seq(
@@ -578,8 +601,10 @@ module.exports = grammar({
       field('body', $.block),
     ),
 
+    // `src = Files.Open(path)`, `f = fs.Open(path)` ([effect.with]).
     with_item: $ => seq(
-      $.supply,
+      optional(seq(field('name', $.identifier), '=')),
+      choice($.supply, $.member_supply),
       optional(seq(
         'by',
         field('provider', $.type_reference),

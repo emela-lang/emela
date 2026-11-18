@@ -675,3 +675,129 @@ fn old() -> Int use Db { 1 }
         (type_identifier)))
     (block
       (integer))))
+
+==================
+Handler members, inner handlers and bound items of with
+==================
+effect Files {
+  suspend handler Open(path: String): ReadFile
+    fails FileNotFound
+  fn count() -> Int
+}
+
+handler SystemFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) { Self(path:) }
+    fn read(max) { max }
+  }
+  fn count() { 0 }
+}
+
+fn open_in(fs: use Files) -> Int {
+  with f = fs.Open("a"), g = Files.Open("b"), ConsoleLogger {
+    f.read(1)
+  }
+}
+
+---
+
+(source_file
+  (effect_declaration
+    (type_identifier)
+    (declaration_list
+      (handler_member
+        (type_identifier)
+        (parameters
+          (parameter
+            (identifier)
+            (type_reference
+              (type_identifier))))
+        (type_reference
+          (type_identifier))
+        (fails_clause
+          (type_reference
+            (type_identifier))))
+      (operation
+        (identifier)
+        (parameters)
+        (type_reference
+          (type_identifier)))))
+  (handler_declaration
+    (type_identifier)
+    (type_reference
+      (type_identifier))
+    (declaration_list
+      (handler_declaration
+        (type_identifier)
+        (field_list
+          (field
+            (identifier)
+            (type_reference
+              (type_identifier))))
+        (type_reference
+          (type_identifier))
+        (declaration_list
+          (handler_init
+            (parameters
+              (parameter
+                (identifier)
+                (type_reference
+                  (type_identifier))))
+            (block
+              (call_expression
+                (type_identifier)
+                (arguments
+                  (named_argument
+                    (identifier))))))
+          (function_declaration
+            (identifier)
+            (parameters
+              (parameter
+                (identifier)))
+            (block
+              (identifier)))))
+      (function_declaration
+        (identifier)
+        (parameters)
+        (block
+          (integer)))))
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (capability_type
+          (type_reference
+            (type_identifier)))))
+    (type_reference
+      (type_identifier))
+    (block
+      (with_expression
+        (with_item
+          (identifier)
+          (member_supply
+            (identifier)
+            (type_identifier)
+            (arguments
+              (string
+                (string_content)))))
+        (with_item
+          (identifier)
+          (supply
+            (type_reference
+              (type_identifier)
+              (type_identifier))
+            (arguments
+              (string
+                (string_content)))))
+        (with_item
+          (supply
+            (type_reference
+              (type_identifier))))
+        (block
+          (call_expression
+            (field_expression
+              (identifier)
+              (identifier))
+            (arguments
+              (integer))))))))
