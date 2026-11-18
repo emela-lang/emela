@@ -47,7 +47,16 @@ pub struct Feature {
 /// Every feature the compiler knows, in the order of the table of `[intro.experimental]`. A
 /// feature that becomes stable or is removed stays here with its [`Stage`], so that its name is
 /// still accepted with W0206.
-pub const FEATURES: &[Feature] = &[];
+pub const FEATURES: &[Feature] = &[Feature {
+    name: CAPTURE_CHECKING,
+    since: "0.28.0",
+    stage: Stage::Experimental,
+    summary: "A value that holds a capability and leaves the with or `Fiber.scope` that provides \
+              it is a compile error (E0444) instead of a warning (W0402)",
+}];
+
+/// `capture-checking` (`[effect.escape]`): W0402 becomes E0444.
+pub const CAPTURE_CHECKING: &str = "capture-checking";
 
 /// The features that can be enabled now, for the flags `--help` lists (`[cmd.build]`).
 pub fn experimental_features() -> impl Iterator<Item = &'static Feature> {

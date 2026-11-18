@@ -1,0 +1,24 @@
+---
+source: crates/emela-types/tests/capture.rs
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nfn scope_closure() -> fn() -> Fiber[Int] {\n  Fiber.scope(|| {\n    s = use Scope\n    || s.fork(|| 1)\n  })\n}\n\nfn handle_in_a_closure() -> fn() -> Int {\n  Fiber.scope(|| {\n    h = Fiber.fork(|| 1)\n    || Fiber.join(h)\n  })\n}\n\nfn deferred_in_a_list() -> List[fn() -> Option[Int]] {\n  Fiber.scope(|| {\n    d = Fiber.deferred()\n    [|| d.poll()]\n  })\n}\n\nfn piped() -> fn() -> Fiber[Int] {\n  (|| {\n    s = use Scope\n    || s.fork(|| 1)\n  }) |> Fiber.scope()\n}\n\"#)"
+---
+scope_closure: fn() -> (fn() -> Fiber[Int] uses { Scope[{}, {}] }) uses { Async }
+  s: use Scope[{}, {}]  holds: Scope
+handle_in_a_closure: fn() -> (fn() -> Int uses { Async }) uses { Async }
+  h: Fiber[Int]  holds: Scope
+deferred_in_a_list: fn() -> List[fn() -> Option[Int]] uses { Async }
+  d: Deferred[Int]  holds: Scope
+piped: fn() -> (fn() -> Fiber[Int] uses { Scope[{}, {}] }) uses { Async }
+  s: use Scope[{}, {}]  holds: Scope
+`Fiber.scope(|| {
+    s = use Scope
+    || s.fork(|| 1)
+  })` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
+`|| s.fork(|| 1)` leaves: `Scope` (Fiber.scope)
+`|| Fiber.join(h)` leaves: `Scope` (Fiber.scope)
+`[|| d.poll()]` leaves: `Scope` (Fiber.scope)
+`(|| {
+    s = use Scope
+    || s.fork(|| 1)
+  }) |> Fiber.scope()` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
+`|| s.fork(|| 1)` leaves: `Scope` (Fiber.scope)

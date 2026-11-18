@@ -1,7 +1,7 @@
 ---
 title: Capture checking
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 621
 issue:
 decided: 2026-11-18

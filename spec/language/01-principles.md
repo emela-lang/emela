@@ -45,5 +45,6 @@ An experimental feature is a part of the specification that is not yet stable. A
 
 | Name | Since | What it changes |
 |---|---|---|
+| `capture-checking` | 0.28 | A value that holds a capability and leaves the with or `Fiber.scope` that provides it is a compile error (E0444) instead of a warning (W0402) (`[effect.escape]`) |
 
-There is no experimental feature yet. Each proposal that adds one adds a row.
+Each proposal that adds an experimental feature adds a row.

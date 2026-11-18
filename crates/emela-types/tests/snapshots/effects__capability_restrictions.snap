@@ -19,4 +19,4 @@ use Logger: Logger
 use Logger: Logger
 {   log = use Logger   || log.info("closure") }: Logger
 use Logger: Logger
-log.info("closure"): Logger
+log.info("closure"): log

@@ -1150,7 +1150,7 @@ fn hover_shows_types_and_errors() {
     // of function arguments.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 8)),
-        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n```"
+        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n  holds: xs\n```"
     );
     // A position with nothing there.
     assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);
@@ -1229,10 +1229,10 @@ fn hover_shows_effects() {
         text(client.hover("/app/src/main.emel", 8, 4)),
         "```emela\ngreet: fn() -> () uses { Logger }\n```"
     );
-    // A local variable holding a capability.
+    // A local variable holding a capability, provided by the caller (`[lsp.hover]`).
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 2)),
-        "```emela\nlog: use Logger\n```"
+        "```emela\nlog: use Logger\n  holds: Logger\n```"
     );
     // An operation call expression shows its type and R.
     assert_eq!(
@@ -1251,6 +1251,52 @@ fn hover_shows_effects() {
     assert_eq!(
         text(client.hover("/app/src/main.emel", 13, 4)),
         "```emela\nmain: fn() -> ()\n```"
+    );
+    client.shutdown();
+}
+
+/// `[lsp.hover]`, `[type.fn]`: what a function or a value may hold, as a line `holds: ...`, each
+/// root with the `with` that provides it; and the capabilities in the R of a closure.
+#[test]
+fn hover_shows_what_values_hold() {
+    let src = "\
+effect Db {
+  fn query(q: String) -> Int
+}
+
+handler PrimaryDb: Db {
+  fn query(q) { 1 }
+}
+
+fn pick(primary: fn() -> Int, replica: fn() -> Int, write: Bool) -> fn() -> Int {
+  if write { primary } else { replica }
+}
+
+fn main() {
+  with PrimaryDb {
+    p = use Db
+    f = || p.query(\"x\")
+    n = f()
+    ()
+  }
+}
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    let pick = text(client.hover("/app/src/main.emel", 8, 4));
+    assert!(pick.ends_with("\n  holds: primary, replica\n```"), "{pick}");
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 15, 4)),
+        "```emela\nf: fn() -> Int uses { p }\n  holds: p (with PrimaryDb, line 14)\n```"
+    );
+    // A value whose type cannot contain a capability holds nothing.
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 16, 4)),
+        "```emela\nn: Int\n```"
     );
     client.shutdown();
 }
@@ -1362,7 +1408,7 @@ fn hover_shows_effect_type_args() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 3)),
-        "```emela\ncell: use Cell[Int]\n```"
+        "```emela\ncell: use Cell[Int]\n  holds: Cell\n```"
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 10, 8)),
@@ -2936,7 +2982,15 @@ fn completion_of_argument_labels() {
 fn completion_of_attributes_and_targets() {
     let files = [("/app/Pome.toml", ""), (MAIN, "fn main() { () }\n")];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
-    let attributes = ["external", "export", "entry", "test", "deprecated"];
+    let attributes = [
+        "external",
+        "export",
+        "entry",
+        "test",
+        "deprecated",
+        "key",
+        "tag",
+    ];
     client.open(MAIN, 1, "@\nfn main() { () }\n");
     let items = client.complete(MAIN, 0, 1).unwrap();
     assert_eq!(labels(&items), attributes);
@@ -3160,6 +3214,28 @@ fn completion_in_clauses_and_types() {
             assert!(names.contains(&name), "{line}: {name}: {names:?}");
         }
     }
+    client.shutdown();
+}
+
+/// After `derive`, the derivable traits of std are offered once they are imported
+/// (`[trait.derive]`, `[lsp.completion]`).
+#[test]
+fn completion_of_derive_offers_the_imported_traits_of_std() {
+    let imported = "import Std.Dynamic.{Decode, Encode, ObjectKey}\nimport Std.Shape.{Shaped}\n\ntype Tag(a: Int) derive Eq, \n";
+    let files = [("/app/Pome.toml", ""), (MAIN, imported)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    client.open(MAIN, 1, imported);
+    let items = client.complete(MAIN, 3, 28).unwrap();
+    let names = labels(&items);
+    for name in ["Encode", "Decode", "ObjectKey", "Shaped", "Show"] {
+        assert!(names.contains(&name), "{name}: {names:?}");
+    }
+    let plain = "type Tag(a: Int) derive Eq, \n";
+    client.change(MAIN, 2, plain);
+    let items = client.complete(MAIN, 0, 28).unwrap();
+    let names = labels(&items);
+    assert!(!names.contains(&"Encode"), "{names:?}");
+    assert!(names.contains(&"Show"), "{names:?}");
     client.shutdown();
 }
 

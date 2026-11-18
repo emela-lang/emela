@@ -119,12 +119,20 @@ pub const AMBIGUOUS_SELF: &str = "E0333";
 // declarations.
 pub const FN_NAMED_LIKE_FIELD: &str = "E0334";
 pub const AMBIGUOUS_METHOD: &str = "E0335";
+// Derivations of std (`[trait.derive]`) and their field attributes (`[kw.annotation]`).
+pub const OPAQUE_DERIVE: &str = "E0336";
+pub const DUPLICATE_KEY: &str = "E0337";
+pub const MISPLACED_KEY_TAG: &str = "E0338";
+pub const OBJECT_KEY_FORM: &str = "E0339";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_DERIVE: &str = "W0303";
 /// `[dyn.error]`: the entry's `main` returns a type other than `()`, `ExitCode` and Never.
 pub const MAIN_VALUE_DISCARDED: &str = "W0304";
 pub const UNUSED_LABEL_PROVIDER: &str = "W0401";
+/// `[effect.escape]`, `[fiber.escape]`: a value that holds a root leaves the `with` or the
+/// `Fiber.scope` that provides it. E0444 with the experimental feature `capture-checking`.
+pub const CAPTURE_ESCAPE: &str = "W0402";
 
 // E04xx: effects and handlers (spec chapter 8)
 pub const UNKNOWN_OPERATION: &str = "E0401";
@@ -183,6 +191,8 @@ pub const SUSPENDING_EXPORT: &str = "E0441";
 pub const HTTP_SERVICE_ON_C: &str = "E0442";
 // Bytes and Arrays at the boundary on the native target (`[ext.boundary]`)
 pub const BOUNDARY_TYPE_ON_C: &str = "E0443";
+// Capture sets with the experimental feature `capture-checking` (`[effect.escape]`)
+pub const CAPTURE_ESCAPE_ERROR: &str = "E0444";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

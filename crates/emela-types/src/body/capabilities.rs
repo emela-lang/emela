@@ -6,7 +6,8 @@
 //! type of a value is checked; a capability nested inside (`List[use Logger]`, ...) is already
 //! an error at the expression that built it.
 //!
-//! Escaping a `with` (capture sets, spec 8.6) is in scope for 0.22 and not checked here.
+//! Leaving a `with` or a `Fiber.scope` (capture sets, `[effect.escape]`) is checked in
+//! `crate::capture`.
 
 use emela_resolve::hir::{BinaryOp, DefKind, ExprId, ExprKind, Item, Res};
 use smol_str::SmolStr;

@@ -36,6 +36,7 @@ use crate::mono::Monomorphized;
 use crate::named;
 
 mod builtin_impls;
+mod derive_std;
 mod fiber;
 mod local_fn;
 mod suspend;
@@ -172,6 +173,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         roots,
         local_fns: ArenaMap::default(),
         fn_name: String::new(),
+        derive_std: derive_std::Lookups::default(),
     };
     if roots == Roots::Exported {
         cx.collect_host_exports(input.language);
@@ -347,6 +349,8 @@ struct Lowerer<'a> {
     local_fns: ArenaMap<LocalId, Lifted>,
     /// The IR name of the function being lowered, which names the local fns lifted from it.
     fn_name: String,
+    /// What the derived impls of std traits look up, once (`derive_std.rs`).
+    derive_std: derive_std::Lookups,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without
@@ -788,7 +792,8 @@ impl<'a> Lowerer<'a> {
         let hir = self.hir;
         let async_ = hir.prelude_def("Async");
         let mut set = SetSummary::default();
-        for e in row.elems() {
+        // A capability is summarized as its effect (`[effect.use]`).
+        for e in row.widened().elems() {
             match e {
                 RowElem::Bound(i) => set.params.push(self.module.type_param(*i as usize)),
                 RowElem::Var(v) => match self.generalized_row_param(*v) {
@@ -804,6 +809,7 @@ impl<'a> Lowerer<'a> {
                 }
                 RowElem::Tag(t) if Some(t.def) == async_ => set.suspends = true,
                 RowElem::Tag(_) | RowElem::Of(_) => set.fails = true,
+                RowElem::Cap(_) => unreachable!("widened above"),
             }
         }
         set.params.sort();
@@ -1116,6 +1122,10 @@ impl<'a> Lowerer<'a> {
             if in_core && list_or_option {
                 structural.push(f);
             }
+        }
+        // Encode, Decode, ObjectKey and Shaped of std: generic functions, like written impls.
+        if spec == 0 {
+            impls.extend(self.std_derived_impls(def, trait_def));
         }
         let derived = self.derived(trait_def, def);
         let id = self.fns[&(def, spec)];
@@ -1806,7 +1816,7 @@ impl<'a> Lowerer<'a> {
             cx.types
                 .effects
                 .get(body)
-                .is_some_and(|r| r.tags().any(|t| !cx.is_immediate_effect(t.def)))
+                .is_some_and(|r| r.effect_tags().any(|t| !cx.is_immediate_effect(t.def)))
         };
         let init = self.module.declare(&format!("{name}$init"), false);
         self.module.functions[init].suspends = h.init.is_some_and(|b| suspends(self, b));
@@ -2819,7 +2829,7 @@ impl<'a> Lowerer<'a> {
         let module = &self.hir.defs[self.hir_def_of(callee)].module;
         let Some(tag) = body
             .uses
-            .tags()
+            .effect_tags()
             .find(|t| {
                 let d = &self.hir.defs[t.def];
                 d.kind == DefKind::Effect && d.name == "State" && d.module == *module

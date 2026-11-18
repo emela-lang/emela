@@ -71,4 +71,4 @@ This is the list of points that are not yet agreed on. To decide one, write a pr
 - [x] Decide the format of the conformance tests based on Chapters 2 and 17, and start implementing the lexer and the parser (the lexer is implemented; the parser is in progress)
 - [x] Things decided in the specification that the implementation does not handle yet. alpha.3 (suspend, Async), alpha.4 (handlers with state, layer, State), and alpha.5 (fiber, FileSystem, the Http client) handled them. For those not handled, a diagnostic without a code, `not supported yet: ...`, is emitted
 - [ ] Remaining for 0.20: the Http server. In 0.24, Trait, collections (18.1 #36), and JSON
-- [ ] 0.22: capture set (making the run-time checks in the tables of 8.6 and 11.8 static)
+- [ ] 0.29: make E0444 the default, retire W0402 and E0425, and remove the run-time check of 8.6 (`capture-checking`). Before the run-time checks are removed, decide how a callback passed to an `@external` fn and kept by the host (12.4), and a value put into a Deferred or a Queue and taken out again (11.8), are checked

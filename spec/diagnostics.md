@@ -179,9 +179,9 @@ error[E0204]: duplicate module `Http.Client`
 | E0333 | The Self of a trait function is not determined within the function (10.3) | ``cannot infer which impl of `Parse` to use: add a type annotation`` |
 | E0334 | In the module of a type, an fn whose first parameter has that type at its head has the name of a field of that type (`[data.type]`). Points at the name of the fn | ``function `headers` has the same name as a field of `Request` `` |
 | E0335 | More than one candidate for a method call (`[type.rules]`). The help names the qualified forms | ``ambiguous method `show` for `User`: `User.show` and `Show.show` `` with ``= help: write `User.show(x)` or `Show.show(x)` `` |
-| E0336 | `derive Decode` or `derive ObjectKey` on an opaque type (10.5). The help is ``= help: write `impl Email: Decode` that builds the value with a function that checks it`` | ``cannot derive `Decode` for opaque type `Email` `` |
+| E0336 | `derive Decode` or `derive ObjectKey` on an opaque type, or `derive Encode`, `Decode`, `ObjectKey` or `Shaped` on an `@external type` without fields (10.5). On an opaque type the help is ``= help: write `impl Email: Decode` that builds the value with a function that checks it`` | ``cannot derive `Decode` for opaque type `Email` `` / ``cannot derive `Encode` for host type `Handle` `` |
 | E0337 | Two fields of one type or variant with the same key, or two variants of one enum with the same tag, after `@key` and `@tag` (3.5) | ``key `dueAt` is used by both `due_at` and `due` `` / ``tag `done` is used by both `Done` and `Closed` `` |
-| E0338 | `@key` not on a field, `@tag` not on a variant, or an argument that is not one string literal (3.5) | `` `@key` takes one string literal `` / `` `@tag` can only be placed on a variant `` |
+| E0338 | `@key` not on a field, `@tag` not on a variant, the same one twice on a field or variant, or an argument that is not one string literal (3.5) | `` `@key` takes one string literal `` / `` `@tag` can only be placed on a variant `` / `` `@key` can only be placed once `` |
 | E0339 | `derive ObjectKey` on a type with no field or more than one, or on an enum with a variant that has contents (10.5) | ``cannot derive `ObjectKey` for `Shape`: variant `Circle` has contents`` / ``cannot derive `ObjectKey` for `Point`: it has 2 fields`` |
 | W0301 | A redundant arm (6.5) | `unreachable match arm` |
 | W0302 | The error an escape arm receives is never raised by the original expression, or the E of the original expression is empty for an arm `_` (7.3) | ``error `Timeout` is never raised here`` / `no error is raised here` |
@@ -233,7 +233,9 @@ error[E0204]: duplicate module `Http.Client`
 | E0441 | An exported fn that may suspend on the native target (16.7.6) | ``exported function `f` may suspend, which target `native` does not support`` |
 | E0442 | `@entry(Http.serve)` on the native target (`[target.native.unsupported]`) | ``HTTP services are not supported on target `native` yet`` |
 | E0443 | The build target is `native`, and an external function reachable from the entry, or an exported fn, takes or returns a type that target `native` does not support at the boundary yet: one that contains Bytes or an Array (12.4) | ``external function `read_file` takes `Bytes`, which target `native` does not support yet`` / ``external function `rows` returns `Array[String]`, which target `native` does not support yet`` |
+| E0444 | With the experimental feature `capture-checking`, a value that holds a root leaves the with or the `Fiber.scope` that provides it (8.6, 11.8) | ``a value that holds `log` cannot leave the `with` that provides it`` |
 | W0401 | A label item in with (`L`, `L by P`) is never used (8.9) | ``label `Audit` is listed here but never used`` |
+| W0402 | A value that holds a root leaves the with or the `Fiber.scope` that provides it (8.6, 11.8). The labels show where the root is provided and where the value leaves | ``a value that holds `log` leaves the `with` that provides it`` |
 | E0901 | A path is not found | ``path `app` not found`` |
 | E0902 | A file or directory cannot be read | ``cannot read `src/a.emel`: permission denied`` |
 | E0903 | Output cannot be written | ``cannot write `target/emela/js/main.mjs` `` |

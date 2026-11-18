@@ -467,6 +467,7 @@ fn may_suspend(program: &Program, sig: &Signature) -> bool {
     };
     f.uses.elems().iter().any(|e| match e {
         RowElem::Tag(t) => t.def == async_,
+        RowElem::Cap(c) => c.tag.def == async_,
         RowElem::Bound(_) | RowElem::Var(_) => true,
         RowElem::Of(_) => false,
     })
