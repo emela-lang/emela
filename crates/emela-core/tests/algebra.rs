@@ -217,7 +217,14 @@ fn main() {
     let files = [("main.emel", source)];
     let (mut m, _) = lower_files_with_rules(&files, ALGEBRA);
     let once = dump(&m);
-    let second = run_with(&mut m, &CoreFns::default(), Options { rules: ALGEBRA });
+    let second = run_with(
+        &mut m,
+        &CoreFns::default(),
+        Options {
+            rules: ALGEBRA,
+            ..Options::default()
+        },
+    );
     assert!(second.is_empty(), "{second:?}");
     assert_eq!(dump(&m), once);
 }
