@@ -1,10 +1,10 @@
 ---
 title: The type of a capability, use E
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 622
 issue: 616
-decided:
+decided: 2026-11-18
 touches: [effect.use, effect.escape, effect.handler, fiber.escape, type.rules, grammar.type, diag.list]
 requires: [capture-checking]
 related: []
@@ -186,3 +186,9 @@ Every program that compiles now keeps its meaning and its results. Programs reje
 ## Open questions
 
 ## Decision
+
+Adopted, on top of capture checking (#621), which this requires.
+
+- A capability is an ordinary value of type `use E`. E0408 to E0410 add no safety, since a closure that captures the capability already does the same; the one rule that remains, not leaving its with, is the rule for closures, and capture checking checks it statically.
+- The capability elements of R stay inferred and are not written in source, as capture checking decided. Types are displayed as `use E`.
+- Providing a passed capability by name over a range (`with Console by log`) is left to a later proposal.

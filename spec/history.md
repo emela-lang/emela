@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-18 (The type of a capability, use E)
+
+- `[effect.use]`, `[effect.escape]`, `[effect.handler]`, `[fiber.escape]`, `[type.rules]`, `[grammar.type]`, `[diag.list]`: The type of a capability is written `use E`, and is an ordinary type. A capability value can be passed as an argument, put into a data structure and returned from a function (E0408, E0409 and E0410 are retired). The one rule that remains is the rule for closures that capture a capability: it does not leave the with that provides it. Capture checking (`capture-checking`) checks it statically. Adopted in the proposal `capability-type` (#622).
+
 ## 2026-11-18 (Values taken out of the handles of a scope)
 
 - `[effect.escape]`, `[fiber.escape]`, `[open.next]`: A value taken out of a Fiber, Deferred, Semaphore or Queue (`Fiber.join`, `Deferred.await`, `Queue.take`, `Semaphore.with_permit`, ...) does not hold the root of the scope that made the handle, unless its type contains one of these types. Without this, the defaults of capture sets (`[effect.escape]`) report W0402 in correct programs, including `Fiber.all`, `race`, `both`, `map` and `timeout` of the standard library. Adopted in the proposal `scope-handle-values` (#645).
