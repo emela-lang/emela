@@ -168,11 +168,8 @@ pub fn lower_files_with_rules(
 ) -> (Module, emela_core::opt::Stats) {
     let mut module = lower_files(files);
     let core_fns = emela_core::opt::CoreFns::default();
-    let stats = emela_core::opt::run_with(
-        &mut module,
-        &core_fns,
-        emela_core::opt::Options { rules },
-    );
+    let stats =
+        emela_core::opt::run_with(&mut module, &core_fns, emela_core::opt::Options { rules });
     (module, stats)
 }
 
