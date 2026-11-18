@@ -43,6 +43,16 @@ pub enum DiagnosticKind {
     NotImplemented { ty: SmolStr, trait_name: SmolStr },
     /// A `derive` of a trait the compiler has no derivation for (E0326, spec 10.5).
     NotDerivable { trait_name: SmolStr },
+    /// `derive Decode` or `derive ObjectKey` on an opaque type (E0336, spec 10.5): the derived
+    /// impl would construct the value without the functions of its module that check it.
+    OpaqueDerive { trait_name: SmolStr, ty: SmolStr },
+    /// `derive Encode`, `Decode`, `ObjectKey` or `Shaped` on an `@external type` without fields
+    /// (E0336, spec 10.5): its values are host objects, with no fields to write, read or describe.
+    HostDerive { trait_name: SmolStr, ty: SmolStr },
+    /// `derive ObjectKey` on a type that is neither an enum whose variants have no contents nor a
+    /// type with one field (E0339, spec 10.5). `reason` is `variant `Circle` has contents` or
+    /// `it has 2 fields`.
+    ObjectKeyForm { ty: SmolStr, reason: SmolStr },
     /// A derived impl of a type that is not `pub`, which nothing requires (W0303, spec 10.5). A
     /// warning.
     UnusedDerive { trait_name: SmolStr, ty: SmolStr },

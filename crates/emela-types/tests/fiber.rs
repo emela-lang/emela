@@ -83,19 +83,30 @@ fn fiber_sources_typecheck() {
     let types = check_program_with(&program, &CheckOptions::default());
     assert_eq!(types.diags, []);
     let cons = &types.ty_table.cons;
-    let module_of = |name: &str| {
+    // The module that defines `name`, among the modules named `modules` (`Std.Dynamic` has an
+    // `attempt` too).
+    let module_of = |name: &str, module: &str| {
         program
             .defs
             .iter()
-            .find(|(_, d)| d.kind == DefKind::Fn && d.name == name)
+            .find(|(_, d)| {
+                d.kind == DefKind::Fn
+                    && d.name == name
+                    && match d.module {
+                        emela_resolve::hir::DefModule::Source(m) => {
+                            program.modules[m].name.to_string() == module
+                        }
+                        _ => false,
+                    }
+            })
             .map(|(_, d)| d.module.clone())
             .unwrap()
     };
     let modules = [
-        module_of("scope"),
-        module_of("attempt"),
-        module_of("raise"),
-        module_of("poll"),
+        module_of("scope", "Std.Fiber"),
+        module_of("attempt", "Std.Exit"),
+        module_of("raise", "Std.Cause"),
+        module_of("poll", "Std.Deferred"),
     ];
     let scope = program
         .defs

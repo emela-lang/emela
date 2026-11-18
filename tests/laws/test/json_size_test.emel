@@ -1,0 +1,24 @@
+import Std.Dynamic.{Items, Text}
+import Std.Json
+
+@test
+fn reads_a_long_array() {
+  s = "[#{List.range(0, 100000).map(|_| "1").join(",")}]"
+  Json.parse(s) match {
+    Items(xs) -> assert xs.length() == 100000
+    _         -> assert False
+  }
+}
+
+@test
+fn reads_a_long_string() {
+  s = List.range(0, 100000).map(|_| "a").join("")
+  assert Json.parse("\"#{s}\"") == Text(s)
+}
+
+@test
+fn reads_deep_nesting() {
+  open = List.range(0, 1000).map(|_| "[").join("")
+  close = List.range(0, 1000).map(|_| "]").join("")
+  Json.parse("#{open}#{close}")
+}

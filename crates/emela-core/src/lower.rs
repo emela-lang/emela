@@ -36,6 +36,7 @@ use crate::mono::Monomorphized;
 use crate::named;
 
 mod builtin_impls;
+mod derive_std;
 mod fiber;
 mod local_fn;
 mod suspend;
@@ -172,6 +173,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         roots,
         local_fns: ArenaMap::default(),
         fn_name: String::new(),
+        derive_std: derive_std::Lookups::default(),
     };
     if roots == Roots::Exported {
         cx.collect_host_exports(input.language);
@@ -347,6 +349,8 @@ struct Lowerer<'a> {
     local_fns: ArenaMap<LocalId, Lifted>,
     /// The IR name of the function being lowered, which names the local fns lifted from it.
     fn_name: String,
+    /// What the derived impls of std traits look up, once (`derive_std.rs`).
+    derive_std: derive_std::Lookups,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without
@@ -1116,6 +1120,10 @@ impl<'a> Lowerer<'a> {
             if in_core && list_or_option {
                 structural.push(f);
             }
+        }
+        // Encode, Decode, ObjectKey and Shaped of std: generic functions, like written impls.
+        if spec == 0 {
+            impls.extend(self.std_derived_impls(def, trait_def));
         }
         let derived = self.derived(trait_def, def);
         let id = self.fns[&(def, spec)];

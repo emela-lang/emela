@@ -162,6 +162,81 @@ error NotFound(id: Int)
           (type_identifier))))))
 
 ==================
+Attributes on fields and variants
+==================
+type TodoView(@key("dueAt") due_at: Option[String])
+
+enum Status {
+  @tag("open")
+  Open
+  @tag("done") Done
+  Closed(@key("at") closed_at: String)
+}
+
+error Missing(@key("id") item_id: Int)
+
+---
+
+(source_file
+  (type_declaration
+    (type_identifier)
+    (field_list
+      (field
+        (annotation
+          (identifier)
+          (annotation_argument
+            (string
+              (string_content))))
+        (identifier)
+        (generic_type
+          (type_reference
+            (type_identifier))
+          (type_arguments
+            (type_reference
+              (type_identifier)))))))
+  (enum_declaration
+    (type_identifier)
+    (variant_list
+      (variant
+        (annotation
+          (identifier)
+          (annotation_argument
+            (string
+              (string_content))))
+        (type_identifier))
+      (variant
+        (annotation
+          (identifier)
+          (annotation_argument
+            (string
+              (string_content))))
+        (type_identifier))
+      (variant
+        (type_identifier)
+        (field_list
+          (field
+            (annotation
+              (identifier)
+              (annotation_argument
+                (string
+                  (string_content))))
+            (identifier)
+            (type_reference
+              (type_identifier)))))))
+  (error_declaration
+    (type_identifier)
+    (field_list
+      (field
+        (annotation
+          (identifier)
+          (annotation_argument
+            (string
+              (string_content))))
+        (identifier)
+        (type_reference
+          (type_identifier))))))
+
+==================
 Effects, handlers, layers and labels
 ==================
 effect Users {

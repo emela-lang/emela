@@ -527,6 +527,9 @@ pub struct FieldDef {
     pub name: SmolStr,
     pub ty: TypeId,
     pub span: Span,
+    /// The argument of `@key("...")`: the key of the field in a derived Encode, Decode and Shaped
+    /// (`[kw.annotation]`, `[trait.derive]`). `None` without the attribute or with an invalid one.
+    pub key: Option<SmolStr>,
 }
 
 /// The shape of a constructor's fields (spec 5.4).
@@ -596,6 +599,9 @@ pub struct EnumItem {
     /// [`DefKind::Ctor`]s, in declaration order.
     pub variants: Vec<DefId>,
     pub derives: Vec<(Res, Span)>,
+    /// Per variant, in the order of `variants`, the argument of `@tag("...")`: the tag of the
+    /// variant in a derived Encode, Decode, Shaped and ObjectKey (`[kw.annotation]`).
+    pub tags: Vec<Option<SmolStr>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
