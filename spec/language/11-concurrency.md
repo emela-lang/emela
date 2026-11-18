@@ -227,7 +227,7 @@ d = (use Scope).deferred() # Deferred[A], belongs to the scope
 
 The Scope capability, fiber handles (`Fiber[A]`), Deferreds, Semaphores and Queues cannot be leaked out of their scope.
 
-- Scope is a capability, so the capability rules (8.2, 8.6) apply as they are. Passing it as an argument, putting it in data, or returning it is a compile error (E0408 to E0410).
+- Scope is a capability, so the capability rules (8.2, 8.6) apply as they are. It cannot leave the scope that provides it.
 - If the type of the value of `Fiber.scope` contains `Fiber`, `Deferred`, `Semaphore` or `Queue` anywhere, it is a compile error (E0425). This includes `Option[Fiber[User]]`. The type of the value is examined all the way through after the sets are solved. One diagnostic is reported at the call to Fiber.scope (including a pipe, `f |> Fiber.scope()`). Outside the scope the children have already finished, so no correct program is rejected.
 - The Scope of a `Fiber.scope`, and the Fibers, Deferreds, Semaphores and Queues it makes, are roots of that scope (8.6). If the value of `Fiber.scope` holds one of them, it is a warning (W0402).
 - Experimental (`capture-checking`). It is a compile error (E0444) instead.
@@ -242,7 +242,7 @@ Capture sets (8.6) track handles, Deferreds, Semaphores and Queues as values tha
 
 | How it leaks | 0.20 | With `capture-checking` |
 |---|---|---|
-| Passing a capability value (including Scope) as an argument, putting it in data, returning it | Static (E0408 to E0410) | Static |
+| Taking a capability value (including Scope), or a value that holds one, out of its with or scope | Run time (stateful handlers and Scope) | Static |
 | Taking a closure that captures a capability out of a with or a scope | Run time (stateful handlers and Scope) | Static |
 | Returning a value whose type contains `Fiber`, `Deferred`, `Semaphore` or `Queue` from Fiber.scope | Static (E0425) | Static |
 | Putting a `Fiber`, `Deferred`, `Semaphore` or `Queue` in State, or capturing it in a closure and taking it out | Run time | Static |

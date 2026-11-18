@@ -197,9 +197,9 @@ error[E0204]: duplicate module `Http.Client`
 | E0405 | A handler implements the same operation twice (8.4) | ``operation `info` is implemented more than once`` |
 | E0406 | An operation of a handler has a different number of parameters from the declaration (8.4) | ``wrong number of parameters: operation `info` takes 1, found 2`` |
 | E0407 | An `@external` fn with uses omitted, or an `@external suspend fn`, is used outside handlers (12.2). The help is ``= help: declare it with `uses {}` if it has no side effects`` (not for a `suspend fn`) | ``external function `console_log` can only be used in handlers`` |
-| E0408 | A capability value is passed as an argument (8.2). The help is ``= help: pass a closure that uses the capability instead`` | `a capability cannot be passed as an argument` |
-| E0409 | A capability value is stored in a data structure (8.2) | `a capability cannot be stored in a data structure` |
-| E0410 | A capability value is returned from a function (8.2) | `a capability cannot be returned from a function` |
+| E0408 | Unused (was: a capability value is passed as an argument; retired when `use E` became a type) | |
+| E0409 | Unused (was: a capability value is stored in a data structure; retired when `use E` became a type) | |
+| E0410 | Unused (was: a capability value is returned from a function; retired when `use E` became a type) | |
 | E0411 | The requirements of the handlers in the same with form a cycle (8.3) | ``handlers depend on each other: `Stamped` -> `Ticking` -> `Stamped` `` |
 | E0412 | An external function reachable from the entry has no `@external` for the language of the build target (12.1). Reported by `build`, `run`, and `test`, and not by `check` or the LSP. The help is ``= help: add `@external(<language>, ...)`, or avoid calling it from the entry`` | ``external function `wasm_now` has no `@external(js, ...)` for target `js` `` |
 | E0413 | A handler written for Async or Scope (8.7, 11.2) | ``handler `Runtime` cannot implement `Async`: only the runtime provides it`` / ``handler `MyScope` cannot implement `Scope`: only `Fiber.scope` provides it`` |

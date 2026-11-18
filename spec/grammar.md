@@ -116,6 +116,7 @@ type       = type_ref [ "[" type_arg { "," type_arg } "]" ]
            | "(" type "," type { "," type } ")"               (* tuple *)
            | "fn" "(" [ type { "," type } ] ")" "->" type
              [ "fails" error_set ] [ "uses" effect_set ]
+           | "use" effect_item                                (* the type of a capability; 8.2 *)
 type_ref   = [ module_path "." ] type_name
 
 type_arg   = type
