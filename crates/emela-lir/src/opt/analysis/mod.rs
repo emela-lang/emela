@@ -1,8 +1,8 @@
 //! Analyses of the LIR, shared by the passes that need them.
 //!
-//! The analyses answer questions about the Flow, Closure or Heap IR without changing it. They are
-//! deliberately separate from `crate::opt::escape`, which is the current implementation SRA
-//! calls: that file stays where it is until B3/PR-022 moves its logic behind this API.
+//! The analyses answer questions about the Flow, Closure or Heap IR without changing it. The
+//! escape analysis lives in [`escape`], and `crate::opt::escape` is the crate-internal façade SRA
+//! calls, so there is one implementation and not two.
 //!
 //! # Contract
 //!
@@ -19,9 +19,10 @@
 //!
 //! # Status
 //!
-//! B0/PR-002 fixes the API. Every analysis in [`escape`], [`liveness`], [`borrow`] and
-//! [`ownership`] currently returns `Unknown`; B3/PR-022, B4/PR-023 and B6/PR-024 fill them. The
-//! existing `crate::opt::escape::escaping` keeps its current behaviour and its callers.
+//! B0/PR-002 fixes the API. The escape analysis (`escape`) and its parameter summary are
+//! implemented (B3/PR-022); [`liveness`], [`borrow`] and [`ownership`] still return `Unknown`
+//! until B4/PR-023 and B6/PR-024. The existing `crate::opt::escape::escaping` is the same
+//! implementation behind the façade SRA calls.
 
 use std::any::Any;
 
@@ -98,6 +99,8 @@ pub trait Analysis {
 pub enum AnalysisId {
     /// Which values leave a function (`escape`).
     Escape,
+    /// Which parameters a function may keep (`escape::parameter_summary`).
+    ParameterEscape,
     /// Which variables are live after a statement (`liveness`).
     Liveness,
     /// Which parameters a function may borrow (`borrow`).
@@ -183,11 +186,12 @@ mod tests {
         assert_eq!(fact.known(), None);
     }
 
-    /// The stub analyses are conservative: they answer `Unknown`, not an empty set.
+    /// The escape analysis answers for a well-formed module; the other stubs are conservative.
     #[test]
-    fn every_stub_analysis_is_unknown() {
+    fn the_unimplemented_stub_analyses_are_unknown() {
         let m = module();
-        assert!(escape::analyze(&m).is_unknown());
+        assert!(escape::analyze(&m).is_known());
+        assert!(escape::parameter_summary(&m).is_known());
         assert!(liveness::analyze(&m).is_unknown());
         assert!(borrow::analyze(&m).is_unknown());
         assert!(ownership::analyze(&m).is_unknown());
