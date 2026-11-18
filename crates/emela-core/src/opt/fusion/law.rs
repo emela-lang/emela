@@ -278,9 +278,9 @@ pub(super) const LAWS: &[Law] = &[
                 split by character. A dynamic chain is not matched.",
         budget: "One concat per site: the intermediate appends and their allocations are removed. \
                  The per-sweep budget is that of the registry.",
-        measures: "The applied count of fusion::run (there is no Stats field for this law yet); one \
-                   String per site in the C allocation report (the form the law builds is the one \
-                   a_three_part_interpolation_allocates_one_string pins).",
+        measures: "Stats::string_concat; one String per site in the C allocation report (the form \
+                   the law builds is the one a_three_part_interpolation_allocates_one_string \
+                   pins).",
     },
     Law {
         id: LawId::MapMap,
