@@ -2,8 +2,7 @@
 # discarded and the program goes on. Standard output gets `done` at the end.
 
 import Std.Console.{Console}
-import Std.Platform.{Platform}
-import Std.Process.{Stderr, Stdout}
+import Std.Process.{Process, Stderr, Stdout}
 
 fn errors(i: Int) -> () uses { Console, Stderr } {
   if i < 20000 {
@@ -15,7 +14,7 @@ fn errors(i: Int) -> () uses { Console, Stderr } {
 }
 
 fn main() {
-  with Platform {
+  with Process {
     errors(0)
     (use Stdout).print_line("done")
   }

@@ -5,7 +5,7 @@
 // Emela error to fail with. Each operation maps the host's error codes to the errors its `fails`
 // lists, and anything else to "FileSystemFailure" with the host's message.
 //
-// `with Platform` imports this module even when the program never touches a file, so it must load
+// `with Process` imports this module even when the program never touches a file, so it must load
 // on a host without `node:fs` too: the docs playground runs programs in a browser Worker, where a
 // static `import "node:fs/promises"` would fail the whole program. There, every operation fails
 // with FileSystemFailure. Node and Bun give the module through `process.getBuiltinModule`; a Node

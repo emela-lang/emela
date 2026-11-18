@@ -4,7 +4,8 @@
 #
 # Use them as `(use Args).get(0)`, `(use Stdin).read_line()` and `(use Stdout).print("? ")`, and
 # provide them with `with SystemArgs, SystemStdin, SystemStdout { ... }`, or with
-# `with Platform { ... }` from `Std.Platform`.
+# `with Process { ... }`. The external functions of the System handlers need a process, so they
+# are declared with `uses { ProcessHost }` and the handlers require ProcessHost (`[effect.host]`).
 #
 # The host gives the arguments as a count and an element at an index: a List cannot cross the
 # external function boundary (`[ext.boundary]`), so the list is built here.
@@ -16,6 +17,9 @@
 # returns the text taken (or the message of a failure). The three are called one after another
 # with no suspension in between, so no other fiber can take from the buffer in the middle.
 
+import Std.Env.{SystemEnv}
+import Std.FileSystem.{SystemFileSystem}
+import Std.Platform.{Platform}
 import Std.State.{State}
 
 pub effect Args {
@@ -41,22 +45,26 @@ pub effect Stdin {
 
 # ---- SystemArgs ----
 
-# The arguments do not change while the program runs, so reading them has no side effects.
-
 @external(js, "./process.mjs", "argCount")
 @external(c, "./process.c", "emela_process_arg_count")
 @external(wasm, "wasi:cli/environment@0.3.0", "get-arguments")
-fn arg_count() -> Int uses {}
+fn arg_count() -> Int uses { ProcessHost }
 
 ## Call only with `0 <= index < arg_count()`.
 @external(js, "./process.mjs", "argAt")
 @external(c, "./process.c", "emela_process_arg_at")
 @external(wasm, "wasi:cli/environment@0.3.0", "get-arguments")
-fn arg_at(index: Int) -> String uses {}
+fn arg_at(index: Int) -> String uses { ProcessHost }
 
-## The arguments from `index` down to 0, prepended to `acc`.
-fn args_onto(index: Int, acc: List[String]) -> List[String] {
-  if index < 0 { acc } else { args_onto(index - 1, [arg_at(index), ..acc]) }
+## The arguments from `index` down to 0, read with `at`, prepended to `acc`. `at` is made inside
+## the operation of SystemArgs, where external functions can be called (`[ext.call]`).
+fn args_onto(
+  at: fn(Int) -> String uses { ProcessHost },
+  index: Int,
+  acc: List[String],
+) -> List[String]
+  uses { ProcessHost } {
+  if index < 0 { acc } else { args_onto(at, index - 1, [at(index), ..acc]) }
 }
 
 ## The arguments given by the host: `argv[1]` and after on native, what the launcher of
@@ -65,7 +73,7 @@ pub handler SystemArgs: Args {
   fn get(index) {
     if index >= 0 && index < arg_count() { Some(arg_at(index)) } else { None }
   }
-  fn list() { args_onto(arg_count() - 1, []) }
+  fn list() { args_onto(|i| arg_at(i), arg_count() - 1, []) }
 }
 
 # ---- SystemStdin ----
@@ -73,12 +81,12 @@ pub handler SystemArgs: Args {
 ## Completes once the host holds a whole line, or the input has ended or failed.
 @external(js, "./process.mjs", "waitLine")
 @external(c, "./process.c", "emela_stdin_wait_line")
-suspend fn wait_line() -> ()
+suspend fn wait_line() -> () uses { ProcessHost }
 
 ## Completes once the input has ended or failed.
 @external(js, "./process.mjs", "waitEnd")
 @external(c, "./process.c", "emela_stdin_wait_end")
-suspend fn wait_end() -> ()
+suspend fn wait_end() -> () uses { ProcessHost }
 
 # `take_line` and `take_text` return 0 when they took something (it is in `taken`), 1 at the end
 # of the input, 2 when what they took is not valid UTF-8, 3 when the host failed to read (the
@@ -88,25 +96,28 @@ suspend fn wait_end() -> ()
 ## Takes the next line: 0, 1, 2 (the line is consumed), 3 or 4.
 @external(js, "./process.mjs", "takeLine")
 @external(c, "./process.c", "emela_stdin_take_line")
-fn take_line() -> Int
+fn take_line() -> Int uses { ProcessHost }
 
 ## Takes the rest of the input: 0 (`""` at the end), 2 (the rest is consumed), 3 or 4 (the input
 ## has not ended yet).
 @external(js, "./process.mjs", "takeText")
 @external(c, "./process.c", "emela_stdin_take_text")
-fn take_text() -> Int
+fn take_text() -> Int uses { ProcessHost }
 
 ## The text or the message of the last `take_line` or `take_text`.
 @external(js, "./process.mjs", "taken")
 @external(c, "./process.c", "emela_stdin_taken")
-fn taken() -> String
+fn taken() -> String uses { ProcessHost }
 
 ## Waits with `step` (a wait, then a take) until the take is not 4, and turns the result into
 ## what `read_line` returns. `text` is `taken`. The two are made inside the operation of
 ## SystemStdin, where external functions can be called (`[ext.call]`).
-fn next_line(step: fn() -> Int uses { Async }, text: fn() -> String) -> Option[String]
+fn next_line(
+  step: fn() -> Int uses { Async, ProcessHost },
+  text: fn() -> String uses { ProcessHost },
+) -> Option[String]
   fails InvalidInput | StdinFailure
-  uses { Async } {
+  uses { Async, ProcessHost } {
   step() match {
     0 -> Some(text())
     1 -> None
@@ -117,9 +128,12 @@ fn next_line(step: fn() -> Int uses { Async }, text: fn() -> String) -> Option[S
 }
 
 ## `next_line` for `read_text`.
-fn rest_text(step: fn() -> Int uses { Async }, text: fn() -> String) -> String
+fn rest_text(
+  step: fn() -> Int uses { Async, ProcessHost },
+  text: fn() -> String uses { ProcessHost },
+) -> String
   fails InvalidInput | StdinFailure
-  uses { Async } {
+  uses { Async, ProcessHost } {
   step() match {
     0 -> text()
     2 -> fail InvalidInput
@@ -217,12 +231,12 @@ pub effect Stderr {
 @external(js, "./process.mjs", "writeStdout")
 @external(c, "./process.c", "emela_process_write_stdout")
 @external(wasm, "wasi:cli/stdout@0.3.0", "write-via-stream")
-fn write_stdout(text: String) -> ()
+fn write_stdout(text: String) -> () uses { ProcessHost }
 
 @external(js, "./process.mjs", "writeStderr")
 @external(c, "./process.c", "emela_process_write_stderr")
 @external(wasm, "wasi:cli/stderr@0.3.0", "write-via-stream")
-fn write_stderr(text: String) -> ()
+fn write_stderr(text: String) -> () uses { ProcessHost }
 
 ## The standard output of the process: file descriptor 1, written synchronously, on JS, `stdout`
 ## on native, and `wasi:cli/stdout` on WASM. Has no state.
@@ -270,6 +284,22 @@ fn append_stdout(text: String) -> () uses { State[StdoutText] } {
 
 fn append_stderr(text: String) -> () uses { State[StderrText] } {
   (use State[StderrText]).update(|err| StderrText(text: "#{err.text}#{text}"))
+}
+
+# ---- Process ----
+
+## Platform and the System handlers that need a process: the arguments, the standard streams, the
+## environment variables and the file system. Requires Async and ProcessHost (`[effect.host]`),
+## which `main`, tests and `Http.serve` are given. A program that uses none of these writes
+## `with Platform { ... }` instead.
+pub layer Process {
+  Platform
+  SystemArgs
+  SystemStdin
+  SystemStdout
+  SystemStderr
+  SystemEnv
+  SystemFileSystem
 }
 
 # ---- ExitCode ----

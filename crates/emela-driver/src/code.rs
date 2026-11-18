@@ -148,9 +148,9 @@ pub const HANDLER_CYCLE: &str = "E0411";
 // External functions (spec 12.1). A side-effect path like effects, so they live in E04xx
 // (E05xx to E08xx are reserved).
 pub const MISSING_EXTERNAL_TARGET: &str = "E0412";
-// suspend and Async (spec 8.7, 9.5)
-pub const ASYNC_HANDLER: &str = "E0413";
-pub const USE_ASYNC: &str = "E0414";
+// suspend and host effects (`[effect.async]`, `[effect.host]`, spec 9.5)
+pub const HOST_EFFECT_HANDLER: &str = "E0413";
+pub const USE_HOST_EFFECT: &str = "E0414";
 pub const SUSPEND_MISMATCH: &str = "E0415";
 pub const NOT_IMMEDIATE: &str = "E0416";
 pub const SUSPENDING_FN_OP: &str = "E0417";
@@ -192,6 +192,10 @@ pub const HTTP_SERVICE_ON_C: &str = "E0442";
 pub const BOUNDARY_TYPE_ON_C: &str = "E0443";
 // Capture sets with the experimental feature `capture-checking` (`[effect.escape]`)
 pub const CAPTURE_ESCAPE_ERROR: &str = "E0444";
+// Host effects (`[effect.host]`): the uses of an external function (`[ext.call]`) and effects
+// without operations (`[effect.decl]`)
+pub const EXTERNAL_USES: &str = "E0445";
+pub const EFFECT_WITHOUT_OPS: &str = "E0446";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

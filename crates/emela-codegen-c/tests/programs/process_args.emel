@@ -1,11 +1,10 @@
 # `Std.Process` without arguments: `list` is empty and `get` is `None` (`[api.std.process]`).
 
 import Std.Console.{Console}
-import Std.Platform.{Platform}
-import Std.Process.{Args}
+import Std.Process.{Args, Process}
 
 fn main() {
-  with Platform {
+  with Process {
     a = use Args
     (use Console).print_line("#{a.list()} #{a.get(0)} #{a.get(-1)}")
   }

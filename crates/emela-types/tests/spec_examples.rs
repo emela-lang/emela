@@ -659,14 +659,13 @@ fn basics() -> Option[Int] {
 }
 
 /// `[api.std.process]`: the example of reading standard input, and the form of `main` in the
-/// proposal (`proposals/std-process.md`), with the arguments and `Platform`.
+/// proposal (`proposals/std-process.md`), with the arguments and `Process`.
 #[test]
 fn spec_api_std_process() {
     insta::assert_snapshot!(render_bodies(
         r##"
 import Std.Console.{Console}
-import Std.Platform.{Platform}
-import Std.Process.{Args, Stdin, InvalidInput, StdinFailure}
+import Std.Process.{Args, Stdin, InvalidInput, Process, StdinFailure}
 
 fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {
   (use Stdin).read_line() match {
@@ -679,7 +678,7 @@ fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console,
 }
 
 fn main() {
-  with Platform {
+  with Process {
     prefix = (use Args).get(0) match {
       Some(p) -> p
       None    -> "> "
@@ -698,12 +697,11 @@ fn main() {
 fn spec_api_std_process_stdout() {
     insta::assert_snapshot!(render_bodies(
         r##"
-import Std.Platform.{Platform}
-import Std.Process.{Stderr, StderrText, Stdout, StdoutText, TestStderr, TestStdout}
+import Std.Process.{Process, Stderr, StderrText, Stdout, StdoutText, TestStderr, TestStdout}
 import Std.State.{State}
 
 fn main() {
-  with Platform {
+  with Process {
     (use Stdout).print("Hello, ")
     (use Stdout).print_line("alice!")
   }

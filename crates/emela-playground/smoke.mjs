@@ -1,6 +1,6 @@
 // Loads the built compiler for the browser (scripts/build-playground.sh), compiles a program and
 // runs its output without `process`, as a browser Worker would: the runtime then writes through
-// `console.log`, and `with Platform` loads although there is no file system.
+// `console.log`, and `with Process` loads although there is no file system.
 //
 // Usage: node crates/emela-playground/smoke.mjs [DIR]   (default: target/playground)
 
@@ -16,7 +16,7 @@ initSync({ module: readFileSync(join(dir, 'emela_playground_bg.wasm')) });
 
 const source = `import Std.Console.{Console}
 import Std.FileSystem.{FileSystem}
-import Std.Platform.{Platform}
+import Std.Process.{Process}
 
 error NotFound(id: Int)
 
@@ -25,7 +25,7 @@ fn find(id: Int) -> String fails NotFound {
 }
 
 fn main() {
-  with Platform {
+  with Process {
     console = use Console
     console.print_line("Hello, #{find(1)}!")
     console.print_line(find(2) escape { NotFound(_) -> "guest" })

@@ -288,8 +288,8 @@ fn main() {
 
 #[test]
 fn platform_with_console_imports_only_the_output_interfaces() {
-    // `Std.Platform` bundles every system handler, so their external functions are in the
-    // module. Only the operations the entry performs reach a host: creating the handlers does
+    // `Std.Platform` bundles the system handlers every host has, so their external functions are
+    // in the module. Only the operations the entry performs reach a host: creating the handlers does
     // not import anything (spec `[target.wasm.output]`).
     let bytes = assert_imports(
         r#"
@@ -314,14 +314,14 @@ fn main() {
 }
 
 #[test]
-fn platform_with_env_imports_only_the_environment() {
+fn process_with_env_imports_only_the_environment() {
     let bytes = assert_imports(
         r#"
 import Std.Env.{Env}
-import Std.Platform.{Platform}
+import Std.Process.{Process}
 
 fn main() {
-  with Platform {
+  with Process {
     dbg((use Env).get("EMELA_TEST_UNSET"))
   }
 }
@@ -331,7 +331,7 @@ fn main() {
     if wasmtime().is_none() {
         return;
     }
-    let run = run_bytes(&out_dir("platform-env"), &bytes);
+    let run = run_bytes(&out_dir("process-env"), &bytes);
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stderr, "None\n");
 }

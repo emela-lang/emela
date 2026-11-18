@@ -1,8 +1,7 @@
 # SystemStdout and SystemStderr (`[api.std.process]`): `print` writes the text as is, and
-# `print_line` writes it and `\n`. Both are in Platform.
+# `print_line` writes it and `\n`. Both are in Process.
 
-import Std.Platform.{Platform}
-import Std.Process.{Stderr, Stdout}
+import Std.Process.{Process, Stderr, Stdout}
 
 ## Not a suspend fn and no Async: the operations are Immediate.
 fn write() -> () uses { Stdout, Stderr } {
@@ -20,5 +19,5 @@ fn write() -> () uses { Stdout, Stderr } {
 }
 
 fn main() {
-  with Platform { write() }
+  with Process { write() }
 }

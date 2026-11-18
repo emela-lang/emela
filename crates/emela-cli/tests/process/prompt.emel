@@ -1,11 +1,10 @@
 # `print` before `read_line`: the prompt reaches the host before the program waits for input
 # (`[api.std.process]`).
 
-import Std.Platform.{Platform}
-import Std.Process.{InvalidInput, Stdin, StdinFailure, Stdout}
+import Std.Process.{InvalidInput, Process, Stdin, StdinFailure, Stdout}
 
 fn main() -> () fails InvalidInput | StdinFailure uses { Async } {
-  with Platform {
+  with Process {
     (use Stdout).print("name? ")
     (use Stdin).read_line() match {
       Some(name) -> (use Stdout).print_line("Hello, #{name}!")

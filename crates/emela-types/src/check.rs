@@ -143,20 +143,31 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         let name = program.defs[test].name.clone();
         closed.insert(test, EffectContext::Test { name });
     }
-    // Every `@export` fn, entry adapters included, has the R of main (`[ext.export]`).
+    // Every `@export` fn, entry adapters included, is given Async (`[ext.export]`), and an entry
+    // adapter also the host effects that the function type of its first parameter uses
+    // (`[ext.entry]`).
+    let names = |hosts: Vec<DefId>| -> Vec<SmolStr> {
+        hosts
+            .into_iter()
+            .map(|d| program.defs[d].name.clone())
+            .collect()
+    };
     for (def, item) in program.items.iter() {
         if let Item::Fn(f) = item
             && !f.exports.is_empty()
             && f.body.is_some()
         {
             let name = program.defs[def].name.clone();
-            closed.insert(def, EffectContext::Export { name });
+            let hosts = names(crate::export::adapter_hosts(program, def));
+            closed.insert(def, EffectContext::Export { name, hosts });
         }
     }
-    // So is a fn made by `@entry`; an error in it becomes E0440 (`crate::export::check`).
+    // So is a fn made by `@entry`, given what its adapter declares; an error in it becomes E0440
+    // (`crate::export::check`).
     for e in &program.entry_exports {
         let name = program.defs[e.entry].name.clone();
-        closed.insert(e.def, EffectContext::Export { name });
+        let hosts = names(crate::export::adapter_hosts(program, e.adapter));
+        closed.insert(e.def, EffectContext::Export { name, hosts });
     }
     let ty_table = TyTable::new(program);
     let mut diags = Vec::new();
