@@ -1,0 +1,153 @@
+name: CI / Emela
+
+# Emela programs run by the compiler: the examples, the properties of core and std (tests/laws),
+# the compiler for the browser, and Windows. Called from ci.yml.
+#
+# `build` builds the compiler for Linux once and hands it to the jobs that run programs with it.
+# The compiler embeds core and std, so it runs from any directory.
+
+on:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: examples
+      - name: Build
+        run: cargo build --bin emela --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emela-linux
+          path: target/debug/emela
+          retention-days: 1
+
+  examples:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: emela-linux
+          path: bin
+      # An artifact does not keep the executable bit.
+      - run: chmod +x bin/emela
+      # `emela run` and `emela test` execute the generated JS with node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check, test and fmt every example
+        run: scripts/ci/examples.sh bin/emela
+
+  # The properties of core and std, checked with brix.
+  # brix comes through the proxy and is checked against the hash in Pome.lock.
+  laws:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: emela-linux
+          path: bin
+      - run: chmod +x bin/emela
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # `emela test --target wasm` runs the WASI 0.3 component with wasmtime (49 or newer).
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          version: 49.0.3
+      - name: Test on JS, native and WASM
+        working-directory: tests/laws
+        run: |
+          emela="$GITHUB_WORKSPACE/bin/emela"
+          "$emela" pome install
+          "$emela" fmt --check
+          "$emela" test --target js
+          "$emela" test --target native
+          "$emela" test --target wasm
+
+  # The examples and the laws on Bun, the other JS host that `[target]` supports. Bun before
+  # 1.4.3 does not run the microtasks that a `beforeExit` listener queues (oven-sh/bun#43826),
+  # which `emela test` relies on to go on after a test left suspended.
+  bun:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      EMELA_JS_HOST: bun
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: emela-linux
+          path: bin
+      - run: chmod +x bin/emela
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Test every example on Bun
+        run: scripts/ci/examples.sh bin/emela --target js
+      - name: Test the laws on Bun
+        working-directory: tests/laws
+        run: |
+          emela="$GITHUB_WORKSPACE/bin/emela"
+          "$emela" pome install
+          "$emela" test --target js
+
+  # The compiler for the browser (crates/emela-playground), which the playground of the docs
+  # site runs: it still builds for wasm32, and what it compiles runs without node.
+  playground:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: playground
+      - id: bindgen
+        name: Read the wasm-bindgen version
+        run: awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print "version=" $3; exit }' Cargo.lock >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build
+        run: scripts/build-playground.sh
+      - name: Compile and run a program with it
+        run: node crates/emela-playground/smoke.mjs
+
+  # The compiler is released for Windows too. The merge queue builds it there and runs the
+  # examples on the JS target, so main does not break the Windows build. The test suite is not
+  # run: many of its tests start fake programs written as shell scripts. A pull request skips
+  # this job, as it skips macOS.
+  windows:
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Check out with LF line endings, as on the other runners, so `emela fmt --check` compares
+      # the files as they are in the repository.
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build
+        run: cargo build --bin emela --locked
+      - name: Check, test and fmt every example
+        run: scripts/ci/examples.sh target/debug/emela.exe
