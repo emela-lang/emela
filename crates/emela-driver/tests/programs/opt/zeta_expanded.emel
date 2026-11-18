@@ -1,0 +1,45 @@
+# The hand-written expansion of `zeta_fused.emel`: every read of the copies `x`, `y` and `z` is
+# the value they were bound to, and the unused record is gone. The dead binding allocated only, so
+# dropping it does not change what the program prints. The `with` release and the `escape` keep
+# their order: the failure unwinds the handler, its release runs, and the escape catches it after.
+
+error Stop(at: Int)
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Session: Log {
+  release {
+    dbg("close")
+    ()
+  }
+  fn log(msg) {
+    dbg(msg)
+    ()
+  }
+}
+
+fn visit(n: Int, stop: Int) -> () fails Stop uses { Log } {
+  (use Log).log("visit #{n}")
+  if n == stop {
+    fail Stop(at: n)
+  }
+  ()
+}
+
+fn main() {
+  dbg("z 1")
+  with Session {
+    n = 1 + 1
+    (use Log).log("inside #{n}")
+    dbg(visit(n, 2))
+  } escape {
+    Stop(at:) -> {
+      dbg("caught at #{at}")
+      ()
+    }
+  }
+  dbg("after")
+  ()
+}
