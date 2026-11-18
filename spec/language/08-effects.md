@@ -37,6 +37,7 @@ effect Clock {
   - A call of an `@external suspend fn` may suspend.
 - If the body contains no call that may suspend, its R is not restricted. The R of `fn now() { (use Clock).now() }` contains Clock, which becomes a requirement of the handler. Mixing `now` of the outer Clock and `sleep` inside an inner `with InstantClock` in the same body satisfies neither condition and is a compile error (E0417). Accepting it would require looking, for each call, at the innermost with that provides its effect, which makes the rule heavier, so this is not done. A call through a function is treated as possibly suspending even if that function calls only fn operations (`fn now() { stamp() }`, which calls `fn stamp() -> Instant uses { Clock }`, is a compile error (E0417)). That a function does not suspend is not inferred from its body. The implementations of fn operations in every handler are bound by the same rule, so a call of a fn operation does not suspend whichever handler it reaches.
 - An operation that involves waiting (waiting on an `@external suspend fn`, calling a suspend operation) MUST be declared as a suspend fn on the effect side. Otherwise its implementation is a compile error (E0417). This is because the caller can learn whether a call suspends only from the effect's declaration. Only operation declarations of effects carry a mark of whether they suspend. Function signatures (`uses { Http }`) and calls do not.
+- An effect declared in source MUST have at least one operation (code to be assigned). The effects without operations are the host effects, which only the compiler declares (`[effect.host]`).
 
 ## 8.2 use `[effect.use]`
 
@@ -107,7 +108,7 @@ fn run[R](f: fn() -> () uses { Logger, R }) -> () uses { R } {
 - `use X` refers to the handler provided by the innermost with as seen from the position where it is written. If the same function has no such with, it refers to the one passed from the caller.
 - `use X` inside an anonymous function or a local fn first looks at the withs that enclose the function (in the same top-level function). If there is none, it refers to the one passed from the side that calls the function. This is because the R of these functions is enclosed in their types (9.4) and does not appear in the R of the enclosing function.
 - A capability value taken out on the outer side keeps referring to the outer handler even if an inner with overrides the same effect.
-- The R of main MUST be empty except for Async. main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E0230). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a uses clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
+- The R of main MUST be empty except for the host effects that main is given (Async and ProcessHost, `[effect.host]`). main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E0230). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a uses clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
 - The return type of main is `()` or `ExitCode` (`[api.std.process]`); another type, other than Never, is W0304 (`[dyn.error]`). This is separate from the rule on R above.
 - An item can be written as `x = Item`. Within the body, x is the capability of the effect that Item provides (`use F`, 8.2), and refers to the handler of that item even when another item of the same with provides the same effect. An item that is not a handler member still provides its effect by name.
 - `E.M(arguments)`, where E is an effect and M one of its handler members, can be written as an item only in the form `x = E.M(arguments)`. It calls the init of M of the innermost handler that provides E at that position. `x = c.M(arguments)`, where c is a capability of E, calls the init of M of the handler that provides c. The arguments are treated as for `H(arguments)`. The item requires E (or c), not the requirements of the inner handler.
@@ -228,8 +229,7 @@ fn make_greeter() {
 
 ## 8.7 Async `[effect.async]`
 
-- Async is a built-in effect that represents "being resumed later". Only the runtime can provide it, and users cannot write handlers for it. `handler H: Async` is a compile error (E0413), and that handler provides nothing even when written in a with.
-- Async has no operations, so the expression `use Async` is a compile error (E0414). Async can be written in a uses clause (`fn f() uses { Async }`).
+- Async is a host effect (`[effect.host]`) that represents "being resumed later". The rules of `[effect.host]` apply: only the host provides it, `handler H: Async` is a compile error (E0413), and `use Async` is a compile error (E0414).
 - The means of calling `resume` later (callbacks of external functions, `@external suspend fn`, fork) require Async. Therefore SystemClock requires Async, and Async remains in the R of `with SystemClock { ... }`.
 - When the body of a suspend fn implementation uses `resume` in any way other than calling it directly (`resume(v)`), the compiler assumes that resume may be called later and adds Async to the handler's requirements. Uses other than direct calls include storing it in a variable, capturing it in a closure, and passing it as an argument. Calling an `@external suspend fn` also adds Async. This decision is purely syntactic and errs on the safe side.
 - A handler that resumes on the spot (such as the test handler InstantClock) does not require Async. `with InstantClock { ... }` does not actually suspend, and Async does not appear in the types either.
@@ -312,3 +312,23 @@ fn main() {
 - A label has no body. Writing `{ ... }` after the declaration is a compile error (E0122).
 - Labels are distinguished by name (nominal). Two separately declared labels are different effects even if their underlying effect is the same, and labels with the same name in different modules are also different.
 - An `L` item, and an `L by P` item where P is an effect or a label, do not create a new handler. They provide the outer handler (or that of an item initialized earlier in the same with) again under the name L. An `L by P` item where P is a handler initializes P and provides it.
+
+## 8.10 Host effects `[effect.host]`
+
+- A host effect is an effect whose only handler is the host. `Async` (`[effect.async]`), `ProcessHost` and `PageHost` are the host effects.
+  - `Async`: the host can resume a computation later.
+  - `ProcessHost`: the host is a process of the operating system, with arguments, standard input and output, environment variables and a file system.
+  - `PageHost`: the host is a page of a web browser.
+- Users cannot write a handler for a host effect. `handler H: ProcessHost` is a compile error (E0413), and that handler provides nothing even when written in a with. `use` of a host effect is a compile error (E0414). A host effect can be written in a uses clause (`fn f() uses { ProcessHost }`).
+- A host effect enters R only through what host functions need. Calling an `@external suspend fn` adds Async (`[effect.async]`). Calling an external function declared with `uses { ProcessHost }` or `uses { PageHost }` adds that host effect (`[ext.call]`). A handler whose init, release or operation bodies make such calls requires the host effect (requires(H) in `[effect.handler]`), so the host effect remains in the R of a with that lists the handler, or a layer that contains it.
+- A with does not remove a host effect. Only the entry of a launch provides host effects.
+
+| Entry | Host effects provided |
+|---|---|
+| `main` (`[effect.with]`) | Async, ProcessHost |
+| A test function (`[test.constraints]`) | Async, ProcessHost |
+| An `@export` fn that is not an entry adapter (`[ext.export]`) | Async |
+| An entry adapter (`[ext.entry]`) | Async, and the host effect the adapter declares |
+
+- `ProcessHost` and `PageHost` are Immediate (`[type.effect-bound]`).
+- Host effects do not name targets. A program whose entry type checks runs on every target that supports that entry (`[target]`).
