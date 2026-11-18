@@ -56,6 +56,7 @@ impl Frontend for AlgebraOnly {
                         algebra: true,
                         ..Rules::none()
                     },
+                    ..Options::default()
                 },
             );
             m
