@@ -146,6 +146,7 @@ fn workspace_symbols_exclude_dependencies_and_core() {
             targets: None,
             version: "v1.0.0".into(),
             dependencies: Vec::new(),
+            experimental: Default::default(),
         }],
         project: vec![DependencyRef {
             pome: 0,
@@ -303,7 +304,18 @@ fn core_only_attributes_are_completed_in_core() {
         .file_id(Path::new("/app/src/main.emel"))
         .unwrap();
     let user = labels(main, TextSize::from(1));
-    assert_eq!(user, ["external", "export", "entry", "test", "deprecated"]);
+    assert_eq!(
+        user,
+        [
+            "external",
+            "export",
+            "entry",
+            "test",
+            "deprecated",
+            "key",
+            "tag"
+        ]
+    );
     let (core, offset) = analysis
         .files
         .iter()

@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use emela_driver::{
-    Dependencies, DependencyPome, DependencyRef, Input, MemoryFiles, Target, Typecheck, check,
-    check_dependency_targets,
+    Dependencies, DependencyPome, DependencyRef, Features, Input, MemoryFiles, Target, Typecheck,
+    check, check_dependency_targets,
 };
 
 // The project depends on quince (github.com/acme/quince); quince depends on http-kit, which it
@@ -55,6 +55,7 @@ fn pome(
         targets: None,
         version: "v1.0.0".into(),
         dependencies,
+        experimental: Features::default(),
     }
 }
 
@@ -372,4 +373,67 @@ fn does_not_report_the_license_of_a_dependency() {
         diagnostics(&fs, dependencies(None, COMPILER)),
         Vec::<String>::new()
     );
+}
+
+/// `[module.pome]`: the `[experimental]` of a dependency is not reported when building the Pome
+/// that depends on it (W0206 and W0207 are reported only for the Pome being built).
+#[test]
+fn does_not_report_the_experimental_settings_of_a_dependency() {
+    let bad = "[pome]\nname = \"github.com/acme/quince\"\nversion = \"0.1.0\"\nemela = \"0.29.0\"\n\n[experimental]\nfrom-the-future = true\nother = 1\n";
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "import Quince\n\nfn main() {\n  Quince.answer()\n  ()\n}\n",
+        ),
+        ("deps/quince/Pome.toml", bad),
+        ("deps/quince/src/lib.emel", "pub fn answer() -> Int { 1 }\n"),
+        ("deps/http-kit/Pome.toml", "[experimental]\nx = \"y\"\n"),
+        ("deps/http-kit/src/lib.emel", "pub fn get() -> Int { 3 }\n"),
+    ]);
+    assert_eq!(
+        diagnostics(&fs, dependencies(None, COMPILER)),
+        Vec::<String>::new()
+    );
+}
+
+/// `[module.pome]`: each Pome in the dependency graph is checked with its own `[experimental]`,
+/// and the flags apply only to the Pome being built. Core modules belong to no Pome.
+#[test]
+fn each_pome_has_its_own_experimental_features() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "import Quince\n\nfn main() {\n  Quince.answer()\n  ()\n}\n",
+        ),
+        ("deps/quince/Pome.toml", ""),
+        ("deps/quince/src/lib.emel", "pub fn answer() -> Int { 1 }\n"),
+        ("deps/http-kit/Pome.toml", ""),
+        ("deps/http-kit/src/lib.emel", "pub fn get() -> Int { 3 }\n"),
+    ]);
+    let mut deps = dependencies(None, COMPILER);
+    deps.pomes[0].experimental = Features::new(["in-quince"]);
+    let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
+    input.dependencies = deps;
+    let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
+    let module = |name: &str| {
+        analysis
+            .modules
+            .iter()
+            .find(|(_, m)| m.name.to_string() == name)
+            .map(|(id, _)| id)
+            .unwrap_or_else(|| panic!("no module {name}"))
+    };
+    let enabled = |name: &str| -> Vec<String> {
+        analysis
+            .experimental(module(name))
+            .iter()
+            .map(str::to_string)
+            .collect()
+    };
+    assert_eq!(enabled("Quince"), ["in-quince"]);
+    assert!(enabled("HttpKit").is_empty());
+    assert!(enabled("Main").is_empty());
+    assert!(enabled("List").is_empty());
 }

@@ -44,6 +44,82 @@ enum Std.Set.Set[A] {
   Set(inner: Std.Map.Map[A, ()])
 }
 
+enum Std.Dynamic.Number.Number {
+  Number(negative: Bool, digits: String, exponent: Int)
+}
+
+error enum Std.Dynamic.Number.OutOfRange {
+  OutOfRange(number: Std.Dynamic.Number.Number)
+}
+
+enum Std.Dynamic.Dynamic {
+  Null
+  Bool(Bool)
+  Number(Std.Dynamic.Number.Number)
+  Text(String)
+  Items(List[Std.Dynamic.Dynamic])
+  Fields(Std.Map.Map[String, Std.Dynamic.Dynamic])
+  Binary(Bytes)
+}
+
+enum Std.Dynamic.Segment {
+  Key(String)
+  Index(Int)
+}
+
+error enum Std.Dynamic.DecodeError {
+  DecodeError(expected: String, actual: Std.Dynamic.Dynamic, path: List[Std.Dynamic.Segment])
+}
+
+error enum Std.Dynamic.DecodeErrors {
+  DecodeErrors(errors: List[Std.Dynamic.DecodeError])
+}
+
+enum Std.Dynamic.Attempt[A] {
+  Decoded(A)
+  Failed(List[Std.Dynamic.DecodeError])
+}
+
+enum Std.Shape.Shape {
+  Bool
+  Int
+  Int64
+  Float
+  String
+  Bytes
+  Any
+  List(Std.Shape.Shape)
+  Option(Std.Shape.Shape)
+  Map(key: Std.Shape.Shape, value: Std.Shape.Shape)
+  Record(name: String, fields: List[Std.Shape.Field])
+  Variants(name: String, variants: List[Std.Shape.Variant])
+  Ref(String)
+  Named(name: String, shape: Std.Shape.Shape)
+  Annotated(shape: Std.Shape.Shape, notes: List[(String, Std.Dynamic.Dynamic)])
+}
+
+enum Std.Shape.Field {
+  Field(name: String, shape: Std.Shape.Shape)
+}
+
+enum Std.Shape.Variant {
+  Variant(name: String, contents: Std.Shape.Contents)
+}
+
+enum Std.Shape.Contents {
+  NoFields
+  PositionalFields(List[Std.Shape.Shape])
+  NamedFields(List[Std.Shape.Field])
+}
+
+error enum Std.Json.SyntaxError {
+  SyntaxError(message: String, offset: Int)
+}
+
+enum Std.Json.Rest {
+  Rest(chars: List[String], offset: Int)
+}
+
 error enum Std.Process.InvalidInput {
   InvalidInput
 }

@@ -1,11 +1,11 @@
 ---
 title: Capture checking
 authors: [Alliana]
-status: draft
+status: implemented
 pr: 621
 issue:
-decided:
-touches: [effect.escape, effect.use, effect.with, fiber.escape, type.fn, type.rules, type.inference, lsp.hover, diag.list, open.next]
+decided: 2026-11-18
+touches: [intro.experimental, effect.escape, effect.use, fiber.escape, type.fn, type.rules, lsp.hover, diag.list, open.next]
 requires: [experimental-features]
 related: []
 ---
@@ -14,18 +14,18 @@ related: []
 
 ## Summary
 
-値が抱えている capability の集合（capture set）を型と一緒に推論し，capability を供給した with の外へ出る値をコンパイルエラーにする．`[effect.escape]` と `[fiber.escape]` の実行時の検査を静的にし，E0425 を同じ検査にまとめる．R の要素に，effect の名前に加えて capability そのもの（`primary`）を入れる．capture set はソースには書かず，LSP と診断で見せる．
+Infer, together with its type, the set of capabilities that a value holds (its capture set), and report a value that leaves the with that provides one of them. The R of a function gets a second kind of element: besides the name of an effect (`Db`), a capability itself (`primary`, a parameter `from`). The capture set is not written in source; the language server and the diagnostics show it. In 0.28 the inference, the display and the new elements of R always apply, and leaving a with is a warning. With the experimental feature `capture-checking` (`[intro.experimental]`) it is a compile error. A later version makes the error the default.
 
 ## Motivation
 
-`[effect.escape]` は「capability を捕まえた値は with の外へ出られない」と決めているが，検査は実行時で，「0.22 で静的にする」とだけ書かれている（今は 0.27）．
+`[effect.escape]` says that a value that holds a capability cannot leave the with that provides it, but the check is done at run time, and the text says that it becomes static "in 0.22". The current version is 0.27, and it has not.
 
-- 状態を持たない handler は検査の対象外で，外へ出ても動き続ける
-- 状態を持つ handler は，外へ出た値を呼んだ時点で defect になる．呼ばれなければ見つからない
-- 操作が `self` を捕まえたクロージャを返すと，release の後にフィールドを読める（draft `handler-self-after-release`）
-- `Fiber.scope` からの持ち出しは，値の型に Fiber などの名前があるかで止めている（E0425）．型の名前で一律に止める粗い検査である
+- A handler without state is not checked at all: its capability keeps working after it is taken out of the with.
+- For a handler with state, the value is found only when it is called, as a defect. A value that is never called is never found.
+- An operation that returns a closure capturing `self` lets the fields be read after release (the draft `handler-self-after-release`).
+- Leaving a `Fiber.scope` is stopped by whether the type of the value names `Fiber` and the like (E0425), a check by the name of the type.
 
-R が effect の名前の粒度しか持たないことも，ずれを生んでいる．
+R has only the granularity of the name of an effect, and that hides which handler a call reaches.
 
 ```emel
 with Plain {
@@ -36,50 +36,54 @@ with Plain {
 }
 ```
 
-クロージャの型は `fn() -> String uses { Greeter }` で，`run_greeter` の R の Greeter は Shout で満たされる．実際に届くのは Plain である．R は「名前で供給されていなければならないもの」と「捕まえた実体」を区別していない．
+The type of the closure is `fn() -> String uses { Greeter }`, and the Greeter in the R of `run_greeter` is satisfied by Shout. The call reaches Plain. R does not tell "what has to be provided by name where the function is called" from "the handler the function captured".
 
-capability を値として扱う提案（`capability-type`，`handler-member`）は，この区別がないと成り立たない．handler member の資源は名前で供給されないので，`copy(src: use ReadFile, ...)` の R に `ReadFile` を入れると，満たす供給者がいない．
+The proposals that make capabilities values (`capability-type`, `handler-member`) need this distinction. A resource of a handler member is not provided by name, so putting `ReadFile` in the R of `copy(src: use ReadFile, ...)` leaves no handler to satisfy it.
 
 ## Proposal
 
-### 何を追うか
+### What is tracked
 
-- capture set の要素は，capability の根（root）である．根は次のどれか
-  - with の項目が入れた handler の実体
-  - `Fiber.scope` が作った Scope
-  - handler の操作の中の `self`（その handler の実体）
-- `use E` は，その位置で E を供給する一番内側の with の根を指す．関数の中で with に囲まれていない `use E` は，呼び出し側から渡される根で，effect の名前 E で表す
-- 値の capture set は，その値から届きうる根の集合である
-  - クロージャとローカル fn: 捕まえた変数の capture set の和
-  - データ構造: 要素の capture set の和
-  - 関数の呼び出しの結果: 呼ばれた関数の戻り値の capture set に，引数の capture set を当てはめたもの
-- capability を含みえない型（関数型，`use E`，型引数，Fiber などの scope に属する型のどれも含まない型）の値は，何も抱えない
+- An element of a capture set is a root. A root is one of:
+  - the handler of a with item,
+  - the Scope of a `Fiber.scope`,
+  - `self` in the operations of a handler (the handler itself).
+- `use E` refers to the root of the innermost with that provides E at that position. A `use E` in a function that no with encloses refers to a root passed by the caller, and is written as the name of the effect, E.
+- The capture set of a value is the set of roots it may reach.
+  - A closure or a local fn: what its captured variables hold.
+  - A data structure: what its elements hold.
+  - The result of a call: what the return value of the callee holds, with its parameters replaced by the arguments.
+- A value whose type cannot contain a capability holds nothing. Such a type contains no function type, no capability, no type parameter, and none of the types that belong to a scope (Fiber, Deferred, Semaphore, Queue).
 
-### 検査
+### The check
 
-- with の本体の値の capture set に，その with の根が入っていたらコンパイルエラー
-- `Fiber.scope` の値の capture set に，その scope の根（Scope と，それが作った Fiber，Deferred，Semaphore，Queue）が入っていたらコンパイルエラー．E0425 はこの検査に置き換わる
-- handler の操作の戻り値の capture set に `self` が入っていれば，その値は handler の with の外へ出られない（上の with の検査で止まる）
+- If the value of a with body holds a root of that with, it is a warning (W0402).
+- If the value of a `Fiber.scope` holds its Scope, or a Fiber, Deferred, Semaphore or Queue made by it, it is a warning (W0402).
+- The return value of an operation that holds `self` cannot leave the with of the handler, by the first rule.
+- Experimental (`capture-checking`). Instead of W0402, these are a compile error (E0444).
+- The run-time check of `[effect.escape]` (a released handler used is a defect) and E0425 stay as they are.
 
-### R の要素
+### The elements of R
 
-- R の要素は，effect の名前（`Db`）と capability の根を指す名前（`primary`，引数の `from`）の2種類になる
-  - 名前で引く `use Db` と，それで得た capability の操作は，R に `Db` を入れる（今と同じ）
-  - 引数，束縛，捕まえた変数として受け取った capability の操作は，R にその capability を入れる
-- `|| p.greet("b")` の型は `fn() -> String uses { p }` になる
-- capability の要素は，その effect の名前に広げて扱える．`fn() uses { p }` は `fn() uses { Greeter }` が期待される位置に渡せる（要求が少ない側から多い側へ）．上の `run_greeter` の例は今と同じく通る
-- 呼び出しでは，引数の capability の要素を渡した値の要素に置き換えて，呼び出し側の R に足す．capability の要素は，その根を作った with（または束縛）を抜けるときに R から取り除く
-- suspend しうるかの判定（E0417，Immediate）は，capability の要素ではその effect で行う
+- R has two kinds of elements: the name of an effect (`Db`) and a capability (`primary`, a parameter `from`).
+  - `use Db`, and calling an operation of a capability obtained by `use Db`, add `Db` to R, as now.
+  - Calling an operation of a capability received as a parameter, bound by a with item, or captured, adds that capability to R.
+- The type of `|| p.greet("b")` becomes `fn() -> String uses { p }`.
+- A capability element can be widened to the name of its effect. `fn() uses { p }` can be passed where `fn() uses { Greeter }` is expected: it requires less. The `run_greeter` example above compiles as now.
+- At a call, the capability elements of the callee's R that are parameters are replaced by the elements of the arguments, and added to the caller's R. A capability element is removed from R where the with (or the binding) that made its root ends.
+- Whether a call may suspend (E0417, Immediate) is decided, for a capability element, by its effect.
 
-### 推論と表示
+### Inference and display
 
-- capture set と R の capability の要素は推論する．ソースには書かない（`[effect.escape]` のまま）
-- 関数の戻り値の capture set は，本体から推論する．再帰のグループの中は単相に扱う（`[type.inference]` の R と同じ）
-- 本体がない宣言（effect の操作，trait の関数，`@external` の関数，引数の関数型）は，次の既定で埋める
-  - 戻り値は，引数の capture set の和を抱えうる
-  - effect の操作の戻り値は，さらにその handler の根を抱えうる
-  - 宣言の中の関数型は今と同じく純（`[type.fn]`）なので，何も抱えない
-- LSP の hover は，戻り値の capture set を `holds:` の行で見せる
+- The capture set and the capability elements of R are inferred. They are not written in source (as `[effect.escape]` says now).
+- The capture set of the return value of a function is inferred from its body. Within a recursive group it is monomorphic, as R is (`[type.inference]`).
+- A declaration without a body (an effect operation, a trait function, an `@external` fn, the function type of a parameter) uses these defaults:
+  - its return value may hold what its arguments hold,
+  - the return value of an effect operation may also hold its handler,
+  - a function type inside a declaration is pure, as now (`[type.fn]`), so it holds nothing.
+- The hover of the language server shows the capture set of a return value or a value on a line `holds:`.
+- A root, and a capability element of R, is shown by the name attached to it: the variable of a binding (`p`, `src`), the parameter that received it (`from`), the handler of a with item that is not bound (`ConsoleLogger`), or the name of the effect for a `use E` that the caller provides (`Db`). When two roots have the same name, the hover adds where each is provided (`p (with PrimaryDb, line 4)`). A function can return only values that hold its parameters or roots from outside it (a root made inside would leave its with), so a return value always has such a name.
+- No syntax is defined for writing a capture set.
 
 ```text
 fn pick(primary: use Db, replica: use Db, write: Bool) -> use Db uses {}
@@ -91,19 +95,13 @@ f: fn() -> Rows uses { primary }
   holds: primary (with PrimaryDb, line 4)
 ```
 
-### 例
+### Examples
 
 ```emel
-fn first_line(path: String) -> use ReadFile fails ... uses { Files } {
-  with f = Files.Open(path) {
-    f # error: the value of the body holds `f`, which is released at the end of this with
-  }
-}
-
-fn make_greeter() {
-  with ConsoleLogger {
+fn make_greeter() -> fn() -> () {
+  with FileLogger {
     log = use Logger
-    || log.info("hi") # error: holds `log` (now: a compile error only when the handler has state, at run time)
+    || log.info("hi") # W0402, or E0444 with `capture-checking`
   }
 }
 
@@ -111,33 +109,39 @@ with PrimaryDb {
   p = use Db
   with ReplicaDb {
     r = use Db
-    db = pick(p, r, False) # holds p, r
-    [db] # error: holds `r`, which is released at the end of `with ReplicaDb`
+    f = || r.query("...")
+    [f] # holds `r`, which is released at the end of `with ReplicaDb`
   }
 }
 ```
 
 ```text
-error[E04xx]: a value that holds `f` cannot leave the `with` that provides it
-   ╭─[ src/main.emel:3:5 ]
+warning[W0402]: a value that holds `log` leaves the `with` that provides it
+   ╭─[ src/main.emel:4:5 ]
    │
- 2 │   with f = Files.Open(path) {
-   │        ────────┬────────
-   │                ╰── `f` is released at the end of this `with`
- 3 │     f
-   │     ┬
-   │     ╰── the value of the body holds `f`
+ 2 │   with FileLogger {
+   │        ─────┬────
+   │             ╰── `log` is released at the end of this `with`
+ 4 │     || log.info("hi")
+   │     ───────┬─────────
+   │            ╰── the value of the body holds `log`
 ───╯
 ```
 
-### 段階的な導入（案）
+### Rollout
 
-- 0.28: 推論はいつも行い，`holds:` を LSP で見せる．検査は既定では警告，`Pome.toml` の `[experimental] capture-checking = true` でコンパイルエラーにする．実行時の検査は残す
-- 警告の期間に，状態を持たない handler の capability を外へ出しているコードを見つけて直してもらう（Compatibility の非互換の範囲）
-- 次の版: 既定でコンパイルエラーにし，`[experimental]` の項目を外す
-- R の capability の要素（`uses { p }`）は広げる規則で今の R の検査と互換なので，0.28 から入れてよい．capability-type と handler-member はこれに依存する
+- 0.28: inference, `holds:`, the capability elements of R and W0402 always apply. E0444 applies with `capture-checking`.
+- During the period of warnings, until the next minor version, code that takes the capability of a handler without state out of its with is found and fixed.
+- 0.29: E0444 becomes the default. W0402 and E0425 are retired, the run-time check of `[effect.escape]` is removed, and `capture-checking` becomes stable (`[intro.experimental]`). That is a separate change of the specification, recorded when it is made.
+- One path is not tracked statically: a callback passed to an `@external` fn (`[ext.boundary]`) can be kept by the host and called after the with ends, and its R may contain Immediate effects, so it may hold a capability. The run-time check catches this now. The change for 0.29 MUST decide how this path is checked before the run-time check is removed, from what the period of `capture-checking` shows in real code. The candidates are: a value passed to an `@external` fn counts as leaving every with that provides a root it holds; or the run-time check stays only for values that the host calls back.
 
 ## Specification changes
+
+### `[intro.experimental]`
+
+Add a row to the table:
+
+> | `capture-checking` | 0.28 | A value that holds a capability and leaves the with or `Fiber.scope` that provides it is a compile error (E0444) instead of a warning (W0402) (`[effect.escape]`) |
 
 ### `[effect.escape]`
 
@@ -145,21 +149,30 @@ Replace the items from "The compiler tracks which capabilities a value holds ...
 
 > - The compiler infers, together with its type, which capabilities a value holds (its capture set). The elements of a capture set are roots: the handler of a with item, the Scope of a `Fiber.scope`, and `self` inside the operations of a handler. `use E` refers to the root of the innermost with that provides E at that position.
 > - A closure or a local fn holds what its captured variables hold. A data structure holds what its elements hold. The result of a call holds what the return value of the callee holds, with its parameters replaced by the arguments. A value whose type cannot contain a capability holds nothing.
-> - If the value of a with body holds a root of that with, it is a compile error (code to be assigned).
-> - The capture set of the return value of a function is inferred from its body. For a declaration without a body (an effect operation, a trait function, an `@external` fn, a function type of a parameter), the return value holds what its arguments hold, and the return value of an operation also holds the handler.
+> - The capture set of the return value of a function is inferred from its body. For a declaration without a body (an effect operation, a trait function, an `@external` fn, the function type of a parameter), the return value holds what its arguments hold, and the return value of an operation also holds the handler.
+> - If the value of a with body holds a root of that with, it is a warning (W0402).
+> - Experimental (`capture-checking`). It is a compile error (E0444) instead.
+> - The check at run time stays while the error is not the default: calling an operation of a handler that has already been released is a defect (`handler PostgresUsers was used after release`). It applies only to handlers that have fields, init, or release.
 > - The capture set is not written in source. The language server shows it (`[lsp.hover]`).
 
 ### `[effect.use]`
 
 Replace "Calling an operation of a capability value adds its effect to R" with:
 
-> - Calling an operation of a capability value obtained by `use E` adds E to R. Calling an operation of a capability received as a parameter, bound by a with item, or captured, adds that capability to R (`uses { from }`). A capability in R can be widened to its effect: a function whose R contains `p` can be used where R contains the effect of p. Whether a call may suspend (E0417) is decided by the effect of the capability.
+> - Calling an operation of a capability value obtained by `use E` adds E to R. Calling an operation of a capability captured by a closure or a local fn adds that capability to R (`uses { primary }`). A capability in R can be widened to its effect: a function whose R contains `p` can be used where R contains the effect of p. Whether a call may suspend (E0417) is decided by the effect of the capability.
 
 ### `[fiber.escape]`
 
-Replace the item on E0425 and the paragraph and table on 0.22 with:
+Add after the item on E0425:
 
-> - The Scope of a `Fiber.scope`, and the Fibers, Deferreds, Semaphores and Queues it makes, are roots of that scope (8.6). If the value of `Fiber.scope` holds one of them, it is a compile error (the code of 8.6).
+> - The Scope of a `Fiber.scope`, and the Fibers, Deferreds, Semaphores and Queues it makes, are roots of that scope (8.6). If the value of `Fiber.scope` holds one of them, it is a warning (W0402).
+> - Experimental (`capture-checking`). It is a compile error (E0444) instead.
+
+Replace the paragraph that begins "When capture sets (8.6) arrive in 0.22" with:
+
+> Capture sets (8.6) track handles, Deferreds, Semaphores and Queues as values that hold the root of the scope that created them. Leaving the scope is a warning, and a compile error with the experimental feature `capture-checking`.
+
+In the table, rename the column "0.22" to "With `capture-checking`".
 
 ### `[type.fn]`
 
@@ -169,53 +182,60 @@ Add:
 
 ### `[type.rules]`
 
-Replace the rows of `use X` and the closure:
+Replace the row of the anonymous function:
 
-> | `use X` | The capability of X | {} | { X } |
 > | `\|x\| e` | `fn(..) -> T fails Ee uses { Re }`, where Re keeps the captured capabilities as elements | {} | {} |
 
 Add:
 
-> - A call `f(a)` adds to R the elements of the R of f, with each capability parameter replaced by the elements of the corresponding argument.
+> - A call `f(a)` adds to R the elements of the R of f, with each capability element that is a parameter replaced by the elements of the corresponding argument.
 
 ### `[lsp.hover]`
 
-> - On a function or a value that may hold capabilities, the hover shows a line `holds: ...` with the roots it may hold, and for each root the with that provides it.
+Add:
+
+> - On a function or a value that may hold capabilities, the hover shows a line `holds: ...` with the roots it may hold, and for each root the with that provides it. A root is shown by the variable of its binding, the parameter that received it, the handler of an unbound with item, or the name of the effect for a `use E` provided by the caller.
 
 ### `[diag.list]`
 
-> | E04xx | A value that holds a root leaves the with or the `Fiber.scope` that provides it (8.6) | ``a value that holds `f` cannot leave the `with` that provides it`` |
-> | E0425 | Unused (was: the value of `Fiber.scope` contains `Fiber`, `Deferred`, `Semaphore` or `Queue`; replaced by capture checking) | |
+Add:
+
+> | E0444 | With the experimental feature `capture-checking`, a value that holds a root leaves the with or the `Fiber.scope` that provides it (8.6, 11.8) | ``a value that holds `log` cannot leave the `with` that provides it`` |
+> | W0402 | A value that holds a root leaves the with or the `Fiber.scope` that provides it (8.6, 11.8). The labels show where the root is provided and where the value leaves | ``a value that holds `log` leaves the `with` that provides it`` |
 
 ### `[open.next]`
 
-Remove the item "0.22: capture set".
+Replace the item "0.22: capture set" with:
+
+> - [ ] 0.29: make E0444 the default, retire W0402 and E0425, and remove the run-time check of 8.6 (`capture-checking`). Before the run-time check is removed, decide how a callback passed to an `@external` fn and kept by the host is checked (12.4)
 
 ## Diagnostics
 
-- [ ] A value that holds a root leaves its with or `Fiber.scope`: code to be assigned. The labels show where the root is provided and where the value leaves
-- [ ] E0425: retired
-- [ ] The run-time defect `handler X was used after release`: kept for values that reach a released handler through the host (callbacks of `@external` fns), or removed (open question)
+- [x] A value that holds a root leaves its with or `Fiber.scope`: W0402, or E0444 with `capture-checking`
+- [x] E0425: kept until the error is the default (0.29)
+- [x] The run-time defect `handler X was used after release`: kept until the error is the default, then removed
 
 ## Compatibility
 
-- 今，実行時の defect になるプログラム（状態を持つ handler の capability を外へ出して呼ぶもの）は，コンパイルエラーになる．`[fiber.escape]` が予告していた移行と同じ
-- 状態を持たない handler の capability を外へ出すプログラムは，今は動くが，コンパイルエラーになる．これは非互換である
-- 外へ出しても呼ばないプログラム（今は defect にもならない）も，コンパイルエラーになる
-- R の capability の要素は effect の名前に広げられるので，今通る R の検査は通る
+- Programs that compile now still compile. Code that takes a capability out of its with now gets W0402.
+- With `capture-checking`, that code is a compile error. This includes code that takes the capability of a handler without state out of its with, which runs now, and code that takes one out and never calls it.
+- The capability elements of R can be widened to the names of effects, so every R check that passes now still passes.
 
 ## Implementation
 
-- emela-types: capture set の推論（型と一緒に持つ），with と Fiber.scope の出口での検査，R の capability の要素と広げる規則，関数の境界での置き換え
-- emela-lsp: `holds:` の表示
-- 実行時の検査（release 後の使用）は，静的な検査が入ったあとに外せるか確かめる
+- emela-types: the inference of capture sets (kept with the types), the check at the end of a with and of a `Fiber.scope`, the capability elements of R and their widening, the replacement at the boundary of a call
+- emela-cli, emela-lsp: W0402 and E0444 by the setting of each Pome
+- emela-lsp: the `holds:` line in hovers
 
 ## Alternatives
 
-- 実行時の検査のままにする: 状態を持たない handler と，呼ばれない値を見逃す
-- capture set をソースに書く（`^{c}` の形）: 書く負担が増える．Emela は capability の種類が決まっていて（`use E` と Scope），変数が不変で，寿命が入れ子なので，推論と保守的な既定で足りる見込み．足りない宣言が出てきたら，書く構文を後から足す
-- 型の名前で止める（E0425 の形を広げる）: `Option[Fiber[User]]` のように型を全部たどる必要があり，同じ型の別の with の値を区別できない
-- R を effect の名前だけに保つ: handler member の資源を引数で渡す関数の R が満たせない．クロージャが捕まえた実体と，呼ばれた場所の実体の区別がつかない
+- Keep the check at run time: handlers without state, and values never called, are not found.
+- Write capture sets in source (`T^{c}`): more to write. Emela has a fixed kind of capability (`use E` and Scope), immutable variables and nested lifetimes, so inference with conservative defaults is expected to be enough. A syntax can be added later for a declaration whose default is too strict.
+- Stop by the name of the type (extending E0425): every type has to be walked (`Option[Fiber[User]]`), and two values of the same type from different withs cannot be told apart.
+- Keep R to the names of effects: the R of a function that receives the resource of a handler member as a parameter cannot be satisfied, and a captured handler cannot be told apart from the one where the function is called.
+- Make the error the default at once: code that runs now breaks in one version, and the defaults of the inference cannot be adjusted against real code first.
+- Report a change of the capture set of a pub function in a compatibility check of Pome: the return type, `fails` and `uses` of a pub function can be inferred too (`[module.pub-signature]`), and Pome has no compatibility check for any of them. A check of the inferred signatures of pub functions can cover capture sets together, when one is added.
+
 
 ## Prior art
 
@@ -225,12 +245,8 @@ Remove the item "0.22: capture set".
 
 ## Open questions
 
-- 関数の境界で capture set が本体の変更によって変わると，呼び出し側が壊れる．pub な関数について，Pome の互換性の検査で拾うか，表示だけにするか
-- 保守的な既定（戻り値は引数の capture set の和を抱えうる）で通らない正しいプログラムが出たときに，書く構文を足すか
-- 実行時の検査（`handler X was used after release`）を残すか．`@external` のコールバックを通ってホストから届く場合は静的に追えない
-- R の capability の要素の表示の名前．引数名（`from`）でよいか．引数のない場所（クロージャを返す関数の戻り値の型）では何と書くか
-- `[effect.escape]` の「状態を持たない handler は外へ出ても動き続ける」に頼っている既存のコードがあるか（非互換の範囲）
-- 実験的な機能を有効にする仕組み．今の仕様には実験的な機能の概念がない．`Pome.toml` の `[experimental]`（Pome ごとに決まり，依存先にも LSP にも同じ設定が見える）にするか，コマンドの `--experimental-capture-check` にするか．後者は `emela check` と `emela build` と LSP で設定がずれうる．実験的な機能の扱い（互換性の保証の外にあること，診断の文面）は別の proposal にするか
-- 依存先の Pome が実験を有効にしていないとき．推論はいつも行うので，依存先の関数の capture set は使える．依存先の中の違反は依存先の設定で警告かエラーかが決まる
-
 ## Decision
+
+`[effect.escape]` already says that a value holding a capability cannot leave the with that provides it, but the check runs only at run time: a handler without state is never checked, and a value that is never called is never found. R also has only the granularity of the name of an effect, so it cannot tell a captured handler from the one provided where a function is called. Making capabilities values (`capability-type`, `handler-member`) depends on that distinction.
+
+Capture sets are inferred and shown by the language server, not written in source. Emela has a fixed kind of capability, immutable variables and lifetimes that are always nested, so inference with conservative defaults is enough for now. The check starts as a warning, and as an error behind the experimental feature, so that the defaults and the diagnostics can be tried against real code before 0.29 makes the error the default and removes the run-time check.

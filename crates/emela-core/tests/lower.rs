@@ -1078,3 +1078,69 @@ fn method_calls_lower_as_calls() {
         module("List.join(List.map([Show.show(u)], |s| String.append(s, \"!\")), \",\")")
     );
 }
+
+/// The functions of `dump` whose names contain `part`, in the order of the dump.
+fn dumped_fns(m: &Module, part: &str) -> String {
+    let mut out = String::new();
+    let mut on = false;
+    for line in dump(m).lines() {
+        if !line.starts_with(' ') && line.contains("fn ") {
+            on = line.contains(part);
+        }
+        if on {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// Derived Encode, Decode, ObjectKey and Shaped (`[trait.derive]`) are generic functions that
+/// call the trait functions for the fields and the `derived_` functions of std, with the keys and
+/// tags of `@key` and `@tag`.
+#[test]
+fn std_derives_are_generic_functions() {
+    let m = try_lower(
+        &[(
+            "src/main.emel",
+            r#"import Std.Dynamic.{Decode, Encode, ObjectKey}
+import Std.Shape.{Shaped}
+
+pub type View[A](id: String, @key("dueAt") due_at: Option[A]) derive Encode, Decode, Shaped
+
+pub enum Tree {
+  Leaf
+  Node(left: Tree, value: Int)
+  @tag("pair")
+  Pair(Int, Int)
+} derive Encode, Decode, Shaped
+
+pub enum Status {
+  @tag("open")
+  Open
+  Done
+} derive Eq, Ord, ObjectKey
+
+pub type Code(value: String) derive Eq, Ord, ObjectKey
+"#,
+        )],
+        Roots::All,
+    )
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    support::assert_well_typed(&m);
+    let names: Vec<&str> = fn_names(&m)
+        .into_iter()
+        .filter(|n| {
+            !n.starts_with("Std.") && {
+                [": Encode.", ": Decode.", ": ObjectKey.", ": Shaped."]
+                    .iter()
+                    .any(|t| n.contains(t))
+            }
+        })
+        .collect();
+    assert_eq!(names.len(), 12, "{names:?}");
+    let view = dumped_fns(&m, "View: ");
+    let tree = dumped_fns(&m, "Tree: ");
+    let keys = [dumped_fns(&m, "Status: "), dumped_fns(&m, "Code: ")].concat();
+    insta::assert_snapshot!([view, tree, keys].join("\n"));
+}

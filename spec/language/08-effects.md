@@ -55,33 +55,29 @@ fn greet(id: Int) {
 - `use X` is an expression that returns a value representing the capability of effect X. It can appear anywhere in a function.
 - Operations can be called only through a capability value, in the form `log.info(...)`. There is no form that calls them directly by effect name (`Logger.info(...)`).
 - Writing an operation of a capability value without calling it, as `log.info`, gives a function value. The capability value is evaluated at that position, and the type of the function value contains the capability's effect (as for a closure that captures a capability).
-- Calling an operation of a capability value adds its effect to R and the operation's `fails` to E. The type of a closure or a local fn that captures a capability value also contains that effect (the `copy` example below).
-- Passing a capability value as an argument, putting it into a data structure (a constructor, a list, a tuple), and returning it from a function are all compile errors. Only the top-level type of the value is checked.
-  - Passing it as an argument of a call is E0408. A constructor argument puts it into a data structure, so it is E0409.
-  - Putting it into a list, a tuple, or a field of a record update is E0409.
-  - Making it the value of the body of a fn, a handler operation, or an anonymous function is E0410. An anonymous function that returns its parameter as is does not get E0410 (the capability value came in as an argument, and the side that passed it gets E0408).
-  - This check does not look at the value of a with body (8.6).
+- Calling an operation of a capability value obtained by `use E` adds E to R. Calling an operation of a capability captured by a closure or a local fn adds that capability to R (`uses { primary }`). A capability in R can be widened to its effect: a function whose R contains `p` can be used where R contains the effect of p. Whether a call may suspend (E0417) is decided by the effect of the capability.
+- Calling an operation adds the operation's `fails` to E. A closure or a local fn that captures a capability value can be passed where its effect is expected (the `copy` example below).
+- The type of a capability value of E is written `use E`. E is an effect, with its type arguments, or a label. `use E` is a type, and can be written wherever a type can.
+- A capability value can be passed as an argument, put into a data structure, and returned from a function, as any other value. It cannot leave the with that provides it (8.6).
+- Only the operations of E can be called on a value of type `use E`, or taken as function values. There is no operation that inspects a capability value: no trait is implemented for `use E`, and `==` is not defined for it.
 - Writing an operation that the capability value's effect does not have is a compile error (E0401). The labels of named arguments are the parameter names in the effect's operation declaration.
 - The effect set R of a function that contains `use X` includes X. Even when written inside a branch, X is in the R of the whole function.
 - Calls carry no mark (such as await or `!`) that indicates side effects or suspension. Suspend operations are written in the same form as ordinary calls.
-- The type of a capability value cannot be written in source. A capability value cannot be passed as a function argument, put into a data structure, or returned.
-- To let a function use the capability of a specific handler, pass a closure that captures that capability. Passing a closure to a called function inside the with is fine (8.6).
+- To let a function use the capability of a specific handler, pass the capability value.
 
 ```emel
-fn copy(read: fn() -> Rows uses { Db }, write: fn(Rows) -> () uses { Db }) {
-  write(read())
+fn copy(from: use Db, to: use Db) {
+  to.execute(from.query("..."))
 }
 
 with PrimaryDb {
   primary = use Db
   with ReplicaDb {
     replica = use Db
-    copy(|| replica.query("..."), |rows| primary.execute(rows))
+    copy(replica, primary)
   }
 }
 ```
-
-A syntax for passing a capability value directly as an argument (a capability type such as `from: use Db`) can be added later if needed. It would be an additive change, so existing code would not break.
 
 ## 8.3 with `[effect.with]`
 
@@ -155,8 +151,10 @@ handler SystemClock: Clock {
 - A handler with state declares fields after its name. Fields are referenced through `self`, as in `self.conn`.
 - `init` runs once when entering the with and returns the handler value. It is required for a handler with fields (E0419). A handler without fields can also have init and release. The init of a handler without fields returns the value `ConsoleLogger` for a handler without parentheses, and `H()` for `handler H()`. self cannot be used inside init (because the value has not been made yet). In the operations of a handler without state, self is still the handler value and its type is the handler type (`ConsoleLogger`), as in a handler with state. It has no fields to access (E0312).
 - A handler value (`PostgresUsers(conn: ...)`) can be made only inside that handler's init. If it could be made outside, init and release could be skipped. Making it outside is a compile error (E0418). The inside of an anonymous function inside init counts as inside init. A record update (`H(n: 1, ..self)`) also makes a value, so it cannot be written in an operation body. A constructor pattern does not make a value, so it can be written anywhere.
+- Inside the init of a handler, its value can also be constructed as `Self(...)` (`Self` for a handler without parentheses, `Self()` for `handler H()`). It has the same meaning as writing the handler's name, and the same restriction (E0418). `Self` is not a constructor pattern, and does not construct types in traits and impls.
 - The `use` expressions inside `init` are the requirements of the handler. The capability value can be bound and used (`config = use Config`) or written inside an expression (`(use Config).db_url()`). Both become requirements. There is no syntax for writing requirements in the handler's header.
 - `init` MAY take parameters (`init(url: String) { ... }`). Their types MUST be written. Arguments are passed by writing `H(url: ...)` as an item of a with or a layer, or on the right side of `by` (`[effect.with]`, `[effect.layer]`, `[effect.label]`). A handler whose init takes no parameters cannot be given arguments, and `H()` cannot be written for it.
+- A field of a handler can have the type `use E`. The capability it holds belongs to a with that encloses the with of the handler, because the arguments of init are evaluated outside the with (`[effect.with]`).
 - `H(...)` at a with is a call of init, not a construction of the handler value. As before, the handler value can be constructed only inside init (E0418).
 - `release` runs once when leaving the with. It runs in every case: normal completion, error, defect, or interruption.
 - The E of release MUST be empty (E0420, reported for each expression that can raise an error). Cleanup that can fail escapes inside release or turns the failure into a defect with panic. The value of release is discarded, so its type does not matter. release MAY call suspend operations (it is not interrupted; 11.4). release is not a fn operation, so the E0417 check does not apply to it.
@@ -192,23 +190,26 @@ fn main() {
 
 ## 8.6 Capabilities must not leak `[effect.escape]`
 
-A capability value, and closures and local fns that capture it, cannot leave the with that provides it.
+A capability value, and any value that holds one (a closure or a local fn that captures it, a data structure that contains it), cannot leave the with that provides it.
 
 ```emel
 fn make_greeter() {
   with ConsoleLogger {
     log = use Logger
-    || log.info("hi") # compile error: leaves the with while holding log
+    || log.info("hi") # W0402: leaves the with while holding log (E0444 with `capture-checking`)
   }
 }
 ```
 
-- The compiler tracks which capabilities a value holds, together with its type (capture set). When a closure goes into another closure or a data structure, that information is carried over.
-- If the value of a with body holds a capability provided by that with, it is a compile error.
-- Until the capture set check is added (0.22), the check is done at run time. Calling an operation of a handler that has already been released is a defect (`handler PostgresUsers was used after release`). This check applies only to handlers that have fields, init, or release. A handler without state keeps working as before even if it is taken out of the with.
-- The capture set is inferred and is not written in source. Users see only error messages.
+- The compiler infers, together with its type, which capabilities a value holds (its capture set). The elements of a capture set are roots: the handler of a with item, the Scope of a `Fiber.scope`, and `self` inside the operations of a handler. `use E` refers to the root of the innermost with that provides E at that position.
+- A closure or a local fn holds what its captured variables hold. A data structure holds what its elements hold. The result of a call holds what the return value of the callee holds, with its parameters replaced by the arguments. A value whose type cannot contain a capability holds nothing.
+- The capture set of the return value of a function is inferred from its body. For a declaration without a body (an effect operation, a trait function, an `@external` fn, the function type of a parameter), the return value holds what its arguments hold, and the return value of an operation also holds the handler. An argument whose type is Fiber, Deferred, Semaphore or Queue passes on what it holds except the roots of scopes, unless the type of the return value at the call contains one of these types (11.8).
+- If the value of a with body holds a root of that with, it is a warning (W0402).
+- Experimental (`capture-checking`). It is a compile error (E0444) instead.
+- The check at run time stays while the error is not the default: calling an operation of a handler that has already been released is a defect (`handler PostgresUsers was used after release`). It applies only to handlers that have fields, init, or release.
+- The capture set is not written in source. The language server shows it (`[lsp.hover]`).
 - A closure that is used up inside the with (`List.map(names, |n| log.info(n))`) is fine.
-- Leaking Scope capabilities, fiber handles, and Deferreds is prevented by the same idea. The table in 11.8 summarizes what can be checked in 0.20 and 0.22.
+- Leaking Scope capabilities, fiber handles, and Deferreds is prevented by the same idea. The table in 11.8 summarizes what is checked statically and what at run time.
 
 ## 8.7 Async `[effect.async]`
 

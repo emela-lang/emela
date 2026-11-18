@@ -1,0 +1,20 @@
+# `Self` and the handler's name are both kept as written (`[effect.handler]`)
+handler PostgresUsers(conn: Connection): Users {
+  init(url: String) {  Self( conn:pg_connect(url) ) }
+  fn find(id) { self.conn }
+}
+
+handler Named(conn: Connection): Users {
+  init(url: String) { Named(conn: pg_connect(url)) }
+}
+
+handler Counter: Tally {
+  init { Self }
+}
+
+handler Empty(): Tally {
+  init {
+    make = || Self( )
+    make()
+  }
+}

@@ -116,6 +116,7 @@ type       = type_ref [ "[" type_arg { "," type_arg } "]" ]
            | "(" type "," type { "," type } ")"               (* tuple *)
            | "fn" "(" [ type { "," type } ] ")" "->" type
              [ "fails" error_set ] [ "uses" effect_set ]
+           | "use" effect_item                                (* the type of a capability; 8.2 *)
 type_ref   = [ module_path "." ] type_name
 
 type_arg   = type
@@ -152,7 +153,7 @@ unary      = ( "!" | "-" ) unary
            | postfix
 postfix    = primary { "(" [ args ] ")" | "." lower_name }
 
-primary    = literal | lower_name | upper_name | type_ref | "self"
+primary    = literal | lower_name | upper_name | type_ref | "self" | "Self"
            | "(" ")"
            | "(" expr ")"
            | "(" expr "," expr { "," expr } ")"
@@ -184,6 +185,7 @@ lambda_param = pattern [ ":" type ]
 - To call an operation of `use X` in place, wrap it in parentheses: `(use X).op(...)`. Writing `.` or `(` directly after `use X` is a compile error (E0121).
 - In an argument list, a positional argument cannot follow a named argument.
 - The type arguments on the right of `by` (`Hits by State[Int]`) can be written only when it names an effect, and arguments only when it names a handler.
+- `Self` as an expression is the value of a handler, and can be written only inside the init of a handler, called with its fields or alone (8.4).
 - A trailing `..expr` in an argument list is a record update of a constructor (5.3). Writing it in a function call is a compile error (E0222). Writing an argument after `..` is a compile error (E0114).
 - A `..expr` in a list literal can appear only once, at the end. `[x, y, ..rest]` is the list `rest` with `x` and `y` added in front. What follows `..` is not limited to a name and can be any expression (`[x, ..List.tail(xs)]`). `[..rest]` with no elements, and `..` in the middle or more than once (`[..a, ..b]`), cannot be written.
 

@@ -1,0 +1,18 @@
+import Std.Map
+import Std.Dynamic.{Fields, Text, Null}
+
+@test
+fn builds_fields() {
+  assert Dynamic.object([("a", Text("x")), ("b", Null)])
+    == Fields(Map.from_list([("a", Text("x")), ("b", Null)]))
+}
+
+@test
+fn keeps_the_later_value_of_a_repeated_key() {
+  assert Dynamic.object([("a", Text("x")), ("a", Text("y"))]) == Dynamic.object([("a", Text("y"))])
+}
+
+@test
+fn reads_back_with_field() {
+  assert Dynamic.object([("name", Text("a"))]).field("name", Dynamic.string) == "a"
+}
