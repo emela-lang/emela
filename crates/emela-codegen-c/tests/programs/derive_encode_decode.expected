@@ -1,7 +1,7 @@
 exit: 0
 --- stdout
 --- stderr
-"{\"done\":false,\"dueAt\":null,\"id\":\"1\"}"
+"{\"done\":false,\"id\":\"1\"}"
 "{\"done\":true,\"dueAt\":\"today\",\"id\":\"2\"}"
 True
 "{\"tag\":\"Node\",\"value\":{\"left\":{\"tag\":\"Leaf\"},\"right\":{\"tag\":\"pair\",\"value\":[2,3]},\"value\":1}}"

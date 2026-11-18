@@ -70,11 +70,11 @@ fn main() {
   trees: Option[Tree[Int]] = None
   forests: Option[List[Tree[Int]]] = None
   boards: Option[Board] = None
-  # A type is an object of its fields by key; None is written as null.
+  # A type is an object of its fields by key; None leaves the key out.
   view = TodoView(id: "1", due_at: None, done: False)
   dbg(Json.encode(view))
   dbg(Json.encode(TodoView(id: "2", due_at: Some("today"), done: True)))
-  # A missing key reads as null, and unknown keys are ignored.
+  # A missing key of an Option reads as None, and unknown keys are ignored.
   read: TodoView = Json.decode("{\"id\":\"1\",\"done\":false,\"extra\":1}") escape {
     _ -> panic("not read")
   }

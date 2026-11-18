@@ -11,9 +11,11 @@
 //! argument or evidence table appears here; what each derivation does to a value is written in
 //! Emela in std, and only the walk over the fields, the keys and the tags is the compiler's.
 //!
-//! - Encode of a type is `object` of its fields by key; of an enum, the variant with its tag and
-//!   contents (an object, Items, or none).
-//! - Decode reads the fields in declaration order. `from_dynamic` stops at the first failure.
+//! - Encode of a type is an object of its fields by key, each written by `Encode.to_field` and
+//!   left out when that gives None; of an enum, the variant with its tag and contents (an object
+//!   written in the same way, Items, or none).
+//! - Decode reads the fields in declaration order: a present key by `Decode.from_dynamic`, a
+//!   missing one by `Decode.from_absent` (in `derived_field`). `from_dynamic` stops at the first failure.
 //!   `from_dynamic_all` reads each part into an `Attempt`, fails with the failures of all of them
 //!   if any failed, and otherwise constructs the value. An enum first reads its tag, and a
 //!   variant with positional contents first checks the number of items.
@@ -244,30 +246,40 @@ impl Lowerer<'_> {
 
     // ---- Encode ----
 
+    /// Named fields are written through `Encode.to_field`, and `derived_object` leaves out those
+    /// that give None; positional contents through `Encode.to_dynamic`.
     fn encode(&mut self, to_dynamic: DefId, d: &Deriving, x: Local) -> Expr {
         let dynamic = self.std_type(DYNAMIC, "Dynamic", Vec::new());
-        let pair = self.module.tuple(vec![TypeId::STRING, dynamic]);
+        let option = self.module.option_enum();
+        let field_ty = self.module.intern(Type::Enum(option, vec![dynamic]));
+        let pair = self.module.tuple(vec![TypeId::STRING, field_ty]);
+        let to_field = self
+            .std_def(DYNAMIC, "to_field", DefKind::TraitFn)
+            .expect("`Std.Dynamic.Encode.to_field`, which derived impls call, is missing");
         self.match_ctors(d, x, |cx, c, xs| {
-            let values: Vec<Expr> = c
-                .fields
-                .iter()
-                .zip(xs)
-                .map(|((_, t), &x)| cx.trait_call(to_dynamic, *t, vec![Expr::Var(x)]))
-                .collect();
             let contents = if c.named {
                 let pairs = c
                     .fields
                     .iter()
-                    .zip(values)
-                    .map(|((key, _), v)| Expr::Tuple(vec![string(key), v]))
+                    .zip(xs)
+                    .map(|((key, t), &x)| {
+                        let v = cx.trait_call(to_field, *t, vec![Expr::Var(x)]);
+                        Expr::Tuple(vec![string(key), v])
+                    })
                     .collect();
                 let list = Expr::List {
                     elem: pair,
                     elems: pairs,
                     tail: None,
                 };
-                cx.std_call(DYNAMIC, "object", Vec::new(), vec![list])
+                cx.std_call(DYNAMIC, "derived_object", Vec::new(), vec![list])
             } else {
+                let values: Vec<Expr> = c
+                    .fields
+                    .iter()
+                    .zip(xs)
+                    .map(|((_, t), &x)| cx.trait_call(to_dynamic, *t, vec![Expr::Var(x)]))
+                    .collect();
                 let list = Expr::List {
                     elem: dynamic,
                     elems: values,

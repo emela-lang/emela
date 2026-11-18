@@ -1,7 +1,7 @@
 ---
 title: Absent keys in derived Encode and Decode
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 652
 issue:
 decided: 2026-11-18
