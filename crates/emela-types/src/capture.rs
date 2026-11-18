@@ -27,7 +27,7 @@ use emela_resolve::hir::{
     Res, Span, Stmt, StrPart, WithItem,
 };
 use la_arena::ArenaMap;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use crate::body::fn_parts;
@@ -266,8 +266,9 @@ impl<'a, 'b> Cx<'a, 'b> {
         }
         let parts = fn_parts(program, def)?;
         for (i, p) in parts.params.iter().enumerate() {
-            let val = Val::of(Holds::from([Holder::Param(Binder::Def(def), i)]));
-            self.bind(p.local, val);
+            let param = Holder::Param(Binder::Def(def), i);
+            self.names.insert(param, p.local);
+            self.bind(p.local, Val::of(Holds::from([param])));
         }
         let body = parts.body?;
         let val = self.eval(body);
@@ -516,11 +517,16 @@ impl<'a, 'b> Cx<'a, 'b> {
 
     /// The value of a closure: what its captured variables hold, and what its body returns.
     fn closure(&mut self, binder: Binder, params: &[LocalId], body: ExprId) -> Val {
+        let mut inside = FxHashSet::default();
+        bound_in(self.program(), body, &mut inside);
+        inside.extend(params.iter().copied());
         let mut captured = Holds::new();
-        self.captured(body, &mut captured);
+        self.captured(body, &inside, &mut captured);
         self.binders.push(binder);
         for (i, &p) in params.iter().enumerate() {
-            self.bind(p, Val::of(Holds::from([Holder::Param(binder, i)])));
+            let param = Holder::Param(binder, i);
+            self.names.insert(param, p);
+            self.bind(p, Val::of(Holds::from([param])));
         }
         let ret = self.eval(body).holds;
         self.binders.pop();
@@ -530,16 +536,19 @@ impl<'a, 'b> Cx<'a, 'b> {
         }
     }
 
-    /// What the variables bound outside `expr` and used inside it hold.
-    fn captured(&self, expr: ExprId, out: &mut Holds) {
+    /// What the variables used inside `expr` and bound outside it (not in `inside`) hold. The
+    /// environment may still have the variables bound inside from an earlier evaluation of the
+    /// same body, so those are left out by name.
+    fn captured(&self, expr: ExprId, inside: &FxHashSet<LocalId>, out: &mut Holds) {
         let program = self.program();
         if let ExprKind::Path(Res::Local(local)) = program.exprs[expr].kind
+            && !inside.contains(&local)
             && let Some(val) = self.env.get(&local)
         {
             out.extend(val.holds.iter().copied());
         }
         for child in children(program, expr) {
-            self.captured(child, out);
+            self.captured(child, inside, out);
         }
     }
 
@@ -958,6 +967,60 @@ fn args_body_tail(program: &Program, call: ExprId) -> Option<ExprId> {
     }
 }
 
+/// The local variables bound inside `expr`: by patterns, and as the names and parameters of
+/// closures and local fns.
+fn bound_in(program: &Program, expr: ExprId, out: &mut FxHashSet<LocalId>) {
+    match &program.exprs[expr].kind {
+        ExprKind::Block(block) => {
+            for stmt in &block.stmts {
+                match stmt {
+                    Stmt::Let { pat, .. } => pat_locals(program, *pat, out),
+                    Stmt::LocalFn(f) => {
+                        out.insert(f.local);
+                        out.extend(f.sig.params.iter().map(|p| p.local));
+                    }
+                    Stmt::Expr(_) => {}
+                }
+            }
+        }
+        ExprKind::Lambda { params, .. } => out.extend(params.iter().map(|p| p.local)),
+        ExprKind::Match { arms, .. } | ExprKind::Escape { arms, .. } => {
+            for arm in arms {
+                pat_locals(program, arm.pat, out);
+            }
+        }
+        _ => {}
+    }
+    for child in children(program, expr) {
+        bound_in(program, child, out);
+    }
+}
+
+fn pat_locals(program: &Program, pat: PatId, out: &mut FxHashSet<LocalId>) {
+    match &program.pats[pat].kind {
+        PatKind::Bind(local) => {
+            out.insert(*local);
+        }
+        PatKind::Ctor { args, .. } => {
+            for arg in args.iter().flatten() {
+                pat_locals(program, arg.pat, out);
+            }
+        }
+        PatKind::Tuple(pats) => {
+            for &p in pats {
+                pat_locals(program, p, out);
+            }
+        }
+        PatKind::List { elems, rest } => {
+            for &p in elems {
+                pat_locals(program, p, out);
+            }
+            out.extend(rest.as_ref().and_then(|r| r.binding));
+        }
+        PatKind::Wild | PatKind::Lit(_) | PatKind::Const(_) | PatKind::Unit | PatKind::Missing => {}
+    }
+}
+
 /// The direct subexpressions of `expr`, including the bodies of closures and local fns.
 fn children(program: &Program, expr: ExprId) -> Vec<ExprId> {
     let mut out = Vec::new();
@@ -1121,8 +1184,10 @@ impl Shown<'_, '_> {
                 }
             }
             Holder::Param(binder, i) => {
-                let name = param_local(program, binder, i)
-                    .map(|l| program.locals[l].name.clone())
+                let name = bound
+                    .or_else(|| {
+                        param_local(program, binder, i).map(|l| program.locals[l].name.clone())
+                    })
                     .unwrap_or_else(|| SmolStr::new(format!("#{i}")));
                 Held {
                     name,

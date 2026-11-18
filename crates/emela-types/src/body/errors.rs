@@ -623,6 +623,12 @@ impl BodyInfer<'_> {
             if missing.is_empty() {
                 continue;
             }
+            // A capability cannot be written in `uses`, so a missing one is reported as its
+            // effect (`[effect.use]`).
+            let missing: Vec<RowElem> = match c.kind {
+                SetKind::Effects => Row::from_elems(missing).widened().elems().to_vec(),
+                SetKind::Errors => missing,
+            };
             match (&c.origin, c.kind) {
                 (Origin::Body(def), SetKind::Errors) => self.report_unhandled(*def, &missing),
                 (Origin::HandlerOp { handler, index }, SetKind::Errors) => {

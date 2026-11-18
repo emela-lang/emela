@@ -292,7 +292,8 @@ fn call_param_without_arguments(g: fn() -> fn() -> Int) -> fn() -> Int {
 
 /// `[effect.use]`, `[type.fn]`, `[type.rules]`: calling an operation of a captured capability puts
 /// the capability in R (`uses { p }`). It widens to its effect, so the closure can be passed where
-/// the effect is expected; the call reaches the captured handler.
+/// the effect is expected; the call reaches the captured handler. A capability that a `uses`
+/// clause lacks is reported as its effect, which can be written there.
 #[test]
 fn capabilities_in_r() {
     insta::assert_snapshot!(render(&with_prelude(
@@ -315,6 +316,14 @@ fn pure_rejects() -> Int {
     p = use Db
     h: fn() -> Int uses {} = || p.query("x")
     h()
+  }
+}
+
+fn declared_local() -> Int {
+  with PrimaryDb {
+    p = use Db
+    fn g() -> Int uses {} { p.query("x") }
+    g()
   }
 }
 "#
@@ -416,4 +425,25 @@ fn other_roots() -> fn() -> () {
 "#
         )
     )));
+}
+
+/// `[lsp.hover]`: a root passed to a parameter is shown by the parameter's name, for a local fn
+/// and a closure too.
+#[test]
+fn parameters_are_named() {
+    insta::assert_snapshot!(render(
+        r#"
+fn outer() -> Int {
+  fn wrap(f: fn() -> Int) -> fn() -> Int {
+    g = f
+    g
+  }
+  h = |k: fn() -> Int| {
+    m = k
+    m
+  }
+  wrap(h(|| 1))()
+}
+"#
+    ));
 }
