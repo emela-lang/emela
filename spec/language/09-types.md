@@ -98,7 +98,7 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `C(fi: ei, ..r)` | The type of C (type arguments are determined from ei and the fields carried over from r) | Ei ∪ Er | Ri ∪ Rr |
 | `fail e` | Never | { the tag of e } | {} |
 | `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. When there is an arm `_`, the E is Eei alone. 7.3) | Re ∪ Rei |
-| `use X` | The capability of X | {} | { X } |
+| `use X` | `use X` | {} | { X } |
 | `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H)) ∪ requires(H) ∪ (R of the arguments of init) |
 | `\|x\| e` | `fn(..) -> T fails Ee uses { Re }`, where Re keeps the captured capabilities as elements | {} | {} |
 | `fn f(x: A) -> T { e }` (local fn, a statement) | Binds f to `fn(A) -> T fails Ee uses { Re }` | {} | {} |
