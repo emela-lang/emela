@@ -1,0 +1,11 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\nhandler ConsoleLogger: Logger {  # 補\n  fn info(msg) { () }\n}\n\nfn make_greeter() {\n  with ConsoleLogger {\n    log = use Logger\n    || log.info(\"hi\") # W0402: leaves the with while holding log (E0444 with `capture-checking`)\n  }\n}\n\nfn used_up(names: List[String]) {  # 補\n  with ConsoleLogger {\n    log = use Logger\n    List.map(names, |n| log.info(n))\n  }\n}\n\"#)"
+---
+make_greeter: fn() -> fn() -> () uses { Logger }
+  log: use Logger
+used_up: fn(List[String]) -> List[()]
+  names: List[String]
+  log: use Logger
+  n: String
+`|| log.info("hi")` warning: holds `log` and leaves the `with` that provides it

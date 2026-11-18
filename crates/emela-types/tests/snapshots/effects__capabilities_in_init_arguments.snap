@@ -13,7 +13,7 @@ handler TakesString: use {}
 {   c = use Config   with LazyKv(url: || c.url()) { (use Kv).get("a") } }: Config
 use Config: Config
 with LazyKv(url: || c.url()) { (use Kv).get("a") }: Config
-c.url(): Config
+c.url(): c
 { (use Kv).get("a") }: Kv
 (use Kv).get("a"): Kv
 (use Kv).get: Kv

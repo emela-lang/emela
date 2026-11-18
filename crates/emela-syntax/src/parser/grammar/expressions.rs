@@ -364,7 +364,9 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
             m.abandon(p);
             return Some(literal(p, interp));
         }
-        LOWER_NAME | UPPER_NAME | SELF_KW => {
+        // `Self` as an expression constructs a handler in its init (`[grammar.expr]`). Where it
+        // can be written is checked by name resolution.
+        LOWER_NAME | UPPER_NAME | SELF_KW | SELF_TYPE_KW => {
             p.bump();
             NAME_REF
         }

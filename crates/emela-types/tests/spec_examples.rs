@@ -1205,6 +1205,37 @@ fn catch_all_guarded(c: Bool) -> Int {
     ));
 }
 
+/// 8.6 A closure that captures a capability and is the value of the `with` providing it is
+/// W0402 (`[effect.escape]`). A closure used up inside the `with` is fine.
+#[test]
+fn spec_8_6_capabilities_must_not_leak() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+effect Logger {  # 補
+  fn info(msg: String) -> ()
+}
+
+handler ConsoleLogger: Logger {  # 補
+  fn info(msg) { () }
+}
+
+fn make_greeter() {
+  with ConsoleLogger {
+    log = use Logger
+    || log.info("hi") # W0402: leaves the with while holding log (E0444 with `capture-checking`)
+  }
+}
+
+fn used_up(names: List[String]) {  # 補
+  with ConsoleLogger {
+    log = use Logger
+    List.map(names, |n| log.info(n))
+  }
+}
+"#
+    ));
+}
+
 /// 9.2 Only functions that cannot fail can be passed to a `fails {}` parameter (E0321).
 #[test]
 fn spec_9_2_pure_parameter() {

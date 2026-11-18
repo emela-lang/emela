@@ -1,0 +1,38 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/unclosed_variant_list_before_attr.emel
+---
+ROOT@0..134
+  COMMENT@0..95 "# 閉じていない enum の本体は，後に型名が続かない行頭の属性で終わる"
+  NEWLINE@95..96 "\n"
+  ENUM_DECL@96..118
+    ENUM_KW@96..100 "enum"
+    WHITESPACE@100..101 " "
+    TYPE_NAME@101..107 "Status"
+    WHITESPACE@107..108 " "
+    VARIANT_LIST@108..118
+      L_BRACE@108..109 "{"
+      NEWLINE@109..110 "\n"
+      WHITESPACE@110..112 "  "
+      VARIANT@112..116
+        TYPE_NAME@112..116 "Open"
+      NEWLINE@116..117 "\n"
+      NEWLINE@117..118 "\n"
+  FN_DECL@118..133
+    ANNOTATION@118..123
+      AT@118..119 "@"
+      LOWER_NAME@119..123 "test"
+    NEWLINE@123..124 "\n"
+    FN_KW@124..126 "fn"
+    WHITESPACE@126..127 " "
+    LOWER_NAME@127..128 "t"
+    PARAM_LIST@128..130
+      L_PAREN@128..129 "("
+      R_PAREN@129..130 ")"
+    WHITESPACE@130..131 " "
+    BLOCK_EXPR@131..133
+      L_BRACE@131..132 "{"
+      R_BRACE@132..133 "}"
+  NEWLINE@133..134 "\n"
+error[E0110]@118..119: expected `}`

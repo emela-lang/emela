@@ -1,0 +1,159 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+assertion_line: 12
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/handler_self.emel
+---
+ROOT@0..324
+  COMMENT@0..91 "# `Self` as an expression constructs the value of a handler in its init (`[grammar.expr]`)."
+  NEWLINE@91..92 "\n"
+  HANDLER_DECL@92..200
+    HANDLER_KW@92..99 "handler"
+    WHITESPACE@99..100 " "
+    TYPE_NAME@100..113 "PostgresUsers"
+    FIELD_LIST@113..131
+      L_PAREN@113..114 "("
+      FIELD@114..130
+        LOWER_NAME@114..118 "conn"
+        COLON@118..119 ":"
+        WHITESPACE@119..120 " "
+        PATH_TYPE@120..130
+          PATH@120..130
+            TYPE_NAME@120..130 "Connection"
+      R_PAREN@130..131 ")"
+    COLON@131..132 ":"
+    WHITESPACE@132..133 " "
+    HANDLER_EFFECT@133..138
+      PATH@133..138
+        TYPE_NAME@133..138 "Users"
+    WHITESPACE@138..139 " "
+    ITEM_LIST@139..200
+      L_BRACE@139..140 "{"
+      NEWLINE@140..141 "\n"
+      WHITESPACE@141..143 "  "
+      HANDLER_INIT@143..198
+        LOWER_NAME@143..147 "init"
+        PARAM_LIST@147..160
+          L_PAREN@147..148 "("
+          PARAM@148..159
+            LOWER_NAME@148..151 "url"
+            COLON@151..152 ":"
+            WHITESPACE@152..153 " "
+            PATH_TYPE@153..159
+              PATH@153..159
+                TYPE_NAME@153..159 "String"
+          R_PAREN@159..160 ")"
+        WHITESPACE@160..161 " "
+        BLOCK_EXPR@161..198
+          L_BRACE@161..162 "{"
+          NEWLINE@162..163 "\n"
+          WHITESPACE@163..167 "    "
+          CALL_EXPR@167..194
+            NAME_REF@167..171
+              SELF_TYPE_KW@167..171 "Self"
+            ARG_LIST@171..194
+              L_PAREN@171..172 "("
+              NAMED_ARG@172..193
+                LOWER_NAME@172..176 "conn"
+                COLON@176..177 ":"
+                WHITESPACE@177..178 " "
+                CALL_EXPR@178..193
+                  NAME_REF@178..188
+                    LOWER_NAME@178..188 "pg_connect"
+                  ARG_LIST@188..193
+                    L_PAREN@188..189 "("
+                    NAME_REF@189..192
+                      LOWER_NAME@189..192 "url"
+                    R_PAREN@192..193 ")"
+              R_PAREN@193..194 ")"
+          NEWLINE@194..195 "\n"
+          WHITESPACE@195..197 "  "
+          R_BRACE@197..198 "}"
+      NEWLINE@198..199 "\n"
+      R_BRACE@199..200 "}"
+  NEWLINE@200..201 "\n"
+  NEWLINE@201..202 "\n"
+  HANDLER_DECL@202..250
+    HANDLER_KW@202..209 "handler"
+    WHITESPACE@209..210 " "
+    TYPE_NAME@210..217 "Counter"
+    COLON@217..218 ":"
+    WHITESPACE@218..219 " "
+    HANDLER_EFFECT@219..224
+      PATH@219..224
+        TYPE_NAME@219..224 "Tally"
+    WHITESPACE@224..225 " "
+    ITEM_LIST@225..250
+      L_BRACE@225..226 "{"
+      NEWLINE@226..227 "\n"
+      WHITESPACE@227..229 "  "
+      HANDLER_INIT@229..248
+        LOWER_NAME@229..233 "init"
+        WHITESPACE@233..234 " "
+        BLOCK_EXPR@234..248
+          L_BRACE@234..235 "{"
+          NEWLINE@235..236 "\n"
+          WHITESPACE@236..240 "    "
+          NAME_REF@240..244
+            SELF_TYPE_KW@240..244 "Self"
+          NEWLINE@244..245 "\n"
+          WHITESPACE@245..247 "  "
+          R_BRACE@247..248 "}"
+      NEWLINE@248..249 "\n"
+      R_BRACE@249..250 "}"
+  NEWLINE@250..251 "\n"
+  NEWLINE@251..252 "\n"
+  HANDLER_DECL@252..323
+    HANDLER_KW@252..259 "handler"
+    WHITESPACE@259..260 " "
+    TYPE_NAME@260..265 "Empty"
+    FIELD_LIST@265..267
+      L_PAREN@265..266 "("
+      R_PAREN@266..267 ")"
+    COLON@267..268 ":"
+    WHITESPACE@268..269 " "
+    HANDLER_EFFECT@269..274
+      PATH@269..274
+        TYPE_NAME@269..274 "Tally"
+    WHITESPACE@274..275 " "
+    ITEM_LIST@275..323
+      L_BRACE@275..276 "{"
+      NEWLINE@276..277 "\n"
+      WHITESPACE@277..279 "  "
+      HANDLER_INIT@279..321
+        LOWER_NAME@279..283 "init"
+        WHITESPACE@283..284 " "
+        BLOCK_EXPR@284..321
+          L_BRACE@284..285 "{"
+          NEWLINE@285..286 "\n"
+          WHITESPACE@286..290 "    "
+          BINDING@290..306
+            NAME_REF@290..294
+              LOWER_NAME@290..294 "make"
+            WHITESPACE@294..295 " "
+            EQ@295..296 "="
+            WHITESPACE@296..297 " "
+            LAMBDA_EXPR@297..306
+              PARAM_LIST@297..299
+                PIPE2@297..299 "||"
+              WHITESPACE@299..300 " "
+              CALL_EXPR@300..306
+                NAME_REF@300..304
+                  SELF_TYPE_KW@300..304 "Self"
+                ARG_LIST@304..306
+                  L_PAREN@304..305 "("
+                  R_PAREN@305..306 ")"
+          NEWLINE@306..307 "\n"
+          WHITESPACE@307..311 "    "
+          CALL_EXPR@311..317
+            NAME_REF@311..315
+              LOWER_NAME@311..315 "make"
+            ARG_LIST@315..317
+              L_PAREN@315..316 "("
+              R_PAREN@316..317 ")"
+          NEWLINE@317..318 "\n"
+          WHITESPACE@318..320 "  "
+          R_BRACE@320..321 "}"
+      NEWLINE@321..322 "\n"
+      R_BRACE@322..323 "}"
+  NEWLINE@323..324 "\n"

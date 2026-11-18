@@ -1,0 +1,27 @@
+import Std.Map
+import Std.Dynamic.{Dynamic, Fields, Text, Null, Items, Number, Key, Segment, DecodeError}
+
+fn failure(value: Dynamic) -> (String, List[Segment]) {
+  {
+    value.tag()
+    ("", [])
+  } escape {
+    DecodeError(expected:, path:, ..) -> (expected, path)
+  }
+}
+
+@test
+fn reads_the_tag() {
+  value = Fields(Map.from_list([("tag", Text("Circle")), ("value", Fields(Map.empty()))]))
+  assert value.tag() == "Circle"
+}
+
+@test
+fn fails_without_a_tag() {
+  assert failure(Fields(Map.empty())) == ("text", [Key("tag")])
+}
+
+@test
+fn fails_on_a_value_that_is_not_fields() {
+  assert failure(Items([])) == ("fields", [])
+}

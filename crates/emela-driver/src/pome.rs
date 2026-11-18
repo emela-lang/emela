@@ -169,6 +169,7 @@ impl<T: Transport> Builder<'_, T> {
             targets: manifest.targets.clone(),
             version,
             dependencies: Vec::new(),
+            experimental: crate::experimental::dependency_features(&manifest.experimental),
         });
         let mut refs = Vec::new();
         for (dep, requirement) in &manifest.dependencies {

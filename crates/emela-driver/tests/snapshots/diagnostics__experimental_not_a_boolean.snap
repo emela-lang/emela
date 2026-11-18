@@ -1,0 +1,21 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+warning[W0206]: unknown experimental feature `from-the-future`
+   ╭─[ Pome.toml:7:1 ]
+   │
+ 7 │ from-the-future = "yes"
+   │ ───────┬───────  
+   │        ╰───────── 
+───╯
+
+warning[W0207]: `[experimental].from-the-future` must be `true` or `false`
+   ╭─[ Pome.toml:7:19 ]
+   │
+ 7 │ from-the-future = "yes"
+   │                   ──┬──  
+   │                     ╰──── 
+───╯
+
+2 warnings
