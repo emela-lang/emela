@@ -21,10 +21,10 @@ static void e0_main(void) {
   v1 = em_int_to_string(v0);
   e1_print(v1);
   if (em_defect != NULL) {
-    em_drop(v1);
+    em_drop_block(v1);
     return;
   }
-  em_drop(v1);
+  em_drop_block(v1);
   return;
 }
 

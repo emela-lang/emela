@@ -1,12 +1,11 @@
 //! Tests for borrow inference (C2a/C2b, PR-026): the per-function borrowed-parameter signature
-//! that reference counting carries through its ownership rules, and the off-by-default flag that
-//! runs it in the pipeline.
+//! that reference counting carries through its ownership rules, and the flag that runs it in the
+//! pipeline (on by default since M3).
 //!
 //! Programs are lowered (with the Core IR optimisations off), monomorphised, converted and taken to
 //! `Stage::StateMachines`; a test then calls `insert_borrow_signature` explicitly, runs
-//! `insert_rc` and checks the balance with the verifier. The default pipeline does not run the
-//! pass, so the same program without it keeps the owned convention and its `dup`/`drop`; the flag
-//! tests run it through `to_heap_with_options`.
+//! `insert_rc` and checks the balance with the verifier. A test of the owned convention builds the
+//! module with the flag off; the flag tests run it through `to_heap_with_options`.
 //!
 //! The signature is a calling-convention fact, not a use. The tests check the three places that
 //! must agree: what the pass writes (`Function::borrowed`), what reference counting emits (no
@@ -418,9 +417,11 @@ fn main() {
 /// A borrowed parameter that a suspension frame saves must be owned by the frame: reference
 /// counting `dup`s it at the start of the function and drops it like any other owned variable.
 ///
-/// B6 does not mark a parameter that a frame saves borrowed (the sound deopt), so the test first
-/// checks that `insert_borrow_signature` leaves it owned, then installs the signature by hand to
-/// exercise the counting rule that C2b will need for a more precise analysis.
+/// B6 does not mark a parameter that a frame saves borrowed, and the integration keeps a parameter
+/// owned when a caller owns the counted argument of a suspending call (here `main` passes the
+/// evidence table to the suspending `nap`). So the test first checks that
+/// `insert_borrow_signature` leaves the parameter owned, then installs the signature by hand to
+/// exercise the counting rule that a more precise analysis would need.
 #[test]
 fn a_borrowed_parameter_that_a_frame_saves_is_owned_by_the_frame() {
     let mut m = staged(NAPS);
@@ -432,14 +433,14 @@ fn a_borrowed_parameter_that_a_frame_saves_is_owned_by_the_frame() {
     );
 
     insert_borrow_signature(&mut m);
-    assert_eq!(
+    assert_ne!(
         m.functions[nap].borrowed.get(1),
-        Some(&false),
-        "B6 does not mark a frame-saved parameter borrowed"
+        Some(&true),
+        "a frame-saved parameter stays owned"
     );
 
     // The signature a later, more precise analysis could write. (The third parameter is the
-    // evidence table, which B6 does mark borrowed; it is not saved by the frame.)
+    // evidence table; the suspending call from `main` keeps it owned in this configuration.)
     let n = m.functions[nap].params.len();
     m.functions[nap].borrowed.resize(n, false);
     m.functions[nap].borrowed[1] = true;
@@ -455,6 +456,23 @@ fn a_borrowed_parameter_that_a_frame_saves_is_owned_by_the_frame() {
         has_drop(&m, nap, label),
         "the frame-owned parameter is dropped like any other owned variable"
     );
+}
+
+/// A counted argument that the caller owns keeps the callee's parameter owned when the call may
+/// suspend: the caller's frame was built under the owned convention and does not save an argument
+/// the call would leave owned. `main` owns the evidence table it passes to the suspending `nap`.
+#[test]
+fn a_suspending_call_keeps_an_owned_argument_owned() {
+    let mut m = staged(NAPS);
+    let nap = function(&m, "nap");
+    insert_borrow_signature(&mut m);
+    assert_ne!(
+        m.functions[nap].borrowed.get(2),
+        Some(&true),
+        "a counted argument of a suspending call stays owned"
+    );
+    insert_rc(&mut m);
+    check(&m);
 }
 
 /// `Array.set` writes the array in place when its actual count is one, so its array argument must
@@ -524,7 +542,7 @@ fn borrow_options() -> Options {
 }
 
 /// `to_heap_with` is `to_heap_with_options` with the default options: the same Heap IR and the
-/// same counters, with the borrow counters at zero.
+/// same counters, with borrow inference on (M3).
 #[test]
 fn the_default_options_match_to_heap_with() {
     let mut plain = flow(&[("main.emel", LIST_FIRST)], Roots::Exported);
@@ -533,9 +551,9 @@ fn the_default_options_match_to_heap_with() {
     let option_stats = to_heap_with_options(&mut options, true, Options::default());
     assert_eq!(dump(&plain), dump(&options));
     assert_eq!(format!("{plain_stats:?}"), format!("{option_stats:?}"));
-    assert_eq!(option_stats.borrow_functions, 0);
-    assert_eq!(option_stats.borrow_params, 0);
-    assert_eq!(option_stats.borrow_args, 0);
+    assert!(option_stats.borrow_functions >= 1, "{option_stats:?}");
+    assert!(option_stats.borrow_params >= 1, "{option_stats:?}");
+    assert!(option_stats.borrow_args >= 1, "{option_stats:?}");
     check(&plain);
 }
 

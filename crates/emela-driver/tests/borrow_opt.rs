@@ -1,12 +1,13 @@
 //! Borrow inference end to end (C2b/PR-026): with `LirRules::borrow` on, native C and WASM build
-//! and run the same program with the same observable result as the default build, and the flag
-//! reaches the backends (the emitted code differs).
+//! and run the same program with the same observable result as the owned calling convention, and
+//! the flag reaches the backends (the emitted code differs). The flag is on by default since M3;
+//! the baseline here turns it explicitly off.
 //!
 //! The native build compiles the C runtime with its leak check (`-DEMELA_LEAK_CHECK`), so a leaked
 //! or double-counted reference is an observable failure (exit code 99) rather than a silent
-//! difference. The program calls a read-only function twice with the same heap list, so the
-//! default build `dup`s the argument before the first call and the borrow build does not. The Core
-//! IR optimisations are off in these tests: otherwise the δ reduction may inline the read-only
+//! difference. The program calls a read-only function twice with the same heap list, so the owned
+//! build `dup`s the argument before the first call and the borrow build does not. The Core IR
+//! optimisations are off in these tests: otherwise the δ reduction may inline the read-only
 //! function before the LIR stage, and there is no call left for the flag to change. The LIR
 //! switch under test is the one in `LirRules::borrow`.
 //!
@@ -93,21 +94,21 @@ fn main() {
 }
 ";
 
-/// The default LIR options with borrow inference off (the owned convention).
-fn owned_options() -> Options {
-    Options {
-        rules: LirRules {
-            borrow: false,
-            ..LirRules::default()
-        },
-    }
-}
-
 /// The default LIR options with borrow inference on.
 fn borrow_options() -> Options {
     Options {
         rules: LirRules {
             borrow: true,
+            ..LirRules::default()
+        },
+    }
+}
+
+/// The default LIR options with borrow inference explicitly off (the owned calling convention).
+fn owned_options() -> Options {
+    Options {
+        rules: LirRules {
+            borrow: false,
             ..LirRules::default()
         },
     }
@@ -253,22 +254,19 @@ fn run_wasm(path: &Path, options: Options, name: &str) -> (Outcome, Vec<u8>) {
 }
 
 /// The borrow build keeps stdout, stderr and the exit code, does not leak (the C runtime's leak
-/// check exits 99), and its emitted C differs from the default build's (the flag reaches the
-/// backend and removes the call-site `dup`).
+/// check exits 99), and its emitted C differs from the owned build's (the flag reaches the backend
+/// and removes the call-site `dup`).
 #[test]
 fn the_borrow_flag_keeps_native_behaviour_and_leaks_nothing() {
     if !have_cc() {
         return;
     }
     let path = source("native");
-    let (default, default_c) = run_native(&path, Options::default(), "native-default");
+    let (default, default_c) = run_native(&path, owned_options(), "native-owned");
     let (borrow, borrow_c) = run_native(&path, borrow_options(), "native-borrow");
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 
-    assert_eq!(
-        default.0, 0,
-        "the default build leaks or fails: {default:?}"
-    );
+    assert_eq!(default.0, 0, "the owned build leaks or fails: {default:?}");
     assert_eq!(borrow.0, 0, "the borrow build leaks or fails: {borrow:?}");
     assert_eq!(
         default, borrow,
@@ -316,14 +314,14 @@ fn the_narrowed_signature_keeps_native_behaviour_and_leaks_nothing() {
 }
 
 /// The same program on WASM: the borrow build keeps the observable result and the emitted
-/// component differs from the default build's.
+/// component differs from the owned build's.
 #[test]
 fn the_borrow_flag_keeps_wasm_behaviour() {
     if !have_wasmtime() {
         return;
     }
     let path = source("wasm");
-    let (default, default_wasm) = run_wasm(&path, Options::default(), "wasm-default");
+    let (default, default_wasm) = run_wasm(&path, owned_options(), "wasm-owned");
     let (borrow, borrow_wasm) = run_wasm(&path, borrow_options(), "wasm-borrow");
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 

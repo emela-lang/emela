@@ -125,7 +125,7 @@ pub(crate) fn is_view(f: &Function, v: &Value) -> bool {
 
 /// Whether a suspension edge of the function saves `v`: a frame may keep it after the call
 /// returned suspended.
-fn saved_by_a_frame(f: &Function, v: VarId) -> bool {
+pub(crate) fn saved_by_a_frame(f: &Function, v: VarId) -> bool {
     f.stmts
         .iter()
         .any(|(_, s)| matches!(s, Stmt::Let { on_suspend: Some(e), .. } if e.saved.contains(&v)))

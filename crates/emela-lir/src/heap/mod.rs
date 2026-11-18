@@ -6,7 +6,7 @@
 //! 3. [`state_machines`]: suspending functions become resumable state machines, with their
 //!    suspension points and the frames they save explicit.
 //! 4. [`insert_borrow_signature`]: which parameters are borrowed, from the borrow facts
-//!    ([`opt::LirRules::borrow`], off by default; C2b).
+//!    ([`opt::LirRules::borrow`], on by default since M3; C2b).
 //! 5. [`insert_rc`]: `dup` and `drop` (Perceus), last, on the final control flow (the suspension
 //!    edges included).
 //!
@@ -48,9 +48,9 @@ pub fn to_heap(m: &mut Module) {
 /// [`opt::Stats`] is what all of them changed, so a build that turns optimisation off gets an
 /// empty one.
 ///
-/// This is [`to_heap_with_options`] with [`opt::Options::default`]: borrow inference and the other
-/// off-by-default passes do not run, and the result is byte-identical to the pipeline before
-/// C2/PR-026.
+/// This is [`to_heap_with_options`] with [`opt::Options::default`]: the M3 memory passes (borrow
+/// inference, the `rc` cleanup with the borrow elision, DCE and drop specialisation) run; record
+/// SRA and closure devirtualisation stay off.
 pub fn to_heap_with(m: &mut Module, optimize: bool) -> opt::Stats {
     to_heap_with_options(m, optimize, opt::Options::default())
 }

@@ -67,10 +67,10 @@ static void e0_main(void) {
   s6_end:;
   e1_print(v5);
   if (em_defect != NULL) {
-    em_drop(v5);
+    em_drop_block(v5);
     return;
   }
-  em_drop(v5);
+  em_drop_block(v5);
   v7 = e2_find(((em_ref)&em_s1));
   if (em_failure != NULL) {
     v6 = em_failure;
@@ -80,10 +80,10 @@ static void e0_main(void) {
   }
   e1_print(v7);
   if (em_defect != NULL) {
-    em_drop(v7);
+    em_drop_block(v7);
     return;
   }
-  em_drop(v7);
+  em_drop_block(v7);
   return;
 }
 

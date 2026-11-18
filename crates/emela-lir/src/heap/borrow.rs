@@ -7,10 +7,9 @@
 //! [`Function::borrowed`](crate::ir::Function::borrowed); reference counting and its balance check
 //! then treat those parameters as borrowed instead of owned.
 //!
-//! This slice (C2a) only carries the signature through the ownership rules. The default pipeline
-//! does not call this pass, so a default build's `dup`/`drop` and both backends' output are
-//! unchanged; C2b wires it into [`crate::to_heap_with`] behind a flag and makes the call sites use
-//! it.
+//! This slice (C2a) only carries the signature through the ownership rules. C2b wires it into
+//! [`crate::to_heap_with`] behind [`LirRules::borrow`](crate::opt::LirRules::borrow), which is on
+//! by default since M3.
 //!
 //! # Contract
 //!
@@ -85,6 +84,10 @@
 //!   function and drops the parameter like any other owned variable, and
 //!   [`super::rc::Bases`] no longer treats views of it as borrowed. The environment parameter of a
 //!   lifted function has always had this treatment ([`super::rc::owned_borrowed`]).
+//! - **A counted argument of a suspending call is not borrowed.** The caller's frame is made before
+//!   borrow inference and saves what the owned convention leaves owned. A borrowed argument stays
+//!   owned in the caller, so the frame would have to save it; it does not. Such a position keeps
+//!   the owned convention, and the call consumes the argument as before.
 //! - **`Array.set` keeps its array argument owned.** The runtime writes the array in place when the
 //!   actual count is one, so a borrowed last reference would let the callee mutate the caller's
 //!   array. B6 refuses to mark the array argument of `Array.set` borrowed, so the signature never
@@ -110,10 +113,9 @@
 //! - the guards above keep the convention sound: an address-taken or exported function, a runtime
 //!   `show` function, and a frame-saved parameter are owned; `Array.set` keeps its array owned.
 //!
-//! The flag is off by default, so a default build never runs the pass and the dump, byte pins and
-//! backends' output stay what they were. The counters ([`BorrowReport`]) are facts about the
-//! calling convention, not a rewrite; the observable effect is the call-site `dup`s that
-//! reference counting no longer emits.
+//! The flag is on by default since M3. The counters ([`BorrowReport`]) are facts about the calling
+//! convention, not a rewrite; the observable effect is the call-site `dup`s that reference
+//! counting no longer emits.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -202,6 +204,56 @@ pub fn insert_borrow_signature(m: &mut Module) -> BorrowReport {
             borrowed.fill(false);
         }
         signatures.insert(id, borrowed);
+    }
+    // A borrowed argument is not consumed, so it stays owned in the caller across the call. A
+    // suspension frame was built before this pass, under the owned convention, and does not save
+    // it. Clear a borrowed position wherever a counted argument the caller owns is passed to a
+    // call that may suspend; the call site then consumes it as before. Clearing a caller's own
+    // signature can make more of its arguments owned, so repeat until nothing changes.
+    loop {
+        let mut changed = false;
+        for &caller_id in &ids {
+            let caller = &m.functions[caller_id];
+            if caller.body.is_none() {
+                continue;
+            }
+            for (_, stmt) in caller.stmts.iter() {
+                let Stmt::Let {
+                    value:
+                        Value::Call {
+                            callee: Callee::Direct(g),
+                            args,
+                            suspends: true,
+                            ..
+                        },
+                    ..
+                } = stmt
+                else {
+                    continue;
+                };
+                let callee = &m.functions[*g];
+                let start = usize::from(callee.env.is_some());
+                for (i, arg) in args.iter().enumerate().skip(start) {
+                    let Operand::Var(v) = arg else {
+                        continue;
+                    };
+                    if !super::rc::counted(caller, *v)
+                        || !caller_owns(&signatures, caller_id, caller, *v)
+                    {
+                        continue;
+                    }
+                    if let Some(slot) = signatures.get_mut(g).and_then(|s| s.get_mut(i))
+                        && *slot
+                    {
+                        *slot = false;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
     }
     clear_borrows_that_save_nothing(m, &ids, &mut signatures);
     let mut report = BorrowReport::default();
@@ -353,6 +405,29 @@ fn write_signatures(m: &mut Module, ids: &[FnId], signatures: &FxHashMap<FnId, V
             _ => m.functions[id].borrowed.clear(),
         }
     }
+}
+
+/// Whether `v` is owned by `caller` at the call that uses it: a local, a frame-owned parameter, or
+/// a parameter whose tentative signature is owned. A parameter that is still borrowed (and not
+/// saved by a frame) is kept alive by the caller of `caller`, not by this frame.
+fn caller_owns(
+    signatures: &FxHashMap<FnId, Vec<bool>>,
+    caller_id: FnId,
+    caller: &Function,
+    v: VarId,
+) -> bool {
+    if caller.env.is_some() && caller.params.first() == Some(&v) {
+        return false;
+    }
+    let Some(i) = caller.params.iter().position(|&p| p == v) else {
+        return true;
+    };
+    let borrowed = signatures
+        .get(&caller_id)
+        .and_then(|s| s.get(i))
+        .copied()
+        .unwrap_or(false);
+    !borrowed || super::rc::saved_by_a_frame(caller, v)
 }
 
 /// The counted direct-call argument positions that a signature marks borrowed.

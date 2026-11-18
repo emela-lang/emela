@@ -1,6 +1,7 @@
 //! Drop specialisation end to end (C3/PR-027): with `LirRules::drop_spec` on, native C and WASM
-//! build and run the same program with the same observable result as the default build, and the
-//! flag reaches the backends (the emitted code differs).
+//! build and run the same program with the same observable result as the generic-drop build, and
+//! the flag reaches the backends (the emitted code differs). The flag is on by default since M3;
+//! the baseline here turns it explicitly off.
 //!
 //! The native build compiles the C runtime with its leak check (`-DEMELA_LEAK_CHECK`), so a block
 //! released without walking a reference would show up as a leak (exit code 99) or a double
@@ -57,6 +58,16 @@ fn drop_options() -> Options {
     Options {
         rules: LirRules {
             drop_spec: true,
+            ..LirRules::default()
+        },
+    }
+}
+
+/// The default LIR options with drop specialisation explicitly off (every drop generic).
+fn generic_drop_options() -> Options {
+    Options {
+        rules: LirRules {
+            drop_spec: false,
             ..LirRules::default()
         },
     }
@@ -201,13 +212,13 @@ fn the_drop_flag_keeps_native_behaviour_and_leaks_nothing() {
         return;
     }
     let path = source("native");
-    let (default, default_c) = run_native(&path, Options::default(), "native-default");
+    let (default, default_c) = run_native(&path, generic_drop_options(), "native-generic");
     let (specialised, specialised_c) = run_native(&path, drop_options(), "native-specialised");
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 
     assert_eq!(
         default.0, 0,
-        "the default build leaks or fails: {default:?}"
+        "the generic-drop build leaks or fails: {default:?}"
     );
     assert_eq!(
         specialised.0, 0,
@@ -219,7 +230,7 @@ fn the_drop_flag_keeps_native_behaviour_and_leaks_nothing() {
     );
     assert!(
         !default_c.contains("em_drop_block"),
-        "the default build emits a block drop"
+        "the generic-drop build emits a block drop"
     );
     assert!(
         specialised_c.contains("em_drop_block"),
@@ -234,8 +245,8 @@ fn the_drop_flag_keeps_native_behaviour_and_leaks_nothing() {
 }
 
 /// The same program on WASM: the block drop keeps the observable result and the emitted component
-/// differs from the default build's. The default bytes are pinned by `bytes_stable`, which this
-/// change leaves alone; the specialising build's bytes differ because it gains the `drop_block`
+/// differs from the generic-drop build's. The default bytes are pinned by `bytes_stable`, which
+/// the M3 defaults move; the specialising build's bytes differ because it gains the `drop_block`
 /// runtime function and calls it.
 #[test]
 fn the_drop_flag_keeps_wasm_behaviour() {
@@ -243,7 +254,7 @@ fn the_drop_flag_keeps_wasm_behaviour() {
         return;
     }
     let path = source("wasm");
-    let (default, default_wasm) = run_wasm(&path, Options::default(), "wasm-default");
+    let (default, default_wasm) = run_wasm(&path, generic_drop_options(), "wasm-generic");
     let (specialised, specialised_wasm) = run_wasm(&path, drop_options(), "wasm-specialised");
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 

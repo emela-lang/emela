@@ -131,9 +131,9 @@ pub fn compile_with(
 
 /// [`compile_with`] with the LIR pass flags chosen by `lir_options`.
 ///
-/// This is the entry point a test uses to compile a program with, for example, borrow inference on
-/// while the default build keeps it off. Optimisation never changes what the program prints, its
-/// exit status or the order of effects, failures and releases, whichever LIR passes run.
+/// This is the entry point a test uses to compile a program with the LIR passes it chooses, rather
+/// than the defaults. Optimisation never changes what the program prints, its exit status or the
+/// order of effects, failures and releases, whichever LIR passes run.
 pub fn compile_with_lir(
     core: &emela_core::Module,
     entry: &Entry,
