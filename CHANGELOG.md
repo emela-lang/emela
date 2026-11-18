@@ -7,6 +7,13 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.28.1](https://github.com/emela-lang/emela/compare/v0.28.0...v0.28.1) - 2026-11-18
+
+### Added
+
+- ProcessHost と PageHost で host を型で区別し，with Process で process 用の handler を使う ([#668](https://github.com/emela-lang/emela/pull/668)) (by @Allianaab2m)
+- ブラウザで動くコンパイラ emela-playground を足し，リリースに wasm を載せる ([#615](https://github.com/emela-lang/emela/pull/615)) (by @Allianaab2m)
+
 ## [0.28.0](https://github.com/emela-lang/emela/compare/v0.27.1...v0.28.0) - 2026-11-18
 
 ### Added
