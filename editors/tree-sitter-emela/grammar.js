@@ -269,8 +269,11 @@ module.exports = grammar({
       field('name', $.type_identifier),
       field('parameters', $.parameters),
       ':',
-      field('effect', $.type_reference),
-      optional(field('type_arguments', $.type_arguments)),
+      // The effects of the handler it opens, joined by `+` (`[grammar.decl]`).
+      sep1Plus(seq(
+        field('effect', $.type_reference),
+        optional(field('type_arguments', $.type_arguments)),
+      )),
       optional(seq(optional($._signature_continues), $.fails_clause)),
     ),
 
@@ -280,8 +283,11 @@ module.exports = grammar({
       field('name', $.type_identifier),
       optional(field('fields', $.field_list)),
       ':',
-      field('effect', $.type_reference),
-      optional(field('type_arguments', $.type_arguments)),
+      // The effects it implements, joined by `+` (`[grammar.decl]`).
+      sep1Plus(seq(
+        field('effect', $.type_reference),
+        optional(field('type_arguments', $.type_arguments)),
+      )),
       field('body', alias($._handler_item_list, $.declaration_list)),
     ),
 
@@ -400,7 +406,8 @@ module.exports = grammar({
     _parameter_types: $ => seq('(', commaSep($._type), ')'),
 
     // The type of a capability, `use Db` `use State[Int]` ([effect.use]).
-    capability_type: $ => seq('use', field('effect', $._effect_item)),
+    // `use E1 + ... + En` (`[grammar.type]`).
+    capability_type: $ => seq('use', sep1Plus(field('effect', $._effect_item))),
 
     fails_clause: $ => seq('fails', $._error_set),
 
@@ -772,4 +779,13 @@ function commaSep1(rule) {
  */
 function commaSep(rule) {
   return optional(commaSep1(rule));
+}
+
+/**
+ * One or more `rule`, joined by `+`.
+ *
+ * @param {RuleOrLiteral} rule
+ */
+function sep1Plus(rule) {
+  return seq(rule, repeat(seq('+', rule)));
 }

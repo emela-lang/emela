@@ -575,7 +575,7 @@
     "named": true,
     "fields": {
       "effect": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {
@@ -1284,7 +1284,7 @@
         ]
       },
       "effect": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {
@@ -1314,7 +1314,7 @@
         ]
       },
       "type_arguments": {
-        "multiple": false,
+        "multiple": true,
         "required": false,
         "types": [
           {
@@ -1366,7 +1366,7 @@
     "named": true,
     "fields": {
       "effect": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {
@@ -1396,7 +1396,7 @@
         ]
       },
       "type_arguments": {
-        "multiple": false,
+        "multiple": true,
         "required": false,
         "types": [
           {
