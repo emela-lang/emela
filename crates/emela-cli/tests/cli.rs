@@ -987,7 +987,7 @@ fn run_and_test_fibers_example() {
 
 #[test]
 fn run_and_test_notes_example() {
-    // The `examples/notes` example. SystemFileSystem (in Platform) writes under the project
+    // The `examples/notes` example. SystemFileSystem (in Process) writes under the project
     // directory; the tests use TestFileSystem (spec 15.2).
     let project = Project::new(
         "notes",

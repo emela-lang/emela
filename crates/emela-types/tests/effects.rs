@@ -1881,3 +1881,109 @@ fn main() {
 "#
     ));
 }
+
+/// Host effects (`[effect.host]`): no handler can implement `ProcessHost` or `PageHost` (E0413)
+/// and neither can be taken with `use` (E0414), but both can be written in a uses clause. Calling
+/// an external function declared with `uses { ProcessHost }` adds `ProcessHost` to R
+/// (`[ext.call]`), and only inside a handler (E0407). A handler that calls one requires the host
+/// effect, so it stays in the R of a with that lists the handler. `main` and a test function are
+/// given Async and ProcessHost, not PageHost (E0402).
+#[test]
+fn host_effects() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Files {
+  fn read(path: String) -> String
+}
+
+@external(js, "./fs.mjs", "readText")
+fn read_host(path: String) -> String uses { ProcessHost }
+
+@external(js, "./dom.mjs", "title")
+fn title_host() -> String uses { PageHost }
+
+handler SystemFiles: Files {
+  fn read(path) { read_host(path) }
+}
+
+handler PageFiles: Files {
+  fn read(path) { title_host() }
+}
+
+handler Process: ProcessHost {
+}
+
+handler Page: PageHost {
+}
+
+fn grab() { use ProcessHost }
+
+fn declared() -> Int uses { ProcessHost } { 1 }
+
+fn outside() { read_host("x") }
+
+fn load() -> String { with SystemFiles { (use Files).read("a") } }
+
+fn in_page() -> String { with PageFiles { (use Files).read("a") } }
+
+fn provided() -> Int { with Process { declared() } }
+
+fn main() {
+  load()
+  declared()
+  in_page()
+}
+
+fn test_load() {
+  load()
+  in_page()
+}
+"#
+    ));
+}
+
+/// The uses clause of an external function contains only ProcessHost and PageHost, or nothing
+/// (`[ext.call]`). Any other effect, Async and a set type parameter included, is E0445, at the
+/// effect.
+#[test]
+fn external_uses_only_host_effects() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Marker {
+  fn mark() -> ()
+}
+
+@external(js, "./x.mjs", "a")
+fn with_marker() -> () uses { Marker }
+
+@external(js, "./x.mjs", "b")
+fn with_async() -> () uses { Async }
+
+@external(js, "./x.mjs", "c")
+fn with_set[R](f: fn() -> () uses { R }) -> () uses { R }
+
+@external(js, "./x.mjs", "d")
+fn with_host() -> () uses { ProcessHost, PageHost }
+
+@external(js, "./x.mjs", "e")
+fn pure() -> () uses {}
+"#
+    ));
+}
+
+/// An effect declared in source has at least one operation (E0446, `[effect.decl]`). A label has
+/// the operations of the effect it stands for.
+#[test]
+fn effect_without_operations() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Marker {}
+
+effect Console {
+  fn print(text: String) -> ()
+}
+
+effect Audit of Console
+"#
+    ));
+}

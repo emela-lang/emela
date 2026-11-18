@@ -69,7 +69,7 @@ pub fn f() { (use Logger).info("x") }
     assert!(
         found.iter().any(|d| matches!(
             d,
-            DiagnosticKind::UnhandledEffects { context: emela_types::EffectContext::Export { name }, .. }
+            DiagnosticKind::UnhandledEffects { context: emela_types::EffectContext::Export { name, .. }, .. }
                 if name == "f"
         )),
         "{found:?}"
@@ -215,6 +215,106 @@ pub fn f() -> ExitCode { EXIT_SUCCESS }
         found.iter().any(
             |d| matches!(d, DiagnosticKind::NotBoundary { ty, ret: true, .. } if ty == "ExitCode")
         ),
+        "{found:?}"
+    );
+}
+
+/// An `@export` fn that is not an entry adapter is given only Async (`[effect.host]`): a
+/// ProcessHost left in its R is E0402.
+#[test]
+fn export_is_not_given_process_host() {
+    let found = diagnostics(
+        r#"
+@external(js, "./fs.mjs", "readText")
+fn read_host(path: String) -> String uses { ProcessHost }
+
+effect Files {
+  fn read(path: String) -> String
+}
+
+handler SystemFiles: Files {
+  fn read(path) { read_host(path) }
+}
+
+@export(js, "f")
+pub fn f() -> String { with SystemFiles { (use Files).read("a") } }
+"#,
+    );
+    assert!(
+        found.iter().any(|d| matches!(
+            d,
+            DiagnosticKind::UnhandledEffects { effects, context: emela_types::EffectContext::Export { name, .. }, .. }
+                if name == "f" && effects == &["ProcessHost"]
+        )),
+        "{found:?}"
+    );
+}
+
+/// An entry adapter whose first parameter's function type uses a host effect other than Async may
+/// have it in its R, and the fn made by `@entry` is given it (`[ext.entry]`). A fn that needs a
+/// host effect the adapter does not declare does not fit it (E0440).
+#[test]
+fn entry_adapter_provides_its_host_effect() {
+    let found = diagnostics(
+        r#"
+@external(js, "./fs.mjs", "readText")
+fn read_host(path: String) -> String uses { ProcessHost }
+
+@external(js, "./dom.mjs", "title")
+fn title_host() -> String uses { PageHost }
+
+effect Files {
+  fn read(path: String) -> String
+}
+
+handler SystemFiles: Files {
+  fn read(path) { read_host(path) }
+}
+
+handler PageFiles: Files {
+  fn read(path) { title_host() }
+}
+
+@export(js, "default", "fetch")
+pub fn serve(app: fn(String) -> String fails {} uses { Async, ProcessHost }, req: String) -> String
+  uses { Async, ProcessHost } {
+  with SystemFiles { (use Files).read(req) }
+  app(req)
+}
+
+@entry(serve)
+pub fn app(req: String) -> String { with SystemFiles { (use Files).read(req) } }
+"#,
+    );
+    assert!(found.is_empty(), "{found:?}");
+
+    let found = diagnostics(
+        r#"
+@external(js, "./dom.mjs", "title")
+fn title_host() -> String uses { PageHost }
+
+effect Files {
+  fn read(path: String) -> String
+}
+
+handler PageFiles: Files {
+  fn read(path) { title_host() }
+}
+
+@export(js, "default", "fetch")
+pub fn serve(app: fn(String) -> String fails {} uses { Async, ProcessHost }, req: String) -> String
+  uses { Async, ProcessHost } {
+  app(req)
+}
+
+@entry(serve)
+pub fn app(req: String) -> String { with PageFiles { (use Files).read(req) } }
+"#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|d| matches!(d, DiagnosticKind::EntryMismatch { .. })),
         "{found:?}"
     );
 }

@@ -2,8 +2,7 @@
 # also when standard output and standard error go to the same pipe.
 
 import Std.Console.{Console}
-import Std.Platform.{Platform}
-import Std.Process.{Stderr, Stdout}
+import Std.Process.{Process, Stderr, Stdout}
 
 fn lines(i: Int, n: Int) -> () uses { Console, Stdout, Stderr } {
   if i < n {
@@ -21,5 +20,5 @@ fn lines(i: Int, n: Int) -> () uses { Console, Stdout, Stderr } {
 }
 
 fn main() {
-  with Platform { lines(0, 5000) }
+  with Process { lines(0, 5000) }
 }

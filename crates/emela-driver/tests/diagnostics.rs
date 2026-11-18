@@ -2487,3 +2487,103 @@ fn main_return_types_without_warning() {
         assert!(analysis.diagnostics.is_empty(), "{files:?}\n{rendered}");
     }
 }
+
+/// The messages of host effects (`[effect.host]`): E0413 and E0414 for `ProcessHost`, E0445 at an
+/// effect in the uses of an external function that is not a host effect, E0446 at an effect
+/// without operations, and E0402 for a host effect with a note that names the entry and what it
+/// provides, without the help to provide it with `with`. A process handler reached through
+/// `with Platform` gets the help to use `Process` (`[lib.layers]`).
+#[test]
+fn host_effect_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"import Std.FileSystem.{FileSystem}
+import Std.Platform.{Platform}
+
+effect Marker {}
+
+effect Files {
+  fn title() -> String
+}
+
+@external(js, "./x.mjs", "write")
+fn write_host(text: String) -> () uses { Files }
+
+@external(js, "./dom.mjs", "title")
+fn title_host() -> String uses { PageHost }
+
+handler PageFiles: Files {
+  fn title() { title_host() }
+}
+
+handler Host: ProcessHost {
+}
+
+fn grab() { use ProcessHost }
+
+@export(js, "f")
+pub fn f() -> String { with PageFiles { (use Files).title() } }
+
+fn main() {
+  with PageFiles { (use Files).title() }
+  with Platform { (use FileSystem).exists("x") }
+  ()
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// `Http.serve` provides ProcessHost (`[lib.http-service]`), so its fn can write
+/// `with Process { ... }`, while an `@export` fn is given only Async (`[ext.export]`) and a
+/// `with Process` in it is E0402 for ProcessHost.
+#[test]
+fn process_in_http_service_and_export() {
+    let files = [
+        (
+            "service/main.emel",
+            r#"import Std.Env.{Env}
+import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+import Std.Process.{Process}
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response {
+  with Process {
+    name = (use Env).get("NAME") match {
+      Some(n) -> n
+      None    -> "world"
+    }
+    Response.new(200, "hello #{name}")
+  }
+}
+"#,
+        ),
+        (
+            "export/main.emel",
+            r#"import Std.Env.{Env}
+import Std.Process.{Process}
+
+@export(js, "name")
+pub fn name() -> String {
+  with Process { (use Env).get("NAME").or("") }
+}
+
+fn main() {}
+"#,
+        ),
+    ];
+    let mut out = String::new();
+    for entry in ["service/main.emel", "export/main.emel"] {
+        let analysis = check_files(&files, entry, &mut Typecheck::default());
+        out.push_str(&format!("== {entry}\n"));
+        out.push_str(&render(&analysis.diagnostics, &analysis.sources, false));
+    }
+    insta::assert_snapshot!(out);
+}

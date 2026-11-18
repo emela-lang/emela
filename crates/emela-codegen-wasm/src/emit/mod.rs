@@ -664,7 +664,7 @@ impl<'m> Builder<'m> {
                 match crate::std_host::classify(f) {
                     Some(host) if reach.contains(id) => self.std_hosts.push((id, host)),
                     // A host the entry cannot reach is in the module because a handler it builds
-                    // bundles the external (`Std.Platform` bundles every system handler). It is
+                    // bundles the external (`Process` of `Std.Process` bundles several system handlers). It is
                     // never called, so neither its runtime wrapper nor its import is emitted
                     // (spec `[target.wasm.output]`). The handler constructors still put calls to
                     // it in their operation bodies, which are emitted whether the operation runs

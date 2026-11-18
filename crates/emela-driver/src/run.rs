@@ -346,7 +346,7 @@ pub fn wasmtime_program() -> PathBuf {
 /// The preopen is the sandbox root, not a view of the host's `/`: the guest can name only
 /// paths below it, and an absolute path or a `..` step that leaves it fails with WASI's
 /// `not-permitted` (reported by `Std.FileSystem` as `FileAccessDenied`). The directory is
-/// preopened for every wasm run because `Std.Platform` constructs `SystemFileSystem` even when
+/// preopened for every wasm run because `Std.Process` constructs `SystemFileSystem` even when
 /// the program uses only `Console`; a component that does not import the file system cannot
 /// reach it.
 pub(crate) fn wasmtime_run_command(wasmtime: &Path, entry: &Path) -> Command {

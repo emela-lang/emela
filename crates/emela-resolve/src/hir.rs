@@ -824,6 +824,14 @@ impl Program {
             .find(|&def| self.defs[def].name == name)
     }
 
+    /// Whether `def` is a host effect (`Async`, `ProcessHost` or `PageHost`, `[effect.host]`):
+    /// an effect of the Prelude that only the entry of a launch provides.
+    pub fn is_host_effect(&self, def: DefId) -> bool {
+        self.defs[def].module == DefModule::Prelude
+            && self.defs[def].kind == DefKind::Effect
+            && crate::builtins::HOST_EFFECTS.contains(&self.defs[def].name.as_str())
+    }
+
     pub fn item(&self, def: DefId) -> Option<&Item> {
         self.items.get(def)
     }

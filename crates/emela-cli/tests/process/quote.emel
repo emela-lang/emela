@@ -2,8 +2,7 @@
 # argument.
 
 import Std.Console.{Console}
-import Std.Platform.{Platform}
-import Std.Process.{Args, InvalidInput, Stdin, StdinFailure}
+import Std.Process.{Args, InvalidInput, Process, Stdin, StdinFailure}
 
 fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {
   (use Stdin).read_line() match {
@@ -16,7 +15,7 @@ fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console,
 }
 
 fn main() {
-  with Platform {
+  with Process {
     prefix = (use Args).get(0) match {
       Some(p) -> p
       None    -> "> "

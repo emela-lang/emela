@@ -199,11 +199,15 @@ pub type Outgoing
 ## before `app` runs. A method not in `Method` is answered with 405, and a body that is not UTF-8
 ## or a path or query with a malformed `%` with 400, without calling `app`. When `app` fails, has
 ## a defect or returns a response the host cannot send, the cause is written to standard error as
-## one line and the response is 500; the cause is never in the response.
+## one line and the response is 500; the cause is never in the response. An HTTP service runs in
+## a process, so `app` is given ProcessHost (`[effect.host]`) and can write `with Process { ... }`.
 @export(js, "default", "fetch")
 @export(wasm, "wasi:http/handler@0.3.0", "handle")
-pub fn serve[E](app: fn(Request) -> Response fails E uses { Async }, incoming: Incoming) -> Outgoing
-  uses { Async } {
+pub fn serve[E](
+  app: fn(Request) -> Response fails E uses { Async, ProcessHost },
+  incoming: Incoming,
+) -> Outgoing
+  uses { Async, ProcessHost } {
   received = with SystemHostHttp { (use HostHttp).read(incoming) }
   response = received_request(received) match {
     None                                     -> status_only(405).add_header("allow", ALLOW)
@@ -217,8 +221,11 @@ pub fn serve[E](app: fn(Request) -> Response fails E uses { Async }, incoming: I
 const ALLOW: String = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
 
 ## Runs `app` and turns how it ends into the response to send.
-fn launch[E](app: fn(Request) -> Response fails E uses { Async }, request: Request) -> Response
-  uses { Async } {
+fn launch[E](
+  app: fn(Request) -> Response fails E uses { Async, ProcessHost },
+  request: Request,
+) -> Response
+  uses { Async, ProcessHost } {
   Exit.attempt(|| app(request)) match {
     Success(res) -> invalid_reason(res) match {
       None         -> with_content_type(res)

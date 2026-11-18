@@ -2,11 +2,10 @@
 # open (`[api.std.process]`).
 
 import Std.Console.{Console}
-import Std.Platform.{Platform}
-import Std.Process.{Stdin}
+import Std.Process.{Process, Stdin}
 
 fn main() {
-  with Platform {
+  with Process {
     (use Console).print_line("#{(use Stdin).read_line()}")
   }
 }

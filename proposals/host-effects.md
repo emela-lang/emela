@@ -1,7 +1,7 @@
 ---
 title: Host effects, what the host provides to a launch
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 617
 issue:
 decided: 2026-11-18
@@ -271,10 +271,10 @@ Add:
 
 ## Diagnostics
 
-- [ ] The texts of E0413 and E0414 in the general form for host effects
-- [ ] A note for host effects on E0402
-- [ ] An effect other than a host effect in the uses of an external function: code to be assigned
-- [ ] An effect without operations declared: code to be assigned
+- [x] The texts of E0413 and E0414 in the general form for host effects
+- [x] A note for host effects on E0402
+- [x] An effect other than a host effect in the uses of an external function: E0445
+- [x] An effect without operations declared: E0446
 
 ## Compatibility
 

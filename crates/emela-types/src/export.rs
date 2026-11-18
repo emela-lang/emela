@@ -38,6 +38,34 @@ pub fn is_entry_adapter(program: &Program, def: DefId) -> bool {
             .is_some_and(|ty| matches!(program.types[ty].kind, TypeKind::Fn { .. }))
 }
 
+/// The host effects other than Async in the uses of the function type of the first parameter of
+/// entry adapter `def` (`[ext.entry]`): the host provides them for each launch through it. Empty
+/// for a fn that is not an entry adapter.
+pub fn adapter_hosts(program: &Program, def: DefId) -> Vec<DefId> {
+    let Some(Item::Fn(f)) = program.item(def) else {
+        return Vec::new();
+    };
+    if f.exports.is_empty() {
+        return Vec::new();
+    }
+    let Some(ty) = f.sig.params.first().and_then(|p| p.ty) else {
+        return Vec::new();
+    };
+    let TypeKind::Fn {
+        uses: Some(uses), ..
+    } = &program.types[ty].kind
+    else {
+        return Vec::new();
+    };
+    uses.items
+        .iter()
+        .filter_map(|e| match e.res {
+            Res::Def(d) if program.is_host_effect(d) && program.defs[d].name != "Async" => Some(d),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Whether the program is an HTTP service (`[lib.http-service]`): an fn of the entry module has
 /// `@entry(Http.serve)`, the entry adapter of the bundled `Std.Http`. `Std` cannot be the root
 /// name of a project or a dependency (spec 4.1), so the module name identifies the bundled one.

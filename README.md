@@ -369,7 +369,9 @@ The bundled std lives under `Std` and is imported: the platform effects
 `Std.Http` and `Std.Process` (`Args`, `Stdin`, `Stdout`, `Stderr`), each with
 its host handler (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemEnv`,
 `SystemFileSystem`, `SystemHttp`, `SystemArgs`, `SystemStdin`, `SystemStdout`,
-`SystemStderr`), the layer `Std.Platform.Platform` that bundles them,
+`SystemStderr`), the layer `Std.Platform.Platform` that bundles the ones every
+host has (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemHttp`), the
+layer `Std.Process.Process` that adds the ones that need a process,
 `Std.State`, `Std.Fiber`, `Std.Exit`, `Std.Cause`, `Std.Deferred`, the values
 `Std.Map`, `Std.Set`, `Std.Array`, `Std.Bytes`, `Std.Dynamic`, `Std.Shape`,
 `Std.Json`, `Std.Path`, `Std.Instant` and `Std.Duration`, and
@@ -542,8 +544,7 @@ When `main` returns an `ExitCode`, the program exits with it:
 
 ```emela
 # Counts the lines of standard input that contain the first argument.
-import Std.Platform.{Platform}
-import Std.Process.{Args, Stderr, Stdin, Stdout}
+import Std.Process.{Args, Process, Stderr, Stdin, Stdout}
 
 fn count(word: String, n: Int) {
   (use Stdin).read_line() match {
@@ -553,7 +554,7 @@ fn count(word: String, n: Int) {
 }
 
 fn main() {
-  with Platform {
+  with Process {
     (use Args).get(0) match {
       None -> {
         (use Stderr).print_line("usage: count <word>")
