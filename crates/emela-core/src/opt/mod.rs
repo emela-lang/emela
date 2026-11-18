@@ -30,6 +30,8 @@
 //! | `fusion::run`: `map_map` | [`Stats::map_map`] | map fusion (D3/PR-030) |
 //! | `fusion::run`: `fold_map` | [`Stats::fold_map`] | map fusion (D3/PR-030) |
 //! | `fusion::run`: `filter_map` | [`Stats::filter_map`] | filter fusion (D3/PR-030) |
+//! | `fusion::run`: `array_map_map` | [`Stats::array_map_map`] | array fusion (D4/PR-031) |
+//! | `fusion::run`: `array_fold_map` | [`Stats::array_fold_map`] | array fusion (D4/PR-031) |
 //! | `fusion::run`: `range_fold` | [`Stats::range_fold`] | range fusion |
 //! | `fusion::run`: `range_map_array` | [`Stats::map_range`] | range fusion |
 //! | `fusion::run`: `range_map` | [`Stats::range_map`] | range fusion |
@@ -58,8 +60,11 @@
 //!   `Option.or`); expanding those functions first would dissolve the pattern. The pipeline laws
 //!   (`map_map`, `fold_map`, `filter_map`) come before the range laws, because the call they build
 //!   (`List.map(xs, λx. g(f x))`, `List.fold(xs, init, λa, x. g(a, f x))`) is what the range laws
-//!   fuse next, in the same sweep, when `xs` is a range. `range_map_array` comes before
-//!   `range_map`, which would otherwise rewrite the `List.map` inside the `Array.from_list` it is
+//!   fuse next, in the same sweep, when `xs` is a range. The array laws (`array_map_map`,
+//!   `array_fold_map`) follow them: they build `Array.map`/`Array.fold` calls that no later law
+//!   fuses, so their position only has to be after the array identity is recorded.
+//!   `range_map_array` comes before `range_map`, which would otherwise rewrite the `List.map`
+//!   inside the `Array.from_list` it is
 //!   looking for. `string_concat` runs last, after the range laws, because it matches a tree of
 //!   `String.append` calls and no other law builds or consumes one. The order of the laws is the
 //!   registry order of [`fusion::laws`], not a second list in this pipeline.
@@ -333,12 +338,14 @@ pub struct Options {
     pub laws: fusion::Laws,
 }
 
-/// A fn of the bundled core that a Core IR pass matches by identity, not by name.
+/// A fn of the bundled sources that a Core IR pass matches by identity, not by name.
 ///
 /// Lowering records the IR function of every copy(`List.fold$suspend3` too) in the map it passes
 /// to [`run`]. A user's fn with the same name is a different [`FnId`], so a pass never confuses
 /// the two. Inlining excludes every function recorded here: the fusions match them, and copying
-/// them into every caller would grow the output.
+/// them into every caller would grow the output. The bundled std modules are recorded by the same
+/// mechanism as the core ones; a std module is reserved, so a user cannot provide its own
+/// `Std.Array.map`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoreFn {
     /// `Option.or`, which the Option fusion matches.
@@ -357,6 +364,13 @@ pub enum CoreFn {
     /// the range fusion matches some of them, and copying them into every caller would grow the
     /// output for no gain.
     Collection,
+    /// `Std.Array.map`, which the array pipeline laws match (D4/PR-031). Its body fails (its
+    /// function parameter is effect-polymorphic), so δ never copied it; recording it only makes
+    /// its identity visible.
+    ArrayMap,
+    /// `Std.Array.fold`, which the array fold law matches (D4/PR-031). As with [`CoreFn::ArrayMap`],
+    /// δ already left it as a call.
+    ArrayFold,
 }
 
 /// The bundled core functions lowering identified, by IR function ([`CoreFn`]).
@@ -396,6 +410,13 @@ pub struct Stats {
     pub fold_map: u32,
     /// `List.map(List.filter(xs, p), f)` rewritten to one fold that tests and maps each element.
     pub filter_map: u32,
+    /// `Array.map(Array.map(a, f), g)` rewritten to `Array.map(a, λx. g(f x))`: one traversal and
+    /// no intermediate array (D4/PR-031).
+    pub array_map_map: u32,
+    /// `Array.fold(Array.map(a, f), init, g)` rewritten to
+    /// `Array.fold(a, init, λacc, x. g(acc, f x))`: one traversal and no intermediate array
+    /// (D4/PR-031).
+    pub array_fold_map: u32,
     /// A chain of three or more `String.append` calls fused into one `Expr::Concat`, which the
     /// backend builds with one allocation (D5/PR-032).
     pub string_concat: u32,
@@ -444,6 +465,8 @@ impl Stats {
         self.map_map += other.map_map;
         self.fold_map += other.fold_map;
         self.filter_map += other.filter_map;
+        self.array_map_map += other.array_map_map;
+        self.array_fold_map += other.array_fold_map;
         self.string_concat += other.string_concat;
         self.zeta += other.zeta;
         self.beta += other.beta;
@@ -473,6 +496,8 @@ impl Stats {
             && self.map_map == 0
             && self.fold_map == 0
             && self.filter_map == 0
+            && self.array_map_map == 0
+            && self.array_fold_map == 0
             && self.string_concat == 0
             && self.zeta == 0
             && self.beta == 0

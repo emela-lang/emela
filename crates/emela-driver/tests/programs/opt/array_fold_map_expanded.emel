@@ -1,0 +1,33 @@
+# The hand-written expansion of `array_fold_map_fused.emel`: the fold of the composed step as a
+# self tail call over the positions of the array, with no mapped array in between.
+import Std.Array.{Array}
+
+fn inc(x: Int) -> Int {
+  x + 1
+}
+
+fn add(a: Int, b: Int) -> Int {
+  a + b
+}
+
+fn total(a: Array[Int]) -> Int {
+  go(a, 0, 0)
+}
+
+fn go(a: Array[Int], acc: Int, i: Int) -> Int {
+  if i >= Array.size(a) {
+    acc
+  } else {
+    x = Array.get(a, i) match {
+      Some(v) -> v
+      None    -> 0
+    }
+    go(a, add(acc, inc(x)), i + 1)
+  }
+}
+
+fn main() {
+  dbg(total(Array.from_list([1, 2, 3])))
+  dbg(total(Array.from_list([])))
+  ()
+}
