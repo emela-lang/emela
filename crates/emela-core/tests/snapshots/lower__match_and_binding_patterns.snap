@@ -112,6 +112,12 @@ enum Std.Shape.Contents {
   NamedFields(List[Std.Shape.Field])
 }
 
+enum Std.Dynamic.Presence.Presence[A] {
+  Absent
+  Null
+  Present(A)
+}
+
 error enum Std.Json.SyntaxError {
   SyntaxError(message: String, offset: Int)
 }
