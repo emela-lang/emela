@@ -1,10 +1,10 @@
 ---
 title: Handler members
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 624
 issue: 616
-decided:
+decided: 2026-11-18
 touches: [effect.decl, effect.handler, effect.with, effect.use, type.rules, dyn.with, grammar.decl, grammar.expr, diag.list]
 requires: [capability-type, handler-self-constructor]
 related: []
@@ -279,3 +279,10 @@ The change only adds. Adding a handler member to an existing effect breaks the h
 ## Open questions
 
 ## Decision
+
+Adopted, on top of the type of a capability (#622) and Self(...) in init (#623), which this requires.
+
+- A resource is a handler that its parent handler supplies, declared as a handler member of the effect. The parent chooses the implementation, the resource keeps its state in its own self, and the code that uses it is the body of an ordinary with, as #616 asks.
+- A resource is bound (`with x = Files.Open(p)`) and passed as a capability; it is not provided by name. Only services are looked up by name.
+- A handler member of a specific provider is opened through its capability (`fs.Open(p)`), since capabilities are values now.
+- An inner handler does not read the self of its outer handler; that can be added later. Std.Tcp (#563) is aligned to this form after it.
