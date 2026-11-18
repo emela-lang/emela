@@ -27,8 +27,8 @@ pub use build::FnBuilder;
 pub use dump::{core_ty, dump, dump_function};
 pub use from_core::{FromCoreError, from_core};
 pub use heap::{
-    builtin_may_defect, convert_closures, explicit_defects, fiber_may_defect, insert_rc,
-    may_suspend, state_machines, to_heap, to_heap_with,
+    builtin_may_defect, convert_closures, explicit_defects, fiber_may_defect,
+    insert_borrow_signature, insert_rc, may_suspend, state_machines, to_heap, to_heap_with,
 };
 pub use ir::*;
 pub use repr::{Repr, enum_repr, repr_of, repr_of_subst};

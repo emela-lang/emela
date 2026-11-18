@@ -9,17 +9,21 @@
 //!   destinations of compound statements, the error of a failure landing, and the destinations of
 //!   values that make a new reference (calls, `make`, `list`, `tuple`, `make_closure`, …).
 //! - Borrowed: the environment parameter of a lifted function (the caller keeps the closure record
-//!   alive for the call). It is never dropped; using it where a reference is consumed needs a
-//!   `dup`. When a suspension edge saves it, it is owned after a `dup` at the start: a frame may
-//!   keep it after the call returned suspended and the caller let the record go.
+//!   alive for the call), and a parameter that borrow inference marks in
+//!   [`Function::borrowed`](crate::ir::Function::borrowed) (the caller keeps its reference for the
+//!   call; the callee only reads it). A borrowed parameter is never dropped; using it where a
+//!   reference is consumed needs a `dup`. When a suspension edge saves it, it is owned after a
+//!   `dup` at the start: a frame may keep it after the call returned suspended and the caller let
+//!   its reference go.
 //! - Views: `field`, `tuple_get`, `list_head`, `list_tail`, `env_get`, `ev_lookup`, `as_error`
 //!   and `coerce` of a `ref` read a reference out of a value they borrow. Their destination owns
 //!   nothing until a `dup` right after the statement, which the pass emits when the destination is
 //!   used later: the base may be released before that use, and the view has to keep the value
-//!   alive. A view whose base is the borrowed environment parameter (or another such view) needs
-//!   no reference for that, because the caller keeps the record alive for the whole call;
-//!   [`crate::opt`]'s `rc_cleanup` removes the reference the pass gives it anyway, and
-//!   [`super::rc_check`] accepts a borrow of such a view without one ([`Bases::borrows_from_env`]).
+//!   alive. A view whose base is a borrowed parameter (the environment of a lifted function, or a
+//!   parameter borrow inference marks borrowed), or another such view, needs no reference for
+//!   that, because the caller keeps the value alive for the whole call; [`crate::opt`]'s
+//!   `rc_cleanup` removes the reference the pass gives it anyway, and [`super::rc_check`] accepts
+//!   a borrow of such a view without one ([`Bases::borrows_from_a_borrowed`]).
 //! - Consumed (ownership moves): the arguments of calls of functions, closure records and
 //!   operations (their parameters are owned; the environment argument of a lifted function is the
 //!   exception, below), the fields of `make`, the elements of `tuple` and `list`, the captures of
@@ -30,15 +34,16 @@
 //!   suspended).
 //! - Borrowed (the owner keeps it): the callee of `call_indirect` and the environment argument of
 //!   a direct call of a lifted function (the closure record the call dispatches through, or would
-//!   dispatch through), the handler of `call_op`, the arguments of external functions, builtins,
-//!   `runtime` operations and concurrency operations (the runtime dups what it keeps), primitive
-//!   operations, the base of views, and what `tag`, `list_is_empty`, `is_error` and `switch` look
-//!   at. Builtins borrow so that the runtime written in C need not care about ownership, with one
-//!   exception: `Array.set` consumes its array (the first argument). When the variable passed is
-//!   not live after the call, the pass moves its reference into the call, so the runtime sees a
-//!   count of 1 and updates the array in place (`[api.std.array]`); otherwise a `dup` before the
-//!   call leaves the count above 1 and the runtime copies. The other arguments of `set` are
-//!   borrowed.
+//!   dispatch through), an argument passed at a parameter position the callee's `borrowed`
+//!   signature marks borrowed, the handler of `call_op`, the arguments of external functions,
+//!   builtins, `runtime` operations and concurrency operations (the runtime dups what it keeps),
+//!   primitive operations, the base of views, and what `tag`, `list_is_empty`, `is_error` and
+//!   `switch` look at. Builtins borrow so that the runtime written in C need not care about
+//!   ownership, with one exception: `Array.set` consumes its array (the first argument). When the
+//!   variable passed is not live after the call, the pass moves its reference into the call, so the
+//!   runtime sees a count of 1 and updates the array in place (`[api.std.array]`); otherwise a
+//!   `dup` before the call leaves the count above 1 and the runtime copies. The other arguments of
+//!   `set` are borrowed.
 //!
 //! Where the pass puts `dup` and `drop`, from liveness (a backward analysis over the structured
 //! control, with a fixpoint at loops):
@@ -84,9 +89,18 @@ pub(crate) fn counted(f: &Function, v: VarId) -> bool {
     f.vars[v].repr == Repr::Ref
 }
 
-/// Whether the variable is a borrowed parameter (the environment of a lifted function).
+/// Whether the variable is a borrowed parameter: the environment of a lifted function, or a
+/// parameter that borrow inference marks borrowed in
+/// [`Function::borrowed`](crate::ir::Function::borrowed). A missing entry means owned (the
+/// convention before borrow inference).
 pub(crate) fn borrowed_param(f: &Function, v: VarId) -> bool {
-    f.env.is_some() && f.params.first() == Some(&v)
+    if f.env.is_some() && f.params.first() == Some(&v) {
+        return true;
+    }
+    f.params
+        .iter()
+        .position(|&p| p == v)
+        .is_some_and(|i| f.borrowed.get(i) == Some(&true))
 }
 
 /// The variable a view reads out of, if `v` is a view: the value it names lives in the base's
@@ -117,43 +131,47 @@ fn saved_by_a_frame(f: &Function, v: VarId) -> bool {
         .any(|(_, s)| matches!(s, Stmt::Let { on_suspend: Some(e), .. } if e.saved.contains(&v)))
 }
 
-/// The environment parameter of a lifted function when reference counting makes it owned: a frame
-/// may save it, so it is dup'd at the start and dropped like any other owned variable.
-pub(crate) fn owned_env(f: &Function) -> Option<VarId> {
-    let p = f
-        .params
-        .first()
+/// The borrowed parameters of a function when reference counting makes them owned: a suspension
+/// frame may save one, so it is dup'd at the start and dropped like any other owned variable.
+///
+/// The environment of a lifted function is the original case; borrow inference extends the same
+/// treatment to a parameter it marks borrowed when the function's own frame saves it.
+pub(crate) fn owned_borrowed(f: &Function) -> Vec<VarId> {
+    f.params
+        .iter()
         .copied()
-        .filter(|&p| borrowed_param(f, p))?;
-    saved_by_a_frame(f, p).then_some(p)
+        .filter(|&p| borrowed_param(f, p) && saved_by_a_frame(f, p))
+        .collect()
 }
 
-/// How the values of a function stay alive without their variable owning a reference: the closure
-/// record of the call, and the bases of the views read out of it or out of anything else.
+/// How the values of a function stay alive without their variable owning a reference: the
+/// borrowed parameters (the closure record of a lifted function and what borrow inference proves
+/// the caller keeps alive), and the bases of the views read out of them or out of anything else.
 ///
 /// Built once per function; the reference counting pass, the balance check and `rc_cleanup` all
 /// work from the same facts, so they agree on whether a variable can be borrowed.
 pub(crate) struct Bases {
-    /// The environment parameter, when reference counting leaves it borrowed (it is then not
-    /// [`owned_env`]). The caller keeps the closure record alive for the whole call, so the
-    /// parameter and the views read out of it can be borrowed at any point of the function and are
-    /// never dropped.
+    /// The borrowed parameters that reference counting leaves borrowed (they are then not in
+    /// [`owned_borrowed`]). The caller keeps the value alive for the whole call, so the parameter
+    /// and the views read out of it can be borrowed at any point of the function and are never
+    /// dropped.
     ///
-    /// `None` when a frame may save the environment (`insert_rc` then dup's it at the start): it is
-    /// owned like any other variable, and can be released before a view of it is last used, which
-    /// is why reference counting gives each view a reference of its own.
-    env: Option<VarId>,
+    /// A parameter is absent when a frame may save it (`insert_rc` then dup's it at the start): it
+    /// is owned like any other variable, and can be released before a view of it is last used,
+    /// which is why reference counting gives each view a reference of its own.
+    borrowed: FxHashSet<VarId>,
     /// The base of every counted view variable.
     views: FxHashMap<VarId, VarId>,
 }
 
 impl Bases {
     pub(crate) fn new(f: &Function) -> Self {
-        let env = f
+        let borrowed = f
             .params
-            .first()
+            .iter()
             .copied()
-            .filter(|&p| borrowed_param(f, p) && !saved_by_a_frame(f, p));
+            .filter(|&p| borrowed_param(f, p) && !saved_by_a_frame(f, p))
+            .collect();
         let mut views = FxHashMap::default();
         for (_, stmt) in f.stmts.iter() {
             let Stmt::Let {
@@ -171,21 +189,17 @@ impl Bases {
                 views.insert(*d, base);
             }
         }
-        Bases { env, views }
+        Bases { borrowed, views }
     }
 
-    /// Whether `v` borrows its value from the closure record of the call: the borrowed environment
-    /// parameter, or a view read out of it (directly, or through other views such as a field of a
-    /// capture).
-    pub(crate) fn borrows_from_env(&self, v: VarId) -> bool {
-        let Some(env) = self.env else {
-            return false;
-        };
+    /// Whether `v` borrows its value from a borrowed parameter: the parameter itself, or a view
+    /// read out of it (directly, or through other views such as a field of a capture).
+    pub(crate) fn borrows_from_a_borrowed(&self, v: VarId) -> bool {
         let mut cur = v;
         // A view's base is defined before it, so a chain is no longer than the variables of the
         // function.
         for _ in 0..=self.views.len() {
-            if cur == env {
+            if self.borrowed.contains(&cur) {
                 return true;
             }
             match self.views.get(&cur) {
@@ -232,21 +246,40 @@ pub(crate) fn value_uses(m: &Module, f: &Function, v: &Value, use_: &mut dyn FnM
         }
         Value::Call { callee, args, .. } => {
             match callee {
+                // The host calling convention is not described by a borrow signature.
                 Callee::Direct(g) if m.functions[*g].external.is_some() => {
                     each(args, Mode::Borrow, use_);
                 }
-                Callee::Direct(g) if m.functions[*g].env.is_some() => {
+                Callee::Direct(g) => {
+                    let callee = &m.functions[*g];
                     // A direct call of a lifted function passes its closure record as the
                     // environment, the first argument. The caller keeps that record alive for the
                     // call and releases it itself, exactly as it does for the record of an indirect
-                    // call (whose callee it is), so it is borrowed; the other arguments are
-                    // consumed. Closure devirtualisation (`crate::opt::devirt`) makes such calls.
-                    if let Some((env, rest)) = args.split_first() {
-                        each(std::slice::from_ref(env), Mode::Borrow, use_);
-                        each(rest, Mode::Consume, use_);
+                    // call (whose callee it is), so it is borrowed. Closure devirtualisation
+                    // (`crate::opt::devirt`) makes such calls.
+                    let start = if callee.env.is_some() {
+                        if let Some((env, _)) = args.split_first() {
+                            each(std::slice::from_ref(env), Mode::Borrow, use_);
+                        }
+                        1
+                    } else {
+                        0
+                    };
+                    // Every other argument follows the callee's signature: a borrowed parameter
+                    // keeps the caller's reference, an owned one takes it.
+                    for (i, o) in args.iter().enumerate().skip(start) {
+                        if let Operand::Var(x) = o
+                            && counted(f, *x)
+                        {
+                            let mode = if callee.borrowed.get(i) == Some(&true) {
+                                Mode::Borrow
+                            } else {
+                                Mode::Consume
+                            };
+                            use_(*x, mode);
+                        }
                     }
                 }
-                Callee::Direct(_) => each(args, Mode::Consume, use_),
                 Callee::Indirect(c) | Callee::Op { handler: c, .. } => {
                     one(*c, Mode::Borrow, use_);
                     each(args, Mode::Consume, use_);
@@ -408,13 +441,17 @@ impl<'a> Counter<'a> {
             .copied()
             .filter(|&p| counted(f, p) && !borrowed_param(f, p))
             .collect();
-        // A suspending function owns its environment when a frame may keep it (see the module
+        // A suspending function owns a borrowed parameter when a frame may keep it (see the module
         // documentation).
-        let env = owned_env(f).filter(|&p| live.contains(&p));
-        owned.extend(env);
+        let frame_owned: Vec<VarId> = owned_borrowed(f)
+            .into_iter()
+            .filter(|&p| live.contains(&p))
+            .collect();
+        owned.extend(frame_owned.iter().copied());
         c.seq(f, body, owned, &Set::default(), None);
-        if let Some(env) = env {
-            let dup = f.stmts.alloc(Stmt::Dup(env));
+        // Inserted in parameter order: a reverse walk with `insert(0)` leaves them so.
+        for &p in frame_owned.iter().rev() {
+            let dup = f.stmts.alloc(Stmt::Dup(p));
             f.seqs[body].stmts.insert(0, dup);
         }
     }
