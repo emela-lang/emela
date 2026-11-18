@@ -5,8 +5,8 @@
 //! [lowering recorded](crate::opt::CoreFn), by identity. The laws are data: [`laws`] returns the
 //! [`Law`] descriptors in pipeline order, each with the contract of plan §3.4, so the order, the
 //! contract and the run are one table instead of five separate calls. The bodies are in the
-//! `option` submodule, beside the table, so that a law's contract and its code are one entry and
-//! one function.
+//! `option` and `list` submodules, beside the table, so that a law's contract and its code are one
+//! entry and one function.
 //!
 //! # Registry order
 //!
@@ -49,6 +49,7 @@ use crate::ir::Module;
 use crate::opt::{CoreFns, Stats};
 
 mod law;
+mod list;
 mod option;
 
 pub use law::{Law, LawId};
