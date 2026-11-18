@@ -1,0 +1,91 @@
+import Std.Map
+import Std.Dynamic.{Dynamic, Null, Bool, Text, Items, Fields}
+import Std.Dynamic.Number
+import Std.Json.{SyntaxError}
+
+fn number(n: Int) -> Dynamic {
+  Dynamic.Number(Number.from_int(n))
+}
+
+fn failure(s: String) -> (String, Int) {
+  {
+    Json.parse(s)
+    ("", -1)
+  } escape {
+    SyntaxError(message:, offset:) -> (message, offset)
+  }
+}
+
+@test
+fn reads_literals() {
+  assert Json.parse("null") == Null
+  assert Json.parse("true") == Bool(True)
+  assert Json.parse("false") == Bool(False)
+  assert Json.parse(" \t\n\r 1 \n") == number(1)
+}
+
+@test
+fn reads_numbers() {
+  assert Json.parse("-12") == number(-12)
+  assert Json.parse("1.5e3") == number(1500)
+  assert Json.parse("[1,2]") == Items([number(1), number(2)])
+}
+
+@test
+fn reads_strings() {
+  assert Json.parse("\"\"") == Text("")
+  assert Json.parse("\"aあ\"") == Text("aあ")
+  assert Json.parse("\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"") == Text("\"\\/\u{8}\u{c}\n\r\t")
+  assert Json.parse("\"\\u0041\\u3042\"") == Text("Aあ")
+  assert Json.parse("\"\\ud83d\\ude00\"") == Text("😀")
+}
+
+@test
+fn reads_arrays_and_objects() {
+  assert Json.parse("[]") == Items([])
+  assert Json.parse("[ ]") == Items([])
+  assert Json.parse("{}") == Fields(Map.empty())
+  assert Json.parse("{ }") == Fields(Map.empty())
+  assert Json.parse(" { \"a\" : [ 1 , { \"b\" : null } ] } ")
+    == Fields(Map.from_list([("a", Items([number(1), Fields(Map.from_list([("b", Null)]))]))]))
+}
+
+@test
+fn keeps_the_later_value_of_a_repeated_key() {
+  assert Json.parse("{\"a\":1,\"a\":2}") == Fields(Map.from_list([("a", number(2))]))
+}
+
+@test
+fn reports_where_it_fails() {
+  assert failure("") == ("unexpected end of input", 0)
+  assert failure("  ") == ("unexpected end of input", 2)
+  assert failure("nul") == ("expected a value", 0)
+  assert failure("1 2") == ("expected the end of input", 2)
+  assert failure("[1,]") == ("expected a value", 3)
+  assert failure("[1 2]") == ("expected `,` or `]`", 3)
+  assert failure("[1") == ("expected `,` or `]`", 2)
+  assert failure("{\"a\" 1}") == ("expected `:`", 5)
+  assert failure("{\"a\":1,}") == ("expected a string key", 7)
+  assert failure("{a:1}") == ("expected a string key", 1)
+  assert failure("{\"a\":1") == ("expected `,` or `}`", 6)
+  assert failure("\"abc") == ("unterminated string", 4)
+  assert failure("\"a\nb\"") == ("control character in a string", 2)
+  assert failure("\"\\x\"") == ("invalid escape", 2)
+  assert failure("\"\\u12\"") == ("expected 4 hexadecimal digits", 3)
+  assert failure("\"\\ud83d\"") == ("expected a low surrogate", 7)
+  assert failure("\"\\ud83d\\u0041\"") == ("expected a low surrogate", 7)
+  assert failure("\"\\ude00\"") == ("invalid code point", 1)
+  assert failure("01") == ("invalid number", 0)
+  assert failure("-") == ("invalid number", 0)
+  assert failure("+1") == ("expected a value", 0)
+  assert failure("[1.]") == ("invalid number", 1)
+  assert failure("\"あ\" x") == ("expected the end of input", 4)
+}
+
+@test
+fn reads_by_code_point() {
+  assert Json.parse("[1,\r\n2]\r\n") == Items([number(1), number(2)])
+  assert Json.parse("\"e\u{301}\"") == Text("e\u{301}")
+  assert failure("\"e\u{301}\" x") == ("expected the end of input", 5)
+  assert failure("[1,\r\nx]") == ("expected a value", 5)
+}

@@ -41,10 +41,15 @@ use crate::infer::{Origin, SetKind, Subset};
 use crate::row::{Row, RowElem, RowVar, Tag};
 use crate::ty::{Ty, TyParam};
 
-/// One lower bound of a set variable: the elements of `elem` minus the tags in `minus`.
+/// One lower bound of a set variable: the elements of `elem` minus the elements in `minus`.
 struct Lower {
     elem: RowElem,
-    minus: Vec<Tag>,
+    /// Tags and capabilities.
+    minus: Vec<RowElem>,
+    /// Whether a tag in `minus` also removes the capabilities of its effect. True when `minus` is
+    /// the containing side of a constraint, where a capability widens to its effect
+    /// (`[effect.use]`); false when it is what a `with` provides.
+    widen: bool,
 }
 
 /// An `escape`, kept for the W0302 check after the error sets are solved.
@@ -289,7 +294,7 @@ impl BodyInfer<'_> {
                         // tags.
                         RowElem::Var(v) if !tags.is_empty() => {
                             let d = self.ctx.new_row_var();
-                            let minus = tags.iter().map(|&t| Tag::new(t)).collect();
+                            let minus = tags.iter().map(|&t| RowElem::Tag(Tag::new(t))).collect();
                             self.row_diffs.push((d, *v, minus));
                             row.insert(RowElem::Var(d));
                         }
@@ -473,11 +478,28 @@ impl BodyInfer<'_> {
     }
 
     /// Tags are matched including type arguments; if those are not determined yet, unification is
-    /// tried (spec 8.1, `InferCtx::same_tag`).
+    /// tried (spec 8.1, `InferCtx::same_tag`). A capability is contained in a set that has it or
+    /// its effect (`[effect.use]`).
     fn contains_elem(&mut self, row: &Row, e: &RowElem) -> bool {
         match e {
             RowElem::Tag(t) => self.ctx.row_has_tag(row, t),
+            RowElem::Cap(c) => row.contains(e) || self.ctx.row_has_tag(row, &c.tag),
             e => row.contains(e),
+        }
+    }
+
+    /// Whether `minus` removes the element `a` of a lower bound ([`Lower`]).
+    fn removed(&mut self, a: &RowElem, minus: &[RowElem], widen: bool) -> bool {
+        match a {
+            RowElem::Tag(t) => minus
+                .iter()
+                .any(|m| matches!(m, RowElem::Tag(m) if self.ctx.same_tag(m, t))),
+            RowElem::Cap(c) => minus.iter().any(|m| match m {
+                RowElem::Cap(m) => m.local == c.local,
+                RowElem::Tag(m) => widen && self.ctx.same_tag(m, &c.tag),
+                _ => false,
+            }),
+            _ => false,
         }
     }
 
@@ -505,7 +527,7 @@ impl BodyInfer<'_> {
     }
 
     /// Computes the least solution of the constraints collected so far.
-    fn solve_round(&mut self, row_diffs: &[(RowVar, RowVar, Vec<Tag>)]) {
+    fn solve_round(&mut self, row_diffs: &[(RowVar, RowVar, Vec<RowElem>)]) {
         // Start from the set variables, not from the previous round's solution.
         self.ctx.clear_row_solution();
         let subsets = self.ctx.subsets().to_vec();
@@ -516,6 +538,7 @@ impl BodyInfer<'_> {
             lowers.entry(d).or_default().push(Lower {
                 elem: RowElem::Var(v),
                 minus,
+                widen: false,
             });
         }
         // Set variables with an upper bound (contained in a set without set variables). Not
@@ -526,12 +549,18 @@ impl BodyInfer<'_> {
             let sup = self.ctx.resolve_row(&c.sup);
             match sup.vars().next() {
                 Some(v) => {
-                    let minus: Vec<Tag> = sup.tags().cloned().collect();
+                    let minus: Vec<RowElem> = sup
+                        .elems()
+                        .iter()
+                        .filter(|e| e.effect_tag().is_some())
+                        .cloned()
+                        .collect();
                     for e in sub.elems() {
                         if !self.contains_elem(&sup, e) {
                             lowers.entry(v).or_default().push(Lower {
                                 elem: e.clone(),
                                 minus: minus.clone(),
+                                widen: true,
                             });
                         }
                     }
@@ -563,9 +592,7 @@ impl BodyInfer<'_> {
                     };
                     let target = solution.entry(v).or_default();
                     for a in atoms.elems() {
-                        if let RowElem::Tag(t) = a
-                            && lower.minus.iter().any(|m| self.ctx.same_tag(m, t))
-                        {
+                        if self.removed(a, &lower.minus, lower.widen) {
                             continue;
                         }
                         if !target.contains(a) {
@@ -596,6 +623,12 @@ impl BodyInfer<'_> {
             if missing.is_empty() {
                 continue;
             }
+            // A capability cannot be written in `uses`, so a missing one is reported as its
+            // effect (`[effect.use]`).
+            let missing: Vec<RowElem> = match c.kind {
+                SetKind::Effects => Row::from_elems(missing).widened().elems().to_vec(),
+                SetKind::Errors => missing,
+            };
             match (&c.origin, c.kind) {
                 (Origin::Body(def), SetKind::Errors) => self.report_unhandled(*def, &missing),
                 (Origin::HandlerOp { handler, index }, SetKind::Errors) => {

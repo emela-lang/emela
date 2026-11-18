@@ -92,7 +92,10 @@ pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> S
     // ariadne lays labels out in the given order and splits frames when the position goes back,
     // so pass them sorted by file and position.
     let mut labels: Vec<(Span, Option<&str>)> = Vec::new();
-    if let Some(Location::Span(primary)) = diagnostic.location {
+    // A label with a message at the primary location stands for it.
+    if let Some(Location::Span(primary)) = diagnostic.location
+        && !diagnostic.labels.iter().any(|l| l.span == primary)
+    {
         labels.push((primary, None));
     }
     labels.extend(

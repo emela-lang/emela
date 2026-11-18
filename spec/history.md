@@ -2,6 +2,30 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-18 (Handlers that implement several effects)
+
+- `[effect.handler]`, `[effect.with]`, `[effect.layer]`, `[effect.label]`, `[effect.use]`, `[type.rules]`, `[grammar.decl]`, `[grammar.type]`, `[diag.list]`: One handler can implement several effects (`handler H: ReadFile + WriteFile`). All the effects it implements share the same `self`. The type of a capability can be written `use ReadFile + WriteFile`, and a capability of a set of effects can be passed as the type of fewer of them. This stays a separate concept from layers. Adopted in the proposal `multi-effect-handler` (#625).
+
+## 2026-11-18 (Handler members)
+
+- `[effect.decl]`, `[effect.handler]`, `[effect.with]`, `[effect.use]`, `[type.rules]`, `[dyn.with]`, `[grammar.decl]`, `[grammar.expr]`, `[diag.list]`: An effect can declare handlers that its providers supply (handler members). A handler of the effect implements each of them with an inner handler of the same name. A user calls its init and binds the capability it provides with `with x = Files.Open("a.txt") { ... }`. A handler member can also be opened inside the init of a handler, and then lives as long as that handler. Adopted in the proposal `handler-member` (#624).
+
+## 2026-11-18 (The type of a capability, use E)
+
+- `[effect.use]`, `[effect.escape]`, `[effect.handler]`, `[fiber.escape]`, `[type.rules]`, `[grammar.type]`, `[diag.list]`: The type of a capability is written `use E`, and is an ordinary type. A capability value can be passed as an argument, put into a data structure and returned from a function (E0408, E0409 and E0410 are retired). The one rule that remains is the rule for closures that capture a capability: it does not leave the with that provides it. Capture checking (`capture-checking`) checks it statically. Adopted in the proposal `capability-type` (#622).
+
+## 2026-11-18 (Absent keys in derived Encode and Decode)
+
+- `[trait.derive]`, `[api.std.dynamic]`, `[api.std.dynamic.presence]`: In derived Encode and Decode, the type of a field decides how a missing key and null are written and read. - None of `Option[A]` leaves the key out (it is written as null now). A missing key and null are both read as None (as now). - `Std.Dynamic.Presence` gains `Presence[A]`, a type that tells the three states apart: a missing key, null and a value. It is meant for the bodies of partial updates. - The trait `Encode` gains `to_field`, and `Decode` gains `from_absent`. Both have default implementations, so the existing impls keep working. No attribute and no setting of a Pome is added. ```emel import Std.Dynamic.{Decode, Encode} import Std.Dynamic.Presence.{Absent, Null, Present, Presence} type TodoPatch(title: Option[String], due: Presence[String]) derive Encode, Decode ``` Adopted in the proposal `field-presence` (#652).
+
+## 2026-11-18 (Values taken out of the handles of a scope)
+
+- `[effect.escape]`, `[fiber.escape]`, `[open.next]`: A value taken out of a Fiber, Deferred, Semaphore or Queue (`Fiber.join`, `Deferred.await`, `Queue.take`, `Semaphore.with_permit`, ...) does not hold the root of the scope that made the handle, unless its type contains one of these types. Without this, the defaults of capture sets (`[effect.escape]`) report W0402 in correct programs, including `Fiber.all`, `race`, `both`, `map` and `timeout` of the standard library. Adopted in the proposal `scope-handle-values` (#645).
+
+## 2026-11-18 (Self(...) in the init of a handler)
+
+- `[effect.handler]`, `[grammar.expr]`, `[diag.list]`: Inside the init of a handler, its value can be constructed as `Self(...)`. It means the same as writing the handler's name, so the name is not repeated. Adopted in the proposal `handler-self-constructor` (#623).
+
 ## 2026-11-18 (Capture checking)
 
 - `[intro.experimental]`, `[effect.escape]`, `[effect.use]`, `[fiber.escape]`, `[type.fn]`, `[type.rules]`, `[lsp.hover]`, `[diag.list]`, `[open.next]`: Infer, together with its type, the set of capabilities that a value holds (its capture set), and report a value that leaves the with that provides one of them. The R of a function gets a second kind of element: besides the name of an effect (`Db`), a capability itself (`primary`, a parameter `from`). The capture set is not written in source; the language server and the diagnostics show it. In 0.28 the inference, the display and the new elements of R always apply, and leaving a with is a warning. With the experimental feature `capture-checking` (`[intro.experimental]`) it is a compile error. A later version makes the error the default. Adopted in the proposal `capture-checking` (#621).

@@ -16,6 +16,7 @@ use crate::c::native_command;
 use crate::code;
 use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
+use crate::experimental::Features;
 use crate::hints::InlayHint;
 use crate::hover::HoverInfo;
 use crate::nav::{NavTarget, RenameError};
@@ -117,6 +118,10 @@ pub struct Input {
     /// The test root to read (`<project>/test`), set by [`Input::with_tests`] for check, test and
     /// the language server. build and run leave it out (spec 13.1).
     pub tests: Option<PathBuf>,
+    /// The names given by the flags `--experimental-<name>` of the command, without the prefix
+    /// (`[cmd.build]`). They add to the `[experimental]` of the project's `Pome.toml`, and do not
+    /// apply to dependencies. The language server has none (`[lsp.project]`).
+    pub experimental: Vec<String>,
 }
 
 /// The Pomes a project depends on, directly or not (spec 4.7). The caller (emela pome) resolves
@@ -155,6 +160,8 @@ pub struct DependencyPome {
     pub version: String,
     /// Its `[dependencies]`.
     pub dependencies: Vec<DependencyRef>,
+    /// The experimental features its own `[experimental]` enables (`[module.pome]`).
+    pub experimental: Features,
 }
 
 /// An entry of `[dependencies]`.
@@ -238,6 +245,7 @@ impl Input {
                     single_file: false,
                     dependencies: Dependencies::default(),
                     tests: None,
+                    experimental: Vec::new(),
                 })
             }
             (None, true) => {
@@ -250,6 +258,7 @@ impl Input {
                     single_file: true,
                     dependencies: Dependencies::default(),
                     tests: None,
+                    experimental: Vec::new(),
                 })
             }
             (None, false) => Err(Diagnostic::error(format!(
@@ -582,6 +591,10 @@ pub struct Analysis {
     pub diagnostics: Vec<Diagnostic>,
     /// Where the files `@external` points to are written in the JS output (spec 12.1).
     pub host_roots: Vec<crate::host_files::HostRoot>,
+    /// The experimental features of the project: its `[experimental]` and the flags.
+    experimental: Features,
+    /// The experimental features of each dependency, by its source path.
+    dependency_experimental: std::collections::HashMap<String, Features>,
 }
 
 impl Analysis {
@@ -595,6 +608,23 @@ impl Analysis {
 
     pub fn module(&self, id: ModuleId) -> &ModuleData {
         &self.modules[id]
+    }
+
+    /// The experimental features enabled for a module: those of the Pome it belongs to
+    /// (`[module.pome]`). The flags of the command count only for the project's modules. The
+    /// bundled core modules belong to no Pome, and have none.
+    pub fn experimental(&self, id: ModuleId) -> &Features {
+        static NONE: std::sync::LazyLock<Features> = std::sync::LazyLock::new(Features::default);
+        if self.modules.is_core(id) {
+            return &NONE;
+        }
+        match self.modules.package_of(id) {
+            Some(package) => self
+                .dependency_experimental
+                .get(package.name.as_str())
+                .unwrap_or(&NONE),
+            None => &self.experimental,
+        }
     }
 }
 
@@ -632,22 +662,44 @@ pub fn check<F: Frontend>(
         resolve_diagnostics.extend(shadowed);
         core_texts.insert(id, source.text);
     }
+    // A single file has no `Pome.toml`; only the flags enable features for it (`[cmd.build]`).
+    let manifest = input.base.join(PROJECT_FILE);
+    let manifest_text = if input.single_file {
+        Err(())
+    } else {
+        fs.read_to_string(&manifest).map_err(|_| ())
+    };
+    let (features, diagnostics) = crate::experimental::project_features(
+        manifest_text
+            .as_deref()
+            .ok()
+            .map(|text| (text, manifest.as_path())),
+        &input.experimental,
+        &mut analysis.sources,
+    );
+    analysis.experimental = features;
+    analysis.diagnostics.extend(diagnostics);
     if !input.single_file {
         let (dependency_diagnostics, more) =
             crate::dependencies::add(fs, &mut analysis.modules, &input.dependencies);
         resolve_diagnostics.extend(more);
         analysis.diagnostics.extend(dependency_diagnostics);
-        let manifest = input.base.join(PROJECT_FILE);
-        if let Ok(text) = fs.read_to_string(&manifest) {
+        analysis.dependency_experimental = input
+            .dependencies
+            .pomes
+            .iter()
+            .map(|pome| (pome.name.clone(), pome.experimental.clone()))
+            .collect();
+        if let Ok(text) = &manifest_text {
             analysis.diagnostics.extend(crate::license::check(
-                &text,
+                text,
                 &manifest,
                 &mut analysis.sources,
             ));
             analysis
                 .diagnostics
                 .extend(crate::target::deprecated_targets(
-                    &text,
+                    text,
                     &manifest,
                     &mut analysis.sources,
                 ));
@@ -987,6 +1039,7 @@ mod tests {
             single_file: false,
             dependencies: Dependencies::default(),
             tests: None,
+            experimental: Vec::new(),
         })
     }
 
@@ -1094,6 +1147,7 @@ mod tests {
                 single_file: true,
                 dependencies: Dependencies::default(),
                 tests: None,
+                experimental: Vec::new(),
             })
         );
         assert_eq!(

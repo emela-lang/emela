@@ -1,0 +1,90 @@
+import Std.Array.{Array}
+import Std.Bytes.{Bytes}
+import Std.Set.{Set}
+import Std.Dynamic.{Dynamic, Decode, Encode, DecodeError, DecodeErrors, Items, Text, Null, Index}
+import Std.Dynamic.Number
+import Std.Json.{SyntaxError}
+import Std.Json
+import Std.Shape.{Shaped}
+import Std.Shape
+
+fn number(n: Int) -> Dynamic {
+  Dynamic.Number(Number.from_int(n))
+}
+
+@test
+fn an_array_is_written_and_read_as_items() {
+  a = Array.from_list([1, 2, 3])
+  assert a.to_dynamic() == Items([number(1), number(2), number(3)])
+  b: Array[Int] = Decode.from_dynamic(Items([number(1), number(2)]))
+  assert b == Array.from_list([1, 2])
+}
+
+@test
+fn a_set_is_written_in_order_and_read_without_repeats() {
+  s = Set.from_list([3, 1, 2])
+  assert s.to_dynamic() == Items([number(1), number(2), number(3)])
+  t: Set[Int] = Decode.from_dynamic(Items([number(2), number(1), number(2)]))
+  assert t.to_list() == [1, 2]
+}
+
+@test
+fn the_failures_of_an_array_and_a_set_are_collected() {
+  value = Items([Text("a"), number(1), Null])
+  paths = {
+    a: Array[Int] = Decode.from_dynamic_all(value)
+    []
+  } escape {
+    DecodeErrors(errors:) -> errors.map(|e| e.path)
+  }
+  assert paths == [[Index(0)], [Index(2)]]
+  set_paths = {
+    s: Set[Int] = Decode.from_dynamic_all(value)
+    []
+  } escape {
+    DecodeErrors(errors:) -> errors.map(|e| e.path)
+  }
+  assert set_paths == [[Index(0)], [Index(2)]]
+}
+
+@test
+fn bytes_array_and_set_have_shapes() {
+  b: Option[Bytes] = None
+  assert Shaped.shape(b) == Shape.Bytes
+  assert Shaped.shape(b).name_of() == "Bytes"
+  a: Option[Array[Int]] = None
+  assert Shaped.shape(a) == Shape.List(Shape.Int)
+  s: Option[Set[String]] = None
+  assert Shaped.shape(s) == Shape.List(Shape.String)
+}
+
+@test
+fn decode_all_reads_every_failure() {
+  failures = {
+    xs: List[Int] = Json.decode_all("[1, \"a\", null]")
+    0
+  } escape {
+    DecodeErrors(errors:) -> errors.length()
+    SyntaxError(..)       -> -1
+  }
+  assert failures == 2
+  xs: List[Int] = Json.decode_all("[1, 2]")
+  assert xs == [1, 2]
+}
+
+@test
+fn a_carriage_return_and_a_line_feed_are_escaped_apart() {
+  assert Json.to_string(Text("a\r\nb")) == "\"a\\r\\nb\""
+}
+
+@test
+fn bytes_are_written_as_base64_and_read_back_as_text() {
+  b = Bytes.hex("00ff10")
+  assert Json.encode(b) == "\"AP8Q\""
+  assert Json.parse("\"AP8Q\"") == Text("AP8Q")
+}
+
+@test
+fn a_float_that_is_not_a_number_is_null() {
+  assert (0.0 / 0.0).to_dynamic() == Null
+}

@@ -51,6 +51,7 @@ fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
 
 - Inside declarations, an omitted clause is empty so that no set variable is created that does not appear in the type's name. That `Handler` can have effects is visible in its type parameters, as `Handler[E, R]`.
 - Whether a type parameter is an ordinary type, an error set, or an effect set is inferred from the position where it is used (`fails E`, `uses { R }`). There is no syntax for writing kinds. A type parameter passed to a set type parameter position of a named type (E in `type Server[E](inner: Handler[E, Db])`, E and R in `fn serve[E, R](h: Handler[E, R])`) and a type parameter in a set type parameter position of a built-in effect written in a uses clause (`uses { Scope[E, R] }`) are also sets.
+- The `uses` of a function type can contain capabilities as well as effects (`fn() -> Rows uses { primary }`). They are inferred and shown by the language server, and are not written in source.
 - A set can be passed to a set type parameter of a named type. The notation matches the fails clause (`A | B`) and the uses clause (`{ A, B }`): `Handler[NotFound | Timeout, { Db, Log }]`, `Handler[{}, {}]`, `Handler[E | Timeout, { R, Log }]`.
 - A single element can be written without enclosing it (`Handler[NotFound, Db]`). Syntactically, it is read as a type. An empty `{}` can also be written in an error set position (the same as `fails {}`).
 - Which type parameters accept sets is not decided by the grammar but checked by type checking. A set of the wrong kind or an element that is not a set is a compile error (E0323), and a set in a type parameter position that is not for sets (`List[{}]`) is a compile error (E0324).
@@ -97,13 +98,17 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `C(fi: ei, ..r)` | The type of C (type arguments are determined from ei and the fields carried over from r) | Ei ∪ Er | Ri ∪ Rr |
 | `fail e` | Never | { the tag of e } | {} |
 | `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. When there is an arm `_`, the E is Eei alone. 7.3) | Re ∪ Rei |
-| `use X` | The capability of X | {} | { X } |
+| `use X` | `use X` | {} | { X } |
 | `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H)) ∪ requires(H) ∪ (R of the arguments of init) |
-| `\|x\| e` | `fn(..) -> T fails Ee uses { Re }` | {} | {} |
+| `with x = E.M(a) { e }` | The type of e | Ee ∪ Ea ∪ (E of the init of M) | Re ∪ { E } ∪ Ra |
+| `with x = c.M(a) { e }` | The type of e | Ee ∪ Ea ∪ (E of the init of M) | Re ∪ { c } ∪ Ra |
+| `E.M(a)`, `c.M(a)` inside an init | `use F` (F is the effect of M) | Ea ∪ (E of the init of M) | { E } or { c }, ∪ Ra |
+| `\|x\| e` | `fn(..) -> T fails Ee uses { Re }`, where Re keeps the captured capabilities as elements | {} | {} |
 | `fn f(x: A) -> T { e }` (local fn, a statement) | Binds f to `fn(A) -> T fails Ee uses { Re }` | {} | {} |
 | `if c { a } else { b }` | The common type of a and b | Ec ∪ Ea ∪ Eb | Rc ∪ Ra ∪ Rb |
 | `e match { pi -> ei }` | The common type of the arms | Ee ∪ Eei | Re ∪ Rei |
 
+- A call `f(a)` adds to R the elements of the R of f, with each capability element that is a parameter replaced by the elements of the corresponding argument.
 - An anonymous function and a local fn enclose the E and R of their bodies in their function types. They surface when the function is called. A reference to a local fn inside its own body has the type being inferred, and is not generalized.
 - Never can form a common type with any type. Even if one branch of an if or a match is a fail, the type of the whole is the type of the other branch.
 - When there is no expected type and the types of the branches do not match, the type of the first branch is reported as the expected type and the type of a later branch as the actual type (E0301), and checking continues with the type of the first branch as the type of the whole.
@@ -114,7 +119,7 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 - The head of the type of x MUST already be determined when checking reaches the method call (E0314), as for a field access.
 - The arguments of a call are checked in parameter order. At a position with an expected type (an argument, the return type, the type annotation of a binding), that type is passed first to the last expression of a block, each branch of if and match, list elements, and the parameters and body of an anonymous function. In `List.map(users, |u| u.name)`, the type of u is determined from users, which is checked first.
 - Never is treated as another type only at branch joins and at the top level of a position with an expected type. `List[Never]` and `List[Int]` do not match.
-- provides(H) is the effects that H implements, and requires(H) is the union of the Rs of the init, the release, and the operation bodies of H. The provision and requirements of label items (`L`, `L by P`) and the provision of `default` labels are defined in 8.9.
+- provides(H) is all the effects that H implements, and requires(H) is the union of the Rs of the init, the release, and the operation bodies of H. The provision and requirements of label items (`L`, `L by P`) and the provision of `default` labels are defined in 8.9.
 - The E of a function value only needs to be contained in the E of the expected function type. A function with a smaller E can be used as a function with a larger E. When functions with different Es are put together at a branch join or as list elements, the E is their union. The direction of containment is reversed inside the parameters of function types, and goes both ways (equality) inside the type arguments of named types.
 - When a function is passed to a parameter whose function type has two or more set type parameters in its fails (`fails E1 | E2`), the errors of the passed function that are not among the written-out tags go into the first set type parameter. This is an approximation, and later checks can report a compile error. The same applies to the uses clause (`uses { Quiet, R1, R2 }`).
 - E is represented as a union of tags and set variables. `∖ {Ti}` acts only on the tag part and leaves set variables as they are. Even if a set variable is later determined to be a concrete set, tags are not removed from it retroactively (an approximation that errs on the safe side).

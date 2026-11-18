@@ -15,6 +15,10 @@
 //!   variables whose solutions exclude those effects; nothing is removed from set type
 //!   parameters (sets with unknown contents).
 //! - A lambda encloses its body's R in its function type.
+//! - Calling an operation of a captured capability adds the capability itself (`RowElem::Cap`,
+//!   `[effect.use]`). It is removed where its root `with` ends, and at the end of the body
+//!   (of a fn, a lambda or a local fn) that binds the variable, whichever comes first. The
+//!   `use E` that made the capability has already added E, so removing it there loses nothing.
 //! - A body's R is contained in the declared R. Without a `uses` clause the declared R is a set
 //!   variable, and the body's R becomes its solution as is (spec 9.3). The bodies of `main` and
 //!   test functions must have an empty R apart from Async (spec 8.3, 13.3), since the runtime
@@ -23,13 +27,13 @@
 //!   (a set variable). A suspend fn implementation that may call resume later also depends on
 //!   Async (spec 8.7, `body/suspend.rs`).
 
-use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Item, Res, Stmt, WithItem};
+use emela_resolve::hir::{BinaryOp, DefId, ExprId, ExprKind, Item, PatKind, Res, Stmt, WithItem};
 
 use super::{BodyInfer, fn_parts};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
 use crate::layer::{self, PendingWith, Supplier, WithBind, WithInfo};
-use crate::row::{Row, RowElem, Tag};
+use crate::row::{CapElem, Row, RowElem, Tag};
 use crate::ty::Ty;
 
 impl BodyInfer<'_> {
@@ -52,6 +56,7 @@ impl BodyInfer<'_> {
                         _ => continue,
                     };
                     let row = self.expr_effects(body);
+                    let row = self.end_binder(&row, def, None);
                     let closed = self.closed.contains_key(&def);
                     if closed {
                         // The runtime and the test runner provide Async (spec 8.3, 13.3).
@@ -102,7 +107,8 @@ impl BodyInfer<'_> {
                         .map(|b| (b.index, b.body, b.resume_later))
                         .collect();
                     for (index, body, resume_later) in bodies {
-                        let mut row = self.expr_effects(body);
+                        let row = self.expr_effects(body);
+                        let mut row = self.end_binder(&row, def, None);
                         // A suspend fn implementation that may call resume later requires Async
                         // (spec 8.7).
                         if resume_later && let Some(async_) = program.prelude_def("Async") {
@@ -128,6 +134,7 @@ impl BodyInfer<'_> {
                         .collect();
                     for body in parts {
                         let row = self.expr_effects(body);
+                        let row = self.end_binder(&row, def, None);
                         self.ctx.add_subset_of(
                             SetKind::Effects,
                             row,
@@ -161,6 +168,7 @@ impl BodyInfer<'_> {
             // called (spec 9.4).
             ExprKind::Lambda { body, .. } => {
                 let body_row = self.expr_effects(*body);
+                let body_row = self.end_binder_here(&body_row, Some(expr));
                 if let Some(&(_, v)) = self.lambda_rows.get(expr) {
                     self.ctx
                         .add_subset_of(SetKind::Effects, body_row, Row::var(v), Origin::Lambda);
@@ -176,12 +184,21 @@ impl BodyInfer<'_> {
                     {
                         let (body, uses) = (info.body, info.uses.clone());
                         let body_row = self.expr_effects(body);
+                        let body_row = self.end_binder_here(&body_row, Some(body));
                         self.ctx.add_subset_of(
                             SetKind::Effects,
                             body_row,
                             uses,
                             Origin::LocalFn(f.local),
                         );
+                    }
+                    if let Stmt::Let { pat, value, .. } = stmt
+                        && let PatKind::Bind(local) = program.pats[*pat].kind
+                        && let ExprKind::Use { .. } = program.exprs[*value].kind
+                        && let Some(Ty::Cap(tag)) = self.exprs.get(*value).cloned()
+                        && let Some(with) = self.innermost_with(&tag)
+                    {
+                        self.cap_roots.insert(local, with);
                     }
                 }
                 self.sub_effects(expr)
@@ -249,9 +266,12 @@ impl BodyInfer<'_> {
                     .collect()
             })
             .collect();
-        let body_row = self.expr_effects(body);
-        layer::check_with_items(program, self.sigs, self.ty_table, items, &mut self.diags);
         let entries = layer::with_entries(program, self.sigs, self.ty_table, items);
+        let provides: Vec<Tag> = entries.iter().map(|e| e.effect.clone()).collect();
+        self.with_stack.push((expr, provides));
+        let body_row = self.expr_effects(body);
+        self.with_stack.pop();
+        layer::check_with_items(program, self.sigs, self.ty_table, items, &mut self.diags);
         let deps: Vec<Row> = entries
             .iter()
             .map(|e| match &e.supplier {
@@ -272,6 +292,20 @@ impl BodyInfer<'_> {
         let mut for_body = provided.clone();
         for_body.extend(defaults.iter().map(|(t, _)| t.clone()));
         let mut row = self.subtract(&body_row, &for_body);
+        // The capabilities whose root is this `with` (`[effect.use]`).
+        let locals: Vec<_> = self
+            .cap_roots
+            .iter()
+            .filter(|&(_, &with)| with == expr)
+            .map(|(local, _)| local)
+            .collect();
+        let roots: Vec<RowElem> = locals
+            .into_iter()
+            .filter_map(|l| self.cap_elem(l))
+            .collect();
+        if !roots.is_empty() {
+            row = self.subtract_elems(&row, &roots);
+        }
         // Handler dependencies may be met by handlers in the same `with` providing other effects
         // (spec 14.2). The handler's own effect is met from outside. Dependencies a layer leaves
         // unmet also remain (spec 8.5).
@@ -304,6 +338,84 @@ impl BodyInfer<'_> {
         row
     }
 
+    /// The innermost enclosing `with` that provides `tag` (`[effect.with]`): `use` inside a
+    /// closure looks at the `with`s around it in the same top-level definition.
+    fn innermost_with(&mut self, tag: &Tag) -> Option<ExprId> {
+        let stack = self.with_stack.clone();
+        stack
+            .iter()
+            .rev()
+            .find(|(_, provides)| provides.iter().any(|p| self.ctx.same_tag(p, tag)))
+            .map(|(with, _)| *with)
+    }
+
+    /// The capability element of a local variable holding a capability value.
+    fn cap_elem(&mut self, local: emela_resolve::hir::LocalId) -> Option<RowElem> {
+        let ty = self.locals.get(local).cloned()?;
+        match self.ctx.resolve(&ty) {
+            Ty::Cap(tag) => Some(RowElem::Cap(CapElem {
+                local,
+                name: self.program.locals[local].name.clone(),
+                tag,
+            })),
+            _ => None,
+        }
+    }
+
+    /// `row` without the capabilities of the variables bound in `binder` of `def`: their binding
+    /// ends with that body (`[effect.use]`).
+    fn end_binder(&mut self, row: &Row, def: DefId, binder: Option<ExprId>) -> Row {
+        let locals: Vec<_> = self
+            .local_binder
+            .iter()
+            .filter(|&(local, b)| *b == binder && self.local_owner.get(local) == Some(&def))
+            .map(|(local, _)| local)
+            .collect();
+        let caps: Vec<RowElem> = locals
+            .into_iter()
+            .filter_map(|l| self.cap_elem(l))
+            .collect();
+        if caps.is_empty() {
+            return row.clone();
+        }
+        self.subtract_elems(row, &caps)
+    }
+
+    /// [`Self::end_binder`] for a closure or local fn of the definition being computed.
+    fn end_binder_here(&mut self, row: &Row, binder: Option<ExprId>) -> Row {
+        match self.current {
+            Some(def) => self.end_binder(row, def, binder),
+            None => row.clone(),
+        }
+    }
+
+    /// Removes tags and capabilities from `row`, as [`Self::subtract`] does tags. A tag removes
+    /// only the same tag, and a capability only the same variable.
+    fn subtract_elems(&mut self, row: &Row, minus: &[RowElem]) -> Row {
+        let mut out = Row::empty();
+        for e in self.ctx.resolve_row(row).elems() {
+            let removed = match e {
+                RowElem::Tag(t) => minus
+                    .iter()
+                    .any(|m| matches!(m, RowElem::Tag(m) if self.ctx.same_tag(m, t))),
+                RowElem::Cap(c) => minus
+                    .iter()
+                    .any(|m| matches!(m, RowElem::Cap(m) if m.local == c.local)),
+                RowElem::Var(v) => {
+                    let d = self.ctx.new_row_var();
+                    self.row_diffs.push((d, *v, minus.to_vec()));
+                    out.insert(RowElem::Var(d));
+                    continue;
+                }
+                _ => false,
+            };
+            if !removed {
+                out.insert(e.clone());
+            }
+        }
+        out
+    }
+
     /// Removes the tags `tags` from `row`. Inference set variables are replaced with fresh ones
     /// whose solutions exclude those tags; nothing is removed from set type parameters. Effects
     /// with type arguments are removed only with matching type arguments (spec 8.1); undetermined
@@ -315,7 +427,8 @@ impl BodyInfer<'_> {
                 RowElem::Tag(t) if tags.iter().any(|p| self.ctx.same_tag(p, t)) => {}
                 RowElem::Var(v) if !tags.is_empty() => {
                     let d = self.ctx.new_row_var();
-                    self.row_diffs.push((d, *v, tags.to_vec()));
+                    let minus = tags.iter().map(|t| RowElem::Tag(t.clone())).collect();
+                    self.row_diffs.push((d, *v, minus));
                     out.insert(RowElem::Var(d));
                 }
                 e => out.insert(e.clone()),

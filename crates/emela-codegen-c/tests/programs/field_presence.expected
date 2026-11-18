@@ -1,0 +1,39 @@
+exit: 0
+--- stdout
+--- stderr
+"{\"title\":\"Shopping\"}"
+"{\"due\":\"2026-11-20\",\"title\":\"Shopping\"}"
+"TodoBody(title: \"Shopping\", due: Some(\"2026-11-20\"))"
+"TodoBody(title: \"Shopping\", due: None)"
+"TodoBody(title: \"Shopping\", due: None)"
+"text at .title"
+["text at .title", "text at .due"]
+["TodoBody(title: \"Shopping\", due: None)"]
+"{}"
+"{\"title\":\"Milk\"}"
+"{\"due\":null}"
+"{\"due\":\"2026-12-01\"}"
+"TodoPatch(title: None, due: Absent)"
+"TodoPatch(title: Some(\"Milk\"), due: Absent)"
+"TodoPatch(title: None, due: Null)"
+"TodoPatch(title: None, due: Present(\"2026-12-01\"))"
+"text at .due"
+["TodoPatch(title: None, due: Absent)"]
+["TodoPatch(title: None, due: Null)"]
+["text at .title", "text at .due"]
+"{\"tag\":\"Rename\",\"value\":{}}"
+"{\"tag\":\"Rename\",\"value\":{\"due\":null,\"title\":\"a\"}}"
+"{\"tag\":\"Pair\",\"value\":[null,null]}"
+"Rename(title: None, due: Absent)"
+"Rename(title: None, due: Null)"
+"Pair(None, Null)"
+["Rename(title: None, due: Present(3))"]
+"[null,null,1]"
+[Null, Present(1)]
+"{\"level\":2,\"name\":\"a\"}"
+"Settings(level: Level(value: 0), name: \"a\")"
+["Settings(level: Level(value: 0), name: \"a\")"]
+True
+True
+"Present(1)"
+Record(name: "TodoPatch", fields: [Field(name: "title", shape: Option(String)), Field(name: "due", shape: Option(String))])

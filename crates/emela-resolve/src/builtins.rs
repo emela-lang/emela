@@ -228,6 +228,7 @@ fn enum_item(
             type_params,
             variants,
             derives: Vec::new(),
+            tags: Vec::new(),
         }),
     );
 }

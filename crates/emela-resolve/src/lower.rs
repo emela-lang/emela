@@ -75,6 +75,7 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         locals: Vec::new(),
         type_params: Vec::new(),
         self_type: false,
+        handler: None,
         type_arg: false,
         ignored_type_params: Vec::new(),
     };
@@ -137,6 +138,10 @@ struct Lower<'r, 'a> {
     type_params: Vec<FxHashMap<SmolStr, DefId>>,
     /// Whether `Self` may be written (inside traits and impls).
     self_type: bool,
+    /// The handler being lowered and its constructor, if it has one. `Self` as an expression
+    /// names that constructor anywhere inside the handler (`[effect.handler]`); that it is only
+    /// used inside init is checked by type inference with the handler's name (E0418).
+    handler: Option<(DefId, Option<DefId>)>,
     /// Set while looking up a type in a type argument position of a named type. Effect names may
     /// appear there too (set type arguments, `Handler[NotFound, Db]` in spec 9.2); whether an
     /// effect is allowed in that position is checked by type inference.
@@ -554,6 +559,7 @@ impl Lower<'_, '_> {
                 name,
                 ty,
                 span: self.span(range),
+                key: string_attr(&field, "key"),
             });
         }
         Some(fields)
@@ -610,6 +616,10 @@ impl Lower<'_, '_> {
         // Variants with unreadable names were skipped during collection, so match up only the
         // named ones, in order.
         let syntax_variants: Vec<_> = e.variants().filter(|v| v.name().is_some()).collect();
+        let tags = syntax_variants
+            .iter()
+            .map(|v| string_attr(v, "tag"))
+            .collect();
         for (&variant, syntax) in variants.iter().zip(&syntax_variants) {
             let fields = if let Some(fields) = self.named_fields(syntax.field_list()) {
                 Fields::Named(fields)
@@ -632,6 +642,7 @@ impl Lower<'_, '_> {
             type_params,
             variants: variants.to_vec(),
             derives,
+            tags,
         })
     }
 
@@ -678,6 +689,13 @@ impl Lower<'_, '_> {
     }
 
     fn handler_item(&mut self, def: DefId, ctor: Option<DefId>, h: &ast::HandlerDecl) -> Item {
+        self.handler = Some((def, ctor));
+        let item = self.handler_body(def, ctor, h);
+        self.handler = None;
+        item
+    }
+
+    fn handler_body(&mut self, def: DefId, ctor: Option<DefId>, h: &ast::HandlerDecl) -> Item {
         let fields = self.named_fields(h.field_list());
         if let Some(ctor) = ctor {
             // The constructor of a handler without fields is a value (`ConsoleLogger`).
@@ -1658,6 +1676,23 @@ impl Lower<'_, '_> {
                 }
             };
         }
+        // `Self` as an expression is the constructor of the enclosing handler. It is not a
+        // rename of the handler: the reference lets navigation reach the handler, and renaming
+        // leaves the keyword as written.
+        if kind == SELF_TYPE_KW {
+            return match self.handler {
+                Some((_, Some(ctor))) => {
+                    self.refer(range, RefTarget::Def(ctor));
+                    Res::Def(ctor)
+                }
+                // A handler without a constructor is already reported.
+                Some((_, None)) => Res::Err,
+                None => {
+                    self.error(range, DiagnosticKind::SelfValueOutside);
+                    Res::Err
+                }
+            };
+        }
         if let Some(local) = self.lookup_local(name) {
             self.refer(range, RefTarget::Local(local));
             return Res::Local(local);
@@ -1775,7 +1810,21 @@ impl Lower<'_, '_> {
             None => (Vec::new(), None),
         };
         match spread {
-            Some(base) => self.update(callee, args, base),
+            Some(base) => {
+                // `Self` constructs a handler with its fields only (`[grammar.expr]`). Outside a
+                // handler it is already reported (E0219).
+                let callee_node = node.children().find(|c| is_expr(c.kind()));
+                if self.handler.is_some()
+                    && callee_node.is_some_and(|c| {
+                        c.kind() == NAME_REF
+                            && c.first_token().is_some_and(|t| t.kind() == SELF_TYPE_KW)
+                    })
+                {
+                    let range = self.r.program.exprs[callee].span.range;
+                    self.error(range, DiagnosticKind::SelfUpdate);
+                }
+                self.update(callee, args, base)
+            }
             None => ExprKind::Call { callee, args },
         }
     }
@@ -2330,6 +2379,44 @@ fn attrs(f: &ast::FnDecl, attr: &str, module: ModuleId) -> Vec<ExternalAttr> {
             })
         })
         .collect()
+}
+
+/// The value of `@key("...")` or `@tag("...")` (`[kw.annotation]`): its one argument when that is
+/// a string literal without interpolation. `None` for any other argument, which is E0338.
+pub fn string_attr_value(annotation: &ast::Annotation) -> Option<SmolStr> {
+    let mut args = annotation.args();
+    let arg = args.next()?;
+    if args.next().is_some() {
+        return None;
+    }
+    // A name (`@key(k)`) or `name: value` puts a token before the literal.
+    if arg
+        .children_with_tokens()
+        .any(|e| matches!(e.kind(), LOWER_NAME | COLON))
+    {
+        return None;
+    }
+    let mut nodes = arg.children();
+    let string = nodes.next().filter(|n| n.kind() == STRING)?;
+    if nodes.next().is_some() || string.children().next().is_some() {
+        // An interpolation is a child node of the string.
+        return None;
+    }
+    let text: String = string
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|t| t.kind() == STRING_TEXT)
+        .map(|t| string_text(&t))
+        .collect();
+    Some(text.into())
+}
+
+/// The argument of the first attribute `name` of `node`, if it is valid ([`string_attr_value`]).
+/// A second attribute of the same name is E0338.
+pub fn string_attr(node: &impl HasAttrs, name: &str) -> Option<SmolStr> {
+    node.annotations()
+        .find(|a| a.name().is_some_and(|n| n.text() == name))
+        .and_then(|a| string_attr_value(&a))
 }
 
 /// The value of a STRING_TEXT token. In a multiline string (spec 2.4), the newline after the

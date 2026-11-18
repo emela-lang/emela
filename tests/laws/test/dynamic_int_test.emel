@@ -1,0 +1,23 @@
+import Std.Dynamic.{Dynamic, Number, Text, DecodeError}
+import Std.Dynamic.Number
+
+fn expected(value: Dynamic) -> String {
+  {
+    value.int()
+    ""
+  } escape {
+    DecodeError(expected:, ..) -> expected
+  }
+}
+
+@test
+fn reads_an_int() {
+  assert Number(Number.from_int(-1200)).int() == -1200
+  assert Number(Number.from_int(0)).int() == 0
+  assert Number(Number.from_int(2147483647)).int() == 2147483647
+}
+
+@test
+fn fails_on_a_value_that_is_not_a_number() {
+  assert expected(Text("1")) == "number"
+}

@@ -71,19 +71,25 @@ sep          = "," | NL
 
 const_decl   = "const" upper_name [ ":" type ] "=" expr
 
-effect_decl  = "effect" type_name [ type_params ] "{" { op_sig NL } "}"
+effect_decl  = "effect" type_name [ type_params ] "{" { effect_member NL } "}"
              | "effect" type_name "of" type_ref [ "[" type { "," type } "]" ] [ "default" ]   (* label; 8.9 *)
+effect_member = op_sig | member_sig
 op_sig       = [ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")"
                "->" type [ "fails" error_set ]     (* type_params only for built-in effects; 8.1 *)
+member_sig   = "handler" type_name "(" [ params ] ")" ":" effect_ref { "+" effect_ref }
+               [ "fails" error_set ]                              (* a handler member; 8.1 *)
 
 handler_decl = "handler" type_name [ "(" [ fields ] ")" ]
-               ":" type_ref [ "[" type { "," type } "]" ] "{" { handler_item NL } "}"
+               ":" effect_ref { "+" effect_ref } "{" { handler_item NL } "}"
+effect_ref   = type_ref [ "[" type { "," type } "]" ]
 handler_item = "init" [ "(" [ params ] ")" ] block
              | "release" block
              | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block
+             | handler_decl                                      (* inner handler; 8.4 *)
 
 layer_decl   = "layer" type_name "{" supply { sep supply } "}"
-supply       = type_ref [ "(" [ args ] ")" ]
+supply       = type_ref [ "." type_name ] [ "(" [ args ] ")" ]
+             | lower_name "." type_name "(" [ args ] ")"          (* a handler member of a capability; 8.3 *)
 
 trait_decl   = "trait" type_name [ ":" bound { "+" bound } ] "{" { trait_item NL } "}"
 trait_item   = "fn" lower_name "(" [ params ] ")" [ signature ] [ block ]
@@ -116,6 +122,7 @@ type       = type_ref [ "[" type_arg { "," type_arg } "]" ]
            | "(" type "," type { "," type } ")"               (* tuple *)
            | "fn" "(" [ type { "," type } ] ")" "->" type
              [ "fails" error_set ] [ "uses" effect_set ]
+           | "use" effect_item { "+" effect_item }            (* the type of a capability; 8.2 *)
 type_ref   = [ module_path "." ] type_name
 
 type_arg   = type
@@ -150,9 +157,9 @@ unary      = ( "!" | "-" ) unary
            | "use" type_ref [ "[" type { "," type } "]" ]
            | lambda
            | postfix
-postfix    = primary { "(" [ args ] ")" | "." lower_name }
+postfix    = primary { "(" [ args ] ")" | "." lower_name | "." type_name "(" [ args ] ")" }   (* "." type_name: a handler member, inside an init only; 8.4 *)
 
-primary    = literal | lower_name | upper_name | type_ref | "self"
+primary    = literal | lower_name | upper_name | type_ref | "self" | "Self"
            | "(" ")"
            | "(" expr ")"
            | "(" expr "," expr { "," expr } ")"
@@ -166,7 +173,7 @@ arg        = expr | lower_name ":" [ expr ]
 if_expr    = "if" expr block [ "else" ( block | if_expr ) ]
 arm        = pattern [ "if" expr ] "->" expr
 with_expr  = "with" with_item { "," with_item } block
-with_item  = supply [ "by" by_right ]                                   (* by is in 8.9 *)
+with_item  = [ lower_name "=" ] supply [ "by" by_right ]                 (* by is in 8.9 *)
 by_right   = type_ref [ "[" type { "," type } "]" | "(" [ args ] ")" ]
 lambda     = ( "||" | "|" [ lambda_param { "," lambda_param } ] "|" ) expr
 lambda_param = pattern [ ":" type ]
@@ -184,6 +191,7 @@ lambda_param = pattern [ ":" type ]
 - To call an operation of `use X` in place, wrap it in parentheses: `(use X).op(...)`. Writing `.` or `(` directly after `use X` is a compile error (E0121).
 - In an argument list, a positional argument cannot follow a named argument.
 - The type arguments on the right of `by` (`Hits by State[Int]`) can be written only when it names an effect, and arguments only when it names a handler.
+- `Self` as an expression is the value of a handler, and can be written only inside the init of a handler, called with its fields or alone (8.4).
 - A trailing `..expr` in an argument list is a record update of a constructor (5.3). Writing it in a function call is a compile error (E0222). Writing an argument after `..` is a compile error (E0114).
 - A `..expr` in a list literal can appear only once, at the end. `[x, y, ..rest]` is the list `rest` with `x` and `y` added in front. What follows `..` is not limited to a name and can be any expression (`[x, ..List.tail(xs)]`). `[..rest]` with no elements, and `..` in the middle or more than once (`[..a, ..b]`), cannot be written.
 
