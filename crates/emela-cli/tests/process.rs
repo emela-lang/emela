@@ -341,7 +341,7 @@ fn test_stdout_and_test_stderr_on_every_target() {
 }
 
 /// `print` writes the text as is and `print_line` adds `\n`, with no conversion of line endings,
-/// through `Platform` and in a function that is not a suspend fn.
+/// through `Process` and in a function that is not a suspend fn.
 #[test]
 fn system_stdout_and_stderr_on_every_target() {
     let project = Project::new("stdout", include_str!("process/stdout.emel"));
@@ -596,14 +596,13 @@ fn a_closed_stderr_is_discarded() {
 fn system_stdout_under_test_on_every_target() {
     let project = Project::new(
         "stdout-under-test",
-        "import Std.Platform.{Platform}\n\
-         import Std.Process.{Stdout}\n\
+        "import Std.Process.{Process, Stdout}\n\
          \n\
          @test\n\
-         fn first() {\n  with Platform { (use Stdout).print(\"no newline\") }\n}\n\
+         fn first() {\n  with Process { (use Stdout).print(\"no newline\") }\n}\n\
          \n\
          @test\n\
-         fn second() {\n  with Platform { (use Stdout).print_line(\"a line\") }\n}\n",
+         fn second() {\n  with Process { (use Stdout).print_line(\"a line\") }\n}\n",
     );
     for target in every_target() {
         let out = project.run(&["test", "--target", target, "--reporter", "plain"], b"");

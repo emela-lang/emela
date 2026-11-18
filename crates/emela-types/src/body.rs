@@ -561,18 +561,19 @@ impl<'a> BodyInfer<'a> {
     /// - Operation parameter and return types come from the effect operation's declaration. A
     ///   suspend fn implementation takes `resume` as its last parameter: a function taking a value
     ///   of the operation's return type and returning `()`. The body's value is `()`.
-    /// - Handlers for Async cannot be written (spec 8.7).
+    /// - Handlers for a host effect cannot be written (`[effect.host]`).
     fn infer_handler(&mut self, def: DefId, item: &HandlerItem) {
         let program = self.program;
         let span = program.defs[def].span;
         let Res::Def(effect) = item.effect else {
             return;
         };
-        if program.prelude_def("Async") == Some(effect) {
+        if program.is_host_effect(effect) {
             self.diags.push(Diagnostic {
                 span,
-                kind: DiagnosticKind::AsyncHandler {
+                kind: DiagnosticKind::HostEffectHandler {
                     handler: program.defs[def].name.clone(),
+                    effect: program.defs[effect].name.clone(),
                 },
             });
             return;
@@ -812,7 +813,7 @@ impl<'a> BodyInfer<'a> {
 
     /// An inner handler implements the handler member of its name (`[effect.handler]`): it
     /// implements the effect the member declares, and its init takes the member's parameters with
-    /// the same names and types (E0447).
+    /// the same names and types (E0449).
     fn check_inner_handler(&mut self, def: DefId, member: DefId, item: &HandlerItem) {
         let program = self.program;
         let Some(f) = self.inner_member_ty(def, member) else {
@@ -1232,14 +1233,17 @@ impl<'a> BodyInfer<'a> {
             }
             ExprKind::Escape { expr: inner, arms } => self.infer_escape(*inner, arms),
             // `use X` is X's capability value (spec 8.2). X is added to R when the body's R is
-            // computed. Async has no operations; only the runtime provides it (spec 8.7).
+            // computed. A host effect has no operations; only the entry provides it
+            // (`[effect.host]`).
             ExprKind::Use {
                 effect: Res::Def(effect),
                 ..
-            } if program.prelude_def("Async") == Some(*effect) => {
+            } if program.is_host_effect(*effect) => {
                 self.diags.push(Diagnostic {
                     span: Some(e.span),
-                    kind: DiagnosticKind::UseAsync,
+                    kind: DiagnosticKind::UseHostEffect {
+                        effect: program.defs[*effect].name.clone(),
+                    },
                 });
                 Ty::Error
             }
@@ -1381,7 +1385,7 @@ impl<'a> BodyInfer<'a> {
     /// For an item of `with` that opens a handler member, the type of opening it
     /// (`[type.rules]`): the parameters of the init, the capability opened, the member's E, and
     /// the R that names the effect (`Files`) or the capability (`fs`). An item without `x =` is
-    /// E0445.
+    /// E0447.
     fn infer_member_item(&mut self, item: &WithItem) -> Option<(crate::ty::FnTy, DefId)> {
         let program = self.program;
         let (ty, member) = match (item.res, &item.cap) {
@@ -1516,9 +1520,10 @@ impl<'a> BodyInfer<'a> {
         });
     }
 
-    /// An `@external` fn with `uses` omitted and an `@external suspend fn` can only be used inside
-    /// handler operation bodies (spec 12.2). Checked on every reference, not only calls, so they
-    /// cannot be smuggled out as function values.
+    /// An `@external` fn with `uses` omitted or with host effects in it, and an
+    /// `@external suspend fn`, can only be used inside handler operation bodies (`[ext.call]`).
+    /// Checked on every reference, not only calls, so they cannot be smuggled out as function
+    /// values. Only `uses {}` lifts the restriction; any other effect in the clause is E0445.
     fn check_external(&mut self, def: DefId, span: Span) {
         let Some(Item::Fn(item)) = self.program.item(def) else {
             return;
@@ -1526,12 +1531,13 @@ impl<'a> BodyInfer<'a> {
         if !item.is_external || self.in_handler() {
             return;
         }
-        if item.sig.is_suspend || item.sig.uses.is_none() {
+        if item.sig.is_suspend || item.sig.uses.as_ref().is_none_or(|u| !u.items.is_empty()) {
             self.diags.push(Diagnostic {
                 span: Some(span),
                 kind: DiagnosticKind::ExternalOutsideHandler {
                     name: self.program.defs[def].name.clone(),
                     suspend: item.sig.is_suspend,
+                    host: item.sig.uses.as_ref().is_some_and(|u| !u.items.is_empty()),
                 },
             });
         }
@@ -2301,7 +2307,7 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// Opening a handler member is written only as an item of `with` and, as a call, inside an
-    /// init (E0446, `[effect.use]`, `[effect.handler]`). Records the opening.
+    /// init (E0448, `[effect.use]`, `[effect.handler]`). Records the opening.
     fn check_member_open(&mut self, expr: ExprId, member: DefId, span: Span) {
         self.member_opens.insert(expr, member);
         if self.in_init.is_none() || !self.member_callees.contains(&expr) {

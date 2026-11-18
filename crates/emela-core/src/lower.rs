@@ -810,7 +810,6 @@ impl<'a> Lowerer<'a> {
     /// not known here, fails and needs the evidence table.
     fn set_ty(&mut self, row: &Row) -> TypeId {
         let hir = self.hir;
-        let async_ = hir.prelude_def("Async");
         let mut set = SetSummary::default();
         // A capability is summarized as its effect (`[effect.use]`).
         for e in row.widened().elems() {
@@ -823,11 +822,11 @@ impl<'a> Lowerer<'a> {
                         set.ev = true;
                     }
                 },
+                // The host provides a host effect, so it has no evidence (`[effect.host]`).
                 RowElem::Tag(t) if matches!(hir.item(t.def), Some(Item::Effect(_))) => {
-                    set.ev |= Some(t.def) != async_;
+                    set.ev |= !hir.is_host_effect(t.def);
                     set.suspends |= !self.is_immediate_effect(t.def);
                 }
-                RowElem::Tag(t) if Some(t.def) == async_ => set.suspends = true,
                 RowElem::Tag(_) | RowElem::Of(_) => set.fails = true,
                 RowElem::Cap(_) => unreachable!("widened above"),
             }
@@ -1354,12 +1353,11 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Whether a function with effect set `row` needs an evidence table: yes if it has an element
-    /// other than Async.
+    /// other than a host effect, which the host provides without evidence (`[effect.host]`).
     fn row_needs_ev(&self, row: &Row) -> bool {
-        let async_ = self.hir.prelude_def("Async");
         row.elems()
             .iter()
-            .any(|e| !matches!(e, RowElem::Tag(t) if Some(t.def) == async_))
+            .any(|e| !matches!(e, RowElem::Tag(t) if self.hir.is_host_effect(t.def)))
     }
 
     /// The current evidence table to pass as a call's last argument, or `()` if there is none (the

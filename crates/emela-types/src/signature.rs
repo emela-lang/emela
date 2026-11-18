@@ -6,8 +6,8 @@
 //! values.
 
 use emela_resolve::hir::{
-    DefId, DefKind, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, LocalKind, MemberItem, Param,
-    Program, Res, TypeId, TypeKind, TypeParam,
+    DefId, DefKind, DefModule, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, LocalKind,
+    MemberItem, Param, Program, Res, TypeId, TypeKind, TypeParam,
 };
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
@@ -108,6 +108,9 @@ impl Signatures {
             let sig = match program.item(def) {
                 Some(Item::Fn(item)) => {
                     check_bounds(program, ty_table, def, item, diags);
+                    if item.is_external {
+                        check_external_uses(program, def, item, diags);
+                    }
                     fn_signature(program, ty_table, item, diags)
                 }
                 Some(Item::Ctor(item)) => {
@@ -136,6 +139,21 @@ impl Signatures {
                 }
                 Some(Item::Effect(item)) => {
                     check_effect_params(program, ty_table, def, diags);
+                    // Only the compiler declares effects without operations: the host effects,
+                    // which are in the Prelude (`[effect.decl]`). A label has the operations of
+                    // its base. An effect with handler members has something to provide.
+                    if item.ops.is_empty()
+                        && item.members.is_empty()
+                        && item.label.is_none()
+                        && matches!(program.defs[def].module, DefModule::Source(_))
+                    {
+                        diags.push(Diagnostic {
+                            span: program.defs[def].span,
+                            kind: DiagnosticKind::EffectWithoutOps {
+                                effect: program.defs[def].name.clone(),
+                            },
+                        });
+                    }
                     if let Some(label) = &item.label
                         && let Some(base) = label_base(program, ty_table, def, label, diags)
                     {
@@ -178,7 +196,7 @@ impl Signatures {
                             },
                         });
                     } else if let Res::Def(effect) = item.effect
-                        && program.prelude_def("Async") != Some(effect)
+                        && !program.is_host_effect(effect)
                         && !is_intrinsic_effect(program, effect)
                     {
                         let scope = Scope {
@@ -218,6 +236,31 @@ impl Signatures {
     }
 }
 
+/// The uses clause of an external function contains only ProcessHost and PageHost (E0445,
+/// `[ext.call]`). Async is declared with `suspend fn` instead, and a set type parameter or an
+/// effect of the program would let the host function run outside a handler.
+fn check_external_uses(program: &Program, def: DefId, item: &FnItem, diags: &mut Vec<Diagnostic>) {
+    let Some(uses) = &item.sig.uses else {
+        return;
+    };
+    for effect in &uses.items {
+        let allowed = match effect.res {
+            Res::Def(d) => program.is_host_effect(d) && program.defs[d].name != "Async",
+            // An unresolved name is reported by name resolution.
+            Res::Err => true,
+            _ => false,
+        };
+        if !allowed {
+            diags.push(Diagnostic {
+                span: Some(effect.span),
+                kind: DiagnosticKind::ExternalUses {
+                    function: program.defs[def].name.clone(),
+                },
+            });
+        }
+    }
+}
+
 /// Whether `effect` is declared as a label (`effect AuditLog of Console`).
 pub(crate) fn is_label(program: &Program, effect: DefId) -> bool {
     matches!(program.item(effect), Some(Item::Effect(e)) if e.label.is_some())
@@ -244,7 +287,7 @@ fn label_base(
             .label_base(base)
             .map(|b| program.defs[b].name.clone());
         Some(LabelBaseReason::Label(inner.unwrap_or_else(|| "?".into())))
-    } else if program.prelude_def("Async") == Some(base) || is_intrinsic_effect(program, base) {
+    } else if program.is_host_effect(base) || is_intrinsic_effect(program, base) {
         Some(LabelBaseReason::BuiltIn)
     } else {
         None

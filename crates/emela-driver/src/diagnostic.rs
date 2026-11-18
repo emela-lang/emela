@@ -932,10 +932,32 @@ impl Diagnostic {
                 effects,
                 context,
                 scope,
+                hosts,
+                process,
             } => {
                 if let Some(scope) = scope {
                     note = Some(format!(
                         "fibers forked in `{scope}` get their handlers from where `{scope}` is called, so `with` inside it does not reach them"
+                    ));
+                }
+                // Only the entry provides a host effect (`[effect.host]`): name it and what it
+                // provides.
+                if !hosts.is_empty()
+                    && let Some(entry) = host_entry(context)
+                {
+                    let provided = context.provided_hosts();
+                    let provided = match provided.as_slice() {
+                        [one] => format!("only `{one}`"),
+                        _ => {
+                            let quoted: Vec<String> =
+                                provided.iter().map(|e| format!("`{e}`")).collect();
+                            and_list(&quoted)
+                        }
+                    };
+                    let missing: Vec<String> = hosts.iter().map(|e| format!("`{e}`")).collect();
+                    note = Some(format!(
+                        "{entry} provides {provided}, not {}",
+                        or_list(&missing)
                     ));
                 }
                 let list = quoted_list("effect", "effects", effects);
@@ -962,7 +984,7 @@ impl Diagnostic {
                         });
                         format!("{list} {verb} not provided in `main`")
                     }
-                    EffectContext::Export { name } => {
+                    EffectContext::Export { name, .. } => {
                         help = Some(match scope {
                             Some(scope) => format!("provide it with `with` outside `{scope}`"),
                             None => "provide it with `with`".to_owned(),
@@ -977,6 +999,16 @@ impl Diagnostic {
                         format!("{list} {verb} not provided in test function `{name}`")
                     }
                 };
+                // A with cannot provide a host effect (`[effect.host]`).
+                if hosts.len() == effects.len() {
+                    help = None;
+                }
+                if *process {
+                    help = Some(
+                        "`Platform` has only the handlers every host has; use `Process` for the ones that need a process"
+                            .to_owned(),
+                    );
+                }
                 (Severity::Error, Some(code::UNHANDLED_EFFECTS), message)
             }
             TypeDiagnosticKind::EffectSetMismatch { expected, found } => (
@@ -1094,8 +1126,12 @@ impl Diagnostic {
                     "wrong number of parameters: operation `{op}` takes {expected}, found {found}"
                 ),
             ),
-            TypeDiagnosticKind::ExternalOutsideHandler { name, suspend } => {
-                if !*suspend {
+            TypeDiagnosticKind::ExternalOutsideHandler {
+                name,
+                suspend,
+                host,
+            } => {
+                if !*suspend && !*host {
                     help = Some("declare it with `uses {}` if it has no side effects".to_owned());
                 }
                 (
@@ -1308,11 +1344,11 @@ impl Diagnostic {
                     format!("handler `{handler}` cannot implement label `{label}`"),
                 )
             }
-            TypeDiagnosticKind::AsyncHandler { handler } => (
+            TypeDiagnosticKind::HostEffectHandler { handler, effect } => (
                 Severity::Error,
-                Some(code::ASYNC_HANDLER),
+                Some(code::HOST_EFFECT_HANDLER),
                 format!(
-                    "handler `{handler}` cannot implement `Async`: only the runtime provides it"
+                    "handler `{handler}` cannot implement `{effect}`: only the host provides it"
                 ),
             ),
             TypeDiagnosticKind::IntrinsicHandler {
@@ -1321,7 +1357,7 @@ impl Diagnostic {
                 provider,
             } => (
                 Severity::Error,
-                Some(code::ASYNC_HANDLER),
+                Some(code::HOST_EFFECT_HANDLER),
                 format!(
                     "handler `{handler}` cannot implement `{effect}`: only `{provider}` provides it"
                 ),
@@ -1343,11 +1379,29 @@ impl Diagnostic {
                     "operation `{op}` cannot have type parameters: only built-in effects may declare them"
                 ),
             ),
-            TypeDiagnosticKind::UseAsync => (
+            TypeDiagnosticKind::UseHostEffect { effect } => (
                 Severity::Error,
-                Some(code::USE_ASYNC),
-                "`Async` has no operations and cannot be used with `use`".to_owned(),
+                Some(code::USE_HOST_EFFECT),
+                format!("`{effect}` is a host effect and cannot be used with `use`"),
             ),
+            TypeDiagnosticKind::ExternalUses { function } => (
+                Severity::Error,
+                Some(code::EXTERNAL_USES),
+                format!(
+                    "the uses of external function `{function}` can contain only `ProcessHost` and `PageHost`"
+                ),
+            ),
+            TypeDiagnosticKind::EffectWithoutOps { effect } => {
+                help = Some(
+                    "an effect needs at least one operation; only host effects have none"
+                        .to_owned(),
+                );
+                (
+                    Severity::Error,
+                    Some(code::EFFECT_WITHOUT_OPS),
+                    format!("effect `{effect}` has no operations"),
+                )
+            }
             TypeDiagnosticKind::SuspendMismatch {
                 op,
                 effect,
@@ -1660,5 +1714,19 @@ fn suspending_cause(call: &SuspendingCall) -> String {
                 None => format!("this call may suspend because it uses {list}"),
             }
         }
+    }
+}
+
+/// The entry of a launch that `context` stands for, as named in the note of E0402 for a host
+/// effect (`[effect.host]`). `None` for a context that is not an entry.
+fn host_entry(context: &EffectContext) -> Option<String> {
+    match context {
+        EffectContext::Main => Some("`main`".to_owned()),
+        EffectContext::Test { .. } => Some("the test runner".to_owned()),
+        // An entry adapter. A fn made by `@entry` has these too, but an error in it is reported as
+        // E0440 instead (`emela_types::export`).
+        EffectContext::Export { name, hosts } if !hosts.is_empty() => Some(format!("`{name}`")),
+        EffectContext::Export { .. } => Some("the host of an exported function".to_owned()),
+        EffectContext::Declared | EffectContext::Const | EffectContext::LayerArg(_) => None,
     }
 }

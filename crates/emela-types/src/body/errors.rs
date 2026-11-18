@@ -27,8 +27,8 @@
 
 use crate::sparse::SparseMap;
 use emela_resolve::hir::{
-    Arm, Block, DefId, DefKind, ExprId, ExprKind, Item, LocalId, PatId, PatKind, Res, Span, Stmt,
-    StrPart,
+    Arm, Block, DefId, DefKind, DefModule, ExprId, ExprKind, Item, LocalId, PatId, PatKind,
+    Program, Res, Span, Stmt, StrPart,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
@@ -38,7 +38,7 @@ use crate::coverage::Shapes;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::diagnostic::{EffectContext, LayerArg};
 use crate::infer::{Origin, SetKind, Subset};
-use crate::row::{Row, RowElem, RowVar, Tag};
+use crate::row::{CapElem, Row, RowElem, RowVar, Tag};
 use crate::ty::{Ty, TyParam};
 
 /// One lower bound of a set variable: the elements of `elem` minus the elements in `minus`.
@@ -685,7 +685,7 @@ impl BodyInfer<'_> {
                             arg,
                             &[],
                             &missing,
-                            EffectContext::LayerArg(context),
+                            EffectContext::LayerArg(Box::new(context)),
                         ),
                     }
                 }
@@ -937,12 +937,29 @@ impl BodyInfer<'_> {
                 })
                 .collect();
             let scope = self.forked_from(origin, &elems);
+            let program = self.program;
+            let hosts = elems
+                .iter()
+                .filter_map(|e| match e {
+                    RowElem::Tag(t) if program.is_host_effect(t.def) => {
+                        Some(program.defs[t.def].name.clone())
+                    }
+                    _ => None,
+                })
+                .collect();
+            let process = elems.iter().any(|e| {
+                matches!(e, RowElem::Tag(t) | RowElem::Cap(CapElem { tag: t, .. })
+                    if is_process_effect(program, t.def))
+                    && self.under_platform(&rows, body, e)
+            });
             self.diags.push(Diagnostic {
                 span: Some(self.program.exprs[origin].span),
                 kind: DiagnosticKind::UnhandledEffects {
                     effects,
                     context: context.clone(),
                     scope,
+                    hosts,
+                    process,
                 },
             });
         }
@@ -1041,6 +1058,30 @@ impl BodyInfer<'_> {
             match next {
                 Some(next) => current = next,
                 None => return current,
+            }
+        }
+    }
+
+    /// Whether a `with` on the way from `expr` to the origin of `elem` ([`Self::origin_of`])
+    /// lists the layer `Platform` of `Std.Platform`.
+    fn under_platform(&self, rows: &SparseMap<ExprId, Row>, expr: ExprId, elem: &RowElem) -> bool {
+        let program = self.program;
+        let mut current = expr;
+        loop {
+            if let ExprKind::With { handlers, .. } = &program.exprs[current].kind
+                && handlers.iter().any(|h| {
+                    matches!(h.supplier().0, Res::Def(d) if is_std_def(program, d, "Platform", "Platform"))
+                })
+            {
+                return true;
+            }
+            let next = self
+                .sub_exprs(current)
+                .into_iter()
+                .find(|&e| rows.get(e).is_some_and(|row| row.contains(elem)));
+            match next {
+                Some(next) => current = next,
+                None => return false,
             }
         }
     }
@@ -1194,4 +1235,23 @@ impl BodyInfer<'_> {
             }
         }
     }
+}
+
+/// Whether `def` is `name` in the bundled module `Std.<module>`. `Std` cannot be the root name of a
+/// project or a dependency (spec 4.1), so the module name identifies the bundled one.
+fn is_std_def(program: &Program, def: DefId, module: &str, name: &str) -> bool {
+    let data = &program.defs[def];
+    data.name == name
+        && matches!(data.module, DefModule::Source(m)
+            if program.modules.get(m).is_some_and(|items| items.name.segments() == ["Std", module]))
+}
+
+/// Whether `effect` is one that the layer `Process` of `Std.Process` provides and `Platform` does
+/// not (`[lib.layers]`): the effects of the handlers that need a process.
+fn is_process_effect(program: &Program, effect: DefId) -> bool {
+    ["Args", "Stdin", "Stdout", "Stderr"]
+        .iter()
+        .any(|name| is_std_def(program, effect, "Process", name))
+        || is_std_def(program, effect, "Env", "Env")
+        || is_std_def(program, effect, "FileSystem", "FileSystem")
 }

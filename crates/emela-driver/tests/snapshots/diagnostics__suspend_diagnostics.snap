@@ -11,7 +11,7 @@ error[E0415]: operation `now` is not a `suspend fn` in effect `Clock`
 ────╯
    = help: remove `suspend`
 
-error[E0413]: handler `Runtime` cannot implement `Async`: only the runtime provides it
+error[E0413]: handler `Runtime` cannot implement `Async`: only the host provides it
     ╭─[ main.emel:19:9 ]
     │
  19 │ handler Runtime: Async {
@@ -80,7 +80,7 @@ error[E0324]: expected a type, found a set: sets can only be passed to set type 
     │                                                                                        ╰── 
 ────╯
 
-error[E0414]: `Async` has no operations and cannot be used with `use`
+error[E0414]: `Async` is a host effect and cannot be used with `use`
     ╭─[ main.emel:49:3 ]
     │
  49 │   use Async

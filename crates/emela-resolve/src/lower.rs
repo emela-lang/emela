@@ -1312,7 +1312,7 @@ impl Lower<'_, '_> {
             }
             Expected::Effect => matches!(kind, DefKind::Effect | DefKind::TypeParam),
             Expected::Error => matches!(kind, DefKind::Error | DefKind::TypeParam),
-            // A handler member in a layer is reported by type inference (E0445).
+            // A handler member in a layer is reported by type inference (E0447).
             Expected::HandlerOrLayer => {
                 matches!(kind, DefKind::Handler | DefKind::Layer | DefKind::Member)
             }

@@ -3,8 +3,7 @@
 
 import Std.Clock.{Clock}
 import Std.Exit.{Exit}
-import Std.Platform.{Platform}
-import Std.Process.{Stderr, Stdout}
+import Std.Process.{Process, Stderr, Stdout}
 
 effect Guard {
   fn check() -> ()
@@ -22,7 +21,7 @@ fn forever(i: Int) -> () uses { Stdout } {
 }
 
 fn main() -> () uses { Async } {
-  with Platform {
+  with Process {
     (use Clock).sleep(1)
     _ = Exit.attempt(|| with Released { forever(0) })
     (use Stderr).print_line("caught")

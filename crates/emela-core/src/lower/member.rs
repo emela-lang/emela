@@ -405,7 +405,7 @@ impl Lowerer<'_> {
     ) -> Expr {
         let op = self.module.effects[effect].ops[index].clone();
         let Some((cell, suspends)) = self.opened_cell else {
-            // The type checker allows it only inside an init (E0446).
+            // The type checker allows it only inside an init (E0448).
             return call;
         };
         let pair = self.module.local("opened", op.ret);

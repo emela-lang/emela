@@ -3,8 +3,7 @@
 
 import Std.Console.{Console}
 import Std.Fiber
-import Std.Platform.{Platform}
-import Std.Process.{InvalidInput, Stdin, StdinFailure}
+import Std.Process.{InvalidInput, Process, Stdin, StdinFailure}
 
 fn line() -> String uses { Stdin } {
   (use Stdin).read_line() match {
@@ -17,7 +16,7 @@ fn line() -> String uses { Stdin } {
 }
 
 fn main() {
-  with Platform {
+  with Process {
     c = use Console
     # Interrupted while waiting: what arrives later is not lost.
     first = Fiber.timeout(50, || (use Stdin).read_line())

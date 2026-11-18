@@ -158,11 +158,19 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             effects,
             context,
             scope,
+            hosts,
+            process,
         } => {
-            let note = match scope {
+            let mut note = match scope {
                 Some(scope) => format!(" [provide outside `{scope}`]"),
                 None => String::new(),
             };
+            if !hosts.is_empty() {
+                note.push_str(&format!(" [host {}]", hosts.join(", ")));
+            }
+            if *process {
+                note.push_str(" [use Process]");
+            }
             format!(
                 "`{text}` unhandled effects {} ({context:?}){note}",
                 effects.join(", ")

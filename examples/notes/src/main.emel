@@ -1,11 +1,11 @@
 # Files. FileSystem reads and writes text; its operations are `suspend fn`s, and each one
 # fails only with the errors it lists, so `escape` can handle exactly those.
 
-import Std.Platform.{Platform}
 import Std.Console.{Console}
 import Std.FileSystem.{FileSystem, FileNotFound, TestFileSystem, TestFiles}
 import Std.Path
 import Std.State.{State}
+import Std.Process.{Process}
 
 const DIR: String = "notes"
 
@@ -26,7 +26,7 @@ fn show(day: String) {
 }
 
 fn main() {
-  with Platform {
+  with Process {
     console = use Console
     console.print_line(String.trim(show("monday")))
     n = note("monday", "buy milk")

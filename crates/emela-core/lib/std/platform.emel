@@ -1,23 +1,17 @@
-# The layer of all System handlers (spec 15.2). `main` usually runs inside `with Platform { ... }`;
-# to replace some of them, list the replacements after it (`with Platform, TestClock { ... }`).
+# The layer of the System handlers that every host has (`[lib.layers]`, `[api.std.platform]`).
+# `main` usually runs inside `with Platform { ... }`; to replace some of them, list the
+# replacements after it (`with Platform, TestClock { ... }`). It requires no host effect other than
+# Async, so it can be written in `main`, a test, an exported fn and a page. The handlers that need
+# a process are in the layer `Process` of `Std.Process`.
 
 import Std.Clock.{SystemClock}
 import Std.Console.{SystemConsole}
-import Std.Env.{SystemEnv}
-import Std.FileSystem.{SystemFileSystem}
 import Std.Http.{SystemHttp}
-import Std.Process.{SystemArgs, SystemStderr, SystemStdin, SystemStdout}
 import Std.Random.{SystemRandom}
 
 pub layer Platform {
   SystemConsole
-  SystemArgs
-  SystemStdin
-  SystemStdout
-  SystemStderr
   SystemClock
   SystemRandom
-  SystemEnv
-  SystemFileSystem
   SystemHttp
 }

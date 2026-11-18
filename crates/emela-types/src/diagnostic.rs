@@ -192,10 +192,15 @@ pub enum DiagnosticKind {
     /// 8.3, 9.3, 13.3). `effects` lists the effects not contained (tags or names of set type
     /// parameters). `scope` names the scope function (`Fiber.scope`) when some of the effects are
     /// required by fibers forked inside it; those must be provided outside it (spec 11.2).
+    /// `hosts` lists the host effects among `effects` (`[effect.host]`), which only the entry
+    /// provides. `process` is true when one of `effects` is provided by the layer `Process` of
+    /// `Std.Process` and not by `Platform`, and a with on the way to it lists `Platform`.
     UnhandledEffects {
         effects: Vec<SmolStr>,
         context: EffectContext,
         scope: Option<SmolStr>,
+        hosts: Vec<SmolStr>,
+        process: bool,
     },
     /// A function value's R not contained in the expected function type's R (E0403, spec 9.2).
     /// `expected` and `found` are displayed effect sets (`{ Logger, Clock }`, or `{}` if empty).
@@ -207,17 +212,17 @@ pub enum DiagnosticKind {
         ops: Vec<SmolStr>,
         members: Vec<SmolStr>,
     },
-    /// A handler member written as an item of `with` without `x =` (E0445, `[effect.with]`).
+    /// A handler member written as an item of `with` without `x =` (E0447, `[effect.with]`).
     UnboundMemberItem { member: SmolStr, effect: SmolStr },
-    /// A handler member written as an item of a layer (E0445, `[effect.with]`).
+    /// A handler member written as an item of a layer (E0447, `[effect.with]`).
     MemberInLayer { member: SmolStr, layer: SmolStr },
-    /// A layer bound to a name in `with` (E0445, `[effect.with]`): it provides more than one
+    /// A layer bound to a name in `with` (E0447, `[effect.with]`): it provides more than one
     /// effect.
     BoundLayer { layer: SmolStr },
-    /// A handler member opened outside a `with` item and an init (E0446, `[effect.use]`,
+    /// A handler member opened outside a `with` item and an init (E0448, `[effect.use]`,
     /// `[effect.handler]`).
     MemberOutsideInit { member: SmolStr, effect: SmolStr },
-    /// An inner handler that does not fit the handler member it implements (E0447,
+    /// An inner handler that does not fit the handler member it implements (E0449,
     /// `[effect.handler]`).
     InnerHandlerMismatch {
         handler: SmolStr,
@@ -234,9 +239,16 @@ pub enum DiagnosticKind {
         expected: usize,
         found: usize,
     },
-    /// An `@external` fn with `uses` omitted, or an `@external suspend fn`, used outside a handler
-    /// operation's body (E0407, spec 12.2). `suspend` is true for the latter (the note differs).
-    ExternalOutsideHandler { name: SmolStr, suspend: bool },
+    /// An `@external` fn with `uses` omitted or host effects in it, or an `@external suspend fn`,
+    /// used outside a handler operation's body (E0407, spec 12.2). `suspend` is true for the
+    /// latter (the note differs).
+    ExternalOutsideHandler {
+        name: SmolStr,
+        suspend: bool,
+        /// The uses clause has host effects (`[ext.call]`): the function has side effects, so
+        /// `uses {}` is not offered.
+        host: bool,
+    },
     /// Handlers in the same `with` or layer depend on each other's effects in a cycle (E0411,
     /// spec 8.3, 8.5, 14.2). `cycle` names the handlers along the cycle, repeating the first one
     /// at the end.
@@ -301,8 +313,8 @@ pub enum DiagnosticKind {
         label: SmolStr,
         base: SmolStr,
     },
-    /// A handler written for the built-in Async effect (E0413, spec 8.7).
-    AsyncHandler { handler: SmolStr },
+    /// A handler written for a host effect (E0413, `[effect.host]`).
+    HostEffectHandler { handler: SmolStr, effect: SmolStr },
     /// A handler written for a built-in effect such as Scope (E0413, spec 11.2). `provider` names
     /// the function that provides it (`Fiber.scope`).
     IntrinsicHandler {
@@ -326,9 +338,14 @@ pub enum DiagnosticKind {
     /// Type parameters on an operation of a user effect (E0426, spec 8.1). Only built-in effects
     /// may have them.
     OpTypeParams { op: SmolStr },
-    /// `use Async` written (E0414, spec 8.7). Async has no operations; only the runtime provides
-    /// it.
-    UseAsync,
+    /// `use` of a host effect (E0414, `[effect.host]`). A host effect has no operations; only the
+    /// entry of a launch provides it.
+    UseHostEffect { effect: SmolStr },
+    /// An effect other than ProcessHost and PageHost in the uses clause of an external function
+    /// (E0445, `[ext.call]`), Async and a set type parameter included. At the effect.
+    ExternalUses { function: SmolStr },
+    /// An effect declared in source without operations (E0446, `[effect.decl]`). At the name.
+    EffectWithoutOps { effect: SmolStr },
     /// A handler operation's `suspend` differs from the effect's declaration (E0415, spec 8.1,
     /// 8.4). `suspend` is whether the effect declares it as `suspend fn`.
     SuspendMismatch {
@@ -426,7 +443,7 @@ pub enum ImmediateSource {
 }
 
 /// Where the set that R must be contained in came from ([`DiagnosticKind::UnhandledEffects`]).
-/// How an inner handler does not fit its handler member (E0447).
+/// How an inner handler does not fit its handler member (E0449).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InnerHandlerMismatch {
     /// Its init does not take the parameters of the member (`params` as declared, displayed);
@@ -445,14 +462,37 @@ pub enum EffectContext {
     Declared,
     /// A const's value, which cannot have effects (spec 5.6).
     Const,
-    /// `main`, whose R must be empty (spec 8.3).
+    /// `main`, whose R must be empty except for Async and ProcessHost (spec 8.3,
+    /// `[effect.host]`).
     Main,
-    /// A test function, whose R must be empty (spec 13.3).
+    /// A test function, whose R must be empty except for Async and ProcessHost (spec 13.3).
     Test { name: SmolStr },
-    /// An `@export` fn, whose R must be empty except for Async (`[ext.export]`).
-    Export { name: SmolStr },
+    /// An `@export` fn, whose R must be empty except for Async (`[ext.export]`) and, for an entry
+    /// adapter and a fn made by `@entry`, the host effects that the adapter declares
+    /// (`[ext.entry]`). `hosts` lists the host effects other than Async.
+    Export { name: SmolStr, hosts: Vec<SmolStr> },
     /// The arguments of a layer item, which MUST be pure (`[effect.layer]`).
-    LayerArg(LayerArg),
+    LayerArg(Box<LayerArg>),
+}
+
+impl EffectContext {
+    /// The host effects that the entry of this context provides (`[effect.host]`), Async first.
+    /// Empty for a context that is not an entry.
+    pub fn provided_hosts(&self) -> Vec<SmolStr> {
+        match self {
+            EffectContext::Main | EffectContext::Test { .. } => {
+                vec!["Async".into(), "ProcessHost".into()]
+            }
+            EffectContext::Export { hosts, .. } => {
+                let mut all = vec![SmolStr::new("Async")];
+                all.extend(hosts.iter().cloned());
+                all
+            }
+            EffectContext::Declared | EffectContext::Const | EffectContext::LayerArg(_) => {
+                Vec::new()
+            }
+        }
+    }
 }
 
 /// An item of a layer with arguments (`WorkerKv(binding: "KV")` in `layer AppLive`), where E and

@@ -1,11 +1,10 @@
 # The arguments after `--` of `emela run` (`[api.std.process]`).
 
 import Std.Console.{Console}
-import Std.Platform.{Platform}
-import Std.Process.{Args}
+import Std.Process.{Args, Process}
 
 fn main() {
-  with Platform {
+  with Process {
     a = use Args
     c = use Console
     c.print_line("#{a.list()}")

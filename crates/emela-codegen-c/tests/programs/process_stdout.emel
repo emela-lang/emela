@@ -2,11 +2,10 @@
 # `print_line` adds `\n`. Writes mixed with Console and `dbg` keep their order on each stream.
 
 import Std.Console.{Console}
-import Std.Platform.{Platform}
-import Std.Process.{Stderr, Stdout}
+import Std.Process.{Process, Stderr, Stdout}
 
 fn main() {
-  with Platform {
+  with Process {
     out = use Stdout
     err = use Stderr
     out.print("a")

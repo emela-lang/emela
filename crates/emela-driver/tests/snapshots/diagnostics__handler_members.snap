@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0445]: handler member `Open` cannot be an item of layer `Bad`
+error[E0447]: handler member `Open` cannot be an item of layer `Bad`
     ╭─[ src/main.emel:22:3 ]
     │
  22 │   Files.Open
@@ -18,7 +18,7 @@ error[E0404]: handler `NoOpen` does not implement handler member `Open`
     │            ╰──── 
 ────╯
 
-error[E0447]: the init of `Open` takes `(path: Int)`, but handler member `Open` of `Files` takes `(path: String)`
+error[E0449]: the init of `Open` takes `(path: Int)`, but handler member `Open` of `Files` takes `(path: String)`
     ╭─[ src/main.emel:29:11 ]
     │
  29 │   handler Open(path: Int): ReadFile {
@@ -36,7 +36,7 @@ error[E0417]: operation `sleep` of `Clock` is a `suspend fn` and may suspend, bu
 ────╯
    = help: declare `Open` as a `suspend handler` in the effect
 
-error[E0446]: handler member `Open` can only be opened in `with` or called in an `init`
+error[E0448]: handler member `Open` can only be opened in `with` or called in an `init`
     ╭─[ src/main.emel:46:7 ]
     │
  46 │   x = Files.Open("a")
@@ -45,7 +45,7 @@ error[E0446]: handler member `Open` can only be opened in `with` or called in an
 ────╯
    = help: open it as an item of `with`: `with x = Files.Open(...) { ... }`
 
-error[E0445]: handler member `Open` must be bound to a name in `with`
+error[E0447]: handler member `Open` must be bound to a name in `with`
     ╭─[ src/main.emel:47:8 ]
     │
  47 │   with Files.Open("b") { () }
@@ -54,7 +54,7 @@ error[E0445]: handler member `Open` must be bound to a name in `with`
 ────╯
    = help: bind it to a name: `x = Files.Open(...)`
 
-error[E0445]: layer `App` cannot be bound to a name: it provides more than one effect
+error[E0447]: layer `App` cannot be bound to a name: it provides more than one effect
     ╭─[ src/main.emel:48:12 ]
     │
  48 │   with y = App { () }

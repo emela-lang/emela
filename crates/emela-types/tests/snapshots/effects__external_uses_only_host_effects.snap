@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Marker {\n  fn mark() -> ()\n}\n\n@external(js, \"./x.mjs\", \"a\")\nfn with_marker() -> () uses { Marker }\n\n@external(js, \"./x.mjs\", \"b\")\nfn with_async() -> () uses { Async }\n\n@external(js, \"./x.mjs\", \"c\")\nfn with_set[R](f: fn() -> () uses { R }) -> () uses { R }\n\n@external(js, \"./x.mjs\", \"d\")\nfn with_host() -> () uses { ProcessHost, PageHost }\n\n@external(js, \"./x.mjs\", \"e\")\nfn pure() -> () uses {}\n\"#)"
+---
+with_marker: fn() -> () uses { Marker }
+with_async: fn() -> () uses { Async }
+with_set: ∀ R, E(f). fn(fn() -> () fails E(f) uses { R }) -> () fails E(f) uses { R }
+with_host: fn() -> () uses { ProcessHost, PageHost }
+pure: fn() -> ()
+`Marker` ExternalUses { function: "with_marker" }
+`Async` ExternalUses { function: "with_async" }
+`fn() -> () uses { R }` NotImmediate { effects: [], sets: ["R"], required: ExternalCallback { callee: "with_set" } }
+`R` ExternalUses { function: "with_set" }
+--- R

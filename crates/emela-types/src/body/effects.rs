@@ -64,12 +64,17 @@ impl BodyInfer<'_> {
                     };
                     let row = self.expr_effects(body);
                     let row = self.end_binder(&row, def, None);
-                    let closed = self.closed.contains_key(&def);
-                    if closed {
-                        // The runtime and the test runner provide Async (spec 8.3, 13.3).
-                        let allowed = program
-                            .prelude_def("Async")
-                            .map_or_else(Row::empty, Row::tag);
+                    let closed = self.closed.get(&def);
+                    if let Some(context) = closed {
+                        // The entry provides its host effects (`[effect.host]`): Async and
+                        // ProcessHost for main and tests, Async for an `@export` fn, and what an
+                        // entry adapter declares.
+                        let mut allowed = Row::empty();
+                        for name in context.provided_hosts() {
+                            if let Some(host) = program.prelude_def(&name) {
+                                allowed.insert(RowElem::Tag(Tag::new(host)));
+                            }
+                        }
                         self.ctx.add_subset_of(
                             SetKind::Effects,
                             row.clone(),
@@ -79,7 +84,7 @@ impl BodyInfer<'_> {
                     }
                     // When `main` or a test function has a `uses` clause, only report that it is
                     // not empty.
-                    if !closed || parts.sig.is_none_or(|sig| sig.uses.is_none()) {
+                    if closed.is_none() || parts.sig.is_none_or(|sig| sig.uses.is_none()) {
                         self.ctx
                             .add_subset_of(SetKind::Effects, row, declared, Origin::Body(def));
                     }
@@ -173,11 +178,11 @@ impl BodyInfer<'_> {
     fn expr_effects(&mut self, expr: ExprId) -> Row {
         let program = self.program;
         let row = match &program.exprs[expr].kind {
-            // `use Async` is an error (E0414) and not added to R.
+            // `use` of a host effect is an error (E0414) and not added to R.
             ExprKind::Use {
                 effect: Res::Def(effect),
                 ..
-            } if program.prelude_def("Async") == Some(*effect) => Row::empty(),
+            } if program.is_host_effect(*effect) => Row::empty(),
             // The capability value type's tag (`State[Int]` for effects with type arguments,
             // spec 8.1).
             ExprKind::Use { .. } => match self.exprs.get(expr) {

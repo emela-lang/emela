@@ -7,8 +7,7 @@
 import Std.Clock.{Clock}
 import Std.Console.{Console}
 import Std.Fiber.{Fiber}
-import Std.Platform.{Platform}
-import Std.Process.{Args, Stderr, Stdout}
+import Std.Process.{Args, Process, Stderr, Stdout}
 
 effect Guard {
   fn check() -> ()
@@ -32,7 +31,7 @@ fn forever(how: String, i: Int) -> () uses { Console, Stdout } {
 }
 
 fn main() -> () uses { Async } {
-  with Platform {
+  with Process {
     how = (use Args).get(0) match {
       Some(how) -> how
       None      -> "stdout"
