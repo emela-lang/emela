@@ -323,7 +323,14 @@ fn a_finalizer_typed_var_is_not_propagated() {
         let_(x, Expr::Var(h), Expr::Var(x)),
     );
 
-    let stats = run_with(&mut m, &CoreFns::default(), Options { rules: ZETA });
+    let stats = run_with(
+        &mut m,
+        &CoreFns::default(),
+        Options {
+            rules: ZETA,
+            ..Options::default()
+        },
+    );
     assert_eq!(stats.zeta, 0, "{stats:?}");
     assert_eq!(stats.deopt, 1, "the refused copy is a deopt: {stats:?}");
     let ir = dump(&m);
@@ -350,7 +357,14 @@ fn main() {
     let (mut m, first) = lower_files_with_rules(&files, ZETA);
     assert!(first.zeta > 0, "{first:?}");
     let once = dump(&m);
-    let second = run_with(&mut m, &CoreFns::default(), Options { rules: ZETA });
+    let second = run_with(
+        &mut m,
+        &CoreFns::default(),
+        Options {
+            rules: ZETA,
+            ..Options::default()
+        },
+    );
     assert_eq!(second.zeta, 0, "{second:?}");
     assert!(second.is_empty(), "{second:?}");
     assert_eq!(dump(&m), once);
