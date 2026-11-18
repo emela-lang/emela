@@ -1,10 +1,10 @@
 ---
 title: Handlers that implement several effects
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 625
 issue:
-decided:
+decided: 2026-11-18
 touches: [effect.handler, effect.with, effect.layer, effect.label, effect.use, type.rules, grammar.decl, grammar.type, diag.list]
 requires: [capability-type, handler-member]
 related: []
@@ -183,3 +183,10 @@ The change only adds.
 ## Open questions
 
 ## Decision
+
+Adopted, on top of the type of a capability (#622) and handler members (#624), which this requires.
+
+- One handler can implement several effects that share one self, so the faces of one resource (a locked file, a temporary file, a transaction) share their state without forwarding handlers.
+- A capability of several effects can be narrowed to fewer of them, and never widened. A property a type has to guarantee is expressed by a separate effect.
+- This stays apart from layers: a layer wires separate handlers, a handler of several effects is replaced as a whole.
+- Listing two effects with an operation of the same name stays an error; qualifying operations by effect can be added later.
