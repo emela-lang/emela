@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 
 const dir = resolve(process.argv[2] ?? 'target/playground');
-const { initSync, check, format, compile } = await import(pathToFileURL(join(dir, 'emela_playground.js')).href);
+const { initSync, check, format, compile, LspSession } = await import(pathToFileURL(join(dir, 'emela_playground.js')).href);
 initSync({ module: readFileSync(join(dir, 'emela_playground_bg.wasm')) });
 
 const source = `import Std.Console.{Console}
@@ -69,4 +69,23 @@ try {
   console.log = log;
 }
 assert.deepEqual(lines, ['Hello, alice!', 'guest', '2', '4', '6', 'False']);
+
+// The language server: initialize, open a file with an error, and ask for completions.
+const lsp = new LspSession();
+const send = (message) => JSON.parse(lsp.send(JSON.stringify({ jsonrpc: '2.0', ...message })));
+const uri = 'file:///playground/main.emel';
+assert.ok(send({ id: 1, method: 'initialize', params: { capabilities: {} } })[0].result.capabilities);
+send({ method: 'initialized', params: {} });
+const [published] = send({
+  method: 'textDocument/didOpen',
+  params: { textDocument: { uri, languageId: 'emela', version: 1, text: 'fn main() { dbg(List.) }\n' } },
+});
+assert.equal(published.method, 'textDocument/publishDiagnostics');
+const [completion] = send({
+  id: 2,
+  method: 'textDocument/completion',
+  params: { textDocument: { uri }, position: { line: 0, character: 21 } },
+});
+const items = completion.result.items ?? completion.result;
+assert.ok(items.some((item) => item.label === 'map'), JSON.stringify(items).slice(0, 200));
 console.log('playground smoke test passed');

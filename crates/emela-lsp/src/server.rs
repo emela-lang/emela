@@ -126,12 +126,98 @@ where
         serde_json::to_value(capabilities()).expect("capabilities serialize to JSON");
     let params = connection.initialize(capabilities)?;
     let params: lsp::InitializeParams = serde_json::from_value(params)?;
-    let mut server = Server::new(connection, Overlay::new(fs), frontend);
+    // The server holds its own handles on the same channels.
+    let handles = Connection {
+        sender: connection.sender.clone(),
+        receiver: connection.receiver.clone(),
+    };
+    let mut server = Server::new(handles, Overlay::new(fs), frontend);
     server.set_workspace(&params);
     if can_register_watchers(&params.capabilities) {
         server.register_watchers();
     }
     Ok(server.run()?)
+}
+
+/// A server driven one message at a time, for a host that cannot wait for the next message (the
+/// compiler for the browser, emela-playground). It answers the same requests as [`serve`].
+///
+/// [`serve`] waits on its connection; here the host passes each message from the client to
+/// [`Session::handle`] and gets back what the server sends. Analysis runs inside `handle`, after
+/// the message that changed a file, so diagnostics come back with it. The server does not ask the
+/// client to watch files.
+pub struct Session<Fs, M> {
+    server: Server<Fs, M>,
+    /// The client's ends of the channels: what the server sends is read from here.
+    client: Connection,
+    initialized: bool,
+}
+
+impl<Fs, M, F> Session<Fs, M>
+where
+    Fs: FileSystem,
+    M: FnMut() -> F,
+    F: Frontend,
+{
+    /// `frontend` is called for every analysis to make a fresh frontend, as in [`serve`].
+    pub fn new(fs: Fs, frontend: M) -> Self {
+        let (server, client) = Connection::memory();
+        Session {
+            server: Server::new(server, Overlay::new(fs), frontend),
+            client,
+            initialized: false,
+        }
+    }
+
+    /// Handles one message from the client and returns the messages the server sends because of
+    /// it, in order: the response to a request, and diagnostics after a change.
+    ///
+    /// Before `initialize`, a request gets `ServerNotInitialized` and a notification is ignored.
+    /// `shutdown` is answered here rather than by the connection, which would wait for `exit`.
+    pub fn handle(&mut self, message: Message) -> Vec<Message> {
+        match message {
+            Message::Request(request) if !self.initialized => {
+                let response = if request.method == "initialize" {
+                    match serde_json::from_value::<lsp::InitializeParams>(request.params) {
+                        Ok(params) => {
+                            self.server.set_workspace(&params);
+                            self.initialized = true;
+                            Response::new_ok(
+                                request.id,
+                                serde_json::json!({ "capabilities": capabilities() }),
+                            )
+                        }
+                        Err(err) => Response::new_err(
+                            request.id,
+                            ErrorCode::InvalidParams as i32,
+                            format!("invalid params: {err}"),
+                        ),
+                    }
+                } else {
+                    Response::new_err(
+                        request.id,
+                        ErrorCode::ServerNotInitialized as i32,
+                        "the server is not initialized".to_owned(),
+                    )
+                };
+                self.server.send(response.into());
+            }
+            Message::Request(request) if request.method == "shutdown" => {
+                self.server
+                    .send(Response::new_ok(request.id, serde_json::Value::Null).into());
+            }
+            _ if !self.initialized => {}
+            message => {
+                // A protocol error here can only come from the connection's own handling of
+                // `shutdown`, which is answered above.
+                if let Ok(Step::Changed) = self.server.handle(message) {
+                    let diagnostics = self.server.analyze();
+                    self.server.publish(diagnostics);
+                }
+            }
+        }
+        self.client.receiver.try_iter().collect()
+    }
 }
 
 /// Whether the client lets the server register `workspace/didChangeWatchedFiles` with
@@ -170,8 +256,9 @@ struct Folder {
     path: PathBuf,
 }
 
-struct Server<'c, Fs, M> {
-    connection: &'c Connection,
+struct Server<Fs, M> {
+    /// The server's ends of the channels to the client.
+    connection: Connection,
     fs: Overlay<Fs>,
     make_frontend: M,
     /// Folders with a `Pome.toml` are analyzed even if no file is open.
@@ -183,13 +270,13 @@ struct Server<'c, Fs, M> {
     published: HashMap<PathBuf, Uri>,
 }
 
-impl<'c, Fs, M, F> Server<'c, Fs, M>
+impl<Fs, M, F> Server<Fs, M>
 where
     Fs: FileSystem,
     M: FnMut() -> F,
     F: Frontend,
 {
-    fn new(connection: &'c Connection, fs: Overlay<Fs>, make_frontend: M) -> Self {
+    fn new(connection: Connection, fs: Overlay<Fs>, make_frontend: M) -> Self {
         Server {
             connection,
             fs,
@@ -974,8 +1061,7 @@ fn with_dependencies(fs: &dyn FileSystem, input: Input) -> (Input, Option<Diagno
         .map_err(emela_pome::project::PomeError::Usage)
         .and_then(|mut config| {
             config.sources.clear();
-            let fetcher =
-                emela_pome::fetch::Fetcher::new(config, emela_pome::fetch::transport::Http::new());
+            let fetcher = emela_pome::fetch::Fetcher::new(config, Offline);
             emela_driver::project_dependencies(fs, &input.base, &fetcher, true)
         });
     match result {
@@ -990,5 +1076,17 @@ fn with_dependencies(fs: &dyn FileSystem, input: Input) -> (Input, Option<Diagno
                 .at(emela_driver::Location::Path(input.base.join(PROJECT_FILE)));
             (input, Some(diagnostic))
         }
+    }
+}
+
+/// The transport of the language server's fetcher, which reads dependencies only from the cache
+/// (spec 4.7): with the sources cleared, nothing is fetched, and a GET would be a bug.
+struct Offline;
+
+impl emela_pome::fetch::transport::Transport for Offline {
+    fn get(&self, url: &str) -> Result<emela_pome::fetch::transport::Response, String> {
+        Err(format!(
+            "the language server does not go to the network ({url})"
+        ))
     }
 }

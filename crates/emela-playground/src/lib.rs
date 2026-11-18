@@ -15,11 +15,15 @@
 //!
 //! `diagnostics` is rendered as `emela check` prints it without color, with the file shown as
 //! `main.emel`. `ok` is false when there is an error; warnings alone keep it true.
+//!
+//! [`LspSession`] is the language server of `emela lsp`, driven one message at a time: the editor
+//! sends it LSP messages as JSON text and gets back what the server answers. The file an editor
+//! opens is `file:///playground/main.emel`; nothing is on the file system until it is opened.
 
 use std::path::{Path, PathBuf};
 
 use emela_driver::{
-    Analysis, Backend, CoreJs, Input, Lower, MemoryFiles, Target, format_source, render,
+    Analysis, Backend, CoreJs, Input, Lower, MemoryFiles, Target, Typecheck, format_source, render,
 };
 use serde::Serialize;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -122,6 +126,47 @@ fn analyze(source: &str) -> (Analysis, Option<emela_driver::CoreModule>) {
     let input = Input::resolve(&fs, &PathBuf::from(ENTRY))
         .expect("the entry was just put in the in-memory file system");
     emela_driver::check(&fs, &input, &mut Lower::default().with_target(Target::Js))
+}
+
+/// The language server, as `emela lsp` runs it, on an empty in-memory file system.
+#[wasm_bindgen]
+pub struct LspSession {
+    session: emela_lsp::Session<MemoryFiles, fn() -> Typecheck>,
+}
+
+#[wasm_bindgen]
+impl LspSession {
+    #[wasm_bindgen(constructor)]
+    #[allow(clippy::new_without_default)] // A JS class: `new LspSession()`.
+    pub fn new() -> LspSession {
+        let files: [(&str, &str); 0] = [];
+        LspSession {
+            session: emela_lsp::Session::new(MemoryFiles::new(files), Typecheck::default),
+        }
+    }
+
+    /// Handles one LSP message (a JSON-RPC object as text) and returns the messages the server
+    /// sends because of it, as a JSON array of the same objects. A message that is not valid
+    /// JSON-RPC is answered with nothing.
+    pub fn send(&mut self, message: &str) -> String {
+        let replies = match serde_json::from_str::<lsp_server::Message>(message) {
+            Ok(message) => self.session.handle(message),
+            Err(_) => Vec::new(),
+        };
+        // `Message` leaves out `"jsonrpc": "2.0"`, which lsp-server adds only when it writes to a
+        // stream.
+        let replies: Vec<serde_json::Value> = replies
+            .into_iter()
+            .map(|reply| {
+                let mut value = serde_json::to_value(reply).expect("LSP messages serialize");
+                if let Some(object) = value.as_object_mut() {
+                    object.insert("jsonrpc".to_owned(), "2.0".into());
+                }
+                value
+            })
+            .collect();
+        serde_json::to_string(&replies).expect("JSON values serialize")
+    }
 }
 
 fn json(value: &impl Serialize) -> String {

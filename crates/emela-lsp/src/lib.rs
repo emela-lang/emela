@@ -10,7 +10,7 @@ mod server;
 
 pub use convert::{SOURCE, path_to_uri, position, uri_to_path};
 pub use overlay::Overlay;
-pub use server::{Error, capabilities, serve};
+pub use server::{Error, Session, capabilities, serve};
 
 use emela_driver::{Frontend, OsFs};
 use lsp_server::Connection;

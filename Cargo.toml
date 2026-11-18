@@ -90,7 +90,7 @@ emela-codegen-wasm = { path = "crates/emela-codegen-wasm", version = "0.28.0" }
 emela-codegen-c = { path = "crates/emela-codegen-c", version = "0.28.0" }
 emela-driver = { path = "crates/emela-driver", version = "0.28.0" }
 emela-lsp = { path = "crates/emela-lsp", version = "0.28.0" }
-# `net`（HTTP での取得）は cli と lsp だけが有効にする．driver が持ち込むと wasm32 で
+# `net`（HTTP での取得）は cli だけが有効にする．driver や lsp が持ち込むと wasm32 で
 # ビルドできない（rustls → getrandom）．
 emela-pome = { path = "crates/emela-pome", version = "0.28.0", default-features = false }
 
