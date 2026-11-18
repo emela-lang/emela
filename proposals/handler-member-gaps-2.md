@@ -1,10 +1,10 @@
 ---
 title: Effects on the left of `.`, E0417 for handler members, and capability fields in suspension
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 670
 issue: 656
-decided:
+decided: 2026-11-19
 touches: [module.resolution, effect.use, effect.handler, diag.list]
 requires: [handler-member, handler-member-gaps]
 related: []
@@ -141,3 +141,9 @@ Together with `handler-member` (#656).
 ## Open questions
 
 ## Decision
+
+These three gaps came up while implementing `handler-member` (#656), and each one has a single answer that keeps existing programs working.
+
+1. `Files.Open` needs an effect on the left of `.`. Effects are looked up there only to name handler members, so `State.run(...)` still names the module, and `Logger.info` stays an error.
+2. E0417 on an inner handler is reported once per call, with the reason for that call, which is how it is reported for an fn operation. Opening a `suspend handler` member gets a reason of its own.
+3. A capability held in a field belongs to an outer with or to a member opened in init, so the handler does not ask for its effect by name, in the operation bodies or in release. Suspension is still checked from the actual calls: a suspend fn reached through a field cannot slip past E0417 in an fn operation, and in release it makes Async a requirement, so the with shows that leaving it may suspend.
