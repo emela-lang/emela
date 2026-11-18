@@ -37,7 +37,7 @@
 //! | [`sra`] | [`Stats::sra_tuples`], [`Stats::sra_records`] | [`run_mid`] | scalar tuples; scalar records behind [`LirRules::sra_records`], off by default (C5/PR-043). The closure half of C5 is deferred to E5/PR-037 |
 //! | [`devirt`] | [`Stats::devirt`] | [`run_mid`] | closure records only called in their function (E5/PR-037), off by default |
 //! | [`rc`] cleanup | [`Stats::rc_pairs`], [`Stats::rc_borrow_pairs`] | [`run_heap`] | `dup`/`drop` pairs, with the local-base borrow elision on by default ([`LirRules::rc_borrow`], C1/PR-025) |
-//! | drop specialisation | [`Stats::drop_specialized`], [`Stats::drop_deopts`] | [`run_heap`] | a type-directed block drop for reference-free values behind [`LirRules::drop_spec`], on by default (C3/PR-027) |
+//! | drop specialisation | [`Stats::drop_specialized`], [`Stats::drop_deopts`] | [`run_heap`] | a type-directed block drop for reference-free values behind [`LirRules::drop_spec`], opt-in (C3/PR-027) until its measured size cost pays for a runtime gain |
 //! | reuse / FBIP | — | [`run_heap`] | not implemented (C4/PR-042) |
 //! | [`dce`] | [`Stats::dce`] | [`run_heap`] | dead pure `let`s with scalar destinations, on by default (C7/PR-028). Suspension frame pruning is deferred |
 //!
@@ -58,11 +58,14 @@
 //! ([`LirRules::borrow`], run by
 //! [`to_heap_with_options`](crate::to_heap_with_options) between `state_machines` and `insert_rc`),
 //! and [`Options`] holds them. [`run_mid_with`] and [`run_heap_with`] take the options; [`run_mid`]
-//! and [`run_heap`] use [`Options::default`], which runs the M3 memory passes: SRA, the `rc`
-//! cleanup with the local-base borrow elision, DCE, drop specialisation and borrow inference. The
-//! flags are a programmatic API only: no command-line flag is added. Record SRA and closure
-//! devirtualisation stay off by default until M5/M6; the later LIR passes (reuse, frame pruning)
-//! get their own flags when they land.
+//! and [`run_heap`] use [`Options::default`], which runs the M3 memory passes that pay for
+//! themselves: SRA, the `rc` cleanup with the local-base borrow elision, DCE and borrow inference.
+//! Drop specialisation stays opt-in: with it on, the default build's native binary grew by up to
+//! 7.5% and its C source by up to 3.7% in the M3 measurement, with no measured runtime gain, and
+//! the plan requires a reason and approval for a size increase over 2%. The flags are a
+//! programmatic API only: no command-line flag is added. Record SRA and closure devirtualisation
+//! stay off by default until M5/M6; the later LIR passes (reuse, frame pruning) get their own
+//! flags when they land.
 //!
 //! [`LirRules::sra_records`] is off by default so that a default build's output, the WASM byte pins
 //! and the differential tests stay what they were. It only takes part when [`LirRules::sra`] is on
@@ -181,8 +184,11 @@ pub struct LirRules {
     /// Drop specialisation at [`run_heap`] (C3/PR-027): a `drop` of a value whose payload holds no
     /// reference and whose type has no finalizer is released as a block, without walking fields
     /// ([`drop_spec`]). It is not a rewrite of the statements: it writes
-    /// [`Function::drop_kinds`](crate::ir::Function::drop_kinds), which the backends read. On by
-    /// default; a drop that may hold a reference or has a finalizer stays generic.
+    /// [`Function::drop_kinds`](crate::ir::Function::drop_kinds), which the backends read.
+    /// Off by default: turning it on grew the default build's native binary by up to 7.5% and its
+    /// C source by up to 3.7% in the M3 measurement, with no measured runtime gain, so the flag
+    /// stays opt-in until its size cost is understood or a gain is measured. A drop that may hold
+    /// a reference or has a finalizer stays generic.
     pub drop_spec: bool,
     /// Borrow inference between `state_machines` and `insert_rc` (C2/PR-026): write each
     /// function's borrowed-parameter signature from the borrow facts, so reference counting does
@@ -224,8 +230,10 @@ impl LirRules {
 
 impl Default for LirRules {
     /// The passes that are on by default: SRA, the `rc` cleanup with the local-base borrow
-    /// elision, DCE, drop specialisation and borrow inference (the M3 memory passes). Record SRA
-    /// and closure devirtualisation stay off until M5/M6; frame pruning is still reserved.
+    /// elision, DCE and borrow inference (the M3 memory passes that pay for themselves). Drop
+    /// specialisation stays opt-in because its default-build size cost has no measured runtime
+    /// gain; record SRA and closure devirtualisation stay off until M5/M6; frame pruning is still
+    /// reserved.
     fn default() -> Self {
         Self {
             sra: true,
@@ -234,7 +242,7 @@ impl Default for LirRules {
             rc_cleanup: true,
             rc_borrow: true,
             dce: true,
-            drop_spec: true,
+            drop_spec: false,
             borrow: true,
         }
     }
@@ -244,8 +252,8 @@ impl Default for LirRules {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
     /// Which LIR passes to run. [`LirRules::default`] by default: SRA, the `rc` cleanup with the
-    /// borrow elision, DCE, drop specialisation and borrow inference, with record SRA and closure
-    /// devirtualisation off.
+    /// borrow elision, DCE and borrow inference, with record SRA, closure devirtualisation and
+    /// drop specialisation off.
     pub rules: LirRules,
 }
 
@@ -348,7 +356,7 @@ pub fn run_mid_with(m: &mut Module, options: Options) -> Stats {
 /// or the type has a finalizer.
 ///
 /// This is [`run_heap_with`] with [`Options::default`] (the `rc` cleanup with the local-base
-/// borrow elision, DCE and drop specialisation on).
+/// borrow elision and DCE on; drop specialisation is opt-in).
 pub fn run_heap(m: &mut Module, optimize: bool) -> Stats {
     if !optimize {
         assert_eq!(
@@ -587,8 +595,9 @@ mod tests {
     }
 
     /// `LirRules::all` turns every flag on; `none` turns every flag off. The default turns on the
-    /// M3 memory passes (the `rc` cleanup with the borrow elision, DCE, drop specialisation and
-    /// borrow inference) and keeps record SRA and closure devirtualisation off until M5/M6.
+    /// M3 memory passes that pay for themselves (the `rc` cleanup with the borrow elision, DCE and
+    /// borrow inference), keeps drop specialisation opt-in for its size cost, and keeps record SRA
+    /// and closure devirtualisation off until M5/M6.
     #[test]
     fn the_lir_rule_flags_have_the_m3_defaults() {
         let all = LirRules::all();
@@ -604,8 +613,8 @@ mod tests {
         );
         let default = LirRules::default();
         assert!(default.sra && default.rc_cleanup);
-        assert!(default.rc_borrow && default.dce && default.drop_spec && default.borrow);
-        assert!(!default.sra_records && !default.devirt);
+        assert!(default.rc_borrow && default.dce && default.borrow);
+        assert!(!default.sra_records && !default.devirt && !default.drop_spec);
         let none = LirRules::none();
         assert!(
             !none.sra

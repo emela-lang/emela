@@ -34,10 +34,10 @@ static void e0_main(void) {
   v4 = em_int_to_string(v3);
   e1_print(v4);
   if (em_defect != NULL) {
-    em_drop_block(v4);
+    em_drop(v4);
     return;
   }
-  em_drop_block(v4);
+  em_drop(v4);
   return;
 }
 
@@ -76,14 +76,14 @@ static int32_t e2_count(em_ref v0) {
         em_drop(v1);
         switch (em_tag(v3)) {
         case 0: {
-          em_drop_block(v3);
+          em_drop(v3);
           v5 = e2_count(v4);
           v6 = em_iadd(1, v5);
           v7 = v6;
           goto s7_end;
         }
         case 1: {
-          em_drop_block(v3);
+          em_drop(v3);
           {
             em_ref t0 = v4;
             v1 = t0;

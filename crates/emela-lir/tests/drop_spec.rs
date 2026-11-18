@@ -1,8 +1,9 @@
 //! Drop specialisation (C3/PR-027): the type-directed block drop.
 //!
 //! A `drop` whose value's payload holds no reference and whose type has no finalizer is classified
-//! as a block release; every other drop stays generic. The pass is on by default (M3), and the
-//! tests that need it off set the flag explicitly.
+//! as a block release; every other drop stays generic. The pass is opt-in (off by default) because
+//! of its measured size cost, so these tests turn it on explicitly; a test that needs the default
+//! sets the flag off explicitly.
 
 #[path = "../../emela-core/tests/support/mod.rs"]
 mod support;
@@ -262,8 +263,8 @@ fn a_finalizer_or_an_untracked_type_stays_generic() {
     }
 }
 
-/// With the flag explicitly off no function carries a kind and the dump is what it was without the
-/// pass. The counters stay zero. `run_heap` uses the default rules, which turn the pass on.
+/// With the flag off no function carries a kind and the dump is what it was without the pass. The
+/// counters stay zero. `run_heap` uses the default rules, where the pass is off until it pays.
 #[test]
 fn the_flag_off_leaves_the_heap_ir_and_the_counters_alone() {
     let (m, stats) = heap(PROGRAM, without_drop_spec());
@@ -274,14 +275,15 @@ fn the_flag_off_leaves_the_heap_ir_and_the_counters_alone() {
     assert_eq!(stats.drop_specialized, 0);
     assert_eq!(stats.drop_deopts, 0);
 
-    // `run_heap` uses the default rules, where drop specialisation is on (M3).
-    let (mut on, _) = heap(PROGRAM, without_drop_spec());
-    let stats = emela_lir::opt::run_heap(&mut on, true);
+    // `run_heap` uses the default rules, where drop specialisation is opt-in.
+    let (mut off, _) = heap(PROGRAM, without_drop_spec());
+    let stats = emela_lir::opt::run_heap(&mut off, true);
     assert!(
-        on.functions.iter().any(|(_, f)| !f.drop_kinds.is_empty()),
-        "`run_heap` did not specialise a drop with the default rules"
+        off.functions.iter().all(|(_, f)| f.drop_kinds.is_empty()),
+        "`run_heap` specialised a drop with the default rules"
     );
-    assert!(stats.drop_specialized > 0, "{stats:?}");
+    assert_eq!(stats.drop_specialized, 0);
+    assert_eq!(stats.drop_deopts, 0);
 }
 
 /// The classification is not a rewrite: the dump is the same with the flag on and off.

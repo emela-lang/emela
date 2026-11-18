@@ -48,9 +48,9 @@ pub fn to_heap(m: &mut Module) {
 /// [`opt::Stats`] is what all of them changed, so a build that turns optimisation off gets an
 /// empty one.
 ///
-/// This is [`to_heap_with_options`] with [`opt::Options::default`]: the M3 memory passes (borrow
-/// inference, the `rc` cleanup with the borrow elision, DCE and drop specialisation) run; record
-/// SRA and closure devirtualisation stay off.
+/// This is [`to_heap_with_options`] with [`opt::Options::default`]: the M3 memory passes that pay
+/// for themselves (borrow inference, the `rc` cleanup with the borrow elision and DCE) run; drop
+/// specialisation, record SRA and closure devirtualisation stay off.
 pub fn to_heap_with(m: &mut Module, optimize: bool) -> opt::Stats {
     to_heap_with_options(m, optimize, opt::Options::default())
 }

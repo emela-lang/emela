@@ -33,10 +33,12 @@ Monomorphic Core IR (after monomorphisation)
 LIR (after lowering; heap passes after reference counting)
   5 LIR             analyses: escape, liveness, borrow, ownership;
                     passes: SRA of tuples, rc cleanup with the borrow
-                    elision, DCE, drop specialisation and borrow
-                    inference. Record SRA and closure devirtualisation
-                    are implemented but off by default; reuse, closure
-                    SRA and suspension frame pruning are reserved.
+                    elision, DCE and borrow inference. Drop specialisation
+                    is implemented but opt-in because its measured size
+                    cost has no measured runtime gain; record SRA and
+                    closure devirtualisation are also off by default.
+                    Reuse, closure SRA and suspension frame pruning are
+                    reserved.
 Lowering and code generation
   6 representation  string concat, value records, unboxed arrays, tagging,
                     dead code and import pruning, switches
@@ -97,7 +99,7 @@ changing behaviour is not.
 | [`crates/emela-core/src/opt/analysis/`](../crates/emela-core/src/opt/analysis/) | The shared Core IR analyses: effects and defects, uses, call graph, ranges. |
 | [`crates/emela-lir/src/opt/mod.rs`](../crates/emela-lir/src/opt/mod.rs) | The LIR stages (`run_flow`, `run_mid`, `run_heap`), `Stats`, the shared analyses. |
 | [`crates/emela-lir/src/opt/analysis/`](../crates/emela-lir/src/opt/analysis/) | The shared LIR analyses: escape, liveness, borrow, ownership. |
-| [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes: SRA of tuples (records behind a flag), rc cleanup with the borrow elision, DCE, drop specialisation and borrow inference, all on by default. Closure devirtualisation and record SRA are off by default; reuse, closure SRA and suspension frame pruning are reserved. |
+| [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes: SRA of tuples (records behind a flag), rc cleanup with the borrow elision, DCE and borrow inference, on by default. Drop specialisation is opt-in: with it on the M3 measurement grew the native binary by up to 7.5% and the C source by up to 3.7%, with no measured runtime gain. Closure devirtualisation and record SRA are off by default; reuse, closure SRA and suspension frame pruning are reserved. |
 | [`crates/emela-codegen-c/`](../crates/emela-codegen-c/) | The C backend: representation and layout. |
 | [`crates/emela-codegen-wasm/`](../crates/emela-codegen-wasm/) | The WASM backend: representation, dead code elimination, switches. |
 

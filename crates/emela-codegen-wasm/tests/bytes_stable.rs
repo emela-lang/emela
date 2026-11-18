@@ -46,8 +46,8 @@ fn main() {
   dbg("ab" == "ab")
 }
 "#,
-        13020,
-        0x3ffe_3ae0_bb5e_a6f2,
+        12893,
+        0x075d_c7f3_9a7d_f262,
     ),
     (
         "lists_enums_strings",
@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        24112,
-        0x9d74_7a45_e520_9e72,
+        23985,
+        0x5cb8_9bfe_8e3b_576e,
     ),
     (
         "floats",
@@ -96,8 +96,8 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        22538,
-        0x622e_68cb_5d06_2b6a,
+        22411,
+        0x56ef_c13c_41a6_0b73,
     ),
     (
         "platform_console",
@@ -111,8 +111,8 @@ fn main() {
   }
 }
 "#,
-        37148,
-        0xaa74_9b31_c053_cc46,
+        37009,
+        0x366a_12a8_b2be_8662,
     ),
     (
         "state_and_options",
@@ -131,8 +131,9 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        15849,
-        0x62a7_244c_b4f8_08d7,
+        // The M3 default turns borrow inference on; the C2 profitability rule sets the call sites.
+        15722,
+        0x272e_58b6_142d_fefb,
     ),
     (
         "numeric",
@@ -158,8 +159,8 @@ fn main() {
   dbg(Float.from_int(7) % Float.from_int(2) > 0.5)
 }
 "#,
-        13386,
-        0xab75_95f8_cde5_945e,
+        13259,
+        0x1873_e29b_3a30_f596,
     ),
 ];
 
@@ -178,8 +179,8 @@ pub fn fails_with_an_error() -> Int fails Nope { half(3) }
 pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
-    13315,
-    0xf1f8_3a6c_0458_460a,
+    13188,
+    0xa18d_fdf5_9791_af9a,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new

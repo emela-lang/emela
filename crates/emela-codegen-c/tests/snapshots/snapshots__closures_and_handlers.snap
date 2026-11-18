@@ -111,7 +111,7 @@ static void e0_main(void) {
     v10 = em_int_to_string(v9);
     e4_print(v10);
     if (em_defect != NULL) {
-      em_drop_block(v10);
+      em_drop(v10);
       v11 = em_defect_take();
       {
         {
@@ -135,7 +135,7 @@ static void e0_main(void) {
       em_defect_resume(v11);
       return;
     }
-    em_drop_block(v10);
+    em_drop(v10);
     {
       {
         e3_Fixed_release(v0);
