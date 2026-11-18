@@ -7,6 +7,64 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.28.0](https://github.com/emela-lang/emela/compare/v0.27.1...v0.28.0) - 2026-11-18
+
+### Added
+
+- ProcessHost と PageHost で host を型で区別し，with Process で process 用の handler を使う ([#668](https://github.com/emela-lang/emela/pull/668)) (by @Allianaab2m)
+- capability の型 use E を書き，capability を値として渡せるようにする ([#665](https://github.com/emela-lang/emela/pull/665)) (by @Allianaab2m)
+- with や Fiber.scope から capability を持ち出す値に警告を出す ([#648](https://github.com/emela-lang/emela/pull/648)) (by @Allianaab2m)
+- Pome.toml の [experimental] と --experimental-<name> で実験的な機能を有効にできるようにする ([#644](https://github.com/emela-lang/emela/pull/644)) (by @Allianaab2m)
+- WASM でも閉じた stdout に書くとプログラムを 141 で終える ([#588](https://github.com/emela-lang/emela/pull/588)) (by @Allianaab2m)
+- ブラウザで動くコンパイラ emela-playground を足し，リリースに wasm を載せる ([#615](https://github.com/emela-lang/emela/pull/615)) (by @Allianaab2m)
+- main が ExitCode を返して終了コードを選べるようにする ([#591](https://github.com/emela-lang/emela/pull/591)) (by @Allianaab2m)
+- Std.Process の Stdout と Stderr で改行なしの出力を書けるようにする ([#587](https://github.com/emela-lang/emela/pull/587)) (by @Allianaab2m)
+- --target native でネイティブ実行ファイルをビルドできる ([#573](https://github.com/emela-lang/emela/pull/573)) (by @Allianaab2m)
+- Std.Process でプロセスの引数と標準入力を読めるようにする ([#575](https://github.com/emela-lang/emela/pull/575)) (by @Allianaab2m)
+- Bun の最小バージョンを 1.4.3 にする ([#562](https://github.com/emela-lang/emela/pull/562)) (by @Allianaab2m)
+- EMELA_JS_HOST で JS host を選べるようにし、Bun をサポートする ([#559](https://github.com/emela-lang/emela/pull/559)) (by @Allianaab2m)
+- emela doctor で各ターゲットに必要なプログラムを確かめられるようにする ([#556](https://github.com/emela-lang/emela/pull/556)) (by @Allianaab2m)
+- [**breaking**] emelinoへの分離に伴い組み込みCバックエンドを削除 ([#538](https://github.com/emela-lang/emela/pull/538)) (by @aoi-netai)
+- 一つの handler で複数の効果を実装し，use A + B を少ない効果の型に渡せるようにする ([#672](https://github.com/emela-lang/emela/pull/672)) (by @Allianaab2m)
+- effect に handler member を宣言し，with x = Files.Open(p) で開けるようにする ([#671](https://github.com/emela-lang/emela/pull/671)) (by @Allianaab2m)
+- Encode，Decode，ObjectKey，Shaped を derive でき，Std.Dynamic，Std.Shape，Std.Json を使える ([#589](https://github.com/emela-lang/emela/pull/589)) (by @Allianaab2m)
+- handler の init で Self(...) と書けるようにする ([#646](https://github.com/emela-lang/emela/pull/646)) (by @Allianaab2m)
+- ブロックの中に局所関数 fn name(...) を書ける ([#574](https://github.com/emela-lang/emela/pull/574)) (by @Allianaab2m)
+- Semaphore で同時に走る fiber の数を制限し，Queue で fiber の間で値を受け渡せるようにする ([#590](https://github.com/emela-lang/emela/pull/590)) (by @Allianaab2m)
+- List，Array，Map，Set の each で要素ごとに f を呼べるようにする ([#581](https://github.com/emela-lang/emela/pull/581)) (by @Allianaab2m)
+- derive した Encode と Decode で欠けたキーと null を Option と Presence で書き分ける ([#657](https://github.com/emela-lang/emela/pull/657)) (by @Allianaab2m)
+- *(wasm)* run fibers with scopes and deferred values ([#507](https://github.com/emela-lang/emela/pull/507)) (by @Allianaab2m)
+- emela を Windows（x86_64-pc-windows-msvc）向けにもビルドしてリリースする ([#578](https://github.com/emela-lang/emela/pull/578)) (by @Allianaab2m)
+- JS の launcher 名（main, $start）と重なる host export を E0438 にする ([#570](https://github.com/emela-lang/emela/pull/570)) (by @Allianaab2m)
+- Pome.toml の [pome].license を SPDX license expression として読む ([#542](https://github.com/emela-lang/emela/pull/542)) (by @Allianaab2m)
+
+### Fixed
+
+- *(types)* @entry のアダプタが予約名を 2 回 export すると E0438 が二重に出ていたのを直す ([#551](https://github.com/emela-lang/emela/pull/551)) (by @Allianaab2m)
+- *(core)* 型引数に関数を持つ値を書かれた Show で補間すると lowering が拒否していたのを直す ([#549](https://github.com/emela-lang/emela/pull/549)) (by @Allianaab2m)
+- *(c)* print the shortest digits for powers of two ([#608](https://github.com/emela-lang/emela/pull/608)) (by @isoshigi)
+- *(codegen-c)* テストの共有オブジェクトとサニタイザの確認をプロセスごとのディレクトリで作る ([#552](https://github.com/emela-lang/emela/pull/552)) (by @Allianaab2m)
+- *(test)* LSP テストの shutdown が解析の遅れで落ちないようにする ([#577](https://github.com/emela-lang/emela/pull/577)) (by @Allianaab2m)
+
+### Other
+
+- *(syntax)* cargo-mutants で見逃していた変更を検出できるテストを足す ([#545](https://github.com/emela-lang/emela/pull/545)) (by @Allianaab2m)
+- *(resolve)* cargo-mutants で見逃していた変更を検出できるテストを足す ([#546](https://github.com/emela-lang/emela/pull/546)) (by @Allianaab2m)
+- *(lir)* associate string interpolation appends to the right ([#606](https://github.com/emela-lang/emela/pull/606)) (by @isoshigi)
+- *(wasm)* allocate from size-class bins in the Perceus runtime ([#605](https://github.com/emela-lang/emela/pull/605)) (by @isoshigi)
+- *(wasm)* reuse a static job ring for the scheduler queue ([#604](https://github.com/emela-lang/emela/pull/604)) (by @isoshigi)
+- *(wasm)* name a perform's operation only when a diagnostic needs it ([#603](https://github.com/emela-lang/emela/pull/603)) (by @isoshigi)
+- *(wasm)* dispatch a resumed frame with a br_table over its state ([#602](https://github.com/emela-lang/emela/pull/602)) (by @isoshigi)
+- *(wasm)* remove the suspend runtime's dead queue statics ([#601](https://github.com/emela-lang/emela/pull/601)) (by @isoshigi)
+- *(wasm)* build the float decimal expansion in larger chunks ([#600](https://github.com/emela-lang/emela/pull/600)) (by @isoshigi)
+- *(wasm)* inline `dup` and `tag` in the emitter ([#599](https://github.com/emela-lang/emela/pull/599)) (by @isoshigi)
+- *(wasm)* dispatch a tag switch with br_table ([#598](https://github.com/emela-lang/emela/pull/598)) (by @isoshigi)
+- *(wasm)* emit only the Float, Bytes, Array and Unicode runtime bodies the program reaches ([#596](https://github.com/emela-lang/emela/pull/596)) (by @isoshigi)
+- *(wasm)* scan for a needle's first byte a word at a time ([#595](https://github.com/emela-lang/emela/pull/595)) (by @isoshigi)
+- *(wasm)* copy string ranges with memory.copy ([#594](https://github.com/emela-lang/emela/pull/594)) (by @isoshigi)
+- *(wasm)* index the environment once instead of scanning it per lookup ([#593](https://github.com/emela-lang/emela/pull/593)) (by @isoshigi)
+- *(wasm)* sort the listed names with an in-place heapsort ([#592](https://github.com/emela-lang/emela/pull/592)) (by @isoshigi)
+
 ## [0.27.1](https://github.com/emela-lang/emela/compare/v0.27.0...v0.27.1) - 2026-11-12
 
 ### Fixed
