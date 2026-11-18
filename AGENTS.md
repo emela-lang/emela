@@ -8,6 +8,7 @@ The entry point for coding agents (Claude Code, Codex, Copilot, Cursor and other
 - Every section has a stable name (`[effect.handler]`) besides its number. Refer to sections by name.
 - Look things up with `scripts/spec.py` (`index`, `show <name>`, `refs <name>`, `proposals [name]`, `check`).
 - Decisions inside the implementation are documented as rustdoc or comments in English in the code that makes them. Observable behavior belongs in `spec/`, not only in the code.
+- The optimisation architecture (its layers, terms and invariants) is in [`docs/optimization.md`](docs/optimization.md).
 
 ## Changing the specification
 
