@@ -11,10 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Check section names and proposals
-        # Pushes run every job, including before the specification is in the branch.
-        run: |
-          if [ ! -f scripts/spec.py ]; then exit 0; fi
-          python3 scripts/spec.py check
+        run: python3 scripts/spec.py check
 
   # A pull request that adopts a proposal waits for the author's `/accept`
   # (scripts/ci/proposal-adopted.sh). The merge queue skips the job: a pull request enters the

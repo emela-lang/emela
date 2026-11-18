@@ -5,6 +5,9 @@ name: CI / Emela
 #
 # `build` builds the compiler for Linux once and hands it to the jobs that run programs with it.
 # The compiler embeds core and std, so it runs from any directory.
+#
+# A push to main only builds, to refill the caches (ci.yml): the merge queue already ran the
+# programs on the same commit. Only main saves the caches.
 
 on:
   workflow_call:
@@ -17,9 +20,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: examples
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build
         run: cargo build --bin emela --locked
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'push'
         with:
           name: emela-linux
           path: target/debug/emela
@@ -27,6 +32,7 @@ jobs:
 
   examples:
     needs: build
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -47,6 +53,7 @@ jobs:
   # brix comes through the proxy and is checked against the hash in Pome.lock.
   laws:
     needs: build
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -77,6 +84,7 @@ jobs:
   # which `emela test` relies on to go on after a test left suspended.
   bun:
     needs: build
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     env:
       EMELA_JS_HOST: bun
@@ -112,6 +120,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: playground
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - id: bindgen
         name: Read the wasm-bindgen version
         run: awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print "version=" $3; exit }' Cargo.lock >> "$GITHUB_OUTPUT"
@@ -124,6 +133,7 @@ jobs:
       - name: Build
         run: scripts/build-playground.sh
       - name: Compile and run a program with it
+        if: github.event_name != 'push'
         run: node crates/emela-playground/smoke.mjs
 
   # The compiler is released for Windows too. The merge queue builds it there and runs the
@@ -144,10 +154,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
       - name: Build
         run: cargo build --bin emela --locked
       - name: Check, test and fmt every example
+        if: github.event_name != 'push'
         run: scripts/ci/examples.sh target/debug/emela.exe

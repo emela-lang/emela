@@ -10,10 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # Pushes run every job, including before the grammar is in the branch.
       - name: Check the tree-sitter grammar
         run: |
-          if [ ! -f editors/tree-sitter-emela/scripts/check.sh ]; then exit 0; fi
           # The version that generated src/; a different one writes a different parser.c.
           npm install --global tree-sitter-cli@0.26.11
           editors/tree-sitter-emela/scripts/check.sh

@@ -1,6 +1,9 @@
 name: CI / Rust
 
 # The compiler's Rust code: formatting, clippy and the test suite. Called from ci.yml.
+#
+# A push to main builds what the jobs would test without running it, to refill the caches
+# (ci.yml). Only main saves them.
 
 on:
   workflow_call:
@@ -13,6 +16,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: lint
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Unicode tables
         run: python3 scripts/gen-unicode-tables.py --check
       - name: Format
@@ -27,7 +31,8 @@ jobs:
         os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
         # The tests are bound by CPU, not by how they are scheduled on one runner:
         # on Linux they are split over three runners, each building the tests itself.
-        shard: [1, 2, 3]
+        # A push only builds them, which one runner does.
+        shard: ${{ fromJSON(github.event_name == 'push' && '[1]' || '[1, 2, 3]') }}
         # macOS runs them on one runner. The organization has few macOS runners, and the merge
         # queue builds several groups at once: three shards per group kept jobs waiting for a
         # runner far longer than the tests take.
@@ -48,6 +53,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # `emela run` and the JS backend tests execute the generated code with node.
       - uses: actions/setup-node@v4
         with:
@@ -63,7 +69,11 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Test
+        if: github.event_name != 'push'
         run: cargo nextest run --workspace --locked --profile ci --partition "count:${{ matrix.shard }}/$SHARDS"
+      - name: Build the tests
+        if: github.event_name == 'push'
+        run: cargo nextest run --workspace --locked --profile ci --no-run
 
   # The JS tests of the compiler (`emela run` and `emela test` in `crates/emela-driver` and
   # `crates/emela-cli`, and the JS side of the WASM tests) on Bun, the other JS host that
@@ -79,6 +89,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
@@ -93,4 +104,8 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Test on Bun
+        if: github.event_name != 'push'
         run: cargo nextest run -p emela-driver -p emela-cli -p emela-codegen-wasm --locked --profile ci
+      - name: Build the tests
+        if: github.event_name == 'push'
+        run: cargo nextest run -p emela-driver -p emela-cli -p emela-codegen-wasm --locked --profile ci --no-run

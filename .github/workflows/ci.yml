@@ -1,8 +1,13 @@
 name: CI
 
-# The merge gate: runs on every pull request, on each group of the merge queue
-# and on pushes to the long-lived branches. Branch protection requires `ci-ok`
-# alone, which sums up the other jobs.
+# The merge gate: runs on every pull request and on each group of the merge
+# queue. Branch protection requires `ci-ok` alone, which sums up the other jobs.
+#
+# A push to main runs too, but only builds: the merge queue already tested the
+# same commit. It is the one run that saves the Rust caches (`save-if`), since
+# a cache saved on another ref is read only by that ref, while every ref reads
+# the caches of main. Saving them anywhere else only fills the 10 GB the
+# repository has for caches and pushes main's out.
 #
 # The jobs themselves are in the reusable workflows `ci-*.yml`; this file only
 # decides which of them a change needs and sums them up. `needs` cannot reach
@@ -17,7 +22,7 @@ on:
   pull_request:
   merge_group:
   push:
-    branches: [main, dev, next]
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
