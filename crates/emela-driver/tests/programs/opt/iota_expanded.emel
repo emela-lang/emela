@@ -1,0 +1,25 @@
+# The hand-written expansion of `iota_fused.emel`: the arm each `match` of a known constructor
+# selected, with the scrutinee's arguments bound to the names of the pattern in field order. The
+# ignored field of the tuple is still evaluated (into `_`), because evaluating it is an effect. The
+# `Some` of the third `dbg` is not built, and the catch-all binds the whole record.
+
+type Point(x: Int, y: Int)
+
+fn noisy(x: Int) -> Int {
+  dbg(x)
+  x + 1
+}
+
+fn main() {
+  x = noisy(1)
+  y = noisy(2)
+  dbg(x + y)
+  a = noisy(3)
+  _ = noisy(4)
+  dbg(a)
+  some = noisy(5)
+  dbg(some)
+  dbg(-1)
+  whole = Point(x: 10, y: 20)
+  dbg(whole.x + whole.y)
+}

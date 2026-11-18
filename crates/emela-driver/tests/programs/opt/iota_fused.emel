@@ -1,0 +1,37 @@
+# A mutation pair: this is the form ι reduction takes as its input. Every `dbg` below matches a
+# value whose constructor or tuple is written at the `match`, so the arm is known before the
+# program runs. `iota_expanded.emel` is the same program with the selected arm written out by hand:
+# each argument is evaluated once, in field order, into the name the pattern gives it, and the
+# constructors on the way to those names are not built. The two must print the same with the passes
+# on and off.
+#
+# The five shapes are: a record destructured field by field, a tuple whose second field the pattern
+# ignores, `Some` of a call, `None`, and a catch-all binding of the whole constructor. The calls to
+# `noisy` print their argument, so the order and the count of the evaluations are visible.
+
+type Point(x: Int, y: Int)
+
+fn noisy(x: Int) -> Int {
+  dbg(x)
+  x + 1
+}
+
+fn main() {
+  dbg(Point(x: noisy(1), y: noisy(2)) match {
+    Point(x, y) -> x + y
+  })
+  dbg((noisy(3), noisy(4)) match {
+    (a, _) -> a
+  })
+  dbg(Some(noisy(5)) match {
+    Some(x) -> x
+    None -> -1
+  })
+  dbg(None match {
+    Some(x) -> x
+    None -> -1
+  })
+  dbg(Point(x: 10, y: 20) match {
+    whole -> whole.x + whole.y
+  })
+}
