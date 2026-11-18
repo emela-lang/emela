@@ -276,6 +276,15 @@ const MODULES: &[RuntimeModule] = &[
         emit: ascii::emit,
         used: ascii::used,
     },
+    // Drop specialisation's block drop (C3/PR-027), also appended last: a program without a
+    // specialised drop keeps every function index (and the bytes) of the modules before this one.
+    RuntimeModule {
+        funcs: alloc::DROP_BLOCK_FUNCS,
+        locals: alloc::drop_block_locals,
+        setup: no_setup,
+        emit: alloc::emit,
+        used: alloc::drop_block_used,
+    },
 ];
 
 /// Reserves the runtime functions in the function index space.

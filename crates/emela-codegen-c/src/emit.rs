@@ -983,7 +983,15 @@ impl<'m> Emitter<'m> {
             }
             Stmt::Protect { .. } => self.internal(format!("protect left in {}", f.name)),
             Stmt::Dup(v) => self.count(cx, "em_dup", *v),
-            Stmt::Drop(v) => self.count(cx, "em_drop", *v),
+            Stmt::Drop(v) => {
+                // Drop specialisation (C3/PR-027): a value whose payload holds no reference and
+                // whose type has no finalizer gives its block back without walking it.
+                let op = match cx.f.drop_kinds.get(&id) {
+                    Some(emela_lir::opt::drop_spec::DropKind::Block) => "em_drop_block",
+                    _ => "em_drop",
+                };
+                self.count(cx, op, *v);
+            }
         }
     }
 

@@ -1793,7 +1793,13 @@ impl<'m> Builder<'m> {
             }
             Stmt::Drop(v) => {
                 ins.local_get(cx.local(v));
-                let drop = self.rt("drop");
+                // Drop specialisation (C3/PR-027): a value whose payload holds no reference and
+                // whose type has no finalizer gives its block back without walking it.
+                let name = match cx.f.drop_kinds.get(&id) {
+                    Some(emela_lir::opt::drop_spec::DropKind::Block) => "drop_block",
+                    _ => "drop",
+                };
+                let drop = self.rt(name);
                 ins.call(drop);
             }
         }
