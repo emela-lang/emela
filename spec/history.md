@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-18 (A built-in trait for capability types, Capability)
+
+- `[trait.builtin]`, `[effect.use]`, `[diag.list]`: Add a built-in trait `Capability`. Only capability types `use E` satisfy it, and users cannot implement it (it is determined automatically, as `Immediate` is). `[C: Capability]` says in a type "a capability of any effect". Adopted in the proposal `capability-trait` (#650).
+
 ## 2026-11-18 (Handlers that implement several effects)
 
 - `[effect.handler]`, `[effect.with]`, `[effect.layer]`, `[effect.label]`, `[effect.use]`, `[type.rules]`, `[grammar.decl]`, `[grammar.type]`, `[diag.list]`: One handler can implement several effects (`handler H: ReadFile + WriteFile`). All the effects it implements share the same `self`. The type of a capability can be written `use ReadFile + WriteFile`, and a capability of a set of effects can be passed as the type of fewer of them. This stays a separate concept from layers. Adopted in the proposal `multi-effect-handler` (#625).

@@ -1,10 +1,10 @@
 ---
 title: A built-in trait for capability types, Capability
 authors: [somnicattus]
-status: draft
+status: accepted
 pr: 650
 issue: 616
-decided:
+decided: 2026-11-18
 touches: [trait.builtin, effect.use, diag.list]
 requires: [capability-type]
 related: []
@@ -115,3 +115,9 @@ A type or trait named `Capability` defined by a user overlaps the name. Names of
 ## Open questions
 
 ## Decision
+
+Adopted, on top of the type of a capability (#622), which this requires.
+
+- `Capability` is a built-in trait satisfied only by `use E` and determined automatically, as `Immediate` is. It lets a built-in function that takes a capability of any effect be declared with an ordinary type, and a wrong argument is stopped by E0326.
+- No way is added to use a capability without knowing its effect.
+- An impl of `Immediate` gets the same diagnostic, which was missing.
