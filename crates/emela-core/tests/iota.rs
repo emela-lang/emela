@@ -530,7 +530,10 @@ fn main() {
     )];
     let mut m = lower_files(&files);
     let core_fns = CoreFns::default();
-    let options = Options { rules: IOTA };
+    let options = Options {
+        rules: IOTA,
+        ..Options::default()
+    };
     let first = run_with(&mut m, &core_fns, options);
     assert!(first.iota > 0, "{first:?}");
     let once = dump(&m);
