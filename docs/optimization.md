@@ -31,9 +31,11 @@ Monomorphic Core IR (after monomorphisation)
                     Monomorphized::origins, so the reserved bundled functions
                     stay calls. No other rule or fusion law runs here.
 LIR (after lowering; heap passes after reference counting)
-  5 LIR passes      escape, liveness, borrow, ownership, SRA, closure
-                    devirtualisation, rc cleanup, drop specialisation,
-                    reuse, suspension frame pruning
+  5 LIR             analyses: escape, liveness, borrow, ownership;
+                    passes: SRA of tuples and records, closure
+                    devirtualisation, rc cleanup, dead code elimination.
+                    Drop specialisation, reuse, closure SRA and
+                    suspension frame pruning are reserved.
 Lowering and code generation
   6 representation  string concat, value records, unboxed arrays, tagging,
                     dead code and import pruning, switches
@@ -88,13 +90,13 @@ changing behaviour is not.
 | Where | What |
 |---|---|
 | [`crates/emela-core/src/opt/mod.rs`](../crates/emela-core/src/opt/mod.rs) | The Core IR pipeline: the order of the passes, the fixed point, `Stats`, the pass contract, and the δ-only stage after monomorphisation. |
-| [`crates/emela-core/src/opt/reduce/`](../crates/emela-core/src/opt/reduce/) | The reduction kernel: `subst`, `zeta`, `beta`, `eta`, `iota`, `delta`, `fold`, `algebra`. |
+| [`crates/emela-core/src/opt/reduce/`](../crates/emela-core/src/opt/reduce/) | The reduction kernel: `subst`, `zeta`, `beta`, `eta`, `iota`, `delta`, `fold`, `algebra`, `bounds` and `cse`. |
 | [`crates/emela-core/src/opt/fusion/`](../crates/emela-core/src/opt/fusion/) | The fusion laws: the registry, their order and their budget. |
 | [`crates/emela-core/src/opt/loop/`](../crates/emela-core/src/opt/loop/) | Loop transformations: the unswitch; LICM and induction variables are reserved. |
 | [`crates/emela-core/src/opt/analysis/`](../crates/emela-core/src/opt/analysis/) | The shared Core IR analyses: effects and defects, uses, call graph, ranges. |
 | [`crates/emela-lir/src/opt/mod.rs`](../crates/emela-lir/src/opt/mod.rs) | The LIR stages (`run_flow`, `run_mid`, `run_heap`), `Stats`, the shared analyses. |
 | [`crates/emela-lir/src/opt/analysis/`](../crates/emela-lir/src/opt/analysis/) | The shared LIR analyses: escape, liveness, borrow, ownership. |
-| [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes: escape, rc cleanup, drop specialisation, reuse, scalar replacement of tuples, records and closures. |
+| [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes: SRA of tuples and records, closure devirtualisation, rc cleanup, dead code elimination. Drop specialisation, reuse, closure SRA and suspension frame pruning are reserved. |
 | [`crates/emela-codegen-c/`](../crates/emela-codegen-c/) | The C backend: representation and layout. |
 | [`crates/emela-codegen-wasm/`](../crates/emela-codegen-wasm/) | The WASM backend: representation, dead code elimination, switches. |
 
