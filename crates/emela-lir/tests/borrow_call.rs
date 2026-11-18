@@ -1,11 +1,12 @@
-//! Tests for borrow inference (C2a/PR-026): the per-function borrowed-parameter signature that
-//! reference counting carries through its ownership rules.
+//! Tests for borrow inference (C2a/C2b, PR-026): the per-function borrowed-parameter signature
+//! that reference counting carries through its ownership rules, and the off-by-default flag that
+//! runs it in the pipeline.
 //!
 //! Programs are lowered (with the Core IR optimisations off), monomorphised, converted and taken to
 //! `Stage::StateMachines`; a test then calls `insert_borrow_signature` explicitly, runs
-//! `insert_rc` and checks the balance with the verifier. The default pipeline does not call the
-//! pass yet (C2b wires it), so the same program without it keeps the owned convention and its
-//! `dup`/`drop`.
+//! `insert_rc` and checks the balance with the verifier. The default pipeline does not run the
+//! pass, so the same program without it keeps the owned convention and its `dup`/`drop`; the flag
+//! tests run it through `to_heap_with_options`.
 //!
 //! The signature is a calling-convention fact, not a use. The tests check the three places that
 //! must agree: what the pass writes (`Function::borrowed`), what reference counting emits (no
@@ -17,9 +18,11 @@ mod support;
 
 use emela_core::{FnType, Roots, TypeId, monomorphize_from, verify_monomorphic};
 use emela_lir::opt::analysis::borrow;
+use emela_lir::opt::{LirRules, Options};
 use emela_lir::{
     Callee, Const, FnBuilder, FnId, Module, Operand, Stage, Stmt, Term, Value, convert_closures,
-    explicit_defects, from_core, insert_borrow_signature, insert_rc, state_machines, verify,
+    dump, explicit_defects, from_core, insert_borrow_signature, insert_rc, state_machines,
+    to_heap_with, to_heap_with_options, verify,
 };
 use support::try_lower_with_opt;
 
@@ -483,4 +486,126 @@ fn main() {
     );
     insert_rc(&mut m);
     check(&m);
+}
+
+/// A list parameter that the function only reads. A list is a heap reference on both backends, so
+/// the call-site `dup` that the flag removes is visible in the emitted code as well as here.
+const LIST_FIRST: &str = "\
+fn first(xs: List[Int]) -> Int {
+  xs match {
+    [] -> -1
+    [x, ..] -> x
+  }
+}
+
+fn main() {
+  xs = [1, 2, 3]
+  a = first(xs)
+  b = first(xs)
+  dbg(a + b)
+}
+";
+
+/// The default LIR options with borrow inference on.
+fn borrow_options() -> Options {
+    Options {
+        rules: LirRules {
+            borrow: true,
+            ..LirRules::default()
+        },
+    }
+}
+
+/// `to_heap_with` is `to_heap_with_options` with the default options: the same Heap IR and the
+/// same counters, with the borrow counters at zero.
+#[test]
+fn the_default_options_match_to_heap_with() {
+    let mut plain = flow(&[("main.emel", LIST_FIRST)], Roots::Exported);
+    let mut options = flow(&[("main.emel", LIST_FIRST)], Roots::Exported);
+    let plain_stats = to_heap_with(&mut plain, true);
+    let option_stats = to_heap_with_options(&mut options, true, Options::default());
+    assert_eq!(dump(&plain), dump(&options));
+    assert_eq!(format!("{plain_stats:?}"), format!("{option_stats:?}"));
+    assert_eq!(option_stats.borrow_functions, 0);
+    assert_eq!(option_stats.borrow_params, 0);
+    assert_eq!(option_stats.borrow_args, 0);
+    check(&plain);
+}
+
+/// The flag runs the pass in the pipeline: the signature appears, the call site no longer `dup`s
+/// the argument, the callee no longer drops the parameter, the counters report it, and the module
+/// still passes the balance check.
+#[test]
+fn the_borrow_flag_turns_the_signature_on_in_the_pipeline() {
+    let mut m = flow(&[("main.emel", LIST_FIRST)], Roots::Exported);
+    let stats = to_heap_with_options(&mut m, true, borrow_options());
+    let first = function(&m, "first");
+    let main = function(&m, "main");
+    let param = m.functions[first].params[0];
+    let arg = call_arg(&m, main, first, 0);
+    assert_eq!(m.functions[first].borrowed, vec![true]);
+    check(&m);
+    assert!(
+        !has_drop(&m, first, param),
+        "the callee does not drop a borrowed parameter"
+    );
+    assert!(
+        !has_dup(&m, main, arg),
+        "the caller does not dup a borrowed argument even though it stays live"
+    );
+    assert!(stats.borrow_functions >= 1, "{stats:?}");
+    assert!(stats.borrow_params >= 1, "{stats:?}");
+    assert!(stats.borrow_args >= 1, "{stats:?}");
+}
+
+/// The flag does not weaken the ownership rules: a parameter the callee returns or stores keeps
+/// the owned convention, so the caller `dup`s the argument and the callee drops or moves it.
+#[test]
+fn the_borrow_flag_keeps_returned_and_stored_parameters_owned() {
+    let src = "\
+enum Box { Box((Int, Int)) }
+
+fn id(x: (Int, Int)) -> (Int, Int) { x }
+
+fn store(x: (Int, Int)) -> Box { Box(x) }
+
+fn main() {
+  t = (1, 2)
+  u = id(t)
+  v = id(t)
+  b = store((3, 4))
+  dbg(u)
+  dbg(v)
+  b match { Box(p) -> dbg(p) }
+}
+";
+    let mut m = flow(&[("main.emel", src)], Roots::Exported);
+    to_heap_with_options(&mut m, true, borrow_options());
+    let id = function(&m, "id");
+    let store = function(&m, "store");
+    let main = function(&m, "main");
+    let id_param = m.functions[id].params[0];
+    let store_param = m.functions[store].params[0];
+    let arg = call_arg(&m, main, id, 0);
+    check(&m);
+    assert!(
+        m.functions[id].borrowed.is_empty(),
+        "a returned parameter is owned"
+    );
+    assert!(
+        m.functions[store].borrowed.is_empty(),
+        "a stored parameter is owned"
+    );
+    assert!(
+        has_dup(&m, main, arg),
+        "the owned call dups the argument that stays live"
+    );
+    assert!(
+        !has_dup(&m, id, id_param),
+        "the callee moves the reference it returns"
+    );
+    assert!(
+        !has_dup(&m, store, store_param) && !has_drop(&m, store, store_param),
+        "the callee moves the reference it stores into the record"
+    );
 }
