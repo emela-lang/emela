@@ -1,24 +1,25 @@
 ---
-title: Suspending handler members, bound layers, and handler members of labels
+title: Suspending handler members, bound layers, handler members of labels, and capability fields
 authors: [Alliana]
 status: draft
 pr: 667
 issue: 656
 decided:
-touches: [effect.decl, effect.handler, effect.with, effect.label, type.effect-bound, grammar.decl, diag.list]
+touches: [effect.decl, effect.use, effect.handler, effect.with, effect.label, type.effect-bound, grammar.decl, diag.list]
 requires: [handler-member]
 related: [multi-effect-handler]
 ---
 
-# Suspending handler members, bound layers, and handler members of labels
+# Suspending handler members, bound layers, handler members of labels, and capability fields
 
 ## Summary
 
-Three gaps in `handler-member`, found while implementing it (#656).
+Four gaps in `handler-member`, found while implementing it (#656).
 
 1. A handler member is declared `suspend handler` when the init or the release of its handlers may suspend. An effect with a suspend handler member is not Immediate. The init and the release of an inner handler of a handler member without `suspend` are checked as the body of an fn operation is (E0417).
 2. `with x = L { ... }`, where L is a layer, is a compile error, with the same code as a handler member item written without `x =` or as an item of a layer.
 3. A label of an effect has the handler members of its underlying effect.
+4. Calling an operation of a capability held in a field of a handler (`self.inner.read(max)`) adds nothing to R.
 
 ## Motivation
 
@@ -48,6 +49,26 @@ The type checker accepts a suspending callback where Immediate is required, and 
 
 `effect L of E` has the same operations as E (`[effect.label]`). A handler member is not an operation, so whether `L.Open(p)` or `c.Open(p)` with `c: use L` can be written is not determined. An effect that has handler members and no operations cannot be the underlying effect of a label at all ("MUST be a user effect that has operations").
 
+### 4. Wrapping a provider requires the wrapped effect by name
+
+`[effect.use]` says that calling an operation of a capability obtained by `use E` adds E to R, and that calling an operation of a captured capability adds that capability. A field of `self` is neither, and the implementation (capability-type, #665) adds the effect E. In the `TracedFiles` example of `handler-member`, the inner `Open` calls `self.inner.read(max)`, so `ReadFile` becomes a requirement of `TracedFiles`.
+
+```emel
+handler TracedFiles: Files {
+  handler Open(inner: use ReadFile): ReadFile {
+    init(path: String) {
+      Self(inner: Files.Open(path))
+    }
+
+    suspend fn read(max, resume) {
+      resume(self.inner.read(max)) # adds ReadFile to the R of TracedFiles
+    }
+  }
+}
+```
+
+`with TracedFiles { ... }` then asks for `ReadFile` by name from outside (E0402), although the capability it reads is the one its init opened.
+
 ## Proposal
 
 ### Syntax
@@ -70,6 +91,7 @@ pub effect Files {
 - Opening a suspend handler member (a with item `x = E.M(a)` or `x = c.M(a)`, or `E.M(a)` and `c.M(a)` inside an init) is a call that may suspend. Opening a handler member without `suspend` is not.
 - `with x = L`, where L is a layer, is a compile error. It has the same code as a handler member item written without `x =` and a handler member written as an item of a layer.
 - A label L of E has the handler members of E. `with x = L.M(a)` opens M of the handler that provides L, and requires L. `c.M(a)` with `c: use L` opens M of the handler that provides c. The underlying effect of a label MUST have operations or handler members.
+- Calling an operation of a capability held in a field of the handler (`self.f.op(...)`, in init's value, the operation bodies and release) adds nothing to R. The capability belongs to a with that encloses the with of the handler, or is a handler member opened in its init, and both live at least as long as the handler (`[effect.handler]`). A capability taken out of the field into a variable follows the rules for variables.
 
 ### Typing rules
 
@@ -88,7 +110,17 @@ In "Whether a call may suspend is determined as follows", add:
 
 > - Opening a handler member (`x = E.M(arguments)` in a with, or `E.M(arguments)` inside an init, 8.3, 8.4) is determined by the declaration of the handler member. If it is a `suspend handler`, it may suspend. For a with item, the end of the with, where the handler opened is released, may suspend too.
 
+### `[effect.use]`
+
+Add after the item "Calling an operation of a capability value obtained by `use E` adds E to R. ...":
+
+> - Calling an operation of a capability held in a field of a handler, through `self` (`self.inner.read(max)`), adds nothing to R. The capability belongs to a with that encloses the with of the handler, or to a handler member opened in its init (8.4); both outlive the handler.
+
 ### `[effect.handler]`
+
+Add to the item "A field of a handler can have the type `use E`. ...":
+
+> Calling its operations through `self` adds nothing to R (8.2).
 
 Add to the item on inner handlers:
 
@@ -141,7 +173,7 @@ Only adds to `handler-member`, which is not implemented yet.
 Together with `handler-member` (#656).
 
 - emela-syntax: `suspend` before `handler` in an effect
-- emela-types: Immediate of effects with suspend handler members, E0417 on inner handlers, the binding of a layer, handler members of labels
+- emela-types: Immediate of effects with suspend handler members, E0417 on inner handlers, the binding of a layer, handler members of labels, operations on capability fields of `self` add nothing to R
 - emela-core: opening a suspend handler member is a suspending call
 
 ## Alternatives
