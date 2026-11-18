@@ -76,7 +76,7 @@ effect_decl  = "effect" type_name [ type_params ] "{" { effect_member NL } "}"
 effect_member = op_sig | member_sig
 op_sig       = [ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")"
                "->" type [ "fails" error_set ]     (* type_params only for built-in effects; 8.1 *)
-member_sig   = "handler" type_name "(" [ params ] ")" ":" effect_ref { "+" effect_ref }
+member_sig   = [ "suspend" ] "handler" type_name "(" [ params ] ")" ":" effect_ref { "+" effect_ref }
                [ "fails" error_set ]                              (* a handler member; 8.1 *)
 
 handler_decl = "handler" type_name [ "(" [ fields ] ")" ]
