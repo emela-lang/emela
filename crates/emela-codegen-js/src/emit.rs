@@ -630,6 +630,11 @@ impl Emitter<'_> {
         params.extend((0..def.params).map(|i| format!("$a{i}")));
         let name = self.show_enum(id);
         self.line(&format!("function {name}({}) {{", params.join(", ")));
+        if let Some(text) = def.runtime_display() {
+            self.line(&format!("  return {};", js_string(text)));
+            self.line("}");
+            return;
+        }
         self.show_params = Some(def.params);
         self.indent += 1;
         let switch = def.variants.len() > 1;

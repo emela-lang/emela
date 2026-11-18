@@ -1,7 +1,8 @@
 //! Emits the fiber operations (spec chapter 11).
 //!
 //! Each operation is a call of a runtime function. Operations that wait (`Fiber.scope`, join,
-//! await, interrupt, `Deferred.await`) are generators or requests handled by the scheduler, so
+//! await, interrupt, `Deferred.await`, acquire, offer, take) are generators or requests handled by
+//! the scheduler, so
 //! they only appear in generators:
 //!
 //! ```js
@@ -57,6 +58,18 @@ impl Emitter<'_> {
             FiberOp::Complete => ("$complete", Wait::No),
             FiberOp::DeferredAwait => ("$deferredAwait", Wait::Request),
             FiberOp::Poll => ("$poll", Wait::No),
+            FiberOp::Semaphore => ("$semaphore", Wait::No),
+            FiberOp::Queue => ("$queue", Wait::No),
+            FiberOp::Acquire => ("$acquire", Wait::Request),
+            FiberOp::TryAcquire => ("$tryAcquire", Wait::No),
+            FiberOp::Release => ("$release", Wait::No),
+            FiberOp::Available => ("$available", Wait::No),
+            FiberOp::Offer => ("$offer", Wait::Request),
+            FiberOp::Take => ("$take", Wait::Request),
+            FiberOp::TryOffer => ("$tryOffer", Wait::No),
+            FiberOp::QueuePoll => ("$queuePoll", Wait::No),
+            FiberOp::Size => ("$size", Wait::No),
+            FiberOp::Close => ("$close", Wait::No),
             FiberOp::CauseKind { .. } => ("$causeKind", Wait::No),
             FiberOp::CauseToString => ("$causeToString", Wait::No),
             FiberOp::CauseRaise { .. } => ("$causeRaise", Wait::No),

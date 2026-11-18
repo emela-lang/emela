@@ -1,7 +1,7 @@
 ---
 title: Semaphore and Queue
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 515
 issue:
 decided: 2026-11-15
@@ -314,8 +314,8 @@ The item "Remaining for 0.20" no longer lists a limit on how many run at once (S
 
 ## Diagnostics
 
-- [ ] No new code. E0425 also covers `Semaphore` and `Queue`.
-- [ ] New defects: `semaphore needs at least 1 permit, but got <n>`, `` `with_permits` needs at least 1 permit, but got <n> ``, `` `with_permits` asked for <n> permits of a semaphore with <m> `` (and the same two for `try_with_permits`), `queue needs a capacity of at least 1, but got <n>`, `semaphore was used after its scope ended`, `queue was used after its scope ended`.
+- [x] No new code. E0425 also covers `Semaphore` and `Queue`.
+- [x] New defects: `semaphore needs at least 1 permit, but got <n>`, `` `with_permits` needs at least 1 permit, but got <n> ``, `` `with_permits` asked for <n> permits of a semaphore with <m> `` (and the same two for `try_with_permits`), `queue needs a capacity of at least 1, but got <n>`, `semaphore was used after its scope ended`, `queue was used after its scope ended`.
 
 ## Compatibility
 

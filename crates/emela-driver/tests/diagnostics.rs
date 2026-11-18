@@ -2191,6 +2191,62 @@ fn leak() -> fn() -> Int {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// `[fiber.escape]`: the value of `Fiber.scope` that holds a Semaphore or Queue made by the scope
+/// is W0402, labelled at the callee. With `capture-checking`, from `[experimental]` or from the
+/// flag, it is E0444. A value taken out of them is not.
+#[test]
+fn capture_escape_of_semaphores_and_queues() {
+    let main = "\
+import Std.Fiber.{Fiber}
+import Std.Queue.{Queue}
+
+fn leak_semaphore() -> fn() -> Int {
+  Fiber.scope(|| {
+    s = Fiber.semaphore(1)
+    || s.available()
+  })
+}
+
+fn leak_queue() -> fn() -> Option[Int] {
+  Fiber.scope(|| {
+    q: Queue[Int] = Fiber.queue(1)
+    || q.poll()
+  })
+}
+
+fn taken() -> Option[Int] {
+  Fiber.scope(|| {
+    q: Queue[Int] = Fiber.queue(1)
+    q.try_offer(1)
+    q.poll()
+  })
+}
+
+fn permitted() -> Int {
+  Fiber.scope(|| Fiber.semaphore(1).with_permit(|| 1))
+}
+";
+    let manifest = |table: &str| {
+        format!(
+            "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.28.0\"\n\n[experimental]\n{table}"
+        )
+    };
+    let run = |manifest: &str, flags: &[&str]| {
+        let fs = MemoryFiles::new([("app/Pome.toml", manifest), ("app/src/main.emel", main)]);
+        let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
+        input.experimental = flags.iter().map(|f| f.to_string()).collect();
+        let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
+        render(&analysis.diagnostics, &analysis.sources, false)
+    };
+    let warning = run(&manifest(""), &[]);
+    assert_eq!(warning.matches("warning[W0402]").count(), 2, "{warning}");
+    insta::assert_snapshot!("capture_escape_of_semaphores_and_queues_warning", warning);
+    let error = run(&manifest("capture-checking = true\n"), &[]);
+    assert_eq!(error.matches("error[E0444]").count(), 2, "{error}");
+    insta::assert_snapshot!("capture_escape_of_semaphores_and_queues_error", error);
+    assert_eq!(run(&manifest(""), &["capture-checking"]), error);
+}
+
 /// A single file has no `Pome.toml` of its own, so there is no license to check.
 #[test]
 fn single_file_does_not_read_a_license() {
@@ -2283,6 +2339,32 @@ fn undeclared() {
     log.info("x")
   }
   say()
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// A Semaphore or a Queue in the value of `Fiber.scope` is E0425, named by its type
+/// (`[fiber.escape]`).
+#[test]
+fn semaphore_and_queue_cannot_leave_the_scope() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"import Std.Fiber.{Fiber}
+import Std.Queue.{Queue}
+
+fn semaphore() {
+  Fiber.scope(|| Fiber.semaphore(2))
+}
+
+fn queue() -> Option[Queue[Int]] uses { Async } {
+  Fiber.scope(|| Some(Fiber.queue(1)))
 }
 "#,
         )],

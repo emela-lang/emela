@@ -55,6 +55,7 @@ mod float;
 pub(super) mod fs;
 mod host;
 pub(super) mod http;
+mod line;
 mod notes;
 mod numeric;
 mod option;
@@ -257,6 +258,13 @@ const MODULES: &[RuntimeModule] = &[
         setup: no_setup,
         emit: array::emit,
         used: array::used,
+    },
+    RuntimeModule {
+        funcs: line::FUNCS,
+        locals: line::locals,
+        setup: no_setup,
+        emit: line::emit,
+        used: line::used,
     },
 ];
 
