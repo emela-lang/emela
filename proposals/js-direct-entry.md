@@ -2,7 +2,7 @@
 title: Running main.mjs directly
 authors: [Satoru314]
 status: draft
-pr:
+pr: 677
 issue:
 decided:
 touches: [target.js.module, cmd.build]
