@@ -55,7 +55,8 @@ fn greet(id: Int) {
 - `use X` is an expression that returns a value representing the capability of effect X. It can appear anywhere in a function.
 - Operations can be called only through a capability value, in the form `log.info(...)`. There is no form that calls them directly by effect name (`Logger.info(...)`).
 - Writing an operation of a capability value without calling it, as `log.info`, gives a function value. The capability value is evaluated at that position, and the type of the function value contains the capability's effect (as for a closure that captures a capability).
-- Calling an operation of a capability value adds its effect to R and the operation's `fails` to E. The type of a closure or a local fn that captures a capability value also contains that effect (the `copy` example below).
+- Calling an operation of a capability value obtained by `use E` adds E to R. Calling an operation of a capability captured by a closure or a local fn adds that capability to R (`uses { primary }`). A capability in R can be widened to its effect: a function whose R contains `p` can be used where R contains the effect of p. Whether a call may suspend (E0417) is decided by the effect of the capability.
+- Calling an operation adds the operation's `fails` to E. A closure or a local fn that captures a capability value can be passed where its effect is expected (the `copy` example below).
 - Passing a capability value as an argument, putting it into a data structure (a constructor, a list, a tuple), and returning it from a function are all compile errors. Only the top-level type of the value is checked.
   - Passing it as an argument of a call is E0408. A constructor argument puts it into a data structure, so it is E0409.
   - Putting it into a list, a tuple, or a field of a record update is E0409.
@@ -199,17 +200,20 @@ A capability value, and closures and local fns that capture it, cannot leave the
 fn make_greeter() {
   with ConsoleLogger {
     log = use Logger
-    || log.info("hi") # compile error: leaves the with while holding log
+    || log.info("hi") # W0402: leaves the with while holding log (E0444 with `capture-checking`)
   }
 }
 ```
 
-- The compiler tracks which capabilities a value holds, together with its type (capture set). When a closure goes into another closure or a data structure, that information is carried over.
-- If the value of a with body holds a capability provided by that with, it is a compile error.
-- Until the capture set check is added (0.22), the check is done at run time. Calling an operation of a handler that has already been released is a defect (`handler PostgresUsers was used after release`). This check applies only to handlers that have fields, init, or release. A handler without state keeps working as before even if it is taken out of the with.
-- The capture set is inferred and is not written in source. Users see only error messages.
+- The compiler infers, together with its type, which capabilities a value holds (its capture set). The elements of a capture set are roots: the handler of a with item, the Scope of a `Fiber.scope`, and `self` inside the operations of a handler. `use E` refers to the root of the innermost with that provides E at that position.
+- A closure or a local fn holds what its captured variables hold. A data structure holds what its elements hold. The result of a call holds what the return value of the callee holds, with its parameters replaced by the arguments. A value whose type cannot contain a capability holds nothing.
+- The capture set of the return value of a function is inferred from its body. For a declaration without a body (an effect operation, a trait function, an `@external` fn, the function type of a parameter), the return value holds what its arguments hold, and the return value of an operation also holds the handler. An argument whose type is Fiber, Deferred, Semaphore or Queue passes on what it holds except the roots of scopes, unless the type of the return value at the call contains one of these types (11.8).
+- If the value of a with body holds a root of that with, it is a warning (W0402).
+- Experimental (`capture-checking`). It is a compile error (E0444) instead.
+- The check at run time stays while the error is not the default: calling an operation of a handler that has already been released is a defect (`handler PostgresUsers was used after release`). It applies only to handlers that have fields, init, or release.
+- The capture set is not written in source. The language server shows it (`[lsp.hover]`).
 - A closure that is used up inside the with (`List.map(names, |n| log.info(n))`) is fine.
-- Leaking Scope capabilities, fiber handles, and Deferreds is prevented by the same idea. The table in 11.8 summarizes what can be checked in 0.20 and 0.22.
+- Leaking Scope capabilities, fiber handles, and Deferreds is prevented by the same idea. The table in 11.8 summarizes what is checked statically and what at run time.
 
 ## 8.7 Async `[effect.async]`
 

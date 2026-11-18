@@ -1,0 +1,17 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "run(&manifest(\"\"), &[])"
+---
+warning[W0402]: a value that holds `log` leaves the `with` that provides it
+    ╭─[ src/main.emel:12:5 ]
+    │
+ 10 │   with FileLogger {
+    │        ─────┬────  
+    │             ╰────── `log` is released at the end of this `with`
+    │ 
+ 12 │     || log.info("hi")
+    │     ────────┬────────  
+    │             ╰────────── the value of the body holds `log`
+────╯
+
+1 warning

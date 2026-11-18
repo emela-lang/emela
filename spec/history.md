@@ -4,7 +4,7 @@ This is the record of changes to the specification. New entries are added at the
 
 ## 2026-11-18 (Values taken out of the handles of a scope)
 
-- `[effect.escape]`, `[fiber.escape]`: A value taken out of a Fiber, Deferred, Semaphore or Queue (`Fiber.join`, `Deferred.await`, `Queue.take`, `Semaphore.with_permit`, ...) does not hold the root of the scope that made the handle, unless its type contains one of these types. Without this, the defaults of capture sets (`[effect.escape]`) report W0402 in correct programs, including `Fiber.all`, `race`, `both`, `map` and `timeout` of the standard library. Adopted in the proposal `scope-handle-values` (#645).
+- `[effect.escape]`, `[fiber.escape]`, `[open.next]`: A value taken out of a Fiber, Deferred, Semaphore or Queue (`Fiber.join`, `Deferred.await`, `Queue.take`, `Semaphore.with_permit`, ...) does not hold the root of the scope that made the handle, unless its type contains one of these types. Without this, the defaults of capture sets (`[effect.escape]`) report W0402 in correct programs, including `Fiber.all`, `race`, `both`, `map` and `timeout` of the standard library. Adopted in the proposal `scope-handle-values` (#645).
 
 ## 2026-11-18 (Self(...) in the init of a handler)
 

@@ -51,6 +51,7 @@ fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
 
 - Inside declarations, an omitted clause is empty so that no set variable is created that does not appear in the type's name. That `Handler` can have effects is visible in its type parameters, as `Handler[E, R]`.
 - Whether a type parameter is an ordinary type, an error set, or an effect set is inferred from the position where it is used (`fails E`, `uses { R }`). There is no syntax for writing kinds. A type parameter passed to a set type parameter position of a named type (E in `type Server[E](inner: Handler[E, Db])`, E and R in `fn serve[E, R](h: Handler[E, R])`) and a type parameter in a set type parameter position of a built-in effect written in a uses clause (`uses { Scope[E, R] }`) are also sets.
+- The `uses` of a function type can contain capabilities as well as effects (`fn() -> Rows uses { primary }`). They are inferred and shown by the language server, and are not written in source.
 - A set can be passed to a set type parameter of a named type. The notation matches the fails clause (`A | B`) and the uses clause (`{ A, B }`): `Handler[NotFound | Timeout, { Db, Log }]`, `Handler[{}, {}]`, `Handler[E | Timeout, { R, Log }]`.
 - A single element can be written without enclosing it (`Handler[NotFound, Db]`). Syntactically, it is read as a type. An empty `{}` can also be written in an error set position (the same as `fails {}`).
 - Which type parameters accept sets is not decided by the grammar but checked by type checking. A set of the wrong kind or an element that is not a set is a compile error (E0323), and a set in a type parameter position that is not for sets (`List[{}]`) is a compile error (E0324).
@@ -99,11 +100,12 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. When there is an arm `_`, the E is Eei alone. 7.3) | Re ∪ Rei |
 | `use X` | The capability of X | {} | { X } |
 | `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H)) ∪ requires(H) ∪ (R of the arguments of init) |
-| `\|x\| e` | `fn(..) -> T fails Ee uses { Re }` | {} | {} |
+| `\|x\| e` | `fn(..) -> T fails Ee uses { Re }`, where Re keeps the captured capabilities as elements | {} | {} |
 | `fn f(x: A) -> T { e }` (local fn, a statement) | Binds f to `fn(A) -> T fails Ee uses { Re }` | {} | {} |
 | `if c { a } else { b }` | The common type of a and b | Ec ∪ Ea ∪ Eb | Rc ∪ Ra ∪ Rb |
 | `e match { pi -> ei }` | The common type of the arms | Ee ∪ Eei | Re ∪ Rei |
 
+- A call `f(a)` adds to R the elements of the R of f, with each capability element that is a parameter replaced by the elements of the corresponding argument.
 - An anonymous function and a local fn enclose the E and R of their bodies in their function types. They surface when the function is called. A reference to a local fn inside its own body has the type being inferred, and is not generalized.
 - Never can form a common type with any type. Even if one branch of an if or a match is a fail, the type of the whole is the type of the other branch.
 - When there is no expected type and the types of the branches do not match, the type of the first branch is reported as the expected type and the type of a later branch as the actual type (E0301), and checking continues with the type of the first branch as the type of the whole.

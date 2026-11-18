@@ -233,7 +233,9 @@ error[E0204]: duplicate module `Http.Client`
 | E0441 | An exported fn that may suspend on the native target (16.7.6) | ``exported function `f` may suspend, which target `native` does not support`` |
 | E0442 | `@entry(Http.serve)` on the native target (`[target.native.unsupported]`) | ``HTTP services are not supported on target `native` yet`` |
 | E0443 | The build target is `native`, and an external function reachable from the entry, or an exported fn, takes or returns a type that target `native` does not support at the boundary yet: one that contains Bytes or an Array (12.4) | ``external function `read_file` takes `Bytes`, which target `native` does not support yet`` / ``external function `rows` returns `Array[String]`, which target `native` does not support yet`` |
+| E0444 | With the experimental feature `capture-checking`, a value that holds a root leaves the with or the `Fiber.scope` that provides it (8.6, 11.8) | ``a value that holds `log` cannot leave the `with` that provides it`` |
 | W0401 | A label item in with (`L`, `L by P`) is never used (8.9) | ``label `Audit` is listed here but never used`` |
+| W0402 | A value that holds a root leaves the with or the `Fiber.scope` that provides it (8.6, 11.8). The labels show where the root is provided and where the value leaves | ``a value that holds `log` leaves the `with` that provides it`` |
 | E0901 | A path is not found | ``path `app` not found`` |
 | E0902 | A file or directory cannot be read | ``cannot read `src/a.emel`: permission denied`` |
 | E0903 | Output cannot be written | ``cannot write `target/emela/js/main.mjs` `` |
