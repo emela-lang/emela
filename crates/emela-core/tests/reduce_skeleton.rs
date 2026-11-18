@@ -1,9 +1,10 @@
-//! Tests for the A0/PR-002 skeleton: the new rules are off by default and empty when on.
+//! Tests for the A0/PR-002 skeleton: the new rules are off by default and the ones that are
+//! still empty change nothing when on.
 //!
 //! The later rule pull requests turn one flag on at a time. These tests fix the property that
 //! makes that safe for parallel integration: a default run is the pipeline from before the
-//! reduction kernel, and a run with every new rule on has the same output while the rules are
-//! empty.
+//! reduction kernel, and a run with the rules that are still empty on has the same output. A
+//! rule that has landed has its own tests; the comparison here narrows to leave it off.
 
 mod support;
 
@@ -80,9 +81,11 @@ fn the_default_matches_an_explicitly_empty_pipeline() {
     assert_eq!(dump(&default), dump(&none));
 }
 
-/// With the new rules empty, turning every one on changes neither `Stats` nor the IR.
+/// With every rule that is still empty turned on, and the ones that have landed but do not fire
+/// on this program (constant folding), neither `Stats` nor the IR changes. ζ (A2/PR-011) has
+/// landed and does fire here, so it is off in this comparison.
 #[test]
-fn every_rule_on_still_matches_the_base_pipeline() {
+fn the_empty_rules_still_match_the_base_pipeline() {
     let (mut base, ids) = prepared();
     let (mut all, all_ids) = prepared();
 
@@ -91,7 +94,10 @@ fn every_rule_on_still_matches_the_base_pipeline() {
         &mut all,
         &all_ids,
         Options {
-            rules: Rules::all(),
+            rules: Rules {
+                zeta: false,
+                ..Rules::all()
+            },
             ..Options::default()
         },
     );
@@ -110,28 +116,28 @@ fn every_rule_on_still_matches_the_base_pipeline() {
     assert_eq!(dump(&base), dump(&all));
 }
 
-/// Turning one rule on and leaving the rest off is the per-rule shape the later tests use. While
-/// the rule is empty, it contributes no counter and no deopt.
+/// Turning one empty rule on and leaving the rest off is the per-rule shape the later tests use.
+/// While the rule is empty, it contributes no counter and no deopt.
 #[test]
 fn one_empty_rule_on_is_invisible() {
     let (mut base, ids) = prepared();
-    let (mut zeta, zeta_ids) = prepared();
+    let (mut beta, beta_ids) = prepared();
 
     let base_stats = opt::run_with(&mut base, &ids, Options::default());
-    let zeta_stats = opt::run_with(
-        &mut zeta,
-        &zeta_ids,
+    let beta_stats = opt::run_with(
+        &mut beta,
+        &beta_ids,
         Options {
             rules: Rules {
-                zeta: true,
+                beta: true,
                 ..Rules::none()
             },
             ..Options::default()
         },
     );
 
-    assert_eq!(zeta_stats.zeta, 0);
-    assert_eq!(zeta_stats.deopt, 0);
-    assert_eq!(zeta_stats, base_stats);
-    assert_eq!(dump(&base), dump(&zeta));
+    assert_eq!(beta_stats.beta, 0);
+    assert_eq!(beta_stats.deopt, 0);
+    assert_eq!(beta_stats, base_stats);
+    assert_eq!(dump(&base), dump(&beta));
 }
