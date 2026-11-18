@@ -14,24 +14,24 @@ related: []
 
 ## Summary
 
-1つの handler が複数の effect を実装できるようにする（`handler H: ReadFile + WriteFile`）．実装した effect はすべて同じ `self` を共有する．capability の型を `use ReadFile + WriteFile` と書けるようにし，effect の集合が含まれる capability は，少ない effect の型として渡せる．layer とは別の概念として残す．
+One handler can implement several effects (`handler H: ReadFile + WriteFile`). All the effects it implements share the same `self`. The type of a capability can be written `use ReadFile + WriteFile`, and a capability of a set of effects can be passed as the type of fewer of them. This stays a separate concept from layers.
 
 ## Motivation
 
-1つの資源に複数の面があり，面どうしが状態を共有しなければならない場面がある．
+A resource can have several faces that have to share state.
 
-- ロックを取ったファイル，一時ファイル: 読む面と書く面が同じファイルハンドルを使う
-- Db のトランザクション: 読むだけの関数を `use Query`，書く関数を `use Execute` と分けて書きたいが，トランザクションの中では両方が同じ接続，同じトランザクションを使わなければならない
+- A locked file, a temporary file: the face that reads and the face that writes use the same file handle.
+- A transaction of a Db: a function that only reads should be written `use Query` and one that writes `use Execute`, but inside a transaction both have to use the same connection and the same transaction.
 
-handler は effect をちょうど1つ実装する（`[effect.handler]`）ので，今は全部の操作を持つ effect（`Tx`）の handler を作り，面ごとに `Tx` へ転送するだけの handler（`Tx` を requirement に持つ）を書いて，同じ with に並べる．
+A handler implements exactly one effect (`[effect.handler]`). Now, one writes a handler of an effect with every operation (`Tx`), and for each face a handler that only forwards to `Tx` (with `Tx` as a requirement), and lists them in the same with.
 
 ```emel
 with PostgresTxAll(url: "..."), TxQuery, TxExecute { ... }
 ```
 
-面の数だけ転送の handler が要る．
+Each face needs a forwarding handler.
 
-handler member（`handler-member`）と組み合わせると，原点の例（読むだけ，書くだけ，ロック，一時ファイル）がそのまま書ける．
+Together with handler members (`handler-member`), the original example (read only, write only, locked, temporary) is written as it is.
 
 ```emel
 pub effect TemporaryFile {
@@ -60,11 +60,11 @@ fn save(path: String, text: String) -> ()
 }
 
 with src = Files.Open("in.txt"), tmp = Files.Temporary() {
-  copy(src, tmp) # tmp は `use WriteFile` として渡せる
+  copy(src, tmp) # tmp is passed as `use WriteFile`
 }
 ```
 
-| 欲しかった型 | capability の型 |
+| The type wanted | The type of the capability |
 |---|---|
 | ReadableFile | `use ReadFile` |
 | WritableFile | `use WriteFile` |
@@ -84,23 +84,26 @@ handler SystemTx(conn: Connection): Query + Execute {
 }
 ```
 
-- handler の頭のコロンの右に，effect を `+` でつないで書ける
-- capability の型に `use E1 + E2` と書ける
+- After the colon of a handler, effects can be joined with `+`.
+- The type of a capability can be written `use E1 + E2`.
 
 ### Meaning
 
-- handler は列挙した effect の操作をすべて，それぞれちょうど1回実装する．同じ名前の操作を持つ effect を2つ列挙するのはコンパイルエラー（どちらの実装か決まらないため）
-- 実装したすべての effect の操作は，同じ `self` を共有する
-- with に書くと，列挙した effect をすべて供給する．init と release は1回ずつ走る
-- 内部で1つの effect の実装が別の effect の操作を使うとき，with を通らず自分の実装に届くわけではない．操作の本体の `use E` は今と同じく requirement になり，自分の effect への requirement は外側で満たされる（`[effect.with]`）．状態の共有は `self` を通して行う
-- layer とは別の概念として残す．layer は別々の handler を with で結線し，member の requirement を with の時点で解決する（`with AppLive, FixedClock` で Clock を差し替えると，PostgresUsers も FixedClock を使う）．複数の effect を実装する handler は1つの `self` を共有し，差し替えの単位は handler 全体になる
+- A handler implements each operation of every effect it lists, exactly once. Listing two effects that have an operation of the same name is a compile error, since it would not be decided which implementation is which. A syntax that qualifies an operation by its effect can be added later without breaking code.
+- The operations of all the effects it implements share the same `self`.
+- Written in a with, it provides all the effects it lists. Its init and its release run once each.
+- When the implementation of one effect uses an operation of another effect it implements, the call does not reach its own implementation without going through a with. A `use E` in the body of an operation is a requirement, as now, and a requirement on its own effect is provided outside (`[effect.with]`). State is shared through `self`.
+- It stays a separate concept from layers. A layer wires separate handlers in a with, and resolves the requirements of its members at the with (`with AppLive, FixedClock` replaces Clock, and PostgresUsers uses FixedClock too). A handler of several effects shares one `self`, and is replaced as a whole.
+- In `L by H`, H serves L through the effect it lists that is the underlying effect of L. H lists each effect at most once and a label has one underlying effect, so there is at most one such effect.
+- Passing the same capability as two faces (`copy(tmp, tmp)`) is not stopped by types. It is the lint of `handler-member` (the same capability variable passed to two parameters of one call).
+- A property that a type has to guarantee (the contents do not change, the access is exclusive) is expressed by a separate effect, not included in another. A capability can be narrowed but not widened, so a separate effect cannot be reached from a capability that does not have it.
 
 ### Typing rules
 
-- provides(H) は列挙したすべての effect
-- `use E1 + ... + En` の capability は，`use F1 + ... + Fm` の引数に渡せる．ただし {F1, ..., Fm} ⊆ {E1, ..., En}．渡した先で呼べるのは F の操作だけ
-- capability の型を広げる手段（型の検査，match，Dynamic への変換）は設けない．狭めた capability から元の effect の操作を呼ぶことはできない
-- `use E1 + E2` は capability-type の `use E` の拡張で，同じく型を書けるところならどこにでも書ける．操作を呼ぶとその effect が R に入る
+- provides(H) is all the effects it lists.
+- A capability of `use E1 + ... + En` can be passed to a parameter of `use F1 + ... + Fm` when {F1, ..., Fm} ⊆ {E1, ..., En}. Only the operations of the F can be called on it there.
+- There is no way to widen the type of a capability (checking its type, match, conversion to Dynamic). The operations of the original effects cannot be called on a narrowed capability.
+- `use E1 + E2` extends `use E` of `capability-type`, and can likewise be written wherever a type can. Calling an operation adds that effect to R.
 
 ## Specification changes
 
@@ -125,6 +128,7 @@ Replace "A handler is a declaration, and it implements each operation of one eff
 ### `[effect.use]`
 
 > - The type of a capability of several effects is written `use E1 + ... + En`. A capability can be passed to a parameter of type `use F1 + ... + Fm` when every Fi is one of the Ej. Only the operations of the Fi can be called through the parameter. There is no way to recover the other effects from it.
+> - A property that a type has to guarantee, such as contents that do not change or exclusive access, is expressed by a separate effect that no handler implements together with an effect that breaks the property.
 
 ### `[type.rules]`
 
@@ -155,20 +159,21 @@ type       = ...
 
 ## Compatibility
 
-追加だけ．
+The change only adds.
 
 ## Implementation
 
-- emela-syntax: `+` で続く effect の列
-- emela-types: provides(H) の集合化，操作名の重複の検査，capability の型の包含
-- emela-core: 1つの handler の値から複数の effect の操作表を作る
+- emela-syntax: a list of effects joined by `+`
+- emela-types: provides(H) as a set, the check of repeated operation names, inclusion between the types of capabilities
+- emela-core: the tables of operations of several effects from one handler value
 
 ## Alternatives
 
-- 面ごとに転送する handler を書く（今の仕様で書ける形）: 面の数だけ handler とラベルが要る
-- 委譲の糖衣（残りの操作を外側へ転送する構文）: 転送の手間は減るが，面どうしの状態の共有は解決しない
-- layer を，複数の effect を実装する handler で置き換える: 結線の時期が逆になり，テストで一部の effect だけを差し替えても，handler の内部では元の実装が使われる
-- capability の型の包含を入れない: LockedFile や TemporaryFile を `use ReadFile` の引数に渡せず，面ごとに関数を書き分けることになる
+- A forwarding handler per face (what the current specification allows): a handler and a label per face.
+- Sugar for delegation (a syntax that forwards the remaining operations outward): less forwarding to write, but the faces still cannot share state.
+- Replacing layers with handlers of several effects: the wiring happens at the opposite time, and when a test replaces some of the effects, the inside of the handler still uses the original implementation.
+- No inclusion between the types of capabilities: a LockedFile or a TemporaryFile could not be passed to a parameter of `use ReadFile`, and a function would be written for each face.
+- Qualifying operations by effect in their implementations, so that two effects with an operation of the same name can be listed: not needed for the motivating cases, and can be added later.
 
 ## Prior art
 
@@ -176,10 +181,5 @@ type       = ...
 - Handlers for several effects at once: Koka and Effekt let one handler handle several operations of different effects.
 
 ## Open questions
-
-- 同じ操作名を持つ2つの effect を列挙できないのは厳しすぎないか（操作を effect の名前で修飾して実装する構文を用意するか）
-- ラベルの `L by H` で，H がラベルの元の effect を2つ以上の経路で持つ場合（ありえるか）
-- 同じ capability を別の面として2回渡す別名（`copy(tmp, tmp)`）は型では止めず，同じ変数を2つの引数に渡したときだけ lint で警告する．lint の draft（`linter`）に入れるか，こちらに書くか
-- 性質（中身が変わらない，排他）を保証したい型は，包含関係のない別の effect として宣言する，という指針を仕様のどこに書くか
 
 ## Decision
