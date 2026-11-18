@@ -14,22 +14,22 @@ related: []
 
 ## Summary
 
-handler が host にしかない effect を host effect と呼び，`Async` をその 1 つと位置づける．host effect に `ProcessHost`（host が process である）と `PageHost`（host が browser の page である）を足す．host 関数が process でしか動かない external function は `uses { ProcessHost }` を宣言し，その要求は `Async` と同じ推論で handler と layer を通って R に残る．どの host effect を用意するかは entry が決めるので，process 専用の handler を page で使うといつもの E0402 になる．`Platform` はどの host にもある handler だけを束ねる layer にし，process 専用の handler まで束ねる layer `Process` を `Std.Process` に足す．あわせて，operation のない effect を宣言できるのを compiler だけにし，external function の `uses` に書けるものを `{}` と host effect に限る．
+An effect whose handler exists only in the host is called a host effect, and `Async` is one of them. Two host effects are added: `ProcessHost` (the host is a process) and `PageHost` (the host is a page of a browser). An external function whose host function runs only in a process declares `uses { ProcessHost }`, and the requirement stays in R through handlers and layers, inferred as `Async` is. The entry decides which host effects are provided, so a handler for processes used in a page is the usual E0402. `Platform` becomes a layer of only the handlers that every host has, and `Std.Process` gains a layer `Process` that also includes the handlers for processes. Also, only the compiler can declare an effect without operations, and the `uses` of an external function can only be `{}` or host effects.
 
-説明用の喩え（spec には書かない）：entry は program をどの台木（rootstock）に接ぐかを決める．台木によって育つ環境が決まり，木の側からは取り替えられない．
+An image for explanation only (not for the specification): the entry decides which rootstock the program is grafted onto. The rootstock decides the environment it grows in, and the tree cannot replace it.
 
 ## Motivation
 
-### process 専用の handler が，process でない host で実行時に壊れる
+### A handler for processes breaks at run time on a host that is not a process
 
-- `Platform` は `SystemFileSystem` や `SystemArgs` を含む．Node，Bun，wasmtime ではどれも動くが，browser で動く program（`@entry(Browser.app)`，後に続く proposal で提案する）では動かない
-- 今は実行時になって初めて分かる（`node:fs` の解決に失敗するか，defect になる）
+- `Platform` includes `SystemFileSystem` and `SystemArgs`. They work on Node, Bun and wasmtime, but not in a program that runs in a browser (`@entry(Browser.app)`, proposed in a following proposal).
+- Now this is found only at run time (resolving `node:fs` fails, or a defect).
 
 ```emel
-# browser で動く program が，気づかずに process 専用の handler に届く例
+# a program in a browser that reaches a handler for processes without noticing
 @entry(Browser.app)
 pub fn app() -> Program[Model, Msg] {
-  # 今は compile が通り，実行時に失敗する（Platform は SystemFileSystem を含む）
+  # compiles now, and fails at run time (Platform includes SystemFileSystem)
   with Platform {
     saved = (use FileSystem).read_text("model.json")
     Browser.program(init: decode_model(saved), update:, view:)
@@ -37,14 +37,14 @@ pub fn app() -> Program[Model, Msg] {
 }
 ```
 
-- target ごとの Platform（`NodePlatform`，`WasmPlatform`）に分けると，同じ program が target によって違う結果を返しうる．これは `[target]` の「the same program MUST give the same observable results on every target」に反する．`[lib.layers]` も「A platform handler does not expose target names」と決めている
-- 区別したいのは target ではなく，host が何を提供するか．これは実装の差ではなく使える機能の差なので，型に出してよい
+- Splitting Platform per target (`NodePlatform`, `WasmPlatform`) lets the same program give different results per target, against `[target]`: "the same program MUST give the same observable results on every target". `[lib.layers]` also decided that "A platform handler does not expose target names".
+- What should be told apart is not the target but what the host provides. That is a difference in available features, not in implementation, so it may appear in types.
 
-### operation のない effect の扱いが決まっていない
+### Effects without operations are not settled
 
-- `Async` は operation を持たず，runtime だけが用意する（`[effect.async]`）．しかし spec はこれを `Async` 個別の規則として書いていて，一般の概念になっていない
-- grammar は書き手が `effect Marker {}` と宣言することを許すが，意味は書かれていない
-- external function の `uses` について，`[ext.call]` の表には `uses {}` と省略の 2 つしかない．しかし今の実装は `uses { Marker }`（書き手の effect）を受け付け，その external function を handler の外から呼べてしまう（2026-11-16，`emela run` で確認）．`uses` を省くと E0407 になるのに，何か 1 つ書くだけでこの制限が外れる
+- `Async` has no operations, and only the runtime provides it (`[effect.async]`). The specification writes this as a rule for `Async` alone, not as a general concept.
+- The grammar lets a user declare `effect Marker {}`, but its meaning is not written.
+- For the `uses` of an external function, the table of `[ext.call]` has only `uses {}` and leaving it out. The current implementation accepts `uses { Marker }` (an effect of the user), and the external function can then be called outside a handler (checked with `emela run` on 2026-11-16). Leaving `uses` out is E0407, but writing any one effect lifts that restriction.
 
 ```emel
 effect Marker {}
@@ -55,7 +55,7 @@ handler GiveMarker: Marker {}
 fn write_host(text: String) -> () uses { Marker }
 
 fn main() {
-  # 通り，host の副作用が handler を通らずに起きる
+  # compiles, and a side effect of the host happens without going through a handler
   with GiveMarker { write_host("called outside a handler") }
 }
 ```
@@ -64,35 +64,35 @@ fn main() {
 
 ### Syntax
 
-構文は変えない．`ProcessHost` と `PageHost` を名前として core に足す．
+No change. `ProcessHost` and `PageHost` are added to core as names.
 
 ### Meaning
 
-- host effect は，handler が host にしかない effect．`Async`，`ProcessHost`，`PageHost` の 3 つ
-  - `Async`：host は後で resume できる（event loop を持つ）
-  - `ProcessHost`：host は process である．引数，標準入出力，環境変数，ファイルシステムを持つ
-  - `PageHost`：host は browser の page である
-- 書き手は host effect の handler を書けず（E0413），`use` もできない（E0414）．uses clause には書ける
-- host effect が R に入るのは，host 関数がそれを必要とするときだけ
-  - `@external suspend fn` を呼ぶと `Async` が入る（今と同じ）
-  - `uses { ProcessHost }` を宣言した external function を呼ぶと `ProcessHost` が入る
-  - handler の operation の本体でそれらを呼ぶと，requires(H)（`[effect.handler]`）に入る．そのため `with SystemFileSystem { ... }` や `with Process { ... }` の R に `ProcessHost` が残る
-- host effect を用意するのは entry だけ．with では取り除けない
+- A host effect is an effect whose handler exists only in the host. There are three: `Async`, `ProcessHost` and `PageHost`.
+  - `Async`: the host can resume later (it has an event loop).
+  - `ProcessHost`: the host is a process. It has arguments, standard input and output, environment variables and a file system.
+  - `PageHost`: the host is a page of a browser.
+- A user cannot write a handler of a host effect (E0413), nor `use` it (E0414). It can be written in a uses clause.
+- A host effect enters R only when a host function needs it.
+  - Calling an `@external suspend fn` adds `Async` (as now).
+  - Calling an external function that declares `uses { ProcessHost }` adds `ProcessHost`.
+  - Calling them in the body of an operation of a handler puts them in requires(H) (`[effect.handler]`). So `ProcessHost` remains in the R of `with SystemFileSystem { ... }` and `with Process { ... }`.
+- Only the entry provides host effects. A with cannot remove them.
 
-| entry | host が用意する host effect |
+| Entry | Host effects the host provides |
 |---|---|
-| `main` | `Async`，`ProcessHost` |
-| `@test` | `Async`，`ProcessHost` |
-| `@export` fn（entry adapter でないもの） | `Async` |
-| entry adapter | `Async` と，adapter が宣言した host effect（多くても 1 つ） |
-| `Http.serve`（entry adapter） | `Async`，`ProcessHost` |
+| `main` | `Async`, `ProcessHost` |
+| `@test` | `Async`, `ProcessHost` |
+| `@export` fn (not an entry adapter) | `Async` |
+| An entry adapter | `Async`, and the host effect the adapter declares (at most one) |
+| `Http.serve` (an entry adapter) | `Async`, `ProcessHost` |
 
-- `@export` fn には `ProcessHost` も `PageHost` も用意しない．host から直接呼ばれる fn はどの host でも動くことが型で分かる
-- `Http.serve` は `ProcessHost` を用意する．HTTP service は process として動く前提で，page で動くことはない．HTTP service の中では `with Process` も書ける
-- 書き手は operation のない effect を宣言できない．operation のない effect は handler が何もできず，空の handler（`handler H: Marker {}`）を書けば誰でも「用意」できてしまう．型に出ているのに何も保証しないので，健全ではない．operation のない effect は host effect だけになる
-- external function の `uses` に書けるのは `{}` か host effect だけ．`uses { ProcessHost }` の external function は，`uses` を省いたものと同じく handler の中でしか呼べない．`Async` は `suspend fn` で表すので，`uses` には書かない
+- An `@export` fn gets neither `ProcessHost` nor `PageHost`. The types show that a fn called directly by the host runs on any host.
+- `Http.serve` provides `ProcessHost`. An HTTP service runs as a process, never in a page, and `with Process` can be written inside it.
+- A user cannot declare an effect without operations. A handler of such an effect can do nothing, and anyone can "provide" it with an empty handler (`handler H: Marker {}`). It appears in types and guarantees nothing, which is unsound. The only effects without operations are host effects.
+- The `uses` of an external function can only be `{}` or host effects. An external function with `uses { ProcessHost }` can be called only inside a handler, as one with `uses` left out. `Async` is expressed by `suspend fn`, and is not written in `uses`.
 
-### std の形
+### The form of std
 
 ```emel
 @external(js, "./file_system.mjs", "readText")
@@ -103,9 +103,9 @@ pub handler SystemFileSystem: FileSystem {
 }
 ```
 
-- `ProcessHost` を必要とするのは `SystemArgs`，`SystemStdin`，`SystemStdout`，`SystemStderr`，`SystemEnv`，`SystemFileSystem` の external function．`SystemConsole`，`SystemClock`，`SystemRandom`，`SystemHttp` は必要としない
-- `Platform` はどの host にもある handler（`SystemConsole`，`SystemClock`，`SystemRandom`，`SystemHttp`）だけを束ねる．host effect は `Async` しか要求しないので，`main`，`@test`，`@export`，page のどこでも書ける
-- `Std.Process` に layer `Process` を足す．`Platform` と，process 専用の handler（`SystemArgs`，`SystemStdin`，`SystemStdout`，`SystemStderr`，`SystemEnv`，`SystemFileSystem`）を束ね，`ProcessHost` を要求する
+- The external functions of `SystemArgs`, `SystemStdin`, `SystemStdout`, `SystemStderr`, `SystemEnv` and `SystemFileSystem` need `ProcessHost`. `SystemConsole`, `SystemClock`, `SystemRandom` and `SystemHttp` do not.
+- `Platform` includes only the handlers that every host has (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemHttp`). Its only host effect is `Async`, so it can be written in `main`, `@test`, `@export` and a page.
+- `Std.Process` gains a layer `Process`. It includes `Platform` and the handlers for processes (`SystemArgs`, `SystemStdin`, `SystemStdout`, `SystemStderr`, `SystemEnv`, `SystemFileSystem`), and requires `ProcessHost`.
 
 ```emel
 import Std.Process.{Process}
@@ -118,9 +118,9 @@ fn main() {
 }
 ```
 
-- 引数やファイルを使わない program は `with Platform` のままでいい．使う program は `with Process` に書き換える
+- A program that uses no arguments and no files keeps `with Platform`. A program that uses them is rewritten to `with Process`.
 
-### 書き手から見た型
+### The types users see
 
 ```emel
 fn save(path: String, text: String) -> () uses { FileSystem } {
@@ -128,12 +128,12 @@ fn save(path: String, text: String) -> () uses { FileSystem } {
 }
 ```
 
-`save` の型に `ProcessHost` は付かない．host effect が R に残るのは handler を選ぶ場所（`with`）だけなので，`FileSystem` を使う library は page でもテストでも，handler を差し替えれば使える．
+The type of `save` has no `ProcessHost`. A host effect stays in R only where a handler is chosen (`with`), so a library that uses `FileSystem` can be used in a page or in tests by replacing the handler.
 
 ### Typing rules
 
-- host effect は Immediate（`[type.effect-bound]`）．ただし `Async` は除く（今と同じ）
-- uses clause を書いた fn は，その集合をそのまま R にする（`[type.inference]`）．`fn f() uses { ProcessHost }` と書けば，その fn は process の中でしか呼べない
+- Host effects are Immediate (`[type.effect-bound]`), except `Async` (as now).
+- A fn with a uses clause has that set as its R (`[type.inference]`). A fn written `fn f() uses { ProcessHost }` can be called only in a process.
 
 ## Specification changes
 
@@ -271,41 +271,41 @@ Add:
 
 ## Diagnostics
 
-- [ ] E0413，E0414 の文言を host effect の一般形にする
-- [ ] E0402 に host effect 用の note を足す
-- [ ] external function の uses に host effect 以外を書いたときの code（番号未定）
-- [ ] operation のない effect を宣言したときの code（番号未定）
+- [ ] The texts of E0413 and E0414 in the general form for host effects
+- [ ] A note for host effects on E0402
+- [ ] An effect other than a host effect in the uses of an external function: code to be assigned
+- [ ] An effect without operations declared: code to be assigned
 
 ## Compatibility
 
-- `main` と `@test` の中の `with Platform { ... }` は，`Console`，`Clock`，`Random`，`Http` だけを使う program なら今まで通り通る
-- `Platform` 経由で `Args`，`Stdin`，`Stdout`，`Stderr`，`Env`，`FileSystem` を使っている program は E0402 になり，`with Process` への書き換えが要る．repo の中で `with Platform` を書いているファイルは 21 本（2026-11-17）．E0402 の help で `with Process` を示す
-- `@export` fn の中で `with Platform` や process 専用の handler を使っている program は compile が通らなくなる
-- external function に `uses { 書き手の effect }` を書いている program は compile が通らなくなる．今は spec の表にない書き方
-- `@entry(Http.serve)` の fn の中の `with Platform` は今まで通り通る．process 専用の handler を使うなら `with Process` に書き換える
-- operation のない effect を宣言している program は compile が通らなくなる．repo の中には見つからなかった（2026-11-16）
+- `with Platform { ... }` in `main` and `@test` still compiles for a program that uses only `Console`, `Clock`, `Random` and `Http`.
+- A program that uses `Args`, `Stdin`, `Stdout`, `Stderr`, `Env` or `FileSystem` through `Platform` becomes E0402, and is rewritten to `with Process`. 21 files in the repository write `with Platform` (2026-11-17). The help of E0402 shows `with Process`.
+- A program that uses `with Platform` or a handler for processes inside an `@export` fn no longer compiles.
+- A program that writes `uses { an effect of the user }` on an external function no longer compiles. That form is not in the table of the specification now.
+- `with Platform` inside the fn of `@entry(Http.serve)` still compiles. To use a handler for processes, it is rewritten to `with Process`.
+- A program that declares an effect without operations no longer compiles. None was found in the repository (2026-11-16).
 
 ## Implementation
 
-- `emela-types`：host effect の扱い（`Async` 個別の判定を一般化する），entry ごとに用意する host effect，external function の uses の検査
-- `emela-core`：process 専用の external function に `uses { ProcessHost }` を足す．`Platform` を組み直し，`Std.Process` に `Process` を足す．`with Platform` で process 専用の handler を使っている example と test を `with Process` に書き換える
-- `emela-lsp`：E0402 の note
+- `emela-types`: host effects (generalizing the checks for `Async` alone), the host effects each entry provides, the check of the uses of external functions
+- `emela-core`: `uses { ProcessHost }` on the external functions for processes; `Platform` rebuilt and `Process` added to `Std.Process`; the examples and tests that use handlers for processes through `with Platform` rewritten to `with Process`
+- `emela-lsp`: the note of E0402
 
 ## Alternatives
 
-- target ごとの Platform（`NodePlatform`，`BunPlatform`，`WasmPlatform`）：同じ program が target によって違う結果を返しうる．`[target]` に反する
-- browser を別 target にして E0412 で止める：target が増え，出力と runtime がほぼ同じものを 2 つ持つことになる．E0412 は `emela check` と LSP では走らない（`[ext.decl]`）ので，エディタでも気づけない
-- Pome 単位で動く host を宣言する：粗すぎる．`main` の 1 か所の `with Platform` で package 全体が process 専用になる
-- 関数型に `needs { }` のような別の clause を足す：closure の型も推論も二重になる．R はすでに「呼ぶ側が用意するもの」の集合で，host が提供するものもその一つ
-- `ProcessHost` の `use` を許し，handler の init で `use ProcessHost` と書く：今の言語でも書き手の effect で同じことができる．しかし operation のない effect を `use` するのは effect の使い方として不自然で，`Async` の E0414 とも食い違う．どの host 関数が process を必要とするかは external function の性質なので，そこに書く
-- process 用の layer の名前に `ProcessPlatform`，`System`，`Os` を使う：`ProcessPlatform` は長く，`Platform` の亜種に見える．`System` は handler の接頭辞と紛らわしい．`Os` は何を束ねているかが伝わらない
-- `Platform` を全部入りのまま残し，どの host にもある handler の layer を別に足す：既存の program は壊れないが，`Platform` が process 専用になり，`@export` や page で使えない名前になる
-- 名前に runtime effect，marker effect，context を使う：runtime は runtime library と紛らわしい．marker は形しか表さない．context は `Context[T]`（下書き `context-and-given`）と glossary の「non-suspending context」で使われている
+- A Platform per target (`NodePlatform`, `BunPlatform`, `WasmPlatform`): the same program could give different results per target, against `[target]`.
+- Browsers as a separate target, stopped by E0412: one more target, with two nearly identical outputs and runtimes. E0412 does not run in `emela check` and the language server (`[ext.decl]`), so editors would not show it.
+- The host a Pome runs on, declared per Pome: too coarse. One `with Platform` in `main` would make the whole package process-only.
+- Another clause on function types, such as `needs { }`: closure types and inference would be doubled. R is already the set of what the caller provides, and what the host provides is one of them.
+- Allowing `use ProcessHost` and writing it in the init of a handler: the same can be done now with an effect of the user. But `use` of an effect without operations is an unnatural use of effects, and disagrees with E0414 for `Async`. Which host function needs a process is a property of the external function, so it is written there.
+- `ProcessPlatform`, `System` or `Os` as the name of the layer for processes: `ProcessPlatform` is long and looks like a variant of `Platform`; `System` is confusable with the prefix of handlers; `Os` does not tell what it includes.
+- Keeping `Platform` with everything and adding another layer of the handlers every host has: existing programs do not break, but `Platform` becomes process-only, a name that cannot be used in `@export` or a page.
+- Runtime effect, marker effect or context as the name: runtime is confusable with the runtime library; marker describes only the form; context is used by `Context[T]` (the draft `context-and-given`) and by "non-suspending context" in the glossary.
 
 ## Prior art
 
-- 環境が提供する能力を，effect の集合の中で組み込みの effect として表す設計（Koka の `div` や `ndet` など，書き手が handler を持たない組み込み effect）
-- 計算が文脈に要求するものを型で追う coeffect
+- Abilities that the environment provides, expressed as built-in effects in the effect row: built-in effects without user handlers in Koka (`div`, `ndet` and others).
+- Coeffects, which track in types what a computation requires of its context.
 
 ## Open questions
 
