@@ -113,6 +113,20 @@ pub struct Function {
     /// and no argument. The evidence table, if taken, is an ordinary last parameter (`ref`, Core
     /// type `Evidence`).
     pub params: Vec<VarId>,
+    /// Which parameters are borrowed rather than owned, parallel to `params`. An empty vector (or
+    /// a missing entry) means that no parameter is borrowed: the owned calling convention every
+    /// function had before borrow inference. A `true` says that the caller keeps its reference for
+    /// the call: the callee only reads that parameter and never drops it, so the caller need not
+    /// `dup` the argument.
+    ///
+    /// This is a calling-convention fact, not a use: it is written by
+    /// [`crate::heap::insert_borrow_signature`] from the borrow facts (B6) after the state machines
+    /// are made, and read by reference counting and its balance check. A function that is exported,
+    /// whose value is taken (an indirect caller passes owned arguments), or that the runtime calls
+    /// itself (an error `show` function of [`Module::error_shows`]) keeps the owned convention, and
+    /// the environment parameter of a lifted function stays outside this vector (it is borrowed
+    /// according to [`Self::env`]).
+    pub borrowed: Vec<bool>,
     /// The Core type of the return value. The function returns nothing if its representation is
     /// [`Repr::Void`].
     pub ret: TypeId,
@@ -149,6 +163,7 @@ impl Function {
             name: name.to_owned(),
             exported: false,
             params: Vec::new(),
+            borrowed: Vec::new(),
             ret: TypeId::UNIT,
             fails: false,
             suspends: false,

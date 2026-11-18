@@ -72,7 +72,7 @@ struct Check<'a> {
     m: &'a Module,
     f: &'a Function,
     /// What keeps a value alive when the variable owns no reference
-    /// ([`Bases::borrows_from_env`](super::rc::Bases::borrows_from_env)).
+    /// ([`Bases::borrows_from_a_borrowed`](super::rc::Bases::borrows_from_a_borrowed)).
     bases: Bases,
     /// Counted variables in scope, in definition order.
     scope: Vec<VarId>,
@@ -108,7 +108,10 @@ impl Check<'_> {
     }
 
     fn borrow(&mut self, tokens: &Tokens, v: VarId) {
-        if tokens[ix(v)] < 1 && !self.bases.borrows_from_env(v) && !self.kept_by_a_base(tokens, v) {
+        if tokens[ix(v)] < 1
+            && !self.bases.borrows_from_a_borrowed(v)
+            && !self.kept_by_a_base(tokens, v)
+        {
             let name = self.name(v);
             self.error(format!(
                 "{name} is used without a reference (after its last one)"

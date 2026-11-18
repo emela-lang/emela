@@ -329,6 +329,7 @@ impl<'a> Copier<'a> {
 pub(crate) fn empty_like(f: &Function) -> Function {
     let mut out = Function::new(&f.name);
     out.exported = f.exported;
+    out.borrowed = f.borrowed.clone();
     out.ret = f.ret;
     out.fails = f.fails;
     out.suspends = f.suspends;

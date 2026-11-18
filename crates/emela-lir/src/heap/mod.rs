@@ -5,13 +5,16 @@
 //! 2. [`explicit_defects`]: defects and the cleanups of `protect` become explicit control.
 //! 3. [`state_machines`]: suspending functions become resumable state machines, with their
 //!    suspension points and the frames they save explicit.
-//! 4. [`insert_rc`]: `dup` and `drop` (Perceus), last, on the final control flow (the suspension
+//! 4. [`insert_borrow_signature`]: which parameters are borrowed, from the borrow facts (not in the
+//!    default pipeline yet; C2b wires it behind a flag).
+//! 5. [`insert_rc`]: `dup` and `drop` (Perceus), last, on the final control flow (the suspension
 //!    edges included).
 //!
 //! Each pass rebuilds the functions it changes (`copy::compact`), numbering the reachable
-//! variables, statements, sequences and labels in the order met, so the dump's numbers differ
-//! from those before the pass.
+//! variables, statements, sequences and labels in the order met, so the dump's numbers differ from
+//! those before the pass.
 
+mod borrow;
 mod closures;
 mod copy;
 mod defects;
@@ -20,6 +23,7 @@ pub(crate) mod rc;
 pub(crate) mod rc_check;
 pub(crate) mod suspend;
 
+pub use borrow::insert_borrow_signature;
 pub use closures::convert_closures;
 pub(crate) use copy::compact;
 pub(crate) use defects::may_defect;

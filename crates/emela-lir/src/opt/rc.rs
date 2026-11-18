@@ -6,9 +6,10 @@
 //! a variable that reads its value out of something else (a view: `env_get`, `field`,
 //! `tuple_get`, …) gets a reference of its own right after the statement that defines it, so that
 //! the base may be released before the view's last use, and gives that reference back at the last
-//! use. When the base is the borrowed environment parameter of a lifted function, the value lives
-//! in the closure record, which the caller keeps alive for the whole call, so the reference buys
-//! nothing: the pairs are pure work in the hot path of every function that reads a capture.
+//! use. When the base is a borrowed parameter (the environment of a lifted function, or a
+//! parameter borrow inference marks borrowed), the value lives in the caller, which keeps it alive
+//! for the whole call, so the reference buys nothing: the pairs are pure work in the hot path of
+//! every function that reads a capture.
 //!
 //! The pass removes a `dup v` together with the `drop v` that gives the reference back, when
 //!
@@ -22,8 +23,8 @@
 //!   inside the arms;
 //! - the value cannot die in between: either the variable owns a reference itself (a parameter, a
 //!   `let` of a value that is not a view, a loop variable, a compound statement's result), which
-//!   the region neither consumes nor drops, or the value lives in the closure record
-//!   ([`Bases::borrows_from_env`]).
+//!   the region neither consumes nor drops, or the value lives in a borrowed parameter
+//!   ([`Bases::borrows_from_a_borrowed`]).
 //!
 //! A view of anything else is left alone by default: the reference the `dup` takes may be the only
 //! thing keeping its base alive.
@@ -203,7 +204,7 @@ fn plan(m: &Module, f: &Function, ctx: Ctx<'_>) -> Plan {
             };
             // A view of the closure record, or a variable that keeps its value alive by itself,
             // needs no further proof. A view of anything else needs the local-base proof below.
-            let guard = if bases.view_base(v).is_some() && !bases.borrows_from_env(v) {
+            let guard = if bases.view_base(v).is_some() && !bases.borrows_from_a_borrowed(v) {
                 if !ctx.borrow {
                     continue;
                 }
@@ -245,16 +246,16 @@ fn plan(m: &Module, f: &Function, ctx: Ctx<'_>) -> Plan {
 /// across the region of the `dup` at `i`.
 ///
 /// The chain is `v`'s base, its base, and so on. The root is the first variable that is not a
-/// view; the environment is not one (a pair that borrows from it is the pass's original case). A
-/// view of a root that is not counted, or a `dup` that does not immediately follow the view's
-/// definition, is a shape the proof does not cover.
+/// view; a borrowed parameter is not one (a pair that borrows from it is the pass's original
+/// case). A view of a root that is not counted, or a `dup` that does not immediately follow the
+/// view's definition, is a shape the proof does not cover.
 fn local_base(f: &Function, bases: &Bases, seq: SeqId, i: usize, v: VarId, ctx: Ctx<'_>) -> Base {
     let mut root = v;
     let mut found = false;
     for _ in 0..=f.vars.len() {
         match bases.view_base(root) {
             Some(base) => {
-                if bases.borrows_from_env(root) {
+                if bases.borrows_from_a_borrowed(root) {
                     return Base::Unsafe;
                 }
                 root = base;
@@ -928,9 +929,12 @@ mod tests {
         f.suspends = true;
         f.env = Some(vec![list]);
         let bases = Bases::new(&f);
-        assert!(!bases.borrows_from_env(env), "the environment is not owned");
         assert!(
-            !bases.borrows_from_env(d),
+            !bases.borrows_from_a_borrowed(env),
+            "the environment is not owned"
+        );
+        assert!(
+            !bases.borrows_from_a_borrowed(d),
             "a view of an owned environment is not borrowed"
         );
         assert_eq!(plan(&fx.m, &f, Ctx::default()).count, 0);
