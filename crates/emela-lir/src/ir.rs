@@ -8,7 +8,9 @@
 
 use emela_core::{Builtin, CtorRef, EffectId, EnumId, External, FiberOp, TypeId};
 use la_arena::{Arena, Idx};
+use rustc_hash::FxHashMap;
 
+use crate::opt::drop_spec::DropKind;
 use crate::repr::Repr;
 
 pub type FnId = Idx<Function>;
@@ -144,6 +146,13 @@ pub struct Function {
     /// the closure record itself (`ref`, with the closure's function type as its Core type),
     /// borrowed for the call. [`Value::EnvGet`] reads the captures from it.
     pub env: Option<Vec<TypeId>>,
+    /// Heap IR: how the [`Stmt::Drop`] statements release their value, written by
+    /// [`drop_spec`](crate::opt::drop_spec) (C3/PR-027). A missing entry means
+    /// [`DropKind::Generic`], so a module the pass did not run on (the default) is unchanged.
+    ///
+    /// The keys are the statements of this function. A copy that renumbers its statements does
+    /// not keep the map: `heap::copy::compact` clears it, and the pass runs last.
+    pub drop_kinds: FxHashMap<StmtId, DropKind>,
     /// Heap IR, from [`Stage::DefectsExplicit`]: whether a call may come back with a pending
     /// defect, so that calls to it need a defect landing. External functions may (a host
     /// exception is a defect, spec 12.5).
@@ -170,6 +179,7 @@ impl Function {
             constant: false,
             external: None,
             env: None,
+            drop_kinds: FxHashMap::default(),
             defects: false,
             body: None,
             vars: Arena::new(),
