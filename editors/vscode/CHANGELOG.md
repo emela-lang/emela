@@ -2,6 +2,12 @@
 
 The version of the extension follows the version of the `emela` binary it was released with.
 
+## 0.28.0
+
+Released with `emela` 0.28.0. The extension itself has no changes: the features of 0.28.0 come
+from `emela lsp`, and the syntax highlighting covers the new syntax (`use E` as a type, local
+`fn`, `derive`) with its current rules.
+
 ## 0.27.0
 
 - The extension has an icon on the Visual Studio Marketplace and in the Extensions view.
