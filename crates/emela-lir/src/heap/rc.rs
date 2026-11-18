@@ -21,21 +21,24 @@
 //!   [`crate::opt`]'s `rc_cleanup` removes the reference the pass gives it anyway, and
 //!   [`super::rc_check`] accepts a borrow of such a view without one ([`Bases::borrows_from_env`]).
 //! - Consumed (ownership moves): the arguments of calls of functions, closure records and
-//!   operations (their parameters are owned), the fields of `make`, the elements of `tuple` and
-//!   `list`, the captures of `make_closure`, the table and handlers of `ev_extend`, the operations
-//!   of `handler`, the argument of `runtime defect_resume`, the initial values of loops, the
-//!   values of `yield`, `break`, `return`, `fail` and `recur`, and the variables a suspension edge
-//!   saves (moved into the frame). A call consumes its arguments however it comes back (value,
-//!   failure, defect or suspended).
-//! - Borrowed (the owner keeps it): the callee of `call_indirect` and the handler of `call_op`,
-//!   the arguments of external functions, builtins, `runtime` operations and concurrency
-//!   operations (the runtime dups what it keeps), primitive operations, the base of views, and
-//!   what `tag`, `list_is_empty`, `is_error` and `switch` look at. Builtins borrow so that the
-//!   runtime written in C need not care about ownership, with one exception: `Array.set` consumes
-//!   its array (the first argument). When the variable passed is not live after the call, the
-//!   pass moves its reference into the call, so the runtime sees a count of 1 and updates the
-//!   array in place (`[api.std.array]`); otherwise a `dup` before the call leaves the count above
-//!   1 and the runtime copies. The other arguments of `set` are borrowed.
+//!   operations (their parameters are owned; the environment argument of a lifted function is the
+//!   exception, below), the fields of `make`, the elements of `tuple` and `list`, the captures of
+//!   `make_closure`, the table and handlers of `ev_extend`, the operations of `handler`, the
+//!   argument of `runtime defect_resume`, the initial values of loops, the values of `yield`,
+//!   `break`, `return`, `fail` and `recur`, and the variables a suspension edge saves (moved into
+//!   the frame). A call consumes its arguments however it comes back (value, failure, defect or
+//!   suspended).
+//! - Borrowed (the owner keeps it): the callee of `call_indirect` and the environment argument of
+//!   a direct call of a lifted function (the closure record the call dispatches through, or would
+//!   dispatch through), the handler of `call_op`, the arguments of external functions, builtins,
+//!   `runtime` operations and concurrency operations (the runtime dups what it keeps), primitive
+//!   operations, the base of views, and what `tag`, `list_is_empty`, `is_error` and `switch` look
+//!   at. Builtins borrow so that the runtime written in C need not care about ownership, with one
+//!   exception: `Array.set` consumes its array (the first argument). When the variable passed is
+//!   not live after the call, the pass moves its reference into the call, so the runtime sees a
+//!   count of 1 and updates the array in place (`[api.std.array]`); otherwise a `dup` before the
+//!   call leaves the count above 1 and the runtime copies. The other arguments of `set` are
+//!   borrowed.
 //!
 //! Where the pass puts `dup` and `drop`, from liveness (a backward analysis over the structured
 //! control, with a fixpoint at loops):
@@ -228,15 +231,27 @@ pub(crate) fn value_uses(m: &Module, f: &Function, v: &Value, use_: &mut dyn FnM
             each(args, Mode::Borrow, use_)
         }
         Value::Call { callee, args, .. } => {
-            let mode = match callee {
-                Callee::Direct(g) if m.functions[*g].external.is_some() => Mode::Borrow,
-                Callee::Direct(_) => Mode::Consume,
+            match callee {
+                Callee::Direct(g) if m.functions[*g].external.is_some() => {
+                    each(args, Mode::Borrow, use_);
+                }
+                Callee::Direct(g) if m.functions[*g].env.is_some() => {
+                    // A direct call of a lifted function passes its closure record as the
+                    // environment, the first argument. The caller keeps that record alive for the
+                    // call and releases it itself, exactly as it does for the record of an indirect
+                    // call (whose callee it is), so it is borrowed; the other arguments are
+                    // consumed. Closure devirtualisation (`crate::opt::devirt`) makes such calls.
+                    if let Some((env, rest)) = args.split_first() {
+                        each(std::slice::from_ref(env), Mode::Borrow, use_);
+                        each(rest, Mode::Consume, use_);
+                    }
+                }
+                Callee::Direct(_) => each(args, Mode::Consume, use_),
                 Callee::Indirect(c) | Callee::Op { handler: c, .. } => {
                     one(*c, Mode::Borrow, use_);
-                    Mode::Consume
+                    each(args, Mode::Consume, use_);
                 }
-            };
-            each(args, mode, use_);
+            }
         }
         Value::Make { args, .. } | Value::Tuple(args) => each(args, Mode::Consume, use_),
         Value::List { elems, tail } => {
