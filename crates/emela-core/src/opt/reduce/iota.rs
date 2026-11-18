@@ -33,6 +33,18 @@
 //! than the source ever writes, so the pass stops at [`MAX_PATTERN_DEPTH`] and deopts instead of
 //! overflowing the stack.
 //!
+//! # Finalizer-bearing fields
+//!
+//! A value whose type owns a finalizer runs that finalizer when its last reference is dropped.
+//! Reducing the `match` does not allocate the constructor or tuple, and binds each field into a
+//! local of the selected arm instead, so the last drop of such a field moves. Plan §3.1 keeps drop
+//! points, so a constructor or tuple with a *top-level* field of type `Handler`, `Evidence`,
+//! `Cell`, `FiberScope` or `Any` is a deopt and stays at run time. Only the top-level field types
+//! are inspected: an aggregate that contains a finalizer-bearing value is not checked
+//! recursively, because whether it may be taken apart is the LIR escape analysis's decision
+//! (`[dyn.memory]`), not this rule's. ζ reduction uses the same top-level set and reading
+//! (`has_finalizer` in `reduce/zeta.rs`).
+//!
 //! # Allocation on deopt
 //!
 //! A pattern is only planned (which allocates the fresh local of a `Pat::Wild` field) after
@@ -53,7 +65,8 @@
 //!                literal), the selected arm matches it, and that arm has no guard. Its pattern
 //!                is made of `Pat::Wild`, `Pat::Bind`, `Pat::Lit` and constructors and tuples of
 //!                them, is at most `MAX_PATTERN_DEPTH` deep, and the patterns the rule has to
-//!                decide contain no Float literal.
+//!                decide contain no Float literal. No top-level field of the scrutinee has a type
+//!                that owns a finalizer or an untracked representation (`has_finalizer`).
 //! Postconditions: the value is the selected arm's body. Each argument of the scrutinee is
 //!                 evaluated once, left to right, into the local its field pattern binds, or into
 //!                 a fresh local when the pattern ignores the field. A field the pattern compares
@@ -70,7 +83,8 @@
 //!        `Array.get`, …; the Option fusion owns `match Array.get`) is not a candidate and is not
 //!        counted. A candidate the rule cannot decide is a deopt: an arm that may match without
 //!        being known to, a selected arm with a guard, a Float literal pattern, a pattern deeper
-//!        than `MAX_PATTERN_DEPTH`, and a `match` no arm selects.
+//!        than `MAX_PATTERN_DEPTH`, a scrutinee with a finalizer-bearing top-level field, and a
+//!        `match` no arm selects.
 //! Budget: the selected arm's body is copied once; the pattern depth is at most
 //!         `MAX_PATTERN_DEPTH`, so the recursion is bounded. The rewrite never grows the program.
 //! Measures: [`crate::opt::Stats::iota`]; the `Option` and record destructuring that inlining
@@ -81,8 +95,9 @@
 //!
 //! Implemented by A5/PR-014. The pass runs after inlining ([`crate::opt::run_with`]), which is what
 //! puts the constructors a callee built where the caller matches them. Float literal patterns are
-//! deopted rather than compared (see above), and a pattern deeper than [`MAX_PATTERN_DEPTH`] is
-//! left to run time.
+//! deopted rather than compared (see above), a pattern deeper than [`MAX_PATTERN_DEPTH`] is left to
+//! run time, and a scrutinee with a finalizer-bearing top-level field keeps its drop point at the
+//! `match`.
 
 use crate::ir::{Arm, CtorRef, Expr, Lit, Local, Module, Pat, Type, TypeId};
 use crate::opt::{RuleStats, each_body, reduce::subst};
@@ -141,6 +156,11 @@ fn reduce(m: &mut Module, e: &Expr) -> Reduction {
         return Reduction::Deopt;
     };
     let arm = &arms[selected];
+    // A field whose type owns a finalizer must keep its last drop where the aggregate's was.
+    // Reducing the match removes the constructor or tuple, so such a match stays at run time.
+    if fields_have_finalizer(m, scrutinee) {
+        return Reduction::Deopt;
+    }
     // A catch-all that ignores its value needs no local when evaluating the value has no effect.
     if matches!(arm.pat, Pat::Wild) && subst::is_trivial(scrutinee) {
         return Reduction::Reduced(arm.body.clone());
@@ -344,6 +364,46 @@ fn field_types(m: &mut Module, ctor: CtorRef, ty_args: &[TypeId]) -> Vec<TypeId>
         .collect()
 }
 
+/// Whether a top-level field of the scrutinee has a type that owns a finalizer.
+///
+/// Reducing the match does not allocate the constructor or tuple, and binds each field into a
+/// local of the arm, so the last drop of such a field would move. Plan §3.1 keeps drop points:
+/// the match is a deopt and stays at run time. A constructor's fields come from
+/// [`field_types`], with its type arguments substituted; a tuple's from its type. Only the
+/// top-level field types are read; an aggregate that contains a finalizer-bearing value is not
+/// inspected recursively (see the module docs).
+fn fields_have_finalizer(m: &mut Module, scrutinee: &Expr) -> bool {
+    match scrutinee {
+        Expr::Ctor { ctor, ty_args, .. } => field_types(m, *ctor, ty_args)
+            .into_iter()
+            .any(|ty| has_finalizer(m, ty)),
+        Expr::Tuple(_) => {
+            let ty = scrutinee_type(m, scrutinee);
+            let Type::Tuple(tys) = m.ty(ty).clone() else {
+                // A tuple expression has a tuple type in well-typed IR. Be conservative if it
+                // does not: an unreadable field type is not proven finalizer-free.
+                return true;
+            };
+            tys.into_iter().any(|ty| has_finalizer(m, ty))
+        }
+        _ => false,
+    }
+}
+
+/// Whether a value of `ty` owns a finalizer, or an untracked representation, which the rule must
+/// not move.
+///
+/// `Handler` owns the handler value, `Evidence` the table it points at, `Cell` its contents,
+/// `FiberScope` the scope it opens, and `Any` is not tracked by a type at all. Dropping one of
+/// them runs that finalizer, so the last drop of such a value stays where it is (plan §3.1). This
+/// is the same top-level set and reading as ζ reduction's `has_finalizer` (`reduce/zeta.rs`).
+fn has_finalizer(m: &Module, ty: TypeId) -> bool {
+    matches!(
+        m.ty(ty),
+        Type::Handler(_) | Type::Evidence | Type::Cell(_) | Type::FiberScope | Type::Any
+    )
+}
+
 /// The type of the scrutinee, for a fresh local of a catch-all `Pat::Wild` and for the field
 /// types of a tuple pattern.
 fn scrutinee_type(m: &mut Module, scrutinee: &Expr) -> TypeId {
@@ -363,4 +423,93 @@ fn value_type(m: &mut Module, e: &Expr) -> TypeId {
         m.types = types;
     }
     ty
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A module with one function `held(param) -> ty` whose body is
+    /// `match Some[ty](param) { Some(x) -> x }`.
+    ///
+    /// The body reduces when the field type is plain and deopts when it carries a finalizer.
+    fn option_match(m: &mut Module, ty: TypeId) {
+        let some = m.some_ctor();
+        let param = m.local("param", ty);
+        let bound = m.local("x", ty);
+        let f = m.declare("held", false);
+        m.define(
+            f,
+            vec![param],
+            ty,
+            Expr::Match {
+                scrutinee: Box::new(Expr::Ctor {
+                    ctor: some,
+                    ty_args: vec![ty],
+                    args: vec![Expr::Var(param)],
+                }),
+                arms: vec![Arm {
+                    pat: Pat::Ctor {
+                        ctor: some,
+                        fields: vec![Pat::Bind(bound)],
+                    },
+                    guard: None,
+                    body: Expr::Var(bound),
+                }],
+            },
+        );
+    }
+
+    /// A constructor whose top-level field type owns a finalizer is a deopt: reducing it would move
+    /// the field's last drop (plan §3.1).
+    #[test]
+    fn a_finalizer_bearing_field_is_a_deopt() {
+        let mut m = Module::new();
+        let cell = m.cell(TypeId::INT);
+        option_match(&mut m, cell);
+        let stats = iota(&mut m);
+        assert_eq!(stats.applied, 0, "{stats:?}");
+        assert_eq!(stats.deopt, 1, "{stats:?}");
+        crate::verify::verify(&m).unwrap();
+    }
+
+    /// The same shape with a plain field type still reduces, so the check reads the field's type
+    /// and not the constructor alone.
+    #[test]
+    fn a_plain_field_reduces() {
+        let mut m = Module::new();
+        option_match(&mut m, TypeId::INT);
+        let stats = iota(&mut m);
+        assert_eq!(stats.applied, 1, "{stats:?}");
+        assert_eq!(stats.deopt, 0, "{stats:?}");
+        crate::verify::verify(&m).unwrap();
+    }
+
+    /// A tuple is checked like a constructor: a top-level field of a finalizer-bearing type keeps
+    /// the `match`, even when the pattern ignores that field into a fresh local.
+    #[test]
+    fn a_finalizer_bearing_tuple_field_is_a_deopt() {
+        let mut m = Module::new();
+        let cell = m.cell(TypeId::INT);
+        let c = m.local("c", cell);
+        let y = m.local("y", TypeId::INT);
+        let f = m.declare("held", false);
+        m.define(
+            f,
+            vec![c],
+            TypeId::INT,
+            Expr::Match {
+                scrutinee: Box::new(Expr::Tuple(vec![Expr::Var(c), Expr::Lit(Lit::Int(1))])),
+                arms: vec![Arm {
+                    pat: Pat::Tuple(vec![Pat::Wild, Pat::Bind(y)]),
+                    guard: None,
+                    body: Expr::Var(y),
+                }],
+            },
+        );
+        let stats = iota(&mut m);
+        assert_eq!(stats.applied, 0, "{stats:?}");
+        assert_eq!(stats.deopt, 1, "{stats:?}");
+        crate::verify::verify(&m).unwrap();
+    }
 }
