@@ -592,6 +592,8 @@ name = "emela-playground"
 version = "0.28.0"
 dependencies = [
  "emela-driver",
+ "emela-lsp",
+ "lsp-server",
  "serde",
  "serde_json",
  "wasm-bindgen",

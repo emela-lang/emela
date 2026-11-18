@@ -1,6 +1,6 @@
 [package]
 name = "emela-playground"
-description = "The compiler for the browser: check, format and compile one file to JS"
+description = "The compiler for the browser: check, format and compile one file to JS, and the language server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,6 +10,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 emela-driver.workspace = true
+emela-lsp.workspace = true
+lsp-server.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 wasm-bindgen.workspace = true

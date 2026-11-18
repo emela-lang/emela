@@ -31,7 +31,9 @@ mkdir -p "$out"
 wasm-bindgen --target web --no-typescript --out-dir "$out" --out-name emela_playground "$wasm"
 
 if command -v wasm-opt >/dev/null 2>&1; then
-  wasm-opt -Oz --all-features "$out/emela_playground_bg.wasm" -o "$out/emela_playground_bg.wasm"
+  # The features are read from the module. `--all-features` lets a newer binaryen (133) use
+  # proposals that Node 22 and browsers reject ("unknown import kind").
+  wasm-opt -Oz "$out/emela_playground_bg.wasm" -o "$out/emela_playground_bg.wasm"
 else
   echo "note: wasm-opt not found; the module is not shrunk" >&2
 fi
