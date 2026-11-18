@@ -74,6 +74,11 @@ pub enum DiagnosticKind {
     Ambiguous { name: SmolStr },
     /// `self` or `Self` where it cannot be used (E0219).
     SelfOutside { self_type: bool },
+    /// `Self` as an expression outside a handler (E0219, `[grammar.expr]`). Inside a handler it
+    /// names the handler's constructor, and outside its init that is E0418.
+    SelfValueOutside,
+    /// `Self` as the target of a record update `Self(f: e, ..r)` (E0222, `[grammar.expr]`).
+    SelfUpdate,
     /// An effect name in a type position (E0221). The type of a capability value cannot be
     /// written in source (spec 8.2).
     EffectAsType { name: SmolStr },
@@ -267,6 +272,10 @@ impl fmt::Display for DiagnosticKind {
             DiagnosticKind::SelfOutside { self_type: true } => {
                 f.write_str("`Self` can only be used in traits and impls")
             }
+            DiagnosticKind::SelfValueOutside => {
+                f.write_str("`Self` can only be used as a value in the `init` of a handler")
+            }
+            DiagnosticKind::SelfUpdate => f.write_str("cannot update `Self` with `..`"),
             DiagnosticKind::EffectAsType { name } => {
                 write!(f, "effect `{name}` cannot be used as a type")
             }

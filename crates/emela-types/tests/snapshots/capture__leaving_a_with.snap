@@ -1,0 +1,20 @@
+---
+source: crates/emela-types/tests/capture.rs
+expression: "render(&with_prelude(r#\"\nfn make_greeter() -> fn() -> () {\n  with FileLogger {\n    log = use Logger\n    || log.info(\"hi\")\n  }\n}\n\nfn nested() {\n  with PrimaryDb {\n    p = use Db\n    with ReplicaDb {\n      r = use Db\n      f = || r.query(\"...\")\n      [f]\n    }\n  }\n}\n\nfn used_up(names: List[String]) {\n  with ConsoleLogger {\n    log = use Logger\n    names.map(|n| log.info(n))\n  }\n}\n\nfn outer_is_fine() {\n  with PrimaryDb {\n    p = use Db\n    with ReplicaDb { || p.query(\"...\") }\n  }\n}\n\nfn unbound() -> fn() -> () {\n  with ConsoleLogger { || (use Logger).info(\"hi\") }\n}\n\"#))"
+---
+make_greeter: fn() -> fn() -> () uses { Logger }
+  log: use Logger  holds: log (with FileLogger)
+nested: fn() -> List[fn() -> Int uses { Db }]
+  p: use Db  holds: p (with PrimaryDb)
+  r: use Db  holds: r (with ReplicaDb)
+  f: fn() -> Int uses { r }  holds: r (with ReplicaDb)
+used_up: fn(List[String]) -> List[()]
+  names: List[String]
+  log: use Logger  holds: log (with ConsoleLogger)
+  n: String
+outer_is_fine: fn() -> fn() -> Int uses { Db }
+  p: use Db  holds: p (with PrimaryDb)
+unbound: fn() -> fn() -> () uses { Logger }
+`|| log.info("hi")` leaves: `log` (with)
+`[f]` leaves: `r` (with)
+`with ReplicaDb { || p.query("...") }` leaves: `p` (with)

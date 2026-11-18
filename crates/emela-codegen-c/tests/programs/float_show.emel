@@ -1,0 +1,25 @@
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+fn pow2(e: Int, acc: Float) -> Float {
+  if e == 0 { acc } else if e > 0 { pow2(e - 1, acc * 2.0) } else { pow2(e + 1, acc / 2.0) }
+}
+
+fn show(e: Int) -> String {
+  Float.to_string(pow2(e, 1.0))
+}
+
+fn main() {
+  # At a power of two the rounding interval is asymmetric, so the shortest digits are the
+  # nearest candidate or the one just above it, never the one below.
+  print(show(-1017))
+  print(show(-957))
+  print(show(-921))
+  print(show(-24))
+  print(show(89))
+  print(Float.to_string(-pow2(-1017, 1.0)))
+  # The smallest normal exponent and an unaffected power keep their digits.
+  print(show(-1022))
+  print(show(-1016))
+}

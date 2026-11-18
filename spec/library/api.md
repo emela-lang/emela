@@ -322,8 +322,8 @@ impl (`[trait.builtin]`): `impl Set[A: Eq]: Eq`, `impl Set[A: Show]: Show` (`Set
 | `Dynamic` | `enum Dynamic { Null, Bool(Bool), Number(Number), Text(String), Items(List[Dynamic]), Fields(Map[String, Dynamic]), Binary(Bytes) }` | A value in no particular format |
 | `Segment` | `enum Segment { Key(String), Index(Int) }` | A step of a path into a Dynamic |
 | `DecodeError` | `error DecodeError(expected: String, actual: Dynamic, path: List[Segment])` | Show writes the kind of `actual`, not its contents |
-| `Encode` | `trait Encode { fn to_dynamic(self) -> Dynamic }` | Derivable |
-| `Decode` | `trait Decode { fn from_dynamic(d: Dynamic) -> Self fails DecodeError; fn from_dynamic_all(d: Dynamic) -> Self fails DecodeErrors }` | Derivable, except for opaque types. `from_dynamic` stops at the first failure. `from_dynamic_all` reports every failure; its default fails with the one failure of `from_dynamic` |
+| `Encode` | `trait Encode { fn to_dynamic(self) -> Dynamic; fn to_field(self) -> Option[Dynamic] }` | Derivable. `to_field` is the value written for a field of an object, and None leaves the key out; its default is `Some(to_dynamic(self))` |
+| `Decode` | `trait Decode { fn from_dynamic(d: Dynamic) -> Self fails DecodeError; fn from_dynamic_all(d: Dynamic) -> Self fails DecodeErrors; fn from_absent() -> Self fails DecodeError }` | Derivable, except for opaque types. `from_dynamic` stops at the first failure. `from_dynamic_all` reports every failure; its default fails with the one failure of `from_dynamic`. `from_absent` is the value of a field whose key is missing; its default is `from_dynamic(Null)` |
 | `DecodeErrors` | `error DecodeErrors(errors: List[DecodeError])` | Every failure of `from_dynamic_all`, in the order the parts were read. Never empty |
 | `Attempt` | `enum Attempt[A] { Decoded(A), Failed(List[DecodeError]) }` | The result of reading one part while collecting failures |
 | `attempt`, `errors_of` | `attempt[A](f: fn() -> A fails DecodeErrors) -> Attempt[A]`, `errors_of[A](a: Attempt[A]) -> List[DecodeError]` | Keep the failures of `f` instead of failing, and read them back (empty for Decoded) |
@@ -334,11 +334,20 @@ impl (`[trait.builtin]`): `impl Set[A: Eq]: Eq`, `impl Set[A: Show]: Show` (`Set
 | `index` | `index[A](n: Int, decoder) -> decoder` | Read the element `n` of Items. Fewer elements is a DecodeError |
 | `items` | `items(value: Dynamic, n: Int) -> List[Dynamic] fails DecodeError` | The elements of Items that has exactly `n` elements. Any other number is `DecodeError(expected: "n items", ...)` |
 | `field` | `field[A](value: Dynamic, name: String, decoder) -> A fails DecodeError` | Read the key `name` of Fields. A missing key is read as Null |
+| `lookup` | `lookup(value: Dynamic, name: String) -> Option[Dynamic] fails DecodeError` | The value of the key `name` of Fields, or None if the key is missing. A value that is not Fields is a DecodeError |
 | `tag` | `tag(value: Dynamic) -> String fails DecodeError` | The `"tag"` of an enum written by Encode |
 | `object`, `variant` | `object(fields: List[(String, Dynamic)]) -> Dynamic`, `variant(tag: String, value: Option[Dynamic]) -> Dynamic` | Build Fields, and the form of an enum |
 | `kind` | `kind(value: Dynamic) -> String` | `"null"`, `"bool"`, `"number"`, `"text"`, `"items"`, `"fields"` or `"binary"` |
 
-impl: Bool, Int, Int64, Float, String, Bytes, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. Bytes is encoded as Binary, and its Decode reads only Binary. `Array[A]` and `Set[A]` are encoded as Items in their order, and decoded from Items; the Decode of `Set[A]` drops repeated elements. The Decode of `List[A]`, `Array[A]`, `Set[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None.
+impl: Bool, Int, Int64, Float, String, Bytes, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. Bytes is encoded as Binary, and its Decode reads only Binary. `Array[A]` and `Set[A]` are encoded as Items in their order, and decoded from Items; the Decode of `Set[A]` drops repeated elements. The Decode of `List[A]`, `Array[A]`, `Set[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None. As a field of an object, None leaves the key out (`to_field`), and a missing key decodes as None (`from_absent`, by its default).
+
+### Std.Dynamic.Presence (`std/dynamic/presence.emel`) `[api.std.dynamic.presence]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Presence` | `enum Presence[A] { Absent, Null, Present(A) }` | A field that tells a missing key, null and a value apart |
+
+impl: Eq, Ord and Show are derived. Encode: `to_dynamic` writes Absent and Null as Null and `Present(a)` as `a`; `to_field` is None for Absent, `Some(Null)` for Null, and `Some(a)` written for `Present(a)`. Decode: `from_dynamic` reads Null as Null and any other value as `Present` of the Decode of `A`; `from_absent` is Absent; `from_dynamic_all` reads the value with `from_dynamic_all`. Shaped: `Shape.Option` of the shape of `A`.
 
 ### Std.Dynamic.Number (`std/dynamic/number.emel`) `[api.std.dynamic.number]`
 

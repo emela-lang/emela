@@ -13,8 +13,13 @@
 //! - The type of a single error (`RowElem::Of`): a type parameter also used as a value type, like
 //!   the type of `e` in `fail e` or the `E` of `or_fail`. It becomes a tag once the type is known.
 //!   Appears only in E.
+//!
+//! An effect set has one more kind of element: a capability ([`RowElem::Cap`], `[effect.use]`).
+//! It stands for the handler a captured capability value refers to, and is contained in a set
+//! that has its effect (widening, `[effect.use]`).
 
-use emela_resolve::hir::DefId;
+use emela_resolve::hir::{DefId, LocalId};
+use smol_str::SmolStr;
 
 use crate::ty::Ty;
 
@@ -66,6 +71,18 @@ impl Tag {
     }
 }
 
+/// A capability as an element of an effect set (`uses { primary }`, `[effect.use]`): the local
+/// variable holding a capability value, captured by a closure or a local fn whose body calls one
+/// of its operations.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CapElem {
+    pub local: LocalId,
+    /// The name of the variable, for display.
+    pub name: SmolStr,
+    /// The effect of the capability. The element can be widened to it.
+    pub tag: Tag,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RowElem {
     /// For E, an error definition; for R, an effect definition and its type arguments.
@@ -76,10 +93,24 @@ pub enum RowElem {
     /// The tag of the error type `ty`, once `ty` resolves to a named error type.
     Of(Ty),
     Var(RowVar),
+    /// A capability (effect sets only). Contained in a set that has the capability or its
+    /// effect.
+    Cap(CapElem),
+}
+
+impl RowElem {
+    /// The effect of a tag or of a capability: what the element is widened to.
+    pub fn effect_tag(&self) -> Option<&Tag> {
+        match self {
+            RowElem::Tag(t) => Some(t),
+            RowElem::Cap(c) => Some(&c.tag),
+            _ => None,
+        }
+    }
 }
 
 /// Elements are not duplicated. Order has no meaning, but for stable display the elements are
-/// sorted as tags, type parameters, types, then set variables (tags, type parameters and set
+/// sorted as tags, capabilities, type parameters, types, then set variables (tags, type parameters and set
 /// variables by number within their group).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Row {
@@ -155,6 +186,19 @@ impl Row {
         })
     }
 
+    /// The tags, and the effects of capability elements (each element widened to its effect).
+    pub fn effect_tags(&self) -> impl Iterator<Item = &Tag> + '_ {
+        self.elems.iter().filter_map(RowElem::effect_tag)
+    }
+
+    /// The set with each capability element replaced by its effect (`[effect.use]`).
+    pub fn widened(&self) -> Row {
+        Row::from_elems(self.elems.iter().map(|e| match e {
+            RowElem::Cap(c) => RowElem::Tag(c.tag.clone()),
+            e => e.clone(),
+        }))
+    }
+
     pub fn vars(&self) -> impl Iterator<Item = RowVar> + '_ {
         self.elems.iter().filter_map(|e| match e {
             RowElem::Var(v) => Some(*v),
@@ -167,7 +211,9 @@ impl Row {
         for e in &self.elems {
             match e {
                 RowElem::Of(ty) => f(ty),
-                RowElem::Tag(t) => t.args.iter().for_each(&mut f),
+                RowElem::Tag(t) | RowElem::Cap(CapElem { tag: t, .. }) => {
+                    t.args.iter().for_each(&mut f)
+                }
                 _ => {}
             }
         }
@@ -178,6 +224,10 @@ impl Row {
         Row::from_elems(self.elems.iter().map(|e| match e {
             RowElem::Of(ty) => RowElem::Of(f(ty)),
             RowElem::Tag(t) => RowElem::Tag(t.map_args(&mut f)),
+            RowElem::Cap(c) => RowElem::Cap(CapElem {
+                tag: c.tag.map_args(&mut f),
+                ..c.clone()
+            }),
             e => e.clone(),
         }))
     }
@@ -193,10 +243,11 @@ impl Row {
 }
 
 /// Sort key. Types inside `Of`, and tags of the same definition with different type arguments,
-/// keep insertion order.
+/// keep insertion order. Capabilities come after the tags, by variable.
 fn order(e: &RowElem) -> (u8, u32) {
     match e {
         RowElem::Tag(t) => (0, t.def.into_raw().into_u32()),
+        RowElem::Cap(c) => (0, u32::MAX / 2 + c.local.into_raw().into_u32()),
         RowElem::Bound(i) => (1, *i),
         RowElem::Of(_) => (2, 0),
         RowElem::Var(v) => (3, v.0),

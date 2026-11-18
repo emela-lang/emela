@@ -31,7 +31,7 @@ use smol_str::SmolStr;
 use super::{BodyInfer, ImmediateObligation};
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, SuspendingCall};
 use crate::lower::{IMMEDIATE, TyTable, is_immediate_effect};
-use crate::row::{Row, RowElem};
+use crate::row::{CapElem, Row, RowElem};
 use crate::signature::Signatures;
 use crate::ty::{Ty, TyParam};
 
@@ -81,8 +81,13 @@ impl BodyInfer<'_> {
             let mut sets: Vec<SmolStr> = Vec::new();
             for e in row.elems() {
                 match e {
-                    RowElem::Tag(effect) if !is_immediate_effect(program, effect.def) => {
-                        effects.push(program.defs[effect.def].name.clone());
+                    // A capability counts as its effect (`[effect.use]`).
+                    RowElem::Tag(effect) | RowElem::Cap(CapElem { tag: effect, .. })
+                        if !is_immediate_effect(program, effect.def) =>
+                    {
+                        if !effects.contains(&program.defs[effect.def].name) {
+                            effects.push(program.defs[effect.def].name.clone());
+                        }
                     }
                     RowElem::Bound(i) => match params.get(*i as usize) {
                         Some(p) if p.bounds.iter().any(|b| b == IMMEDIATE) => {}
@@ -142,7 +147,9 @@ impl BodyInfer<'_> {
                 .map(|r| self.ctx.resolve_row(&r));
             let immediate = row.is_some_and(|r| {
                 r.elems().iter().all(|e| match e {
-                    RowElem::Tag(effect) => is_immediate_effect(program, effect.def),
+                    RowElem::Tag(effect) | RowElem::Cap(CapElem { tag: effect, .. }) => {
+                        is_immediate_effect(program, effect.def)
+                    }
                     _ => true,
                 })
             });
@@ -218,16 +225,13 @@ impl BodyInfer<'_> {
             return None;
         };
         let row = self.ctx.resolve_row(&f.uses);
-        let effects: Vec<SmolStr> = row
-            .elems()
-            .iter()
-            .filter_map(|e| match e {
-                RowElem::Tag(effect) if !is_immediate_effect(program, effect.def) => {
-                    Some(program.defs[effect.def].name.clone())
-                }
-                _ => None,
-            })
-            .collect();
+        let mut effects: Vec<SmolStr> = Vec::new();
+        for effect in row.effect_tags() {
+            let name = &program.defs[effect.def].name;
+            if !is_immediate_effect(program, effect.def) && !effects.contains(name) {
+                effects.push(name.clone());
+            }
+        }
         if effects.is_empty() {
             return None;
         }

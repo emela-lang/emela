@@ -227,19 +227,22 @@ d = (use Scope).deferred() # Deferred[A], belongs to the scope
 
 The Scope capability, fiber handles (`Fiber[A]`), Deferreds, Semaphores and Queues cannot be leaked out of their scope.
 
-- Scope is a capability, so the capability rules (8.2, 8.6) apply as they are. Passing it as an argument, putting it in data, or returning it is a compile error (E0408 to E0410).
+- Scope is a capability, so the capability rules (8.2, 8.6) apply as they are. It cannot leave the scope that provides it.
 - If the type of the value of `Fiber.scope` contains `Fiber`, `Deferred`, `Semaphore` or `Queue` anywhere, it is a compile error (E0425). This includes `Option[Fiber[User]]`. The type of the value is examined all the way through after the sets are solved. One diagnostic is reported at the call to Fiber.scope (including a pipe, `f |> Fiber.scope()`). Outside the scope the children have already finished, so no correct program is rejected.
+- The Scope of a `Fiber.scope`, and the Fibers, Deferreds, Semaphores and Queues it makes, are roots of that scope (8.6). If the value of `Fiber.scope` holds one of them, it is a warning (W0402).
+- Experimental (`capture-checking`). It is a compile error (E0444) instead.
+- A value taken out of a handle (`join`, `await`, `poll`, `take`, `with_permit`, and the other functions of `Std.Fiber`, `Std.Deferred`, `Std.Queue` and `Std.Semaphore` that receive one) does not hold the root of the scope, unless its type contains Fiber, Deferred, Semaphore or Queue (8.6). A value put into a Deferred or a Queue is not tracked through it; the checks at run time catch a capability that leaves this way.
 - Leaks that the types do not stop (putting it in State, capturing it in a closure and returning it) are checked at run time. An operation of Scope on a finished scope; join, await or interrupt on a handle of a finished scope; complete, await or poll on a Deferred of a finished scope; and any function of `Std.Semaphore` or `Std.Queue` on a Semaphore or Queue of a finished scope are defects (`fiber scope was used after it ended`, `fiber was joined after its scope ended`, and so on).
 - A scope closes when its body returns a value or when a child fails. A fork after it closes is a defect.
 - The messages are `fiber scope was used after it ended`, `fiber was joined after its scope ended` (the same form for awaited and interrupted), and `deferred was completed after its scope ended` (the same form for awaited). poll is checked in the same way.
 - The message of the defect for poll on a Deferred of a finished scope is `deferred was polled after its scope ended`.
 - The messages for Semaphores and Queues are `semaphore was used after its scope ended` and `queue was used after its scope ended`. A fiber that is not a child of the scope and is still waiting on the Semaphore or Queue when the scope ends stops waiting with the same defect.
 
-When capture sets (8.6) arrive in 0.22, handles, Deferreds, Semaphores and Queues will be treated as "values that hold the capability of the scope that created them", and all of these will be stopped statically. A program that is a compile error in 0.20 is also a compile error in 0.22. The only programs that stop compiling when upgrading are those that were run-time defects in 0.20.
+Capture sets (8.6) track handles, Deferreds, Semaphores and Queues as values that hold the root of the scope that created them. Leaving the scope is a warning, and a compile error with the experimental feature `capture-checking`.
 
-| How it leaks | 0.20 | 0.22 |
+| How it leaks | 0.20 | With `capture-checking` |
 |---|---|---|
-| Passing a capability value (including Scope) as an argument, putting it in data, returning it | Static (E0408 to E0410) | Static |
+| Taking a capability value (including Scope), or a value that holds one, out of its with or scope | Run time (stateful handlers and Scope) | Static |
 | Taking a closure that captures a capability out of a with or a scope | Run time (stateful handlers and Scope) | Static |
 | Returning a value whose type contains `Fiber`, `Deferred`, `Semaphore` or `Queue` from Fiber.scope | Static (E0425) | Static |
 | Putting a `Fiber`, `Deferred`, `Semaphore` or `Queue` in State, or capturing it in a closure and taking it out | Run time | Static |

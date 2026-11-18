@@ -314,7 +314,8 @@ impl<'a> Names<'a> {
             }
             RowElem::Bound(_) => true,
             RowElem::Of(ty) => self.writable_ty(ty),
-            RowElem::Var(_) => false,
+            // A capability cannot be written in source (`[type.fn]`).
+            RowElem::Var(_) | RowElem::Cap(_) => false,
         })
     }
 }

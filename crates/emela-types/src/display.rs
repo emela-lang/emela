@@ -122,6 +122,7 @@ impl fmt::Display for RowDisplay<'_> {
                 },
                 RowElem::Of(ty) => write!(f, "{}", self.ty.child(ty))?,
                 RowElem::Var(v) => write!(f, "?e{}", v.index())?,
+                RowElem::Cap(c) => f.write_str(&c.name)?,
             }
         }
         if braces {

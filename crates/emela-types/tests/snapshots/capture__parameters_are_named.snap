@@ -1,0 +1,11 @@
+---
+source: crates/emela-types/tests/capture.rs
+expression: "render(r#\"\nfn outer() -> Int {\n  fn wrap(f: fn() -> Int) -> fn() -> Int {\n    g = f\n    g\n  }\n  h = |k: fn() -> Int| {\n    m = k\n    m\n  }\n  wrap(h(|| 1))()\n}\n\"#)"
+---
+outer: fn() -> Int
+  wrap: fn(fn() -> Int fails {} uses {}) -> fn() -> Int
+  f: fn() -> Int  holds: f
+  g: fn() -> Int  holds: f
+  k: fn() -> Int  holds: k
+  m: fn() -> Int  holds: k
+  h: fn(fn() -> Int fails {} uses {}) -> fn() -> Int

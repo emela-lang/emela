@@ -1,0 +1,27 @@
+import Std.Dynamic.{Dynamic, Items, Text, Null, Index, Segment, DecodeError}
+
+fn failure(value: Dynamic) -> (String, List[Segment]) {
+  decode = Dynamic.index(1, Dynamic.string)
+  {
+    decode(value)
+    ("", [])
+  } escape {
+    DecodeError(expected:, path:, ..) -> (expected, path)
+  }
+}
+
+@test
+fn reads_the_nth_item() {
+  decode = Dynamic.index(1, Dynamic.string)
+  assert decode(Items([Text("a"), Text("b")])) == "b"
+}
+
+@test
+fn reports_the_index_of_a_failure() {
+  assert failure(Items([Text("a"), Null])) == ("text", [Index(1)])
+}
+
+@test
+fn fails_out_of_range() {
+  assert failure(Items([Text("a")])) == ("at least 2 items", [])
+}

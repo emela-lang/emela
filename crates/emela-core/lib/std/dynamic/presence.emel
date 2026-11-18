@@ -1,0 +1,57 @@
+# A field that tells a missing key, null and a value apart (`[api.std.dynamic.presence]`), for the
+# bodies of partial updates. It is in its own module because `Std.Dynamic` has `Dynamic.Null`.
+
+import Std.Dynamic.{Decode, Encode, Dynamic, DecodeError}
+import Std.Shape.{Shape, Shaped}
+
+pub enum Presence[A] {
+  Absent
+  Null
+  Present(A)
+} derive Eq, Ord, Show
+
+## Absent and Null are written as null; as a field of an object, Absent leaves the key out.
+impl Presence[A: Encode]: Encode {
+  fn to_dynamic(self) {
+    self match {
+      Absent     -> Dynamic.Null
+      Null       -> Dynamic.Null
+      Present(a) -> a.to_dynamic()
+    }
+  }
+
+  fn to_field(self) {
+    self match {
+      Absent     -> None
+      Null       -> Some(Dynamic.Null)
+      Present(a) -> Some(a.to_dynamic())
+    }
+  }
+}
+
+impl Presence[A: Decode]: Decode {
+  fn from_dynamic(d) {
+    d match {
+      Dynamic.Null -> Null
+      _            -> Present(Decode.from_dynamic(d))
+    }
+  }
+
+  fn from_dynamic_all(d) {
+    d match {
+      Dynamic.Null -> Null
+      _            -> Present(Decode.from_dynamic_all(d))
+    }
+  }
+
+  fn from_absent() {
+    Absent
+  }
+}
+
+impl Presence[A: Shaped]: Shaped {
+  fn shape_in(proxy, visiting) {
+    inner: Option[A] = None
+    Shape.Option(Shaped.shape_in(inner, visiting))
+  }
+}

@@ -101,8 +101,13 @@ fn prints_stdout() {
         "import { Defect } from \"./runtime/defect.mjs\";\nconsole.log(\"こんにちは\");\nconsole.error(\"to stderr\");\n",
         &[],
     );
+    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
+    // leaves a capability on purpose, and gets W0402 for it.
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -259,8 +264,13 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
         |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
+    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
+    // leaves a capability on purpose, and gets W0402 for it.
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -385,8 +395,13 @@ fn run_source_in(name: &str, main: &str, frontend: &mut Lower, js_host: PathBuf)
     };
     let (analysis, output) = run(&fs, &input, frontend, &mut CoreJs, &options, |_, _| {});
     let _ = std::fs::remove_dir_all(&options.out_dir);
+    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
+    // leaves a capability on purpose, and gets W0402 for it.
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -466,8 +481,13 @@ fn run_without_main_stops_before_node() {
         &mut CoreJs,
         &options.out_dir,
     );
+    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
+    // leaves a capability on purpose, and gets W0402 for it.
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -526,8 +546,13 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-exports");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
+    // leaves a capability on purpose, and gets W0402 for it.
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -618,8 +643,13 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-bytes");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
+    // leaves a capability on purpose, and gets W0402 for it.
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -778,8 +808,13 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-array");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
+    // leaves a capability on purpose, and gets W0402 for it.
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
         "{:?}",
         analysis.diagnostics
     );

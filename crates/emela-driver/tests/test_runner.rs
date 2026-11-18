@@ -1536,6 +1536,7 @@ fn an_assert_in_a_dependency_has_its_source_path() {
             targets: None,
             version: "v1.0.0".into(),
             dependencies: Vec::new(),
+            experimental: Default::default(),
         }],
         project: vec![DependencyRef {
             pome: 0,
