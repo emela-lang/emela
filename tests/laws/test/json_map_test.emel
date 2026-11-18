@@ -1,0 +1,29 @@
+import Std.Map.{Map}
+import Std.Dynamic.{DecodeError, Key, Index, Segment}
+import Std.Json.{SyntaxError}
+
+fn failed_at(text: String) -> List[Segment] {
+  {
+    m: Map[String, List[Int]] = Json.decode(text)
+    []
+  } escape {
+    DecodeError(path:, ..) -> path
+    SyntaxError(..)        -> []
+  }
+}
+
+@test
+fn encodes_a_map() {
+  assert Json.encode(Map.from_list([("b", 2), ("a", 1)])) == "{\"a\":1,\"b\":2}"
+}
+
+@test
+fn decodes_a_map() {
+  m: Map[String, List[Int]] = Json.decode("{\"a\":[1],\"b\":[]}")
+  assert m == Map.from_list([("a", [1]), ("b", [])])
+}
+
+@test
+fn reports_the_key_of_a_failure() {
+  assert failed_at("{\"a\":[1],\"b\":[2,true]}") == [Key("b"), Index(1)]
+}

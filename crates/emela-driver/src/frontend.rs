@@ -379,6 +379,10 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         test_diagnostics.extend(ref_diagnostics);
         // Placement of `@internal` (E0229) and references from outside core (E0228).
         test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
+        // Placement and arguments of `@key` and `@tag` (E0338), and repeated keys and tags (E0337).
+        test_diagnostics.extend(crate::attributes::check_key_tag(analysis, |m| {
+            self.parse_of(m)
+        }));
         test_diagnostics.extend(check_external_in_dependencies(analysis, |m| {
             self.parse_of(m)
         }));
@@ -408,6 +412,16 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
             .diags
             .iter()
             .map(|d| {
+                // `[effect.escape]`: E0444 instead of W0402 where the module's Pome enables
+                // `capture-checking` (`[intro.experimental]`).
+                if let emela_types::DiagnosticKind::CaptureEscape { .. } = d.kind {
+                    let as_error = d.span.is_some_and(|s| {
+                        analysis
+                            .experimental(s.module)
+                            .is_enabled(crate::experimental::CAPTURE_CHECKING)
+                    });
+                    return Diagnostic::from_capture_escape(d, &analysis.files, as_error);
+                }
                 let out = Diagnostic::from_type(d, &types.ty_table.cons, &analysis.files);
                 let at_or_line = d.span.is_some_and(|s| {
                     self.parse_of(s.module)

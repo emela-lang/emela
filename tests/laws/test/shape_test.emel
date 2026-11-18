@@ -1,0 +1,287 @@
+import Std.Map.{Map}
+import Std.Dynamic.{Dynamic, Number, Text}
+import Std.Dynamic.Number
+import Std.Shape.{
+  Shape,
+  Shaped,
+  Field,
+  Variant,
+  NoFields,
+  PositionalFields,
+  NamedFields,
+  Bool,
+  Int,
+  String,
+  Any,
+  List,
+  Option,
+  Map,
+  Record,
+  Variants,
+  Ref,
+  Named,
+  Annotated,
+}
+
+## At least 1. The constructor checks it, so the shape carries it as a note.
+type Quantity(value: Int)
+
+impl Quantity: Shaped {
+  fn shape_in(proxy, visiting) { Int |> Shape.annotate("minimum", Number(Number.from_int(1))) }
+}
+
+type Order(id: String, quantity: Quantity, tags: List[String], note: Option[String])
+
+impl Order: Shaped {
+  fn shape_in(proxy, visiting) {
+    Shape.visit("Order", visiting, |visiting| {
+      id: Option[String] = None
+      quantity: Option[Quantity] = None
+      tags: Option[List[String]] = None
+      note: Option[Option[String]] = None
+      Record(
+        name: "Order",
+        fields: [
+          Field(name: "id", shape: Shaped.shape_in(id, visiting)),
+          Field(name: "quantity", shape: Shaped.shape_in(quantity, visiting)),
+          Field(name: "tags", shape: Shaped.shape_in(tags, visiting)),
+          Field(name: "note", shape: Shaped.shape_in(note, visiting)),
+        ],
+      )
+    })
+  }
+}
+
+enum Tree {
+  Leaf
+  Pair(Int, Int)
+  Node(left: Tree, right: Tree)
+}
+
+impl Tree: Shaped {
+  fn shape_in(proxy, visiting) {
+    Shape.visit("Tree", visiting, |visiting| {
+      tree: Option[Tree] = None
+      int: Option[Int] = None
+      Variants(
+        name: "Tree",
+        variants: [
+          Variant(name: "Leaf", contents: NoFields),
+          Variant(
+            name: "Pair",
+            contents: PositionalFields(
+              [Shaped.shape_in(int, visiting), Shaped.shape_in(int, visiting)],
+            ),
+          ),
+          Variant(
+            name: "Node",
+            contents: NamedFields(
+              [
+                Field(name: "left", shape: Shaped.shape_in(tree, visiting)),
+                Field(name: "right", shape: Shaped.shape_in(tree, visiting)),
+              ],
+            ),
+          ),
+        ],
+      )
+    })
+  }
+}
+
+type Team(name: String, lead: Member)
+
+type Member(name: String, team: Option[Team])
+
+impl Team: Shaped {
+  fn shape_in(proxy, visiting) {
+    Shape.visit("Team", visiting, |visiting| {
+      name: Option[String] = None
+      lead: Option[Member] = None
+      Record(
+        name: "Team",
+        fields: [
+          Field(name: "name", shape: Shaped.shape_in(name, visiting)),
+          Field(name: "lead", shape: Shaped.shape_in(lead, visiting)),
+        ],
+      )
+    })
+  }
+}
+
+impl Member: Shaped {
+  fn shape_in(proxy, visiting) {
+    Shape.visit("Member", visiting, |visiting| {
+      name: Option[String] = None
+      team: Option[Option[Team]] = None
+      Record(
+        name: "Member",
+        fields: [
+          Field(name: "name", shape: Shaped.shape_in(name, visiting)),
+          Field(name: "team", shape: Shaped.shape_in(team, visiting)),
+        ],
+      )
+    })
+  }
+}
+
+@test
+fn types_that_refer_to_each_other_end_at_the_first_repeat() {
+  t: Option[Team] = None
+  assert Shaped.shape(t)
+    == Record(
+      name: "Team",
+      fields: [
+        Field(name: "name", shape: String),
+        Field(
+          name: "lead",
+          shape: Record(
+            name: "Member",
+            fields: [
+              Field(name: "name", shape: String),
+              Field(name: "team", shape: Option(Ref("Team"))),
+            ],
+          ),
+        ),
+      ],
+    )
+  m: Option[Member] = None
+  assert Shaped.shape(m).field_names() == ["name", "team"]
+}
+
+@test
+fn the_shapes_of_the_built_in_types() {
+  assert Shape.of_value(True) == Bool
+  assert Shape.of_value(["a"]) == List(String)
+  assert Shape.of_value(Some(1)) == Option(Int)
+  assert Shape.of_value(Map.from_list([("a", 1)])) == Map(key: String, value: Int)
+  assert Shape.of_value(Text("a")) == Any
+}
+
+@test
+fn a_proxy_needs_no_value() {
+  p: Option[List[Option[Int]]] = None
+  assert Shaped.shape(p) == List(Option(Int))
+}
+
+@test
+fn a_record_lists_its_fields_in_order() {
+  p: Option[Order] = None
+  assert Shaped.shape(p).field_names() == ["id", "quantity", "tags", "note"]
+}
+
+@test
+fn a_note_is_read_back() {
+  p: Option[Quantity] = None
+  shape = Shaped.shape(p)
+  assert shape.strip() == Int
+  assert shape.note("minimum") == Some(Number(Number.from_int(1)))
+  assert shape.note("maximum") == None
+  assert Shape.note(Int, "minimum") == None
+}
+
+@test
+fn annotate_replaces_a_note_of_the_same_name() {
+  shape = Int
+    |> Shape.annotate("minimum", Number(Number.from_int(1)))
+    |> Shape.annotate("maximum", Number(Number.from_int(9)))
+    |> Shape.annotate("minimum", Number(Number.from_int(2)))
+  assert shape
+    == Annotated(
+      shape: Int,
+      notes: [("maximum", Number(Number.from_int(9))), ("minimum", Number(Number.from_int(2)))],
+    )
+}
+
+@test
+fn field_names_look_through_notes() {
+  p: Option[Order] = None
+  annotated = Shaped.shape(p).annotate("description", Text("an order"))
+  assert annotated.field_names() == ["id", "quantity", "tags", "note"]
+  assert Shape.field_names(Int) == []
+}
+
+@test
+fn a_recursive_type_refers_to_itself_by_name() {
+  p: Option[Tree] = None
+  Shaped.shape(p) match {
+    Variants(name:, variants:) -> {
+      assert name == "Tree"
+      assert variants.map(|v| v.name) == ["Leaf", "Pair", "Node"]
+    }
+    _ -> assert False
+  }
+}
+
+effect Orders {
+  fn save(order: Order) -> ()
+}
+
+fn handle(order: Order) -> Int uses { Orders } {
+  (use Orders).save(order)
+  1
+}
+
+@test
+fn the_parameter_of_a_function_with_effects() {
+  assert Shape.of_parameter(handle).field_names() == ["id", "quantity", "tags", "note"]
+}
+
+type Page[A](items: List[A], next: Option[String])
+
+impl Page[A: Shaped]: Shaped {
+  fn shape_in(proxy, visiting) {
+    item: Option[A] = None
+    name = Shape.generic_name("Page", [Shaped.shape_in(item, visiting)])
+    Shape.visit(name, visiting, |visiting| {
+      items: Option[List[A]] = None
+      next: Option[Option[String]] = None
+      Record(
+        name:,
+        fields: [
+          Field(name: "items", shape: Shaped.shape_in(items, visiting)),
+          Field(name: "next", shape: Shaped.shape_in(next, visiting)),
+        ],
+      )
+    })
+  }
+}
+
+@test
+fn a_name_carries_the_type_arguments() {
+  p: Option[Page[Order]] = None
+  assert Shaped.shape(p).name_of() == "Page[Order]"
+  q: Option[Map[String, List[Int]]] = None
+  assert Shaped.shape(q).name_of() == "Map[String, List[Int]]"
+  assert Shape.generic_name("Page", []) == "Page"
+}
+
+## An opaque type is known by its name; its constructor checks the contents.
+type Code(value: String)
+
+impl Code: Shaped {
+  fn shape_in(proxy, visiting) {
+    Named(name: "Code", shape: String |> Shape.min_length(3) |> Shape.pattern("^[A-Z]+$"))
+  }
+}
+
+@test
+fn notes_are_read_through_a_name() {
+  p: Option[Code] = None
+  shape = Shaped.shape(p).description("a code")
+  assert shape.name_of() == "Code"
+  assert shape.strip() == String
+  assert shape.note("description") == Some(Text("a code"))
+  assert shape.note("min_length") == Some(Number(Number.from_int(3)))
+  assert shape.note("pattern") == Some(Text("^[A-Z]+$"))
+}
+
+@test
+fn bounds_are_written_as_notes() {
+  shape = Shape.Int |> Shape.minimum(1) |> Shape.maximum(99)
+  assert shape.note("minimum") == Some(Number(Number.from_int(1)))
+  assert shape.note("maximum") == Some(Number(Number.from_int(99)))
+  text = Shape.String |> Shape.min_length(1) |> Shape.max_length(80)
+  assert text.note("max_length") == Some(Number(Number.from_int(80)))
+  items = Shape.List(Shape.String).min_items(1).max_items(10)
+  assert items.note("min_items") == Some(Number(Number.from_int(1)))
+}

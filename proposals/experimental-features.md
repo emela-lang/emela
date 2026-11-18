@@ -1,7 +1,7 @@
 ---
 title: Experimental features
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 620
 issue:
 decided: 2026-11-18

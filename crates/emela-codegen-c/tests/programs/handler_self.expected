@@ -1,0 +1,8 @@
+exit: 0
+--- stdout
+open a
+a: next 41
+close a
+quiet: hi
+plain: hi
+--- stderr

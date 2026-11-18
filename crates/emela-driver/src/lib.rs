@@ -4,6 +4,7 @@
 //! on node (or builds the emitted C with cc and runs the executable).
 
 mod actions;
+mod attributes;
 mod c;
 pub mod code;
 mod complete;
@@ -12,7 +13,11 @@ pub use dependencies::check_dependency_targets;
 mod diagnostic;
 mod doc;
 mod doctor;
+mod experimental;
 pub use doctor::{DoctorFormat, doctor};
+pub use experimental::{
+    FEATURES, FLAG_PREFIX, Feature, Features, Stage, dependency_features, experimental_features,
+};
 mod documentation;
 mod fmt;
 mod frontend;

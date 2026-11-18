@@ -1,0 +1,8 @@
+# `Self` is not a pattern, so it cannot be the left side of a binding (`[effect.handler]`)
+handler Counter(n: Int): Tally {
+  init {
+    Self = x
+    Self(n:) = x
+    Self(n: 1)
+  }
+}

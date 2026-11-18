@@ -135,7 +135,15 @@ pub(crate) fn complete(
 }
 
 /// Attributes a user can write (spec `[kw.annotation]`), offered after `@`.
-const ATTRIBUTES: &[&str] = &["external", "export", "entry", "test", "deprecated"];
+const ATTRIBUTES: &[&str] = &[
+    "external",
+    "export",
+    "entry",
+    "test",
+    "deprecated",
+    "key",
+    "tag",
+];
 
 /// Attributes allowed only in the bundled core sources (E0224, E0229), offered there only.
 const CORE_ATTRIBUTES: &[&str] = &["intrinsic", "internal"];

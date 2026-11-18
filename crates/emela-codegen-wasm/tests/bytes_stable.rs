@@ -112,7 +112,7 @@ fn main() {
 }
 "#,
         48853,
-        0x0113_0a9b_2495_b0b1,
+        0x70ba_6e4e_c015_7d3e,
     ),
     (
         "state_and_options",

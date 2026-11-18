@@ -1,0 +1,87 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+assertion_line: 20
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/self_binding_target.emel
+---
+ROOT@0..184
+  COMMENT@0..90 "# `Self` is not a pattern, so it cannot be the left side of a binding (`[effect.handler]`)"
+  NEWLINE@90..91 "\n"
+  HANDLER_DECL@91..183
+    HANDLER_KW@91..98 "handler"
+    WHITESPACE@98..99 " "
+    TYPE_NAME@99..106 "Counter"
+    FIELD_LIST@106..114
+      L_PAREN@106..107 "("
+      FIELD@107..113
+        LOWER_NAME@107..108 "n"
+        COLON@108..109 ":"
+        WHITESPACE@109..110 " "
+        PATH_TYPE@110..113
+          PATH@110..113
+            TYPE_NAME@110..113 "Int"
+      R_PAREN@113..114 ")"
+    COLON@114..115 ":"
+    WHITESPACE@115..116 " "
+    HANDLER_EFFECT@116..121
+      PATH@116..121
+        TYPE_NAME@116..121 "Tally"
+    WHITESPACE@121..122 " "
+    ITEM_LIST@122..183
+      L_BRACE@122..123 "{"
+      NEWLINE@123..124 "\n"
+      WHITESPACE@124..126 "  "
+      HANDLER_INIT@126..181
+        LOWER_NAME@126..130 "init"
+        WHITESPACE@130..131 " "
+        BLOCK_EXPR@131..181
+          L_BRACE@131..132 "{"
+          NEWLINE@132..133 "\n"
+          WHITESPACE@133..137 "    "
+          BINDING@137..145
+            NAME_REF@137..141
+              SELF_TYPE_KW@137..141 "Self"
+            WHITESPACE@141..142 " "
+            EQ@142..143 "="
+            WHITESPACE@143..144 " "
+            NAME_REF@144..145
+              LOWER_NAME@144..145 "x"
+          NEWLINE@145..146 "\n"
+          WHITESPACE@146..150 "    "
+          BINDING@150..162
+            CALL_EXPR@150..158
+              NAME_REF@150..154
+                SELF_TYPE_KW@150..154 "Self"
+              ARG_LIST@154..158
+                L_PAREN@154..155 "("
+                NAMED_ARG@155..157
+                  LOWER_NAME@155..156 "n"
+                  COLON@156..157 ":"
+                R_PAREN@157..158 ")"
+            WHITESPACE@158..159 " "
+            EQ@159..160 "="
+            WHITESPACE@160..161 " "
+            NAME_REF@161..162
+              LOWER_NAME@161..162 "x"
+          NEWLINE@162..163 "\n"
+          WHITESPACE@163..167 "    "
+          CALL_EXPR@167..177
+            NAME_REF@167..171
+              SELF_TYPE_KW@167..171 "Self"
+            ARG_LIST@171..177
+              L_PAREN@171..172 "("
+              NAMED_ARG@172..176
+                LOWER_NAME@172..173 "n"
+                COLON@173..174 ":"
+                WHITESPACE@174..175 " "
+                LITERAL@175..176
+                  INT@175..176 "1"
+              R_PAREN@176..177 ")"
+          NEWLINE@177..178 "\n"
+          WHITESPACE@178..180 "  "
+          R_BRACE@180..181 "}"
+      NEWLINE@181..182 "\n"
+      R_BRACE@182..183 "}"
+  NEWLINE@183..184 "\n"
+error[E0125]@137..141: invalid left-hand side of binding: expected a pattern
+error[E0125]@150..158: invalid left-hand side of binding: expected a pattern
