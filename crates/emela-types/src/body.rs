@@ -11,11 +11,11 @@
 use crate::sparse::SparseMap;
 use emela_resolve::hir::{
     Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnSig, HandlerItem,
-    Item, Label, ListRest, Literal, LocalFn, LocalId, Param, PatArg, PatId, PatKind, Program, Res,
-    Span, Stmt, StrPart, SupplyArgs, TypeId, UnaryOp, WithItem, int_literal_value,
+    Item, Label, ListRest, Literal, LocalFn, LocalId, LocalKind, Param, PatArg, PatId, PatKind,
+    Program, Res, Span, Stmt, StrPart, SupplyArgs, TypeId, UnaryOp, WithItem, int_literal_value,
 };
 use la_arena::{ArenaMap, Idx};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use crate::FnTy;
@@ -67,6 +67,9 @@ pub(crate) struct BodyTypes {
     /// References to capability operations (the `Field` expression of `log.info`) → the effect
     /// operation's definition.
     pub(crate) ops: SparseMap<ExprId, DefId>,
+    /// Openings of handler members (`[effect.handler]`, `[effect.with]`) → the member: the callee
+    /// of `Files.Open(p)` or `fs.Open(p)` in an init, and the capability of an item `x = fs.Open(p)`.
+    pub(crate) members: SparseMap<ExprId, DefId>,
     /// Method calls (the `Field` callee of `x.f(a)`) → the function they call.
     pub(crate) methods: SparseMap<ExprId, DefId>,
     /// Dependencies of the group's handlers (the union of the R of init, release and the
@@ -238,6 +241,15 @@ pub(crate) struct BodyInfer<'a> {
     expr_effects: SparseMap<ExprId, Row>,
     /// References to capability operations → effect operations.
     ops: SparseMap<ExprId, DefId>,
+    /// Openings of handler members → the member ([`BodyTypes::members`]).
+    member_opens: SparseMap<ExprId, DefId>,
+    /// Callees of calls, where a handler member may be opened inside an init.
+    member_callees: FxHashSet<ExprId>,
+    /// Variables bound to the capability a handler member item of `with` opens. Its operations
+    /// add the variable to R, which the `with` removes (`[effect.with]`).
+    member_bound: FxHashSet<LocalId>,
+    /// `with` expressions → the items that open handler members, with the types of opening them.
+    with_members: SparseMap<ExprId, Vec<(usize, crate::ty::FnTy)>>,
     /// Method calls (the `Field` callee) → the fn or trait function called (`[type.rules]`).
     methods: SparseMap<ExprId, DefId>,
     /// `with` expressions with their listed handlers (layers expanded) and dependencies. The
@@ -358,6 +370,10 @@ impl<'a> BodyInfer<'a> {
             escapes: Vec::new(),
             expr_effects: SparseMap::new(),
             ops: SparseMap::new(),
+            member_opens: SparseMap::new(),
+            member_callees: FxHashSet::default(),
+            member_bound: FxHashSet::default(),
+            with_members: SparseMap::new(),
             methods: SparseMap::new(),
             withs: Vec::new(),
             with_handlers: SparseMap::new(),
@@ -624,17 +640,55 @@ impl<'a> BodyInfer<'a> {
             Some(Item::Effect(e)) => &e.ops,
             _ => &[],
         };
+        // A missing handler member is E0404 too (`[effect.handler]`), listed after the
+        // operations.
+        let inner_member = |inner: DefId| match program.item(inner) {
+            Some(Item::Handler(h)) => h.member,
+            _ => None,
+        };
+        let members: &[DefId] = match program.item(effect) {
+            Some(Item::Effect(e)) => &e.members,
+            _ => &[],
+        };
         let missing: Vec<SmolStr> = ops
             .iter()
             .filter(|&&op| !item.ops.iter().any(|h| h.op == Res::Def(op)))
             .map(|&op| program.defs[op].name.clone())
             .collect();
-        if !missing.is_empty() {
+        let missing_members: Vec<SmolStr> = members
+            .iter()
+            .filter(|&&m| {
+                !item
+                    .inner
+                    .iter()
+                    .any(|&i| inner_member(i) == Some(Res::Def(m)))
+            })
+            .map(|&m| program.defs[m].name.clone())
+            .collect();
+        for (k, &inner) in item.inner.iter().enumerate() {
+            if let Some(Res::Def(m)) = inner_member(inner)
+                && item.inner[..k]
+                    .iter()
+                    .any(|&i| inner_member(i) == Some(Res::Def(m)))
+            {
+                self.diags.push(Diagnostic {
+                    span: program.defs[inner].span,
+                    kind: DiagnosticKind::DuplicateHandlerOp {
+                        op: program.defs[m].name.clone(),
+                    },
+                });
+            }
+        }
+        if let Some(Res::Def(member)) = item.member {
+            self.check_inner_handler(def, member, item);
+        }
+        if !missing.is_empty() || !missing_members.is_empty() {
             self.diags.push(Diagnostic {
                 span,
                 kind: DiagnosticKind::MissingHandlerOps {
                     handler: program.defs[def].name.clone(),
                     ops: missing,
+                    members: missing_members,
                 },
             });
         }
@@ -734,6 +788,118 @@ impl<'a> BodyInfer<'a> {
                 suspend,
             });
         }
+    }
+
+    /// The type of opening `member` as the handler `handler` implements it: the member's type
+    /// with the effect's type parameters replaced with the type arguments of the effect of
+    /// `handler`'s outer handler (`[effect.handler]`).
+    fn inner_member_ty(&self, handler: DefId, member: DefId) -> Option<crate::ty::FnTy> {
+        let outer = self.program.defs[handler].parent?;
+        let args = self
+            .sigs
+            .handler_effect(outer)
+            .map(|t| t.args.clone())
+            .unwrap_or_default();
+        match self
+            .sigs
+            .get(member)
+            .map(|s| substitute_bound(&s.scheme.ty, &args))
+        {
+            Some(Ty::Fn(f)) => Some(*f),
+            _ => None,
+        }
+    }
+
+    /// An inner handler implements the handler member of its name (`[effect.handler]`): it
+    /// implements the effect the member declares, and its init takes the member's parameters with
+    /// the same names and types (E0447).
+    fn check_inner_handler(&mut self, def: DefId, member: DefId, item: &HandlerItem) {
+        let program = self.program;
+        let Some(f) = self.inner_member_ty(def, member) else {
+            return;
+        };
+        let Some(Item::Member(m)) = program.item(member) else {
+            return;
+        };
+        let cons = &self.ty_table.cons;
+        let effect = program.defs[member]
+            .parent
+            .map(|e| program.defs[e].name.clone())
+            .unwrap_or_default();
+        let mismatch = |reason| DiagnosticKind::InnerHandlerMismatch {
+            handler: program.defs[def].name.clone(),
+            member: program.defs[member].name.clone(),
+            effect: effect.clone(),
+            reason: Box::new(reason),
+        };
+        let own = self.sigs.handler_effect(def);
+        if let (Ty::Cap(expected), Some(found)) = (&f.ret, own)
+            && expected != found
+        {
+            let show = |t: &Tag| {
+                SmolStr::new(
+                    Row::of_tag(t.clone())
+                        .display_effects(cons, &[])
+                        .to_string(),
+                )
+            };
+            self.diags.push(Diagnostic {
+                span: program.defs[def].span,
+                kind: mismatch(crate::diagnostic::InnerHandlerMismatch::Effect {
+                    expected: show(expected),
+                    found: show(found),
+                }),
+            });
+        }
+        let names = |ps: &[Param]| -> Vec<SmolStr> {
+            ps.iter()
+                .map(|p| program.locals[p.local].name.clone())
+                .collect()
+        };
+        let show_params = |names: &[SmolStr], tys: &[Ty]| -> SmolStr {
+            let parts: Vec<String> = names
+                .iter()
+                .zip(tys)
+                .map(|(n, t)| format!("{n}: {}", t.display(cons)))
+                .collect();
+            SmolStr::new(format!("({})", parts.join(", ")))
+        };
+        let expected_names = names(&m.sig.params);
+        let expected = show_params(&expected_names, &f.params);
+        let found = match item.init {
+            Some(_) => {
+                let tys = self
+                    .sigs
+                    .init_params(def)
+                    .map(|p| p.tys.clone())
+                    .unwrap_or_default();
+                let found_names = names(&item.init_params);
+                let same = found_names == expected_names && tys == f.params;
+                (!same).then(|| Some(show_params(&found_names, &tys)))
+            }
+            // Without an init, the handler takes no arguments.
+            None => (!f.params.is_empty()).then_some(None),
+        };
+        if let Some(found) = found {
+            self.diags.push(Diagnostic {
+                span: program.defs[def].span,
+                kind: mismatch(crate::diagnostic::InnerHandlerMismatch::Params {
+                    params: expected,
+                    found,
+                }),
+            });
+        }
+    }
+
+    /// For an inner handler, the E its init may have: the `fails` of its handler member.
+    pub(super) fn inner_init_fails(&self, handler: DefId) -> Option<Row> {
+        let Some(Item::Handler(item)) = self.program.item(handler) else {
+            return None;
+        };
+        let Some(Res::Def(member)) = item.member else {
+            return None;
+        };
+        self.inner_member_ty(handler, member).map(|f| f.fails)
     }
 
     /// A handler's dependencies (the union of the R of init, release and the operation bodies):
@@ -958,6 +1124,7 @@ impl<'a> BodyInfer<'a> {
             errors,
             effects,
             ops: self.ops,
+            members: self.member_opens,
             methods: self.methods,
             handler_uses,
             handler_fails,
@@ -1008,7 +1175,14 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Path(Res::Def(def)) => {
                 self.check_external(*def, e.span);
                 self.check_handler_ctor(*def, e.span);
+                if program.defs[*def].kind == DefKind::Member {
+                    self.check_member_open(expr, *def, e.span);
+                }
                 let (ty, args, rows) = self.instantiate_def(*def, e.span);
+                let ty = match program.member_labels.get(expr) {
+                    Some(&label) => through_label(ty, label),
+                    None => ty,
+                };
                 if !args.is_empty() {
                     self.type_args.insert(expr, args);
                 }
@@ -1126,19 +1300,144 @@ impl<'a> BodyInfer<'a> {
 
     /// The arguments of init written on the items of a `with` (`[effect.with]`). Every item's
     /// arguments are checked, including those of a handler a later item overrides.
+    ///
+    /// An item that opens a handler member (`x = Files.Open(p)`, `x = fs.Open(p)`) takes the
+    /// arguments of the member's init, and binds x to the capability of the effect the member
+    /// declares (`[effect.with]`). Another bound item binds x to the capability of the effect it
+    /// provides.
     fn infer_with_args(&mut self, expr: ExprId, items: &[WithItem]) {
+        let program = self.program;
+        let entries = crate::layer::with_entries(program, self.sigs, self.ty_table, items);
+        let mut opened = Vec::new();
         let args = items
             .iter()
-            .map(|item| match item.by {
-                // The label left of `by` takes no arguments.
-                Some((by, by_span)) => {
-                    self.infer_supply_args(item.res, item.args.as_ref(), item.span);
-                    self.infer_supply_args(by, item.by_init_args.as_ref(), by_span)
+            .enumerate()
+            .map(|(i, item)| {
+                if let Some((f, member)) = self.infer_member_item(item) {
+                    let ret = f.ret.clone();
+                    let args = match &item.args {
+                        Some(args) => {
+                            let labels = self.sigs.get(member).map(|s| s.labels.clone());
+                            self.check_args(
+                                Some(&program.defs[member].name),
+                                labels.as_deref(),
+                                &f.params,
+                                &args.args,
+                                args.span,
+                            )
+                        }
+                        None => Vec::new(),
+                    };
+                    if let Some(local) = item.bind {
+                        self.set_local(local, ret);
+                        self.member_bound.insert(local);
+                    }
+                    opened.push((i, f));
+                    return args;
                 }
-                None => self.infer_supply_args(item.res, item.args.as_ref(), item.span),
+                if let Res::Def(def) = item.res
+                    && item.bind.is_some()
+                    && matches!(program.item(def), Some(Item::Layer(_)))
+                {
+                    self.diags.push(Diagnostic {
+                        span: Some(item.span),
+                        kind: DiagnosticKind::BoundLayer {
+                            layer: program.defs[def].name.clone(),
+                        },
+                    });
+                }
+                if let Some(local) = item.bind {
+                    let ty = entries
+                        .iter()
+                        .find(|e| e.origin == i && !e.from_layer)
+                        .map_or(Ty::Error, |e| Ty::Cap(e.effect.clone()));
+                    self.set_local(local, ty);
+                }
+                match item.by {
+                    // The label left of `by` takes no arguments.
+                    Some((by, by_span)) => {
+                        self.infer_supply_args(item.res, item.args.as_ref(), item.span);
+                        self.infer_supply_args(by, item.by_init_args.as_ref(), by_span)
+                    }
+                    None => self.infer_supply_args(item.res, item.args.as_ref(), item.span),
+                }
             })
             .collect();
         self.with_args.insert(expr, args);
+        if !opened.is_empty() {
+            self.with_members.insert(expr, opened);
+        }
+    }
+
+    /// The handler member an item of `with` opens (`Files.Open(p)` or `fs.Open(p)`).
+    pub(super) fn member_item(&self, item: &WithItem) -> Option<DefId> {
+        match (item.res, &item.cap) {
+            (Res::Def(def), _) if self.program.defs[def].kind == DefKind::Member => Some(def),
+            (_, Some((cap, _))) => self.member_opens.get(*cap).copied(),
+            _ => None,
+        }
+    }
+
+    /// For an item of `with` that opens a handler member, the type of opening it
+    /// (`[type.rules]`): the parameters of the init, the capability opened, the member's E, and
+    /// the R that names the effect (`Files`) or the capability (`fs`). An item without `x =` is
+    /// E0445.
+    fn infer_member_item(&mut self, item: &WithItem) -> Option<(crate::ty::FnTy, DefId)> {
+        let program = self.program;
+        let (ty, member) = match (item.res, &item.cap) {
+            (Res::Def(member), _) if program.defs[member].kind == DefKind::Member => {
+                let ty = self.instantiate_def(member, item.span).0;
+                let ty = match item.label {
+                    Some(label) => through_label(ty, label),
+                    None => ty,
+                };
+                (ty, member)
+            }
+            (_, Some((cap, name))) => {
+                let cap_ty = self.infer_expr(*cap);
+                let tag = match self.ctx.shallow_resolve(&cap_ty) {
+                    Ty::Cap(tag) => tag,
+                    Ty::Error => return None,
+                    ty => {
+                        let ty = self.ctx.resolve(&ty);
+                        self.diags.push(Diagnostic {
+                            span: Some(name.span),
+                            kind: DiagnosticKind::NoFieldOrFunction {
+                                ty,
+                                name: name.name.clone(),
+                            },
+                        });
+                        return None;
+                    }
+                };
+                let Some(member) = program.effect_member(tag.def, &name.name) else {
+                    self.diags.push(Diagnostic {
+                        span: Some(name.span),
+                        kind: DiagnosticKind::UnknownOperation {
+                            effect: program.defs[tag.def].name.clone(),
+                            op: name.name.clone(),
+                        },
+                    });
+                    return None;
+                };
+                self.member_opens.insert(*cap, member);
+                (self.cap_member_ty(*cap, &tag, member), member)
+            }
+            _ => return None,
+        };
+        if item.bind.is_none() {
+            self.diags.push(Diagnostic {
+                span: Some(item.span),
+                kind: DiagnosticKind::UnboundMemberItem {
+                    member: program.defs[member].name.clone(),
+                    effect: self.member_effect_name(member),
+                },
+            });
+        }
+        match ty {
+            Ty::Fn(f) => Some((*f, member)),
+            _ => None,
+        }
     }
 
     /// Checks the arguments written after `target` (`WorkerKv(binding: "KV")`) against the
@@ -1576,6 +1875,8 @@ impl<'a> BodyInfer<'a> {
             (_, Some((name, labels))) => (Some(*name), Some(labels.as_slice())),
             _ => (None, None),
         };
+        // A handler member is opened by calling it (`Files.Open(p)`, `fs.Open(p)`).
+        self.member_callees.insert(callee);
         // `x.f(a)` may be a method call (`[type.rules]`).
         let callee_ty = match &program.exprs[callee].kind {
             ExprKind::Field { base, name } => {
@@ -1896,6 +2197,11 @@ impl<'a> BodyInfer<'a> {
     fn infer_op(&mut self, expr: ExprId, base: ExprId, tag: &Tag, name: &Label) -> Ty {
         let program = self.program;
         let effect = tag.def;
+        // `fs.Open(p)` opens a handler member of the handler that provides `fs`
+        // (`[effect.use]`).
+        if name.name.starts_with(|c: char| c.is_ascii_uppercase()) {
+            return self.infer_cap_member(expr, base, tag, name);
+        }
         // A label has the operations of its base (issue #255).
         let op = program
             .effect_ops(effect)
@@ -1941,12 +2247,113 @@ impl<'a> BodyInfer<'a> {
                 name: program.locals[local].name.clone(),
                 tag: tag.clone(),
             })]),
-            None => Row::of_tag(tag.clone()),
+            // A capability held in a field of the handler outlives the handler: it belongs to
+            // a `with` around the handler's, or to a handler member its init opened
+            // (`[effect.use]`, `[effect.handler]`). It is not required by name: its element is
+            // the handler's `self`, which the end of an operation body removes. It still
+            // counts as its effect for suspension (E0417, and whether the body suspends). In
+            // release, it widens to its effect.
+            None => match self.self_field(base) {
+                Some((self_local, field)) => {
+                    let in_release = self.current.and_then(|def| match program.item(def) {
+                        Some(Item::Handler(h)) => h.release.map(|(l, _)| l),
+                        _ => None,
+                    }) == Some(self_local);
+                    if !in_release {
+                        self.use_bound.insert(self_local);
+                    }
+                    Row::from_elems([RowElem::Cap(CapElem {
+                        local: self_local,
+                        name: SmolStr::new(format!("self.{field}")),
+                        tag: tag.clone(),
+                    })])
+                }
+                None => Row::of_tag(tag.clone()),
+            },
         };
         match ty {
             Some(Ty::Fn(f)) => Ty::func_sets(f.params, f.ret, f.fails, uses),
             _ => Ty::Error,
         }
+    }
+
+    /// The name of the effect that declares the handler member `member`.
+    fn member_effect_name(&self, member: DefId) -> SmolStr {
+        let program = self.program;
+        program.defs[member]
+            .parent
+            .map(|e| program.defs[e].name.clone())
+            .unwrap_or_default()
+    }
+
+    /// For a field of the implicit `self` of a handler (`self.inner`), `self` and the field.
+    fn self_field(&self, expr: ExprId) -> Option<(LocalId, SmolStr)> {
+        let program = self.program;
+        let ExprKind::Field { base, name } = &program.exprs[expr].kind else {
+            return None;
+        };
+        match program.exprs[*base].kind {
+            ExprKind::Path(Res::Local(l)) if program.locals[l].kind == LocalKind::SelfParam => {
+                Some((l, name.name.clone()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Opening a handler member is written only as an item of `with` and, as a call, inside an
+    /// init (E0446, `[effect.use]`, `[effect.handler]`). Records the opening.
+    fn check_member_open(&mut self, expr: ExprId, member: DefId, span: Span) {
+        self.member_opens.insert(expr, member);
+        if self.in_init.is_none() || !self.member_callees.contains(&expr) {
+            self.diags.push(Diagnostic {
+                span: Some(span),
+                kind: DiagnosticKind::MemberOutsideInit {
+                    member: self.program.defs[member].name.clone(),
+                    effect: self.member_effect_name(member),
+                },
+            });
+        }
+    }
+
+    /// The type of opening the handler member `name` through the capability `base` of `tag`
+    /// (`fs.Open`, `[type.rules]`): the member's type with the effect's type parameters replaced
+    /// by the capability's type arguments, and the capability itself as its R, as for an
+    /// operation ([`Self::infer_op`]).
+    fn infer_cap_member(&mut self, expr: ExprId, base: ExprId, tag: &Tag, name: &Label) -> Ty {
+        let program = self.program;
+        let Some(member) = program.effect_member(tag.def, &name.name) else {
+            return self.field_error(
+                name,
+                DiagnosticKind::UnknownOperation {
+                    effect: program.defs[tag.def].name.clone(),
+                    op: name.name.clone(),
+                },
+            );
+        };
+        self.check_member_open(expr, member, name.span);
+        self.cap_member_ty(base, tag, member)
+    }
+
+    /// The type of opening `member` through the capability `cap` of `tag`.
+    fn cap_member_ty(&mut self, cap: ExprId, tag: &Tag, member: DefId) -> Ty {
+        let program = self.program;
+        let args = self.sigs.base_of(tag).args.clone();
+        let Some(Ty::Fn(f)) = self
+            .sigs
+            .get(member)
+            .map(|sig| substitute_bound(&sig.scheme.ty, &args))
+        else {
+            return Ty::Error;
+        };
+        let uses = match self.named_capability(cap) {
+            Some(local) => Row::from_elems([RowElem::Cap(CapElem {
+                local,
+                name: program.locals[local].name.clone(),
+                tag: tag.clone(),
+            })]),
+            None => Row::of_tag(tag.clone()),
+        };
+        Ty::func_sets(f.params, f.ret, f.fails, uses)
     }
 
     /// The local variable `expr` refers to, if its capability is an element of R by itself
@@ -1960,6 +2367,9 @@ impl<'a> BodyInfer<'a> {
         let ExprKind::Path(Res::Local(local)) = self.program.exprs[expr].kind else {
             return None;
         };
+        if self.member_bound.contains(&local) {
+            return Some(local);
+        }
         let bound = self.local_binder.get(local)?;
         (*bound != self.binder || self.is_fn_param(local)).then_some(local)
     }
@@ -2660,6 +3070,15 @@ struct ImmediateObligation {
 /// A type that must satisfy a trait: the instantiation of a constrained type parameter at a
 /// reference (`[A: Ord]`, spec 10.3).
 /// `ty` with the set variables left out of its function types' E and R, for messages.
+/// The type of opening a handler member through the label `label` (`Audit.Open`,
+/// `[effect.label]`): it requires the label, not its base.
+fn through_label(ty: Ty, label: DefId) -> Ty {
+    match ty {
+        Ty::Fn(f) => Ty::func_sets(f.params, f.ret, f.fails, Row::of_tag(Tag::new(label))),
+        ty => ty,
+    }
+}
+
 fn without_set_vars(ty: &Ty) -> Ty {
     let ty = ty.map_children(without_set_vars);
     match ty {

@@ -46,6 +46,9 @@ pub(crate) enum Origin {
     HandlerPart,
     /// The E of a handler's release body is empty (spec 8.4).
     Release(DefId),
+    /// The E of the init of an inner handler is contained in the `fails` of its handler member
+    /// (`[effect.decl]`).
+    MemberInit(DefId),
     /// The R of the body of `main` or a test function is empty (spec 8.3, 13.3).
     Closed(DefId),
     /// The E (R) of a lambda's body is contained in the lambda type's E (R). Always holds.

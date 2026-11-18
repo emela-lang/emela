@@ -1640,6 +1640,22 @@ impl WithBind {
             release: Some(Release {
                 handler: handler.to_owned(),
                 body: release,
+                mark: true,
+            }),
+        }
+    }
+
+    /// A binding whose release is a cleanup that does not belong to a handler value: the
+    /// releases of the handler members that an init opened (`[effect.handler]`). `value` is not
+    /// marked released. `handler` names the handler they belong to, for a defect in `release`.
+    pub fn cleanup(var: Local, value: Expr, handler: &str, release: Expr) -> Self {
+        WithBind {
+            var,
+            value,
+            release: Some(Release {
+                handler: handler.to_owned(),
+                body: release,
+                mark: false,
             }),
         }
     }
@@ -1662,6 +1678,9 @@ pub struct Release {
     /// The handler's name (as in source), used in the use-after-release defect message.
     pub handler: String,
     pub body: Expr,
+    /// Whether the bound value is a handler value to mark released. False for a cleanup
+    /// ([`WithBind::cleanup`]).
+    pub mark: bool,
 }
 
 /// `assert expr`.

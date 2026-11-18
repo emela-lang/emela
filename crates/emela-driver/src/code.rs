@@ -192,6 +192,10 @@ pub const HTTP_SERVICE_ON_C: &str = "E0442";
 pub const BOUNDARY_TYPE_ON_C: &str = "E0443";
 // Capture sets with the experimental feature `capture-checking` (`[effect.escape]`)
 pub const CAPTURE_ESCAPE_ERROR: &str = "E0444";
+// Handler members (`[effect.decl]`, `[effect.with]`, `[effect.handler]`)
+pub const MEMBER_ITEM_FORM: &str = "E0445";
+pub const MEMBER_OUTSIDE_INIT: &str = "E0446";
+pub const INNER_HANDLER_MISMATCH: &str = "E0447";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

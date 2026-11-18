@@ -33,8 +33,8 @@ mod tests;
 pub use capture::{Captures, Held, Provider};
 pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
 pub use diagnostic::{
-    Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, LabelBaseReason, LayerArg,
-    SuspendingCall,
+    Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, InnerHandlerMismatch,
+    LabelBaseReason, LayerArg, SuspendingCall,
 };
 pub use display::{SchemeDisplay, TyDisplay};
 pub use entry_main::is_exit_code;
@@ -47,7 +47,7 @@ pub use export::{
     HostExports, add_entry_exports, host_exports, is_entry_adapter, is_http_serve, is_http_service,
 };
 pub use infer::{InferCtx, substitute_bound};
-pub use layer::{ArgsSource, LayerInfo, Supplier, WithBind, WithInfo};
+pub use layer::{ArgsSource, LayerInfo, MemberProvider, Supplier, WithBind, WithInfo};
 pub use lower::TyTable;
 pub use methods::methods_of;
 pub use scheme::Scheme;

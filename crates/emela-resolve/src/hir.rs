@@ -51,6 +51,8 @@ pub enum DefKind {
     Effect,
     /// An effect operation.
     Op,
+    /// A handler member of an effect (`handler Open(path: String): ReadFile`, `[effect.decl]`).
+    Member,
     Handler,
     Layer,
     Trait,
@@ -77,6 +79,7 @@ impl DefKind {
             DefKind::Const => "constant",
             DefKind::Effect => "effect",
             DefKind::Op => "effect operation",
+            DefKind::Member => "handler member",
             DefKind::Handler => "handler",
             DefKind::Layer => "layer",
             DefKind::Trait => "trait",
@@ -417,8 +420,17 @@ pub enum ExprKind {
 /// another); with `by`, `res` is the label and `by` the handler or effect plugged into it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithItem {
+    /// For a handler member of a capability (`fs.Open(path)`), `Res::Err`; see `cap`.
     pub res: Res,
     pub span: Span,
+    /// The name the item is bound to (`src = Files.Open(path)`, `[effect.with]`).
+    pub bind: Option<LocalId>,
+    /// For a handler member named through a label (`Audit.Open(p)`, `[effect.label]`), the label;
+    /// `res` is the member of its base.
+    pub label: Option<DefId>,
+    /// For a handler member of a capability (`fs.Open(path)`), the capability expression and the
+    /// name of the member, which type inference looks up in the capability's effect.
+    pub cap: Option<(ExprId, Label)>,
     /// The arguments written after `res` (`WorkerKv(binding: "KV")`). With `by`, they follow the
     /// label, which takes none.
     pub args: Option<SupplyArgs>,
@@ -632,6 +644,8 @@ pub struct EffectItem {
     /// Type parameters (the `S` of `effect State[S]`, spec 8.1), usable in operation signatures.
     pub type_params: Vec<TypeParam>,
     pub ops: Vec<DefId>,
+    /// The handler members (`[effect.decl]`), in declaration order.
+    pub members: Vec<DefId>,
     /// A built-in effect of the bundled sources, marked with `@intrinsic` (`Scope`, spec 11.2).
     /// Only built-in effects may have set type parameters and operation type parameters
     /// (spec 8.1).
@@ -658,6 +672,20 @@ pub struct OpItem {
     pub sig: FnSig,
 }
 
+/// A handler member of an effect (`suspend handler Open(path: String): ReadFile fails E`,
+/// `[effect.decl]`). `sig` holds the parameters of the init, its `fails` and whether it is
+/// `suspend`; it has no return type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberItem {
+    pub sig: FnSig,
+    /// The effect that the handler implements, after `:`.
+    pub effect: Res,
+    /// Its type arguments.
+    pub effect_args: Vec<TypeId>,
+    /// Where the effect is written.
+    pub effect_span: Option<Span>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerItem {
     /// The effect after `:`.
@@ -673,6 +701,11 @@ pub struct HandlerItem {
     /// `release` and its implicit `self`.
     pub release: Option<(LocalId, ExprId)>,
     pub ops: Vec<HandlerOp>,
+    /// The inner handlers (`[effect.handler]`), which implement the handler members of `effect`.
+    pub inner: Vec<DefId>,
+    /// For an inner handler, the handler member of the outer handler's effect it implements,
+    /// matched by name. `None` for a top-level handler; `Res::Err` when no member has its name.
+    pub member: Option<Res>,
 }
 
 /// Parameter types come from the effect declaration.
@@ -747,6 +780,7 @@ pub enum Item {
     Const(ConstItem),
     Effect(EffectItem),
     Op(OpItem),
+    Member(MemberItem),
     Handler(HandlerItem),
     Layer(LayerItem),
     Trait(TraitItem),
@@ -789,6 +823,9 @@ pub struct Program {
     /// The exports made by `@entry` (spec 12.8), added after name resolution by
     /// `emela_types::add_entry_exports`, which knows the entry module. Empty until then.
     pub entry_exports: Vec<EntryExport>,
+    /// Paths to a handler member named through a label (`Audit.Open` inside an init,
+    /// `[effect.label]`) → the label. The path resolves to the member of the label's base.
+    pub member_labels: ArenaMap<ExprId, DefId>,
 }
 
 /// The fn that `@entry(T)` on `f` exposes for each `@export` of `T` (spec 12.8): a top-level fn
@@ -923,6 +960,7 @@ impl Program {
             }
             ExprKind::With { handlers, body } => {
                 for item in handlers {
+                    out.extend(item.cap.as_ref().map(|(cap, _)| *cap));
                     for args in [&item.args, &item.by_init_args].into_iter().flatten() {
                         out.extend(args.args.iter().map(|a| a.value));
                     }
@@ -943,6 +981,34 @@ impl Program {
             Some(Item::Effect(e)) => &e.ops,
             _ => &[],
         }
+    }
+
+    /// The handler members of an effect (`[effect.decl]`). A label has those of its base
+    /// (`[effect.label]`).
+    pub fn effect_members(&self, effect: DefId) -> &[DefId] {
+        let effect = self.label_base(effect).unwrap_or(effect);
+        match self.item(effect) {
+            Some(Item::Effect(e)) => &e.members,
+            _ => &[],
+        }
+    }
+
+    /// The handler member of `effect` named `name`.
+    pub fn effect_member(&self, effect: DefId, name: &str) -> Option<DefId> {
+        self.effect_members(effect)
+            .iter()
+            .copied()
+            .find(|&m| self.defs[m].name == name)
+    }
+
+    /// The top-level handler that an inner handler is inside, or the handler itself.
+    pub fn outermost_handler(&self, mut handler: DefId) -> DefId {
+        while let Some(parent) = self.defs[handler].parent
+            && self.defs[parent].kind == DefKind::Handler
+        {
+            handler = parent;
+        }
+        handler
     }
 }
 

@@ -632,17 +632,22 @@ fn item_symbol(item: &ast::Item) -> Option<DocumentSymbol> {
         }
         Item::Const(c) => symbol(c.syntax(), c.name()?, SymbolKind::Const, Vec::new()),
         Item::Effect(e) => {
-            let ops = e
+            let mut ops: Vec<DocumentSymbol> = e
                 .ops()
                 .filter_map(|op| Some(symbol(op.syntax(), op.name()?, SymbolKind::Op, Vec::new())))
                 .collect();
+            // Handler members (`[effect.decl]`).
+            ops.extend(e.members().filter_map(|m| {
+                Some(symbol(
+                    m.syntax(),
+                    m.name()?,
+                    SymbolKind::Handler,
+                    Vec::new(),
+                ))
+            }));
             symbol(e.syntax(), e.name()?, SymbolKind::Effect, ops)
         }
-        Item::Handler(h) => {
-            let mut children = fields(h.field_list());
-            children.extend(methods(h.fns()));
-            symbol(h.syntax(), h.name()?, SymbolKind::Handler, children)
-        }
+        Item::Handler(h) => handler_symbol(h)?,
         Item::Layer(l) => symbol(l.syntax(), l.name()?, SymbolKind::Layer, Vec::new()),
         Item::Trait(t) => symbol(t.syntax(), t.name()?, SymbolKind::Trait, methods(t.fns())),
         Item::Impl(i) => {
@@ -662,6 +667,17 @@ fn item_symbol(item: &ast::Item) -> Option<DocumentSymbol> {
             }
         }
     })
+}
+
+/// A handler with its fields, operations and inner handlers (`[effect.handler]`).
+fn handler_symbol(h: &ast::HandlerDecl) -> Option<DocumentSymbol> {
+    let mut children = fields(h.field_list());
+    children.extend(methods(h.fns()));
+    children.extend(
+        h.inner_handlers()
+            .filter_map(|inner| handler_symbol(&inner)),
+    );
+    Some(symbol(h.syntax(), h.name()?, SymbolKind::Handler, children))
 }
 
 fn symbol(

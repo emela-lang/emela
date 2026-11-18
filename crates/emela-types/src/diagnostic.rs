@@ -200,8 +200,31 @@ pub enum DiagnosticKind {
     /// A function value's R not contained in the expected function type's R (E0403, spec 9.2).
     /// `expected` and `found` are displayed effect sets (`{ Logger, Clock }`, or `{}` if empty).
     EffectSetMismatch { expected: SmolStr, found: SmolStr },
-    /// E0404, spec 8.4. `ops` lists the missing operations in declaration order.
-    MissingHandlerOps { handler: SmolStr, ops: Vec<SmolStr> },
+    /// E0404, spec 8.4. `ops` lists the missing operations and `members` the missing handler
+    /// members (`[effect.handler]`), each in declaration order.
+    MissingHandlerOps {
+        handler: SmolStr,
+        ops: Vec<SmolStr>,
+        members: Vec<SmolStr>,
+    },
+    /// A handler member written as an item of `with` without `x =` (E0445, `[effect.with]`).
+    UnboundMemberItem { member: SmolStr, effect: SmolStr },
+    /// A handler member written as an item of a layer (E0445, `[effect.with]`).
+    MemberInLayer { member: SmolStr, layer: SmolStr },
+    /// A layer bound to a name in `with` (E0445, `[effect.with]`): it provides more than one
+    /// effect.
+    BoundLayer { layer: SmolStr },
+    /// A handler member opened outside a `with` item and an init (E0446, `[effect.use]`,
+    /// `[effect.handler]`).
+    MemberOutsideInit { member: SmolStr, effect: SmolStr },
+    /// An inner handler that does not fit the handler member it implements (E0447,
+    /// `[effect.handler]`).
+    InnerHandlerMismatch {
+        handler: SmolStr,
+        member: SmolStr,
+        effect: SmolStr,
+        reason: Box<InnerHandlerMismatch>,
+    },
     /// E0405, spec 8.4.
     DuplicateHandlerOp { op: SmolStr },
     /// A handler operation's parameter count differs from the effect's declaration (E0406,
@@ -317,6 +340,14 @@ pub enum DiagnosticKind {
     /// (E0417, spec 8.1). `op` names the implementation; `call` says why the call may suspend.
     /// Reported once per call.
     SuspendingFnOp { op: SmolStr, call: SuspendingCall },
+    /// The init or the release of an inner handler that implements a handler member without
+    /// `suspend` contains a call that may suspend, and its R is not Immediate (E0417,
+    /// `[effect.decl]`). Reported once per call.
+    SuspendingMemberPart {
+        member: SmolStr,
+        effect: SmolStr,
+        call: SuspendingCall,
+    },
     /// An effect set required to be `Immediate` contains an effect that may suspend, or a set not
     /// known to be Immediate (E0416, spec 9.5). `effects` lists the effects that may suspend
     /// (those with a suspend fn, or Async); `sets` names set type parameters without an
@@ -363,6 +394,9 @@ pub enum SuspendingCall {
     Op { effect: SmolStr, op: SmolStr },
     /// A call of an `@external suspend fn`.
     External { callee: SmolStr },
+    /// Opening a `suspend handler` member, as a call inside an init or as an item of `with`
+    /// (`[effect.decl]`).
+    Member { effect: SmolStr, member: SmolStr },
     /// A call of a function or function value whose R is not Immediate. `callee` is the name of
     /// the function or local variable called; `effects` lists the effects in R that may suspend
     /// (those with a suspend fn, or Async).
@@ -392,6 +426,19 @@ pub enum ImmediateSource {
 }
 
 /// Where the set that R must be contained in came from ([`DiagnosticKind::UnhandledEffects`]).
+/// How an inner handler does not fit its handler member (E0447).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InnerHandlerMismatch {
+    /// Its init does not take the parameters of the member (`params` as declared, displayed);
+    /// `found` is what the init takes, or `None` without an init.
+    Params {
+        params: SmolStr,
+        found: Option<SmolStr>,
+    },
+    /// It implements another effect than the member declares.
+    Effect { expected: SmolStr, found: SmolStr },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectContext {
     /// A `uses` clause written on the fn (spec 9.3).

@@ -754,3 +754,36 @@ fn op_value(db: use Db) -> fn(String) -> Int uses { Db } { db.query }
 "##
     )));
 }
+
+/// A name bound by `with` holds the handler of its item (`[effect.with]`): the capability of a
+/// handler member it opens, or of a handler it initializes, cannot leave that `with` (W0402).
+#[test]
+fn bound_items_leaving_a_with() {
+    insta::assert_snapshot!(render(&with_prelude(
+        r##"
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+}
+
+fn opened() -> use ReadFile uses { Files } {
+  with f = Files.Open("a") { f }
+}
+
+fn in_a_list() -> List[use ReadFile] uses { Files } {
+  with f = Files.Open("a"), g = Files.Open("b") { [f, g] }
+}
+
+fn initialized() -> use Db {
+  with p = PrimaryDb { p }
+}
+
+fn used_inside() -> Int uses { Files } {
+  with f = Files.Open("a") { f.read(1) }
+}
+"##
+    )));
+}

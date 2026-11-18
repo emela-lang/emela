@@ -86,6 +86,10 @@ pub struct ProgramTypes {
     /// References to capability operations (the `Field` expression of `log.info`) → the effect
     /// operation's definition.
     pub ops: ArenaMap<ExprId, DefId>,
+    /// Openings of handler members (`[effect.handler]`, `[effect.with]`) → the member: the callee
+    /// of `Files.Open(p)` or `fs.Open(p)` inside an init, and the capability expression of an item
+    /// `x = fs.Open(p)` of `with`.
+    pub members: ArenaMap<ExprId, DefId>,
     /// Method calls (the `Field` callee of `x.f(a)`, `[type.rules]`) → the fn of the module of the
     /// type of x, or the trait function, that it calls. The callee has that function's
     /// instantiated type and its `type_args` and `type_rows`, as a `Path` to it would, and the
@@ -181,6 +185,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         errors: ArenaMap::default(),
         effects: ArenaMap::default(),
         ops: ArenaMap::default(),
+        members: ArenaMap::default(),
         methods: ArenaMap::default(),
         handler_uses: ArenaMap::default(),
         handler_fails: ArenaMap::default(),
@@ -256,6 +261,9 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             .effects
             .extend(body.effects.iter().map(|(id, row)| (id, row.clone())));
         types.ops.extend(body.ops.iter().map(|(id, &op)| (id, op)));
+        types
+            .members
+            .extend(body.members.iter().map(|(id, &m)| (id, m)));
         types
             .methods
             .extend(body.methods.iter().map(|(id, &def)| (id, def)));
@@ -502,6 +510,11 @@ fn body_refs_and_methods(program: &Program, def: DefId) -> Refs {
                 .chain(item.ops.iter().filter_map(|op| op.body.as_ref()));
             for &body in bodies {
                 collect_expr_refs(program, body, &mut out);
+            }
+            // The requirements of inner handlers are the outer handler's (`[effect.handler]`).
+            if let Some(span) = program.defs[def].span {
+                out.defs
+                    .extend(item.inner.iter().map(|&inner| (inner, span)));
             }
         }
         _ => {

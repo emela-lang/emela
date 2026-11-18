@@ -1,0 +1,63 @@
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+error Missing(path: String)
+
+effect Files {
+  handler Open(path: String): ReadFile fails Missing
+}
+
+handler MemFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) {
+      _ = dbg("open #{path}")
+      if path == "missing" { fail Missing(path:) }
+      Self(path:)
+    }
+    release { _ = dbg("close #{self.path}") }
+    fn read(max) { max }
+  }
+}
+
+# The init opens two files and then fails: the files it opened are released, newest first.
+handler Pair: Files {
+  handler Open(a: use ReadFile, b: use ReadFile): ReadFile {
+    init(path: String) {
+      a = Files.Open("#{path}.a")
+      b = Files.Open("#{path}.b")
+      _ = Files.Open(path)
+      Self(a:, b:)
+    }
+    release { _ = dbg("close pair") }
+    fn read(max) { self.a.read(max) + self.b.read(max) }
+  }
+}
+
+fn main() {
+  with MemFiles {
+    # A failed init releases the items initialized before it, and not its own.
+    result = with x = Files.Open("x"), y = Files.Open("missing") {
+      x.read(1) + y.read(1)
+    } escape {
+      Missing(path:) -> {
+        _ = dbg("missing #{path}")
+        0
+      }
+    }
+    _ = dbg(result)
+    with Pair {
+      pair = with p = Files.Open("missing") { p.read(1) } escape {
+        Missing(path:) -> {
+          _ = dbg("pair missing #{path}")
+          0
+        }
+      }
+      _ = dbg(pair)
+      ok = with p = Files.Open("ok") { p.read(1) } escape {
+        Missing(_) -> 0
+      }
+      _ = dbg(ok)
+    }
+  }
+}

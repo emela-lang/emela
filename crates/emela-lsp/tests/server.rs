@@ -1343,6 +1343,60 @@ fn pick(dbs: List[use Db]) -> Option[use Db] {
     client.shutdown();
 }
 
+/// Handler members (`[effect.decl]`, `[effect.with]`): a name bound by `with` is the capability
+/// of the handler opened, `Files.Open` goes to the member's declaration, and the outline lists
+/// handler members and inner handlers.
+#[test]
+fn handler_members_in_the_editor() {
+    let src = "\
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+}
+
+handler MemFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) { Self(path:) }
+    fn read(max) { max }
+  }
+}
+
+fn count(path: String) -> Int {
+  with f = Files.Open(path) {
+    f.read(1)
+  }
+}
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    let bound = text(client.hover("/app/src/main.emel", 16, 7));
+    assert!(bound.starts_with("```emela\nf: use ReadFile"), "{bound}");
+    let member = client
+        .definition("/app/src/main.emel", 16, 18)
+        .expect("a definition");
+    assert_eq!(member.range.start, lsp::Position::new(5, 10));
+    let symbols = client
+        .document_symbols("/app/src/main.emel")
+        .expect("symbols");
+    let names = |s: &lsp::DocumentSymbol| -> Vec<String> {
+        s.children
+            .iter()
+            .flatten()
+            .map(|c| c.name.clone())
+            .collect()
+    };
+    assert_eq!(names(&symbols[1]), ["Open"]);
+    assert_eq!(names(&symbols[2]), ["Open"]);
+    client.shutdown();
+}
+
 /// Suspending operations and handlers that leave Async (spec 8.4, 8.7). Operation types get
 /// `suspend`, and handler names show their dependencies.
 #[test]

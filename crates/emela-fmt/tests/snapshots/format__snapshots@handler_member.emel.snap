@@ -1,0 +1,37 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/handler_member.emel
+---
+# Handler members (`[effect.decl]`), inner handlers (`[effect.handler]`) and bound items of `with`
+# (`[effect.with]`).
+effect Files {
+  suspend handler Open(path: String): ReadFile
+    fails FileNotFound | FileAccessDenied
+  handler Memory(): State[Int]
+}
+
+handler SystemFiles: Files {
+  handler Open(handle: Handle, path: String): ReadFile {
+    init(path: String) {
+      Self(handle: host_open(path), path:)
+    }
+    release { host_close(self.handle) }
+    suspend fn read(max, resume) { resume(host_read(self.handle, max)) }
+  }
+  handler Memory: State[Int] {
+    fn get() { 0 }
+  }
+}
+
+handler TracedFiles: Files {
+  handler Open(inner: use ReadFile): ReadFile {
+    init(path: String) { Self(inner: Files.Open(path)) }
+  }
+}
+
+fn open_in(fs: use Files, path: String) -> Int {
+  with f = fs.Open(path), g = Files.Open("b"), log = ConsoleLogger, s = Source by Plug(n: 1) {
+    count(f)
+  }
+}

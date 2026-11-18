@@ -1,0 +1,17 @@
+---
+source: crates/emela-types/tests/capture.rs
+expression: "render(&with_prelude(r##\"\neffect ReadFile {\n  fn read(max: Int) -> Int\n}\n\neffect Files {\n  handler Open(path: String): ReadFile\n}\n\nfn opened() -> use ReadFile uses { Files } {\n  with f = Files.Open(\"a\") { f }\n}\n\nfn in_a_list() -> List[use ReadFile] uses { Files } {\n  with f = Files.Open(\"a\"), g = Files.Open(\"b\") { [f, g] }\n}\n\nfn initialized() -> use Db {\n  with p = PrimaryDb { p }\n}\n\nfn used_inside() -> Int uses { Files } {\n  with f = Files.Open(\"a\") { f.read(1) }\n}\n\"##))"
+---
+opened: fn() -> use ReadFile uses { Files }
+  f: use ReadFile  holds: f (with Open)
+in_a_list: fn() -> List[use ReadFile] uses { Files }
+  f: use ReadFile  holds: f (with Open)
+  g: use ReadFile  holds: g (with Open)
+initialized: fn() -> use Db
+  p: use Db  holds: p (with PrimaryDb)
+used_inside: fn() -> Int uses { Files }
+  f: use ReadFile  holds: f (with Open)
+`f` leaves: `f` (with)
+`[f, g]` leaves: `f` (with)
+`[f, g]` leaves: `g` (with)
+`p` leaves: `p` (with)

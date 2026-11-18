@@ -1,7 +1,7 @@
 ---
 title: Suspending handler members, bound layers, handler members of labels, and capability fields
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 667
 issue: 656
 decided: 2026-11-19

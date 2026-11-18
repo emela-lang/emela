@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use emela_resolve::ModuleId;
 use emela_resolve::{DiagnosticKind, NameError};
 use emela_types::{
-    DiagnosticKind as TypeDiagnosticKind, EffectContext, ImmediateSource, SuspendingCall, Ty,
-    TyCons, TypeError, TypeErrorKind,
+    DiagnosticKind as TypeDiagnosticKind, EffectContext, ImmediateSource, InnerHandlerMismatch,
+    SuspendingCall, Ty, TyCons, TypeError, TypeErrorKind,
 };
 use la_arena::ArenaMap;
 use line_index::TextRange;
@@ -984,14 +984,100 @@ impl Diagnostic {
                 Some(code::EFFECT_SET_MISMATCH),
                 format!("effect set mismatch: expected `uses {expected}`, found `uses {found}`"),
             ),
-            TypeDiagnosticKind::MissingHandlerOps { handler, ops } => (
+            TypeDiagnosticKind::MissingHandlerOps {
+                handler,
+                ops,
+                members,
+            } => {
+                let mut missing = Vec::new();
+                if !ops.is_empty() {
+                    missing.push(quoted_list("operation", "operations", ops));
+                }
+                if !members.is_empty() {
+                    missing.push(quoted_list("handler member", "handler members", members));
+                }
+                (
+                    Severity::Error,
+                    Some(code::MISSING_HANDLER_OPS),
+                    format!(
+                        "handler `{handler}` does not implement {}",
+                        missing.join(" or ")
+                    ),
+                )
+            }
+            TypeDiagnosticKind::UnboundMemberItem { member, effect } => {
+                help = Some(format!("bind it to a name: `x = {effect}.{member}(...)`"));
+                (
+                    Severity::Error,
+                    Some(code::MEMBER_ITEM_FORM),
+                    format!("handler member `{member}` must be bound to a name in `with`"),
+                )
+            }
+            TypeDiagnosticKind::MemberInLayer { member, layer } => (
                 Severity::Error,
-                Some(code::MISSING_HANDLER_OPS),
+                Some(code::MEMBER_ITEM_FORM),
+                format!("handler member `{member}` cannot be an item of layer `{layer}`"),
+            ),
+            TypeDiagnosticKind::BoundLayer { layer } => (
+                Severity::Error,
+                Some(code::MEMBER_ITEM_FORM),
                 format!(
-                    "handler `{handler}` does not implement {}",
-                    quoted_list("operation", "operations", ops)
+                    "layer `{layer}` cannot be bound to a name: it provides more than one effect"
                 ),
             ),
+            TypeDiagnosticKind::MemberOutsideInit { member, effect } => {
+                help = Some(format!(
+                    "open it as an item of `with`: `with x = {effect}.{member}(...) {{ ... }}`"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::MEMBER_OUTSIDE_INIT),
+                    format!(
+                        "handler member `{member}` can only be opened in `with` or called in an `init`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::InnerHandlerMismatch {
+                handler,
+                member,
+                effect,
+                reason,
+            } => {
+                let message = match reason.as_ref() {
+                    InnerHandlerMismatch::Params { params, found } => {
+                        help = Some(format!("write `init{params} {{ ... }}`"));
+                        match found {
+                            Some(found) => format!(
+                                "the init of `{handler}` takes `{found}`, but handler member `{member}` of `{effect}` takes `{params}`"
+                            ),
+                            None => format!(
+                                "`{handler}` has no init, but handler member `{member}` of `{effect}` takes `{params}`"
+                            ),
+                        }
+                    }
+                    InnerHandlerMismatch::Effect { expected, found } => format!(
+                        "`{handler}` implements `{found}`, but handler member `{member}` of `{effect}` is `{expected}`"
+                    ),
+                };
+                (Severity::Error, Some(code::INNER_HANDLER_MISMATCH), message)
+            }
+            TypeDiagnosticKind::SuspendingMemberPart {
+                member,
+                effect,
+                call,
+            } => {
+                help = Some(format!(
+                    "declare `{member}` as a `suspend handler` in the effect"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::SUSPENDING_FN_OP),
+                    format!(
+                        "{}, but handler member `{member}` of `{effect}` is not a `suspend handler`",
+                        suspending_cause(call)
+                    ),
+                )
+            }
             TypeDiagnosticKind::DuplicateHandlerOp { op } => (
                 Severity::Error,
                 Some(code::DUPLICATE_HANDLER_OP),
@@ -1296,6 +1382,10 @@ impl Diagnostic {
                         help = Some(declare);
                         format!("external function `{callee}` may suspend")
                     }
+                    SuspendingCall::Member { .. } => {
+                        help = Some(declare);
+                        suspending_cause(call)
+                    }
                     SuspendingCall::Fn { callee, effects } => {
                         // Going through a function counts as possibly suspending even if it only
                         // calls fn operations (spec 8.1). With only Async, calling the operation
@@ -1548,5 +1638,27 @@ fn joined(items: &[String], word: &str) -> String {
         [] => String::new(),
         [one] => one.clone(),
         [init @ .., last] => format!("{} {word} {last}", init.join(", ")),
+    }
+}
+
+/// Why a call may suspend, for E0417 (spec 8.1).
+fn suspending_cause(call: &SuspendingCall) -> String {
+    match call {
+        SuspendingCall::Op { effect, op } => {
+            format!("operation `{op}` of `{effect}` is a `suspend fn` and may suspend")
+        }
+        SuspendingCall::External { callee } => format!("external function `{callee}` may suspend"),
+        SuspendingCall::Member { effect, member } => {
+            format!(
+                "handler member `{member}` of `{effect}` is a `suspend handler` and may suspend"
+            )
+        }
+        SuspendingCall::Fn { callee, effects } => {
+            let list = quoted_list("effect", "effects", effects);
+            match callee {
+                Some(f) => format!("calling `{f}` may suspend because it uses {list}"),
+                None => format!("this call may suspend because it uses {list}"),
+            }
+        }
     }
 }

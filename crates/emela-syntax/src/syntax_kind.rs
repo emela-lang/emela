@@ -221,6 +221,11 @@ pub enum SyntaxKind {
     OP_SIG,
     /// The base of a label (an effect declared `of` another). `of Console default`
     EFFECT_LABEL,
+    /// A handler member of an effect (`[effect.decl]`).
+    /// `suspend handler Open(path: String): ReadFile fails FileNotFound`
+    ///
+    /// The effect after `:` is a HANDLER_EFFECT, as in a handler declaration.
+    MEMBER_SIG,
     /// `handler PostgresUsers(conn: Connection): Users { ... }`
     ///
     /// The `:` is a direct child, as in `trait Ord: Eq`, so the formatter puts no space before it.
@@ -382,6 +387,11 @@ pub enum SyntaxKind {
     /// A handler with the arguments of its init, as an item of `with` or `layer` or the right
     /// of `by`. `WorkerKv(binding: "KV")`. Without arguments, the item is a bare PATH.
     SUPPLY,
+    /// An item of `with` bound to a name (`[effect.with]`). `src = Files.Open("in.txt")`
+    WITH_BIND,
+    /// A handler member of a capability as an item of `with` (`[effect.with]`), before the
+    /// arguments. `fs.Open`
+    CAP_MEMBER,
     /// `find(id) escape { NotFound(_) -> guest() }`
     ESCAPE_EXPR,
     /// `|n| n + 1`
@@ -505,6 +515,7 @@ impl SyntaxKind {
                 | Self::CONST_DECL
                 | Self::EFFECT_DECL
                 | Self::OP_SIG
+                | Self::MEMBER_SIG
                 | Self::HANDLER_DECL
                 | Self::HANDLER_INIT
                 | Self::HANDLER_RELEASE

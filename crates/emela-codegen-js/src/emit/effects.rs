@@ -231,7 +231,9 @@ impl Emitter<'_> {
             self.line("} catch ($e) {");
             self.line(&format!("  throw {merge}({thrown}, $e, {handler});"));
             self.line("} finally {");
-            if let Some(name) = name {
+            if r.mark
+                && let Some(name) = name
+            {
                 let retire = self.rt("$retire");
                 self.line(&format!("  {retire}({name}, {handler});"));
             }

@@ -1,0 +1,6 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"effect ReadFile {\n  fn read(max: Int) -> Int\n}\n\neffect Files {\n  handler Open(path: String): ReadFile\n}\n\nfn f() -> Int {\n  with x = Files.Opn(\"a\") { x.read(1) }\n}\n\nfn g() -> Int {\n  with x = Files.Open(\"a\") { 0 }\n  x\n}\n\"##,)])"
+---
+error src/main.emel@138..141 `Opn`: `Files` has no `Opn` (did you mean `Open`?)
+error src/main.emel@215..216 `x`: undefined value `x` (did you mean `g`?)

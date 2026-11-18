@@ -6,8 +6,8 @@
 //! values.
 
 use emela_resolve::hir::{
-    DefId, DefKind, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, LocalKind, Param, Program,
-    Res, TypeId, TypeKind, TypeParam,
+    DefId, DefKind, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, LocalKind, MemberItem, Param,
+    Program, Res, TypeId, TypeKind, TypeParam,
 };
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
@@ -129,6 +129,10 @@ impl Signatures {
                 Some(Item::Op(item)) => {
                     let effect = program.defs[def].parent;
                     Some(op_signature(program, ty_table, effect, &item.sig, diags))
+                }
+                Some(Item::Member(item)) => {
+                    let effect = program.defs[def].parent;
+                    Some(member_signature(program, ty_table, effect, item, diags))
                 }
                 Some(Item::Effect(item)) => {
                     check_effect_params(program, ty_table, def, diags);
@@ -607,6 +611,52 @@ fn op_signature(
         scheme: Scheme::new(ty_params, Ty::func_fails(params, ret, fails)),
         labels: param_labels(program, &sig.params),
     }
+}
+
+/// The type of opening a handler member (`[effect.decl]`, `[type.rules]`): a function from the
+/// parameters of the init to the capability of the handler opened, with the member's `fails`
+/// as its E and the effect that declares the member as its R. The scheme's parameters are the
+/// effect's type parameters, as for an operation. Opening through a capability (`c.Open(p)`)
+/// replaces the R with the capability.
+fn member_signature(
+    program: &Program,
+    ty_table: &TyTable,
+    effect: Option<DefId>,
+    item: &MemberItem,
+    diags: &mut Vec<Diagnostic>,
+) -> Signature {
+    let mut sig = op_signature(program, ty_table, effect, &item.sig, diags);
+    let defs: Vec<DefId> = effect
+        .map(|e| effect_params(program, e).iter().map(|tp| tp.def).collect())
+        .unwrap_or_default();
+    let kinds = vec![ParamKind::Type; defs.len()];
+    let scope = Scope {
+        params: &defs,
+        kinds: &kinds,
+        omitted: Omitted::Empty,
+        sets: false,
+        self_ty: None,
+    };
+    let provided = match item.effect {
+        Res::Def(f) => ty_table.effect_tag(
+            program,
+            &scope,
+            f,
+            &item.effect_args,
+            item.effect_span,
+            None,
+            diags,
+        ),
+        _ => None,
+    };
+    if let Ty::Fn(f) = &mut sig.scheme.ty {
+        f.ret = provided.map_or(Ty::Error, Ty::Cap);
+        if let Some(e) = effect {
+            let args = (0..defs.len()).map(|i| Ty::Bound(i as u32)).collect();
+            f.uses = Row::of_tag(Tag::with_args(e, args));
+        }
+    }
+    sig
 }
 
 /// A built-in effect applied to its own type parameters (`Scope[E, R]` as `Bound(0)`,

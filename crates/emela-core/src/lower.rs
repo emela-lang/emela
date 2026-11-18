@@ -39,6 +39,7 @@ mod builtin_impls;
 mod derive_std;
 mod fiber;
 mod local_fn;
+mod member;
 mod suspend;
 
 use fiber::{AttemptCall, ForkCall, PermitsCall, QueueCall, ScopeCall};
@@ -162,6 +163,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         effects: FxHashMap::default(),
         handler_parts: FxHashMap::default(),
         ev: None,
+        opened_cell: None,
         bound: Vec::new(),
         paths: &input.paths,
         shown_paths: &input.shown_paths,
@@ -328,6 +330,9 @@ struct Lowerer<'a> {
     /// or lambda with a non-empty R, or a table extended by `with`. `None` outside functions and
     /// in functions whose R is empty.
     ev: Option<Local>,
+    /// Inside the init of a handler that opens handler members, the cell that keeps the release of
+    /// what it opened, and whether that may suspend (`lower/member.rs`).
+    opened_cell: Option<(Local, bool)>,
     /// Effects and handler values provided by enclosing `with`s, outermost first. Only `with`s in
     /// the same function (a top-level fn or a handler operation), carried into lambdas. `use X`
     /// searches from the back (spec 8.3).
@@ -619,7 +624,16 @@ impl<'a> Lowerer<'a> {
         let bool_def = self.hir.prelude_def("Bool");
         let option_def = self.hir.prelude_def("Option");
         for (_, items) in self.hir.modules.iter() {
-            for &def in &items.items {
+            // Inner handlers (`[effect.handler]`) are not items of the module.
+            let mut defs = items.items.clone();
+            let mut k = 0;
+            while k < defs.len() {
+                if let Some(Item::Handler(h)) = self.hir.item(defs[k]) {
+                    defs.extend(h.inner.iter().copied());
+                }
+                k += 1;
+            }
+            for def in defs {
                 match self.hir.item(def) {
                     // Bool is a builtin type in the IR (`TypeId::BOOL`).
                     Some(Item::Type(_) | Item::Enum(_)) if Some(def) == bool_def => {}
@@ -1406,13 +1420,22 @@ impl<'a> Lowerer<'a> {
             op_args = self.module.effects[base_id].args.clone();
             owner = base.def;
         }
-        let ops = self
+        let mut ops: Vec<OpDef> = self
             .hir
             .effect_ops(def)
             .to_vec()
             .into_iter()
             .map(|op| self.op_def(owner, op, &op_args))
             .collect();
+        // Handler members follow the operations (`lower/member.rs`).
+        let members = self.hir.effect_members(def).to_vec();
+        if !members.is_empty() {
+            let base = types.sigs.base_of(&key.tag).clone();
+            for m in members {
+                let op = self.member_def(m, &base, key.ctx);
+                ops.push(op);
+            }
+        }
         self.module.effects[id].ops = ops;
         id
     }
@@ -1727,6 +1750,20 @@ impl<'a> Lowerer<'a> {
                 suspends,
             });
         }
+        // Handler members are implemented by the inner handlers (`lower/member.rs`).
+        for &inner in &h.inner {
+            let Some(Res::Def(member)) = hir.item(inner).and_then(|i| match i {
+                Item::Handler(i) => i.member,
+                _ => None,
+            }) else {
+                continue;
+            };
+            let Some(index) = self.member_index(effect, member) else {
+                continue;
+            };
+            let op = self.module.effects[effect_id].ops[index].clone();
+            ops[index] = Some(self.member_impl(inner, &op));
+        }
         if ops.iter().any(Option::is_none) {
             // Missing operations have already been reported by the type checker (E0404).
             return (
@@ -1764,9 +1801,27 @@ impl<'a> Lowerer<'a> {
         // is its constructor's value if it has one (`ConsoleLogger`), otherwise `()`. init takes
         // its own parameters (`[effect.handler]`) before the table.
         let mut params: Vec<Local> = h.init_params.iter().map(|p| self.local(p.local)).collect();
+        // An init that opens handler members takes the cell that keeps their release
+        // (`lower/member.rs`).
+        let opens = self.init_opens(def);
+        let cell = opens.map(|s| {
+            let ty = self.opened_cell_ty(s);
+            (self.module.local("opened", ty), s)
+        });
+        params.extend(cell.map(|(c, _)| c));
         params.extend(ev_param(self));
+        self.opened_cell = cell;
         let body = match (h.init, h.ctor.and_then(|c| self.ctors.get(c).copied())) {
-            (Some(body), _) => self.expr(body),
+            (Some(body), _) => {
+                let body = self.expr(body);
+                match cell {
+                    Some((c, s)) => {
+                        let name = self.hir.defs[def].name.to_string();
+                        self.guard_init(body, state_ty, c, s, &name)
+                    }
+                    None => body,
+                }
+            }
             (None, Some(ctor)) => Expr::Ctor {
                 ctor,
                 ty_args: Vec::new(),
@@ -1774,6 +1829,7 @@ impl<'a> Lowerer<'a> {
             },
             (None, None) => Expr::Lit(Lit::Unit),
         };
+        self.opened_cell = None;
         self.module.define(init, params, state_ty, body);
 
         if let (Some(f), Some((self_local, body))) = (release, h.release) {
@@ -1818,11 +1874,16 @@ impl<'a> Lowerer<'a> {
             unreachable!("a handler definition");
         };
         let name = self.ir_name(def);
+        // The init and the release of an inner handler of a handler member without `suspend` do
+        // not suspend (E0417, `[effect.decl]`).
+        let plain = member::implements_plain_member(self.hir, h);
         let suspends = |cx: &Self, body: ExprId| {
-            cx.types
-                .effects
-                .get(body)
-                .is_some_and(|r| r.effect_tags().any(|t| !cx.is_immediate_effect(t.def)))
+            !plain
+                && cx
+                    .types
+                    .effects
+                    .get(body)
+                    .is_some_and(|r| r.effect_tags().any(|t| !cx.is_immediate_effect(t.def)))
         };
         let init = self.module.declare(&format!("{name}$init"), false);
         self.module.functions[init].suspends = h.init.is_some_and(|b| suspends(self, b));
@@ -1882,10 +1943,14 @@ impl<'a> Lowerer<'a> {
                         return self.unsupported("this kind of handler", span);
                     }
                 }
-                Supplier::Effect(_) => {}
+                Supplier::Effect(_) | Supplier::Member { .. } => {}
             }
             hs.push((bind.supplier.clone(), own));
         }
+        // Whether each provider provides its effect by name; an item that opens a handler member,
+        // or a bound item a later one overrides, is reached only through its name
+        // (`[effect.with]`).
+        let named: Vec<bool> = info.binds.iter().map(|b| b.named).collect();
         // Labels declared `default`, provided by the provider of their base (issue #255).
         let defaults: Vec<(EffectKey, usize)> = info
             .defaults
@@ -1915,11 +1980,68 @@ impl<'a> Lowerer<'a> {
             let handler_ty = self.module.handler(handler_ty);
             let h = match supplier {
                 Supplier::Handler(h) => *h,
+                // Opening a handler member (`lower/member.rs`): the pair of the handler value and
+                // its release, then the handler value bound with that release.
+                Supplier::Member {
+                    member, provider, ..
+                } => {
+                    let earlier: Vec<(EffectKey, Local)> = hs[..i]
+                        .iter()
+                        .zip(&locals)
+                        .zip(&named)
+                        .filter(|(_, n)| **n)
+                        .map(|(((_, k), &l), _)| (k.clone(), l))
+                        .collect();
+                    let Some((value, effect, index)) =
+                        self.member_provider(*member, provider, &earlier)
+                    else {
+                        return self.unsupported("handler member without a provider", span);
+                    };
+                    let op = self.module.effects[effect].ops[index].clone();
+                    let args = self.init_args(id, info.binds[i].args, &written_args);
+                    let pair = self.module.local("opened", op.ret);
+                    binds.push(WithBind::new(
+                        pair,
+                        Expr::Call {
+                            callee: Callee::Op {
+                                handler: Box::new(value),
+                                effect,
+                                op: index,
+                                ty_args: Vec::new(),
+                            },
+                            args,
+                            fails: op.fails,
+                            suspends: op.suspend,
+                        },
+                    ));
+                    let (h_ty, release_ty) = match self.module.ty(op.ret) {
+                        Type::Tuple(elems) => (elems[0], elems[1]),
+                        _ => unreachable!("a member's operation returns a pair"),
+                    };
+                    let l = self.module.local("h", h_ty);
+                    locals.push(l);
+                    let release = Expr::Call {
+                        callee: Callee::Indirect(Box::new(member::tuple_get(
+                            pair,
+                            1,
+                            2,
+                            release_ty,
+                            &mut self.module,
+                        ))),
+                        args: Vec::new(),
+                        fails: false,
+                        suspends: op.suspend,
+                    };
+                    let value = member::tuple_get(pair, 0, 2, h_ty, &mut self.module);
+                    binds.push(WithBind::managed(l, value, &op.name, release));
+                    continue;
+                }
                 // The provider of an effect already in scope: a handler in the same `with`
                 // initialized earlier, or the one the outer table holds (issue #255).
                 Supplier::Effect(tag) => {
                     let key = self.tag_key(tag, None);
-                    let value = match hs[..i].iter().position(|(_, e)| *e == key) {
+                    let found = (0..i).find(|&j| named[j] && hs[j].1 == key);
+                    let value = match found {
                         Some(j) => Expr::Var(locals[j]),
                         None => match self.lookup_effect(&key) {
                             Some(e) => e,
@@ -1950,7 +2072,7 @@ impl<'a> Lowerer<'a> {
                 let bindings: Vec<(EffectId, Expr)> = keys
                     .into_iter()
                     .filter_map(|y| {
-                        let j = hs[..i].iter().position(|(_, e)| *e == y)?;
+                        let j = (0..i).find(|&j| named[j] && hs[j].1 == y)?;
                         Some((self.effect_id(&y), Expr::Var(locals[j])))
                     })
                     .collect();
@@ -1995,6 +2117,17 @@ impl<'a> Lowerer<'a> {
                 .get(h)
                 .is_some_and(|r| !r.is_empty());
             let mut init_args = self.init_args(id, info.binds[i].args, &written_args);
+            // An init that opens handler members keeps their release in a cell; they are released
+            // after the handler's release (`lower/member.rs`).
+            let cell = self.init_opens(h).map(|s| {
+                let ty = self.opened_cell_ty(s);
+                (self.module.local("opened", ty), s)
+            });
+            if let Some((c, s)) = cell {
+                let value = self.new_opened_cell(s);
+                binds.push(WithBind::new(c, value));
+                init_args.push(Expr::Var(c));
+            }
             init_args.extend(ctx.clone());
             binds.push(WithBind::new(
                 state,
@@ -2005,10 +2138,14 @@ impl<'a> Lowerer<'a> {
                     .chain(ctx.clone())
                     .collect::<Vec<_>>()
             };
-            let release = match release {
+            let mut release = match release {
                 Some(r) => direct_marked(&self.module, r, with_state(&ctx), false),
                 None => Expr::Lit(Lit::Unit),
             };
+            if let Some((c, s)) = cell {
+                let name = hir.defs[h].name.to_string();
+                release = self.then_release_opened(release, c, s, &name);
+            }
             binds.push(WithBind::managed(
                 l,
                 direct(f, with_state(&ctx), false),
@@ -2016,9 +2153,17 @@ impl<'a> Lowerer<'a> {
                 release,
             ));
         }
+        // A name bound to an item is the handler value of that item (`[effect.with]`).
+        for (b, &l) in info.binds.iter().zip(&locals) {
+            if let ArgsSource::Item(origin) = b.args
+                && let Some(local) = items.get(origin).and_then(|item| item.bind)
+            {
+                self.locals.insert(local, l);
+            }
+        }
         let ctx = self.ev_local();
         let depth = self.bound.len();
-        for ((_, effect), &l) in hs.iter().zip(&locals) {
+        for (((_, effect), &l), _) in hs.iter().zip(&locals).zip(&named).filter(|(_, n)| **n) {
             self.bound.push((effect.clone(), l));
         }
         for (label, i) in &defaults {
@@ -2034,7 +2179,9 @@ impl<'a> Lowerer<'a> {
             let bindings = hs
                 .iter()
                 .zip(&locals)
-                .map(|((_, effect), &l)| (effect, l))
+                .zip(&named)
+                .filter(|(_, n)| **n)
+                .map(|(((_, effect), &l), _)| (effect, l))
                 .chain(defaults.iter().map(|(label, i)| (label, locals[*i])))
                 .map(|(effect, l)| (self.effect_id(effect), Expr::Var(l)))
                 .collect();
@@ -2572,7 +2719,14 @@ impl<'a> Lowerer<'a> {
             }
             t => (t, None),
         };
-        let call = named::in_written_order(&mut self.module, args, |args| target.apply(args));
+        let opened = match (&target, self.member_callee(callee)) {
+            (Target::Op { effect, op, .. }, Some(_)) => Some((*effect, *op)),
+            _ => None,
+        };
+        let mut call = named::in_written_order(&mut self.module, args, |args| target.apply(args));
+        if let Some((effect, index)) = opened {
+            call = self.open_in_init(call, effect, index);
+        }
         match binding {
             Some((var, value)) => Expr::Let {
                 var,
@@ -2637,6 +2791,36 @@ impl<'a> Lowerer<'a> {
             && let Some(lifted) = self.lifted(res)
         {
             return Ok(self.lifted_target(&lifted));
+        }
+        // Opening a handler member inside an init (`Files.Open(p)`, `fs.Open(p)`): the
+        // operation that opens it (`lower/member.rs`).
+        if let Some(member) = self.member_callee(callee) {
+            let provider = match &hir.exprs[callee].kind {
+                ExprKind::Field { base, .. } => emela_types::MemberProvider::Cap(*base),
+                _ => match self.expr_ty(callee) {
+                    Ty::Fn(f) => match f.uses.tags().next() {
+                        Some(tag) => emela_types::MemberProvider::Effect(tag.clone()),
+                        None => return Err(self.unsupported("handler member", span)),
+                    },
+                    _ => return Err(self.unsupported("handler member", span)),
+                },
+            };
+            let Some((handler, effect, index)) = self.member_provider(member, &provider, &[])
+            else {
+                return Err(self.unsupported("handler member without a provider", span));
+            };
+            let op = &self.module.effects[effect].ops[index];
+            let call = Call {
+                fails: op.fails,
+                suspends: op.suspend,
+            };
+            return Ok(Target::Op {
+                handler,
+                effect,
+                op: index,
+                ty_args: Vec::new(),
+                call,
+            });
         }
         let ev = self
             .ty_takes_ev(self.expr_ty(callee))
@@ -3420,6 +3604,16 @@ impl<'a> Lowerer<'a> {
                     }
                     None => data.name.to_string(),
                 }
+            }
+            // An inner handler is named after its outer handler (`SystemFiles.Open`).
+            DefKind::Handler => {
+                let mut name = data.name.to_string();
+                let mut parent = data.parent;
+                while let Some(p) = parent {
+                    name = format!("{}.{name}", hir.defs[p].name);
+                    parent = hir.defs[p].parent;
+                }
+                name
             }
             _ => data.name.to_string(),
         };

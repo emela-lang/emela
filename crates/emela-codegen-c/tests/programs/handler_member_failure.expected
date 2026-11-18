@@ -1,0 +1,23 @@
+exit: 0
+--- stdout
+--- stderr
+"open x"
+"open missing"
+"close x"
+"missing missing"
+0
+"open missing.a"
+"open missing.b"
+"open missing"
+"close missing.b"
+"close missing.a"
+"pair missing missing"
+0
+"open ok.a"
+"open ok.b"
+"open ok"
+"close pair"
+"close ok"
+"close ok.b"
+"close ok.a"
+2

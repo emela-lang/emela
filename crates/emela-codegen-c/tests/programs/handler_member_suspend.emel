@@ -1,0 +1,76 @@
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Tick {
+  suspend fn tick(label: String) -> ()
+}
+
+effect Files {
+  suspend handler Open(path: String): ReadFile
+}
+
+handler Ticks: Tick {
+  suspend fn tick(label, resume) {
+    _ = dbg("tick #{label}")
+    resume(())
+  }
+}
+
+# Its init and release call a suspend fn operation, so the member is a `suspend handler`.
+handler SlowFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) {
+      (use Tick).tick("open #{path}")
+      Self(path:)
+    }
+    release { (use Tick).tick("close #{self.path}") }
+    fn read(max) { max * 2 }
+  }
+}
+
+fn count(f: use ReadFile) -> Int { f.read(1) }
+
+effect Stream {
+  suspend fn next() -> Int
+}
+
+effect Streams {
+  suspend handler Open(n: Int): Stream
+}
+
+handler Base: Streams {
+  handler Open(n: Int): Stream {
+    init(n: Int) {
+      (use Tick).tick("open stream #{n}")
+      Self(n:)
+    }
+    suspend fn next(resume) {
+      (use Tick).tick("next #{self.n}")
+      resume(self.n)
+    }
+  }
+}
+
+# The inner handler suspends through the capability in its field.
+handler Wrap: Streams {
+  handler Open(inner: use Stream): Stream {
+    init(n: Int) { Self(inner: Streams.Open(n + 1)) }
+    suspend fn next(resume) { resume(self.inner.next() * 10) }
+  }
+}
+
+fn main() {
+  with Ticks, SlowFiles {
+    with a = Files.Open("a"), b = Files.Open("b") {
+      _ = dbg(count(a) + count(b))
+    }
+  }
+  with Ticks, Base {
+    with Wrap {
+      with s = Streams.Open(1) {
+        _ = dbg(s.next())
+      }
+    }
+  }
+}

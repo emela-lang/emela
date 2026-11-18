@@ -1056,6 +1056,52 @@ fn main() {
 }
 "#,
     ),
+    // `[effect.with]`, `[effect.handler]`: handler members opened by `with` and inside an init,
+    // released in reverse order, those opened by an init after the handler that opened them.
+    (
+        "handler_members",
+        r#"
+effect Counter {
+  fn next() -> Int
+}
+
+effect Counters {
+  handler Open(start: Int): Counter
+}
+
+handler Plain: Counters {
+  handler Open(start: Int): Counter {
+    init(start: Int) {
+      dbg("open #{start}")
+      Self(start:)
+    }
+    release { dbg("close #{self.start}") }
+    fn next() { self.start + 1 }
+  }
+}
+
+handler Doubled: Counters {
+  handler Open(inner: use Counter): Counter {
+    init(start: Int) { Self(inner: Counters.Open(start * 2)) }
+    release { dbg("close doubled") }
+    fn next() { self.inner.next() * 2 }
+  }
+}
+
+fn twice(c: use Counter) -> Int { c.next() + c.next() }
+
+fn main() {
+  with Plain {
+    with a = Counters.Open(1), b = Counters.Open(10) {
+      dbg(twice(a) + twice(b))
+    }
+    with Doubled {
+      with d = Counters.Open(3) { dbg(twice(d)) }
+    }
+  }
+}
+"#,
+    ),
 ];
 
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops

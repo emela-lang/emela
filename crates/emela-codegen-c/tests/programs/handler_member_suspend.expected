@@ -1,0 +1,11 @@
+exit: 0
+--- stdout
+--- stderr
+"tick open a"
+"tick open b"
+4
+"tick close b"
+"tick close a"
+"tick open stream 2"
+"tick next 2"
+20

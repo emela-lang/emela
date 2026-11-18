@@ -1588,3 +1588,82 @@ fn f[A](a: use Int, b: use A, c: use PrimaryDb, d: use Missing) { () }
 "##,
     )]));
 }
+
+/// Handler members of an effect (`[effect.decl]`), inner handlers that implement them
+/// (`[effect.handler]`), and the items of `with` that open them and bind names
+/// (`[effect.with]`): `Files.Open` names the handler member, `fs.Open` keeps the capability for
+/// type inference, and a bound name is in scope in the body only.
+#[test]
+fn handler_members() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  suspend handler Open(path: String): ReadFile
+  fn count() -> Int
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler ConsoleLogger: Logger {
+  fn info(msg) { () }
+}
+
+handler SystemFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) { Self(path:) }
+    fn read(max) { max }
+  }
+
+  fn count() { 0 }
+}
+
+handler TracedFiles: Files {
+  handler Open(inner: use ReadFile): ReadFile {
+    init(path: String) { Self(inner: Files.Open(path)) }
+    fn read(max) { self.inner.read(max) }
+  }
+
+  fn count() { 0 }
+}
+
+fn open_in(fs: use Files, path: String) -> Int {
+  with f = fs.Open(path), g = Files.Open("b"), log = ConsoleLogger {
+    log.info(path)
+    f.read(g.read(1))
+  }
+}
+"##,
+    )]));
+}
+
+/// A name that is not a handler member after an effect, and an inner handler named by its name
+/// outside its init.
+#[test]
+fn handler_member_names() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+}
+
+fn f() -> Int {
+  with x = Files.Opn("a") { x.read(1) }
+}
+
+fn g() -> Int {
+  with x = Files.Open("a") { 0 }
+  x
+}
+"##,
+    )]));
+}

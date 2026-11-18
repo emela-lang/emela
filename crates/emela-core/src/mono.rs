@@ -280,6 +280,7 @@ impl<'a> Mono<'a> {
 
     /// Defines copies and derived impl functions until none is left.
     fn run(&mut self) {
+        self.map_enum_fields();
         loop {
             if let Some(spec) = self.worklist.pop_front() {
                 self.define(spec);
@@ -292,6 +293,24 @@ impl<'a> Mono<'a> {
     }
 
     // ---- Step 1: types ----
+
+    /// The enums are copied as they are, but the effects are numbered anew in the output
+    /// ([`Mono::effect`]), so a capability field (`handler ReadFile`, `[effect.handler]`) is
+    /// mapped to the output's effect. Type parameters of the enum stay.
+    fn map_enum_fields(&mut self) {
+        let ids: Vec<EnumId> = self.out.enums.iter().map(|(id, _)| id).collect();
+        for id in ids {
+            for v in 0..self.out.enums[id].variants.len() {
+                let tys = self.out.enums[id].variants[v].tys.clone();
+                if !tys.iter().any(|&t| self.has_handler(t)) {
+                    continue;
+                }
+                let tys = tys.iter().map(|&t| self.ty(t)).collect();
+                self.out.enums[id].variants[v].tys = tys;
+            }
+        }
+        self.memo.clear();
+    }
 
     /// `ty` of the old module with the current copy's type arguments substituted.
     fn ty(&mut self, ty: TypeId) -> TypeId {
@@ -1245,6 +1264,7 @@ impl<'a> Mono<'a> {
                             release: b.release.as_ref().map(|r| Release {
                                 handler: r.handler.clone(),
                                 body: self.expr(&r.body),
+                                mark: r.mark,
                             }),
                         }
                     })

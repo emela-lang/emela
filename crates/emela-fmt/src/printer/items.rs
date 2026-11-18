@@ -208,7 +208,9 @@ impl Printer {
 
     fn item(&mut self, node: &SyntaxNode) -> Doc {
         match node.kind() {
-            FN_DECL | OP_SIG | HANDLER_INIT | HANDLER_RELEASE => self.decl_seq(node),
+            FN_DECL | OP_SIG | MEMBER_SIG | HANDLER_DECL | HANDLER_INIT | HANDLER_RELEASE => {
+                self.decl_seq(node)
+            }
             _ => self.node(node),
         }
     }

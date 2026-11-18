@@ -696,7 +696,7 @@ impl Context<'_> {
             DefKind::Enum => CompletionKind::Enum,
             DefKind::Error => CompletionKind::Error,
             DefKind::Effect => CompletionKind::Effect,
-            DefKind::Handler => CompletionKind::Handler,
+            DefKind::Handler | DefKind::Member => CompletionKind::Handler,
             DefKind::Layer => CompletionKind::Layer,
             DefKind::Trait => CompletionKind::Trait,
             DefKind::Op | DefKind::TraitFn => CompletionKind::Method,

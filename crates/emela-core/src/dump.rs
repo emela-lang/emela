@@ -539,7 +539,8 @@ impl Printer<'_> {
                     write!(self.out, "let {} = ", self.binder(b.var)).unwrap();
                     self.expr(&b.value);
                     if let Some(r) = &b.release {
-                        write!(self.out, " release {} ", r.handler).unwrap();
+                        let kind = if r.mark { "release" } else { "cleanup" };
+                        write!(self.out, " {kind} {} ", r.handler).unwrap();
                         self.braced(&r.body);
                     }
                 }

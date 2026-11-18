@@ -211,12 +211,24 @@ fn arm(p: &mut Parser<'_>) {
 }
 
 /// `"with" with_item { "," with_item } block`,
-/// `with_item = supply [ "by" by_right ]`,
+/// `with_item = [ lower_name "=" ] supply [ "by" by_right ]`,
 /// `by_right = type_ref [ "[" type { "," type } "]" | "(" [ args ] ")" ]`
+///
+/// An item bound to a name (`src = Files.Open("in.txt")`, `[effect.with]`) is wrapped in a
+/// WITH_BIND that holds the name, `=` and the item. A handler member of a capability
+/// (`fs.Open(path)`) is a SUPPLY whose first child is a CAP_MEMBER instead of a PATH.
 fn with_expr(p: &mut Parser<'_>) {
     p.bump_kind(WITH_KW);
     loop {
-        if p.at(TYPE_NAME) {
+        let bind = (p.at(LOWER_NAME) && p.nth(1) == EQ).then(|| {
+            let m = p.start();
+            p.bump();
+            p.bump();
+            m
+        });
+        if p.at(LOWER_NAME) && p.nth(1) == DOT {
+            cap_member_supply(p);
+        } else if p.at(TYPE_NAME) {
             let target = supply(p);
             // `AuditLog by HandlerA` plugs a provider into a label.
             if p.at_contextual_kw("by") {
@@ -233,11 +245,32 @@ fn with_expr(p: &mut Parser<'_>) {
         } else {
             p.expect(TYPE_NAME);
         }
+        if let Some(m) = bind {
+            m.complete(p, WITH_BIND);
+        }
         if !p.eat(COMMA) {
             break;
         }
     }
     block_or_error(p);
+}
+
+/// `lower_name "." type_name "(" [ args ] ")"`: a handler member of a capability as an item of
+/// `with` (`[grammar.expr]`). The arguments are required; without them, the error is reported
+/// and the item is still a SUPPLY.
+fn cap_member_supply(p: &mut Parser<'_>) {
+    let m = p.start();
+    let c = p.start();
+    p.bump_kind(LOWER_NAME);
+    p.bump_kind(DOT);
+    p.expect(TYPE_NAME);
+    c.complete(p, CAP_MEMBER);
+    if p.at(L_PAREN) {
+        arg_list(p);
+    } else {
+        p.expect(L_PAREN);
+    }
+    m.complete(p, SUPPLY);
 }
 
 /// `supply = type_ref [ "(" [ args ] ")" ]`: a handler, a layer or a label, with the arguments
@@ -349,7 +382,13 @@ fn postfix_ops(p: &mut Parser<'_>, mut lhs: CompletedMarker) -> CompletedMarker 
             DOT => {
                 let m = lhs.precede(p);
                 p.bump();
-                p.expect(LOWER_NAME);
+                // `fs.Open(path)` opens a handler member of a capability inside an init
+                // (`[grammar.expr]`). Where it can be written is checked by type inference.
+                if p.at(TYPE_NAME) {
+                    p.bump();
+                } else {
+                    p.expect(LOWER_NAME);
+                }
                 lhs = m.complete(p, FIELD_EXPR);
             }
             _ => return lhs,
