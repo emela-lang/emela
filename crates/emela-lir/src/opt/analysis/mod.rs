@@ -20,8 +20,10 @@
 //! # Status
 //!
 //! B0/PR-002 fixes the API. The escape analysis (`escape`) and its parameter summary are
-//! implemented (B3/PR-022); [`liveness`], [`borrow`] and [`ownership`] still return `Unknown`
-//! until B4/PR-023 and B6/PR-024. The existing `crate::opt::escape::escaping` is the same
+//! implemented (B3/PR-022), liveness (B4/PR-023) from `Stage::DefectsExplicit` on, and the borrow
+//! and ownership facts (B6/PR-024). Borrow facts need no liveness and answer at every stage;
+//! ownership facts use liveness and the borrow facts, so they are `Unknown` before
+//! `Stage::DefectsExplicit`. The existing `crate::opt::escape::escaping` is the same
 //! implementation behind the façade SRA calls.
 
 use std::any::Any;
@@ -186,15 +188,54 @@ mod tests {
         assert_eq!(fact.known(), None);
     }
 
-    /// The escape analysis answers for a well-formed module; the other stubs are conservative.
+    /// Each analysis answers where it is defined; liveness and ownership are conservative before
+    /// the Heap IR stage, and an empty module still has borrow facts.
     #[test]
-    fn the_unimplemented_stub_analyses_are_unknown() {
+    fn the_analyses_answer_where_they_are_defined() {
         let m = module();
         assert!(escape::analyze(&m).is_known());
         assert!(escape::parameter_summary(&m).is_known());
-        assert!(liveness::analyze(&m).is_unknown());
-        assert!(borrow::analyze(&m).is_unknown());
-        assert!(ownership::analyze(&m).is_unknown());
+        assert!(
+            liveness::analyze(&m).is_unknown(),
+            "liveness is defined from DefectsExplicit on"
+        );
+        assert!(borrow::analyze(&m).is_known());
+        assert!(
+            ownership::analyze(&m).is_unknown(),
+            "ownership needs liveness"
+        );
+    }
+
+    /// Borrow and ownership answer on a well-formed Heap IR module and are conservative on a
+    /// module whose call graph does not resolve.
+    #[test]
+    fn borrow_and_ownership_are_unknown_only_on_a_malformed_module() {
+        use crate::{Const, FnBuilder, Stage, Stmt, Term, Value};
+
+        let core = emela_core::Module::new();
+        let mut b = FnBuilder::new(&core, "f");
+        b.set_ret(emela_core::TypeId::INT);
+        let x = b.var("x", emela_core::TypeId::INT);
+        b.stmt(Stmt::Let {
+            dst: Some(x),
+            value: Value::Const(Const::Int(1)),
+            on_defect: None,
+            on_suspend: None,
+        });
+        b.term(Term::Return(Some(x.into())));
+        let f = b.finish();
+
+        let mut well_formed = Module::new(core);
+        well_formed.add(f);
+        well_formed.stage = Stage::RefCounted;
+        assert!(borrow::analyze(&well_formed).is_known());
+        assert!(ownership::analyze(&well_formed).is_known());
+
+        let mut malformed = Module::new(emela_core::Module::new());
+        malformed.declare("declared_but_never_defined");
+        malformed.stage = Stage::RefCounted;
+        assert!(borrow::analyze(&malformed).is_unknown());
+        assert!(ownership::analyze(&malformed).is_unknown());
     }
 
     /// A cached fact is returned until it is invalidated on its own.
