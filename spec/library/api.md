@@ -534,11 +534,10 @@ fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console,
 ```
 
 ```emel
-import Std.Platform.{Platform}
-import Std.Process.{Stdout}
+import Std.Process.{Process, Stdout}
 
 fn main() {
-  with Platform {
+  with Process {
     (use Stdout).print("Hello, ")
     (use Stdout).print_line("alice!")
   }
