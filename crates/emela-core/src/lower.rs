@@ -3918,6 +3918,7 @@ impl<'a> Lowerer<'a> {
             ("Option", "or") => Some(CoreFn::OptionOr),
             ("List", "fold") => Some(CoreFn::ListFold),
             ("List", "map") => Some(CoreFn::ListMap),
+            ("List", "filter") => Some(CoreFn::ListFilter),
             ("List", "range") => Some(CoreFn::ListRange),
             ("List", "reverse") => Some(CoreFn::ListReverse),
             // The other collection functions of the core `List` module.

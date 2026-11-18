@@ -1,4 +1,6 @@
-//! Range fusion laws: the `List.range` that `List.fold` and `List.map` consume.
+//! Fusion laws over `List`: the range laws and the pipeline laws.
+//!
+//! # Range fusion
 //!
 //! `List.fold(List.range(lo, hi), init, f)` becomes a loop over an integer counter, and
 //! `List.map(List.range(lo, hi), f)` builds the result list directly (in reverse) and reverses it
@@ -14,12 +16,36 @@
 //! the closure ([`inlined_step`]). That is the common shape of a fused loop, and it is what lets
 //! the rest of the pipeline look inside the loop's step.
 //!
-//! These are the bodies of the registry entries [`LawId::RangeFold`], [`LawId::RangeMapArray`]
-//! and [`LawId::RangeMap`], in that registry order; the registry's flags, order and budget are in
-//! [`super`], and the contract text of each law is beside its entry in [`super::law`].
+//! # Pipeline fusion
+//!
+//! The three pipeline laws compose the function of one list traversal with the function of the
+//! traversal that consumes its list, so the intermediate list is never built:
+//!
+//! - `List.map(List.map(xs, f), g)` becomes `List.map(xs, λx. g(f x))` ([`map_map`]);
+//! - `List.fold(List.map(xs, f), init, g)` becomes `List.fold(xs, init, λa, x. g(a, f x))`
+//!   ([`fold_map`]);
+//! - `List.map(List.filter(xs, p), f)` becomes
+//!   `List.reverse(List.fold(xs, [], λacc, x. if p(x) { [f(x), ..acc] } else { acc }))`
+//!   ([`filter_map`]).
+//!
+//! The composition is by call, not by copying a body: `g(f x)` is called in the same order as the
+//! two traversals would call the two functions for one element. The change from two traversals to
+//! one is unobservable when the functions are [`quiet`] (no effect, failure or suspension: their
+//! call order would otherwise be observable) and when at most one of the evaluations the fusion
+//! reorders is [`restless`] (may reach a defect or not terminate, which would let it overtake the
+//! other). They must also be a lambda literal or a reference to a top-level function ([`Step`]):
+//! the body of any other function value is unknown, so it deopts.
+//!
+//! # Registry entries
+//!
+//! These are the bodies of the registry entries [`LawId::MapMap`], [`LawId::FoldMap`],
+//! [`LawId::FilterMap`], [`LawId::RangeFold`], [`LawId::RangeMapArray`] and [`LawId::RangeMap`], in
+//! that registry order; the registry's flags, order and budget are in [`super`], and the contract
+//! text of each law is beside its entry in [`super::law`].
 
 use crate::intrinsics::Builtin;
 use crate::ir::{BinOp, Callee, Expr, FnId, Lit, Local, Module, OpTy, Type, TypeId};
+use crate::opt::analysis::effect::{self, EffectSummaries, EffectSummary};
 use crate::opt::{CoreFn, CoreFns, PassStats, each_body};
 
 use super::law::LawRun;
@@ -546,4 +572,610 @@ fn increment(i: Local) -> Expr {
         lhs: Box::new(Expr::Var(i)),
         rhs: Box::new(Expr::Lit(Lit::Int(1))),
     }
+}
+
+// ---- The pipeline laws: map∘map, fold∘map and filter∘map (D3/PR-030) ----
+
+/// The most nodes a composed lambda may add over the two function expressions it composes.
+///
+/// The composition is by call, so its size is constant: a parameter, the calls and their callees,
+/// plus (for `filter_map`) the test and the cons. The largest composition (`filter_map`) is well
+/// below this bound, so the per-site budget documents the shape instead of declining a real site;
+/// the budget that can fire is [`MAX_COMPOSED_PER_BODY`].
+const COMPOSE_OVERHEAD: usize = 20;
+
+/// The most composed lambdas one function body may gain from one pipeline law in one sweep.
+///
+/// A composition adds a lambda and, when a function value is a literal, a `let`. The cap bounds how
+/// much one function body can grow in one sweep, so a chain of pipelines cannot multiply the code
+/// without limit. It is above what a hand-written function needs; only the budget test reaches it.
+const MAX_COMPOSED_PER_BODY: u32 = 16;
+
+/// Rewrites `List.map(List.map(xs, f), g)` to `List.map(xs, λx. g(f x))`.
+///
+/// Preconditions: the callee is the bundled core `List.map` ([`CoreFn::ListMap`]) with its four type
+/// arguments and three arguments (`xs`, `f`, `ev`), and its `xs` argument is a direct call of the
+/// same function in the same shape; neither call fails or suspends. `f` and `g` are a lambda
+/// literal or a reference to a top-level function ([`Step`]), their instantiated types are pure, and
+/// their bodies are [`quiet`]; at most one of them may be [`restless`].
+/// Postconditions: the result is `List.map`'s list with each element replaced by `g(f(x))`, in the
+/// order of `xs`. `f` and `g` are called once per element, `f` before `g`; no intermediate list is
+/// made. The fused call keeps the outer call's type arguments for the result and its evidence
+/// argument, and takes the element type from the inner call.
+/// Preserves: evaluation order, effects, failures, suspension points and drop points. `f` and `g`
+/// are proved effect-free, so calling them per element instead of in two traversals is not
+/// observable; evaluating `xs` and the function values keeps its relative order.
+/// Deopt: any other shape (a user's `map`, an indirect call); a function value that is neither a
+/// lambda literal nor a reference to a top-level function; an effect, failure or suspension in `f`
+/// or `g`; a site over the code-size budget.
+/// Measures: the map pipelines of the benchmarks (the intermediate list's cons cells).
+pub(super) fn map_map(m: &mut Module, core_fns: &CoreFns) -> LawRun {
+    let run = compose_all(m, core_fns, fuse_map_map);
+    LawRun {
+        applied: run.applied,
+        stats: PassStats {
+            map_map: run.applied,
+            deopt: run.deopt,
+            ..PassStats::default()
+        },
+    }
+}
+
+/// Rewrites `List.fold(List.map(xs, f), init, g)` to `List.fold(xs, init, λa, x. g(a, f x))`.
+///
+/// Preconditions: the callee is the bundled core `List.fold` ([`CoreFn::ListFold`]) with its four
+/// type arguments and four arguments (`xs`, `from`, `f`, `ev`), and its `xs` argument is a direct
+/// call of the core `List.map` in the shape above; neither call fails or suspends. `f` and `g` are a
+/// lambda literal or a reference to a top-level function, their instantiated types are pure, and
+/// their bodies may neither use an effect nor fail nor suspend.
+/// Postconditions: the result is the last accumulator of folding `g(acc, f(x))` over `xs`, or
+/// `init` when `xs` is empty. `f` and `g` are called once per element, `f` before `g`, in the order
+/// of `xs`; no intermediate list is made. The fold keeps its accumulator type, its type arguments
+/// and its evidence argument.
+/// Preserves: evaluation order, effects, failures, suspension points and drop points, for the
+/// reason in [`map_map`]. `xs`, `init` and the function values are evaluated once, before the fold.
+/// Deopt: the same refusals as [`map_map`], with `List.fold` as the outer call.
+/// Measures: the fold pipelines of the benchmarks (the intermediate list's cons cells).
+pub(super) fn fold_map(m: &mut Module, core_fns: &CoreFns) -> LawRun {
+    let run = compose_all(m, core_fns, fuse_fold_map);
+    LawRun {
+        applied: run.applied,
+        stats: PassStats {
+            fold_map: run.applied,
+            deopt: run.deopt,
+            ..PassStats::default()
+        },
+    }
+}
+
+/// Rewrites `List.map(List.filter(xs, p), f)` to one fold that tests and maps each element.
+///
+/// The equation is
+/// `List.map(List.filter(xs, p), f)` →
+/// `List.reverse(List.fold(xs, [], λacc, x. if p(x) { [f(x), ..acc] } else { acc }))`.
+/// It is the shape the library's own `filter` and `map` build (each is a fold into a reversed list
+/// and one `List.reverse`), so the fusion makes the two traversals one and drops the two lists the
+/// filter would build.
+///
+/// Preconditions: the callee is the bundled core `List.map` ([`CoreFn::ListMap`]) with its four type
+/// arguments and three arguments, and its `xs` argument is a direct call of the bundled core
+/// `List.filter` ([`CoreFn::ListFilter`]) with its three type arguments and three arguments; neither
+/// call fails or suspends. `p` and `f` are a lambda literal or a reference to a top-level function,
+/// their instantiated types are pure, and their bodies may neither use an effect nor fail nor
+/// suspend. The module has a non-suspending `List.fold` and a `List.reverse`.
+/// Postconditions: the result is the list of `f(x)` for each element `x` of `xs` for which `p(x)`
+/// holds, in the order of `xs`. For each element `p` is called first, and `f` only when `p` holds.
+/// The fold builds the result in reverse and the `List.reverse` puts it in order.
+/// Preserves: evaluation order, effects, failures, suspension points and drop points, for the reason
+/// in [`map_map`]. `xs` and the function values are evaluated once, before the fold.
+/// Deopt: any other shape (a user's `filter` or `map`, an indirect call); a function value that is
+/// neither a lambda literal nor a reference to a top-level function; an effect, failure or
+/// suspension in `p` or `f`; a module with only a suspending `List.fold` or no `List.reverse`; a
+/// site over the code-size budget.
+/// Measures: the filter-then-map pipelines of the benchmarks (one of the two intermediate lists and
+/// one of the two reverse passes).
+pub(super) fn filter_map(m: &mut Module, core_fns: &CoreFns) -> LawRun {
+    let run = compose_all(m, core_fns, fuse_filter_map);
+    LawRun {
+        applied: run.applied,
+        stats: PassStats {
+            filter_map: run.applied,
+            deopt: run.deopt,
+            ..PassStats::default()
+        },
+    }
+}
+
+/// What a law did at one site.
+enum Outcome {
+    /// The fused expression that replaces the site.
+    Rewritten(Expr),
+    /// The site is the law's shape, but a precondition or the budget refused it.
+    Declined,
+}
+
+/// The sites one law rewrote and declined in one body or in the whole module.
+#[derive(Default, Clone, Copy)]
+struct Tally {
+    applied: u32,
+    deopt: u32,
+}
+
+/// The body of a pipeline law: the per-site transform.
+type FuseFn = fn(&mut Module, &Expr, &CoreFns, &EffectSummaries) -> Option<Outcome>;
+
+/// Runs one pipeline law over every function body, with the effect summaries of the module.
+///
+/// The summaries are computed once, before any rewrite. A rewrite only ever adds calls of functions
+/// the law proved effect-free, so the summaries of the module's functions cannot become less
+/// conservative while the law runs: using the table of the start of the sweep is sound for every
+/// site, including a site in a function an earlier site rewrote.
+///
+/// The budget is [`MAX_COMPOSED_PER_BODY`] compositions per function body: [`each_body`] calls the
+/// closure once per body, so the count starts again at each.
+fn compose_all(m: &mut Module, core_fns: &CoreFns, fuse: FuseFn) -> Tally {
+    let summaries = effect::of_module(m);
+    let mut total = Tally::default();
+    each_body(m, &mut |m, e| {
+        let mut body = Tally::default();
+        compose(m, e, core_fns, &summaries, fuse, &mut body);
+        total.applied += body.applied;
+        total.deopt += body.deopt;
+    });
+    total
+}
+
+fn compose(
+    m: &mut Module,
+    e: &mut Expr,
+    core_fns: &CoreFns,
+    summaries: &EffectSummaries,
+    fuse: FuseFn,
+    tally: &mut Tally,
+) {
+    match fuse(m, e, core_fns, summaries) {
+        None => {}
+        Some(Outcome::Declined) => tally.deopt += 1,
+        Some(Outcome::Rewritten(fused)) => {
+            if tally.applied >= MAX_COMPOSED_PER_BODY {
+                // The budget of this body is spent. The locals and clones the composition made are
+                // unused; a deopt is not a rewrite, so the sweep does not repeat it.
+                tally.deopt += 1;
+            } else {
+                *e = fused;
+                tally.applied += 1;
+            }
+        }
+    }
+    // Recurse into the replacement too, so a chain `map(map(map(…)))` is composed in one run and a
+    // second run changes nothing.
+    crate::tail::for_each_child_mut(e, &mut |c| compose(m, c, core_fns, summaries, fuse, tally));
+}
+
+/// A function value a pipeline law can call: a reference to a top-level function, or a lambda
+/// literal bound to a local.
+///
+/// A reference stays a direct call, which the later passes can see through. A lambda literal is
+/// bound to a local with a `let` before the fused call, so it is made once, as it was, and the
+/// composed lambda captures it. Any other expression (a parameter, a field, a call) is not this
+/// shape: its body and its effects are unknown, so the law deopts.
+enum Step {
+    /// A direct call of `f`, with the instantiation the value had.
+    Direct { f: FnId, ty_args: Vec<TypeId> },
+    /// An indirect call through the local holding the lambda.
+    Indirect(Local),
+}
+
+impl Step {
+    /// The call `self(args)`, which neither fails nor suspends: both function types were checked to
+    /// be pure.
+    fn call(&self, args: Vec<Expr>) -> Expr {
+        let callee = match self {
+            Self::Direct { f, ty_args } => Callee::Direct {
+                f: *f,
+                ty_args: ty_args.clone(),
+            },
+            Self::Indirect(local) => Callee::Indirect(Box::new(Expr::Var(*local))),
+        };
+        Expr::Call {
+            callee,
+            args,
+            fails: false,
+            suspends: false,
+        }
+    }
+}
+
+/// The [`Step`] of the function value `e`, binding a lambda literal to a fresh local (in
+/// `bindings`, in evaluation order) and leaving a top-level function as a direct call.
+fn step(m: &mut Module, e: &Expr, bindings: &mut Vec<(Local, Expr)>) -> Option<Step> {
+    match e {
+        Expr::Fn { f, ty_args } => Some(Step::Direct {
+            f: *f,
+            ty_args: ty_args.clone(),
+        }),
+        Expr::Lambda { ty, .. } => {
+            let local = m.local("f", *ty);
+            bindings.push((local, e.clone()));
+            Some(Step::Indirect(local))
+        }
+        _ => None,
+    }
+}
+
+/// What calling the function value `e` may do, or `None` when its body is not visible.
+///
+/// A lambda is summarised by its body; a top-level function by its summary in `summaries`. Any
+/// other expression (a parameter, a field, a call) is not known, and its caller deopts.
+fn function_summary(m: &Module, e: &Expr, summaries: &EffectSummaries) -> Option<EffectSummary> {
+    match e {
+        Expr::Lambda { body, .. } => Some(effect::of_expr_in(m, body, summaries)),
+        Expr::Fn { f, .. } => Some(summaries.get(f).copied().unwrap_or_default()),
+        _ => None,
+    }
+}
+
+/// Whether calling the function may use an effect, fail or suspend.
+///
+/// These are the facts whose *order* the fusion would change: `f` and `g` are called in two
+/// traversals before and interleaved after, and `dbg` counts as an effect here even though the
+/// builtin table calls it pure ([`crate::intrinsics`]), because it writes to stderr.
+fn quiet(summary: EffectSummary) -> bool {
+    !summary.may_use_effect && !summary.may_fail && !summary.may_suspend
+}
+
+/// Whether evaluating the function may stop the program at a defect or by not terminating.
+///
+/// Such a stop makes the position of the other evaluations observable: if both `f` and `g` may
+/// stop, the fusion can change which one stops first (the original runs every `f` before the first
+/// `g`, the fused form runs them per element). When at most one of the reordered evaluations may
+/// stop, the calls of that one keep their order, so the first stop is the same.
+fn restless(summary: EffectSummary) -> bool {
+    summary.may_defect || summary.may_diverge
+}
+
+/// Whether evaluating `e` has no effect, so that dropping its evaluation is unobservable.
+///
+/// The three laws drop the *inner* call and with it the evidence argument the call passed. Lowering
+/// makes that argument a local or `()` ([`crate::lower`]'s evidence argument); the check keeps the
+/// "nothing observable is removed" claim true even if a later pass ever builds another expression
+/// there.
+fn is_value(e: &Expr) -> bool {
+    matches!(
+        e,
+        Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } | Expr::Lambda { .. }
+    )
+}
+
+/// Whether the instantiated function type `ty` is pure and exact: a call to it cannot fail,
+/// suspend or need an evidence table, and its E and R are not open set parameters.
+fn pure_step(m: &Module, ty: TypeId) -> bool {
+    matches!(
+        m.ty(ty),
+        Type::Fn(f) if !f.fails && !f.suspends && !f.ev && f.sets.is_none()
+    )
+}
+
+/// `body` wrapped in the `let`s of `bindings`, in order.
+fn with_lets(bindings: &[(Local, Expr)], body: Expr) -> Expr {
+    bindings
+        .iter()
+        .rev()
+        .fold(body, |body, (var, value)| Expr::Let {
+            var: *var,
+            value: Box::new(value.clone()),
+            body: Box::new(body),
+        })
+}
+
+/// The number of expression nodes in `e`, as the budget measures it.
+fn nodes(e: &Expr) -> usize {
+    let mut count = 1;
+    e.for_each_child(&mut |c| count += nodes(c));
+    count
+}
+
+/// The IR function of a bundled core function `kind`: the smallest ID, which is the original copy
+/// rather than a `$suspend` one.
+///
+/// A `List.fold` that is only in the module as a suspending copy is not a `List.fold` this law can
+/// call with `suspends` false, so it is not returned.
+fn core_fn(m: &Module, core_fns: &CoreFns, kind: CoreFn) -> Option<FnId> {
+    core_fns
+        .iter()
+        .filter(|(_, k)| **k == kind)
+        .map(|(&id, _)| id)
+        .filter(|&id| !m.functions[id].suspends)
+        .min()
+}
+
+/// A direct call of a bundled core function, as the call part of a pipeline law's shape.
+struct CoreCall<'a> {
+    f: &'a FnId,
+    ty_args: &'a [TypeId],
+    args: &'a [Expr],
+    fails: bool,
+    suspends: bool,
+}
+
+/// The parts of `e` when it is a direct call of the core function `kind` with `type_args` type
+/// arguments and `args` arguments.
+fn core_call<'a>(
+    e: &'a Expr,
+    core_fns: &CoreFns,
+    kind: CoreFn,
+    type_args: usize,
+    args: usize,
+) -> Option<CoreCall<'a>> {
+    let Expr::Call {
+        callee: Callee::Direct { f, ty_args },
+        args: call_args,
+        fails,
+        suspends,
+    } = e
+    else {
+        return None;
+    };
+    if core_fns.get(f) != Some(&kind) || ty_args.len() != type_args || call_args.len() != args {
+        return None;
+    }
+    Some(CoreCall {
+        f,
+        ty_args,
+        args: call_args,
+        fails: *fails,
+        suspends: *suspends,
+    })
+}
+
+fn fuse_map_map(
+    m: &mut Module,
+    e: &Expr,
+    core_fns: &CoreFns,
+    summaries: &EffectSummaries,
+) -> Option<Outcome> {
+    let outer = core_call(e, core_fns, CoreFn::ListMap, 4, 3)?;
+    let inner = core_call(&outer.args[0], core_fns, CoreFn::ListMap, 4, 3)?;
+    // From here on the site is this law's shape: a refusal is a deopt, not a miss.
+    if outer.fails || outer.suspends || inner.fails || inner.suspends || !is_value(&inner.args[2]) {
+        return Some(Outcome::Declined);
+    }
+    let (a, b) = (inner.ty_args[0], outer.ty_args[1]);
+    if inner.ty_args[1] != outer.ty_args[0] {
+        return Some(Outcome::Declined);
+    }
+    let fused_ty = vec![a, b, outer.ty_args[2], outer.ty_args[3]];
+    let step_ty = param_type(m, *outer.f, 1, &fused_ty);
+    if !pure_step(m, step_ty) {
+        return Some(Outcome::Declined);
+    }
+    let (f_value, g_value) = (&inner.args[1], &outer.args[1]);
+    let (Some(f_summary), Some(g_summary)) = (
+        function_summary(m, f_value, summaries),
+        function_summary(m, g_value, summaries),
+    ) else {
+        return Some(Outcome::Declined);
+    };
+    if !quiet(f_summary) || !quiet(g_summary) || (restless(f_summary) && restless(g_summary)) {
+        return Some(Outcome::Declined);
+    }
+    let mut bindings = Vec::new();
+    let (Some(f_step), Some(g_step)) = (
+        step(m, f_value, &mut bindings),
+        step(m, g_value, &mut bindings),
+    ) else {
+        return Some(Outcome::Declined);
+    };
+    let Type::Fn(ft) = m.ty(step_ty) else {
+        return Some(Outcome::Declined);
+    };
+    if ft.params != [a] || ft.ret != b {
+        return Some(Outcome::Declined);
+    }
+    let x = m.local("x", a);
+    let body = g_step.call(vec![f_step.call(vec![Expr::Var(x)])]);
+    let lambda = Expr::Lambda {
+        params: vec![x],
+        ty: step_ty,
+        body: Box::new(body),
+        suspends: false,
+    };
+    if nodes(&lambda) > nodes(f_value) + nodes(g_value) + COMPOSE_OVERHEAD {
+        return Some(Outcome::Declined);
+    }
+    let call = Expr::Call {
+        callee: Callee::Direct {
+            f: *outer.f,
+            ty_args: fused_ty,
+        },
+        args: vec![inner.args[0].clone(), lambda, outer.args[2].clone()],
+        fails: false,
+        suspends: false,
+    };
+    Some(Outcome::Rewritten(with_lets(&bindings, call)))
+}
+
+fn fuse_fold_map(
+    m: &mut Module,
+    e: &Expr,
+    core_fns: &CoreFns,
+    summaries: &EffectSummaries,
+) -> Option<Outcome> {
+    let outer = core_call(e, core_fns, CoreFn::ListFold, 4, 4)?;
+    let inner = core_call(&outer.args[0], core_fns, CoreFn::ListMap, 4, 3)?;
+    if outer.fails || outer.suspends || inner.fails || inner.suspends || !is_value(&inner.args[2]) {
+        return Some(Outcome::Declined);
+    }
+    let (a, b) = (inner.ty_args[0], outer.ty_args[1]);
+    if inner.ty_args[1] != outer.ty_args[0] {
+        return Some(Outcome::Declined);
+    }
+    let fused_ty = vec![a, b, outer.ty_args[2], outer.ty_args[3]];
+    let step_ty = param_type(m, *outer.f, 2, &fused_ty);
+    if !pure_step(m, step_ty) {
+        return Some(Outcome::Declined);
+    }
+    let (f_value, g_value) = (&inner.args[1], &outer.args[2]);
+    let (Some(f_summary), Some(g_summary)) = (
+        function_summary(m, f_value, summaries),
+        function_summary(m, g_value, summaries),
+    ) else {
+        return Some(Outcome::Declined);
+    };
+    // The map's calls and `init` swap places: the original evaluates `init` after the whole map.
+    // Letting one of the three stop the program is enough to keep the first stop the same; two
+    // would let a defect or a divergence of one overtake the other.
+    let moving = u32::from(restless(f_summary))
+        + u32::from(restless(g_summary))
+        + u32::from(!effect::of_expr_in(m, &outer.args[1], summaries).is_pure());
+    if !quiet(f_summary) || !quiet(g_summary) || moving > 1 {
+        return Some(Outcome::Declined);
+    }
+    let mut bindings = Vec::new();
+    let (Some(f_step), Some(g_step)) = (
+        step(m, f_value, &mut bindings),
+        step(m, g_value, &mut bindings),
+    ) else {
+        return Some(Outcome::Declined);
+    };
+    let Type::Fn(ft) = m.ty(step_ty) else {
+        return Some(Outcome::Declined);
+    };
+    if ft.params != [b, a] || ft.ret != b {
+        return Some(Outcome::Declined);
+    }
+    let acc = m.local("acc", b);
+    let x = m.local("x", a);
+    let body = g_step.call(vec![Expr::Var(acc), f_step.call(vec![Expr::Var(x)])]);
+    let lambda = Expr::Lambda {
+        params: vec![acc, x],
+        ty: step_ty,
+        body: Box::new(body),
+        suspends: false,
+    };
+    if nodes(&lambda) > nodes(f_value) + nodes(g_value) + COMPOSE_OVERHEAD {
+        return Some(Outcome::Declined);
+    }
+    let call = Expr::Call {
+        callee: Callee::Direct {
+            f: *outer.f,
+            ty_args: fused_ty,
+        },
+        args: vec![
+            inner.args[0].clone(),
+            outer.args[1].clone(),
+            lambda,
+            outer.args[3].clone(),
+        ],
+        fails: false,
+        suspends: false,
+    };
+    Some(Outcome::Rewritten(with_lets(&bindings, call)))
+}
+
+fn fuse_filter_map(
+    m: &mut Module,
+    e: &Expr,
+    core_fns: &CoreFns,
+    summaries: &EffectSummaries,
+) -> Option<Outcome> {
+    let outer = core_call(e, core_fns, CoreFn::ListMap, 4, 3)?;
+    let filter = core_call(&outer.args[0], core_fns, CoreFn::ListFilter, 3, 3)?;
+    if outer.fails
+        || outer.suspends
+        || filter.fails
+        || filter.suspends
+        || !is_value(&filter.args[2])
+    {
+        return Some(Outcome::Declined);
+    }
+    let a = filter.ty_args[0];
+    let r = outer.ty_args[1];
+    if outer.ty_args[0] != a {
+        return Some(Outcome::Declined);
+    }
+    let Some(fold) = core_fn(m, core_fns, CoreFn::ListFold) else {
+        return Some(Outcome::Declined);
+    };
+    let Some(reverse) = core_fn(m, core_fns, CoreFn::ListReverse) else {
+        return Some(Outcome::Declined);
+    };
+    let list_r = m.list(r);
+    let fold_ty = vec![a, list_r, outer.ty_args[2], outer.ty_args[3]];
+    let step_ty = param_type(m, fold, 2, &fold_ty);
+    if !pure_step(m, step_ty) {
+        return Some(Outcome::Declined);
+    }
+    let (p_value, f_value) = (&filter.args[1], &outer.args[1]);
+    let (Some(p_summary), Some(f_summary)) = (
+        function_summary(m, p_value, summaries),
+        function_summary(m, f_value, summaries),
+    ) else {
+        return Some(Outcome::Declined);
+    };
+    if !quiet(p_summary) || !quiet(f_summary) || (restless(p_summary) && restless(f_summary)) {
+        return Some(Outcome::Declined);
+    }
+    let mut bindings = Vec::new();
+    let (Some(p_step), Some(f_step)) = (
+        step(m, p_value, &mut bindings),
+        step(m, f_value, &mut bindings),
+    ) else {
+        return Some(Outcome::Declined);
+    };
+    let Type::Fn(ft) = m.ty(step_ty) else {
+        return Some(Outcome::Declined);
+    };
+    if ft.params != [list_r, a] || ft.ret != list_r {
+        return Some(Outcome::Declined);
+    }
+    let acc = m.local("acc", list_r);
+    let x = m.local("x", a);
+    let keep = Expr::List {
+        elem: r,
+        elems: vec![f_step.call(vec![Expr::Var(x)])],
+        tail: Some(Box::new(Expr::Var(acc))),
+    };
+    let body = Expr::If {
+        cond: Box::new(p_step.call(vec![Expr::Var(x)])),
+        then: Box::new(keep),
+        else_: Box::new(Expr::Var(acc)),
+    };
+    let lambda = Expr::Lambda {
+        params: vec![acc, x],
+        ty: step_ty,
+        body: Box::new(body),
+        suspends: false,
+    };
+    if nodes(&lambda) > nodes(p_value) + nodes(f_value) + COMPOSE_OVERHEAD {
+        return Some(Outcome::Declined);
+    }
+    let fold_call = Expr::Call {
+        callee: Callee::Direct {
+            f: fold,
+            ty_args: fold_ty,
+        },
+        args: vec![
+            filter.args[0].clone(),
+            Expr::List {
+                elem: r,
+                elems: Vec::new(),
+                tail: None,
+            },
+            lambda,
+            outer.args[2].clone(),
+        ],
+        fails: false,
+        suspends: false,
+    };
+    let reverse_call = Expr::Call {
+        callee: Callee::Direct {
+            f: reverse,
+            ty_args: vec![r],
+        },
+        args: vec![fold_call],
+        fails: false,
+        suspends: false,
+    };
+    Some(Outcome::Rewritten(with_lets(&bindings, reverse_call)))
 }

@@ -1,4 +1,4 @@
-//! Tests for the implemented fusion laws (D1–D2, D6).
+//! Tests for the implemented fusion laws (D1–D3, D5, D6).
 //!
 //! Each case is one law with the two sides of its equation written by hand: the left-hand side
 //! (the call or match the law matches) and, where the source language can write it, the right-hand
@@ -112,6 +112,39 @@ const RANGE_MAP_ARRAY_INPUT: &str =
 const RANGE_MAP_ARRAY_EXPANDED: &str =
     include_str!("../../emela-driver/tests/programs/opt/array_map_range_expanded.emel");
 
+/// `List.map(List.map(xs, f), g)`, the left-hand side of `map_map`.
+///
+/// This is the driver's mutation pair `map_map_fused.emel` / `map_map_expanded.emel`.
+const MAP_MAP_INPUT: &str =
+    include_str!("../../emela-driver/tests/programs/opt/map_map_fused.emel");
+
+/// The hand-written expansion of [`MAP_MAP_INPUT`]: one pass calling `g(f(x))` per element, with no
+/// intermediate list.
+const MAP_MAP_EXPANDED: &str =
+    include_str!("../../emela-driver/tests/programs/opt/map_map_expanded.emel");
+
+/// `List.fold(List.map(xs, f), init, g)`, the left-hand side of `fold_map`.
+///
+/// This is the driver's mutation pair `fold_map_fused.emel` / `fold_map_expanded.emel`.
+const FOLD_MAP_INPUT: &str =
+    include_str!("../../emela-driver/tests/programs/opt/fold_map_fused.emel");
+
+/// The hand-written expansion of [`FOLD_MAP_INPUT`]: one fold of the composed step, with no mapped
+/// list.
+const FOLD_MAP_EXPANDED: &str =
+    include_str!("../../emela-driver/tests/programs/opt/fold_map_expanded.emel");
+
+/// `List.map(List.filter(xs, p), f)`, the left-hand side of `filter_map`.
+///
+/// This is the driver's mutation pair `filter_map_fused.emel` / `filter_map_expanded.emel`.
+const FILTER_MAP_INPUT: &str =
+    include_str!("../../emela-driver/tests/programs/opt/filter_map_fused.emel");
+
+/// The hand-written expansion of [`FILTER_MAP_INPUT`]: one pass that tests each element and appends
+/// the mapped value, with no filtered list.
+const FILTER_MAP_EXPANDED: &str =
+    include_str!("../../emela-driver/tests/programs/opt/filter_map_expanded.emel");
+
 /// One law and the two sides of its equation, written by hand.
 struct Case {
     /// The law under test.
@@ -128,7 +161,7 @@ struct Case {
 }
 
 /// The cases, one per implemented law, in pipeline order.
-const CASES: [Case; 5] = [
+const CASES: [Case; 8] = [
     Case {
         id: LawId::OptionOr,
         input: OPTION_OR_INPUT,
@@ -142,6 +175,27 @@ const CASES: [Case; 5] = [
         entry: "get_or",
         fused: &["@$Array.load_unchecked", "@Std.Array.size"],
         expansion: None,
+    },
+    Case {
+        id: LawId::MapMap,
+        input: MAP_MAP_INPUT,
+        entry: "pipeline",
+        fused: &["fn(", "twice("],
+        expansion: Some(MAP_MAP_EXPANDED),
+    },
+    Case {
+        id: LawId::FoldMap,
+        input: FOLD_MAP_INPUT,
+        entry: "total",
+        fused: &["fn(", "add("],
+        expansion: Some(FOLD_MAP_EXPANDED),
+    },
+    Case {
+        id: LawId::FilterMap,
+        input: FILTER_MAP_INPUT,
+        entry: "evens_plus_one",
+        fused: &["fn(", "List.reverse", "even("],
+        expansion: Some(FILTER_MAP_EXPANDED),
     },
     Case {
         id: LawId::RangeFold,
@@ -184,6 +238,7 @@ fn core_fns(m: &Module) -> CoreFns {
                 "Option.or" => CoreFn::OptionOr,
                 "List.fold" => CoreFn::ListFold,
                 "List.map" => CoreFn::ListMap,
+                "List.filter" => CoreFn::ListFilter,
                 "List.range" => CoreFn::ListRange,
                 "List.reverse" => CoreFn::ListReverse,
                 _ if name.starts_with("List.") => CoreFn::Collection,
@@ -219,19 +274,19 @@ fn only(id: LawId) -> Laws {
     laws
 }
 
-/// The change counter of one law. A reserved law has no counter yet.
+/// The change counter of one law.
 fn counter(stats: Stats, id: LawId) -> u32 {
     match id {
         LawId::OptionOr => stats.option_or,
         LawId::ArrayGetMatch => stats.array_get_match,
+        LawId::MapMap => stats.map_map,
+        LawId::FoldMap => stats.fold_map,
+        LawId::FilterMap => stats.filter_map,
         LawId::RangeFold => stats.range_fold,
         LawId::RangeMapArray => stats.map_range,
         LawId::RangeMap => stats.range_map,
-        LawId::MapMap
-        | LawId::FoldMap
-        | LawId::FilterMap
-        | LawId::ArrayPipeline
-        | LawId::StringConcat => 0,
+        LawId::StringConcat => stats.string_concat,
+        LawId::ArrayPipeline => 0,
     }
 }
 

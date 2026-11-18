@@ -27,6 +27,9 @@
 //! | `loop::unswitch` | [`Stats::hoist`] | Loop unswitching (A9/PR-018) |
 //! | `fusion::run`: `option_or` | [`Stats::option_or`] | Option fusion |
 //! | `fusion::run`: `array_get_match` | [`Stats::array_get_match`] | Option fusion |
+//! | `fusion::run`: `map_map` | [`Stats::map_map`] | map fusion (D3/PR-030) |
+//! | `fusion::run`: `fold_map` | [`Stats::fold_map`] | map fusion (D3/PR-030) |
+//! | `fusion::run`: `filter_map` | [`Stats::filter_map`] | filter fusion (D3/PR-030) |
 //! | `fusion::run`: `range_fold` | [`Stats::range_fold`] | range fusion |
 //! | `fusion::run`: `range_map_array` | [`Stats::map_range`] | range fusion |
 //! | `fusion::run`: `range_map` | [`Stats::range_map`] | range fusion |
@@ -52,10 +55,14 @@
 //!   can reshape it. It runs before δ so that it sees the loop before a callee's body is copied
 //!   into it.
 //! - **The fusions before δ.** A fusion matches the call the source wrote (`List.fold`,
-//!   `Option.or`); expanding those functions first would dissolve the pattern. `range_map_array`
-//!   comes before `range_map`, which would otherwise rewrite the `List.map` inside the
-//!   `Array.from_list` it is looking for. The order of the laws is the registry order of
-//!   [`fusion::laws`], not a second list in this pipeline.
+//!   `Option.or`); expanding those functions first would dissolve the pattern. The pipeline laws
+//!   (`map_map`, `fold_map`, `filter_map`) come before the range laws, because the call they build
+//!   (`List.map(xs, λx. g(f x))`, `List.fold(xs, init, λa, x. g(a, f x))`) is what the range laws
+//!   fuse next, in the same sweep, when `xs` is a range. `range_map_array` comes before
+//!   `range_map`, which would otherwise rewrite the `List.map` inside the `Array.from_list` it is
+//!   looking for. `string_concat` runs last, after the range laws, because it matches a tree of
+//!   `String.append` calls and no other law builds or consumes one. The order of the laws is the
+//!   registry order of [`fusion::laws`], not a second list in this pipeline.
 //! - **Bounds-check elimination, then δ.** It matches the bounds test `array_get_match` has just
 //!   built, and the range fusion has just built the loop whose counter bounds the index. Running
 //!   it here, before δ, keeps the condition in the exact shape the fusion wrote; the constant
@@ -94,7 +101,7 @@
 //! The fusions are library laws, not reductions of the λ-calculus: each replaces a call of a core
 //! function by the operation it stands for, and each has a contract (Rule ID, Theory, Equation,
 //! Preconditions, Postconditions, Preserves, Deopt, Budget, Measures) in [`fusion::laws`]. The
-//! pipeline calls [`fusion::run`] once in the place of the five fusion passes it used to call
+//! pipeline calls [`fusion::run`] once in the place of the fusion passes it used to call
 //! directly; the registry order is the pipeline order, and the per-sweep budget is
 //! [`fusion::MAX_FUSIONS_PER_SWEEP`]. See [`fusion`] for the flags, the reserved laws and the
 //! budget's deopt rule.
@@ -113,8 +120,10 @@
 //! a loop transformation, not a reduction rule, and has no flag: it runs whatever the flags say.
 //! The flags are a programmatic API only: no command-line flag is added.
 //!
-//! [`fusion::Laws::default`] turns on the five fusion laws that existed before D5 and leaves the
-//! reserved ones and the new string law off. A disabled law is skipped entirely and contributes nothing to [`Stats`], not even a deopt;
+//! [`fusion::Laws::default`] turns on the five fusion laws that existed before D3/D5 and leaves the
+//! three pipeline laws (`map_map`, `fold_map`, `filter_map`, D3/PR-030), the new string law
+//! (D5/PR-032) and the reserved one off. A disabled law is skipped entirely and contributes nothing
+//! to [`Stats`], not even a deopt;
 //! [`fusion::Laws::none`] therefore turns the fusions off without touching the rest of the
 //! pipeline. The reserved laws have no body and never run, whatever their flag says.
 //!
@@ -336,8 +345,10 @@ pub enum CoreFn {
     OptionOr,
     /// `List.fold`, which the range fusion matches.
     ListFold,
-    /// `List.map`, which the range fusion matches.
+    /// `List.map`, which the range and map fusions match.
     ListMap,
+    /// `List.filter`, which the filter fusion matches.
+    ListFilter,
     /// `List.range`, which the range fusion removes.
     ListRange,
     /// `List.reverse`, which the `List.map` range fusion calls once at the end.
@@ -377,6 +388,14 @@ pub struct Stats {
     /// `Array.from_list(List.map(List.range(lo, hi), f))` rewritten to the internal
     /// `ArrayMapRange(lo, hi, f)`, which builds neither the range nor a list.
     pub map_range: u32,
+    /// `List.map(List.map(xs, f), g)` rewritten to `List.map(xs, λx. g(f x))`: one traversal and
+    /// no intermediate list.
+    pub map_map: u32,
+    /// `List.fold(List.map(xs, f), init, g)` rewritten to `List.fold(xs, init, λa, x. g(a, f x))`:
+    /// one traversal and no intermediate list.
+    pub fold_map: u32,
+    /// `List.map(List.filter(xs, p), f)` rewritten to one fold that tests and maps each element.
+    pub filter_map: u32,
     /// A chain of three or more `String.append` calls fused into one `Expr::Concat`, which the
     /// backend builds with one allocation (D5/PR-032).
     pub string_concat: u32,
@@ -422,6 +441,9 @@ impl Stats {
         self.range_fold += other.range_fold;
         self.range_map += other.range_map;
         self.map_range += other.map_range;
+        self.map_map += other.map_map;
+        self.fold_map += other.fold_map;
+        self.filter_map += other.filter_map;
         self.string_concat += other.string_concat;
         self.zeta += other.zeta;
         self.beta += other.beta;
@@ -448,6 +470,9 @@ impl Stats {
             && self.range_fold == 0
             && self.range_map == 0
             && self.map_range == 0
+            && self.map_map == 0
+            && self.fold_map == 0
+            && self.filter_map == 0
             && self.string_concat == 0
             && self.zeta == 0
             && self.beta == 0

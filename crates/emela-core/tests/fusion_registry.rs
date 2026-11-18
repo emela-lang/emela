@@ -1,9 +1,11 @@
 //! Tests for the fusion law registry (D0/PR-029).
 //!
-//! These fix the properties the registry has to have before the law bodies move into it (D1/D2):
-//! the ids are unique, the registry order is the pipeline order, the flags default to the laws the
-//! pipeline always ran, a disabled law contributes nothing, a reserved law never runs, and the
-//! per-sweep budget stops a sweep and counts what it stopped as a deopt.
+//! These fix the properties the registry has to have: the ids are unique, the registry order is the
+//! pipeline order, the flags default to the laws the pipeline always ran, a disabled law
+//! contributes nothing, a reserved law never runs, and the per-sweep budget stops a sweep and
+//! counts what it stopped as a deopt. The laws added after the registry are implemented but off in
+//! `Laws::default` because they are new: the string law (D5/PR-032), so `Laws::all` is what runs it
+//! here, and the three pipeline laws of D3/PR-030.
 
 mod support;
 
@@ -15,7 +17,8 @@ use emela_core::{Module, dump, opt};
 use support::lower_files_with;
 
 /// A program each implemented law fires on: `Option.or`, a `match Array.get`, a fold and a map
-/// over a range, an array built from a mapped range, and a chain of `String.append` calls.
+/// over a range, an array built from a mapped range, a chain of `String.append` calls, and the
+/// three pipelines of D3/PR-030.
 const PROGRAM: &[(&str, &str)] = &[(
     "main.emel",
     "\
@@ -40,22 +43,29 @@ fn main() {
   dbg(List.map(List.range(0, 3), |x| inc(x * 2)))
   dbg(Array.size(Array.from_list(List.map(List.range(0, 3), |x| inc(x)))))
   dbg(build(\"a\", \"b\", \"c\"))
+  dbg(List.map(List.map([1, 2], |x| x + 1), |x| x * 2))
+  dbg(List.fold(List.map([1, 2], |x| x + 1), 0, |a, b| a + b))
+  dbg(List.map(List.filter([1, 2, 3], |x| x > 1), |x| x * 2))
 }
 ",
 )];
 
-/// The implemented laws, in pipeline order. `StringConcat` is implemented but new (D5/PR-032).
-const IMPLEMENTED: [LawId; 6] = [
+/// Every implemented law, in pipeline order. The three pipeline laws of D3/PR-030 and the string
+/// law of D5/PR-032 are implemented but off in `Laws::default`, because they are new.
+const IMPLEMENTED: [LawId; 9] = [
     LawId::OptionOr,
     LawId::ArrayGetMatch,
+    LawId::MapMap,
+    LawId::FoldMap,
+    LawId::FilterMap,
     LawId::RangeFold,
     LawId::RangeMapArray,
     LawId::RangeMap,
     LawId::StringConcat,
 ];
 
-/// The laws on in [`Laws::default`]: the five the pipeline ran before the registry. The string
-/// law is a new optimisation, so it is opt-in until it has run on the corpus.
+/// The laws on in [`Laws::default`]: the five the pipeline ran before the registry. The newer laws
+/// are opt-in until they have run on the corpus.
 const DEFAULT_ON: [LawId; 5] = [
     LawId::OptionOr,
     LawId::ArrayGetMatch,
@@ -65,24 +75,19 @@ const DEFAULT_ON: [LawId; 5] = [
 ];
 
 /// The laws registered for a later pull request, in the order they will be inserted.
-const RESERVED: [LawId; 4] = [
-    LawId::MapMap,
-    LawId::FoldMap,
-    LawId::FilterMap,
-    LawId::ArrayPipeline,
-];
+const RESERVED: [LawId; 1] = [LawId::ArrayPipeline];
 
 /// The registry order: the implemented laws in pipeline order, then the reserved ones.
 const REGISTRY_ORDER: [LawId; 10] = [
     LawId::OptionOr,
     LawId::ArrayGetMatch,
+    LawId::MapMap,
+    LawId::FoldMap,
+    LawId::FilterMap,
     LawId::RangeFold,
     LawId::RangeMapArray,
     LawId::RangeMap,
     LawId::StringConcat,
-    LawId::MapMap,
-    LawId::FoldMap,
-    LawId::FilterMap,
     LawId::ArrayPipeline,
 ];
 
@@ -96,6 +101,7 @@ fn core_fns(m: &Module) -> CoreFns {
                 "Option.or" => CoreFn::OptionOr,
                 "List.fold" => CoreFn::ListFold,
                 "List.map" => CoreFn::ListMap,
+                "List.filter" => CoreFn::ListFilter,
                 "List.range" => CoreFn::ListRange,
                 "List.reverse" => CoreFn::ListReverse,
                 _ if name.starts_with("List.") => CoreFn::Collection,
@@ -119,14 +125,14 @@ fn only(id: LawId) -> Laws {
     match id {
         LawId::OptionOr => laws.option_or = true,
         LawId::ArrayGetMatch => laws.array_get_match = true,
-        LawId::RangeFold => laws.range_fold = true,
-        LawId::RangeMapArray => laws.range_map_array = true,
-        LawId::RangeMap => laws.range_map = true,
         LawId::MapMap => laws.map_map = true,
         LawId::FoldMap => laws.fold_map = true,
         LawId::FilterMap => laws.filter_map = true,
-        LawId::ArrayPipeline => laws.array_pipeline = true,
+        LawId::RangeFold => laws.range_fold = true,
+        LawId::RangeMapArray => laws.range_map_array = true,
+        LawId::RangeMap => laws.range_map = true,
         LawId::StringConcat => laws.string_concat = true,
+        LawId::ArrayPipeline => laws.array_pipeline = true,
     }
     laws
 }
@@ -136,11 +142,14 @@ fn counter(stats: Stats, id: LawId) -> Option<u32> {
     Some(match id {
         LawId::OptionOr => stats.option_or,
         LawId::ArrayGetMatch => stats.array_get_match,
+        LawId::MapMap => stats.map_map,
+        LawId::FoldMap => stats.fold_map,
+        LawId::FilterMap => stats.filter_map,
         LawId::RangeFold => stats.range_fold,
         LawId::RangeMapArray => stats.map_range,
         LawId::RangeMap => stats.range_map,
         LawId::StringConcat => stats.string_concat,
-        LawId::MapMap | LawId::FoldMap | LawId::FilterMap | LawId::ArrayPipeline => return None,
+        LawId::ArrayPipeline => return None,
     })
 }
 
@@ -237,12 +246,9 @@ fn the_reserved_laws_are_not_implemented_and_do_not_run() {
         &mut expected_stats,
     );
 
-    // Every reserved flag on, and the implemented string law left at its default (off): the
-    // reserved flags must not change anything.
+    // The reserved flag on, with the implemented laws at their default: the reserved flag must not
+    // change anything.
     let reserved_on = Laws {
-        map_map: true,
-        fold_map: true,
-        filter_map: true,
         array_pipeline: true,
         ..Laws::default()
     };
@@ -276,8 +282,7 @@ fn an_empty_registry_changes_nothing() {
 }
 
 /// Each implemented law fires on its own and fills only its own counter; the other laws of a
-/// disabled flag stay out entirely. The string law has no `Stats` field yet, so it reports its
-/// application count and leaves the counters empty.
+/// disabled flag stay out entirely.
 #[test]
 fn one_law_at_a_time_fills_only_its_own_counter() {
     let (module, core_fns) = fixture();
@@ -287,15 +292,7 @@ fn one_law_at_a_time_fills_only_its_own_counter() {
         let applied = fusion::run(&mut m, &core_fns, only(id), &mut stats);
 
         assert!(applied > 0, "{} did not fire", id.rule_id());
-        match counter(stats, id) {
-            Some(count) => assert_eq!(count, applied, "{}", id.rule_id()),
-            None => assert_eq!(
-                stats,
-                Stats::default(),
-                "{} has no counter, so it fills none",
-                id.rule_id()
-            ),
-        }
+        assert_eq!(counter(stats, id), Some(applied), "{}", id.rule_id());
         assert_eq!(stats.deopt, 0, "{}", id.rule_id());
         for other in IMPLEMENTED {
             if other != id {
@@ -318,8 +315,9 @@ fn one_law_at_a_time_fills_only_its_own_counter() {
 }
 
 /// The pipeline runs the registry where the five direct calls were: with the default flags it
-/// fires every default-on law, and with the laws off it reports no fusion counter. `Stats::deopt`
-/// also counts the δ deopts, which are not a law's, so it is not asserted here.
+/// fires every default-on law, with the laws off it reports no fusion counter, and with every law
+/// on it fires the newer ones too. `Stats::deopt` also counts the δ deopts, which are not a law's,
+/// so it is not asserted here.
 #[test]
 fn the_pipeline_runs_the_registry() {
     let (mut fused, fused_ids) = fixture();
@@ -333,10 +331,16 @@ fn the_pipeline_runs_the_registry() {
             id.rule_id()
         );
     }
-    // `Stats::deopt` counts every pass's refusals. ζ R1 refuses a copy out of an enclosing
-    // lambda, so a default run has deopts that are not a fusion law's; the laws' own counters are
-    // what this test checks.
-
+    for id in IMPLEMENTED {
+        if !DEFAULT_ON.contains(&id) {
+            assert_eq!(
+                counter(with, id),
+                Some(0),
+                "{} fired by default",
+                id.rule_id()
+            );
+        }
+    }
     let without = opt::run_with(
         &mut unfused,
         &unfused_ids,
@@ -354,10 +358,28 @@ fn the_pipeline_runs_the_registry() {
         );
     }
     assert_ne!(dump(&fused), dump(&unfused));
+
+    let (mut all, all_ids) = fixture();
+    let everything = opt::run_with(
+        &mut all,
+        &all_ids,
+        Options {
+            laws: Laws::all(),
+            ..Options::default()
+        },
+    );
+    for id in IMPLEMENTED {
+        assert!(
+            counter(everything, id).unwrap_or(0) > 0,
+            "{} did not fire in all",
+            id.rule_id()
+        );
+    }
 }
 
 /// The fusion of one sweep through the registry is the sum of the default-on laws: the corpus
-/// gives one application of each, in the registry order, with no deopt at the default budget.
+/// gives one application of each, in the registry order, with no deopt at the default budget. The
+/// newer laws are off, so their sites stay as they are.
 #[test]
 fn a_default_run_applies_each_law_once_on_the_corpus() {
     let (mut module, core_fns) = fixture();
@@ -366,8 +388,9 @@ fn a_default_run_applies_each_law_once_on_the_corpus() {
     let applied = fusion::run(&mut module, &core_fns, Laws::default(), &mut stats);
 
     assert_eq!(applied, DEFAULT_ON.len() as u32, "{stats:?}");
-    for id in DEFAULT_ON {
-        assert_eq!(counter(stats, id), Some(1), "{}", id.rule_id());
+    for id in IMPLEMENTED {
+        let expected = u32::from(DEFAULT_ON.contains(&id));
+        assert_eq!(counter(stats, id), Some(expected), "{}", id.rule_id());
     }
     assert_eq!(stats.deopt, 0, "{stats:?}");
     assert!(
