@@ -68,6 +68,7 @@ fn the_default_matches_an_explicitly_empty_pipeline() {
         &none_ids,
         Options {
             rules: Rules::none(),
+            ..Options::default()
         },
     );
 
@@ -91,6 +92,7 @@ fn every_rule_on_still_matches_the_base_pipeline() {
         &all_ids,
         Options {
             rules: Rules::all(),
+            ..Options::default()
         },
     );
 
@@ -124,6 +126,7 @@ fn one_empty_rule_on_is_invisible() {
                 zeta: true,
                 ..Rules::none()
             },
+            ..Options::default()
         },
     );
 

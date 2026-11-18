@@ -16,18 +16,20 @@
 //! [`run_with`] calls the passes in this order. A later pass may rely on an earlier one having run,
 //! and says so in its rustdoc. The passes in [`reduce`] have the shape
 //! `fn(&mut Module) -> RuleStats` and fill only their own counter; the older passes here have the
-//! shape `fn(&mut Module) -> PassStats`. [`run_with`] merges both into one [`Stats`].
+//! shape `fn(&mut Module) -> PassStats`; the fusion laws have the shape
+//! `fn(&mut Module, &CoreFns) -> PassStats` and run through [`fusion::run`]. [`run_with`] merges
+//! all of them into one [`Stats`].
 //!
 //! | Pass | Counter | Added by |
 //! |---|---|---|
 //! | `reduce::zeta` | [`Stats::zeta`] | ζ reduction (A2/PR-011) |
 //! | `reduce::beta` | [`Stats::beta`] | β reduction (A3/PR-012) |
 //! | `hoist::hoist` | [`Stats::hoist`] | Loop hoisting |
-//! | `option::option_or` | [`Stats::option_or`] | Option fusion |
-//! | `option::array_get_match` | [`Stats::array_get_match`] | Option fusion |
-//! | `range::fold` | [`Stats::range_fold`] | range fusion |
-//! | `range::map_array` | [`Stats::map_range`] | range fusion |
-//! | `range::map` | [`Stats::range_map`] | range fusion |
+//! | `fusion::run`: `option_or` | [`Stats::option_or`] | Option fusion |
+//! | `fusion::run`: `array_get_match` | [`Stats::array_get_match`] | Option fusion |
+//! | `fusion::run`: `range_fold` | [`Stats::range_fold`] | range fusion |
+//! | `fusion::run`: `range_map_array` | [`Stats::map_range`] | range fusion |
+//! | `fusion::run`: `range_map` | [`Stats::range_map`] | range fusion |
 //! | `inline::inline` | [`Stats::inline`] | inlining |
 //! | `reduce::iota` | [`Stats::iota`] | ι reduction (A5/PR-014) |
 //! | `reduce::fold` | [`Stats::constant`] | constant folding (A6/PR-015) |
@@ -45,8 +47,9 @@
 //!   fusion because it matches the `match Array.get` that the fusion replaces by a bounds test; the
 //!   fusions run before inlining because they match the calls the source wrote, and inlining a
 //!   function such as `List.fold` first would dissolve the call the range fusion looks for.
-//!   `range::map_array` comes before `range::map`, which would otherwise rewrite the `List.map`
-//!   inside the `Array.from_list` it is looking for.
+//!   `range_map_array` comes before `range_map`, which would otherwise rewrite the `List.map`
+//!   inside the `Array.from_list` it is looking for. The order of the laws is the registry order
+//!   of [`fusion::laws`], not a second list in this pipeline.
 //! - **Inlining stays after the fusions**, in the position it had before the reduction kernel was
 //!   added. The new rules run after it, so they simplify the body it exposes in the same sweep
 //!   instead of waiting for the next one.
@@ -66,21 +69,37 @@
 //! older passes. The skeleton therefore changes no output, no counter of a rewrite, and no sweep
 //! count. `subst` exposes the substitution API with a conservative body; A1/PR-010 completes it.
 //!
+//! # Fusion laws
+//!
+//! The fusions are library laws, not reductions of the λ-calculus: each replaces a call of a core
+//! function by the operation it stands for, and each has a contract (Rule ID, Theory, Equation,
+//! Preconditions, Postconditions, Preserves, Deopt, Budget, Measures) in [`fusion::laws`]. The
+//! pipeline calls [`fusion::run`] once in the place of the five fusion passes it used to call
+//! directly; the registry order is the pipeline order, and the per-sweep budget is
+//! [`fusion::MAX_FUSIONS_PER_SWEEP`]. See [`fusion`] for the flags, the reserved laws and the
+//! budget's deopt rule.
+//!
 //! # Feature flags
 //!
 //! [`Rules`] has one flag per reduction rule of [`reduce`], plus reserved flags for the later
-//! bounds-check and CSE rules. [`Options`] holds the flags and is the argument of [`run_with`];
-//! [`run`] keeps its old signature and uses [`Options::default`], which keeps every new rule off.
-//! The flags are a programmatic API only: no command-line flag is added in this skeleton.
+//! bounds-check and CSE rules. [`fusion::Laws`] has one flag per fusion law. [`Options`] holds both
+//! and is the argument of [`run_with`]; [`run`] keeps its old signature and uses
+//! [`Options::default`], which keeps every new reduction rule off and every implemented fusion law
+//! on. The flags are a programmatic API only: no command-line flag is added.
 //!
-//! A new rule starts off so that a pull request which only fills an empty module cannot change the
-//! default pipeline on its own. The integrator flips the defaults on at A10/PR-019, after the
-//! rules and their tests have landed, as plan §6.4(4) and §9.1 require. [`Rules::all`] is
+//! A new reduction rule starts off so that a pull request which only fills an empty module cannot
+//! change the default pipeline on its own. The integrator flips the defaults on at A10/PR-019,
+//! after the rules and their tests have landed, as plan §6.4(4) and §9.1 require. [`Rules::all`] is
 //! available for the per-rule tests, which turn on exactly the rule under test.
 //!
-//! The older passes (`hoist`, `option`, `range`, `inline`) do not have a flag yet; A10/PR-019
-//! unifies their gating with the reduction rules. `Rules::none()` therefore still runs those
-//! older passes.
+//! The fusion laws are the exception, because the pipeline ran the implemented ones before the
+//! registry existed: [`fusion::Laws::default`] has them on, so [`Options::default`] is the pipeline
+//! from before [`fusion`]. A disabled law is skipped entirely and contributes nothing to [`Stats`],
+//! not even a deopt; [`fusion::Laws::none`] therefore turns the fusions off without touching the
+//! rest of the pipeline. The reserved laws have no body and never run, whatever their flag says.
+//!
+//! `hoist` and `inline` do not have a flag yet; A10/PR-019 unifies their gating with the reduction
+//! rules. `Rules::none()` with `Laws::none()` therefore still runs hoisting and inlining.
 //!
 //! # Fixed point
 //!
@@ -149,6 +168,7 @@ use rustc_hash::FxHashMap;
 use crate::ir::{Expr, FnId, Lit, Module};
 
 pub mod analysis;
+pub mod fusion;
 mod hoist;
 mod inline;
 pub mod r#loop;
@@ -250,6 +270,9 @@ impl Default for Rules {
 pub struct Options {
     /// Which reduction rules to run. [`Rules::default`] (every new rule off) by default.
     pub rules: Rules,
+    /// Which fusion laws to run. [`fusion::Laws::default`] (the implemented laws on) by default,
+    /// so `Options::default()` is the pipeline from before the registry.
+    pub laws: fusion::Laws,
 }
 
 /// A fn of the bundled core that a Core IR pass matches by identity, not by name.
@@ -399,11 +422,11 @@ const MAX_PASSES: u32 = 8;
 
 /// Runs the Core IR optimisation passes on `m` if `optimize`, and returns what they changed.
 ///
-/// This is [`run_with`] with [`Options::default`] (every new reduction rule off). The sequence is
-/// the order in the pipeline table above, applied until a whole sweep changes nothing (see the
-/// fixed-point section). `core_fns` is what lowering recorded about the bundled core functions
-/// (`CoreFn`), by which the fusions recognise `Option.or` and the `List` functions. With
-/// `optimize` false the module is left untouched and `Stats` is empty.
+/// This is [`run_with`] with [`Options::default`] (every new reduction rule off and the implemented
+/// fusion laws on). The sequence is the order in the pipeline table above, applied until a whole
+/// sweep changes nothing (see the fixed-point section). `core_fns` is what lowering recorded about
+/// the bundled core functions (`CoreFn`), by which the fusions recognise `Option.or` and the
+/// `List` functions. With `optimize` false the module is left untouched and `Stats` is empty.
 pub fn run(m: &mut Module, core_fns: &CoreFns, optimize: bool) -> Stats {
     if !optimize {
         return Stats::default();
@@ -411,14 +434,16 @@ pub fn run(m: &mut Module, core_fns: &CoreFns, optimize: bool) -> Stats {
     run_with(m, core_fns, Options::default())
 }
 
-/// Runs the Core IR optimisation passes with the reduction rules of `options`.
+/// Runs the Core IR optimisation passes with the reduction rules and fusion laws of `options`.
 ///
 /// The sequence is the order in the pipeline table above. A rule whose flag is off is skipped
-/// entirely, so its counter stays zero. The older passes without a flag still run; see [`Rules`].
-/// Like [`run`], this applies the whole sweep until it changes nothing and records the sweep count
-/// in [`Stats::passes`].
+/// entirely, so its counter stays zero; a fusion law whose flag is off is skipped entirely too and
+/// contributes nothing. Hoisting and inlining have no flag and still run. Like [`run`], this
+/// applies the whole sweep until it changes nothing and records the sweep count in
+/// [`Stats::passes`].
 pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
     let rules = options.rules;
+    let laws = options.laws;
     let mut stats = Stats::default();
     let mut changed_sweeps = 0;
     let mut converged = false;
@@ -440,16 +465,9 @@ pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
         }
         sweep.merge(hoist::hoist(m));
         check(m);
-        sweep.merge(option::option_or(m, core_fns));
-        check(m);
-        sweep.merge(option::array_get_match(m, core_fns));
-        check(m);
-        sweep.merge(range::fold(m, core_fns));
-        check(m);
-        sweep.merge(range::map_array(m, core_fns));
-        check(m);
-        sweep.merge(range::map(m, core_fns));
-        check(m);
+        // The fusion laws run in the registry's order, which is the order of the table above.
+        // `fusion::run` adds their counters and verifies after each law that runs.
+        fusion::run(m, core_fns, laws, &mut sweep);
         // Inlining keeps its place after the fusions, for the reason in the pipeline docs.
         sweep.merge(inline::inline(m, core_fns));
         check(m);
@@ -514,7 +532,10 @@ pub(super) fn each_body(m: &mut Module, f: &mut impl FnMut(&mut Module, &mut Exp
 
 /// Checks that a pass left the module well typed. A failure is a compiler bug: the pass broke its
 /// postcondition, not the program.
-fn check(m: &Module) {
+///
+/// The fusion registry calls this after each law it runs, at the points the five direct fusion
+/// calls had before the registry.
+pub(in crate::opt) fn check(m: &Module) {
     #[cfg(debug_assertions)]
     if let Err(errors) = crate::verify(m) {
         let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
@@ -641,7 +662,14 @@ mod tests {
     fn empty_rules_keep_the_pipeline_at_a_fixed_point() {
         for rules in [Rules::all(), Rules::default()] {
             let mut m = Module::new();
-            let stats = run_with(&mut m, &CoreFns::default(), Options { rules });
+            let stats = run_with(
+                &mut m,
+                &CoreFns::default(),
+                Options {
+                    rules,
+                    ..Options::default()
+                },
+            );
             assert!(stats.is_empty(), "{stats:?}");
             assert_eq!(stats.passes, 1, "{stats:?}");
         }
