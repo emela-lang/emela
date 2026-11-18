@@ -60,6 +60,7 @@ fn sra(records: bool) -> Options {
             devirt: false,
             rc_cleanup: false,
             rc_borrow: false,
+            dce: false,
             drop_spec: false,
             borrow: false,
         },
