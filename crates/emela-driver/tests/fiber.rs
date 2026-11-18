@@ -78,8 +78,13 @@ fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) 
         Target::Wasm => unreachable!("the fiber tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
+    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
+    // leaves a capability on purpose, and gets W0402 for it.
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
         "{target}: {:?}",
         analysis.diagnostics
     );

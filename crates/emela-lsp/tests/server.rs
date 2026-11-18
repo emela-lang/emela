@@ -787,6 +787,25 @@ fn reports_a_license_that_is_not_an_spdx_expression() {
     client.shutdown();
 }
 
+/// `[lsp.project]`, `[pome.manifest]`: the server reads `[experimental]` of the project as the
+/// commands do, so an unknown name is W0206 at the key in `Pome.toml`.
+#[test]
+fn reports_an_unknown_experimental_feature() {
+    let manifest = "[pome]\nname = \"github.com/me/app\"\nversion = \"0.1.0\"\nemela = \"0.29.0\"\n\n[experimental]\nfrom-the-future = true\n";
+    let files = [
+        ("/app/Pome.toml", manifest),
+        ("/app/src/main.emel", "const X = 1\n"),
+    ];
+    let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri("/app/Pome.toml"));
+    assert_eq!(codes(&published), ["W0206"]);
+    let diagnostic = &published.diagnostics[0];
+    assert_eq!(diagnostic.range, range((6, 0), (6, 15)));
+    assert_eq!(diagnostic.severity, Some(lsp::DiagnosticSeverity::WARNING));
+    client.shutdown();
+}
+
 #[test]
 fn close_reverts_to_disk() {
     let files = [
@@ -1131,7 +1150,7 @@ fn hover_shows_types_and_errors() {
     // of function arguments.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 8)),
-        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n```"
+        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n  holds: xs\n```"
     );
     // A position with nothing there.
     assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);
@@ -1210,10 +1229,10 @@ fn hover_shows_effects() {
         text(client.hover("/app/src/main.emel", 8, 4)),
         "```emela\ngreet: fn() -> () uses { Logger }\n```"
     );
-    // A local variable holding a capability.
+    // A local variable holding a capability, provided by the caller (`[lsp.hover]`).
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 2)),
-        "```emela\nlog: use Logger\n```"
+        "```emela\nlog: use Logger\n  holds: Logger\n```"
     );
     // An operation call expression shows its type and R.
     assert_eq!(
@@ -1232,6 +1251,52 @@ fn hover_shows_effects() {
     assert_eq!(
         text(client.hover("/app/src/main.emel", 13, 4)),
         "```emela\nmain: fn() -> ()\n```"
+    );
+    client.shutdown();
+}
+
+/// `[lsp.hover]`, `[type.fn]`: what a function or a value may hold, as a line `holds: ...`, each
+/// root with the `with` that provides it; and the capabilities in the R of a closure.
+#[test]
+fn hover_shows_what_values_hold() {
+    let src = "\
+effect Db {
+  fn query(q: String) -> Int
+}
+
+handler PrimaryDb: Db {
+  fn query(q) { 1 }
+}
+
+fn pick(primary: fn() -> Int, replica: fn() -> Int, write: Bool) -> fn() -> Int {
+  if write { primary } else { replica }
+}
+
+fn main() {
+  with PrimaryDb {
+    p = use Db
+    f = || p.query(\"x\")
+    n = f()
+    ()
+  }
+}
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    let pick = text(client.hover("/app/src/main.emel", 8, 4));
+    assert!(pick.ends_with("\n  holds: primary, replica\n```"), "{pick}");
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 15, 4)),
+        "```emela\nf: fn() -> Int uses { p }\n  holds: p (with PrimaryDb, line 14)\n```"
+    );
+    // A value whose type cannot contain a capability holds nothing.
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 16, 4)),
+        "```emela\nn: Int\n```"
     );
     client.shutdown();
 }
@@ -1343,7 +1408,7 @@ fn hover_shows_effect_type_args() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 3)),
-        "```emela\ncell: use Cell[Int]\n```"
+        "```emela\ncell: use Cell[Int]\n  holds: Cell\n```"
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 10, 8)),
@@ -2308,6 +2373,33 @@ fn rename_across_files() {
     client.shutdown();
 }
 
+/// `[effect.handler]`: `Self` in an init names the handler. Definition goes to the handler; renaming
+/// the handler keeps `Self`, and `Self` itself cannot be renamed.
+#[test]
+fn self_in_init_refers_to_the_handler() {
+    let src = "effect Log {\n  fn log(msg: String) -> ()\n}\n\nhandler Tagged(tag: String): Log {\n  init { Self(tag: \"a\") }\n  fn log(msg) { () }\n}\n\nfn main() {\n  with Tagged { (use Log).log(\"x\") }\n}\n";
+    let path = "/tmp/main.emel";
+    let mut client = Client::initialize(&[(path, src)], None, Typecheck::default);
+    assert_eq!(
+        client.definition(path, 5, 9),
+        location(path, (4, 8), (4, 14))
+    );
+    let edit = |s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
+    assert_eq!(
+        client.rename(path, 4, 9, "Labelled"),
+        Ok(vec![
+            edit((4, 8), (4, 14), "Labelled"),
+            edit((10, 7), (10, 13), "Labelled"),
+        ])
+    );
+    assert_eq!(client.prepare_rename(path, 5, 9), None);
+    assert_eq!(
+        client.rename(path, 5, 9, "Labelled"),
+        Err("this name cannot be renamed".to_owned())
+    );
+    client.shutdown();
+}
+
 /// Shorthand named arguments and field patterns keep their labels. Names in the bundled core
 /// cannot be renamed.
 #[test]
@@ -2890,7 +2982,15 @@ fn completion_of_argument_labels() {
 fn completion_of_attributes_and_targets() {
     let files = [("/app/Pome.toml", ""), (MAIN, "fn main() { () }\n")];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
-    let attributes = ["external", "export", "entry", "test", "deprecated"];
+    let attributes = [
+        "external",
+        "export",
+        "entry",
+        "test",
+        "deprecated",
+        "key",
+        "tag",
+    ];
     client.open(MAIN, 1, "@\nfn main() { () }\n");
     let items = client.complete(MAIN, 0, 1).unwrap();
     assert_eq!(labels(&items), attributes);
@@ -3114,6 +3214,28 @@ fn completion_in_clauses_and_types() {
             assert!(names.contains(&name), "{line}: {name}: {names:?}");
         }
     }
+    client.shutdown();
+}
+
+/// After `derive`, the derivable traits of std are offered once they are imported
+/// (`[trait.derive]`, `[lsp.completion]`).
+#[test]
+fn completion_of_derive_offers_the_imported_traits_of_std() {
+    let imported = "import Std.Dynamic.{Decode, Encode, ObjectKey}\nimport Std.Shape.{Shaped}\n\ntype Tag(a: Int) derive Eq, \n";
+    let files = [("/app/Pome.toml", ""), (MAIN, imported)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    client.open(MAIN, 1, imported);
+    let items = client.complete(MAIN, 3, 28).unwrap();
+    let names = labels(&items);
+    for name in ["Encode", "Decode", "ObjectKey", "Shaped", "Show"] {
+        assert!(names.contains(&name), "{name}: {names:?}");
+    }
+    let plain = "type Tag(a: Int) derive Eq, \n";
+    client.change(MAIN, 2, plain);
+    let items = client.complete(MAIN, 0, 28).unwrap();
+    let names = labels(&items);
+    assert!(!names.contains(&"Encode"), "{names:?}");
+    assert!(names.contains(&"Show"), "{names:?}");
     client.shutdown();
 }
 

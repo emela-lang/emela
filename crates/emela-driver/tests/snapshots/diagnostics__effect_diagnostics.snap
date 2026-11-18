@@ -43,7 +43,7 @@ error[E0401]: effect `Logger` has no operation `infoo`
     │                  ╰──── 
 ────╯
 
-error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Logger }`
+error[E0403]: effect set mismatch: expected `uses {}`, found `uses { log }`
     ╭─[ main.emel:36:8 ]
     │
  36 │   only(|| log.info("x"))

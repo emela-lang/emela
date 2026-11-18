@@ -254,7 +254,8 @@ fn unused_local_fn(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
 fn binding_target(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     let ok = match node.kind() {
         UNDERSCORE_EXPR | PATH_EXPR | UNIT_EXPR | LITERAL => true,
-        NAME_REF => !has_token(node, SELF_KW),
+        // `self` and `Self` are not patterns (`[effect.handler]`).
+        NAME_REF => !has_token(node, SELF_KW) && !has_token(node, SELF_TYPE_KW),
         // `-1` `-1.5`: a negative number is a pattern (spec 17.6).
         PREFIX_EXPR => {
             has_token(node, MINUS)

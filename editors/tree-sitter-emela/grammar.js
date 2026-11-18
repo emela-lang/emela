@@ -199,6 +199,7 @@ module.exports = grammar({
     ),
 
     variant: $ => seq(
+      repeat($.annotation),
       field('name', $.type_identifier),
       optional(field('fields', choice($.field_list, $.tuple_field_list))),
     ),

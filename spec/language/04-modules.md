@@ -151,6 +151,9 @@ license = "MIT OR Apache-2.0"            # SPDX license expression (optional)
 
 [build]
 target = "native"                                # default build target (js if omitted)
+
+[experimental]
+# name = true                                    # experimental features (1.5)
 ```
 
 Identity:
@@ -162,6 +165,7 @@ Identity:
 - A Pome with major version 2 or higher appends `/vN` (N is the major version) to the end of its source path (`github.com/acme/http/v2`, `github.com/emela-lang/x/platform-cloudflare/v2`). The source path without `/vN` is the location of that Pome, and it is a different Pome from the v0 and v1 Pome at the same location. Versions of a source path without `/vN` are limited to v0 and v1, and versions of a source path with `/vN` are limited to major version N. A tag that does not match is not considered a version of that Pome (it does not appear in `@v/list` and cannot be ingested). Endings such as `/v0`, `/v1`, and `/v02` cannot be written.
 - The `target` in `[build]` is the default build target for `check`, `build`, `run`, and `test` (`js`, `native`, `wasm`, chapter 16). If omitted, it is `js`. The `--target` option of a command takes precedence. Like `[replace]`, it takes effect only when building that Pome and is ignored when the Pome is depended on. An unknown target is a compile error (E0232). `c` is a deprecated name of `native` and reports W0903 (`[target.native]`).
 - When `Pome.toml` cannot be read as TOML, or when the `target` in `[build]` is not a string, it is treated as if no `target` were specified.
+- `[experimental]` enables experimental features (`[intro.experimental]`) for the modules of that Pome. Unlike `[replace]` and `[external]`, it is also read when the Pome is depended on: each Pome in the dependency graph is checked with its own `[experimental]`. A feature that changes meaning across Pome boundaries states in its own rules what happens when the settings of two Pomes differ.
 - `license` in `[pome]` declares the license under which the contents of that version are distributed, as an SPDX license expression. It is the author's declaration: no tool checks it against the files of the Pome. When it is omitted, the Pome declares no license; this does not mean any particular license. Unlike `[replace]` and `[build]`, `license` is read also when the Pome is depended on. It does not affect how any Pome is built.
 
 Modules:

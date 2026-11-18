@@ -37,6 +37,12 @@ pub struct Manifest {
     pub replace: BTreeMap<SourcePath, PathBuf>,
     /// `[external].allow`: the Pomes whose `@external` the Pome allows when it is built.
     pub external: Vec<SourcePath>,
+    /// `[experimental]`: the experimental features the Pome enables or disables, by name (spec
+    /// `[module.pome]`, `[intro.experimental]`). Only boolean values are kept: a value that is not
+    /// a boolean has no effect (`[pome.manifest]`), and an `[experimental]` that is not a table
+    /// does not fail the parse. The names are not checked here; emela-driver knows the features
+    /// and reports W0206 and W0207 for the Pome being built, at the key or the value.
+    pub experimental: BTreeMap<String, bool>,
 }
 
 /// The targets `[pome].targets` may name (spec chapter 16).
@@ -76,6 +82,8 @@ struct File {
     replace: BTreeMap<SourcePath, ReplaceEntry>,
     #[serde(default)]
     external: ExternalSection,
+    /// Any value, so that a malformed `[experimental]` does not fail the parse.
+    experimental: Option<toml::Value>,
 }
 
 #[derive(Deserialize, Default)]
@@ -162,6 +170,14 @@ impl Manifest {
             dev_dependencies,
             replace: file.replace.into_iter().map(|(k, v)| (k, v.path)).collect(),
             external: file.external.allow,
+            experimental: file
+                .experimental
+                .as_ref()
+                .and_then(toml::Value::as_table)
+                .into_iter()
+                .flatten()
+                .filter_map(|(name, value)| Some((name.clone(), value.as_bool()?)))
+                .collect(),
         })
     }
 }
@@ -323,5 +339,30 @@ target = "c"
         ))
         .unwrap_err();
         assert!(both.0.contains("in both"), "{both}");
+    }
+
+    /// `[pome.manifest]`: the values of `[experimental]` are booleans; a value that is not a
+    /// boolean has no effect, and does not fail the parse. Unknown names are kept (emela-driver
+    /// reports them).
+    #[test]
+    fn reads_experimental() {
+        let base =
+            "[pome]\nname = \"github.com/acme/x\"\nversion = \"0.1.0\"\nemela = \"0.29.0\"\n";
+        let experimental = |rest: &str| {
+            Manifest::parse(&format!("{base}{rest}"))
+                .unwrap()
+                .experimental
+        };
+        assert!(experimental("").is_empty());
+        assert_eq!(
+            experimental("\n[experimental]\nsome-feature = true\nother = false\nbad = \"yes\"\n"),
+            BTreeMap::from([
+                ("other".to_string(), false),
+                ("some-feature".to_string(), true),
+            ])
+        );
+        // A top-level `experimental` that is not a table.
+        let m = Manifest::parse(&format!("experimental = 1\n{base}")).unwrap();
+        assert!(m.experimental.is_empty());
     }
 }

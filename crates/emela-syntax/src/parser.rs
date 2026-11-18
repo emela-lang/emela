@@ -150,6 +150,12 @@ impl<'t> Parser<'t> {
         self.tokens.get(self.pos + n).map_or(EOF, |t| t.kind)
     }
 
+    /// The kind `n` tokens ahead, without using fuel: for a lookahead that walks forward over the
+    /// tokens by itself and so ends, however many it reads.
+    pub(crate) fn peek(&self, n: usize) -> SyntaxKind {
+        self.tokens.get(self.pos + n).map_or(EOF, |t| t.kind)
+    }
+
     pub(crate) fn current(&self) -> SyntaxKind {
         self.nth(0)
     }

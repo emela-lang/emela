@@ -1,0 +1,19 @@
+# `Self` as an expression constructs the value of a handler in its init (`[grammar.expr]`).
+handler PostgresUsers(conn: Connection): Users {
+  init(url: String) {
+    Self(conn: pg_connect(url))
+  }
+}
+
+handler Counter: Tally {
+  init {
+    Self
+  }
+}
+
+handler Empty(): Tally {
+  init {
+    make = || Self()
+    make()
+  }
+}

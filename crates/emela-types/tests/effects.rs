@@ -1804,3 +1804,80 @@ fn returns_capability() {
 "#
     ));
 }
+
+/// `[effect.handler]`, `[grammar.expr]`: inside the init of a handler, `Self(...)` constructs its
+/// value as the handler's name does: with fields, alone for a handler without parentheses, `Self()`
+/// for `handler H()`, and inside an anonymous function inside init. Its type is the handler's, and
+/// its fields are checked as for `H(...)`. Inside the handler but outside init it is E0418; outside
+/// a handler (in a function, a trait or an impl) it is E0219. It is not a record update target.
+#[test]
+fn self_constructs_in_init() {
+    insta::assert_snapshot!(render_handlers(
+        r#"
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+trait Make {
+  fn make() -> Self
+}
+
+type Box(n: Int)
+
+impl Box: Make {
+  fn make() { Self(n: 1) }
+}
+
+handler Counter(n: Int): Logger {
+  init(start: Int) {
+    value: Int = Self(n: start)
+    Self(n: start)
+  }
+  release { Self(n: 0) }
+  fn info(msg) {
+    next = Self(n: self.n + 1)
+    ()
+  }
+}
+
+handler Plain: Logger {
+  init { Self }
+  fn info(msg) { () }
+}
+
+handler Empty(): Logger {
+  init { Self() }
+  fn info(msg) { () }
+}
+
+handler Lazy(n: Int): Logger {
+  init {
+    make = || Self(n: 1)
+    make()
+  }
+  fn info(msg) { () }
+}
+
+handler Wrong(n: Int): Logger {
+  init { Self(m: 1) }
+  fn info(msg) { () }
+}
+
+handler Typed(n: Int): Logger {
+  init { Self(n: "a") }
+  fn info(msg) { () }
+}
+
+handler Updated(n: Int): Logger {
+  init { Self(n: 1, ..Self(n: 2)) }
+  fn info(msg) { () }
+}
+
+fn outside() { Self(n: 1) }
+
+fn main() {
+  with Counter(start: 1) { (use Logger).info("a") }
+}
+"#
+    ));
+}

@@ -1,0 +1,29 @@
+import Std.Map
+import Std.Dynamic.{Dynamic, Fields, Items, Text, Null, Key, Index, Segment, DecodeError}
+
+fn failed_at(value: Dynamic) -> List[Segment] {
+  {
+    value.field("tags", Dynamic.list(Dynamic.string))
+    []
+  } escape {
+    DecodeError(path:, ..) -> path
+  }
+}
+
+@test
+fn reads_a_field() {
+  value = Fields(Map.from_list([("name", Text("a"))]))
+  assert value.field("name", Dynamic.string) == "a"
+}
+
+@test
+fn reports_the_key_and_index_of_a_failure() {
+  value = Fields(Map.from_list([("tags", Items([Text("a"), Null]))]))
+  assert failed_at(value) == [Key("tags"), Index(1)]
+}
+
+@test
+fn reads_a_missing_key_as_null() {
+  value = Fields(Map.empty())
+  assert failed_at(value) == [Key("tags")]
+}

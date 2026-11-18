@@ -235,7 +235,7 @@ fn occurrences(program: &TypedProgram, symbol: Symbol, declaration: bool) -> Vec
 
 // ---------------------------------------------------------------------------
 
-/// The range of the name to rename. `None` for names that cannot be renamed (modules, `self`,
+/// The range of the name to rename. `None` for names that cannot be renamed (modules, `self`, `Self`,
 /// the bundled core, and definitions without source).
 pub(crate) fn prepare_rename(
     program: &TypedProgram,
@@ -250,13 +250,30 @@ pub(crate) fn prepare_rename(
     occurrences(program, symbol, true)
         .into_iter()
         .find(|span| span.module == module && span.range.contains_inclusive(offset))
+        .filter(|&span| !is_self_keyword(analysis, span))
         .map(|span| span.range)
+}
+
+/// Whether the occurrence is the keyword `Self`, which names a handler inside it
+/// (`[effect.handler]`). It is not the handler's name, so renaming neither starts from it nor
+/// rewrites it.
+fn is_self_keyword(analysis: &Analysis, span: Span) -> bool {
+    analysis
+        .files
+        .get(span.module)
+        .and_then(|&file| {
+            analysis.sources[file]
+                .text()
+                .get(std::ops::Range::<usize>::from(span.range))
+        })
+        .and_then(lex_one)
+        == Some(SyntaxKind::SELF_TYPE_KW)
 }
 
 /// The message is shown in the editor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenameError {
-    /// A name that cannot be renamed (modules, `self`, the bundled core, definitions without
+    /// A name that cannot be renamed (modules, `self`, `Self`, the bundled core, definitions without
     /// source), or no name at the position.
     NotRenamable,
     /// The new name is not in the same lexical class as the old one (spec 2.3: lowercase name,
@@ -287,6 +304,14 @@ pub(crate) fn rename(
     let module = module_of(analysis, file).ok_or(RenameError::NotRenamable)?;
     let symbol = symbol_at(program, module, offset).ok_or(RenameError::NotRenamable)?;
     let kind = renamable(program, analysis, symbol).ok_or(RenameError::NotRenamable)?;
+    let at_self = occurrences(program, symbol, true).into_iter().any(|span| {
+        span.module == module
+            && span.range.contains_inclusive(offset)
+            && is_self_keyword(analysis, span)
+    });
+    if at_self {
+        return Err(RenameError::NotRenamable);
+    }
     if lex_one(new_name) != Some(kind) {
         let class = match kind {
             SyntaxKind::TYPE_NAME => "type name",
@@ -301,6 +326,7 @@ pub(crate) fn rename(
     let puns = puns(program);
     let mut edits: Vec<(NavTarget, String)> = occurrences(program, symbol, true)
         .into_iter()
+        .filter(|&span| !is_self_keyword(analysis, span))
         .filter_map(|span| {
             let text = if puns.contains(&span) {
                 let label = &analysis.sources[*analysis.files.get(span.module)?].text()
