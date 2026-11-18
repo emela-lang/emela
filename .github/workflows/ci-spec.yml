@@ -1,0 +1,38 @@
+name: CI / Spec
+
+# The specification and the adoption of proposals. Called from ci.yml.
+
+on:
+  workflow_call:
+
+jobs:
+  spec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check section names and proposals
+        # Pushes run every job, including before the specification is in the branch.
+        run: |
+          if [ ! -f scripts/spec.py ]; then exit 0; fi
+          python3 scripts/spec.py check
+
+  # A pull request that adopts a proposal waits for the author's `/accept`
+  # (scripts/ci/proposal-adopted.sh). The merge queue skips the job: a pull request enters the
+  # queue only after it passed here.
+  proposal-adopted:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Require the author's /accept for a proposal being adopted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: Allianaab2m
+        run: scripts/ci/proposal-adopted.sh
