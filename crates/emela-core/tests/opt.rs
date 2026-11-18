@@ -7,9 +7,9 @@
 
 use crate::support;
 
-use emela_core::opt::{CoreFn, CoreFns};
+use emela_core::opt::{CoreFn, CoreFns, Rules};
 use emela_core::{dump, opt};
-use support::{lower_files_with, lower_files_with_stats};
+use support::{lower_files_with, lower_files_with_rules, lower_files_with_stats};
 
 /// A program that each of the planned passes has something to do on (Option fusion, range
 /// fusion, inlining), so that the idempotence test keeps its meaning once they are added.
@@ -97,6 +97,30 @@ fn core_fns(m: &emela_core::Module) -> Vec<(emela_core::FnId, CoreFn)> {
             Some((id, kind))
         })
         .collect()
+}
+
+/// Lowers with the passes off, then runs the pipeline with `rules` and the implemented fusion laws.
+///
+/// A test that needs an earlier reduction to expose the shape the pass under test matches uses
+/// this: lowering's `core_fns` map is not exposed, so it is rebuilt here for the fusions.
+fn lower_and_run(
+    files: &[(&str, &str)],
+    rules: Rules,
+) -> (emela_core::Module, emela_core::opt::Stats) {
+    let mut m = lower_files_with(files, false);
+    let mut ids: CoreFns = Default::default();
+    for (id, kind) in core_fns(&m) {
+        ids.insert(id, kind);
+    }
+    let stats = opt::run_with(
+        &mut m,
+        &ids,
+        emela_core::opt::Options {
+            rules,
+            ..emela_core::opt::Options::default()
+        },
+    );
+    (m, stats)
 }
 
 /// The first run reaches the fixed point: a second run changes nothing and leaves the IR as the
@@ -490,7 +514,15 @@ fn main() {
 }
 ",
     )];
-    let (m, stats) = lower_files_with_stats(&files, true);
+    // ζ removes the `let` copies inlining leaves in front of the work; the unswitch then sees the
+    // array and the index as parameters bound outside the loop.
+    let (m, stats) = lower_and_run(
+        &files,
+        Rules {
+            zeta: true,
+            ..Rules::none()
+        },
+    );
     assert!(stats.hoist > 0, "{stats:?}");
     let ir = dump(&m);
     let dot = ir.split("fn dot").nth(1).expect("dot is in the dump");
@@ -507,11 +539,13 @@ fn main() {
     assert_eq!(dot.matches("loop(").count(), 2, "{dot}");
 }
 
-/// A name that a pattern binds is bound inside the loop, not outside it: a `let` that reads it
-/// must stay where it is, or the name would be used before it is bound. A recursive function is
+/// A copy of a name that a pattern binds is ζ reduction's business: `let y = x` is substituted
+/// away when ζ is on, wherever the `let` is. The loop pass does not move it (see
+/// [`a_loop_invariant_let_is_left_to_zeta`]), and ζ's substitution cannot use `x` before the
+/// pattern binds it because the whole `let` is inside the same arm. A recursive function is
 /// loopified, so its `match` arms are inside a loop.
 #[test]
-fn a_let_of_a_pattern_binding_stays_in_the_loop() {
+fn a_copy_of_a_pattern_binding_is_propagated() {
     let files = [(
         "main.emel",
         "\
@@ -530,13 +564,53 @@ fn main() {
 }
 ",
     )];
-    let (m, stats) = lower_files_with_stats(&files, true);
+    let (m, stats) = lower_files_with_rules(
+        &files,
+        Rules {
+            zeta: true,
+            ..Rules::none()
+        },
+    );
+    assert!(stats.zeta > 0, "{stats:?}");
+    let ir = dump(&m);
+    let sum = ir.split("fn sum").nth(1).expect("sum is in the dump");
+    assert!(sum.contains("loop("), "sum is loopified: {sum}");
+    // `let y = x` is a copy of the pattern binding, and ζ removed it.
+    assert!(!sum.contains("let y"), "{sum}");
+}
+
+/// The loop pass is unswitching only: a `let` whose value is a name bound outside the loop stays
+/// where it is, and ζ is the rule that propagates it. The A9/PR-018 split removed the let half of
+/// the old `hoist`; this test pins that the loop pass does not take it back.
+#[test]
+fn a_loop_invariant_let_is_left_to_zeta() {
+    let files = [(
+        "main.emel",
+        "\
+fn sum(xs: List[Int], acc: Int, base: Int) -> Int {
+  xs match {
+    [] -> acc
+    [x, ..rest] -> {
+      z = base
+      y = x + z
+      sum(rest, acc + y, base)
+    }
+  }
+}
+
+fn main() {
+  dbg(sum([1, 2, 3], 0, 10))
+}
+",
+    )];
+    // Every reduction rule off: only the ungated loop pass and δ run.
+    let (m, stats) = lower_files_with_rules(&files, Rules::none());
     assert_eq!(stats.hoist, 0, "{stats:?}");
     let ir = dump(&m);
     let sum = ir.split("fn sum").nth(1).expect("sum is in the dump");
     let loop_at = sum.find("loop(").expect("sum is loopified");
-    // `let y = x` reads the name the pattern binds, so it is still inside the loop.
-    assert!(sum[loop_at..].contains("let y"), "{sum}");
+    // `let z = base` reads a parameter bound outside the loop, but no let is hoisted any more.
+    assert!(sum[loop_at..].contains("let z"), "{sum}");
 }
 
 /// The same hoist for an array whose elements are records: a fixed position (`Array.get(a, 0)`
@@ -571,7 +645,15 @@ fn main() {
 }
 ",
     )];
-    let (m, stats) = lower_files_with_stats(&files, true);
+    // As above, ζ is what exposes the invariant array and index to the unswitch; the let half of
+    // the old hoist did it before A9/PR-018.
+    let (m, stats) = lower_and_run(
+        &files,
+        Rules {
+            zeta: true,
+            ..Rules::none()
+        },
+    );
     assert!(stats.hoist > 0, "{stats:?}");
     let ir = dump(&m);
     let sum = ir.split("fn sum").nth(1).expect("sum is in the dump");
