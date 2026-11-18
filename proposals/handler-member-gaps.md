@@ -1,10 +1,10 @@
 ---
 title: Suspending handler members, bound layers, handler members of labels, and capability fields
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 667
 issue: 656
-decided:
+decided: 2026-11-19
 touches: [effect.decl, effect.use, effect.handler, effect.with, effect.label, type.effect-bound, grammar.decl, diag.list]
 requires: [handler-member]
 related: [multi-effect-handler]
@@ -185,3 +185,10 @@ Together with `handler-member` (#656).
 ## Open questions
 
 ## Decision
+
+Adopted as a supplement to handler-member, found while implementing it (#656).
+
+- A handler member that may suspend when it is opened or released is declared `suspend handler`. An effect with one is not Immediate, and the init and release of a handler that implements a member without `suspend` are checked as the body of an fn operation (E0417). Suspension stays visible in the declaration of the effect, as for operations, and a provider whose resources open without waiting keeps the effect usable under `R: Immediate`.
+- `with x = Layer` is a compile error, with the same code as a handler member item without `x =` or in a layer: a layer provides more than one effect, so x has no type.
+- A label has the handler members of its underlying effect, so an effect with only handler members can have labels.
+- Calling an operation of a capability held in a field of a handler adds nothing to R. The capability outlives the handler, and without this rule a provider that wraps another provider (`TracedFiles`) would have to be given the wrapped effect by name.
