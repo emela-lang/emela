@@ -9,19 +9,21 @@
 //! Preconditions: f is used exactly once in the whole `let`, that use is exactly the callee of an
 //!                indirect call, the call passes one argument per parameter, the call is neither
 //!                marked `fails` nor `suspends`, the lambda's type is a function type without the
-//!                evidence table and without set type parameters, the lambda does not suspend, and
-//!                the expansion fits `MAX_BETA_NODES`.
+//!                evidence table and without set type parameters, the lambda does not suspend, no
+//!                free local of its body has a finalizer-bearing type, and the expansion fits
+//!                `MAX_BETA_NODES`.
 //! Postconditions: the lambda and the call are gone; the call site is the lambda's body with its
 //!                 parameters bound to the arguments; the `let f` binding is removed.
-//! Preserves: evaluation order, effects, failures, suspension points, and the order and count of
-//!            the releases of `with`. The closure value is no longer made or dropped; that is a
-//!            memory effect (spec `[dyn.memory]`), not an observable one, and no other drop point
-//!            moves.
+//! Preserves: evaluation order, effects, failures, suspension points, drop points, and the order
+//!            and count of the releases of `with`. The closure value is no longer made or dropped;
+//!            that is a memory effect (spec `[dyn.memory]`), not an observable one. A capture
+//!            whose top-level type has a finalizer keeps the binding, so its last drop stays
+//!            where it was.
 //! Deopt: f is used zero times or more than once, f is passed as a value, the lambda captures f
 //!        (a recursive lambda), the use is not the callee of a call, another number of arguments
 //!        (a partial application), a lambda that takes the evidence table or whose type has set
-//!        type parameters, a suspending lambda, a call marked `fails` or `suspends`, or an
-//!        expansion over the budget.
+//!        type parameters, a suspending lambda, a call marked `fails` or `suspends`, a lambda
+//!        that captures a value with a finalizer, or an expansion over the budget.
 //! Budget: an expansion of at most `MAX_BETA_NODES` nodes, so that a call site stays small. The
 //!         rewrite removes the binding, the lambda, the call and its callee and adds one `let` per
 //!         parameter, so the size grows only if a call has more than four arguments; that case is
@@ -46,6 +48,18 @@
 //! must freshen the parameters first. The debug assertion after the rewrite pins the other half:
 //! nothing in the result still reads `f`.
 //!
+//! # Captured finalizers
+//!
+//! Expanding removes the closure record, and with it the closure's drop. A lambda that captures a
+//! value keeps that value alive until the closure is dropped; if the capture's type owns a
+//! finalizer, dropping it runs the finalizer, and the expansion would move that point to the end
+//! of the capture's own scope. Plan §3.1 preserves drop points, so a lambda whose body reads a
+//! free local of type `Handler`, `Evidence`, `Cell`, `FiberScope` or `Any` stays bound, and the
+//! site counts in [`RuleStats::deopt`]. The check reads the top-level type of each free local
+//! only: an aggregate whose elements carry a finalizer is not inspected, as in ζ. Locals bound
+//! inside the lambda body (a nested `let`, a nested lambda's parameters, a pattern bind) are not
+//! captures and do not deopt.
+//!
 //! # Call flags
 //!
 //! The reference implementation never inspected [`crate::ir::Expr::Call::fails`] or
@@ -59,7 +73,9 @@
 //! The budget is β's own (`MAX_BETA_NODES`), not δ's: the two rules land independently and must
 //! not share a constant.
 
-use crate::ir::{Callee, Expr, Lit, Local, Module, Type};
+use rustc_hash::FxHashSet;
+
+use crate::ir::{Callee, Expr, Lit, Local, Module, Pat, Type, TypeId};
 use crate::opt::RuleStats;
 use crate::opt::reduce::subst;
 
@@ -197,6 +213,11 @@ fn fits(m: &Module, e: &Expr) -> bool {
     if subst::use_count(e, *f) != 1 {
         return false;
     }
+    // Expanding drops the closure, which is what kept a captured value with a finalizer alive.
+    // Leave the binding so the capture's last drop does not move (plan §3.1, `has_finalizer`).
+    if captures_finalizer(m, params, lambda_body) {
+        return false;
+    }
     let Some(call) = beta_call(body, *f) else {
         return false;
     };
@@ -220,6 +241,85 @@ fn fits(m: &Module, e: &Expr) -> bool {
     let size =
         subst::size(lambda_body) + params.len() as u32 + args.iter().map(subst::size).sum::<u32>();
     size <= MAX_BETA_NODES
+}
+
+/// Whether the lambda's body reads a free local whose top-level type owns a finalizer.
+///
+/// Expanding removes the closure record, and the closure is what kept its captures alive until it
+/// was dropped; a finalizer-bearing capture would then be dropped at the end of its own scope
+/// instead. Plan §3.1 preserves drop points, so such a lambda is left bound ([`has_finalizer`]).
+fn captures_finalizer(m: &Module, params: &[Local], body: &Expr) -> bool {
+    // A local is bound at most once in a module (`crate::ir`), so a local bound anywhere in the
+    // body is bound for every read in it. Collecting the binders once makes the read walk a
+    // membership test and handles nested `let`s, lambdas and pattern binds.
+    let mut bound: FxHashSet<Local> = params.iter().copied().collect();
+    collect_bound(body, &mut bound);
+    reads_finalizer(m, body, &bound)
+}
+
+/// Records every local `e` binds, including inside patterns and nested lambdas.
+fn collect_bound(e: &Expr, bound: &mut FxHashSet<Local>) {
+    match e {
+        Expr::Let { var, .. } => {
+            bound.insert(*var);
+        }
+        Expr::Lambda { params, .. } => bound.extend(params.iter().copied()),
+        Expr::Loop { vars, .. } => bound.extend(vars.iter().copied()),
+        Expr::With { binds, .. } => bound.extend(binds.iter().map(|b| b.var)),
+        Expr::Match { arms, .. } | Expr::Escape { arms, .. } => {
+            for arm in arms {
+                collect_bound_pat(&arm.pat, bound);
+            }
+        }
+        _ => {}
+    }
+    e.for_each_child(&mut |child| collect_bound(child, bound));
+}
+
+/// Records every local a pattern binds.
+fn collect_bound_pat(p: &Pat, bound: &mut FxHashSet<Local>) {
+    match p {
+        Pat::Bind(l) => {
+            bound.insert(*l);
+        }
+        Pat::Ctor { fields, .. } => fields.iter().for_each(|f| collect_bound_pat(f, bound)),
+        Pat::Tuple(ps) => ps.iter().for_each(|p| collect_bound_pat(p, bound)),
+        Pat::List { elems, rest } => {
+            elems.iter().for_each(|p| collect_bound_pat(p, bound));
+            if let Some(rest) = rest {
+                collect_bound_pat(rest, bound);
+            }
+        }
+        Pat::Wild | Pat::Lit(_) => {}
+    }
+}
+
+/// Whether `e` reads a local that `bound` does not list and whose type owns a finalizer.
+fn reads_finalizer(m: &Module, e: &Expr, bound: &FxHashSet<Local>) -> bool {
+    if let Expr::Var(l) = e {
+        return !bound.contains(l) && has_finalizer(m, m.locals[*l].ty);
+    }
+    let mut found = false;
+    e.for_each_child(&mut |child| {
+        if !found {
+            found = reads_finalizer(m, child, bound);
+        }
+    });
+    found
+}
+
+/// Whether a value of `ty` owns a finalizer, or an untracked representation, which β must not move.
+///
+/// `Handler` owns the handler value, `Evidence` the table it points at, `Cell` its contents,
+/// `FiberScope` the scope it opens, and `Any` is not tracked by a type at all. Dropping one of
+/// them runs that finalizer, so expanding a lambda that captured one would move its last drop
+/// (plan §3.1). The check reads the top-level type only; an aggregate's elements are not
+/// inspected (see "Captured finalizers"). ζ uses the same set for a copy value.
+fn has_finalizer(m: &Module, ty: TypeId) -> bool {
+    matches!(
+        m.ty(ty),
+        Type::Handler(_) | Type::Evidence | Type::Cell(_) | Type::FiberScope | Type::Any
+    )
 }
 
 /// The call in `e` whose callee is exactly `Var(f)`, in pre-order.
@@ -269,6 +369,7 @@ fn replace_beta_call(e: &mut Expr, f: Local, expansion: &mut Option<Expr>) -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::intrinsics::Builtin;
     use crate::ir::{FnId, FnSets, FnType, TypeId};
 
     /// Defines `body` as the body of a parameterless function `g` and returns its id.
@@ -353,6 +454,115 @@ mod tests {
         assert_eq!(**value, Expr::Lit(Lit::Int(2)));
         assert!(matches!(**body, Expr::Binary { .. }));
         assert_eq!(subst::use_count(&m.functions[g].body, x), 1);
+        assert_eq!(crate::verify::verify(&m), Ok(()));
+    }
+
+    /// A lambda that captures a value with a finalizer stays bound: expanding it would remove the
+    /// closure that keeps the capture alive, moving the capture's last drop (R1, plan §3.1).
+    #[test]
+    fn a_capture_with_a_finalizer_deopts() {
+        let mut m = Module::new();
+        let cell_ty = m.cell(TypeId::INT);
+        let cell = m.local("cell", cell_ty);
+        let x = m.local("x", TypeId::INT);
+        let ty = m.fn_type(vec![TypeId::INT], cell_ty);
+        let body = lambda_let(
+            &mut m,
+            vec![x],
+            ty,
+            Expr::Var(cell),
+            vec![Expr::Lit(Lit::Int(1))],
+            false,
+            false,
+        );
+        // `cell` is a parameter of `g`, so it is bound outside the lambda and free in its body.
+        let g = m.declare("g", false);
+        m.define(g, vec![cell], cell_ty, body);
+        let before = m.functions[g].body.clone();
+        let stats = beta(&mut m);
+        assert_eq!(
+            stats,
+            RuleStats {
+                applied: 0,
+                deopt: 1
+            }
+        );
+        assert_eq!(m.functions[g].body, before, "a deopt changes nothing");
+        assert_eq!(crate::verify::verify(&m), Ok(()));
+    }
+
+    /// A capture whose type has no finalizer still expands: the check is the type, not the fact of
+    /// capturing.
+    #[test]
+    fn a_plain_capture_still_expands() {
+        let mut m = Module::new();
+        let base = m.local("base", TypeId::INT);
+        let x = m.local("x", TypeId::INT);
+        let ty = m.fn_type(vec![TypeId::INT], TypeId::INT);
+        let lambda_body = Expr::Binary {
+            op: crate::ir::BinOp::Add,
+            ty: crate::ir::OpTy::Int,
+            lhs: Box::new(Expr::Var(x)),
+            rhs: Box::new(Expr::Var(base)),
+        };
+        let body = lambda_let(
+            &mut m,
+            vec![x],
+            ty,
+            lambda_body,
+            vec![Expr::Lit(Lit::Int(1))],
+            false,
+            false,
+        );
+        let g = m.declare("g", false);
+        m.define(g, vec![base], TypeId::INT, body);
+        let stats = beta(&mut m);
+        assert_eq!(
+            stats,
+            RuleStats {
+                applied: 1,
+                deopt: 0
+            }
+        );
+        assert_eq!(subst::use_count(&m.functions[g].body, base), 1);
+        assert_eq!(crate::verify::verify(&m), Ok(()));
+    }
+
+    /// A finalizer-bearing local bound inside the lambda is not a capture: its scope is the whole
+    /// body, which moves as a unit, so its drop point does not move.
+    #[test]
+    fn a_finalizer_bound_inside_the_lambda_does_not_deopt() {
+        let mut m = Module::new();
+        let (x, ty) = one_param(&mut m);
+        let cell_ty = m.cell(TypeId::INT);
+        let c = m.local("c", cell_ty);
+        let lambda_body = Expr::Let {
+            var: c,
+            value: Box::new(Expr::Builtin {
+                op: Builtin::CellNew,
+                ty_args: vec![TypeId::INT],
+                args: vec![Expr::Lit(Lit::Int(1))],
+            }),
+            body: Box::new(add_one(x)),
+        };
+        let body = lambda_let(
+            &mut m,
+            vec![x],
+            ty,
+            lambda_body,
+            vec![Expr::Lit(Lit::Int(1))],
+            false,
+            false,
+        );
+        define(&mut m, body);
+        let stats = beta(&mut m);
+        assert_eq!(
+            stats,
+            RuleStats {
+                applied: 1,
+                deopt: 0
+            }
+        );
         assert_eq!(crate::verify::verify(&m), Ok(()));
     }
 
