@@ -131,8 +131,7 @@ fn only(id: LawId) -> Laws {
     laws
 }
 
-/// The change counter of one law, or `None` for a law with no [`Stats`] field yet. The string law
-/// reports only the `applied` count of `fusion::run` until the integration PR adds its counter.
+/// The change counter of one law, or `None` for a reserved law with no [`Stats`] field.
 fn counter(stats: Stats, id: LawId) -> Option<u32> {
     Some(match id {
         LawId::OptionOr => stats.option_or,
@@ -140,11 +139,8 @@ fn counter(stats: Stats, id: LawId) -> Option<u32> {
         LawId::RangeFold => stats.range_fold,
         LawId::RangeMapArray => stats.map_range,
         LawId::RangeMap => stats.range_map,
-        LawId::MapMap
-        | LawId::FoldMap
-        | LawId::FilterMap
-        | LawId::ArrayPipeline
-        | LawId::StringConcat => return None,
+        LawId::StringConcat => stats.string_concat,
+        LawId::MapMap | LawId::FoldMap | LawId::FilterMap | LawId::ArrayPipeline => return None,
     })
 }
 

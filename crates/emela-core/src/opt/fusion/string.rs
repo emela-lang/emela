@@ -42,15 +42,17 @@ use super::law::LawRun;
 /// leaves, and the byte content of the result.
 /// Deopt: a single append, a two-leaf chain, and a chain whose leaves are all the empty string
 /// literal are left alone.
-/// Measures: the applied count of `fusion::run` and one String per site in the C allocation
-/// report.
+/// Measures: [`Stats::string_concat`](crate::opt::Stats::string_concat) and one String per site
+/// in the C allocation report.
 pub(super) fn concat(m: &mut Module, _core_fns: &CoreFns) -> LawRun {
     let mut changed = 0;
     each_body(m, &mut |_, e| rewrite(e, &mut changed));
     LawRun {
         applied: changed,
-        // The registry has no `Stats` field for this law yet: the applied count is its report.
-        stats: PassStats::default(),
+        stats: PassStats {
+            string_concat: changed,
+            ..PassStats::default()
+        },
     }
 }
 
