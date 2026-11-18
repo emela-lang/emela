@@ -2,7 +2,7 @@
 title: Effects on the left of `.`, E0417 for handler members, and capability fields in suspension
 authors: [Alliana]
 status: draft
-pr:
+pr: 670
 issue: 656
 decided:
 touches: [module.resolution, effect.use, effect.handler, diag.list]
