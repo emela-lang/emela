@@ -1,0 +1,116 @@
+---
+source: crates/emela-syntax/src/parser/grammar/tests.rs
+expression: "dump_all(&[\"use Db\", \"use Std.Fiber.Scope\", \"use State[Int]\", \"use R\",\n\"List[use Db]\", \"(use Db, Int)\", \"fn(use Db) -> use Logger uses { Db }\",\n\"use\", \"use 1\",], types::type_,)"
+---
+=== use Db
+ROOT@0..6
+  CAP_TYPE@0..6
+    USE_KW@0..3 "use"
+    WHITESPACE@3..4 " "
+    PATH@4..6
+      TYPE_NAME@4..6 "Db"
+=== use Std.Fiber.Scope
+ROOT@0..19
+  CAP_TYPE@0..19
+    USE_KW@0..3 "use"
+    WHITESPACE@3..4 " "
+    PATH@4..19
+      TYPE_NAME@4..7 "Std"
+      DOT@7..8 "."
+      TYPE_NAME@8..13 "Fiber"
+      DOT@13..14 "."
+      TYPE_NAME@14..19 "Scope"
+=== use State[Int]
+ROOT@0..14
+  CAP_TYPE@0..14
+    USE_KW@0..3 "use"
+    WHITESPACE@3..4 " "
+    PATH_TYPE@4..14
+      PATH@4..9
+        TYPE_NAME@4..9 "State"
+      TYPE_ARG_LIST@9..14
+        L_BRACK@9..10 "["
+        PATH_TYPE@10..13
+          PATH@10..13
+            TYPE_NAME@10..13 "Int"
+        R_BRACK@13..14 "]"
+=== use R
+ROOT@0..5
+  CAP_TYPE@0..5
+    USE_KW@0..3 "use"
+    WHITESPACE@3..4 " "
+    TYPE_VAR@4..5
+      UPPER_NAME@4..5 "R"
+=== List[use Db]
+ROOT@0..12
+  PATH_TYPE@0..12
+    PATH@0..4
+      TYPE_NAME@0..4 "List"
+    TYPE_ARG_LIST@4..12
+      L_BRACK@4..5 "["
+      CAP_TYPE@5..11
+        USE_KW@5..8 "use"
+        WHITESPACE@8..9 " "
+        PATH@9..11
+          TYPE_NAME@9..11 "Db"
+      R_BRACK@11..12 "]"
+=== (use Db, Int)
+ROOT@0..13
+  TUPLE_TYPE@0..13
+    L_PAREN@0..1 "("
+    CAP_TYPE@1..7
+      USE_KW@1..4 "use"
+      WHITESPACE@4..5 " "
+      PATH@5..7
+        TYPE_NAME@5..7 "Db"
+    COMMA@7..8 ","
+    WHITESPACE@8..9 " "
+    PATH_TYPE@9..12
+      PATH@9..12
+        TYPE_NAME@9..12 "Int"
+    R_PAREN@12..13 ")"
+=== fn(use Db) -> use Logger uses { Db }
+ROOT@0..36
+  FN_TYPE@0..36
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..10
+      L_PAREN@2..3 "("
+      CAP_TYPE@3..9
+        USE_KW@3..6 "use"
+        WHITESPACE@6..7 " "
+        PATH@7..9
+          TYPE_NAME@7..9 "Db"
+      R_PAREN@9..10 ")"
+    WHITESPACE@10..11 " "
+    RET_TYPE@11..24
+      THIN_ARROW@11..13 "->"
+      WHITESPACE@13..14 " "
+      CAP_TYPE@14..24
+        USE_KW@14..17 "use"
+        WHITESPACE@17..18 " "
+        PATH@18..24
+          TYPE_NAME@18..24 "Logger"
+    WHITESPACE@24..25 " "
+    USES_CLAUSE@25..36
+      LOWER_NAME@25..29 "uses"
+      WHITESPACE@29..30 " "
+      EFFECT_SET@30..36
+        L_BRACE@30..31 "{"
+        WHITESPACE@31..32 " "
+        PATH@32..34
+          TYPE_NAME@32..34 "Db"
+        WHITESPACE@34..35 " "
+        R_BRACE@35..36 "}"
+=== use
+ROOT@0..3
+  CAP_TYPE@0..3
+    USE_KW@0..3 "use"
+error[E0111]@3..3: expected type
+=== use 1
+ROOT@0..5
+  CAP_TYPE@0..5
+    USE_KW@0..3 "use"
+    WHITESPACE@3..4 " "
+    ERROR@4..5
+      INT@4..5 "1"
+error[E0111]@4..5: expected type

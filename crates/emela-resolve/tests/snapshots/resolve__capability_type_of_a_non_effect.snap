@@ -1,0 +1,8 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"effect Db {\n  fn query(q: String) -> Int\n}\n\nhandler PrimaryDb: Db {\n  fn query(q) { 1 }\n}\n\nfn f[A](a: use Int, b: use A, c: use PrimaryDb, d: use Missing) { () }\n\"##,)])"
+---
+error src/main.emel@106..109 `Int`: expected effect, found type `Int`
+error src/main.emel@118..119 `A`: expected effect, found type parameter `A`
+error src/main.emel@128..137 `PrimaryDb`: expected effect, found handler `PrimaryDb`
+error src/main.emel@146..153 `Missing`: undefined effect `Missing`

@@ -1,0 +1,24 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/capability_type.emel
+---
+# The type of a capability, `use E` (`[effect.use]`).
+fn copy(from: use Db, to: use Db) -> Int {
+  to.query(from.query("..."))
+}
+
+fn pick(primary: use Db, replica: use Db, write: Bool) -> use State[Int] { primary }
+
+type Pool(dbs: List[use Db], pick: fn(use Db) -> use Db)
+
+handler PostgresUsers(db: use Db): Users {
+  init(db: use Db) { PostgresUsers(db:) }
+  fn find(id) { self.db.query("...") }
+}
+
+fn each(dbs: List[use Db]) {
+  run = |db: use Db| db.query("x")
+  x: use Db = use Db
+  ()
+}

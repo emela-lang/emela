@@ -87,6 +87,26 @@ fn 型のエラー() {
     ));
 }
 
+/// The type of a capability `use E` (`[grammar.type]`, `[effect.use]`): an effect, with its type
+/// arguments, or an uppercase name, in every place a type goes.
+#[test]
+fn capability_の型() {
+    insta::assert_snapshot!(dump_all(
+        &[
+            "use Db",
+            "use Std.Fiber.Scope",
+            "use State[Int]",
+            "use R",
+            "List[use Db]",
+            "(use Db, Int)",
+            "fn(use Db) -> use Logger uses { Db }",
+            "use",
+            "use 1",
+        ],
+        types::type_,
+    ));
+}
+
 #[test]
 fn パターン() {
     insta::assert_snapshot!(dump_all(

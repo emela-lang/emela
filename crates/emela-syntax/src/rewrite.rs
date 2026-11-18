@@ -173,7 +173,7 @@ fn closure_param(param: &SyntaxNode) -> String {
 fn is_type(kind: crate::SyntaxKind) -> bool {
     matches!(
         kind,
-        PATH_TYPE | TYPE_VAR | SELF_TYPE | PAREN_TYPE | UNIT_TYPE | TUPLE_TYPE | FN_TYPE
+        PATH_TYPE | TYPE_VAR | SELF_TYPE | PAREN_TYPE | UNIT_TYPE | TUPLE_TYPE | FN_TYPE | CAP_TYPE
     )
 }
 

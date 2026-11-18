@@ -181,6 +181,9 @@ pub enum TypeKind {
         fails: Option<ErrorSet>,
         uses: Option<EffectSet>,
     },
+    /// The type of a capability `use E` (`[effect.use]`). `res` points to an effect (a label is
+    /// one too); `args` are its type arguments.
+    Cap(EffectRef),
     /// An error set written as a type argument of a named type (`Handler[NotFound | Timeout, R]`,
     /// spec 9.2). Appears only in type argument positions.
     ErrorSet(ErrorSet),

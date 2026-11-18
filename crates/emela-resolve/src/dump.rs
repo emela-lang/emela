@@ -415,6 +415,9 @@ impl Dumper<'_> {
                 }
                 s
             }
+            TypeKind::Cap(effect) => {
+                format!("use {}", self.effect_list(std::slice::from_ref(effect)))
+            }
             TypeKind::ErrorSet(set) => format!("fails {{{}}}", self.res_list(&set.items)),
             TypeKind::EffectSet(set) => format!("uses {{{}}}", self.effect_list(&set.items)),
             TypeKind::Missing => "missing".to_owned(),

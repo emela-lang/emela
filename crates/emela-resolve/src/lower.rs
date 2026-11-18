@@ -1021,6 +1021,32 @@ impl Lower<'_, '_> {
                     uses,
                 }
             }
+            // `use E` (`[effect.use]`). The effect item is read as in an effect set.
+            CAP_TYPE => match self.effect_set_items(node).pop() {
+                Some(effect) => {
+                    if let Res::Def(def) = effect.res
+                        && self.r.program.defs[def].kind == DefKind::TypeParam
+                    {
+                        let name = self.r.program.defs[def].name.clone();
+                        let range = node
+                            .children()
+                            .find(|n| n.kind() == TYPE_VAR)
+                            .map_or(range, |n| n.text_range());
+                        self.error(
+                            range,
+                            DiagnosticKind::WrongKind {
+                                name,
+                                expected: Expected::Effect,
+                                found: DefKind::TypeParam.describe(),
+                            },
+                        );
+                        TypeKind::Missing
+                    } else {
+                        TypeKind::Cap(effect)
+                    }
+                }
+                None => TypeKind::Missing,
+            },
             _ => TypeKind::Missing,
         };
         self.alloc_type(kind, range)
@@ -2308,8 +2334,17 @@ impl Lower<'_, '_> {
 }
 
 /// The `X` of `use X` (not an element of a `uses` clause).
+/// Whether the path names the effect of `use X` or of the type `use X` (CAP_TYPE, with or without
+/// type arguments). Neither takes a type parameter (`[effect.use]`).
 fn path_in_use_expr(path: &ast::Path) -> bool {
-    path.syntax().parent().is_some_and(|p| p.kind() == USE_EXPR)
+    let Some(parent) = path.syntax().parent() else {
+        return false;
+    };
+    match parent.kind() {
+        USE_EXPR | CAP_TYPE => true,
+        PATH_TYPE => parent.parent().is_some_and(|p| p.kind() == CAP_TYPE),
+        _ => false,
+    }
 }
 
 fn pat_literal(node: &SyntaxNode) -> PatKind {

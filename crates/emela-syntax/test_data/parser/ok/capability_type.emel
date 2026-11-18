@@ -1,0 +1,20 @@
+fn copy(src: use ReadFile, dst: use WriteFile) -> () fails FileSystemFailure {
+  dst.write(src.read())
+}
+
+fn pick(primary: use Db, replica: use Db, write: Bool) -> use Db {
+  if write { primary } else { replica }
+}
+
+handler PostgresUsers(db: use Db): Users {
+  init(db: use Db) { PostgresUsers(db:) }
+  fn find(id) { self.db.query("...") }
+}
+
+type Pool(dbs: List[use Db])
+
+fn each(dbs: List[use State[Int]], f: fn(use State[Int]) -> ()) {
+  run = |db: use State[Int]| f(db)
+  x: use Db = use Db
+  ()
+}
