@@ -76,11 +76,12 @@ effect_decl  = "effect" type_name [ type_params ] "{" { effect_member NL } "}"
 effect_member = op_sig | member_sig
 op_sig       = [ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")"
                "->" type [ "fails" error_set ]     (* type_params only for built-in effects; 8.1 *)
-member_sig   = "handler" type_name "(" [ params ] ")" ":" type_ref [ "[" type { "," type } "]" ]
+member_sig   = "handler" type_name "(" [ params ] ")" ":" effect_ref { "+" effect_ref }
                [ "fails" error_set ]                              (* a handler member; 8.1 *)
 
 handler_decl = "handler" type_name [ "(" [ fields ] ")" ]
-               ":" type_ref [ "[" type { "," type } "]" ] "{" { handler_item NL } "}"
+               ":" effect_ref { "+" effect_ref } "{" { handler_item NL } "}"
+effect_ref   = type_ref [ "[" type { "," type } "]" ]
 handler_item = "init" [ "(" [ params ] ")" ] block
              | "release" block
              | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block
@@ -121,7 +122,7 @@ type       = type_ref [ "[" type_arg { "," type_arg } "]" ]
            | "(" type "," type { "," type } ")"               (* tuple *)
            | "fn" "(" [ type { "," type } ] ")" "->" type
              [ "fails" error_set ] [ "uses" effect_set ]
-           | "use" effect_item                                (* the type of a capability; 8.2 *)
+           | "use" effect_item { "+" effect_item }            (* the type of a capability; 8.2 *)
 type_ref   = [ module_path "." ] type_name
 
 type_arg   = type

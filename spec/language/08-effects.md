@@ -61,6 +61,8 @@ fn greet(id: Int) {
 - The type of a capability value of E is written `use E`. E is an effect, with its type arguments, or a label. `use E` is a type, and can be written wherever a type can.
 - A capability value can be passed as an argument, put into a data structure, and returned from a function, as any other value. It cannot leave the with that provides it (8.6).
 - Only the operations of E can be called on a value of type `use E`, or taken as function values. There is no operation that inspects a capability value: no trait is implemented for `use E`, and `==` is not defined for it.
+- The type of a capability of several effects is written `use E1 + ... + En`. A capability can be passed to a parameter of type `use F1 + ... + Fm` when every Fi is one of the Ej. Only the operations of the Fi can be called through the parameter. There is no way to recover the other effects from it.
+- A property that a type has to guarantee, such as contents that do not change or exclusive access, is expressed by a separate effect that no handler implements together with an effect that breaks the property.
 - On a capability c of an effect E that has handler members, `c.M(arguments)` opens the handler member M of the handler that provides c. It can be written only as a with item `x = c.M(arguments)` (8.3) and inside an init (8.4).
 - Writing an operation that the capability value's effect does not have is a compile error (E0401). The labels of named arguments are the parameter names in the effect's operation declaration.
 - The effect set R of a function that contains `use X` includes X. Even when written inside a branch, X is in the R of the whole function.
@@ -110,6 +112,7 @@ fn run[R](f: fn() -> () uses { Logger, R }) -> () uses { R } {
 - `E.M(arguments)`, where E is an effect and M one of its handler members, can be written as an item only in the form `x = E.M(arguments)`. It calls the init of M of the innermost handler that provides E at that position. `x = c.M(arguments)`, where c is a capability of E, calls the init of M of the handler that provides c. The arguments are treated as for `H(arguments)`. The item requires E (or c), not the requirements of the inner handler.
 - The effect provided by a handler member item is not provided to `use` by name. It is reached only through the bound capability.
 - A handler member cannot be an item of a layer.
+- A handler that implements several effects provides all of them. Its init and release run once.
 
 ```emel
 with PrimaryDb {
@@ -151,7 +154,7 @@ handler SystemClock: Clock {
 ```
 
 - A handler is written as `handler Name: Effect`. The colon means that the left side satisfies the right side (the same as `[A: Ord]`, `trait Ord: Eq`, and `impl User: Show` (10.2)). Writing `handler H implements E` is a compile error (E0145), and the diagnostic shows the form `handler H: E`. The diagnostic points at the `implements` token.
-- A handler is a declaration, and it implements each operation of one effect exactly once. The types of an operation's parameters and return value are determined by the effect's declaration, so they are not written. The number of parameters MUST be the same as in the declaration. A missing operation is a compile error (E0404, which lists all missing operations), implementing the same operation twice is a compile error (E0405), and a different number of parameters is a compile error (E0406). Implementing an operation that the effect does not have is a compile error (E0212).
+- A handler is a declaration, and it implements each operation of the effects after its colon exactly once (`handler SystemTx(conn: Connection): Query + Execute`). All of them share the same `self`. Listing two effects that have an operation of the same name is a compile error (code to be assigned). The types of an operation's parameters and return value are determined by the effect's declaration, so they are not written. The number of parameters MUST be the same as in the declaration. A missing operation is a compile error (E0404, which lists all missing operations), implementing the same operation twice is a compile error (E0405), and a different number of parameters is a compile error (E0406). Implementing an operation that the effect does not have is a compile error (E0212).
 - Whether an operation has `suspend` MUST match the effect's declaration (E0415). When it does not match, the number of parameters and the body are checked according to the form of the implementation.
 - The E of an operation's body MUST be contained in the `fails` of the operation's declaration. requires(H) (9.4) is the union of the Rs of init, release, and the operation bodies.
 - A handler with state declares fields after its name. Fields are referenced through `self`, as in `self.conn`.
@@ -192,6 +195,7 @@ fn main() {
 - An item of a layer can be written as `H(arguments)`. The arguments are limited to pure expressions (E and R are empty), as for the right-hand side of a const (`[data.const]`): `use` and `fail` cannot be written, and function calls can. The order of the items has no meaning, so arguments with E or R would have no defined order of evaluation. To pass a value that is not pure, list the handler after the layer in the with (`with AppLive, WorkerKv(binding: name) { ... }`).
 - A layer in which two handlers provide the same effect is a compile error (E0421), and layers that include each other are a compile error (E0422). The error is reported only once, at the layer declaration.
   - E0421 is reported at the position of the member that brought in the second handler. Listing the same handler twice is also E0421. For effects with type parameters, only effects that are the same including type arguments are counted, and the message shows them in the form `State[Int]`.
+- A handler that implements several effects counts as providing each of them for E0421.
   - E0422 is reported once, at the position of the layer defined first in the cycle.
   - A cycle in handler requirements (E0411) is reported at the position of the layer member.
   - Duplication and cycles that occur only within a nested layer are reported in the inner layer and are not repeated in the outer layer. In a with, too, cycles that occur only within one layer are not reported.
@@ -296,6 +300,7 @@ fn main() {
 - In addition to handlers and layers, a with can contain the following items.
   - `L`: within the body, the provider of L serves E. Provides {E}; requires {L}.
   - `L by P`: plugs P into L. P is a handler of E, E itself, or another label of E. Provides {L}; requires the requirements of P if P is a handler, or {P} if P is an effect. If P serves some other effect, it is a compile error (E0431). Writing E as P removes the distinction of L and goes back to the outer E (merging).
+  - In `L by H`, where H implements several effects, H serves L through the effect that is the underlying effect of L. If none of them is, it is E0431.
 - The right side of `by` can be written as `H(arguments)`. The arguments are treated as for an item of a with.
 - Requirements are satisfied and the initialization order is determined in the same way as for handlers (8.3, 14.2). In `with SystemConsole, AuditLog by Console`, the Console on the right is satisfied by SystemConsole in the same with.
 - Writing an effect that is not a label in a with or on the left of `by` is a compile error (E0430). Writing `by` twice for the same label in the same with is also a compile error (E0432).
