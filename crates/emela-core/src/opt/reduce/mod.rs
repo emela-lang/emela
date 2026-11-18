@@ -6,9 +6,11 @@
 //! the order of plan §4; the order [`crate::opt::run_with`] applies them in is in the rustdoc of
 //! [`crate::opt`].
 //!
-//! Every rule has the shape `fn(&mut Module) -> RuleStats` and fills only its counter. A rule
-//! that cannot keep its contract leaves the module untouched and records the reason in
-//! `RuleStats::deopt`; the pipeline merges the result into [`crate::opt::Stats`].
+//! Most rules have the shape `fn(&mut Module) -> RuleStats`; δ also takes the bundled core
+//! functions that it must leave as calls (`fn(&mut Module, &CoreFns) -> RuleStats`). Every rule
+//! fills only its counter. A rule that cannot keep its contract leaves the module untouched and
+//! records the reason in `RuleStats::deopt`; the pipeline merges the result into
+//! [`crate::opt::Stats`].
 //!
 //! # Status
 //!
