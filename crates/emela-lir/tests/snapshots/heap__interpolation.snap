@@ -5,12 +5,12 @@ expression: "parts(&m, &[\"label\", \"show$Shape\", \"show$List\"])"
 fn label(s%0: ref (Shape), n%1: i32 (Int)) -> ref (String) {
   s%2: ref (String) = call show$Shape(s%0)
   s%3: ref (String) = builtin Int.to_string(n%1)
-  s%4: ref (String) = builtin String.append("shape ", s%2)
-  drop s%2
-  s%5: ref (String) = builtin String.append(s%4, " number ")
-  drop s%4
-  s%6: ref (String) = builtin String.append(s%5, s%3)
+  s%4: ref (String) = builtin String.append(" number ", s%3)
   drop s%3
+  s%5: ref (String) = builtin String.append(s%2, s%4)
+  drop s%2
+  drop s%4
+  s%6: ref (String) = builtin String.append("shape ", s%5)
   drop s%5
   return s%6
 }
@@ -21,9 +21,9 @@ fn show$Shape(x%0: ref (Shape)) -> ref (String) {
       f%1: f64 (Float) = field x%0 Shape.Circle.radius#0
       drop x%0
       s%2: ref (String) = builtin Float.to_string(f%1)
-      s%3: ref (String) = builtin String.append("Circle(radius: ", s%2)
+      s%3: ref (String) = builtin String.append(s%2, ")")
       drop s%2
-      s%4: ref (String) = builtin String.append(s%3, ")")
+      s%4: ref (String) = builtin String.append("Circle(radius: ", s%3)
       drop s%3
       return s%4
     }
@@ -36,14 +36,14 @@ fn show$Shape(x%0: ref (Shape)) -> ref (String) {
       dup f%7
       drop x%0
       s%8: ref (String) = call show$List[Option[Int]](f%7)
-      s%9: ref (String) = builtin String.append("Named(", s%6)
-      drop s%6
-      s%10: ref (String) = builtin String.append(s%9, ", ")
-      drop s%9
-      s%11: ref (String) = builtin String.append(s%10, s%8)
+      s%9: ref (String) = builtin String.append(s%8, ")")
       drop s%8
+      s%10: ref (String) = builtin String.append(", ", s%9)
+      drop s%9
+      s%11: ref (String) = builtin String.append(s%6, s%10)
+      drop s%6
       drop s%10
-      s%12: ref (String) = builtin String.append(s%11, ")")
+      s%12: ref (String) = builtin String.append("Named(", s%11)
       drop s%11
       return s%12
     }
@@ -64,19 +64,19 @@ fn show$List[Option[Int]](x%0: ref (List[Option[Int]])) -> ref (String) {
       dup t%6
       drop p%1
       s%7: ref (String) = call show$Option[Int](h%5)
-      s%8: ref (String) = builtin String.append(acc%2, sep%3)
-      drop acc%2
+      s%8: ref (String) = builtin String.append(sep%3, s%7)
       drop sep%3
-      s%9: ref (String) = builtin String.append(s%8, s%7)
       drop s%7
+      s%9: ref (String) = builtin String.append(acc%2, s%8)
+      drop acc%2
       drop s%8
       recur(t%6, s%9, ", ")
     }
     yield acc%2
   }
-  s%11: ref (String) = builtin String.append("[", joined%10)
+  s%11: ref (String) = builtin String.append(joined%10, "]")
   drop joined%10
-  s%12: ref (String) = builtin String.append(s%11, "]")
+  s%12: ref (String) = builtin String.append("[", s%11)
   drop s%11
   return s%12
 }
