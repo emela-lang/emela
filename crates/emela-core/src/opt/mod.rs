@@ -172,7 +172,6 @@ pub mod fusion;
 mod hoist;
 mod inline;
 pub mod r#loop;
-mod option;
 mod range;
 pub mod reduce;
 

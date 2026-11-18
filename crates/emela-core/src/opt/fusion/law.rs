@@ -3,9 +3,9 @@
 //!
 //! A law's contract is data here instead of rustdoc only, so the registry can be inspected by the
 //! tests and by the report that counts how often a law fires (plan §5 Track F). The prose of a
-//! contract is the one in the module of the body (`super::super::option`, `super::super::range`):
-//! this table repeats it so that a law that has no body yet can have its contract reviewed before
-//! its implementation (D3–D5).
+//! contract is the one in the module of the body (`super::option`; `super::super::range` for the
+//! range laws until D2 moves them): this table repeats it so that a law that has no body yet can
+//! have its contract reviewed before its implementation (D3–D5).
 //!
 //! [`LAWS`] is in pipeline order: the order of the five implemented laws is the order the pipeline
 //! runs them in, and the reserved laws sit where they will be inserted once they have a body
@@ -25,9 +25,9 @@ pub(super) struct LawRun {
 
 /// The body of a law: the pass it runs, with the number of rewrites made explicit.
 ///
-/// The existing passes return a [`PassStats`] that names their counter but not their site count,
-/// so the registry reads the count from the counter in the adapter below. A later law may fill
-/// several counters; its adapter decides what one application is.
+/// A body fills its own counter and returns the site count with it, so the registry never reads a
+/// counter to decide whether the sweep changed something. A later law may fill several counters;
+/// its body decides what one application is.
 pub(super) type LawFn = fn(&mut Module, &CoreFns) -> LawRun;
 
 /// The identity of a fusion law.
@@ -127,7 +127,7 @@ impl Law {
 pub(super) const LAWS: &[Law] = &[
     Law {
         id: LawId::OptionOr,
-        run: Some(option_or),
+        run: Some(super::option::option_or),
         theory: "Option fusion: Array.get makes an Option only for the caller to take the element \
                  or a default, and the two can be one operation (plan §2.2).",
         equation: "Option.or(Array.get(a, i), d) → Array.get_or(a, i, d)",
@@ -147,7 +147,7 @@ pub(super) const LAWS: &[Law] = &[
     },
     Law {
         id: LawId::ArrayGetMatch,
-        run: Some(array_get_match),
+        run: Some(super::option::array_get_match),
         theory: "Option fusion: a match on Array.get tests only the bounds, so the Option can be \
                  removed by a bounds test and an unchecked load (plan §2.2).",
         equation: "match Array.get(a, i) { Some(x) -> e1; None -> e2 } → \
@@ -351,22 +351,6 @@ pub(super) const LAWS: &[Law] = &[
 ///
 /// Each implemented law fills exactly one change counter today, so its adapter names the counter
 /// instead of summing the [`PassStats`], which would silently miss a counter added by a later law.
-fn option_or(m: &mut Module, core_fns: &CoreFns) -> LawRun {
-    let stats = super::super::option::option_or(m, core_fns);
-    LawRun {
-        applied: stats.option_or,
-        stats,
-    }
-}
-
-fn array_get_match(m: &mut Module, core_fns: &CoreFns) -> LawRun {
-    let stats = super::super::option::array_get_match(m, core_fns);
-    LawRun {
-        applied: stats.array_get_match,
-        stats,
-    }
-}
-
 fn range_fold(m: &mut Module, core_fns: &CoreFns) -> LawRun {
     let stats = super::super::range::fold(m, core_fns);
     LawRun {
