@@ -130,7 +130,7 @@ fn opener() -> () fails Missing uses { Files } {
 "#));
 }
 
-/// E0445, E0446, E0447, E0404 and E0405 for handler members.
+/// E0447, E0448, E0449, E0404 and E0405 for handler members.
 #[test]
 fn handler_member_errors() {
     insta::assert_snapshot!(run(r#"
@@ -240,7 +240,8 @@ fn g() -> () uses { Quick, Slow } {
 
 /// An operation of a capability in a field of `self` is not required by name, but it counts as
 /// its effect for suspension: an fn operation that calls a suspend fn through a field is E0417.
-/// In release, it stays a requirement, so that a release that may suspend shows in the `with`.
+/// In release, a suspend fn called that way makes Async a requirement, so that the `with` shows
+/// that leaving it may suspend (`[effect.use]`).
 #[test]
 fn capability_fields_and_suspension() {
     insta::assert_snapshot!(run(r#"

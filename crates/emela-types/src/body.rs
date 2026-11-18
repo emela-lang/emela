@@ -2255,24 +2255,31 @@ impl<'a> BodyInfer<'a> {
             })]),
             // A capability held in a field of the handler outlives the handler: it belongs to
             // a `with` around the handler's, or to a handler member its init opened
-            // (`[effect.use]`, `[effect.handler]`). It is not required by name: its element is
-            // the handler's `self`, which the end of an operation body removes. It still
-            // counts as its effect for suspension (E0417, and whether the body suspends). In
-            // release, it widens to its effect.
+            // (`[effect.use]`, `[effect.handler]`). It is not a requirement of the handler: its
+            // element is the handler's `self`, which the end of the body removes. It still counts
+            // as its effect for whether the body may suspend (E0417). In release, a suspend fn
+            // called that way makes Async a requirement, so that leaving the `with` shows that it
+            // may suspend.
             None => match self.self_field(base) {
                 Some((self_local, field)) => {
                     let in_release = self.current.and_then(|def| match program.item(def) {
                         Some(Item::Handler(h)) => h.release.map(|(l, _)| l),
                         _ => None,
                     }) == Some(self_local);
-                    if !in_release {
-                        self.use_bound.insert(self_local);
-                    }
-                    Row::from_elems([RowElem::Cap(CapElem {
+                    self.use_bound.insert(self_local);
+                    let mut row = Row::from_elems([RowElem::Cap(CapElem {
                         local: self_local,
                         name: SmolStr::new(format!("self.{field}")),
                         tag: tag.clone(),
-                    })])
+                    })]);
+                    let suspend = matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend);
+                    if in_release
+                        && suspend
+                        && let Some(async_) = program.prelude_def("Async")
+                    {
+                        row.insert(RowElem::Tag(Tag::new(async_)));
+                    }
+                    row
                 }
                 None => Row::of_tag(tag.clone()),
             },
