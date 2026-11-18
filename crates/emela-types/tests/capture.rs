@@ -427,6 +427,95 @@ fn other_roots() -> fn() -> () {
     )));
 }
 
+/// `[fiber.escape]`: a Semaphore or Queue that a `Fiber.scope` makes is a root of the scope. The
+/// value of `Fiber.scope` holding one, through a closure or a list, is W0402.
+#[test]
+fn semaphores_and_queues_leaving_a_scope() {
+    insta::assert_snapshot!(render(
+        r#"
+import Std.Fiber.{Fiber}
+import Std.Queue.{Queue}
+
+fn semaphore_in_a_closure() -> fn() -> Int {
+  Fiber.scope(|| {
+    s = Fiber.semaphore(1)
+    || s.available()
+  })
+}
+
+fn queue_in_a_list() -> List[fn() -> Option[Int]] {
+  Fiber.scope(|| {
+    q: Queue[Int] = Fiber.queue(1)
+    [|| q.poll()]
+  })
+}
+
+fn piped() -> fn() -> Bool {
+  (|| {
+    q: Queue[Int] = Fiber.queue(1)
+    || q.try_offer(1)
+  }) |> Fiber.scope()
+}
+"#
+    ));
+}
+
+/// `[effect.escape]`, `[fiber.escape]`: a value taken out of a Semaphore or Queue (`take`, `poll`,
+/// `with_permit`, `try_with_permit`, `available`) does not hold the root of its scope, unless its
+/// type contains a handle. Other roots are passed on.
+#[test]
+fn values_taken_out_of_semaphores_and_queues() {
+    insta::assert_snapshot!(render(&format!(
+        "import Std.Fiber.{{Fiber}}\nimport Std.Queue.{{Queue, QueueClosed}}\n{}",
+        with_prelude(
+            r#"
+fn taken() -> Int fails QueueClosed {
+  Fiber.scope(|| {
+    q: Queue[Int] = Fiber.queue(1)
+    q.offer(1)
+    q.take()
+  })
+}
+
+fn polled() -> Option[Int] {
+  Fiber.scope(|| {
+    q: Queue[Int] = Fiber.queue(1)
+    q.try_offer(1)
+    q.poll()
+  })
+}
+
+fn permitted[A](f: fn() -> A) -> A {
+  Fiber.scope(|| Fiber.semaphore(1).with_permit(f))
+}
+
+fn tried[A](f: fn() -> A) -> Option[A] {
+  Fiber.scope(|| Fiber.semaphore(1).try_with_permit(f))
+}
+
+fn counted() -> Int {
+  Fiber.scope(|| Fiber.semaphore(2).available())
+}
+
+fn queue_of_a_queue() -> Queue[Int] fails QueueClosed {
+  Fiber.scope(|| {
+    qq: Queue[Queue[Int]] = Fiber.queue(1)
+    qq.offer(Fiber.queue(1))
+    qq.take()
+  })
+}
+
+fn other_roots() -> fn() -> () {
+  with ConsoleLogger {
+    log = use Logger
+    Fiber.scope(|| Fiber.semaphore(1).with_permit(|| || log.info("x")))
+  }
+}
+"#
+        )
+    )));
+}
+
 /// `[lsp.hover]`: a root passed to a parameter is shown by the parameter's name, for a local fn
 /// and a closure too.
 #[test]

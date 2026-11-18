@@ -1,0 +1,30 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+assertion_line: 2243
+expression: warning
+---
+warning[W0402]: a value that holds `Scope` leaves the `Fiber.scope` that provides it
+   ╭─[ src/main.emel:7:5 ]
+   │
+ 5 │   Fiber.scope(|| {
+   │   ─────┬─────  
+   │        ╰─────── `Scope` is released at the end of this `Fiber.scope`
+   │ 
+ 7 │     || s.available()
+   │     ────────┬───────  
+   │             ╰───────── the value of the scope holds `Scope`
+───╯
+
+warning[W0402]: a value that holds `Scope` leaves the `Fiber.scope` that provides it
+    ╭─[ src/main.emel:14:5 ]
+    │
+ 12 │   Fiber.scope(|| {
+    │   ─────┬─────  
+    │        ╰─────── `Scope` is released at the end of this `Fiber.scope`
+    │ 
+ 14 │     || q.poll()
+    │     ─────┬─────  
+    │          ╰─────── the value of the scope holds `Scope`
+────╯
+
+2 warnings
