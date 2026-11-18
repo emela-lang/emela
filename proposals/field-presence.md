@@ -1,10 +1,10 @@
 ---
 title: Absent keys in derived Encode and Decode
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 652
 issue:
-decided:
+decided: 2026-11-18
 touches: [trait.derive, api.std.dynamic, api.std.dynamic.presence (new)]
 requires: []
 related: [derive-encode-decode-shaped]
@@ -221,3 +221,9 @@ None.
 ## Open questions
 
 ## Decision
+
+Adopted now that #589 is merged, so that this lands in 0.28 together with it, before the release.
+
+- None leaves the key out. Emela has no null, and inside an object "no value" corresponds to a missing key.
+- Three states are expressed by a type (`Presence[A]`), not by an attribute, so the form follows from the type of the field.
+- A misspelled key of an Option field being read as None is accepted. A field whose type is not Option still fails, and the JSON Schema made from Shaped lets the sender check its keys.
