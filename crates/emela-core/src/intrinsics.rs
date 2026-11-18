@@ -174,7 +174,7 @@ pub enum Builtin {
     ArrayLoadUnchecked,
     /// `$Array.map_range(lo, hi, f)`: the array of `f(i)` for each `i` in `lo..hi`, in ascending
     /// order. What the Core IR pass that fuses
-    /// `Array.from_list(List.map(List.range(lo, hi), f))` makes (`opt::range`); it builds neither
+    /// `Array.from_list(List.map(List.range(lo, hi), f))` makes (`opt::fusion::list`); it builds neither
     /// the range nor the mapped list. `f` is pure (no evidence table, no failure, no suspension)
     /// and is called `max(0, hi - lo)` times, unless it raises a defect: a defect is not part of
     /// its type, so it stops the call at the first one, and the array is released with the

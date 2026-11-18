@@ -1,4 +1,4 @@
-//! Removal of the `List.range` that `List.fold` and `List.map` consume.
+//! Range fusion laws: the `List.range` that `List.fold` and `List.map` consume.
 //!
 //! `List.fold(List.range(lo, hi), init, f)` becomes a loop over an integer counter, and
 //! `List.map(List.range(lo, hi), f)` builds the result list directly (in reverse) and reverses it
@@ -13,10 +13,16 @@
 //! When `f` is a lambda literal, its body is copied into the loop instead of being called through
 //! the closure ([`inlined_step`]). That is the common shape of a fused loop, and it is what lets
 //! the rest of the pipeline look inside the loop's step.
+//!
+//! These are the bodies of the registry entries [`LawId::RangeFold`], [`LawId::RangeMapArray`]
+//! and [`LawId::RangeMap`], in that registry order; the registry's flags, order and budget are in
+//! [`super`], and the contract text of each law is beside its entry in [`super::law`].
 
 use crate::intrinsics::Builtin;
 use crate::ir::{BinOp, Callee, Expr, FnId, Lit, Local, Module, OpTy, Type, TypeId};
 use crate::opt::{CoreFn, CoreFns, PassStats, each_body};
+
+use super::law::LawRun;
 
 /// Rewrites `List.fold(List.range(lo, hi), init, f)` to a loop over an integer counter.
 ///
@@ -34,12 +40,15 @@ use crate::opt::{CoreFn, CoreFns, PassStats, each_body};
 /// Deopt: a call that is not this shape (a user's `fold` or `range`, another element type, a
 /// `let`-bound range, failing or suspending marks on the range) is left alone.
 /// Measures: `nqueens`, `matmul` and `spectral` (the cons cells of their ranges).
-pub(super) fn fold(m: &mut Module, core_fns: &CoreFns) -> PassStats {
+pub(super) fn fold(m: &mut Module, core_fns: &CoreFns) -> LawRun {
     let mut changed = 0;
     each_body(m, &mut |m, e| rewrite_fold(m, e, core_fns, &mut changed));
-    PassStats {
-        range_fold: changed,
-        ..PassStats::default()
+    LawRun {
+        applied: changed,
+        stats: PassStats {
+            range_fold: changed,
+            ..PassStats::default()
+        },
     }
 }
 
@@ -63,14 +72,17 @@ pub(super) fn fold(m: &mut Module, core_fns: &CoreFns) -> PassStats {
 /// table), and an element type without a representation.
 /// Measures: `matmul`, `spectral` and `k-nucleotide` (the mapped list's cons cells and the second
 /// traversal `Array.from_list` made).
-pub(super) fn map_array(m: &mut Module, core_fns: &CoreFns) -> PassStats {
+pub(super) fn map_array(m: &mut Module, core_fns: &CoreFns) -> LawRun {
     let mut changed = 0;
     each_body(m, &mut |m, e| {
         rewrite_map_array(m, e, core_fns, &mut changed)
     });
-    PassStats {
-        map_range: changed,
-        ..PassStats::default()
+    LawRun {
+        applied: changed,
+        stats: PassStats {
+            map_range: changed,
+            ..PassStats::default()
+        },
     }
 }
 
@@ -91,12 +103,15 @@ pub(super) fn map_array(m: &mut Module, core_fns: &CoreFns) -> PassStats {
 /// Measures: the list forms of the range fusion. An `Array.from_list(List.map(List.range(…), f))`
 /// is [`map_array`]'s case, which this pass sees only when that fusion gave up (an effectful `f`,
 /// or an element type without a representation).
-pub(super) fn map(m: &mut Module, core_fns: &CoreFns) -> PassStats {
+pub(super) fn map(m: &mut Module, core_fns: &CoreFns) -> LawRun {
     let mut changed = 0;
     each_body(m, &mut |m, e| rewrite_map(m, e, core_fns, &mut changed));
-    PassStats {
-        range_map: changed,
-        ..PassStats::default()
+    LawRun {
+        applied: changed,
+        stats: PassStats {
+            range_map: changed,
+            ..PassStats::default()
+        },
     }
 }
 

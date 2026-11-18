@@ -172,7 +172,6 @@ pub mod fusion;
 mod hoist;
 mod inline;
 pub mod r#loop;
-mod range;
 pub mod reduce;
 
 /// The result of one reduction rule over one module.

@@ -3,9 +3,9 @@
 //!
 //! A law's contract is data here instead of rustdoc only, so the registry can be inspected by the
 //! tests and by the report that counts how often a law fires (plan §5 Track F). The prose of a
-//! contract is the one in the module of the body (`super::option`; `super::super::range` for the
-//! range laws until D2 moves them): this table repeats it so that a law that has no body yet can
-//! have its contract reviewed before its implementation (D3–D5).
+//! contract is the one in the module of the body ([`super::option`], [`super::list`]): this table
+//! repeats it so that a law that has no body yet can have its contract reviewed before its
+//! implementation (D3–D5).
 //!
 //! [`LAWS`] is in pipeline order: the order of the five implemented laws is the order the pipeline
 //! runs them in, and the reserved laws sit where they will be inserted once they have a body
@@ -172,7 +172,7 @@ pub(super) const LAWS: &[Law] = &[
     },
     Law {
         id: LawId::RangeFold,
-        run: Some(range_fold),
+        run: Some(super::list::fold),
         theory: "Range fusion: List.range is only consumed by the fold, so the range's list can be \
                  replaced by an integer counter (plan §2.2).",
         equation: "List.fold(List.range(lo, hi), init, f) → \
@@ -198,7 +198,7 @@ pub(super) const LAWS: &[Law] = &[
     },
     Law {
         id: LawId::RangeMapArray,
-        run: Some(range_map_array),
+        run: Some(super::list::map_array),
         theory: "Range and array fusion: the range and the mapped list only feed Array.from_list, \
                  so the array can be made in one traversal (plan §2.2).",
         equation: "Array.from_list(List.map(List.range(lo, hi), f)) → Array.map_range(lo, hi, f)",
@@ -226,7 +226,7 @@ pub(super) const LAWS: &[Law] = &[
     },
     Law {
         id: LawId::RangeMap,
-        run: Some(range_map),
+        run: Some(super::list::map),
         theory: "Range fusion: List.range is only consumed by the map, so the range's list can be \
                  replaced by an integer counter (plan §2.2).",
         equation: "List.map(List.range(lo, hi), f) → \
@@ -346,31 +346,3 @@ pub(super) const LAWS: &[Law] = &[
         measures: "The allocation count of the string-building benchmarks (PR-032).",
     },
 ];
-
-/// Reads the site count out of the counter the existing pass filled.
-///
-/// Each implemented law fills exactly one change counter today, so its adapter names the counter
-/// instead of summing the [`PassStats`], which would silently miss a counter added by a later law.
-fn range_fold(m: &mut Module, core_fns: &CoreFns) -> LawRun {
-    let stats = super::super::range::fold(m, core_fns);
-    LawRun {
-        applied: stats.range_fold,
-        stats,
-    }
-}
-
-fn range_map_array(m: &mut Module, core_fns: &CoreFns) -> LawRun {
-    let stats = super::super::range::map_array(m, core_fns);
-    LawRun {
-        applied: stats.map_range,
-        stats,
-    }
-}
-
-fn range_map(m: &mut Module, core_fns: &CoreFns) -> LawRun {
-    let stats = super::super::range::map(m, core_fns);
-    LawRun {
-        applied: stats.range_map,
-        stats,
-    }
-}
