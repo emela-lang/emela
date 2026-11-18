@@ -153,6 +153,15 @@ pub struct Function {
     /// The keys are the statements of this function. A copy that renumbers its statements does
     /// not keep the map: `heap::copy::compact` clears it, and the pass runs last.
     pub drop_kinds: FxHashMap<StmtId, DropKind>,
+    /// Heap IR, from [`reuse`](crate::opt::reuse) (C4/PR-042): for each `let` whose value is a
+    /// [`Value::Make`] that reuses a block, the variable whose block it reuses. The `drop` that
+    /// released that variable is gone; the `Make` consumes it, and the backends give the
+    /// destination the old block and write the new fields into it, instead of allocating.
+    ///
+    /// A missing entry means an ordinary allocation. Like [`drop_kinds`](Self::drop_kinds) the
+    /// keys are statements of this function, and a copy that renumbers statements
+    /// ([`heap::copy::compact`](crate::heap)) clears it.
+    pub reuse: FxHashMap<StmtId, VarId>,
     /// Heap IR, from [`Stage::DefectsExplicit`]: whether a call may come back with a pending
     /// defect, so that calls to it need a defect landing. External functions may (a host
     /// exception is a defect, spec 12.5).
@@ -180,6 +189,7 @@ impl Function {
             external: None,
             env: None,
             drop_kinds: FxHashMap::default(),
+            reuse: FxHashMap::default(),
             defects: false,
             body: None,
             vars: Arena::new(),
