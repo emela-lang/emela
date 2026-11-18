@@ -145,6 +145,30 @@ const FILTER_MAP_INPUT: &str =
 const FILTER_MAP_EXPANDED: &str =
     include_str!("../../emela-driver/tests/programs/opt/filter_map_expanded.emel");
 
+/// `Array.map(Array.map(a, f), g)`, the left-hand side of `array_map_map`.
+///
+/// This is the driver's mutation pair `array_map_map_fused.emel` /
+/// `array_map_map_expanded.emel`.
+const ARRAY_MAP_MAP_INPUT: &str =
+    include_str!("../../emela-driver/tests/programs/opt/array_map_map_fused.emel");
+
+/// The hand-written expansion of [`ARRAY_MAP_MAP_INPUT`]: one pass that writes `g(f(x))` into a
+/// fresh array, with no intermediate array.
+const ARRAY_MAP_MAP_EXPANDED: &str =
+    include_str!("../../emela-driver/tests/programs/opt/array_map_map_expanded.emel");
+
+/// `Array.fold(Array.map(a, f), init, g)`, the left-hand side of `array_fold_map`.
+///
+/// This is the driver's mutation pair `array_fold_map_fused.emel` /
+/// `array_fold_map_expanded.emel`.
+const ARRAY_FOLD_MAP_INPUT: &str =
+    include_str!("../../emela-driver/tests/programs/opt/array_fold_map_fused.emel");
+
+/// The hand-written expansion of [`ARRAY_FOLD_MAP_INPUT`]: one pass over the positions that calls
+/// `g(acc, f(x))`, with no mapped array.
+const ARRAY_FOLD_MAP_EXPANDED: &str =
+    include_str!("../../emela-driver/tests/programs/opt/array_fold_map_expanded.emel");
+
 /// One law and the two sides of its equation, written by hand.
 struct Case {
     /// The law under test.
@@ -161,7 +185,7 @@ struct Case {
 }
 
 /// The cases, one per implemented law, in pipeline order.
-const CASES: [Case; 8] = [
+const CASES: [Case; 10] = [
     Case {
         id: LawId::OptionOr,
         input: OPTION_OR_INPUT,
@@ -196,6 +220,20 @@ const CASES: [Case; 8] = [
         entry: "evens_plus_one",
         fused: &["fn(", "List.reverse", "even("],
         expansion: Some(FILTER_MAP_EXPANDED),
+    },
+    Case {
+        id: LawId::ArrayMapMap,
+        input: ARRAY_MAP_MAP_INPUT,
+        entry: "pipeline",
+        fused: &["fn(", "twice("],
+        expansion: Some(ARRAY_MAP_MAP_EXPANDED),
+    },
+    Case {
+        id: LawId::ArrayFoldMap,
+        input: ARRAY_FOLD_MAP_INPUT,
+        entry: "total",
+        fused: &["fn(", "add("],
+        expansion: Some(ARRAY_FOLD_MAP_EXPANDED),
     },
     Case {
         id: LawId::RangeFold,
@@ -242,6 +280,8 @@ fn core_fns(m: &Module) -> CoreFns {
                 "List.range" => CoreFn::ListRange,
                 "List.reverse" => CoreFn::ListReverse,
                 _ if name.starts_with("List.") => CoreFn::Collection,
+                "Std.Array.map" => CoreFn::ArrayMap,
+                "Std.Array.fold" => CoreFn::ArrayFold,
                 _ => return None,
             };
             Some((id, kind))
@@ -268,6 +308,8 @@ fn only(id: LawId) -> Laws {
         LawId::MapMap => laws.map_map = true,
         LawId::FoldMap => laws.fold_map = true,
         LawId::FilterMap => laws.filter_map = true,
+        LawId::ArrayMapMap => laws.array_map_map = true,
+        LawId::ArrayFoldMap => laws.array_fold_map = true,
         LawId::ArrayPipeline => laws.array_pipeline = true,
         LawId::StringConcat => laws.string_concat = true,
     }
@@ -282,6 +324,8 @@ fn counter(stats: Stats, id: LawId) -> u32 {
         LawId::MapMap => stats.map_map,
         LawId::FoldMap => stats.fold_map,
         LawId::FilterMap => stats.filter_map,
+        LawId::ArrayMapMap => stats.array_map_map,
+        LawId::ArrayFoldMap => stats.array_fold_map,
         LawId::RangeFold => stats.range_fold,
         LawId::RangeMapArray => stats.map_range,
         LawId::RangeMap => stats.range_map,

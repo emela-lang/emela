@@ -5,7 +5,7 @@
 //! contributes nothing, a reserved law never runs, and the per-sweep budget stops a sweep and
 //! counts what it stopped as a deopt. The laws added after the registry are implemented but off in
 //! `Laws::default` because they are new: the string law (D5/PR-032), so `Laws::all` is what runs it
-//! here, and the three pipeline laws of D3/PR-030.
+//! here, the three pipeline laws of D3/PR-030 and the two array pipeline laws of D4/PR-031.
 
 mod support;
 
@@ -17,8 +17,8 @@ use emela_core::{Module, dump, opt};
 use support::lower_files_with;
 
 /// A program each implemented law fires on: `Option.or`, a `match Array.get`, a fold and a map
-/// over a range, an array built from a mapped range, a chain of `String.append` calls, and the
-/// three pipelines of D3/PR-030.
+/// over a range, an array built from a mapped range, a chain of `String.append` calls, the three
+/// pipelines of D3/PR-030, and the two array pipelines of D4/PR-031.
 const PROGRAM: &[(&str, &str)] = &[(
     "main.emel",
     "\
@@ -46,18 +46,23 @@ fn main() {
   dbg(List.map(List.map([1, 2], |x| x + 1), |x| x * 2))
   dbg(List.fold(List.map([1, 2], |x| x + 1), 0, |a, b| a + b))
   dbg(List.map(List.filter([1, 2, 3], |x| x > 1), |x| x * 2))
+  dbg(Array.map(Array.map(xs, inc), |x| x * 2))
+  dbg(Array.fold(Array.map(xs, inc), 0, |a, b| a + b))
 }
 ",
 )];
 
-/// Every implemented law, in pipeline order. The three pipeline laws of D3/PR-030 and the string
-/// law of D5/PR-032 are implemented but off in `Laws::default`, because they are new.
-const IMPLEMENTED: [LawId; 9] = [
+/// Every implemented law, in pipeline order. The three pipeline laws of D3/PR-030, the two array
+/// pipeline laws of D4/PR-031 and the string law of D5/PR-032 are implemented but off in
+/// `Laws::default`, because they are new.
+const IMPLEMENTED: [LawId; 11] = [
     LawId::OptionOr,
     LawId::ArrayGetMatch,
     LawId::MapMap,
     LawId::FoldMap,
     LawId::FilterMap,
+    LawId::ArrayMapMap,
+    LawId::ArrayFoldMap,
     LawId::RangeFold,
     LawId::RangeMapArray,
     LawId::RangeMap,
@@ -78,12 +83,14 @@ const DEFAULT_ON: [LawId; 5] = [
 const RESERVED: [LawId; 1] = [LawId::ArrayPipeline];
 
 /// The registry order: the implemented laws in pipeline order, then the reserved ones.
-const REGISTRY_ORDER: [LawId; 10] = [
+const REGISTRY_ORDER: [LawId; 12] = [
     LawId::OptionOr,
     LawId::ArrayGetMatch,
     LawId::MapMap,
     LawId::FoldMap,
     LawId::FilterMap,
+    LawId::ArrayMapMap,
+    LawId::ArrayFoldMap,
     LawId::RangeFold,
     LawId::RangeMapArray,
     LawId::RangeMap,
@@ -105,6 +112,8 @@ fn core_fns(m: &Module) -> CoreFns {
                 "List.range" => CoreFn::ListRange,
                 "List.reverse" => CoreFn::ListReverse,
                 _ if name.starts_with("List.") => CoreFn::Collection,
+                "Std.Array.map" => CoreFn::ArrayMap,
+                "Std.Array.fold" => CoreFn::ArrayFold,
                 _ => return None,
             };
             Some((id, kind))
@@ -128,6 +137,8 @@ fn only(id: LawId) -> Laws {
         LawId::MapMap => laws.map_map = true,
         LawId::FoldMap => laws.fold_map = true,
         LawId::FilterMap => laws.filter_map = true,
+        LawId::ArrayMapMap => laws.array_map_map = true,
+        LawId::ArrayFoldMap => laws.array_fold_map = true,
         LawId::RangeFold => laws.range_fold = true,
         LawId::RangeMapArray => laws.range_map_array = true,
         LawId::RangeMap => laws.range_map = true,
@@ -145,6 +156,8 @@ fn counter(stats: Stats, id: LawId) -> Option<u32> {
         LawId::MapMap => stats.map_map,
         LawId::FoldMap => stats.fold_map,
         LawId::FilterMap => stats.filter_map,
+        LawId::ArrayMapMap => stats.array_map_map,
+        LawId::ArrayFoldMap => stats.array_fold_map,
         LawId::RangeFold => stats.range_fold,
         LawId::RangeMapArray => stats.map_range,
         LawId::RangeMap => stats.range_map,

@@ -3900,11 +3900,11 @@ impl<'a> Lowerer<'a> {
         })
     }
 
-    /// The bundled core function `def` is, if a Core IR pass matches it by identity
-    /// ([`CoreFn`]).
+    /// The bundled function `def` is, if a Core IR pass matches it by identity ([`CoreFn`]).
     ///
-    /// Only a definition in a core module counts, so a user's `Option.or` never matches. Every IR
-    /// copy (the `$suspend` ones) gets the same answer; [`Lowerer::fn_id`] records each.
+    /// Only a definition in a bundled module counts (`ModuleMap::is_core` is true for the std
+    /// sources too), so a user's `Option.or` never matches. Every IR copy (the `$suspend` ones)
+    /// gets the same answer; [`Lowerer::fn_id`] records each.
     fn core_fn(&self, def: DefId) -> Option<CoreFn> {
         let DefModule::Source(module) = self.hir.defs[def].module else {
             return None;
@@ -3923,6 +3923,12 @@ impl<'a> Lowerer<'a> {
             ("List", "reverse") => Some(CoreFn::ListReverse),
             // The other collection functions of the core `List` module.
             ("List", _) => Some(CoreFn::Collection),
+            // The bundled std functions the array pipeline laws match (D4/PR-031). The std modules
+            // are bundled (`is_core` is true for them too: `add_core` adds both the core and the
+            // std sources), and their names are reserved, so this is the bundled function and not
+            // a user's.
+            ("Std.Array", "map") => Some(CoreFn::ArrayMap),
+            ("Std.Array", "fold") => Some(CoreFn::ArrayFold),
             _ => None,
         }
     }

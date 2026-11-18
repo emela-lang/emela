@@ -4,8 +4,8 @@
 //! A law's contract is data here instead of rustdoc only, so the registry can be inspected by the
 //! tests and by the report that counts how often a law fires (plan §5 Track F). The prose of a
 //! contract is the one in the module of the body ([`super::option`], [`super::list`],
-//! [`super::string`]): this table repeats it so that a law that has no body yet can have its
-//! contract reviewed before its implementation (D3–D4).
+//! [`super::array`], [`super::string`]): this table repeats it so that a law that has no body yet
+//! can have its contract reviewed before its implementation (D3–D5).
 //!
 //! [`LAWS`] is in pipeline order: the order of the implemented laws is the order the pipeline runs
 //! them in, and the reserved laws sit where they will be inserted once they have a body (after the
@@ -14,7 +14,10 @@
 //! The pipeline laws of D3/PR-030 (`map_map`, `fold_map`, `filter_map`) come before the range
 //! laws, because the call they build is the one `range_fold` and `range_map` fuse: a range pipeline
 //! is then fused completely in one sweep. Their bodies are in [`super::list`], beside the range
-//! laws they feed.
+//! laws they feed. The array laws of D4/PR-031 (`array_map_map`, `array_fold_map`) follow them:
+//! they share the `List` shapes (the two collections have the same call shape) but build calls no
+//! later law consumes, so their position only has to be after the array identities lowering
+//! recorded. Their bodies are in [`super::array`].
 
 use crate::ir::Module;
 use crate::opt::{CoreFns, PassStats};
@@ -51,6 +54,10 @@ pub enum LawId {
     FoldMap,
     /// `List.map(List.filter(xs, p), f)` to one traversal.
     FilterMap,
+    /// `Array.map(Array.map(a, f), g)` to one traversal (D4/PR-031).
+    ArrayMapMap,
+    /// `Array.fold(Array.map(a, f), init, g)` to one traversal (D4/PR-031).
+    ArrayFoldMap,
     /// `List.fold(List.range(lo, hi), init, f)` to a loop over an integer counter.
     RangeFold,
     /// `Array.from_list(List.map(List.range(lo, hi), f))` to the internal `ArrayMapRange`.
@@ -59,7 +66,10 @@ pub enum LawId {
     RangeMap,
     /// A chain of `String.append` calls to one `concat` (D5/PR-032).
     StringConcat,
-    /// An `Array` pipeline over a range. Reserved; no body yet (D4/PR-031).
+    /// `Array.from_list(List.map(List.filter(List.range(…), p), f))` to one array pass. Reserved:
+    /// its right-hand side is the internal `Array.filter_map_range`, which does not exist yet, so
+    /// this law waits for a pull request that adds it (D4's array map and fold laws are
+    /// [`LawId::ArrayMapMap`] and [`LawId::ArrayFoldMap`]).
     ArrayPipeline,
 }
 
@@ -72,6 +82,8 @@ impl LawId {
             Self::MapMap => "map_map",
             Self::FoldMap => "fold_map",
             Self::FilterMap => "filter_map",
+            Self::ArrayMapMap => "array_map_map",
+            Self::ArrayFoldMap => "array_fold_map",
             Self::RangeFold => "range_fold",
             Self::RangeMapArray => "range_map_array",
             Self::RangeMap => "range_map",
@@ -296,6 +308,89 @@ pub(super) const LAWS: &[Law] = &[
                    filter's list and the reverse it would make).",
     },
     Law {
+        id: LawId::ArrayMapMap,
+        run: Some(super::array::map_map),
+        theory: "Array map fusion: two maps of an array each walk the whole array and the first \
+                 one's array is only walked by the second, so the two functions compose into one \
+                 traversal (plan §2.2 and D4).",
+        equation: "Array.map(Array.map(a, f), g) → Array.map(a, λx. g(f x))",
+        preconditions: "The callee of the outer call is the bundled Std.Array.map, and the outer \
+                        call's first argument is a direct call of the same function; both calls \
+                        are in the shape of the equation (four type arguments, three arguments) \
+                        and neither fails nor suspends. f and g are a lambda literal or a reference \
+                        to a top-level function, their instantiated types are pure (no failure, no \
+                        suspension, no evidence table), and their bodies may neither use an effect \
+                        nor fail nor suspend. At most one of f and g may reach a defect or diverge. \
+                        The site is within the code-size budget.",
+        postconditions: "The result is Array.map's array over a with each element replaced by \
+                         g(f(x)), in the order of a. f and g are called once per element, f before \
+                         g; no element of the intermediate array is made. The outer map keeps its \
+                         type arguments for the result and its evidence argument, so the fused \
+                         call is the same call the source's outer map was.",
+        preserves: "Evaluation order, effects, failures, suspension points and drop points. f and g \
+                    are proved quiet, so the per-element interleaving g(f x) has the same \
+                    observable behaviour as the two traversals; at most one of them may stop the \
+                    program (a defect or a divergence), so the first stop is the same call of the \
+                    same function. a is still evaluated first and the evidence argument last; a \
+                    lambda literal is made once before the call instead of before its own \
+                    traversal, which is not observable because making a lambda has no effect. The \
+                    inner call's evidence argument (a local or ()) is dropped with the inner call.",
+        deopt: "A call that is not this shape (a user's map, an indirect call, fewer or more type \
+                arguments or arguments); a function value that is neither a lambda literal nor a \
+                reference to a top-level function; a dbg or any other effect, failure or \
+                suspension in f or g; two steps that may each stop the program; a site over the \
+                code-size budget. A deopt at a nested-map site is counted in Stats::deopt.",
+        budget: "The composed lambda is at most the two function expressions' nodes plus \
+                 COMPOSE_OVERHEAD (the parameter, the two calls and their callees), and one \
+                 function body gains at most MAX_COMPOSED_PER_BODY composed lambdas from this law \
+                 in one sweep. A site over either limit is left alone.",
+        measures: "Stats::array_map_map; a program that maps an array twice (the intermediate \
+                   array, which Array.map builds as one flat allocation plus the list it is made \
+                   from).",
+    },
+    Law {
+        id: LawId::ArrayFoldMap,
+        run: Some(super::array::fold_map),
+        theory: "Array fold fusion: the map that feeds a fold walks the array to build an array \
+                 the fold then walks, so the map's function can be composed into the fold's step \
+                 (plan §2.2 and D4).",
+        equation: "Array.fold(Array.map(a, f), init, g) → \
+                   Array.fold(a, init, λacc, x. g(acc, f x))",
+        preconditions: "The callee of the outer call is the bundled Std.Array.fold and its first \
+                        argument is a direct call of Std.Array.map; both calls are in the shape of \
+                        the equation and neither fails nor suspends. f and g are a lambda literal \
+                        or a reference to a top-level function, their instantiated types are pure, \
+                        and their bodies may neither use an effect nor fail nor suspend. Among f, \
+                        g and init, at most one may stop the program: f and g at a defect or a \
+                        divergence, init at any effect, failure, suspension, defect or divergence. \
+                        The site is within the code-size budget.",
+        postconditions: "The result is the last accumulator of folding g(acc, f(x)) over a, or \
+                         init when a is empty. f and g are called once per element, f before g, in \
+                         the order of a; no element of the intermediate array is made. The fold \
+                         keeps its accumulator type, its type arguments and its evidence argument.",
+        preserves: "Evaluation order, effects, failures, suspension points and drop points. f and g \
+                    are proved quiet, so the per-element interleaving g(a, f x) has the same \
+                    observable behaviour as the map followed by the fold. init moves from after \
+                    the whole map to the fold's first argument; that is not observable because at \
+                    most one of init, f and g may produce an event or stop the program, so no \
+                    event of another one can be overtaken. a is still evaluated first and the \
+                    evidence argument last. The inner map call's evidence argument (a local or ()) \
+                    is dropped with the inner call.",
+        deopt: "A call that is not this shape (a user's fold or map, an indirect call, other type \
+                arguments or arguments); a function value that is neither a lambda literal nor a \
+                reference to a top-level function; a dbg or any other effect, failure or \
+                suspension in f or g; more than one of init, f and g that may stop the program; a \
+                site over the code-size budget. A deopt at a nested site is counted in \
+                Stats::deopt.",
+        budget: "The composed lambda is at most the two function expressions' nodes plus \
+                 COMPOSE_OVERHEAD (the two parameters, the two calls and their callees), and one \
+                 function body gains at most MAX_COMPOSED_PER_BODY composed lambdas from this law \
+                 in one sweep. A site over either limit is left alone.",
+        measures: "Stats::array_fold_map; a program that folds a mapped array (the intermediate \
+                   array, which Array.map builds as one flat allocation plus the list it is made \
+                   from).",
+    },
+    Law {
         id: LawId::RangeFold,
         run: Some(super::list::fold),
         theory: "Range fusion: List.range is only consumed by the fold, so the range's list can be \
@@ -424,7 +519,8 @@ pub(super) const LAWS: &[Law] = &[
                     suspension points, and drop points.",
         deopt: "An effectful, failing or suspending p or f, an element type without a \
                 representation, an unknown callee, or an over-budget site.",
-        budget: "One array, built once, within the per-sweep budget (PR-031).",
-        measures: "A reserved Stats counter; the array pipelines of the benchmarks (PR-031).",
+        budget: "One array, built once, within the per-sweep budget.",
+        measures: "A reserved Stats counter; it stays reserved until the internal builtin it \
+                   builds exists.",
     },
 ];
