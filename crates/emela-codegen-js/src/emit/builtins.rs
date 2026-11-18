@@ -70,6 +70,7 @@ pub(crate) fn runtime_name(op: Builtin) -> &'static str {
         Builtin::ArraySet => "$arraySet",
         Builtin::ArraySlice => "$arraySlice",
         Builtin::ArrayConcat => "$arrayConcat",
+        Builtin::ArrayMapRange => "$arrayMapRange",
         Builtin::Panic => "$panic",
         Builtin::Todo => "$todo",
         Builtin::Dbg => "$dbg",
@@ -100,6 +101,7 @@ mod tests {
             Builtin::AssertFail,
             Builtin::ArrayGetOr,
             Builtin::ArrayLoadUnchecked,
+            Builtin::ArrayMapRange,
         ];
         let replaced = [Builtin::ShowNested];
         for &op in Builtin::ALL

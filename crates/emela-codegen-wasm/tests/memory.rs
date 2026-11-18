@@ -640,6 +640,40 @@ fn main() {
 }
 
 #[test]
+fn a_map_range_past_the_largest_array_is_out_of_memory() {
+    let Some(_) = wasmtime() else { return };
+    // `hi - lo` is up to 2^32 and is computed in 64 bits. In an i32 the count would wrap, and so
+    // would `alloc`'s byte size at 2^29 elements: `array_new` would hand out a tiny block with a
+    // negative length, and the fill loop would write past it. A count that no wasm32 array can
+    // hold ends as out of memory instead (issue #494).
+    let bytes = compile_checked(
+        r#"
+import Std.Array.{Array}
+
+fn main() {
+  dbg("before")
+  xs = Array.from_list(List.map(List.range(0, 2147483647), |i| i))
+  dbg(Array.size(xs))
+}
+"#,
+    );
+    let run = run_bytes(&out_dir("memory-map-range-count"), &bytes);
+    // The exit code and the trap text are implementation-defined. What the backend guarantees is
+    // that the count is rejected instead of wrapping into a small block.
+    assert_ne!(run.code, 0, "the program finished: {}", run.stderr);
+    assert!(
+        !run.stderr.contains("2147483647"),
+        "the program printed the array size instead of failing: {}",
+        run.stderr
+    );
+    assert!(
+        run.stderr.contains("emela: out of memory"),
+        "the count is not rejected as out of memory: {}",
+        run.stderr
+    );
+}
+
+#[test]
 fn short_lived_fibers_reuse_their_records() {
     // Fifty scopes of twenty children each: every child, its handle, its join request and its
     // frames are freed when the scope ends, so a thousand fibers run in the fixed memory. The

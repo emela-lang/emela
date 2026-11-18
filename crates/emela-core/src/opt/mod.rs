@@ -21,12 +21,14 @@
 //! | `option::option_or` | [`Stats::option_or`] | Option fusion |
 //! | `option::array_get_match` | [`Stats::array_get_match`] | Option fusion |
 //! | `range::fold` | [`Stats::range_fold`] | range fusion |
+//! | `range::map_array` | [`Stats::map_range`] | range fusion |
 //! | `range::map` | [`Stats::range_map`] | range fusion |
 //! | `inline::inline` | [`Stats::inline`] | inlining |
 //!
 //! The fusions come before inlining: they match the calls the source wrote, and inlining a
 //! function such as `List.fold` first would dissolve the call the range fusion looks for. The
-//! table is the order within one sweep.
+//! table is the order within one sweep. `range::map_array` comes before `range::map`, which would
+//! otherwise rewrite the `List.map` inside the `Array.from_list` it is looking for.
 //!
 //! # Fixed point
 //!
@@ -125,6 +127,9 @@ pub struct Stats {
     /// `List.map(List.range(lo, hi), f)` rewritten to a loop that no longer builds the range's
     /// list (the result list is still built).
     pub range_map: u32,
+    /// `Array.from_list(List.map(List.range(lo, hi), f))` rewritten to the internal
+    /// `ArrayMapRange(lo, hi, f)`, which builds neither the range nor a list.
+    pub map_range: u32,
     /// Calls inlined: direct calls replaced by a copy of the callee's body.
     pub inline: u32,
     /// How many sweeps of the pipeline were needed: the number of sweeps that changed the module,
@@ -144,6 +149,7 @@ impl Stats {
         self.array_get_match += other.array_get_match;
         self.range_fold += other.range_fold;
         self.range_map += other.range_map;
+        self.map_range += other.map_range;
         self.inline += other.inline;
         self.passes += other.passes;
     }
@@ -157,6 +163,7 @@ impl Stats {
             && self.array_get_match == 0
             && self.range_fold == 0
             && self.range_map == 0
+            && self.map_range == 0
             && self.inline == 0
     }
 }
@@ -193,6 +200,8 @@ pub fn run(m: &mut Module, core_fns: &CoreFns, optimize: bool) -> Stats {
         sweep.merge(option::array_get_match(m, core_fns));
         check(m);
         sweep.merge(range::fold(m, core_fns));
+        check(m);
+        sweep.merge(range::map_array(m, core_fns));
         check(m);
         sweep.merge(range::map(m, core_fns));
         check(m);

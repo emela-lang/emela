@@ -1039,6 +1039,36 @@ fn main() {
 }
 
 #[test]
+fn array_map_range_stops_at_a_defect() {
+    // The fused `Array.from_list(List.map(List.range(lo, hi), f))` calls `f` in a loop. A defect
+    // is not part of `f`'s type, so the loop must stop at the first one and nothing after the
+    // map may run: the array is never complete.
+    let Some(run) = run(
+        "array-map-range-defect",
+        r#"
+import Std.Array.{Array}
+
+fn mapped(i: Int) -> String {
+  dbg("map #{i}")
+  if i == 2 { panic("boom") } else { Int.to_string(i) }
+}
+
+fn main() {
+  xs = Array.from_list(List.map(List.range(0, 5), mapped))
+  dbg(Array.size(xs))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "\"map 0\"\n\"map 1\"\n\"map 2\"\ndefect: boom\n"
+    );
+}
+
+#[test]
 fn list_fold_and_map_over_a_range() {
     // The range fusion turns `List.fold(List.range(lo, hi), …)` and `List.map(List.range(lo,
     // hi), …)` into loops. The values, the evaluation order and a failing or suspending `f` must

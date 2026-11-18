@@ -1,0 +1,23 @@
+# The hand-written expansion of `array_map_range_fused.emel`: a fresh array filled by a self tail
+# call that writes each element in place (`Array.set` updates a copy that nothing else refers to).
+# There is no `List.map` or `List.range` for the fusion to find.
+import Std.Array.{Array}
+
+fn count(lo: Int, hi: Int) -> Int {
+  if hi > lo { hi - lo } else { 0 }
+}
+
+fn squares(lo: Int, hi: Int) -> Array[Int] {
+  fill(Array.repeat(0, count(lo, hi)), lo, lo, hi)
+}
+
+fn fill(a: Array[Int], lo: Int, i: Int, hi: Int) -> Array[Int] {
+  if i >= hi { a } else { fill(Array.set(a, i - lo, i * i), lo, i + 1, hi) }
+}
+
+fn main() {
+  dbg(squares(0, 0))
+  dbg(squares(0, 5))
+  dbg(squares(-3, 2))
+  dbg(squares(4, 1))
+}
