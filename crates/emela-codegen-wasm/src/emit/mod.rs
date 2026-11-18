@@ -1679,7 +1679,12 @@ impl<'m> Builder<'m> {
                 if sync {
                     ins.call(self.rt("sync_enter"));
                 }
-                self.value(cx, ins, dst, &value);
+                match cx.f.reuse.get(&id).copied() {
+                    // Perceus reuse (C4/PR-042): write the new fields into the old block instead
+                    // of allocating a new one.
+                    Some(old) => self.reuse_make(cx, ins, dst, old, &value),
+                    None => self.value(cx, ins, dst, &value),
+                }
                 if sync {
                     ins.call(self.rt("sync_leave"));
                 }
@@ -2343,6 +2348,46 @@ impl<'m> Builder<'m> {
             return;
         };
         self.alloc(cx, ins, d, desc, args.len());
+        for (i, a) in args.iter().enumerate() {
+            self.store_slot(cx, ins, d, i, a);
+        }
+    }
+
+    /// The `Make` `dst = …` of a statement whose old block is reused (C4/PR-042): the destination
+    /// becomes the old variable and the new fields are written into the same object.
+    ///
+    /// `opt::reuse` proved that every field is a scalar, so no argument reads the old block (the
+    /// old variable has exactly one use, the removed drop) and no old field has to be released.
+    /// The constructor is the same, so the descriptor, the tag and the number of slots are the
+    /// ones the object already has. A nullary constructor is static data, which both values
+    /// already are.
+    fn reuse_make(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        old: VarId,
+        value: &emela_lir::Value,
+    ) {
+        let emela_lir::Value::Make { ctor, args } = value else {
+            self.internal(format!(
+                "a reuse of a value that is not a `make` in {}",
+                cx.f.name
+            ));
+            return;
+        };
+        let Some(d) = dst else {
+            self.internal(format!("reuse without a destination in {}", cx.f.name));
+            return;
+        };
+        if enum_repr(self.core(), ctor.enum_id) == Repr::I32 {
+            // The representation is the tag itself: there is no block.
+            ins.local_get(cx.local(old));
+            ins.local_set(cx.local(d));
+            return;
+        }
+        ins.local_get(cx.local(old));
+        ins.local_set(cx.local(d));
         for (i, a) in args.iter().enumerate() {
             self.store_slot(cx, ins, d, i, a);
         }

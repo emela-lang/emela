@@ -50,13 +50,12 @@
 //! `dup`/`drop` are read as facts about the reference, so the analysis agrees with the verifier's
 //! balance on those stages too.
 //!
-//! # No consumer yet
+//! # Consumer
 //!
-//! This module computes facts only; no pass reads them. Before Perceus reuse (C4/PR-042) may reuse
-//! a constructor or an in-place update, the calling convention has to be threaded through
-//! `heap::rc::value_uses`, `rc_check`, `insert_rc`, the shared `ir.rs` and both backends (C
-//! `-DEMELA_LEAK_CHECK`, WASM): a borrowed argument has to be represented consistently in all of
-//! them, or the verifier rejects valid IR (`/tmp/opencode/audit-c0-e0.md`, C0, "Hazards by item").
+//! [`crate::opt::reuse`] (C4/PR-042) reads the facts and accepts only a candidate the analysis
+//! does not call `Known(false)`, together with its own exact one-use proof. The analysis is
+//! computed after reference counting, so the explicit `dup` and `drop` are facts about the
+//! reference it sees.
 //!
 //! # Status
 //!
@@ -408,6 +407,14 @@ fn transfer(
             ..
         } => {
             apply_uses(m, f, borrows, value, &mut state);
+
+            // A `Make` that reuses the block of an old variable consumes it (C4/PR-042): the old
+            // variable owns no reference after it, whatever the analysis proved before.
+            if let Some(&old) = f.reuse.get(&sid)
+                && counted(f, old)
+            {
+                not_unique(&mut state, old);
+            }
 
             if let Some(d) = *dst
                 && counted(f, d)

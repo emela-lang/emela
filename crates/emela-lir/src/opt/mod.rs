@@ -38,7 +38,7 @@
 //! | [`devirt`] | [`Stats::devirt`] | [`run_mid`] | closure records only called in their function (E5/PR-037), off by default |
 //! | [`rc`] cleanup | [`Stats::rc_pairs`], [`Stats::rc_borrow_pairs`] | [`run_heap`] | `dup`/`drop` pairs, with the local-base borrow elision on by default ([`LirRules::rc_borrow`], C1/PR-025) |
 //! | drop specialisation | [`Stats::drop_specialized`], [`Stats::drop_deopts`] | [`run_heap`] | a type-directed block drop for reference-free values behind [`LirRules::drop_spec`], opt-in (C3/PR-027) until its measured size cost pays for a runtime gain |
-//! | reuse / FBIP | — | [`run_heap`] | not implemented (C4/PR-042) |
+//! | reuse / FBIP | [`Stats::reuse`], [`Stats::reuse_deopts`] | [`run_heap`] | a uniquely owned, scalar-only constructor rewritten in place behind [`LirRules::reuse`], off by default (C4/PR-042, first slice) |
 //! | [`dce`] | [`Stats::dce`] | [`run_heap`] | dead pure `let`s with scalar destinations, on by default (C7/PR-028) |
 //! | [`frame_prune`] | — | — | read-only analysis (C7/PR-028): the corpus has no stale saved slot, so no pass prunes a frame |
 //!
@@ -62,16 +62,17 @@
 //! ([`LirRules::dce`], [`dce`]), and borrow inference
 //! ([`LirRules::borrow`], run by
 //! [`to_heap_with_options`](crate::to_heap_with_options) between `state_machines` and `insert_rc`),
-//! and [`Options`] holds them. [`run_mid_with`] and [`run_heap_with`] take the options; [`run_mid`]
-//! and [`run_heap`] use [`Options::default`], which runs the M3 memory passes that pay for
-//! themselves: SRA, the `rc` cleanup with the local-base borrow elision, DCE and borrow inference.
+//! and reuse ([`LirRules::reuse`], [`reuse`]), and [`Options`] holds them. [`run_mid_with`] and
+//! [`run_heap_with`] take the options; [`run_mid`] and [`run_heap`] use [`Options::default`], which
+//! runs the M3 memory passes that pay for themselves: SRA, the `rc` cleanup with the local-base
+//! borrow elision, DCE and borrow inference.
 //! Drop specialisation stays opt-in: with it on, the default build's native binary grew by up to
 //! 7.5% and its C source by up to 3.7% in the M3 measurement, with no measured runtime gain, and
-//! the plan requires a reason and approval for a size increase over 2%. The flags are a
-//! programmatic API only: no command-line flag is added. Record SRA and closure devirtualisation
-//! stay off by default until M5/M6; the later LIR passes (reuse) get their own flags when they
-//! land. Frame pruning has no pass and no flag: [`frame_prune`] reports no stale saved slot on the
-//! corpus.
+//! the plan requires a reason and approval for a size increase over 2%. Reuse is off by default
+//! too: it is the first, conservative slice of C4, and its output must stay what it was until a
+//! later change turns it on. The flags are a programmatic API only: no command-line flag is added.
+//! Record SRA and closure devirtualisation stay off by default until M5/M6. Frame pruning has no
+//! pass and no flag: [`frame_prune`] reports no stale saved slot on the corpus.
 //!
 //! [`LirRules::sra_records`] is off by default so that a default build's output, the WASM byte pins
 //! and the differential tests stay what they were. It only takes part when [`LirRules::sra`] is on
@@ -84,6 +85,7 @@ pub mod drop_spec;
 pub(crate) mod escape;
 pub mod frame_prune;
 mod rc;
+pub mod reuse;
 mod sra;
 
 #[cfg(test)]
@@ -139,6 +141,12 @@ pub struct Stats {
     /// `drop`s [`drop_spec`] left generic, one per statement: a value whose payload may hold a
     /// reference or whose type has a finalizer.
     pub drop_deopts: u32,
+    /// Constructors [`reuse`] forced a uniquely owned block to be written again instead of
+    /// allocating a new one (C4/PR-042), one per `Make` statement.
+    pub reuse: u32,
+    /// Candidate pairs [`reuse`] left as a drop and an allocation, one per adjacent `drop` and
+    /// `Make` of the same constructor whose conditions did not hold.
+    pub reuse_deopts: u32,
 }
 
 impl Stats {
@@ -159,6 +167,8 @@ impl Stats {
         self.borrow_args += other.borrow_args;
         self.drop_specialized += other.drop_specialized;
         self.drop_deopts += other.drop_deopts;
+        self.reuse += other.reuse;
+        self.reuse_deopts += other.reuse_deopts;
     }
 }
 
@@ -204,6 +214,11 @@ pub struct LirRules {
     /// default. This is not a rewrite of the Heap IR: it changes the calling convention the
     /// counting pass follows.
     pub borrow: bool,
+    /// Perceus reuse at [`run_heap`] (C4/PR-042): a `drop` of a uniquely owned, scalar-only object
+    /// of the same constructor as the `Make` right after it is removed, and the `Make` writes its
+    /// fields into the old block instead of allocating ([`reuse`]). Off by default: this is the
+    /// first, conservative slice, and the default build's output stays what it was.
+    pub reuse: bool,
 }
 
 impl LirRules {
@@ -218,6 +233,7 @@ impl LirRules {
             dce: true,
             drop_spec: true,
             borrow: true,
+            reuse: true,
         }
     }
 
@@ -232,6 +248,7 @@ impl LirRules {
             dce: false,
             drop_spec: false,
             borrow: false,
+            reuse: false,
         }
     }
 }
@@ -240,8 +257,10 @@ impl Default for LirRules {
     /// The passes that are on by default: SRA, the `rc` cleanup with the local-base borrow
     /// elision, DCE and borrow inference (the M3 memory passes that pay for themselves). Drop
     /// specialisation stays opt-in because its default-build size cost has no measured runtime
-    /// gain; record SRA and closure devirtualisation stay off until M5/M6; frame pruning has no
-    /// pass, because [`frame_prune::scan`] finds no stale saved slot on the corpus.
+    /// gain; reuse is the first, conservative slice of C4 and stays opt-in so that the default
+    /// build's output is unchanged; record SRA and closure devirtualisation stay off until M5/M6;
+    /// frame pruning has no pass, because [`frame_prune::scan`] finds no stale saved slot on the
+    /// corpus.
     fn default() -> Self {
         Self {
             sra: true,
@@ -252,6 +271,7 @@ impl Default for LirRules {
             dce: true,
             drop_spec: false,
             borrow: true,
+            reuse: false,
         }
     }
 }
@@ -260,8 +280,8 @@ impl Default for LirRules {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
     /// Which LIR passes to run. [`LirRules::default`] by default: SRA, the `rc` cleanup with the
-    /// borrow elision, DCE and borrow inference, with record SRA, closure devirtualisation and
-    /// drop specialisation off.
+    /// borrow elision, DCE and borrow inference, with record SRA, closure devirtualisation, drop
+    /// specialisation and reuse off.
     pub rules: LirRules,
 }
 
@@ -361,10 +381,12 @@ pub fn run_mid_with(m: &mut Module, options: Options) -> Stats {
 /// leaves a `let` alone when its value is not known to be pure, when its destination is a
 /// reference, when it has a defect landing or a suspension edge, or when liveness answers
 /// `Unknown`. [`drop_spec`] leaves a `drop` generic when the value's payload may hold a reference
-/// or the type has a finalizer.
+/// or the type has a finalizer. [`reuse`] leaves a `drop` and its `Make` alone unless the value is
+/// read only by that drop, both are references, every field is a scalar and the constructor has no
+/// error, host handle or finalizer (see [`reuse`]).
 ///
 /// This is [`run_heap_with`] with [`Options::default`] (the `rc` cleanup with the local-base
-/// borrow elision and DCE on; drop specialisation is opt-in).
+/// borrow elision and DCE on; drop specialisation and reuse are opt-in).
 pub fn run_heap(m: &mut Module, optimize: bool) -> Stats {
     if !optimize {
         assert_eq!(
@@ -392,15 +414,23 @@ pub fn run_heap_with(m: &mut Module, options: Options) -> Stats {
         stats.merge(rc::run(m, options.rules.rc_borrow));
         check(m);
     }
-    // Drop specialisation runs last: the `rc` cleanup has cut statements and renumbered the ones
-    // that remain, so this is the final set of `Drop`s and the statement IDs the backends see
-    // (C3/PR-027, [`drop_spec`]).
+    if options.rules.dce {
+        stats.merge(dce::run(m));
+        check(m);
+    }
+    // Drop specialisation runs last: the `rc` cleanup and DCE have cut statements and renumbered
+    // the ones that remain, so this is the final set of `Drop`s and the statement IDs the backends
+    // see (C3/PR-027, [`drop_spec`]).
     if options.rules.drop_spec {
         stats.merge(drop_spec::run(m));
         check(m);
     }
-    if options.rules.dce {
-        stats.merge(dce::run(m));
+    // Reuse runs after drop specialisation (C4/PR-042, [`reuse`]): it removes a `drop` and must
+    // not leave the classification of a drop that no longer exists, and the counter of the pass
+    // that saw the pair first is already written. Nothing after it renumbers statements, so the
+    // map it writes is the final statement numbering.
+    if options.rules.reuse {
+        stats.merge(reuse::run(m));
         check(m);
     }
     stats
@@ -566,6 +596,8 @@ mod tests {
             borrow_args: 3,
             drop_specialized: 2,
             drop_deopts: 1,
+            reuse: 1,
+            reuse_deopts: 2,
         });
         total.merge(Stats {
             sra_tuples: 3,
@@ -583,6 +615,8 @@ mod tests {
             borrow_args: 4,
             drop_specialized: 3,
             drop_deopts: 2,
+            reuse: 4,
+            reuse_deopts: 1,
         });
         total.merge(Stats::default());
         assert_eq!(total.sra_tuples, 5);
@@ -600,6 +634,8 @@ mod tests {
         assert_eq!(total.drop_deopts, 3);
         assert_eq!(total.dce, 8);
         assert_eq!(total.dce_deopts, 3);
+        assert_eq!(total.reuse, 5);
+        assert_eq!(total.reuse_deopts, 3);
     }
 
     /// `LirRules::all` turns every flag on; `none` turns every flag off. The default turns on the
@@ -618,11 +654,12 @@ mod tests {
                 && all.dce
                 && all.drop_spec
                 && all.borrow
+                && all.reuse
         );
         let default = LirRules::default();
         assert!(default.sra && default.rc_cleanup);
         assert!(default.rc_borrow && default.dce && default.borrow);
-        assert!(!default.sra_records && !default.devirt && !default.drop_spec);
+        assert!(!default.sra_records && !default.devirt && !default.drop_spec && !default.reuse);
         let none = LirRules::none();
         assert!(
             !none.sra
@@ -632,6 +669,7 @@ mod tests {
                 && !none.devirt
                 && !none.drop_spec
                 && !none.borrow
+                && !none.reuse
         );
     }
 
