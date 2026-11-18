@@ -104,12 +104,16 @@ pub fn old_handler_head(node: &SyntaxNode) -> Option<(SyntaxToken, TextRange, St
         .find(|n| n.kind() == FIELD_LIST)
         .map(|f| compact(&f.text().to_string()))
         .unwrap_or_default();
-    let effect = node.children().find(|n| n.kind() == HANDLER_EFFECT)?;
-    let head = format!(
-        "handler {}{fields}: {}",
-        name.text(),
-        compact(&effect.text().to_string())
-    );
+    // Every effect after `implements`, joined by `+` (`[grammar.decl]`).
+    let effects: Vec<String> = node
+        .children()
+        .filter(|n| n.kind() == HANDLER_EFFECT)
+        .map(|e| compact(&e.text().to_string()))
+        .collect();
+    if effects.is_empty() {
+        return None;
+    }
+    let head = format!("handler {}{fields}: {}", name.text(), effects.join(" + "));
     let range = TextRange::new(before.text_range().end(), implements.text_range().end());
     Some((implements, range, head))
 }

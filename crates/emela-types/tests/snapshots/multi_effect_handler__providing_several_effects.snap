@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/multi_effect_handler.rs
+expression: "run(r#\"\nhandler Counter(n: Int): Store[Int] + Audit {\n  init { Counter(n: 0) }\n  fn load() { self.n }\n  fn note(msg) { () }\n}\n\nfn both() -> Int uses { Query, Execute } {\n  (use Execute).execute(\"x\")\n  (use Query).query(\"y\")\n}\n\nfn run_both() -> Int {\n  with SystemTx(url: \"db\") { both() }\n}\n\nfn counted() -> Int {\n  with Counter {\n    (use Audit).note(\"a\")\n    (use Store[Int]).load()\n  }\n}\n\"#)"
+---
+both: fn() -> Int uses { Query, Execute }
+run_both: fn() -> Int
+counted: fn() -> Int

@@ -1589,6 +1589,87 @@ fn f[A](a: use Int, b: use A, c: use PrimaryDb, d: use Missing) { () }
     )]));
 }
 
+/// A handler that implements several effects (`[effect.handler]`): each operation resolves to
+/// the effect that declares it, and an inner handler to the handler member of whichever listed
+/// effect has it. A handler member and the type of a capability list several effects too
+/// (`[grammar.decl]`, `[grammar.type]`).
+#[test]
+fn multi_effect_handlers() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"effect Query {
+  fn query(sql: String) -> Int
+}
+
+effect Execute {
+  fn execute(sql: String) -> ()
+}
+
+effect State[S] {
+  fn get() -> S
+}
+
+effect Files {
+  handler Lock(path: String): Query + Execute
+}
+
+effect Pool {
+  fn size() -> Int
+}
+
+handler SystemTx(conn: Int): Query + Execute + State[Int] {
+  init(conn: Int) { SystemTx(conn:) }
+  fn query(sql) { self.conn }
+  fn execute(sql) { () }
+  fn get() { self.conn }
+}
+
+handler SystemFiles: Files + Pool {
+  handler Lock(path: String): Query + Execute {
+    init(path: String) { Self(path:) }
+    fn query(sql) { 0 }
+    fn execute(sql) { () }
+  }
+
+  fn size() { 1 }
+}
+
+fn copy(src: use Query, dst: use Query + Execute + State[Int]) -> () {
+  dst.execute(src.query(""))
+}
+"##,
+    )]));
+}
+
+/// An operation or an inner handler that none of the listed effects has is E0212, which names
+/// all of them.
+#[test]
+fn multi_effect_handler_unknown_operation() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"effect Query {
+  fn query(sql: String) -> Int
+}
+
+effect Execute {
+  fn execute(sql: String) -> ()
+}
+
+handler SystemTx: Query + Execute {
+  fn query(sql) { 0 }
+  fn execute(sql) { () }
+  fn quer(sql) { 0 }
+
+  handler Open(path: String): Query {
+    init(path: String) { Self(path:) }
+  }
+}
+
+fn f(x: use Query + Int) { () }
+"##,
+    )]));
+}
+
 /// Handler members of an effect (`[effect.decl]`), inner handlers that implement them
 /// (`[effect.handler]`), and the items of `with` that open them and bind names
 /// (`[effect.with]`): `Files.Open` names the handler member, `fs.Open` keeps the capability for

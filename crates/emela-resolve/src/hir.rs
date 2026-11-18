@@ -184,9 +184,10 @@ pub enum TypeKind {
         fails: Option<ErrorSet>,
         uses: Option<EffectSet>,
     },
-    /// The type of a capability `use E` (`[effect.use]`). `res` points to an effect (a label is
-    /// one too); `args` are its type arguments.
-    Cap(EffectRef),
+    /// The type of a capability `use E1 + ... + En` (`[effect.use]`), the effects in the order
+    /// written. Each `res` points to an effect (a label is one too); `args` are its type
+    /// arguments.
+    Cap(Vec<EffectRef>),
     /// An error set written as a type argument of a named type (`Handler[NotFound | Timeout, R]`,
     /// spec 9.2). Appears only in type argument positions.
     ErrorSet(ErrorSet),
@@ -678,20 +679,17 @@ pub struct OpItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberItem {
     pub sig: FnSig,
-    /// The effect that the handler implements, after `:`.
-    pub effect: Res,
-    /// Its type arguments.
-    pub effect_args: Vec<TypeId>,
-    /// Where the effect is written.
-    pub effect_span: Option<Span>,
+    /// The effects that the handler implements, after `:` and joined by `+` (`[grammar.decl]`),
+    /// with their type arguments and where each is written.
+    pub effects: Vec<EffectRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerItem {
-    /// The effect after `:`.
-    pub effect: Res,
-    /// Its type arguments (the `Int` of `handler H: State[Int]`, spec 8.1).
-    pub effect_args: Vec<TypeId>,
+    /// The effects after `:`, in the order written (`handler SystemTx: Query + Execute`,
+    /// `[effect.handler]`), with their type arguments (the `Int` of `handler H: State[Int]`,
+    /// spec 8.1).
+    pub effects: Vec<EffectRef>,
     pub fields: Vec<FieldDef>,
     /// The constructor when there are fields, used in `init`.
     pub ctor: Option<DefId>,
@@ -701,7 +699,7 @@ pub struct HandlerItem {
     /// `release` and its implicit `self`.
     pub release: Option<(LocalId, ExprId)>,
     pub ops: Vec<HandlerOp>,
-    /// The inner handlers (`[effect.handler]`), which implement the handler members of `effect`.
+    /// The inner handlers (`[effect.handler]`), which implement the handler members of `effects`.
     pub inner: Vec<DefId>,
     /// For an inner handler, the handler member of the outer handler's effect it implements,
     /// matched by name. `None` for a top-level handler; `Res::Err` when no member has its name.

@@ -805,6 +805,73 @@ fn make() { Counter(n: 1) }
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// The messages of the diagnostics of handlers of several effects (E0450, E0451, E0452, and E0212,
+/// E0401, E0404, E0421, E0431 with several effects; `[effect.handler]`, `[effect.use]`,
+/// `[effect.layer]`, `[effect.label]`).
+#[test]
+fn multi_effect_handler_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Query {
+  fn query(sql: String) -> Int
+}
+
+effect Execute {
+  fn execute(sql: String) -> ()
+}
+
+effect Reader {
+  fn query(sql: String) -> Int
+}
+
+effect Replica of Query
+
+handler Clash: Query + Reader {
+  fn query(sql) { 0 }
+}
+
+handler Repeated: Execute + Execute {
+  fn execute(sql) { () }
+}
+
+handler Half: Query + Execute {
+  fn exec(sql) { () }
+}
+
+handler Plain: Query + Execute {
+  fn query(sql) { 0 }
+  fn execute(sql) { () }
+}
+
+handler Only: Execute {
+  fn execute(sql) { () }
+}
+
+layer Both {
+  Plain
+  Only
+}
+
+fn read_write(rw: use Query + Execute) -> () { rw.execute("a") }
+
+fn widen(q: use Query) -> () {
+  read_write(q)
+  q.execute("b")
+}
+
+fn wrong() -> Int {
+  with Replica by Only { (use Replica).query("a") }
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// `Self` as an expression where it cannot construct a handler (`[effect.handler]`,
 /// `[grammar.expr]`): inside a handler outside its init (E0418), outside a handler (E0219, also in
 /// an impl), and as the target of a record update (E0222).

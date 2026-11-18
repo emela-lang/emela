@@ -461,9 +461,10 @@ impl Context<'_> {
         let hir = self.hir();
         let types = &self.program.types;
         match ty {
-            Ty::Cap(effect) => hir
-                .effect_ops(effect.def)
+            // The operations of every effect of the capability (`[effect.use]`).
+            Ty::Cap(effects) => effects
                 .iter()
+                .flat_map(|effect| hir.effect_ops(effect.def))
                 .filter_map(|&op| self.def_item(op))
                 .collect(),
             Ty::Named(con, _) => {
@@ -511,11 +512,13 @@ impl Context<'_> {
             ExprKind::Path(Res::Local(local)) => types.locals.get(*local).cloned(),
             ExprKind::Path(Res::Def(def)) => types.sigs.get(*def).map(|sig| sig.scheme.ty.clone()),
             ExprKind::Field { base, name } => match self.expr_ty(*base)? {
-                Ty::Cap(effect) => {
-                    let op = hir
-                        .effect_ops(effect.def)
-                        .iter()
-                        .find(|&&op| hir.defs[op].name == name.name)?;
+                Ty::Cap(effects) => {
+                    let (effect, op) = effects.iter().find_map(|effect| {
+                        hir.effect_ops(effect.def)
+                            .iter()
+                            .find(|&&op| hir.defs[op].name == name.name)
+                            .map(|op| (effect, op))
+                    })?;
                     // Effect type parameters are replaced by the capability value's type arguments
                     // (spec 8.1).
                     types

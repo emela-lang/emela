@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/impl_heads.emel
 ---
-ROOT@0..453
+ROOT@0..500
   COMMENT@0..54 "# 前の形の impl と handler の頭（10.2，8.4）"
   NEWLINE@54..55 "\n"
   IMPL_DECL@55..100
@@ -320,6 +320,33 @@ ROOT@0..453
       L_BRACE@450..451 "{"
       R_BRACE@451..452 "}"
   NEWLINE@452..453 "\n"
+  HANDLER_DECL@453..499
+    HANDLER_KW@453..460 "handler"
+    WHITESPACE@460..461 " "
+    TYPE_NAME@461..465 "Both"
+    WHITESPACE@465..466 " "
+    LOWER_NAME@466..476 "implements"
+    WHITESPACE@476..477 " "
+    HANDLER_EFFECT@477..483
+      PATH@477..483
+        TYPE_NAME@477..483 "Logger"
+    WHITESPACE@483..484 " "
+    PLUS@484..485 "+"
+    WHITESPACE@485..486 " "
+    HANDLER_EFFECT@486..496
+      PATH@486..491
+        TYPE_NAME@486..491 "State"
+      TYPE_ARG_LIST@491..496
+        L_BRACK@491..492 "["
+        PATH_TYPE@492..495
+          PATH@492..495
+            TYPE_NAME@492..495 "Int"
+        R_BRACK@495..496 "]"
+    WHITESPACE@496..497 " "
+    ITEM_LIST@497..499
+      L_BRACE@497..498 "{"
+      R_BRACE@498..499 "}"
+  NEWLINE@499..500 "\n"
 error[E0144]@55..73: write `impl User: Show` instead of `impl Show for User`
 error[E0144]@101..123: write `impl Box[A: Eq]: Eq` instead of `impl[A: Eq] Box[A]: Eq`
 error[E0110]@168..172: expected `:`
@@ -328,3 +355,4 @@ error[E0145]@286..296: write `handler Fixed(n: Int): State[Int]` instead of `imp
 error[E0144]@352..381: write `impl Pair[A: Eq, B]: Eq` instead of `impl[A: Eq, B] Pair[A, B]: Eq`
 error[E0144]@385..415: write `impl List[A: Show]: Show` instead of `impl[A: Show] Show for List[A]`
 error[E0145]@432..442: write `handler Bare: Logger` instead of `implements`
+error[E0145]@466..476: write `handler Both: Logger + State[Int]` instead of `implements`

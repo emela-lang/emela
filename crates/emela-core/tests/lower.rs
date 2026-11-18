@@ -661,6 +661,51 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
+/// A handler of several effects (`[effect.handler]`, `[effect.with]`, `[effect.use]`). The
+/// function that returns its value returns the tuple of its handlers, in the order of the
+/// effects' definitions, whose operations share the state. A `with` runs its init once, binds the
+/// tuple with its release, and takes each handler from it. A name bound to it is the tuple, and
+/// passing it as fewer effects keeps only their handlers.
+#[test]
+fn handlers_of_several_effects() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Query {
+  fn query(sql: String) -> Int
+}
+
+effect Execute {
+  fn execute(sql: String) -> ()
+}
+
+handler Tx(conn: Int): Execute + Query {
+  init { Tx(conn: 1) }
+  release { dbg(self.conn) }
+  fn query(sql) { self.conn }
+  fn execute(sql) { () }
+}
+
+fn read_only(q: use Query) -> Int { q.query(\"a\") }
+
+fn main() {
+  dbg(with Tx { (use Query).query(\"b\") })
+  dbg(with tx = Tx { read_only(tx) + tx.query(\"c\") })
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| {
+            ["fn main(", "Tx", "fn read_only("]
+                .iter()
+                .any(|k| f.contains(k))
+        })
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}
+
 /// The arguments of handler init (`[effect.handler]`, `[dyn.with]`). init takes its parameters
 /// before the table. A `with` binds the arguments first, in the order the items are written and
 /// without release, then runs the inits in the order of the dependencies. The arguments of a

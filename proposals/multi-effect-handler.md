@@ -1,7 +1,7 @@
 ---
 title: Handlers that implement several effects
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 625
 issue:
 decided: 2026-11-18
@@ -153,9 +153,9 @@ type       = ...
 
 ## Diagnostics
 
-- [ ] Two effects listed on a handler have an operation of the same name: code to be assigned
-- [ ] The same effect listed twice on a handler: code to be assigned
-- [ ] A capability passed to `use F...` that lacks some Fi: E0403 or a new code (to be assigned)
+- [x] Two effects listed on a handler have an operation of the same name: E0450
+- [x] The same effect listed twice on a handler: E0451
+- [x] A capability passed to `use F...` that lacks some Fi: E0452
 
 ## Compatibility
 

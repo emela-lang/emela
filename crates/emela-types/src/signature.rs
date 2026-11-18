@@ -7,7 +7,7 @@
 
 use emela_resolve::hir::{
     DefId, DefKind, DefModule, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, LocalKind,
-    MemberItem, Param, Program, Res, TypeId, TypeKind, TypeParam,
+    MemberItem, Param, Program, Res, Span, TypeId, TypeKind, TypeParam,
 };
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
@@ -41,9 +41,11 @@ pub struct Signatures {
     by_def: ArenaMap<DefId, Signature>,
     /// Handler → the parameters of its init. Absent for a handler whose init takes none.
     init_params: ArenaMap<DefId, InitParams>,
-    /// Handler → the effect it implements and its type arguments (`implements State[Int]`, spec
-    /// 8.1). Async handlers (E0413) and handlers whose effect is unknown are absent.
-    handler_effects: ArenaMap<DefId, Tag>,
+    /// Handler → the effects it implements and their type arguments (`H: State[Int]`, spec 8.1),
+    /// in the order written (`[effect.handler]`). Host effects, built-in effects, labels
+    /// (E0433), unknown effects and an effect listed a second time (E0451) are left out; a
+    /// handler with none left is absent.
+    handler_effects: ArenaMap<DefId, Vec<Tag>>,
     /// Label → the effect it stands for (`effect AuditLog of Console`, issue #255). Labels whose
     /// base cannot be used (E0429) are absent.
     label_bases: ArenaMap<DefId, Tag>,
@@ -63,8 +65,19 @@ impl Signatures {
         }
     }
 
-    pub fn handler_effect(&self, handler: DefId) -> Option<&Tag> {
-        self.handler_effects.get(handler)
+    /// provides(H) (`[type.rules]`): the effects `handler` implements, in the order written.
+    /// Empty for a handler that implements none that can be provided.
+    pub fn handler_effects(&self, handler: DefId) -> &[Tag] {
+        self.handler_effects.get(handler).map_or(&[], Vec::as_slice)
+    }
+
+    /// The effect of `handler` that declares the operation or handler member `op`, with the type
+    /// arguments written in the handler's head (`[effect.handler]`).
+    pub fn handler_effect_of(&self, program: &Program, handler: DefId, op: DefId) -> Option<&Tag> {
+        let effect = program.defs[op].parent?;
+        self.handler_effects(handler)
+            .iter()
+            .find(|t| t.def == effect)
     }
 
     /// The parameters of a handler's init. `None` if it takes none (or has no init).
@@ -174,31 +187,35 @@ impl Signatures {
                         let init = init_params(program, ty_table, def, &item.init_params, diags);
                         sigs.init_params.insert(def, init);
                     }
-                    if let Res::Def(effect) = item.effect
-                        && is_label(program, effect)
-                    {
-                        let base = match program.item(effect) {
-                            Some(Item::Effect(EffectItem {
-                                label:
-                                    Some(LabelOf {
-                                        base: Res::Def(b), ..
-                                    }),
-                                ..
-                            })) => program.defs[*b].name.clone(),
-                            _ => SmolStr::new("?"),
+                    let mut tags: Vec<Tag> = Vec::new();
+                    for effect_ref in &item.effects {
+                        let Res::Def(effect) = effect_ref.res else {
+                            continue;
                         };
-                        diags.push(Diagnostic {
-                            span: program.defs[def].span,
-                            kind: DiagnosticKind::HandlerOfLabel {
-                                handler: program.defs[def].name.clone(),
-                                label: program.defs[effect].name.clone(),
-                                base,
-                            },
-                        });
-                    } else if let Res::Def(effect) = item.effect
-                        && !program.is_host_effect(effect)
-                        && !is_intrinsic_effect(program, effect)
-                    {
+                        if is_label(program, effect) {
+                            let base = match program.item(effect) {
+                                Some(Item::Effect(EffectItem {
+                                    label:
+                                        Some(LabelOf {
+                                            base: Res::Def(b), ..
+                                        }),
+                                    ..
+                                })) => program.defs[*b].name.clone(),
+                                _ => SmolStr::new("?"),
+                            };
+                            diags.push(Diagnostic {
+                                span: program.defs[def].span,
+                                kind: DiagnosticKind::HandlerOfLabel {
+                                    handler: program.defs[def].name.clone(),
+                                    label: program.defs[effect].name.clone(),
+                                    base,
+                                },
+                            });
+                            continue;
+                        }
+                        if program.is_host_effect(effect) || is_intrinsic_effect(program, effect) {
+                            continue;
+                        }
                         let scope = Scope {
                             params: &[],
                             kinds: &[],
@@ -210,17 +227,24 @@ impl Signatures {
                         // (spec 8.1); omitting them is E0423.
                         let span = program.defs[def].span;
                         let name = program.defs[def].name.clone();
-                        if let Some(tag) = ty_table.effect_tag(
+                        let Some(tag) = ty_table.effect_tag(
                             program,
                             &scope,
                             effect,
-                            &item.effect_args,
+                            &effect_ref.args,
                             span,
                             Some(name),
                             diags,
-                        ) {
-                            sigs.handler_effects.insert(def, tag);
+                        ) else {
+                            continue;
+                        };
+                        check_listed_effect(program, def, &tags, &tag, effect_ref.span, diags);
+                        if !tags.contains(&tag) {
+                            tags.push(tag);
                         }
+                    }
+                    if !tags.is_empty() {
+                        sigs.handler_effects.insert(def, tags);
                     }
                     None
                 }
@@ -656,6 +680,55 @@ fn op_signature(
     }
 }
 
+/// The checks on one more effect `tag` listed after the `:` of `handler`, after `earlier`
+/// (`[effect.handler]`): the same effect listed again is E0451, and an operation or handler
+/// member whose name an earlier effect also has is E0450, since it would not be decided which
+/// implementation is which. Both are reported at the effect written.
+fn check_listed_effect(
+    program: &Program,
+    handler: DefId,
+    earlier: &[Tag],
+    tag: &Tag,
+    span: Span,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let handler_name = program.defs[handler].name.clone();
+    if earlier.contains(tag) {
+        diags.push(Diagnostic {
+            span: Some(span),
+            kind: DiagnosticKind::RepeatedHandlerEffect {
+                handler: handler_name,
+                effect: program.defs[tag.def].name.clone(),
+            },
+        });
+        return;
+    }
+    let names = |effect: DefId| {
+        program
+            .effect_ops(effect)
+            .iter()
+            .chain(program.effect_members(effect))
+            .map(|&d| program.defs[d].name.clone())
+            .collect::<Vec<_>>()
+    };
+    let own = names(tag.def);
+    for other in earlier {
+        for name in names(other.def) {
+            if own.contains(&name) {
+                diags.push(Diagnostic {
+                    span: Some(span),
+                    kind: DiagnosticKind::SharedOperationName {
+                        handler: handler_name.clone(),
+                        op: name,
+                        first: program.defs[other.def].name.clone(),
+                        second: program.defs[tag.def].name.clone(),
+                    },
+                });
+            }
+        }
+    }
+}
+
 /// The type of opening a handler member (`[effect.decl]`, `[type.rules]`): a function from the
 /// parameters of the init to the capability of the handler opened, with the member's `fails`
 /// as its E and the effect that declares the member as its R. The scheme's parameters are the
@@ -680,20 +753,29 @@ fn member_signature(
         sets: false,
         self_ty: None,
     };
-    let provided = match item.effect {
-        Res::Def(f) => ty_table.effect_tag(
-            program,
-            &scope,
-            f,
-            &item.effect_args,
-            item.effect_span,
-            None,
-            diags,
-        ),
-        _ => None,
-    };
+    // The capability opened has every effect after the `:` (`[grammar.decl]`).
+    let mut provided = Some(Vec::with_capacity(item.effects.len()));
+    for effect in &item.effects {
+        let tag = match effect.res {
+            Res::Def(f) => ty_table.effect_tag(
+                program,
+                &scope,
+                f,
+                &effect.args,
+                Some(effect.span),
+                None,
+                diags,
+            ),
+            _ => None,
+        };
+        match (tag, provided.as_mut()) {
+            (Some(tag), Some(tags)) => tags.push(tag),
+            _ => provided = None,
+        }
+    }
+    let provided = provided.filter(|tags| !tags.is_empty());
     if let Ty::Fn(f) = &mut sig.scheme.ty {
-        f.ret = provided.map_or(Ty::Error, Ty::Cap);
+        f.ret = provided.map_or(Ty::Error, Ty::cap);
         if let Some(e) = effect {
             let args = (0..defs.len()).map(|i| Ty::Bound(i as u32)).collect();
             f.uses = Row::of_tag(Tag::with_args(e, args));

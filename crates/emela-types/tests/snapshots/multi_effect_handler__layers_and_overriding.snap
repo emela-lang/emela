@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/multi_effect_handler.rs
+expression: "run(r#\"\nhandler FixedQuery: Query {\n  fn query(sql) { 7 }\n}\n\nlayer Both {\n  SystemTx(url: \"db\")\n  FixedQuery\n}\n\nhandler Plain: Query + Execute {\n  fn query(sql) { 0 }\n  fn execute(sql) { () }\n}\n\nlayer Fine {\n  Plain\n}\n\nfn overridden() -> Int {\n  with Plain, FixedQuery {\n    (use Execute).execute(\"a\")\n    (use Query).query(\"b\")\n  }\n}\n\nfn from_layer() -> Int {\n  with Fine { (use Query).query(\"c\") }\n}\n\"#)"
+---
+overridden: fn() -> Int
+from_layer: fn() -> Int
+`FixedQuery` DuplicateLayerEffect { layer: "Both", effect: "Query", first: "SystemTx", second: "FixedQuery" }

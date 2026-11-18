@@ -1,0 +1,7 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"effect Query {\n  fn query(sql: String) -> Int\n}\n\neffect Execute {\n  fn execute(sql: String) -> ()\n}\n\nhandler SystemTx: Query + Execute {\n  fn query(sql) { 0 }\n  fn execute(sql) { () }\n  fn quer(sql) { 0 }\n\n  handler Open(path: String): Query {\n    init(path: String) { Self(path:) }\n  }\n}\n\nfn f(x: use Query + Int) { () }\n\"##,)])"
+---
+error src/main.emel@189..193 `quer`: `Query + Execute` has no `quer` (did you mean `query`?)
+error src/main.emel@216..220 `Open`: `Query + Execute` has no `Open`
+error src/main.emel@310..313 `Int`: expected effect, found type `Int`

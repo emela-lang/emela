@@ -82,6 +82,9 @@ pub(crate) struct BodyTypes {
     pub(crate) with_handlers: SparseMap<ExprId, crate::layer::WithInfo>,
     /// `with` expressions → per item, the arguments of init reordered by parameter.
     pub(crate) with_args: SparseMap<ExprId, Vec<Vec<Option<ExprId>>>>,
+    /// Arguments whose capability is passed as fewer effects (`[effect.use]`) → the effects of
+    /// the parameter.
+    pub(crate) narrowings: SparseMap<ExprId, Vec<Tag>>,
     /// Layers → per member, the arguments of init reordered by parameter.
     pub(crate) layer_args: Vec<(DefId, Vec<Vec<Option<ExprId>>>)>,
 }
@@ -243,6 +246,8 @@ pub(crate) struct BodyInfer<'a> {
     ops: SparseMap<ExprId, DefId>,
     /// Openings of handler members → the member ([`BodyTypes::members`]).
     member_opens: SparseMap<ExprId, DefId>,
+    /// See [`BodyResult::narrowings`].
+    narrowings: SparseMap<ExprId, Vec<Tag>>,
     /// Callees of calls, where a handler member may be opened inside an init.
     member_callees: FxHashSet<ExprId>,
     /// Variables bound to the capability a handler member item of `with` opens. Its operations
@@ -371,6 +376,7 @@ impl<'a> BodyInfer<'a> {
             expr_effects: SparseMap::new(),
             ops: SparseMap::new(),
             member_opens: SparseMap::new(),
+            narrowings: SparseMap::new(),
             member_callees: FxHashSet::default(),
             member_bound: FxHashSet::default(),
             with_members: SparseMap::new(),
@@ -565,42 +571,52 @@ impl<'a> BodyInfer<'a> {
     fn infer_handler(&mut self, def: DefId, item: &HandlerItem) {
         let program = self.program;
         let span = program.defs[def].span;
-        let Res::Def(effect) = item.effect else {
-            return;
-        };
-        if program.is_host_effect(effect) {
-            self.diags.push(Diagnostic {
-                span,
-                kind: DiagnosticKind::HostEffectHandler {
-                    handler: program.defs[def].name.clone(),
-                    effect: program.defs[effect].name.clone(),
-                },
-            });
-            return;
+        // The effects listed after `:` (`[effect.handler]`); one that did not resolve leaves the
+        // handler unchecked, as name resolution has reported it.
+        let mut effects: Vec<DefId> = Vec::with_capacity(item.effects.len());
+        for e in &item.effects {
+            let Res::Def(effect) = e.res else {
+                return;
+            };
+            if program.is_host_effect(effect) {
+                self.diags.push(Diagnostic {
+                    span,
+                    kind: DiagnosticKind::HostEffectHandler {
+                        handler: program.defs[def].name.clone(),
+                        effect: program.defs[effect].name.clone(),
+                    },
+                });
+                return;
+            }
+            // Only the scope function provides a built-in effect (`Scope`, spec 11.2).
+            if is_intrinsic_effect(program, effect) {
+                let name = program.defs[effect].name.clone();
+                self.diags.push(Diagnostic {
+                    span,
+                    kind: DiagnosticKind::IntrinsicHandler {
+                        handler: program.defs[def].name.clone(),
+                        provider: self
+                            .fibers
+                            .provider(effect)
+                            .cloned()
+                            .unwrap_or(name.clone()),
+                        effect: name,
+                    },
+                });
+                return;
+            }
+            // A handler of a label is E0433 (signatures); its operations are not looked up.
+            if crate::signature::is_label(program, effect) {
+                return;
+            }
+            if !effects.contains(&effect) {
+                effects.push(effect);
+            }
         }
-        // Only the scope function provides a built-in effect (`Scope`, spec 11.2).
-        if is_intrinsic_effect(program, effect) {
-            let name = program.defs[effect].name.clone();
-            self.diags.push(Diagnostic {
-                span,
-                kind: DiagnosticKind::IntrinsicHandler {
-                    handler: program.defs[def].name.clone(),
-                    provider: self
-                        .fibers
-                        .provider(effect)
-                        .cloned()
-                        .unwrap_or(name.clone()),
-                    effect: name,
-                },
-            });
+        if effects.is_empty() {
             return;
         }
         let handler_ty = self.ty_table.self_ty(def).unwrap_or(Ty::Error);
-        let effect_args = self
-            .sigs
-            .handler_effect(def)
-            .map(|t| t.args.clone())
-            .unwrap_or_default();
         match item.init {
             Some(init) => {
                 let params = self.sigs.init_params(def).map(|p| p.tys.clone());
@@ -637,24 +653,37 @@ impl<'a> BodyInfer<'a> {
                 release: true,
             });
         }
-        let ops: &[DefId] = match program.item(effect) {
-            Some(Item::Effect(e)) => &e.ops,
-            _ => &[],
-        };
-        // A missing handler member is E0404 too (`[effect.handler]`), listed after the
+        // The operations of every listed effect, in the order of the effects
+        // (`[effect.handler]`). A missing handler member is E0404 too, listed after the
         // operations.
         let inner_member = |inner: DefId| match program.item(inner) {
             Some(Item::Handler(h)) => h.member,
             _ => None,
         };
-        let members: &[DefId] = match program.item(effect) {
-            Some(Item::Effect(e)) => &e.members,
-            _ => &[],
+        let declared = |members: bool| -> Vec<DefId> {
+            effects
+                .iter()
+                .flat_map(|&effect| match program.item(effect) {
+                    Some(Item::Effect(e)) if members => e.members.as_slice(),
+                    Some(Item::Effect(e)) => e.ops.as_slice(),
+                    _ => &[],
+                })
+                .copied()
+                .collect()
         };
+        let (ops, members) = (declared(false), declared(true));
+        // An operation whose name another listed effect has too is E0450
+        // (`check_listed_effect`), not missing.
         let missing: Vec<SmolStr> = ops
             .iter()
             .filter(|&&op| !item.ops.iter().any(|h| h.op == Res::Def(op)))
             .map(|&op| program.defs[op].name.clone())
+            .filter(|name| {
+                ops.iter()
+                    .filter(|&&o| program.defs[o].name == *name)
+                    .count()
+                    == 1
+            })
             .collect();
         let missing_members: Vec<SmolStr> = members
             .iter()
@@ -717,6 +746,7 @@ impl<'a> BodyInfer<'a> {
                 op.map(|op| matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend));
             if let Some(declared) = declared_suspend
                 && declared != hop.is_suspend
+                && let Some(effect) = op.and_then(|op| program.defs[op].parent)
             {
                 self.diags.push(Diagnostic {
                     span: Some(hop.name.span),
@@ -729,7 +759,11 @@ impl<'a> BodyInfer<'a> {
             }
             let suspend = hop.is_suspend;
             // Effect type parameters are replaced with the types written in the handler head
-            // (spec 8.1).
+            // for the effect that declares the operation (spec 8.1).
+            let effect_args = op
+                .and_then(|op| self.sigs.handler_effect_of(program, def, op))
+                .map(|t| t.args.clone())
+                .unwrap_or_default();
             let f = match op
                 .and_then(|op| self.sigs.get(op))
                 .map(|s| substitute_bound(&s.scheme.ty, &effect_args))
@@ -798,7 +832,7 @@ impl<'a> BodyInfer<'a> {
         let outer = self.program.defs[handler].parent?;
         let args = self
             .sigs
-            .handler_effect(outer)
+            .handler_effect_of(self.program, outer, member)
             .map(|t| t.args.clone())
             .unwrap_or_default();
         match self
@@ -833,22 +867,28 @@ impl<'a> BodyInfer<'a> {
             effect: effect.clone(),
             reason: Box::new(reason),
         };
-        let own = self.sigs.handler_effect(def);
-        if let (Ty::Cap(expected), Some(found)) = (&f.ret, own)
-            && expected != found
+        // The inner handler implements the same effects as the member, in any order.
+        let own = self.sigs.handler_effects(def);
+        if let Ty::Cap(expected) = &f.ret
+            && !own.is_empty()
+            && Ty::cap(own.iter().cloned()) != f.ret
         {
-            let show = |t: &Tag| {
-                SmolStr::new(
-                    Row::of_tag(t.clone())
-                        .display_effects(cons, &[])
-                        .to_string(),
-                )
+            let show = |ts: &[Tag]| {
+                let parts: Vec<String> = ts
+                    .iter()
+                    .map(|t| {
+                        Row::of_tag(t.clone())
+                            .display_effects(cons, &[])
+                            .to_string()
+                    })
+                    .collect();
+                SmolStr::new(parts.join(" + "))
             };
             self.diags.push(Diagnostic {
                 span: program.defs[def].span,
                 kind: mismatch(crate::diagnostic::InnerHandlerMismatch::Effect {
                     expected: show(expected),
-                    found: show(found),
+                    found: show(own),
                 }),
             });
         }
@@ -1131,6 +1171,7 @@ impl<'a> BodyInfer<'a> {
             handler_fails,
             with_handlers: self.with_handlers,
             with_args: self.with_args,
+            narrowings: self.narrowings,
             layer_args: self.layer_args,
         }
     }
@@ -1260,7 +1301,7 @@ impl<'a> BodyInfer<'a> {
                         None => self.ctx.new_var(),
                     })
                     .collect();
-                Ty::Cap(Tag::with_args(*effect, args))
+                Ty::cap([Tag::with_args(*effect, args)])
             }
             // Effects with type parameters need their type arguments (`use State[Int]`, spec 8.1);
             // omitting them is E0423.
@@ -1284,7 +1325,7 @@ impl<'a> BodyInfer<'a> {
                     None,
                     &mut self.diags,
                 ) {
-                    Some(tag) => Ty::Cap(tag),
+                    Some(tag) => Ty::cap([tag]),
                     None => Ty::Error,
                 }
             }
@@ -1350,11 +1391,19 @@ impl<'a> BodyInfer<'a> {
                         },
                     });
                 }
+                // The capability of every effect the item provides: all of them for a handler
+                // of several effects (`[effect.with]`).
                 if let Some(local) = item.bind {
-                    let ty = entries
+                    let tags: Vec<Tag> = entries
                         .iter()
-                        .find(|e| e.origin == i && !e.from_layer)
-                        .map_or(Ty::Error, |e| Ty::Cap(e.effect.clone()));
+                        .filter(|e| e.origin == i && !e.from_layer)
+                        .map(|e| e.effect.clone())
+                        .collect();
+                    let ty = if tags.is_empty() {
+                        Ty::Error
+                    } else {
+                        Ty::cap(tags)
+                    };
                     self.set_local(local, ty);
                 }
                 match item.by {
@@ -1399,8 +1448,8 @@ impl<'a> BodyInfer<'a> {
             }
             (_, Some((cap, name))) => {
                 let cap_ty = self.infer_expr(*cap);
-                let tag = match self.ctx.shallow_resolve(&cap_ty) {
-                    Ty::Cap(tag) => tag,
+                let tags = match self.ctx.shallow_resolve(&cap_ty) {
+                    Ty::Cap(tags) => tags,
                     Ty::Error => return None,
                     ty => {
                         let ty = self.ctx.resolve(&ty);
@@ -1414,11 +1463,16 @@ impl<'a> BodyInfer<'a> {
                         return None;
                     }
                 };
-                let Some(member) = program.effect_member(tag.def, &name.name) else {
+                let found = tags.iter().find_map(|t| {
+                    program
+                        .effect_member(t.def, &name.name)
+                        .map(|m| (t.clone(), m))
+                });
+                let Some((tag, member)) = found else {
                     self.diags.push(Diagnostic {
                         span: Some(name.span),
                         kind: DiagnosticKind::UnknownOperation {
-                            effect: program.defs[tag.def].name.clone(),
+                            effect: cap_effects_name(program, &tags),
                             op: name.name.clone(),
                         },
                     });
@@ -1973,13 +2027,63 @@ impl<'a> BodyInfer<'a> {
         }
         for (slot, param_ty) in assigned.slots.iter().zip(params) {
             if let Some(arg) = slot {
-                self.check_expr(*arg, param_ty);
+                if let Ty::Cap(wanted) = self.ctx.shallow_resolve(param_ty) {
+                    self.check_cap_arg(*arg, &wanted, param_ty);
+                } else {
+                    self.check_expr(*arg, param_ty);
+                }
             }
         }
         for extra in assigned.extra {
             self.infer_expr(extra);
         }
         assigned.slots
+    }
+
+    /// An argument passed to a parameter of type `use F1 + ... + Fm` (`[effect.use]`). A
+    /// capability of `use E1 + ... + En` can be passed when every Fi is one of the Ej; when the
+    /// parameter has fewer effects, the argument is recorded in `narrowings`, and only the
+    /// operations of the Fi can be called through the parameter. A capability without some Fi is
+    /// E0452. Anything else is checked against the parameter type as usual.
+    fn check_cap_arg(&mut self, arg: ExprId, wanted: &[Tag], param_ty: &Ty) {
+        let actual = self.infer_expr(arg);
+        let span = self.program.exprs[arg].span;
+        let Ty::Cap(have) = self.ctx.shallow_resolve(&actual) else {
+            self.coerce_at(span, param_ty, &actual);
+            return;
+        };
+        let mut missing = Vec::new();
+        let mut matched = Vec::with_capacity(wanted.len());
+        for w in wanted {
+            match have
+                .iter()
+                .find(|h| h.def == w.def && h.args.len() == w.args.len())
+            {
+                Some(h) => matched.push((w.clone(), h.clone())),
+                None => missing.push(self.program.defs[w.def].name.clone()),
+            }
+        }
+        if !missing.is_empty() {
+            let cons = &self.ty_table.cons;
+            let expected = SmolStr::new(self.ctx.resolve(param_ty).display(cons).to_string());
+            let found = SmolStr::new(self.ctx.resolve(&actual).display(cons).to_string());
+            self.diags.push(Diagnostic {
+                span: Some(span),
+                kind: DiagnosticKind::MissingCapabilityEffects {
+                    expected,
+                    found,
+                    missing,
+                },
+            });
+            return;
+        }
+        // The type arguments of each effect kept must match (spec 8.1).
+        for (w, h) in &matched {
+            self.coerce_at(span, &Ty::cap([w.clone()]), &Ty::cap([h.clone()]));
+        }
+        if have.len() > wanted.len() {
+            self.narrowings.insert(arg, wanted.to_vec());
+        }
     }
 
     /// Without else, the body is `()` or `Never` and the whole is `()` (spec 6.4). With an
@@ -2200,25 +2304,29 @@ impl<'a> BodyInfer<'a> {
     ///
     /// When `base` is a capability value captured by the closure or local fn being inferred, the
     /// R is the capability itself (`uses { primary }`, `[effect.use]`); it widens to the effect.
-    fn infer_op(&mut self, expr: ExprId, base: ExprId, tag: &Tag, name: &Label) -> Ty {
+    /// An operation on a capability of `tags`. Only the operations of those effects can be
+    /// called (`[effect.use]`); calling one adds its own effect (`[type.rules]`).
+    fn infer_op(&mut self, expr: ExprId, base: ExprId, tags: &[Tag], name: &Label) -> Ty {
         let program = self.program;
-        let effect = tag.def;
         // `fs.Open(p)` opens a handler member of the handler that provides `fs`
         // (`[effect.use]`).
         if name.name.starts_with(|c: char| c.is_ascii_uppercase()) {
-            return self.infer_cap_member(expr, base, tag, name);
+            return self.infer_cap_member(expr, base, tags, name);
         }
         // A label has the operations of its base (issue #255).
-        let op = program
-            .effect_ops(effect)
-            .iter()
-            .copied()
-            .find(|&op| program.defs[op].name == name.name);
-        let Some(op) = op else {
+        let found = tags.iter().find_map(|t| {
+            program
+                .effect_ops(t.def)
+                .iter()
+                .copied()
+                .find(|&op| program.defs[op].name == name.name)
+                .map(|op| (t, op))
+        });
+        let Some((tag, op)) = found else {
             return self.field_error(
                 name,
                 DiagnosticKind::UnknownOperation {
-                    effect: program.defs[effect].name.clone(),
+                    effect: cap_effects_name(program, tags),
                     op: name.name.clone(),
                 },
             );
@@ -2332,13 +2440,16 @@ impl<'a> BodyInfer<'a> {
     /// (`fs.Open`, `[type.rules]`): the member's type with the effect's type parameters replaced
     /// by the capability's type arguments, and the capability itself as its R, as for an
     /// operation ([`Self::infer_op`]).
-    fn infer_cap_member(&mut self, expr: ExprId, base: ExprId, tag: &Tag, name: &Label) -> Ty {
+    fn infer_cap_member(&mut self, expr: ExprId, base: ExprId, tags: &[Tag], name: &Label) -> Ty {
         let program = self.program;
-        let Some(member) = program.effect_member(tag.def, &name.name) else {
+        let found = tags
+            .iter()
+            .find_map(|t| program.effect_member(t.def, &name.name).map(|m| (t, m)));
+        let Some((tag, member)) = found else {
             return self.field_error(
                 name,
                 DiagnosticKind::UnknownOperation {
-                    effect: program.defs[tag.def].name.clone(),
+                    effect: cap_effects_name(program, tags),
                     op: name.name.clone(),
                 },
             );
@@ -3172,4 +3283,13 @@ fn witnesses(missing: &[Witness]) -> Vec<SmolStr> {
         .iter()
         .map(|w| SmolStr::new(w.to_string()))
         .collect()
+}
+
+/// The effects of a capability type as named in a diagnostic: `Query + Execute`.
+pub(crate) fn cap_effects_name(program: &Program, tags: &[Tag]) -> SmolStr {
+    let names: Vec<&str> = tags
+        .iter()
+        .map(|t| program.defs[t.def].name.as_str())
+        .collect();
+    SmolStr::new(names.join(" + "))
 }

@@ -1513,6 +1513,25 @@ fn hover_shows_effect_type_args() {
     client.shutdown();
 }
 
+/// A handler of several effects is shown with its effects joined by `+`, and a capability of
+/// several effects as `use A + B` (`[effect.handler]`, `[effect.use]`).
+#[test]
+fn hover_of_several_effects() {
+    let src = "effect Cell[S] {\n  fn get() -> S\n}\n\neffect Log {\n  fn note(msg: String) -> ()\n}\n\nhandler Both: Log + Cell[Int] {\n  fn get() { 0 }\n  fn note(msg) { () }\n}\n\nfn read(tx: use Cell[Int] + Log) -> Int {\n  tx.note(\"a\")\n  tx.get()\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 8, 9)),
+        "```emela\nhandler Both: Log + Cell[Int]\n```"
+    );
+    assert!(text(client.hover("/app/src/main.emel", 13, 8)).contains("tx: use Cell[Int] + Log"),);
+    client.shutdown();
+}
+
 /// A uses clause mixing effects and set type parameters (spec 8.3). Inside `with` the listed effect
 /// is visible; outside it only the set type parameter remains.
 #[test]

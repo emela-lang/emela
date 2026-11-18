@@ -230,6 +230,26 @@ fn skip_to_decl(p: &mut Parser<'_>) {
     m.complete(p, ERROR);
 }
 
+/// `effect_ref { "+" effect_ref }` after the `:` of a handler or a handler member, with
+/// `effect_ref = type_ref [ "[" type { "," type } "]" ]` (`[grammar.decl]`). Each effect is a
+/// HANDLER_EFFECT.
+fn handler_effects(p: &mut Parser<'_>) {
+    loop {
+        if p.at(TYPE_NAME) {
+            let c = p.start();
+            path(p);
+            effect_type_args(p);
+            c.complete(p, HANDLER_EFFECT);
+        } else {
+            p.expect(TYPE_NAME);
+            return;
+        }
+        if !p.eat(PLUS) {
+            return;
+        }
+    }
+}
+
 /// `[ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")" [ signature ] [ block ]`
 ///
 /// `signature = [ "->" type [ "fails" error_set ] ] [ "uses" effect_set ]`
@@ -653,7 +673,7 @@ fn effect_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, EFFECT_DECL);
 }
 
-/// `[ "suspend" ] "handler" type_name "(" [ params ] ")" ":" type_ref [ "[" type { "," type } "]" ]
+/// `[ "suspend" ] "handler" type_name "(" [ params ] ")" ":" effect_ref { "+" effect_ref }
 /// [ "fails" error_set ]`, a handler member (`[effect.decl]`).
 ///
 /// A uses clause is read as for an operation (`effects_and_errors`); validation reports it.
@@ -667,14 +687,7 @@ fn member_sig(p: &mut Parser<'_>, m: Marker) {
         p.expect(L_PAREN);
     }
     if p.expect(COLON) || p.at(TYPE_NAME) {
-        if p.at(TYPE_NAME) {
-            let c = p.start();
-            path(p);
-            effect_type_args(p);
-            c.complete(p, HANDLER_EFFECT);
-        } else {
-            p.expect(TYPE_NAME);
-        }
+        handler_effects(p);
     }
     effects_and_errors(p);
     m.complete(p, MEMBER_SIG);
@@ -708,7 +721,7 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, OP_SIG);
 }
 
-/// `"handler" type_name [ "(" [ fields ] ")" ] ":" type_ref [ "[" type { "," type } "]" ]
+/// `"handler" type_name [ "(" [ fields ] ")" ] ":" effect_ref { "+" effect_ref }
 /// "{" { handler_item NL } "}"`
 ///
 /// `handler_item = "init" [ "(" [ params ] ")" ] block | "release" block
@@ -728,14 +741,7 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
         } else if !p.eat(COLON) {
             p.error(DiagnosticCode::ExpectedToken, "expected `:`");
         }
-        if p.at(TYPE_NAME) {
-            let c = p.start();
-            path(p);
-            effect_type_args(p);
-            c.complete(p, HANDLER_EFFECT);
-        } else {
-            p.expect(TYPE_NAME);
-        }
+        handler_effects(p);
     } else {
         p.error(DiagnosticCode::ExpectedToken, "expected `:`");
     }

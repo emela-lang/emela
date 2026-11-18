@@ -19,7 +19,7 @@ use crate::body::{BodyInfer, HandlerFacts};
 use crate::diagnostic::{Diagnostic, EffectContext};
 use crate::layer::{self, LayerInfo};
 use crate::lower::TyTable;
-use crate::row::{Row, RowVar};
+use crate::row::{Row, RowVar, Tag};
 use crate::signature::Signatures;
 use crate::traits::Traits;
 use crate::ty::{Ty, TyVar};
@@ -111,6 +111,9 @@ pub struct ProgramTypes {
     /// `with` expressions → per item, the arguments of init reordered by parameter
     /// (`[effect.handler]`). Empty for an item without them. `WithBind::args` refers to these.
     pub with_args: ArenaMap<ExprId, Vec<Vec<Option<ExprId>>>>,
+    /// Arguments whose capability is passed as fewer effects (`[effect.use]`) → the effects of
+    /// the parameter, in the order of [`Ty::Cap`]. Lowering keeps only those operation tables.
+    pub narrowings: ArenaMap<ExprId, Vec<Tag>>,
     /// Layers → per item, the arguments of init reordered by parameter. Only for layers with
     /// arguments.
     pub layer_args: ArenaMap<DefId, Vec<Vec<Option<ExprId>>>>,
@@ -203,6 +206,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         with_handlers: ArenaMap::default(),
         layers: ArenaMap::default(),
         with_args: ArenaMap::default(),
+        narrowings: ArenaMap::default(),
         layer_args: ArenaMap::default(),
         traits,
         captures: crate::capture::Captures::default(),
@@ -286,6 +290,9 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types
             .with_args
             .extend(body.with_args.iter().map(|(id, args)| (id, args.clone())));
+        types
+            .narrowings
+            .extend(body.narrowings.iter().map(|(id, tags)| (id, tags.clone())));
         types.layer_args.extend(body.layer_args);
         types.diags.extend(body.diags);
         let input = crate::capture::Input {

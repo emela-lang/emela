@@ -466,7 +466,16 @@ fn display_uses() {
         "∀ R. fn(fn() -> Int fails {} uses { R }) -> Int uses { Clock, R }"
     );
     // A capability value's type is shown as the expression that creates it.
-    assert_eq!(d(Ty::Cap(Tag::new(logger)), &cons), "use Logger");
+    assert_eq!(d(Ty::cap([Tag::new(logger)]), &cons), "use Logger");
+    // A capability of several effects lists them joined by `+` (`[effect.use]`).
+    assert_eq!(
+        d(Ty::cap([Tag::new(logger), Tag::new(clock)]), &cons),
+        if clock < logger {
+            "use Clock + Logger"
+        } else {
+            "use Logger + Clock"
+        }
+    );
     // A set type argument of a named type keeps one element bare (`Handler[E, Db]`).
     assert_eq!(
         d(Ty::Set(SetKind::Effects, Row::tag(logger)), &cons),

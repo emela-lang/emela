@@ -1,0 +1,34 @@
+exit: 0
+--- stdout
+--- stderr
+"open 1"
+"execute 1 by name"
+"query 1 by name"
+"close 1"
+1
+"open 2"
+"execute 2 write"
+"query 2 read only"
+"query 2 read"
+"close 2"
+4
+"note audited"
+"note a"
+"note b"
+"everything execute write"
+21
+"open 3"
+"execute 3 by name"
+"close 3"
+42
+"open 9"
+"execute 9 by name"
+"query 9 by name"
+"close 9"
+9
+"open 4"
+"query 4 replica"
+"close 4"
+4
+"note logged x"
+1

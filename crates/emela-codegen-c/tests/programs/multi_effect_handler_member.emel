@@ -1,0 +1,32 @@
+effect Query {
+  fn query(sql: String) -> Int
+}
+
+effect Execute {
+  fn execute(sql: String) -> ()
+}
+
+effect Files {
+  handler Lock(path: String): Query + Execute
+}
+
+handler MemFiles: Files {
+  handler Lock(path: String): Query + Execute {
+    init(path: String) {
+      _ = dbg("lock #{path}")
+      Self(path:)
+    }
+    release { _ = dbg("unlock #{self.path}") }
+    fn query(sql) { 1 }
+    fn execute(sql) { _ = dbg("execute #{self.path} #{sql}") }
+  }
+}
+
+fn read_only(q: use Query) -> Int { q.query("a") }
+
+fn main() {
+  with MemFiles, l = Files.Lock("a") {
+    l.execute("b")
+    _ = dbg(read_only(l))
+  }
+}

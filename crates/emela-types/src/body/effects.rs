@@ -186,7 +186,7 @@ impl BodyInfer<'_> {
             // The capability value type's tag (`State[Int]` for effects with type arguments,
             // spec 8.1).
             ExprKind::Use { .. } => match self.exprs.get(expr) {
-                Some(Ty::Cap(tag)) => Row::of_tag(tag.clone()),
+                Some(Ty::Cap(tags)) => Row::from_elems(tags.iter().cloned().map(RowElem::Tag)),
                 _ => Row::empty(),
             },
             // The body's R is enclosed in the lambda type's R; it surfaces when the lambda is
@@ -224,10 +224,11 @@ impl BodyInfer<'_> {
                     if let Stmt::Let { pat, value, .. } = stmt
                         && let PatKind::Bind(local) = program.pats[*pat].kind
                         && let ExprKind::Use { .. } = program.exprs[*value].kind
-                        && let Some(Ty::Cap(tag)) = self.exprs.get(*value).cloned()
+                        && let Some(Ty::Cap(tags)) = self.exprs.get(*value).cloned()
+                        && let Some(tag) = tags.first()
                     {
                         self.use_bound.insert(local);
-                        if let Some(with) = self.innermost_with(&tag) {
+                        if let Some(with) = self.innermost_with(tag) {
                             self.cap_roots.insert(local, with);
                         }
                     }
@@ -405,20 +406,18 @@ impl BodyInfer<'_> {
             .filter(|&(_, &with)| with == expr)
             .map(|(local, _)| local)
             .collect();
-        let roots: Vec<RowElem> = locals
-            .into_iter()
-            .filter_map(|l| self.cap_elem(l))
-            .collect();
+        let roots: Vec<RowElem> = locals.into_iter().flat_map(|l| self.cap_elems(l)).collect();
         if !roots.is_empty() {
             row = self.subtract_elems(&row, &roots);
         }
         // Handler dependencies may be met by handlers in the same `with` providing other effects
-        // (spec 14.2). The handler's own effect is met from outside. Dependencies a layer leaves
-        // unmet also remain (spec 8.5).
+        // (spec 14.2). The handler's own effects, all those of a handler of several effects, are
+        // met from outside (`[effect.handler]`). Dependencies a layer leaves unmet also remain
+        // (spec 8.5).
         for (entry, deps) in entries.iter().zip(&deps) {
             let others: Vec<Tag> = provided
                 .iter()
-                .filter(|e| **e != entry.effect)
+                .filter(|e| !entry.own.contains(e))
                 .cloned()
                 .collect();
             row.extend(&self.subtract(deps, &others));
@@ -461,16 +460,25 @@ impl BodyInfer<'_> {
             .map(|(with, _)| *with)
     }
 
-    /// The capability element of a local variable holding a capability value.
-    fn cap_elem(&mut self, local: emela_resolve::hir::LocalId) -> Option<RowElem> {
-        let ty = self.locals.get(local).cloned()?;
+    /// The capability elements of a local variable holding a capability value: one for each of
+    /// its effects, since calling an operation adds the capability for that operation's effect
+    /// (`[type.rules]`).
+    fn cap_elems(&mut self, local: emela_resolve::hir::LocalId) -> Vec<RowElem> {
+        let Some(ty) = self.locals.get(local).cloned() else {
+            return Vec::new();
+        };
         match self.ctx.resolve(&ty) {
-            Ty::Cap(tag) => Some(RowElem::Cap(CapElem {
-                local,
-                name: self.program.locals[local].name.clone(),
-                tag,
-            })),
-            _ => None,
+            Ty::Cap(tags) => tags
+                .into_iter()
+                .map(|tag| {
+                    RowElem::Cap(CapElem {
+                        local,
+                        name: self.program.locals[local].name.clone(),
+                        tag,
+                    })
+                })
+                .collect(),
+            _ => Vec::new(),
         }
     }
 
@@ -493,11 +501,11 @@ impl BodyInfer<'_> {
         // removed by the variable alone, whatever their effects.
         let used: Vec<RowElem> = used
             .into_iter()
-            .filter_map(|l| self.cap_elem(l).or_else(|| self.self_elem(l, def)))
+            .flat_map(|l| self.cap_or_self_elems(l, def))
             .collect();
         let others: Vec<RowElem> = others
             .into_iter()
-            .filter_map(|l| self.cap_elem(l).or_else(|| self.self_elem(l, def)))
+            .flat_map(|l| self.cap_or_self_elems(l, def))
             .collect();
         let mut row = row.clone();
         if !used.is_empty() {
@@ -507,6 +515,21 @@ impl BodyInfer<'_> {
             row = self.widen_elems(&row, &others);
         }
         row
+    }
+
+    /// The capability elements of a local variable ([`Self::cap_elems`]), or else the element of
+    /// a handler's `self` ([`Self::self_elem`]).
+    fn cap_or_self_elems(
+        &mut self,
+        local: emela_resolve::hir::LocalId,
+        def: DefId,
+    ) -> Vec<RowElem> {
+        let elems = self.cap_elems(local);
+        if elems.is_empty() {
+            self.self_elem(local, def).into_iter().collect()
+        } else {
+            elems
+        }
     }
 
     /// The element of the `self` of a handler `def`, which stands for the capabilities in its
@@ -693,8 +716,10 @@ impl BodyInfer<'_> {
             let Some(member) = self.member_item(&items[item]) else {
                 continue;
             };
+            // For an item that opens a handler member, the effect only names the capability it
+            // binds; with several effects, the first (its local has the whole type).
             let effect = match self.ctx.resolve(&f.ret) {
-                Ty::Cap(tag) => tag,
+                Ty::Cap(tags) if !tags.is_empty() => tags[0].clone(),
                 _ => continue,
             };
             let (provider, after) = match &items[item].cap {
