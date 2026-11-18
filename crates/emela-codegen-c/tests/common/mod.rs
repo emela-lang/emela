@@ -49,6 +49,27 @@ pub fn to_c(src: &str) -> Result<COutput, Vec<CError>> {
     compile(&m, &Entry::Main)
 }
 
+/// Lowers `src` with the Core IR passes off, runs the fusion laws in `laws`, and compiles to C.
+///
+/// This is how a test applies one law without turning the whole pipeline on: lowering runs with
+/// the passes off, the requested law rewrites the module, and the backend sees only that law's
+/// output.
+pub fn to_c_with_laws(
+    src: &str,
+    laws: emela_core::opt::fusion::Laws,
+) -> Result<COutput, Vec<CError>> {
+    let mut m = support::try_lower_off(&[("main.emel", src)], Roots::Exported)
+        .unwrap_or_else(|e| panic!("lowering failed: {e:#?}"));
+    let mut stats = emela_core::opt::Stats::default();
+    emela_core::opt::fusion::run(
+        &mut m,
+        &emela_core::opt::CoreFns::default(),
+        laws,
+        &mut stats,
+    );
+    compile(&m, &Entry::Main)
+}
+
 /// The C compiler (`EMELA_CC` or `cc`), or `None` if it cannot be started.
 pub fn cc() -> Option<&'static str> {
     static CC: OnceLock<Option<String>> = OnceLock::new();

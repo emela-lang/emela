@@ -11,7 +11,7 @@ mod common;
 use std::process::{Command, Output};
 use std::time::Duration;
 
-use common::{PRELUDE, build_and_run, cc, out_dir, run_with_timeout, to_c};
+use common::{PRELUDE, build_and_run, cc, out_dir, run_with_timeout, to_c, to_c_with_laws};
 use emela_codegen_c::{
     EMELA_H, EMELA_H_FILE, RUNTIME_C, RUNTIME_C_FILE, RUNTIME_H, RUNTIME_H_FILE,
 };
@@ -284,6 +284,65 @@ fn main() {{
     // One concat per iteration and one `Int.to_string` for the result.
     assert_eq!(count("String"), Some(11), "one String per concat");
     assert_eq!(count("cons"), None, "no list is built");
+}
+
+/// The string builder law turns the append chain into the same one concat that interpolation
+/// builds: ten iterations allocate ten Strings for the concat instead of twenty for two appends,
+/// plus one for `Int.to_string` in either case.
+#[test]
+fn a_fused_append_chain_allocates_one_string_per_concat() {
+    if cc().is_none() {
+        return;
+    }
+    let src = format!(
+        r#"{PRELUDE}
+fn go(i: Int, acc: Int, a: String, b: String, c: String) -> Int {{
+  if i == 0 {{
+    acc
+  }} else {{
+    s = String.append(String.append(a, b), c)
+    go(i - 1, acc + String.byte_size(s), a, b, c)
+  }}
+}}
+
+fn main() {{
+  print(Int.to_string(go(10, 0, "é", "a", "b")))
+}}
+"#
+    );
+    let run_with = |name: &str, laws: emela_core::opt::fusion::Laws| {
+        let out = to_c_with_laws(&src, laws).expect("the program compiles");
+        let got = build_and_run(&out_dir(name), &out, &["-O1", "-DEMELA_ALLOC_STATS"]);
+        assert_eq!(got.code, 0, "{}", got.stderr);
+        assert_eq!(got.stdout, "40\n", "4 bytes per iteration, ten times");
+        let report: Vec<&str> = got
+            .stderr
+            .lines()
+            .skip_while(|line| !line.starts_with("emela-alloc "))
+            .collect();
+        assert!(!report.is_empty(), "a report");
+        let counts = check_stats(&report.join("\n"));
+        counts
+            .iter()
+            .find(|(name, _)| name == "String")
+            .map(|(_, c)| *c)
+    };
+
+    let mut law = emela_core::opt::fusion::Laws::none();
+    law.string_concat = true;
+    assert_eq!(
+        run_with("concat-chain-fused", law),
+        Some(11),
+        "one String per concat and one for the result"
+    );
+    assert_eq!(
+        run_with(
+            "concat-chain-unfused",
+            emela_core::opt::fusion::Laws::none()
+        ),
+        Some(21),
+        "two Strings per iteration for the two appends, and one for the result"
+    );
 }
 
 #[test]

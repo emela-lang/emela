@@ -319,9 +319,15 @@ fn apply(source: &str, laws: Laws) -> (Module, u32, Stats) {
     (module, applied, stats)
 }
 
-/// Every implemented law has a case here, and that case makes its registered body fire: the
-/// registry has no entry that no test exercises, and no case names a law the registry does not
-/// implement.
+/// The laws whose equation is pinned in another test file, because their right-hand side is the
+/// shape lowering already produces: `string_builder.rs` compares the string law's append chain
+/// with the interpolation that is already one `Expr::Concat`, which the `expansion` here cannot
+/// express (a program the law would leave untouched with the fused token absent).
+const PINNED_ELSEWHERE: [LawId; 1] = [LawId::StringConcat];
+
+/// Every implemented law has a case here or in the file named for it, and that case makes its
+/// registered body fire: the registry has no entry that no test exercises, and no case names a law
+/// the registry does not implement.
 #[test]
 fn every_implemented_law_has_a_case_that_uses_its_body() {
     let cases: HashSet<LawId> = CASES.iter().map(|case| case.id).collect();
@@ -329,7 +335,7 @@ fn every_implemented_law_has_a_case_that_uses_its_body() {
     for law in fusion::laws() {
         assert_eq!(
             law.implemented(),
-            cases.contains(&law.id),
+            cases.contains(&law.id) || PINNED_ELSEWHERE.contains(&law.id),
             "{} and the cases disagree about whether it has a body",
             law.rule_id()
         );

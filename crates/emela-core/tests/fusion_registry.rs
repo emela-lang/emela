@@ -15,7 +15,7 @@ use emela_core::{Module, dump, opt};
 use support::lower_files_with;
 
 /// A program each implemented law fires on: `Option.or`, a `match Array.get`, a fold and a map
-/// over a range, and an array built from a mapped range.
+/// over a range, an array built from a mapped range, and a chain of `String.append` calls.
 const PROGRAM: &[(&str, &str)] = &[(
     "main.emel",
     "\
@@ -23,6 +23,10 @@ import Std.Array.{Array}
 
 fn inc(x: Int) -> Int {
   x + 1
+}
+
+fn build(a: String, b: String, c: String) -> String {
+  String.append(String.append(a, b), c)
 }
 
 fn main() {
@@ -35,12 +39,24 @@ fn main() {
   dbg(inc(List.fold(List.range(0, 3), 0, |acc, x| acc + x)))
   dbg(List.map(List.range(0, 3), |x| inc(x * 2)))
   dbg(Array.size(Array.from_list(List.map(List.range(0, 3), |x| inc(x)))))
+  dbg(build(\"a\", \"b\", \"c\"))
 }
 ",
 )];
 
-/// The implemented laws, in pipeline order.
-const IMPLEMENTED: [LawId; 5] = [
+/// The implemented laws, in pipeline order. `StringConcat` is implemented but new (D5/PR-032).
+const IMPLEMENTED: [LawId; 6] = [
+    LawId::OptionOr,
+    LawId::ArrayGetMatch,
+    LawId::RangeFold,
+    LawId::RangeMapArray,
+    LawId::RangeMap,
+    LawId::StringConcat,
+];
+
+/// The laws on in [`Laws::default`]: the five the pipeline ran before the registry. The string
+/// law is a new optimisation, so it is opt-in until it has run on the corpus.
+const DEFAULT_ON: [LawId; 5] = [
     LawId::OptionOr,
     LawId::ArrayGetMatch,
     LawId::RangeFold,
@@ -49,12 +65,11 @@ const IMPLEMENTED: [LawId; 5] = [
 ];
 
 /// The laws registered for a later pull request, in the order they will be inserted.
-const RESERVED: [LawId; 5] = [
+const RESERVED: [LawId; 4] = [
     LawId::MapMap,
     LawId::FoldMap,
     LawId::FilterMap,
     LawId::ArrayPipeline,
-    LawId::StringConcat,
 ];
 
 /// The registry order: the implemented laws in pipeline order, then the reserved ones.
@@ -64,11 +79,11 @@ const REGISTRY_ORDER: [LawId; 10] = [
     LawId::RangeFold,
     LawId::RangeMapArray,
     LawId::RangeMap,
+    LawId::StringConcat,
     LawId::MapMap,
     LawId::FoldMap,
     LawId::FilterMap,
     LawId::ArrayPipeline,
-    LawId::StringConcat,
 ];
 
 /// What lowering recorded about the bundled core functions, by IR function.
@@ -116,9 +131,10 @@ fn only(id: LawId) -> Laws {
     laws
 }
 
-/// The change counter of one law. A reserved law has no counter yet.
-fn counter(stats: Stats, id: LawId) -> u32 {
-    match id {
+/// The change counter of one law, or `None` for a law with no [`Stats`] field yet. The string law
+/// reports only the `applied` count of `fusion::run` until the integration PR adds its counter.
+fn counter(stats: Stats, id: LawId) -> Option<u32> {
+    Some(match id {
         LawId::OptionOr => stats.option_or,
         LawId::ArrayGetMatch => stats.array_get_match,
         LawId::RangeFold => stats.range_fold,
@@ -128,8 +144,8 @@ fn counter(stats: Stats, id: LawId) -> u32 {
         | LawId::FoldMap
         | LawId::FilterMap
         | LawId::ArrayPipeline
-        | LawId::StringConcat => 0,
-    }
+        | LawId::StringConcat => return None,
+    })
 }
 
 /// Every law has its own id, so a flag or a report never names two laws.
@@ -155,15 +171,21 @@ fn the_registry_is_in_pipeline_order() {
     assert_eq!(&order[IMPLEMENTED.len()..], &RESERVED);
 }
 
-/// `Default` is the pipeline before the registry: the implemented laws on, the reserved ones off.
+/// `Default` is the pipeline before the registry: the five laws it ran on, every later one off.
 #[test]
-fn the_default_flags_match_the_implemented_laws() {
+fn the_default_flags_are_the_five_laws_the_pipeline_ran() {
     let default = Laws::default();
-    for id in IMPLEMENTED {
+    for id in DEFAULT_ON {
         assert!(default.is_enabled(id), "{} is off by default", id.rule_id());
     }
-    for id in RESERVED {
-        assert!(!default.is_enabled(id), "{} is on by default", id.rule_id());
+    for law in fusion::laws() {
+        if !DEFAULT_ON.contains(&law.id) {
+            assert!(
+                !default.is_enabled(law.id),
+                "{} is on by default",
+                law.rule_id()
+            );
+        }
     }
 
     let all = Laws::all();
@@ -219,12 +241,21 @@ fn the_reserved_laws_are_not_implemented_and_do_not_run() {
         &mut expected_stats,
     );
 
+    // Every reserved flag on, and the implemented string law left at its default (off): the
+    // reserved flags must not change anything.
+    let reserved_on = Laws {
+        map_map: true,
+        fold_map: true,
+        filter_map: true,
+        array_pipeline: true,
+        ..Laws::default()
+    };
     let mut with_reserved = module;
     let mut with_reserved_stats = Stats::default();
     let applied = fusion::run(
         &mut with_reserved,
         &core_fns,
-        Laws::all(),
+        reserved_on,
         &mut with_reserved_stats,
     );
 
@@ -249,7 +280,8 @@ fn an_empty_registry_changes_nothing() {
 }
 
 /// Each implemented law fires on its own and fills only its own counter; the other laws of a
-/// disabled flag stay out entirely.
+/// disabled flag stay out entirely. The string law has no `Stats` field yet, so it reports its
+/// application count and leaves the counters empty.
 #[test]
 fn one_law_at_a_time_fills_only_its_own_counter() {
     let (module, core_fns) = fixture();
@@ -259,12 +291,20 @@ fn one_law_at_a_time_fills_only_its_own_counter() {
         let applied = fusion::run(&mut m, &core_fns, only(id), &mut stats);
 
         assert!(applied > 0, "{} did not fire", id.rule_id());
-        assert_eq!(counter(stats, id), applied, "{}", id.rule_id());
+        match counter(stats, id) {
+            Some(count) => assert_eq!(count, applied, "{}", id.rule_id()),
+            None => assert_eq!(
+                stats,
+                Stats::default(),
+                "{} has no counter, so it fills none",
+                id.rule_id()
+            ),
+        }
         assert_eq!(stats.deopt, 0, "{}", id.rule_id());
         for other in IMPLEMENTED {
             if other != id {
                 assert_eq!(
-                    counter(stats, other),
+                    counter(stats, other).unwrap_or(0),
                     0,
                     "{} fired while only {} was on",
                     other.rule_id(),
@@ -282,15 +322,20 @@ fn one_law_at_a_time_fills_only_its_own_counter() {
 }
 
 /// The pipeline runs the registry where the five direct calls were: with the default flags it
-/// fires every implemented law, and with the laws off it reports no fusion counter and no deopt.
+/// fires every default-on law, and with the laws off it reports no fusion counter. `Stats::deopt`
+/// also counts the δ deopts, which are not a law's, so it is not asserted here.
 #[test]
 fn the_pipeline_runs_the_registry() {
     let (mut fused, fused_ids) = fixture();
     let (mut unfused, unfused_ids) = fixture();
 
     let with = opt::run_with(&mut fused, &fused_ids, Options::default());
-    for id in IMPLEMENTED {
-        assert!(counter(with, id) > 0, "{} did not fire", id.rule_id());
+    for id in DEFAULT_ON {
+        assert!(
+            counter(with, id).unwrap_or(0) > 0,
+            "{} did not fire",
+            id.rule_id()
+        );
     }
     // `Stats::deopt` counts every pass's refusals. ζ R1 refuses a copy out of an enclosing
     // lambda, so a default run has deopts that are not a fusion law's; the laws' own counters are
@@ -305,13 +350,18 @@ fn the_pipeline_runs_the_registry() {
         },
     );
     for id in IMPLEMENTED {
-        assert_eq!(counter(without, id), 0, "{} fired", id.rule_id());
+        assert_eq!(
+            counter(without, id).unwrap_or(0),
+            0,
+            "{} fired",
+            id.rule_id()
+        );
     }
     assert_ne!(dump(&fused), dump(&unfused));
 }
 
-/// The fusion of one sweep through the registry is the sum of the five laws: the corpus gives one
-/// application of each, in the registry order, with no deopt at the default budget.
+/// The fusion of one sweep through the registry is the sum of the default-on laws: the corpus
+/// gives one application of each, in the registry order, with no deopt at the default budget.
 #[test]
 fn a_default_run_applies_each_law_once_on_the_corpus() {
     let (mut module, core_fns) = fixture();
@@ -319,9 +369,9 @@ fn a_default_run_applies_each_law_once_on_the_corpus() {
 
     let applied = fusion::run(&mut module, &core_fns, Laws::default(), &mut stats);
 
-    assert_eq!(applied, IMPLEMENTED.len() as u32, "{stats:?}");
-    for id in IMPLEMENTED {
-        assert_eq!(counter(stats, id), 1, "{}", id.rule_id());
+    assert_eq!(applied, DEFAULT_ON.len() as u32, "{stats:?}");
+    for id in DEFAULT_ON {
+        assert_eq!(counter(stats, id), Some(1), "{}", id.rule_id());
     }
     assert_eq!(stats.deopt, 0, "{stats:?}");
     assert!(
@@ -344,7 +394,7 @@ fn the_budget_stops_the_sweep_and_counts_deopts() {
         fusion::run_with_budget(&mut zero, &core_fns, Laws::default(), &mut zero_stats, 0);
     assert_eq!(zero_applied, 0);
     assert!(zero_stats.is_empty(), "{zero_stats:?}");
-    assert_eq!(zero_stats.deopt, IMPLEMENTED.len() as u32, "{zero_stats:?}");
+    assert_eq!(zero_stats.deopt, DEFAULT_ON.len() as u32, "{zero_stats:?}");
     assert_eq!(dump(&zero), before);
     assert!(emela_core::verify(&zero).is_ok());
 
@@ -356,11 +406,11 @@ fn the_budget_stops_the_sweep_and_counts_deopts() {
     assert_eq!(one_stats.option_or, 1, "{one_stats:?}");
     assert_eq!(
         one_stats.deopt,
-        IMPLEMENTED.len() as u32 - 1,
+        DEFAULT_ON.len() as u32 - 1,
         "{one_stats:?}"
     );
-    for id in &IMPLEMENTED[1..] {
-        assert_eq!(counter(one_stats, *id), 0, "{}", id.rule_id());
+    for id in &DEFAULT_ON[1..] {
+        assert_eq!(counter(one_stats, *id), Some(0), "{}", id.rule_id());
     }
     assert_ne!(dump(&one), before);
     assert!(emela_core::verify(&one).is_ok());
@@ -368,7 +418,7 @@ fn the_budget_stops_the_sweep_and_counts_deopts() {
     let (mut full, full_ids) = fixture();
     let mut full_stats = Stats::default();
     let full_applied = fusion::run(&mut full, &full_ids, Laws::default(), &mut full_stats);
-    assert_eq!(full_applied, IMPLEMENTED.len() as u32);
+    assert_eq!(full_applied, DEFAULT_ON.len() as u32);
     assert_eq!(full_stats.deopt, 0, "{full_stats:?}");
     assert_ne!(dump(&full), dump(&one));
     assert_ne!(dump(&full), dump(&zero));
