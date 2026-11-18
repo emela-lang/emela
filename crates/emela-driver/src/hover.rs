@@ -411,17 +411,30 @@ pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String>
             .collect();
         text.push_str(&format!("({})", fields.join(", ")));
     }
-    // An effect with type arguments is shown as `handler H: State[Int]` (spec 8.1).
-    match types.sigs.handler_effect(def) {
-        Some(tag) => {
-            let effect = Row::of_tag(tag.clone());
-            text.push_str(&format!(": {}", effect.display_effects(cons, &[])));
-        }
-        None => {
-            if let Res::Def(effect) = item.effect {
-                text.push_str(&format!(": {}", hir.defs[effect].name));
-            }
-        }
+    // An effect with type arguments is shown as `handler H: State[Int]` (spec 8.1), and the
+    // effects of a handler of several effects joined by `+` (`[effect.handler]`).
+    let effects: Vec<String> = item
+        .effects
+        .iter()
+        .filter_map(|e| {
+            let Res::Def(effect) = e.res else {
+                return None;
+            };
+            let tag = types
+                .sigs
+                .handler_effects(def)
+                .iter()
+                .find(|t| t.def == effect);
+            Some(match tag {
+                Some(tag) => Row::of_tag(tag.clone())
+                    .display_effects(cons, &[])
+                    .to_string(),
+                None => hir.defs[effect].name.to_string(),
+            })
+        })
+        .collect();
+    if !effects.is_empty() {
+        text.push_str(&format!(": {}", effects.join(" + ")));
     }
     // The parameters of init, which a `with` passes arguments to (`[effect.handler]`).
     let params = types.sigs.init_params(def).map(|p| {

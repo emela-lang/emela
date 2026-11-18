@@ -222,6 +222,23 @@ pub enum DiagnosticKind {
     /// A handler member opened outside a `with` item and an init (E0448, `[effect.use]`,
     /// `[effect.handler]`).
     MemberOutsideInit { member: SmolStr, effect: SmolStr },
+    /// Two effects listed after the `:` of a handler have an operation (or handler member) of
+    /// the same name (E0450, `[effect.handler]`).
+    SharedOperationName {
+        handler: SmolStr,
+        op: SmolStr,
+        first: SmolStr,
+        second: SmolStr,
+    },
+    /// The same effect listed twice after the `:` of a handler (E0451, `[effect.handler]`).
+    RepeatedHandlerEffect { handler: SmolStr, effect: SmolStr },
+    /// A capability passed as the type of effects it does not have (E0452, `[effect.use]`).
+    /// `expected` and `found` are the types as displayed; `missing` the effects it lacks.
+    MissingCapabilityEffects {
+        expected: SmolStr,
+        found: SmolStr,
+        missing: Vec<SmolStr>,
+    },
     /// An inner handler that does not fit the handler member it implements (E0449,
     /// `[effect.handler]`).
     InnerHandlerMismatch {

@@ -110,10 +110,21 @@ impl fmt::Display for RowDisplay<'_> {
         if braces {
             f.write_str("{ ")?;
         }
-        for (i, e) in self.row.elems().iter().enumerate() {
-            if i > 0 {
+        // A capability of several effects has an element for each effect whose operations are
+        // called; it is shown once, by its name.
+        let mut shown_caps = Vec::new();
+        let mut first = true;
+        for e in self.row.elems() {
+            if let RowElem::Cap(c) = e {
+                if shown_caps.contains(&c.local) {
+                    continue;
+                }
+                shown_caps.push(c.local);
+            }
+            if !first {
                 f.write_str(if self.effects { ", " } else { " | " })?;
             }
+            first = false;
             match e {
                 RowElem::Tag(tag) => self.ty.tag(f, tag)?,
                 RowElem::Bound(i) => match self.ty.bound.get(*i as usize) {
@@ -219,9 +230,15 @@ impl fmt::Display for TyDisplay<'_> {
                 Some(p) => f.write_str(&p.name),
                 None => write!(f, "'{i}"),
             },
-            Ty::Cap(tag) => {
+            Ty::Cap(tags) => {
                 f.write_str("use ")?;
-                self.tag(f, tag)
+                for (i, tag) in tags.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(" + ")?;
+                    }
+                    self.tag(f, tag)?;
+                }
+                Ok(())
             }
             Ty::Fn(fun) => {
                 f.write_str("fn(")?;

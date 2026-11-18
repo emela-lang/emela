@@ -381,10 +381,11 @@ impl Lowerer<'_> {
                 (value, tag.clone())
             }
             emela_types::MemberProvider::Cap(cap) => {
-                let Some(Ty::Cap(tag)) = self.types.exprs.get(*cap).cloned() else {
+                let Some(Ty::Cap(tags)) = self.types.exprs.get(*cap).cloned() else {
                     return None;
                 };
-                (self.expr(*cap), tag)
+                let value = self.expr(*cap);
+                self.cap_table(value, &tags, member)?
             }
         };
         let effect = self.effect_id(&self.key_here(&tag));
@@ -495,12 +496,23 @@ pub(super) fn tuple_get(
     ty: TypeId,
     module: &mut crate::ir::Module,
 ) -> Expr {
+    tuple_project(Expr::Var(var), index, n, ty, module)
+}
+
+/// The `index`-th of the `n` elements of the tuple `value` evaluates to, of type `ty`.
+pub(super) fn tuple_project(
+    value: Expr,
+    index: usize,
+    n: usize,
+    ty: TypeId,
+    module: &mut crate::ir::Module,
+) -> Expr {
     let x = module.local("x", ty);
     let pats = (0..n)
         .map(|i| if i == index { Pat::Bind(x) } else { Pat::Wild })
         .collect();
     Expr::Match {
-        scrutinee: Box::new(Expr::Var(var)),
+        scrutinee: Box::new(value),
         arms: vec![Arm {
             pat: Pat::Tuple(pats),
             guard: None,

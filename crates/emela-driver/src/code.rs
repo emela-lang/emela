@@ -200,6 +200,10 @@ pub const EFFECT_WITHOUT_OPS: &str = "E0446";
 pub const MEMBER_ITEM_FORM: &str = "E0447";
 pub const MEMBER_OUTSIDE_INIT: &str = "E0448";
 pub const INNER_HANDLER_MISMATCH: &str = "E0449";
+// Handlers of several effects (`[effect.handler]`, `[effect.use]`)
+pub const SHARED_OPERATION_NAME: &str = "E0450";
+pub const REPEATED_HANDLER_EFFECT: &str = "E0451";
+pub const MISSING_CAPABILITY_EFFECTS: &str = "E0452";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

@@ -88,6 +88,15 @@ impl Dumper<'_> {
 
     /// Elements of an effect set. Type arguments are printed as `State[Int]`.
     fn effect_list(&mut self, items: &[EffectRef]) -> String {
+        self.effects_joined(items, ", ")
+    }
+
+    /// The effects after the `:` of a handler, and of the type `use E1 + E2`.
+    fn effect_sum(&mut self, items: &[EffectRef]) -> String {
+        self.effects_joined(items, " + ")
+    }
+
+    fn effects_joined(&mut self, items: &[EffectRef], sep: &str) -> String {
         items
             .iter()
             .map(|item| {
@@ -95,7 +104,7 @@ impl Dumper<'_> {
                 format!("{res}{}", self.ty_args(&item.args))
             })
             .collect::<Vec<_>>()
-            .join(", ")
+            .join(sep)
     }
 
     /// Empty if there are none.
@@ -221,20 +230,18 @@ impl Dumper<'_> {
                         continue;
                     };
                     let suspend = if m.sig.is_suspend { " suspend" } else { "" };
-                    let effect = self.res(m.effect);
-                    let args = self.ty_args(&m.effect_args);
+                    let effects = self.effect_sum(&m.effects);
                     self.line(
                         1,
-                        format!("handler member {member_name}{suspend}: {effect}{args}"),
+                        format!("handler member {member_name}{suspend}: {effects}"),
                     );
                     self.fn_body(2, &m.sig, None);
                 }
             }
             Item::Member(_) => {}
             Item::Handler(h) => {
-                let effect = self.res(h.effect);
-                let args = self.ty_args(&h.effect_args);
-                self.line(0, format!("handler {name}{flags}: {effect}{args}"));
+                let effects = self.effect_sum(&h.effects);
+                self.line(0, format!("handler {name}{flags}: {effects}"));
                 for field in &h.fields {
                     let ty = self.ty(field.ty);
                     self.line(1, format!("field {}: {ty}", field.name));
@@ -448,7 +455,7 @@ impl Dumper<'_> {
                 s
             }
             TypeKind::Cap(effect) => {
-                format!("use {}", self.effect_list(std::slice::from_ref(effect)))
+                format!("use {}", self.effect_sum(effect))
             }
             TypeKind::ErrorSet(set) => format!("fails {{{}}}", self.res_list(&set.items)),
             TypeKind::EffectSet(set) => format!("uses {{{}}}", self.effect_list(&set.items)),

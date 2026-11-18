@@ -136,7 +136,8 @@ pub(crate) fn type_definition(
         })?;
     let def = match ty {
         Ty::Named(con, _) => types.ty_table.def(*con),
-        Ty::Cap(tag) => tag.def,
+        // The first effect of a capability of several effects.
+        Ty::Cap(tags) => tags.first()?.def,
         _ => return None,
     };
     target(analysis, program.hir.defs[def].span?)

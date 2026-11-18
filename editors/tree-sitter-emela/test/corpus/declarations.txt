@@ -676,32 +676,48 @@ fn old() -> Int use Db { 1 }
     (block
       (integer))))
 
-==================
-Handler members, inner handlers and bound items of with
-==================
+=======
+Handlers of several effects
+=======
+handler SystemTx(conn: Int): Query + State[Int] {
+  fn query(sql) { self.conn }
+}
+
 effect Files {
-  suspend handler Open(path: String): ReadFile
-    fails FileNotFound
-  fn count() -> Int
+  handler Lock(path: String): ReadFile + WriteFile fails Denied
 }
 
-handler SystemFiles: Files {
-  handler Open(path: String): ReadFile {
-    init(path: String) { Self(path:) }
-    fn read(max) { max }
-  }
-  fn count() { 0 }
-}
-
-fn open_in(fs: use Files) -> Int {
-  with f = fs.Open("a"), g = Files.Open("b"), ConsoleLogger {
-    f.read(1)
-  }
+fn copy(src: use ReadFile, dst: use ReadFile + WriteFile) -> () {
+  ()
 }
 
 ---
 
 (source_file
+  (handler_declaration
+    (type_identifier)
+    (field_list
+      (field
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (type_reference
+      (type_identifier))
+    (type_reference
+      (type_identifier))
+    (type_arguments
+      (type_reference
+        (type_identifier)))
+    (declaration_list
+      (function_declaration
+        (identifier)
+        (parameters
+          (parameter
+            (identifier)))
+        (block
+          (field_expression
+            (self)
+            (identifier))))))
   (effect_declaration
     (type_identifier)
     (declaration_list
@@ -714,53 +730,11 @@ fn open_in(fs: use Files) -> Int {
               (type_identifier))))
         (type_reference
           (type_identifier))
-        (fails_clause
-          (type_reference
-            (type_identifier))))
-      (operation
-        (identifier)
-        (parameters)
-        (type_reference
-          (type_identifier)))))
-  (handler_declaration
-    (type_identifier)
-    (type_reference
-      (type_identifier))
-    (declaration_list
-      (handler_declaration
-        (type_identifier)
-        (field_list
-          (field
-            (identifier)
-            (type_reference
-              (type_identifier))))
         (type_reference
           (type_identifier))
-        (declaration_list
-          (handler_init
-            (parameters
-              (parameter
-                (identifier)
-                (type_reference
-                  (type_identifier))))
-            (block
-              (call_expression
-                (type_identifier)
-                (arguments
-                  (named_argument
-                    (identifier))))))
-          (function_declaration
-            (identifier)
-            (parameters
-              (parameter
-                (identifier)))
-            (block
-              (identifier)))))
-      (function_declaration
-        (identifier)
-        (parameters)
-        (block
-          (integer)))))
+        (fails_clause
+          (type_reference
+            (type_identifier))))))
   (function_declaration
     (identifier)
     (parameters
@@ -768,36 +742,14 @@ fn open_in(fs: use Files) -> Int {
         (identifier)
         (capability_type
           (type_reference
+            (type_identifier))))
+      (parameter
+        (identifier)
+        (capability_type
+          (type_reference
+            (type_identifier))
+          (type_reference
             (type_identifier)))))
-    (type_reference
-      (type_identifier))
+    (unit_type)
     (block
-      (with_expression
-        (with_item
-          (identifier)
-          (member_supply
-            (identifier)
-            (type_identifier)
-            (arguments
-              (string
-                (string_content)))))
-        (with_item
-          (identifier)
-          (supply
-            (type_reference
-              (type_identifier)
-              (type_identifier))
-            (arguments
-              (string
-                (string_content)))))
-        (with_item
-          (supply
-            (type_reference
-              (type_identifier))))
-        (block
-          (call_expression
-            (field_expression
-              (identifier)
-              (identifier))
-            (arguments
-              (integer))))))))
+      (unit))))

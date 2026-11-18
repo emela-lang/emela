@@ -234,10 +234,15 @@ pub enum Ty {
     /// function type. Generalization counts set variables here as negative positions, since a type
     /// argument is used in both directions.
     Set(SetKind, Row),
-    /// The type of an effect's capability value (spec 8.2), returned by `use X`. Holds the
-    /// effect definition and its type arguments (`use State[Int]`, spec 8.1). Cannot be written in
-    /// source, and cannot be passed as an argument, stored in a data structure or returned.
-    Cap(Tag),
+    /// The type of a capability value (`[effect.use]`): `use E` returned by `use E`, or
+    /// `use E1 + ... + En` for a handler that implements several effects. Holds each effect
+    /// definition and its type arguments (`use State[Int]`, spec 8.1).
+    ///
+    /// Never empty. Build it with [`Ty::cap`], which puts the effects in the order of their
+    /// definitions, so that `use A + B` and `use B + A` are the same type; effects with the same
+    /// definition keep the order written. That order is also the order of the operation tables of
+    /// a capability of several effects at run time.
+    Cap(Vec<Tag>),
     /// A broken type, made from a type that could not be read or a name that could not be
     /// resolved. Unification silently accepts it against any type so errors do not cascade, and
     /// type variables unified with it are bound to it. Lowering never sees it: it is not called
@@ -246,6 +251,19 @@ pub enum Ty {
 }
 
 impl Ty {
+    /// The type of a capability of `tags` (`use E1 + ... + En`), in the order of
+    /// [`Ty::Cap`]. A tag that appears twice is kept once.
+    pub fn cap(tags: impl IntoIterator<Item = Tag>) -> Ty {
+        let mut out: Vec<Tag> = Vec::new();
+        for t in tags {
+            if !out.contains(&t) {
+                out.push(t);
+            }
+        }
+        out.sort_by_key(|t| t.def);
+        Ty::Cap(out)
+    }
+
     pub const INT: Ty = Ty::Prim(Prim::Int);
     pub const INT64: Ty = Ty::Prim(Prim::Int64);
     pub const FLOAT: Ty = Ty::Prim(Prim::Float);
@@ -325,7 +343,7 @@ impl Ty {
     pub fn for_each_child(&self, mut f: impl FnMut(&Ty)) {
         match self {
             Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => {}
-            Ty::Cap(tag) => tag.args.iter().for_each(f),
+            Ty::Cap(tags) => tags.iter().flat_map(|t| &t.args).for_each(f),
             Ty::Fn(fun) => {
                 fun.params.iter().for_each(&mut f);
                 f(&fun.ret);
@@ -343,7 +361,7 @@ impl Ty {
     pub fn map_children(&self, mut f: impl FnMut(&Ty) -> Ty) -> Ty {
         match self {
             Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => self.clone(),
-            Ty::Cap(tag) => Ty::Cap(tag.map_args(f)),
+            Ty::Cap(tags) => Ty::Cap(tags.iter().map(|t| t.map_args(&mut f)).collect()),
             Ty::Fn(fun) => Ty::Fn(Box::new(FnTy {
                 params: fun.params.iter().map(&mut f).collect(),
                 ret: f(&fun.ret),

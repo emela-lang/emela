@@ -1,0 +1,27 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/multi_effect_handler.emel
+---
+handler SystemTx(conn: Connection): Query + Execute {
+  init(url: String) { SystemTx(conn: connect(url)) }
+  fn query(sql) { run(self.conn, sql) }
+  fn execute(sql) { exec(self.conn, sql) }
+}
+
+handler Mixed: State[Int] + Log {
+  fn get() { 0 }
+}
+
+effect Files {
+  handler Lock(path: String): ReadFile + WriteFile fails FileNotFound
+}
+
+fn copy(src: use ReadFile, dst: use ReadFile + WriteFile) -> () {
+  dst.write(src.read())
+}
+
+fn each(f: fn(use Query + Execute) -> use Query) {
+  x: use ReadFile + WriteFile = use ReadFile
+  ()
+}

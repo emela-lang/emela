@@ -317,28 +317,32 @@ impl TyTable {
             TypeKind::Path { res, args } => {
                 self.lower_path(program, scope, type_ref, *res, args, positive, diags)
             }
-            // `use E` (`[effect.use]`): the type of the capability values of E, the same type as
-            // that of the expression `use E`. Name resolution has already reported a name that
-            // is not an effect.
-            TypeKind::Cap(effect) => {
-                let Res::Def(def) = effect.res else {
-                    return Ty::Error;
-                };
-                if program.defs[def].kind != DefKind::Effect {
-                    return Ty::Error;
+            // `use E1 + ... + En` (`[effect.use]`): the type of the capability values of those
+            // effects, the same type as that of the expression `use E` for one. Name resolution
+            // has already reported a name that is not an effect.
+            TypeKind::Cap(effects) => {
+                let mut tags = Vec::with_capacity(effects.len());
+                for effect in effects {
+                    let Res::Def(def) = effect.res else {
+                        return Ty::Error;
+                    };
+                    if program.defs[def].kind != DefKind::Effect {
+                        return Ty::Error;
+                    }
+                    match self.effect_tag(
+                        program,
+                        scope,
+                        def,
+                        &effect.args,
+                        Some(effect.span),
+                        None,
+                        diags,
+                    ) {
+                        Some(tag) => tags.push(tag),
+                        None => return Ty::Error,
+                    }
                 }
-                match self.effect_tag(
-                    program,
-                    scope,
-                    def,
-                    &effect.args,
-                    Some(effect.span),
-                    None,
-                    diags,
-                ) {
-                    Some(tag) => Ty::Cap(tag),
-                    None => Ty::Error,
-                }
+                Ty::cap(tags)
             }
         }
     }
@@ -1073,7 +1077,11 @@ fn mark_params(
                 mark_effect(program, decls, params, item, marks);
             }
         }
-        TypeKind::Cap(effect) => mark_effect(program, decls, params, effect, marks),
+        TypeKind::Cap(effects) => {
+            for effect in effects {
+                mark_effect(program, decls, params, effect, marks);
+            }
+        }
         TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => {}
     }
 }
@@ -1231,7 +1239,10 @@ pub(crate) fn has_omitted_fails(program: &Program, ty: TypeId) -> bool {
     match &program.types[ty].kind {
         TypeKind::Path { args, .. } => args.iter().any(|&a| has_omitted_fails(program, a)),
         TypeKind::Tuple(elems) => elems.iter().any(|&e| has_omitted_fails(program, e)),
-        TypeKind::Cap(effect) => effect.args.iter().any(|&a| has_omitted_fails(program, a)),
+        TypeKind::Cap(effects) => effects
+            .iter()
+            .flat_map(|e| &e.args)
+            .any(|&a| has_omitted_fails(program, a)),
         TypeKind::Fn { fails: None, .. } => true,
         TypeKind::Fn { params, ret, .. } => {
             params.iter().any(|&p| has_omitted_fails(program, p))
@@ -1251,7 +1262,10 @@ pub(crate) fn has_omitted_uses(program: &Program, ty: TypeId) -> bool {
     match &program.types[ty].kind {
         TypeKind::Path { args, .. } => args.iter().any(|&a| has_omitted_uses(program, a)),
         TypeKind::Tuple(elems) => elems.iter().any(|&e| has_omitted_uses(program, e)),
-        TypeKind::Cap(effect) => effect.args.iter().any(|&a| has_omitted_uses(program, a)),
+        TypeKind::Cap(effects) => effects
+            .iter()
+            .flat_map(|e| &e.args)
+            .any(|&a| has_omitted_uses(program, a)),
         TypeKind::Fn { uses: None, .. } => true,
         TypeKind::Fn { params, ret, .. } => {
             params.iter().any(|&p| has_omitted_uses(program, p))

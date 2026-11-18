@@ -155,12 +155,16 @@ fn fn_type(p: &mut Parser<'_>) {
     m.complete(p, FN_TYPE);
 }
 
-/// `"use" effect_item`, the type of a capability (`[effect.use]`). The effect item is read as in
-/// an effect set; name resolution reports a name that is not an effect.
+/// `"use" effect_item { "+" effect_item }`, the type of a capability (`[effect.use]`,
+/// `[grammar.type]`). Each effect item is read as in an effect set; name resolution reports a
+/// name that is not an effect.
 fn cap_type(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump_kind(USE_KW);
     set_element(p);
+    while p.eat(PLUS) {
+        set_element(p);
+    }
     m.complete(p, CAP_TYPE);
 }
 

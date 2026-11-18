@@ -402,17 +402,26 @@ impl MemberSig {
     pub fn param_list(&self) -> Option<ParamList> {
         child(&self.0)
     }
-    /// The effect after `:`, which the handler implements.
-    pub fn effect(&self) -> Option<Path> {
-        child(&self.0.children().find(|n| n.kind() == HANDLER_EFFECT)?)
+    /// The effects after `:`, which the handler implements, joined by `+`
+    /// (`ReadFile + WriteFile`, `[grammar.decl]`).
+    pub fn effects(&self) -> impl Iterator<Item = HandlerEffect> {
+        self.0.children().filter_map(HandlerEffect::cast)
     }
-    /// The type argument list of that effect (`[Int]` in `: State[Int]`).
-    pub fn effect_type_args(&self) -> Option<SyntaxNode> {
-        self.0
-            .children()
-            .find(|n| n.kind() == HANDLER_EFFECT)?
-            .children()
-            .find(|n| n.kind() == TYPE_ARG_LIST)
+}
+
+ast_node!(
+    /// One effect after the `:` of a handler or a handler member. `State[Int]`
+    HandlerEffect,
+    HANDLER_EFFECT
+);
+
+impl HandlerEffect {
+    pub fn path(&self) -> Option<Path> {
+        child(&self.0)
+    }
+    /// The type argument list (`[Int]` in `State[Int]`, spec 8.1).
+    pub fn type_args(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| n.kind() == TYPE_ARG_LIST)
     }
 }
 
@@ -429,18 +438,9 @@ impl HandlerDecl {
     pub fn field_list(&self) -> Option<FieldList> {
         child(&self.0)
     }
-    /// The effect after `:`.
-    pub fn effect(&self) -> Option<Path> {
-        child(&self.0.children().find(|n| n.kind() == HANDLER_EFFECT)?)
-    }
-    /// The type argument list of the implemented effect (`[Int]` in `handler H: State[Int]`,
-    /// spec 8.1).
-    pub fn effect_type_args(&self) -> Option<SyntaxNode> {
-        self.0
-            .children()
-            .find(|n| n.kind() == HANDLER_EFFECT)?
-            .children()
-            .find(|n| n.kind() == TYPE_ARG_LIST)
+    /// The effects after `:`, joined by `+` (`Query + Execute`, `[effect.handler]`).
+    pub fn effects(&self) -> impl Iterator<Item = HandlerEffect> {
+        self.0.children().filter_map(HandlerEffect::cast)
     }
     pub fn init(&self) -> Option<BlockExpr> {
         item_block(&self.0, HANDLER_INIT)
@@ -696,7 +696,12 @@ mod tests {
         let Item::Handler(pg) = &items[1] else {
             panic!("expected `handler`")
         };
-        assert_eq!(pg.effect().unwrap().syntax().text().to_string(), "Users");
+        let effects: Vec<_> = pg.effects().collect();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(
+            effects[0].path().unwrap().syntax().text().to_string(),
+            "Users"
+        );
         assert!(pg.init().is_some() && pg.release().is_some());
         assert_eq!(text(pg.fns().next().unwrap().name()), "find");
 
@@ -770,7 +775,39 @@ mod tests {
         let Item::Handler(fixed) = &items[3] else {
             unreachable!()
         };
-        assert!(fixed.field_list().is_none() && fixed.effect_type_args().is_none());
+        assert!(fixed.field_list().is_none());
+        assert!(fixed.effects().all(|e| e.type_args().is_none()));
+    }
+
+    #[test]
+    fn 複数の効果を実装するハンドラ() {
+        let items = items(
+            "handler Tx(conn: Int): Query + State[Int] {\n  fn query(sql) { sql }\n}\neffect Files {\n  handler Lock(path: String): ReadFile + WriteFile\n}",
+        );
+        let Item::Handler(tx) = &items[0] else {
+            unreachable!()
+        };
+        let effects: Vec<_> = tx.effects().collect();
+        assert_eq!(effects.len(), 2);
+        assert_eq!(
+            effects[0].path().unwrap().syntax().text().to_string(),
+            "Query"
+        );
+        assert!(effects[0].type_args().is_none());
+        assert_eq!(
+            effects[1].path().unwrap().syntax().text().to_string(),
+            "State"
+        );
+        assert_eq!(effects[1].type_args().unwrap().text().to_string(), "[Int]");
+        let Item::Effect(files) = &items[1] else {
+            unreachable!()
+        };
+        let lock = files.members().next().unwrap();
+        let names: Vec<_> = lock
+            .effects()
+            .map(|e| e.path().unwrap().syntax().text().to_string())
+            .collect();
+        assert_eq!(names, ["ReadFile", "WriteFile"]);
     }
 
     #[test]
@@ -812,7 +849,14 @@ mod tests {
             "start"
         );
         assert_eq!(
-            counter.effect_type_args().unwrap().text().to_string(),
+            counter
+                .effects()
+                .next()
+                .unwrap()
+                .type_args()
+                .unwrap()
+                .text()
+                .to_string(),
             "[Int]"
         );
         let init_params: Vec<_> = counter.init_params().unwrap().params().collect();

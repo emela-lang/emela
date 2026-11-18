@@ -1110,6 +1110,46 @@ impl Diagnostic {
                     ),
                 )
             }
+            TypeDiagnosticKind::SharedOperationName {
+                handler,
+                op,
+                first,
+                second,
+            } => {
+                help = Some(format!(
+                    "implement `{first}` and `{second}` in separate handlers"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::SHARED_OPERATION_NAME),
+                    format!(
+                        "effects `{first}` and `{second}` of handler `{handler}` both have `{op}`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::RepeatedHandlerEffect { handler, effect } => (
+                Severity::Error,
+                Some(code::REPEATED_HANDLER_EFFECT),
+                format!("effect `{effect}` is listed more than once in handler `{handler}`"),
+            ),
+            TypeDiagnosticKind::MissingCapabilityEffects {
+                expected,
+                found,
+                missing,
+            } => {
+                note = Some(
+                    "a capability can be passed as fewer of its effects, but not as more".into(),
+                );
+                let missing: Vec<String> = missing.iter().map(|m| format!("`{m}`")).collect();
+                (
+                    Severity::Error,
+                    Some(code::MISSING_CAPABILITY_EFFECTS),
+                    format!(
+                        "expected `{expected}`, found `{found}`, which does not have {}",
+                        missing.join(", ")
+                    ),
+                )
+            }
             TypeDiagnosticKind::DuplicateHandlerOp { op } => (
                 Severity::Error,
                 Some(code::DUPLICATE_HANDLER_OP),

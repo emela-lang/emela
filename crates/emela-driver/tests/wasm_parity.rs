@@ -411,6 +411,135 @@ fn main() {
 }
 "##,
     ),
+    // `[effect.handler]`, `[effect.with]`, `[effect.use]`, `[effect.label]`: a handler of
+    // several effects runs its init and release once, shares `self`, is replaced effect by effect,
+    // and its capability is passed as fewer effects.
+    (
+        "multi_effect_handler",
+        r##"
+effect Query {
+  fn query(sql: String) -> Int
+}
+
+effect Execute {
+  fn execute(sql: String) -> ()
+}
+
+effect Audit {
+  fn note(msg: String) -> ()
+}
+
+effect Replica of Query
+
+handler Tx(conn: Int): Query + Execute {
+  init(conn: Int) {
+    _ = dbg("open #{conn}")
+    Tx(conn:)
+  }
+  release {
+    _ = dbg("close #{self.conn}")
+  }
+  fn query(sql) {
+    _ = dbg("query #{self.conn} #{sql}")
+    self.conn
+  }
+  fn execute(sql) {
+    _ = dbg("execute #{self.conn} #{sql}")
+  }
+}
+
+handler Everything: Audit + Query + Execute {
+  fn query(sql) { 7 }
+  fn execute(sql) { _ = dbg("everything execute #{sql}") }
+  fn note(msg) { _ = dbg("note #{msg}") }
+}
+
+handler FixedQuery: Query {
+  fn query(sql) { 42 }
+}
+
+handler Logged: Query + Audit {
+  fn query(sql) {
+    (use Audit).note("logged #{sql}")
+    1
+  }
+  fn note(msg) { _ = dbg("own note #{msg}") }
+}
+
+layer App {
+  Tx(conn: 9)
+}
+
+fn read_only(q: use Query) -> Int { q.query("read only") }
+
+fn read_write(rw: use Execute + Query) -> Int {
+  rw.execute("write")
+  read_only(rw) + rw.query("read")
+}
+
+fn audited(c: use Query + Audit + Execute) -> Int {
+  c.note("audited")
+  List.each(["a", "b"], c.note)
+  read_write(c) + read_only(c)
+}
+
+fn both() -> Int uses { Query, Execute } {
+  (use Execute).execute("by name")
+  (use Query).query("by name")
+}
+
+fn main() {
+  _ = dbg(with Tx(conn: 1) { both() })
+  _ = dbg(with tx = Tx(conn: 2) { read_write(tx) })
+  _ = dbg(with e = Everything { audited(e) })
+  _ = dbg(with Tx(conn: 3), FixedQuery { both() })
+  _ = dbg(with App { both() })
+  _ = dbg(with Replica by Tx(conn: 4) { (use Replica).query("replica") })
+  with Everything {
+    _ = dbg(with Logged { (use Query).query("x") })
+  }
+}
+"##,
+    ),
+    // `[effect.decl]`, `[effect.handler]`: a handler member of several effects opens one handler
+    // whose capability has all of them.
+    (
+        "multi_effect_handler_member",
+        r##"
+effect Query {
+  fn query(sql: String) -> Int
+}
+
+effect Execute {
+  fn execute(sql: String) -> ()
+}
+
+effect Files {
+  handler Lock(path: String): Query + Execute
+}
+
+handler MemFiles: Files {
+  handler Lock(path: String): Query + Execute {
+    init(path: String) {
+      _ = dbg("lock #{path}")
+      Self(path:)
+    }
+    release { _ = dbg("unlock #{self.path}") }
+    fn query(sql) { 1 }
+    fn execute(sql) { _ = dbg("execute #{self.path} #{sql}") }
+  }
+}
+
+fn read_only(q: use Query) -> Int { q.query("a") }
+
+fn main() {
+  with MemFiles, l = Files.Lock("a") {
+    l.execute("b")
+    _ = dbg(read_only(l))
+  }
+}
+"##,
+    ),
     // `[effect.handler]`: `Self(...)` constructs the handler value in its init.
     (
         "handler_self",

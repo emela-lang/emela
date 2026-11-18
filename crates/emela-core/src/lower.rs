@@ -757,11 +757,22 @@ impl<'a> Lowerer<'a> {
             // Set type arguments of named types (`Handler[E, R]`) have no run-time representation,
             // but what they decide about calling conventions is kept.
             Ty::Set(_, row) => return self.set_ty(row),
-            // A label's capability is a handler of its base (`EffectDef::label_of`).
-            Ty::Cap(tag) => {
-                let key = self.key_here(tag);
-                let id = self.effect_id(&key);
-                Type::Handler(self.module.handler_effect(id))
+            // A label's capability is a handler of its base (`EffectDef::label_of`). A capability
+            // of several effects is the tuple of their handlers, in the order of `Ty::Cap`.
+            Ty::Cap(tags) => {
+                let mut elems: Vec<TypeId> = tags
+                    .iter()
+                    .map(|tag| {
+                        let key = self.key_here(tag);
+                        let id = self.effect_id(&key);
+                        let id = self.module.handler_effect(id);
+                        self.module.handler(id)
+                    })
+                    .collect();
+                if elems.len() == 1 {
+                    return elems.pop().expect("one effect");
+                }
+                Type::Tuple(elems)
             }
             Ty::Bound(i) => Type::Param(*i as usize),
             Ty::Fn(f) => {
@@ -1656,22 +1667,29 @@ impl<'a> Lowerer<'a> {
             unreachable!("a handler definition");
         };
         let span = hir.defs[def].span;
-        let Res::Def(effect) = h.effect else {
-            return (
-                Vec::new(),
-                TypeId::UNIT,
-                self.unsupported_at("handler of an unknown effect", span),
-            );
+        // The effects in the order of `Ty::Cap`, which is the order of the operation tables of a
+        // handler of several effects (`[effect.handler]`).
+        let tags = match Ty::cap(self.types.sigs.handler_effects(def).iter().cloned()) {
+            Ty::Cap(tags) if !tags.is_empty() => tags,
+            _ => {
+                return (
+                    Vec::new(),
+                    TypeId::UNIT,
+                    self.unsupported_at("handler of an unknown effect", span),
+                );
+            }
         };
-        let Some(tag) = self.types.sigs.handler_effect(def) else {
-            return (
-                Vec::new(),
-                TypeId::UNIT,
-                self.unsupported_at("handler of an unknown effect", span),
-            );
+        let effect_ids: Vec<EffectId> = tags
+            .iter()
+            .map(|t| self.effect_id(&self.tag_key(t, None)))
+            .collect();
+        let ret = match effect_ids.as_slice() {
+            [one] => self.module.handler(*one),
+            many => {
+                let elems = many.iter().map(|&e| self.module.handler(e)).collect();
+                self.module.tuple(elems)
+            }
         };
-        let effect_id = self.effect_id(&self.tag_key(tag, None));
-        let ret = self.module.handler(effect_id);
         let takes_ev = self
             .types
             .handler_uses
@@ -1698,14 +1716,21 @@ impl<'a> Lowerer<'a> {
             params.push(ev);
             self.ev = Some(ev);
         }
-        let n = self.module.effects[effect_id].ops.len();
-        let mut ops: Vec<Option<Expr>> = vec![None; n];
+        // One table per effect; an operation goes into the table of the effect that declares it.
+        let mut tables: Vec<Vec<Option<Expr>>> = effect_ids
+            .iter()
+            .map(|&e| vec![None; self.module.effects[e].ops.len()])
+            .collect();
+        let table_of = |o: DefId| {
+            let parent = hir.defs[o].parent?;
+            tags.iter().position(|t| t.def == parent)
+        };
         for op in &h.ops {
-            let index = match op.op {
-                Res::Def(o) => self.op_index(effect, o),
+            let place = match op.op {
+                Res::Def(o) => table_of(o).and_then(|k| Some((k, self.op_index(tags[k].def, o)?))),
                 _ => None,
             };
-            let (Some(index), Some(body)) = (index, op.body) else {
+            let (Some((k, index)), Some(body)) = (place, op.body) else {
                 continue;
             };
             // A suspend fn implementation takes the operation's parameters plus resume last
@@ -1741,7 +1766,7 @@ impl<'a> Lowerer<'a> {
                 ev: false,
                 sets: None,
             });
-            ops[index] = Some(Expr::Lambda {
+            tables[k][index] = Some(Expr::Lambda {
                 params: ps,
                 ty,
                 body: Box::new(lowered),
@@ -1756,13 +1781,16 @@ impl<'a> Lowerer<'a> {
             }) else {
                 continue;
             };
-            let Some(index) = self.member_index(effect, member) else {
+            let Some(k) = table_of(member) else {
                 continue;
             };
-            let op = self.module.effects[effect_id].ops[index].clone();
-            ops[index] = Some(self.member_impl(inner, &op));
+            let Some(index) = self.member_index(tags[k].def, member) else {
+                continue;
+            };
+            let op = self.module.effects[effect_ids[k]].ops[index].clone();
+            tables[k][index] = Some(self.member_impl(inner, &op));
         }
-        if ops.iter().any(Option::is_none) {
+        if tables.iter().flatten().any(Option::is_none) {
             // Missing operations have already been reported by the type checker (E0404).
             return (
                 params,
@@ -1770,16 +1798,23 @@ impl<'a> Lowerer<'a> {
                 self.unsupported_at("handler with missing operations", span),
             );
         }
-        let ops = ops.into_iter().map(Option::unwrap).collect();
-        (
-            params,
-            ret,
-            Expr::Handler {
-                name: hir.defs[def].name.to_string(),
-                effect: effect_id,
-                ops,
-            },
-        )
+        let name = hir.defs[def].name.to_string();
+        let mut values: Vec<Expr> = tables
+            .into_iter()
+            .zip(&effect_ids)
+            .map(|(ops, &effect)| Expr::Handler {
+                name: name.clone(),
+                effect,
+                ops: ops.into_iter().map(Option::unwrap).collect(),
+            })
+            .collect();
+        // A handler of several effects returns the tuple of its tables, which share `self`.
+        let value = if values.len() == 1 {
+            values.pop().expect("one table")
+        } else {
+            Expr::Tuple(values)
+        };
+        (params, ret, value)
     }
 
     /// Lowers the bodies of a stateful handler's init and release functions.
@@ -1972,10 +2007,27 @@ impl<'a> Lowerer<'a> {
                 written_args.insert(arg.value, l);
             }
         }
+        // A handler of several effects has a bind for each effect it provides. It is initialized
+        // once, at its first bind (`[effect.with]`): the tuple of its handlers is bound with its
+        // release as a cleanup, then each handler is taken from the tuple and bound so that it
+        // is marked released when the `with` ends. Each bind of the handler refers to its own.
+        // (handler, where its arguments are) → the tuple and its handlers.
+        let mut tuples: Vec<((DefId, ArgsSource), Local, Vec<Local>)> = Vec::new();
         for (i, (supplier, own)) in hs.iter().enumerate() {
             let own_id = self.effect_id(own);
             let handler_ty = self.module.handler_effect(own_id);
             let handler_ty = self.module.handler(handler_ty);
+            if let Supplier::Handler(h) = supplier
+                && let Some((_, _, parts)) = tuples
+                    .iter()
+                    .find(|(k, _, _)| *k == (*h, info.binds[i].args))
+            {
+                let part = parts[self.tuple_index(*h, &info.binds[i].effect)];
+                let l = self.module.local("h", handler_ty);
+                locals.push(l);
+                binds.push(WithBind::new(l, Expr::Var(part)));
+                continue;
+            }
             let h = match supplier {
                 Supplier::Handler(h) => *h,
                 // Opening a handler member (`lower/member.rs`): the pair of the handler value and
@@ -2031,6 +2083,24 @@ impl<'a> Lowerer<'a> {
                         suspends: op.suspend,
                     };
                     let value = member::tuple_get(pair, 0, 2, h_ty, &mut self.module);
+                    // A handler member of several effects opens the tuple of their handlers
+                    // (`[effect.handler]`): the tuple gets the release, and each handler in it is
+                    // marked released, as at an item of a handler of several effects.
+                    if let Type::Tuple(parts) = self.module.ty(h_ty).clone() {
+                        binds.push(WithBind::cleanup(l, value, &op.name, release));
+                        let n = parts.len();
+                        for (k, ty) in parts.into_iter().enumerate() {
+                            let part = self.module.local("h", ty);
+                            let value = member::tuple_get(l, k, n, ty, &mut self.module);
+                            binds.push(WithBind::managed(
+                                part,
+                                value,
+                                &op.name,
+                                Expr::Lit(Lit::Unit),
+                            ));
+                        }
+                        continue;
+                    }
                     binds.push(WithBind::managed(l, value, &op.name, release));
                     continue;
                 }
@@ -2060,12 +2130,20 @@ impl<'a> Lowerer<'a> {
                 .is_some_and(|r| self.row_needs_ev(r))
             {
                 // Dependencies satisfied by handlers of other effects initialized earlier in the
-                // same `with`.
+                // same `with`. Those on any of the handler's own effects are met from outside
+                // (`[effect.handler]`).
                 let row = self.types.handler_uses.get(h).cloned().unwrap_or_default();
+                let owns: Vec<EffectKey> = self
+                    .types
+                    .sigs
+                    .handler_effects(h)
+                    .iter()
+                    .map(|t| self.tag_key(t, None))
+                    .collect();
                 let keys: Vec<EffectKey> = row
                     .tags()
                     .map(|t| self.tag_key(t, None))
-                    .filter(|y| y != own)
+                    .filter(|y| y != own && !owns.contains(y))
                     .collect();
                 let bindings: Vec<(EffectId, Expr)> = keys
                     .into_iter()
@@ -2090,11 +2168,27 @@ impl<'a> Lowerer<'a> {
             let Some(Item::Handler(item)) = hir.item(h) else {
                 unreachable!("a handler definition");
             };
+            // For a handler of several effects, the value is bound to the tuple, and `l` takes its
+            // own handler from it after.
+            let several = self.types.sigs.handler_effects(h).len() > 1;
+            let target = if several {
+                let ty = Ty::cap(self.types.sigs.handler_effects(h).iter().cloned());
+                let ty = self.ty(&ty);
+                self.module.local("hs", ty)
+            } else {
+                l
+            };
             if !is_stateful(item) {
                 binds.push(WithBind::new(
-                    l,
+                    target,
                     direct(f, ctx.into_iter().collect(), false),
                 ));
+                if several {
+                    let parts = self.bind_tuple_parts(h, target, None, &mut binds);
+                    let part = parts[self.tuple_index(h, &info.binds[i].effect)];
+                    binds.push(WithBind::new(l, Expr::Var(part)));
+                    tuples.push(((h, info.binds[i].args), target, parts));
+                }
                 continue;
             }
             // A stateful handler uses the table three times, so bind it to a variable.
@@ -2144,19 +2238,41 @@ impl<'a> Lowerer<'a> {
                 let name = hir.defs[h].name.to_string();
                 release = self.then_release_opened(release, c, s, &name);
             }
+            if several {
+                let name = hir.defs[h].name.as_str();
+                binds.push(WithBind::cleanup(
+                    target,
+                    direct(f, with_state(&ctx), false),
+                    name,
+                    release,
+                ));
+                let parts = self.bind_tuple_parts(h, target, Some(name), &mut binds);
+                let part = parts[self.tuple_index(h, &info.binds[i].effect)];
+                binds.push(WithBind::new(l, Expr::Var(part)));
+                tuples.push(((h, info.binds[i].args), target, parts));
+                continue;
+            }
             binds.push(WithBind::managed(
-                l,
+                target,
                 direct(f, with_state(&ctx), false),
                 &hir.defs[h].name,
                 release,
             ));
         }
-        // A name bound to an item is the handler value of that item (`[effect.with]`).
+        // A name bound to an item is the handler value of that item (`[effect.with]`): the tuple
+        // of a handler of several effects.
         for (b, &l) in info.binds.iter().zip(&locals) {
             if let ArgsSource::Item(origin) = b.args
                 && let Some(local) = items.get(origin).and_then(|item| item.bind)
             {
-                self.locals.insert(local, l);
+                let value = match &b.supplier {
+                    Supplier::Handler(h) => tuples
+                        .iter()
+                        .find(|(k, _, _)| *k == (*h, b.args))
+                        .map_or(l, |(_, all, _)| *all),
+                    _ => l,
+                };
+                self.locals.insert(local, value);
             }
         }
         let ctx = self.ev_local();
@@ -2195,6 +2311,54 @@ impl<'a> Lowerer<'a> {
             binds,
             body: Box::new(body),
         }
+    }
+
+    /// The effects of `handler`, a handler of several effects, in the order of its tuple of
+    /// handlers (`Ty::Cap`).
+    fn tuple_tags(&self, handler: DefId) -> Vec<Tag> {
+        match Ty::cap(self.types.sigs.handler_effects(handler).iter().cloned()) {
+            Ty::Cap(tags) => tags,
+            _ => unreachable!("a capability type"),
+        }
+    }
+
+    /// The position of the handler of `effect` in the tuple of the handlers of `handler`. For a
+    /// label (`L by H`), that of its underlying effect (`[effect.label]`).
+    fn tuple_index(&self, handler: DefId, effect: &Tag) -> usize {
+        let base = self.types.sigs.base_of(effect);
+        self.tuple_tags(handler)
+            .iter()
+            .position(|t| t == effect || t == base)
+            .expect("the bind's effect is one of the handler's")
+    }
+
+    /// Binds each handler in the tuple `all` of the handlers of `handler`, in order. With
+    /// `release` (the handler's name), each is marked released when the `with` ends, as the value
+    /// of a handler with release is (`WithBind::managed`); the tuple itself is not a handler.
+    fn bind_tuple_parts(
+        &mut self,
+        handler: DefId,
+        all: Local,
+        release: Option<&str>,
+        binds: &mut Vec<WithBind>,
+    ) -> Vec<Local> {
+        let tags = self.tuple_tags(handler);
+        let n = tags.len();
+        tags.iter()
+            .enumerate()
+            .map(|(k, tag)| {
+                let id = self.effect_id(&self.tag_key(tag, None));
+                let id = self.module.handler_effect(id);
+                let ty = self.module.handler(id);
+                let part = self.module.local("h", ty);
+                let value = member::tuple_get(all, k, n, ty, &mut self.module);
+                binds.push(match release {
+                    Some(name) => WithBind::managed(part, value, name, Expr::Lit(Lit::Unit)),
+                    None => WithBind::new(part, value),
+                });
+                part
+            })
+            .collect()
     }
 
     /// The arguments of a handler's init at the `with` `id`, in parameter order. Those written in
@@ -2262,12 +2426,45 @@ impl<'a> Lowerer<'a> {
         self.module.define(f, Vec::new(), ret, body);
     }
 
+    /// The effect among `tags` that declares the operation or handler member `op` (a label's
+    /// are its base's).
+    fn op_tag(&self, tags: &[Tag], op: DefId) -> Option<Tag> {
+        let parent = self.hir.defs[op].parent?;
+        tags.iter()
+            .find(|t| t.def == parent || self.types.sigs.base_of(t).def == parent)
+            .cloned()
+    }
+
+    /// The handler of the effect that declares `op` in a capability `value` of `tags`
+    /// (`[effect.use]`): `value` itself for one effect, else its element in the tuple of
+    /// handlers (`Ty::Cap`).
+    pub(super) fn cap_table(
+        &mut self,
+        value: Expr,
+        tags: &[Tag],
+        op: DefId,
+    ) -> Option<(Expr, Tag)> {
+        let tag = self.op_tag(tags, op)?;
+        if tags.len() == 1 {
+            return Some((value, tag));
+        }
+        let k = tags.iter().position(|t| *t == tag)?;
+        let id = self.effect_id(&self.key_here(&tag));
+        let id = self.module.handler_effect(id);
+        let ty = self.module.handler(id);
+        let table = member::tuple_project(value, k, tags.len(), ty, &mut self.module);
+        Some((table, tag))
+    }
+
     /// `use X` (spec 8.2, 8.3). The handler of the innermost `with` providing X in the same
     /// function, or else from the evidence table passed by the caller. For effects with type
     /// arguments, the type arguments must match too (spec 8.1).
     fn use_(&mut self, id: ExprId, span: Span) -> Expr {
-        let Some(Ty::Cap(tag)) = self.types.exprs.get(id) else {
+        let Some(Ty::Cap(tags)) = self.types.exprs.get(id) else {
             return self.unsupported("unresolved effect", span);
+        };
+        let [tag] = tags.as_slice() else {
+            return self.unsupported("`use` of several effects", span);
         };
         let key = self.key_here(tag);
         match self.lookup_effect(&key) {
@@ -2313,7 +2510,10 @@ impl<'a> Lowerer<'a> {
     /// (`List.each(xs, log.info)`). Becomes a lambda that just calls it. The capability value is
     /// evaluated at the reference.
     fn op_value(&mut self, id: ExprId, base: ExprId, op: DefId, span: Span) -> Expr {
-        let Some(Ty::Cap(tag)) = self.types.exprs.get(base).cloned() else {
+        let Some(Ty::Cap(tags)) = self.types.exprs.get(base).cloned() else {
+            return self.unsupported("effect operation", span);
+        };
+        let Some(tag) = self.op_tag(&tags, op) else {
             return self.unsupported("effect operation", span);
         };
         let Some(index) = self.op_index(tag.def, op) else {
@@ -2329,7 +2529,10 @@ impl<'a> Lowerer<'a> {
         };
         let param_tys: Vec<TypeId> = param_tys.iter().map(|t| self.ty(t)).collect();
         let ty = self.ty(self.expr_ty(id));
-        let handler = self.expr(base);
+        let value = self.expr(base);
+        let (handler, _) = self
+            .cap_table(value, &tags, op)
+            .expect("the operation's effect is one of the capability's");
         let h_ty = self.module.handler(effect_id);
         let h = self.module.local("h", h_ty);
         // Scope's fork wraps the child function, as at a call (`fiber.rs`).
@@ -2448,6 +2651,47 @@ impl<'a> Lowerer<'a> {
     }
 
     fn expr(&mut self, id: ExprId) -> Expr {
+        let value = self.expr_kind(id);
+        match self.types.narrowings.get(id) {
+            Some(wanted) => self.narrow(id, value, &wanted.clone()),
+            None => value,
+        }
+    }
+
+    /// A capability passed as fewer effects (`[effect.use]`): the handlers of `wanted`, taken
+    /// from the tuple `value` holds. The other handlers are dropped, so the operations of the
+    /// other effects cannot be reached through the result.
+    fn narrow(&mut self, id: ExprId, value: Expr, wanted: &[Tag]) -> Expr {
+        let Some(Ty::Cap(have)) = self.types.exprs.get(id).cloned() else {
+            return value;
+        };
+        let n = have.len();
+        let mut picks: Vec<(usize, TypeId)> = Vec::with_capacity(wanted.len());
+        for w in wanted {
+            let Some(k) = have.iter().position(|h| h.def == w.def) else {
+                return self.unsupported("narrowing a capability", self.hir.exprs[id].span);
+            };
+            let effect = self.effect_id(&self.key_here(&have[k]));
+            let effect = self.module.handler_effect(effect);
+            picks.push((k, self.module.handler(effect)));
+        }
+        if let [(k, ty)] = picks.as_slice() {
+            return member::tuple_project(value, *k, n, *ty, &mut self.module);
+        }
+        let all_ty = self.ty(&Ty::Cap(have));
+        let all = self.module.local("cap", all_ty);
+        let elems = picks
+            .into_iter()
+            .map(|(k, ty)| member::tuple_get(all, k, n, ty, &mut self.module))
+            .collect();
+        Expr::Let {
+            var: all,
+            value: Box::new(value),
+            body: Box::new(Expr::Tuple(elems)),
+        }
+    }
+
+    fn expr_kind(&mut self, id: ExprId) -> Expr {
         // `self.hir` is `&'a Program`, so a copy lets us read the HIR without borrowing `self`.
         let hir = self.hir;
         let e = &hir.exprs[id];
@@ -2826,14 +3070,17 @@ impl<'a> Lowerer<'a> {
         // An operation on a capability value (`log.info(...)`).
         if let ExprKind::Field { base, .. } = &hir.exprs[callee].kind
             && let Some(&op) = self.types.ops.get(callee)
-            && let Some(Ty::Cap(effect)) = self.types.exprs.get(*base).cloned()
-            && let Some(index) = self.op_index(effect.def, op)
+            && let Some(Ty::Cap(tags)) = self.types.exprs.get(*base).cloned()
+            && let Some(tag) = self.op_tag(&tags, op)
+            && let Some(index) = self.op_index(tag.def, op)
         {
-            let tag = effect;
             let effect = self.effect_id(&self.key_here(&tag));
             // Through a label, the operation is the base's (`EffectDef::label_of`).
             let effect = self.module.handler_effect(effect);
-            let handler = self.expr(*base);
+            let value = self.expr(*base);
+            let (handler, _) = self
+                .cap_table(value, &tags, op)
+                .expect("the operation's effect is one of the capability's");
             // Scope's fork wraps the child function (`fiber.rs`).
             if self.is_fork_op(tag.def, op) {
                 let op_ty = self.expr_ty(callee).clone();

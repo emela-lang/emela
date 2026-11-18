@@ -16,3 +16,4 @@ fn after() { 1 }
 impl[A: Eq, B] Pair[A, B]: Eq {}
 impl[A: Show] Show for List[A] {}
 handler Bare implements Logger {}
+handler Both implements Logger + State[Int] {}

@@ -671,21 +671,11 @@ impl Lower<'_, '_> {
             let params = self.params(m.param_list(), LocalKind::Param);
             let sig = self.signature(m.syntax(), Vec::new(), params, m.is_suspend());
             self.pop_scope();
-            let effect = match m.effect() {
-                Some(p) => self.resolve_type_ns(&p, Expected::Effect),
-                None => Res::Err,
-            };
-            let effect_span = m.effect().map(|p| self.span(p.syntax().text_range()));
-            let effect_args = self.type_arg_list(m.effect_type_args());
-            self.r.program.items.insert(
-                def,
-                Item::Member(MemberItem {
-                    sig,
-                    effect,
-                    effect_args,
-                    effect_span,
-                }),
-            );
+            let effects = self.handler_effects(m.effects());
+            self.r
+                .program
+                .items
+                .insert(def, Item::Member(MemberItem { sig, effects }));
         }
         // Duplicate operations were skipped during collection, so match by name.
         for op in e.ops() {
@@ -736,7 +726,12 @@ impl Lower<'_, '_> {
 
     /// The inner handlers of `def` (`[effect.handler]`), lowered as handlers of their own. Each
     /// one implements the handler member of the outer handler's effect with its name.
-    fn inner_handlers(&mut self, def: DefId, effect: Res, h: &ast::HandlerDecl) -> Vec<DefId> {
+    fn inner_handlers(
+        &mut self,
+        def: DefId,
+        effects: &[EffectRef],
+        h: &ast::HandlerDecl,
+    ) -> Vec<DefId> {
         let inner = self.r.inner_handlers.get(&def).cloned().unwrap_or_default();
         let mut defs = Vec::new();
         let decls = h.inner_handlers().filter(|it| it.name().is_some());
@@ -745,44 +740,7 @@ impl Lower<'_, '_> {
             let range = self.r.program.defs[inner_def]
                 .span
                 .map_or(TextRange::default(), |s| s.range);
-            let member = match effect {
-                Res::Def(e) => match self
-                    .r
-                    .member(e, &name)
-                    .filter(|&m| self.r.program.defs[m].kind == DefKind::Member)
-                {
-                    Some(m) => {
-                        self.refer(range, RefTarget::Def(m));
-                        Res::Def(m)
-                    }
-                    // A handler of a label is E0433; its members are not looked up.
-                    None if self.r.labels.contains(&e) => Res::Err,
-                    None => {
-                        let names: Vec<SmolStr> = self
-                            .r
-                            .members
-                            .get(&e)
-                            .into_iter()
-                            .flatten()
-                            .filter(|&&d| self.r.program.defs[d].kind == DefKind::Member)
-                            .map(|&d| self.r.program.defs[d].name.clone())
-                            .collect();
-                        let suggestion = best_match(&name, &names);
-                        let owner = self.r.program.defs[e].name.clone();
-                        self.error(
-                            range,
-                            DiagnosticKind::UndefinedMember {
-                                name: name.clone(),
-                                owner,
-                                owner_kind: "effect",
-                                suggestion,
-                            },
-                        );
-                        Res::Err
-                    }
-                },
-                _ => Res::Err,
-            };
+            let member = self.member_of_effects(effects, &name, range, true);
             let mut item = match self.handler_item(inner_def, inner_ctor, &decl) {
                 Item::Handler(item) => item,
                 _ => unreachable!("a handler item"),
@@ -811,11 +769,7 @@ impl Lower<'_, '_> {
             );
         }
         let fields = fields.unwrap_or_default();
-        let effect = match h.effect() {
-            Some(p) => self.resolve_type_ns(&p, Expected::Effect),
-            None => Res::Err,
-        };
-        let effect_args = self.type_arg_list(h.effect_type_args());
+        let effects = self.handler_effects(h.effects());
         // `init` runs on entering `with` and builds the handler value; there is no `self` yet. Its
         // parameters are in scope in its body only.
         let (init_params, init) = match h.init() {
@@ -840,11 +794,7 @@ impl Lower<'_, '_> {
             .filter_map(|f| {
                 let token = f.name()?;
                 let (name, range) = token_name(&token);
-                // A handler of a label is E0433; its operations are not looked up.
-                let op = match effect {
-                    Res::Def(e) if self.r.labels.contains(&e) => Res::Err,
-                    _ => self.member_of(effect, &name, range),
-                };
+                let op = self.member_of_effects(&effects, &name, range, false);
                 // `@intrinsic` is for top-level fns only. The parser does not allow annotations
                 // inside bodies today, but check anyway.
                 self.r.check_intrinsic(self.module, f.syntax(), false);
@@ -868,10 +818,9 @@ impl Lower<'_, '_> {
                 })
             })
             .collect();
-        let inner = self.inner_handlers(def, effect, h);
+        let inner = self.inner_handlers(def, &effects, h);
         Item::Handler(HandlerItem {
-            effect,
-            effect_args,
+            effects,
             fields,
             ctor,
             init,
@@ -894,6 +843,89 @@ impl Lower<'_, '_> {
             .expect("a scope is pushed")
             .insert("self".into(), local);
         local
+    }
+
+    /// The effects after the `:` of a handler or a handler member (`[grammar.decl]`).
+    fn handler_effects(
+        &mut self,
+        effects: impl Iterator<Item = ast::HandlerEffect>,
+    ) -> Vec<EffectRef> {
+        effects
+            .map(|e| {
+                let res = match e.path() {
+                    Some(p) => self.resolve_type_ns(&p, Expected::Effect),
+                    None => Res::Err,
+                };
+                let args = self.type_arg_list(e.type_args());
+                let span = self.span(e.syntax().text_range());
+                EffectRef { res, args, span }
+            })
+            .collect()
+    }
+
+    /// The operation (or, with `members`, the handler member) `name` that a handler implements,
+    /// looked up in each of the effects it lists, in order (`[effect.handler]`). Two of them
+    /// having the name is reported by type inference; the first is taken here.
+    ///
+    /// Not found is E0212, naming every listed effect. Nothing is reported when one of the
+    /// effects did not resolve, or is a label: a handler of a label is E0433, and the operations
+    /// of a label are not looked up.
+    fn member_of_effects(
+        &mut self,
+        effects: &[EffectRef],
+        name: &SmolStr,
+        range: TextRange,
+        members: bool,
+    ) -> Res {
+        let wanted = |r: &Resolver, d: DefId| {
+            let kind = r.program.defs[d].kind;
+            if members {
+                kind == DefKind::Member
+            } else {
+                kind != DefKind::Member
+            }
+        };
+        let mut owners = Vec::new();
+        for effect in effects {
+            let Res::Def(e) = effect.res else {
+                return Res::Err;
+            };
+            if self.r.labels.contains(&e) {
+                return Res::Err;
+            }
+            owners.push(e);
+        }
+        for &e in &owners {
+            if let Some(d) = self.r.member(e, name).filter(|&d| wanted(self.r, d)) {
+                self.refer(range, RefTarget::Def(d));
+                return Res::Def(d);
+            }
+        }
+        if owners.is_empty() {
+            return Res::Err;
+        }
+        let names: Vec<SmolStr> = owners
+            .iter()
+            .flat_map(|e| self.r.members.get(e).into_iter().flatten())
+            .filter(|&&d| wanted(self.r, d))
+            .map(|&d| self.r.program.defs[d].name.clone())
+            .collect();
+        let suggestion = best_match(name, &names);
+        let owner = owners
+            .iter()
+            .map(|&e| self.r.program.defs[e].name.to_string())
+            .collect::<Vec<_>>()
+            .join(" + ");
+        self.error(
+            range,
+            DiagnosticKind::UndefinedMember {
+                name: name.clone(),
+                owner: owner.into(),
+                owner_kind: "effect",
+                suggestion,
+            },
+        );
+        Res::Err
     }
 
     /// Reports if not found.
@@ -1123,16 +1155,20 @@ impl Lower<'_, '_> {
                     uses,
                 }
             }
-            // `use E` (`[effect.use]`). The effect item is read as in an effect set.
-            CAP_TYPE => match self.effect_set_items(node).pop() {
-                Some(effect) => {
+            // `use E1 + ... + En` (`[effect.use]`). Each effect item is read as in an effect set.
+            CAP_TYPE => {
+                let effects = self.effect_set_items(node);
+                let vars: Vec<SyntaxNode> =
+                    node.children().filter(|n| n.kind() == TYPE_VAR).collect();
+                let mut ok = !effects.is_empty();
+                for effect in &effects {
                     if let Res::Def(def) = effect.res
                         && self.r.program.defs[def].kind == DefKind::TypeParam
                     {
                         let name = self.r.program.defs[def].name.clone();
-                        let range = node
-                            .children()
-                            .find(|n| n.kind() == TYPE_VAR)
+                        let range = vars
+                            .iter()
+                            .find(|n| n.text_range().contains_range(effect.span.range))
                             .map_or(range, |n| n.text_range());
                         self.error(
                             range,
@@ -1142,13 +1178,15 @@ impl Lower<'_, '_> {
                                 found: DefKind::TypeParam.describe(),
                             },
                         );
-                        TypeKind::Missing
-                    } else {
-                        TypeKind::Cap(effect)
+                        ok = false;
                     }
                 }
-                None => TypeKind::Missing,
-            },
+                if ok {
+                    TypeKind::Cap(effects)
+                } else {
+                    TypeKind::Missing
+                }
+            }
             _ => TypeKind::Missing,
         };
         self.alloc_type(kind, range)

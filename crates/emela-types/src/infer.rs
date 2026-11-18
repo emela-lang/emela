@@ -503,9 +503,19 @@ impl InferCtx {
             (Ty::Prim(p), Ty::Prim(q)) if p == q => Ok(()),
             (Ty::Never, Ty::Never) => Ok(()),
             (Ty::Bound(i), Ty::Bound(j)) if i == j => Ok(()),
-            // Capability values match only with the same effect and type arguments (spec 8.1).
-            (Ty::Cap(x), Ty::Cap(y)) if x.def == y.def && x.args.len() == y.args.len() => {
-                self.unify_all(&x.args, &y.args, Variance::Inv)
+            // Capability values match only with the same effects and type arguments (spec 8.1).
+            // Passing one as fewer effects (`[effect.use]`) is decided before unifying, where an
+            // argument is checked (`BodyInfer::narrow_capability`).
+            (Ty::Cap(x), Ty::Cap(y))
+                if x.len() == y.len()
+                    && x.iter()
+                        .zip(y)
+                        .all(|(a, b)| a.def == b.def && a.args.len() == b.args.len()) =>
+            {
+                for (a, b) in x.iter().zip(y) {
+                    self.unify_all(&a.args, &b.args, Variance::Inv)?;
+                }
+                Ok(())
             }
             // Set type arguments of a named type. Being inside type arguments, inclusion is
             // usually both ways.

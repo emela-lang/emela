@@ -1,0 +1,88 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"effect Query {\n  fn query(sql: String) -> Int\n}\n\neffect Execute {\n  fn execute(sql: String) -> ()\n}\n\neffect State[S] {\n  fn get() -> S\n}\n\neffect Files {\n  handler Lock(path: String): Query + Execute\n}\n\neffect Pool {\n  fn size() -> Int\n}\n\nhandler SystemTx(conn: Int): Query + Execute + State[Int] {\n  init(conn: Int) { SystemTx(conn:) }\n  fn query(sql) { self.conn }\n  fn execute(sql) { () }\n  fn get() { self.conn }\n}\n\nhandler SystemFiles: Files + Pool {\n  handler Lock(path: String): Query + Execute {\n    init(path: String) { Self(path:) }\n    fn query(sql) { 0 }\n    fn execute(sql) { () }\n  }\n\n  fn size() { 1 }\n}\n\nfn copy(src: use Query, dst: use Query + Execute + State[Int]) -> () {\n  dst.execute(src.query(\"\"))\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+effect Main.Query
+  op Main.Query.query
+    param sql#0: String
+    ret Int
+effect Main.Execute
+  op Main.Execute.execute
+    param sql#1: String
+    ret ()
+effect Main.State
+  type-param Main.State.S
+  op Main.State.get
+    ret Main.State.S
+effect Main.Files
+  handler member Main.Files.Lock: Main.Query + Main.Execute
+    param path#2: String
+effect Main.Pool
+  op Main.Pool.size
+    ret Int
+handler Main.SystemTx: Main.Query + Main.Execute + Main.State[Int]
+  field conn: Int
+  ctor Main.SystemTx.SystemTx
+  init
+    param conn#3: Int
+    block
+      call
+        Main.SystemTx.SystemTx
+        conn: (punned)
+          conn#3
+  fn query -> Main.Query.query self#4
+    param sql#5
+    body
+      block
+        field .conn
+          self#4
+  fn execute -> Main.Execute.execute self#6
+    param sql#7
+    body
+      block
+        ()
+  fn get -> Main.State.get self#8
+    body
+      block
+        field .conn
+          self#8
+handler Main.SystemFiles: Main.Files + Main.Pool
+  fn size -> Main.Pool.size self#9
+    body
+      block
+        1
+  handler Main.SystemFiles.Lock: Main.Query + Main.Execute
+    field path: String
+    ctor Main.SystemFiles.Lock.Lock
+    init
+      param path#10: String
+      block
+        call
+          Main.SystemFiles.Lock.Lock
+          path: (punned)
+            path#10
+    fn query -> Main.Query.query self#11
+      param sql#12
+      body
+        block
+          0
+    fn execute -> Main.Execute.execute self#13
+      param sql#14
+      body
+        block
+          ()
+    implements Main.Files.Lock
+fn Main.copy
+  param src#15: use Main.Query
+  param dst#16: use Main.Query + Main.Execute + Main.State[Int]
+  ret ()
+  body
+    block
+      call
+        field .execute
+          dst#16
+        call
+          field .query
+            src#15
+          ""
