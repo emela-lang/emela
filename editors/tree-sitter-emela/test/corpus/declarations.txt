@@ -591,3 +591,87 @@ fn handle(n: Int) -> Int {
       (type_identifier))
     (block
       (identifier))))
+
+==================
+Capability types
+==================
+fn copy(from: use Db, to: use State[Int]) -> use Db uses { Db } {
+  run = |db: use Db| db
+  from
+}
+
+type Pool(dbs: List[use Db], pick: fn(use Db) -> use Db)
+
+fn old() -> Int use Db { 1 }
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (capability_type
+          (type_reference
+            (type_identifier))))
+      (parameter
+        (identifier)
+        (capability_type
+          (generic_type
+            (type_reference
+              (type_identifier))
+            (type_arguments
+              (type_reference
+                (type_identifier)))))))
+    (capability_type
+      (type_reference
+        (type_identifier)))
+    (uses_clause
+      (effect_set
+        (type_reference
+          (type_identifier))))
+    (block
+      (binding
+        (identifier)
+        (lambda
+          (lambda_parameters
+            (lambda_parameter
+              (identifier)
+              (capability_type
+                (type_reference
+                  (type_identifier)))))
+          (identifier)))
+      (identifier)))
+  (type_declaration
+    (type_identifier)
+    (field_list
+      (field
+        (identifier)
+        (generic_type
+          (type_reference
+            (type_identifier))
+          (type_arguments
+            (capability_type
+              (type_reference
+                (type_identifier))))))
+      (field
+        (identifier)
+        (function_type
+          (parameter_types
+            (capability_type
+              (type_reference
+                (type_identifier))))
+          (capability_type
+            (type_reference
+              (type_identifier)))))))
+  (function_declaration
+    (identifier)
+    (parameters)
+    (type_reference
+      (type_identifier))
+    (uses_clause
+      (type_reference
+        (type_identifier)))
+    (block
+      (integer))))

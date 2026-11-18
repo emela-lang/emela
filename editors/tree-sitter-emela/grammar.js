@@ -338,6 +338,7 @@ module.exports = grammar({
       $.parenthesized_type,
       $.tuple_type,
       $.function_type,
+      $.capability_type,
     ),
 
     type_reference: $ => prec.right(seq(
@@ -374,6 +375,9 @@ module.exports = grammar({
     )),
 
     _parameter_types: $ => seq('(', commaSep($._type), ')'),
+
+    // The type of a capability, `use Db` `use State[Int]` ([effect.use]).
+    capability_type: $ => seq('use', field('effect', $._effect_item)),
 
     fails_clause: $ => seq('fails', $._error_set),
 
@@ -614,6 +618,7 @@ module.exports = grammar({
       $.unit_type,
       $.parenthesized_type,
       $.tuple_type,
+      $.capability_type,
       alias($._lambda_function_type, $.function_type),
     ),
 
