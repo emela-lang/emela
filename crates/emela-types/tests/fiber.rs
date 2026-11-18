@@ -3,8 +3,7 @@
 //!
 //! Checks that the bundled sources type-check with the types of spec 11.2 to 11.10, that the
 //! examples of chapter 11 pass, and that the programs the chapter rejects stop: E0402 with the
-//! note for effects of forked fibers, E0408 to E0410 on the Scope capability, E0413, E0424,
-//! E0425 and E0426.
+//! note for effects of forked fibers, E0413, E0424, E0425 and E0426.
 //!
 //! The output shows declared types, local variable types, and diagnostics of `main.emel`.
 
@@ -468,8 +467,8 @@ fn test_forked() {
     ));
 }
 
-/// The capability rules of spec 8.2 apply to Scope as they are (spec 11.8): passing it as an
-/// argument (E0408), storing it in a data structure (E0409) and returning it (E0410) are errors.
+/// The capability rules of spec 8.2 apply to Scope as they are (`[fiber.escape]`): it can be
+/// passed as an argument, stored in a data structure and returned, as any capability value.
 #[test]
 fn scope_capability_rules() {
     insta::assert_snapshot!(render(

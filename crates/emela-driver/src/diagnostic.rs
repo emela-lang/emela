@@ -1018,24 +1018,6 @@ impl Diagnostic {
                     format!("external function `{name}` can only be used in handlers"),
                 )
             }
-            TypeDiagnosticKind::CapabilityArgument => {
-                help = Some("pass a closure that uses the capability instead".to_owned());
-                (
-                    Severity::Error,
-                    Some(code::CAPABILITY_ARGUMENT),
-                    "a capability cannot be passed as an argument".to_owned(),
-                )
-            }
-            TypeDiagnosticKind::CapabilityInData => (
-                Severity::Error,
-                Some(code::CAPABILITY_IN_DATA),
-                "a capability cannot be stored in a data structure".to_owned(),
-            ),
-            TypeDiagnosticKind::CapabilityReturned => (
-                Severity::Error,
-                Some(code::CAPABILITY_RETURNED),
-                "a capability cannot be returned from a function".to_owned(),
-            ),
             TypeDiagnosticKind::HandlerCycle { cycle } => {
                 let path: Vec<String> = cycle.iter().map(|h| format!("`{h}`")).collect();
                 (

@@ -197,6 +197,9 @@ pub(crate) struct BodyInfer<'a> {
     /// Local variables bound to `use E` → the `with` that provides E there (its root,
     /// `[effect.escape]`). Their capability elements are removed from R where that `with` ends.
     cap_roots: SparseMap<LocalId, ExprId>,
+    /// Local variables bound to `use E` (`body/effects.rs`): at the end of their binding their
+    /// capability is removed from R, not replaced with its effect.
+    use_bound: rustc_hash::FxHashSet<LocalId>,
     /// Field access expressions → field indices.
     fields: SparseMap<ExprId, usize>,
     /// Call, pipe and update expressions → the arguments reordered by position.
@@ -221,9 +224,16 @@ pub(crate) struct BodyInfer<'a> {
     /// tags caught by `escape` or provided by `with`, and the capabilities whose root or binding
     /// ends (`[effect.use]`). A tag removes only the same tag, not a capability of that effect.
     row_diffs: Vec<(RowVar, RowVar, Vec<RowElem>)>,
+    /// Set variables whose solution is a set variable's solution with the listed capabilities
+    /// replaced by their effects (`δ ⊇ v[c ↦ effect of c]`): the capabilities of variables whose
+    /// binding ends (`[effect.use]`).
+    row_widens: Vec<(RowVar, RowVar, Vec<RowElem>)>,
     /// `escape` inner expressions, the errors their arms catch and their arm `_`, for the W0302
     /// check.
     escapes: Vec<errors::Escape>,
+    /// The call on the right side of a pipe `x |> f(a)` → the pipe expression, where its
+    /// arguments are recorded (`body/effects.rs`).
+    piped_calls: SparseMap<ExprId, ExprId>,
     /// Each expression's effect set, computed after body inference (`body/effects.rs`).
     expr_effects: SparseMap<ExprId, Row>,
     /// References to capability operations → effect operations.
@@ -338,6 +348,9 @@ impl<'a> BodyInfer<'a> {
             coverage: Vec::new(),
             expr_rows: SparseMap::new(),
             row_diffs: Vec::new(),
+            row_widens: Vec::new(),
+            use_bound: Default::default(),
+            piped_calls: SparseMap::default(),
             binder: None,
             local_binder: SparseMap::default(),
             with_stack: Vec::new(),
@@ -871,7 +884,6 @@ impl<'a> BodyInfer<'a> {
         self.check_fn_op_bodies();
         self.check_handler_cycles();
         self.check_coverage();
-        self.check_capabilities();
         self.check_scope_values();
 
         let program = self.program;
@@ -887,8 +899,13 @@ impl<'a> BodyInfer<'a> {
             let (scheme, rows, tys) =
                 self.ctx
                     .generalize_bounded(&ty, params, &[], &self.immediate_vars);
-            // A capability of the body cannot be named outside it (`[effect.use]`).
-            let scheme = crate::Scheme::new(scheme.params, scheme.ty.widened());
+            // A capability of the body cannot be named outside it (`[effect.use]`), except the
+            // parameters in its R, which a call replaces with the arguments (`[type.rules]`).
+            let params: Vec<LocalId> = fn_parts(program, def)
+                .map(|p| p.params.iter().map(|p| p.local).collect())
+                .unwrap_or_default();
+            let scheme =
+                crate::Scheme::new(scheme.params, scheme.ty.widened_keeping_params(&params));
             inferred.push((def, Signature { scheme, labels }));
             generalized_rows.push((def, rows));
             generalized_tys.push((def, tys));
@@ -1918,7 +1935,7 @@ impl<'a> BodyInfer<'a> {
             rows.extend(fresh_rows);
             substitute(&sig.scheme.ty, &tys, &rows)
         });
-        let uses = match self.captured_capability(base) {
+        let uses = match self.named_capability(base) {
             Some(local) => Row::from_elems([RowElem::Cap(CapElem {
                 local,
                 name: program.locals[local].name.clone(),
@@ -1932,14 +1949,31 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// The local variable `expr` refers to, if it is bound outside the closure or local fn being
-    /// inferred.
-    fn captured_capability(&self, expr: ExprId) -> Option<LocalId> {
+    /// The local variable `expr` refers to, if its capability is an element of R by itself
+    /// (`[effect.use]`, `[type.rules]`): a variable bound outside the closure or local fn being
+    /// inferred, or a parameter of the function being inferred. A parameter stays in the R of
+    /// its function, and a call replaces it with what the argument is.
+    ///
+    /// Other variables (bound in the same body by `use E` or otherwise, or parameters of a
+    /// closure, a local fn or a handler's operation) add their effect instead.
+    pub(super) fn named_capability(&self, expr: ExprId) -> Option<LocalId> {
         let ExprKind::Path(Res::Local(local)) = self.program.exprs[expr].kind else {
             return None;
         };
         let bound = self.local_binder.get(local)?;
-        (*bound != self.binder).then_some(local)
+        (*bound != self.binder || self.is_fn_param(local)).then_some(local)
+    }
+
+    /// Whether `local` is a parameter of the function definition being inferred (a top-level fn,
+    /// a trait's function or an impl's function), whose capability stays in its R.
+    pub(super) fn is_fn_param(&self, local: LocalId) -> bool {
+        let Some(def) = self.current else {
+            return false;
+        };
+        self.local_owner.get(local) == Some(&def)
+            && self.local_binder.get(local) == Some(&None)
+            && fn_parts(self.program, def)
+                .is_some_and(|p| p.params.iter().any(|p| p.local == local))
     }
 
     /// The type of field `field` of type definition `type_def` applied to `args`. Fields come from

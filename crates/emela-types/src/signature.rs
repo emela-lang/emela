@@ -496,6 +496,7 @@ fn check_bounds(
             TypeKind::SelfType
             | TypeKind::Unit
             | TypeKind::Missing
+            | TypeKind::Cap(_)
             | TypeKind::ErrorSet(_)
             | TypeKind::EffectSet(_) => {}
         }

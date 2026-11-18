@@ -259,31 +259,6 @@ fn greet(times: Int, name: String) -> Bool {
     insta::assert_snapshot!(dump(&m));
 }
 
-#[test]
-fn unsupported_expressions_are_all_reported() {
-    let errors = try_lower(
-        &[(
-            "main.emel",
-            "\
-import Std.Console.{Console, SystemConsole}
-
-const LIMIT: Int = 3
-
-fn main() {
-  assert LIMIT == 3
-  with SystemConsole {
-    x = use Console
-    dbg(\"x = #{x}\")
-  }
-}
-",
-        )],
-        Roots::Exported,
-    )
-    .unwrap_err();
-    assert_eq!(errors, ["`x` showing a capability value"]);
-}
-
 /// With every fn as a root, checks that all core functions lower. Unreachable fns are not lowered
 /// in a normal build, so errors in unused core functions are only caught here.
 #[test]

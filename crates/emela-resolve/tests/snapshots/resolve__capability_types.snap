@@ -1,0 +1,39 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"effect Db {\n  fn query(q: String) -> Int\n}\n\neffect State[S] {\n  fn get() -> S\n}\n\neffect Replica of Db\n\ntype Pool(dbs: List[use Db])\n\nfn pick(primary: use Db, replica: use Replica, write: Bool) -> use Db {\n  if write { primary } else { replica }\n}\n\nfn take(f: fn(use State[Int]) -> Int, s: (use State[Int], Int)) -> Int { 0 }\n\"##,)])"
+---
+== Main (src/main.emel)
+effect Main.Db
+  op Main.Db.query
+    param q#0: String
+    ret Int
+effect Main.State
+  type-param Main.State.S
+  op Main.State.get
+    ret Main.State.S
+effect Main.Replica
+  of Main.Db
+type Main.Pool
+  field dbs: List[use Main.Db]
+  ctor Main.Pool.Pool
+fn Main.pick
+  param primary#1: use Main.Db
+  param replica#2: use Main.Replica
+  param write#3: Bool
+  ret use Main.Db
+  body
+    block
+      if
+        write#3
+        block
+          primary#1
+      else
+        block
+          replica#2
+fn Main.take
+  param f#4: fn(use Main.State[Int]) -> Int
+  param s#5: (use Main.State[Int], Int)
+  ret Int
+  body
+    block
+      0

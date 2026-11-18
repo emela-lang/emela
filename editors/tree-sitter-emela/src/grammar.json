@@ -2239,6 +2239,10 @@
         {
           "type": "SYMBOL",
           "name": "function_type"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "capability_type"
         }
       ]
     },
@@ -2567,6 +2571,23 @@
         {
           "type": "STRING",
           "value": ")"
+        }
+      ]
+    },
+    "capability_type": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "use"
+        },
+        {
+          "type": "FIELD",
+          "name": "effect",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_effect_item"
+          }
         }
       ]
     },
@@ -4256,6 +4277,10 @@
         {
           "type": "SYMBOL",
           "name": "tuple_type"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "capability_type"
         },
         {
           "type": "ALIAS",

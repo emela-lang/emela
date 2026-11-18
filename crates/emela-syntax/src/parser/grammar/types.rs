@@ -24,6 +24,7 @@ pub(crate) fn type_(p: &mut Parser<'_>) {
         }
         L_PAREN => paren_type(p),
         FN_KW => fn_type(p),
+        USE_KW => cap_type(p),
         _ => p.err_recover(DiagnosticCode::ExpectedType, "expected type", RECOVERY),
     }
 }
@@ -152,6 +153,15 @@ fn fn_type(p: &mut Parser<'_>) {
     }
     effects_and_errors(p);
     m.complete(p, FN_TYPE);
+}
+
+/// `"use" effect_item`, the type of a capability (`[effect.use]`). The effect item is read as in
+/// an effect set; name resolution reports a name that is not an effect.
+fn cap_type(p: &mut Parser<'_>) {
+    let m = p.start();
+    p.bump_kind(USE_KW);
+    set_element(p);
+    m.complete(p, CAP_TYPE);
 }
 
 /// `"->" type`

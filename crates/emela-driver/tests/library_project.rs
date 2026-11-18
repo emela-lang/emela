@@ -21,6 +21,20 @@ impl Backend<CoreModule> for NoBackend {
     }
 }
 
+/// Records that `emit` was called, and stops the build there.
+struct EmitCalled(bool);
+
+impl Backend<CoreModule> for EmitCalled {
+    fn emit(&mut self, _: &CoreModule, _: &Analysis) -> Result<BuildOutput, Vec<Diagnostic>> {
+        self.0 = true;
+        Err(Vec::new())
+    }
+
+    fn finish(&mut self, _: &Path, _: PathBuf) -> Result<PathBuf, Vec<Diagnostic>> {
+        panic!("the build stops at emit");
+    }
+}
+
 fn options(name: &str) -> RunOptions {
     RunOptions {
         out_dir: std::env::temp_dir().join(format!(
@@ -71,14 +85,11 @@ fn directory_library_selection_does_not_change_explicit_file_inputs() {
 fn library_build_only_typechecks_and_never_calls_backend_hooks() {
     let fs = MemoryFiles::new([
         ("app/Pome.toml", ""),
-        // Showing a capability value is type-correct but not supported by lowering. A check-
-        // only build must not lower exports or produce a backend-dependent error. `show` is an
-        // export, so a build of the file lowers it.
-        // Generic interpolation is supported via monomorphization, so it cannot serve as
-        // the unsupported expression here.
+        // A check-only build must not lower exports or call the backend (`NoBackend` panics),
+        // and leaves no output directory. `show` is an export, so a build of the file lowers it.
         (
             "app/src/lib.emel",
-            "import Std.Console.{Console, SystemConsole}\n\n@export(js, \"show\")\npub fn show() -> String {\n  with SystemConsole {\n    c = use Console\n    \"#{c}\"\n  }\n}\n",
+            "import Std.Console.{Console, SystemConsole}\n\n@export(js, \"show\")\npub fn show() -> String {\n  with SystemConsole {\n    c = use Console\n    c.print_line(\"shown\")\n    \"shown\"\n  }\n}\n",
         ),
     ]);
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
@@ -125,22 +136,18 @@ fn library_build_only_typechecks_and_never_calls_backend_hooks() {
     );
     assert!(entry.is_none());
 
-    // Explicit files retain normal build semantics, including lowering diagnostics.
+    // Explicit files retain normal build semantics: the file is lowered and emitted.
     let file = Input::resolve(&fs, Path::new("app/src/lib.emel")).unwrap();
+    let mut backend = EmitCalled(false);
     let (analysis, _) = build(
         &fs,
         &file,
         &mut Lower::default(),
-        &mut NoBackend,
+        &mut backend,
         &options("explicit-lowering").out_dir,
     );
-    assert!(analysis.has_errors());
-    assert!(
-        analysis
-            .diagnostics
-            .iter()
-            .any(|d| d.message.contains("showing a capability value"))
-    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    assert!(backend.0);
 }
 
 #[test]

@@ -8,8 +8,6 @@ declared: fn() -> () uses { Log }
 undeclared: fn() -> ()
 returns_capability: fn() -> use Log uses { Log }
 `use Log` unhandled effects Log (Declared)
-`use Log` CapabilityReturned
-`get()` CapabilityReturned
 --- R
 {   fn say(m: String) {     log = use Log     log.info(m)   }   say("a") }: Log
 {     log = use Log     log.info(m)   }: Log

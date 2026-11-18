@@ -1,0 +1,29 @@
+---
+source: crates/emela-types/tests/capture.rs
+expression: "render(&with_prelude(r##\"\neffect Replica of Db\n\neffect State[S] {\n  fn get() -> S\n}\n\nfn wrong_op(db: use Db) -> () {\n  db.info(\"x\")\n}\n\nfn other_effect(log: use Logger) -> use Db { log }\n\nfn label(r: use Replica) -> use Db { r }\n\nfn type_args(s: use State[Int]) -> use State[String] { s }\n\nfn equal(a: use Db, b: use Db) -> Bool { a == b }\n\nfn shown(a: use Db) -> String { \"#{a}\" }\n\nfn op_value(db: use Db) -> fn(String) -> Int uses { Db } { db.query }\n\"##))"
+---
+wrong_op: fn(use Db) -> ()
+  db: use Db  holds: db
+other_effect: fn(use Logger) -> use Db
+  holds: log
+  log: use Logger  holds: log
+label: fn(use Replica) -> use Db
+  holds: r
+  r: use Replica  holds: r
+type_args: fn(use State[Int]) -> use State[String]
+  holds: s
+  s: use State[Int]  holds: s
+equal: fn(use Db, use Db) -> Bool
+  a: use Db  holds: a
+  b: use Db  holds: b
+shown: fn(use Db) -> String
+  a: use Db  holds: a
+op_value: fn(use Db) -> fn(String) -> Int uses { Db }
+  holds: db
+  db: use Db  holds: db
+`info` UnknownOperation { effect: "Db", op: "info" }
+`log` mismatch: expected `use Db`, found `use Logger`
+`r` mismatch: expected `use Db`, found `use Replica`
+`s` mismatch: expected `use State[String]`, found `use State[Int]`
+`a == b` NotImplemented { ty: "use Db", trait_name: "Eq" }
+`a` NotImplemented { ty: "use Db", trait_name: "Show" }

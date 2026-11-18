@@ -265,6 +265,8 @@ pub enum SyntaxKind {
     PAREN_TYPE,
     /// `fn(A) -> B fails E uses { R }`
     FN_TYPE,
+    /// The type of a capability. `use Db` `use State[Int]`
+    CAP_TYPE,
     /// The parameters of a function type. `(A, B)`
     PARAM_TYPE_LIST,
     /// `-> T`

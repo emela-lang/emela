@@ -15,10 +15,17 @@
 //!   variables whose solutions exclude those effects; nothing is removed from set type
 //!   parameters (sets with unknown contents).
 //! - A lambda encloses its body's R in its function type.
-//! - Calling an operation of a captured capability adds the capability itself (`RowElem::Cap`,
-//!   `[effect.use]`). It is removed where its root `with` ends, and at the end of the body
-//!   (of a fn, a lambda or a local fn) that binds the variable, whichever comes first. The
-//!   `use E` that made the capability has already added E, so removing it there loses nothing.
+//! - Calling an operation of a captured capability, or of a parameter of the function, adds the
+//!   capability itself (`RowElem::Cap`, `[effect.use]`). It is removed where its root `with`
+//!   ends. At the end of the body that binds the variable it is removed if the variable was
+//!   bound to `use E` (which has already added E, so removing it loses nothing), and replaced
+//!   with its effect otherwise (the variable may hold a capability that no `use E` of the body
+//!   made). The parameters of a function stay in its R.
+//! - A call replaces each capability element of the callee's R that is one of its parameters
+//!   with what the argument is (`[type.rules]`): the capability of the argument variable when it
+//!   is itself an element (captured, or a parameter of the caller), and the effect otherwise.
+//!   A capability element of another function's parameter that a call cannot replace (the callee
+//!   is a function value) is replaced with its effect.
 //! - A body's R is contained in the declared R. Without a `uses` clause the declared R is a set
 //!   variable, and the body's R becomes its solution as is (spec 9.3). The bodies of `main` and
 //!   test functions must have an empty R apart from Async (spec 8.3, 13.3), since the runtime
@@ -167,7 +174,9 @@ impl BodyInfer<'_> {
             // The body's R is enclosed in the lambda type's R; it surfaces when the lambda is
             // called (spec 9.4).
             ExprKind::Lambda { body, .. } => {
+                let outer = self.binder.replace(expr);
                 let body_row = self.expr_effects(*body);
+                self.binder = outer;
                 let body_row = self.end_binder_here(&body_row, Some(expr));
                 if let Some(&(_, v)) = self.lambda_rows.get(expr) {
                     self.ctx
@@ -183,7 +192,9 @@ impl BodyInfer<'_> {
                         && let Some(info) = self.local_fns.get(f.local)
                     {
                         let (body, uses) = (info.body, info.uses.clone());
+                        let outer = self.binder.replace(body);
                         let body_row = self.expr_effects(body);
+                        self.binder = outer;
                         let body_row = self.end_binder_here(&body_row, Some(body));
                         self.ctx.add_subset_of(
                             SetKind::Effects,
@@ -196,9 +207,11 @@ impl BodyInfer<'_> {
                         && let PatKind::Bind(local) = program.pats[*pat].kind
                         && let ExprKind::Use { .. } = program.exprs[*value].kind
                         && let Some(Ty::Cap(tag)) = self.exprs.get(*value).cloned()
-                        && let Some(with) = self.innermost_with(&tag)
                     {
-                        self.cap_roots.insert(local, with);
+                        self.use_bound.insert(local);
+                        if let Some(with) = self.innermost_with(&tag) {
+                            self.cap_roots.insert(local, with);
+                        }
                     }
                 }
                 self.sub_effects(expr)
@@ -206,7 +219,10 @@ impl BodyInfer<'_> {
             ExprKind::With { handlers, body } => self.with_effects(expr, handlers, *body),
             ExprKind::Call { callee, .. } => {
                 let mut row = self.sub_effects(expr);
-                row.extend(&self.callee_uses(*callee));
+                let uses = self.callee_uses(*callee);
+                // The arguments of `x |> f(a)` are recorded on the pipe expression.
+                let call = self.piped_calls.get(expr).copied().unwrap_or(expr);
+                row.extend(&self.replace_params(call, *callee, &uses));
                 row
             }
             // `x |> f(a)` is `f(x, a)`. If the right side is a call, that call expression adds
@@ -216,9 +232,13 @@ impl BodyInfer<'_> {
                 rhs,
                 ..
             } => {
+                if matches!(program.exprs[*rhs].kind, ExprKind::Call { .. }) {
+                    self.piped_calls.insert(*rhs, expr);
+                }
                 let mut row = self.sub_effects(expr);
                 if !matches!(program.exprs[*rhs].kind, ExprKind::Call { .. }) {
-                    row.extend(&self.callee_uses(*rhs));
+                    let uses = self.callee_uses(*rhs);
+                    row.extend(&self.replace_params(expr, *rhs, &uses));
                 }
                 row
             }
@@ -234,6 +254,55 @@ impl BodyInfer<'_> {
             row.extend(&self.expr_effects(e));
         }
         row
+    }
+
+    /// `uses`, the R of the callee of the call `call`, with each capability element that is a
+    /// parameter of the callee replaced by what the argument is (`[type.rules]`). For a pipe
+    /// `x |> f(a)`, `call` is the pipe expression, where the arguments are recorded, and `callee`
+    /// is `f`.
+    ///
+    /// A capability element of a variable of another definition that is not a parameter of the
+    /// callee (a function value whose R names the parameters of the function it refers to) is
+    /// replaced with its effect.
+    fn replace_params(&mut self, call: ExprId, callee: ExprId, uses: &Row) -> Row {
+        let program = self.program;
+        let uses = self.ctx.resolve_row(uses);
+        if !uses.elems().iter().any(|e| matches!(e, RowElem::Cap(_))) {
+            return uses;
+        }
+        let callee_def = match &program.exprs[callee].kind {
+            ExprKind::Path(Res::Def(def)) => Some(*def),
+            ExprKind::Field { .. } => self.methods.get(callee).copied(),
+            _ => None,
+        };
+        let params: Vec<emela_resolve::hir::LocalId> = callee_def
+            .and_then(|def| fn_parts(program, def))
+            .map(|p| p.params.iter().map(|p| p.local).collect())
+            .unwrap_or_default();
+        let args = self.calls.get(call).cloned().unwrap_or_default();
+        let mut out = Row::empty();
+        for e in uses.elems() {
+            let RowElem::Cap(c) = e else {
+                out.insert(e.clone());
+                continue;
+            };
+            if let Some(i) = params.iter().position(|&p| p == c.local) {
+                let arg = args.get(i).copied().flatten();
+                match arg.and_then(|a| self.named_capability(a)) {
+                    Some(local) => out.insert(RowElem::Cap(CapElem {
+                        local,
+                        name: program.locals[local].name.clone(),
+                        tag: c.tag.clone(),
+                    })),
+                    None => out.insert(RowElem::Tag(c.tag.clone())),
+                }
+            } else if self.local_owner.get(c.local) == self.current.as_ref() {
+                out.insert(e.clone());
+            } else {
+                out.insert(RowElem::Tag(c.tag.clone()));
+            }
+        }
+        out
     }
 
     fn callee_uses(&mut self, callee: ExprId) -> Row {
@@ -370,15 +439,50 @@ impl BodyInfer<'_> {
             .iter()
             .filter(|&(local, b)| *b == binder && self.local_owner.get(local) == Some(&def))
             .map(|(local, _)| local)
+            .filter(|&local| !self.is_fn_param(local))
             .collect();
-        let caps: Vec<RowElem> = locals
+        // The `use E` that bound a variable has already added E, so its capability is removed.
+        // Another variable may hold a capability no `use E` of the body made, so its capability
+        // is replaced with its effect.
+        let (used, others): (Vec<_>, Vec<_>) =
+            locals.into_iter().partition(|l| self.use_bound.contains(l));
+        let used: Vec<RowElem> = used.into_iter().filter_map(|l| self.cap_elem(l)).collect();
+        let others: Vec<RowElem> = others
             .into_iter()
             .filter_map(|l| self.cap_elem(l))
             .collect();
-        if caps.is_empty() {
-            return row.clone();
+        let mut row = row.clone();
+        if !used.is_empty() {
+            row = self.subtract_elems(&row, &used);
         }
-        self.subtract_elems(row, &caps)
+        if !others.is_empty() {
+            row = self.widen_elems(&row, &others);
+        }
+        row
+    }
+
+    /// Replaces the capabilities `caps` in `row` with their effects. Set variables are replaced
+    /// with fresh ones whose solutions do the same.
+    fn widen_elems(&mut self, row: &Row, caps: &[RowElem]) -> Row {
+        let mut out = Row::empty();
+        for e in self.ctx.resolve_row(row).elems() {
+            match e {
+                RowElem::Cap(c)
+                    if caps
+                        .iter()
+                        .any(|m| matches!(m, RowElem::Cap(m) if m.local == c.local)) =>
+                {
+                    out.insert(RowElem::Tag(c.tag.clone()));
+                }
+                RowElem::Var(v) => {
+                    let d = self.ctx.new_row_var();
+                    self.row_widens.push((d, *v, caps.to_vec()));
+                    out.insert(RowElem::Var(d));
+                }
+                e => out.insert(e.clone()),
+            }
+        }
+        out
     }
 
     /// [`Self::end_binder`] for a closure or local fn of the definition being computed.

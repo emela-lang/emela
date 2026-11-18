@@ -11,6 +11,3 @@ returned: fn() -> use Scope[{}, {}] uses { Scope[{}, {}] }
 closure_is_fine: fn() -> Int uses { Async }
   s: use Scope[{}, {}]
   run: fn() -> Fiber[Int] uses { s }
-`s` CapabilityArgument
-`s` CapabilityInData
-`use Scope` CapabilityReturned

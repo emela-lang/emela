@@ -1,0 +1,76 @@
+effect Db {
+  fn query(q: String) -> Int
+}
+
+effect Users {
+  fn find(id: Int) -> Int
+}
+
+handler PrimaryDb: Db {
+  fn query(q) {
+    _ = dbg("primary #{q}")
+    1
+  }
+}
+
+handler ReplicaDb: Db {
+  fn query(q) {
+    _ = dbg("replica #{q}")
+    2
+  }
+}
+
+handler Counting(base: Int): Db {
+  init {
+    _ = dbg("open counting")
+    Counting(base: 100)
+  }
+  release {
+    _ = dbg("close counting")
+  }
+  fn query(q) { self.base + 3 }
+}
+
+type Pair(read: use Db, write: use Db)
+
+handler DbUsers(db: use Db): Users {
+  init(db: use Db) { DbUsers(db:) }
+  fn find(id) { self.db.query("user #{id}") + id }
+}
+
+fn copy(from: use Db, to: use Db) -> Int {
+  to.query("copy #{from.query("read")}")
+}
+
+fn pick(primary: use Db, replica: use Db, write: Bool) -> use Db {
+  if write { primary } else { replica }
+}
+
+fn total(dbs: List[use Db]) -> Int {
+  List.fold(dbs, from: 0, f: |n, db| n + db.query("total"))
+}
+
+fn through_pair(pair: Pair) -> Int {
+  pair.write.query("pair #{pair.read.query("pair read")}")
+}
+
+fn main() {
+  with PrimaryDb {
+    primary = use Db
+    with ReplicaDb {
+      replica = use Db
+      _ = dbg(copy(replica, primary))
+      _ = dbg(pick(primary, replica, True).query("picked write"))
+      _ = dbg(pick(primary, replica, False).query("picked read"))
+      _ = dbg(total([primary, replica, primary]))
+      _ = dbg(through_pair(Pair(read: replica, write: primary)))
+      found = with DbUsers(db: replica) { (use Users).find(7) }
+      _ = dbg(found)
+      with Counting {
+        counting = use Db
+        _ = dbg(copy(counting, replica))
+        _ = dbg(Some(counting) |> Option.map(|db| db.query("mapped")))
+      }
+    }
+  }
+}

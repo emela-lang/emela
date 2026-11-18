@@ -536,3 +536,221 @@ fn outer() -> Int {
 "#
     ));
 }
+
+/// `[effect.use]`: a capability value is passed as an argument, put into a data structure and
+/// returned from a function as any other value. Its type is written `use E` and shown as written.
+#[test]
+fn capability_values_are_values() {
+    insta::assert_snapshot!(render(&with_prelude(
+        r##"
+type Pair(first: use Db, second: use Db)
+
+fn copy(from: use Db, to: use Db) -> Int {
+  to.query("#{from.query("...")}")
+}
+
+fn pick(primary: use Db, replica: use Db, write: Bool) -> use Db {
+  if write { primary } else { replica }
+}
+
+fn first(dbs: List[use Db]) -> Option[use Db] {
+  dbs match {
+    [db, ..] -> Some(db)
+    _ -> None
+  }
+}
+
+fn pass[A](x: A) -> A { x }
+
+fn caller() -> Int {
+  with PrimaryDb {
+    primary = use Db
+    with ReplicaDb {
+      replica = use Db
+      pair = Pair(first: primary, second: replica)
+      both = [primary, replica]
+      chosen = pick(primary, replica, True)
+      same = pass(replica)
+      copy(replica, primary) + chosen.query("x") + same.query("y") + pair.first.query("z")
+    }
+  }
+}
+"##
+    )));
+}
+
+/// `[effect.use]`: calling an operation of a capability received as a parameter adds that
+/// capability to R, and a caller does not provide it by name: the call replaces it with what the
+/// argument is. An operation of a capability bound in the body adds its effect, as before. The
+/// capability elements of R are not written, so a `uses` clause that lacks them names the effect.
+#[test]
+fn capability_parameters_in_r() {
+    insta::assert_snapshot!(render(&with_prelude(
+        r##"
+fn sync_users(from: use Db, to: use Db) -> Int {
+  from.query("a") + to.query("b")
+}
+
+fn through_closure(db: use Db) -> Int {
+  f = || db.query("c")
+  f()
+}
+
+fn declared(db: use Db) -> Int uses { Db } {
+  db.query("d")
+}
+
+fn pure_rejects(db: use Db) -> Int uses {} {
+  db.query("e")
+}
+
+fn in_a_list(dbs: List[use Db]) -> Int {
+  dbs.fold(from: 0, f: |n, db| n + db.query("f"))
+}
+
+fn caller() -> Int {
+  with PrimaryDb {
+    primary = use Db
+    with ReplicaDb {
+      replica = use Db
+      sync_users(replica, primary) + through_closure(primary)
+    }
+  }
+}
+
+fn forwarded(db: use Db) -> Int {
+  sync_users(db, db)
+}
+
+fn no_provider_needed() -> Int {
+  with PrimaryDb {
+    p = use Db
+    run_without(p)
+  }
+}
+
+fn run_without(db: use Db) -> Int {
+  forwarded(db)
+}
+"##
+    )));
+}
+
+/// `[effect.escape]`: a capability value, and any value that holds one, cannot leave the `with`
+/// that provides it: returned as the value of the `with`, inside a data structure, or through a
+/// function that returns its argument.
+#[test]
+fn capability_values_leaving_a_with() {
+    insta::assert_snapshot!(render(&with_prelude(
+        r##"
+fn pass[A](x: A) -> A { x }
+
+fn pick(primary: use Db, replica: use Db) -> use Db { primary }
+
+fn bare() -> use Db {
+  with PrimaryDb { use Db }
+}
+
+fn bound() -> use Db {
+  with PrimaryDb {
+    p = use Db
+    p
+  }
+}
+
+fn in_a_list() -> List[use Db] {
+  with PrimaryDb {
+    p = use Db
+    [p]
+  }
+}
+
+fn through_a_call() -> use Db {
+  with PrimaryDb {
+    p = use Db
+    with ReplicaDb {
+      r = use Db
+      pick(p, r)
+    }
+  }
+}
+
+fn through_pass() -> use Db {
+  with PrimaryDb { pass(use Db) }
+}
+
+fn outer_is_fine() -> Int {
+  with PrimaryDb {
+    p = use Db
+    q = with ReplicaDb { p }
+    q.query("x")
+  }
+}
+"##
+    )));
+}
+
+/// `[effect.handler]`: a field of a handler can have the type `use E`. The capability belongs to
+/// a `with` that encloses the `with` of the handler, since the arguments of init are evaluated
+/// outside it.
+#[test]
+fn capability_fields_of_a_handler() {
+    insta::assert_snapshot!(render(&with_prelude(
+        r##"
+effect Users {
+  fn find(id: Int) -> Int
+}
+
+handler PostgresUsers(db: use Db): Users {
+  init(db: use Db) { PostgresUsers(db:) }
+  fn find(id) { self.db.query("#{id}") }
+}
+
+fn run() -> Int {
+  with PrimaryDb {
+    with PostgresUsers(db: use Db) {
+      (use Users).find(1)
+    }
+  }
+}
+
+fn from_param(db: use Db) -> Int {
+  with PostgresUsers(db:) {
+    (use Users).find(2)
+  }
+}
+"##
+    )));
+}
+
+/// `[effect.use]`: only the operations of E can be called on a value of type `use E` (E0401).
+/// `use E` and `use F` are the same type only for the same effect with the same type arguments;
+/// a label is a different effect. No trait is implemented for `use E`, and `==` is not defined.
+#[test]
+fn capability_type_rules() {
+    insta::assert_snapshot!(render(&with_prelude(
+        r##"
+effect Replica of Db
+
+effect State[S] {
+  fn get() -> S
+}
+
+fn wrong_op(db: use Db) -> () {
+  db.info("x")
+}
+
+fn other_effect(log: use Logger) -> use Db { log }
+
+fn label(r: use Replica) -> use Db { r }
+
+fn type_args(s: use State[Int]) -> use State[String] { s }
+
+fn equal(a: use Db, b: use Db) -> Bool { a == b }
+
+fn shown(a: use Db) -> String { "#{a}" }
+
+fn op_value(db: use Db) -> fn(String) -> Int uses { Db } { db.query }
+"##
+    )));
+}

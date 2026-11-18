@@ -1542,3 +1542,49 @@ fn local_fn_param_duplicates() {
 "##,
     )]));
 }
+
+/// The type of a capability `use E` (`[effect.use]`, `[grammar.type]`) names an effect or a label
+/// with its type arguments, wherever a type can be written.
+#[test]
+fn capability_types() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"effect Db {
+  fn query(q: String) -> Int
+}
+
+effect State[S] {
+  fn get() -> S
+}
+
+effect Replica of Db
+
+type Pool(dbs: List[use Db])
+
+fn pick(primary: use Db, replica: use Replica, write: Bool) -> use Db {
+  if write { primary } else { replica }
+}
+
+fn take(f: fn(use State[Int]) -> Int, s: (use State[Int], Int)) -> Int { 0 }
+"##,
+    )]));
+}
+
+/// `use E` where E is not an effect is E0217, as for `use E` in an expression: a type, a type
+/// parameter, a handler.
+#[test]
+fn capability_type_of_a_non_effect() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"effect Db {
+  fn query(q: String) -> Int
+}
+
+handler PrimaryDb: Db {
+  fn query(q) { 1 }
+}
+
+fn f[A](a: use Int, b: use A, c: use PrimaryDb, d: use Missing) { () }
+"##,
+    )]));
+}

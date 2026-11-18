@@ -2191,6 +2191,46 @@ fn leak() -> fn() -> Int {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// `[effect.use]`, `[diag.list]`: the type `use E` names an effect; another kind of name is
+/// E0217. An operation that E does not have, called on a value of type `use E`, is E0401. A
+/// capability value passed, stored and returned is not an error (E0408 to E0410 are retired),
+/// and one that leaves its `with` is W0402.
+#[test]
+fn capability_types() {
+    let main = "\
+effect Db {
+  fn query(q: String) -> Int
+}
+
+handler PrimaryDb: Db {
+  fn query(q) { 1 }
+}
+
+fn not_an_effect(a: use Int, b: use PrimaryDb) -> () { () }
+
+fn wrong_op(db: use Db) -> () {
+  db.info(\"x\")
+}
+
+fn values(db: use Db) -> List[use Db] {
+  [db]
+}
+
+fn leaks() -> use Db {
+  with PrimaryDb {
+    db = use Db
+    db
+  }
+}
+";
+    let analysis = check_files(
+        &[("app/Pome.toml", ""), ("app/src/main.emel", main)],
+        "app",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// `[fiber.escape]`: the value of `Fiber.scope` that holds a Semaphore or Queue made by the scope
 /// is W0402, labelled at the callee. With `capture-checking`, from `[experimental]` or from the
 /// flag, it is E0444. A value taken out of them is not.

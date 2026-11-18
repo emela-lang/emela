@@ -210,6 +210,10 @@
     "named": true,
     "subtypes": [
       {
+        "type": "capability_type",
+        "named": true
+      },
+      {
         "type": "function_type",
         "named": true
       },
@@ -560,6 +564,30 @@
         "types": [
           {
             "type": "_expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "capability_type",
+    "named": true,
+    "fields": {
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "generic_type",
+            "named": true
+          },
+          {
+            "type": "type_reference",
+            "named": true
+          },
+          {
+            "type": "type_variable",
             "named": true
           }
         ]
@@ -1539,6 +1567,10 @@
         "multiple": false,
         "required": false,
         "types": [
+          {
+            "type": "capability_type",
+            "named": true
+          },
           {
             "type": "function_type",
             "named": true

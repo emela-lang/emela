@@ -937,7 +937,7 @@ fn greet(id: Int) {
     ));
 }
 
-/// 8.2 To use a specific handler's capability, pass a closure capturing it.
+/// 8.2 To use a specific handler's capability, pass the capability value (`use Db`).
 /// 8.3 A capability value taken outside still refers to the outer handler even when an inner
 /// `with` overrides it.
 #[test]
@@ -961,8 +961,8 @@ handler ReplicaDb: Db {  # 補
   fn execute(rows) { () }
 }
 
-fn copy(read: fn() -> Rows uses { Db }, write: fn(Rows) -> () uses { Db }) {
-  write(read())
+fn copy(from: use Db, to: use Db) {
+  to.execute(from.query("..."))
 }
 
 fn main() {  # 補
@@ -970,7 +970,7 @@ fn main() {  # 補
     primary = use Db
     with ReplicaDb {
       replica = use Db
-      copy(|| replica.query("..."), |rows| primary.execute(rows))
+      copy(replica, primary)
     }
   }
 }

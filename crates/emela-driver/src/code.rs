@@ -142,9 +142,8 @@ pub const MISSING_HANDLER_OPS: &str = "E0404";
 pub const DUPLICATE_HANDLER_OP: &str = "E0405";
 pub const HANDLER_OP_ARG_COUNT: &str = "E0406";
 pub const EXTERNAL_OUTSIDE_HANDLER: &str = "E0407";
-pub const CAPABILITY_ARGUMENT: &str = "E0408";
-pub const CAPABILITY_IN_DATA: &str = "E0409";
-pub const CAPABILITY_RETURNED: &str = "E0410";
+// E0408 to E0410 are retired: a capability value can be passed as an argument, stored in a data
+// structure and returned, since `use E` became a type (`[effect.use]`).
 pub const HANDLER_CYCLE: &str = "E0411";
 // External functions (spec 12.1). A side-effect path like effects, so they live in E04xx
 // (E05xx to E08xx are reserved).

@@ -206,7 +206,7 @@ impl Traits {
             Ok(())
         };
         match ty {
-            Ty::Error | Ty::Never | Ty::Var(_) | Ty::Set(..) | Ty::Cap(_) => return Ok(()),
+            Ty::Error | Ty::Never | Ty::Var(_) | Ty::Set(..) => return Ok(()),
             Ty::Bound(i) => {
                 let given = env
                     .get(*i as usize)
@@ -216,7 +216,8 @@ impl Traits {
                 }
                 return fail();
             }
-            Ty::Fn(_) => return fail(),
+            // No trait is implemented for a capability (`[effect.use]`).
+            Ty::Fn(_) | Ty::Cap(_) => return fail(),
             _ => {}
         }
         let args: Vec<Ty> = match ty {

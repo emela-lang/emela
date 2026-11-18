@@ -1,0 +1,41 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0217]: expected effect, found type `Int`
+   ╭─[ src/main.emel:9:25 ]
+   │
+ 9 │ fn not_an_effect(a: use Int, b: use PrimaryDb) -> () { () }
+   │                         ─┬─  
+   │                          ╰─── 
+───╯
+
+error[E0217]: expected effect, found handler `PrimaryDb`
+   ╭─[ src/main.emel:9:37 ]
+   │
+ 9 │ fn not_an_effect(a: use Int, b: use PrimaryDb) -> () { () }
+   │                                     ────┬────  
+   │                                         ╰────── 
+───╯
+
+error[E0401]: effect `Db` has no operation `info`
+    ╭─[ src/main.emel:12:6 ]
+    │
+ 12 │   db.info("x")
+    │      ──┬─  
+    │        ╰─── 
+────╯
+
+warning[W0402]: a value that holds `db` leaves the `with` that provides it
+    ╭─[ src/main.emel:22:5 ]
+    │
+ 20 │   with PrimaryDb {
+    │        ────┬────  
+    │            ╰────── `db` is released at the end of this `with`
+    │ 
+ 22 │     db
+    │     ─┬  
+    │      ╰── the value of the body holds `db`
+────╯
+
+3 errors, 1 warning
