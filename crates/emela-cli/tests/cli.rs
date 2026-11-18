@@ -255,7 +255,7 @@ fn check_clean_project() {
         "clean",
         &[
             ("Pome.toml", ""),
-            ("src/main.emel", "import Json\n\nfn main() { 1 }\n"),
+            ("src/main.emel", "import Json\n\nfn main() { () }\n"),
             ("src/json.emel", ""),
         ],
     );
@@ -273,6 +273,93 @@ fn check_clean_project() {
         .output()
         .unwrap();
     assert_eq!(run.status.code(), Some(0));
+}
+
+/// `[intro.experimental]`, `[effect.escape]`: `capture-checking` is an experimental feature.
+/// Without it a value that leaves the `with` providing a capability it holds is the warning W0402
+/// and the command succeeds; with `--experimental-capture-checking` it is E0444 and the command
+/// fails. `--help` lists the flag.
+#[test]
+fn capture_checking_flag() {
+    let project = Project::new(
+        "capture-checking",
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/main.emel",
+                "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\nfn leak() -> fn() -> () {\n  with Quiet {\n    log = use Logger\n    || log.info(\"hi\")\n  }\n}\n\nfn main() {\n  leak()\n  ()\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["check", "app"]);
+    assert_eq!(run.code, Some(0), "{run:?}");
+    assert!(run.stderr.contains("warning[W0402]"), "{run:?}");
+    let run = project.emela(&["check", "--experimental-capture-checking", "app"]);
+    assert_eq!(run.code, Some(1), "{run:?}");
+    assert!(run.stderr.contains("error[E0444]"), "{run:?}");
+    assert!(
+        run.stderr
+            .contains("= note: experimental feature `capture-checking`"),
+        "{run:?}"
+    );
+    let help = project.emela(&["check", "--help"]);
+    assert!(
+        help.stdout.contains("--experimental-capture-checking"),
+        "{help:?}"
+    );
+}
+
+/// `[cmd.build]`, `[cmd.test]`: `check`, `build`, `run` and `test` take `--experimental-<name>`.
+/// A name of no known experimental feature is the warning W0206, not an unknown-argument error,
+/// and the command goes on. Arguments after `--` are the program's.
+#[test]
+fn experimental_flags_of_an_unknown_feature_are_warnings() {
+    let project = Project::new(
+        "experimental-flags",
+        &[
+            ("app/Pome.toml", ""),
+            ("app/src/main.emel", "fn main() {\n  dbg(1)\n  ()\n}\n"),
+            ("app/test/main_test.emel", "@test\nfn passes() { () }\n"),
+            ("single/main.emel", "fn main() {\n  dbg(2)\n  ()\n}\n"),
+        ],
+    );
+    let run = project.emela(&["check", "--experimental-from-the-future", "app"]);
+    assert_eq!(run.code, Some(0), "{run:?}");
+    insta::assert_snapshot!(run.stderr, @r"
+    warning[W0206]: unknown experimental feature `from-the-future`
+
+    1 warning
+    ");
+    for args in [
+        &["build", "app", "--experimental-from-the-future"][..],
+        &["run", "--experimental-from-the-future", "app"],
+        &["test", "--experimental-from-the-future", "app"],
+        &["run", "--experimental-from-the-future", "single/main.emel"],
+        &[
+            "check",
+            "single/main.emel",
+            "--experimental-from-the-future",
+        ],
+    ] {
+        let run = project.emela(args);
+        assert_eq!(run.code, Some(0), "{args:?}: {run:?}");
+        assert!(
+            run.stderr
+                .contains("warning[W0206]: unknown experimental feature `from-the-future`"),
+            "{args:?}: {run:?}"
+        );
+    }
+    let run = project.emela(&[
+        "run",
+        "single/main.emel",
+        "--",
+        "--experimental-from-the-future",
+    ]);
+    assert_eq!(run.code, Some(0), "{run:?}");
+    assert!(!run.stderr.contains("W0206"), "{run:?}");
+    // Only `check`, `build`, `run` and `test` take the flags.
+    let run = project.emela(&["fmt", "--check", "--experimental-from-the-future", "app"]);
+    assert_eq!(run.code, Some(2), "{run:?}");
 }
 
 #[test]
@@ -293,7 +380,7 @@ fn build_writes_js() {
         "build-js",
         &[
             ("Pome.toml", ""),
-            ("src/main.emel", "fn main() {\n  dbg(1 + 2)\n}\n"),
+            ("src/main.emel", "fn main() {\n  dbg(1 + 2)\n  ()\n}\n"),
         ],
     );
     let run = project.emela(&["build"]);
@@ -312,7 +399,7 @@ fn build_reports_unsupported_expressions() {
             // Capability values cannot be shown.
             (
                 "src/main.emel",
-                "import Std.Console.{Console, SystemConsole}\n\nfn main() {\n  with SystemConsole {\n    c = use Console\n    dbg(\"#{c}\")\n  }\n}\n",
+                "import Std.Console.{Console, SystemConsole}\n\nfn main() {\n  with SystemConsole {\n    c = use Console\n    dbg(\"#{c}\")\n  }\n  ()\n}\n",
             ),
         ],
     );
@@ -386,7 +473,7 @@ fn explicit_library_file_remains_a_file_entry_and_binary_entry_takes_priority() 
             ("Pome.toml", ""),
             (
                 "src/lib.emel",
-                "fn main() { dbg(42) }\n@test\nfn in_lib() { assert True }\n",
+                "fn main() {\n  dbg(42)\n  ()\n}\n@test\nfn in_lib() { assert True }\n",
             ),
         ],
     );
@@ -401,7 +488,7 @@ fn explicit_library_file_remains_a_file_entry_and_binary_entry_takes_priority() 
 
     std::fs::write(
         project.path().join("src/main.emel"),
-        "fn main() { dbg(7) }\n@test\nfn in_main() { assert True }\n",
+        "fn main() {\n  dbg(7)\n  ()\n}\n@test\nfn in_main() { assert True }\n",
     )
     .unwrap();
     let run = project.emela(&["run"]);
@@ -603,7 +690,7 @@ fn single_file_reads_only_imported_files() {
     let clean = Project::new(
         "single-clean",
         &[
-            ("main.emel", "fn main() { 1 }\n"),
+            ("main.emel", "fn main() { () }\n"),
             ("scratch.emel", "fn broken( {\n"),
         ],
     );
@@ -721,7 +808,7 @@ fn check_resolves_bundled_core() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "fn main() -> Int {\n  xs = List.map([1, 2], |x| x * 2)\n  Option.or(List.head(xs), 0) + String.length(\"abc\")\n}\n",
+                "fn main() {\n  xs = List.map([1, 2], |x| x * 2)\n  Option.or(List.head(xs), 0) + String.length(\"abc\")\n  ()\n}\n",
             ),
         ],
     );
@@ -760,7 +847,7 @@ fn run_reports_unhandled_error_with_exit_code_1() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "error NotFound(id: Int) derive Show\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  dbg(find(0) escape { NotFound(_) -> 0 })\n  dbg(find(-1))\n}\n",
+                "error NotFound(id: Int) derive Show\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  dbg(find(0) escape { NotFound(_) -> 0 })\n  dbg(find(-1))\n  ()\n}\n",
             ),
         ],
     );
@@ -813,6 +900,7 @@ fn main() {
   dbg([int(-2147483647 - 1), int(-16), int(-3), int(-1), int(1)])
   dbg([long(-9223372036854775807 - 1), long(-5), long(5)])
   dbg([float(-1.5), float(0.0), float(-0.0), float(1.5)])
+  ()
 }
 "#,
             ),
@@ -1073,6 +1161,7 @@ fn second() {
 fn main() {
   dbg(ANSWER + ANSWER)
   dbg(ANSWER)
+  ()
 }
 "#,
             ),
@@ -1111,7 +1200,7 @@ fn const_cycles() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "const A = f()\n\nfn f() -> Int { A + 1 }\n\nfn main() {\n  dbg(A)\n}\n",
+                "const A = f()\n\nfn f() -> Int { A + 1 }\n\nfn main() {\n  dbg(A)\n  ()\n}\n",
             ),
         ],
     );

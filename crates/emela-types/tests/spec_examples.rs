@@ -691,6 +691,39 @@ fn main() {
     ));
 }
 
+/// `[api.std.process]`: the example of Stdout, and the test of TestStdout and TestStderr in the
+/// proposal (`proposals/stdout-stderr.md`). The operations are Immediate, so `greet` is not a
+/// suspend fn.
+#[test]
+fn spec_api_std_process_stdout() {
+    insta::assert_snapshot!(render_bodies(
+        r##"
+import Std.Platform.{Platform}
+import Std.Process.{Stderr, StderrText, Stdout, StdoutText, TestStderr, TestStdout}
+import Std.State.{State}
+
+fn main() {
+  with Platform {
+    (use Stdout).print("Hello, ")
+    (use Stdout).print_line("alice!")
+  }
+}
+
+fn greet(name: String) -> () uses { Stdout, Stderr } {
+  (use Stdout).print_line("Hello, #{name}!")
+  (use Stderr).print_line("greeted #{name}")
+}
+
+fn greets() -> Bool {
+  ((_, err), out) = State.run(StdoutText(text: ""), || {
+    State.run(StderrText(text: ""), || with TestStdout, TestStderr { greet("alice") })
+  })
+  out.text == "Hello, alice!\n" && err.text == "greeted alice\n"
+}
+"##
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Code the text declares to be errors
 
@@ -1167,6 +1200,37 @@ fn catch_variable() -> Int {
 
 fn catch_all_guarded(c: Bool) -> Int {
   flaky() escape { _ if c -> 1 }
+}
+"#
+    ));
+}
+
+/// 8.6 A closure that captures a capability and is the value of the `with` providing it is
+/// W0402 (`[effect.escape]`). A closure used up inside the `with` is fine.
+#[test]
+fn spec_8_6_capabilities_must_not_leak() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+effect Logger {  # 補
+  fn info(msg: String) -> ()
+}
+
+handler ConsoleLogger: Logger {  # 補
+  fn info(msg) { () }
+}
+
+fn make_greeter() {
+  with ConsoleLogger {
+    log = use Logger
+    || log.info("hi") # W0402: leaves the with while holding log (E0444 with `capture-checking`)
+  }
+}
+
+fn used_up(names: List[String]) {  # 補
+  with ConsoleLogger {
+    log = use Logger
+    List.map(names, |n| log.info(n))
+  }
 }
 "#
     ));

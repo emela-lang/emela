@@ -444,7 +444,7 @@ fn bundled_core_typechecks_cleanly() {
     let analysis = check_files(
         &[(
             "home/main.emel",
-            "fn main() -> Int {\n  xs = List.map([1, 2], |x| x + 1)\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
+            "fn main() {\n  xs = List.map([1, 2], |x| x + 1)\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n  ()\n}\n",
         )],
         "home/main.emel",
         &mut frontend,
@@ -805,6 +805,46 @@ fn make() { Counter(n: 1) }
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// `Self` as an expression where it cannot construct a handler (`[effect.handler]`,
+/// `[grammar.expr]`): inside a handler outside its init (E0418), outside a handler (E0219, also in
+/// an impl), and as the target of a record update (E0222).
+#[test]
+fn handler_self_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Logger {
+  fn info(msg: String) -> ()
+}
+
+trait Make {
+  fn make() -> Self
+}
+
+type Box(n: Int)
+
+impl Box: Make {
+  fn make() { Self(n: 1) }
+}
+
+handler Counter(n: Int): Logger {
+  init { Self(n: 0, ..Self(n: 1)) }
+  fn info(msg) {
+    next = Self(n: self.n + 1)
+    ()
+  }
+}
+
+fn make() { Self(n: 1) }
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// The messages of effect type parameter diagnostics (E0423, E0424, E0304, E0402; spec 8.1).
 #[test]
 fn effect_type_param_diagnostics() {
@@ -899,6 +939,7 @@ handler UnusedClock: Clock {
 
 fn main() {
   with WasmClock { dbg((use Clock).now()) }
+  ()
 }
 "#;
 
@@ -926,7 +967,10 @@ pub fn label[A: Show](x: A) -> String { Show.show(x) }
 
 pub fn pair[A, B: Show + Eq](a: A, b: B) -> B { b }
 
-fn main() { dbg(label(User(name: "ann"))) }
+fn main() {
+  dbg(label(User(name: "ann")))
+  ()
+}
 "#;
 
 #[test]
@@ -1381,6 +1425,7 @@ handler HostClock: Clock {
 
 fn main() {
   with HostClock { dbg(CALL) }
+  ()
 }
 "#;
 
@@ -1472,6 +1517,7 @@ fn main() {
   k = Secret.key()
   f = Secret.key
   dbg(Secret.hint() + Friend.peek())
+  ()
 }
 
 @internal
@@ -1738,11 +1784,12 @@ impl Int: Doubled {
   fn doubled(self) { self * 2 }
 }
 
-fn main() -> Int {
+fn main() {
   s = Factory.unit()
   t = s.grow(by: 2)
   label = t.show()
   label.length() + t.area().doubled() + ["a", "b"].join(", ").length()
+  ()
 }
 "#,
             ),
@@ -1766,7 +1813,7 @@ fn bytes_names_stay_free() {
         ),
         (
             "app/src/main.emel",
-            "import Bytes\n\nfn main() {\n  dbg(Bytes.count(Bytes.Bytes(value: 1)))\n}\n",
+            "import Bytes\n\nfn main() {\n  dbg(Bytes.count(Bytes.Bytes(value: 1)))\n  ()\n}\n",
         ),
     ];
     let analysis = check_files(&files, "app", &mut Typecheck::default());
@@ -1807,7 +1854,7 @@ fn array_names_stay_free() {
         ),
         (
             "app/src/main.emel",
-            "import Array\n\nfn main() {\n  dbg(Array.count(Array.Array(n: 1)))\n}\n",
+            "import Array\n\nfn main() {\n  dbg(Array.count(Array.Array(n: 1)))\n  ()\n}\n",
         ),
     ];
     let analysis = check_files(&files, "app", &mut Typecheck::default());
@@ -1991,6 +2038,159 @@ fn deprecated_build_target_c() {
     );
 }
 
+/// `[pome.manifest]`: an unknown name in `[experimental]` is W0206 at the key, whatever its value,
+/// and a value that is not a boolean is W0207 at the value. The check goes on.
+#[test]
+fn experimental_settings_of_the_project() {
+    let manifest = |table: &str| {
+        format!(
+            "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.29.0\"\n\n[experimental]\n{table}"
+        )
+    };
+    let check_manifest = |manifest: &str| {
+        check_files(
+            &[
+                ("app/Pome.toml", manifest),
+                ("app/src/main.emel", "let x = 1\n"),
+            ],
+            "app",
+            &mut LexOnly,
+        )
+    };
+
+    let analysis = check_manifest(&manifest("from-the-future = true\nalso-unknown = false\n"));
+    assert_eq!(analysis.error_count(), 0);
+    insta::assert_snapshot!(
+        "experimental_unknown_feature",
+        render(&analysis.diagnostics, &analysis.sources, false)
+    );
+
+    let analysis = check_manifest(&manifest("from-the-future = \"yes\"\n"));
+    assert_eq!(analysis.error_count(), 0);
+    insta::assert_snapshot!(
+        "experimental_not_a_boolean",
+        render(&analysis.diagnostics, &analysis.sources, false)
+    );
+
+    for clean in [
+        manifest(""),
+        // `[experimental]` is a table of its own; a key of that name elsewhere is not read.
+        "[build]\nexperimental = 1\n".into(),
+        // Without a `[pome]` (a project without dependencies may have an empty `Pome.toml`).
+        String::new(),
+    ] {
+        let analysis = check_manifest(&clean);
+        assert!(
+            analysis.diagnostics.is_empty(),
+            "{clean:?}: {:?}",
+            analysis.diagnostics
+        );
+    }
+}
+
+/// `[cmd.build]`: a flag `--experimental-<name>` that names no known experimental feature is not
+/// an error but W0206, without a location. The same name twice is reported once. In single-file
+/// mode the flags are read too.
+#[test]
+fn experimental_flags() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        ("app/src/main.emel", "let x = 1\n"),
+        ("single/main.emel", "let x = 1\n"),
+    ]);
+    for path in ["app", "single/main.emel"] {
+        let mut input = Input::resolve(&fs, Path::new(path)).unwrap();
+        input.experimental = vec!["from-the-future".into(), "from-the-future".into()];
+        let (analysis, _) = check(&fs, &input, &mut LexOnly);
+        assert_eq!(analysis.error_count(), 0, "{path}");
+        insta::assert_snapshot!(
+            "experimental_unknown_flag",
+            render(&analysis.diagnostics, &analysis.sources, false)
+        );
+    }
+}
+
+/// A diagnostic produced by an experimental feature carries the note
+/// ``= note: experimental feature `name` `` (`[intro.experimental]`).
+#[test]
+fn experimental_feature_note() {
+    let diagnostic = Diagnostic::warning("something the feature checks")
+        .with_code("W0000")
+        .from_experimental_feature("some-feature");
+    insta::assert_snapshot!(render(&[diagnostic], &SourceDb::new(), false), @r"
+    warning[W0000]: something the feature checks
+       = note: experimental feature `some-feature`
+
+    1 warning
+    ");
+}
+
+/// `[effect.escape]`, `[diag.list]`: a value that holds a root and leaves the `with` that
+/// provides it is W0402, with labels at the `with` item and at the value. With the experimental
+/// feature `capture-checking`, from `[experimental]` or from the flag, it is E0444 with the note of
+/// the feature (`[intro.experimental]`), and the name is known (no W0206).
+#[test]
+fn capture_escape() {
+    let main = "\
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler FileLogger: Logger {
+  fn info(msg) { () }
+}
+
+fn make_greeter() -> fn() -> () {
+  with FileLogger {
+    log = use Logger
+    || log.info(\"hi\")
+  }
+}
+";
+    let manifest = |table: &str| {
+        format!(
+            "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.28.0\"\n\n[experimental]\n{table}"
+        )
+    };
+    let run = |manifest: &str, flags: &[&str]| {
+        let fs = MemoryFiles::new([("app/Pome.toml", manifest), ("app/src/main.emel", main)]);
+        let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
+        input.experimental = flags.iter().map(|f| f.to_string()).collect();
+        let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
+        render(&analysis.diagnostics, &analysis.sources, false)
+    };
+    insta::assert_snapshot!("capture_escape_warning", run(&manifest(""), &[]));
+    let error = run(&manifest("capture-checking = true\n"), &[]);
+    insta::assert_snapshot!("capture_escape_error", error);
+    assert_eq!(run(&manifest(""), &["capture-checking"]), error);
+    assert_eq!(
+        run(&manifest("capture-checking = false\n"), &[]),
+        run(&manifest(""), &[])
+    );
+}
+
+/// `[fiber.escape]`: the value of `Fiber.scope` that holds its Scope is W0402, labelled at the
+/// callee.
+#[test]
+fn capture_escape_from_a_scope() {
+    let main = "\
+import Std.Fiber.{Fiber, Scope}
+
+fn leak() -> fn() -> Int {
+  Fiber.scope(|| {
+    h = Fiber.fork(|| 1)
+    || Fiber.join(h)
+  })
+}
+";
+    let analysis = check_files(
+        &[("app/Pome.toml", ""), ("app/src/main.emel", main)],
+        "app",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// A single file has no `Pome.toml` of its own, so there is no license to check.
 #[test]
 fn single_file_does_not_read_a_license() {
@@ -2116,4 +2316,78 @@ fn queue() -> Option[Queue[Int]] uses { Async } {
         &mut frontend,
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// W0304: a `main` whose return type is none of `()`, `ExitCode` and Never (`[dyn.error]`,
+/// `[effect.with]`). Points at the annotation of the return type, or at the name `main` when the
+/// type is inferred.
+#[test]
+fn main_return_value_discarded() {
+    let mut out = String::new();
+    for src in [
+        "fn main() -> Int {\n  2\n}\n",
+        "fn main() {\n  \"done\"\n}\n",
+        "fn main() -> List[Int] {\n  [1]\n}\n",
+    ] {
+        let mut frontend = Typecheck::default();
+        let analysis = check_files(&[("home/main.emel", src)], "home/main.emel", &mut frontend);
+        out.push_str(&render(&analysis.diagnostics, &analysis.sources, false));
+    }
+    insta::assert_snapshot!(out);
+}
+
+/// A `main` that returns `()`, an `ExitCode` or Never gets no W0304 (`[dyn.error]`), and neither
+/// does a fn named `main` that is not the entry's.
+#[test]
+fn main_return_types_without_warning() {
+    for (path, files) in [
+        (
+            "home/main.emel",
+            vec![("home/main.emel", "fn main() {\n  ()\n}\n")],
+        ),
+        (
+            "home/main.emel",
+            vec![(
+                "home/main.emel",
+                "import Std.Process.{ExitCode}\n\nfn main() -> ExitCode {\n  Process.exit_code(2)\n}\n",
+            )],
+        ),
+        (
+            "home/main.emel",
+            vec![(
+                "home/main.emel",
+                "import Std.Process.{EXIT_FAILURE}\n\nfn main() {\n  EXIT_FAILURE\n}\n",
+            )],
+        ),
+        (
+            "home/main.emel",
+            vec![(
+                "home/main.emel",
+                "fn main() -> Never {\n  panic(\"stop\")\n}\n",
+            )],
+        ),
+        (
+            "home/main.emel",
+            vec![(
+                "home/main.emel",
+                "error Stop\n\nfn main() {\n  fail Stop\n}\n",
+            )],
+        ),
+        (
+            "app",
+            vec![
+                ("app/Pome.toml", ""),
+                (
+                    "app/src/main.emel",
+                    "import Tool\n\nfn main() {\n  n = Tool.main()\n  dbg(n)\n  ()\n}\n",
+                ),
+                ("app/src/tool.emel", "pub fn main() -> Int {\n  2\n}\n"),
+            ],
+        ),
+    ] {
+        let mut frontend = Typecheck::default();
+        let analysis = check_files(&files, path, &mut frontend);
+        let rendered = render(&analysis.diagnostics, &analysis.sources, false);
+        assert!(analysis.diagnostics.is_empty(), "{files:?}\n{rendered}");
+    }
 }

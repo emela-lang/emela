@@ -2,6 +2,54 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-18 (Host effects, what the host provides to a launch)
+
+- `[effect.decl]`, `[effect.async]`, `[effect.host]`, `[effect.with]`, `[ext.call]`, `[ext.export]`, `[ext.entry]`, `[test.constraints]`, `[lib.layers]`, `[lib.http-service]`, `[api.std.platform]`, `[api.std.process]`, `[api.std.env]`, `[api.std.file-system]`, `[diag.list]`: An effect whose handler exists only in the host is called a host effect, and `Async` is one of them. Two host effects are added: `ProcessHost` (the host is a process) and `PageHost` (the host is a page of a browser). An external function whose host function runs only in a process declares `uses { ProcessHost }`, and the requirement stays in R through handlers and layers, inferred as `Async` is. The entry decides which host effects are provided, so a handler for processes used in a page is the usual E0402. `Platform` becomes a layer of only the handlers that every host has, and `Std.Process` gains a layer `Process` that also includes the handlers for processes. Also, only the compiler can declare an effect without operations, and the `uses` of an external function can only be `{}` or host effects. An image for explanation only (not for the specification): the entry decides which rootstock the program is grafted onto. The rootstock decides the environment it grows in, and the tree cannot replace it. Adopted in the proposal `host-effects` (#617).
+
+## 2026-11-18 (A built-in trait for capability types, Capability)
+
+- `[trait.builtin]`, `[effect.use]`, `[diag.list]`: Add a built-in trait `Capability`. Only capability types `use E` satisfy it, and users cannot implement it (it is determined automatically, as `Immediate` is). `[C: Capability]` says in a type "a capability of any effect". Adopted in the proposal `capability-trait` (#650).
+
+## 2026-11-18 (Handlers that implement several effects)
+
+- `[effect.handler]`, `[effect.with]`, `[effect.layer]`, `[effect.label]`, `[effect.use]`, `[type.rules]`, `[grammar.decl]`, `[grammar.type]`, `[diag.list]`: One handler can implement several effects (`handler H: ReadFile + WriteFile`). All the effects it implements share the same `self`. The type of a capability can be written `use ReadFile + WriteFile`, and a capability of a set of effects can be passed as the type of fewer of them. This stays a separate concept from layers. Adopted in the proposal `multi-effect-handler` (#625).
+
+## 2026-11-18 (Handler members)
+
+- `[effect.decl]`, `[effect.handler]`, `[effect.with]`, `[effect.use]`, `[type.rules]`, `[dyn.with]`, `[grammar.decl]`, `[grammar.expr]`, `[diag.list]`: An effect can declare handlers that its providers supply (handler members). A handler of the effect implements each of them with an inner handler of the same name. A user calls its init and binds the capability it provides with `with x = Files.Open("a.txt") { ... }`. A handler member can also be opened inside the init of a handler, and then lives as long as that handler. Adopted in the proposal `handler-member` (#624).
+
+## 2026-11-18 (The type of a capability, use E)
+
+- `[effect.use]`, `[effect.escape]`, `[effect.handler]`, `[fiber.escape]`, `[type.rules]`, `[grammar.type]`, `[diag.list]`: The type of a capability is written `use E`, and is an ordinary type. A capability value can be passed as an argument, put into a data structure and returned from a function (E0408, E0409 and E0410 are retired). The one rule that remains is the rule for closures that capture a capability: it does not leave the with that provides it. Capture checking (`capture-checking`) checks it statically. Adopted in the proposal `capability-type` (#622).
+
+## 2026-11-18 (Absent keys in derived Encode and Decode)
+
+- `[trait.derive]`, `[api.std.dynamic]`, `[api.std.dynamic.presence]`: In derived Encode and Decode, the type of a field decides how a missing key and null are written and read. - None of `Option[A]` leaves the key out (it is written as null now). A missing key and null are both read as None (as now). - `Std.Dynamic.Presence` gains `Presence[A]`, a type that tells the three states apart: a missing key, null and a value. It is meant for the bodies of partial updates. - The trait `Encode` gains `to_field`, and `Decode` gains `from_absent`. Both have default implementations, so the existing impls keep working. No attribute and no setting of a Pome is added. ```emel import Std.Dynamic.{Decode, Encode} import Std.Dynamic.Presence.{Absent, Null, Present, Presence} type TodoPatch(title: Option[String], due: Presence[String]) derive Encode, Decode ``` Adopted in the proposal `field-presence` (#652).
+
+## 2026-11-18 (Values taken out of the handles of a scope)
+
+- `[effect.escape]`, `[fiber.escape]`, `[open.next]`: A value taken out of a Fiber, Deferred, Semaphore or Queue (`Fiber.join`, `Deferred.await`, `Queue.take`, `Semaphore.with_permit`, ...) does not hold the root of the scope that made the handle, unless its type contains one of these types. Without this, the defaults of capture sets (`[effect.escape]`) report W0402 in correct programs, including `Fiber.all`, `race`, `both`, `map` and `timeout` of the standard library. Adopted in the proposal `scope-handle-values` (#645).
+
+## 2026-11-18 (Self(...) in the init of a handler)
+
+- `[effect.handler]`, `[grammar.expr]`, `[diag.list]`: Inside the init of a handler, its value can be constructed as `Self(...)`. It means the same as writing the handler's name, so the name is not repeated. Adopted in the proposal `handler-self-constructor` (#623).
+
+## 2026-11-18 (Capture checking)
+
+- `[intro.experimental]`, `[effect.escape]`, `[effect.use]`, `[fiber.escape]`, `[type.fn]`, `[type.rules]`, `[lsp.hover]`, `[diag.list]`, `[open.next]`: Infer, together with its type, the set of capabilities that a value holds (its capture set), and report a value that leaves the with that provides one of them. The R of a function gets a second kind of element: besides the name of an effect (`Db`), a capability itself (`primary`, a parameter `from`). The capture set is not written in source; the language server and the diagnostics show it. In 0.28 the inference, the display and the new elements of R always apply, and leaving a with is a warning. With the experimental feature `capture-checking` (`[intro.experimental]`) it is a compile error. A later version makes the error the default. Adopted in the proposal `capture-checking` (#621).
+
+## 2026-11-18 (Experimental features)
+
+- `[intro.experimental]`, `[intro.reading]`, `[module.pome]`, `[pome.manifest]`, `[cmd.build]`, `[cmd.test]`, `[lsp.project]`, `[diag.list]`: Add a category of experimental features to the specification. A Pome enables an experimental feature in the `[experimental]` table of its `Pome.toml`, and a command enables it for one run with a flag `--experimental-<name>`. Experimental features are outside the compatibility guarantees. Their rules are written where they belong, marked "Experimental". The first feature is expected to be capture checking (`capture-checking`). Adopted in the proposal `experimental-features` (#620).
+
+## 2026-11-15 (Choosing the exit code with the return value of main)
+
+- `[dyn.error]`, `[effect.with]`, `[diag.list]`, `[cmd.build]`, `[target.native.run]`, `[target.wasm.output]`, `[ext.export]`, `[lib.layers]`, `[api.std.process]`: Add to `Std.Process` (the module that std-process created) a value type `ExitCode` and the constants `EXIT_SUCCESS` (0) and `EXIT_FAILURE` (1). When the return type of `main` is `ExitCode` and `main` ends with a value, the program exits with that exit code. Every value from 0 to 255 can be returned. The return type of `main` is `()` or `ExitCode`; a `main` that returns any other type gets the warning W0304 (the value is thrown away and the program exits with 0, as now). An error still exits with 1, a defect with 101 and an interruption with 130. No function or effect operation that stops the process on the spot is added. ```emel import Std.Platform.{Platform} import Std.Console.{Console} import Std.Process.{EXIT_SUCCESS, ExitCode} error UsageError(message: String) fn main() -> ExitCode { with Platform { run() escape { UsageError(message:) -> { (use Console).print_error_line("usage: tool <file>: #{message}") Process.exit_code(2) } } } } fn run() -> ExitCode fails UsageError uses { Console } { (use Console).print_line("ok") EXIT_SUCCESS } ``` Adopted in the proposal `exit-code` (#567).
+
+## 2026-11-15 (Dynamic, Shape and JSON in std, with derived Encode, Decode and Shaped)
+
+- `[kw.annotation]`, `[grammar.decl]`, `[lib.layers]`, `[trait.derive]`, `[api.std.bytes]`, `[api.std.dynamic]`, `[api.std.dynamic.number]`, `[api.std.shape]`, `[api.std.json]`, `[diag.list]`, `[open.list]`: Move x/dynamic (`Dynamic`, a value in no particular format, and the traits `Encode` and `Decode`) and x/shape (`Shape`, the shape of a type, and the trait `Shaped`) into the value layer of std, as `Std.Dynamic` and `Std.Shape`. Move JSON parsing and writing (x/json) into std as `Std.Json`. The compiler derives `Encode`, `Decode` and `Shaped`. `Std.Bytes` gains `to_base64` and `from_base64`, which `Std.Json` uses to write bytes. This is planned for 0.28. ```emel import Std.Dynamic.{Decode, Encode} import Std.Shape.{Shaped} type TodoBody(title: String, due: Option[String]) derive Decode, Shaped type TodoView(id: String, title: String, done: Bool) derive Encode, Shaped ``` JSON Schema generation (`json_schema.emel` of x/shape) stays in x, in a new package x/json-schema. Adopted in the proposal `derive-encode-decode-shaped` (#503).
+
 ## 2026-11-15 (Semaphore and Queue)
 
 - `[lib.layers]`, `[fiber.scope]`, `[fiber.escape]`, `[fiber.semaphore]`, `[fiber.queue]`, `[api.std.fiber]`, `[api.std.semaphore]`, `[api.std.queue]`, `[dyn.memory]`, `[diag.list]`, `[open.next]`: Two synchronization primitives are added to the effect layer of std, next to Deferred. - A Semaphore limits how many fibers run a piece of code at once. It is used only through `with_permit(s, f)`, which takes a permit, runs `f`, and gives the permit back however `f` ends. `try_with_permit` does not wait. - A Queue passes any number of values between fibers, in order, with a capacity. `offer` waits while it is full and `take` waits while it is empty. A queue can be closed: the values already in it can still be taken, and then `take` fails with `QueueClosed`. Both are made by operations of Scope, as Deferred is (`Fiber.semaphore(n)`, `Fiber.queue(n)`), and belong to that scope. Adopted in the proposal `semaphore-queue` (#515).

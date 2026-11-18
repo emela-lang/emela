@@ -6,7 +6,7 @@
 //! are decided in this file after the project is found. The test `help_is_english` keeps the text
 //! ASCII.
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use emela_driver::{
     Analysis, Backend, CoreC, CoreJs, CoreWasm, Diagnostic, DoctorFormat, FileSystem, Input, Lower,
     LowerTests, MemoryFiles, OsFs, Output, Reporter, RunOptions, SourceDb, Target, TestBackend,
@@ -213,28 +213,45 @@ impl From<DoctorFormatArg> for DoctorFormat {
 
 const DIAGNOSTIC_FAILURE: u8 = 1;
 
+/// The commands that take the flags `--experimental-<name>` (`[cmd.build]`, `[cmd.test]`).
+const EXPERIMENTAL_COMMANDS: [&str; 4] = ["check", "build", "run", "test"];
+
 fn main() -> ExitCode {
-    match Cli::parse().command {
+    let (args, experimental) = take_experimental_flags(std::env::args_os().collect());
+    let matches = with_experimental_flags(
+        Cli::command(),
+        &emela_driver::experimental_features().collect::<Vec<_>>(),
+    )
+    .get_matches_from(args);
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    match cli.command {
         Command::New { name, lib } => new_pome(&name, lib),
-        Command::Check { path } => check(&path_or_current(path)),
+        Command::Check { path } => check(&path_or_current(path), experimental),
         Command::Build {
             path,
             out_dir,
             target,
-        } => build(&path_or_current(path), out_dir, target),
+        } => build(&path_or_current(path), out_dir, target, experimental),
         Command::Run {
             path,
             out_dir,
             target,
             args,
-        } => run(&path_or_current(path), out_dir, target, args),
+        } => run(&path_or_current(path), out_dir, target, args, experimental),
         Command::Test {
             path,
             filter,
             out_dir,
             target,
             reporter,
-        } => test(&path_or_current(path), filter, out_dir, target, reporter),
+        } => test(
+            &path_or_current(path),
+            filter,
+            out_dir,
+            target,
+            reporter,
+            experimental,
+        ),
         Command::Fmt { paths, check } => fmt(paths, check),
         Command::Doc {
             path,
@@ -298,12 +315,76 @@ fn new_pome(name: &str, lib: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Takes the flags `--experimental-<name>` out of the arguments of `check`, `build`, `run` and
+/// `test`, and returns the rest with the names. The names are taken before clap sees them, so
+/// that a flag of a feature this compiler does not know is the warning W0206 instead of an
+/// unknown-argument error (`[cmd.build]`); the pipeline reports it. Arguments after `--` belong
+/// to the program, and the other commands do not take the flags.
+fn take_experimental_flags(args: Vec<OsString>) -> (Vec<OsString>, Vec<String>) {
+    let command = args
+        .iter()
+        .skip(1)
+        .position(|arg| !arg.to_string_lossy().starts_with('-'))
+        .map(|i| i + 1);
+    let Some(command) = command.filter(|&i| {
+        EXPERIMENTAL_COMMANDS
+            .iter()
+            .any(|c| args[i].to_str() == Some(c))
+    }) else {
+        return (args, Vec::new());
+    };
+    let mut rest = Vec::with_capacity(args.len());
+    let mut names = Vec::new();
+    let mut program_args = false;
+    for (i, arg) in args.into_iter().enumerate() {
+        if i > command && !program_args {
+            if arg == "--" {
+                program_args = true;
+            } else if let Some(name) = arg
+                .to_str()
+                .and_then(|a| a.strip_prefix(emela_driver::FLAG_PREFIX))
+            {
+                names.push(name.to_string());
+                continue;
+            }
+        }
+        rest.push(arg);
+    }
+    (rest, names)
+}
+
+/// Adds a flag `--experimental-<name>` to `check`, `build`, `run` and `test` for each feature, so
+/// that `--help` lists them (`[cmd.build]`). The flags themselves are taken out of the arguments
+/// by [`take_experimental_flags`] before parsing.
+fn with_experimental_flags(
+    mut command: clap::Command,
+    features: &[&emela_driver::Feature],
+) -> clap::Command {
+    for name in EXPERIMENTAL_COMMANDS {
+        command = command.mut_subcommand(name, |mut sub| {
+            for feature in features {
+                sub = sub.arg(
+                    clap::Arg::new(format!("experimental-{}", feature.name))
+                        .long(format!("experimental-{}", feature.name))
+                        .action(clap::ArgAction::SetTrue)
+                        .help(format!(
+                            "Enable the experimental feature `{}` (since {}): {}",
+                            feature.name, feature.since, feature.summary
+                        )),
+                );
+            }
+            sub
+        });
+    }
+    command
+}
+
 fn path_or_current(path: Option<PathBuf>) -> PathBuf {
     path.unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn check(path: &Path) -> ExitCode {
-    let Some(input) = resolve_input(&OsFs, path, true) else {
+fn check(path: &Path, experimental: Vec<String>) -> ExitCode {
+    let Some(input) = resolve_input(&OsFs, path, true, experimental) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
     let (analysis, _) = emela_driver::check(&OsFs, &input, &mut Typecheck::default());
@@ -332,8 +413,13 @@ fn resolve_target(input: &Input, flag: Option<TargetArg>, default: Target) -> Op
     Some(target)
 }
 
-fn build(path: &Path, out_dir: Option<PathBuf>, target: Option<TargetArg>) -> ExitCode {
-    let Some(input) = resolve_input(&OsFs, path, false) else {
+fn build(
+    path: &Path,
+    out_dir: Option<PathBuf>,
+    target: Option<TargetArg>,
+    experimental: Vec<String>,
+) -> ExitCode {
+    let Some(input) = resolve_input(&OsFs, path, false, experimental) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
     let Some(target) = resolve_target(&input, target, Target::default()) else {
@@ -360,8 +446,9 @@ fn run(
     out_dir: Option<PathBuf>,
     target: Option<TargetArg>,
     args: Vec<OsString>,
+    experimental: Vec<String>,
 ) -> ExitCode {
-    let Some(input) = resolve_input(&OsFs, path, false) else {
+    let Some(input) = resolve_input(&OsFs, path, false, experimental) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
     let Some(target) = resolve_target(&input, target, Target::default()) else {
@@ -427,8 +514,9 @@ fn test(
     out_dir: Option<PathBuf>,
     target: Option<TargetArg>,
     reporter: Option<ReporterArg>,
+    experimental: Vec<String>,
 ) -> ExitCode {
-    let Some(input) = resolve_input(&OsFs, path, true) else {
+    let Some(input) = resolve_input(&OsFs, path, true, experimental) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
     let Some(target) = resolve_target(&input, target, Target::default()) else {
@@ -497,7 +585,7 @@ fn doc(path: Option<PathBuf>, std: bool, format: DocFormat, out_dir: Option<Path
     let (analysis, program, title, default_out_dir) = if std {
         // The core and std modules are read for any input, so an empty single file is enough.
         let fs = MemoryFiles::new([("std/doc.emel", "")]);
-        let Some(input) = resolve_input(&fs, Path::new("std/doc.emel"), false) else {
+        let Some(input) = resolve_input(&fs, Path::new("std/doc.emel"), false, Vec::new()) else {
             return ExitCode::from(DIAGNOSTIC_FAILURE);
         };
         let (analysis, program) = emela_driver::check(&fs, &input, &mut Typecheck::default());
@@ -509,7 +597,7 @@ fn doc(path: Option<PathBuf>, std: bool, format: DocFormat, out_dir: Option<Path
             PathBuf::from(emela_driver::DOC_OUT_DIR),
         )
     } else {
-        let Some(input) = resolve_input(&OsFs, &path_or_current(path), false) else {
+        let Some(input) = resolve_input(&OsFs, &path_or_current(path), false, Vec::new()) else {
             return ExitCode::from(DIAGNOSTIC_FAILURE);
         };
         let (analysis, program) = emela_driver::check(&OsFs, &input, &mut Typecheck::default());
@@ -659,8 +747,14 @@ fn lsp() -> ExitCode {
 
 /// The input of check, build, run, test and doc, with the project's dependencies from
 /// `Pome.lock` (fetched if missing from the cache, spec 4.7). With `tests` (check and test), the
-/// test root and `[dev-dependencies]` are read too (spec 13.1).
-fn resolve_input(fs: &dyn FileSystem, path: &Path, tests: bool) -> Option<Input> {
+/// test root and `[dev-dependencies]` are read too (spec 13.1). `experimental` are the names of
+/// the flags `--experimental-<name>` (`[cmd.build]`).
+fn resolve_input(
+    fs: &dyn FileSystem,
+    path: &Path,
+    tests: bool,
+    experimental: Vec<String>,
+) -> Option<Input> {
     let mut input = match Input::resolve(fs, path) {
         Ok(input) if tests => input.with_tests(fs),
         Ok(input) => input,
@@ -669,6 +763,7 @@ fn resolve_input(fs: &dyn FileSystem, path: &Path, tests: bool) -> Option<Input>
             return None;
         }
     };
+    input.experimental = experimental;
     if !input.single_file {
         match pome::dependencies(&input.base, tests) {
             Ok(dependencies) => input.dependencies = dependencies,
@@ -715,4 +810,90 @@ fn stdout_color() -> bool {
 
 fn no_color_unset() -> bool {
     std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn take(args: &[&str]) -> (Vec<String>, Vec<String>) {
+        let (rest, names) = take_experimental_flags(args.iter().map(OsString::from).collect());
+        (
+            rest.into_iter().map(|a| a.into_string().unwrap()).collect(),
+            names,
+        )
+    }
+
+    /// `[cmd.build]`: the flags of `check`, `build`, `run` and `test` are taken out wherever they
+    /// are, except after `--`; other commands keep them, so clap rejects them.
+    #[test]
+    fn takes_the_flags_of_the_four_commands() {
+        assert_eq!(
+            take(&[
+                "emela",
+                "run",
+                "--experimental-a",
+                "x.emel",
+                "--experimental-b",
+                "--",
+                "--experimental-c"
+            ]),
+            (
+                vec![
+                    "emela".into(),
+                    "run".into(),
+                    "x.emel".into(),
+                    "--".into(),
+                    "--experimental-c".into()
+                ],
+                vec!["a".into(), "b".into()]
+            )
+        );
+        for command in EXPERIMENTAL_COMMANDS {
+            assert_eq!(take(&["emela", command, "--experimental-a"]).1, ["a"]);
+        }
+        assert_eq!(
+            take(&["emela", "fmt", "--experimental-a"]),
+            (
+                vec!["emela".into(), "fmt".into(), "--experimental-a".into()],
+                vec![]
+            )
+        );
+        // Before the command, it is not a flag of the command.
+        assert_eq!(
+            take(&["emela", "--experimental-a", "check"]).1,
+            Vec::<String>::new()
+        );
+    }
+
+    /// `[cmd.build]`: `--help` of `check`, `build`, `run` and `test` lists a flag for each
+    /// experimental feature; other commands do not.
+    #[test]
+    fn help_lists_the_flags_of_the_features() {
+        let features = [emela_driver::Feature {
+            name: "some-feature",
+            since: "0.29.0",
+            stage: emela_driver::Stage::Experimental,
+            summary: "what it changes",
+        }];
+        let mut command = with_experimental_flags(Cli::command(), &[&features[0]]);
+        for name in EXPERIMENTAL_COMMANDS {
+            let help = command
+                .find_subcommand_mut(name)
+                .unwrap()
+                .render_help()
+                .to_string();
+            assert!(
+                help.contains("--experimental-some-feature")
+                    && help.contains("Enable the experimental feature `some-feature` (since 0.29.0): what it changes"),
+                "{name}: {help}"
+            );
+        }
+        let help = command
+            .find_subcommand_mut("fmt")
+            .unwrap()
+            .render_help()
+            .to_string();
+        assert!(!help.contains("--experimental-"), "{help}");
+    }
 }

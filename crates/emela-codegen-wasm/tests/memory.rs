@@ -59,9 +59,40 @@ fn main() {
 }
 
 #[test]
+fn small_blocks_cross_the_bin_boundary() {
+    // The allocator keeps one bin per block size up to 256 bytes. A string of 220 bytes needs a
+    // 256-byte block (the last bin); 221 bytes needs 264 (the first-fit list). Freeing and
+    // reusing both sizes in one loop checks that a block keeps its own class and that a block
+    // from one list is never handed out for the other.
+    run_limited(
+        "memory-bin-boundary",
+        r#"
+fn make(n: Int) -> Int {
+  s = String.join(List.map(List.range(0, n), |_| "x"), "")
+  String.length(s)
+}
+
+fn rounds(k: Int, total: Int) -> Int {
+  if k == 0 {
+    total
+  } else {
+    rounds(k - 1, total + make(220) + make(221) + make(300))
+  }
+}
+
+fn main() {
+  dbg(rounds(2000, 0))
+}
+"#,
+        "1482000\n",
+    );
+}
+
+#[test]
 fn a_finished_operation_call_frees_its_record() {
-    // A `suspend fn` operation call makes a perform record, its resume function and the name of
-    // the operation for diagnostics; all of them are freed once the call returns.
+    // A `suspend fn` operation call makes a perform record and its resume function; both are
+    // freed once the call returns. The name of the operation for diagnostics is not built unless
+    // a diagnostic is produced.
     run_limited(
         "memory-operation",
         r#"

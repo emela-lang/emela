@@ -9,6 +9,18 @@ const OOM_MESSAGE: &[u8] = b"emela: out of memory\n";
 /// Where [`setup`] records the offset of [`OOM_MESSAGE`] in `Builder::rt_data`.
 const OOM_MESSAGE_KEY: &str = "alloc.oom_message";
 
+/// The size of the largest block served by a size-class bin, in bytes. A block is the object
+/// header plus 8-byte slots, so its size is a multiple of 8: the bins are 16, 24, ..., 256.
+const MAX_CLASS: u32 = 256;
+/// The number of size classes, one per multiple of 8 from [`HDR`] to [`MAX_CLASS`].
+const BINS: u32 = (MAX_CLASS - HDR) / 8 + 1;
+/// Where [`setup`] records the offset of the bin heads in `Builder::rt_data`. There is one i32
+/// head per size class: the first free block of that size, linked to the next through `aux`.
+const BINS_KEY: &str = "alloc.bins";
+/// Where [`setup`] records the offset of the count of blocks in the bins. It is zero exactly
+/// when every bin is empty, so an allocation in a phase that only bumps skips the search.
+const COUNT_KEY: &str = "alloc.count";
+
 pub(super) const FUNCS: &[Sig] = &[
     ("alloc", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("heap_reserve", &[ValType::I64, ValType::I32], &[]),
@@ -21,21 +33,26 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "alloc" => i32s(5),                        // need, cur, prev, next, p
+        "alloc" => i32s(6),                        // need, cur, prev, next, p, idx
         "heap_reserve" => vec![(1, ValType::I64)], // memory bytes, after the parameters
         "dup" => i32s(1),                          // rc
-        "drop" => i32s(12),                        // rc..size
+        "drop" => i32s(13),                        // rc..size, slot
         "ev_lookup" => i32s(3),                    // count, i, e
         _ => Vec::new(),
     }
 }
 
-/// Writes the out-of-memory line into static data before any runtime body is emitted.
+/// Writes the out-of-memory line and the bin heads into static data before any runtime body is
+/// emitted. The bin heads start out zero: every bin is empty.
 pub(super) fn setup(b: &mut Builder) {
     let off = b.alloc_static(OOM_MESSAGE.len() as u32);
     let at = off as usize;
     b.data[at..at + OOM_MESSAGE.len()].copy_from_slice(OOM_MESSAGE);
     b.rt_data.insert(OOM_MESSAGE_KEY, off);
+    let bins = b.alloc_static(BINS * 4);
+    b.rt_data.insert(BINS_KEY, bins);
+    let count = b.alloc_static(4);
+    b.rt_data.insert(COUNT_KEY, count);
 }
 
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
@@ -59,10 +76,50 @@ const ALLOC_CUR: u32 = 3;
 const ALLOC_PREV: u32 = 4;
 const ALLOC_NEXT: u32 = 5;
 const ALLOC_P: u32 = 6;
+/// The bin slot `alloc` searches from, and the bin slot a bump records: a static address.
+const ALLOC_IDX: u32 = 7;
 
-/// Where a heap object's header keeps the size of its block, in bytes.
+/// Where an object's header keeps its block: its size in bytes, or, for a block small enough
+/// for a bin, the address of the bin slot with bit 0 set (see [`free_raw`]).
 const SIZE_AT: u32 = 12;
 
+/// Writes the slot address of a block of `size` bytes into `out`: `bins - 8 + (size >> 3) * 4`.
+/// The two classes below [`HDR`] leave one empty slot each, and the caller has checked that
+/// `size` is one of the [`BINS`] class sizes. The shift is what a bump costs; a reuse keeps the
+/// address stored in the block.
+fn bin_slot(b: &Builder, ins: &mut InstructionSink, size: u32, out: u32) {
+    ins.i32_const(bins_offset(b) as i32 - 8);
+    ins.local_get(size);
+    ins.i32_const(3);
+    ins.i32_shr_u();
+    ins.i32_const(2);
+    ins.i32_shl();
+    ins.i32_add();
+    ins.local_set(out);
+}
+
+fn bins_offset(b: &Builder) -> u32 {
+    *b.rt_data
+        .get(BINS_KEY)
+        .expect("alloc::setup writes the bin heads")
+}
+
+fn count_offset(b: &Builder) -> u32 {
+    *b.rt_data
+        .get(COUNT_KEY)
+        .expect("alloc::setup writes the bin count")
+}
+
+/// Allocates a block for an object of `size` slots and stores `descriptor` in its header.
+///
+/// A free block is reused before the bump pointer moves. Blocks up to [`MAX_CLASS`] come from
+/// `BINS` size-class bins, one per block size, searched upward from the requested class so the
+/// smallest fitting block is taken. A block keeps the size class of its block when a smaller
+/// object reuses it, and `drop` gives the whole block back to that class.
+///
+/// A request no bin can serve falls back to the first-fit list in `G_FREE`, then to the bump
+/// pointer (`G_HEAP`). In this backend an allocation failure is not a defect: [`heap_reserve`]
+/// traps before the bump pointer moves.
 fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.i32_const(8);
@@ -70,6 +127,62 @@ fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(HDR as i32);
     ins.i32_add();
     ins.local_set(ALLOC_NEED);
+    // The size-class path, for a block no larger than the last bin. The count of bin blocks
+    // keeps a phase that only bumps from walking the bins; otherwise they are searched from the
+    // requested class upward, so the block taken is the smallest one that fits.
+    ins.local_get(ALLOC_NEED);
+    ins.i32_const(MAX_CLASS as i32);
+    ins.i32_le_u();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(count_offset(b) as i32);
+    ins.i32_load(mem(0, 4));
+    ins.if_(BlockType::Empty);
+    bin_slot(b, ins, ALLOC_NEED, ALLOC_IDX);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(ALLOC_IDX);
+    ins.i32_const((bins_offset(b) + BINS * 4) as i32);
+    ins.i32_ge_u();
+    ins.br_if(1);
+    ins.local_get(ALLOC_IDX);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(ALLOC_CUR);
+    ins.local_get(ALLOC_CUR);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.local_get(ALLOC_IDX);
+    ins.i32_const(4);
+    ins.i32_add();
+    ins.local_set(ALLOC_IDX);
+    ins.br(1);
+    ins.end();
+    // Pop the head of the bin. The block's size word still names its bin, so reuse does not
+    // recompute it.
+    ins.local_get(ALLOC_CUR);
+    ins.i32_load(mem(4, 4));
+    ins.local_set(ALLOC_NEXT);
+    ins.local_get(ALLOC_IDX);
+    ins.local_get(ALLOC_NEXT);
+    ins.i32_store(mem(0, 4));
+    ins.i32_const(count_offset(b) as i32);
+    ins.i32_const(count_offset(b) as i32);
+    ins.i32_load(mem(0, 4));
+    ins.i32_const(1);
+    ins.i32_sub();
+    ins.i32_store(mem(0, 4));
+    ins.local_get(ALLOC_CUR);
+    ins.i32_const(1);
+    ins.i32_store(mem(0, 4));
+    ins.local_get(ALLOC_CUR);
+    ins.local_get(1);
+    ins.i32_store(mem(8, 4));
+    ins.local_get(ALLOC_CUR);
+    ins.return_();
+    ins.end();
+    ins.end();
+    ins.end();
+    ins.end();
+    // First fit over the blocks larger than the last class.
     ins.i32_const(0);
     ins.local_set(ALLOC_PREV);
     ins.global_get(G_FREE);
@@ -136,7 +249,20 @@ fn alloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.call(rt(b, "heap_reserve"));
     ins.local_get(ALLOC_P);
+    // A small block records its bin slot (with bit 0 set) instead of its size, so `free_raw`
+    // gives it back without recomputing the class; a larger block records its size, whose low
+    // bits are zero because it is a multiple of 8.
     ins.local_get(ALLOC_NEED);
+    ins.i32_const(MAX_CLASS as i32);
+    ins.i32_le_u();
+    ins.if_(BlockType::Result(ValType::I32));
+    bin_slot(b, ins, ALLOC_NEED, ALLOC_IDX);
+    ins.local_get(ALLOC_IDX);
+    ins.i32_const(1);
+    ins.i32_or();
+    ins.else_();
+    ins.local_get(ALLOC_NEED);
+    ins.end();
     ins.i32_store(mem(SIZE_AT, 4));
     ins.local_get(ALLOC_P);
     ins.i32_const(1);
@@ -390,7 +516,7 @@ fn drop_(b: &Builder, ins: &mut InstructionSink) {
     if arrays {
         ins.end();
     }
-    free_raw(ins, Q, SIZE);
+    free_raw(b, ins, Q, SIZE);
     // Next object on the worklist (its children were pushed above).
     ins.br(0);
     ins.end();
@@ -436,8 +562,40 @@ fn release_slot(ins: &mut InstructionSink, q: u32, i: u32, c: u32, crc: u32, pus
     ins.end();
 }
 
-/// Pushes `q` onto the free list with `size` in the `rc` field and the next pointer in `aux`.
-fn free_raw(ins: &mut InstructionSink, q: u32, size: u32) {
+/// Gives `q` back as a free block. `size` is the block's size word: for a block with a bin, the
+/// address of the bin slot with bit 0 set; otherwise the size in bytes. A free block links the
+/// next block of its list through `aux`.
+fn free_raw(b: &Builder, ins: &mut InstructionSink, q: u32, size: u32) {
+    /// The scratch local of `drop` for the bin slot.
+    const SLOT: u32 = 13;
+    ins.local_get(size);
+    ins.i32_const(1);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ins.local_get(size);
+    ins.i32_const(-2);
+    ins.i32_and();
+    ins.local_set(SLOT);
+    // A free block is not static: keep a non-zero `rc`, as the first-fit list does, so a stale
+    // reference is never mistaken for an `rc == 0` value.
+    ins.local_get(q);
+    ins.local_get(size);
+    ins.i32_store(mem(0, 4));
+    // Push onto the bin, linking the old head through `aux`.
+    ins.local_get(q);
+    ins.local_get(SLOT);
+    ins.i32_load(mem(0, 4));
+    ins.i32_store(mem(4, 4));
+    ins.local_get(SLOT);
+    ins.local_get(q);
+    ins.i32_store(mem(0, 4));
+    ins.i32_const(count_offset(b) as i32);
+    ins.i32_const(count_offset(b) as i32);
+    ins.i32_load(mem(0, 4));
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.i32_store(mem(0, 4));
+    ins.else_();
     ins.local_get(q);
     ins.local_get(size);
     ins.i32_store(mem(0, 4));
@@ -446,6 +604,7 @@ fn free_raw(ins: &mut InstructionSink, q: u32, size: u32) {
     ins.i32_store(mem(4, 4));
     ins.local_get(q);
     ins.global_set(G_FREE);
+    ins.end();
 }
 
 fn tag(ins: &mut InstructionSink) {

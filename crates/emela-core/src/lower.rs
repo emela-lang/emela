@@ -36,6 +36,7 @@ use crate::mono::Monomorphized;
 use crate::named;
 
 mod builtin_impls;
+mod derive_std;
 mod fiber;
 mod local_fn;
 mod suspend;
@@ -172,6 +173,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         roots,
         local_fns: ArenaMap::default(),
         fn_name: String::new(),
+        derive_std: derive_std::Lookups::default(),
     };
     if roots == Roots::Exported {
         cx.collect_host_exports(input.language);
@@ -200,6 +202,10 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         Roots::Tests => input.tests.iter().map(|&def| cx.fn_id(def, 0)).collect(),
         _ => Vec::new(),
     };
+    let exit_main = match roots {
+        Roots::Exported | Roots::Public => cx.exit_code_main(),
+        Roots::Tests | Roots::All => None,
+    };
     loop {
         if let Some((def, spec)) = cx.worklist.pop() {
             cx.define_fn(def, spec);
@@ -208,6 +214,9 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         } else {
             break;
         }
+    }
+    if let Some(exit_main) = exit_main {
+        cx.define_exit_code_main(exit_main);
     }
     cx.builtin_impls();
     cx.trait_impls();
@@ -340,6 +349,8 @@ struct Lowerer<'a> {
     local_fns: ArenaMap<LocalId, Lifted>,
     /// The IR name of the function being lowered, which names the local fns lifted from it.
     fn_name: String,
+    /// What the derived impls of std traits look up, once (`derive_std.rs`).
+    derive_std: derive_std::Lookups,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without
@@ -787,7 +798,8 @@ impl<'a> Lowerer<'a> {
         let hir = self.hir;
         let async_ = hir.prelude_def("Async");
         let mut set = SetSummary::default();
-        for e in row.elems() {
+        // A capability is summarized as its effect (`[effect.use]`).
+        for e in row.widened().elems() {
             match e {
                 RowElem::Bound(i) => set.params.push(self.module.type_param(*i as usize)),
                 RowElem::Var(v) => match self.generalized_row_param(*v) {
@@ -803,6 +815,7 @@ impl<'a> Lowerer<'a> {
                 }
                 RowElem::Tag(t) if Some(t.def) == async_ => set.suspends = true,
                 RowElem::Tag(_) | RowElem::Of(_) => set.fails = true,
+                RowElem::Cap(_) => unreachable!("widened above"),
             }
         }
         set.params.sort();
@@ -1115,6 +1128,10 @@ impl<'a> Lowerer<'a> {
             if in_core && list_or_option {
                 structural.push(f);
             }
+        }
+        // Encode, Decode, ObjectKey and Shaped of std: generic functions, like written impls.
+        if spec == 0 {
+            impls.extend(self.std_derived_impls(def, trait_def));
         }
         let derived = self.derived(trait_def, def);
         let id = self.fns[&(def, spec)];
@@ -1805,7 +1822,7 @@ impl<'a> Lowerer<'a> {
             cx.types
                 .effects
                 .get(body)
-                .is_some_and(|r| r.tags().any(|t| !cx.is_immediate_effect(t.def)))
+                .is_some_and(|r| r.effect_tags().any(|t| !cx.is_immediate_effect(t.def)))
         };
         let init = self.module.declare(&format!("{name}$init"), false);
         self.module.functions[init].suspends = h.init.is_some_and(|b| suspends(self, b));
@@ -2818,7 +2835,7 @@ impl<'a> Lowerer<'a> {
         let module = &self.hir.defs[self.hir_def_of(callee)].module;
         let Some(tag) = body
             .uses
-            .tags()
+            .effect_tags()
             .find(|t| {
                 let d = &self.hir.defs[t.def];
                 d.kind == DefKind::Effect && d.name == "State" && d.module == *module
@@ -3426,6 +3443,103 @@ impl<'a> Lowerer<'a> {
                 .is_some_and(|entry| data.module == DefModule::Source(entry))
             && data.name == "main"
             && !self.tests.contains(&def)
+    }
+
+    /// When the entry's `main` returns `ExitCode` of `Std.Process` (`[dyn.error]`), the output's
+    /// `main` is a wrapper that calls it and passes its value to `exit_with` of `Std.Process`,
+    /// which hands the exit code to the host. The `main` of the source keeps its own function,
+    /// renamed and no longer exported: the launchers of every target call the `main` they always
+    /// call, which returns `()`, and code that calls `main` (`[api.std.process]`: a test) still
+    /// gets the value. `main` returns after the releases of its withs have run and the children of
+    /// its scopes have ended, so the wrapper sets the exit code after them.
+    ///
+    /// Declares the wrapper and returns (wrapper, the source's `main`, `exit_with`). The wrapper is
+    /// defined by [`Lowerer::define_exit_code_main`] once the source's `main` is lowered.
+    fn exit_code_main(&mut self) -> Option<(FnId, FnId, FnId)> {
+        let hir = self.hir;
+        let types = self.types;
+        let (&(main_def, _), &main) = self.fns.iter().find(|((def, spec), _)| {
+            *spec == 0
+                && hir.item(*def).is_some_and(|i| matches!(i, Item::Fn(_)))
+                && self.is_main(*def)
+        })?;
+        let Some(Ty::Fn(sig)) = types.sigs.get(main_def).map(|s| &s.scheme.ty) else {
+            return None;
+        };
+        if !sig.params.is_empty() || !emela_types::is_exit_code(hir, &types.ty_table, &sig.ret) {
+            return None;
+        }
+        let process = hir
+            .modules
+            .iter()
+            .find(|(_, items)| items.name.segments() == ["Std", "Process"])?
+            .1;
+        let exit_with =
+            process.items.iter().copied().find(|&def| {
+                hir.defs[def].name == "exit_with" && hir.defs[def].kind == DefKind::Fn
+            })?;
+        let exit_with = self.fn_id(exit_with, 0);
+        // `$` never appears in Emela names, so the new name cannot clash.
+        let source = &mut self.module.functions[main];
+        source.name = "main$value".to_owned();
+        source.exported = false;
+        let wrapper = self.module.declare("main", true);
+        Some((wrapper, main, exit_with))
+    }
+
+    /// `fn main() { exit_with(main$value()) }`, with the E and R of the source's `main`. A generic
+    /// `main` (its E is a set type parameter) is called with the type arguments a root gets
+    /// (`crate::mono::monomorphize_from`): the empty set for a set, Never for a type.
+    fn define_exit_code_main(&mut self, (wrapper, main, exit_with): (FnId, FnId, FnId)) {
+        let source = &self.module.functions[main];
+        let (fails, suspends, set_params, type_params) = (
+            source.fails,
+            source.suspends,
+            source.set_params.clone(),
+            source.type_params,
+        );
+        let takes_ev = self.module.takes_ev(main);
+        let empty = self.module.intern(Type::Set(SetSummary::default()));
+        let ty_args = (0..type_params)
+            .map(|i| {
+                if set_params.contains(&i) {
+                    empty
+                } else {
+                    TypeId::NEVER
+                }
+            })
+            .collect();
+        let ret = self.module.functions[main].ret;
+        let value = self.module.local("code", ret);
+        let mut params = Vec::new();
+        let mut args = Vec::new();
+        if takes_ev {
+            let ev = self.ev_local();
+            params.push(ev);
+            args.push(Expr::Var(ev));
+        }
+        let body = Expr::Let {
+            var: value,
+            value: Box::new(Expr::Call {
+                callee: Callee::Direct { f: main, ty_args },
+                args,
+                fails,
+                suspends,
+            }),
+            body: Box::new(Expr::Call {
+                callee: Callee::Direct {
+                    f: exit_with,
+                    ty_args: Vec::new(),
+                },
+                args: vec![Expr::Var(value)],
+                fails: false,
+                suspends: false,
+            }),
+        };
+        self.module.define(wrapper, params, TypeId::UNIT, body);
+        let f = &mut self.module.functions[wrapper];
+        f.fails = fails;
+        f.suspends = suspends;
     }
 
     /// Whether `def` is a root of the build: `main`, a fn exposed to the host, or with

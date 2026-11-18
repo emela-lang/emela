@@ -116,6 +116,12 @@ impl Diagnostic {
         self
     }
 
+    /// Marks a diagnostic produced by the experimental feature `name` with the note
+    /// ``experimental feature `name` `` (spec `[intro.experimental]`).
+    pub fn from_experimental_feature(self, name: &str) -> Self {
+        self.with_note(format!("experimental feature `{name}`"))
+    }
+
     /// Printed as `= help: …`. Stored as a note rather than a new field, to keep the error side
     /// of `Result` small.
     pub fn with_help(self, help: impl AsRef<str>) -> Self {
@@ -303,6 +309,24 @@ impl Diagnostic {
                 };
                 (Severity::Error, code::SELF_OUTSIDE, message.to_owned())
             }
+            DiagnosticKind::SelfValueOutside => {
+                help = Some(
+                    "inside a handler's `init`, `Self(...)` constructs that handler".to_owned(),
+                );
+                (
+                    Severity::Error,
+                    code::SELF_OUTSIDE,
+                    "`Self` can only be used as a value in the `init` of a handler".to_owned(),
+                )
+            }
+            DiagnosticKind::SelfUpdate => {
+                help = Some("`Self` constructs a handler from its fields only".to_owned());
+                (
+                    Severity::Error,
+                    code::INVALID_UPDATE_TARGET,
+                    "cannot update `Self` with `..`".to_owned(),
+                )
+            }
             DiagnosticKind::EffectAsType { name } => {
                 help = Some(format!(
                     "a capability cannot be passed around; take `use {name}` where it is needed, or pass a closure that captures it"
@@ -381,6 +405,63 @@ impl Diagnostic {
         }
         if let Some(help) = help {
             out = out.with_help(help);
+        }
+        out
+    }
+
+    /// W0402, or E0444 when the experimental feature `capture-checking` is enabled for the module
+    /// (`as_error`): a value that holds a root leaves the `with` or the scope function that
+    /// provides it (`[effect.escape]`, `[fiber.escape]`, `[diag.list]`).
+    pub fn from_capture_escape(
+        diagnostic: &emela_types::Diagnostic,
+        files: &ArenaMap<ModuleId, FileId>,
+        as_error: bool,
+    ) -> Self {
+        let TypeDiagnosticKind::CaptureEscape {
+            root,
+            scope,
+            provided_at,
+        } = &diagnostic.kind
+        else {
+            unreachable!("only for CaptureEscape");
+        };
+        let span_of =
+            |s: emela_resolve::hir::Span| files.get(s.module).map(|&file| Span::new(file, s.range));
+        let provider = match scope {
+            Some(scope) => format!("`{scope}`"),
+            None => "`with`".to_owned(),
+        };
+        let mut out = if as_error {
+            Diagnostic::error(format!(
+                "a value that holds `{root}` cannot leave the {provider} that provides it"
+            ))
+            .with_code(code::CAPTURE_ESCAPE_ERROR)
+        } else {
+            Diagnostic::warning(format!(
+                "a value that holds `{root}` leaves the {provider} that provides it"
+            ))
+            .with_code(code::CAPTURE_ESCAPE)
+        };
+        let value = diagnostic.span.and_then(span_of);
+        if let Some(value) = value {
+            out = out.with_span(value);
+        }
+        if let Some(at) = span_of(*provided_at) {
+            out = out.with_label(
+                at,
+                format!("`{root}` is released at the end of this {provider}"),
+            );
+        }
+        if let Some(value) = value {
+            let body = if scope.is_some() {
+                "the value of the scope"
+            } else {
+                "the value of the body"
+            };
+            out = out.with_label(value, format!("{body} holds `{root}`"));
+        }
+        if as_error {
+            out = out.from_experimental_feature(crate::experimental::CAPTURE_CHECKING);
         }
         out
     }
@@ -501,6 +582,9 @@ impl Diagnostic {
         let mut help = None;
         let mut note = None;
         let (severity, code, message) = match &diagnostic.kind {
+            TypeDiagnosticKind::CaptureEscape { .. } => {
+                return Diagnostic::from_capture_escape(diagnostic, files, false);
+            }
             TypeDiagnosticKind::Mismatch(error) => {
                 let out = Diagnostic::type_error(error, cons);
                 return match span {
@@ -721,6 +805,15 @@ impl Diagnostic {
                     Severity::Warning,
                     Some(code::UNUSED_DERIVE),
                     format!("derived `{trait_name}` for `{ty}` is never used"),
+                )
+            }
+            TypeDiagnosticKind::MainValueDiscarded { ty } => {
+                help =
+                    Some("return `()`, or return an `ExitCode` to choose the exit code".to_owned());
+                (
+                    Severity::Warning,
+                    Some(code::MAIN_VALUE_DISCARDED),
+                    format!("the value of type `{ty}` returned by `main` is discarded"),
                 )
             }
             TypeDiagnosticKind::UnreachableArm => (
@@ -1321,7 +1414,30 @@ impl Diagnostic {
             TypeDiagnosticKind::NotDerivable { trait_name } => (
                 Severity::Error,
                 Some(code::NOT_IMPLEMENTED),
-                format!("cannot derive `{trait_name}`: only `Eq`, `Ord` and `Show` can be derived"),
+                format!(
+                    "cannot derive `{trait_name}`: only `Eq`, `Ord`, `Show`, `Encode`, `Decode`, \
+                     `ObjectKey` and `Shaped` can be derived"
+                ),
+            ),
+            TypeDiagnosticKind::OpaqueDerive { trait_name, ty } => {
+                help = Some(format!(
+                    "write `impl {ty}: {trait_name}` that builds the value with a function that checks it"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::OPAQUE_DERIVE),
+                    format!("cannot derive `{trait_name}` for opaque type `{ty}`"),
+                )
+            }
+            TypeDiagnosticKind::HostDerive { trait_name, ty } => (
+                Severity::Error,
+                Some(code::OPAQUE_DERIVE),
+                format!("cannot derive `{trait_name}` for host type `{ty}`"),
+            ),
+            TypeDiagnosticKind::ObjectKeyForm { ty, reason } => (
+                Severity::Error,
+                Some(code::OBJECT_KEY_FORM),
+                format!("cannot derive `ObjectKey` for `{ty}`: {reason}"),
             ),
             TypeDiagnosticKind::SupertraitCycle { cycle } => (
                 Severity::Error,

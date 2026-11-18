@@ -3,13 +3,13 @@
 use std::path::Path;
 
 use emela_driver::{
-    Dependencies, DependencyPome, DependencyRef, Input, MemoryFiles, Target, Typecheck, check,
-    check_dependency_targets,
+    Dependencies, DependencyPome, DependencyRef, Features, Input, MemoryFiles, Target, Typecheck,
+    check, check_dependency_targets,
 };
 
 // The project depends on quince (github.com/acme/quince); quince depends on http-kit, which it
 // calls `Web`. Both the project and quince have a module `Util`.
-const APP: &str = "import Quince\nimport Quince.Router\nimport Util\n\nfn main() -> Int { Quince.answer() + Router.route() + Util.one() }\n";
+const APP: &str = "import Quince\nimport Quince.Router\nimport Util\n\nfn main() {\n  Quince.answer() + Router.route() + Util.one()\n  ()\n}\n";
 
 fn files(app: &str, router: &str) -> MemoryFiles {
     MemoryFiles::new([
@@ -55,6 +55,7 @@ fn pome(
         targets: None,
         version: "v1.0.0".into(),
         dependencies,
+        experimental: Features::default(),
     }
 }
 
@@ -110,7 +111,7 @@ fn imports_dependencies_by_their_root_names() {
 
 #[test]
 fn hides_dependencies_of_dependencies() {
-    let app = "import Web\nimport HttpKit\n\nfn main() -> Int { 1 }\n";
+    let app = "import Web\nimport HttpKit\n\nfn main() { () }\n";
     let found = diagnostics(&files(app, ROUTER), dependencies(None, COMPILER));
     assert_eq!(
         found,
@@ -123,8 +124,7 @@ fn hides_dependencies_of_dependencies() {
 
 #[test]
 fn renames_a_dependency_on_the_depending_side() {
-    let app =
-        "import Quin\nimport Quin.Router\n\nfn main() -> Int { Quin.answer() + Router.route() }\n";
+    let app = "import Quin\nimport Quin.Router\n\nfn main() {\n  Quin.answer() + Router.route()\n  ()\n}\n";
     assert_eq!(
         diagnostics(&files(app, ROUTER), dependencies(Some("Quin"), COMPILER)),
         Vec::<String>::new()
@@ -135,7 +135,7 @@ fn renames_a_dependency_on_the_depending_side() {
 fn checks_root_names() {
     let check = |module: &str| {
         diagnostics(
-            &files("fn main() -> Int { 1 }\n", ROUTER),
+            &files("fn main() { () }\n", ROUTER),
             dependencies(Some(module), COMPILER),
         )
     };
@@ -156,7 +156,7 @@ fn checks_root_names() {
 #[test]
 fn allows_external_only_when_the_project_says_so() {
     let router = "@external(js, \"./x.mjs\", \"f\")\nfn f() -> Int uses {}\n\npub fn route() -> Int { f() }\n";
-    let app = "import Quince\n\nfn main() -> Int { Quince.answer() }\n";
+    let app = "import Quince\n\nfn main() {\n  Quince.answer()\n  ()\n}\n";
     let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(
         found.iter().any(|d| d
@@ -191,7 +191,7 @@ fn allows_external_only_when_the_project_says_so() {
 #[test]
 fn allows_entry_adapters_only_when_the_project_says_so() {
     let router = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }\n\npub fn route() -> Int { 1 }\n";
-    let app = "import Quince.Router\n\n@entry(Router.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() -> Int { 1 }\n";
+    let app = "import Quince.Router\n\n@entry(Router.serve)\nfn app(x: Int) -> Int { x }\n\nfn main() { () }\n";
     let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(
         found.iter().any(|d| d
@@ -310,7 +310,7 @@ fn test_diagnostics(fs: &MemoryFiles, deps: Dependencies, tests: bool) -> Vec<St
 #[test]
 fn the_test_root_sees_the_dev_dependencies() {
     let (fs, deps) = with_test_root(
-        "import Sort\n\nfn main() -> Int { List.length(Sort.sort([1])) }\n",
+        "import Sort\n\nfn main() {\n  List.length(Sort.sort([1]))\n  ()\n}\n",
         &[],
     );
     assert_eq!(
@@ -323,7 +323,7 @@ fn the_test_root_sees_the_dev_dependencies() {
 
 #[test]
 fn the_source_root_cannot_import_test_modules_or_dev_dependencies() {
-    let main = "import Brix\nimport Support\n\nfn main() -> Int { 1 }\n";
+    let main = "import Brix\nimport Support\n\nfn main() { () }\n";
     let (fs, deps) = with_test_root(main, &[]);
     assert_eq!(
         test_diagnostics(&fs, deps, true),
@@ -337,7 +337,7 @@ fn the_source_root_cannot_import_test_modules_or_dev_dependencies() {
 #[test]
 fn a_test_module_shares_the_names_of_the_source_root() {
     let (fs, deps) = with_test_root(
-        "fn main() -> Int { 1 }\n",
+        "fn main() { () }\n",
         &[
             ("app/test/sort.emel", "pub fn other() -> Int { 1 }\n"),
             ("app/test/lib.emel", ""),
@@ -362,7 +362,7 @@ fn does_not_report_the_license_of_a_dependency() {
         ("app/Pome.toml", ""),
         (
             "app/src/main.emel",
-            "import Quince\n\nfn main() -> Int { Quince.answer() }\n",
+            "import Quince\n\nfn main() {\n  Quince.answer()\n  ()\n}\n",
         ),
         ("deps/quince/Pome.toml", bad),
         ("deps/quince/src/lib.emel", "pub fn answer() -> Int { 1 }\n"),
@@ -373,4 +373,67 @@ fn does_not_report_the_license_of_a_dependency() {
         diagnostics(&fs, dependencies(None, COMPILER)),
         Vec::<String>::new()
     );
+}
+
+/// `[module.pome]`: the `[experimental]` of a dependency is not reported when building the Pome
+/// that depends on it (W0206 and W0207 are reported only for the Pome being built).
+#[test]
+fn does_not_report_the_experimental_settings_of_a_dependency() {
+    let bad = "[pome]\nname = \"github.com/acme/quince\"\nversion = \"0.1.0\"\nemela = \"0.29.0\"\n\n[experimental]\nfrom-the-future = true\nother = 1\n";
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "import Quince\n\nfn main() {\n  Quince.answer()\n  ()\n}\n",
+        ),
+        ("deps/quince/Pome.toml", bad),
+        ("deps/quince/src/lib.emel", "pub fn answer() -> Int { 1 }\n"),
+        ("deps/http-kit/Pome.toml", "[experimental]\nx = \"y\"\n"),
+        ("deps/http-kit/src/lib.emel", "pub fn get() -> Int { 3 }\n"),
+    ]);
+    assert_eq!(
+        diagnostics(&fs, dependencies(None, COMPILER)),
+        Vec::<String>::new()
+    );
+}
+
+/// `[module.pome]`: each Pome in the dependency graph is checked with its own `[experimental]`,
+/// and the flags apply only to the Pome being built. Core modules belong to no Pome.
+#[test]
+fn each_pome_has_its_own_experimental_features() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "import Quince\n\nfn main() {\n  Quince.answer()\n  ()\n}\n",
+        ),
+        ("deps/quince/Pome.toml", ""),
+        ("deps/quince/src/lib.emel", "pub fn answer() -> Int { 1 }\n"),
+        ("deps/http-kit/Pome.toml", ""),
+        ("deps/http-kit/src/lib.emel", "pub fn get() -> Int { 3 }\n"),
+    ]);
+    let mut deps = dependencies(None, COMPILER);
+    deps.pomes[0].experimental = Features::new(["in-quince"]);
+    let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
+    input.dependencies = deps;
+    let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
+    let module = |name: &str| {
+        analysis
+            .modules
+            .iter()
+            .find(|(_, m)| m.name.to_string() == name)
+            .map(|(id, _)| id)
+            .unwrap_or_else(|| panic!("no module {name}"))
+    };
+    let enabled = |name: &str| -> Vec<String> {
+        analysis
+            .experimental(module(name))
+            .iter()
+            .map(str::to_string)
+            .collect()
+    };
+    assert_eq!(enabled("Quince"), ["in-quince"]);
+    assert!(enabled("HttpKit").is_empty());
+    assert!(enabled("Main").is_empty());
+    assert!(enabled("List").is_empty());
 }

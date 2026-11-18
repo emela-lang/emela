@@ -640,7 +640,7 @@ impl Lowerer<'_> {
         };
         let tag = body
             .uses
-            .tags()
+            .effect_tags()
             .find(|t| self.is_intrinsic_effect(t.def))?
             .clone();
         let (effect, ops) = self.scope_effect(&tag)?;

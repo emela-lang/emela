@@ -529,8 +529,22 @@ fn run_tests(
                 }
             },
         };
+        // What the program wrote without a line ending (`print` of Stdout) comes before the
+        // marker of a result on the same line: it is output, and the rest is the result.
+        let prefix = TEST_EVENT_PREFIX.as_bytes();
+        let at = line
+            .windows(prefix.len())
+            .position(|w| w == prefix)
+            .unwrap_or(line.len());
+        let (written, line) = line.split_at(at);
+        if !written.is_empty() {
+            display.output(written);
+        }
+        if line.is_empty() {
+            continue;
+        }
         let event = line
-            .strip_prefix(TEST_EVENT_PREFIX.as_bytes())
+            .strip_prefix(prefix)
             .and_then(|json| serde_json::from_slice::<Event>(json).ok());
         match event {
             Some(Event::Result {
@@ -556,7 +570,7 @@ fn run_tests(
                 results.push(result);
             }
             Some(Event::Done) => finished = true,
-            None => display.output(&line),
+            None => display.output(line),
         }
     }
     let status = wait_child(&mut child, deadline).map_err(|err| spawn_error(program, &err))?;

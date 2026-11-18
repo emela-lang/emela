@@ -1,0 +1,8 @@
+import Std.Json
+
+@test
+fn writes_nan_and_infinity_as_null() {
+  assert Json.encode(1.5) == "1.5"
+  assert Json.encode(0.0 / 0.0) == "null"
+  assert Json.encode([1.0 / 0.0, -1.0 / 0.0]) == "[null,null]"
+}

@@ -1,0 +1,22 @@
+# Stdout and Stderr of `Std.Process` (`[api.std.process]`): `print` writes the text as is and
+# `print_line` adds `\n`. Writes mixed with Console and `dbg` keep their order on each stream.
+
+import Std.Console.{Console}
+import Std.Platform.{Platform}
+import Std.Process.{Stderr, Stdout}
+
+fn main() {
+  with Platform {
+    out = use Stdout
+    err = use Stderr
+    out.print("a")
+    (use Console).print_line("b")
+    out.print_line("c")
+    out.print("d\r\ne\n")
+    err.print("x")
+    (use Console).print_error_line("y")
+    dbg(1)
+    err.print_line("z")
+    out.print("no newline")
+  }
+}

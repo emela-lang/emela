@@ -31,3 +31,20 @@ If writing code at the everyday level requires knowledge of the foundation level
 
 - Section names and the file layout are defined in `README.md`; terms and requirement keywords in `glossary.md`.
 - Points that are not yet agreed on are collected in `open-questions.md`.
+- An item marked "Experimental (`name`)." applies only when that feature is enabled (`[intro.experimental]`).
+
+## 1.5 Experimental features `[intro.experimental]`
+
+An experimental feature is a part of the specification that is not yet stable. A Pome enables it in the `[experimental]` table of its `Pome.toml` (`[module.pome]`), and a command enables it for one run with a flag `--experimental-<name>` (`[cmd.build]`).
+
+- The name of a feature is lower-case English words joined by `-`.
+- The rules of an experimental feature are written where they belong. Each item that belongs to one starts with "Experimental (`name`)." Within the section of a feature, an item without the mark applies always, and an item with the mark applies only when the feature is enabled.
+- Experimental features are outside the compatibility guarantees of this document. Any version MAY change or remove any of them. A Pome that enables one declares only the minimum compiler version in `[pome].emela`.
+- When an experimental feature becomes stable, its rules lose the mark, and its name is accepted in `[experimental]` and as a flag for at least one minor version, with a warning (W0206) that it has no effect. The name of a removed feature is accepted with the same warning.
+- Diagnostics produced by an experimental feature carry the note ``= note: experimental feature `name` ``.
+
+| Name | Since | What it changes |
+|---|---|---|
+| `capture-checking` | 0.28 | A value that holds a capability and leaves the with or `Fiber.scope` that provides it is a compile error (E0444) instead of a warning (W0402) (`[effect.escape]`) |
+
+Each proposal that adds an experimental feature adds a row.

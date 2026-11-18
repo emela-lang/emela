@@ -26,7 +26,7 @@
 //! code is only larger.
 
 use emela_resolve::hir::{DefId, ExprId, Item};
-use emela_types::{Row, RowElem, Scheme, SetKind, Ty};
+use emela_types::{CapElem, Row, RowElem, Scheme, SetKind, Ty};
 
 use super::Lowerer;
 use crate::ir::Expr;
@@ -56,7 +56,10 @@ impl Lowerer<'_> {
     /// (the original or a particular suspending copy).
     pub(super) fn row_suspends(&self, row: &Row) -> bool {
         row.elems().iter().any(|e| match e {
-            RowElem::Tag(effect) => !self.is_immediate_effect(effect.def),
+            // A capability may suspend as its effect does (`[effect.use]`).
+            RowElem::Tag(effect) | RowElem::Cap(CapElem { tag: effect, .. }) => {
+                !self.is_immediate_effect(effect.def)
+            }
             RowElem::Bound(i) => spec_has(self.spec, *i),
             RowElem::Var(v) => self
                 .current_def
@@ -79,7 +82,9 @@ impl Lowerer<'_> {
             return false;
         };
         f.uses.elems().iter().any(|e| match e {
-            RowElem::Tag(effect) => !self.is_immediate_effect(effect.def),
+            RowElem::Tag(effect) | RowElem::Cap(CapElem { tag: effect, .. }) => {
+                !self.is_immediate_effect(effect.def)
+            }
             RowElem::Bound(i) => spec_has(spec, *i),
             _ => false,
         })

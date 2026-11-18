@@ -1,0 +1,39 @@
+import Std.Dynamic.{Decode, Encode, Dynamic, Text}
+import Std.Dynamic.Presence.{Absent, Null, Present, Presence}
+
+@test
+fn writes_a_field() {
+  absent: Presence[String] = Absent
+  null: Presence[String] = Null
+  assert absent.to_field() == None
+  assert null.to_field() == Some(Dynamic.Null)
+  assert Present("a").to_field() == Some(Text("a"))
+}
+
+@test
+fn writes_absent_and_null_as_null_outside_a_field() {
+  absent: Presence[String] = Absent
+  null: Presence[String] = Null
+  assert absent.to_dynamic() == Dynamic.Null
+  assert null.to_dynamic() == Dynamic.Null
+  assert Present("a").to_dynamic() == Text("a")
+}
+
+@test
+fn reads_a_value_null_and_a_missing_key() {
+  value: Presence[String] = Decode.from_dynamic(Text("a"))
+  assert value == Present("a")
+  null: Presence[String] = Decode.from_dynamic(Dynamic.Null)
+  assert null == Null
+  absent: Presence[String] = Decode.from_absent()
+  assert absent == Absent
+}
+
+@test
+fn option_writes_none_as_no_field() {
+  none: Option[String] = None
+  assert none.to_field() == None
+  assert Some("a").to_field() == Some(Text("a"))
+  missing: Option[String] = Decode.from_absent()
+  assert missing == None
+}

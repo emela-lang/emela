@@ -1,8 +1,10 @@
-# What the process has exactly one of: its arguments (Args) and its standard input (Stdin)
+# What the process has exactly one of: its arguments (Args), its standard input (Stdin), its
+# standard output and standard error (Stdout, Stderr), and its exit code (ExitCode)
 # (`[api.std.process]`; the platform and test layers of `[lib.layers]`).
 #
-# Use them as `(use Args).get(0)` and `(use Stdin).read_line()`, and provide them with
-# `with SystemArgs, SystemStdin { ... }`, or with `with Platform { ... }` from `Std.Platform`.
+# Use them as `(use Args).get(0)`, `(use Stdin).read_line()` and `(use Stdout).print("? ")`, and
+# provide them with `with SystemArgs, SystemStdin, SystemStdout { ... }`, or with
+# `with Platform { ... }` from `Std.Platform`.
 #
 # The host gives the arguments as a count and an element at an index: a List cannot cross the
 # external function boundary (`[ext.boundary]`), so the list is built here.
@@ -187,4 +189,135 @@ pub handler TestStdin: Stdin {
     st.set(StdinLines(lines: []))
     resume(String.join(lines, "\n"))
   }
+}
+
+# ---- Stdout and Stderr ----
+
+## Writes to the standard output of the process. Does not fail and does not suspend.
+pub effect Stdout {
+  ## Writes `text` as is.
+  fn print(text: String) -> ()
+  ## Writes `text`, then `\n`.
+  fn print_line(text: String) -> ()
+}
+
+## Writes to the standard error of the process. Does not fail and does not suspend.
+pub effect Stderr {
+  ## Writes `text` as is.
+  fn print(text: String) -> ()
+  ## Writes `text`, then `\n`.
+  fn print_line(text: String) -> ()
+}
+
+# The host writes through the same path as SystemConsole and `dbg`, so that writes mixed between
+# them keep their order, and it handles a closed standard output or standard error
+# (`[api.std.process]`): on JS the runtime's synchronous write to the file descriptor, on native
+# the `FILE *` of the runtime, and on WASM the one stream the runtime holds for each.
+
+@external(js, "./process.mjs", "writeStdout")
+@external(c, "./process.c", "emela_process_write_stdout")
+@external(wasm, "wasi:cli/stdout@0.3.0", "write-via-stream")
+fn write_stdout(text: String) -> ()
+
+@external(js, "./process.mjs", "writeStderr")
+@external(c, "./process.c", "emela_process_write_stderr")
+@external(wasm, "wasi:cli/stderr@0.3.0", "write-via-stream")
+fn write_stderr(text: String) -> ()
+
+## The standard output of the process: file descriptor 1, written synchronously, on JS, `stdout`
+## on native, and `wasi:cli/stdout` on WASM. Has no state.
+pub handler SystemStdout: Stdout {
+  fn print(text) { write_stdout(text) }
+  fn print_line(text) { write_stdout("#{text}\n") }
+}
+
+## The standard error of the process: file descriptor 2, written synchronously, on JS, `stderr`
+## on native, and `wasi:cli/stderr` on WASM. Has no state.
+pub handler SystemStderr: Stderr {
+  fn print(text) { write_stderr(text) }
+  fn print_line(text) { write_stderr("#{text}\n") }
+}
+
+## The state of TestStdout: everything written so far.
+pub type StdoutText(text: String)
+
+## The state of TestStderr: everything written so far.
+pub type StderrText(text: String)
+
+## The test handler of Stdout. It appends what is written to `text` of `State[StdoutText]`, so use
+## it inside `State.run`:
+##
+## ```emela
+## (_, out) = State.run(StdoutText(text: ""), || with TestStdout { (use Stdout).print("a") })
+## assert out.text == "a"
+## ```
+##
+## `print_line` appends `\n` after the text.
+pub handler TestStdout: Stdout {
+  fn print(text) { append_stdout(text) }
+  fn print_line(text) { append_stdout("#{text}\n") }
+}
+
+## The test handler of Stderr, the same as TestStdout with `State[StderrText]`.
+pub handler TestStderr: Stderr {
+  fn print(text) { append_stderr(text) }
+  fn print_line(text) { append_stderr("#{text}\n") }
+}
+
+fn append_stdout(text: String) -> () uses { State[StdoutText] } {
+  (use State[StdoutText]).update(|out| StdoutText(text: "#{out.text}#{text}"))
+}
+
+fn append_stderr(text: String) -> () uses { State[StderrText] } {
+  (use State[StderrText]).update(|err| StderrText(text: "#{err.text}#{text}"))
+}
+
+# ---- ExitCode ----
+
+# `[api.std.process]` declares `opaque type ExitCode`; from outside, an opaque type and an opaque
+# enum look the same. It is an enum because only a variant has a positional field, which gives the
+# derived Show `ExitCode(2)` that the section asks for.
+
+## The exit code of a program, an Int from 0 to 255. A `main` that returns one exits with it
+## (`[dyn.error]`). Making one uses no effect.
+pub opaque enum ExitCode {
+  ExitCode(Int)
+}
+  derive Eq, Show
+
+## The exit code `code`. A defect if `code` is outside 0 to 255: the exit status of a POSIX process
+## and the argument of `exit-with-code` of WASI are 8 bits wide.
+pub fn exit_code(code: Int) -> ExitCode {
+  if code < 0 || code > 255 {
+    panic("exit code #{code} is out of range 0 to 255")
+  } else {
+    ExitCode(code)
+  }
+}
+
+## The number of the exit code.
+pub fn exit_code_to_int(code: ExitCode) -> Int {
+  ExitCode(n) = code
+  n
+}
+
+pub const EXIT_SUCCESS: ExitCode = exit_code(0)
+pub const EXIT_FAILURE: ExitCode = exit_code(1)
+
+# The exit code of a `main` that returns an `ExitCode`. Lowering calls `exit_with` with the value
+# of such a `main` once it has returned, that is after the releases of its withs have run and the
+# children of its `Fiber.scope`s have ended (`emela_core::lower`). Nothing else calls them.
+
+## Makes the program exit with `code` when it ends normally: JS sets `process.exitCode`, native
+## keeps it for the runtime's exit, and WASM writes out the output and calls `exit-with-code` at
+## once (`[target.wasm.output]`).
+@external(js, "./process.mjs", "setExitCode")
+@external(c, "./process.c", "emela_process_set_exit_code")
+@external(wasm, "wasi:cli/exit@0.3.0", "exit-with-code")
+fn set_exit_code(code: Int) -> () uses {}
+
+## 0 is how a program ends anyway, so only another code goes to the host.
+fn exit_with(code: ExitCode) -> () {
+  n = exit_code_to_int(code)
+  if n == 0 { () } else { set_exit_code(n) }
 }

@@ -1,0 +1,58 @@
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Count {
+  fn next() -> Int
+}
+
+# `Self(...)` constructs the handler value in its init, as the handler's name does
+# (`[effect.handler]`).
+handler Tagged(tag: String): Log {
+  init(tag: String) {
+    print("open #{tag}")
+    Self(tag:)
+  }
+
+  release {
+    print("close #{self.tag}")
+  }
+
+  fn log(msg) { print("#{self.tag}: #{msg}") }
+}
+
+# Inside an anonymous function inside init.
+handler Counter(start: Int): Count {
+  init {
+    make = |n| Self(start: n * 10)
+    make(4)
+  }
+
+  fn next() { self.start + 1 }
+}
+
+handler Quiet: Log {
+  init { Self }
+  fn log(msg) { print("quiet: #{msg}") }
+}
+
+handler Plain(): Log {
+  init { Self() }
+  fn log(msg) { print("plain: #{msg}") }
+}
+
+fn main() {
+  with Tagged(tag: "a"), Counter {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  with Quiet {
+    (use Log).log("hi")
+  }
+  with Plain {
+    (use Log).log("hi")
+  }
+}

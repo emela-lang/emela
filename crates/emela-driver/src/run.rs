@@ -177,6 +177,15 @@ pub const DEFECT_EXIT_CODE: i32 = 101;
 pub const ERROR_EXIT_CODE: i32 = 1;
 /// The exit code when main's continuation unwound while suspended (spec 14.5).
 pub const INTERRUPTED_EXIT_CODE: i32 = 130;
+/// The exit code when a write to a standard output whose reader has closed it ended the program
+/// (`[api.std.process]`, `[cmd.build]`): 128 + SIGPIPE, which the native target exits with too.
+/// Written out in [`LAUNCHER`]; a test checks that the two agree.
+#[cfg(test)]
+const CLOSED_STDOUT_EXIT_CODE: i32 = 141;
+/// The `Symbol.for` key under which the runtime registers its output (`$output` in
+/// emela-codegen-js's runtime), which the launcher and the test runner write through.
+#[cfg(test)]
+const OUTPUT_KEY: &str = "emela.output";
 /// The `Symbol.for` key identifying failure values (`$Fail` in emela-codegen-js's runtime). The
 /// key's function returns the error value shown.
 pub const FAIL_KEY: &str = "emela.fail";
@@ -212,16 +221,41 @@ const ARGS_KEY: &str = "emela.args";
 /// rather than `instanceof`, a failure by the [`FAIL_KEY`] symbol, and takes `$start` from the
 /// entry, which exports it. Exceptions in host callbacks are caught with `uncaughtException`, and
 /// an unresumed end with `beforeExit`. The exit code is set through `process.exitCode`, or
-/// `process.exit` only in the callback of the last write, so that writes to a pipe are not cut
-/// off.
+/// `process.exit` only in the callback of a write to `process.stderr` after the last line, so that
+/// writes to a pipe are not cut off.
+///
+/// The lines it writes go through the runtime's output ([`OUTPUT_KEY`]), the same synchronous
+/// path as `dbg` and the platform handlers, so that they come after everything the program wrote
+/// (`[api.std.process]`). When a write found standard output closed, the program ends however
+/// main ended: the launcher exits with [`CLOSED_STDOUT_EXIT_CODE`] and writes nothing. That
+/// includes a defect raised by a release while it unwinds, which the specification does not
+/// separate from the interruption it replaces.
 const LAUNCHER: &str = r#"
 import { pathToFileURL } from "node:url";
 let over = false;
+const output = () => globalThis[Symbol.for("emela.output")];
+function closed() {
+  if (output()?.stdoutClosed() !== true) return false;
+  process.exit(141);
+  return true;
+}
+function line(text) {
+  const out = output();
+  if (out === undefined) process.stderr.write(text);
+  else out.write(2, text);
+}
+function stop(code, text) {
+  if (closed()) return;
+  process.exitCode = code;
+  line(text);
+  process.stderr.write("", () => process.exit(code));
+}
 function finish(value) {
   over = true;
+  if (closed()) return;
   const show = value?.[Symbol.for("emela.fail")];
   if (typeof show === "function") {
-    process.stderr.write(`error: ${show.call(value)}\n`);
+    line(`error: ${show.call(value)}\n`);
     process.exitCode = 1;
   }
 }
@@ -229,14 +263,11 @@ function crash(error) {
   if (over) return;
   over = true;
   if (error instanceof Error && error.name === "Interrupted") {
-    process.exitCode = 130;
-    process.stderr.write("interrupted\n", () => process.exit(130));
+    stop(130, "interrupted\n");
   } else if (error instanceof Error && error.name === "Defect") {
-    process.exitCode = 101;
-    process.stderr.write(`defect: ${error.message}\n`, () => process.exit(101));
+    stop(101, `defect: ${error.message}\n`);
   } else {
-    process.exitCode = 1;
-    process.stderr.write(`${error?.stack ?? String(error)}\n`, () => process.exit(1));
+    stop(1, `${error?.stack ?? String(error)}\n`);
   }
 }
 let cancel;
@@ -248,7 +279,8 @@ process.on("beforeExit", () => {
     return;
   }
   over = true;
-  process.stderr.write("interrupted\n");
+  if (closed()) return;
+  line("interrupted\n");
   process.exitCode = 130;
 });
 globalThis[Symbol.for("emela.args")] = process.argv.slice(2);
@@ -611,9 +643,16 @@ mod tests {
     #[test]
     fn launcher_uses_constants() {
         assert!(LAUNCHER.contains(&format!("\"{DEFECT_NAME}\"")));
-        assert!(LAUNCHER.contains(&format!("process.exitCode = {DEFECT_EXIT_CODE};")));
+        assert!(LAUNCHER.contains(&format!("stop({DEFECT_EXIT_CODE}, `defect: ")));
         assert!(LAUNCHER.contains(&format!("process.exitCode = {ERROR_EXIT_CODE};")));
+        assert!(LAUNCHER.contains(&format!("stop({INTERRUPTED_EXIT_CODE}, \"interrupted")));
         assert!(LAUNCHER.contains(&format!("process.exitCode = {INTERRUPTED_EXIT_CODE};")));
+        assert!(LAUNCHER.contains(&format!("process.exit({CLOSED_STDOUT_EXIT_CODE});")));
+        // The runtime registers the output under the key the launcher and the test runner read.
+        let key = format!("Symbol.for(\"{OUTPUT_KEY}\")");
+        assert!(LAUNCHER.contains(&key));
+        assert!(emela_codegen_js::RUNTIME.contains(&key));
+        assert!(emela_codegen_js::TEST_RUNNER.contains(&key));
         assert!(LAUNCHER.contains(&format!("Symbol.for(\"{FAIL_KEY}\")")));
         assert!(LAUNCHER.contains(&format!("Symbol.for(\"{ARGS_KEY}\")")));
         // The runtime's `$Fail` and the test runner use the same key.

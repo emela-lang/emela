@@ -164,6 +164,113 @@ pub fn hex(s: String) -> Bytes {
 # Eq and Ord walk the bytes through `compare_from`, a self tail call; a call through a trait
 # function would not be one.
 
+## Base64 in the standard alphabet (`A`-`Z`, `a`-`z`, `0`-`9`, `+`, `/`) of RFC 4648 section 4,
+## padded with `=` to a multiple of 4 characters.
+pub fn to_base64(b: Bytes) -> String {
+  base64_groups(b.to_list(), []).reverse().join("")
+}
+
+# The groups of four characters of `xs`, three bytes at a time, the last one first after `acc`.
+fn base64_groups(xs: List[Int], acc: List[String]) -> List[String] {
+  xs match {
+    [a, b, c, ..rest] -> {
+      n = a * 0x10000 + b * 0x100 + c
+      group = base64_chars([n / 0x40000, n / 0x1000 % 64, n / 64 % 64, n % 64])
+      base64_groups(rest, [group, ..acc])
+    }
+    [a, b] -> {
+      n = a * 0x10000 + b * 0x100
+      ["#{base64_chars([n / 0x40000, n / 0x1000 % 64, n / 64 % 64])}=", ..acc]
+    }
+    [a] -> ["#{base64_chars([a / 4, a % 4 * 16])}==", ..acc]
+    []  -> acc
+  }
+}
+
+fn base64_chars(values: List[Int]) -> String {
+  values.map(base64_char).join("")
+}
+
+# The character of the 6-bit value `n`.
+fn base64_char(n: Int) -> String {
+  point = if n < 26 {
+    0x41 + n
+  } else if n < 52 {
+    0x61 + n - 26
+  } else if n < 62 {
+    0x30 + n - 52
+  } else if n == 62 {
+    0x2B
+  } else {
+    0x2F
+  }
+  String.from_code_point(point).or("")
+}
+
+## The inverse of `to_base64`. The padding is required. `None` for a length that is not a multiple
+## of 4, misplaced padding, or any other character, including whitespace. Only what `to_base64`
+## writes is read, so the bits of the last character that no byte uses must be zero (RFC 4648
+## section 3.5).
+pub fn from_base64(s: String) -> Option[Bytes] {
+  base64_quads(s.code_points(), [])
+}
+
+const BASE64_PAD: Int = 0x3D
+
+# Reads `cs` four characters at a time. `acc` holds the bytes read so far, the last one first.
+fn base64_quads(cs: List[Int], acc: List[Int]) -> Option[Bytes] {
+  cs match {
+    [] -> from_list(acc.reverse())
+    [a, b, c, d, ..rest] -> (base64_value(a), base64_value(b)) match {
+      (Some(va), Some(vb)) -> if c == BASE64_PAD {
+        if d == BASE64_PAD && rest.is_empty() && vb % 16 == 0 {
+          from_list([va * 4 + vb / 16, ..acc].reverse())
+        } else {
+          None
+        }
+      } else {
+        base64_value(c) match {
+          None -> None
+          Some(vc) -> if d == BASE64_PAD {
+            if rest.is_empty() && vc % 4 == 0 {
+              from_list([vb % 16 * 16 + vc / 4, va * 4 + vb / 16, ..acc].reverse())
+            } else {
+              None
+            }
+          } else {
+            base64_value(d) match {
+              None -> None
+              Some(vd) -> base64_quads(
+                rest,
+                [vc % 4 * 64 + vd, vb % 16 * 16 + vc / 4, va * 4 + vb / 16, ..acc],
+              )
+            }
+          }
+        }
+      }
+      _ -> None
+    }
+    _  -> None
+  }
+}
+
+# The 6-bit value of the character `c`, or `None` if it is not in the standard alphabet.
+fn base64_value(c: Int) -> Option[Int] {
+  if c >= 0x41 && c <= 0x5A {
+    Some(c - 0x41)
+  } else if c >= 0x61 && c <= 0x7A {
+    Some(c - 0x61 + 26)
+  } else if c >= 0x30 && c <= 0x39 {
+    Some(c - 0x30 + 52)
+  } else if c == 0x2B {
+    Some(62)
+  } else if c == 0x2F {
+    Some(63)
+  } else {
+    None
+  }
+}
+
 ## The same bytes in the same order.
 impl Bytes: Eq {
   fn eq(self, other) { size(self) == size(other) && compare_from(self, other, 0) == Equal }

@@ -1,0 +1,41 @@
+import Std.Map
+import Std.Dynamic.{Dynamic, Fields, Text, Key, Segment, DecodeError}
+
+enum Shape {
+  Square(side: String)
+  Empty
+}
+  derive Eq
+
+fn shape(value: Dynamic) -> Shape fails DecodeError {
+  value.tag() match {
+    "Square" -> value.field("value", |payload| {
+      Square(side: payload.field("side", Dynamic.string))
+    })
+    "Empty" -> Empty
+    _       -> fail DecodeError(expected: "Square or Empty", actual: value, path: [Key("tag")])
+  }
+}
+
+@test
+fn decodes_a_variant() {
+  value = Fields(
+    Map.from_list(
+      [("tag", Text("Square")), ("value", Fields(Map.from_list([("side", Text("a"))])))],
+    ),
+  )
+  assert shape(value) == Square(side: "a")
+  assert shape(Fields(Map.from_list([("tag", Text("Empty"))]))) == Empty
+}
+
+@test
+fn reports_the_path_inside_the_value() {
+  value = Fields(Map.from_list([("tag", Text("Square")), ("value", Fields(Map.empty()))]))
+  path = {
+    shape(value)
+    []
+  } escape {
+    DecodeError(path:, ..) -> path
+  }
+  assert path == [Key("value"), Key("side")]
+}

@@ -33,6 +33,9 @@ pub struct HoverInfo {
 /// - A reference to a definition or local: likewise `name: type`.
 /// - Any other expression: its type, plus `fails E` if E is not empty and `uses { R }` if R is not
 ///   empty.
+/// - A function, a local variable or an expression that may hold capabilities: a line
+///   `holds: ...` with the roots it may hold, each with the `with` or scope that provides it
+///   (`[lsp.hover]`).
 ///
 /// The innermost (shortest) one is chosen.
 pub(crate) fn hover(
@@ -199,6 +202,31 @@ pub(crate) fn hover(
     Some(info)
 }
 
+/// The line `holds: ...` (`[lsp.hover]`): each root by its name, and for a root provided by a
+/// `with` or a scope, where (`p (with PrimaryDb, line 4)`). Empty when nothing is held.
+fn holds_line(analysis: &Analysis, held: Option<&Vec<emela_types::Held>>) -> String {
+    let Some(held) = held.filter(|h| !h.is_empty()) else {
+        return String::new();
+    };
+    let roots: Vec<String> = held
+        .iter()
+        .map(|h| match &h.provider {
+            Some(p) => {
+                let line = analysis
+                    .files
+                    .get(p.span.module)
+                    .map(|&f| analysis.sources[f].line_col(p.span.range.start()).line + 1);
+                match line {
+                    Some(line) => format!("{} ({}, line {line})", h.name, p.what),
+                    None => format!("{} ({})", h.name, p.what),
+                }
+            }
+            None => h.name.to_string(),
+        })
+        .collect();
+    format!("\n  holds: {}", roots.join(", "))
+}
+
 fn hover_type(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -223,14 +251,16 @@ fn hover_type(
     if let Some((def, data)) = def
         && let Some(sig) = types.sigs.get(def)
     {
+        let text = format!(
+            "{}: {}{}{}",
+            data.name,
+            suspend_prefix(hir, def),
+            sig.scheme.display(cons),
+            holds_line(analysis, types.captures.defs.get(def)),
+        );
         return Some(HoverInfo {
             range: data.span?.range,
-            contents: code(&format!(
-                "{}: {}{}",
-                data.name,
-                suspend_prefix(hir, def),
-                sig.scheme.display(cons)
-            )),
+            contents: code(&text),
         });
     }
     // Handler names (spec 8.4).
@@ -299,9 +329,10 @@ fn hover_type(
             Some(HoverInfo {
                 range: data.span.range,
                 contents: code(&format!(
-                    "{}: {}",
+                    "{}: {}{}",
                     data.name,
-                    ty.display_with(cons, &params)
+                    ty.display_with(cons, &params),
+                    holds_line(analysis, types.captures.locals.get(local)),
                 )),
             })
         }
@@ -310,18 +341,20 @@ fn hover_type(
                 ExprKind::Path(Res::Def(def)) => {
                     let sig = types.sigs.get(*def)?;
                     format!(
-                        "{}: {}{}",
+                        "{}: {}{}{}",
                         hir.defs[*def].name,
                         suspend_prefix(hir, *def),
-                        sig.scheme.display(cons)
+                        sig.scheme.display(cons),
+                        holds_line(analysis, types.captures.defs.get(*def)),
                     )
                 }
                 ExprKind::Path(Res::Local(local)) => {
                     let ty = types.locals.get(*local)?;
                     format!(
-                        "{}: {}",
+                        "{}: {}{}",
                         hir.locals[*local].name,
-                        ty.display_with(cons, &params)
+                        ty.display_with(cons, &params),
+                        holds_line(analysis, types.captures.locals.get(*local)),
                     )
                 }
                 _ => {
@@ -340,6 +373,7 @@ fn hover_type(
                     if !effects.is_empty() {
                         text.push_str(&format!("\nuses {}", effects.display_uses(cons, &params)));
                     }
+                    text.push_str(&holds_line(analysis, types.captures.exprs.get(expr)));
                     text
                 }
             };

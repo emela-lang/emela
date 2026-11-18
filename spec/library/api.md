@@ -225,11 +225,13 @@ The value layer (`[lib.layers]`). An immutable sequence of bytes. Each byte is a
 | `to_hex` | `to_hex(b: Bytes) -> String` | Emela | Two lowercase hexadecimal digits per byte, with no separator (`"89504e47"`) |
 | `from_hex` | `from_hex(s: String) -> Option[Bytes]` | Emela | The inverse of `to_hex`. Accepts uppercase and lowercase digits. `None` for an odd number of digits or any other character, including whitespace |
 | `hex` | `hex(s: String) -> Bytes` | Emela | The bytes that `from_hex` reads from `s`. A defect if `from_hex` returns `None`. For constants written in the program (`const PNG_SIGNATURE = Bytes.hex("89504e47")`) |
+| `to_base64` | `to_base64(b: Bytes) -> String` | Emela | Base64 in the standard alphabet (`A`–`Z`, `a`–`z`, `0`–`9`, `+`, `/`) of RFC 4648 section 4, padded with `=` to a multiple of 4 characters |
+| `from_base64` | `from_base64(s: String) -> Option[Bytes]` | Emela | The inverse of `to_base64`. The padding is required. `None` for a length that is not a multiple of 4, misplaced padding, or any other character, including whitespace |
 
 - The defect message of `hex` is ``Bytes.hex was given a string that is not hexadecimal: "<s>"``, where `<s>` is shown as by inspect. In a const, the name of the const is prepended (`[data.const]`).
 - `size(encode_utf8(s)) == String.byte_size(s)`, and `decode_utf8(encode_utf8(s)) == Some(s)`, for every String `s`.
 - Invalid UTF-8 is not replaced with the replacement character: `decode_utf8` returns `None`, so text that is read and written back is not changed silently. A sequence that encodes a surrogate (U+D800 to U+DFFF) or a value above U+10FFFF, and an overlong encoding, are not valid UTF-8.
-- `size`, `get` and `is_empty` are O(1). `slice` is O(`to - from`) or less. `append` and `concat` are O(n) in the number of bytes of the result. `to_list`, `from_list`, `encode_utf8`, `decode_utf8`, `to_hex` and `from_hex` are O(n).
+- `size`, `get` and `is_empty` are O(1). `slice` is O(`to - from`) or less. `append` and `concat` are O(n) in the number of bytes of the result. `to_list`, `from_list`, `encode_utf8`, `decode_utf8`, `to_hex`, `from_hex`, `to_base64` and `from_base64` are O(n).
 
 impl: `impl Bytes: Eq`, `impl Bytes: Ord`, `impl Bytes: Show`. Two Bytes are equal when they have the same bytes in the same order. Ord is lexicographic on the bytes as unsigned values (if the common prefix is equal, the shorter one is smaller). Show is the source form `Bytes.hex("89504e47")`, with the digits of `to_hex`, so the output can be pasted back as an expression. A Bytes inside another value is displayed the same way (`[Bytes.hex("00")]`).
 
@@ -313,6 +315,90 @@ A collection of values. Immutable and in Ord order. The contents are a `Map[A, (
 
 impl (`[trait.builtin]`): `impl Set[A: Eq]: Eq`, `impl Set[A: Show]: Show` (`Set.from_list([1, 2])`).
 
+### Std.Dynamic (`std/dynamic.emel`) `[api.std.dynamic]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Dynamic` | `enum Dynamic { Null, Bool(Bool), Number(Number), Text(String), Items(List[Dynamic]), Fields(Map[String, Dynamic]), Binary(Bytes) }` | A value in no particular format |
+| `Segment` | `enum Segment { Key(String), Index(Int) }` | A step of a path into a Dynamic |
+| `DecodeError` | `error DecodeError(expected: String, actual: Dynamic, path: List[Segment])` | Show writes the kind of `actual`, not its contents |
+| `Encode` | `trait Encode { fn to_dynamic(self) -> Dynamic; fn to_field(self) -> Option[Dynamic] }` | Derivable. `to_field` is the value written for a field of an object, and None leaves the key out; its default is `Some(to_dynamic(self))` |
+| `Decode` | `trait Decode { fn from_dynamic(d: Dynamic) -> Self fails DecodeError; fn from_dynamic_all(d: Dynamic) -> Self fails DecodeErrors; fn from_absent() -> Self fails DecodeError }` | Derivable, except for opaque types. `from_dynamic` stops at the first failure. `from_dynamic_all` reports every failure; its default fails with the one failure of `from_dynamic`. `from_absent` is the value of a field whose key is missing; its default is `from_dynamic(Null)` |
+| `DecodeErrors` | `error DecodeErrors(errors: List[DecodeError])` | Every failure of `from_dynamic_all`, in the order the parts were read. Never empty |
+| `Attempt` | `enum Attempt[A] { Decoded(A), Failed(List[DecodeError]) }` | The result of reading one part while collecting failures |
+| `attempt`, `errors_of` | `attempt[A](f: fn() -> A fails DecodeErrors) -> Attempt[A]`, `errors_of[A](a: Attempt[A]) -> List[DecodeError]` | Keep the failures of `f` instead of failing, and read them back (empty for Decoded) |
+| `field_all`, `index_all` | `field_all[A](value: Dynamic, name: String, decoder) -> A fails DecodeErrors`, `index_all[A](n: Int, decoder) -> decoder` | `field` and `index` for a decoder that fails with DecodeErrors; the key or the position is added in front of the path of every failure |
+| `ObjectKey` | `trait ObjectKey: Ord { fn to_key(self) -> String; fn from_key(key: String) -> Self fails DecodeError }` | The keys of a Map written as Fields |
+| `string`, `bytes`, `bool`, `int`, `int64`, `float` | `fn(value: Dynamic) -> A fails DecodeError` | Read a value of a basic type. `bytes` reads only Binary. `int` and `int64` accept a number whose value is an integer (`1.0`, `1e3`) |
+| `list`, `optional`, `dict` | `fn(decoder) -> decoder` | Read Items, Null or a value, and Fields with each value read by `decoder` |
+| `index` | `index[A](n: Int, decoder) -> decoder` | Read the element `n` of Items. Fewer elements is a DecodeError |
+| `items` | `items(value: Dynamic, n: Int) -> List[Dynamic] fails DecodeError` | The elements of Items that has exactly `n` elements. Any other number is `DecodeError(expected: "n items", ...)` |
+| `field` | `field[A](value: Dynamic, name: String, decoder) -> A fails DecodeError` | Read the key `name` of Fields. A missing key is read as Null |
+| `lookup` | `lookup(value: Dynamic, name: String) -> Option[Dynamic] fails DecodeError` | The value of the key `name` of Fields, or None if the key is missing. A value that is not Fields is a DecodeError |
+| `tag` | `tag(value: Dynamic) -> String fails DecodeError` | The `"tag"` of an enum written by Encode |
+| `object`, `variant` | `object(fields: List[(String, Dynamic)]) -> Dynamic`, `variant(tag: String, value: Option[Dynamic]) -> Dynamic` | Build Fields, and the form of an enum |
+| `kind` | `kind(value: Dynamic) -> String` | `"null"`, `"bool"`, `"number"`, `"text"`, `"items"`, `"fields"` or `"binary"` |
+
+impl: Bool, Int, Int64, Float, String, Bytes, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. Bytes is encoded as Binary, and its Decode reads only Binary. `Array[A]` and `Set[A]` are encoded as Items in their order, and decoded from Items; the Decode of `Set[A]` drops repeated elements. The Decode of `List[A]`, `Array[A]`, `Set[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None. As a field of an object, None leaves the key out (`to_field`), and a missing key decodes as None (`from_absent`, by its default).
+
+### Std.Dynamic.Presence (`std/dynamic/presence.emel`) `[api.std.dynamic.presence]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Presence` | `enum Presence[A] { Absent, Null, Present(A) }` | A field that tells a missing key, null and a value apart |
+
+impl: Eq, Ord and Show are derived. Encode: `to_dynamic` writes Absent and Null as Null and `Present(a)` as `a`; `to_field` is None for Absent, `Some(Null)` for Null, and `Some(a)` written for `Present(a)`. Decode: `from_dynamic` reads Null as Null and any other value as `Present` of the Decode of `A`; `from_absent` is Absent; `from_dynamic_all` reads the value with `from_dynamic_all`. Shaped: `Shape.Option` of the shape of `A`.
+
+### Std.Dynamic.Number (`std/dynamic/number.emel`) `[api.std.dynamic.number]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Number` | `opaque type Number` | A decimal number of any size and precision: a sign, digits and an exponent. Two numbers that denote the same value are equal (`1.0` and `1e0`) |
+| `OutOfRange` | `error OutOfRange(number: Number)` | A number that the target type cannot hold |
+| `parse` | `parse(s: String) -> Number fails ParseError` | Read a number in the JSON grammar. Fails also when the exponent is outside the range of Int |
+| `from_int`, `from_int64` | `from_int(n: Int) -> Number`, `from_int64(n: Int64) -> Number` | Exact |
+| `from_float` | `from_float(f: Float) -> Option[Number]` | None for NaN and ±Infinity |
+| `to_int`, `to_int64` | `to_int(n: Number) -> Int fails OutOfRange`, `to_int64(n: Number) -> Int64 fails OutOfRange` | Fails for a number that is not an integer or is outside the range |
+| `to_float` | `to_float(n: Number) -> Float` | The nearest Float |
+| `to_string` | `to_string(n: Number) -> String` | In the JSON grammar. An integer of up to 21 digits is written in full, a short fraction with a point, the rest with an exponent |
+
+### Std.Shape (`std/shape.emel`) `[api.std.shape]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Shape` | `enum Shape { Bool, Int, Int64, Float, String, Bytes, Any, List(Shape), Option(Shape), Map(key: Shape, value: Shape), Record(name: String, fields: List[Field]), Variants(name: String, variants: List[Variant]), Ref(String), Named(name: String, shape: Shape), Annotated(shape: Shape, notes: List[(String, Dynamic)]) }` | The shape of a type, without a value. The variants are named after the types they describe and are written with the module (`Shape.Int`, `Shape.List(Shape.String)`). `Any` is the shape of Dynamic. `Ref` is a record or enum that appears again inside itself. `Named` is a type known by its name with the shape of its contents (an opaque type). `Annotated` carries notes; a reader passes on the keys it does not know |
+| `Field` | `type Field(name: String, shape: Shape)` | A field of a record or of named contents |
+| `Variant` | `type Variant(name: String, contents: Contents)` | A variant of an enum |
+| `Contents` | `enum Contents { NoFields, PositionalFields(List[Shape]), NamedFields(List[Field]) }` | The contents of a variant, in the form they are declared in |
+| `Shaped` | `trait Shaped { fn shape_in(proxy: Option[Self], visiting: List[String]) -> Shape; fn shape(proxy: Option[Self]) -> Shape }` | Derivable. `proxy` only carries the type. `visiting` holds the names of the records and enums being read around this one, innermost first. `shape` calls `shape_in` with an empty `visiting` |
+| `visit` | `visit(name: String, visiting: List[String], build: fn(List[String]) -> Shape) -> Shape` | `Ref(name)` if `name` is in `visiting`, otherwise `build` with `name` added in front |
+| `of_value`, `of_parameter` | `of_value[A: Shaped](value: A) -> Shape`, `of_parameter[A: Shaped, B, E, R](f: fn(A) -> B fails E uses { R }) -> Shape` | The shape of the type of a value, and of the parameter of a function without calling it |
+| `annotate` | `annotate(shape: Shape, name: String, value: Dynamic) -> Shape` | Add the note `name` after the notes of `shape`, replacing a note of the same name |
+| `description`, `pattern`, `format` | `fn(shape: Shape, text: String) -> Shape` | The notes `"description"`, `"pattern"` (a regular expression) and `"format"` (`"date-time"`, `"email"`) |
+| `minimum`, `maximum` | `fn(shape: Shape, n: Int) -> Shape` | The notes `"minimum"` and `"maximum"`: the least and the greatest number allowed |
+| `min_length`, `max_length` | `fn(shape: Shape, n: Int) -> Shape` | The notes `"min_length"` and `"max_length"`: the length of a string, counted in code points |
+| `min_items`, `max_items` | `fn(shape: Shape, n: Int) -> Shape` | The notes `"min_items"` and `"max_items"`: the number of items of a list |
+| `strip` | `strip(shape: Shape) -> Shape` | `shape` without its notes and names |
+| `note` | `note(shape: Shape, name: String) -> Option[Dynamic]` | The value of the note `name`, looking through names |
+| `field_names` | `field_names(shape: Shape) -> List[String]` | The names of the fields of a record in declaration order, looking through notes and names; empty for any other shape |
+| `name_of` | `name_of(shape: Shape) -> String` | The name of the type as it is written (`Int`, `List[String]`, `Page[Member]`) |
+| `generic_name` | `generic_name(name: String, arguments: List[Shape]) -> String` | `name` followed by the names of `arguments` in brackets, or `name` alone without arguments |
+
+impl: Bool, Int, Int64, Float, String, Bytes, Dynamic, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K, V]` have Shaped. The shape of Bytes is `Bytes`, and the shapes of `Array[A]` and `Set[A]` are `List` of the shape of `A`. The impls of `List`, `Array`, `Set`, `Option` and `Map` pass `visiting` on to their type arguments.
+
+The notes defined by `Std.Shape` are `"description"`, `"pattern"`, `"format"`, `"minimum"`, `"maximum"`, `"min_length"`, `"max_length"`, `"min_items"` and `"max_items"`, each with the value its function above writes. Notes are only described: the notes do not change which values a shape describes, and nothing in `Std.Shape` checks them. Other notes may be added with `annotate`.
+
+### Std.Json (`std/json.emel`) `[api.std.json]`
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `SyntaxError` | `error SyntaxError(message: String, offset: Int)` | Text that is not JSON. `offset` counts code points from the start of the input |
+| `parse` | `parse(s: String) -> Dynamic fails SyntaxError` | Read one JSON value (RFC 8259), with whitespace allowed around it. Numbers are read with `Std.Dynamic.Number.parse`. For a key repeated in an object, the later value is kept. Never gives Binary |
+| `to_string` | `to_string(value: Dynamic) -> String` | Write `value` as JSON without whitespace. Keys come in the order of the Map. A string escapes `"`, `\` and the control characters, and keeps every other character as it is. Binary is written as a string of `Bytes.to_base64` |
+| `decode` | `decode[A: Decode](text: String) -> A fails SyntaxError \| DecodeError` | `parse`, then `Decode.from_dynamic` |
+| `decode_all` | `decode_all[A: Decode](text: String) -> A fails SyntaxError \| DecodeErrors` | `parse`, then `Decode.from_dynamic_all` |
+| `encode` | `encode[A: Encode](value: A) -> String` | `Encode.to_dynamic`, then `to_string` |
+
 ### Std.State (`std/state.emel`) `[api.std.state]`
 
 The mutable state of `[effect.state]`. `run` is a handler provided by the runtime.
@@ -356,6 +442,9 @@ fn main() {
 }
 ```
 
+- Console writes one line meant for people at a time. To write to the output streams of the process without a line ending, use Stdout and Stderr of `Std.Process` (`[api.std.process]`). Writes mixed between SystemConsole and SystemStdout or SystemStderr keep their order.
+- On a page host, SystemConsole writes with `console.log` and `console.error`, as on any JS host without standard output.
+
 ### Std.Process (`std/process.emel`, `std/process.mjs`, `std/process.c`) `[api.std.process]`
 
 The platform layer and the test layer (`[lib.layers]`). What the process has exactly one of.
@@ -369,6 +458,22 @@ The platform layer and the test layer (`[lib.layers]`). What the process has exa
 | `SystemStdin` | `handler SystemStdin: Stdin` | The standard input of the process. `process.stdin` on JS and file descriptor 0 on native. Requires Async. Has no state |
 | `StdinLines` | `type StdinLines(lines: List[String])` | The state of TestStdin: the lines not read yet |
 | `TestStdin` | `handler TestStdin: Stdin` | Kept in `State[StdinLines]` and resumes immediately. Does not raise InvalidInput or StdinFailure |
+| `Stdout` | `effect Stdout { fn print(text: String) -> (); fn print_line(text: String) -> () }` | Writes to the standard output of the process. `print` writes `text` as is, and `print_line` writes `text` followed by `\n`. Does not fail |
+| `Stderr` | `effect Stderr { fn print(text: String) -> (); fn print_line(text: String) -> () }` | The same for the standard error of the process |
+| `SystemStdout` | `handler SystemStdout: Stdout` | File descriptor 1, written synchronously, on JS, `stdout` on native, and `write-via-stream` of `wasi:cli/stdout@0.3.0` on WASM. Has no state |
+| `SystemStderr` | `handler SystemStderr: Stderr` | File descriptor 2, written synchronously, on JS, `stderr` on native, and `write-via-stream` of `wasi:cli/stderr@0.3.0` on WASM. Has no state |
+| `StdoutText` | `type StdoutText(text: String)` | The state of TestStdout: everything written so far |
+| `StderrText` | `type StderrText(text: String)` | The state of TestStderr: everything written so far |
+| `TestStdout` | `handler TestStdout: Stdout` | Appends what is written to `text` of `State[StdoutText]`, with `\n` after the text of `print_line` |
+| `TestStderr` | `handler TestStderr: Stderr` | Appends what is written to `text` of `State[StderrText]`, with `\n` after the text of `print_line` |
+| `ExitCode` | `opaque type ExitCode` | The exit code of a program. Its contents are an Int from 0 to 255 |
+| `exit_code` | `exit_code(code: Int) -> ExitCode` | The exit code `code`. A `code` outside 0 to 255 is a defect. Implemented in Emela |
+| `exit_code_to_int` | `exit_code_to_int(code: ExitCode) -> Int` | The number of the exit code. Implemented in Emela |
+| `EXIT_SUCCESS` | `const EXIT_SUCCESS: ExitCode` | `exit_code(0)` |
+| `EXIT_FAILURE` | `const EXIT_FAILURE: ExitCode` | `exit_code(1)` |
+| `Process` | `layer Process { Platform, SystemArgs, SystemStdin, SystemStdout, SystemStderr, SystemEnv, SystemFileSystem }` | Platform and the System handlers that need a process. Requires Async and ProcessHost (`[effect.host]`) |
+
+- The System handlers of this section require `ProcessHost` (`[effect.host]`).
 
 Args:
 
@@ -391,7 +496,27 @@ Stdin:
 - Under `emela test`, standard input is not passed to the program (`[cmd.test.output]`). SystemStdin reads it as an empty input.
 - `read_line` of TestStdin removes the first element of `lines` and returns it, or returns `None` when `lines` is empty. `read_text` returns the elements of `lines` joined with `\n` and sets `lines` to `[]`.
 
+Stdout and Stderr:
+
+- Stdout and Stderr are the output streams of the process; Console (`[api.std.console]`) writes lines meant for people. Stdout and Stderr write text without adding a line ending (`print`), and are meant for data that goes to a pipe or a file and for prompts.
+- Stdout and Stderr are Immediate (9.5): their operations do not suspend.
+- What is written to one stream arrives in the order written. SystemStdout and `print_line` of SystemConsole write to standard output through the same path, and SystemStderr, `print_error_line` of SystemConsole and `dbg` write to standard error through the same path, so writes mixed between them keep their order. The order relative to output that an external function writes to the host directly is not specified.
+- Before SystemStderr, `print_error_line` of SystemConsole or `dbg` writes to standard error, what has been written to standard output is handed to the host, so that the two streams directed to the same destination keep the order written. Before an operation of SystemStdin waits for input, what has been written to standard output is handed to the host.
+- When the program ends, in any of the ways of `[cmd.build]`, everything written so far is written out before the exit code is set.
+- `\n` inside `text` is written as is; it is not converted to another line ending.
+- SystemStdout and SystemStderr need a host that gives the process a standard output and a standard error. The hosts of the JS target (`[target]`) do. Their behavior on other hosts is not specified.
+- When a write to standard output fails because the reader has closed it (a pipe whose reading end is closed), the operation does not return. The fiber that wrote unwinds as interrupted from that point, running the releases of its handlers from the inside out, and every other fiber of the program is interrupted (`[fiber.interrupt]`). After that, writes to standard output are discarded. When the unwinding of main finishes, the program exits with exit code 141 and writes nothing to standard error (no `interrupted` line). The same holds for writes of `print_line` of SystemConsole to standard output.
+- When a write to standard error fails because the reader has closed it, the program continues. That write and every later write to standard error (SystemStderr, `print_error_line` of SystemConsole, `dbg`, and the lines that the runtime writes when execution stops) are discarded.
+
+ExitCode:
+
+- A `main` whose return type is `ExitCode` chooses the exit code of the program with its value (`[dyn.error]`). Every value from 0 to 255 can be chosen, including 1, 101 and 130. `ExitCode` is a value: making one uses no effect, and no handler is needed.
+- The constants are named with the prefix `EXIT_` because a const is used through an import, not as a qualified name (`[grammar.expr]`), so its name appears in user code on its own.
+- The upper bound 255 comes from the exit status of POSIX processes and the argument of `exit-with-code` of WASI, which are 8 bits wide.
+
 impl (`[trait.derive]`): StdinLines has `derive Eq, Show`. Both errors have `derive Show`.
+
+impl of `ExitCode` (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Show`. The Show impl gives `ExitCode(2)`.
 
 ```emel
 import Std.Console.{Console}
@@ -404,6 +529,18 @@ fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console,
       (use Console).print_line("#{prefix}#{line}")
       quote(prefix)
     }
+  }
+}
+```
+
+```emel
+import Std.Platform.{Platform}
+import Std.Process.{Stdout}
+
+fn main() {
+  with Platform {
+    (use Stdout).print("Hello, ")
+    (use Stdout).print_line("alice!")
   }
 }
 ```
@@ -435,6 +572,7 @@ fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console,
 | `Env` | `effect Env { fn get(name: String) -> Option[String] }` | The value of an environment variable. `None` if it is not set. An empty value is `Some("")` |
 | `SystemEnv` | `handler SystemEnv: Env` | Reads `process.env` on JS and `getenv` on native. Has no state |
 
+- The System handler requires `ProcessHost` (`[effect.host]`).
 - `get` of SystemEnv sees only names set as environment variables of the process. Even on the JS host, it does not pick up names from the object prototype (such as `toString`) as values.
 
 ### Std.Fiber (`std/fiber.emel`) `[api.std.fiber]`
@@ -610,6 +748,7 @@ The platform layer and the test layer (`[lib.layers]`). Handles only text (UTF-8
 | `TestFiles` | `type TestFiles(files: List[(String, String)], directories: List[String])` | The state of TestFileSystem. files is in path order. The ancestors of files and directories are also treated as directories |
 | `TestFileSystem` | `handler TestFileSystem: FileSystem` | Kept in `State[TestFiles]` and resumes immediately. Errors follow the same rules as SystemFileSystem. Does not raise FileAccessDenied, InvalidText, or FileSystemFailure |
 
+- The System handler requires `ProcessHost` (`[effect.host]`).
 - SystemFileSystem maps host errors as follows. ENOENT and ENOTDIR are FileNotFound, EACCES and EPERM are FileAccessDenied, and everything else is FileSystemFailure (message is the host's text). However, EISDIR in read_text, write_text, and append_text is IsADirectory; ENOTDIR in list_directory is NotADirectory; ENOTDIR and EEXIST in create_directory are NotADirectory; and ENOTEMPTY and EEXIST in remove are DirectoryNotEmpty.
 - exists and is_directory look at the target that a symbolic link points to. remove does not follow symbolic links and deletes the link itself.
 - An operation of FileSystem is not canceled partway when the waiting fiber is interrupted.
@@ -648,9 +787,9 @@ The value layer (`[lib.layers]`). Pure functions that build path strings. Only `
 
 | Declaration | Contents | Description |
 |---|---|---|
-| `Platform` | `layer Platform { SystemConsole, SystemArgs, SystemStdin, SystemClock, SystemRandom, SystemEnv, SystemHttp, SystemFileSystem }` | A bundle of the System handlers. To replace some of them, list the replacements after it, as in `with Platform, TestClock { ... }` |
+| `Platform` | `layer Platform { SystemConsole, SystemClock, SystemRandom, SystemHttp }` | The System handlers that every host has. Requires no host effect other than Async. To replace some of them, list the replacements after it, as in `with Platform, TestClock { ... }` |
 
-- The order of the list has no meaning (`[effect.layer]`). SystemStdin, SystemClock, SystemHttp, and SystemFileSystem require Async, so Async remains in the R of `with Platform { ... }`. In main and test functions, the runtime provides Async.
+- The order of the list has no meaning (`[effect.layer]`). SystemClock and SystemHttp require Async, so Async remains in the R of `with Platform { ... }`. In main and test functions, the runtime provides Async.
 
 ```emel
 import Std.Platform.{Platform}

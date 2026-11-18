@@ -37,6 +37,15 @@ error[E0434]: handler `WorkerKv` needs arguments for its `init`
 ────╯
    = help: write `WorkerKv(binding: ..., retries: ...)`
 
+warning[W0304]: the value of type `String` returned by `main` is discarded
+    ╭─[ main.emel:39:4 ]
+    │
+ 39 │ fn main() {
+    │    ──┬─  
+    │      ╰─── 
+────╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
 error[E0434]: handler `WorkerKv` needs arguments for its `init`
     ╭─[ main.emel:40:8 ]
     │
@@ -63,4 +72,4 @@ error[E0305]: wrong number of arguments: `WorkerKv` takes 2, found 1
     │                       ╰──────── 
 ────╯
 
-7 errors
+7 errors, 1 warning

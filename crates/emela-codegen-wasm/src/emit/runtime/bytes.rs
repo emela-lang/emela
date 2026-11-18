@@ -50,17 +50,10 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
     true
 }
 
-/// Whether the program uses a Bytes builtin that is implemented here. A program without Bytes
+/// Whether reachable code uses a Bytes builtin that is implemented here. A program without Bytes
 /// keeps the same bytes.
 pub(super) fn used(b: &Builder) -> bool {
-    b.m.functions.iter().any(|(_, f)| {
-        f.stmts.iter().any(|(_, s)| {
-            matches!(
-                s,
-                Stmt::Let { value: Value::Builtin { op, .. }, .. } if implemented(*op)
-            )
-        })
-    })
+    b.reaches_builtin(implemented)
 }
 
 fn implemented(op: Builtin) -> bool {

@@ -45,4 +45,13 @@ error[E0118]: expected expression
    │           ╰── 
 ───╯
 
-6 errors
+warning[W0304]: the value of type `String` returned by `main` is discarded
+   ╭─[ src/main.emel:1:4 ]
+   │
+ 1 │ fn main() {
+   │    ──┬─  
+   │      ╰─── 
+───╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
+6 errors, 1 warning

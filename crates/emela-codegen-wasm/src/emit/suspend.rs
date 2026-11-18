@@ -48,9 +48,6 @@ pub(crate) struct Plan {
     /// The innermost active operation, whose implementation the event resumes (see
     /// `runtime::async_bridge`).
     pub(crate) sleep_op: u32,
-    pub(crate) queue: u32,
-    pub(crate) qhead: u32,
-    pub(crate) qlen: u32,
     pub(crate) sync_depth: u32,
     /// The descriptor of a `perform` record (the state of an operation call).
     pub(crate) perform_desc: u32,
@@ -60,10 +57,8 @@ pub(crate) struct Plan {
     pub(crate) interrupted: u32,
     /// The descriptor of an interruption (a static one, or one of a scope's body).
     pub(crate) interrupted_desc: u32,
-    /// The static pieces of the two resume diagnostics.
+    /// The static piece of the resume diagnostic.
     pub(crate) twice_prefix: u32,
-    pub(crate) after_prefix: u32,
-    pub(crate) queue_full: u32,
     /// Whether the run unwinds as interrupted (`runtime::attempt`). Allocated only when the
     /// program uses `Exit.attempt` or `Std.Cause`, so other programs keep their bytes.
     pub(crate) unwinding: u32,
@@ -168,17 +163,12 @@ pub(crate) fn reserve(b: &mut Builder<'_>) {
             out_word: 0,
             pending: 0,
             sleep_op: 0,
-            queue: 0,
-            qhead: 0,
-            qlen: 0,
             sync_depth: 0,
             perform_desc: 0,
             resume_desc: 0,
             interrupted: 0,
             interrupted_desc: 0,
             twice_prefix: 0,
-            after_prefix: 0,
-            queue_full: 0,
             unwinding: 0,
             attempt_table: 0,
             resume_table: [0; 5],
@@ -199,9 +189,6 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         b.alloc_static(8), // output word
         b.alloc_static(4), // the outermost perform of the current suspension cascade
         b.alloc_static(4), // the innermost active perform record
-        b.alloc_static(QUEUE_ENTRIES * QUEUE_STRIDE),
-        b.alloc_static(4), // queue head
-        b.alloc_static(4), // queue length
         b.alloc_static(4), // sync depth
     ];
     let perform_desc = b.desc(DescKey {
@@ -234,8 +221,6 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     });
     let interrupted = b.nullary(interrupted_desc);
     let twice_prefix = b.string_literal(b"resume called twice in ");
-    let after_prefix = b.string_literal(b" failed after resume: ");
-    let queue_full = b.string_literal(b"internal error: the WASM scheduler queue overflowed");
     let mut resume_table = [0u32; 5];
     for (i, name) in [
         "resume_void",
@@ -275,26 +260,14 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     plan.out_word = cells[5];
     plan.pending = cells[6];
     plan.sleep_op = cells[7];
-    plan.queue = cells[8];
-    plan.qhead = cells[9];
-    plan.qlen = cells[10];
-    plan.sync_depth = cells[11];
+    plan.sync_depth = cells[8];
     plan.perform_desc = perform_desc;
     plan.resume_desc = resume_desc;
     plan.interrupted = interrupted;
     plan.interrupted_desc = interrupted_desc;
     plan.twice_prefix = twice_prefix;
-    plan.after_prefix = after_prefix;
-    plan.queue_full = queue_full;
     plan.resume_table = resume_table;
 }
-
-/// The number of jobs the continuation queue holds. Without fibers or a host callback at most
-/// one continuation waits at a time; the queue is the FIFO any future wakeups go through. The
-/// scheduler indexes the same static (`runtime::sched`), so both use these constants.
-pub(crate) const QUEUE_ENTRIES: u32 = 64;
-/// The bytes of one job (`{chain: i32, mode: i32, word: i64}`).
-pub(crate) const QUEUE_STRIDE: u32 = 16;
 
 /// The most states one function's dispatch may have. A state is a nested block in the emitted
 /// dispatch, and WebAssembly engines take quadratic time and memory to compile very deep nesting
@@ -474,7 +447,7 @@ fn emit_machine(b: &mut Builder<'_>, mp: MachinePlan) -> (WasmFunction, WasmFunc
     let mut func = WasmFunction::new(decls);
     {
         let mut ins = func.instructions();
-        emit_restore(&mut mcx, &mut ins, &resumes);
+        emit_restore(&mut mcx, &mut ins, &resumes, n);
         ins.loop_(BlockType::Empty);
         for _ in 0..=n {
             ins.block(BlockType::Empty);
@@ -507,45 +480,52 @@ fn emit_machine(b: &mut Builder<'_>, mp: MachinePlan) -> (WasmFunction, WasmFunc
 
 /// The frame entry of a state machine: restore the saved variables of the frame's state, free the
 /// frame and dispatch to the resume point.
-fn emit_restore(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, resumes: &[ResumePoint]) {
+///
+/// The dispatch is a `br_table` over the state, like the main dispatch. State `k`'s case sits just
+/// after the `k`-th block, so a table entry is the state itself. A frame only ever holds a resume
+/// state, so every other state (and a state past the table) is unreachable, as an unknown state
+/// was before: it restored nothing, freed the frame and hit the dispatch's default.
+fn emit_restore(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, resumes: &[ResumePoint], n: u32) {
     let fr = mcx.fr;
     ins.local_get(fr);
     ins.if_(BlockType::Empty);
+    let state = mcx.state;
+    let pending = mcx.pending;
     ins.local_get(fr);
     ins.i32_load(mem(HDR + 8, 4));
-    ins.local_set(mcx.state);
+    ins.local_set(state);
     ins.i32_const(1);
-    ins.local_set(mcx.pending);
-    for r in resumes {
-        ins.local_get(mcx.state);
-        ins.i32_const(r.state as i32);
-        ins.i32_eq();
-        ins.if_(BlockType::Empty);
-        for (i, &v) in r.saved.iter().enumerate() {
-            let off = HDR + (3 + i as u32) * 8;
-            let repr = mcx.f.vars[v].repr;
-            // A variable without representation is never live, so it is never saved.
-            debug_assert_ne!(repr, Repr::Void, "a saved variable without representation");
-            if repr == Repr::Void {
-                continue;
-            }
-            ins.local_get(fr);
-            match repr {
-                Repr::I32 | Repr::Ref => ins.i32_load(mem(off, 4)),
-                Repr::I64 => ins.i64_load(mem(off, 8)),
-                Repr::F64 => ins.f64_load(mem(off, 8)),
-                Repr::Void => continue,
-            };
-            ins.local_set(mcx.local(v));
-            if repr == Repr::Ref {
-                // The reference moved from the frame into the local.
-                ins.local_get(fr);
-                ins.i32_const(0);
-                ins.i32_store(mem(off, 4));
-            }
-        }
-        ins.end();
+    ins.local_set(pending);
+    // One block per state, inside the block of an unknown state, inside the block the cases
+    // branch to for the common free. From the innermost state block, the state `k` block is at
+    // depth `k`, the unknown block at `n + 1` and the common block at `n + 2`.
+    ins.block(BlockType::Empty);
+    ins.block(BlockType::Empty);
+    for _ in 0..=n {
+        ins.block(BlockType::Empty);
     }
+    ins.local_get(state);
+    let mut targets = vec![n + 1; (n + 1) as usize];
+    for r in resumes {
+        targets[r.state as usize] = r.state;
+    }
+    ins.br_table(targets, n + 1);
+    for k in 0..=n {
+        // Close the block of state `k`; its case follows.
+        ins.end();
+        if let Some(r) = resumes.iter().find(|r| r.state == k) {
+            emit_restore_vars(mcx, ins, r);
+        }
+        // The case is inside the next state block (or the unknown block for the last state), so
+        // the common block is `n - k + 1` labels out.
+        ins.br(n - k + 1);
+    }
+    // An unknown state is unreachable: a frame only ever holds a resume state.
+    ins.end();
+    ins.unreachable();
+    ins.end();
+    // The common code of every case: free the frame, whose state and saved variables are now in
+    // the locals. Control then leaves the `if`.
     ins.local_get(fr);
     ins.i32_const(0);
     ins.i32_store(mem(HDR + 16, 4));
@@ -554,10 +534,38 @@ fn emit_restore(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, resumes: &[Res
     ins.call(drop);
     ins.else_();
     ins.i32_const(0);
-    ins.local_set(mcx.state);
+    ins.local_set(state);
     ins.i32_const(0);
-    ins.local_set(mcx.pending);
+    ins.local_set(pending);
     ins.end();
+}
+
+/// Restores the variables a frame saved at one resume point into their locals.
+fn emit_restore_vars(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, r: &ResumePoint) {
+    let fr = mcx.fr;
+    for (i, &v) in r.saved.iter().enumerate() {
+        let off = HDR + (3 + i as u32) * 8;
+        let repr = mcx.f.vars[v].repr;
+        // A variable without representation is never live, so it is never saved.
+        debug_assert_ne!(repr, Repr::Void, "a saved variable without representation");
+        if repr == Repr::Void {
+            continue;
+        }
+        ins.local_get(fr);
+        match repr {
+            Repr::I32 | Repr::Ref => ins.i32_load(mem(off, 4)),
+            Repr::I64 => ins.i64_load(mem(off, 8)),
+            Repr::F64 => ins.f64_load(mem(off, 8)),
+            Repr::Void => continue,
+        };
+        ins.local_set(mcx.local(v));
+        if repr == Repr::Ref {
+            // The reference moved from the frame into the local.
+            ins.local_get(fr);
+            ins.i32_const(0);
+            ins.i32_store(mem(off, 4));
+        }
+    }
 }
 
 /// Appends a chunk, writing the branches that the transitions recorded before the body's state

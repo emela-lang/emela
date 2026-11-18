@@ -30,6 +30,17 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Instant", include_str!("../lib/std/instant.emel")),
     ("Std.Map", include_str!("../lib/std/map.emel")),
     ("Std.Set", include_str!("../lib/std/set.emel")),
+    (
+        "Std.Dynamic.Number",
+        include_str!("../lib/std/dynamic/number.emel"),
+    ),
+    ("Std.Dynamic", include_str!("../lib/std/dynamic.emel")),
+    ("Std.Shape", include_str!("../lib/std/shape.emel")),
+    (
+        "Std.Dynamic.Presence",
+        include_str!("../lib/std/dynamic/presence.emel"),
+    ),
+    ("Std.Json", include_str!("../lib/std/json.emel")),
     ("Std.State", include_str!("../lib/std/state.emel")),
     ("Std.Console", include_str!("../lib/std/console.emel")),
     ("Std.Process", include_str!("../lib/std/process.emel")),
@@ -65,6 +76,7 @@ const SOURCES: &[(&str, &str)] = &[
 const HOST_FILES: &[(&str, &str)] = &[
     ("std/random.mjs", include_str!("../lib/std/random.mjs")),
     ("std/env.mjs", include_str!("../lib/std/env.mjs")),
+    ("std/console.mjs", include_str!("../lib/std/console.mjs")),
     ("std/process.mjs", include_str!("../lib/std/process.mjs")),
     ("std/clock.mjs", include_str!("../lib/std/clock.mjs")),
     ("std/http.mjs", include_str!("../lib/std/http.mjs")),

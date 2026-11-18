@@ -1,0 +1,10 @@
+import Std.Json
+
+@test
+fn round_trips_options() {
+  assert Json.encode([Some(1), None]) == "[1,null]"
+  xs: List[Option[Int]] = Json.decode("[1,null]")
+  assert xs == [Some(1), None]
+  f: List[Float] = Json.decode("[1,0.5]")
+  assert f == [1.0, 0.5]
+}

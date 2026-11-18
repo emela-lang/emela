@@ -20,6 +20,69 @@ use emela_driver::{
 /// `string_graphemes` is skipped unless Node's ICU is Unicode 17.x: the JS target segments with
 /// the host's `Intl.Segmenter`, while WASM uses the vendored Unicode 17.0.0 tables (spec 18.1 #18).
 const PROGRAMS: &[(&str, &str)] = &[
+    // `[dyn.error]`: the exit code that main returns, after its output (`[target.wasm.output]`).
+    (
+        "exit_code",
+        r#"
+import Std.Process.{EXIT_FAILURE, EXIT_SUCCESS, ExitCode}
+
+fn main() -> ExitCode {
+  dbg((EXIT_SUCCESS, EXIT_FAILURE, Process.exit_code(255).exit_code_to_int()))
+  dbg(EXIT_SUCCESS == Process.exit_code(0))
+  Process.exit_code(42)
+}
+"#,
+    ),
+    (
+        "exit_code_zero",
+        r#"
+import Std.Process.{EXIT_SUCCESS, ExitCode}
+
+fn main() -> ExitCode {
+  EXIT_SUCCESS
+}
+"#,
+    ),
+    (
+        "exit_code_runtime_number",
+        r#"
+import Std.Process.{ExitCode}
+
+fn main() -> ExitCode {
+  Process.exit_code(130)
+}
+"#,
+    ),
+    (
+        "exit_code_out_of_range",
+        r#"
+import Std.Process.{ExitCode}
+
+fn main() -> ExitCode {
+  Process.exit_code(256)
+}
+"#,
+    ),
+    (
+        "exit_code_error",
+        r#"
+import Std.Process.{ExitCode}
+
+error Usage
+
+fn main() -> ExitCode fails Usage {
+  fail Usage
+}
+"#,
+    ),
+    (
+        "exit_code_discarded",
+        r#"
+fn main() -> Int {
+  2
+}
+"#,
+    ),
     (
         "xorshift",
         r#"
@@ -345,6 +408,69 @@ fn main() {
     }
   })
   _ = dbg("misses #{misses}")
+}
+"##,
+    ),
+    // `[effect.handler]`: `Self(...)` constructs the handler value in its init.
+    (
+        "handler_self",
+        r##"
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Count {
+  fn next() -> Int
+}
+
+handler Tagged(tag: String): Log {
+  init(tag: String) {
+    _ = dbg("open #{tag}")
+    Self(tag:)
+  }
+
+  release {
+    _ = dbg("close #{self.tag}")
+  }
+
+  fn log(msg) {
+    _ = dbg("#{self.tag}: #{msg}")
+  }
+}
+
+handler Counter(start: Int): Count {
+  init {
+    make = |n| Self(start: n * 10)
+    make(4)
+  }
+
+  fn next() { self.start + 1 }
+}
+
+handler Quiet: Log {
+  init { Self }
+  fn log(msg) {
+    _ = dbg("quiet: #{msg}")
+  }
+}
+
+handler Plain(): Log {
+  init { Self() }
+  fn log(msg) {
+    _ = dbg("plain: #{msg}")
+  }
+}
+
+fn main() {
+  with Tagged(tag: "a"), Counter {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  with Quiet {
+    (use Log).log("hi")
+  }
+  with Plain {
+    (use Log).log("hi")
+  }
 }
 "##,
     ),
@@ -863,6 +989,17 @@ fn main() {
     (
         "fiber_queue",
         include_str!("../../emela-codegen-c/tests/programs/fiber_queue.emel"),
+    ),
+    // `[trait.derive]`: derived Encode, Decode, ObjectKey and Shaped, with `@key` and `@tag`.
+    (
+        "derive_encode_decode",
+        include_str!("../../emela-codegen-c/tests/programs/derive_encode_decode.emel"),
+    ),
+    // `[trait.derive]`, `[api.std.dynamic.presence]`: a missing key and null in derived Encode
+    // and Decode.
+    (
+        "field_presence",
+        include_str!("../../emela-codegen-c/tests/programs/field_presence.emel"),
     ),
     (
         "local_fns",

@@ -1,5 +1,6 @@
 ---
 source: crates/emela-driver/tests/diagnostics.rs
+assertion_line: 2318
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
 error[E0425]: a `Semaphore` cannot leave the `Fiber.scope` that started it
@@ -11,6 +12,16 @@ error[E0425]: a `Semaphore` cannot leave the `Fiber.scope` that started it
 ───╯
    = note: every fiber has ended once `Fiber.scope` returns, so the value would be of no use outside it
 
+warning[W0402]: a value that holds `Scope` leaves the `Fiber.scope` that provides it
+   ╭─[ main.emel:5:18 ]
+   │
+ 5 │   Fiber.scope(|| Fiber.semaphore(2))
+   │   ─────┬─────    ─────────┬────────  
+   │        ╰───────────────────────────── `Scope` is released at the end of this `Fiber.scope`
+   │                           │          
+   │                           ╰────────── the value of the scope holds `Scope`
+───╯
+
 error[E0425]: a `Queue` cannot leave the `Fiber.scope` that started it
    ╭─[ main.emel:9:3 ]
    │
@@ -20,4 +31,14 @@ error[E0425]: a `Queue` cannot leave the `Fiber.scope` that started it
 ───╯
    = note: every fiber has ended once `Fiber.scope` returns, so the value would be of no use outside it
 
-2 errors
+warning[W0402]: a value that holds `Scope` leaves the `Fiber.scope` that provides it
+   ╭─[ main.emel:9:18 ]
+   │
+ 9 │   Fiber.scope(|| Some(Fiber.queue(1)))
+   │   ─────┬─────    ──────────┬─────────  
+   │        ╰─────────────────────────────── `Scope` is released at the end of this `Fiber.scope`
+   │                            │           
+   │                            ╰─────────── the value of the scope holds `Scope`
+───╯
+
+2 errors, 2 warnings

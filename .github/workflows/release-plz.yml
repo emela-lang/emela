@@ -114,9 +114,52 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # The compiler for the browser, which the playground of the docs site fetches for the
+  # version it describes: emela-playground-<tag>.tar.gz with emela_playground.js and
+  # emela_playground_bg.wasm.
+  playground:
+    name: Build the playground compiler
+    needs: release-plz-release
+    if: needs.release-plz-release.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-plz-release.outputs.tag }}
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - id: bindgen
+        name: Read the wasm-bindgen version
+        run: awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print "version=" $3; exit }' Cargo.lock >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+      - name: Install wasm-opt
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build
+        run: scripts/build-playground.sh package
+      - name: Compile and run a program with it
+        run: node crates/emela-playground/smoke.mjs package
+      - name: Package and upload
+        env:
+          TAG: ${{ needs.release-plz-release.outputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp LICENSE package/
+          tar czf "emela-playground-$TAG.tar.gz" -C package emela_playground.js emela_playground_bg.wasm LICENSE
+          gh release upload "$TAG" "emela-playground-$TAG.tar.gz"
+
   publish-release:
     name: Publish GitHub Release
-    needs: [release-plz-release, build]
+    needs: [release-plz-release, build, playground]
     if: needs.release-plz-release.outputs.tag != ''
     runs-on: ubuntu-latest
     permissions:

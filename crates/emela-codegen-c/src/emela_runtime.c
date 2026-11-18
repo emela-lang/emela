@@ -16,6 +16,7 @@
 #include <math.h>
 #include <poll.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +30,9 @@
 #define EM_EXIT_LEAK 99
 /* The run was unwound as interrupted (spec 14.5). */
 #define EM_EXIT_INTERRUPTED 130
+/* A write to a standard output whose reader has closed it ended the program
+ * (`[api.std.process]`): 128 + SIGPIPE, which the runtime ignores. */
+#define EM_EXIT_CLOSED_STDOUT 141
 
 em_ref em_defect = NULL;
 em_ref em_failure = NULL;
@@ -671,9 +675,53 @@ em_ref em_int_checked_add(int32_t a, int32_t b) {
   return em_some(w, false);
 }
 
+/* Writes the decimal `s` produced by `%.*e` with one added to its last mantissa digit, in a
+ * form `strtod` reads back (the exponent is not padded). `digits` holds the at most 17 digits
+ * a binary64 needs. A carry turns 9...9 into 1.000... and raises the exponent by one (9.9e+05
+ * and one unit are 1.0e+06). `em_format_float` never reaches the carry: when the nearest
+ * p-digit decimal is all 9s, the next one up (10^(e+1)) is no farther and is a candidate too. */
+static void em_next_decimal(const char *s, char *out, size_t size) {
+  const char *p = s;
+  bool negative = *p == '-';
+  if (negative) p++;
+  char digits[24];
+  int k = 0;
+  while (*p != 'e') {
+    if (*p != '.') digits[k++] = *p;
+    p++;
+  }
+  int e = atoi(p + 1);
+  int i = k - 1;
+  while (i >= 0 && digits[i] == '9') {
+    digits[i] = '0';
+    i--;
+  }
+  if (i < 0) {
+    digits[0] = '1';
+    e++;
+  } else {
+    digits[i]++;
+  }
+  digits[k] = '\0';
+  if (k == 1) {
+    snprintf(out, size, "%s%ce%c%d", negative ? "-" : "", digits[0], e < 0 ? '-' : '+',
+             e < 0 ? -e : e);
+  } else {
+    snprintf(out, size, "%s%c.%se%c%d", negative ? "-" : "", digits[0], digits + 1,
+             e < 0 ? '-' : '+', e < 0 ? -e : e);
+  }
+}
+
 /* JS `Number.prototype.toString` (the shortest digits that read back as the same number), with
- * `.0` added to a finite integral value (spec 10.6). `%.Ne` rounds correctly, so the first
- * precision that reads back gives the nearest of the shortest digits, as JS picks. */
+ * `.0` added to a finite integral value (spec 10.6). For a precision p, `%.*e` writes the
+ * nearest p-digit decimal, but that is not always the shortest round-tripping one. At a power
+ * of two x the rounding interval reaches half an ulp above x and only a quarter of an ulp
+ * below, so the nearest p-digit decimal can sit just below x while the p-digit decimal one
+ * unit up lies inside. That asymmetry exists only at a normal power of two: elsewhere the
+ * interval is symmetric, and a nearest candidate outside it has both neighbours outside. Each
+ * precision therefore tests the nearest candidate first and then, at a normal power of two,
+ * its upward neighbour; testing the nearest first also keeps the tie-break on the closest
+ * value. */
 static void em_format_float(double x, char *out, size_t size) {
   if (isnan(x)) {
     snprintf(out, size, "NaN");
@@ -687,10 +735,19 @@ static void em_format_float(double x, char *out, size_t size) {
     snprintf(out, size, "0.0");
     return;
   }
-  char buf[40];
+  unsigned long long bits;
+  memcpy(&bits, &x, sizeof bits);
+  bool power_of_two = (bits & ((1ULL << 52) - 1)) == 0 && ((bits >> 52) & 0x7ff) != 0;
+  char buf[40], up[40];
   for (int p = 1; p <= 17; p++) {
     snprintf(buf, sizeof buf, "%.*e", p - 1, x);
     if (strtod(buf, NULL) == x) break;
+    if (!power_of_two) continue;
+    em_next_decimal(buf, up, sizeof up);
+    if (strtod(up, NULL) == x) {
+      memcpy(buf, up, sizeof up);
+      break;
+    }
   }
   /* buf is `[-]d[.ddd]e(+|-)xx`. */
   const char *q = buf;
@@ -883,9 +940,7 @@ em_ref em_show_string(em_ref s) {
 }
 
 void em_debug_print(em_ref s) {
-  fflush(stdout);
-  fwrite(EM_STR_BYTES(s), 1, EM_STR_LEN(s), stderr);
-  fputc('\n', stderr);
+  em_write_stderr(EM_STR_BYTES(s), EM_STR_LEN(s), true);
 }
 
 /* ---- Defects ---- */
@@ -4380,6 +4435,96 @@ static void em_cell_end(em_ref cell) {
   em_drop(cell);
 }
 
+/* ---- Standard output and standard error (`[api.std.process]`) ----
+ *
+ * SystemStdout, SystemStderr, SystemConsole (`std/process.c`, `std/console.c`), `dbg` and the
+ * lines of `em_exit` all write to the `FILE *` of `stdout` and `stderr` through these, so writes
+ * keep their order. A write to standard error first flushes standard output, so that the two
+ * keep the order written when they go to the same place.
+ *
+ * The runtime ignores SIGPIPE (`em_start`), so a write to a pipe whose reader has closed it fails
+ * with EPIPE instead of ending the process. `stdout` is buffered, so the failure shows up at the
+ * write or flush that hands the buffer to the host, which may be a later write than the one whose
+ * text was lost, or the flush before a write to standard error. Either way, that write does not
+ * return normally: every other fiber of the run is interrupted (11.4), the fiber that wrote
+ * unwinds as interrupted, and later writes to standard output are discarded. `em_exit` then
+ * writes nothing and exits with 141. A closed standard error discards the write. Other write
+ * errors are ignored, as they were before these streams were specified. */
+
+static bool em_stdout_closed = false;
+static bool em_stderr_closed = false;
+/* Standard output was found closed where no interruption can be raised (the flush before
+ * SystemStdin waits, `em_flush_stdout_before_wait`). The next write to it raises the
+ * interruption. */
+static bool em_stdout_lost = false;
+
+/* Whether `f` failed because its reader has closed it. Clears its error, so that a later write
+ * is not taken for a failure too. */
+static bool em_reader_gone(FILE *f) {
+  bool failed = ferror(f) != 0;
+  int error = errno;
+  clearerr(f);
+  return failed && error == EPIPE;
+}
+
+/* Standard output has been found closed. Raises the interruption that unwinds the current fiber
+ * (the pending defect), unless the run has already ended. */
+static void em_close_stdout(void) {
+  em_stdout_closed = true;
+  em_root *r = em_root_cur;
+  if (r != NULL && !r->over) {
+    for (size_t i = 0; i < r->fibers.len; i++) {
+      em_fiber *f = r->fibers.items[i];
+      if (f != em_cur) em_interrupt_fiber(f, NULL);
+    }
+  }
+  if (em_defect == NULL) em_raise_take(em_interrupted_new(NULL));
+}
+
+/* Hands what `stdout` holds to the host. False when standard output has been found closed. */
+static bool em_flush_stdout(void) {
+  if (em_stdout_closed) return false;
+  if (em_stdout_lost) {
+    em_close_stdout();
+    return false;
+  }
+  errno = 0;
+  if (fflush(stdout) != 0 && em_reader_gone(stdout)) {
+    em_close_stdout();
+    return false;
+  }
+  clearerr(stdout);
+  return true;
+}
+
+void em_flush_stdout_before_wait(void) {
+  if (em_stdout_closed || em_stdout_lost) return;
+  errno = 0;
+  if (fflush(stdout) != 0 && em_reader_gone(stdout)) em_stdout_lost = true;
+  clearerr(stdout);
+}
+
+void em_write_stdout(const char *bytes, size_t n, bool newline) {
+  if (em_stdout_closed) return;
+  if (em_stdout_lost) {
+    em_close_stdout();
+    return;
+  }
+  errno = 0;
+  fwrite(bytes, 1, n, stdout);
+  if (newline) fputc('\n', stdout);
+  if (em_reader_gone(stdout)) em_close_stdout();
+}
+
+void em_write_stderr(const char *bytes, size_t n, bool newline) {
+  em_flush_stdout();
+  if (em_stderr_closed) return;
+  errno = 0;
+  fwrite(bytes, 1, n, stderr);
+  if (newline) fputc('\n', stderr);
+  if (em_reader_gone(stderr)) em_stderr_closed = true;
+}
+
 /* ---- The program ---- */
 
 static bool em_started = false;
@@ -4391,6 +4536,8 @@ static char **em_argv = NULL;
 void em_start(int argc, char **argv) {
   if (em_started) return;
   em_started = true;
+  /* A write to a closed pipe fails with EPIPE instead (`[target.native.run]`). */
+  signal(SIGPIPE, SIG_IGN);
   if (argc > 1 && argv != NULL) {
     em_argc = argc - 1;
     em_argv = argv + 1;
@@ -4402,6 +4549,13 @@ void em_start(int argc, char **argv) {
 int32_t em_arg_count(void) { return em_argc > INT32_MAX ? INT32_MAX : (int32_t)em_argc; }
 
 const char *em_arg_at(int32_t i) { return i >= 0 && i < em_argc ? em_argv[i] : ""; }
+
+/* The exit code of a `main` that returns an `ExitCode` (`[dyn.error]`), set by the bundled
+ * `std/process.c` after main has returned. `em_exit` returns it when the run did not end with an
+ * error, a defect or an interruption, and the leak check (99) still wins. */
+static int32_t em_main_exit_code = 0;
+
+void em_set_exit_code(int32_t code) { em_main_exit_code = code; }
 
 /* ---- Exported functions (`[target.native.export]`) ---- */
 
@@ -4516,15 +4670,22 @@ void em_test_done(void) {
 }
 
 static void em_write_line(FILE *f, const char *prefix, em_ref s) {
-  fputs(prefix, f);
-  if (s != NULL) fwrite(EM_STR_BYTES(s), 1, EM_STR_LEN(s), f);
-  fputc('\n', f);
+  (void)f;
+  em_write_stderr(prefix, strlen(prefix), s == NULL);
+  if (s != NULL) em_write_stderr(EM_STR_BYTES(s), EM_STR_LEN(s), true);
 }
 
 int em_exit(void (*cleanup)(void)) {
-  int code = 0;
-  fflush(stdout);
-  if (em_is_interrupted(em_defect)) {
+  int code = em_main_exit_code;
+  em_flush_stdout();
+  if (em_stdout_closed) {
+    /* However main ended, after a write to a closed standard output (`[api.std.process]`). */
+    code = EM_EXIT_CLOSED_STDOUT;
+    if (em_failure != NULL) {
+      em_drop(em_failure);
+      em_failure = NULL;
+    }
+  } else if (em_is_interrupted(em_defect)) {
     em_write_line(stderr, "interrupted", NULL);
     code = EM_EXIT_INTERRUPTED;
   } else if (em_defect != NULL) {
@@ -4544,7 +4705,8 @@ int em_exit(void (*cleanup)(void)) {
   if (cleanup != NULL) cleanup();
   em_drop(em_last_retired);
   em_last_retired = NULL;
-  fflush(stdout);
+  em_flush_stdout();
+  if (em_stdout_closed) code = EM_EXIT_CLOSED_STDOUT;
 #ifdef EMELA_LEAK_CHECK
   bool check = true;
 #else

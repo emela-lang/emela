@@ -1536,6 +1536,7 @@ fn an_assert_in_a_dependency_has_its_source_path() {
             targets: None,
             version: "v1.0.0".into(),
             dependencies: Vec::new(),
+            experimental: Default::default(),
         }],
         project: vec![DependencyRef {
             pome: 0,
@@ -1553,4 +1554,38 @@ fn an_assert_in_a_dependency_has_its_source_path() {
             Some("/deps/quince/src/lib.emel:2:3".to_owned())
         )]
     );
+}
+
+/// `main` is an ordinary fn: a test that calls a `main` returning an `ExitCode` gets the value,
+/// and the process does not end (`[api.std.process]`, `[dyn.error]`). The test after it still
+/// runs, on every target.
+#[test]
+fn calling_main_from_a_test_returns_its_exit_code() {
+    let fs = MemoryFiles::new([
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "\
+import Std.Process.{EXIT_FAILURE, ExitCode}
+
+fn main() -> ExitCode {
+  Process.exit_code(3)
+}
+
+@test
+fn main_returns_three() {
+  assert main() == Process.exit_code(3)
+  assert main().exit_code_to_int() == 3
+}
+
+@test
+fn runs_after() {
+  assert EXIT_FAILURE.exit_code_to_int() == 1
+}
+",
+        ),
+    ]);
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let (out, _) = run_everywhere("exit-code-test", &fs, &input);
+    assert!(out.contains("test result: ok. 2 passed; 0 failed"), "{out}");
 }

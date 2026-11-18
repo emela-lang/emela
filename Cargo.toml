@@ -7,6 +7,8 @@
 #     fmt                                 └→ codegen-wasm ┤
 #                                                         ↓
 #                                           driver → lsp → cli
+#                                             ↓
+#                                         playground（ブラウザ用の check，fmt，JS 出力．wasm32）
 #
 # pome（Pome.toml，Pome.lock，MVS，sumdb の検証）はほかの crate に依存しない．
 #
@@ -56,7 +58,9 @@ toml_edit = "0.25"
 lsp-server = "0.10"
 lsp-types = "0.97"
 serde_json = "1"
-clap = { version = "4", features = ["derive"] }
+# The compiler for the browser (emela-playground): its functions exported to JS.
+wasm-bindgen = "0.2"
+clap = { version = "4", features = ["derive", "string"] }
 # emela doc の `##`（Markdown）を HTML にする．コマンドラインの部分（getopts）は要らない．
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 # スナップショットテスト（構文木・型・出力コードの比較）．
@@ -86,7 +90,9 @@ emela-codegen-wasm = { path = "crates/emela-codegen-wasm", version = "0.27.0" }
 emela-codegen-c = { path = "crates/emela-codegen-c", version = "0.27.0" }
 emela-driver = { path = "crates/emela-driver", version = "0.27.0" }
 emela-lsp = { path = "crates/emela-lsp", version = "0.27.0" }
-emela-pome = { path = "crates/emela-pome", version = "0.27.0" }
+# `net`（HTTP での取得）は cli と lsp だけが有効にする．driver が持ち込むと wasm32 で
+# ビルドできない（rustls → getrandom）．
+emela-pome = { path = "crates/emela-pome", version = "0.27.0", default-features = false }
 
 [profile.dev.package.insta]
 opt-level = 3
