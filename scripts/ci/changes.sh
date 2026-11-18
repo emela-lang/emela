@@ -3,7 +3,7 @@
 # (each `true` or `false`) to $GITHUB_OUTPUT.
 #
 # Reads EVENT (the event name) and, for `merge_group`, QUEUE_BASE (the base commit of the group).
-# Any other event (a push) runs everything.
+# A push to main only refills the caches (ci.yml), which the jobs behind `code` hold.
 set -euo pipefail
 
 out="${GITHUB_OUTPUT:-/dev/stdout}"
@@ -16,7 +16,7 @@ case "$EVENT" in
     base="$QUEUE_BASE"
     ;;
   *)
-    printf 'code=true\nspec=true\ngrammar=true\n' >> "$out"
+    printf 'code=true\nspec=false\ngrammar=false\n' >> "$out"
     exit 0
     ;;
 esac
