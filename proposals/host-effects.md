@@ -1,10 +1,10 @@
 ---
 title: Host effects, what the host provides to a launch
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 617
 issue:
-decided:
+decided: 2026-11-18
 touches: [effect.decl, effect.async, effect.host (new), effect.with, ext.call, ext.export, ext.entry, test.constraints, lib.layers, lib.http-service, api.std.platform, api.std.process, api.std.env, api.std.file-system, diag.list]
 requires: []
 related: []
@@ -310,3 +310,7 @@ Add:
 ## Open questions
 
 ## Decision
+
+- What a host provides (a process, a page) is told apart in types as host effects, not by target, so the same program keeps the same results on every target and a handler for processes used in a page is a compile error.
+- Only the entry provides host effects. `Platform` keeps only the handlers every host has, and `Process` adds the handlers for processes.
+- Effects without operations are only host effects, and the `uses` of an external function is `{}` or host effects, which closes the hole of calling a host function outside a handler.
