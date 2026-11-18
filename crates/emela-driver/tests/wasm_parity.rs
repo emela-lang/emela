@@ -411,6 +411,69 @@ fn main() {
 }
 "##,
     ),
+    // `[effect.handler]`: `Self(...)` constructs the handler value in its init.
+    (
+        "handler_self",
+        r##"
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Count {
+  fn next() -> Int
+}
+
+handler Tagged(tag: String): Log {
+  init(tag: String) {
+    _ = dbg("open #{tag}")
+    Self(tag:)
+  }
+
+  release {
+    _ = dbg("close #{self.tag}")
+  }
+
+  fn log(msg) {
+    _ = dbg("#{self.tag}: #{msg}")
+  }
+}
+
+handler Counter(start: Int): Count {
+  init {
+    make = |n| Self(start: n * 10)
+    make(4)
+  }
+
+  fn next() { self.start + 1 }
+}
+
+handler Quiet: Log {
+  init { Self }
+  fn log(msg) {
+    _ = dbg("quiet: #{msg}")
+  }
+}
+
+handler Plain(): Log {
+  init { Self() }
+  fn log(msg) {
+    _ = dbg("plain: #{msg}")
+  }
+}
+
+fn main() {
+  with Tagged(tag: "a"), Counter {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  with Quiet {
+    (use Log).log("hi")
+  }
+  with Plain {
+    (use Log).log("hi")
+  }
+}
+"##,
+    ),
     (
         "handler_init_args",
         r##"

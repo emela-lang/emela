@@ -805,6 +805,46 @@ fn make() { Counter(n: 1) }
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// `Self` as an expression where it cannot construct a handler (`[effect.handler]`,
+/// `[grammar.expr]`): inside a handler outside its init (E0418), outside a handler (E0219, also in
+/// an impl), and as the target of a record update (E0222).
+#[test]
+fn handler_self_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Logger {
+  fn info(msg: String) -> ()
+}
+
+trait Make {
+  fn make() -> Self
+}
+
+type Box(n: Int)
+
+impl Box: Make {
+  fn make() { Self(n: 1) }
+}
+
+handler Counter(n: Int): Logger {
+  init { Self(n: 0, ..Self(n: 1)) }
+  fn info(msg) {
+    next = Self(n: self.n + 1)
+    ()
+  }
+}
+
+fn make() { Self(n: 1) }
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// The messages of effect type parameter diagnostics (E0423, E0424, E0304, E0402; spec 8.1).
 #[test]
 fn effect_type_param_diagnostics() {
