@@ -13,22 +13,45 @@
 //!   where every allocation and every reference is explicit. `rc_cleanup` runs here.
 //!
 //! All are called by [`crate::to_heap_with`], so a build switches all of them off together with
-//! `--no-opt`. There is no generic pass framework: each stage runs a fixed sequence.
+//! `--no-opt`. There is no generic pass framework: each stage runs a fixed sequence. The stage
+//! wrappers with options ([`run_mid_with`], [`run_heap_with`]) run the same sequence with
+//! individual LIR passes turned off.
 //!
 //! Every pass preserves the observable behaviour of the program: evaluation order, effects,
 //! failures, the order and count of the releases of `with`, and drop points. It may change memory
 //! use and when a program runs out of memory. A pass that cannot keep its contract gives up on
 //! that function instead of changing it.
 //!
-//! The analyses a pass needs are shared and separately tested: [`escape`] (which values leave a
-//! function) and `crate::heap::live` (liveness). Each pass documents its preconditions,
-//! postconditions, what it preserves, when it deopts, and what it measures (parent plan §3.2).
+//! The analyses a pass needs are shared and separately tested: [`analysis`] is the API for the
+//! escape, liveness, borrow and ownership facts, and [`escape`] and `crate::heap::live` are the
+//! current implementations behind it. Each analysis documents its domain, transfer, soundness and
+//! the deopt a consumer must take when it answers `Unknown`. Each pass documents its
+//! preconditions, postconditions, what it preserves, when it deopts, and what it measures (parent
+//! plan §3.4).
 //!
-//! | Pass | Counter | Stage |
-//! |---|---|---|
-//! | [`sra`] | [`Stats::sra_tuples`] | [`run_mid`] |
-//! | [`rc`] | [`Stats::rc_pairs`] | [`run_heap`] |
+//! | Pass | Counter | Stage | Status |
+//! |---|---|---|---|
+//! | [`analysis`] (`escape`, `liveness`, `borrow`, `ownership`) | — | every stage | API only; answers `Unknown` until B3/PR-022, B4/PR-023 and B6/PR-024 |
+//! | [`sra`] | [`Stats::sra_tuples`] | [`run_mid`] | scalar tuples; C5/PR-043 extends it to records and closures |
+//! | closure devirtualisation | — | [`run_mid`] | not implemented (E5/PR-037) |
+//! | [`rc`] cleanup | [`Stats::rc_pairs`] | [`run_heap`] | `dup`/`drop` pairs; C1/PR-025 generalises it |
+//! | drop specialisation | — | [`run_heap`] | not implemented (C3/PR-027) |
+//! | reuse / FBIP | — | [`run_heap`] | not implemented (C4/PR-042) |
+//! | DCE / suspension frame pruning | — | [`run_heap`] | not implemented (C7/PR-028) |
+//!
+//! A row marked "not implemented" has no code and no flag yet; its pull request adds both. The
+//! analyses are not passes and never change the module.
+//!
+//! # Feature flags
+//!
+//! [`LirRules`] has one flag per LIR pass that exists today ([`sra`] and the `rc` cleanup), and
+//! [`Options`] holds them. [`run_mid_with`] and [`run_heap_with`] take the options; [`run_mid`] and
+//! [`run_heap`] keep their old signatures and use [`Options::default`], which turns every pass on.
+//! The flags are a programmatic API only: no command-line flag is added in this skeleton. The
+//! analyses and the later LIR passes (drop specialisation, reuse, DCE, frame pruning) get their
+//! own flags when they land.
 
+pub mod analysis;
 pub(crate) mod escape;
 mod rc;
 mod sra;
@@ -56,6 +79,50 @@ impl Stats {
         self.sra_tuples += other.sra_tuples;
         self.rc_pairs += other.rc_pairs;
     }
+}
+
+/// The LIR passes [`run_mid_with`] and [`run_heap_with`] may run, one flag per pass.
+///
+/// The stages themselves stay in place: a pass flag only decides whether its pass runs, not where
+/// in the stage order it sits. The analyses are not passes and have no flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LirRules {
+    /// SRA at [`run_mid`]: non-escaping scalar tuples replaced by their fields.
+    pub sra: bool,
+    /// `rc` cleanup at [`run_heap`]: `dup`/`drop` pairs removed.
+    pub rc_cleanup: bool,
+}
+
+impl LirRules {
+    /// Every flag on.
+    pub const fn all() -> Self {
+        Self {
+            sra: true,
+            rc_cleanup: true,
+        }
+    }
+
+    /// Every flag off: every stage returns without changing the module.
+    pub const fn none() -> Self {
+        Self {
+            sra: false,
+            rc_cleanup: false,
+        }
+    }
+}
+
+impl Default for LirRules {
+    /// All passes on, the behaviour of the stages before the flags existed.
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
+/// The options of [`run_mid_with`] and [`run_heap_with`].
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Options {
+    /// Which LIR passes to run. [`LirRules::all`] by default.
+    pub rules: LirRules,
 }
 
 /// Runs the Flow IR optimisation passes on `m` if `optimize`, and returns what they changed.
@@ -90,7 +157,27 @@ pub fn run_flow(_m: &mut Module, _optimize: bool) -> Stats {
 ///
 /// This stage is the only one where SRA and closure devirtualisation are sound: running them after
 /// `state_machines` would also have to rewrite `Suspend::saved`, which this stage fixes.
+///
+/// This is [`run_mid_with`] with [`Options::default`] (every pass on).
 pub fn run_mid(m: &mut Module, optimize: bool) -> Stats {
+    if !optimize {
+        assert_eq!(
+            m.stage,
+            Stage::ClosuresConverted,
+            "the closure optimisations run after closure conversion and before the state machines"
+        );
+        #[cfg(test)]
+        observe_mid_now(m);
+        return Stats::default();
+    }
+    run_mid_with(m, Options::default())
+}
+
+/// Runs the closure-level passes selected by `options`.
+///
+/// The preconditions, postconditions, preserved behaviour and deopt are those of [`run_mid`]; a
+/// pass whose flag is off does not run and leaves its counter zero.
+pub fn run_mid_with(m: &mut Module, options: Options) -> Stats {
     assert_eq!(
         m.stage,
         Stage::ClosuresConverted,
@@ -98,11 +185,11 @@ pub fn run_mid(m: &mut Module, optimize: bool) -> Stats {
     );
     #[cfg(test)]
     observe_mid_now(m);
-    if !optimize {
-        return Stats::default();
+    let mut stats = Stats::default();
+    if options.rules.sra {
+        stats.merge(sra::run(m));
+        check(m);
     }
-    let stats = sra::run(m);
-    check(m);
     stats
 }
 
@@ -120,17 +207,35 @@ pub fn run_mid(m: &mut Module, optimize: bool) -> Stats {
 /// Deopt: [`rc`] leaves a `dup`/`drop` pair alone when the reference it takes may be the only thing
 /// keeping the value alive (a view whose base is not the borrowed environment of the call), when
 /// the variable is consumed between the two, or when the `drop` is not reached on every path.
+///
+/// This is [`run_heap_with`] with [`Options::default`] (every pass on).
 pub fn run_heap(m: &mut Module, optimize: bool) -> Stats {
+    if !optimize {
+        assert_eq!(
+            m.stage,
+            Stage::RefCounted,
+            "the Heap IR optimisations run after reference counting"
+        );
+        return Stats::default();
+    }
+    run_heap_with(m, Options::default())
+}
+
+/// Runs the Heap IR passes selected by `options`.
+///
+/// The preconditions, postconditions, preserved behaviour and deopt are those of [`run_heap`]; a
+/// pass whose flag is off does not run and leaves its counter zero.
+pub fn run_heap_with(m: &mut Module, options: Options) -> Stats {
     assert_eq!(
         m.stage,
         Stage::RefCounted,
         "the Heap IR optimisations run after reference counting"
     );
-    if !optimize {
-        return Stats::default();
+    let mut stats = Stats::default();
+    if options.rules.rc_cleanup {
+        stats.merge(rc::run(m));
+        check(m);
     }
-    let stats = rc::run(m);
-    check(m);
     stats
 }
 
@@ -289,5 +394,48 @@ mod tests {
         total.merge(Stats::default());
         assert_eq!(total.sra_tuples, 5);
         assert_eq!(total.rc_pairs, 5);
+    }
+
+    /// `LirRules::all` and `Default` agree; `none` turns every flag off.
+    #[test]
+    fn the_lir_rule_flags_have_conservative_defaults() {
+        let all = LirRules::all();
+        assert_eq!(LirRules::default(), all);
+        assert!(all.sra && all.rc_cleanup);
+        let none = LirRules::none();
+        assert!(!none.sra && !none.rc_cleanup);
+    }
+
+    /// A stage whose pass is off does not run: the module and the counters are untouched.
+    #[test]
+    fn a_disabled_pass_leaves_the_stage_alone() {
+        let mut m = module_with_a_closure();
+        crate::convert_closures(&mut m);
+        let before = crate::dump(&m);
+        let stats = run_mid_with(
+            &mut m,
+            Options {
+                rules: LirRules::none(),
+            },
+        );
+        assert_eq!(stats.sra_tuples, 0);
+        assert_eq!(stats.rc_pairs, 0);
+        assert_eq!(crate::dump(&m), before);
+    }
+
+    /// The Heap IR wrapper keeps the stage precondition even when every pass is off.
+    #[test]
+    fn the_heap_wrapper_keeps_its_stage_check() {
+        let mut m = module_with_a_closure();
+        crate::convert_closures(&mut m);
+        m.stage = Stage::RefCounted;
+        let stats = run_heap_with(
+            &mut m,
+            Options {
+                rules: LirRules::none(),
+            },
+        );
+        assert_eq!(stats.sra_tuples, 0);
+        assert_eq!(stats.rc_pairs, 0);
     }
 }
