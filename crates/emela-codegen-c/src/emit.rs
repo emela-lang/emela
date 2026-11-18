@@ -1479,7 +1479,10 @@ impl<'m> Emitter<'m> {
                             match elem {
                                 Repr::Void => w.stmt(&step),
                                 _ => {
-                                    w.assign(&format!("{array}->slots[1 + {i}].{}", acc(elem)), &step);
+                                    w.assign(
+                                        &format!("{array}->slots[1 + {i}].{}", acc(elem)),
+                                        &step,
+                                    );
                                 }
                             }
                             // A defect from `f` (nobody wrote it into the type) ends the loop
