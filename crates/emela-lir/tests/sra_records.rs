@@ -56,6 +56,7 @@ fn sra(records: bool) -> Options {
         rules: LirRules {
             sra: true,
             sra_records: records,
+            devirt: false,
             rc_cleanup: false,
         },
     }
