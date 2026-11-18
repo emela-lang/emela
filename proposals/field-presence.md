@@ -14,13 +14,13 @@ related: [derive-encode-decode-shaped]
 
 ## Summary
 
-derive した Encode と Decode で，フィールドのキーがないことと null を，フィールドの型が決めるようにする．
+In derived Encode and Decode, the type of a field decides how a missing key and null are written and read.
 
-- `Option[A]` の None は，キーを書かない（今は null を書く）．読むときは，キーがなくても null でも None（今と同じ）．
-- 3つの状態（キーがない，null，値）を区別する型 `Presence[A]` を `Std.Dynamic.Presence` に足す．部分更新の body に使う．
-- trait `Encode` に `to_field`，`Decode` に `from_absent` を足す．どちらも既定の実装を持つので，今の impl はそのまま動く．
+- None of `Option[A]` leaves the key out (it is written as null now). A missing key and null are both read as None (as now).
+- `Std.Dynamic.Presence` gains `Presence[A]`, a type that tells the three states apart: a missing key, null and a value. It is meant for the bodies of partial updates.
+- The trait `Encode` gains `to_field`, and `Decode` gains `from_absent`. Both have default implementations, so the existing impls keep working.
 
-属性も Pome の設定も足さない．
+No attribute and no setting of a Pome is added.
 
 ```emel
 import Std.Dynamic.{Decode, Encode}
@@ -31,54 +31,52 @@ type TodoPatch(title: Option[String], due: Presence[String]) derive Encode, Deco
 
 ## Motivation
 
-`derive-encode-decode-shaped` は，None を null で書き，キーがないことも null も None と読む，と決めた．`Option[A]` の状態は2つ，JSON のフィールドの状態は3つ（キーがない，null，値）で，この決め方では次のことができない．
+`derive-encode-decode-shaped` decided that None is written as null, and that a missing key and null are both read as None. `Option[A]` has two states and a field of JSON has three (a missing key, null, a value), so this cannot:
 
-1. キーがないことと null を区別できない．部分更新でよく使う意味づけ（キーがなければ変えない，null なら消す．JSON Merge Patch，RFC 7396）を受け取れず，送れもしない．
-2. 「省けるが null は不可」のフィールドを持つ相手に送れない．None を null で送ると，相手の検証で弾かれる．
-3. Shape が入力と出力の両方を表せない．Encode が出すのは「キーは必ずあり，null もありうる」，Decode が受け付けるのは「キーはなくてもよい」で，同じ `Shape.Option` が2つの形を表すことになる．
-
-具体例を挙げる．
+1. Tell a missing key from null. A partial update in its usual meaning (a missing key leaves the member as it is, null removes it; JSON Merge Patch, RFC 7396) can be neither read nor written.
+2. Write to a counterpart whose field may be left out but may not be null. None written as null fails the counterpart's validation.
+3. Describe input and output with one Shape. Encode writes "the key is always there and may be null", Decode accepts "the key may be missing", and the same `Shape.Option` stands for both.
 
 ```emel
 type TodoPatch(title: Option[String], due: Option[String]) derive Decode
 ```
 
-`{}`（何も変えない）と `{"due": null}`（期限を消す）は，どちらも `TodoPatch(title: None, due: None)` になる．
+`{}` (change nothing) and `{"due": null}` (remove the due date) both become `TodoPatch(title: None, due: None)`.
 
-Emela には null がない（`[intro.premises]`）．None は「値がない」で，オブジェクトの中で「値がない」に対応するのはキーがないこと．null は外の形式の都合で，それに意味を付けるのはアプリケーション．意味を付けるなら，それはデータの定義として書く．
+Emela has no null (`[intro.premises]`). None means "no value", and inside an object "no value" corresponds to a missing key. Null belongs to the outside format, and only an application gives it a meaning. When it does, the meaning is written as the definition of data.
 
 ## Proposal
 
 ### Syntax
 
-構文は変えない．
+No change.
 
 ### Meaning
 
-フィールドのキーをどう書き，どう読むかは，フィールドの型の Encode と Decode が決める．
+How the key of a field is written and read is decided by the Encode and Decode of the type of the field.
 
-| フィールドの型 | キーがない | null | 値 | 書くとき |
+| Type of the field | Missing key | null | Value | Writing |
 |---|---|---|---|---|
-| `A`（下の2つ以外） | `Decode.from_dynamic(Null)`（String ならエラー） | 同じ | `from_dynamic` | 値を書く |
-| `Option[A]` | None | None | Some | None はキーを書かない |
-| `Presence[A]` | Absent | Null | Present | Absent はキーを書かない，Null は null を書く |
+| `A` (other than the two below) | `Decode.from_dynamic(Null)` (an error for String) | the same | `from_dynamic` | The value |
+| `Option[A]` | None | None | Some | None leaves the key out |
+| `Presence[A]` | Absent | Null | Present | Absent leaves the key out, Null writes null |
 
-新規作成の body:
+The body of a creation:
 
 ```emel
 type TodoBody(title: String, due: Option[String]) derive Encode, Decode
 ```
 
-| JSON | 値 |
+| JSON | Value |
 |---|---|
-| `{"title": "買い物", "due": "2026-11-20"}` | `TodoBody(title: "買い物", due: Some("2026-11-20"))` |
-| `{"title": "買い物", "due": null}` | `TodoBody(title: "買い物", due: None)` |
-| `{"title": "買い物"}` | `TodoBody(title: "買い物", due: None)` |
+| `{"title": "Shopping", "due": "2026-11-20"}` | `TodoBody(title: "Shopping", due: Some("2026-11-20"))` |
+| `{"title": "Shopping", "due": null}` | `TodoBody(title: "Shopping", due: None)` |
+| `{"title": "Shopping"}` | `TodoBody(title: "Shopping", due: None)` |
 | `{"due": "2026-11-20"}` | `DecodeError(expected: "text", actual: Null, path: [Key("title")])` |
 
-`TodoBody(title: "買い物", due: None)` は `{"title": "買い物"}` と書く．
+`TodoBody(title: "Shopping", due: None)` is written as `{"title": "Shopping"}`.
 
-部分更新の body:
+The body of a partial update:
 
 ```emel
 type TodoPatch(title: Option[String], due: Presence[String]) derive Encode, Decode
@@ -97,16 +95,18 @@ fn apply(todo: Todo, p: TodoPatch) -> Todo {
 }
 ```
 
-| JSON | 値 |
+| JSON | Value |
 |---|---|
 | `{}` | `TodoPatch(title: None, due: Absent)` |
-| `{"title": "牛乳"}` | `TodoPatch(title: Some("牛乳"), due: Absent)` |
+| `{"title": "Milk"}` | `TodoPatch(title: Some("Milk"), due: Absent)` |
 | `{"due": null}` | `TodoPatch(title: None, due: Null)` |
 | `{"due": "2026-12-01"}` | `TodoPatch(title: None, due: Present("2026-12-01"))` |
 
-`TodoPatch(title: None, due: Null)` は `{"due": null}`，`TodoPatch(title: Some("牛乳"), due: Absent)` は `{"title": "牛乳"}` と書く．
+`TodoPatch(title: None, due: Null)` is written as `{"due": null}`, and `TodoPatch(title: Some("Milk"), due: Absent)` as `{"title": "Milk"}`.
 
-#### trait
+A key of an Option field that is misspelled by the sender (`"due_at"` for `"dueAt"`) is read as None, without an error, since unknown keys are ignored. A field whose type is not Option still fails, and the JSON Schema made from Shaped lets the sender check its keys.
+
+#### The traits
 
 ```emel
 pub trait Encode {
@@ -118,18 +118,19 @@ pub trait Encode {
 
 pub trait Decode {
   fn from_dynamic(d: Dynamic) -> Self fails DecodeError
-  fn from_dynamic_all(d: Dynamic) -> Self fails DecodeErrors { ... } # 今と同じ
+  fn from_dynamic_all(d: Dynamic) -> Self fails DecodeErrors { ... } # unchanged
   fn from_absent() -> Self fails DecodeError {
     Decode.from_dynamic(Null)
   }
 }
 ```
 
-- `to_field` は，値をオブジェクトのフィールドとして書くときの形．None ならキーを書かない．
-- `from_absent` は，キーがないときの値．既定はキーを null として読むので，今の「キーがなければ null として読む」と同じ結果になる．
-- Option が上書きするのは `to_field` だけ（None は None）．`from_absent` は既定のままで None になる．
-- `Presence` は両方を上書きする．
-- `to_field` と `from_absent` を使うのは，型のフィールドと，enum の名前付きの中身のフィールドだけ．List の要素，Map の値，位置の中身は，今と同じく `to_dynamic` と `from_dynamic` を使う．そこでは Absent も None も null になる．
+- `to_field` is the form of a value written as a field of an object. None leaves the key out.
+- `from_absent` is the value of a field whose key is missing. Its default reads the key as null, which gives the same result as "a missing key is read as Null" now.
+- Option overrides only `to_field` (None for None). It keeps the default `from_absent`, which gives None.
+- `Presence` overrides both.
+- `to_field` and `from_absent` are used only for the fields of a type and of the named contents of a variant. The elements of a List, the values of a Map and positional contents use `to_dynamic` and `from_dynamic`, as now; there, Absent and None are both written as null.
+- `Std.Dynamic.lookup` gives the value of a key, or None if the key is missing, for hand-written impls that need to tell the two apart.
 
 #### Presence
 
@@ -137,19 +138,19 @@ pub trait Decode {
 pub enum Presence[A] { Absent, Null, Present(A) }
 ```
 
-- 置き場所は `Std.Dynamic.Presence`．`Std.Dynamic` には `Dynamic.Null` があり，同じモジュールに同じ名前の variant は置けない（E0213）．
-- Encode: `to_dynamic` は Absent と Null を null に，`Present(a)` を `a` の `to_dynamic` にする．`to_field` は Absent を None，Null を `Some(Null)`，`Present(a)` を `Some(a.to_dynamic())` にする．
-- Decode: `from_dynamic` は null を Null に，それ以外を `Present(A.from_dynamic(d))` にする．`from_absent` は Absent．`from_dynamic_all` は値を `from_dynamic_all` で読む．
-- Shaped: `Shape.Option` に A の形を入れたもの．
-- Eq，Ord，Show を derive する．順序は Absent，Null，Present．
+- It is in `Std.Dynamic.Presence`. `Std.Dynamic` has `Dynamic.Null`, and one module cannot have two variants of the same name (E0213).
+- Encode: `to_dynamic` writes Absent and Null as null, and `Present(a)` as the `to_dynamic` of `a`. `to_field` gives None for Absent, `Some(Null)` for Null, and `Some(a.to_dynamic())` for `Present(a)`.
+- Decode: `from_dynamic` reads null as Null and any other value as `Present(A.from_dynamic(d))`. `from_absent` is Absent. `from_dynamic_all` reads the value with `from_dynamic_all`.
+- Shaped: `Shape.Option` of the shape of A.
+- Eq, Ord and Show are derived. The order is Absent, Null, Present.
 
 #### Shape
 
-Shape は変えない．`Shape.Option(s)` は「キーがない，null，s のどれでもよい」を表す．Option も Presence もこの3つを受け付け，Option は null を書かないが，書く形は受け付ける形に含まれる．JSON Schema に写すときは，`Shape.Option` のフィールドを `required` から外し，null も許す．
+Shape does not change. `Shape.Option(s)` describes "a missing key, null, or s". Option and Presence both accept these three; Option never writes null, but what it writes is within what it accepts. A JSON Schema made from a Shape leaves the fields of `Shape.Option` out of `required`, and allows null for them.
 
 ### Typing rules
 
-変えない．
+No change.
 
 ## Specification changes
 
@@ -187,29 +188,29 @@ Replace "None is encoded as Null, and Null decodes as None." with:
 
 ## Diagnostics
 
-なし．
+None.
 
 ## Compatibility
 
-- 出力が変わる: derive した Encode は，None のフィールドのキーを書かなくなる．derive は 0.28 で入る予定（`derive-encode-decode-shaped`）で，この提案を同じ版に入れるなら，リリースされたふるまいは変わらない．
-- trait に足すメソッドはどちらも既定の実装を持つので，手で書いた impl はそのまま通る．
-- 手で書いた Encode の impl が None を null で書いていても，それを使う型のフィールドでは null が書かれ続ける（Option の impl を通らないため）．
+- The output changes: a derived Encode leaves out the key of a field whose value is None. Derivation of Encode was implemented in #589 for 0.28, which is not released yet. This proposal is implemented in the same version, so no released behavior changes.
+- The methods added to the traits have default implementations, so hand-written impls keep compiling.
+- A field whose type has a hand-written Encode that writes None as null is still written as null, since it does not go through the impl of Option.
 
 ## Implementation
 
-- std（`std/dynamic.emel`）: `to_field`，`from_absent`，`lookup`，Option の `to_field`
-- std（`std/dynamic/presence.emel`）: `Presence` と impl
-- emela-core（`lower/derive_std.rs`）: フィールドを `lookup` と `from_absent` で読み，`to_field` で書く
-- x/json-schema: `Shape.Option` のフィールドを `required` から外す
+- std (`std/dynamic.emel`): `to_field`, `from_absent`, `lookup`, and the `to_field` of Option
+- std (`std/dynamic/presence.emel`): `Presence` and its impls
+- emela-core (`lower/derive_std.rs`): read fields with `lookup` and `from_absent`, and write them with `to_field`
+- x/json-schema: leave the fields of `Shape.Option` out of `required`
 
 ## Alternatives
 
-- 属性で決める（`@optional` をフィールドに付け，付けたフィールドだけキーを省ける）: 同じ Option が属性によって3通りに読まれ，型を見ても形が分からない．3状態には，さらに `@optional(exact)` と `Option[Option[A]]` の組み合わせが要る．
-- `Option[Option[A]]` で3状態を表す: `Some(None)` が何を指すかを覚えなければならない．`Std.Dynamic.field` がキーがないことを null と読むので，今のままでは区別もできない．
-- 宣言したフィールドのキーはすべて必須にし，Option は null だけを None にする: キー名の間違い（`"dueAt"` を `"due_at"` と送る）をエラーにできるが，キーを省いて送る相手から読めなくなり，1も解けない．
-- None を null で書き続ける: 2が残る．Emela に null はないので，None を null に結びつける理由がない．
-- `Dynamic` に「ない」を表す variant を足す: Dynamic が null を2種類持つことになり，形式を読む関数（`Json.parse`）がそれを作ることはない．
-- `Presence` を `Std.Dynamic` に置き，variant の名前を変える（`Cleared` など）: 名前が JSON の形を表さなくなり，アプリケーションの意味（消す）を std が決めることになる．
+- Deciding it with an attribute (`@optional` on a field, which alone may be left out): the same Option is read in three ways depending on the attribute, and the type does not show the form. Three states would need `@optional(exact)` together with `Option[Option[A]]` as well.
+- Three states as `Option[Option[A]]`: one has to remember what `Some(None)` stands for. `Std.Dynamic.field` reads a missing key as null, so they could not even be told apart as it is.
+- Requiring the keys of all declared fields, with Option reading only null as None: a misspelled key becomes an error, but a counterpart that leaves keys out can no longer be read, and 1 is not solved.
+- Keep writing None as null: 2 remains. Emela has no null, so there is no reason to tie None to null.
+- A variant for "missing" in `Dynamic`: Dynamic would have two kinds of null, and no function that reads a format (`Json.parse`) would make it.
+- `Presence` in `Std.Dynamic` with other names for its variants (`Cleared`): the names would no longer describe the form of JSON, and std would decide the meaning that the application gives (removing).
 
 ## Prior art
 
@@ -218,9 +219,5 @@ Replace "None is encoded as Null, and Null decodes as None." with:
 - Partial updates where a missing key leaves a member as it is and null removes it: JSON Merge Patch (RFC 7396).
 
 ## Open questions
-
-- 型とモジュールの名前（`Presence`，`Std.Dynamic.Presence`）
-- Option のフィールドで，キー名の間違いが None になることを受け入れるか．Option でないフィールドならエラーになり，Option のフィールドは Shaped から作る JSON Schema で相手が検証できる
-- #589 のマージ前に入れるか，マージ後に別の PR にするか（0.28 のリリースまでに入れば，ふるまいの変更にはならない）
 
 ## Decision
