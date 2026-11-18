@@ -1,0 +1,127 @@
+import Std.Dynamic.{Decode, Encode, Dynamic, DecodeError, DecodeErrors, Segment, Key, Index}
+import Std.Dynamic.Presence.{Absent, Null, Present, Presence}
+import Std.Json
+import Std.Shape.{Shaped}
+
+# A missing key and null in derived Encode and Decode (`[trait.derive]`, `[api.std.dynamic]`,
+# `[api.std.dynamic.presence]`): the type of a field decides how its key is written and read.
+
+type TodoBody(title: String, due: Option[String]) derive Show, Encode, Decode
+
+type TodoPatch(title: Option[String], due: Presence[String]) derive Show, Encode, Decode, Shaped
+
+enum Change {
+  Rename(title: Option[String], due: Presence[Int])
+  Pair(Option[Int], Presence[Int])
+} derive Show, Encode, Decode
+
+# A hand-written impl keeps the defaults of `to_field` and `from_absent`.
+type Level(value: Int) derive Show
+
+impl Level: Encode {
+  fn to_dynamic(self) {
+    self.value.to_dynamic()
+  }
+}
+
+impl Level: Decode {
+  fn from_dynamic(d) {
+    Level(value: Dynamic.optional(Dynamic.int)(d).or(0))
+  }
+}
+
+type Settings(level: Level, name: String) derive Show, Encode, Decode
+
+fn path(p: List[Segment]) -> String {
+  p.map(|s| {
+    s match {
+      Key(k)   -> ".#{k}"
+      Index(i) -> "[#{i}]"
+    }
+  }).join("")
+}
+
+fn first[A: Decode + Show](proxy: Option[A], text: String) -> String {
+  {
+    a: A = Json.decode(text)
+    a.show()
+  } escape {
+    DecodeError(expected:, actual: _, path: p) -> "#{expected} at #{path(p)}"
+    _                                          -> "syntax"
+  }
+}
+
+fn all[A: Decode + Show](proxy: Option[A], text: String) -> List[String] {
+  {
+    a: A = Json.decode_all(text)
+    [a.show()]
+  } escape {
+    DecodeErrors(errors:) -> errors.map(|e| "#{e.expected} at #{path(e.path)}")
+    _                     -> ["syntax"]
+  }
+}
+
+fn main() {
+  bodies: Option[TodoBody] = None
+  patches: Option[TodoPatch] = None
+  changes: Option[Change] = None
+  settings: Option[Settings] = None
+
+  # Option: None leaves the key out; a missing key and null both read as None.
+  dbg(Json.encode(TodoBody(title: "Shopping", due: None)))
+  dbg(Json.encode(TodoBody(title: "Shopping", due: Some("2026-11-20"))))
+  dbg(first(bodies, "{\"title\":\"Shopping\",\"due\":\"2026-11-20\"}"))
+  dbg(first(bodies, "{\"title\":\"Shopping\",\"due\":null}"))
+  dbg(first(bodies, "{\"title\":\"Shopping\"}"))
+  # A field that is not Option reads a missing key as null, which String rejects.
+  dbg(first(bodies, "{\"due\":\"2026-11-20\"}"))
+  dbg(all(bodies, "{\"due\":1}"))
+  dbg(all(bodies, "{\"title\":\"Shopping\"}"))
+
+  # Presence: Absent leaves the key out, Null writes null.
+  dbg(Json.encode(TodoPatch(title: None, due: Absent)))
+  dbg(Json.encode(TodoPatch(title: Some("Milk"), due: Absent)))
+  dbg(Json.encode(TodoPatch(title: None, due: Null)))
+  dbg(Json.encode(TodoPatch(title: None, due: Present("2026-12-01"))))
+  dbg(first(patches, "{}"))
+  dbg(first(patches, "{\"title\":\"Milk\"}"))
+  dbg(first(patches, "{\"due\":null}"))
+  dbg(first(patches, "{\"due\":\"2026-12-01\"}"))
+  dbg(first(patches, "{\"due\":1}"))
+  dbg(all(patches, "{}"))
+  dbg(all(patches, "{\"due\":null}"))
+  dbg(all(patches, "{\"title\":1,\"due\":2}"))
+
+  # Named contents of a variant are written and read as the fields of a type; positional
+  # contents use `to_dynamic` and `from_dynamic`, so Absent and None are written as null.
+  dbg(Json.encode(Rename(title: None, due: Absent)))
+  dbg(Json.encode(Rename(title: Some("a"), due: Null)))
+  dbg(Json.encode(Pair(None, Absent)))
+  dbg(first(changes, "{\"tag\":\"Rename\",\"value\":{}}"))
+  dbg(first(changes, "{\"tag\":\"Rename\",\"value\":{\"due\":null}}"))
+  dbg(first(changes, "{\"tag\":\"Pair\",\"value\":[null,null]}"))
+  dbg(all(changes, "{\"tag\":\"Rename\",\"value\":{\"due\":3}}"))
+
+  # Elements of a List use `to_dynamic`: Absent and Null are both written as null.
+  dbg(Json.encode([Absent, Null, Present(1)]))
+  xs: List[Presence[Int]] = Json.decode("[null,1]") escape { _ -> panic("not read") }
+  dbg(xs)
+
+  # A hand-written impl: `to_field` writes the value, and `from_absent` reads the missing key as
+  # null.
+  dbg(Json.encode(Settings(level: Level(value: 2), name: "a")))
+  dbg(first(settings, "{\"name\":\"a\"}"))
+  dbg(all(settings, "{\"name\":\"a\"}"))
+
+  # Eq, Ord and Show of Presence; the order is Absent, Null, Present.
+  absent: Presence[Int] = Absent
+  null: Presence[Int] = Null
+  dbg(absent < null && null < Present(0))
+  dbg(Present(1) == Present(1))
+  dbg(Present(1).show())
+
+  # Shaped: Presence has the shape of an Option.
+  p: Option[TodoPatch] = None
+  dbg(Shaped.shape(p))
+  ()
+}

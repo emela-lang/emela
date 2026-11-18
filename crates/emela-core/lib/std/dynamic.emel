@@ -41,6 +41,11 @@ impl DecodeError: Show {
 
 pub trait Encode {
   fn to_dynamic(self) -> Dynamic
+
+  ## The value written for a field of an object. None leaves the key out.
+  fn to_field(self) -> Option[Dynamic] {
+    Some(self.to_dynamic())
+  }
 }
 
 ## Every failure of `from_dynamic_all`, in the order the parts were read. Never empty.
@@ -63,6 +68,11 @@ pub trait Decode {
         errors: [DecodeError(expected:, actual:, path:)],
       )
     }
+  }
+
+  ## The value of a field whose key is missing. The default reads the key as null.
+  fn from_absent() -> Self fails DecodeError {
+    Decode.from_dynamic(Null)
   }
 }
 
@@ -251,6 +261,14 @@ pub fn field[A](value: Dynamic, name: String, decoder: fn(Dynamic) -> A fails De
   }
 }
 
+## The value of the key `name` of Fields, or None if the key is missing.
+pub fn lookup(value: Dynamic, name: String) -> Option[Dynamic] fails DecodeError {
+  value match {
+    Fields(m) -> m.get(name)
+    _         -> fail DecodeError(expected: "fields", actual: value, path: [])
+  }
+}
+
 ## The elements of Items that has exactly `n` elements.
 pub fn items(value: Dynamic, n: Int) -> List[Dynamic] fails DecodeError {
   value match {
@@ -424,12 +442,18 @@ impl List[A: Decode]: Decode {
   }
 }
 
+## None is Null, and as a field of an object leaves the key out. `from_absent` of the Decode is
+## left to its default, which reads the missing key as null and so gives None.
 impl Option[A: Encode]: Encode {
   fn to_dynamic(self) {
     self match {
       Some(x) -> x.to_dynamic()
       None    -> Null
     }
+  }
+
+  fn to_field(self) {
+    self.map(Encode.to_dynamic)
   }
 }
 
@@ -541,19 +565,28 @@ fn derived_unit_variant(tag: String) -> Dynamic {
   variant(tag, None)
 }
 
+# An object of the fields written by `Encode.to_field`, leaving out those that are None.
+fn derived_object(fields: List[(String, Option[Dynamic])]) -> Dynamic {
+  fields.filter_map(|(key, value)| value.map(|v| (key, v))) |> object()
+}
+
 # Items, for the positional contents of a variant.
 fn derived_items(xs: List[Dynamic]) -> Dynamic {
   Items(xs)
 }
 
-# The field `name` of `value`, read by `Decode.from_dynamic`.
+# The field `name` of `value`, read by `Decode.from_dynamic`, or by `Decode.from_absent` if the
+# key is missing.
 fn derived_field[A: Decode](value: Dynamic, name: String) -> A fails DecodeError {
-  field(value, name, Decode.from_dynamic)
+  lookup(value, name) match {
+    Some(x) -> at(Key(name), Decode.from_dynamic, x)
+    None    -> at(Key(name), |_| Decode.from_absent(), Null)
+  }
 }
 
 # The field `name` of the contents of the variant `value`.
 fn derived_contents_field[A: Decode](value: Dynamic, name: String) -> A fails DecodeError {
-  field(value, "value", |contents| field(contents, name, Decode.from_dynamic))
+  field(value, "value", |contents| derived_field(contents, name))
 }
 
 # Checks that the contents of the variant `value` are Items with `n` elements.
@@ -602,16 +635,22 @@ fn fields_of(value: Dynamic) -> () fails DecodeError {
   }
 }
 
-# The field `name` of `value` read by `Decode.from_dynamic_all`, or its failures.
+# The field `name` of `value` read by `Decode.from_dynamic_all`, or by `Decode.from_absent` if
+# the key is missing, or its failures.
 fn derived_field_all[A: Decode](value: Dynamic, name: String) -> Attempt[A] {
-  attempt(|| field_all(value, name, Decode.from_dynamic_all))
+  attempt(|| field_present_all(value, name))
+}
+
+fn field_present_all[A: Decode](value: Dynamic, name: String) -> A fails DecodeErrors {
+  one_of(|| lookup(value, name)) match {
+    Some(x) -> at_all(Key(name), Decode.from_dynamic_all, x)
+    None    -> one_of(|| at(Key(name), |_| Decode.from_absent(), Null))
+  }
 }
 
 # The field `name` of the contents of the variant `value`, or its failures.
 fn derived_contents_field_all[A: Decode](value: Dynamic, name: String) -> Attempt[A] {
-  attempt(|| {
-    field_all(value, "value", |contents| field_all(contents, name, Decode.from_dynamic_all))
-  })
+  attempt(|| field_all(value, "value", |contents| field_present_all(contents, name)))
 }
 
 # Checks that the contents of the variant `value` are Items with `n` elements.

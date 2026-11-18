@@ -71,19 +71,24 @@ sep          = "," | NL
 
 const_decl   = "const" upper_name [ ":" type ] "=" expr
 
-effect_decl  = "effect" type_name [ type_params ] "{" { op_sig NL } "}"
+effect_decl  = "effect" type_name [ type_params ] "{" { effect_member NL } "}"
              | "effect" type_name "of" type_ref [ "[" type { "," type } "]" ] [ "default" ]   (* label; 8.9 *)
+effect_member = op_sig | member_sig
 op_sig       = [ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")"
                "->" type [ "fails" error_set ]     (* type_params only for built-in effects; 8.1 *)
+member_sig   = "handler" type_name "(" [ params ] ")" ":" type_ref [ "[" type { "," type } "]" ]
+               [ "fails" error_set ]                              (* a handler member; 8.1 *)
 
 handler_decl = "handler" type_name [ "(" [ fields ] ")" ]
                ":" type_ref [ "[" type { "," type } "]" ] "{" { handler_item NL } "}"
 handler_item = "init" [ "(" [ params ] ")" ] block
              | "release" block
              | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block
+             | handler_decl                                      (* inner handler; 8.4 *)
 
 layer_decl   = "layer" type_name "{" supply { sep supply } "}"
-supply       = type_ref [ "(" [ args ] ")" ]
+supply       = type_ref [ "." type_name ] [ "(" [ args ] ")" ]
+             | lower_name "." type_name "(" [ args ] ")"          (* a handler member of a capability; 8.3 *)
 
 trait_decl   = "trait" type_name [ ":" bound { "+" bound } ] "{" { trait_item NL } "}"
 trait_item   = "fn" lower_name "(" [ params ] ")" [ signature ] [ block ]
@@ -151,7 +156,7 @@ unary      = ( "!" | "-" ) unary
            | "use" type_ref [ "[" type { "," type } "]" ]
            | lambda
            | postfix
-postfix    = primary { "(" [ args ] ")" | "." lower_name }
+postfix    = primary { "(" [ args ] ")" | "." lower_name | "." type_name "(" [ args ] ")" }   (* "." type_name: a handler member, inside an init only; 8.4 *)
 
 primary    = literal | lower_name | upper_name | type_ref | "self" | "Self"
            | "(" ")"
@@ -167,7 +172,7 @@ arg        = expr | lower_name ":" [ expr ]
 if_expr    = "if" expr block [ "else" ( block | if_expr ) ]
 arm        = pattern [ "if" expr ] "->" expr
 with_expr  = "with" with_item { "," with_item } block
-with_item  = supply [ "by" by_right ]                                   (* by is in 8.9 *)
+with_item  = [ lower_name "=" ] supply [ "by" by_right ]                 (* by is in 8.9 *)
 by_right   = type_ref [ "[" type { "," type } "]" | "(" [ args ] ")" ]
 lambda     = ( "||" | "|" [ lambda_param { "," lambda_param } ] "|" ) expr
 lambda_param = pattern [ ":" type ]

@@ -985,6 +985,12 @@ fn main() {
         "derive_encode_decode",
         include_str!("../../emela-codegen-c/tests/programs/derive_encode_decode.emel"),
     ),
+    // `[trait.derive]`, `[api.std.dynamic.presence]`: a missing key and null in derived Encode
+    // and Decode.
+    (
+        "field_presence",
+        include_str!("../../emela-codegen-c/tests/programs/field_presence.emel"),
+    ),
     (
         "local_fns",
         r#"
