@@ -49,6 +49,7 @@ suspend fn fetch_text(url: String) -> String
 |---|---|---|
 | `uses {}` written explicitly | Declares that the function is pure | Anywhere |
 | `uses` omitted | Has host side effects | Only inside the init, the release and the operation bodies of a handler |
+| `uses { ProcessHost }` or `uses { PageHost }` | Has host side effects, and works only on that host (`[effect.host]`) | Only inside the init, the release and the operation bodies of a handler |
 | `suspend fn` | Needs to wait for completion. Requires Async | Only inside a handler |
 
 - The compiler cannot verify that a `uses {}` declaration is correct. The person who declares it is responsible for it.
@@ -59,6 +60,8 @@ suspend fn fetch_text(url: String) -> String
 - In JS, the runtime adds an `AbortSignal` as the last argument of an external function declared as `suspend fn`. It aborts when the waiting fiber is interrupted. When an implementation of a suspend fn operation is waiting on an external function and the caller is interrupted before resume, the runtime also unwinds the implementation and aborts. This is for stopping network requests and timers (without it, even if the result is discarded, the requests and timers stay in the host event loop and the process does not exit). A function that does not use the signal MAY ignore it. Interruption stops only waits of this form. A handler that resumes later from a callback is not stopped (discarded continuations in 14.5). The bundled handlers (including `sleep` of SystemClock) are written in this form.
 - In JS, a returned value that is not a Promise is treated as a resolved value. A rejected Promise is a defect, the same as an exception thrown by the call (12.5).
 - In C, an external function declared as `suspend fn` is written so that it reports completion later (12.6).
+- The uses clause of an external function contains only ProcessHost and PageHost, or nothing. Any other effect, including Async and a set type parameter, is a compile error (code to be assigned). Suspension is declared with `suspend fn`, not with Async.
+- The host effects in the uses clause are added to the R of each call.
 
 ## 12.3 Host types `[ext.host-type]`
 
@@ -179,7 +182,7 @@ pub fn add(a: Int, b: Int) -> Int { a + b }
 
 - `@export` is written on a top-level fn with a body. Writing it on any other declaration, or on a fn without a body, is E0146. Its arguments have the form `(language, "name")` or `(language, "interface", "name")`, as for `@external` (12.1). A fn MAY have several `@export` for the same language. Malformed arguments are E0146, and an unknown language is E0140. An `@export` takes effect when its language is the language of the build target.
 - An `@export` fn exposes itself to the host under each name. Each call by the host is one launch, as main is.
-- The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402).
+- The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402). An exported fn is called by a host of a kind the program does not know, so it is given no other host effect (`[effect.host]`).
 - A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} uses {}` (`f: fn(Int) -> String fails {} uses {}`). Otherwise its E and R are not empty (E0402).
 - An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
 - Two exports with the same name for the same language, from `@export`, `@entry` or the launcher of `main.mjs` (`[target.js.module]`), are a compile error (E0438).
@@ -191,3 +194,4 @@ pub fn add(a: Int, b: Int) -> Int { a + b }
 - `@entry(T)` is written on a top-level fn `f` of the entry module. Writing it outside the entry module is E0437. Its one argument is a lower name (`serve`, a fn of the same module) or a `qualified` path (`Http.serve`) that names an entry adapter; anything else is E0439. `f` MUST be accepted as the first argument of `T` (E0440).
 - For each `@export` of `T`, the program exposes under the same name a fn that takes the remaining parameters of `T` and returns `T(f, ...)`. Each call is one launch.
 - `f` remains an ordinary fn. It can be called, including from tests.
+- The function type of the first parameter of an entry adapter MAY have one host effect other than Async in its uses (`[effect.host]`), and the R of the adapter MAY contain it. The host provides it for each launch through the adapter.

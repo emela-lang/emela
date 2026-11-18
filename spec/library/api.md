@@ -443,6 +443,7 @@ fn main() {
 ```
 
 - Console writes one line meant for people at a time. To write to the output streams of the process without a line ending, use Stdout and Stderr of `Std.Process` (`[api.std.process]`). Writes mixed between SystemConsole and SystemStdout or SystemStderr keep their order.
+- On a page host, SystemConsole writes with `console.log` and `console.error`, as on any JS host without standard output.
 
 ### Std.Process (`std/process.emel`, `std/process.mjs`, `std/process.c`) `[api.std.process]`
 
@@ -470,6 +471,9 @@ The platform layer and the test layer (`[lib.layers]`). What the process has exa
 | `exit_code_to_int` | `exit_code_to_int(code: ExitCode) -> Int` | The number of the exit code. Implemented in Emela |
 | `EXIT_SUCCESS` | `const EXIT_SUCCESS: ExitCode` | `exit_code(0)` |
 | `EXIT_FAILURE` | `const EXIT_FAILURE: ExitCode` | `exit_code(1)` |
+| `Process` | `layer Process { Platform, SystemArgs, SystemStdin, SystemStdout, SystemStderr, SystemEnv, SystemFileSystem }` | Platform and the System handlers that need a process. Requires Async and ProcessHost (`[effect.host]`) |
+
+- The System handlers of this section require `ProcessHost` (`[effect.host]`).
 
 Args:
 
@@ -568,6 +572,7 @@ fn main() {
 | `Env` | `effect Env { fn get(name: String) -> Option[String] }` | The value of an environment variable. `None` if it is not set. An empty value is `Some("")` |
 | `SystemEnv` | `handler SystemEnv: Env` | Reads `process.env` on JS and `getenv` on native. Has no state |
 
+- The System handler requires `ProcessHost` (`[effect.host]`).
 - `get` of SystemEnv sees only names set as environment variables of the process. Even on the JS host, it does not pick up names from the object prototype (such as `toString`) as values.
 
 ### Std.Fiber (`std/fiber.emel`) `[api.std.fiber]`
@@ -743,6 +748,7 @@ The platform layer and the test layer (`[lib.layers]`). Handles only text (UTF-8
 | `TestFiles` | `type TestFiles(files: List[(String, String)], directories: List[String])` | The state of TestFileSystem. files is in path order. The ancestors of files and directories are also treated as directories |
 | `TestFileSystem` | `handler TestFileSystem: FileSystem` | Kept in `State[TestFiles]` and resumes immediately. Errors follow the same rules as SystemFileSystem. Does not raise FileAccessDenied, InvalidText, or FileSystemFailure |
 
+- The System handler requires `ProcessHost` (`[effect.host]`).
 - SystemFileSystem maps host errors as follows. ENOENT and ENOTDIR are FileNotFound, EACCES and EPERM are FileAccessDenied, and everything else is FileSystemFailure (message is the host's text). However, EISDIR in read_text, write_text, and append_text is IsADirectory; ENOTDIR in list_directory is NotADirectory; ENOTDIR and EEXIST in create_directory are NotADirectory; and ENOTEMPTY and EEXIST in remove are DirectoryNotEmpty.
 - exists and is_directory look at the target that a symbolic link points to. remove does not follow symbolic links and deletes the link itself.
 - An operation of FileSystem is not canceled partway when the waiting fiber is interrupted.
@@ -781,9 +787,9 @@ The value layer (`[lib.layers]`). Pure functions that build path strings. Only `
 
 | Declaration | Contents | Description |
 |---|---|---|
-| `Platform` | `layer Platform { SystemConsole, SystemArgs, SystemStdin, SystemStdout, SystemStderr, SystemClock, SystemRandom, SystemEnv, SystemHttp, SystemFileSystem }` | A bundle of the System handlers. To replace some of them, list the replacements after it, as in `with Platform, TestClock { ... }` |
+| `Platform` | `layer Platform { SystemConsole, SystemClock, SystemRandom, SystemHttp }` | The System handlers that every host has. Requires no host effect other than Async. To replace some of them, list the replacements after it, as in `with Platform, TestClock { ... }` |
 
-- The order of the list has no meaning (`[effect.layer]`). SystemStdin, SystemClock, SystemHttp, and SystemFileSystem require Async, so Async remains in the R of `with Platform { ... }`. In main and test functions, the runtime provides Async.
+- The order of the list has no meaning (`[effect.layer]`). SystemClock and SystemHttp require Async, so Async remains in the R of `with Platform { ... }`. In main and test functions, the runtime provides Async.
 
 ```emel
 import Std.Platform.{Platform}
