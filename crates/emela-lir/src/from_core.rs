@@ -1271,7 +1271,7 @@ impl<'s> Lower<'s> {
         };
         match op {
             FiberOp::Scope { .. } => fn_ret(self, first),
-            FiberOp::Fork | FiberOp::Deferred => TypeId::ANY,
+            FiberOp::Fork | FiberOp::Deferred | FiberOp::Semaphore | FiberOp::Queue => TypeId::ANY,
             FiberOp::Join | FiberOp::DeferredAwait => enum_arg(self, first),
             FiberOp::Await { exit } => {
                 let a = enum_arg(self, first);
@@ -1281,9 +1281,14 @@ impl<'s> Lower<'s> {
                 let a = fn_ret(self, first);
                 exit_type(self, exit, a)
             }
-            FiberOp::Interrupt => TypeId::UNIT,
-            FiberOp::Complete => TypeId::BOOL,
-            FiberOp::Poll => {
+            FiberOp::Interrupt | FiberOp::Acquire | FiberOp::Release | FiberOp::Close => {
+                TypeId::UNIT
+            }
+            FiberOp::Complete | FiberOp::TryAcquire | FiberOp::Offer | FiberOp::TryOffer => {
+                TypeId::BOOL
+            }
+            FiberOp::Available | FiberOp::Size => TypeId::INT,
+            FiberOp::Poll | FiberOp::Take | FiberOp::QueuePoll => {
                 let a = enum_arg(self, first);
                 let option = self.sh.core.option_enum();
                 self.intern(Type::Enum(option, vec![a]))
@@ -1476,6 +1481,12 @@ impl<'s> Lower<'s> {
     }
 
     /// Concatenates the pieces with `String.append`, merging adjacent texts.
+    ///
+    /// The chain associates to the right: `a + (b + c)` rather than `(a + b) + c`. A String is
+    /// immutable and append is associative, so the value is the same. Interpolation usually puts
+    /// the string it grows first (a fold's accumulator) and short suffixes after it, and the right
+    /// chain then copies that first piece once instead of once per later piece. The pieces are
+    /// operands only (constants and variables), so no evaluation order changes.
     fn concat(&mut self, pieces: Vec<Piece>) -> Operand {
         let mut ops: Vec<Operand> = Vec::new();
         let mut text: Option<String> = None;
@@ -1496,7 +1507,7 @@ impl<'s> Lower<'s> {
         if let Some(t) = text {
             ops.push(Operand::Const(Const::String(t)));
         }
-        let mut ops = ops.into_iter();
+        let mut ops = ops.into_iter().rev();
         let Some(mut acc) = ops.next() else {
             return Operand::Const(Const::String(String::new()));
         };
@@ -1506,7 +1517,7 @@ impl<'s> Lower<'s> {
                 TypeId::STRING,
                 Value::Builtin {
                     op: Builtin::StringAppend,
-                    args: vec![acc, o],
+                    args: vec![o, acc],
                 },
             ));
         }

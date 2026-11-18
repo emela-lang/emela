@@ -47,7 +47,7 @@ fn main() {
 }
 "#,
         13009,
-        0x1f24_003d_904d_09dd,
+        0x0287_5623_c2a1_4bef,
     ),
     (
         "lists_enums_strings",
@@ -97,7 +97,7 @@ fn main() {
 }
 "#,
         22355,
-        0x900b_22b7_bdf8_6dd8,
+        0x0c02_fc33_95ed_ae2e,
     ),
     (
         "platform_console",
@@ -111,8 +111,8 @@ fn main() {
   }
 }
 "#,
-        48853,
-        0x5e9f_3073_cac1_88df,
+        49173,
+        0x5f3b_51ad_7fd9_a2dd,
     ),
     (
         "state_and_options",
@@ -132,7 +132,7 @@ fn main() {
 }
 "#,
         15542,
-        0x795b_35fd_6eec_f0f9,
+        0x24d7_72a7_7287_8449,
     ),
     (
         "numeric",
@@ -179,7 +179,7 @@ pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
     13125,
-    0x5007_05cd_e682_6239,
+    0x5caa_11fa_f498_efe7,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new

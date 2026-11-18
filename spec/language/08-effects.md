@@ -37,6 +37,7 @@ effect Clock {
   - A call of an `@external suspend fn` may suspend.
 - If the body contains no call that may suspend, its R is not restricted. The R of `fn now() { (use Clock).now() }` contains Clock, which becomes a requirement of the handler. Mixing `now` of the outer Clock and `sleep` inside an inner `with InstantClock` in the same body satisfies neither condition and is a compile error (E0417). Accepting it would require looking, for each call, at the innermost with that provides its effect, which makes the rule heavier, so this is not done. A call through a function is treated as possibly suspending even if that function calls only fn operations (`fn now() { stamp() }`, which calls `fn stamp() -> Instant uses { Clock }`, is a compile error (E0417)). That a function does not suspend is not inferred from its body. The implementations of fn operations in every handler are bound by the same rule, so a call of a fn operation does not suspend whichever handler it reaches.
 - An operation that involves waiting (waiting on an `@external suspend fn`, calling a suspend operation) MUST be declared as a suspend fn on the effect side. Otherwise its implementation is a compile error (E0417). This is because the caller can learn whether a call suspends only from the effect's declaration. Only operation declarations of effects carry a mark of whether they suspend. Function signatures (`uses { Http }`) and calls do not.
+- An effect declared in source MUST have at least one operation (code to be assigned). The effects without operations are the host effects, which only the compiler declares (`[effect.host]`).
 
 ## 8.2 use `[effect.use]`
 
@@ -61,6 +62,9 @@ fn greet(id: Int) {
 - The type of a capability value of E is written `use E`. E is an effect, with its type arguments, or a label. `use E` is a type, and can be written wherever a type can.
 - A capability value can be passed as an argument, put into a data structure, and returned from a function, as any other value. It cannot leave the with that provides it (8.6).
 - Only the operations of E can be called on a value of type `use E`, or taken as function values. There is no operation that inspects a capability value: no trait is implemented for `use E`, and `==` is not defined for it.
+- `use E` satisfies the built-in trait Capability (10.6). A type parameter with `[C: Capability]` accepts a capability of any effect.
+- The type of a capability of several effects is written `use E1 + ... + En`. A capability can be passed to a parameter of type `use F1 + ... + Fm` when every Fi is one of the Ej. Only the operations of the Fi can be called through the parameter. There is no way to recover the other effects from it.
+- A property that a type has to guarantee, such as contents that do not change or exclusive access, is expressed by a separate effect that no handler implements together with an effect that breaks the property.
 - On a capability c of an effect E that has handler members, `c.M(arguments)` opens the handler member M of the handler that provides c. It can be written only as a with item `x = c.M(arguments)` (8.3) and inside an init (8.4).
 - Writing an operation that the capability value's effect does not have is a compile error (E0401). The labels of named arguments are the parameter names in the effect's operation declaration.
 - The effect set R of a function that contains `use X` includes X. Even when written inside a branch, X is in the R of the whole function.
@@ -104,12 +108,13 @@ fn run[R](f: fn() -> () uses { Logger, R }) -> () uses { R } {
 - `use X` refers to the handler provided by the innermost with as seen from the position where it is written. If the same function has no such with, it refers to the one passed from the caller.
 - `use X` inside an anonymous function or a local fn first looks at the withs that enclose the function (in the same top-level function). If there is none, it refers to the one passed from the side that calls the function. This is because the R of these functions is enclosed in their types (9.4) and does not appear in the R of the enclosing function.
 - A capability value taken out on the outer side keeps referring to the outer handler even if an inner with overrides the same effect.
-- The R of main MUST be empty except for Async. main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E0230). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a uses clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
+- The R of main MUST be empty except for the host effects that main is given (Async and ProcessHost, `[effect.host]`). main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E0230). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a uses clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
 - The return type of main is `()` or `ExitCode` (`[api.std.process]`); another type, other than Never, is W0304 (`[dyn.error]`). This is separate from the rule on R above.
 - An item can be written as `x = Item`. Within the body, x is the capability of the effect that Item provides (`use F`, 8.2), and refers to the handler of that item even when another item of the same with provides the same effect. An item that is not a handler member still provides its effect by name.
 - `E.M(arguments)`, where E is an effect and M one of its handler members, can be written as an item only in the form `x = E.M(arguments)`. It calls the init of M of the innermost handler that provides E at that position. `x = c.M(arguments)`, where c is a capability of E, calls the init of M of the handler that provides c. The arguments are treated as for `H(arguments)`. The item requires E (or c), not the requirements of the inner handler.
 - The effect provided by a handler member item is not provided to `use` by name. It is reached only through the bound capability.
 - A handler member cannot be an item of a layer.
+- A handler that implements several effects provides all of them. Its init and release run once.
 
 ```emel
 with PrimaryDb {
@@ -151,7 +156,7 @@ handler SystemClock: Clock {
 ```
 
 - A handler is written as `handler Name: Effect`. The colon means that the left side satisfies the right side (the same as `[A: Ord]`, `trait Ord: Eq`, and `impl User: Show` (10.2)). Writing `handler H implements E` is a compile error (E0145), and the diagnostic shows the form `handler H: E`. The diagnostic points at the `implements` token.
-- A handler is a declaration, and it implements each operation of one effect exactly once. The types of an operation's parameters and return value are determined by the effect's declaration, so they are not written. The number of parameters MUST be the same as in the declaration. A missing operation is a compile error (E0404, which lists all missing operations), implementing the same operation twice is a compile error (E0405), and a different number of parameters is a compile error (E0406). Implementing an operation that the effect does not have is a compile error (E0212).
+- A handler is a declaration, and it implements each operation of the effects after its colon exactly once (`handler SystemTx(conn: Connection): Query + Execute`). All of them share the same `self`. Listing two effects that have an operation of the same name is a compile error (code to be assigned). The types of an operation's parameters and return value are determined by the effect's declaration, so they are not written. The number of parameters MUST be the same as in the declaration. A missing operation is a compile error (E0404, which lists all missing operations), implementing the same operation twice is a compile error (E0405), and a different number of parameters is a compile error (E0406). Implementing an operation that the effect does not have is a compile error (E0212).
 - Whether an operation has `suspend` MUST match the effect's declaration (E0415). When it does not match, the number of parameters and the body are checked according to the form of the implementation.
 - The E of an operation's body MUST be contained in the `fails` of the operation's declaration. requires(H) (9.4) is the union of the Rs of init, release, and the operation bodies.
 - A handler with state declares fields after its name. Fields are referenced through `self`, as in `self.conn`.
@@ -192,6 +197,7 @@ fn main() {
 - An item of a layer can be written as `H(arguments)`. The arguments are limited to pure expressions (E and R are empty), as for the right-hand side of a const (`[data.const]`): `use` and `fail` cannot be written, and function calls can. The order of the items has no meaning, so arguments with E or R would have no defined order of evaluation. To pass a value that is not pure, list the handler after the layer in the with (`with AppLive, WorkerKv(binding: name) { ... }`).
 - A layer in which two handlers provide the same effect is a compile error (E0421), and layers that include each other are a compile error (E0422). The error is reported only once, at the layer declaration.
   - E0421 is reported at the position of the member that brought in the second handler. Listing the same handler twice is also E0421. For effects with type parameters, only effects that are the same including type arguments are counted, and the message shows them in the form `State[Int]`.
+- A handler that implements several effects counts as providing each of them for E0421.
   - E0422 is reported once, at the position of the layer defined first in the cycle.
   - A cycle in handler requirements (E0411) is reported at the position of the layer member.
   - Duplication and cycles that occur only within a nested layer are reported in the inner layer and are not repeated in the outer layer. In a with, too, cycles that occur only within one layer are not reported.
@@ -223,8 +229,7 @@ fn make_greeter() {
 
 ## 8.7 Async `[effect.async]`
 
-- Async is a built-in effect that represents "being resumed later". Only the runtime can provide it, and users cannot write handlers for it. `handler H: Async` is a compile error (E0413), and that handler provides nothing even when written in a with.
-- Async has no operations, so the expression `use Async` is a compile error (E0414). Async can be written in a uses clause (`fn f() uses { Async }`).
+- Async is a host effect (`[effect.host]`) that represents "being resumed later". The rules of `[effect.host]` apply: only the host provides it, `handler H: Async` is a compile error (E0413), and `use Async` is a compile error (E0414).
 - The means of calling `resume` later (callbacks of external functions, `@external suspend fn`, fork) require Async. Therefore SystemClock requires Async, and Async remains in the R of `with SystemClock { ... }`.
 - When the body of a suspend fn implementation uses `resume` in any way other than calling it directly (`resume(v)`), the compiler assumes that resume may be called later and adds Async to the handler's requirements. Uses other than direct calls include storing it in a variable, capturing it in a closure, and passing it as an argument. Calling an `@external suspend fn` also adds Async. This decision is purely syntactic and errs on the safe side.
 - A handler that resumes on the spot (such as the test handler InstantClock) does not require Async. `with InstantClock { ... }` does not actually suspend, and Async does not appear in the types either.
@@ -296,6 +301,7 @@ fn main() {
 - In addition to handlers and layers, a with can contain the following items.
   - `L`: within the body, the provider of L serves E. Provides {E}; requires {L}.
   - `L by P`: plugs P into L. P is a handler of E, E itself, or another label of E. Provides {L}; requires the requirements of P if P is a handler, or {P} if P is an effect. If P serves some other effect, it is a compile error (E0431). Writing E as P removes the distinction of L and goes back to the outer E (merging).
+  - In `L by H`, where H implements several effects, H serves L through the effect that is the underlying effect of L. If none of them is, it is E0431.
 - The right side of `by` can be written as `H(arguments)`. The arguments are treated as for an item of a with.
 - Requirements are satisfied and the initialization order is determined in the same way as for handlers (8.3, 14.2). In `with SystemConsole, AuditLog by Console`, the Console on the right is satisfied by SystemConsole in the same with.
 - Writing an effect that is not a label in a with or on the left of `by` is a compile error (E0430). Writing `by` twice for the same label in the same with is also a compile error (E0432).
@@ -306,3 +312,23 @@ fn main() {
 - A label has no body. Writing `{ ... }` after the declaration is a compile error (E0122).
 - Labels are distinguished by name (nominal). Two separately declared labels are different effects even if their underlying effect is the same, and labels with the same name in different modules are also different.
 - An `L` item, and an `L by P` item where P is an effect or a label, do not create a new handler. They provide the outer handler (or that of an item initialized earlier in the same with) again under the name L. An `L by P` item where P is a handler initializes P and provides it.
+
+## 8.10 Host effects `[effect.host]`
+
+- A host effect is an effect whose only handler is the host. `Async` (`[effect.async]`), `ProcessHost` and `PageHost` are the host effects.
+  - `Async`: the host can resume a computation later.
+  - `ProcessHost`: the host is a process of the operating system, with arguments, standard input and output, environment variables and a file system.
+  - `PageHost`: the host is a page of a web browser.
+- Users cannot write a handler for a host effect. `handler H: ProcessHost` is a compile error (E0413), and that handler provides nothing even when written in a with. `use` of a host effect is a compile error (E0414). A host effect can be written in a uses clause (`fn f() uses { ProcessHost }`).
+- A host effect enters R only through what host functions need. Calling an `@external suspend fn` adds Async (`[effect.async]`). Calling an external function declared with `uses { ProcessHost }` or `uses { PageHost }` adds that host effect (`[ext.call]`). A handler whose init, release or operation bodies make such calls requires the host effect (requires(H) in `[effect.handler]`), so the host effect remains in the R of a with that lists the handler, or a layer that contains it.
+- A with does not remove a host effect. Only the entry of a launch provides host effects.
+
+| Entry | Host effects provided |
+|---|---|
+| `main` (`[effect.with]`) | Async, ProcessHost |
+| A test function (`[test.constraints]`) | Async, ProcessHost |
+| An `@export` fn that is not an entry adapter (`[ext.export]`) | Async |
+| An entry adapter (`[ext.entry]`) | Async, and the host effect the adapter declares |
+
+- `ProcessHost` and `PageHost` are Immediate (`[type.effect-bound]`).
+- Host effects do not name targets. A program whose entry type checks runs on every target that supports that entry (`[target]`).

@@ -1208,15 +1208,29 @@ impl Checker<'_> {
                 }
                 self.on_fail(on_fail, op.fails(), &format!("fiber {}", op.name()));
                 match *op {
-                    FiberOp::Fork | FiberOp::Deferred | FiberOp::Poll | FiberOp::CauseToString => {
-                        Expect::Exactly(Repr::Ref)
-                    }
+                    FiberOp::Fork
+                    | FiberOp::Deferred
+                    | FiberOp::Poll
+                    | FiberOp::CauseToString
+                    | FiberOp::Semaphore
+                    | FiberOp::Queue
+                    | FiberOp::Take
+                    | FiberOp::QueuePoll => Expect::Exactly(Repr::Ref),
                     FiberOp::Await { exit } | FiberOp::Attempt { exit, .. } => {
                         Expect::Exactly(enum_repr(self.core, exit))
                     }
                     FiberOp::CauseKind { kind } => Expect::Exactly(enum_repr(self.core, kind)),
-                    FiberOp::Complete => Expect::Exactly(Repr::I32),
-                    FiberOp::Interrupt | FiberOp::CauseRaise { .. } => Expect::Exactly(Repr::Void),
+                    FiberOp::Complete
+                    | FiberOp::TryAcquire
+                    | FiberOp::Offer
+                    | FiberOp::TryOffer
+                    | FiberOp::Available
+                    | FiberOp::Size => Expect::Exactly(Repr::I32),
+                    FiberOp::Interrupt
+                    | FiberOp::CauseRaise { .. }
+                    | FiberOp::Acquire
+                    | FiberOp::Release
+                    | FiberOp::Close => Expect::Exactly(Repr::Void),
                     FiberOp::Scope { .. } | FiberOp::Join | FiberOp::DeferredAwait => {
                         Expect::Unknown
                     }
