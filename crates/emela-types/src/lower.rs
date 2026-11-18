@@ -902,11 +902,16 @@ pub(crate) fn is_immediate_effect(program: &Program, effect: DefId) -> bool {
     if program.prelude_def("Async") == Some(effect) {
         return false;
     }
-    // A label is Immediate when its base is (issue #255).
+    // A label is Immediate when its base is (issue #255). A suspend handler member may suspend
+    // when it is opened and released (`[type.effect-bound]`).
     program
         .effect_ops(effect)
         .iter()
         .all(|&op| !matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend))
+        && program
+            .effect_members(effect)
+            .iter()
+            .all(|&m| !matches!(program.item(m), Some(Item::Member(m)) if m.sig.is_suspend))
 }
 
 /// The set kind of each type parameter of a named type declaration (`None` if not a set). Keyed

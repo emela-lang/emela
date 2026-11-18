@@ -1,0 +1,12 @@
+---
+source: crates/emela-types/tests/handler_member.rs
+expression: "run(r#\"\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\neffect Slow {\n  suspend handler Open(path: String): ReadFile\n}\n\neffect Quick {\n  handler Open(path: String): ReadFile\n}\n\nhandler BadQuick: Quick {\n  handler Open(path: String): ReadFile {\n    init(path: String) {\n      (use Clock).sleep(1)\n      Self(path:)\n    }\n    release { (use Clock).sleep(1) }\n    fn read(max) { max }\n  }\n}\n\nhandler GoodSlow: Slow {\n  handler Open(path: String): ReadFile {\n    init(path: String) {\n      (use Clock).sleep(1)\n      Self(path:)\n    }\n    release { (use Clock).sleep(1) }\n    fn read(max) { max }\n  }\n}\n\nfn on_click[R: Immediate](f: fn() -> () uses { R }) -> () { () }\n\nfn g() -> () uses { Quick, Slow } {\n  on_click(|| with f = Quick.Open(\"a\") { () })\n  on_click(|| with f = Slow.Open(\"a\") { () })\n}\n\"#)"
+---
+on_click: ∀ R: Immediate, E(f). fn(fn() -> () fails E(f) uses { R }) -> () fails E(f)
+  f: fn() -> () fails '1 uses { '0 }
+g: fn() -> () uses { Slow, Quick }
+  f: use ReadFile
+  f: use ReadFile
+`(use Clock).sleep(1)` SuspendingMemberPart { member: "Open", effect: "Quick", call: Op { effect: "Clock", op: "sleep" } }
+`(use Clock).sleep(1)` SuspendingMemberPart { member: "Open", effect: "Quick", call: Op { effect: "Clock", op: "sleep" } }
+`on_click` NotImmediate { effects: ["Slow"], sets: [], required: Bound { param: "R", callee: "on_click" } }

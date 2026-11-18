@@ -196,6 +196,10 @@ pub const CAPTURE_ESCAPE_ERROR: &str = "E0444";
 // without operations (`[effect.decl]`)
 pub const EXTERNAL_USES: &str = "E0445";
 pub const EFFECT_WITHOUT_OPS: &str = "E0446";
+// Handler members (`[effect.decl]`, `[effect.with]`, `[effect.handler]`)
+pub const MEMBER_ITEM_FORM: &str = "E0447";
+pub const MEMBER_OUTSIDE_INIT: &str = "E0448";
+pub const INNER_HANDLER_MISMATCH: &str = "E0449";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

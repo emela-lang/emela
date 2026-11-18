@@ -135,7 +135,7 @@ fn on_click[R: Immediate](id: String, handler: fn() -> () uses { R }) -> ()
 
 Immediate is a built-in constraint that means "does not suspend, and completes on the spot when called". The compiler determines it automatically from declarations, and users never write implementations of it.
 
-- An effect is Immediate when it has no suspend fn and is not Async.
+- An effect is Immediate when it has no suspend fn, no suspend handler member, and is not Async.
 - An effect set is Immediate when all its elements are Immediate. The empty set is Immediate.
 
 Only the places where suspension would cause problems (such as callbacks passed to external functions) require this constraint. Instead of marking call sites, type checking forbids suspension there.
@@ -145,7 +145,7 @@ Only the places where suspension would cause problems (such as callbacks passed 
 - A hidden effect set in a parameter type has no Immediate constraint, so it cannot be passed to an `R: Immediate` parameter. When the constraint is needed, write `: Immediate` on a named type parameter.
 - A hidden effect set in a parameter type of an external function has the Immediate constraint. A uses clause written in a function type of a parameter of an external function declaration is a compile error unless it is Immediate.
 - In a definition whose type is inferred, when a set variable passed to a position that requires Immediate is generalized, that type parameter gets the Immediate constraint.
-- Whether an effect is Immediate is determined only by its declaration and does not depend on handlers. In the implementation of a fn operation, the body's R is Immediate or the body contains no call that may suspend (8.1, E0417), so a call of a fn operation does not suspend whichever handler it reaches, and an operation of an Immediate effect never suspends.
+- Whether an effect is Immediate is determined only by its declaration and does not depend on handlers. In the implementation of a fn operation, and in the init and the release of a handler that implements a handler member without `suspend`, the R is Immediate or the body contains no call that may suspend (8.1, E0417), so a call of a fn operation, or opening a handler member without `suspend`, does not suspend whichever handler it reaches, and an operation or a handler member of an Immediate effect never suspends.
 
 ## 9.6 What the type system does not have `[type.not]`
 

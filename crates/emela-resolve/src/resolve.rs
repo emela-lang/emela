@@ -91,6 +91,12 @@ pub(crate) struct Pending {
 pub(crate) enum DotLeft {
     Module(ModRef),
     Trait(DefId),
+    /// An effect, whose handler members are named after `.` (`Files.Open`, `[effect.with]`), and
+    /// where its name is written.
+    Effect(DefId, TextRange),
+    /// A module and an effect of the same name (`State`). A handler member of the effect is
+    /// named if it has one of that name; otherwise the module's definition.
+    ModuleOrEffect(ModRef, DefId, TextRange),
 }
 
 pub(crate) struct Resolver<'a> {
@@ -105,6 +111,9 @@ pub(crate) struct Resolver<'a> {
     pub(crate) members: FxHashMap<DefId, Vec<DefId>>,
     /// Effects declared as labels (`effect AuditLog of Console`, issue #255).
     pub(crate) labels: FxHashSet<DefId>,
+    /// The inner handlers of each handler, with their constructors, in declaration order
+    /// (`[effect.handler]`).
+    pub(crate) inner_handlers: FxHashMap<DefId, Vec<(DefId, Option<DefId>)>>,
     pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
@@ -146,7 +155,13 @@ pub fn resolve(
         let traits = resolver.visible_traits(module);
         resolver.program.modules[module].traits = traits;
     }
-    for pending in pending {
+    // Labels first: `L.Open` names a handler member of the base of the label L
+    // (`[effect.label]`), which is known once the label is lowered. A label has no body, so this
+    // allocates no expressions or locals before the other items.
+    let (labels, others): (Vec<Pending>, Vec<Pending>) = pending
+        .into_iter()
+        .partition(|p| matches!(&p.item, ast::Item::Effect(e) if e.label().is_some()));
+    for pending in labels.into_iter().chain(others) {
         crate::lower::lower_item(&mut resolver, pending);
     }
     crate::lower::check_fn_field_names(&mut resolver);
@@ -221,6 +236,7 @@ impl<'a> Resolver<'a> {
             prelude,
             members,
             labels: FxHashSet::default(),
+            inner_handlers: FxHashMap::default(),
             diagnostics: Vec::new(),
         }
     }
@@ -378,12 +394,18 @@ impl<'a> Resolver<'a> {
                     }
                     let names = it.ops().filter_map(|op| op.name());
                     children = self.define_members(module, def, DefKind::Op, names);
+                    // Handler members are type names, so they cannot clash with operations.
+                    let names = it.members().filter_map(|m| m.name());
+                    children.extend(self.define_members(module, def, DefKind::Member, names));
                 }
                 ast::Item::Trait(it) => {
                     let names = it.fns().filter_map(|f| f.name());
                     children = self.define_members(module, def, DefKind::TraitFn, names);
                 }
                 _ => {}
+            }
+            if let ast::Item::Handler(it) = &item {
+                self.collect_inner_handlers(module, def, it);
             }
             if matches!(kind, DefKind::Effect | DefKind::Trait) {
                 self.members.insert(def, children.clone());
@@ -417,6 +439,25 @@ impl<'a> Resolver<'a> {
             self.error(module, range, DiagnosticKind::MisplacedIntrinsic);
         } else if !self.modules.is_core(module) {
             self.error(module, range, DiagnosticKind::IntrinsicOutsideCore);
+        }
+    }
+
+    /// The inner handlers of a handler (`[effect.handler]`), recursively. They are not put in any
+    /// scope: an inner handler cannot be referred to by name, and its init constructs its value
+    /// with `Self`.
+    fn collect_inner_handlers(&mut self, module: ModuleId, outer: DefId, h: &ast::HandlerDecl) {
+        let mut inner = Vec::new();
+        for it in h.inner_handlers() {
+            let Some(token) = it.name() else { continue };
+            let (name, range) = token_name(&token);
+            let def = self.alloc_def(module, name.clone(), range, DefKind::Handler, Some(outer));
+            let ctor = (it.field_list().is_some() || it.init().is_some())
+                .then(|| self.alloc_def(module, name.clone(), range, DefKind::Ctor, Some(def)));
+            self.collect_inner_handlers(module, def, &it);
+            inner.push((def, ctor));
+        }
+        if !inner.is_empty() {
+            self.inner_handlers.insert(outer, inner);
         }
     }
 
@@ -648,6 +689,15 @@ impl<'a> Resolver<'a> {
     /// Looks up a type name left of `.`. If not found at module level (definitions and imports),
     /// tries the built-in modules and the Prelude traits. If a module and a trait are both found
     /// at the same level, reports an ambiguity.
+    /// A trait or an effect as the left of `.`, written at `range`.
+    pub(crate) fn dot_left_def(&self, def: DefId, range: TextRange) -> DotLeft {
+        if self.program.defs[def].kind == DefKind::Effect {
+            DotLeft::Effect(def, range)
+        } else {
+            DotLeft::Trait(def)
+        }
+    }
+
     pub(crate) fn lookup_dot_left(
         &mut self,
         module: ModuleId,
@@ -659,8 +709,11 @@ impl<'a> Resolver<'a> {
         let as_trait = scope
             .get(Ns::Type, name)
             .map(|e| e.target)
-            .filter(|&d| self.program.defs[d].kind == DefKind::Trait);
+            .filter(|&d| matches!(self.program.defs[d].kind, DefKind::Trait | DefKind::Effect));
         let found = match (as_module, as_trait) {
+            (Some(m), Some(e)) if self.program.defs[e].kind == DefKind::Effect => {
+                Some(DotLeft::ModuleOrEffect(m, e, range))
+            }
             (Some(_), Some(_)) => {
                 self.error(
                     module,
@@ -670,7 +723,7 @@ impl<'a> Resolver<'a> {
                 return None;
             }
             (Some(m), None) => Some(DotLeft::Module(m)),
-            (None, Some(t)) => Some(DotLeft::Trait(t)),
+            (None, Some(t)) => Some(self.dot_left_def(t, range)),
             (None, None) => {
                 if let Some(core) = self.core_module(name) {
                     Some(DotLeft::Module(ModRef::Source(core)))

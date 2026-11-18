@@ -20,6 +20,7 @@ pub fn dump_module(program: &Program, modules: &ModuleMap, module: ModuleId) -> 
         modules,
         out: String::new(),
         locals: FxHashMap::default(),
+        indent: 0,
     };
     if let Some(items) = program.modules.get(module) {
         for &def in &items.items {
@@ -34,11 +35,18 @@ struct Dumper<'a> {
     modules: &'a ModuleMap,
     out: String,
     locals: FxHashMap<LocalId, usize>,
+    /// Added to the depth of every line, for inner handlers.
+    indent: usize,
 }
 
 impl Dumper<'_> {
     fn line(&mut self, depth: usize, text: impl AsRef<str>) {
-        let _ = writeln!(self.out, "{}{}", "  ".repeat(depth), text.as_ref());
+        let _ = writeln!(
+            self.out,
+            "{}{}",
+            "  ".repeat(depth + self.indent),
+            text.as_ref()
+        );
     }
 
     fn def(&self, def: DefId) -> String {
@@ -207,7 +215,22 @@ impl Dumper<'_> {
                     self.line(1, format!("op {op_name}{suspend}"));
                     self.fn_body(2, &op.sig, None);
                 }
+                for &member in &e.members {
+                    let member_name = self.def(member);
+                    let Some(Item::Member(m)) = self.program.items.get(member) else {
+                        continue;
+                    };
+                    let suspend = if m.sig.is_suspend { " suspend" } else { "" };
+                    let effect = self.res(m.effect);
+                    let args = self.ty_args(&m.effect_args);
+                    self.line(
+                        1,
+                        format!("handler member {member_name}{suspend}: {effect}{args}"),
+                    );
+                    self.fn_body(2, &m.sig, None);
+                }
             }
+            Item::Member(_) => {}
             Item::Handler(h) => {
                 let effect = self.res(h.effect);
                 let args = self.ty_args(&h.effect_args);
@@ -243,6 +266,15 @@ impl Dumper<'_> {
                         self.line(2, "body");
                         self.expr(3, body);
                     }
+                }
+                if let Some(member) = h.member {
+                    let member = self.res(member);
+                    self.line(1, format!("implements {member}"));
+                }
+                for &inner in &h.inner {
+                    self.indent += 1;
+                    self.item(inner);
+                    self.indent -= 1;
                 }
             }
             Item::Layer(l) => {
@@ -605,7 +637,21 @@ impl Dumper<'_> {
                 let names = handlers
                     .iter()
                     .map(|item| {
-                        let label = format!("{}{}", self.res(item.res), parens(&item.args));
+                        let target = match &item.cap {
+                            Some((cap, name)) => {
+                                let cap = match &self.program.exprs[*cap].kind {
+                                    ExprKind::Path(res) => self.res(*res),
+                                    _ => "?".to_owned(),
+                                };
+                                format!("{cap}.{}", name.name)
+                            }
+                            None => self.res(item.res),
+                        };
+                        let bind = match item.bind {
+                            Some(local) => format!("{} = ", self.local(local)),
+                            None => String::new(),
+                        };
+                        let label = format!("{bind}{target}{}", parens(&item.args));
                         match item.by {
                             Some((by, _)) => {
                                 let by = self.res(by);

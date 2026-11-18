@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/handler_member.rs
+expression: "run(r#\"\nhandler Out: Console {\n  fn print_line(s) { () }\n}\n\nhandler Err: Console {\n  fn print_line(s) { () }\n}\n\nfn both() {\n  with out = Out, err = Err {\n    out.print_line(\"a\")\n    err.print_line(\"b\")\n    (use Console).print_line(\"c\")\n  }\n}\n\"#)"
+---
+both: fn() -> ()
+  out: use Console
+  err: use Console

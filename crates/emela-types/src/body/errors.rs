@@ -118,6 +118,11 @@ impl BodyInfer<'_> {
                         if release {
                             self.ctx.add_subset(row, Row::empty(), Origin::Release(def));
                         } else {
+                            // The init of an inner handler fails as its handler member declares
+                            // (`[effect.decl]`).
+                            if let Some(f) = self.inner_init_fails(def) {
+                                self.ctx.add_subset(row.clone(), f, Origin::MemberInit(def));
+                            }
                             let fails = self.handler_init_fails(def);
                             self.ctx.add_subset(row, fails, Origin::HandlerPart);
                         }
@@ -351,7 +356,7 @@ impl BodyInfer<'_> {
                     crate::layer::with_entries(program, self.sigs, self.ty_table, handlers);
                 let mut row = Row::empty();
                 for (i, item) in handlers.iter().enumerate() {
-                    let initialized = crate::layer::item_initialized(&entries, i);
+                    let initialized = crate::layer::item_evaluated(program, &entries, handlers, i);
                     for arg in crate::layer::item_args(item) {
                         let arg_row = self.expr_row(arg);
                         if initialized {
@@ -364,6 +369,10 @@ impl BodyInfer<'_> {
                     if let Some(h) = entry.handler() {
                         row.extend(&self.handler_init_fails(h));
                     }
+                }
+                // Opening a handler member fails as its init may (`[type.rules]`).
+                for (_, f) in self.with_members.get(expr).cloned().unwrap_or_default() {
+                    row.extend(&f.fails);
                 }
                 row
             }
@@ -658,6 +667,9 @@ impl BodyInfer<'_> {
                     self.report_unhandled_op(*handler, *index, &missing)
                 }
                 (Origin::Release(handler), _) => self.report_release_fails(*handler, &missing),
+                (Origin::MemberInit(handler), _) => {
+                    self.report_unhandled_member_init(*handler, &missing)
+                }
                 (Origin::Body(def), SetKind::Effects) => {
                     let context = match self.program.item(*def) {
                         Some(Item::Const(_)) => EffectContext::Const,
@@ -805,6 +817,25 @@ impl BodyInfer<'_> {
             _ => false,
         };
         self.push_unhandled(body, declared, None, missing);
+    }
+
+    /// The E of the init of an inner handler that is not in the `fails` of its handler member
+    /// (`[effect.decl]`), reported as for an operation body.
+    fn report_unhandled_member_init(&mut self, handler: DefId, missing: &[RowElem]) {
+        let program = self.program;
+        let Some(Item::Handler(item)) = program.item(handler) else {
+            return;
+        };
+        let Some(init) = item.init else {
+            return;
+        };
+        let declared = match item.member {
+            Some(Res::Def(m)) => {
+                matches!(program.item(m), Some(Item::Member(m)) if m.sig.fails.is_some())
+            }
+            _ => false,
+        };
+        self.push_unhandled(init, declared, None, missing);
     }
 
     /// E0420, spec 8.4. Grouped by the expression that raised each error.

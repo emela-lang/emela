@@ -1,7 +1,7 @@
 ---
 title: Effects on the left of `.`, E0417 for handler members, and capability fields in suspension
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 670
 issue: 656
 decided: 2026-11-19

@@ -8,7 +8,7 @@ handler Fails: use {}
 handler Typed: use {}
 handler Stateful: use {}
 handler Sleepy: use {}
-`Half` MissingHandlerOps { handler: "Half", ops: ["warn"] }
+`Half` MissingHandlerOps { handler: "Half", ops: ["warn"], members: [] }
 `info` DuplicateHandlerOp { op: "info" }
 `warn` HandlerOpArgCount { op: "warn", expected: 1, found: 2 }
 `fail Boom` unhandled errors Boom (fails written: false)

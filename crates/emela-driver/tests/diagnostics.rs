@@ -2287,6 +2287,72 @@ fn permitted() -> Int {
     assert_eq!(run(&manifest(""), &["capture-checking"]), error);
 }
 
+/// Handler members (`[effect.decl]`, `[effect.handler]`, `[effect.with]`): an item without
+/// `x =`, a member in a layer and a bound layer (E0447), a member opened outside `with` and an
+/// init (E0448), an inner handler that does not fit its member (E0449), a missing member
+/// (E0404), and an init of a member without `suspend` that may suspend (E0417).
+#[test]
+fn handler_members() {
+    let main = "\
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+}
+
+handler Ticks: Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+}
+
+layer App {
+  Ticks
+}
+
+layer Bad {
+  Files.Open
+}
+
+handler NoOpen: Files {
+}
+
+handler WrongParams: Files {
+  handler Open(path: Int): ReadFile {
+    init(path: Int) { Self(path:) }
+    fn read(max) { max }
+  }
+}
+
+handler Sleepy: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) {
+      (use Clock).sleep(1)
+      Self(path:)
+    }
+    fn read(max) { max }
+  }
+}
+
+fn f() -> () uses { Files } {
+  x = Files.Open(\"a\")
+  with Files.Open(\"b\") { () }
+  with y = App { () }
+  ()
+}
+";
+    let analysis = check_files(
+        &[("app/Pome.toml", ""), ("app/src/main.emel", main)],
+        "app",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// A single file has no `Pome.toml` of its own, so there is no license to check.
 #[test]
 fn single_file_does_not_read_a_license() {

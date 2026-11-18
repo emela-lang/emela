@@ -609,7 +609,8 @@ fn const_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, CONST_DECL);
 }
 
-/// `"effect" type_name [ type_params ] "{" { op_sig NL } "}"`, or a label
+/// `"effect" type_name [ type_params ] "{" { effect_member NL } "}"` with
+/// `effect_member = op_sig | member_sig`, or a label
 /// `"effect" type_name "of" type_ref [ "[" type { "," type } "]" ] [ "default" ]`.
 fn effect_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(EFFECT_KW);
@@ -633,14 +634,50 @@ fn effect_decl(p: &mut Parser<'_>, m: Marker) {
     if p.at(L_BRACK) {
         type_param_list(p);
     }
-    item_list(p, |p, m| {
+    item_list_in(p, true, |p, m| {
+        let at_member = p.at(HANDLER_KW) || (p.at(SUSPEND_KW) && p.nth(1) == HANDLER_KW);
+        if at_member {
+            member_sig(p, m);
+            return;
+        }
         if !matches!(p.current(), FN_KW | SUSPEND_KW) {
-            item_error(p, m, "expected operation (`fn`)");
+            item_error(
+                p,
+                m,
+                "expected operation (`fn`) or handler member (`handler`)",
+            );
             return;
         }
         op_sig(p, m);
     });
     m.complete(p, EFFECT_DECL);
+}
+
+/// `[ "suspend" ] "handler" type_name "(" [ params ] ")" ":" type_ref [ "[" type { "," type } "]" ]
+/// [ "fails" error_set ]`, a handler member (`[effect.decl]`).
+///
+/// A uses clause is read as for an operation (`effects_and_errors`); validation reports it.
+fn member_sig(p: &mut Parser<'_>, m: Marker) {
+    p.eat(SUSPEND_KW);
+    p.expect(HANDLER_KW);
+    decl_name(p, TYPE_NAME);
+    if p.at(L_PAREN) {
+        param_list(p);
+    } else {
+        p.expect(L_PAREN);
+    }
+    if p.expect(COLON) || p.at(TYPE_NAME) {
+        if p.at(TYPE_NAME) {
+            let c = p.start();
+            path(p);
+            effect_type_args(p);
+            c.complete(p, HANDLER_EFFECT);
+        } else {
+            p.expect(TYPE_NAME);
+        }
+    }
+    effects_and_errors(p);
+    m.complete(p, MEMBER_SIG);
 }
 
 /// `[ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")" "->" type [ "fails" error_set ]`
@@ -675,7 +712,8 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
 /// "{" { handler_item NL } "}"`
 ///
 /// `handler_item = "init" [ "(" [ params ] ")" ] block | "release" block
-///               | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block`
+///               | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block
+///               | handler_decl`
 fn handler_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(HANDLER_KW);
     decl_name(p, TYPE_NAME);
@@ -701,7 +739,7 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
     } else {
         p.error(DiagnosticCode::ExpectedToken, "expected `:`");
     }
-    item_list(p, |p, m| {
+    item_list_in(p, true, |p, m| {
         let kind = if p.at_contextual_kw("init") && matches!(p.nth(1), L_BRACE | L_PAREN) {
             HANDLER_INIT
         } else if p.at_contextual_kw("release") && p.nth(1) == L_BRACE {
@@ -709,8 +747,16 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
         } else if matches!(p.current(), FN_KW | SUSPEND_KW) {
             fn_decl(p, m);
             return;
+        } else if p.at(HANDLER_KW) {
+            // An inner handler, which implements a handler member (`[effect.handler]`).
+            handler_decl(p, m);
+            return;
         } else {
-            item_error(p, m, "expected `init`, `release`, or operation (`fn`)");
+            item_error(
+                p,
+                m,
+                "expected `init`, `release`, operation (`fn`) or inner handler (`handler`)",
+            );
             return;
         };
         p.bump();
@@ -854,7 +900,13 @@ fn impl_type(p: &mut Parser<'_>) {
 
 /// A declaration body `"{" { item NL } "}"`. `item` reads each item and completes it with the
 /// marker it gets.
-fn item_list(p: &mut Parser<'_>, mut item: impl FnMut(&mut Parser<'_>, Marker)) {
+fn item_list(p: &mut Parser<'_>, item: impl FnMut(&mut Parser<'_>, Marker)) {
+    item_list_in(p, false, item);
+}
+
+/// [`item_list`]. With `handlers`, `handler` at the start of a line is an item of the body (a
+/// handler member of an effect, or an inner handler of a handler), not a new declaration.
+fn item_list_in(p: &mut Parser<'_>, handlers: bool, mut item: impl FnMut(&mut Parser<'_>, Marker)) {
     let list = p.start();
     if !p.expect(L_BRACE) {
         list.complete(p, ITEM_LIST);
@@ -862,7 +914,8 @@ fn item_list(p: &mut Parser<'_>, mut item: impl FnMut(&mut Parser<'_>, Marker)) 
     }
     loop {
         let doc = newlines_with_doc(p);
-        if p.at(R_BRACE) || p.at_eof() || p.at_top_decl_start() {
+        if p.at(R_BRACE) || p.at_eof() || (p.at_top_decl_start() && !(handlers && p.at(HANDLER_KW)))
+        {
             if let Some(doc) = doc {
                 doc.abandon(p);
             }

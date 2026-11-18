@@ -1,0 +1,25 @@
+exit: 0
+--- stdout
+--- stderr
+"open MemFiles"
+"open a"
+"open bb"
+113
+"open ccc"
+"close ccc"
+3
+"open t.1"
+"open t.2"
+"quiet read 1"
+6
+"close traced"
+"close t.2"
+"close t.1"
+"open label"
+3
+"close label"
+"close bb"
+"close a"
+"close MemFiles"
+"quiet bound"
+"LOUD by name"

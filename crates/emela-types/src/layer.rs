@@ -31,6 +31,24 @@ use crate::ty::TyCons;
 pub enum Supplier {
     Handler(DefId),
     Effect(Tag),
+    /// An item that opens a handler member (`x = Files.Open(p)`, `x = fs.Open(p)`,
+    /// `[effect.with]`). It provides nothing by name; `WithBind::effect` is the effect of the
+    /// capability it binds.
+    Member {
+        member: DefId,
+        provider: MemberProvider,
+        /// The index of the item in the `with`.
+        item: usize,
+    },
+}
+
+/// Whose handler member an item of `with` opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MemberProvider {
+    /// The innermost provider of the effect (`Files.Open(p)`).
+    Effect(Tag),
+    /// The handler that provides the capability (`fs.Open(p)`).
+    Cap(ExprId),
 }
 
 /// Where the arguments of a handler's init are written (`[effect.handler]`).
@@ -58,6 +76,10 @@ pub(crate) struct Entry {
     pub(crate) origin: usize,
     /// Whether that name is a layer.
     pub(crate) from_layer: bool,
+    /// Whether it provides its effect by name. An item bound to a name (`x = H`) that a later
+    /// item of the same effect overrides is still initialized for its name, but does not provide
+    /// the effect (`[effect.with]`).
+    pub(crate) named: bool,
 }
 
 /// A provider of a `with`, as lowering needs it (issue #255).
@@ -68,6 +90,9 @@ pub struct WithBind {
     pub supplier: Supplier,
     /// Where the arguments of the handler's init are written.
     pub args: ArgsSource,
+    /// Whether it provides `effect` by name ([`Entry::named`]). False for an item that opens a
+    /// handler member.
+    pub named: bool,
 }
 
 /// The providers of a `with`.
@@ -99,7 +124,7 @@ impl Entry {
     pub(crate) fn handler(&self) -> Option<DefId> {
         match self.supplier {
             Supplier::Handler(h) => Some(h),
-            Supplier::Effect(_) => None,
+            Supplier::Effect(_) | Supplier::Member { .. } => None,
         }
     }
 
@@ -108,6 +133,7 @@ impl Entry {
         match &self.supplier {
             Supplier::Handler(h) => program.defs[*h].name.clone(),
             Supplier::Effect(t) => program.defs[t.def].name.clone(),
+            Supplier::Member { member, .. } => program.defs[*member].name.clone(),
         }
     }
 }
@@ -219,6 +245,7 @@ pub(crate) fn with_entries(
                 span,
                 origin,
                 from_layer: false,
+                named: true,
             });
             continue;
         }
@@ -240,6 +267,7 @@ pub(crate) fn with_entries(
                         span,
                         origin,
                         from_layer: false,
+                        named: true,
                     });
                 }
                 continue;
@@ -257,10 +285,11 @@ pub(crate) fn with_entries(
                 span,
                 origin,
                 from_layer,
+                named: true,
             });
         }
     }
-    keep_last(all)
+    keep_last(all, |origin| items[origin].bind.is_some())
 }
 
 /// The right of `by` as a supplier, with the effect it provides (with type arguments): a
@@ -377,6 +406,24 @@ pub(crate) fn item_initialized(entries: &[Entry], origin: usize) -> bool {
         .any(|e| e.origin == origin && !e.from_layer && e.handler().is_some())
 }
 
+/// Whether an item of `with` opens a handler member (`x = Files.Open(p)`, `x = fs.Open(p)`,
+/// `[effect.with]`). It is not overridden by other items, and always evaluates its arguments.
+pub(crate) fn is_member_item(program: &Program, item: &WithItem) -> bool {
+    item.cap.is_some()
+        || matches!(item.res, Res::Def(def) if program.defs[def].kind == DefKind::Member)
+}
+
+/// Whether the arguments of the `origin`-th item of a `with` are evaluated: it initializes a
+/// handler ([`item_initialized`]) or opens a handler member.
+pub(crate) fn item_evaluated(
+    program: &Program,
+    entries: &[Entry],
+    items: &[WithItem],
+    origin: usize,
+) -> bool {
+    item_initialized(entries, origin) || is_member_item(program, &items[origin])
+}
+
 /// The arguments written on an item of a `with`, after the item and after the right of `by`.
 pub(crate) fn item_args(item: &WithItem) -> impl Iterator<Item = ExprId> + '_ {
     [&item.args, &item.by_init_args]
@@ -397,20 +444,26 @@ pub(crate) fn evaluated_args(
     items
         .iter()
         .enumerate()
-        .filter(|&(i, _)| item_initialized(&entries, i))
+        .filter(|&(i, _)| item_evaluated(program, &entries, items, i))
         .flat_map(|(_, item)| item_args(item))
         .collect()
 }
 
-/// For handlers of the same effect, only the later one is kept.
-fn keep_last(entries: Vec<Entry>) -> Vec<Entry> {
+/// For handlers of the same effect, only the later one is kept. An item bound to a name
+/// (`bound`) is kept for its name, but no longer provides its effect ([`Entry::named`]).
+fn keep_last(entries: Vec<Entry>, bound: impl Fn(usize) -> bool) -> Vec<Entry> {
     let mut out: Vec<Entry> = Vec::new();
     for (i, e) in entries.iter().enumerate() {
-        if !entries[i + 1..]
+        let overridden = entries[i + 1..]
             .iter()
-            .any(|later| later.effect == e.effect)
-        {
+            .any(|later| later.effect == e.effect);
+        if !overridden {
             out.push(e.clone());
+        } else if !e.from_layer && bound(e.origin) {
+            out.push(Entry {
+                named: false,
+                ..e.clone()
+            });
         }
     }
     out
@@ -420,6 +473,7 @@ fn keep_last(entries: Vec<Entry>) -> Vec<Entry> {
 /// effect.
 fn depends(entries: &[Entry], deps: &[Row], i: usize, j: usize) -> bool {
     j != i
+        && entries[j].named
         && entries[j].effect != entries[i].effect
         && deps[i].contains(&RowElem::Tag(entries[j].effect.clone()))
 }
@@ -504,6 +558,20 @@ pub(crate) fn check_layers(
             }
         }
 
+        // A layer has no names to bind, so it cannot open a handler member (`[effect.with]`).
+        for m in &item.members {
+            if let Res::Def(def) = m.res
+                && program.defs[def].kind == DefKind::Member
+            {
+                diags.push(Diagnostic {
+                    span: Some(m.span),
+                    kind: DiagnosticKind::MemberInLayer {
+                        member: program.defs[def].name.clone(),
+                        layer: data.name.clone(),
+                    },
+                });
+            }
+        }
         let flat = flatten(program, layer);
         let mut entries: Vec<Entry> = Vec::new();
         for Flat {
@@ -542,6 +610,7 @@ pub(crate) fn check_layers(
                 span,
                 origin,
                 from_layer,
+                named: true,
             });
         }
 

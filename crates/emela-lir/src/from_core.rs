@@ -1333,7 +1333,9 @@ impl<'s> Lower<'s> {
             let _ = self.expr(&release.body);
             let released = self.close();
             self.open();
-            if let Some(h) = handler {
+            if release.mark
+                && let Some(h) = handler
+            {
                 self.let_(
                     TMP,
                     TypeId::UNIT,

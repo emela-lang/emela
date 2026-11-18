@@ -1172,3 +1172,85 @@ pub type Code(value: String) derive Eq, Ord, ObjectKey
     let keys = [dumped_fns(&m, "Status: "), dumped_fns(&m, "Code: ")].concat();
     insta::assert_snapshot!([view, tree, keys].join("\n"));
 }
+
+/// A handler member is an operation of its effect after the declared ones, returning the handler
+/// value opened and the function that releases it; a `suspend handler` is a suspend fn
+/// operation (`lower/member.rs`). The inner handler is a handler of its own, named after its
+/// outer handler, and an init that opens a member takes the cell of their releases.
+#[test]
+fn handler_members_are_operations_of_their_effect() {
+    let m = lower_files(&[(
+        "main.emel",
+        r#"
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  fn count() -> Int
+  suspend handler Open(path: String): ReadFile
+}
+
+handler MemFiles: Files {
+  fn count() { 0 }
+  handler Open(path: String): ReadFile {
+    init(path: String) { Self(path:) }
+    fn read(max) { max }
+  }
+}
+
+handler TracedFiles: Files {
+  fn count() { 1 }
+  handler Open(inner: use ReadFile): ReadFile {
+    init(path: String) { Self(inner: Files.Open(path)) }
+    fn read(max) { self.inner.read(max) }
+  }
+}
+
+fn main() {
+  with MemFiles, TracedFiles {
+    with f = Files.Open("a") {
+      _ = f.read(1)
+    }
+  }
+}
+"#,
+    )]);
+    let files = m
+        .effects
+        .iter()
+        .map(|(_, e)| e)
+        .find(|e| e.name == "Files")
+        .expect("the effect Files");
+    let ops: Vec<String> = files
+        .ops
+        .iter()
+        .map(|op| {
+            let params: Vec<String> = op.params.iter().map(|t| render_ty(&m, t)).collect();
+            format!(
+                "{}{}({}) -> {}",
+                if op.suspend { "suspend " } else { "" },
+                op.name,
+                params.join(", "),
+                render_ty(&m, &op.ret)
+            )
+        })
+        .collect();
+    assert_eq!(ops.len(), 2);
+    assert_eq!(ops[0], "count() -> Int");
+    // The pair of the handler value of ReadFile and its release, which may suspend.
+    assert!(
+        ops[1].starts_with("suspend Open(String) -> (Handler("),
+        "{}",
+        ops[1]
+    );
+    assert!(fn_names(&m).contains(&"TracedFiles.Open$init"));
+    let init = m
+        .functions
+        .iter()
+        .map(|(_, f)| f)
+        .find(|f| f.name == "TracedFiles.Open$init")
+        .expect("the init of the inner handler");
+    // `path`, the cell of what it opens, and the evidence table.
+    assert_eq!(init.params.len(), 3);
+}

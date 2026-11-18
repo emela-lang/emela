@@ -257,7 +257,7 @@ error[E0110]@64..65: expected `:`
 error[E0110]@71..74: expected `:`
 error[E0111]@103..104: expected type
 error[E0122]@141..142: expected newline or `}` after item
-error[E0110]@190..197: expected `init`, `release`, or operation (`fn`)
+error[E0110]@190..197: expected `init`, `release`, operation (`fn`) or inner handler (`handler`)
 error[E0126]@209..213: expected declaration
 error[E0126]@244..245: expected declaration
 error[E0130]@249..250: a function without a body must be `@external`

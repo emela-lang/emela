@@ -1,7 +1,7 @@
 ---
 title: Handler members
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 624
 issue: 616
 decided: 2026-11-18
@@ -236,11 +236,11 @@ postfix    = ...
 
 ## Diagnostics
 
-- [ ] A handler member item is written without `x =`, or as an item of a layer: code to be assigned
-- [ ] A handler member is written outside a with item and an init (`f = Files.Open(...)` in a fn): code to be assigned
-- [ ] The init of an inner handler does not take the parameters of its handler member: code to be assigned
-- [ ] A missing handler member in a handler: E0404 (extended)
-- [ ] A lint: the same capability variable passed to two parameters of one call (`copy(tmp, tmp)`): code to be assigned (`[lint]`, draft `linter`)
+- [x] A handler member item is written without `x =`, or as an item of a layer: E0447
+- [x] A handler member is written outside a with item and an init (`f = Files.Open(...)` in a fn): E0448
+- [x] The init of an inner handler does not take the parameters of its handler member: E0449
+- [x] A missing handler member in a handler: E0404 (extended)
+- [ ] A lint: the same capability variable passed to two parameters of one call (`copy(tmp, tmp)`): code to be assigned (`[lint]`, draft `linter`; left for that draft, since `[lint]` does not exist yet)
 
 ## Compatibility
 

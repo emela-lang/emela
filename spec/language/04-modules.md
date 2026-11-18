@@ -100,11 +100,11 @@ The names in a module are split into three namespaces (types, constructors, and 
 | Constructors | type constructors, enum variants, errors, handlers with fields |
 | Values | fn, const |
 
-- Which namespace is looked up depends on where the name is written. On the left of `.`, only modules and Traits are looked up. In a type position, only types are looked up. For a type name in an expression or a pattern, only constructors are looked up. This is why the module `Email` and the type `Email` in 4.4 do not collide.
+- Which namespace is looked up depends on where the name is written. On the left of `.`, modules and Traits are looked up, and effects, only to name their handler members (`Files.Open`, 8.3). In a type position, only types are looked up. For a type name in an expression or a pattern, only constructors are looked up. This is why the module `Email` and the type `Email` in 4.4 do not collide.
 - A method call (`x.f(...)`, `[type.rules]`) looks up the functions of the module that defines the type of x without looking at the scope, so that module does not need to be imported. The functions of traits are looked up only in the traits that can be written unqualified in the calling module.
 - `import Email` alone does not make the type `Email` usable unqualified. Write `Email.Email`, or import it with `import Email.{Email}`.
-- A name on the left of `.` is looked up among the module's definitions and imports, and if not found, among the built-in modules and the Traits of the Prelude. If both a module and a Trait are found at the same level, it is a compile error (E0218).
-- The B in `A.B.f` is limited to a pub Trait of module A. There are no nested modules. An effect cannot be written on the left of `.` (`Logger.info` is a compile error. 8.2).
+- A name on the left of `.` is looked up among the module's definitions and imports, and if not found, among the built-in modules and the Traits of the Prelude. If both a module and a Trait are found at the same level, it is a compile error (E0218). If both a module and an effect are found, `X.M` names the handler member M of the effect if it has one, and otherwise the definition M of the module.
+- The B in `A.B.f` is limited to a pub Trait of module A. There are no nested modules. An operation cannot be named on an effect (`Logger.info` is a compile error, 8.2); only its handler members can.
 - In the `import A.B.{x}` form, B is also brought into scope as a module. Each listed name imports the pub definitions with that name from every namespace that has it (for a type, the type and the constructor).
 - Imported names are not re-exported. Other modules can look up only the names that a module defines. Importing the same definition twice is not a duplicate.
 - Variants and type constructors follow the pub and opaque of their parent type. Variants can be imported individually by name.

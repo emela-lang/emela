@@ -1,0 +1,542 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/handler_member.emel
+---
+ROOT@0..853
+  EFFECT_DECL@0..160
+    PUB_KW@0..3 "pub"
+    WHITESPACE@3..4 " "
+    EFFECT_KW@4..10 "effect"
+    WHITESPACE@10..11 " "
+    TYPE_NAME@11..16 "Files"
+    WHITESPACE@16..17 " "
+    ITEM_LIST@17..160
+      L_BRACE@17..18 "{"
+      NEWLINE@18..19 "\n"
+      WHITESPACE@19..21 "  "
+      MEMBER_SIG@21..107
+        SUSPEND_KW@21..28 "suspend"
+        WHITESPACE@28..29 " "
+        HANDLER_KW@29..36 "handler"
+        WHITESPACE@36..37 " "
+        TYPE_NAME@37..41 "Open"
+        PARAM_LIST@41..55
+          L_PAREN@41..42 "("
+          PARAM@42..54
+            LOWER_NAME@42..46 "path"
+            COLON@46..47 ":"
+            WHITESPACE@47..48 " "
+            PATH_TYPE@48..54
+              PATH@48..54
+                TYPE_NAME@48..54 "String"
+          R_PAREN@54..55 ")"
+        COLON@55..56 ":"
+        WHITESPACE@56..57 " "
+        HANDLER_EFFECT@57..65
+          PATH@57..65
+            TYPE_NAME@57..65 "ReadFile"
+        NEWLINE_CONT@65..66 "\n"
+        WHITESPACE@66..70 "    "
+        FAILS_CLAUSE@70..107
+          LOWER_NAME@70..75 "fails"
+          WHITESPACE@75..76 " "
+          ERROR_SET@76..107
+            PATH@76..88
+              TYPE_NAME@76..88 "FileNotFound"
+            WHITESPACE@88..89 " "
+            PIPE@89..90 "|"
+            WHITESPACE@90..91 " "
+            PATH@91..107
+              TYPE_NAME@91..107 "FileAccessDenied"
+      NEWLINE@107..108 "\n"
+      WHITESPACE@108..110 "  "
+      MEMBER_SIG@110..138
+        HANDLER_KW@110..117 "handler"
+        WHITESPACE@117..118 " "
+        TYPE_NAME@118..124 "Memory"
+        PARAM_LIST@124..126
+          L_PAREN@124..125 "("
+          R_PAREN@125..126 ")"
+        COLON@126..127 ":"
+        WHITESPACE@127..128 " "
+        HANDLER_EFFECT@128..138
+          PATH@128..133
+            TYPE_NAME@128..133 "State"
+          TYPE_ARG_LIST@133..138
+            L_BRACK@133..134 "["
+            PATH_TYPE@134..137
+              PATH@134..137
+                TYPE_NAME@134..137 "Int"
+            R_BRACK@137..138 "]"
+      NEWLINE@138..139 "\n"
+      WHITESPACE@139..141 "  "
+      OP_SIG@141..158
+        FN_KW@141..143 "fn"
+        WHITESPACE@143..144 " "
+        LOWER_NAME@144..149 "count"
+        PARAM_LIST@149..151
+          L_PAREN@149..150 "("
+          R_PAREN@150..151 ")"
+        WHITESPACE@151..152 " "
+        RET_TYPE@152..158
+          THIN_ARROW@152..154 "->"
+          WHITESPACE@154..155 " "
+          PATH_TYPE@155..158
+            PATH@155..158
+              TYPE_NAME@155..158 "Int"
+      NEWLINE@158..159 "\n"
+      R_BRACE@159..160 "}"
+  NEWLINE@160..161 "\n"
+  NEWLINE@161..162 "\n"
+  HANDLER_DECL@162..519
+    PUB_KW@162..165 "pub"
+    WHITESPACE@165..166 " "
+    HANDLER_KW@166..173 "handler"
+    WHITESPACE@173..174 " "
+    TYPE_NAME@174..185 "SystemFiles"
+    COLON@185..186 ":"
+    WHITESPACE@186..187 " "
+    HANDLER_EFFECT@187..192
+      PATH@187..192
+        TYPE_NAME@187..192 "Files"
+    WHITESPACE@192..193 " "
+    ITEM_LIST@193..519
+      L_BRACE@193..194 "{"
+      NEWLINE@194..195 "\n"
+      WHITESPACE@195..197 "  "
+      HANDLER_DECL@197..442
+        HANDLER_KW@197..204 "handler"
+        WHITESPACE@204..205 " "
+        TYPE_NAME@205..209 "Open"
+        FIELD_LIST@209..239
+          L_PAREN@209..210 "("
+          FIELD@210..224
+            LOWER_NAME@210..216 "handle"
+            COLON@216..217 ":"
+            WHITESPACE@217..218 " "
+            PATH_TYPE@218..224
+              PATH@218..224
+                TYPE_NAME@218..224 "Handle"
+          COMMA@224..225 ","
+          WHITESPACE@225..226 " "
+          FIELD@226..238
+            LOWER_NAME@226..230 "path"
+            COLON@230..231 ":"
+            WHITESPACE@231..232 " "
+            PATH_TYPE@232..238
+              PATH@232..238
+                TYPE_NAME@232..238 "String"
+          R_PAREN@238..239 ")"
+        COLON@239..240 ":"
+        WHITESPACE@240..241 " "
+        HANDLER_EFFECT@241..249
+          PATH@241..249
+            TYPE_NAME@241..249 "ReadFile"
+        WHITESPACE@249..250 " "
+        ITEM_LIST@250..442
+          L_BRACE@250..251 "{"
+          NEWLINE@251..252 "\n"
+          WHITESPACE@252..256 "    "
+          HANDLER_INIT@256..325
+            LOWER_NAME@256..260 "init"
+            PARAM_LIST@260..274
+              L_PAREN@260..261 "("
+              PARAM@261..273
+                LOWER_NAME@261..265 "path"
+                COLON@265..266 ":"
+                WHITESPACE@266..267 " "
+                PATH_TYPE@267..273
+                  PATH@267..273
+                    TYPE_NAME@267..273 "String"
+              R_PAREN@273..274 ")"
+            WHITESPACE@274..275 " "
+            BLOCK_EXPR@275..325
+              L_BRACE@275..276 "{"
+              NEWLINE@276..277 "\n"
+              WHITESPACE@277..283 "      "
+              CALL_EXPR@283..319
+                NAME_REF@283..287
+                  SELF_TYPE_KW@283..287 "Self"
+                ARG_LIST@287..319
+                  L_PAREN@287..288 "("
+                  NAMED_ARG@288..311
+                    LOWER_NAME@288..294 "handle"
+                    COLON@294..295 ":"
+                    WHITESPACE@295..296 " "
+                    CALL_EXPR@296..311
+                      NAME_REF@296..305
+                        LOWER_NAME@296..305 "host_open"
+                      ARG_LIST@305..311
+                        L_PAREN@305..306 "("
+                        NAME_REF@306..310
+                          LOWER_NAME@306..310 "path"
+                        R_PAREN@310..311 ")"
+                  COMMA@311..312 ","
+                  WHITESPACE@312..313 " "
+                  NAMED_ARG@313..318
+                    LOWER_NAME@313..317 "path"
+                    COLON@317..318 ":"
+                  R_PAREN@318..319 ")"
+              NEWLINE@319..320 "\n"
+              WHITESPACE@320..324 "    "
+              R_BRACE@324..325 "}"
+          NEWLINE@325..326 "\n"
+          WHITESPACE@326..330 "    "
+          HANDLER_RELEASE@330..365
+            LOWER_NAME@330..337 "release"
+            WHITESPACE@337..338 " "
+            BLOCK_EXPR@338..365
+              L_BRACE@338..339 "{"
+              WHITESPACE@339..340 " "
+              CALL_EXPR@340..363
+                NAME_REF@340..350
+                  LOWER_NAME@340..350 "host_close"
+                ARG_LIST@350..363
+                  L_PAREN@350..351 "("
+                  FIELD_EXPR@351..362
+                    NAME_REF@351..355
+                      SELF_KW@351..355 "self"
+                    DOT@355..356 "."
+                    LOWER_NAME@356..362 "handle"
+                  R_PAREN@362..363 ")"
+              WHITESPACE@363..364 " "
+              R_BRACE@364..365 "}"
+          NEWLINE@365..366 "\n"
+          WHITESPACE@366..370 "    "
+          FN_DECL@370..438
+            SUSPEND_KW@370..377 "suspend"
+            WHITESPACE@377..378 " "
+            FN_KW@378..380 "fn"
+            WHITESPACE@380..381 " "
+            LOWER_NAME@381..385 "read"
+            PARAM_LIST@385..398
+              L_PAREN@385..386 "("
+              PARAM@386..389
+                LOWER_NAME@386..389 "max"
+              COMMA@389..390 ","
+              WHITESPACE@390..391 " "
+              PARAM@391..397
+                LOWER_NAME@391..397 "resume"
+              R_PAREN@397..398 ")"
+            WHITESPACE@398..399 " "
+            BLOCK_EXPR@399..438
+              L_BRACE@399..400 "{"
+              WHITESPACE@400..401 " "
+              CALL_EXPR@401..436
+                NAME_REF@401..407
+                  LOWER_NAME@401..407 "resume"
+                ARG_LIST@407..436
+                  L_PAREN@407..408 "("
+                  CALL_EXPR@408..435
+                    NAME_REF@408..417
+                      LOWER_NAME@408..417 "host_read"
+                    ARG_LIST@417..435
+                      L_PAREN@417..418 "("
+                      FIELD_EXPR@418..429
+                        NAME_REF@418..422
+                          SELF_KW@418..422 "self"
+                        DOT@422..423 "."
+                        LOWER_NAME@423..429 "handle"
+                      COMMA@429..430 ","
+                      WHITESPACE@430..431 " "
+                      NAME_REF@431..434
+                        LOWER_NAME@431..434 "max"
+                      R_PAREN@434..435 ")"
+                  R_PAREN@435..436 ")"
+              WHITESPACE@436..437 " "
+              R_BRACE@437..438 "}"
+          NEWLINE@438..439 "\n"
+          WHITESPACE@439..441 "  "
+          R_BRACE@441..442 "}"
+      NEWLINE@442..443 "\n"
+      NEWLINE@443..444 "\n"
+      WHITESPACE@444..446 "  "
+      HANDLER_DECL@446..497
+        HANDLER_KW@446..453 "handler"
+        WHITESPACE@453..454 " "
+        TYPE_NAME@454..460 "Memory"
+        COLON@460..461 ":"
+        WHITESPACE@461..462 " "
+        HANDLER_EFFECT@462..472
+          PATH@462..467
+            TYPE_NAME@462..467 "State"
+          TYPE_ARG_LIST@467..472
+            L_BRACK@467..468 "["
+            PATH_TYPE@468..471
+              PATH@468..471
+                TYPE_NAME@468..471 "Int"
+            R_BRACK@471..472 "]"
+        WHITESPACE@472..473 " "
+        ITEM_LIST@473..497
+          L_BRACE@473..474 "{"
+          NEWLINE@474..475 "\n"
+          WHITESPACE@475..479 "    "
+          FN_DECL@479..493
+            FN_KW@479..481 "fn"
+            WHITESPACE@481..482 " "
+            LOWER_NAME@482..485 "get"
+            PARAM_LIST@485..487
+              L_PAREN@485..486 "("
+              R_PAREN@486..487 ")"
+            WHITESPACE@487..488 " "
+            BLOCK_EXPR@488..493
+              L_BRACE@488..489 "{"
+              WHITESPACE@489..490 " "
+              LITERAL@490..491
+                INT@490..491 "0"
+              WHITESPACE@491..492 " "
+              R_BRACE@492..493 "}"
+          NEWLINE@493..494 "\n"
+          WHITESPACE@494..496 "  "
+          R_BRACE@496..497 "}"
+      NEWLINE@497..498 "\n"
+      NEWLINE@498..499 "\n"
+      WHITESPACE@499..501 "  "
+      FN_DECL@501..517
+        FN_KW@501..503 "fn"
+        WHITESPACE@503..504 " "
+        LOWER_NAME@504..509 "count"
+        PARAM_LIST@509..511
+          L_PAREN@509..510 "("
+          R_PAREN@510..511 ")"
+        WHITESPACE@511..512 " "
+        BLOCK_EXPR@512..517
+          L_BRACE@512..513 "{"
+          WHITESPACE@513..514 " "
+          LITERAL@514..515
+            INT@514..515 "0"
+          WHITESPACE@515..516 " "
+          R_BRACE@516..517 "}"
+      NEWLINE@517..518 "\n"
+      R_BRACE@518..519 "}"
+  NEWLINE@519..520 "\n"
+  NEWLINE@520..521 "\n"
+  HANDLER_DECL@521..688
+    HANDLER_KW@521..528 "handler"
+    WHITESPACE@528..529 " "
+    TYPE_NAME@529..540 "TracedFiles"
+    COLON@540..541 ":"
+    WHITESPACE@541..542 " "
+    HANDLER_EFFECT@542..547
+      PATH@542..547
+        TYPE_NAME@542..547 "Files"
+    WHITESPACE@547..548 " "
+    ITEM_LIST@548..688
+      L_BRACE@548..549 "{"
+      NEWLINE@549..550 "\n"
+      WHITESPACE@550..552 "  "
+      HANDLER_DECL@552..686
+        HANDLER_KW@552..559 "handler"
+        WHITESPACE@559..560 " "
+        TYPE_NAME@560..564 "Open"
+        FIELD_LIST@564..585
+          L_PAREN@564..565 "("
+          FIELD@565..584
+            LOWER_NAME@565..570 "inner"
+            COLON@570..571 ":"
+            WHITESPACE@571..572 " "
+            CAP_TYPE@572..584
+              USE_KW@572..575 "use"
+              WHITESPACE@575..576 " "
+              PATH@576..584
+                TYPE_NAME@576..584 "ReadFile"
+          R_PAREN@584..585 ")"
+        COLON@585..586 ":"
+        WHITESPACE@586..587 " "
+        HANDLER_EFFECT@587..595
+          PATH@587..595
+            TYPE_NAME@587..595 "ReadFile"
+        WHITESPACE@595..596 " "
+        ITEM_LIST@596..686
+          L_BRACE@596..597 "{"
+          NEWLINE@597..598 "\n"
+          WHITESPACE@598..602 "    "
+          HANDLER_INIT@602..682
+            LOWER_NAME@602..606 "init"
+            PARAM_LIST@606..620
+              L_PAREN@606..607 "("
+              PARAM@607..619
+                LOWER_NAME@607..611 "path"
+                COLON@611..612 ":"
+                WHITESPACE@612..613 " "
+                PATH_TYPE@613..619
+                  PATH@613..619
+                    TYPE_NAME@613..619 "String"
+              R_PAREN@619..620 ")"
+            WHITESPACE@620..621 " "
+            BLOCK_EXPR@621..682
+              L_BRACE@621..622 "{"
+              NEWLINE@622..623 "\n"
+              WHITESPACE@623..629 "      "
+              BINDING@629..643
+                NAME_REF@629..631
+                  LOWER_NAME@629..631 "fs"
+                WHITESPACE@631..632 " "
+                EQ@632..633 "="
+                WHITESPACE@633..634 " "
+                USE_EXPR@634..643
+                  USE_KW@634..637 "use"
+                  WHITESPACE@637..638 " "
+                  PATH@638..643
+                    TYPE_NAME@638..643 "Files"
+              NEWLINE@643..644 "\n"
+              WHITESPACE@644..650 "      "
+              CALL_EXPR@650..676
+                NAME_REF@650..654
+                  SELF_TYPE_KW@650..654 "Self"
+                ARG_LIST@654..676
+                  L_PAREN@654..655 "("
+                  NAMED_ARG@655..675
+                    LOWER_NAME@655..660 "inner"
+                    COLON@660..661 ":"
+                    WHITESPACE@661..662 " "
+                    CALL_EXPR@662..675
+                      FIELD_EXPR@662..669
+                        NAME_REF@662..664
+                          LOWER_NAME@662..664 "fs"
+                        DOT@664..665 "."
+                        TYPE_NAME@665..669 "Open"
+                      ARG_LIST@669..675
+                        L_PAREN@669..670 "("
+                        NAME_REF@670..674
+                          LOWER_NAME@670..674 "path"
+                        R_PAREN@674..675 ")"
+                  R_PAREN@675..676 ")"
+              NEWLINE@676..677 "\n"
+              WHITESPACE@677..681 "    "
+              R_BRACE@681..682 "}"
+          NEWLINE@682..683 "\n"
+          WHITESPACE@683..685 "  "
+          R_BRACE@685..686 "}"
+      NEWLINE@686..687 "\n"
+      R_BRACE@687..688 "}"
+  NEWLINE@688..689 "\n"
+  NEWLINE@689..690 "\n"
+  FN_DECL@690..852
+    FN_KW@690..692 "fn"
+    WHITESPACE@692..693 " "
+    LOWER_NAME@693..700 "open_in"
+    PARAM_LIST@700..729
+      L_PAREN@700..701 "("
+      PARAM@701..714
+        LOWER_NAME@701..703 "fs"
+        COLON@703..704 ":"
+        WHITESPACE@704..705 " "
+        CAP_TYPE@705..714
+          USE_KW@705..708 "use"
+          WHITESPACE@708..709 " "
+          PATH@709..714
+            TYPE_NAME@709..714 "Files"
+      COMMA@714..715 ","
+      WHITESPACE@715..716 " "
+      PARAM@716..728
+        LOWER_NAME@716..720 "path"
+        COLON@720..721 ":"
+        WHITESPACE@721..722 " "
+        PATH_TYPE@722..728
+          PATH@722..728
+            TYPE_NAME@722..728 "String"
+      R_PAREN@728..729 ")"
+    WHITESPACE@729..730 " "
+    RET_TYPE@730..736
+      THIN_ARROW@730..732 "->"
+      WHITESPACE@732..733 " "
+      PATH_TYPE@733..736
+        PATH@733..736
+          TYPE_NAME@733..736 "Int"
+    WHITESPACE@736..737 " "
+    BLOCK_EXPR@737..852
+      L_BRACE@737..738 "{"
+      NEWLINE@738..739 "\n"
+      WHITESPACE@739..741 "  "
+      WITH_EXPR@741..850
+        WITH_KW@741..745 "with"
+        WHITESPACE@745..746 " "
+        WITH_BIND@746..763
+          LOWER_NAME@746..747 "f"
+          WHITESPACE@747..748 " "
+          EQ@748..749 "="
+          WHITESPACE@749..750 " "
+          SUPPLY@750..763
+            CAP_MEMBER@750..757
+              LOWER_NAME@750..752 "fs"
+              DOT@752..753 "."
+              TYPE_NAME@753..757 "Open"
+            ARG_LIST@757..763
+              L_PAREN@757..758 "("
+              NAME_REF@758..762
+                LOWER_NAME@758..762 "path"
+              R_PAREN@762..763 ")"
+        COMMA@763..764 ","
+        WHITESPACE@764..765 " "
+        WITH_BIND@765..784
+          LOWER_NAME@765..766 "g"
+          WHITESPACE@766..767 " "
+          EQ@767..768 "="
+          WHITESPACE@768..769 " "
+          SUPPLY@769..784
+            PATH@769..779
+              TYPE_NAME@769..774 "Files"
+              DOT@774..775 "."
+              TYPE_NAME@775..779 "Open"
+            ARG_LIST@779..784
+              L_PAREN@779..780 "("
+              STRING@780..783
+                STRING_QUOTE@780..781 "\""
+                STRING_TEXT@781..782 "b"
+                STRING_QUOTE@782..783 "\""
+              R_PAREN@783..784 ")"
+        COMMA@784..785 ","
+        WHITESPACE@785..786 " "
+        WITH_BIND@786..805
+          LOWER_NAME@786..789 "log"
+          WHITESPACE@789..790 " "
+          EQ@790..791 "="
+          WHITESPACE@791..792 " "
+          PATH@792..805
+            TYPE_NAME@792..805 "ConsoleLogger"
+        COMMA@805..806 ","
+        WHITESPACE@806..807 " "
+        WITH_BIND@807..831
+          LOWER_NAME@807..808 "s"
+          WHITESPACE@808..809 " "
+          EQ@809..810 "="
+          WHITESPACE@810..811 " "
+          WITH_BY@811..831
+            PATH@811..817
+              TYPE_NAME@811..817 "Source"
+            WHITESPACE@817..818 " "
+            LOWER_NAME@818..820 "by"
+            WHITESPACE@820..821 " "
+            SUPPLY@821..831
+              PATH@821..825
+                TYPE_NAME@821..825 "Plug"
+              ARG_LIST@825..831
+                L_PAREN@825..826 "("
+                NAMED_ARG@826..830
+                  LOWER_NAME@826..827 "n"
+                  COLON@827..828 ":"
+                  WHITESPACE@828..829 " "
+                  LITERAL@829..830
+                    INT@829..830 "1"
+                R_PAREN@830..831 ")"
+        WHITESPACE@831..832 " "
+        BLOCK_EXPR@832..850
+          L_BRACE@832..833 "{"
+          NEWLINE@833..834 "\n"
+          WHITESPACE@834..838 "    "
+          CALL_EXPR@838..846
+            NAME_REF@838..843
+              LOWER_NAME@838..843 "count"
+            ARG_LIST@843..846
+              L_PAREN@843..844 "("
+              NAME_REF@844..845
+                LOWER_NAME@844..845 "f"
+              R_PAREN@845..846 ")"
+          NEWLINE@846..847 "\n"
+          WHITESPACE@847..849 "  "
+          R_BRACE@849..850 "}"
+      NEWLINE@850..851 "\n"
+      R_BRACE@851..852 "}"
+  NEWLINE@852..853 "\n"

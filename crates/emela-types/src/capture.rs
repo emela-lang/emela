@@ -51,6 +51,9 @@ enum Binder {
 enum Holder {
     /// The handler of entry `1` of the `with` expression `0` (`layer::with_entries`).
     With(ExprId, usize),
+    /// The handler that item `1` of the `with` expression `0` opens as a handler member
+    /// (`x = Files.Open(p)`, `[effect.with]`).
+    Opened(ExprId, usize),
     /// The Scope of the call of a scope function (`Fiber.scope`).
     Scope(ExprId),
     /// What parameter `1` of the binder holds.
@@ -212,7 +215,7 @@ struct Cx<'a, 'b> {
     env: FxHashMap<LocalId, Val>,
     /// The `with` expressions enclosing the current expression, innermost last, with the
     /// effect each entry provides.
-    withs: Vec<(ExprId, Vec<DefId>)>,
+    withs: Vec<(ExprId, Vec<Option<DefId>>)>,
     /// The binders enclosing the current expression, innermost last.
     binders: Vec<Binder>,
     /// The variable bound to each root, for display.
@@ -330,7 +333,7 @@ impl<'a, 'b> Cx<'a, 'b> {
     /// The root `use E` refers to here (`[effect.with]`).
     fn use_root(&self, effect: DefId) -> Holder {
         for (with, provides) in self.withs.iter().rev() {
-            if let Some(entry) = provides.iter().position(|&e| e == effect) {
+            if let Some(entry) = provides.iter().position(|&e| e == Some(effect)) {
                 return Holder::With(*with, entry);
             }
         }
@@ -820,7 +823,21 @@ impl<'a, 'b> Cx<'a, 'b> {
             }
         }
         let entries = layer::with_entries(program, input.sigs, input.ty_table, items);
-        let provides: Vec<DefId> = entries.iter().map(|e| e.effect.def).collect();
+        // Only providers by name are found by `use E`; the indices stay those of `entries`.
+        let provides: Vec<Option<DefId>> = entries
+            .iter()
+            .map(|e| e.named.then_some(e.effect.def))
+            .collect();
+        // A name bound to an item holds the handler of that item (`[effect.with]`).
+        for (i, item) in items.iter().enumerate() {
+            let Some(local) = item.bind else { continue };
+            let holder = match entries.iter().position(|e| e.origin == i && !e.from_layer) {
+                Some(entry) => Holder::With(expr, entry),
+                None => Holder::Opened(expr, i),
+            };
+            self.names.insert(holder, local);
+            self.bind(local, Val::of(Holds::from([holder])));
+        }
         self.withs.push((expr, provides));
         let mut val = self.eval(body);
         self.withs.pop();
@@ -833,13 +850,16 @@ impl<'a, 'b> Cx<'a, 'b> {
             .holds
             .iter()
             .copied()
-            .filter(|h| matches!(h, Holder::With(w, _) if *w == expr))
+            .filter(|h| matches!(h, Holder::With(w, _) | Holder::Opened(w, _) if *w == expr))
             .collect();
         for root in roots {
-            if let Holder::With(_, entry) = root
-                && let Some(e) = entries.get(entry)
-            {
-                self.report_escape(root, None, e.span, tail(program, body));
+            let span = match root {
+                Holder::With(_, entry) => entries.get(entry).map(|e| e.span),
+                Holder::Opened(_, item) => items.get(item).map(|i| i.span),
+                _ => None,
+            };
+            if let Some(span) = span {
+                self.report_escape(root, None, span, tail(program, body));
             }
             val.holds.remove(&root);
         }
@@ -1147,12 +1167,31 @@ impl Shown<'_, '_> {
                 let handler = match &e.supplier {
                     Supplier::Handler(h) => program.defs[*h].name.clone(),
                     Supplier::Effect(t) => program.defs[t.def].name.clone(),
+                    Supplier::Member { member, .. } => program.defs[*member].name.clone(),
                 };
                 Held {
                     name: bound.unwrap_or_else(|| handler.clone()),
                     provider: Some(Provider {
                         what: SmolStr::new(format!("with {handler}")),
                         span: e.span,
+                    }),
+                }
+            }
+            Holder::Opened(with, item) => {
+                let ExprKind::With { handlers, .. } = &program.exprs[with].kind else {
+                    unreachable!("a root of a with");
+                };
+                let item = &handlers[item];
+                let member = match (item.res, &item.cap) {
+                    (Res::Def(m), _) => program.defs[m].name.clone(),
+                    (_, Some((_, name))) => name.name.clone(),
+                    _ => SmolStr::default(),
+                };
+                Held {
+                    name: bound.unwrap_or_else(|| member.clone()),
+                    provider: Some(Provider {
+                        what: SmolStr::new(format!("with {member}")),
+                        span: item.span,
                     }),
                 }
             }

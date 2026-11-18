@@ -1,0 +1,87 @@
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect Audit of Files
+
+handler MemFiles(base: Int): Files {
+  init {
+    _ = dbg("open MemFiles")
+    MemFiles(base: 10)
+  }
+  release { _ = dbg("close MemFiles") }
+
+  handler Open(path: String, size: Int): ReadFile {
+    init(path: String) {
+      _ = dbg("open #{path}")
+      Self(path:, size: if path == "a" { 1 } else { 2 })
+    }
+    release { _ = dbg("close #{self.path}") }
+    fn read(max) { self.size + max }
+  }
+}
+
+handler TracedFiles: Files {
+  handler Open(inner: use ReadFile, outer: use ReadFile): ReadFile {
+    init(path: String) {
+      first = Files.Open("#{path}.1")
+      fs = use Files
+      Self(inner: first, outer: fs.Open("#{path}.2"))
+    }
+    release { _ = dbg("close traced") }
+    fn read(max) {
+      (use Logger).info("read #{max}")
+      self.inner.read(max) + self.outer.read(max)
+    }
+  }
+}
+
+handler Quiet: Logger {
+  fn info(msg) { _ = dbg("quiet #{msg}") }
+}
+
+handler Loud: Logger {
+  fn info(msg) { _ = dbg("LOUD #{msg}") }
+}
+
+fn count(f: use ReadFile) -> Int { f.read(1) }
+
+fn copy(src: use ReadFile, dst: use ReadFile) -> Int { src.read(10) + dst.read(100) }
+
+fn open_in(fs: use Files, path: String) -> Int {
+  with f = fs.Open(path) {
+    count(f)
+  }
+}
+
+fn main() {
+  # The provider in the same `with` is initialized before the item that opens its member.
+  with a = Files.Open("a"), MemFiles, b = Files.Open("bb") {
+    _ = dbg(copy(a, b))
+    _ = dbg(open_in(use Files, "ccc"))
+    with TracedFiles, Quiet {
+      with t = Files.Open("t") {
+        _ = dbg(count(t))
+      }
+    }
+    # A label has the handler members of its base.
+    with Audit by Files {
+      with f = Audit.Open("label") {
+        _ = dbg(count(f))
+      }
+    }
+  }
+  # A bound item that a later item overrides still refers to its own handler.
+  with quiet = Quiet, Loud {
+    quiet.info("bound")
+    (use Logger).info("by name")
+  }
+}

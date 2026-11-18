@@ -24,7 +24,7 @@
 //!   function values.
 
 use emela_resolve::hir::{
-    BinaryOp, DefId, ExprId, ExprKind, Item, LocalId, Program, Res, Span, Stmt, StrPart,
+    BinaryOp, DefId, ExprId, ExprKind, Item, LocalId, Program, Res, Span, Stmt, StrPart, WithItem,
 };
 use smol_str::SmolStr;
 
@@ -125,14 +125,34 @@ impl BodyInfer<'_> {
     /// alone guarantees the body does not suspend. The latter looks at each call in the body
     /// ([`Self::suspending_call`]). Calls inside a lambda's body count where the lambda is called,
     /// as a call of a function value. If neither holds, each call that may suspend is reported.
+    ///
+    /// The init and the release of an inner handler that implements a handler member without
+    /// `suspend` are checked the same way (`[effect.decl]`).
     pub(super) fn check_fn_op_bodies(&mut self) {
         let program = self.program;
-        let bodies: Vec<(DefId, usize, ExprId)> = self
+        let mut bodies: Vec<(DefId, Option<usize>, ExprId)> = self
             .handler_bodies
             .iter()
             .filter(|b| !b.suspend)
-            .map(|b| (b.handler, b.index, b.body))
+            .map(|b| (b.handler, Some(b.index), b.body))
             .collect();
+        bodies.extend(
+            self.handler_parts
+                .iter()
+                .filter(|p| {
+                    matches!(
+                        program.item(p.handler),
+                        Some(Item::Handler(h)) if matches!(
+                            h.member,
+                            Some(Res::Def(m)) if matches!(
+                                program.item(m),
+                                Some(Item::Member(m)) if !m.sig.is_suspend
+                            )
+                        )
+                    )
+                })
+                .map(|p| (p.handler, None, p.body)),
+        );
         for (handler, index, body) in bodies {
             let Some(Item::Handler(h)) = program.item(handler) else {
                 continue;
@@ -156,7 +176,26 @@ impl BodyInfer<'_> {
             if immediate {
                 continue;
             }
-            let op = h.ops[index].name.name.clone();
+            let report = |call: SuspendingCall| match index {
+                Some(index) => DiagnosticKind::SuspendingFnOp {
+                    op: h.ops[index].name.name.clone(),
+                    call,
+                },
+                None => {
+                    let member = match h.member {
+                        Some(Res::Def(m)) => m,
+                        _ => unreachable!("an inner handler of a handler member"),
+                    };
+                    DiagnosticKind::SuspendingMemberPart {
+                        member: program.defs[member].name.clone(),
+                        effect: program.defs[member]
+                            .parent
+                            .map(|e| program.defs[e].name.clone())
+                            .unwrap_or_default(),
+                        call,
+                    }
+                }
+            };
             let mut stack = vec![body];
             while let Some(expr) = stack.pop() {
                 let callee = match &program.exprs[expr].kind {
@@ -172,11 +211,20 @@ impl BodyInfer<'_> {
                 if let Some(call) = callee.and_then(|c| self.suspending_call(c)) {
                     self.diags.push(Diagnostic {
                         span: Some(program.exprs[expr].span),
-                        kind: DiagnosticKind::SuspendingFnOp {
-                            op: op.clone(),
-                            call,
-                        },
+                        kind: report(call),
                     });
+                }
+                // Opening a suspend handler member as an item of `with` may suspend, there and
+                // where the `with` ends (`[effect.decl]`).
+                if let ExprKind::With { handlers, .. } = &program.exprs[expr].kind {
+                    for item in handlers {
+                        if let Some(call) = self.suspending_member_item(item) {
+                            self.diags.push(Diagnostic {
+                                span: Some(item.span),
+                                kind: report(call),
+                            });
+                        }
+                    }
                 }
                 // Push in reverse so reports come in source order.
                 stack.extend(self.sub_exprs(expr).into_iter().rev());
@@ -193,6 +241,9 @@ impl BodyInfer<'_> {
     ///   carry no suspension marker.
     fn suspending_call(&mut self, callee: ExprId) -> Option<SuspendingCall> {
         let program = self.program;
+        if let Some(&member) = self.member_opens.get(callee) {
+            return self.suspending_member(member);
+        }
         if let Some(&op) = self.ops.get(callee) {
             let Some(Item::Op(o)) = program.item(op) else {
                 return None;
@@ -242,6 +293,29 @@ impl BodyInfer<'_> {
                 .map(|def| program.defs[def].name.clone()),
         };
         Some(SuspendingCall::Fn { callee, effects })
+    }
+}
+
+impl BodyInfer<'_> {
+    /// Why opening `member` may suspend: it is a `suspend handler` (`[effect.decl]`).
+    fn suspending_member(&self, member: DefId) -> Option<SuspendingCall> {
+        let program = self.program;
+        let Some(Item::Member(m)) = program.item(member) else {
+            return None;
+        };
+        m.sig.is_suspend.then(|| SuspendingCall::Member {
+            effect: program.defs[member]
+                .parent
+                .map(|e| program.defs[e].name.clone())
+                .unwrap_or_default(),
+            member: program.defs[member].name.clone(),
+        })
+    }
+
+    /// Why the item of `with` `item` may suspend: it opens a `suspend handler` member.
+    fn suspending_member_item(&self, item: &WithItem) -> Option<SuspendingCall> {
+        let member = self.member_item(item)?;
+        self.suspending_member(member)
     }
 }
 

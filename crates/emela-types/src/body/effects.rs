@@ -154,6 +154,19 @@ impl BodyInfer<'_> {
                             Origin::HandlerPart,
                         );
                     }
+                    // The requirements of the inner handlers are the outer handler's; they are
+                    // provided where the outer handler is (`[effect.handler]`).
+                    if let Some(Item::Handler(item)) = program.item(def) {
+                        for &inner in &item.inner {
+                            let row = self.handler_deps(inner);
+                            self.ctx.add_subset_of(
+                                SetKind::Effects,
+                                row,
+                                deps.clone(),
+                                Origin::HandlerPart,
+                            );
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -341,8 +354,23 @@ impl BodyInfer<'_> {
             })
             .collect();
         let entries = layer::with_entries(program, self.sigs, self.ty_table, items);
-        let provides: Vec<Tag> = entries.iter().map(|e| e.effect.clone()).collect();
-        self.with_stack.push((expr, provides));
+        let provides: Vec<Tag> = entries
+            .iter()
+            .filter(|e| e.named)
+            .map(|e| e.effect.clone())
+            .collect();
+        // A variable bound to an item is the capability of that item; it cannot leave the
+        // `with` (`[effect.use]`). The capability of a handler that provides its effect by name
+        // stands for that effect, as one bound to `use E` does.
+        for item in items {
+            if let Some(local) = item.bind {
+                self.cap_roots.insert(local, expr);
+                if !layer::is_member_item(program, item) {
+                    self.use_bound.insert(local);
+                }
+            }
+        }
+        self.with_stack.push((expr, provides.clone()));
         let body_row = self.expr_effects(body);
         self.with_stack.pop();
         layer::check_with_items(program, self.sigs, self.ty_table, items, &mut self.diags);
@@ -351,11 +379,15 @@ impl BodyInfer<'_> {
             .map(|e| match &e.supplier {
                 Supplier::Handler(h) => self.handler_deps(*h),
                 Supplier::Effect(t) => Row::of_tag(t.clone()),
+                Supplier::Member { .. } => Row::empty(),
             })
             .collect();
-        let provided: Vec<Tag> = entries.iter().map(|e| e.effect.clone()).collect();
+        let provided = provides;
         let mut defaults: Vec<(Tag, usize)> = Vec::new();
         for (i, entry) in entries.iter().enumerate() {
+            if !entry.named {
+                continue;
+            }
             for label in self.sigs.default_labels(&entry.effect) {
                 let tag = Tag::new(label);
                 if !provided.contains(&tag) && !defaults.iter().any(|(t, _)| *t == tag) {
@@ -391,8 +423,14 @@ impl BodyInfer<'_> {
                 .collect();
             row.extend(&self.subtract(deps, &others));
         }
+        // An item that opens a handler member requires the effect that declares it, or the
+        // capability it is opened through; a provider of that effect in the same `with` meets it
+        // (`[effect.with]`, `[dyn.with]`).
+        for (_, f) in self.with_members.get(expr).cloned().unwrap_or_default() {
+            row.extend(&self.subtract(&f.uses, &provided));
+        }
         let initialized: Vec<bool> = (0..items.len())
-            .map(|i| layer::item_initialized(&entries, i))
+            .map(|i| layer::item_evaluated(program, &entries, items, i))
             .collect();
         for (rows, &init) in arg_rows.iter().zip(&initialized) {
             if init {
@@ -451,10 +489,15 @@ impl BodyInfer<'_> {
         // is replaced with its effect.
         let (used, others): (Vec<_>, Vec<_>) =
             locals.into_iter().partition(|l| self.use_bound.contains(l));
-        let used: Vec<RowElem> = used.into_iter().filter_map(|l| self.cap_elem(l)).collect();
+        // The `self` of a handler stands for the capabilities in its fields (`self.inner.read`):
+        // removed by the variable alone, whatever their effects.
+        let used: Vec<RowElem> = used
+            .into_iter()
+            .filter_map(|l| self.cap_elem(l).or_else(|| self.self_elem(l, def)))
+            .collect();
         let others: Vec<RowElem> = others
             .into_iter()
-            .filter_map(|l| self.cap_elem(l))
+            .filter_map(|l| self.cap_elem(l).or_else(|| self.self_elem(l, def)))
             .collect();
         let mut row = row.clone();
         if !used.is_empty() {
@@ -464,6 +507,19 @@ impl BodyInfer<'_> {
             row = self.widen_elems(&row, &others);
         }
         row
+    }
+
+    /// The element of the `self` of a handler `def`, which stands for the capabilities in its
+    /// fields. Only its variable matters when it is removed or widened; each element in a row
+    /// keeps its own effect.
+    fn self_elem(&self, local: emela_resolve::hir::LocalId, def: DefId) -> Option<RowElem> {
+        (self.program.locals[local].kind == emela_resolve::hir::LocalKind::SelfParam).then(|| {
+            RowElem::Cap(CapElem {
+                local,
+                name: self.program.locals[local].name.clone(),
+                tag: Tag::new(def),
+            })
+        })
     }
 
     /// Replaces the capabilities `caps` in `row` with their effects. Set variables are replaced
@@ -579,20 +635,27 @@ impl BodyInfer<'_> {
                 .get(body)
                 .map(|r| self.ctx.resolve_row(r))
                 .unwrap_or_default();
-            self.unused_label_providers(&entries, &deps, &body_row);
+            // An item that opens a handler member of a label uses the label (`[effect.label]`).
+            let mut used = body_row.clone();
+            for (_, f) in self.with_members.get(expr).cloned().unwrap_or_default() {
+                used.extend(&self.ctx.resolve_row(&f.uses));
+            }
+            self.unused_label_providers(&entries, &deps, &used);
             let defaults = defaults
                 .into_iter()
                 .filter(|(t, _)| body_row.contains(&RowElem::Tag(t.clone())))
                 .filter_map(|(t, i)| Some((t, order.iter().position(|&j| j == i)?)))
                 .collect();
-            let binds = order
+            let mut binds: Vec<WithBind> = order
                 .iter()
                 .map(|&i| WithBind {
                     effect: entries[i].effect.clone(),
                     supplier: entries[i].supplier.clone(),
                     args: entries[i].args,
+                    named: entries[i].named,
                 })
                 .collect();
+            self.place_member_items(expr, &entries, &order, &mut binds);
             self.with_handlers.insert(
                 expr,
                 WithInfo {
@@ -601,6 +664,89 @@ impl BodyInfer<'_> {
                     initialized,
                 },
             );
+        }
+    }
+
+    /// Puts the items of the `with` `expr` that open handler members into `binds`, the providers
+    /// in initialization order (`[dyn.with]`). An item that opens a member of an effect another
+    /// item of the same `with` provides comes after that item; otherwise items keep the order
+    /// they are written in.
+    fn place_member_items(
+        &mut self,
+        expr: ExprId,
+        entries: &[layer::Entry],
+        order: &[usize],
+        binds: &mut Vec<WithBind>,
+    ) {
+        let program = self.program;
+        let Some(opened) = self.with_members.get(expr).cloned() else {
+            return;
+        };
+        let ExprKind::With {
+            handlers: items, ..
+        } = &program.exprs[expr].kind
+        else {
+            return;
+        };
+        let mut members: Vec<(usize, WithBind, Option<usize>)> = Vec::new();
+        for (item, f) in opened {
+            let Some(member) = self.member_item(&items[item]) else {
+                continue;
+            };
+            let effect = match self.ctx.resolve(&f.ret) {
+                Ty::Cap(tag) => tag,
+                _ => continue,
+            };
+            let (provider, after) = match &items[item].cap {
+                Some((cap, _)) => (layer::MemberProvider::Cap(*cap), None),
+                None => {
+                    let uses = self.ctx.resolve_row(&f.uses);
+                    let Some(tag) = uses.effect_tags().next().cloned() else {
+                        continue;
+                    };
+                    // The provider of the effect in the same `with`, by its place in `order`.
+                    let after = order.iter().position(|&i| {
+                        entries[i].named && self.ctx.same_tag(&entries[i].effect, &tag)
+                    });
+                    (layer::MemberProvider::Effect(tag), after)
+                }
+            };
+            members.push((
+                item,
+                WithBind {
+                    effect,
+                    supplier: Supplier::Member {
+                        member,
+                        provider,
+                        item,
+                    },
+                    args: layer::ArgsSource::Item(item),
+                    named: false,
+                },
+                after,
+            ));
+        }
+        // Merge: take the earlier written of the next provider and the first member item whose
+        // provider is placed.
+        let providers = std::mem::take(binds);
+        let origins: Vec<usize> = order.iter().map(|&i| entries[i].origin).collect();
+        let mut next = 0;
+        while next < providers.len() || !members.is_empty() {
+            let ready = members
+                .iter()
+                .position(|(_, _, after)| after.is_none_or(|a| a < next));
+            let take_member = match (ready, origins.get(next)) {
+                (Some(m), Some(&origin)) => members[m].0 < origin,
+                (Some(_), None) => true,
+                (None, _) => false,
+            };
+            if take_member {
+                let (_, bind, _) = members.remove(ready.expect("a member item is ready"));
+                binds.push(bind);
+            } else {
+                binds.push(providers[next].clone());
+                next += 1;
+            }
         }
     }
 

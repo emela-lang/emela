@@ -663,7 +663,15 @@
           "named": true
         },
         {
+          "type": "handler_declaration",
+          "named": true
+        },
+        {
           "type": "handler_init",
+          "named": true
+        },
+        {
+          "type": "handler_member",
           "named": true
         },
         {
@@ -1354,6 +1362,66 @@
     }
   },
   {
+    "type": "handler_member",
+    "named": true,
+    "fields": {
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_reference",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "parameters",
+            "named": true
+          }
+        ]
+      },
+      "type_arguments": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_arguments",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "annotation",
+          "named": true
+        },
+        {
+          "type": "fails_clause",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "handler_release",
     "named": true,
     "fields": {
@@ -1861,6 +1929,42 @@
         "types": [
           {
             "type": "_expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "member_supply",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "arguments",
+            "named": true
+          }
+        ]
+      },
+      "capability": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "member": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_identifier",
             "named": true
           }
         ]
@@ -2712,6 +2816,16 @@
           }
         ]
       },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
       "provider": {
         "multiple": false,
         "required": false,
@@ -2737,6 +2851,10 @@
       "multiple": false,
       "required": true,
       "types": [
+        {
+          "type": "member_supply",
+          "named": true
+        },
         {
           "type": "supply",
           "named": true

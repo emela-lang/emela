@@ -284,7 +284,7 @@ ROOT@0..421
   NEWLINE@420..421 "\n"
 error[E0129]@43..49: derive rules in traits are not supported yet
 error[E0110]@249..250: expected `->`
-error[E0110]@252..255: expected operation (`fn`)
+error[E0110]@252..255: expected operation (`fn`) or handler member (`handler`)
 error[E0110]@284..285: expected type name
 error[E0110]@286..292: expected `:`
 error[E0110]@328..332: expected `:`

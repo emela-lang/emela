@@ -120,6 +120,7 @@ fn render(src: &str, handlers: bool) -> String {
                         }
                         Supplier::Handler(h) => name(*h),
                         Supplier::Effect(t) => format!("{} <- {}", name(b.effect.def), name(t.def)),
+                        Supplier::Member { member, .. } => format!("open {}", name(*member)),
                     }
                 })
                 .collect();
@@ -1984,6 +1985,58 @@ effect Console {
 }
 
 effect Audit of Console
+"#
+    ));
+}
+
+/// An item that opens a handler member requires the effect that declares it, so it is
+/// initialized after a provider of that effect in the same `with`; otherwise the items keep the
+/// order they are written in (`[dyn.with]`). A bound item a later one overrides is still
+/// initialized for its name (`[effect.with]`).
+#[test]
+fn handler_member_items_in_initialization_order() {
+    insta::assert_snapshot!(render_handlers(
+        r#"
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler MemFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) { Self(path:) }
+    fn read(max) { max }
+  }
+}
+
+handler Quiet: Logger {
+  fn info(msg) { () }
+}
+
+handler Loud: Logger {
+  fn info(msg) { () }
+}
+
+fn order() {
+  with a = Files.Open("a"), MemFiles, quiet = Quiet, b = Files.Open("b"), Loud {
+    quiet.info("x")
+    (use Logger).info("y")
+    a.read(1) + b.read(2)
+  }
+}
+
+fn outside() {
+  with a = Files.Open("a"), Quiet {
+    a.read(1)
+  }
+}
 "#
     ));
 }

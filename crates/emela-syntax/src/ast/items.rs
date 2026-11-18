@@ -94,6 +94,7 @@ has_attrs!(
     TraitDecl,
     ImplDecl,
     OpSig,
+    MemberSig,
     Field,
     Variant
 );
@@ -323,6 +324,10 @@ impl EffectDecl {
     pub fn ops(&self) -> impl Iterator<Item = OpSig> {
         items(&self.0)
     }
+    /// The handler members (`handler Open(path: String): ReadFile`, `[effect.decl]`).
+    pub fn members(&self) -> impl Iterator<Item = MemberSig> {
+        items(&self.0)
+    }
     /// `of Console default` of a label (an effect declared `of` another).
     pub fn label(&self) -> Option<EffectLabel> {
         child(&self.0)
@@ -382,6 +387,36 @@ impl OpSig {
 }
 
 ast_node!(
+    /// A handler member of an effect. `suspend handler Open(path: String): ReadFile fails E`
+    MemberSig,
+    MEMBER_SIG
+);
+
+impl MemberSig {
+    pub fn is_suspend(&self) -> bool {
+        token(&self.0, SUSPEND_KW).is_some()
+    }
+    pub fn name(&self) -> Option<SyntaxToken> {
+        token(&self.0, TYPE_NAME)
+    }
+    pub fn param_list(&self) -> Option<ParamList> {
+        child(&self.0)
+    }
+    /// The effect after `:`, which the handler implements.
+    pub fn effect(&self) -> Option<Path> {
+        child(&self.0.children().find(|n| n.kind() == HANDLER_EFFECT)?)
+    }
+    /// The type argument list of that effect (`[Int]` in `: State[Int]`).
+    pub fn effect_type_args(&self) -> Option<SyntaxNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == HANDLER_EFFECT)?
+            .children()
+            .find(|n| n.kind() == TYPE_ARG_LIST)
+    }
+}
+
+ast_node!(
     /// `handler PostgresUsers(conn: Connection): Users { ... }`
     HandlerDecl,
     HANDLER_DECL
@@ -420,6 +455,10 @@ impl HandlerDecl {
     }
     /// The operation implementations.
     pub fn fns(&self) -> impl Iterator<Item = FnDecl> {
+        items(&self.0)
+    }
+    /// The inner handlers, which implement handler members (`[effect.handler]`).
+    pub fn inner_handlers(&self) -> impl Iterator<Item = HandlerDecl> {
         items(&self.0)
     }
 }
@@ -463,6 +502,12 @@ impl Supply {
             PATH => Path::cast(self.0.clone()),
             _ => child(&self.0),
         }
+    }
+    /// For a handler member of a capability (`fs.Open(path)`, `[effect.with]`), the name of the
+    /// capability variable and of the member.
+    pub fn cap_member(&self) -> Option<(SyntaxToken, Option<SyntaxToken>)> {
+        let node = self.0.children().find(|n| n.kind() == CAP_MEMBER)?;
+        Some((token(&node, LOWER_NAME)?, token(&node, TYPE_NAME)))
     }
     /// The ARG_LIST of the arguments of init. `None` without parentheses.
     pub fn arg_list(&self) -> Option<SyntaxNode> {

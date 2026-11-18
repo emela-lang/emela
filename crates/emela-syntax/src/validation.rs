@@ -68,13 +68,18 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 );
             }
         }
-        OP_SIG => {
+        OP_SIG | MEMBER_SIG => {
             if let Some(clause) = child_kind(node, USES_CLAUSE) {
+                let message = if node.kind() == OP_SIG {
+                    "effect operations cannot have a `uses` clause"
+                } else {
+                    "handler members cannot have a `uses` clause"
+                };
                 error(
                     out,
                     clause.text_range(),
                     DiagnosticCode::UseOnEffectOp,
-                    "effect operations cannot have a `uses` clause",
+                    message,
                 );
             }
         }

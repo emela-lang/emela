@@ -1,0 +1,95 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"effect ReadFile {\n  fn read(max: Int) -> Int\n}\n\neffect Files {\n  suspend handler Open(path: String): ReadFile\n  fn count() -> Int\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler ConsoleLogger: Logger {\n  fn info(msg) { () }\n}\n\nhandler SystemFiles: Files {\n  handler Open(path: String): ReadFile {\n    init(path: String) { Self(path:) }\n    fn read(max) { max }\n  }\n\n  fn count() { 0 }\n}\n\nhandler TracedFiles: Files {\n  handler Open(inner: use ReadFile): ReadFile {\n    init(path: String) { Self(inner: Files.Open(path)) }\n    fn read(max) { self.inner.read(max) }\n  }\n\n  fn count() { 0 }\n}\n\nfn open_in(fs: use Files, path: String) -> Int {\n  with f = fs.Open(path), g = Files.Open(\"b\"), log = ConsoleLogger {\n    log.info(path)\n    f.read(g.read(1))\n  }\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+effect Main.ReadFile
+  op Main.ReadFile.read
+    param max#0: Int
+    ret Int
+effect Main.Files
+  op Main.Files.count
+    ret Int
+  handler member Main.Files.Open suspend: Main.ReadFile
+    param path#1: String
+effect Main.Logger
+  op Main.Logger.info
+    param msg#2: String
+    ret ()
+handler Main.ConsoleLogger: Main.Logger
+  fn info -> Main.Logger.info self#3
+    param msg#4
+    body
+      block
+        ()
+handler Main.SystemFiles: Main.Files
+  fn count -> Main.Files.count self#5
+    body
+      block
+        0
+  handler Main.SystemFiles.Open: Main.ReadFile
+    field path: String
+    ctor Main.SystemFiles.Open.Open
+    init
+      param path#6: String
+      block
+        call
+          Main.SystemFiles.Open.Open
+          path: (punned)
+            path#6
+    fn read -> Main.ReadFile.read self#7
+      param max#8
+      body
+        block
+          max#8
+    implements Main.Files.Open
+handler Main.TracedFiles: Main.Files
+  fn count -> Main.Files.count self#9
+    body
+      block
+        0
+  handler Main.TracedFiles.Open: Main.ReadFile
+    field inner: use Main.ReadFile
+    ctor Main.TracedFiles.Open.Open
+    init
+      param path#10: String
+      block
+        call
+          Main.TracedFiles.Open.Open
+          inner:
+            call
+              Main.Files.Open
+              path#10
+    fn read -> Main.ReadFile.read self#11
+      param max#12
+      body
+        block
+          call
+            field .read
+              field .inner
+                self#11
+            max#12
+    implements Main.Files.Open
+fn Main.open_in
+  param fs#13: use Main.Files
+  param path#14: String
+  ret Int
+  body
+    block
+      with f#15 = fs#13.Open(..), g#16 = Main.Files.Open(..), log#17 = Main.ConsoleLogger
+        args
+          path#14
+        args
+          "b"
+        block
+          call
+            field .info
+              log#17
+            path#14
+          call
+            field .read
+              f#15
+            call
+              field .read
+                g#16
+              1

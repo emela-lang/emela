@@ -1,0 +1,20 @@
+---
+source: crates/emela-types/tests/handler_member.rs
+expression: "run(r#\"\nfn count(f: use ReadFile) -> Int { f.read(1) }\n\nfn by_effect(path: String) {\n  with f = Files.Open(path), g = Files.Open(\"b\") {\n    count(f) + g.read(2)\n  }\n}\n\nfn by_capability(fs: use Files, path: String) {\n  with f = fs.Open(path) {\n    count(f)\n  }\n}\n\nfn in_lambda(path: String) {\n  with f = Files.Open(path) {\n    read = || f.read(1)\n    read()\n  }\n}\n\nfn provided_here() {\n  with MemFiles, f = Files.Open(\"a\") {\n    count(f)\n  } escape {\n    Missing -> 0\n  }\n}\n\"#)"
+---
+count: fn(use ReadFile) -> Int uses { f }
+  f: use ReadFile
+by_effect: fn(String) -> Int fails Missing uses { Files }
+  path: String
+  f: use ReadFile
+  g: use ReadFile
+by_capability: fn(use Files, String) -> Int fails Missing uses { fs }
+  fs: use Files
+  path: String
+  f: use ReadFile
+in_lambda: fn(String) -> Int fails Missing uses { Files }
+  path: String
+  f: use ReadFile
+  read: fn() -> Int uses { f }
+provided_here: fn() -> Int
+  f: use ReadFile
