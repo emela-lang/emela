@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-18 (Handler members)
+
+- `[effect.decl]`, `[effect.handler]`, `[effect.with]`, `[effect.use]`, `[type.rules]`, `[dyn.with]`, `[grammar.decl]`, `[grammar.expr]`, `[diag.list]`: An effect can declare handlers that its providers supply (handler members). A handler of the effect implements each of them with an inner handler of the same name. A user calls its init and binds the capability it provides with `with x = Files.Open("a.txt") { ... }`. A handler member can also be opened inside the init of a handler, and then lives as long as that handler. Adopted in the proposal `handler-member` (#624).
+
 ## 2026-11-18 (The type of a capability, use E)
 
 - `[effect.use]`, `[effect.escape]`, `[effect.handler]`, `[fiber.escape]`, `[type.rules]`, `[grammar.type]`, `[diag.list]`: The type of a capability is written `use E`, and is an ordinary type. A capability value can be passed as an argument, put into a data structure and returned from a function (E0408, E0409 and E0410 are retired). The one rule that remains is the rule for closures that capture a capability: it does not leave the with that provides it. Capture checking (`capture-checking`) checks it statically. Adopted in the proposal `capability-type` (#622).
