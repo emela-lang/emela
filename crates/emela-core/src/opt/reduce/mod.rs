@@ -14,11 +14,9 @@
 //!
 //! # Status
 //!
-//! This module is the fixed skeleton of A0/PR-002. The rule functions exist so that later work
-//! fills them one at a time, and every one of them currently returns `RuleStats::default` and
-//! rewrites nothing. [`subst`] exposes the substitution API with a conservative body that only
-//! handles trivial values; A1/PR-010 completes it. The rules are no-ops until their own pull
-//! requests land (A2/PR-011 to A8/PR-017).
+//! Every rule is implemented (A2/PR-011 to A8/PR-017) and on by default (A10/PR-019). A rule whose
+//! [`crate::opt::Rules`] flag is off is skipped by the pipeline and contributes nothing, not even a
+//! deopt. [`subst`] is the shared substitution engine the rules build on.
 
 pub mod subst;
 

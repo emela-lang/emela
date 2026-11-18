@@ -24,14 +24,14 @@
 //! | Pass | Counter | Added by |
 //! |---|---|---|
 //! | `reduce::zeta` | [`Stats::zeta`] | ζ reduction (A2/PR-011) |
-//! | `reduce::beta` | [`Stats::beta`] | β reduction (A3/PR-012) |
 //! | `loop::unswitch` | [`Stats::hoist`] | Loop unswitching (A9/PR-018) |
 //! | `fusion::run`: `option_or` | [`Stats::option_or`] | Option fusion |
 //! | `fusion::run`: `array_get_match` | [`Stats::array_get_match`] | Option fusion |
 //! | `fusion::run`: `range_fold` | [`Stats::range_fold`] | range fusion |
 //! | `fusion::run`: `range_map_array` | [`Stats::map_range`] | range fusion |
 //! | `fusion::run`: `range_map` | [`Stats::range_map`] | range fusion |
-//! | `reduce::delta` | [`Stats::inline`] | δ reduction (A8/PR-017) |
+//! | `reduce::delta` | [`Stats::delta`] | δ reduction (A8/PR-017) |
+//! | `reduce::beta` | [`Stats::beta`] | β reduction (A3/PR-012) |
 //! | `reduce::iota` | [`Stats::iota`] | ι reduction (A5/PR-014) |
 //! | `reduce::fold` | [`Stats::constant`] | constant folding (A6/PR-015) |
 //! | `reduce::algebra` | [`Stats::algebra`] | algebraic reduction (A7/PR-016) |
@@ -39,40 +39,42 @@
 //!
 //! The positions are chosen for the patterns each pass exposes:
 //!
-//! - **ζ and β first.** Both reduce `let` bindings. ζ propagates trivial values so the structural
-//!   passes see the names and constructors without an intermediate binding, and β removes a
-//!   linear lambda call before the inliner has to. The reductions only shrink, so running them
-//!   before the fusions cannot hide a fusion pattern.
-//! - **The unswitch and the fusions keep their previous place.** The unswitch matches the bounds
-//!   test the Option fusion built on the previous sweep, and runs before that fusion again so it
-//!   sees the test before the fusion can reshape it; the fusions run before δ because they match
-//!   the calls the source wrote, and expanding a function such as `List.fold` first would dissolve
-//!   the call the range fusion looks for.
-//!   `range_map_array` comes before `range_map`, which would otherwise rewrite the `List.map`
-//!   inside the `Array.from_list` it is looking for. The order of the laws is the registry order
-//!   of [`fusion::laws`], not a second list in this pipeline.
-//! - **δ stays after the fusions**, in the position the inliner had before the reduction kernel was
-//!   added. The new rules run after it, so they simplify the body it exposes in the same sweep
-//!   instead of waiting for the next one.
+//! - **ζ first.** Lowering and the previous sweep's inlining leave chains of `let` bindings;
+//!   propagating copies and removing dead trivial bindings first is what lets every later pass see
+//!   the names and constructors inside them. ζ only shrinks, so it cannot hide a fusion pattern.
+//!   It is also what removes the `let` copies inlining leaves before the unswitch looks for a
+//!   variable bound outside the loop.
+//! - **The unswitch before the fusions.** It matches the bounds test the Option fusion built on
+//!   the previous sweep, and runs before that fusion again so it sees the test before the fusion
+//!   can reshape it. It runs before δ so that it sees the loop before a callee's body is copied
+//!   into it.
+//! - **The fusions before δ.** A fusion matches the call the source wrote (`List.fold`,
+//!   `Option.or`); expanding those functions first would dissolve the pattern. `range_map_array`
+//!   comes before `range_map`, which would otherwise rewrite the `List.map` inside the
+//!   `Array.from_list` it is looking for. The order of the laws is the registry order of
+//!   [`fusion::laws`], not a second list in this pipeline.
+//! - **δ, then β.** δ expands the direct calls; β applies the linear lambdas that survived the
+//!   expansion and the ones a copy brought in. β runs after δ for that reason, and both run after
+//!   the fusions.
 //! - **ι, then constant folding and algebra.** δ and β expose a known constructor and a constant
 //!   condition; ι removes the match, and folding and the algebraic laws simplify the values and
-//!   conditions it leaves.
-//! - **η after the algebraic laws**, which remove forwarding bodies and so leave more wrapper
-//!   lambdas for it to see.
+//!   conditions it leaves in the same sweep.
+//! - **η last.** The range fusion copies its lambda into a loop; running η before it would turn
+//!   that lambda into a function value and make the loop's step an indirect call. The algebraic
+//!   laws also remove forwarding bodies, which leaves more wrapper lambdas for η to see.
 //!
 //! δ is the only rule that may grow the program, so it carries a budget; every shrinking rule runs
 //! before it, and a body δ copies is simplified on the next sweep.
 //!
 //! # Status of the reduction kernel
 //!
-//! A0/PR-002 adds the rules and the order above. Each rule lands with its own pull request; one
-//! that has not landed yet returns [`RuleStats::default`] and rewrites nothing. The pipeline skips
-//! a rule whose flag is off, and [`Options::default`] has every new rule off, so a default run
-//! still applies only the rules that exist and are on by default. `subst` exposes the substitution
-//! API with a conservative body; A1/PR-010 completes it.
+//! A0/PR-002 added the rules and the order above; each rule landed with its own pull request
+//! (A2–A8). A10/PR-019 turns every implemented rule on by default, so [`run`] and
+//! [`run_with`] with [`Options::default`] run the whole pipeline. A rule whose flag is off is
+//! skipped entirely and contributes nothing to [`Stats`], not even a deopt.
 //!
-//! δ is the exception to the flag policy: it is the inliner that existed before the kernel, so it
-//! always runs, even with every new rule off. See [`Rules::delta`].
+//! `bounds` and `cse` stay off in [`Rules::default`]: their rules do not exist yet (A11/PR-040,
+//! A12/PR-041) and [`Rules::all`] turns them on for the tests that will fill them.
 //!
 //! # Fusion laws
 //!
@@ -89,26 +91,18 @@
 //! [`Rules`] has one flag per reduction rule of [`reduce`], plus reserved flags for the later
 //! bounds-check and CSE rules. [`fusion::Laws`] has one flag per fusion law. [`Options`] holds both
 //! and is the argument of [`run_with`]; [`run`] keeps its old signature and uses
-//! [`Options::default`], which keeps every new reduction rule off and every implemented fusion law
-//! on. The flags are a programmatic API only: no command-line flag is added.
+//! [`Options::default`].
 //!
-//! A new reduction rule starts off so that a pull request which only fills an empty module cannot
-//! change the default pipeline on its own. The integrator flips the defaults on at A10/PR-019,
-//! after the rules and their tests have landed, as plan §6.4(4) and §9.1 require. [`Rules::all`] is
-//! available for the per-rule tests, which turn on exactly the rule under test.
+//! [`Rules::default`] turns every implemented reduction rule on: `zeta`, `beta`, `eta`, `iota`,
+//! `delta`, `fold` and `algebra`. `bounds` and `cse` are off, because their rules do not exist yet;
+//! [`Rules::all`] turns every flag on and [`Rules::none`] turns every flag off. `loop::unswitch` is
+//! a loop transformation, not a reduction rule, and has no flag: it runs whatever the flags say.
+//! The flags are a programmatic API only: no command-line flag is added.
 //!
-//! The fusion laws are the exception, because the pipeline ran the implemented ones before the
-//! registry existed: [`fusion::Laws::default`] has them on, so [`Options::default`] is the pipeline
-//! from before [`fusion`]. A disabled law is skipped entirely and contributes nothing to [`Stats`],
-//! not even a deopt; [`fusion::Laws::none`] therefore turns the fusions off without touching the
-//! rest of the pipeline. The reserved laws have no body and never run, whatever their flag says.
-//!
-//! `loop::unswitch` and δ (`reduce::delta`) do not have a flag yet; A10/PR-019 unifies their
-//! gating with the reduction rules. `Rules::none()` with `Laws::none()` therefore still runs the
-//! unswitch and δ.
-//! [`Rules::delta`] is reserved for A10/PR-019 and is not consulted yet: δ is existing behaviour, so
-//! turning the flag off would change the default pipeline. A10/PR-019 makes the flag control the
-//! rule and unifies [`Stats::inline`] with [`Stats::delta`].
+//! [`fusion::Laws::default`] turns on the five implemented fusion laws and leaves the reserved ones
+//! off. A disabled law is skipped entirely and contributes nothing to [`Stats`], not even a deopt;
+//! [`fusion::Laws::none`] therefore turns the fusions off without touching the rest of the
+//! pipeline. The reserved laws have no body and never run, whatever their flag says.
 //!
 //! # Fixed point
 //!
@@ -225,12 +219,11 @@ impl RuleStats {
 
 /// The reduction rules [`run_with`] may run, one flag per rule.
 ///
-/// A new rule is off in [`Rules::default`] until its implementation and tests have landed; the
-/// integrator turns the defaults on at A10/PR-019. [`Rules::all`] turns every rule on, which the
-/// per-rule tests use. `bounds` and `cse` are reserved for A11/PR-040 and A12/PR-041; no pass reads
-/// them yet. The unswitch of [`r#loop`] and the fusion laws of [`fusion`] are not gated here; the
-/// unswitch has no flag, and the laws have their own. [`Rules::delta`] is
-/// reserved for A10/PR-019 too and is not consulted: δ is existing behaviour and always runs.
+/// [`Rules::default`] turns on every implemented rule, which is the default pipeline. `bounds` and
+/// `cse` are reserved for A11/PR-040 and A12/PR-041; no pass reads them yet, so they stay off.
+/// [`Rules::all`] turns every flag on, which the per-rule tests use, and [`Rules::none`] turns
+/// every flag off. The unswitch of [`r#loop`] and the fusion laws of [`fusion`] are not gated here;
+/// the unswitch has no flag, and the laws have their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rules {
     /// ζ reduction: `let x = v in e → e[x := v]` and the dead trivial let.
@@ -241,8 +234,7 @@ pub struct Rules {
     pub eta: bool,
     /// ι reduction: a match of a known constructor.
     pub iota: bool,
-    /// δ reduction: expansion of a direct call (inlining), within a budget. Reserved for
-    /// A10/PR-019; not consulted yet, because δ is existing behaviour and always runs.
+    /// δ reduction: expansion of a direct call (inlining), within a budget.
     pub delta: bool,
     /// Constant folding.
     pub fold: bool,
@@ -287,17 +279,29 @@ impl Rules {
 }
 
 impl Default for Rules {
-    /// Every new rule off. The default pipeline is the one before the reduction kernel existed;
-    /// A10/PR-019 flips each rule on after its implementation and tests have landed.
+    /// Every implemented rule on; `bounds` and `cse` reserved and off.
+    ///
+    /// This is the default pipeline (A10/PR-019). [`Rules::all`] differs only in the two reserved
+    /// flags.
     fn default() -> Self {
-        Self::none()
+        Self {
+            zeta: true,
+            beta: true,
+            eta: true,
+            iota: true,
+            delta: true,
+            fold: true,
+            algebra: true,
+            bounds: false,
+            cse: false,
+        }
     }
 }
 
 /// The options of [`run_with`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
-    /// Which reduction rules to run. [`Rules::default`] (every new rule off) by default.
+    /// Which reduction rules to run. [`Rules::default`] (every implemented rule on) by default.
     pub rules: Rules,
     /// Which fusion laws to run. [`fusion::Laws::default`] (the implemented laws on) by default,
     /// so `Options::default()` is the pipeline from before the registry.
@@ -357,10 +361,6 @@ pub struct Stats {
     /// `Array.from_list(List.map(List.range(lo, hi), f))` rewritten to the internal
     /// `ArrayMapRange(lo, hi, f)`, which builds neither the range nor a list.
     pub map_range: u32,
-    /// Calls inlined (δ reductions): direct calls replaced by a copy of the callee's body. This is
-    /// the historical name of the δ counter; [`Stats::delta`] is reserved for A10/PR-019 and stays
-    /// zero, so one expansion is never counted twice.
-    pub inline: u32,
     /// ζ reductions: let bindings substituted away, including dead trivial lets.
     pub zeta: u32,
     /// β reductions: linear lambda calls reduced to a let binding.
@@ -369,8 +369,8 @@ pub struct Stats {
     pub eta: u32,
     /// ι reductions: matches of a known constructor removed.
     pub iota: u32,
-    /// δ reductions: direct calls expanded within the budget. Reserved for A10/PR-019; δ fills
-    /// [`Stats::inline`] until then, so this is zero.
+    /// δ reductions: direct calls expanded within the budget. This is the counter the historical
+    /// `inline` field became in A10/PR-019; one expansion is counted here once.
     pub delta: u32,
     /// Constant foldings: an operation on literals replaced by its result.
     pub constant: u32,
@@ -402,7 +402,6 @@ impl Stats {
         self.range_fold += other.range_fold;
         self.range_map += other.range_map;
         self.map_range += other.map_range;
-        self.inline += other.inline;
         self.zeta += other.zeta;
         self.beta += other.beta;
         self.eta += other.eta;
@@ -428,7 +427,6 @@ impl Stats {
             && self.range_fold == 0
             && self.range_map == 0
             && self.map_range == 0
-            && self.inline == 0
             && self.zeta == 0
             && self.beta == 0
             && self.eta == 0
@@ -455,8 +453,8 @@ const MAX_PASSES: u32 = 8;
 
 /// Runs the Core IR optimisation passes on `m` if `optimize`, and returns what they changed.
 ///
-/// This is [`run_with`] with [`Options::default`] (every new reduction rule off and the implemented
-/// fusion laws on). The sequence is the order in the pipeline table above, applied until a whole
+/// This is [`run_with`] with [`Options::default`] (every implemented reduction rule on and the
+/// implemented fusion laws on). The sequence is the order in the pipeline table above, applied until a whole
 /// sweep changes nothing (see the fixed-point section). `core_fns` is what lowering recorded about
 /// the bundled core functions (`CoreFn`), by which the fusions recognise `Option.or` and the
 /// `List` functions. With `optimize` false the module is left untouched and `Stats` is empty.
@@ -471,7 +469,7 @@ pub fn run(m: &mut Module, core_fns: &CoreFns, optimize: bool) -> Stats {
 ///
 /// The sequence is the order in the pipeline table above. A rule whose flag is off is skipped
 /// entirely, so its counter stays zero; a fusion law whose flag is off is skipped entirely too and
-/// contributes nothing. The unswitch and inlining have no flag and still run. Like [`run`], this
+/// contributes nothing. The unswitch has no flag and always runs. Like [`run`], this
 /// applies the whole sweep until it changes nothing and records the sweep count in
 /// [`Stats::passes`].
 pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
@@ -482,11 +480,25 @@ pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
     let mut converged = false;
     for _ in 0..MAX_PASSES {
         let mut sweep = Stats::default();
-        // The reduction rules are no-ops in the A0/PR-002 skeleton; they still occupy their fixed
-        // position, so a later pull request only fills a body.
+        // The reduction rules run in the table's order; a rule whose flag is off is skipped and
+        // contributes nothing to the sweep.
         if rules.zeta {
             let done = reduce::zeta(m);
             sweep.zeta += done.applied;
+            sweep.deopt += done.deopt;
+            check(m);
+        }
+        sweep.merge(r#loop::unswitch(m));
+        check(m);
+        // The fusion laws run in the registry's order, which is the order of the table above.
+        // `fusion::run` adds their counters and verifies after each law that runs.
+        fusion::run(m, core_fns, laws, &mut sweep);
+        // δ keeps the inliner's place after the fusions, for the reason in the pipeline docs. β
+        // runs after it so that it applies the lambdas that survive the expansion and the ones a
+        // copy brought in.
+        if rules.delta {
+            let done = reduce::delta(m, core_fns);
+            sweep.delta += done.applied;
             sweep.deopt += done.deopt;
             check(m);
         }
@@ -496,19 +508,6 @@ pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
             sweep.deopt += done.deopt;
             check(m);
         }
-        sweep.merge(r#loop::unswitch(m));
-        check(m);
-        // The fusion laws run in the registry's order, which is the order of the table above.
-        // `fusion::run` adds their counters and verifies after each law that runs.
-        fusion::run(m, core_fns, laws, &mut sweep);
-        // δ keeps the inliner's place after the fusions, for the reason in the pipeline docs, and
-        // always runs: it is existing behaviour, not one of the new default-off rules
-        // (`Rules::delta` is reserved for A10/PR-019). It fills `Stats::inline`, the historical
-        // name of the δ counter, not `Stats::delta`.
-        let done = reduce::delta(m, core_fns);
-        sweep.inline += done.applied;
-        sweep.deopt += done.deopt;
-        check(m);
         if rules.iota {
             let done = reduce::iota(m);
             sweep.iota += done.applied;
@@ -622,7 +621,7 @@ mod tests {
         total.merge(PassStats {
             range_fold: 3,
             range_map: 4,
-            inline: 5,
+            delta: 5,
             ..PassStats::default()
         });
 
@@ -630,7 +629,7 @@ mod tests {
         assert_eq!(total.array_get_match, 2);
         assert_eq!(total.range_fold, 3);
         assert_eq!(total.range_map, 4);
-        assert_eq!(total.inline, 5);
+        assert_eq!(total.delta, 5);
         assert!(!total.is_empty());
     }
 
@@ -687,9 +686,10 @@ mod tests {
         assert_eq!(RuleStats::applied(4).deopt, 0);
     }
 
-    /// Every new rule is off in `Default`, and `all` turns every one on.
+    /// `Default` turns every implemented rule on, and leaves only the reserved rules off; `all`
+    /// turns every one on and `none` every one off.
     #[test]
-    fn the_rule_flags_have_conservative_defaults() {
+    fn the_rule_flags_have_the_default_pipeline() {
         let all = Rules::all();
         assert!(all.zeta && all.beta && all.eta && all.iota && all.delta);
         assert!(all.fold && all.algebra && all.bounds && all.cse);
@@ -707,7 +707,15 @@ mod tests {
                 || none.cse)
         );
 
-        assert_eq!(Rules::default(), none);
+        assert_eq!(
+            Rules::default(),
+            Rules {
+                bounds: false,
+                cse: false,
+                ..all
+            }
+        );
+        assert_ne!(Rules::default(), none);
         assert_ne!(Rules::default(), all);
     }
 
@@ -766,10 +774,10 @@ mod tests {
         };
         total.merge(Stats {
             passes: 3,
-            inline: 1,
+            delta: 1,
             ..Stats::default()
         });
         assert_eq!(total.passes, 5);
-        assert_eq!(total.inline, 1);
+        assert_eq!(total.delta, 1);
     }
 }

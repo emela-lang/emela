@@ -127,9 +127,8 @@ fn main() {
     )];
     let (m, stats) = lower_files_mono_with_stats(&files, "c", true);
     // Other small functions (the prelude's and the std's) may be expanded in both stages; the
-    // reserved collection functions are the calls this test is about. δ fills `Stats::inline`
-    // here; A10/PR-019 renames the counter to `Stats::delta`.
-    assert!(stats.inline > 0, "{stats:?}");
+    // reserved collection functions are the calls this test is about.
+    assert!(stats.delta > 0, "{stats:?}");
     let main = function(&m, "main");
     for name in ["List.map", "List.reverse"] {
         assert_eq!(calls_to_family_in(&m, main, name), 1, "{}", dump(&m));

@@ -1,36 +1,65 @@
-//! Tests for the A0/PR-002 skeleton: the new rules are off by default and the ones that are
-//! still empty change nothing when on.
+//! Tests for the default reduction pipeline (A10/PR-019).
 //!
-//! The later rule pull requests turn one flag on at a time. These tests fix the property that
-//! makes that safe for parallel integration: a default run is the pipeline from before the
-//! reduction kernel, and a run with the rules that are still empty on has the same output. A
-//! rule that has landed has its own tests; the comparison here narrows to leave it off.
+//! A10 makes every implemented reduction rule the default, so this file no longer compares the
+//! new rules against the pipeline from before the kernel (the A0/PR-002 skeleton did). It fixes
+//! the three properties the default pipeline needs:
+//!
+//! 1. `Rules::default()` is every implemented rule on, with only the reserved `bounds` and `cse`
+//!    off.
+//! 2. Each implemented rule can be turned off on its own, and its counter then stays zero.
+//! 3. On one corpus program every implemented rule fires at least once. A rule that stops firing
+//!    fails the test instead of turning into a silent no-op.
+//!
+//! The per-rule tests (`tests/zeta.rs`, `tests/beta.rs`, …) still run one rule at a time; this
+//! file is about the default combination.
 
 mod support;
 
-use emela_core::opt::{CoreFn, CoreFns, Options, Rules};
-use emela_core::{Module, dump, opt};
+use emela_core::opt::{CoreFn, CoreFns, Options, Rules, Stats, run_with};
+use emela_core::{Module, opt};
 use support::lower_files_with;
 
-/// A program the existing passes rewrite (Option fusion, range fusion and inlining), so the
-/// comparison covers a module whose base pipeline does real work.
+/// A program that exercises every implemented rule:
+///
+/// - ζ: `base = 10` is a literal binding lowering leaves in front of the closure;
+/// - β: `f` is a linear lambda called once;
+/// - η: `g` is a wrapper called twice, so β leaves it to η, and its callee is recursive (a loop),
+///   which δ does not expand;
+/// - ι: the `Some(1)` match selects its arm;
+/// - δ: the direct call `double(21)` is expanded;
+/// - fold: `1 + 2` is a literal operation;
+/// - algebra: `True && (1 < 2)` has a constant side after folding.
 const PROGRAM: &[(&str, &str)] = &[(
     "main.emel",
     "\
-import Std.Array.{Array}
+fn double(x: Int) -> Int {
+  x + x
+}
 
-fn inc(x: Int) -> Int {
-  x + 1
+fn countdown(n: Int) -> Int {
+  if n <= 0 { 0 } else { n + countdown(n - 1) }
 }
 
 fn main() {
-  xs = Array.from_list([1, 2, 3])
-  dbg(Array.get(xs, 1) |> Option.or(0))
-  dbg(inc(List.fold(List.range(0, 3), 0, |acc, x| acc + x)))
+  base = 10
+  f = |x| x + base
+  dbg(f(2))
+  dbg(double(21))
+  g = |x: Int| countdown(x)
+  dbg(g(2))
+  dbg(g(1))
+  dbg(Some(1) match {
+    Some(x) -> x
+    None -> 0
+  })
+  dbg(1 + 2)
+  dbg(True && (1 < 2))
 }
 ",
 )];
 
+/// Rebuilds the `core_fns` map that lowering passes to `run`, by IR name. `Lowered` does not carry
+/// the map (it belongs to lowering), and the test cannot see lowering's own.
 fn core_fns(m: &Module) -> CoreFns {
     m.functions
         .iter()
@@ -50,94 +79,141 @@ fn core_fns(m: &Module) -> CoreFns {
         .collect()
 }
 
-/// Lowers with the passes off, so each run starts from the same module.
+/// Lowers with the passes off, so every run starts from the same module.
 fn prepared() -> (Module, CoreFns) {
     let m = lower_files_with(PROGRAM, false);
     let ids = core_fns(&m);
     (m, ids)
 }
 
-/// `Rules::default()` is the base pipeline: the same `Stats` and the same IR as `Rules::none()`.
-#[test]
-fn the_default_matches_an_explicitly_empty_pipeline() {
-    let (mut default, ids) = prepared();
-    let (mut none, none_ids) = prepared();
+/// Lowers a fresh module and runs the pipeline with `rules` and the default fusion laws.
+fn run_rules(rules: Rules) -> Stats {
+    let (mut m, ids) = prepared();
+    run_with(
+        &mut m,
+        &ids,
+        Options {
+            rules,
+            ..Options::default()
+        },
+    )
+}
 
-    let default_stats = opt::run_with(&mut default, &ids, Options::default());
-    let none_stats = opt::run_with(
-        &mut none,
-        &none_ids,
+/// The default is every implemented rule on; `bounds` and `cse` are the only flags off, because
+/// their rules do not exist yet.
+#[test]
+fn default_rules_are_every_implemented_rule() {
+    let default = Rules::default();
+    assert!(default.zeta, "{default:?}");
+    assert!(default.beta, "{default:?}");
+    assert!(default.eta, "{default:?}");
+    assert!(default.iota, "{default:?}");
+    assert!(default.delta, "{default:?}");
+    assert!(default.fold, "{default:?}");
+    assert!(default.algebra, "{default:?}");
+    assert!(!default.bounds, "{default:?}");
+    assert!(!default.cse, "{default:?}");
+
+    assert_eq!(
+        default,
+        Rules {
+            bounds: false,
+            cse: false,
+            ..Rules::all()
+        }
+    );
+    assert_ne!(default, Rules::none());
+    assert_ne!(default, Rules::all());
+}
+
+/// The counter of the rule called `name`.
+fn counter(stats: &Stats, name: &str) -> u32 {
+    match name {
+        "zeta" => stats.zeta,
+        "beta" => stats.beta,
+        "eta" => stats.eta,
+        "iota" => stats.iota,
+        "delta" => stats.delta,
+        "fold" => stats.constant,
+        "algebra" => stats.algebra,
+        other => panic!("no counter for `{other}`"),
+    }
+}
+
+/// Every implemented rule fires at least once on the corpus. A zero fails the test: a rule that
+/// no longer has a shape on the corpus must be noticed instead of silently doing nothing.
+#[test]
+fn every_implemented_rule_fires_on_the_corpus() {
+    let stats = run_rules(Rules::default());
+    for name in ["zeta", "beta", "eta", "iota", "delta", "fold", "algebra"] {
+        assert!(
+            counter(&stats, name) > 0,
+            "`{name}` did not fire on the corpus: {stats:?}"
+        );
+    }
+    assert_eq!(stats.bounds, 0, "{stats:?}");
+    assert_eq!(stats.cse, 0, "{stats:?}");
+}
+
+/// The way a case clears one rule's flag.
+type TurnOff = fn(&mut Rules);
+
+/// Each implemented rule can be turned off on its own: the default with one flag cleared keeps
+/// the pipeline converging and leaves that rule's counter at zero.
+#[test]
+fn each_implemented_rule_can_be_turned_off() {
+    let cases: [(&str, TurnOff); 7] = [
+        ("zeta", |r| r.zeta = false),
+        ("beta", |r| r.beta = false),
+        ("eta", |r| r.eta = false),
+        ("iota", |r| r.iota = false),
+        ("delta", |r| r.delta = false),
+        ("fold", |r| r.fold = false),
+        ("algebra", |r| r.algebra = false),
+    ];
+    for (name, turn_off) in cases {
+        let mut rules = Rules::default();
+        turn_off(&mut rules);
+        let stats = run_rules(rules);
+        assert_eq!(
+            counter(&stats, name),
+            0,
+            "`{name}` is off but counted a rewrite: {stats:?}"
+        );
+        assert!(
+            !stats.is_empty(),
+            "`{name}` off left nothing else to do: {stats:?}"
+        );
+        assert_eq!(stats.bounds, 0, "{stats:?}");
+        assert_eq!(stats.cse, 0, "{stats:?}");
+    }
+}
+
+/// With every reduction rule off the module still reaches a fixed point. The fusion laws are on
+/// and the unswitch has no flag, so the run is not required to be empty; no reduction counter may
+/// move.
+#[test]
+fn rules_none_turns_every_reduction_off() {
+    let stats = run_rules(Rules::none());
+    assert_eq!(stats.zeta, 0, "{stats:?}");
+    assert_eq!(stats.beta, 0, "{stats:?}");
+    assert_eq!(stats.eta, 0, "{stats:?}");
+    assert_eq!(stats.iota, 0, "{stats:?}");
+    assert_eq!(stats.delta, 0, "{stats:?}");
+    assert_eq!(stats.constant, 0, "{stats:?}");
+    assert_eq!(stats.algebra, 0, "{stats:?}");
+    assert!(stats.passes >= 1, "{stats:?}");
+    let (mut m, ids) = prepared();
+    let stats = opt::run_with(
+        &mut m,
+        &ids,
         Options {
             rules: Rules::none(),
-            ..Options::default()
+            laws: emela_core::opt::fusion::Laws::none(),
         },
     );
-
-    assert!(
-        !default_stats.is_empty(),
-        "the base pipeline should do its existing work: {default_stats:?}"
-    );
-    assert_eq!(default_stats, none_stats);
-    assert_eq!(dump(&default), dump(&none));
-}
-
-/// With every rule that is still empty turned on, and the ones that have landed but do not fire
-/// on this program (constant folding), neither `Stats` nor the IR changes. ζ (A2/PR-011) has
-/// landed and does fire here, so it is off in this comparison.
-#[test]
-fn the_empty_rules_still_match_the_base_pipeline() {
-    let (mut base, ids) = prepared();
-    let (mut all, all_ids) = prepared();
-
-    let base_stats = opt::run_with(&mut base, &ids, Options::default());
-    let all_stats = opt::run_with(
-        &mut all,
-        &all_ids,
-        Options {
-            rules: Rules {
-                zeta: false,
-                ..Rules::all()
-            },
-            ..Options::default()
-        },
-    );
-
-    assert_eq!(base_stats, all_stats);
-    assert_eq!(all_stats.zeta, 0);
-    assert_eq!(all_stats.beta, 0);
-    assert_eq!(all_stats.eta, 0);
-    assert_eq!(all_stats.iota, 0);
-    assert_eq!(all_stats.delta, 0);
-    assert_eq!(all_stats.constant, 0);
-    assert_eq!(all_stats.algebra, 0);
-    assert_eq!(all_stats.bounds, 0);
-    assert_eq!(all_stats.cse, 0);
-    assert_eq!(all_stats.deopt, 0);
-    assert_eq!(dump(&base), dump(&all));
-}
-
-/// Turning one empty rule on and leaving the rest off is the per-rule shape the later tests use.
-/// While the rule is empty, it contributes no counter and no deopt.
-#[test]
-fn one_empty_rule_on_is_invisible() {
-    let (mut base, ids) = prepared();
-    let (mut beta, beta_ids) = prepared();
-
-    let base_stats = opt::run_with(&mut base, &ids, Options::default());
-    let beta_stats = opt::run_with(
-        &mut beta,
-        &beta_ids,
-        Options {
-            rules: Rules {
-                beta: true,
-                ..Rules::none()
-            },
-            ..Options::default()
-        },
-    );
-
-    assert_eq!(beta_stats.beta, 0);
-    assert_eq!(beta_stats.deopt, 0);
-    assert_eq!(beta_stats, base_stats);
-    assert_eq!(dump(&base), dump(&beta));
+    // The unswitch has no shape here, so nothing at all happens.
+    assert_eq!(stats.hoist, 0, "{stats:?}");
+    assert!(stats.is_empty(), "{stats:?}");
+    assert_eq!(stats.passes, 1, "{stats:?}");
 }

@@ -132,9 +132,11 @@ fn lower_and_run(
 /// that is already at the fixed point changes nothing and reports `passes == 1`.
 #[test]
 fn a_second_run_is_a_no_op() {
+    // The default pipeline (A10/PR-019) runs every reduction, so the first sweep has more to do
+    // than it did when the new rules were off.
     let cases = [
-        ("program", PROGRAM, 1),
-        ("range after inline", AFTER_INLINE[0], 2),
+        ("program", PROGRAM, 2),
+        ("range after inline", AFTER_INLINE[0], 3),
         ("option after inline", AFTER_INLINE[1], 2),
     ];
     for (name, files, passes) in cases {
@@ -514,12 +516,13 @@ fn main() {
 }
 ",
     )];
-    // ζ removes the `let` copies inlining leaves in front of the work; the unswitch then sees the
-    // array and the index as parameters bound outside the loop.
+    // ζ removes the `let` copies inlining leaves in front of the work, and δ inlines `get` into
+    // `dot`; the unswitch then sees the array and the index as parameters bound outside the loop.
     let (m, stats) = lower_and_run(
         &files,
         Rules {
             zeta: true,
+            delta: true,
             ..Rules::none()
         },
     );

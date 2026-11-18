@@ -174,10 +174,9 @@ pub fn lower_files_mono_with_stats(
 
 /// Lowers with the Core IR passes off, then runs the reduction pipeline with `rules`.
 ///
-/// This is how a rule's tests isolate it while the per-rule flags are off by default (A10 flips
-/// them on later): the module arrives at the pipeline as lowering made it, and only the requested
-/// reduction rules are on. The ungated passes (the loop unswitch and inlining) still run, and the
-/// fusion laws use their own defaults. `core_fns` is empty, so a fusion that matches a bundled
+/// This is how a rule's tests isolate it: the module arrives at the pipeline as lowering made it,
+/// and only the requested reduction rules are on. The loop unswitch has no flag and still runs,
+/// and the fusion laws use their own defaults. `core_fns` is empty, so a fusion that matches a bundled
 /// `List` function does not fire; a rule test does not depend on one.
 pub fn lower_files_with_rules(
     files: &[(&str, &str)],

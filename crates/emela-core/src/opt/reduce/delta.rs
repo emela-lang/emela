@@ -41,12 +41,11 @@
 //!         [`MAX_CALLEE_NODES`] nodes, and at most [`MAX_EXPANDED_NODES`] nodes per call site. A
 //!         site over the per-call budget is abandoned whole, and the same deterministic sweep
 //!         abandons it again on the next run.
-//! Measures: [`crate::opt::Stats::inline`] (the historical name of the δ counter); `nbody`
-//!           (`zero_body`, `get_body`) and `fannkuch` (its tuple helpers), by bringing the record
-//!           and tuple that escape only because they cross a call into one function for the LIR's
-//!           scalar replacement of aggregates. The stage after monomorphisation targets an
-//!           effect-polymorphic wrapper (`apply` in `closures`), which the WASM backend would
-//!           otherwise keep as a call.
+//! Measures: [`crate::opt::Stats::delta`]; `nbody` (`zero_body`, `get_body`) and `fannkuch` (its
+//!           tuple helpers), by bringing the record and tuple that escape only because they cross
+//!           a call into one function for the LIR's scalar replacement of aggregates. The stage
+//!           after monomorphisation targets an effect-polymorphic wrapper (`apply` in `closures`),
+//!           which the WASM backend would otherwise keep as a call.
 //! ```
 //!
 //! # The two stages
@@ -103,9 +102,9 @@
 //!
 //! # Counters
 //!
-//! The rule fills [`crate::opt::Stats::inline`], the historical name of the δ counter. It does not
-//! fill [`crate::opt::Stats::delta`]: A10/PR-019 unifies the two counters, and filling both here
-//! would count every expansion twice. A direct call whose callee [`is_candidate`] rejected for a
+//! The rule fills [`crate::opt::RuleStats`] only; the pipeline adds `applied` to
+//! [`crate::opt::Stats::delta`], the counter that was called `inline` before A10/PR-019. A direct
+//! call whose callee [`is_candidate`] rejected for a
 //! reason a caller can act on (a const, a `$` helper, a cycle, a body over the size limit, ...),
 //! and a candidate call abandoned by the budget or by a malformed arity, are recorded in
 //! [`crate::opt::RuleStats::deopt`]. Calls to bundled, external and trait functions are not

@@ -1,9 +1,10 @@
 //! Tests for δ reduction (`emela_core::opt::reduce::delta`), the direct-call inlining.
 //!
-//! δ is existing behaviour: it is the inliner that ran before the reduction kernel, it is not
-//! behind a default-off flag, and `emela_core::opt::Rules::delta` is reserved for A10/PR-019. These
-//! tests therefore lower with the optimisations on for the shape tests and call [`opt::run`]
-//! directly where they need a hand-built module.
+//! δ is the inliner that ran before the reduction kernel; A10/PR-019 put it behind
+//! `emela_core::opt::Rules::delta`, which is on by default. These tests lower with the
+//! optimisations on for the shape tests and call [`opt::run`] directly where they need a
+//! hand-built module. A test that asserts the exact δ count runs with only δ on, so another rule
+//! (β, ζ or folding) cannot remove the shape or change the count.
 //!
 //! The interesting half is what must not change: a const (whose entry point is a runtime cell), an
 //! indirect call, a compiler-generated `$` helper and a trait or derived impl stay calls, and a
@@ -11,9 +12,27 @@
 
 mod support;
 
-use emela_core::opt::CoreFns;
+use emela_core::opt::{CoreFns, Options, Rules, Stats, run_with};
 use emela_core::{BinOp, Callee, Expr, FnId, Lit, Module, OpTy, TypeId, dump, opt, verify};
 use support::{lower_files, lower_files_with, lower_files_with_stats};
+
+/// Only δ is on: another rule may not change the shape or the count a test asserts.
+const DELTA: Rules = Rules {
+    delta: true,
+    ..Rules::none()
+};
+
+/// Runs only δ on `m`.
+fn delta_only(m: &mut Module) -> Stats {
+    run_with(
+        m,
+        &CoreFns::default(),
+        Options {
+            rules: DELTA,
+            ..Options::default()
+        },
+    )
+}
 
 /// The one function called `name`.
 fn function(m: &Module, name: &str) -> FnId {
@@ -82,7 +101,7 @@ fn main() {
 ",
     )];
     let (m, stats) = lower_files_with_stats(&files, true);
-    assert_eq!(stats.inline, 1, "{stats:?}");
+    assert_eq!(stats.delta, 1, "{stats:?}");
     let double = function(&m, "double");
     assert_eq!(calls_anywhere(&m, double), 0, "{}", dump(&m));
     assert!(dump(&m).contains("*[Int] 2"), "{}", dump(&m));
@@ -106,7 +125,7 @@ fn main() {
     let limit = function(&m, "LIMIT");
     assert!(m.functions[limit].constant, "{}", dump(&m));
     assert_eq!(calls_anywhere(&m, limit), 1, "{}", dump(&m));
-    assert_eq!(stats.inline, 0, "{stats:?}");
+    assert_eq!(stats.delta, 0, "{stats:?}");
     assert!(
         stats.deopt > 0,
         "the call to the const is a deopt: {stats:?}"
@@ -129,12 +148,13 @@ fn main() {
 }
 ",
     )];
-    let (m, stats) = lower_files_with_stats(&files, true);
+    let mut m = lower_files(&files);
+    let stats = delta_only(&mut m);
     let apply = function(&m, "apply");
     assert_eq!(calls_anywhere(&m, apply), 0, "{}", dump(&m));
     let main = function(&m, "main");
     assert!(has_indirect_call(&m.functions[main].body), "{}", dump(&m));
-    assert!(stats.inline >= 1, "{stats:?}");
+    assert!(stats.delta >= 1, "{stats:?}");
 }
 
 /// A compiler-generated helper (a name with `$`) is not copied.
@@ -155,9 +175,9 @@ fn main() {
     let mut m = lower_files(&files);
     let helper = function(&m, "helper");
     m.functions[helper].name = "helper$init".to_string();
-    let stats = opt::run(&mut m, &CoreFns::default(), true);
+    let stats = delta_only(&mut m);
     assert_eq!(calls_anywhere(&m, helper), 1, "{}", dump(&m));
-    assert_eq!(stats.inline, 0, "{stats:?}");
+    assert_eq!(stats.delta, 0, "{stats:?}");
     assert!(stats.deopt > 0, "{stats:?}");
 }
 
@@ -178,7 +198,7 @@ fn main() {
     let mut m = lower_files(&files);
     let show = function(&m, "Show.show");
     let main = function(&m, "main");
-    let stats = opt::run(&mut m, &CoreFns::default(), true);
+    let stats = delta_only(&mut m);
     assert_eq!(calls_in(&m, main, show), 1, "{}", dump(&m));
     assert!(stats.deopt > 0, "{stats:?}");
 }
@@ -210,11 +230,11 @@ fn an_expansion_over_the_budget_is_left_whole() {
     // Expanding `h` needs no local, and the pre-check rejects `top` before it allocates one, so a
     // deopt leaves the local arena as it was.
     let locals = m.locals.len();
-    let stats = opt::run(&mut m, &CoreFns::default(), true);
+    let stats = delta_only(&mut m);
     assert_eq!(calls_anywhere(&m, top), 1, "{}", dump(&m));
     assert_eq!(m.locals.len(), locals, "{}", dump(&m));
     assert_eq!(
-        stats.inline, 8,
+        stats.delta, 8,
         "only the calls to `h` are expanded: {stats:?}"
     );
     verify(&m).unwrap();
@@ -243,7 +263,7 @@ fn main() {
     )];
     let (mut first, stats) = lower_files_with_stats(&files, true);
     let (second, _) = lower_files_with_stats(&files, true);
-    assert!(stats.inline > 0, "{stats:?}");
+    assert!(stats.delta > 0, "{stats:?}");
     assert_eq!(dump(&first), dump(&second));
     let once = dump(&first);
     let again = opt::run(&mut first, &CoreFns::default(), true);

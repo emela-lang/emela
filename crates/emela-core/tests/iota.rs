@@ -7,8 +7,8 @@
 //! constructor or tuple, a Float literal pattern, a pattern deeper than the budget).
 //!
 //! Every test lowers with the Core IR optimisations off and then runs the pipeline with only the
-//! `iota` rule on ([`support::lower_files_with_rules`]), because the per-rule flags are off by
-//! default until A10/PR-019. ζ and folding stay off, so the `let` bindings the reduction makes and
+//! `iota` and `delta` rules on ([`support::lower_files_with_rules`]); δ is what exposes a callee's
+//! constructor at the caller's match. ζ and folding stay off, so the `let` bindings the reduction makes and
 //! the operations on their values are exactly what the rule left; only the rule under test may do
 //! part of what a test asserts.
 //!
@@ -22,9 +22,12 @@ use emela_core::dump;
 use emela_core::opt::{CoreFns, Options, Rules, run_with};
 use support::{lower_files, lower_files_with_rules};
 
-/// Only ι reduction is on: no other reduction rule may do part of what a test asserts.
+/// ι and δ are on: δ is what puts a callee's constructor where the caller matches it (ι must run
+/// after δ), and δ ran unconditionally before A10/PR-019 gated it. No other reduction rule may do
+/// part of what a test asserts.
 const IOTA: Rules = Rules {
     iota: true,
+    delta: true,
     ..Rules::none()
 };
 
