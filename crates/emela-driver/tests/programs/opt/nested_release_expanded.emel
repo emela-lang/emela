@@ -1,0 +1,56 @@
+# The hand-written expansion of `nested_release_fused.emel`: the same fold over
+# `List.range(0, n)` as a self tail call, with the same effect operations and
+# the same nested `with`s. The releases (inner, then outer) and the effect
+# operations must keep their order.
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Outer: Log {
+  release {
+    dbg("close outer")
+    ()
+  }
+  fn log(msg) {
+    dbg("outer #{msg}")
+    ()
+  }
+}
+
+handler Inner: Log {
+  release {
+    dbg("close inner")
+    ()
+  }
+  fn log(msg) {
+    dbg("inner #{msg}")
+    ()
+  }
+}
+
+fn sum_range(n: Int) -> Int uses { Log } {
+  go(0, n, 0)
+}
+
+fn go(i: Int, n: Int, acc: Int) -> Int uses { Log } {
+  if i >= n {
+    acc
+  } else {
+    (use Log).log("at #{i}")
+    go(i + 1, n, acc + i)
+  }
+}
+
+fn main() {
+  with Outer {
+    with Inner {
+      dbg(sum_range(4))
+      (use Log).log("tail")
+    }
+    (use Log).log("outside")
+    dbg(sum_range(0))
+  }
+  dbg("after")
+  ()
+}

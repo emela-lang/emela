@@ -1,0 +1,45 @@
+# A mutation pair for a failure that crosses a `with`: the callback of the
+# folded range performs an effect and then fails. The failure must unwind the
+# handler, run its release, and be caught by the `escape` after the `with`, so
+# the effect operations, the release and the `caught` line keep their order.
+# `failure_with_release_expanded.emel` is the same program with the loop
+# written by hand.
+
+error Stop(at: Int)
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Session: Log {
+  release {
+    dbg("close")
+    ()
+  }
+  fn log(msg) {
+    dbg(msg)
+    ()
+  }
+}
+
+fn visit(n: Int, stop: Int) -> Int fails Stop uses { Log } {
+  List.fold(List.range(0, n), 0, |acc, i| {
+    (use Log).log("at #{i}")
+    if i == stop { fail Stop(at: i) }
+    acc + i
+  })
+}
+
+fn main() {
+  with Session {
+    dbg(visit(5, 2))
+    ()
+  } escape {
+    Stop(at:) -> {
+      dbg("caught at #{at}")
+      ()
+    }
+  }
+  dbg("after")
+  ()
+}
