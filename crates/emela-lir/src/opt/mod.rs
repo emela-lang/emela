@@ -39,15 +39,20 @@
 //! | [`rc`] cleanup | [`Stats::rc_pairs`], [`Stats::rc_borrow_pairs`] | [`run_heap`] | `dup`/`drop` pairs, with the local-base borrow elision on by default ([`LirRules::rc_borrow`], C1/PR-025) |
 //! | drop specialisation | [`Stats::drop_specialized`], [`Stats::drop_deopts`] | [`run_heap`] | a type-directed block drop for reference-free values behind [`LirRules::drop_spec`], opt-in (C3/PR-027) until its measured size cost pays for a runtime gain |
 //! | reuse / FBIP | — | [`run_heap`] | not implemented (C4/PR-042) |
-//! | [`dce`] | [`Stats::dce`] | [`run_heap`] | dead pure `let`s with scalar destinations, on by default (C7/PR-028). Suspension frame pruning is deferred |
+//! | [`dce`] | [`Stats::dce`] | [`run_heap`] | dead pure `let`s with scalar destinations, on by default (C7/PR-028) |
+//! | [`frame_prune`] | — | — | read-only analysis (C7/PR-028): the corpus has no stale saved slot, so no pass prunes a frame |
 //!
 //! A row marked "not implemented" has no code and no flag yet; its pull request adds both. The
 //! analyses are not passes and never change the module.
 //!
-//! Frame pruning is deliberately not part of [`dce`]: removing or reordering the entries of
+//! Frame pruning is deliberately not part of [`dce`]: removing an entry of
 //! [`Suspend::saved`](crate::ir::Suspend::saved) changes what a frame owns and whether a lifted
-//! function's environment is borrowed, so it needs an ownership proof of its own. It stays
-//! reserved, so no flag turns it on yet.
+//! function's environment is borrowed, so it needs an ownership proof of its own. [`frame_prune`]
+//! asks whether such an entry exists at all, and the answer on the local corpus is no: the saved
+//! set is fixed before reference counting, `rc` never removes a pair whose variable a frame
+//! saves, and [`dce`] removes no statement on the corpus, so no saved entry loses its last use
+//! after the value. No flag turns a frame-pruning pass on because there is none; the analysis
+//! documents the obstacle and `tests/frame_prune.rs` asserts the zero.
 //!
 //! # Feature flags
 //!
@@ -64,8 +69,9 @@
 //! 7.5% and its C source by up to 3.7% in the M3 measurement, with no measured runtime gain, and
 //! the plan requires a reason and approval for a size increase over 2%. The flags are a
 //! programmatic API only: no command-line flag is added. Record SRA and closure devirtualisation
-//! stay off by default until M5/M6; the later LIR passes (reuse, frame pruning) get their own
-//! flags when they land.
+//! stay off by default until M5/M6; the later LIR passes (reuse) get their own flags when they
+//! land. Frame pruning has no pass and no flag: [`frame_prune`] reports no stale saved slot on the
+//! corpus.
 //!
 //! [`LirRules::sra_records`] is off by default so that a default build's output, the WASM byte pins
 //! and the differential tests stay what they were. It only takes part when [`LirRules::sra`] is on
@@ -76,6 +82,7 @@ pub mod dce;
 pub mod devirt;
 pub mod drop_spec;
 pub(crate) mod escape;
+pub mod frame_prune;
 mod rc;
 mod sra;
 
@@ -179,7 +186,8 @@ pub struct LirRules {
     /// it needs the liveness (B4) and ownership (B6) facts and deopts when either is `Unknown`.
     pub rc_borrow: bool,
     /// Dead code elimination at [`run_heap`]: pure `let`s with a dead scalar destination removed.
-    /// On by default (C7/PR-028). Frame pruning is not part of this flag and stays reserved.
+    /// On by default (C7/PR-028). Frame pruning is not part of this flag: [`frame_prune`] is the
+    /// read-only analysis of the saved slots, and the corpus has no candidate for a pruning pass.
     pub dce: bool,
     /// Drop specialisation at [`run_heap`] (C3/PR-027): a `drop` of a value whose payload holds no
     /// reference and whose type has no finalizer is released as a block, without walking fields
@@ -232,8 +240,8 @@ impl Default for LirRules {
     /// The passes that are on by default: SRA, the `rc` cleanup with the local-base borrow
     /// elision, DCE and borrow inference (the M3 memory passes that pay for themselves). Drop
     /// specialisation stays opt-in because its default-build size cost has no measured runtime
-    /// gain; record SRA and closure devirtualisation stay off until M5/M6; frame pruning is still
-    /// reserved.
+    /// gain; record SRA and closure devirtualisation stay off until M5/M6; frame pruning has no
+    /// pass, because [`frame_prune::scan`] finds no stale saved slot on the corpus.
     fn default() -> Self {
         Self {
             sra: true,

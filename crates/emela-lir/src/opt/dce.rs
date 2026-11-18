@@ -16,8 +16,12 @@
 //!
 //! Suspension frame pruning is **not** part of this pass. It would rewrite
 //! [`Suspend::saved`](crate::ir::Suspend::saved), which fixes which variables a frame owns and
-//! whether a lifted function's environment is borrowed at each view; doing it needs an ownership
-//! proof of its own and is deferred.
+//! whether a lifted function's environment is borrowed at each view; [`frame_prune`] documents the
+//! ownership proof it needs and the reason it has no candidate on the corpus (no pass of the Heap
+//! IR can make a saved reference dead, and the only pass that can make a saved scalar dead, this
+//! one, removes nothing on the corpus).
+//!
+//! [`frame_prune`]: crate::opt::frame_prune
 //!
 //! # Contract
 //!
