@@ -1,13 +1,13 @@
-//! Tests for the inlining pass (`emela_core::opt::inline`).
+//! Tests for direct-call inlining (δ reduction, `emela_core::opt::reduce::delta`).
 //!
-//! Inlining fires only on calls that are safe to copy: a small, non-recursive, non-failing,
+//! δ fires only on calls that are safe to copy: a small, non-recursive, non-failing,
 //! non-suspending function whose body creates no handler, catches no failure and touches no
 //! evidence. The calls that stay are the interesting half of the tests: recursion, mutual
 //! recursion, size, the bundled collection functions and derived impls must be left alone.
 //!
 //! The observable behaviour of the expansions is checked by the mutation pair
 //! `inline_fused.emel` / `inline_expanded.emel` in `emela-driver/tests/opt_diff.rs`; the tests
-//! here fix the shape the pass leaves behind.
+//! here fix the shape the rule leaves behind.
 
 mod support;
 
