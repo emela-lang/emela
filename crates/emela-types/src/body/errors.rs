@@ -50,6 +50,9 @@ struct Lower {
     /// the containing side of a constraint, where a capability widens to its effect
     /// (`[effect.use]`); false when it is what a `with` provides.
     widen: bool,
+    /// Whether a capability that `minus` removes is replaced with its effect instead: the
+    /// binding of the variable ended, but its effect is still required (`[effect.use]`).
+    to_effect: bool,
 }
 
 /// An `escape`, kept for the W0302 check after the error sets are solved.
@@ -514,9 +517,10 @@ impl BodyInfer<'_> {
         // while solving, so solve again until no new constraint appears.
         self.ctx.set_solving(true);
         let row_diffs = std::mem::take(&mut self.row_diffs);
+        let row_widens = std::mem::take(&mut self.row_widens);
         loop {
             let count = self.ctx.subsets().len();
-            self.solve_round(&row_diffs);
+            self.solve_round(&row_diffs, &row_widens);
             if self.ctx.subsets().len() == count {
                 break;
             }
@@ -527,7 +531,11 @@ impl BodyInfer<'_> {
     }
 
     /// Computes the least solution of the constraints collected so far.
-    fn solve_round(&mut self, row_diffs: &[(RowVar, RowVar, Vec<RowElem>)]) {
+    fn solve_round(
+        &mut self,
+        row_diffs: &[(RowVar, RowVar, Vec<RowElem>)],
+        row_widens: &[(RowVar, RowVar, Vec<RowElem>)],
+    ) {
         // Start from the set variables, not from the previous round's solution.
         self.ctx.clear_row_solution();
         let subsets = self.ctx.subsets().to_vec();
@@ -539,6 +547,15 @@ impl BodyInfer<'_> {
                 elem: RowElem::Var(v),
                 minus,
                 widen: false,
+                to_effect: false,
+            });
+        }
+        for (d, v, minus) in row_widens.iter().cloned() {
+            lowers.entry(d).or_default().push(Lower {
+                elem: RowElem::Var(v),
+                minus,
+                widen: false,
+                to_effect: true,
             });
         }
         // Set variables with an upper bound (contained in a set without set variables). Not
@@ -561,6 +578,7 @@ impl BodyInfer<'_> {
                                 elem: e.clone(),
                                 minus: minus.clone(),
                                 widen: true,
+                                to_effect: false,
                             });
                         }
                     }
@@ -592,11 +610,16 @@ impl BodyInfer<'_> {
                     };
                     let target = solution.entry(v).or_default();
                     for a in atoms.elems() {
-                        if self.removed(a, &lower.minus, lower.widen) {
-                            continue;
-                        }
-                        if !target.contains(a) {
-                            target.insert(a.clone());
+                        let a = if self.removed(a, &lower.minus, lower.widen) {
+                            match a {
+                                RowElem::Cap(c) if lower.to_effect => RowElem::Tag(c.tag.clone()),
+                                _ => continue,
+                            }
+                        } else {
+                            a.clone()
+                        };
+                        if !target.contains(&a) {
+                            target.insert(a);
                             changed = true;
                         }
                     }

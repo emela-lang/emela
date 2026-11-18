@@ -1,0 +1,24 @@
+exit: 0
+--- stdout
+--- stderr
+"replica read"
+"primary copy 2"
+1
+"primary picked write"
+1
+"replica picked read"
+2
+"primary total"
+"replica total"
+"primary total"
+4
+"replica pair read"
+"primary pair 2"
+1
+"replica user 7"
+9
+"open counting"
+"replica copy 103"
+2
+Some(103)
+"close counting"

@@ -300,6 +300,26 @@ impl Ty {
         }
     }
 
+    /// [`Ty::widened`] for the type of a function definition whose parameters are `params`: the
+    /// capability elements of its own R that are its parameters stay (`[type.rules]`, a call
+    /// replaces them with the arguments).
+    pub fn widened_keeping_params(&self, params: &[emela_resolve::hir::LocalId]) -> Ty {
+        let Ty::Fn(f) = self else {
+            return self.widened();
+        };
+        let uses = Row::from_elems(f.uses.elems().iter().map(|e| match e {
+            RowElem::Cap(c) if params.contains(&c.local) => e.clone(),
+            RowElem::Cap(c) => RowElem::Tag(c.tag.clone()),
+            e => e.clone(),
+        }));
+        Ty::Fn(Box::new(FnTy {
+            params: f.params.iter().map(Ty::widened).collect(),
+            ret: f.ret.widened(),
+            fails: f.fails.widened().map_tys(Ty::widened),
+            uses: uses.map_tys(Ty::widened),
+        }))
+    }
+
     /// Visits the immediate child types, including types inside a function type's error set
     /// (`RowElem::Of`) and type arguments of effect-set tags (the `Int` of `State[Int]`).
     pub fn for_each_child(&self, mut f: impl FnMut(&Ty)) {

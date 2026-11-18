@@ -1,7 +1,7 @@
 ---
 title: The type of a capability, use E
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 622
 issue: 616
 decided: 2026-11-18
@@ -155,9 +155,9 @@ type       = ...
 
 ## Diagnostics
 
-- [ ] E0408, E0409, E0410: retired
-- [ ] An operation of F called on a value of type `use E`: E0401 (as now)
-- [ ] `use E` where E is not an effect: E0217 or a new code (to be assigned)
+- [x] E0408, E0409, E0410: retired
+- [x] An operation of F called on a value of type `use E`: E0401 (as now)
+- [x] `use E` where E is not an effect: E0217
 
 ## Compatibility
 

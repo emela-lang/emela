@@ -214,12 +214,6 @@ pub enum DiagnosticKind {
     /// An `@external` fn with `uses` omitted, or an `@external suspend fn`, used outside a handler
     /// operation's body (E0407, spec 12.2). `suspend` is true for the latter (the note differs).
     ExternalOutsideHandler { name: SmolStr, suspend: bool },
-    /// E0408, spec 8.2.
-    CapabilityArgument,
-    /// A capability value put in a data structure (list, tuple, constructor) (E0409, spec 8.2).
-    CapabilityInData,
-    /// E0410, spec 8.2.
-    CapabilityReturned,
     /// Handlers in the same `with` or layer depend on each other's effects in a cycle (E0411,
     /// spec 8.3, 8.5, 14.2). `cycle` names the handlers along the cycle, repeating the first one
     /// at the end.

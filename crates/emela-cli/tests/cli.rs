@@ -391,31 +391,6 @@ fn build_writes_js() {
 }
 
 #[test]
-fn build_reports_unsupported_expressions() {
-    let project = Project::new(
-        "unsupported",
-        &[
-            ("Pome.toml", ""),
-            // Capability values cannot be shown.
-            (
-                "src/main.emel",
-                "import Std.Console.{Console, SystemConsole}\n\nfn main() {\n  with SystemConsole {\n    c = use Console\n    dbg(\"#{c}\")\n  }\n  ()\n}\n",
-            ),
-        ],
-    );
-    for command in ["build", "run"] {
-        let run = project.emela(&[command]);
-        assert_eq!(run.code, Some(1), "{command}");
-        assert!(
-            run.stderr
-                .starts_with("error: not supported yet: showing a capability value\n"),
-            "{command}: {}",
-            run.stderr
-        );
-    }
-}
-
-#[test]
 fn library_only_project_uses_lib_as_entry_for_check_and_test() {
     for source in [
         "pub fn f() -> Int { 1 }\n",

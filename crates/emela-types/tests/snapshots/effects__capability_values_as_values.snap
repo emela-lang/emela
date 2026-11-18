@@ -5,13 +5,6 @@ expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\
 f: fn() -> use Logger uses { Logger }
 g: fn() -> (fn() -> use Logger) uses { Logger }
 h: fn() -> (fn() -> () uses { Logger }) uses { Logger }
-`log` CapabilityInData
-`log` CapabilityInData
-`log` CapabilityInData
-`log` CapabilityInData
-`log` CapabilityArgument
-`log` CapabilityReturned
-`log` CapabilityReturned
 --- R
 {   log = use Logger   xs = [log]   p = (log, 1)   s = Some(log)   pipe = log |> Some   id = |x| x   id(log)   log }: Logger
 use Logger: Logger

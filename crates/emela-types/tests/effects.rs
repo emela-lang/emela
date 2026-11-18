@@ -459,10 +459,10 @@ fn outside() {
     ));
 }
 
-/// Capability values cannot be passed as arguments, stored in data structures, or returned
-/// (spec 8.2).
+/// Capability values can be passed as arguments, stored in data structures, and returned, as any
+/// other value (`[effect.use]`). E0408 to E0410 are retired.
 #[test]
-fn capability_restrictions() {
+fn capability_values_as_values() {
     insta::assert_snapshot!(render_effects(
         r#"
 effect Logger {
@@ -1753,8 +1753,8 @@ handler Ticking: Clock {
 }
 
 /// A local fn encloses its body's R in its type, and the R surfaces where it is called. A written
-/// `uses` is enforced as for a top-level fn (E0402). A local fn that returns a capability value is
-/// rejected as a fn is (`[fn.local]`, `[effect.use]`).
+/// `uses` is enforced as for a top-level fn (E0402). A local fn can return a capability value as
+/// a fn can (`[fn.local]`, `[effect.use]`).
 #[test]
 fn local_fn_effects() {
     insta::assert_snapshot!(render_effects(

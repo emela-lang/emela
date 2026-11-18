@@ -1,0 +1,30 @@
+---
+source: crates/emela-types/tests/capture.rs
+expression: "render(&with_prelude(r##\"\nfn sync_users(from: use Db, to: use Db) -> Int {\n  from.query(\"a\") + to.query(\"b\")\n}\n\nfn through_closure(db: use Db) -> Int {\n  f = || db.query(\"c\")\n  f()\n}\n\nfn declared(db: use Db) -> Int uses { Db } {\n  db.query(\"d\")\n}\n\nfn pure_rejects(db: use Db) -> Int uses {} {\n  db.query(\"e\")\n}\n\nfn in_a_list(dbs: List[use Db]) -> Int {\n  dbs.fold(from: 0, f: |n, db| n + db.query(\"f\"))\n}\n\nfn caller() -> Int {\n  with PrimaryDb {\n    primary = use Db\n    with ReplicaDb {\n      replica = use Db\n      sync_users(replica, primary) + through_closure(primary)\n    }\n  }\n}\n\nfn forwarded(db: use Db) -> Int {\n  sync_users(db, db)\n}\n\nfn no_provider_needed() -> Int {\n  with PrimaryDb {\n    p = use Db\n    run_without(p)\n  }\n}\n\nfn run_without(db: use Db) -> Int {\n  forwarded(db)\n}\n\"##))"
+---
+sync_users: fn(use Db, use Db) -> Int uses { from, to }
+  from: use Db  holds: from
+  to: use Db  holds: to
+through_closure: fn(use Db) -> Int uses { db }
+  db: use Db  holds: db
+  f: fn() -> Int uses { db }  holds: db
+declared: fn(use Db) -> Int uses { Db }
+  db: use Db  holds: db
+pure_rejects: fn(use Db) -> Int
+  db: use Db  holds: db
+in_a_list: fn(List[use Db]) -> Int uses { Db }
+  dbs: List[use Db]  holds: dbs
+  n: Int
+  db: use Db  holds: db
+caller: fn() -> Int
+  primary: use Db  holds: primary (with PrimaryDb)
+  replica: use Db  holds: replica (with ReplicaDb)
+forwarded: fn(use Db) -> Int uses { db }
+  db: use Db  holds: db
+no_provider_needed: fn() -> Int
+  p: use Db  holds: p (with PrimaryDb)
+run_without: fn(use Db) -> Int uses { db }
+  db: use Db  holds: db
+`{
+  db.query("e")
+}` unhandled effects Db (Declared)

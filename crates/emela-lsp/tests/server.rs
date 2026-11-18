@@ -1301,6 +1301,48 @@ fn main() {
     client.shutdown();
 }
 
+/// `[lsp.hover]`, `[effect.use]`: the type of a capability value is shown as written, `use E`, and
+/// the capabilities of the parameters in the R of a function by their names.
+#[test]
+fn hover_shows_capability_types() {
+    let src = "\
+effect Db {
+  fn query(q: String) -> Int
+}
+
+fn sync_users(from: use Db, to: use Db) -> Int {
+  from.query(\"a\") + to.query(\"b\")
+}
+
+fn pick(dbs: List[use Db]) -> Option[use Db] {
+  dbs match {
+    [db, ..] -> Some(db)
+    _ -> None
+  }
+}
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 4, 4)),
+        "```emela\nsync_users: fn(use Db, use Db) -> Int uses { from, to }\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 4, 15)),
+        "```emela\nfrom: use Db\n  holds: from\n```"
+    );
+    let pick = text(client.hover("/app/src/main.emel", 8, 4));
+    assert!(
+        pick.starts_with("```emela\npick: fn(List[use Db]) -> Option[use Db]\n"),
+        "{pick}"
+    );
+    client.shutdown();
+}
+
 /// Suspending operations and handlers that leave Async (spec 8.4, 8.7). Operation types get
 /// `suspend`, and handler names show their dependencies.
 #[test]

@@ -3188,12 +3188,9 @@ impl<'a> Lowerer<'a> {
             .map(|part| match part {
                 HirStrPart::Text(s) => StrPart::Lit(s.clone()),
                 HirStrPart::Interp(e) => {
-                    // The type checker has checked Show (spec 10.6), except for a capability
-                    // value, which data cannot hold, so only the value itself can be one.
+                    // The type checker has checked Show (spec 10.6); no trait is implemented
+                    // for a capability value (`[effect.use]`).
                     let ty = self.ty(self.expr_ty(*e));
-                    if matches!(self.module.ty(ty), Type::Handler(_)) {
-                        self.report("showing a capability value", self.hir.exprs[*e].span);
-                    }
                     // Monomorphization shows by structure where Show gives the same, and calls
                     // `Show.show` otherwise (spec 10.3, 10.6).
                     if prim_op_ty(self.expr_ty(*e)).is_none() {
