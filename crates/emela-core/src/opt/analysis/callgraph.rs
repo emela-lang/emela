@@ -4,14 +4,17 @@
 //!
 //! ```text
 //! Analysis ID: AnalysisId::CallGraph
-//! Domain / lattice: a graph whose nodes are functions and whose edges are calls, plus the list of
-//!                   its strongly connected components. `Unknown` is the top element; an empty
-//!                   graph is the bottom and says there are no calls.
-//! Transfer: a direct call adds an edge to its callee; an indirect call, a call through a handler
-//!           operation and a call of an external function are recorded as "unknown callee" so a
-//!           consumer does not treat the graph as complete when it is not.
-//! Soundness: every call the analysis reports exists on some path, and a component reports a cycle
-//!            only when the calls in it can form one.
+//! Domain / lattice: a graph whose nodes are functions and whose edges are calls. `Unknown` is
+//!                   the top element; an empty graph is the bottom and says there are no direct
+//!                   calls or function values. The strongly connected components are derived
+//!                   from the graph.
+//! Transfer: a direct call and a function value add an edge to the callee. An indirect call, an
+//!           operation call and the host body of an external function have no direct callee in
+//!           this module, so they add no edge; a consumer that needs a complete graph checks the
+//!           body for them and deopts.
+//! Soundness: every edge the analysis reports exists on some path, and a component reports a cycle
+//!            only when the reported edges form one. The graph is exact for the edges it reports;
+//!            it does not claim that a function has no indirect calls.
 //! Deopt (unknown): a consumer that gets `Unknown` does not assume a function is recursive or
 //!                  non-recursive, and does not inline a call whose callee it could not place.
 //! Consumers: δ reduction (recursion and the cost model), CSE (a call is pure only when the callee
@@ -27,11 +30,11 @@
 //! - a function value ([`Expr::Fn`]), which mentions the function without calling it yet.
 //!
 //! A [`Expr::Lambda`] is a nested function with no [`FnId`], so it is not a node; the lambda's
-//! body still contributes the calls it makes from the enclosing function. Indirect calls,
-//! operation calls and external functions have no node to point at, so this graph is a
-//! *may-call* over the calls whose callee is a direct function; it is not a complete
-//! interprocedural call graph. A consumer that needs completeness checks the expression for an
-//! indirect call and deopts (see the contract above).
+//! body still contributes the calls it makes from the enclosing function. Indirect calls and
+//! operation calls have no node to point at, and an external function's host body is not in the
+//! module, so this graph is a *may-call* over the calls whose callee is a direct function; it is
+//! not a complete interprocedural call graph. A consumer that needs completeness checks the
+//! expression for an indirect call and deopts (see the contract above).
 //!
 //! # Determinism
 //!
@@ -42,10 +45,10 @@
 //!
 //! # Status
 //!
-//! B2/PR-021 implements [`CallGraph::of_module`], [`CallGraph::sccs`],
-//! [`CallGraph::is_recursive`] and [`CallGraph::reachable_from`]. The [`Analysis`] hook
-//! [`analyze`] stays conservative for now: the cache is not wired into a pass yet, and the
-//! concrete methods are what the δ and devirtualisation rules call.
+//! B2/PR-021 implements the analysis. [`CallGraphAnalysis::analyze`] (and the free [`analyze`])
+//! returns `Known` for a well-formed module, and [`CallGraph::of_module`], [`CallGraph::sccs`],
+//! [`CallGraph::is_recursive`] and [`CallGraph::reachable_from`] expose the same graph and its
+//! properties to a rule.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -231,12 +234,17 @@ impl Analysis for CallGraphAnalysis {
 
     const ID: AnalysisId = AnalysisId::CallGraph;
 
-    fn analyze(&self, _m: &Module) -> Self::Output {
-        Fact::Unknown
+    /// The call graph of `m`.
+    ///
+    /// There is no expression the walk cannot classify as an edge or a non-edge, so the result is
+    /// always `Known`. The graph is a may-call over direct callees; see the module documentation
+    /// for what it does not claim about indirect calls.
+    fn analyze(&self, m: &Module) -> Self::Output {
+        Fact::Known(CallGraph::of_module(m))
     }
 }
 
-/// The call graph of `m`, or `Unknown` (see the module contract).
+/// The call graph of `m`.
 pub fn analyze(m: &Module) -> Fact<CallGraph> {
     CallGraphAnalysis.analyze(m)
 }
@@ -326,6 +334,23 @@ mod tests {
         assert_eq!(graph.callers[&b], vec![a]);
         assert!(graph.callees[&b].is_empty());
         assert!(!graph.callers.contains_key(&a));
+    }
+
+    /// The shared analysis API reports the same graph as the concrete functions and carries the
+    /// stable analysis id.
+    #[test]
+    fn the_analysis_api_reports_the_concrete_graph() {
+        let mut m = Module::new();
+        let a = m.declare("a", false);
+        let b = m.declare("b", false);
+        m.define(a, Vec::new(), TypeId::UNIT, call(b));
+        m.define(b, Vec::new(), TypeId::UNIT, Expr::Lit(Lit::Unit));
+        let Fact::Known(graph) = analyze(&m) else {
+            panic!("a call graph is always known");
+        };
+        assert_eq!(graph, CallGraph::of_module(&m));
+        assert_eq!(graph.callees[&a], vec![b]);
+        assert_eq!(CallGraphAnalysis::ID, AnalysisId::CallGraph);
     }
 
     /// A function that calls itself is a self-loop, and its SCC is a singleton.

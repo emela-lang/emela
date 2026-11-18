@@ -39,9 +39,9 @@
 //!
 //! # Status
 //!
-//! B2/PR-021 implements [`of_function`], [`of_module`] and [`of_expr`]. The [`Analysis`] hook
-//! [`analyze`] stays conservative for now: the cache is not wired into a pass yet, and the
-//! concrete functions are what the β and δ rules call.
+//! B2/PR-021 implements the analysis. [`Uses::analyze`] (and the free [`analyze`]) returns
+//! `Known` counts for a well-formed module, and [`of_function`], [`of_module`] and [`of_expr`]
+//! expose the same facts to a rule that wants one function or one expression.
 
 use rustc_hash::FxHashMap;
 
@@ -60,12 +60,22 @@ impl Analysis for Uses {
 
     const ID: AnalysisId = AnalysisId::Uses;
 
-    fn analyze(&self, _m: &Module) -> Self::Output {
-        Fact::Unknown
+    /// The reads of every local of the module.
+    ///
+    /// A `Local` is bound at most once in the whole module (`crate::ir`), so the per-function maps
+    /// of [`of_module`] cannot collide: merging them into one map is the same as walking every
+    /// body into one map. There is no expression this analysis cannot count, so the result is
+    /// always `Known`.
+    fn analyze(&self, m: &Module) -> Self::Output {
+        let mut counts = UseCounts::default();
+        for (_, function) in m.functions.iter() {
+            count_reads(&function.body, &mut counts);
+        }
+        Fact::Known(counts)
     }
 }
 
-/// The use counts of `m`, or `Unknown` (see the module contract).
+/// The use counts of `m`.
 pub fn analyze(m: &Module) -> Fact<UseCounts> {
     Uses.analyze(m)
 }
@@ -155,6 +165,29 @@ mod tests {
         let counts = of_function(&m, f);
         assert_eq!(counts.get(&x), Some(&2));
         assert_eq!(of_expr(&m.functions[f].body, x), 2);
+    }
+
+    /// The shared analysis API reports the same counts as the concrete functions and carries the
+    /// stable analysis id.
+    #[test]
+    fn the_analysis_api_reports_the_concrete_counts() {
+        let mut m = Module::new();
+        let x = m.local("x", TypeId::INT);
+        let f = function(
+            &mut m,
+            "f",
+            Expr::Let {
+                var: x,
+                value: Box::new(Expr::Lit(Lit::Int(1))),
+                body: Box::new(add(var(x), var(x))),
+            },
+        );
+        let Fact::Known(counts) = analyze(&m) else {
+            panic!("a use count is always known");
+        };
+        assert_eq!(counts.get(&x), Some(&2));
+        assert_eq!(of_module(&m).get(&f).unwrap().get(&x), Some(&2));
+        assert_eq!(Uses::ID, AnalysisId::Uses);
     }
 
     /// A lambda parameter is read in the lambda's body; the parameter itself is a binder.
