@@ -1,0 +1,20 @@
+# A mutation pair: this is the form β reduction takes as its input. The closures `add`, `scale`
+# and `clamp` capture `base` and are each called exactly once, so β replaces each call by the
+# lambda's body with the argument bound once, where the call was. `beta_expanded.emel` is the same
+# program with that expansion written by hand. Both must print the same, including the order and
+# the number of times the `noisy` arguments are evaluated.
+
+fn noisy(label: String, x: Int) -> Int {
+  dbg("#{label} #{x}")
+  x
+}
+
+fn main() {
+  base = noisy("base", 10)
+  add = |x| x + base
+  scale = |x| x * base
+  clamp = |x| if x < 0 { base } else { x }
+  dbg(add(noisy("add", 1)))
+  dbg(scale(noisy("scale", 2)))
+  dbg(clamp(noisy("clamp", 3)))
+}
