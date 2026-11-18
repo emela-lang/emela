@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 
 use emela_codegen_c::{
     BUNDLED_DIR, CError, CErrorKind, COutput, EMELA_H, EMELA_H_FILE, Entry, RUNTIME_C,
-    RUNTIME_C_FILE, RUNTIME_H, RUNTIME_H_FILE, TestEntry, compile_with,
+    RUNTIME_C_FILE, RUNTIME_H, RUNTIME_H_FILE, TestEntry, compile_with_lir,
 };
 
 use crate::code;
@@ -47,6 +47,9 @@ pub struct CoreC {
     cc: Option<(PathBuf, Vec<String>)>,
     /// Whether the LIR optimisation passes run (`emela_lir::to_heap_with`). On by default.
     optimize: bool,
+    /// Which LIR passes run (see [`emela_lir::opt::Options`]). The default: borrow inference and
+    /// the other off-by-default passes do not run.
+    lir_options: emela_lir::opt::Options,
 }
 
 impl Default for CoreC {
@@ -55,6 +58,7 @@ impl Default for CoreC {
             sources: Vec::new(),
             cc: None,
             optimize: true,
+            lir_options: emela_lir::opt::Options::default(),
         }
     }
 }
@@ -67,12 +71,20 @@ impl CoreC {
             sources: Vec::new(),
             cc: Some((cc.into(), flags.iter().map(|f| (*f).to_owned()).collect())),
             optimize: true,
+            lir_options: emela_lir::opt::Options::default(),
         }
     }
 
     /// Turns the LIR optimisation passes on or off (`emela build --no-opt`).
     pub fn with_optimize(mut self, optimize: bool) -> Self {
         self.optimize = optimize;
+        self
+    }
+
+    /// Chooses which LIR passes run, for a test or a tool that needs a pass the default build
+    /// leaves off (`emela_lir::opt::LirRules`). It does not change the default backend.
+    pub fn with_lir_options(mut self, options: emela_lir::opt::Options) -> Self {
+        self.lir_options = options;
         self
     }
 
@@ -109,7 +121,8 @@ impl Backend<emela_core::Module> for CoreC {
         module: &emela_core::Module,
         _: &Analysis,
     ) -> Result<BuildOutput, Vec<Diagnostic>> {
-        let out = compile_with(module, &Entry::Main, self.optimize).map_err(diagnostics)?;
+        let out = compile_with_lir(module, &Entry::Main, self.optimize, self.lir_options)
+            .map_err(diagnostics)?;
         Ok(self.output(out))
     }
 
@@ -140,8 +153,13 @@ impl TestBackend<TestModule> for CoreC {
                 function: program.tests[i].function,
             })
             .collect();
-        let out = compile_with(&program.module, &Entry::Tests(tests), self.optimize)
-            .map_err(diagnostics)?;
+        let out = compile_with_lir(
+            &program.module,
+            &Entry::Tests(tests),
+            self.optimize,
+            self.lir_options,
+        )
+        .map_err(diagnostics)?;
         Ok(self.output(out))
     }
 

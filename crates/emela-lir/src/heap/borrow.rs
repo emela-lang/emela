@@ -35,7 +35,9 @@
 //!         passes owned arguments. An external function has no body and no signature.
 //! Budget: one borrow analysis of the module, then one walk of every value to find the functions
 //!         whose value is taken.
-//! Measures: none yet (the signature is a fact; C2b counts the `dup`s it removes).
+//! Measures: the signature is a fact, not a rewrite. [`BorrowReport`] counts the functions and
+//! parameter slots it marked, and the call-site positions that reference counting now borrows
+//! (the `dup`s it can remove); `Stats::{borrow_functions, borrow_params, borrow_args}` carry them.
 //! ```
 //!
 //! # Soundness conditions
@@ -72,10 +74,58 @@
 //!   is left out of the signature (it is handled by [`Function::env`](crate::ir::Function::env))
 //!   so that a reader cannot confuse the two mechanisms.
 
+//! # End-to-end contract (C2b)
+//!
+//! With [`LirRules::borrow`](crate::opt::LirRules::borrow) on, [`crate::to_heap_with_options`] runs
+//! this pass between the state machines and [`super::insert_rc`]. The resulting program is
+//! balanced:
+//!
+//! - the caller does not `dup` a borrowed argument; it still owns and drops its own reference when
+//!   it no longer needs the value;
+//! - the callee does not drop a borrowed parameter; if something inside the callee consumes it
+//!   (a view is consumed, or a forced-owned callee takes it), the counting pass `dup`s first;
+//! - the verifier's balance check ([`super::rc_check`]) counts a borrowed parameter as starting
+//!   with zero references, accepts a reference-less read of it, and still checks each use;
+//! - the guards above keep the convention sound: an address-taken or exported function, a runtime
+//!   `show` function, and a frame-saved parameter are owned; `Array.set` keeps its array owned.
+//!
+//! The flag is off by default, so a default build never runs the pass and the dump, byte pins and
+//! backends' output stay what they were. The counters ([`BorrowReport`]) are facts about the
+//! calling convention, not a rewrite; the observable effect is the call-site `dup`s that
+//! reference counting no longer emits.
+
 use rustc_hash::FxHashSet;
 
-use crate::ir::{FnId, Module, Stage, Stmt, Value};
+use crate::ir::{Callee, FnId, Module, Operand, Stage, Stmt, Value};
 use crate::opt::analysis::borrow;
+
+/// What [`insert_borrow_signature`] wrote: how many functions and parameter slots got a borrowed
+/// signature, and how many direct-call positions reference counting now treats as borrowed.
+///
+/// `args` counts counted variables passed at marked positions (excluding the environment argument
+/// of a lifted call), so it is the number of call-site `dup`s the flag can remove when the argument
+/// stays live. It is a fact about the calling convention, not a rewrite of the Heap IR.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct BorrowReport {
+    /// Functions that got a non-empty signature (at least one `true`).
+    pub functions: u32,
+    /// Borrowed parameter slots written across those functions.
+    pub params: u32,
+    /// Direct-call argument positions that are borrowed because of a signature.
+    pub args: u32,
+}
+
+impl BorrowReport {
+    /// The report as the counters of [`crate::opt::Stats`].
+    pub(crate) fn into_stats(self) -> crate::opt::Stats {
+        crate::opt::Stats {
+            borrow_functions: self.functions,
+            borrow_params: self.params,
+            borrow_args: self.args,
+            ..crate::opt::Stats::default()
+        }
+    }
+}
 
 /// Writes each function's borrowed-parameter signature from the B6 borrow facts.
 ///
@@ -88,7 +138,9 @@ use crate::opt::analysis::borrow;
 /// A function whose signature has no `true` gets an empty vector, which means the owned calling
 /// convention. The pass is idempotent: a second run recomputes the same facts from the analysis
 /// (which does not read the signature) and writes the same vectors.
-pub fn insert_borrow_signature(m: &mut Module) {
+///
+/// Returns what it wrote ([`BorrowReport`]); the report is not a rewrite count.
+pub fn insert_borrow_signature(m: &mut Module) -> BorrowReport {
     assert_eq!(
         m.stage,
         Stage::StateMachines,
@@ -97,11 +149,12 @@ pub fn insert_borrow_signature(m: &mut Module) {
     // `Unknown` is the top of the analysis lattice and is not a negative fact: leave every function
     // with the owned convention.
     let Some(facts) = borrow::analyze(m).known() else {
-        return;
+        return BorrowReport::default();
     };
     let taken = functions_taken_as_values(m);
     let host_called: FxHashSet<FnId> = m.error_shows.iter().map(|&(_, f)| f).collect();
     let ids: Vec<FnId> = m.functions.iter().map(|(id, _)| id).collect();
+    let mut report = BorrowReport::default();
     for id in ids {
         let Some(from_analysis) = facts.borrowed_params.get(&id) else {
             continue;
@@ -129,11 +182,56 @@ pub fn insert_borrow_signature(m: &mut Module) {
             borrowed
         };
         if borrowed.contains(&true) {
+            report.functions += 1;
+            report.params += borrowed.iter().filter(|&&b| b).count() as u32;
             m.functions[id].borrowed = borrowed;
         } else {
             m.functions[id].borrowed.clear();
         }
     }
+    report.args = borrowed_args(m);
+    report
+}
+
+/// The counted direct-call argument positions that a signature marks borrowed.
+///
+/// The environment argument of a lifted call is borrowed by the calling convention, not by a
+/// signature, so it is not counted. A position whose argument is not a counted variable would
+/// have no `dup` to remove and is not counted either.
+fn borrowed_args(m: &Module) -> u32 {
+    let mut n = 0;
+    for (_, f) in m.functions.iter() {
+        for (_, stmt) in f.stmts.iter() {
+            let Stmt::Let {
+                value:
+                    Value::Call {
+                        callee: Callee::Direct(g),
+                        args,
+                        ..
+                    },
+                ..
+            } = stmt
+            else {
+                continue;
+            };
+            let callee = &m.functions[*g];
+            if callee.external.is_some() {
+                continue;
+            }
+            let start = usize::from(callee.env.is_some());
+            for (i, o) in args.iter().enumerate().skip(start) {
+                if callee.borrowed.get(i) != Some(&true) {
+                    continue;
+                }
+                if let Operand::Var(v) = o
+                    && super::rc::counted(f, *v)
+                {
+                    n += 1;
+                }
+            }
+        }
+    }
+    n
 }
 
 /// The functions the module uses as values: a `FnRef`, or the target of a `MakeClosure` record.

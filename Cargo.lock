@@ -535,6 +535,7 @@ dependencies = [
  "emela-codegen-wasm",
  "emela-core",
  "emela-fmt",
+ "emela-lir",
  "emela-pome",
  "emela-resolve",
  "emela-syntax",

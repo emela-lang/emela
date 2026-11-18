@@ -127,7 +127,22 @@ pub fn compile_with(
     entry: &Entry,
     optimize: bool,
 ) -> Result<COutput, Vec<CError>> {
-    compile_with_values(core, entry, optimize, true)
+    compile_with_lir(core, entry, optimize, emela_lir::opt::Options::default())
+}
+
+/// [`compile_with`] with the LIR pass flags chosen by `lir_options`.
+///
+/// This is the entry point a test uses to compile a program with, for example, borrow inference on
+/// while the default build keeps it off. The by-value layout stays on as in [`compile_with`].
+/// Optimisation never changes what the program prints, its exit status or the order of effects,
+/// failures and releases, whichever LIR passes run.
+pub fn compile_with_lir(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+    lir_options: emela_lir::opt::Options,
+) -> Result<COutput, Vec<CError>> {
+    compile_with_values_and_lir(core, entry, optimize, true, lir_options)
 }
 
 /// [`compile_with`] with the by-value layout of records and tuples (`layout`, private) switched
@@ -137,11 +152,29 @@ pub fn compile_with(
 /// value that the specification leaves implementation-defined (`[target.unspecified]`), so the
 /// two builds agree on everything observable except the number of allocations and when one runs
 /// out of memory. A test builds a program both ways to compare them.
+///
+/// The LIR pass flags are [`emela_lir::opt::Options::default`] (borrow inference off).
 pub fn compile_with_values(
     core: &emela_core::Module,
     entry: &Entry,
     optimize: bool,
     values: bool,
+) -> Result<COutput, Vec<CError>> {
+    compile_with_values_and_lir(
+        core,
+        entry,
+        optimize,
+        values,
+        emela_lir::opt::Options::default(),
+    )
+}
+
+fn compile_with_values_and_lir(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+    values: bool,
+    lir_options: emela_lir::opt::Options,
 ) -> Result<COutput, Vec<CError>> {
     // With `Entry::Main`, main (if any) comes first, then the exported fns (`[target.native.export]`).
     let mains: Vec<FnId> = match entry {
@@ -222,7 +255,7 @@ pub fn compile_with_values(
     if !errors.is_empty() {
         return Err(errors);
     }
-    emela_lir::to_heap_with(&mut lir, optimize);
+    emela_lir::to_heap_with_options(&mut lir, optimize, lir_options);
     if cfg!(debug_assertions)
         && let Err(errors) = emela_lir::verify(&lir)
     {
