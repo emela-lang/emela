@@ -2,7 +2,7 @@
 title: Suspending handler members, bound layers, and handler members of labels
 authors: [Alliana]
 status: draft
-pr:
+pr: 667
 issue: 656
 decided:
 touches: [effect.decl, effect.handler, effect.with, effect.label, type.effect-bound, grammar.decl, diag.list]
