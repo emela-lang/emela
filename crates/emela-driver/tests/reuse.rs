@@ -2,10 +2,11 @@
 //! run the same program with the same observable result as the build without reuse, the C build
 //! allocates fewer objects, and the emitted code differs (the reuse reached the backends).
 //!
-//! The program rebuilds a scalar record in a tail function; the old record is read by nothing but
-//! its drop, which is what the first slice reuses. A second function rebuilds a single-variant
-//! record whose scalar fields the C backend holds by value: the LIR marks it too, but there is no
-//! block to reuse on C, so the emitted struct copy must not change. The native build compiles the
+//! The program rebuilds a record in a tail function; the old record is read by nothing but its
+//! drop. A second function rebuilds a single-variant record whose scalar fields the C backend
+//! holds by value: the LIR marks it too, but there is no block to reuse on C, so the emitted
+//! struct copy must not change. A third rebuilds a record with a `String` field, which tests that
+//! the old reference field is released before it is overwritten. The native build compiles the
 //! runtime with its leak check (`-DEMELA_LEAK_CHECK`), so a block kept alive or released twice
 //! shows up as an observable failure, and with the allocation report (`-DEMELA_ALLOC_STATS`), so
 //! the number of allocations is measured, not guessed.
@@ -69,6 +70,37 @@ fn main() {
 }
 ";
 
+/// A record with a reference field (`name`) rebuilt in a tail function. The two strings are
+/// computed before the old record, so the `drop` reference counting places is immediately before
+/// the `Make` the reuse rewrites; the old record's `name` field is a heap string, so a reuse that
+/// forgot to release it would leak it (the leak check fails).
+const REFERENCE_PROGRAM: &str = "\
+type Tagged(name: String, n: Int)
+
+fn rebuild(i: Int) -> Tagged {
+  j = i + 1
+  old_name = \"old #{j}\"
+  new_name = \"new #{j + 1000}\"
+  stale = Tagged(name: old_name, n: 0)
+  r = Tagged(name: new_name, n: i)
+  r
+}
+
+fn go(i: Int, total: Int) -> Int {
+  if 1000 <= i {
+    total
+  } else {
+    t = rebuild(i)
+    go(i + 1, total + t.n + String.byte_size(t.name))
+  }
+}
+
+fn main() {
+  dbg(go(0, 0))
+  ()
+}
+";
+
 /// The default LIR options with reuse on.
 fn reuse_options() -> Options {
     Options {
@@ -119,11 +151,16 @@ fn have_wasmtime() -> bool {
 
 /// Writes [`PROGRAM`] to a fresh directory and returns the entry file.
 fn source(name: &str) -> PathBuf {
+    source_of(PROGRAM, name)
+}
+
+/// Writes `program` to a fresh directory and returns the entry file.
+fn source_of(program: &str, name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("emela-reuse-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("main.emel");
-    std::fs::write(&path, PROGRAM).unwrap();
+    std::fs::write(&path, program).unwrap();
     path
 }
 
@@ -287,6 +324,69 @@ fn reuse_keeps_wasm_behaviour() {
     let path = source("wasm-c");
     let (off, off_wasm) = run_wasm(&path, no_reuse_options(), "wasm-off");
     let (on, on_wasm) = run_wasm(&path, reuse_options(), "wasm-on");
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+    assert_eq!(off.0, 0, "the build without reuse fails: {off:?}");
+    assert_eq!(on.0, 0, "the build with reuse fails: {on:?}");
+    assert_eq!(off, on, "reuse changed what the program observes");
+    assert_ne!(off_wasm, on_wasm, "reuse did not reach the WASM backend");
+}
+
+/// A record with a reference field: the native build releases the old field before it writes the
+/// new one, so it allocates one object less per call, reads the same output, and leaks nothing.
+#[test]
+fn reuse_releases_a_reference_field() {
+    if !have_cc() {
+        return;
+    }
+    let path = source_of(REFERENCE_PROGRAM, "native-ref");
+    let (off, off_c) = run_native(&path, no_reuse_options(), "native-ref-off");
+    let (on, on_c) = run_native(&path, reuse_options(), "native-ref-on");
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+    assert_eq!(off.0, 0, "the build without reuse fails: {off:?}");
+    assert_eq!(on.0, 0, "the build with reuse fails: {on:?}");
+    assert_eq!(off.1, on.1, "reuse changed stdout");
+    // The leak check fails the run with exit 99; any defect would have failed the run above.
+    for (name, out) in [("off", &off), ("on", &on)] {
+        assert!(
+            !out.2.contains("leak check"),
+            "the {name} build leaks:\n{}",
+            out.2
+        );
+    }
+    assert_ne!(off_c, on_c, "reuse did not reach the C backend");
+    assert_eq!(
+        alloc_sites(&off_c),
+        alloc_sites(&on_c) + 1,
+        "the reuse should remove exactly one `em_alloc` site"
+    );
+    let off_total = allocations(&off.2);
+    let on_total = allocations(&on.2);
+    assert_eq!(
+        off_total,
+        on_total + 1000,
+        "reuse should save the record's allocation on each call (1000)\
+         \n off: {}\n  on: {}",
+        off.2,
+        on.2
+    );
+    assert!(
+        off.2.contains("emela-alloc Tagged 2000") && on.2.contains("emela-alloc Tagged 1000"),
+        "the report does not show the old and new counts of `Tagged`"
+    );
+}
+
+/// The reference-field program on WASM: the reuse keeps the observable result and changes the
+/// component.
+#[test]
+fn reuse_releases_a_reference_field_on_wasm() {
+    if !have_wasmtime() {
+        return;
+    }
+    let path = source_of(REFERENCE_PROGRAM, "wasm-ref");
+    let (off, off_wasm) = run_wasm(&path, no_reuse_options(), "wasm-ref-off");
+    let (on, on_wasm) = run_wasm(&path, reuse_options(), "wasm-ref-on");
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 
     assert_eq!(off.0, 0, "the build without reuse fails: {off:?}");

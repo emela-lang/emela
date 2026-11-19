@@ -1,5 +1,5 @@
-//! Perceus reuse, first slice (C4/PR-042): a uniquely owned, same-constructor, scalar-only record
-//! is written again instead of being dropped and allocated.
+//! Perceus reuse (C4/PR-042): a uniquely owned record of the same constructor is written again
+//! instead of being dropped and allocated, releasing the references its old fields held.
 //!
 //! The pass is off by default, so each test builds a RefCounted function with the `drop` and the
 //! `Make` a reference-counted program would have and runs [`emela_lir::opt::reuse`] directly. The
@@ -91,7 +91,7 @@ fn holds(m: &Module, f: FnId, stmt: StmtId) -> bool {
         .is_some_and(|body| m.functions[f].seqs[body].stmts.contains(&stmt))
 }
 
-/// A scalar-only single-variant record is reused: the marker is written, the drop is gone, the
+/// A scalar-field single-variant record is reused: the marker is written, the drop is gone, the
 /// module still verifies and dumping shows the difference.
 #[test]
 fn a_scalar_record_is_reused() {
@@ -233,9 +233,11 @@ fn a_view_of_the_value_deopts() {
     assert!(holds(&m, id, make));
 }
 
-/// A field held as a reference would have to be released from the old value: deopt.
+/// A record with a reference field is reused: the pass marks it and the drop is gone. The
+/// backends release the old field before writing the new one (the runtime tests exercise that);
+/// the LIR keeps the same shape as for a scalar field.
 #[test]
-fn a_ref_field_deopts() {
+fn a_ref_field_record_is_reused() {
     let mut core = CoreModule::new();
     let (ty, ctor) = enum_type(&mut core, "Named", vec![TypeId::STRING, TypeId::INT]);
     let mut b = FnBuilder::new(&core, "f");
@@ -274,7 +276,140 @@ fn a_ref_field_deopts() {
     let mut m = Module::new(core.clone());
     let id = m.add(f);
     m.stage = Stage::RefCounted;
+    assert!(verify(&m).is_ok(), "{:?}", verify(&m).unwrap_err());
+
+    let stats = reuse::run(&mut m);
+
+    assert_eq!(stats.reuse, 1, "the pair was not reused: {stats:?}");
+    assert_eq!(stats.reuse_deopts, 0);
+    assert_eq!(m.functions[id].reuse.get(&make), Some(&a));
+    assert!(!holds(&m, id, drop), "the old drop is still there");
+    assert!(holds(&m, id, make), "the Make was removed");
     assert!(verify(&m).is_ok());
+
+    // A second run finds no drop followed by a `Make`.
+    let after = emela_lir::dump(&m);
+    let second = reuse::run(&mut m);
+    assert_eq!(second.reuse, 0, "a second run reused again: {second:?}");
+    assert_eq!(emela_lir::dump(&m), after);
+}
+
+/// The same constructor with another type argument has another reference layout (the reference
+/// may move to another slot), so the block cannot be written with the other construction's
+/// fields: deopt.
+#[test]
+fn a_value_of_another_instantiation_deopts() {
+    let mut core = CoreModule::new();
+    let param = core.type_param(0);
+    let id = core.enums.alloc(EnumDef {
+        name: "Box".to_owned(),
+        params: 1,
+        variants: vec![VariantDef::positional("Box", vec![param])],
+        error: false,
+        external: false,
+    });
+    let boxed_int = core.enum_type(id, vec![TypeId::INT]);
+    let boxed_text = core.enum_type(id, vec![TypeId::STRING]);
+    let ctor = CtorRef {
+        enum_id: id,
+        variant: 0,
+    };
+    let mut b = FnBuilder::new(&core, "f");
+    let a = b.assign(
+        "a",
+        boxed_int,
+        Value::Make {
+            ctor,
+            args: vec![Const::Int(1).into()],
+        },
+    );
+    let s = b.assign(
+        "s",
+        TypeId::STRING,
+        Value::Const(Const::String("new".into())),
+    );
+    let drop = b.stmt(Stmt::Drop(a));
+    let new = b.var("b", boxed_text);
+    let make = b.stmt(Stmt::Let {
+        dst: Some(new),
+        value: Value::Make {
+            ctor,
+            args: vec![s.into()],
+        },
+        on_defect: None,
+        on_suspend: None,
+    });
+    b.stmt(Stmt::Drop(new));
+    b.term(Term::Return(None));
+    let f = b.finish();
+    let mut m = Module::new(core);
+    let fid = m.add(f);
+    m.stage = Stage::RefCounted;
+    assert!(verify(&m).is_ok(), "{:?}", verify(&m).unwrap_err());
+
+    let stats = reuse::run(&mut m);
+
+    assert_eq!(stats.reuse, 0, "another instantiation was reused");
+    assert_eq!(stats.reuse_deopts, 1);
+    assert!(holds(&m, fid, drop));
+    assert!(holds(&m, fid, make));
+    assert!(verify(&m).is_ok());
+}
+
+/// A reference-field record whose old value has a second use still deopts: rewriting the block
+/// would be observable through that use.
+#[test]
+fn a_ref_field_value_with_another_use_deopts() {
+    let mut core = CoreModule::new();
+    let (ty, ctor) = enum_type(&mut core, "Named", vec![TypeId::STRING, TypeId::INT]);
+    let mut b = FnBuilder::new(&core, "f");
+    b.set_ret(TypeId::STRING);
+    let s = b.assign(
+        "s",
+        TypeId::STRING,
+        Value::Const(Const::String("old".into())),
+    );
+    let a = b.assign(
+        "a",
+        ty,
+        Value::Make {
+            ctor,
+            args: vec![s.into(), Const::Int(1).into()],
+        },
+    );
+    let t = b.assign(
+        "t",
+        TypeId::STRING,
+        Value::Const(Const::String("new".into())),
+    );
+    let x = b.assign(
+        "x",
+        TypeId::STRING,
+        Value::Field {
+            base: a,
+            ctor,
+            index: 0,
+        },
+    );
+    b.stmt(Stmt::Dup(x));
+    let drop = b.stmt(Stmt::Drop(a));
+    let new = b.var("b", ty);
+    let make = b.stmt(Stmt::Let {
+        dst: Some(new),
+        value: Value::Make {
+            ctor,
+            args: vec![t.into(), Const::Int(2).into()],
+        },
+        on_defect: None,
+        on_suspend: None,
+    });
+    b.stmt(Stmt::Drop(new));
+    b.term(Term::Return(Some(x.into())));
+    let f = b.finish();
+    let mut m = Module::new(core);
+    let id = m.add(f);
+    m.stage = Stage::RefCounted;
+    assert!(verify(&m).is_ok(), "{:?}", verify(&m).unwrap_err());
 
     let stats = reuse::run(&mut m);
 

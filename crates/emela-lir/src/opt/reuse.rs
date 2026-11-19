@@ -1,42 +1,49 @@
-//! Perceus reuse / FBIP, first slice (C4/PR-042): a uniquely owned object of a constructor is
-//! written again with the same constructor, instead of being released and allocated again.
+//! Perceus reuse / FBIP (C4/PR-042): a uniquely owned object of a constructor is written again
+//! with the same constructor, instead of being released and allocated again. Every reference held
+//! by a field of the old object is released before the new value is written into that slot.
 //!
 //! # Contract
 //!
 //! ```text
-//! Rule ID: C4 Perceus reuse (constructor reuse, same constructor, scalar fields)
+//! Rule ID: C4 Perceus reuse (constructor reuse, same constructor)
 //! Theory: Perceus reuse / FBIP (Reinking et al.); uniqueness from the ownership analysis (B6)
 //!         and the reference-counting drop point
 //! Equation: `let v = Make C(args0); …; drop v; let d = Make C(args1)` becomes
-//!           `let v = Make C(args0); …; let d = Make C(args1)` with `d` reusing the block of `v`
+//!           `let v = Make C(args0); …; let d = Make C(args1)` with `d` reusing the block of `v`;
+//!           the backend releases every slot of the old block that holds a reference, in slot
+//!           order, and then writes the new fields into the same slots
 //! Preconditions: the module is at Stage::RefCounted; `v` is defined in the same function by a
 //!                `let` whose value is `Make` with the same constructor as the new one; `v` is
 //!                read exactly once in the whole function and that read is this `drop`; `v` and
-//!                the new destination are `Repr::Ref`; every field of both constructions has a
-//!                representation other than `Repr::Ref`; the constructor is neither an error enum
-//!                nor `@external` and its type has no finalizer; the new `let` has no defect
-//!                landing and no suspension edge; the ownership analysis does not answer
-//!                `Known(false)` for `v` after its definition
+//!                the new destination are `Repr::Ref` and have the same type; the constructor is
+//!                neither an error enum nor `@external` and its type has no finalizer; the new
+//!                `let` has no defect landing and no suspension edge; the ownership analysis does
+//!                not answer `Known(false)` for `v` after its definition. A field may be held as
+//!                a reference: it is released exactly once, before it is overwritten.
 //! Postconditions: the module is still at Stage::RefCounted and passes the verifier. The `drop`
 //!                 is removed and [`Function::reuse`](crate::ir::Function::reuse) maps the new
-//!                 `Make` statement to `v`; the backends assign the destination the old block and
-//!                 write the new fields into it. The variable `v` is consumed by that `Make`
-//!                 (the balance check and the ownership analysis read the map): its reference
-//!                 moves to the destination instead of leaving on the drop.
+//!                 `Make` statement to `v`; the backends assign the destination the old block,
+//!                 release each old field whose type is held as a reference, and write the new
+//!                 fields into it. The variable `v` is consumed by that `Make` (the balance check
+//!                 and the ownership analysis read the map): its reference moves to the
+//!                 destination instead of leaving on the drop.
 //! Preserves: evaluation order and every effect, failure, defect and suspension edge; the
-//!            arguments are values computed before the `Make`, as they were; the order and count
-//!            of the releases of `with` and of every other drop; the evidence tables; stdout,
-//!            stderr, exit code and test results. Only the lifetime of one block and the number
-//!            of allocations change, both implementation-defined (`[target.unspecified]`).
+//!            arguments are values computed before the `Make`, as they were; the fields of the old
+//!            block release the references they own, once each, at the point of the removed drop
+//!            (the two statements are adjacent), in slot order; the order and count of the
+//!            releases of `with` and of every other drop; the evidence tables; stdout, stderr, exit
+//!            code and test results. Only the lifetime of one block and the number of
+//!            allocations change, both implementation-defined (`[target.unspecified]`).
 //! Deopt: `Known(false)` from the ownership analysis at `v`'s definition (`Unknown` is not a veto:
 //!        the exact one-use proof stands on its own); a `v`
 //!        with a use other than the drop (a `dup`, a view or its base, a call argument, a
 //!        container, a capture, a switch or condition, a loop initial value, a terminator, a
 //!        frame save, a landing); `v` not defined by a `Make` of the same constructor in the
-//!        function; a destination or a value that is not `Repr::Ref`; a field held as a
-//!        reference (releasing the old field is not part of this slice); an error enum, an
-//!        `@external` type or a type with a finalizer; a defect landing or a suspension edge on
-//!        the new `let`. A `Drop` not immediately before the `Make` is not a candidate.
+//!        function; a destination or a value that is not `Repr::Ref`, or a destination of another
+//!        type than `v` (the same constructor of other type arguments has other reference slots);
+//!        an error enum, an `@external` type or a type with a finalizer; a defect landing or a
+//!        suspension edge on the new `let`. A `Drop` not immediately before the `Make` is not a
+//!        candidate.
 //! Budget: one use count and one scan of every function's sequences; O(statements).
 //! Measures: [`Stats::reuse`] (reused constructors) and [`Stats::reuse_deopts`] (candidate pairs
 //!           left alone).
@@ -66,10 +73,33 @@
 //! accepts `Unknown` from the ownership analysis (it is a belt-and-braces check) while it would
 //! never accept `Known(false)`.
 //!
-//! The first slice deliberately does not release the fields of the old value: every field of both
-//! constructions is a scalar. Reusing a record with a reference field would have to release the old
-//! field (or leave a leak), so it stays a drop plus an allocation. Arrays, lists, closures and
-//! tuples are not constructors of this rule.
+//! # Why a reference field can be released before it is overwritten
+//!
+//! At [`Stage::RefCounted`] the balance check ([`heap::rc_check`](crate::heap::rc_check)) holds
+//! every function to the ownership rules of [`heap::rc`](crate::heap::rc). A field of `Make` is a
+//! consuming use ([`heap::rc::value_uses`](crate::heap::rc)), so the reference counting pass gave
+//! the operand an owned reference before the statement: the variable's own last reference, or a
+//! `dup` when it stays live, and a view without a `dup` is rejected by the balance check. A
+//! `Repr::Ref` constant is static data (`rc == 0`) and carries no count. The operand therefore
+//! keeps its value alive on its own, independently of the old block.
+//!
+//! The old slot owns one reference too, the one the old `Make` moved into it. Releasing the old
+//! slot with the same drop the removed `drop` would have run returns exactly that one reference;
+//! the block stays alive as the destination. When the operand and the old field denote the same
+//! object, its count is at least two (the slot's reference and the operand's), so the release
+//! leaves at least one and the following store cannot free it. A release in this runtime runs no
+//! user code: the finalizers of the C and WASM runtimes are the runtime's own fiber, scope,
+//! `Deferred` and resume bookkeeping, so releasing the slots one at a time in slot order has no
+//! observable order. The set of references released is exactly the one the old block's drop would
+//! have released, once each.
+//!
+//! The one-use proof also rules out reaching the old fields through another variable: a view of
+//! the old value or of one of its fields reads the old variable, and a second reference to the old
+//! block (a `dup`, a container, a frame) reads it as well. The block is therefore not reachable
+//! from anywhere else. The objects its fields point to may have other owners; their references
+//! are exactly what keeps them alive when the old slot's reference is released.
+//!
+//! Arrays, lists, closures and tuples are not constructors of this rule.
 //!
 //! # Why the drop must be immediately before the `Make`
 //!
@@ -83,7 +113,8 @@
 //!
 //! # Status
 //!
-//! C4/PR-042, first slice. Behind [`LirRules::reuse`](crate::opt::LirRules::reuse), off by default.
+//! C4/PR-042: same-constructor reuse of a uniquely owned value, reference fields included. Behind
+//! [`LirRules::reuse`](crate::opt::LirRules::reuse), off by default.
 
 use emela_core::{CtorRef, Module as CoreModule, Type};
 use rustc_hash::FxHashMap;
@@ -137,13 +168,13 @@ pub fn run(m: &mut Module) -> Stats {
                 let make = match f.stmts[make_id].clone() {
                     Stmt::Let {
                         dst: Some(d),
-                        value: Value::Make { ctor, args },
+                        value: Value::Make { ctor, .. },
                         on_defect: None,
                         on_suspend: None,
-                    } => Some((d, ctor, args)),
+                    } => Some((d, ctor)),
                     _ => None,
                 };
-                let Some((d, ctor, args)) = make else {
+                let Some((d, ctor)) = make else {
                     i += 1;
                     continue;
                 };
@@ -156,34 +187,17 @@ pub fn run(m: &mut Module) -> Stats {
                 let definition = match f.stmts[def_id].clone() {
                     Stmt::Let {
                         dst: Some(dv),
-                        value:
-                            Value::Make {
-                                ctor: c0,
-                                args: old_args,
-                            },
+                        value: Value::Make { ctor: c0, .. },
                         on_defect: None,
                         on_suspend: None,
-                    } if dv == v => Some((c0, old_args)),
+                    } if dv == v => Some(c0),
                     _ => None,
                 };
-                let Some((c0, old_args)) = definition else {
+                let Some(c0) = definition else {
                     i += 1;
                     continue;
                 };
-                if eligible(
-                    core,
-                    f,
-                    facts.as_ref(),
-                    id,
-                    def_id,
-                    &uses,
-                    v,
-                    d,
-                    c0,
-                    &old_args,
-                    ctor,
-                    &args,
-                ) {
+                if eligible(core, f, facts.as_ref(), id, def_id, &uses, v, d, c0, ctor) {
                     // The owner of the block moves to `d` at the `Make`; the old variable is dead
                     // and the balance check reads the map (see `heap::rc_check`).
                     f.seqs[sid].stmts.remove(i);
@@ -212,13 +226,16 @@ fn eligible(
     v: VarId,
     d: VarId,
     old_ctor: CtorRef,
-    old_args: &[Operand],
     new_ctor: CtorRef,
-    new_args: &[Operand],
 ) -> bool {
     // A value held by value has no block to reuse: the destination and the value are both
     // references when the backend may have allocated one.
     if v == d || f.vars[v].repr != Repr::Ref || f.vars[d].repr != Repr::Ref {
+        return false;
+    }
+    // The same type fixes the same field layout, and so the same reference slots: the same
+    // constructor of other type arguments can hold a reference in other slots.
+    if f.vars[v].ty != f.vars[d].ty {
         return false;
     }
     // The descriptor, the tag and the number of non-representation slots come from the
@@ -231,19 +248,12 @@ fn eligible(
     if uses.get(&v).copied().unwrap_or(0) != 1 {
         return false;
     }
-    // No reference in either construction: writing the new scalar fields into the old block
-    // releases nothing and leaks nothing.
-    if old_args
-        .iter()
-        .chain(new_args)
-        .any(|o| operand_repr(f, o) == Repr::Ref)
-    {
-        return false;
-    }
     // Error values are told apart at run time and their descriptors are not shared by constructor
     // alone; an `@external` type and every finalizer-bearing type must run a release, which this
-    // slice does not model. (An enum type is never Handler/Evidence/Cell/FiberScope/Any; the
-    // finalizer test is stated in terms of the type, like drop specialisation states it.)
+    // rule does not model. A reference field is fine: the backends release the old field before
+    // they overwrite it (see the module documentation). (An enum type is never
+    // Handler/Evidence/Cell/FiberScope/Any; the finalizer test is stated in terms of the type,
+    // like drop specialisation states it.)
     let Type::Enum(enum_id, _) = core.ty(f.vars[v].ty) else {
         return false;
     };
@@ -262,14 +272,6 @@ fn eligible(
         return false;
     }
     true
-}
-
-/// The representation of an operand, from its variable or its constant.
-fn operand_repr(f: &Function, o: &Operand) -> Repr {
-    match o {
-        Operand::Var(v) => f.vars[*v].repr,
-        Operand::Const(c) => c.repr(),
-    }
 }
 
 /// How many times every variable of `f` is read, including the reads of landings, of suspension
