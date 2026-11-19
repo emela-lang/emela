@@ -164,6 +164,12 @@ fn core_docs_cover_core_and_std() {
         signature("List", "map"),
         "fn map[A, B](xs: List[A], f: fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }"
     );
+    // Std.Set.filter is inferred in one group with Std.Map.filter, which its body calls as a
+    // method; its R names its own parameter, not one of Map.filter (issue #684).
+    assert_eq!(
+        signature("Std.Set", "filter"),
+        "fn filter[A](s: Set[A], f: fn(A) -> Bool fails E(f) uses { R(f) }) -> Set[A] fails E(f) uses { R(f) }"
+    );
     // Opaque types show no fields (spec 4.4).
     assert_eq!(
         signature("Std.Duration", "Duration"),

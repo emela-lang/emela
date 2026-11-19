@@ -291,3 +291,22 @@ fn empty_comments_and_shadowing_do_not_inherit_docs() {
     let sig = Ide::signature_help(&program, &analysis, file, at(text, "blank()\n", 6)).unwrap();
     assert_eq!(sig.documentation, None);
 }
+
+/// Hover over a std fn whose R is inferred in one group with another fn shows its own invisible
+/// set, not a type parameter index of the other fn, and calling it from `main` needs no effect
+/// (issue #684).
+#[test]
+fn hover_on_std_set_filter_shows_its_own_sets() {
+    let text =
+        "import Std.Set\n\nfn main() {\n  _ = Set.filter(Set.from_list([1]), |x| x > 0)\n  ()\n}\n";
+    let fs = MemoryFiles::new([("/app/Pome.toml", ""), (MAIN, text)]);
+    let (analysis, program) = checked(&fs, Dependencies::default());
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let file = analysis.sources.file_id(Path::new(MAIN)).unwrap();
+    let hover = Ide::hover(&program, &analysis, file, at(text, "Set.filter", 5)).unwrap();
+    let signature = hover.contents.split_once("\n\n---\n\n").unwrap().0;
+    assert!(
+        signature.contains("-> Set[A] fails E(f) uses { R(f) }"),
+        "{signature}"
+    );
+}
