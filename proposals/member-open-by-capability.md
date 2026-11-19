@@ -14,11 +14,11 @@ related: [handler-member, handler-member-gaps, handler-member-gaps-2]
 
 ## Summary
 
-handler member を開く形を，capability に対する呼び出し `c.M(arguments)` だけにする．effect や label の名前から開く形（with の項目の `x = Files.Open(path)`，init の中の `Files.Open(path)`，`L.Open(path)`）はやめ，`(use Files).Open(path)` か，`fs = use Files` の後の `fs.Open(path)` と書く．開くときは，引数のない member でも括弧を書く（`fs.Scratch()`）．with の member の項目は，同じ with の handler の項目をすべて init してから書いた順に開き，本体の `use E` と同じ供給者から開く．
+handler member を開く形を，capability に対する呼び出し `c.M(arguments)` だけにする．effect や label の名前から開く形（with の項目の `x = Files.Open(path)`，init の中の `Files.Open(path)`，`L.Open(path)`）はやめ，`(use Files).Open(path)` か，`fs = use Files` の後の `fs.Open(path)` と書く．capability の値に付けた `.M` は，operation と同じく呼び出しの形で書くので，引数のない member でも括弧を書く（`fs.Scratch()`）．with の member の項目は，同じ with の handler の項目をすべて init してから書いた順に開き，本体の `use E` と同じ供給者から開く．
 
 これで `.` の左に effect の名前を書く形はなくなる．供給者に届くのは `use` だけになり，handler member を開けるのは capability だけになる．
 
-この提案は，はじめは init の中だけを扱っていた．with の項目の括弧を位置で決める提案（#703）と合わせて検討し，with の項目にも広げ，括弧は開く操作に必須とした．#703 はこの提案に統合して閉じた．
+この提案は，はじめは init の中だけを扱っていた．with の項目の括弧を位置で決める提案（#703）と合わせて検討し，with の項目にも広げ，capability を通して開くときは常に括弧を書くこととした．#703 はこの提案に統合して閉じた．
 
 ## Motivation
 
@@ -41,11 +41,16 @@ with の項目で handler `H` を書くと，H は本体に effect を名前で�
 
 `.` の左に effect を書く形がなくなれば，この規則はいらない．`Logger.info` と `Files.Open` は，「effect は値ではない」という同じ理由で書けなくなる．
 
-### 開く操作は呼び出しとして書く
+### capability の値に付けた `.M` は，operation と同じく呼び出しの形で書く
 
-今の文法でも，capability に対して開く形は括弧が要る．init の中の `postfix` は `"." type_name "(" [ args ] ")"` で，with の項目の `supply` の 2 つ目の形は `lower_name "." type_name "(" [ args ] ")"` である．括弧を省ける形は `supply` の 1 つ目，つまり effect の名前から開く `x = E.M` だけで，それもこの提案でなくなる．
+括弧の有無は，開くかどうかでは決まらない．with の項目の handler `H` も init を走らせて開くが，引数がなければ括弧を書かない（`H()` は E0435）．括弧の有無は，名前で書くか，値を通すかで決まる．
 
-開く操作は capability の値に対する呼び出しなので，どの位置でも，関数の呼び出しと同じく括弧を書く．with の項目の handler `H` は init の引数で括弧が決まるが，それは handler を名前で並べる形で，値に対する呼び出しではない．
+- 名前で書くもの（with の項目と layer の handler，label，`by` の右）は，宣言を名前で指す．括弧は init の引数を渡すときだけ書く
+- capability の値に付けた `.name` は，値を通して届く．`log.info(...)` は呼び出しで，括弧のない `log.info` は呼ばずに関数の値を取る（`[effect.use]`）
+
+handler member も capability の値を通して届くので，operation と同じく `c.M(...)` が呼び出しになり，引数がなくても括弧を書く．括弧のない `c.M` を「開く」とすると，capability の値に付けた括弧のない `.name` が，小文字（`log.info`）なら関数の値，大文字（`c.Scratch`）なら開く，と字の大小で意味が分かれる．この提案では，括弧のない `c.M` は誤り（E0448）とし，関数の値も取らない．
+
+今の文法でも，capability に対して開く形は括弧が要る．init の中の `postfix` は `"." type_name "(" [ args ] ")"` で，with の項目の `supply` の 2 つ目の形は `lower_name "." type_name "(" [ args ] ")"` である．括弧を省ける形は `supply` の 1 つ目，つまり effect の名前から開く `x = E.M` だけで，それもこの提案でなくなる．一つの with に `with H, x = (use E).M()` と括弧の有無が違う項目が並ぶのは，名前と値の違いである．
 
 今の実装は括弧について揃っていない（main，b4312ee）:
 
@@ -122,7 +127,7 @@ In the item "Whether a call may suspend is determined as follows.", replace "Ope
 
 Replace the item "On a capability c of an effect E that has handler members, `c.M(arguments)` opens ..." with:
 
-> - On a capability c of an effect E that has handler members, `c.M(arguments)` opens the handler member M of the handler that provides c. c is `(use E)` or a value of type `use E`. The parentheses are written also for a member without parameters (`fs.Scratch()`); `c.M` without them is a compile error (E0448). It can be written only as a with item `x = c.M(arguments)` (8.3) and inside an init (8.4).
+> - On a capability c of an effect E that has handler members, `c.M(arguments)` opens the handler member M of the handler that provides c. c is `(use E)` or a value of type `use E`. As for an operation of a capability, `c.M(...)` is written as a call, and the parentheses are written also for a member without parameters (`fs.Scratch()`). `c.M` without them is a compile error (E0448); unlike `log.info`, it does not give a function value. It can be written only as a with item `x = c.M(arguments)` (8.3) and inside an init (8.4).
 > - A handler member is not opened through the name of an effect or a label, as an operation is not called through it: `Files.Open(path)` is a compile error (E0448), and is written `(use Files).Open(path)`.
 
 ### `[effect.with]`
@@ -242,7 +247,7 @@ If the row of E0434 says that a handler member with parameters written without a
 - **`E.M(arguments)` を，`uses { E }` を持つ組み込みの関数として位置づけて残す**: 短く書けて，互換性も壊さない．`uses { E }` を持つ関数を呼ぶとき，呼ぶ側は `use` を書かないので，それと同じだと説明できる．ただ，そういう関数は宣言の側に `uses` と `use` が書いてあり，呼ぶ側はふつうの関数の呼び出しである．`E.M` にはその宣言にあたるものがなく，effect の名前そのものが供給者に届く
 - **略記 `use E.M(arguments)` を足す**（`(use E).M` の括弧を省く）: `use (use E).M` のような重なりがなく短い．ただ，`use` は「引く」印で，`use E.M` は開く操作にも `use` を使うことになる．`use A.B` は今「モジュール A の effect B」と読む形でもあり，member の読みを足すと #670 と同じ規則が `use` の後にも要る
 - **開く操作に `use` を付ける（`use c.M(arguments)`）**: capability が新しくできる所に必ず `use` が付く．ただ，`use` が引くと開くの 2 つの意味を持つ．region-member（#660）の `stage.Spawn(k)` のように fn の中で capability を作る形にも `use` が要るかという問いも生む．開く印は capability に付けた大文字の `.M(...)` で足りる
-- **with の項目では，handler と同じく引数で括弧を決める（`x = c.Scratch`）**（#703）: with の項目の handler と見た目が揃う．ただ，開く操作は capability の値に対する呼び出しで，handler を名前で並べる形ではない．with の項目と init の中で同じ `c.M` の形が括弧だけ違うことにもなる
+- **with の項目では，handler と同じく引数で括弧を決める（`x = c.Scratch`）**（#703）: with の項目の handler と見た目が揃い，どちらも開く操作である．ただ，`H` は宣言を名前で指す形で，`c.Scratch` は capability の値を通す形である．値を通す `.name` は括弧がなければ関数の値（`log.info`）なので，括弧のない `c.Scratch` を開く形にすると，字の大小で意味が分かれる．with の項目と init の中で同じ `c.M` の形が括弧だけ違うことにもなる
 - **member の項目の `(use E)` は，先に書いた項目だけを見る**: 項目を左から読む順に `use E` の規則を当てはめられる．ただ，`with MemFiles, a = (use Files).Open("a"), DiskFiles` で，本体から見ると上書きされた `MemFiles` を `a` のために init する例外が要り，今の `with a = Files.Open("a"), MemFiles` の意味も変わる．member の項目には依存できる項目がないので，循環を防ぐ理由にもならない
 - **member の項目の `(use E)` は，同じ with の項目を見ない（引数の中の `use E` と同じ）**: 規則はいちばん単純．ただ，供給者と member を同じ with に並べられず，入れ子の with が要る
 - **`E.op()` も許し，operation でも `use` を省けるようにする**: `E.M()` と揃う．ただ，`[effect.use]` の原則を捨てることになり，#670 が解いたモジュールとの名前の衝突も戻る
