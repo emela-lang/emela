@@ -1,7 +1,7 @@
-# Semaphore (spec 11.9): limits how many fibers run a piece of code at the same time.
+# Semaphore (`[fiber.semaphore]`): limits how many fibers run a piece of code at the same time.
 #
 # Only the `semaphore` operation of `Scope` (or `Fiber.semaphore(n)`) makes one, so it belongs to
-# a scope and cannot leave it (spec 11.8):
+# a scope and cannot leave it (`[fiber.escape]`):
 #
 #   Fiber.scope(|_| {
 #     db = Fiber.semaphore(10)

@@ -1,4 +1,4 @@
-# Maps from keys to values, in key order (spec 15.2, 18.1 #36). Immutable.
+# Maps from keys to values, in key order (`[lib.layers]`, `[open.list]` #36). Immutable.
 #
 # The tree is weight balanced (Adams; the same parameters as Haskell's Data.Map): neither child
 # of a node is more than `DELTA` times the size of the other, so the depth stays O(log n).
@@ -97,6 +97,7 @@ pub fn size[K, V](m: Map[K, V]) -> Int {
   }
 }
 
+## Whether the map is empty.
 pub fn is_empty[K, V](m: Map[K, V]) -> Bool {
   size(m) == 0
 }

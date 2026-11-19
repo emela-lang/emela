@@ -40,11 +40,13 @@ pub enum Shape {
   Annotated(shape: Shape, notes: List[(String, Dynamic)])
 } derive Eq, Show
 
+## A field of a record or of named contents.
 pub type Field(name: String, shape: Shape) derive Eq, Show
 
 ## A variant of an enum, with the contents in the form it is declared in.
 pub type Variant(name: String, contents: Contents) derive Eq, Show
 
+## The contents of a variant, in the form they are declared in: none, positional or named.
 pub enum Contents {
   NoFields
   PositionalFields(List[Shape])
@@ -61,8 +63,11 @@ pub enum Contents {
 ## end. `visit` does this for a named type; an impl for a type with type arguments passes
 ## `visiting` on to them.
 pub trait Shaped {
+  ## The shape of the type of `proxy`, with `visiting` the names of the records and enums being
+  ## read around it.
   fn shape_in(proxy: Option[Self], visiting: List[String]) -> Shape
 
+  ## The shape of the type of `proxy`. Calls `shape_in` with an empty `visiting`.
   fn shape(proxy: Option[Self]) -> Shape {
     Shaped.shape_in(proxy, [])
   }

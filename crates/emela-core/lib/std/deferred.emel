@@ -1,7 +1,8 @@
-# Deferred (spec 11.7): a box that takes a value only once, for passing values between fibers.
+# Deferred (`[fiber.deferred]`): a box that takes a value only once, for passing values between
+# fibers.
 #
 # Only the `deferred` operation of `Scope` (or `Fiber.deferred()`) makes one, so it belongs to a
-# scope and cannot leave it (spec 11.8).
+# scope and cannot leave it (`[fiber.escape]`).
 #
 # The functions are built in: the runtime holds the box. Lowering turns them into concurrency
 # operations of the Core IR, not rows of the builtin table.

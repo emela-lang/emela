@@ -1,5 +1,5 @@
-# How a computation ended (spec 11.5), and `attempt`, which turns its errors and defects into that
-# value. `attempt` starts no fiber; `Fiber.await` returns the same `Exit`.
+# How a computation ended (`[fiber.cause]`), and `attempt`, which turns its errors and defects into
+# that value. `attempt` starts no fiber; `Fiber.await` returns the same `Exit`.
 #
 # Import it with `import Std.Exit.{Success, Failure}`:
 #
@@ -12,7 +12,7 @@
 
 import Std.Cause.{Cause}
 
-## How a computation ended (spec 11.5).
+## How a computation ended (`[fiber.cause]`).
 pub enum Exit[A, E] {
   ## Ended with a value.
   Success(A)

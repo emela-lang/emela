@@ -1147,10 +1147,10 @@ fn hover_shows_types_and_errors() {
         "```emela\nn: Int\n```"
     );
     // A reference to a generic function shows the generalized type, including the invisible sets
-    // of function arguments.
+    // of function arguments. Its documentation follows.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 8)),
-        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n```"
+        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n```\n\n---\n\nApplies `f` to each element."
     );
     // A position with nothing there.
     assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);

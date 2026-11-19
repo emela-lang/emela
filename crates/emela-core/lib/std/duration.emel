@@ -1,27 +1,32 @@
-# A Duration is an opaque Int64 of milliseconds (spec 15.2, 4.4). Values are made and taken apart
-# only through this module, and may be negative. Unit conversion and addition wrap on overflow
-# like Int64 (spec 16.1).
+# A Duration is an opaque Int64 of milliseconds (`[lib.layers]`, `[module.opaque]`). Values are made
+# and taken apart only through this module, and may be negative. Unit conversion and addition wrap
+# on overflow like Int64 (`[target.number]`).
 
 ## Made with constructors like `Duration.seconds(5)`.
 pub opaque type Duration(milliseconds: Int64)
   derive Eq, Ord
 
+## `n` milliseconds.
 pub fn milliseconds(n: Int64) -> Duration {
   Duration(milliseconds: n)
 }
 
+## `n` seconds.
 pub fn seconds(n: Int64) -> Duration {
   Duration(milliseconds: n * 1000)
 }
 
+## `n` minutes.
 pub fn minutes(n: Int64) -> Duration {
   Duration(milliseconds: n * 60000)
 }
 
+## `n` hours.
 pub fn hours(n: Int64) -> Duration {
   Duration(milliseconds: n * 3600000)
 }
 
+## The number of milliseconds.
 pub fn to_milliseconds(d: Duration) -> Int64 {
   d.milliseconds
 }
@@ -31,6 +36,7 @@ pub fn to_seconds(d: Duration) -> Int64 {
   d.milliseconds / 1000
 }
 
+## The sum.
 pub fn add(d: Duration, other: Duration) -> Duration {
   Duration(milliseconds: d.milliseconds + other.milliseconds)
 }
