@@ -2406,7 +2406,7 @@ fn main() {
 
 /// Files whose handler member `Open` is a `suspend handler`, and whose init does suspend: it
 /// waits on the clock, which does not resume on the spot.
-const SLOW_FILES: &str = r#"import Std.Clock.{Clock, SystemClock}
+const SLOW_FILES: &str = r##"import Std.Clock.{Clock, SystemClock}
 import Std.Console.{Console, SystemConsole}
 
 effect ReadFile {
@@ -2427,7 +2427,7 @@ handler SlowFiles: Files {
     fn read(max) { max * 2 }
   }
 }
-"#;
+"##;
 
 #[test]
 fn effects_with_a_suspend_handler_member_may_suspend() {
@@ -2437,7 +2437,7 @@ fn effects_with_a_suspend_handler_member_may_suspend() {
     let cases = [
         (
             "suspend-member-function",
-            r#"fn count() -> Int uses { Files } {
+            r##"fn count() -> Int uses { Files } {
   with f = Files.Open("a") {
     f.read(1)
   }
@@ -2448,11 +2448,11 @@ fn main() {
     (use Console).print_line("#{count()}")
   }
 }
-"#,
+"##,
         ),
         (
             "suspend-member-init",
-            r#"effect Holder {
+            r##"effect Holder {
   fn total() -> Int
 }
 
@@ -2469,7 +2469,7 @@ fn main() {
     (use Console).print_line("#{(use Holder).total()}")
   }
 }
-"#,
+"##,
         ),
     ];
     for (name, main) in cases {
