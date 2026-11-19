@@ -37,7 +37,7 @@ use super::{BodyInfer, FnParts, fn_parts};
 use crate::coverage::Shapes;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::diagnostic::{EffectContext, LayerArg};
-use crate::infer::{Origin, SetKind, Subset};
+use crate::infer::{Origin, SetKind, Subset, substitute_row};
 use crate::row::{CapElem, Row, RowElem, RowVar, Tag};
 use crate::ty::{Ty, TyParam};
 
@@ -522,14 +522,17 @@ impl BodyInfer<'_> {
     /// they are the whole point of the comparison. While solving, a constraint already recorded
     /// is not added again, so the rounds end.
     pub(super) fn solve_errors(&mut self) {
-        // Comparing tags with set type arguments (`Scope[E, R]`, spec 11.2) adds constraints
-        // while solving, so solve again until no new constraint appears.
+        // Comparing tags with set type arguments (`Scope[E, R]`, spec 11.2) and placing the
+        // solved E and R of the group's definitions at their references
+        // ([`Self::place_instance_sets`]) add constraints while solving, so solve again until no
+        // new constraint appears.
         self.ctx.set_solving(true);
         let row_diffs = std::mem::take(&mut self.row_diffs);
         let row_widens = std::mem::take(&mut self.row_widens);
         loop {
             let count = self.ctx.subsets().len();
             self.solve_round(&row_diffs, &row_widens);
+            self.place_instance_sets();
             if self.ctx.subsets().len() == count {
                 break;
             }
@@ -537,6 +540,22 @@ impl BodyInfer<'_> {
         self.ctx.set_solving(false);
         let subsets = self.ctx.subsets().to_vec();
         self.check_subsets(&subsets);
+    }
+
+    /// Adds, for each reference from another definition of the group to a definition whose E or
+    /// R is inferred, that the solved E (R) with the reference's type and set arguments placed is
+    /// contained in the E (R) of the reference's type (`InstanceSet`).
+    ///
+    /// The solution can name the referenced definition's type parameters and invisible sets
+    /// (`Bound(i)`), which mean nothing in the referring definition, so it is placed with the
+    /// arguments rather than included as is. Each round's solution only grows, so the rounds end.
+    fn place_instance_sets(&mut self) {
+        for set in self.instance_sets.clone() {
+            let solved = self.ctx.resolve_row(&set.inferred);
+            let placed = substitute_row(&solved, &set.args, &set.rows);
+            self.ctx
+                .add_subset_of(set.kind, placed, Row::var(set.instance), Origin::Instance);
+        }
     }
 
     /// Computes the least solution of the constraints collected so far.
@@ -715,9 +734,9 @@ impl BodyInfer<'_> {
                 (Origin::LocalFn(local), SetKind::Effects) => {
                     self.report_local_fn_effects(*local, &missing)
                 }
-                // Lambda types' E and R and handler dependencies are set variables, so these
-                // always hold.
-                (Origin::Lambda | Origin::HandlerPart, _)
+                // Lambda types' E and R, handler dependencies and the E and R of references
+                // within the group are set variables, so these always hold.
+                (Origin::Lambda | Origin::HandlerPart | Origin::Instance, _)
                 | (Origin::HandlerOp { .. }, SetKind::Effects) => {}
             }
         }

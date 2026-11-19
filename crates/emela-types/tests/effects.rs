@@ -2040,3 +2040,56 @@ fn outside() {
 "#
     ));
 }
+
+/// A reference from another definition of the same group to a fn whose E or R is inferred places
+/// the referenced fn's type parameters and invisible sets in that E and R with the arguments of
+/// the reference (spec 9.3, issue #684). `b` and `d` list their type parameters in a different
+/// order from `a` and `c`, so an index of `a` or `c` taken as is would name another parameter of
+/// `b` or `d`, or none.
+#[test]
+fn group_references_place_inferred_sets() {
+    let src = r#"
+fn a[A](x: A, f: fn(A) -> Bool, n: Int) -> Bool {
+  if n == 0 { f(x) } else { b(0, x, f, n - 1) }
+}
+
+fn b[B, A](y: B, x: A, f: fn(A) -> Bool, n: Int) -> Bool {
+  a(x, f, n)
+}
+
+fn c[A](x: A, f: fn(A) -> Bool, n: Int) {
+  if n == 0 { f(x) } else { d(0, x, f, n - 1) }
+}
+
+fn d[B, A](y: B, x: A, f: fn(A) -> Bool, n: Int) {
+  c(x, f, n)
+}
+"#;
+    let (program, module, resolve_diagnostics) = resolve_main(src);
+    assert_eq!(resolve_diagnostics, []);
+    let types = emela_types::check_program(&program);
+    let cons = &types.ty_table.cons;
+    let sig = |name: &str| {
+        let (def, _) = program
+            .defs
+            .iter()
+            .find(|(_, d)| d.module == DefModule::Source(module) && d.name == name)
+            .unwrap();
+        types
+            .sigs
+            .get(def)
+            .unwrap()
+            .scheme
+            .display(cons)
+            .to_string()
+    };
+    assert!(types.diags.is_empty(), "{:?}", types.diags);
+    assert_eq!(
+        sig("b"),
+        "∀ B, A, E(f), R(f). fn(B, A, fn(A) -> Bool fails E(f) uses { R(f) }, Int) -> Bool fails E(f) uses { R(f) }"
+    );
+    assert_eq!(
+        sig("d"),
+        "∀ B, A, E(f), R(f). fn(B, A, fn(A) -> Bool fails E(f) uses { R(f) }, Int) -> Bool fails E(f) uses { R(f) }"
+    );
+}

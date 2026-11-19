@@ -53,6 +53,10 @@ pub(crate) enum Origin {
     Closed(DefId),
     /// The E (R) of a lambda's body is contained in the lambda type's E (R). Always holds.
     Lambda,
+    /// The inferred E (R) of a definition of the group, with the arguments of a reference from
+    /// another definition placed, is contained in the E (R) of that reference's type. Always
+    /// holds.
+    Instance,
     /// The E (R) of the body of a local fn is contained in the E (R) of its type
     /// (`[fn.local]`). Always holds when that E (R) is inferred; when it is declared, a missing
     /// error is E0318 and a missing effect E0402, as for a top-level fn.

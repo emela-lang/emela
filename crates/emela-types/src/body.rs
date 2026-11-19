@@ -186,9 +186,12 @@ pub(crate) struct BodyInfer<'a> {
     ///
     /// Such a reference replaces the written type parameters, and the parts not yet known, with
     /// fresh type variables. Unifying with the definition's type directly would leak its type
-    /// parameters into the other definitions. The `R` of a referenced fn without a `uses` clause
-    /// goes through the same check.
+    /// parameters into the other definitions. An inferred E or R of the referenced fn goes
+    /// through `instance_sets` instead.
     deferred: Vec<DeferredRef>,
+    /// The inferred E and R of the definitions that `deferred` references refer to, placed at
+    /// each reference once solved (`body/errors.rs`).
+    instance_sets: Vec<InstanceSet>,
     locals: SparseMap<LocalId, Ty>,
     local_owner: SparseMap<LocalId, DefId>,
     /// The anonymous function or local fn whose body is being inferred: the lambda expression, or
@@ -351,6 +354,7 @@ impl<'a> BodyInfer<'a> {
             handler_parts: Vec::new(),
             in_init: None,
             deferred: Vec::new(),
+            instance_sets: Vec::new(),
             locals: SparseMap::new(),
             local_owner: SparseMap::new(),
             fields: SparseMap::new(),
@@ -1076,7 +1080,7 @@ impl<'a> BodyInfer<'a> {
         for r in std::mem::take(&mut self.deferred) {
             if let Some((ty, _)) = self.pending_ty(r.def) {
                 let ty = self.ctx.resolve(&ty);
-                let actual = substitute(&ty, &r.args, &r.rows);
+                let actual = keep_instance_sets(substitute(&ty, &r.args, &r.rows), &r.instance);
                 self.coerce_at(r.span, &r.instance, &actual);
             }
         }
@@ -1792,6 +1796,7 @@ impl<'a> BodyInfer<'a> {
             self.require_traits(&params, &args, span);
             let mut fresh = FxHashMap::default();
             let instance = self.freshen(&substitute(&ty, &args, &rows), &mut fresh);
+            let instance = self.instance_sets(&ty, instance, &args, &rows);
             self.deferred.push(DeferredRef {
                 def,
                 args: args.clone(),
@@ -1809,6 +1814,41 @@ impl<'a> BodyInfer<'a> {
             },
         });
         (Ty::Error, Vec::new(), Vec::new())
+    }
+
+    /// Gives the reference's function type `instance` its own E and R where the referenced
+    /// definition's are inferred (contain set variables). Their solutions can name that
+    /// definition's type parameters and invisible sets, so they are placed with the reference's
+    /// arguments once solved ([`InstanceSet`]) instead of being shared.
+    ///
+    /// `ty` is the referenced definition's monomorphic type, resolved.
+    fn instance_sets(&mut self, ty: &Ty, instance: Ty, args: &[Ty], rows: &[Row]) -> Ty {
+        let (Ty::Fn(def_fn), Ty::Fn(f)) = (ty, &instance) else {
+            return instance;
+        };
+        let place = |inferred: &Row, kind: SetKind, this: &mut Self| -> Option<Row> {
+            inferred.vars().next()?;
+            let v = this.ctx.new_row_var();
+            this.instance_sets.push(InstanceSet {
+                inferred: inferred.clone(),
+                instance: v,
+                kind,
+                args: args.to_vec(),
+                rows: rows.to_vec(),
+            });
+            Some(Row::var(v))
+        };
+        let fails = place(&def_fn.fails, SetKind::Errors, self);
+        let uses = place(&def_fn.uses, SetKind::Effects, self);
+        if fails.is_none() && uses.is_none() {
+            return instance;
+        }
+        Ty::func_sets(
+            f.params.clone(),
+            f.ret.clone(),
+            fails.unwrap_or_else(|| f.fails.clone()),
+            uses.unwrap_or_else(|| f.uses.clone()),
+        )
     }
 
     /// Remembers the trait constraints of the type parameters `params` instantiated with `tys`
@@ -3261,6 +3301,40 @@ struct DeferredRef {
     /// The type given to the reference expression.
     instance: Ty,
     span: Span,
+}
+
+/// The inferred E or R (`inferred`) of a definition of the group referred to from another
+/// definition, and the set variable (`instance`) that stands for it in the reference's type. Once
+/// solved, `inferred` with `args` and `rows` placed is contained in `instance`
+/// (`body/errors.rs`).
+#[derive(Clone)]
+pub(crate) struct InstanceSet {
+    pub(crate) inferred: Row,
+    pub(crate) instance: RowVar,
+    pub(crate) kind: SetKind,
+    pub(crate) args: Vec<Ty>,
+    pub(crate) rows: Vec<Row>,
+}
+
+/// `actual` with the E and R that [`BodyInfer::instance_sets`] replaced in `instance` taken from
+/// `instance`: those are related through [`InstanceSet`] instead, once solved.
+fn keep_instance_sets(actual: Ty, instance: &Ty) -> Ty {
+    let (Ty::Fn(a), Ty::Fn(i)) = (&actual, instance) else {
+        return actual;
+    };
+    let pick = |a: &Row, i: &Row| {
+        if a.vars().next().is_some() {
+            i.clone()
+        } else {
+            a.clone()
+        }
+    };
+    Ty::func_sets(
+        a.params.clone(),
+        a.ret.clone(),
+        pick(&a.fails, &i.fails),
+        pick(&a.uses, &i.uses),
+    )
 }
 
 /// Places where coverage is checked.
