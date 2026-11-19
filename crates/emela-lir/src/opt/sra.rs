@@ -18,8 +18,9 @@
 //! decomposed here. Replacing a closure needs the closure devirtualisation of E5/PR-037: the pass
 //! must turn an indirect call into a direct one, or keep the closure's function table entry
 //! reachable. Records and closures are the two halves of C5/PR-043; the flag
-//! [`LirRules::sra_records`](super::LirRules::sra_records) covers records only and the closure
-//! half is deferred.
+//! [`LirRules::sra_records`](super::LirRules::sra_records) covers records only, and the closure
+//! half is [`super::closure_sra`] behind
+//! [`LirRules::sra_closures`](super::LirRules::sra_closures).
 //!
 //! # Contract: scalar tuples
 //!

@@ -25,7 +25,7 @@ pub(crate) mod suspend;
 
 pub use borrow::{BorrowReport, insert_borrow_signature};
 pub use closures::convert_closures;
-pub(crate) use copy::compact;
+pub(crate) use copy::{Copier, compact};
 pub(crate) use defects::may_defect;
 pub use defects::{builtin_may_defect, explicit_defects, fiber_may_defect};
 pub use rc::insert_rc;
@@ -50,7 +50,7 @@ pub fn to_heap(m: &mut Module) {
 ///
 /// This is [`to_heap_with_options`] with [`opt::Options::default`]: the M3 memory passes that pay
 /// for themselves (borrow inference, the `rc` cleanup with the borrow elision and DCE) run; drop
-/// specialisation, record SRA and closure devirtualisation stay off.
+/// specialisation, record SRA, closure devirtualisation and closure SRA stay off.
 pub fn to_heap_with(m: &mut Module, optimize: bool) -> opt::Stats {
     to_heap_with_options(m, optimize, opt::Options::default())
 }
