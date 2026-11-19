@@ -1731,6 +1731,84 @@ fn defects_after_resuming_and_in_callbacks() {
     );
 }
 
+/// Files whose handler member `Open` is a `suspend handler`, and whose init does suspend: it
+/// waits on the clock, which does not resume on the spot.
+const SLOW_FILES: &str = r##"import Std.Clock.{Clock, SystemClock}
+import Std.Console.{Console, SystemConsole}
+
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  suspend handler Open(path: String): ReadFile
+}
+
+handler SlowFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) {
+      (use Clock).sleep(1)
+      Self(path:)
+    }
+
+    fn read(max) { max * 2 }
+  }
+}
+"##;
+
+#[test]
+fn effects_with_a_suspend_handler_member_may_suspend() {
+    // An effect with a `suspend handler` member is not Immediate (`[type.effect-bound]`), so code
+    // whose R has only that effect may suspend: a function with `uses { Files }`, and an init
+    // whose R is `{ Files }` (issue #699).
+    let cases = [
+        (
+            "suspend-member-function",
+            r##"fn count() -> Int uses { Files } {
+  with f = Files.Open("a") {
+    f.read(1)
+  }
+}
+
+fn main() {
+  with SystemConsole, SystemClock, SlowFiles {
+    (use Console).print_line("#{count()}")
+  }
+}
+"##,
+        ),
+        (
+            "suspend-member-init",
+            r##"effect Holder {
+  fn total() -> Int
+}
+
+handler Keeps(inner: use ReadFile): Holder {
+  init {
+    Self(inner: Files.Open("a"))
+  }
+
+  fn total() { self.inner.read(1) }
+}
+
+fn main() {
+  with SystemConsole, SystemClock, SlowFiles, Keeps {
+    (use Console).print_line("#{(use Holder).total()}")
+  }
+}
+"##,
+        ),
+    ];
+    for (name, main) in cases {
+        let output = run_source(name, &format!("{SLOW_FILES}\n{main}"));
+        assert_eq!(
+            (output.code, text(&output.stdout), text(&output.stderr)),
+            (0, "2\n", ""),
+            "{name}"
+        );
+    }
+}
+
 #[test]
 fn random_runs_through_handlers() {
     // The bundled Random is provided by its System handler (spec 15.2). Values differ each run, so
@@ -2402,82 +2480,4 @@ fn main() {
             ""
         )
     );
-}
-
-/// Files whose handler member `Open` is a `suspend handler`, and whose init does suspend: it
-/// waits on the clock, which does not resume on the spot.
-const SLOW_FILES: &str = r##"import Std.Clock.{Clock, SystemClock}
-import Std.Console.{Console, SystemConsole}
-
-effect ReadFile {
-  fn read(max: Int) -> Int
-}
-
-effect Files {
-  suspend handler Open(path: String): ReadFile
-}
-
-handler SlowFiles: Files {
-  handler Open(path: String): ReadFile {
-    init(path: String) {
-      (use Clock).sleep(1)
-      Self(path:)
-    }
-
-    fn read(max) { max * 2 }
-  }
-}
-"##;
-
-#[test]
-fn effects_with_a_suspend_handler_member_may_suspend() {
-    // An effect with a `suspend handler` member is not Immediate (`[type.effect-bound]`), so code
-    // whose R has only that effect may suspend: a function with `uses { Files }`, and an init
-    // whose R is `{ Files }` (issue #699).
-    let cases = [
-        (
-            "suspend-member-function",
-            r##"fn count() -> Int uses { Files } {
-  with f = Files.Open("a") {
-    f.read(1)
-  }
-}
-
-fn main() {
-  with SystemConsole, SystemClock, SlowFiles {
-    (use Console).print_line("#{count()}")
-  }
-}
-"##,
-        ),
-        (
-            "suspend-member-init",
-            r##"effect Holder {
-  fn total() -> Int
-}
-
-handler Keeps(inner: use ReadFile): Holder {
-  init {
-    Self(inner: Files.Open("a"))
-  }
-
-  fn total() { self.inner.read(1) }
-}
-
-fn main() {
-  with SystemConsole, SystemClock, SlowFiles, Keeps {
-    (use Console).print_line("#{(use Holder).total()}")
-  }
-}
-"##,
-        ),
-    ];
-    for (name, main) in cases {
-        let output = run_source(name, &format!("{SLOW_FILES}\n{main}"));
-        assert_eq!(
-            (output.code, text(&output.stdout), text(&output.stderr)),
-            (0, "2\n", ""),
-            "{name}"
-        );
-    }
 }
