@@ -2403,3 +2403,54 @@ fn main() {
         )
     );
 }
+
+#[test]
+fn effects_differing_only_in_a_capability_type_are_different_effects() {
+    // `State[use Name]` and `State[use Count]` are two effects (`[effect.use]`): the inner
+    // `State.run` does not take the place of the outer one, nested or one after the other
+    // (issue #705).
+    let output = run_source(
+        "state-of-capabilities",
+        r#"import Std.Console.{Console, SystemConsole}
+import Std.State.{State}
+
+effect Name {
+  fn name() -> String
+}
+
+effect Count {
+  fn count() -> Int
+}
+
+handler Alice: Name {
+  fn name() { "alice" }
+}
+
+handler Three: Count {
+  fn count() { 3 }
+}
+
+fn main() {
+  with SystemConsole, Alice, Three {
+    State.run(use Name, || {
+      State.run(use Count, || {
+        n = (use State[use Name]).get()
+        c = (use State[use Count]).get()
+        (use Console).print_line("#{n.name()} #{c.count()}")
+      })
+    })
+    State.run(use Name, || (use Console).print_line((use State[use Name]).get().name()))
+    State.run(use Count, || {
+      c = (use State[use Count]).get()
+      (use Console).print_line("#{c.count()}")
+    })
+    ()
+  }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "alice 3\nalice\n3\n", "")
+    );
+}
