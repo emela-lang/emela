@@ -15,6 +15,8 @@
 //! scalar leaves, with a descriptor whose `refs` are all false (the C backend's
 //! `em_box_value`/`layout_desc`). The box is a reference owned by the containing list, enum,
 //! closure or array; the local copy of the value owns nothing, so `dup`/`drop` stay no-ops for it.
+//! A read of an inline all-scalar array element whose destination is held by value needs no box
+//! at all: `ArrayGetOr`/`ArrayLoadUnchecked` load its leaves directly (E2 step 3).
 //!
 //! # What is never held by value here
 //!

@@ -11,9 +11,14 @@
 //! arguments except `array_set` (and `array_set_agg`), which consumes the array.
 //!
 //! The `_agg` functions handle an inline all-scalar element. The IR still represents such an
-//! element as a reference, so a read allocates a box of the element's slots and construction,
-//! `set`, `slice` and `concat` copy the box's slots into the array. Elements with a reference
-//! have no inline form (there is no per-field drop map).
+//! element as a reference, so `array_get_agg`, `array_get_or_agg`, `array_load_unchecked_agg`
+//! and `array_to_list_agg` allocate a box of the element's slots; construction, `set`, `slice`
+//! and `concat` copy the box's slots into the array. The emitter does not call
+//! `array_get_or_agg` or `array_load_unchecked_agg` when the read's destination is held by value
+//! (E2 step 3): it loads each scalar leaf straight into the destination's locals, with no box.
+//! `Array.get` keeps `array_get_agg` because its `Option` payload is one reference, and
+//! `Array.to_list` keeps `array_to_list_agg` because a list head is a reference. Elements with a
+//! reference have no inline form (there is no per-field drop map).
 
 use super::*;
 use emela_core::Builtin;
@@ -58,8 +63,9 @@ pub(super) const FUNCS: &[Sig] = &[
         &[ValType::I32, ValType::I32],
         &[ValType::I32],
     ),
-    // The aggregate variants (E2): the element is `stride` slots stored inline, so a read makes
-    // a box and a construction copies the box's slots.
+    // The aggregate variants (E2): the element is `stride` slots stored inline, so a read through
+    // these helpers makes a box and a construction copies the box's slots. The emitter bypasses
+    // `array_get_or_agg` and `array_load_unchecked_agg` for a by-value destination (E2 step 3).
     (
         "array_from_list_agg",
         &[ValType::I32, ValType::I32],
