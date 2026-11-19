@@ -38,7 +38,7 @@
 //! | [`devirt`] | [`Stats::devirt`] | [`run_mid`] | closure records only called in their function (E5/PR-037), off by default |
 //! | [`rc`] cleanup | [`Stats::rc_pairs`], [`Stats::rc_borrow_pairs`] | [`run_heap`] | `dup`/`drop` pairs, with the local-base borrow elision on by default ([`LirRules::rc_borrow`], C1/PR-025) |
 //! | drop specialisation | [`Stats::drop_specialized`], [`Stats::drop_deopts`] | [`run_heap`] | a type-directed block drop for reference-free values behind [`LirRules::drop_spec`], opt-in (C3/PR-027) until its measured size cost pays for a runtime gain |
-//! | reuse / FBIP | [`Stats::reuse`], [`Stats::reuse_deopts`] | [`run_heap`] | a uniquely owned, scalar-only constructor rewritten in place behind [`LirRules::reuse`], off by default (C4/PR-042, first slice) |
+//! | reuse / FBIP | [`Stats::reuse`], [`Stats::reuse_deopts`] | [`run_heap`] | a uniquely owned constructor rewritten in place, its old reference fields released first, behind [`LirRules::reuse`], off by default (C4/PR-042) |
 //! | [`dce`] | [`Stats::dce`] | [`run_heap`] | dead pure `let`s with scalar destinations, on by default (C7/PR-028) |
 //! | [`frame_prune`] | — | — | read-only analysis (C7/PR-028): the corpus has no stale saved slot, so no pass prunes a frame |
 //!
@@ -214,10 +214,10 @@ pub struct LirRules {
     /// default. This is not a rewrite of the Heap IR: it changes the calling convention the
     /// counting pass follows.
     pub borrow: bool,
-    /// Perceus reuse at [`run_heap`] (C4/PR-042): a `drop` of a uniquely owned, scalar-only object
-    /// of the same constructor as the `Make` right after it is removed, and the `Make` writes its
-    /// fields into the old block instead of allocating ([`reuse`]). Off by default: this is the
-    /// first, conservative slice, and the default build's output stays what it was.
+    /// Perceus reuse at [`run_heap`] (C4/PR-042): a `drop` of a uniquely owned object of the same
+    /// constructor as the `Make` right after it is removed, and the `Make` writes its fields into
+    /// the old block instead of allocating, releasing the references the old fields held ([`reuse`]).
+    /// Off by default: the default build's output stays what it was.
     pub reuse: bool,
 }
 
@@ -257,10 +257,9 @@ impl Default for LirRules {
     /// The passes that are on by default: SRA, the `rc` cleanup with the local-base borrow
     /// elision, DCE and borrow inference (the M3 memory passes that pay for themselves). Drop
     /// specialisation stays opt-in because its default-build size cost has no measured runtime
-    /// gain; reuse is the first, conservative slice of C4 and stays opt-in so that the default
-    /// build's output is unchanged; record SRA and closure devirtualisation stay off until M5/M6;
-    /// frame pruning has no pass, because [`frame_prune::scan`] finds no stale saved slot on the
-    /// corpus.
+    /// gain; reuse stays opt-in so that the default build's output is unchanged; record SRA and
+    /// closure devirtualisation stay off until M5/M6; frame pruning has no pass, because
+    /// [`frame_prune::scan`] finds no stale saved slot on the corpus.
     fn default() -> Self {
         Self {
             sra: true,
@@ -382,8 +381,9 @@ pub fn run_mid_with(m: &mut Module, options: Options) -> Stats {
 /// reference, when it has a defect landing or a suspension edge, or when liveness answers
 /// `Unknown`. [`drop_spec`] leaves a `drop` generic when the value's payload may hold a reference
 /// or the type has a finalizer. [`reuse`] leaves a `drop` and its `Make` alone unless the value is
-/// read only by that drop, both are references, every field is a scalar and the constructor has no
-/// error, host handle or finalizer (see [`reuse`]).
+/// read only by that drop, both are references of the same type, and the constructor has no
+/// error, host handle or finalizer; a reference field is released before it is overwritten (see
+/// [`reuse`]).
 ///
 /// This is [`run_heap_with`] with [`Options::default`] (the `rc` cleanup with the local-base
 /// borrow elision and DCE on; drop specialisation and reuse are opt-in).

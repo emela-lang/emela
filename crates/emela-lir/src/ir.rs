@@ -156,7 +156,8 @@ pub struct Function {
     /// Heap IR, from [`reuse`](crate::opt::reuse) (C4/PR-042): for each `let` whose value is a
     /// [`Value::Make`] that reuses a block, the variable whose block it reuses. The `drop` that
     /// released that variable is gone; the `Make` consumes it, and the backends give the
-    /// destination the old block and write the new fields into it, instead of allocating.
+    /// destination the old block, release the references its fields held, and write the new
+    /// fields into it, instead of allocating.
     ///
     /// A missing entry means an ordinary allocation. Like [`drop_kinds`](Self::drop_kinds) the
     /// keys are statements of this function, and a copy that renumbers statements
