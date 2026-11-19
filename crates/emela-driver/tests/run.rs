@@ -1206,6 +1206,35 @@ fn main() {
     );
 }
 
+#[test]
+fn label_provider_uses_a_handler_of_the_same_with() {
+    // In `with SystemConsole, AuditLog by PrefixConsole`, the Console that PrefixConsole uses is
+    // SystemConsole in the same `with` (`[effect.label]`, issue #679).
+    let output = run_source(
+        "label-provider-same-with",
+        r#"import Std.Console.{Console, SystemConsole}
+
+effect AuditLog of Console
+
+handler PrefixConsole: Console {
+  fn print_line(text) { (use Console).print_line("[audit] #{text}") }
+  fn print_error_line(text) { (use Console).print_error_line("[audit] #{text}") }
+}
+
+fn main() {
+  with SystemConsole, AuditLog by PrefixConsole {
+    (use AuditLog).print_line("x")
+    (use AuditLog).print_error_line("y")
+  }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "[audit] x\n", "[audit] y\n")
+    );
+}
+
 /// Declarations for end-to-end checks of stateful handlers and layers (spec 8.4, 8.5). `Pool`
 /// prints to `Console` on init and release. `Fragile` panics on release.
 const STATEFUL: &str = r#"import Std.Console.{Console, SystemConsole}

@@ -2131,15 +2131,16 @@ impl<'a> Lowerer<'a> {
             {
                 // Dependencies satisfied by handlers of other effects initialized earlier in the
                 // same `with`. Those on any of the handler's own effects are met from outside
-                // (`[effect.handler]`).
+                // (`[effect.handler]`). A handler plugged into a label (`L by H`) provides only
+                // L, so its dependency on the underlying effect is met in the same `with` too
+                // (`[effect.label]`, issue #679), as `layer::with_entries` orders it.
                 let row = self.types.handler_uses.get(h).cloned().unwrap_or_default();
-                let owns: Vec<EffectKey> = self
-                    .types
-                    .sigs
-                    .handler_effects(h)
-                    .iter()
-                    .map(|t| self.tag_key(t, None))
-                    .collect();
+                let effects = self.types.sigs.handler_effects(h);
+                let owns: Vec<EffectKey> = if effects.contains(&info.binds[i].effect) {
+                    effects.iter().map(|t| self.tag_key(t, None)).collect()
+                } else {
+                    Vec::new()
+                };
                 let keys: Vec<EffectKey> = row
                     .tags()
                     .map(|t| self.tag_key(t, None))

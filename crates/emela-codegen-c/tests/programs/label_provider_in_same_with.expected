@@ -1,0 +1,10 @@
+exit: 0
+--- stdout
+print: [audit] x
+print: [audit] y
+print: open
+print: t: z
+print: close t
+print: [audit] w
+print: [audit] v
+--- stderr
