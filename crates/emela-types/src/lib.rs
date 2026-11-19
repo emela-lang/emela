@@ -48,7 +48,7 @@ pub use export::{
 };
 pub use infer::{InferCtx, substitute_bound};
 pub use layer::{ArgsSource, LayerInfo, MemberProvider, Supplier, WithBind, WithInfo};
-pub use lower::TyTable;
+pub use lower::{TyTable, is_immediate_effect};
 pub use methods::methods_of;
 pub use scheme::Scheme;
 pub use signature::{InitParams, Signature, Signatures};
