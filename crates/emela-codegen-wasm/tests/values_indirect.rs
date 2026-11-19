@@ -230,8 +230,18 @@ fn a_devirtualised_closure_call_uses_the_same_flattened_signature() {
     assert_ne!(off, on, "the option must change a devirtualised call's ABI");
 
     // `local` (and `h`) are created and only called in `main`, so the pass makes their calls
-    // direct; the closures returned by `chooser` still escape and stay indirect.
-    let base = module(&compile("devirt-base", CLOSURES, true, LirRules::default()));
+    // direct; the closures returned by `chooser` still escape and stay indirect. The baseline has
+    // devirtualisation off, because it is on by default and would remove the same calls there.
+    let base = module(&compile(
+        "devirt-base",
+        CLOSURES,
+        true,
+        LirRules {
+            devirt: false,
+            sra_closures: false,
+            ..LirRules::default()
+        },
+    ));
     let on_module = module(&on);
     assert!(
         on_module.indirect.len() < base.indirect.len(),

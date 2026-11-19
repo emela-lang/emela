@@ -376,6 +376,12 @@ impl<'m> Builder<'m> {
         Some(&self.values.get(self.layout(ty)?).leaves)
     }
 
+    /// Whether any type of the module is held by value. A function whose module has none needs no
+    /// scratch local for a box (E1 step 5).
+    fn has_values(&self) -> bool {
+        self.values.any()
+    }
+
     pub(crate) fn internal(&mut self, message: impl Into<String>) {
         self.errors.push(WasmError::new(
             WasmErrorKind::Internal,
@@ -1741,8 +1747,131 @@ impl<'m> Builder<'m> {
         }
     }
 
+    /// The descriptor of a box of `ty`, a value held by value: one slot per scalar leaf, no
+    /// references, tag 0, the value name. It is the same object the C backend's `layout_desc` and
+    /// `em_box_value` make, so a box can be unboxed by loading its slots.
+    fn box_desc(&mut self, ty: TypeId) -> Option<u32> {
+        let i = self.layout(ty)?;
+        let (name, slots) = {
+            let layout = self.values.get(i);
+            (layout.name.clone(), layout.slots())
+        };
+        Some(self.desc(DescKey {
+            kind: 0,
+            tag: 0,
+            enum_id: -1,
+            name,
+            show: None,
+            refs: vec![false; slots],
+            stride: 0,
+        }))
+    }
+
+    /// Stores the top of the stack as `repr` at `off` of the object below it.
+    fn store_mem(ins: &mut InstructionSink, off: u32, repr: Repr) {
+        match repr {
+            Repr::I32 | Repr::Ref => {
+                ins.i32_store(mem(off, 4));
+            }
+            Repr::I64 => {
+                ins.i64_store(mem(off, 8));
+            }
+            Repr::F64 => {
+                ins.f64_store(mem(off, 8));
+            }
+            Repr::Void => {}
+        }
+    }
+
+    /// Loads `repr` at `off` of the object on top of the stack.
+    fn load_mem(ins: &mut InstructionSink, off: u32, repr: Repr) {
+        match repr {
+            Repr::I32 | Repr::Ref => {
+                ins.i32_load(mem(off, 4));
+            }
+            Repr::I64 => {
+                ins.i64_load(mem(off, 8));
+            }
+            Repr::F64 => {
+                ins.f64_load(mem(off, 8));
+            }
+            Repr::Void => {}
+        }
+    }
+
+    /// Allocates a box of the value in local `v` (held by value, E1 step 5), stores its leaves,
+    /// and leaves the box reference on the stack. The local copy owns nothing, so it is not
+    /// consumed.
+    fn box_value(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, v: VarId) {
+        let ty = cx.f.vars[v].ty;
+        let Some(i) = self.layout(ty) else {
+            let name = cx.f.name.clone();
+            self.internal(format!("a value with no layout is boxed in {name}"));
+            ins.i32_const(0);
+            return;
+        };
+        let leaves = self.values.get(i).leaves.clone();
+        let Some(desc) = self.box_desc(ty) else {
+            ins.i32_const(0);
+            return;
+        };
+        let Some(box_ref) = cx.box_ref else {
+            let name = cx.f.name.clone();
+            self.internal(format!("no box local in {name}"));
+            ins.i32_const(0);
+            return;
+        };
+        ins.i32_const(leaves.len() as i32);
+        ins.i32_const(desc as i32);
+        let alloc = self.rt("alloc");
+        ins.call(alloc);
+        ins.local_set(box_ref);
+        for (k, &r) in leaves.iter().enumerate() {
+            ins.local_get(box_ref);
+            ins.local_get(cx.leaf(v, k as u32));
+            Self::store_mem(ins, HDR + k as u32 * 8, r);
+        }
+        ins.local_get(box_ref);
+    }
+
+    /// Copies the leaves of the box on top of the stack into the locals of the value in `dst`.
+    /// The box reference is borrowed; it is left in the box local and not dropped here.
+    fn unbox_top(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, dst: VarId) {
+        let Some(box_ref) = cx.box_ref else {
+            let name = cx.f.name.clone();
+            self.internal(format!("no box local in {name}"));
+            return;
+        };
+        ins.local_set(box_ref);
+        self.unbox_from(cx, ins, dst, box_ref);
+    }
+
+    /// Copies the leaves of the box in local `box_ref` into the locals of the value in `dst`.
+    fn unbox_from(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, dst: VarId, box_ref: u32) {
+        let ty = cx.f.vars[dst].ty;
+        let Some(i) = self.layout(ty) else {
+            let name = cx.f.name.clone();
+            self.internal(format!("a value with no layout is unboxed in {name}"));
+            return;
+        };
+        let leaves = self.values.get(i).leaves.clone();
+        if cx.aggregate(dst) != Some(leaves.len() as u32) {
+            let name = cx.f.name.clone();
+            self.internal(format!(
+                "a box of {} values has no destination in {name}",
+                leaves.len()
+            ));
+            return;
+        }
+        for (k, &r) in leaves.iter().enumerate() {
+            ins.local_get(box_ref);
+            Self::load_mem(ins, HDR + k as u32 * 8, r);
+            ins.local_set(cx.leaf(dst, k as u32));
+        }
+    }
+
     /// Stores the operand into slot `index` of the object in local `base` (a word: any word for a
-    /// value without a representation).
+    /// value without a representation). An operand held by value is boxed first (E1 step 5).
     fn store_slot(
         &mut self,
         cx: &mut FnCtx,
@@ -1751,15 +1880,16 @@ impl<'m> Builder<'m> {
         index: usize,
         o: &Operand,
     ) {
-        // A value held in locals has no single reference to store in a box. The layout predicate
-        // excludes every operand of a boxed construction; this catches a missed path.
+        // A value held in locals has no single reference to store in a box: write a box of its
+        // leaves and store that reference. The box owns no reference itself, so the containing
+        // object's descriptor marks the slot a reference and releases the box with the object.
         if let Operand::Var(v) = o
             && cx.aggregate(*v).is_some()
         {
-            let name = cx.f.name.clone();
-            self.internal(format!(
-                "a value held by value is stored into a heap object in {name}"
-            ));
+            let off = HDR + index as u32 * 8;
+            ins.local_get(cx.local(base));
+            self.box_value(cx, ins, *v);
+            ins.i32_store(mem(off, 4));
             return;
         }
         let off = HDR + index as u32 * 8;
@@ -2367,6 +2497,13 @@ impl<'m> Builder<'m> {
                         self.assign(cx, ins, Some(d), Repr::Ref);
                         return;
                     }
+                    if cx.aggregate(d).is_some() {
+                        // A field of a boxed enum is a box of the value (E1 step 5); unbox it.
+                        let base = *base;
+                        self.load_field(cx, ins, base, *index, Repr::Ref);
+                        self.unbox_top(cx, ins, d);
+                        return;
+                    }
                     let base = *base;
                     let repr = cx.f.vars[d].repr;
                     self.load_field(cx, ins, base, *index, repr);
@@ -2448,10 +2585,10 @@ impl<'m> Builder<'m> {
             Value::ListHead(v) => {
                 if let Some(d) = dst {
                     if cx.aggregate(d).is_some() {
-                        // A list head is boxed; unboxing into locals is E1 step 5 and the layout
-                        // predicate excludes it.
-                        let name = cx.f.name.clone();
-                        self.internal(format!("a list head is unboxed into a value in {name}"));
+                        // The list head is a box of the value (E1 step 5); unbox it.
+                        let base = *v;
+                        self.load_field(cx, ins, base, 0, Repr::Ref);
+                        self.unbox_top(cx, ins, d);
                         return;
                     }
                     let base = *v;
@@ -2507,10 +2644,10 @@ impl<'m> Builder<'m> {
             Value::EnvGet { env, index } => {
                 if let Some(d) = dst {
                     if cx.aggregate(d).is_some() {
-                        // A closure capture is boxed; unboxing into locals is E1 step 5 and the
-                        // layout predicate excludes it.
-                        let name = cx.f.name.clone();
-                        self.internal(format!("a capture is unboxed into a value in {name}"));
+                        // A closure capture is a box of the value (E1 step 5); unbox it.
+                        let base = *env;
+                        self.load_field(cx, ins, base, index + 1, Repr::Ref);
+                        self.unbox_top(cx, ins, d);
                         return;
                     }
                     let base = *env;
@@ -2625,46 +2762,92 @@ impl<'m> Builder<'m> {
             Value::Runtime { op, args } => self.runtime_op(cx, ins, dst, *op, args),
             Value::Coerce(v) => {
                 let Some(d) = dst else { return };
-                if cx.aggregate(*v).is_some() || cx.aggregate(d).is_some() {
-                    // Boxing and unboxing a value held in locals is a later step (E1 step 5);
-                    // the layout predicate excludes every `Coerce`.
-                    let name = cx.f.name.clone();
-                    self.internal(format!("a value held by value crosses `Any` in {name}"));
-                    return;
+                let from_agg = cx.aggregate(*v).is_some();
+                let to_agg = cx.aggregate(d).is_some();
+                match (from_agg, to_agg) {
+                    // A conversion between two values keeps the leaves.
+                    (true, true) => {
+                        let Some(n) = cx.aggregate(*v) else { return };
+                        for k in 0..n {
+                            ins.local_get(cx.leaf(*v, k));
+                            ins.local_set(cx.leaf(d, k));
+                        }
+                    }
+                    // `Agg -> Ref`: the `Any` box holds a reference to a box of the value, so its
+                    // one slot is a reference (E1 step 5).
+                    (true, false) => {
+                        let to = cx.f.vars[d].repr;
+                        if to != Repr::Ref {
+                            let name = cx.f.name.clone();
+                            self.internal(format!("a value crosses `Any` into a word in {name}"));
+                            return;
+                        }
+                        let desc = self.desc(DescKey {
+                            kind: 0,
+                            tag: 0,
+                            enum_id: -1,
+                            name: "box".to_owned(),
+                            show: None,
+                            refs: vec![true],
+                            stride: 0,
+                        });
+                        ins.i32_const(1);
+                        ins.i32_const(desc as i32);
+                        let alloc = self.rt("alloc");
+                        ins.call(alloc);
+                        ins.local_set(cx.local(d));
+                        ins.local_get(cx.local(d));
+                        self.box_value(cx, ins, *v);
+                        ins.i32_store(mem(HDR, 4));
+                    }
+                    // `Ref -> Agg`: an `Any` box whose slot 0 is a box of the value (E1 step 5).
+                    (false, true) => {
+                        let from = cx.f.vars[*v].repr;
+                        if from != Repr::Ref {
+                            let name = cx.f.name.clone();
+                            self.internal(format!("a word is unboxed from `Any` in {name}"));
+                            return;
+                        }
+                        ins.local_get(cx.local(*v));
+                        ins.i32_load(mem(HDR, 4));
+                        self.unbox_top(cx, ins, d);
+                    }
+                    (false, false) => {
+                        let from = cx.f.vars[*v].repr;
+                        let to = cx.f.vars[d].repr;
+                        if from == to {
+                            ins.local_get(cx.local(*v));
+                        } else if to == Repr::Ref {
+                            // Box the value.
+                            let desc = self.desc(DescKey {
+                                kind: 0,
+                                tag: 0,
+                                enum_id: -1,
+                                name: "box".to_owned(),
+                                show: None,
+                                refs: vec![from == Repr::Ref],
+                                stride: 0,
+                            });
+                            ins.i32_const(1);
+                            ins.i32_const(desc as i32);
+                            let alloc = self.rt("alloc");
+                            ins.call(alloc);
+                            ins.local_set(cx.local(d));
+                            self.store_slot(cx, ins, d, 0, &Operand::Var(*v));
+                            return;
+                        } else {
+                            // Unbox.
+                            ins.local_get(cx.local(*v));
+                            match to {
+                                Repr::I32 | Repr::Ref => ins.i32_load(mem(HDR, 4)),
+                                Repr::I64 => ins.i64_load(mem(HDR, 8)),
+                                Repr::F64 => ins.f64_load(mem(HDR, 8)),
+                                Repr::Void => unreachable!(),
+                            };
+                        }
+                        ins.local_set(cx.local(d));
+                    }
                 }
-                let from = cx.f.vars[*v].repr;
-                let to = cx.f.vars[d].repr;
-                if from == to {
-                    ins.local_get(cx.local(*v));
-                } else if to == Repr::Ref {
-                    // Box the value.
-                    let desc = self.desc(DescKey {
-                        kind: 0,
-                        tag: 0,
-                        enum_id: -1,
-                        name: "box".to_owned(),
-                        show: None,
-                        refs: vec![from == Repr::Ref],
-                        stride: 0,
-                    });
-                    ins.i32_const(1);
-                    ins.i32_const(desc as i32);
-                    let alloc = self.rt("alloc");
-                    ins.call(alloc);
-                    ins.local_set(cx.local(d));
-                    self.store_slot(cx, ins, d, 0, &Operand::Var(*v));
-                    return;
-                } else {
-                    // Unbox.
-                    ins.local_get(cx.local(*v));
-                    match to {
-                        Repr::I32 | Repr::Ref => ins.i32_load(mem(HDR, 4)),
-                        Repr::I64 => ins.i64_load(mem(HDR, 8)),
-                        Repr::F64 => ins.f64_load(mem(HDR, 8)),
-                        Repr::Void => unreachable!(),
-                    };
-                }
-                ins.local_set(cx.local(d));
             }
         }
     }
@@ -3662,6 +3845,9 @@ struct FnCtx<'a> {
     /// `Some` when the variable is held by value in a span of locals.
     spans: Vec<Option<LocalSpan>>,
     scratch_base: [u32; 4],
+    /// A scratch local for the reference of a box while an escape boundary boxes or unboxes a
+    /// value (E1 step 5). Only declared when the module holds some value by value.
+    box_ref: Option<u32>,
     decls: Vec<(u32, ValType)>,
     labels: Vec<Lbl>,
 }
@@ -3728,6 +3914,16 @@ impl<'a> FnCtx<'a> {
         decls.push((count, ValType::I64));
         decls.push((count, ValType::F64));
         decls.push((count, ValType::I32));
+        // A single extra local holds a box reference while an escape boundary boxes or unboxes a
+        // value. It is only declared when the module holds a value by value, so a boxed build's
+        // bytes (and the existing pins) do not change.
+        let box_ref = if b.has_values() {
+            let local = next;
+            decls.push((1, ValType::I32));
+            Some(local)
+        } else {
+            None
+        };
         let ret = b.repr(f.ret);
         let ret_leaves = match b.leaves(f.ret) {
             Some(leaves) => leaves.to_vec(),
@@ -3741,6 +3937,7 @@ impl<'a> FnCtx<'a> {
             local,
             spans,
             scratch_base,
+            box_ref,
             decls,
             labels: Vec::new(),
         }
