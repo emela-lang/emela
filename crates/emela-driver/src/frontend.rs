@@ -455,10 +455,10 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 /// A frontend that lowers to Core IR after type checking ([`Typecheck`]). The default for
 /// `emela build` and `run`.
 ///
-/// Lowering is skipped if name resolution or type checking reported any error (lowering assumes
-/// an error-free program), or for library-only directory inputs (build is only a check). Only
-/// fns reachable from the fns the entry module exports are lowered. Every target receives
-/// monomorphized Core.
+/// Lowering is skipped if any stage (lexing, parsing, imports, name resolution, type checking)
+/// reported an error (lowering assumes an error-free program), or for library-only directory
+/// inputs (build is only a check). Only fns reachable from the fns the entry module exports are
+/// lowered. Every target receives monomorphized Core.
 pub struct Lower<B = NoBuiltins> {
     typecheck: Typecheck<B>,
     target: Target,
@@ -533,7 +533,8 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
 }
 
 /// Lowers type checking results to Core IR. Returns `None` without calling lowering if
-/// `diagnostics` has any error, or if there is no entry outside the tests (a project without
+/// `diagnostics` or the earlier stages in `analysis` (lexing, parsing, imports) have any error,
+/// or if there is no entry outside the tests (a project without
 /// `main.emel` and `lib.emel` still runs its tests). Lowering errors are added to `diagnostics`,
 /// returning `None`.
 ///
@@ -553,7 +554,9 @@ pub(crate) fn lower_typed(
     if entry.is_none() && !matches!(roots, emela_core::Roots::Tests) {
         return None;
     }
-    if error_count(diagnostics) > 0 {
+    // A syntax error leaves a recovered tree that type checking may accept, but lowering would
+    // not (#682).
+    if analysis.has_errors() || error_count(diagnostics) > 0 {
         return None;
     }
     let mut sources = ArenaMap::default();

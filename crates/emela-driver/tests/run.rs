@@ -495,6 +495,46 @@ fn run_without_main_stops_before_node() {
     let _ = std::fs::remove_dir_all(&options.out_dir);
 }
 
+#[test]
+fn run_stops_at_syntax_error_like_check() {
+    // A syntax error stops run before lowering, as it stops check: lowering assumes an error-free
+    // program, so a recovered tree would add errors without a code (#682).
+    let main = "fn main() {\n  d = 1 +\n    2\n  ()\n}\n";
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let options = RunOptions {
+        out_dir: out_dir("syntax-error"),
+        js_host: PathBuf::from("/nonexistent/node"),
+        args: Vec::new(),
+        output: Output::Capture,
+    };
+    let (ran, output) = run(
+        &fs,
+        &input,
+        &mut Lower::default(),
+        &mut CoreJs,
+        &options,
+        |_, _| {},
+    );
+    assert!(output.is_none());
+    assert!(!options.out_dir.exists());
+    let (checked, _) = emela_driver::check(&fs, &input, &mut emela_driver::Typecheck::default());
+    let codes = |analysis: &Analysis| -> Vec<_> {
+        analysis
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, d.message.clone()))
+            .collect()
+    };
+    assert_eq!(codes(&ran), codes(&checked));
+    assert!(
+        ran.diagnostics.iter().all(|d| d.code == Some("E0118")),
+        "{:?}",
+        ran.diagnostics
+    );
+}
+
 /// `[target.js.module]`: `@export(js, "name")` is a named export of main.mjs and
 /// `@export(js, "default", "name")` a property of the default export; `@entry` exports the fn
 /// through the adapter (`[ext.entry]`). A pub fn without `@export` is not exported. A fn that does
