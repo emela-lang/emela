@@ -70,12 +70,14 @@ pub const TEST_EVENT_PREFIX: &str = "\u{1e}emela-test ";
 /// everywhere, so the emitted bytes do not change.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WasmOptions {
-    /// E1 step 2: hold eligible records and tuples by value in local variables (a span of WASM
-    /// locals, one per scalar leaf) instead of allocating a heap object per value.
+    /// E1 steps 2–3: hold eligible records and tuples by value (a span of WASM locals or
+    /// parameters, one per scalar leaf) instead of allocating a heap object per value, and flatten
+    /// the signature of a direct-called function whose value the module never takes.
     ///
-    /// Off by default. It changes only the local representation: function signatures, descriptors,
-    /// statics, arrays, lists, enum payloads, closure captures and suspension frames keep the
-    /// boxed form.
+    /// Off by default. Descriptors, statics, arrays, lists, enum payloads, closure captures,
+    /// indirect and operation calls, state machines and suspension frames keep the boxed form (E1
+    /// steps 4–6); a function that is taken as a value, exported, external, a constant, an error
+    /// show or suspending keeps its boxed signature too.
     pub values: bool,
     /// E2 step 2: store an array element that is an all-scalar record or tuple inline (one
     /// 8-byte slot per scalar leaf) instead of a reference to a separately allocated box.
