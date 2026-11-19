@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-20 (Running main.mjs directly)
+
+- `[target.js.module]`, `[cmd.build]`: `main.mjs` written by `emela build` for the `js` target launches `main` when the JS host is started with it (`node target/emela/js/main.mjs`), with the same outcomes and exit codes as `emela run`. Importing `main.mjs` from another module does not launch `main`. An HTTP service is unchanged: it is started through `serve.mjs`, and its `main.mjs` does not launch anything. For a program that is not an HTTP service, `emela run` starts the JS host with `main.mjs` itself instead of a launcher passed with `-e`. Adopted in the proposal `js-direct-entry` (#677).
+
 ## 2026-11-19 (Effects on the left of `.`, E0417 for handler members, and capability fields in suspension)
 
 - `[module.resolution]`, `[effect.use]`, `[effect.handler]`, `[diag.list]`: Three more gaps in `handler-member` and `handler-member-gaps`, found while implementing them (#656). 1. An effect can be written on the left of `.`, only to name its handler members (`Files.Open`). When a module and an effect of the same name are both found, `X.M` names the handler member M of the effect if it has one, and otherwise the definition M of the module. 2. E0417 on the init and the release of an inner handler is reported once for each call that may suspend, as for an fn operation, with a fixed message and help. Opening a `suspend handler` member is a new reason for a call that may suspend. 3. Rule 4 of `handler-member-gaps` is refined. Calling an operation of a capability held in a field of a handler through `self` (`self.inner.read(max)`) in an operation body does not require its effect by name. It still counts as a call of its effect for whether the body may suspend. In release, it does not require its effect by name either; when it may suspend, Async becomes a requirement of the handler. Adopted in the proposal `handler-member-gaps-2` (#670).
