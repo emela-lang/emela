@@ -2,7 +2,7 @@
 title: Handler members without parameters are written without parentheses as with items, as handlers are
 authors: [somnicattus]
 status: draft
-pr:
+pr: 703
 issue: 700
 decided:
 touches: [effect.decl, effect.use, effect.with, effect.handler, grammar.decl, diag.list]
