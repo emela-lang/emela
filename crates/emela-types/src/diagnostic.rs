@@ -214,6 +214,14 @@ pub enum DiagnosticKind {
     },
     /// A handler member written as an item of `with` without `x =` (E0447, `[effect.with]`).
     UnboundMemberItem { member: SmolStr, effect: SmolStr },
+    /// A handler member whose init takes parameters, written as an item of `with` without
+    /// arguments (E0434, `[effect.with]`). `effect` is the effect as written: the label for
+    /// `Audit.Open`. `params` are the parameters' names.
+    MissingMemberArgs {
+        member: SmolStr,
+        effect: SmolStr,
+        params: Vec<SmolStr>,
+    },
     /// A handler member written as an item of a layer (E0447, `[effect.with]`).
     MemberInLayer { member: SmolStr, layer: SmolStr },
     /// A layer bound to a name in `with` (E0447, `[effect.with]`): it provides more than one

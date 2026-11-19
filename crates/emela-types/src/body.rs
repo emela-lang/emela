@@ -1375,7 +1375,29 @@ impl<'a> BodyInfer<'a> {
                                 args.span,
                             )
                         }
-                        None => Vec::new(),
+                        // A member whose init takes parameters needs them, as a handler does
+                        // (E0434, `[effect.with]`).
+                        None => {
+                            if !f.params.is_empty() {
+                                let labels = self.sigs.get(member).map(|s| s.labels.clone());
+                                self.diags.push(Diagnostic {
+                                    span: Some(item.span),
+                                    kind: DiagnosticKind::MissingMemberArgs {
+                                        member: program.defs[member].name.clone(),
+                                        effect: item
+                                            .label
+                                            .map(|l| program.defs[l].name.clone())
+                                            .unwrap_or_else(|| self.member_effect_name(member)),
+                                        params: labels
+                                            .unwrap_or_default()
+                                            .into_iter()
+                                            .flatten()
+                                            .collect(),
+                                    },
+                                });
+                            }
+                            Vec::new()
+                        }
                     };
                     if let Some(local) = item.bind {
                         self.set_local(local, ret);
