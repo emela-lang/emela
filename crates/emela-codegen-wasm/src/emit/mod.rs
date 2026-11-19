@@ -109,7 +109,7 @@ pub(crate) fn emit(
         Stage::RefCounted,
         "the WASM emitter reads the Heap IR"
     );
-    let mut b = Builder::new(m, options);
+    let mut b = Builder::new(m, options, &entry.roots());
     b.build(entry);
     if !b.errors.is_empty() {
         return Err(b.errors);
@@ -304,12 +304,12 @@ pub(crate) struct Builder<'m> {
 }
 
 impl<'m> Builder<'m> {
-    fn new(m: &'m Module, options: WasmOptions) -> Self {
+    fn new(m: &'m Module, options: WasmOptions, roots: &[FnId]) -> Self {
         let mut b = Builder {
             m,
             options,
             values: if options.values {
-                values::Values::new(m)
+                values::Values::new(m, roots)
             } else {
                 values::Values::none(m)
             },
@@ -612,9 +612,27 @@ impl<'m> Builder<'m> {
         }
     }
 
+    /// The wasm parameters and results of `f`. A parameter held by value is its leaves, and a
+    /// result held by value is one wasm result per leaf (multi-value, E1 step 3). The layout
+    /// predicate keeps a function whose signature another calling convention sees boxed, so the
+    /// flattened form is only ever used by a direct `call`.
+    fn signature(&self, f: &Function) -> (Vec<ValType>, Vec<ValType>) {
+        let mut params = Vec::new();
+        for &p in &f.params {
+            match self.leaves(f.vars[p].ty) {
+                Some(leaves) => params.extend(leaves.iter().map(|&r| val(r))),
+                None => params.push(val(f.vars[p].repr)),
+            }
+        }
+        let results = match self.leaves(f.ret) {
+            Some(leaves) => leaves.iter().map(|&r| val(r)).collect(),
+            None => repr_val(self.repr(f.ret)).into_iter().collect(),
+        };
+        (params, results)
+    }
+
     fn fn_ty(&mut self, f: &Function) -> u32 {
-        let params: Vec<ValType> = f.params.iter().map(|&p| val(f.vars[p].repr)).collect();
-        let results: Vec<ValType> = repr_val(self.repr(f.ret)).into_iter().collect();
+        let (params, results) = self.signature(f);
         self.ty(params, results)
     }
 
@@ -1418,8 +1436,8 @@ impl<'m> Builder<'m> {
             let mut ins = func.instructions();
             self.seq(&mut cx, &mut ins, body, None);
             // A body that falls off its end must still return the right type.
-            let ret = cx.ret;
-            dummy_return(&mut ins, ret);
+            let leaves = cx.ret_leaves.clone();
+            dummy_return_values(&mut ins, &leaves);
             ins.end();
         }
         let _ = id;
@@ -1633,6 +1651,15 @@ impl<'m> Builder<'m> {
         }
     }
 
+    /// The number of wasm values [`Builder::operand`] pushes: one per scalar leaf of a value held
+    /// by value, one for any other value, and none for a `()` constant.
+    fn operand_width(cx: &FnCtx, o: &Operand) -> usize {
+        match o {
+            Operand::Var(v) => cx.aggregate(*v).map_or(1, |n| n as usize),
+            Operand::Const(c) => usize::from(c.repr() != Repr::Void),
+        }
+    }
+
     /// Stores the operand into slot `index` of the object in local `base` (a word: any word for a
     /// value without a representation).
     fn store_slot(
@@ -1725,14 +1752,18 @@ impl<'m> Builder<'m> {
                 }
             }
             Term::Return(v) => {
+                // A flattened function's result is one wasm result per leaf, so the operand must
+                // push exactly as many values as the signature declares.
+                let width = v.as_ref().map_or(0, |o| Self::operand_width(cx, o));
+                if width != cx.ret_leaves.len() {
+                    self.internal(format!(
+                        "return of {width} values from {} with {} results",
+                        cx.f.name,
+                        cx.ret_leaves.len()
+                    ));
+                    return;
+                }
                 if let Some(v) = v {
-                    // A value held in locals has several wasm results; a function result is
-                    // excluded by the layout predicate, so this cannot happen.
-                    debug_assert!(
-                        !matches!(v, Operand::Var(x) if cx.aggregate(*x).is_some()),
-                        "a value held by value returned from {}",
-                        cx.f.name
-                    );
                     self.operand(cx, ins, v);
                 }
                 ins.return_();
@@ -1740,7 +1771,7 @@ impl<'m> Builder<'m> {
             Term::Fail(v) => {
                 self.operand(cx, ins, v);
                 ins.global_set(G_FAILURE);
-                dummy_return(ins, cx.ret);
+                dummy_return_values(ins, &cx.ret_leaves);
             }
             Term::Break { label, value } => {
                 let Some((depth, dst)) = cx.find_block(*label) else {
@@ -1795,7 +1826,7 @@ impl<'m> Builder<'m> {
                 }
                 ins.br(depth);
             }
-            Term::Unwind => dummy_return(ins, cx.ret),
+            Term::Unwind => dummy_return_values(ins, &cx.ret_leaves),
             Term::Unreachable => {
                 ins.unreachable();
             }
@@ -2879,13 +2910,57 @@ impl<'m> Builder<'m> {
     ) {
         match callee {
             Callee::Direct(g) => {
+                let m = self.m;
+                let f = &m.functions[*g];
+                // The result of a flattened function is one wasm result per scalar leaf.
+                let ret_leaves = self.leaves(f.ret).map(|l| l.to_vec());
+                let ret = self.repr(f.ret);
+                // The arguments must push exactly the parameters the signature declares: one
+                // value per scalar leaf of a by-value parameter, one for any other.
+                let expected: usize = f
+                    .params
+                    .iter()
+                    .map(|&p| self.leaves(f.vars[p].ty).map_or(1, |l| l.len()))
+                    .sum();
+                let pushed: usize = args.iter().map(|a| Self::operand_width(cx, a)).sum();
+                if pushed != expected {
+                    let (callee, caller) = (f.name.clone(), cx.f.name.clone());
+                    self.internal(format!(
+                        "{callee} takes {expected} wasm arguments in {caller} but the call \
+                         pushes {pushed}"
+                    ));
+                    return;
+                }
                 for a in args {
                     self.operand(cx, ins, a);
                 }
                 let index = self.fn_index(*g);
                 ins.call(index);
-                let ret = self.repr(self.m.functions[*g].ret);
-                self.assign(cx, ins, dst, ret);
+                match ret_leaves {
+                    Some(leaves) => match dst {
+                        // The leaves are on the stack in field order; store them in reverse.
+                        Some(d) => {
+                            if cx.aggregate(d) != Some(leaves.len() as u32) {
+                                let (callee, caller) = (f.name.clone(), cx.f.name.clone());
+                                self.internal(format!(
+                                    "the result of {callee} has no destination in {caller}"
+                                ));
+                                return;
+                            }
+                            for i in (0..leaves.len() as u32).rev() {
+                                ins.local_set(cx.leaf(d, i));
+                            }
+                        }
+                        // An unused result is given up like any other value: the leaves own no
+                        // reference, so each is dropped from the operand stack.
+                        None => {
+                            for _ in &leaves {
+                                ins.drop();
+                            }
+                        }
+                    },
+                    None => self.assign(cx, ins, dst, ret),
+                }
             }
             Callee::Indirect(c) => {
                 let fty = match self.core().ty(cx.f.vars[*c].ty) {
@@ -2968,7 +3043,7 @@ impl<'m> Builder<'m> {
         ins.i32_load(mem(HDR + 8, 4));
         let raise = self.rt("raise");
         ins.call(raise);
-        dummy_return(ins, cx.ret);
+        dummy_return_values(ins, &cx.ret_leaves);
         ins.else_();
         let rs = if suspend {
             let rs = cx.scratch(Repr::Ref, 0);
@@ -3479,6 +3554,25 @@ fn dummy_return(ins: &mut InstructionSink, ret: Repr) {
     }
 }
 
+/// [`dummy_return`] for a function whose result is a span of leaves (one wasm result each).
+fn dummy_return_values(ins: &mut InstructionSink, leaves: &[Repr]) {
+    for &r in leaves {
+        match r {
+            Repr::Void => {}
+            Repr::I32 | Repr::Ref => {
+                ins.i32_const(0);
+            }
+            Repr::I64 => {
+                ins.i64_const(0);
+            }
+            Repr::F64 => {
+                ins.f64_const(0.0.into());
+            }
+        }
+    }
+    ins.return_();
+}
+
 /// A wasm label on the stack, for computing `br` depths.
 enum Lbl {
     Block(LabelId, Option<VarId>),
@@ -3495,6 +3589,9 @@ struct LocalSpan {
 struct FnCtx<'a> {
     f: &'a Function,
     ret: Repr,
+    /// The wasm results of the function: one per leaf of a by-value result, one for any other
+    /// representation except `()`, and empty for `()`.
+    ret_leaves: Vec<Repr>,
     local: Vec<u32>,
     /// `Some` when the variable is held by value in a span of locals.
     spans: Vec<Option<LocalSpan>>,
@@ -3511,12 +3608,23 @@ impl<'a> FnCtx<'a> {
     /// The context of a function whose wasm signature has `extra` parameters after the IR ones
     /// (a state machine's frame pointer). They occupy the locals right after the parameters.
     fn with_extra_params(f: &'a Function, b: &Builder<'_>, extra: u32) -> Self {
-        let nparams = f.params.len() as u32;
         let mut local = vec![0u32; f.vars.len()];
         let mut spans: Vec<Option<LocalSpan>> = (0..f.vars.len()).map(|_| None).collect();
         let mut decls: Vec<(u32, ValType)> = Vec::new();
-        for (i, &p) in f.params.iter().enumerate() {
-            local[ix(p)] = i as u32;
+        // A parameter of a flattened signature occupies one wasm parameter per leaf, in field
+        // order (E1 step 3). Otherwise it is its single local from the boxed signature.
+        let mut nparams = 0u32;
+        for &p in &f.params {
+            local[ix(p)] = nparams;
+            match b.leaves(f.vars[p].ty) {
+                Some(leaves) if !leaves.is_empty() => {
+                    nparams += leaves.len() as u32;
+                    spans[ix(p)] = Some(LocalSpan {
+                        leaves: leaves.to_vec(),
+                    });
+                }
+                _ => nparams += 1,
+            }
         }
         let mut next = nparams + extra;
         for (v, data) in f.vars.iter() {
@@ -3555,9 +3663,15 @@ impl<'a> FnCtx<'a> {
         decls.push((count, ValType::F64));
         decls.push((count, ValType::I32));
         let ret = b.repr(f.ret);
+        let ret_leaves = match b.leaves(f.ret) {
+            Some(leaves) => leaves.to_vec(),
+            None if ret == Repr::Void => Vec::new(),
+            None => vec![ret],
+        };
         FnCtx {
             f,
             ret,
+            ret_leaves,
             local,
             spans,
             scratch_base,

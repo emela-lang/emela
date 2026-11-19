@@ -9,24 +9,36 @@
 //!
 //! # What is never held by value here
 //!
-//! This is deliberately narrower than the C backend. The layout is only used for the first slice
-//! (E1 step 2), which changes **locals only**: no function signature, descriptor, static, array,
-//! list, enum payload, closure capture or suspension frame changes. A type keeps `Repr::Ref` when
-//! the module uses it in any of those places:
+//! This is deliberately narrower than the C backend. The layouts are used for locals (E1 step 2)
+//! and for the signature of a direct call (E1 step 3); no descriptor, static, array, list, enum
+//! payload, closure capture or suspension frame changes. A type keeps `Repr::Ref` when the module
+//! uses it in any of those places:
 //!
-//! - a parameter or result of any function (including a lifted closure or operation
-//!   implementation), a function type, or an effect operation;
+//! - a parameter or result of a function whose wasm signature is reached through another calling
+//!   convention (a `MakeClosure`/`FnRef` target, an exported, external or const function, a
+//!   suspending function, the entry, an error `show` function), a function type, or an effect
+//!   operation;
 //! - an element of `Array`, `List` or `Cell` (and, transitively, anything inside such an element);
 //! - a field of an enum that is not itself a value (a multi-variant enum, an error, an external
 //!   type, a nullary enum);
 //! - a captured variable of a closure (`Function::env`, `Value::MakeClosure`);
 //! - an argument of another value's construction that is itself stored in a box;
+//! - the argument of an indirect or operation call, a builtin or a runtime operation;
 //! - a `Value::Coerce` (the `Any` boundary);
 //! - any variable of a suspending function, or any variable saved across a suspension.
 //!
 //! A type that is excluded, or that contains an excluded field, has no layout, and the emitter
 //! keeps its boxed representation everywhere. The exclusion is a whole-module property: a type is
-//! held by value only if every use in the whole program is one the local-only slice converts.
+//! held by value only if every use in the whole program is one the converted slices handle.
+//!
+//! # The direct-call ABI
+//!
+//! A function that the module never uses as a value (no `MakeClosure`, no `FnRef`, not exported,
+//! external, a const, suspending, the entry or an error `show`, and no `env` parameter) has a wasm
+//! signature that follows the layouts: an `Agg` parameter is its leaves, and an `Agg` result is
+//! zero or several wasm results. A function type ([`Type::Fn`]) and every operation signature
+//! still exclude their parameters and results, so `call_indirect`, the state machines and the
+//! fiber thunks only ever see the boxed form.
 //!
 //! No proposal is needed: `[target.unspecified]` leaves the memory representation of values to
 //! the implementation, and this changes only how many objects are allocated.
@@ -39,7 +51,7 @@
 //! later step (boxing at an escape boundary) needs.
 
 use emela_core::{EnumId, Type, TypeId};
-use emela_lir::{Const, Module, Operand, Repr, Stmt, Value, repr_of};
+use emela_lir::{Callee, Const, FnId, Function, Module, Operand, Repr, Stmt, Value, repr_of};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// The scalar leaves of a value, in field order.
@@ -86,12 +98,16 @@ pub(crate) struct Values<'m> {
 
 impl<'m> Values<'m> {
     /// The layouts of `m`, for the types the whole module uses in a way the emitter converts.
-    pub(crate) fn new(m: &'m Module) -> Values<'m> {
+    ///
+    /// `roots` are the functions the entry calls directly before any IR body (the monomorphized
+    /// `main`, or the test functions): their signatures are not flattened, because the entry
+    /// thunk calls them with the boxed form.
+    pub(crate) fn new(m: &'m Module, roots: &[FnId]) -> Values<'m> {
         let mut values = Values {
             core: &m.core,
             layouts: Vec::new(),
             of: FxHashMap::default(),
-            excluded: excluded(m),
+            excluded: excluded(m, roots),
             building: FxHashSet::default(),
         };
         // The variables and the results are every type the emitter has to name.
@@ -294,14 +310,77 @@ fn mark_subtree(core: &emela_core::Module, ty: TypeId, out: &mut FxHashSet<TypeI
     }
 }
 
-/// The types of `m` that the local-only slice cannot convert.
+/// The functions whose value the module takes: a `MakeClosure` or a `FnRef` names them, so an
+/// indirect call (or the table) can enter them with the boxed signature.
+fn value_taken(m: &Module) -> FxHashSet<FnId> {
+    let mut out = FxHashSet::default();
+    for (_, f) in m.functions.iter() {
+        for (_, stmt) in f.stmts.iter() {
+            let Stmt::Let { value, .. } = stmt else {
+                continue;
+            };
+            match value {
+                Value::FnRef(g) => {
+                    out.insert(*g);
+                }
+                // Heap IR: a closure was lifted into its own function.
+                Value::MakeClosure { function, .. } => {
+                    out.insert(*function);
+                }
+                // Flow IR: the body is nested, so it is not a function of the module yet.
+                Value::Closure(_) => {}
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// Whether the wasm signature of `f` follows the layouts of its parameters and result (E1 step 3).
+///
+/// The signature is flattened only when no other calling convention can see it: the function is
+/// never a value (`value_taken`), is not exported, external, a const, suspending or lifted from a
+/// closure (its environment parameter), is not a root the entry thunk calls, and is not an error's
+/// `show` function (the descriptor calls it through the table). Otherwise its parameters and
+/// result keep the boxed form, so `call_indirect`, the state machines, the fiber thunks and the
+/// entry need no change.
+fn flat_function(
+    m: &Module,
+    id: FnId,
+    f: &Function,
+    taken: &FxHashSet<FnId>,
+    roots: &FxHashSet<FnId>,
+) -> bool {
+    !f.exported
+        && f.external.is_none()
+        && !f.constant
+        && !f.suspends
+        && f.env.is_none()
+        && !taken.contains(&id)
+        && !roots.contains(&id)
+        && !m.error_shows.iter().any(|&(_, show)| show == id)
+        && !f.stmts.iter().any(|(_, s)| {
+            matches!(
+                s,
+                Stmt::Let {
+                    on_suspend: Some(_),
+                    ..
+                }
+            )
+        })
+}
+
+/// The types of `m` that the converted slices cannot hold by value.
 ///
 /// The first pass marks the positions that always need a reference. The second repeats until it
 /// is stable: a construction or read whose destination has no layout stores its operands in a
 /// box, so those operand types cannot be held by value either.
-fn excluded(m: &Module) -> FxHashSet<TypeId> {
+fn excluded(m: &Module, roots: &[FnId]) -> FxHashSet<TypeId> {
     let core = &m.core;
     let mut out = FxHashSet::default();
+    let taken = value_taken(m);
+    let roots: FxHashSet<FnId> = roots.iter().copied().collect();
+    let flat = |id: FnId| flat_function(m, id, &m.functions[id], &taken, &roots);
 
     // Containers store references: the element of an array, a list or a cell, and every type
     // nested inside such an element.
@@ -348,12 +427,18 @@ fn excluded(m: &Module) -> FxHashSet<TypeId> {
         }
     }
 
-    for (_, f) in m.functions.iter() {
-        // A parameter or result is part of a wasm signature; a capture is a closure slot.
-        for &p in &f.params {
-            out.insert(f.vars[p].ty);
+    for (id, f) in m.functions.iter() {
+        // A parameter or result of a function whose signature is not flattened is part of a
+        // boxed wasm signature, and its call sites pass a reference. A signature that is
+        // flattened keeps the layout of each parameter and the result (E1 step 3); a parameter
+        // whose own type is excluded still crosses the flattened signature as a reference.
+        if !flat(id) {
+            for &p in &f.params {
+                out.insert(f.vars[p].ty);
+            }
+            out.insert(f.ret);
         }
-        out.insert(f.ret);
+        // A capture is a closure slot.
         if let Some(env) = &f.env {
             for &t in env {
                 out.insert(t);
@@ -391,19 +476,29 @@ fn excluded(m: &Module) -> FxHashSet<TypeId> {
                     out.insert(f.vars[v].ty);
                 }
             }
-            // A destination is buildable in place only from these values. Everything else (a
-            // call, a builtin, a runtime operation, `Any`, a read out of a box) needs a
-            // reference, so the type stays boxed.
-            let direct = matches!(
+            // A call to a function whose signature is flattened returns its leaves, so its
+            // destination is buildable in place like a construction.
+            let flat_call = matches!(
                 value,
-                Value::Make { .. }
-                    | Value::Tuple(_)
-                    | Value::Field { .. }
-                    | Value::TupleGet { .. }
-                    // A unit constant bound to a record-typed variable is test scaffolding (the
-                    // Core IR never produces one: `()` has no representation).
-                    | Value::Const(Const::Unit)
+                Value::Call {
+                    callee: Callee::Direct(g),
+                    ..
+                } if flat(*g)
             );
+            // A destination is buildable in place only from these values. Everything else (a
+            // builtin, a runtime operation, `Any`, a read out of a box, an indirect or operation
+            // call) needs a reference, so the type stays boxed.
+            let direct = flat_call
+                || matches!(
+                    value,
+                    Value::Make { .. }
+                        | Value::Tuple(_)
+                        | Value::Field { .. }
+                        | Value::TupleGet { .. }
+                        // A unit constant bound to a record-typed variable is test scaffolding
+                        // (the Core IR never produces one: `()` has no representation).
+                        | Value::Const(Const::Unit)
+                );
             if let (Some(d), false) = (dst, direct) {
                 out.insert(f.vars[*d].ty);
             }
@@ -415,12 +510,21 @@ fn excluded(m: &Module) -> FxHashSet<TypeId> {
             };
             match value {
                 Value::Prim { args, .. }
-                | Value::Call { args, .. }
                 | Value::Builtin { args, .. }
                 | Value::Fiber { args, .. }
                 | Value::Runtime { args, .. } => {
                     for a in args {
                         mark(a);
+                    }
+                }
+                // A flattened call spreads an `Agg` argument as its leaves; the others pass a
+                // reference.
+                Value::Call { callee, args, .. } => {
+                    let flattened = matches!(callee, Callee::Direct(g) if flat(*g));
+                    if !flattened {
+                        for a in args {
+                            mark(a);
+                        }
                     }
                 }
                 Value::List { elems, tail } => {
@@ -505,6 +609,23 @@ fn excluded(m: &Module) -> FxHashSet<TypeId> {
                             }
                         }
                     }
+                    // A flattened call passes a parameter the boxed form when the layout of the
+                    // parameter type is not available; a call's argument has the parameter's
+                    // type, so this only completes a type the signature already keeps boxed.
+                    Value::Call {
+                        callee: Callee::Direct(g),
+                        args,
+                        ..
+                    } if flat(*g) => {
+                        let callee = &m.functions[*g];
+                        for (a, &p) in args.iter().zip(&callee.params) {
+                            if probe.layout(callee.vars[p].ty).is_none()
+                                && let Operand::Var(v) = a
+                            {
+                                extra.insert(f.vars[*v].ty);
+                            }
+                        }
+                    }
                     Value::Field { base, .. } | Value::TupleGet { base, .. } => {
                         if let Some(d) = dst
                             && candidate(core, f.vars[*d].ty)
@@ -553,7 +674,7 @@ mod tests {
         let f = b.finish();
         m.add(f);
         let m: &'static Module = Box::leak(Box::new(m));
-        Values::new(m)
+        Values::new(m, &[])
     }
 
     /// A module with one function holding a value of each type `make` returns.
@@ -710,11 +831,105 @@ mod tests {
     }
 
     #[test]
-    fn a_function_result_keeps_the_box() {
-        // A wasm function has one result; a record result is a later step.
+    fn a_direct_function_result_is_held_by_value() {
+        // The function's value is never taken, so its wasm signature is flattened and the
+        // result is a span (E1 step 3).
         let mut core = emela_core::Module::new();
         let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
         let values = values_of(core, |b| {
+            b.set_ret(rec);
+            b.assign("p", rec, Value::Const(Const::Unit));
+        });
+        assert_eq!(
+            values.get(values.index(rec).expect("a value")).leaves,
+            [Repr::I32]
+        );
+    }
+
+    #[test]
+    fn a_direct_function_parameter_is_held_by_value() {
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
+        let values = values_of(core, |b| {
+            b.param("p", rec);
+        });
+        assert!(values.index(rec).is_some());
+    }
+
+    #[test]
+    fn an_argument_of_a_direct_call_is_held_by_value() {
+        // The record crosses the flattened signature as its leaf, not as a reference.
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
+        let mut m = Module::new(core);
+        let mut g = FnBuilder::new(&m.core, "g");
+        g.param("p", rec);
+        g.term(Term::Return(None));
+        let g = m.add(g.finish());
+        let mut f = FnBuilder::new(&m.core, "f");
+        let p = f.assign("p", rec, Value::Const(Const::Unit));
+        f.let_(
+            None,
+            Value::Call {
+                callee: Callee::Direct(g),
+                args: vec![Operand::Var(p)],
+                suspends: false,
+                on_fail: None,
+            },
+        );
+        f.term(Term::Return(None));
+        m.add(f.finish());
+        let m: &'static Module = Box::leak(Box::new(m));
+        let values = Values::new(m, &[]);
+        assert!(values.index(rec).is_some());
+    }
+
+    #[test]
+    fn a_function_whose_value_is_taken_keeps_the_box() {
+        // An indirect call enters the function with the boxed signature, so the whole program
+        // keeps the record boxed.
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
+        let fty = core.fn_type(vec![rec], TypeId::UNIT);
+        let mut m = Module::new(core);
+        let mut g = FnBuilder::new(&m.core, "g");
+        g.param("p", rec);
+        g.term(Term::Return(None));
+        let g = m.add(g.finish());
+        let mut f = FnBuilder::new(&m.core, "f");
+        f.assign(
+            "c",
+            fty,
+            Value::MakeClosure {
+                function: g,
+                captures: Vec::new(),
+            },
+        );
+        f.term(Term::Return(None));
+        m.add(f.finish());
+        let m: &'static Module = Box::leak(Box::new(m));
+        let values = Values::new(m, &[]);
+        assert_eq!(values.index(rec), None);
+    }
+
+    #[test]
+    fn an_exported_function_keeps_the_box() {
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
+        let values = values_of(core, |b| {
+            b.set_exported();
+            b.param("p", rec);
+        });
+        assert_eq!(values.index(rec), None);
+    }
+
+    #[test]
+    fn a_const_function_keeps_the_box() {
+        // The const wrapper stores its result in one word of a static cell.
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
+        let values = values_of(core, |b| {
+            b.set_constant();
             b.set_ret(rec);
             b.assign("p", rec, Value::Const(Const::Unit));
         });
@@ -811,18 +1026,19 @@ mod tests {
 
     #[test]
     fn a_type_used_as_a_parameter_still_has_an_array_layout() {
-        // The array predicate is pure: it does not inherit the local-only exclusion of a
-        // function parameter, so an array of the type can still store it inline.
+        // The array predicate is pure: it does not inherit the exclusion of a function whose
+        // signature is not flattened, so an array of the type can still store it inline.
         let mut core = emela_core::Module::new();
         let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
         assert_eq!(all_scalar(&core, rec).expect("a pure layout").slots(), 1);
         let values = values_of(core, |b| {
+            b.set_exported();
             b.param("p", rec);
         });
         assert_eq!(
             values.index(rec),
             None,
-            "the local-only predicate keeps it boxed"
+            "the signature of an exported function keeps it boxed"
         );
     }
 }
