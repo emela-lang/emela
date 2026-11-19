@@ -224,7 +224,11 @@ impl Lowerer<'_> {
             .map(|&t| self.module.local("x", t))
             .collect();
         let args = params.iter().map(|&l| Expr::Var(l)).collect();
-        let (opened, suspends) = self.open_inner(inner, args);
+        let handler_ty = match self.module.ty(op.ret) {
+            Type::Tuple(elems) => elems[0],
+            _ => unreachable!("a member's operation returns a pair"),
+        };
+        let (opened, suspends) = self.open_inner(inner, args, handler_ty);
         let mut lambda_params = params;
         let mut param_tys: Vec<TypeId> = op.params.clone();
         let (body, ret) = if op.suspend {
@@ -268,7 +272,8 @@ impl Lowerer<'_> {
     /// Opens the inner handler `inner` of the handler being lowered with the arguments of its
     /// init: the pair of its handler value and the function that releases it, and whether opening
     /// may suspend. The inner handler's functions take the outer handler's evidence table.
-    fn open_inner(&mut self, inner: DefId, args: Vec<Expr>) -> (Expr, bool) {
+    /// `handler_ty` is the type of its handler value.
+    fn open_inner(&mut self, inner: DefId, args: Vec<Expr>, handler_ty: TypeId) -> (Expr, bool) {
         let hir = self.hir;
         let Some(Item::Handler(item)) = hir.item(inner) else {
             unreachable!("an inner handler");
@@ -335,18 +340,36 @@ impl Lowerer<'_> {
             None => Expr::Lit(Lit::Unit),
         };
         let mut release_suspends = release.is_some_and(|r| self.module.functions[r].suspends);
+        let name = hir.defs[inner].name.to_string();
         if let Some((c, s)) = cell {
-            let name = hir.defs[inner].name.to_string();
             release_body = self.then_release_opened(release_body, c, s, &name);
             release_suspends |= s;
         }
+        // The release marks the handler value released (`[effect.escape]`), wherever it was
+        // opened: a with item marks it again, which does nothing more; a handler opened in an
+        // init is marked only here (issue #704).
+        let opened = self.module.local("opened", handler_ty);
+        let retired = self.module.local("retired", handler_ty);
+        let release_body = Expr::With {
+            binds: vec![WithBind::managed(
+                retired,
+                Expr::Var(opened),
+                &name,
+                release_body,
+            )],
+            body: Box::new(Expr::Lit(Lit::Unit)),
+        };
         let release_fn = Expr::Lambda {
             params: Vec::new(),
             ty: release_ty,
             body: Box::new(release_body),
             suspends: release_suspends,
         };
-        let pair = Expr::Tuple(vec![handler_value, release_fn]);
+        let pair = Expr::Let {
+            var: opened,
+            value: Box::new(handler_value),
+            body: Box::new(Expr::Tuple(vec![Expr::Var(opened), release_fn])),
+        };
         let mut body = Expr::Let {
             var: state,
             value: Box::new(init_call),

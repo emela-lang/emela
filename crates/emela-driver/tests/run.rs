@@ -2403,3 +2403,69 @@ fn main() {
         )
     );
 }
+
+#[test]
+fn handler_members_opened_in_an_init_are_defects_when_used_after_release() {
+    // A handler member opened in an init is released after the handler whose init opened it, and
+    // is marked released then, as one opened as a with item is (`[effect.escape]`, issue #704).
+    let output = run_source(
+        "init-member-released",
+        r#"import Std.Console.{Console, SystemConsole}
+
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+}
+
+effect Holder {
+  fn file() -> use ReadFile
+}
+
+handler MemoryFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) {
+      (use Console).print_line("open #{path}")
+      Self(path:)
+    }
+
+    release { (use Console).print_line("close #{self.path}") }
+
+    fn read(max) {
+      (use Console).print_line("read #{self.path}")
+      max
+    }
+  }
+}
+
+handler Keeps(inner: use ReadFile): Holder {
+  init {
+    Self(inner: Files.Open("a.txt"))
+  }
+
+  fn file() { self.inner }
+}
+
+handler Spare: ReadFile {
+  fn read(max) { 0 }
+}
+
+fn main() {
+  with SystemConsole, MemoryFiles {
+    f = with Keeps { (use Holder).file() }
+    with Spare { (use Console).print_line("#{f.read(1)}") }
+  }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            DEFECT_EXIT_CODE,
+            "open a.txt\nclose a.txt\n",
+            "defect: handler Open was used after release\n"
+        )
+    );
+}
