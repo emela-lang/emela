@@ -2410,7 +2410,7 @@ fn handler_members_opened_in_an_init_are_defects_when_used_after_release() {
     // is marked released then, as one opened as a with item is (`[effect.escape]`, issue #704).
     let output = run_source(
         "init-member-released",
-        r#"import Std.Console.{Console, SystemConsole}
+        r##"import Std.Console.{Console, SystemConsole}
 
 effect ReadFile {
   fn read(max: Int) -> Int
@@ -2458,7 +2458,7 @@ fn main() {
     with Spare { (use Console).print_line("#{f.read(1)}") }
   }
 }
-"#,
+"##,
     );
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
@@ -2476,7 +2476,7 @@ fn handler_members_of_several_effects_opened_in_an_init_are_defects_when_used_af
     // them is marked released, not the tuple (`[effect.escape]`, issue #704).
     let output = run_source(
         "init-member-several-released",
-        r#"import Std.Console.{Console, SystemConsole}
+        r##"import Std.Console.{Console, SystemConsole}
 
 effect Query {
   fn query(sql: String) -> Int
@@ -2527,7 +2527,7 @@ fn main() {
     with Spare { (use Console).print_line("#{q.query("x")}") }
   }
 }
-"#,
+"##,
     );
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
