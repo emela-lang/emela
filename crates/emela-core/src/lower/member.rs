@@ -349,14 +349,8 @@ impl Lowerer<'_> {
         // opened: a with item marks it again, which does nothing more; a handler opened in an
         // init is marked only here (issue #704).
         let opened = self.module.local("opened", handler_ty);
-        let retired = self.module.local("retired", handler_ty);
         let release_body = Expr::With {
-            binds: vec![WithBind::managed(
-                retired,
-                Expr::Var(opened),
-                &name,
-                release_body,
-            )],
+            binds: self.retiring_binds(opened, handler_ty, &name, release_body),
             body: Box::new(Expr::Lit(Lit::Unit)),
         };
         let release_fn = Expr::Lambda {
@@ -383,6 +377,31 @@ impl Lowerer<'_> {
             };
         }
         (body, init_suspends)
+    }
+
+    /// The bindings that run `release` and then mark the handler value `opened`, of type
+    /// `handler_ty`, released (`[effect.escape]`). The value of a handler of several effects is
+    /// the tuple of their handlers (`[effect.handler]`): the tuple gets the release, and each
+    /// handler in it is marked, as at a with item.
+    fn retiring_binds(
+        &mut self,
+        opened: Local,
+        handler_ty: TypeId,
+        name: &str,
+        release: Expr,
+    ) -> Vec<WithBind> {
+        let retired = self.module.local("retired", handler_ty);
+        let Type::Tuple(parts) = self.module.ty(handler_ty).clone() else {
+            return vec![WithBind::managed(retired, Expr::Var(opened), name, release)];
+        };
+        let mut binds = vec![WithBind::cleanup(retired, Expr::Var(opened), name, release)];
+        let n = parts.len();
+        for (k, ty) in parts.into_iter().enumerate() {
+            let part = self.module.local("h", ty);
+            let value = tuple_get(retired, k, n, ty, &mut self.module);
+            binds.push(WithBind::managed(part, value, name, Expr::Lit(Lit::Unit)));
+        }
+        binds
     }
 
     /// The handler value that a handler member item of `with` opens a member of

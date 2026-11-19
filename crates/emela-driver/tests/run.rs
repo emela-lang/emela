@@ -2469,3 +2469,72 @@ fn main() {
         )
     );
 }
+
+#[test]
+fn handler_members_of_several_effects_opened_in_an_init_are_defects_when_used_after_release() {
+    // The value of a handler member of several effects is the tuple of their handlers: each of
+    // them is marked released, not the tuple (`[effect.escape]`, issue #704).
+    let output = run_source(
+        "init-member-several-released",
+        r#"import Std.Console.{Console, SystemConsole}
+
+effect Query {
+  fn query(sql: String) -> Int
+}
+
+effect Execute {
+  fn execute(sql: String) -> ()
+}
+
+effect Files {
+  handler Lock(path: String): Query + Execute
+}
+
+effect Holder {
+  fn query() -> use Query
+}
+
+handler MemoryFiles: Files {
+  handler Lock(path: String): Query + Execute {
+    init(path: String) {
+      (use Console).print_line("lock #{path}")
+      Self(path:)
+    }
+
+    release { (use Console).print_line("unlock #{self.path}") }
+
+    fn query(sql) { 1 }
+
+    fn execute(sql) { () }
+  }
+}
+
+handler Keeps(inner: use Query): Holder {
+  init {
+    Self(inner: Files.Lock("a"))
+  }
+
+  fn query() { self.inner }
+}
+
+handler Spare: Query {
+  fn query(sql) { 0 }
+}
+
+fn main() {
+  with SystemConsole, MemoryFiles {
+    q = with Keeps { (use Holder).query() }
+    with Spare { (use Console).print_line("#{q.query("x")}") }
+  }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            DEFECT_EXIT_CODE,
+            "lock a\nunlock a\n",
+            "defect: handler Lock was used after release\n"
+        )
+    );
+}
