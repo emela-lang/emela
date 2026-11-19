@@ -521,6 +521,14 @@ impl<'m> Emitter<'m> {
         }
     }
 
+    /// A `switch` key as C: a variant number or a literal.
+    fn case_key(&mut self, key: &CaseKey) -> String {
+        match key {
+            CaseKey::Variant(k) => k.to_string(),
+            CaseKey::Lit(c) => self.constant(c),
+        }
+    }
+
     fn constant(&mut self, c: &Const) -> String {
         match c {
             Const::Int(n) => names::int32(*n),
@@ -936,10 +944,12 @@ impl<'m> Emitter<'m> {
                 };
                 cx.w.switch_begin(&scrutinee);
                 for case in cases {
-                    let key = match &case.key {
-                        CaseKey::Variant(k) => k.to_string(),
-                        CaseKey::Lit(c) => self.constant(c),
-                    };
+                    // Several keys of one case share its body: C lists their labels one after
+                    // the other before it.
+                    for key in &case.keys[..case.keys.len() - 1] {
+                        cx.w.case_label(&self.case_key(key));
+                    }
+                    let key = self.case_key(&case.keys[case.keys.len() - 1]);
                     cx.w.case_begin(&key);
                     self.seq(cx, case.body, Some(&y));
                     cx.w.end();

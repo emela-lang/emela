@@ -993,37 +993,47 @@ fn emit_switch(
     default: Option<u32>,
 ) {
     for (case, state) in cases.iter().zip(states) {
-        match on {
-            SwitchOn::Tag(v) => {
-                if cx.f.vars[v].repr == Repr::Ref {
-                    ins.local_get(cx.local(v));
-                    let tag = b.rt("tag");
-                    ins.call(tag);
-                } else {
-                    ins.local_get(cx.local(v));
-                }
-                match &case.key {
-                    CaseKey::Variant(k) => {
-                        ins.i32_const(*k as i32);
+        // Each key of a case compares against the scrutinee; the comparisons are combined, so a
+        // case whose keys the LIR pass joined runs one body.
+        for (i, key) in case.keys.iter().enumerate() {
+            match on {
+                SwitchOn::Tag(v) => {
+                    if cx.f.vars[v].repr == Repr::Ref {
+                        ins.local_get(cx.local(v));
+                        let tag = b.rt("tag");
+                        ins.call(tag);
+                    } else {
+                        ins.local_get(cx.local(v));
                     }
-                    CaseKey::Lit(c) => b.const_val(ins, c),
-                }
-                ins.i32_eq();
-            }
-            SwitchOn::Lit(v) => {
-                ins.local_get(cx.local(v));
-                match &case.key {
-                    CaseKey::Lit(c) => b.const_val(ins, c),
-                    CaseKey::Variant(k) => {
-                        ins.i32_const(*k as i32);
+                    match key {
+                        CaseKey::Variant(k) => {
+                            ins.i32_const(*k as i32);
+                        }
+                        CaseKey::Lit(c) => b.const_val(ins, c),
                     }
-                }
-                if cx.f.vars[v].repr == Repr::I64 {
-                    ins.i64_eq();
-                } else {
                     ins.i32_eq();
                 }
+                SwitchOn::Lit(v) => {
+                    ins.local_get(cx.local(v));
+                    match key {
+                        CaseKey::Lit(c) => b.const_val(ins, c),
+                        CaseKey::Variant(k) => {
+                            ins.i32_const(*k as i32);
+                        }
+                    }
+                    if cx.f.vars[v].repr == Repr::I64 {
+                        ins.i64_eq();
+                    } else {
+                        ins.i32_eq();
+                    }
+                }
             }
+            if i > 0 {
+                ins.i32_or();
+            }
+        }
+        if case.keys.is_empty() {
+            ins.i32_const(0);
         }
         ins.if_(BlockType::Result(ValType::I32));
         ins.i32_const(*state as i32);

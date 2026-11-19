@@ -5,7 +5,7 @@ mod common;
 use common::{Fixture, int, string};
 use emela_core::{TypeId, VariantDef};
 use emela_lir::{
-    Callee, CaseKey, Closure, Const, ErrorKind, FnBuilder, Function, Module, OnFail, Operand,
+    Callee, Case, CaseKey, Closure, Const, ErrorKind, FnBuilder, Function, Module, OnFail, Operand,
     PrimOp, PrimTy, Repr, Stage, Stmt, SwitchOn, Term, Value, VarData, verify, verify_function,
 };
 
@@ -255,6 +255,25 @@ fn bad_prim() {
     );
     b.term(Term::Return(None));
     assert_eq!(kinds(&m, &b.finish()), [ErrorKind::BadPrim]);
+}
+
+#[test]
+fn a_case_with_several_keys_covers_its_constructors() {
+    let (fx, m) = module();
+    let mut b = FnBuilder::new(&m.core, "f");
+    let s = b.param("s", fx.shape_ty);
+    let body = b.seq(|b| b.term(Term::Yield(None)));
+    b.stmt(Stmt::Switch {
+        dst: None,
+        on: SwitchOn::Tag(s),
+        cases: vec![Case {
+            keys: vec![CaseKey::Variant(0), CaseKey::Variant(1)],
+            body,
+        }],
+        default: None,
+    });
+    b.term(Term::Return(None));
+    assert!(kinds(&m, &b.finish()).is_empty());
 }
 
 #[test]

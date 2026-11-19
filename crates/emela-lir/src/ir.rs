@@ -374,10 +374,24 @@ pub enum SwitchOn {
     Lit(VarId),
 }
 
+/// A case of a [`Stmt::Switch`]: one body for one or more keys.
+///
+/// The canonical form a module has after [`crate::opt::switch`] is: the keys of a case are
+/// sorted and distinct, the cases are ordered by their least key, and no key appears in two
+/// cases. Several keys share a body when their bodies are the same sequence ([`Self::body`]),
+/// so a backend emits one body with several labels instead of the same code once per key.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Case {
-    pub key: CaseKey,
+    /// The keys that select this body. Never empty, and without duplicates.
+    pub keys: Vec<CaseKey>,
     pub body: SeqId,
+}
+
+impl Case {
+    /// The first key, the one the canonical order of the cases is by.
+    pub fn first_key(&self) -> &CaseKey {
+        &self.keys[0]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -407,7 +421,11 @@ impl From<Const> for Operand {
 }
 
 /// A constant.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Equality is structural and bitwise for a [`Float`](Self::Float): `-0.0` and `0.0` are different
+/// constants (a program can tell them apart with a division), and two NaNs are equal only when
+/// their bits are. This is what the LIR passes compare bodies with; it is not the language's `==`.
+#[derive(Debug, Clone)]
 pub enum Const {
     Int(i32),
     Int64(i64),
@@ -420,6 +438,20 @@ pub enum Const {
     /// Core's); backends store any word there. Its representation is [`Repr::Void`], so it is
     /// accepted only in such slots.
     Unit,
+}
+
+impl PartialEq for Const {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Const::Int(a), Const::Int(b)) => a == b,
+            (Const::Int64(a), Const::Int64(b)) => a == b,
+            (Const::Float(a), Const::Float(b)) => a.to_bits() == b.to_bits(),
+            (Const::Bool(a), Const::Bool(b)) => a == b,
+            (Const::String(a), Const::String(b)) => a == b,
+            (Const::Unit, Const::Unit) => true,
+            _ => false,
+        }
+    }
 }
 
 impl Const {

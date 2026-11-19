@@ -605,21 +605,25 @@ impl Checker<'_> {
                 let count = self.core.enums[*id].variants.len();
                 let mut seen = vec![false; count];
                 for case in cases {
-                    match case.key {
-                        CaseKey::Variant(i) if i < count => {
-                            if std::mem::replace(&mut seen[i], true) {
-                                self.error(
-                                    ErrorKind::DuplicateCase,
-                                    format!("constructor {i} has two cases"),
-                                );
+                    if case.keys.is_empty() {
+                        self.error(ErrorKind::BadCase, "a case without keys".into());
+                    }
+                    for key in &case.keys {
+                        match *key {
+                            CaseKey::Variant(i) if i < count => {
+                                if std::mem::replace(&mut seen[i], true) {
+                                    self.error(
+                                        ErrorKind::DuplicateCase,
+                                        format!("constructor {i} has two cases"),
+                                    );
+                                }
                             }
-                        }
-                        CaseKey::Variant(i) => self.error(
-                            ErrorKind::BadCase,
-                            format!("constructor {i} out of range ({count} constructors)"),
-                        ),
-                        CaseKey::Lit(_) => {
-                            self.error(ErrorKind::BadCase, "a literal case in a tag switch".into())
+                            CaseKey::Variant(i) => self.error(
+                                ErrorKind::BadCase,
+                                format!("constructor {i} out of range ({count} constructors)"),
+                            ),
+                            CaseKey::Lit(_) => self
+                                .error(ErrorKind::BadCase, "a literal case in a tag switch".into()),
                         }
                     }
                 }
@@ -640,24 +644,29 @@ impl Checker<'_> {
                 }
                 let mut seen = Vec::new();
                 for case in cases {
-                    match &case.key {
-                        CaseKey::Lit(c) if c.repr() == r => {
-                            if seen.contains(&c) {
-                                self.error(
-                                    ErrorKind::DuplicateCase,
-                                    format!("literal {c:?} has two cases"),
-                                );
+                    if case.keys.is_empty() {
+                        self.error(ErrorKind::BadCase, "a case without keys".into());
+                    }
+                    for key in &case.keys {
+                        match key {
+                            CaseKey::Lit(c) if c.repr() == r => {
+                                if seen.contains(&c) {
+                                    self.error(
+                                        ErrorKind::DuplicateCase,
+                                        format!("literal {c:?} has two cases"),
+                                    );
+                                }
+                                seen.push(c);
                             }
-                            seen.push(c);
+                            CaseKey::Lit(c) => self.error(
+                                ErrorKind::BadCase,
+                                format!("a {} case in a switch on {r}", c.repr()),
+                            ),
+                            CaseKey::Variant(_) => self.error(
+                                ErrorKind::BadCase,
+                                "a constructor case in a literal switch".into(),
+                            ),
                         }
-                        CaseKey::Lit(c) => self.error(
-                            ErrorKind::BadCase,
-                            format!("a {} case in a switch on {r}", c.repr()),
-                        ),
-                        CaseKey::Variant(_) => self.error(
-                            ErrorKind::BadCase,
-                            "a constructor case in a literal switch".into(),
-                        ),
                     }
                 }
                 if !has_default {

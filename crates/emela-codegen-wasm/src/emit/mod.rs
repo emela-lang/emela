@@ -1814,6 +1814,12 @@ impl<'m> Builder<'m> {
     /// everything else (a sparse table, a switch on a literal, too few cases) stays the chain of
     /// comparing `if`s. A literal switch cannot use a table: its keys are arbitrary `i32`s, and
     /// an `i64` one is not the `i32` a `br_table` indexes with.
+    ///
+    /// The keys and their span come from the LIR ([`emela_lir::opt::switch::variant_keys`],
+    /// [`emela_lir::opt::switch::variant_span`]); when the normalisation pass ran they are already
+    /// sorted, the keys of a shared body are joined and duplicates are gone, and the emitter only
+    /// decides whether a table is worth its bytes. The helpers also accept the un-normalised form
+    /// of a `--no-opt` build.
     fn switch(
         &mut self,
         cx: &mut FnCtx,
@@ -1827,27 +1833,21 @@ impl<'m> Builder<'m> {
             return self.switch_chain(cx, ins, cases, 0, default, dst, scrutinee);
         }
         // The verifier gives a tag switch only variant keys, in range of the enum, each once.
-        let mut keys = Vec::with_capacity(cases.len());
-        for case in cases {
-            match &case.key {
-                CaseKey::Variant(k) => keys.push(*k),
-                CaseKey::Lit(_) => {
-                    self.internal(format!("a literal case in a tag switch in {}", cx.f.name));
-                    return;
-                }
-            }
-        }
-        let Some(max) = keys.iter().copied().max() else {
+        let Some(keys) = emela_lir::opt::switch::variant_keys(cases) else {
+            self.internal(format!("a literal case in a tag switch in {}", cx.f.name));
+            return;
+        };
+        let Some(width) = emela_lir::opt::switch::variant_span(cases) else {
             return self.switch_chain(cx, ins, cases, 0, default, dst, scrutinee);
         };
         // A table entry costs a byte; a case of the chain costs a comparison and its `if`, which
         // is more. A table wider than that is not worth it, nor is one for a couple of cases,
-        // where the dispatch is one more label than the comparison it replaces.
-        let width = max.saturating_add(1);
-        if cases.len() < SWITCH_TABLE_MIN_CASES || width > SWITCH_TABLE_WIDTH_SCALE * cases.len() {
+        // where the dispatch is one more label than the comparison it replaces. The count is of
+        // keys, not of bodies: a chain compares every key, a table has one block per body.
+        if keys.len() < SWITCH_TABLE_MIN_CASES || width > SWITCH_TABLE_WIDTH_SCALE * keys.len() {
             return self.switch_chain(cx, ins, cases, 0, default, dst, scrutinee);
         }
-        self.switch_table(cx, ins, cases, &keys, default, dst, scrutinee, width);
+        self.switch_table(cx, ins, cases, default, dst, scrutinee, width);
     }
 
     /// A switch as one nested block per case, dispatched by `br_table`, with a block around them
@@ -1866,7 +1866,6 @@ impl<'m> Builder<'m> {
         cx: &mut FnCtx,
         ins: &mut InstructionSink,
         cases: &[emela_lir::Case],
-        keys: &[usize],
         default: &Option<SeqId>,
         dst: Option<VarId>,
         scrutinee: Scrutinee,
@@ -1887,8 +1886,16 @@ impl<'m> Builder<'m> {
         // From the innermost case block, the `n` case blocks are at depths `0..n`, the default
         // block at `n` and the switch's end at `n + 1`.
         let mut targets = vec![n as u32; width];
-        for (i, &k) in keys.iter().enumerate() {
-            targets[k] = i as u32;
+        for (i, case) in cases.iter().enumerate() {
+            for key in &case.keys {
+                match key {
+                    CaseKey::Variant(k) => targets[*k] = i as u32,
+                    CaseKey::Lit(_) => {
+                        self.internal(format!("a literal case in a tag switch in {}", cx.f.name));
+                        return;
+                    }
+                }
+            }
         }
         ins.br_table(targets, n as u32);
         for (i, case) in cases.iter().enumerate() {
@@ -1937,22 +1944,7 @@ impl<'m> Builder<'m> {
             return;
         }
         let case = &cases[i];
-        self.push_scrutinee(cx, ins, scrutinee);
-        match &case.key {
-            CaseKey::Variant(k) => {
-                ins.i32_const(*k as i32);
-            }
-            CaseKey::Lit(c) => {
-                self.const_val(ins, c);
-            }
-        }
-        match scrutinee {
-            Scrutinee::Tag(_) | Scrutinee::Variant(_) => ins.i32_eq(),
-            Scrutinee::Lit(v) => match cx.f.vars[v].repr {
-                Repr::I64 => ins.i64_eq(),
-                _ => ins.i32_eq(),
-            },
-        };
+        self.push_case_match(cx, ins, case, scrutinee);
         ins.if_(BlockType::Empty);
         cx.push(Lbl::Other);
         let body = case.body;
@@ -1961,6 +1953,44 @@ impl<'m> Builder<'m> {
         self.switch_chain(cx, ins, cases, i + 1, default, dst, scrutinee);
         cx.pop();
         ins.end();
+    }
+
+    /// Pushes whether the scrutinee matches one of the case's keys: the comparison of each key,
+    /// combined with `i32_or`. A case has one key unless the LIR pass joined cases whose bodies
+    /// are the same sequence.
+    fn push_case_match(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        case: &emela_lir::Case,
+        scrutinee: Scrutinee,
+    ) {
+        let literal = matches!(scrutinee, Scrutinee::Lit(_));
+        for (i, key) in case.keys.iter().enumerate() {
+            self.push_scrutinee(cx, ins, scrutinee);
+            match key {
+                CaseKey::Variant(k) => {
+                    ins.i32_const(*k as i32);
+                }
+                CaseKey::Lit(c) => {
+                    self.const_val(ins, c);
+                }
+            }
+            if literal {
+                match scrutinee {
+                    Scrutinee::Lit(v) if cx.f.vars[v].repr == Repr::I64 => ins.i64_eq(),
+                    _ => ins.i32_eq(),
+                };
+            } else {
+                ins.i32_eq();
+            }
+            if i > 0 {
+                ins.i32_or();
+            }
+        }
+        if case.keys.is_empty() {
+            ins.i32_const(0);
+        }
     }
 
     fn push_scrutinee(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, s: Scrutinee) {
