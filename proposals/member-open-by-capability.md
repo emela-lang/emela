@@ -14,7 +14,7 @@ related: [handler-member, handler-member-gaps, handler-member-gaps-2]
 
 ## Summary
 
-handler member を開く形を，capability に対する呼び出し `c.M(arguments)` だけにする．effect や label の名前から開く形（with の項目の `x = Files.Open(path)`，init の中の `Files.Open(path)`，`L.Open(path)`）はやめ，`(use Files).Open(path)` か，`fs = use Files` の後の `fs.Open(path)` と書く．開くときは，引数のない member でも括弧を書く（`fs.Scratch()`）．
+handler member を開く形を，capability に対する呼び出し `c.M(arguments)` だけにする．effect や label の名前から開く形（with の項目の `x = Files.Open(path)`，init の中の `Files.Open(path)`，`L.Open(path)`）はやめ，`(use Files).Open(path)` か，`fs = use Files` の後の `fs.Open(path)` と書く．開くときは，引数のない member でも括弧を書く（`fs.Scratch()`）．with の member の項目は，同じ with の handler の項目をすべて init してから書いた順に開き，本体の `use E` と同じ供給者から開く．
 
 これで `.` の左に effect の名前を書く形はなくなる．供給者に届くのは `use` だけになり，handler member を開けるのは capability だけになる．
 
@@ -97,7 +97,9 @@ handler Pair(first: use ReadFile, second: use ReadFile): ReadFile {
 - handler member は，capability に対する呼び出し `c.M(arguments)` でだけ開く．c は `(use E)` か，E の capability の値．書ける位置は今と同じで，with の項目 `x = c.M(arguments)` と init の中である
 - `.` の左に effect または label の名前を書いて開くのは誤り（E0448）．with の項目でも（`x = Files.Open(path)`），init の中でも（`Files.Open(path)`）
 - 引数のない member でも括弧を書く（`c.Scratch()`）．括弧のない `c.M` は誤り（E0448）．引数が足りないのは，ほかの呼び出しと同じ誤り（E0305）
-- with の項目 `x = (use E).M(arguments)` の `use E` は，項目の requirement で，引数ではない．今の `x = E.M(arguments)` と同じく，同じ with の別の項目が供給する E も指す（`with a = (use Files).Open("a"), MemFiles { ... }` は `MemFiles` の `Open` を開く）．引数 `arguments` は今と同じく with の外で評価され，同じ with の項目が供給する effect を使えない
+- with は，handler の項目（`H`，`H(arguments)`，`x = H`，label の項目）をすべて init してから，member の項目を書いた順に開く．member の項目 `x = (use E).M(arguments)` の `use E` は，本体の `use E` と同じ供給者を指す．同じ with の handler をすべて見て，上書きも済んだ後の供給者である（`with a = (use Files).Open("a"), MemFiles { ... }` は `MemFiles` の `Open` を開き，`with MemFiles, a = (use Files).Open("a"), DiskFiles { ... }` は `DiskFiles` の `Open` を開く）．`with H1, H2, x = (use E).M(a) { body }` は，引数 a の評価の時期を除いて，`with H1, H2 { with x = (use E).M(a) { body } }` と同じ
+- member の項目の引数は，今と同じく with の外で，どの init よりも前に，項目を書いた順に評価する．同じ with の項目が供給する effect は使えない
+- member の項目は同じ with のどの handler よりも後に開くので，どの handler よりも先に release される
 - `x = c.M(arguments)`（c は変数）は今と同じ
 - init の中の `(use E).M(arguments)` は，今の `E.M(arguments)` と同じ意味になる．自分の effect への `use E` は，今と同じく外側の供給者を指すので，`Files` の handler の init の中の `(use Files).Open(path)` は外側の handler の member を開く
 - label: `(use L).M(arguments)` と `c.M(arguments)`（`c: use L`）
@@ -127,7 +129,7 @@ Replace the item "On a capability c of an effect E that has handler members, `c.
 
 Replace the item "`E.M(arguments)`, where E is an effect and M one of its handler members, can be written as an item only in the form `x = E.M(arguments)`. ..." with:
 
-> - A handler member M of an effect E can be written as an item only in the form `x = c.M(arguments)`, where c is a capability of E (8.2). `x = (use E).M(arguments)` calls the init of M of the innermost handler that provides E at that position. This `use E` is a requirement of the item, not an argument: another item of the same with can provide E, as for the requirements of handlers. `x = c.M(arguments)`, where c is a variable, calls the init of M of the handler that provides c. The arguments are treated as for `H(arguments)`. The item requires E (or c), not the requirements of the inner handler. `x = E.M(arguments)`, with the name of an effect or a label, is a compile error (E0448).
+> - A handler member M of an effect E can be written as an item only in the form `x = c.M(arguments)`, where c is a capability of E (8.2). The handler member items of a with are opened after all the other items are initialized, in the order they are written. `x = (use E).M(arguments)` calls the init of M of the handler that `use E` refers to in the body: the items of the same with are seen, after a later item takes precedence for the same effect. `x = c.M(arguments)`, where c is a variable, calls the init of M of the handler that provides c. The arguments are evaluated as for `H(arguments)`: outside the with, before any init runs. The item requires E (or c), not the requirements of the inner handler. `x = E.M(arguments)`, with the name of an effect or a label, is a compile error (E0448).
 
 ### `[effect.handler]`
 
@@ -157,9 +159,9 @@ Replace the row "| `E.M(a)`, `c.M(a)` inside an init | ..." with:
 
 ### `[dyn.with]`
 
-In step 1, replace "A handler member item `x = E.M(arguments)` or `x = c.M(arguments)` runs the init of M of the handler that provides E (or c)" with:
+In step 1, replace "A handler member item `x = E.M(arguments)` or `x = c.M(arguments)` runs the init of M of the handler that provides E (or c), and is ordered with the other items by its requirements (only E or c)." with:
 
-> A handler member item `x = (use E).M(arguments)` or `x = c.M(arguments)` runs the init of M of the handler that provides E (or c)
+> After the inits of the other items, the handler member items `x = (use E).M(arguments)` and `x = c.M(arguments)` run the init of M of the handler that provides E (or c), in the order the items are written. They are therefore released before the handlers of the same with (step 3).
 
 ### `[module.resolution]`
 
@@ -212,6 +214,7 @@ If the row of E0434 says that a handler member with parameters written without a
 ## Compatibility
 
 - 互換性を壊す．effect または label の名前から開く形（with の項目の `x = E.M(arguments)`，init の中の `E.M(arguments)`）と，with の項目で括弧を省いた `x = E.M` は，`(use E).M(arguments)` と `(use E).M()` に書き換えが要る．意味は同じなので，書き換えは機械的にできる
+- with の init の順が変わる．今は member の項目が依存の順に handler の項目の間に入る（`with a = Files.Open("a"), MemFiles, quiet = Quiet, b = Files.Open("b"), Loud` は `MemFiles`，`a`，`Quiet`，`b`，`Loud`）．この提案では handler の項目の後になる（`MemFiles`，`Quiet`，`Loud`，`a`，`b`）．init や release に出力があるプログラムでは順が変わる．開く供給者は変わらないので，項目を並べ替えずに `(use E).M(...)` に書き換えてよい
 - main で effect の名前から開いているのはテストだけ:
   - `crates/emela-codegen-c/tests/programs/` の `handler_members.emel`，`handler_member_failure.emel`，`handler_member_suspend.emel`，`multi_effect_handler_member.emel`
   - `crates/emela-core/tests/lower.rs`，`crates/emela-driver/tests/wasm_parity.rs`，`crates/emela-lsp/tests/server.rs`
@@ -227,8 +230,8 @@ If the row of E0434 says that a handler member with parameters written without a
 
 - emela-syntax: `supply` から effect の名前から開く形（`type_ref "." type_name`）を外し，`"(" "use" ... ")" "." type_name "(" [ args ] ")"` を足す．括弧のない `c.M` と `E.M` は，型検査で E0448 を出せるように受け付ける
 - emela-resolve: `.` の左で effect を引かない．ただし E0448 の help を出すため，`.` の左が effect か label で，その右が handler member のときを見分ける
-- emela-types: with の項目と init の中の，effect の名前から開く経路（`MemberProvider::Effect`）を E0448 にする．with の項目の `(use E)` は，項目の requirement として今の `MemberProvider::Effect` と同じ扱いにする（同じ with の項目が供給する E を指す）．括弧のない `c.M` を E0448 にする．E0434 の handler member の場合を外す
-- emela-core: lowering は今の `x = E.M` の経路を `x = (use E).M()` に使う
+- emela-types: with の項目と init の中の，effect の名前から開く経路（`MemberProvider::Effect`）を E0448 にする．with の項目の `(use E)` は，今の `MemberProvider::Effect` と同じく同じ with の項目が供給する E を指す．上書きされた handler は指さない．括弧のない `c.M` を E0448 にする．E0434 の handler member の場合を外す
+- emela-core: lowering は今の `x = E.M` の経路を `x = (use E).M()` に使う．with の init の順を，handler の項目（依存の順）の後に member の項目（書いた順）にする
 - emela-driver: E0447 と E0448 の文と help．LSP の補完で，`Files.` の後に member を出さない．code action で `(use E).M(...)` に書き換えられるようにするか（Open questions）
 - emela-fmt，tree-sitter（`editors/tree-sitter-emela/grammar.js`）: with の項目の `(use E).M(...)`
 - テストを書き換える（Compatibility の一覧）
@@ -240,6 +243,8 @@ If the row of E0434 says that a handler member with parameters written without a
 - **略記 `use E.M(arguments)` を足す**（`(use E).M` の括弧を省く）: `use (use E).M` のような重なりがなく短い．ただ，`use` は「引く」印で，`use E.M` は開く操作にも `use` を使うことになる．`use A.B` は今「モジュール A の effect B」と読む形でもあり，member の読みを足すと #670 と同じ規則が `use` の後にも要る
 - **開く操作に `use` を付ける（`use c.M(arguments)`）**: capability が新しくできる所に必ず `use` が付く．ただ，`use` が引くと開くの 2 つの意味を持つ．region-member（#660）の `stage.Spawn(k)` のように fn の中で capability を作る形にも `use` が要るかという問いも生む．開く印は capability に付けた大文字の `.M(...)` で足りる
 - **with の項目では，handler と同じく引数で括弧を決める（`x = c.Scratch`）**（#703）: with の項目の handler と見た目が揃う．ただ，開く操作は capability の値に対する呼び出しで，handler を名前で並べる形ではない．with の項目と init の中で同じ `c.M` の形が括弧だけ違うことにもなる
+- **member の項目の `(use E)` は，先に書いた項目だけを見る**: 項目を左から読む順に `use E` の規則を当てはめられる．ただ，`with MemFiles, a = (use Files).Open("a"), DiskFiles` で，本体から見ると上書きされた `MemFiles` を `a` のために init する例外が要り，今の `with a = Files.Open("a"), MemFiles` の意味も変わる．member の項目には依存できる項目がないので，循環を防ぐ理由にもならない
+- **member の項目の `(use E)` は，同じ with の項目を見ない（引数の中の `use E` と同じ）**: 規則はいちばん単純．ただ，供給者と member を同じ with に並べられず，入れ子の with が要る
 - **`E.op()` も許し，operation でも `use` を省けるようにする**: `E.M()` と揃う．ただ，`[effect.use]` の原則を捨てることになり，#670 が解いたモジュールとの名前の衝突も戻る
 
 ## Prior art
@@ -248,7 +253,6 @@ If the row of E0434 says that a handler member with parameters written without a
 
 ## Open questions
 
-- with の項目の `(use E)` は，項目の requirement として同じ with の項目が供給する E も指す（今の `x = E.M` と同じ）．一方，項目の引数の中の `use E` は同じ with の項目を見ない．同じ `use E` が位置で違う所を指すのをよしとするか．引数と同じに扱う（with の外で評価する）と，今の `with a = Files.Open("a"), MemFiles { ... }` の意味が変わる
 - with の項目が `x = (use Files).Open(path)` と長くなる．with の前で `fs = use Files` と束縛するのを勧めるだけでよいか
 - 移行: 1 つのリリースだけ警告（W04xx）にしてから誤りにするか，すぐ誤りにするか．v0.28.0 で出たばかりで，使っているのはテストだけなので，すぐ誤りにしてよいと考える．LSP の code action で `(use E).M(...)` に書き換えられるようにするか
 - 宣言の括弧（`handler Scratch: E` を `handler Scratch(): E` と同じにするか）はこの提案では扱わない（#703 にあったもの）．開く側の括弧とは独立で，init の `init` と `init()` の揃え方と一緒に決める
