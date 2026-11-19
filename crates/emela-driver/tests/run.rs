@@ -2454,3 +2454,49 @@ fn main() {
         (0, "alice 3\nalice\n3\n", "")
     );
 }
+
+#[test]
+fn effects_differing_in_the_type_arguments_of_a_capability_type_are_different_effects() {
+    // `State[use Box[Int]]` and `State[use Box[String]]` are two effects: the type arguments of
+    // the effect in a capability type are in the key (`[effect.use]`, issue #705), also when the
+    // key is looked up in another function.
+    let output = run_source(
+        "state-of-generic-capabilities",
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.State.{State}
+
+effect Box[T] {
+  fn get() -> T
+}
+
+handler Seven: Box[Int] {
+  fn get() { 7 }
+}
+
+handler Word: Box[String] {
+  fn get() { "word" }
+}
+
+fn word() -> String uses { State[use Box[String]], Box[String] } {
+  (use State[use Box[String]]).get().get()
+}
+
+fn main() {
+  with SystemConsole, Seven, Word {
+    State.run(use Box[Int], || {
+      State.run(use Box[String], || {
+        n = (use State[use Box[Int]]).get().get()
+        (use Console).print_line("#{n} #{word()}")
+      })
+    })
+    State.run(use Box[String], || (use Console).print_line(word()))
+    ()
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "7 word\nword\n", "")
+    );
+}
