@@ -50,7 +50,7 @@ with の項目で handler `H` を書くと，H は本体に effect を名前で�
 
 handler member も capability の値を通して届くので，operation と同じく `c.M(...)` が呼び出しになり，引数がなくても括弧を書く．括弧のない `c.M` を「開く」とすると，capability の値に付けた括弧のない `.name` が，小文字（`log.info`）なら関数の値，大文字（`c.Scratch`）なら開く，と字の大小で意味が分かれる．この提案では，括弧のない `c.M` は誤り（E0448）とし，関数のような値（後で呼べば開ける値）にもしない．
 
-開いた handler の寿命は，開いた位置が持つ．with の項目なら with の終わりに，init の中なら init を走らせた handler の release の後に release される．member を開けるのが with の項目と init の中だけ（E0448）なのはそのためで，開くことは寿命を持つ位置から切り離せない．括弧のない `c.M` を関数のような値にすると，fn の中や後で呼ぶ closure の中など，寿命を持たない位置で開けてしまう．operation の呼び出しは寿命を生まないので，`log.info` は呼ぶ位置から切り離して関数の値にできる．
+member は with の項目と init の中でだけ開け（E0448），開いた handler の寿命はそこで決まる．with の項目で開いたものはその with と同じだけ生き，init の中で開いたものはその init を走らせた handler と同じだけ生きる（`[dyn.with]`，`[effect.handler]`）．なので，開くことはその位置から切り離せない．括弧のない `c.M` を関数のような値にすると，値は持ち出せるので，fn の中や後で呼ぶ closure の中など，寿命の決まらない位置で開けてしまう．operation の呼び出しは寿命を生まないので，`log.info` は呼ぶ位置から切り離して関数の値にできる．
 
 今の文法でも，capability に対して開く形は括弧が要る．init の中の `postfix` は `"." type_name "(" [ args ] ")"` で，with の項目の `supply` の 2 つ目の形は `lower_name "." type_name "(" [ args ] ")"` である．括弧を省ける形は `supply` の 1 つ目，つまり effect の名前から開く `x = E.M` だけで，それもこの提案でなくなる．この提案の文法は，括弧のない `c.M` も受け付けて，本文の規則で誤り（E0448）にする．括弧を書くよう促す help を出すためである．一つの with に `with H, x = (use E).M()` と括弧の有無が違う項目が並ぶのは，名前と値の違いである．
 
@@ -130,7 +130,7 @@ In the item "Whether a call may suspend is determined as follows.", replace "Ope
 
 Replace the item "On a capability c of an effect E that has handler members, `c.M(arguments)` opens ..." with:
 
-> - On a capability c of an effect E that has handler members, `c.M(arguments)` opens the handler member M of the handler that provides c. c is `(use E)` or a value of type `use E`. As for an operation of a capability, `c.M(...)` is written as a call, and the parentheses are written also for a member without parameters (`fs.Scratch()`). `c.M` without them is a compile error (E0448). Unlike `log.info`, it does not give a function value, or any other value that opens the member when it is used later: the handler opened belongs to the with or the init where it is opened, so opening it cannot be separated from that position. It can be written only as a with item `x = c.M(arguments)` (8.3) and inside an init (8.4).
+> - On a capability c of an effect E that has handler members, `c.M(arguments)` opens the handler member M of the handler that provides c. c is `(use E)` or a value of type `use E`. As for an operation of a capability, `c.M(...)` is written as a call, and the parentheses are written also for a member without parameters (`fs.Scratch()`). It can be written only as a with item `x = c.M(arguments)` (8.3) and inside an init (8.4). `c.M` without the parentheses is a compile error (E0448). Unlike `log.info`, it does not give a function value, or any other value that opens the member when it is used later: a handler opened as a with item lives as long as that with, and one opened inside an init as long as the handler whose init opened it, so opening cannot be separated from those positions.
 > - A handler member is not opened through the name of an effect or a label, as an operation is not called through it: `Files.Open(path)` is a compile error (E0448), and is written `(use Files).Open(path)`.
 
 ### `[effect.with]`
