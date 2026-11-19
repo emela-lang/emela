@@ -19,6 +19,7 @@
 mod common;
 
 use common::*;
+use emela_codegen_wasm::WasmOptions;
 
 /// FNV-1a, 64 bits: enough to catch an accidental change without another dependency.
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -224,4 +225,34 @@ fn emitted_test_bytes_do_not_change() {
     check(TEST_PROGRAMS.iter().map(|&(name, src, tests, len, hash)| {
         (name, compile_tests_checked(src, tests), len, hash)
     }));
+}
+
+/// The opt-in E2 form: an array of an all-scalar record stores the element inline. This is a
+/// feature pin for `WasmOptions::aggregate_arrays`, not a change to a boxed pin above; the option
+/// is off by default and every other pin stays as it was.
+#[test]
+fn emitted_inline_array_bytes_do_not_change() {
+    const SRC: &str = r#"
+import Std.Array.{Array}
+
+type Point(x: Int, y: Int)
+
+fn main() {
+  a = Array.from_list([Point(x: 1, y: 2), Point(x: 3, y: 4)])
+  dbg(a)
+  dbg(Array.set(a, 0, Point(x: 5, y: 6)))
+  dbg(Array.get(a, 1))
+  dbg(Array.to_list(a))
+}
+"#;
+    let output = to_output_with(
+        SRC,
+        WasmOptions {
+            aggregate_arrays: true,
+            ..WasmOptions::default()
+        },
+    );
+    wasmparser::validate(&output.module).expect("the inline-array module is valid");
+    // The C2 profitability rule changes the borrows of the call sites in this program.
+    check([("inline_array", output.module, 15679, 0xc50f_9575_2749_36be)]);
 }

@@ -145,37 +145,55 @@ impl<'m> Builder<'m> {
                 self.assign(cx, ins, dst, Repr::Ref);
             }
             // Arrays (`runtime/array.rs`). The functions that make an array from lists are given
-            // its descriptor, which says whether the elements are references.
+            // its descriptor, which says whether the elements are references and their stride.
             ArrayFromList | ArrayConcat => {
                 let Some(d) = dst else {
                     self.internal(format!("array without a destination in {}", cx.f.name));
                     return;
                 };
-                let desc = self.array_desc(cx.f.vars[d].ty);
+                let ty = cx.f.vars[d].ty;
+                let agg = op == ArrayFromList && self.inline_array_elem(ty).is_some();
+                let desc = self.array_desc(ty);
                 self.operand(cx, ins, &args[0]);
                 ins.i32_const(desc as i32);
-                let f = self.rt(if op == ArrayFromList {
-                    "array_from_list"
-                } else {
-                    "array_concat"
+                let f = self.rt(match (op, agg) {
+                    (ArrayFromList, true) => "array_from_list_agg",
+                    (ArrayFromList, false) => "array_from_list",
+                    _ => "array_concat",
                 });
                 ins.call(f);
                 self.assign(cx, ins, dst, Repr::Ref);
             }
             ArrayToList => {
-                let elem_ref = match &args[0] {
-                    Operand::Var(v) => self.array_elem_repr(cx.f.vars[*v].ty) == Repr::Ref,
-                    Operand::Const(_) => false,
+                if dst.is_none() {
+                    self.internal(format!("array without a destination in {}", cx.f.name));
+                    return;
+                }
+                let (elem_ref, elem_desc) = match &args[0] {
+                    Operand::Var(v) => {
+                        let ty = cx.f.vars[*v].ty;
+                        (
+                            self.array_elem_repr(ty) == Repr::Ref,
+                            self.inline_array_elem_desc(ty),
+                        )
+                    }
+                    Operand::Const(_) => (false, None),
                 };
-                self.operand(cx, ins, &args[0]);
                 let cons = if elem_ref {
                     self.cons_ref_desc
                 } else {
                     self.cons_val_desc
                 };
+                self.operand(cx, ins, &args[0]);
                 ins.i32_const(cons as i32);
-                let f = self.rt("array_to_list");
-                ins.call(f);
+                if let Some(elem) = elem_desc {
+                    ins.i32_const(elem as i32);
+                    let f = self.rt("array_to_list_agg");
+                    ins.call(f);
+                } else {
+                    let f = self.rt("array_to_list");
+                    ins.call(f);
+                }
                 self.assign(cx, ins, dst, Repr::Ref);
             }
             ArraySize => {
@@ -183,7 +201,39 @@ impl<'m> Builder<'m> {
                 ins.i32_load(mem(HDR, 4));
                 self.assign(cx, ins, dst, Repr::I32);
             }
-            ArrayGet => self.option_call(cx, ins, dst, args, "array_get"),
+            ArrayGet => {
+                let Some(d) = dst else {
+                    self.internal(format!("`ArrayGet` without a destination in {}", cx.f.name));
+                    return;
+                };
+                let array_ty = match &args[0] {
+                    Operand::Var(v) => cx.f.vars[*v].ty,
+                    Operand::Const(_) => {
+                        self.internal(format!("`ArrayGet` of a constant in {}", cx.f.name));
+                        return;
+                    }
+                };
+                let Some(elem) = self.inline_array_elem_desc(array_ty) else {
+                    self.option_call(cx, ins, dst, args, "array_get");
+                    return;
+                };
+                let Some((some, none, _)) = self.option_parts(cx.f.vars[d].ty) else {
+                    self.internal(format!(
+                        "`array_get` does not return an Option in {}",
+                        cx.f.name
+                    ));
+                    return;
+                };
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                ins.i32_const(elem as i32);
+                ins.i32_const(some as i32);
+                ins.i32_const(none as i32);
+                let f = self.rt("array_get_agg");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
             // The Core IR fusion of `Option.or(Array.get(a, i), d)`: the element when `i` is in
             // range, `d` (evaluated before) otherwise. As everywhere, a reference result is owned
             // once more, so it is duped here whether it comes from the array or from `d`.
@@ -198,6 +248,18 @@ impl<'m> Builder<'m> {
                 let repr = self.repr(cx.f.vars[dst].ty);
                 if repr == Repr::Void {
                     self.internal(format!("`ArrayGetOr` of () in {}", cx.f.name));
+                    return;
+                }
+                if let Operand::Var(v) = &args[0]
+                    && let Some(elem) = self.inline_array_elem_desc(cx.f.vars[*v].ty)
+                {
+                    self.operand(cx, ins, &args[0]);
+                    self.operand(cx, ins, &args[1]);
+                    self.operand(cx, ins, &args[2]);
+                    ins.i32_const(elem as i32);
+                    let f = self.rt("array_get_or_agg");
+                    ins.call(f);
+                    self.assign(cx, ins, Some(dst), Repr::Ref);
                     return;
                 }
                 self.operand(cx, ins, &args[1]);
@@ -240,6 +302,17 @@ impl<'m> Builder<'m> {
                     self.internal(format!("`ArrayLoadUnchecked` of () in {}", cx.f.name));
                     return;
                 }
+                if let Operand::Var(v) = &args[0]
+                    && let Some(elem) = self.inline_array_elem_desc(cx.f.vars[*v].ty)
+                {
+                    self.operand(cx, ins, &args[0]);
+                    self.operand(cx, ins, &args[1]);
+                    ins.i32_const(elem as i32);
+                    let f = self.rt("array_load_unchecked_agg");
+                    ins.call(f);
+                    self.assign(cx, ins, Some(dst), Repr::Ref);
+                    return;
+                }
                 self.array_element(cx, ins, &args[0], &args[1], repr);
                 self.assign(cx, ins, Some(dst), repr);
             }
@@ -261,6 +334,7 @@ impl<'m> Builder<'m> {
                 // A type parameter can become `()` after monomorphization: its elements have no
                 // representation, so the loop calls `f` for each position and stores nothing.
                 let elem = self.array_elem_repr(cx.f.vars[dst].ty);
+                let inline = self.inline_array_elem(cx.f.vars[dst].ty);
                 let Operand::Var(fun) = &args[2] else {
                     self.internal(format!("a closure that is not a value in {}", cx.f.name));
                     return;
@@ -301,13 +375,15 @@ impl<'m> Builder<'m> {
                 ins.i32_ge_u();
                 ins.br_if(1);
                 // The address of element `at`.
-                ins.local_get(out);
-                ins.i32_const((HDR + 8) as i32);
-                ins.i32_add();
-                ins.local_get(at);
-                ins.i32_const(3);
-                ins.i32_shl();
-                ins.i32_add();
+                if inline.is_none() {
+                    ins.local_get(out);
+                    ins.i32_const((HDR + 8) as i32);
+                    ins.i32_add();
+                    ins.local_get(at);
+                    ins.i32_const(3);
+                    ins.i32_shl();
+                    ins.i32_add();
+                }
                 // `f(lo + at)`: the closure, its argument, then the function's table index.
                 let ty = self.call_ty(&[Repr::Ref, Repr::I32], elem);
                 ins.local_get(fun);
@@ -317,34 +393,62 @@ impl<'m> Builder<'m> {
                 ins.local_get(fun);
                 ins.i32_load(mem(HDR, 4));
                 ins.call_indirect(0, ty);
-                match elem {
-                    Repr::I32 | Repr::Ref => {
-                        ins.i32_store(mem(0, 4));
+                if let Some(layout) = &inline {
+                    // The closure returns a box of the element. Keep it while a defect is
+                    // checked (a defect returns 0, which must not be dereferenced), copy its
+                    // slots into the inline element, and release the box.
+                    let slots = layout.slots() as u32;
+                    let boxed = cx.scratch(Repr::Ref, 0);
+                    ins.local_set(boxed);
+                    ins.global_get(G_DEFECT);
+                    ins.if_(BlockType::Empty);
+                    ins.local_get(out);
+                    ins.local_get(at);
+                    ins.i32_store(mem(HDR, 4));
+                    ins.local_get(out);
+                    let drop = self.rt("drop");
+                    ins.call(drop);
+                    ins.br(2);
+                    ins.end();
+                    super::runtime::array::elem_at(ins, out, at);
+                    ins.local_get(boxed);
+                    ins.i32_const(HDR as i32);
+                    ins.i32_add();
+                    ins.i32_const((slots * 8) as i32);
+                    ins.memory_copy(0, 0);
+                    ins.local_get(boxed);
+                    let drop = self.rt("drop");
+                    ins.call(drop);
+                } else {
+                    match elem {
+                        Repr::I32 | Repr::Ref => {
+                            ins.i32_store(mem(0, 4));
+                        }
+                        Repr::I64 => {
+                            ins.i64_store(mem(0, 8));
+                        }
+                        Repr::F64 => {
+                            ins.f64_store(mem(0, 8));
+                        }
+                        Repr::Void => {}
                     }
-                    Repr::I64 => {
-                        ins.i64_store(mem(0, 8));
-                    }
-                    Repr::F64 => {
-                        ins.f64_store(mem(0, 8));
-                    }
-                    Repr::Void => {}
+                    // A defect from `f` (nobody wrote it into the type) ends the loop where it
+                    // happens: the elements from `at` on were never written, so the length becomes
+                    // the count written. The array is the statement's destination, which a landing
+                    // does not own on the defect path (a destination is not live before its own
+                    // statement), so the array is released here, and the landing unwinds without it.
+                    // `br 2` leaves the `if`, the loop and the block around it.
+                    ins.global_get(G_DEFECT);
+                    ins.if_(BlockType::Empty);
+                    ins.local_get(out);
+                    ins.local_get(at);
+                    ins.i32_store(mem(HDR, 4));
+                    ins.local_get(out);
+                    let drop = self.rt("drop");
+                    ins.call(drop);
+                    ins.br(2);
+                    ins.end();
                 }
-                // A defect from `f` (nobody wrote it into the type) ends the loop where it
-                // happens: the elements from `at` on were never written, so the length becomes
-                // the count written. The array is the statement's destination, which a landing
-                // does not own on the defect path (a destination is not live before its own
-                // statement), so the array is released here, and the landing unwinds without it.
-                // `br 2` leaves the `if`, the loop and the block around it.
-                ins.global_get(G_DEFECT);
-                ins.if_(BlockType::Empty);
-                ins.local_get(out);
-                ins.local_get(at);
-                ins.i32_store(mem(HDR, 4));
-                ins.local_get(out);
-                let drop = self.rt("drop");
-                ins.call(drop);
-                ins.br(2);
-                ins.end();
                 ins.local_get(at);
                 ins.i32_const(1);
                 ins.i32_add();
@@ -355,8 +459,21 @@ impl<'m> Builder<'m> {
             }
             // Consumes the array (`heap::rc`); the value goes as an 8-byte word.
             ArraySet => {
+                let agg = match &args[0] {
+                    Operand::Var(v) => self.inline_array_elem(cx.f.vars[*v].ty).is_some(),
+                    Operand::Const(_) => false,
+                };
                 self.operand(cx, ins, &args[0]);
                 self.operand(cx, ins, &args[1]);
+                if agg {
+                    // The value stays a reference in the IR; its box's slots are copied into
+                    // the inline element, so the caller keeps its own reference.
+                    self.operand(cx, ins, &args[2]);
+                    let f = self.rt("array_set_agg");
+                    ins.call(f);
+                    self.assign(cx, ins, dst, Repr::Ref);
+                    return;
+                }
                 match Self::operand_repr(cx.f, &args[2]) {
                     Repr::I32 | Repr::Ref => {
                         self.operand(cx, ins, &args[2]);
@@ -462,6 +579,7 @@ impl<'m> Builder<'m> {
                     name: "$Cell".to_owned(),
                     show: None,
                     refs: vec![content == Repr::Ref],
+                    stride: 0,
                 });
                 self.alloc(cx, ins, d, desc, 1);
                 if let Some(a) = args.first() {

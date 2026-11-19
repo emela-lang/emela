@@ -139,8 +139,20 @@ fn calls(bytes: &[u8]) -> Calls {
 
 #[test]
 fn values_on_and_off_agree_and_a_local_record_stops_allocating() {
-    let off = to_output_with(PROGRAM, WasmOptions { values: false });
-    let on = to_output_with(PROGRAM, WasmOptions { values: true });
+    let off = to_output_with(
+        PROGRAM,
+        WasmOptions {
+            values: false,
+            ..WasmOptions::default()
+        },
+    );
+    let on = to_output_with(
+        PROGRAM,
+        WasmOptions {
+            values: true,
+            ..WasmOptions::default()
+        },
+    );
     wasmparser::validate(&off.module).expect("the boxed module is valid");
     wasmparser::validate(&on.module).expect("the by-value module is valid");
     assert_ne!(

@@ -127,6 +127,7 @@ pub(super) fn prepare(b: &mut Builder<'_>) -> Plan {
             name: name.to_owned(),
             show: None,
             refs,
+            stride: 0,
         })
     };
     let semaphore_desc = record(

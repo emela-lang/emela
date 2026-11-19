@@ -46,7 +46,6 @@ use rustc_hash::{FxHashMap, FxHashSet};
 #[derive(Debug, Clone)]
 pub(crate) struct Layout {
     /// The record, tuple or variant name (for diagnostics and tests).
-    #[allow(dead_code)]
     pub(crate) name: String,
     /// The flattened leaves. A nested value expands in place.
     pub(crate) leaves: Vec<Repr>,
@@ -56,7 +55,6 @@ pub(crate) struct Layout {
 
 impl Layout {
     /// The number of 8-byte slots the value would occupy in a box: one per leaf.
-    #[allow(dead_code)]
     pub(crate) fn slots(&self) -> usize {
         self.leaves.len()
     }
@@ -150,63 +148,101 @@ impl<'m> Values<'m> {
     /// The layout of `ty`, or `None` if it is not a record or tuple that can be held by value.
     fn build(&mut self, ty: TypeId) -> Option<Layout> {
         let core = self.core;
-        let (name, fields) = match core.ty(ty) {
-            Type::Tuple(elems) => ("tuple".to_owned(), elems.clone()),
-            Type::Enum(id, args) => {
-                let def = &core.enums[*id];
-                // A record: one variant with fields. A multi-variant enum needs a tag, which this
-                // prototype does not give a value form; an error must be distinguishable by
-                // pointer, and an external type is a host handle.
-                if def.error || def.external || def.variants.len() != 1 {
-                    return None;
-                }
-                let variant = &def.variants[0];
-                if variant.tys.is_empty() {
-                    return None;
-                }
-                let resolved: Vec<TypeId> = variant
-                    .tys
-                    .iter()
-                    .map(|&t| match core.ty(t) {
-                        Type::Param(i) if *i < args.len() => args[*i],
-                        _ => t,
-                    })
-                    .collect();
-                (variant.name.clone(), resolved)
-            }
-            _ => return None,
-        };
-        let mut leaves = Vec::new();
-        let mut spans = Vec::new();
-        for field in fields {
-            let start = leaves.len();
-            match repr_of(core, field) {
-                Repr::I32 => leaves.push(Repr::I32),
-                Repr::I64 => leaves.push(Repr::I64),
-                Repr::F64 => leaves.push(Repr::F64),
-                // A nested record or tuple, held inline. Anything else is a reference, which has
-                // no place in a value.
-                Repr::Ref => {
-                    let index = self.layout(field)?;
-                    let nested = &self.layouts[index];
-                    leaves.extend_from_slice(&nested.leaves);
-                }
-                Repr::Void => return None,
-            }
-            spans.push(FieldSpan {
-                start,
-                len: leaves.len() - start,
-            });
-        }
-        if leaves.is_empty() {
-            return None;
-        }
-        Some(Layout {
-            name,
-            leaves,
-            fields: spans,
+        build_layout(core, ty, true, |field| {
+            let index = self.layout(field)?;
+            Some(self.layouts[index].leaves.clone())
         })
     }
+}
+
+/// The all-scalar layout of `ty` as an array element that can be stored inline (E2), ignoring
+/// how the module uses it.
+///
+/// This is the pure part of [`Values`]'s predicate: a non-empty tuple or a single-variant,
+/// non-error, non-external enum whose fields are scalars. It does not apply the local-only
+/// exclusions (a function parameter, an array element and so on), so an array of the type can
+/// store it inline even though the local-only slice would keep it boxed (E2).
+///
+/// A field of reference representation is rejected, directly or through a nested record. The
+/// reason is not only that an inline element has no per-field reference map: on WASM a box of a
+/// nested record stores a *reference* to the nested box, not the nested value's slots, until the
+/// E1 step that boxes values flattened. Copying such a box's slots into an array would therefore
+/// store a reference and break the no-references-inside rule. The nested type stays boxed, which
+/// is correct (only an allocation is left for a later step).
+pub(crate) fn all_scalar(core: &emela_core::Module, ty: TypeId) -> Option<Layout> {
+    build_layout(core, ty, false, |_| None)
+}
+
+/// The name and field types of a candidate aggregate, resolving a field's type parameter.
+fn fields_of(core: &emela_core::Module, ty: TypeId) -> Option<(String, Vec<TypeId>)> {
+    match core.ty(ty) {
+        Type::Tuple(elems) => Some(("tuple".to_owned(), elems.clone())),
+        Type::Enum(id, args) => {
+            let def = &core.enums[*id];
+            // A record: one variant with fields. A multi-variant enum needs a tag, which this
+            // prototype does not give a value form; an error must be distinguishable by pointer,
+            // and an external type is a host handle.
+            if def.error || def.external || def.variants.len() != 1 {
+                return None;
+            }
+            let variant = &def.variants[0];
+            if variant.tys.is_empty() {
+                return None;
+            }
+            let resolved: Vec<TypeId> = variant
+                .tys
+                .iter()
+                .map(|&t| match core.ty(t) {
+                    Type::Param(i) if *i < args.len() => args[*i],
+                    _ => t,
+                })
+                .collect();
+            Some((variant.name.clone(), resolved))
+        }
+        _ => None,
+    }
+}
+
+/// Builds the layout of a candidate aggregate, flattening a nested record or tuple with `nested`.
+fn build_layout(
+    core: &emela_core::Module,
+    ty: TypeId,
+    allow_nested: bool,
+    mut nested: impl FnMut(TypeId) -> Option<Vec<Repr>>,
+) -> Option<Layout> {
+    let (name, fields) = fields_of(core, ty)?;
+    let mut leaves = Vec::new();
+    let mut spans = Vec::new();
+    for field in fields {
+        let start = leaves.len();
+        match repr_of(core, field) {
+            Repr::I32 => leaves.push(Repr::I32),
+            Repr::I64 => leaves.push(Repr::I64),
+            Repr::F64 => leaves.push(Repr::F64),
+            // A nested record or tuple, held inline. Anything else is a reference, which has no
+            // place in a value. An array element rejects every reference field (see
+            // [`all_scalar`]).
+            Repr::Ref => {
+                if !allow_nested {
+                    return None;
+                }
+                leaves.extend_from_slice(&nested(field)?);
+            }
+            Repr::Void => return None,
+        }
+        spans.push(FieldSpan {
+            start,
+            len: leaves.len() - start,
+        });
+    }
+    if leaves.is_empty() {
+        return None;
+    }
+    Some(Layout {
+        name,
+        leaves,
+        fields: spans,
+    })
 }
 
 /// Whether the shape of `ty` could be a value at all, ignoring the module's uses: a non-empty
@@ -683,5 +719,110 @@ mod tests {
             b.assign("p", rec, Value::Const(Const::Unit));
         });
         assert_eq!(values.index(rec), None);
+    }
+
+    // ---- the pure all-scalar predicate used for inline array elements (E2) ----
+
+    #[test]
+    fn an_all_scalar_record_has_an_array_layout() {
+        let mut core = emela_core::Module::new();
+        let rec = record(
+            &mut core,
+            "Point",
+            vec![("x", TypeId::INT), ("y", TypeId::INT)],
+        );
+        let l = all_scalar(&core, rec).expect("an all-scalar record");
+        assert_eq!(l.leaves, [Repr::I32, Repr::I32]);
+        assert_eq!(l.slots(), 2);
+    }
+
+    #[test]
+    fn an_all_scalar_tuple_has_an_array_layout() {
+        let mut core = emela_core::Module::new();
+        let t = core.tuple(vec![TypeId::INT64, TypeId::FLOAT]);
+        let l = all_scalar(&core, t).expect("an all-scalar tuple");
+        assert_eq!(l.leaves, [Repr::I64, Repr::F64]);
+    }
+
+    #[test]
+    fn a_scalar_is_not_an_inline_element() {
+        // A scalar array keeps its one-word element (stride 1); only a record or tuple has an
+        // inline layout.
+        let core = emela_core::Module::new();
+        assert!(all_scalar(&core, TypeId::INT).is_none());
+        assert!(all_scalar(&core, TypeId::FLOAT).is_none());
+    }
+
+    #[test]
+    fn a_reference_field_has_no_array_layout() {
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Named", vec![("name", TypeId::STRING)]);
+        assert!(all_scalar(&core, rec).is_none());
+    }
+
+    #[test]
+    fn an_empty_record_has_no_array_layout() {
+        let mut core = emela_core::Module::new();
+        let def = EnumDef {
+            name: "Empty".to_owned(),
+            params: 0,
+            variants: vec![VariantDef::unit("Empty")],
+            error: false,
+            external: false,
+        };
+        let id = core.add_enum(def);
+        let ty = core.types.enum_type(id, vec![]);
+        assert!(all_scalar(&core, ty).is_none());
+    }
+
+    #[test]
+    fn a_multi_variant_enum_has_no_array_layout() {
+        let mut core = emela_core::Module::new();
+        let def = EnumDef {
+            name: "Shape".to_owned(),
+            params: 0,
+            variants: vec![
+                VariantDef::positional("Circle", vec![TypeId::FLOAT]),
+                VariantDef::unit("Empty"),
+            ],
+            error: false,
+            external: false,
+        };
+        let id = core.add_enum(def);
+        let ty = core.types.enum_type(id, vec![]);
+        assert!(all_scalar(&core, ty).is_none());
+    }
+
+    #[test]
+    fn a_nested_record_has_no_inline_array_layout_yet() {
+        // The local-only E1 slice (and the boxed build generally) boxes a nested record as a
+        // *reference* in its parent, not as inline leaves. Copying that box's slots into an array
+        // element would store a reference, so an array of a nested record stays boxed until the
+        // boxing step flattens values (E1 step 5 / E2 step 3).
+        let mut core = emela_core::Module::new();
+        let inner = record(
+            &mut core,
+            "Point",
+            vec![("x", TypeId::INT), ("y", TypeId::INT)],
+        );
+        let outer = record(&mut core, "Line", vec![("a", inner), ("b", inner)]);
+        assert!(all_scalar(&core, outer).is_none());
+    }
+
+    #[test]
+    fn a_type_used_as_a_parameter_still_has_an_array_layout() {
+        // The array predicate is pure: it does not inherit the local-only exclusion of a
+        // function parameter, so an array of the type can still store it inline.
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
+        assert_eq!(all_scalar(&core, rec).expect("a pure layout").slots(), 1);
+        let values = values_of(core, |b| {
+            b.param("p", rec);
+        });
+        assert_eq!(
+            values.index(rec),
+            None,
+            "the local-only predicate keeps it boxed"
+        );
     }
 }

@@ -110,6 +110,7 @@ fn cache_desc(b: &mut Builder) -> u32 {
         name: "env_cache".to_owned(),
         show: None,
         refs: Vec::new(),
+        stride: 0,
     })
 }
 
