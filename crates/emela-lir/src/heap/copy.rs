@@ -138,7 +138,7 @@ impl<'a> Copier<'a> {
                 let cases = cases
                     .iter()
                     .map(|c| Case {
-                        key: c.key.clone(),
+                        keys: c.keys.clone(),
                         body: self.seq(out, c.body),
                     })
                     .collect();
@@ -474,7 +474,7 @@ impl Cloner {
                 let cases = cases
                     .into_iter()
                     .map(|c| Case {
-                        key: c.key,
+                        keys: c.keys,
                         body: self.seq(f, c.body),
                     })
                     .collect();

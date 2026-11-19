@@ -284,20 +284,24 @@ impl Printer<'_> {
                 self.indent += 1;
                 for case in cases {
                     self.newline();
-                    let key = match (&case.key, on) {
-                        (CaseKey::Variant(i), SwitchOn::Tag(v)) => {
-                            match self.m.core.ty(self.f.vars[*v].ty) {
-                                Type::Enum(id, _) => self.ctor_name(CtorRef {
-                                    enum_id: *id,
-                                    variant: *i,
-                                }),
-                                _ => format!("#{i}"),
+                    let keys: Vec<String> = case
+                        .keys
+                        .iter()
+                        .map(|key| match (key, on) {
+                            (CaseKey::Variant(i), SwitchOn::Tag(v)) => {
+                                match self.m.core.ty(self.f.vars[*v].ty) {
+                                    Type::Enum(id, _) => self.ctor_name(CtorRef {
+                                        enum_id: *id,
+                                        variant: *i,
+                                    }),
+                                    _ => format!("#{i}"),
+                                }
                             }
-                        }
-                        (CaseKey::Variant(i), SwitchOn::Lit(_)) => format!("#{i}"),
-                        (CaseKey::Lit(c), _) => const_text(c),
-                    };
-                    write!(self.out, "case {key} ").unwrap();
+                            (CaseKey::Variant(i), SwitchOn::Lit(_)) => format!("#{i}"),
+                            (CaseKey::Lit(c), _) => const_text(c),
+                        })
+                        .collect();
+                    write!(self.out, "case {} ", keys.join(", ")).unwrap();
                     self.seq(case.body);
                 }
                 if let Some(d) = default {

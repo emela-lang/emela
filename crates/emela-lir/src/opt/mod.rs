@@ -40,6 +40,7 @@
 //! | drop specialisation | [`Stats::drop_specialized`], [`Stats::drop_deopts`] | [`run_heap`] | a type-directed block drop for reference-free values behind [`LirRules::drop_spec`], opt-in (C3/PR-027) until its measured size cost pays for a runtime gain |
 //! | reuse / FBIP | [`Stats::reuse`], [`Stats::reuse_deopts`] | [`run_heap`] | a uniquely owned constructor rewritten in place, its old reference fields released first, behind [`LirRules::reuse`], off by default (C4/PR-042) |
 //! | [`dce`] | [`Stats::dce`] | [`run_heap`] | dead pure `let`s with scalar destinations, on by default (C7/PR-028) |
+//! | [`switch`] | [`Stats::switch_cases_merged`], [`Stats::switch_direct`] | [`run_heap`] | canonical switch cases, shared bodies and direct bodies behind [`LirRules::switch`], on by default (E4) |
 //! | [`frame_prune`] | — | — | read-only analysis (C7/PR-028): the corpus has no stale saved slot, so no pass prunes a frame |
 //!
 //! A row marked "not implemented" has no code and no flag yet; its pull request adds both. The
@@ -62,10 +63,12 @@
 //! ([`LirRules::dce`], [`dce`]), and borrow inference
 //! ([`LirRules::borrow`], run by
 //! [`to_heap_with_options`](crate::to_heap_with_options) between `state_machines` and `insert_rc`),
-//! and reuse ([`LirRules::reuse`], [`reuse`]), and [`Options`] holds them. [`run_mid_with`] and
-//! [`run_heap_with`] take the options; [`run_mid`] and [`run_heap`] use [`Options::default`], which
-//! runs the M3 memory passes that pay for themselves: SRA, the `rc` cleanup with the local-base
-//! borrow elision, DCE and borrow inference.
+//! reuse ([`LirRules::reuse`], [`reuse`]), and switch normalisation ([`LirRules::switch`],
+//! [`switch`]), and [`Options`] holds them. [`run_mid_with`] and [`run_heap_with`] take the
+//! options; [`run_mid`] and [`run_heap`] use [`Options::default`], which runs the M3 memory passes
+//! that pay for themselves — SRA, the `rc` cleanup with the local-base borrow elision, DCE and
+//! borrow inference — and the switch normalisation, which only joins identical bodies or removes
+//! a dispatch whose arms are all one body.
 //! Drop specialisation stays opt-in: with it on, the default build's native binary grew by up to
 //! 7.5% and its C source by up to 3.7% in the M3 measurement, with no measured runtime gain, and
 //! the plan requires a reason and approval for a size increase over 2%. Reuse is off by default
@@ -87,6 +90,7 @@ pub mod frame_prune;
 mod rc;
 pub mod reuse;
 mod sra;
+pub mod switch;
 
 #[cfg(test)]
 use std::cell::RefCell;
@@ -121,6 +125,11 @@ pub struct Stats {
     pub dce: u32,
     /// Functions [`dce`] left alone because liveness answered `Unknown`, one per function.
     pub dce_deopts: u32,
+    /// Case bodies [`switch`] joined into one case with several keys (E4), one per case removed.
+    pub switch_cases_merged: u32,
+    /// Switches [`switch`] replaced by a direct block because every arm ran the same body or the
+    /// single case covered every constructor (E4), one per switch.
+    pub switch_direct: u32,
     /// Functions borrow inference gave a non-empty borrowed-parameter signature
     /// ([`LirRules::borrow`], C2/PR-026).
     ///
@@ -162,6 +171,8 @@ impl Stats {
         self.rc_borrow_deopts += other.rc_borrow_deopts;
         self.dce += other.dce;
         self.dce_deopts += other.dce_deopts;
+        self.switch_cases_merged += other.switch_cases_merged;
+        self.switch_direct += other.switch_direct;
         self.borrow_functions += other.borrow_functions;
         self.borrow_params += other.borrow_params;
         self.borrow_args += other.borrow_args;
@@ -219,6 +230,13 @@ pub struct LirRules {
     /// the old block instead of allocating, releasing the references the old fields held ([`reuse`]).
     /// Off by default: the default build's output stays what it was.
     pub reuse: bool,
+    /// Switch normalisation at [`run_heap`] (E4): cases with the same body are joined into one
+    /// case with several sorted keys, duplicate keys are dropped, the cases are ordered by key,
+    /// and a switch every arm of which runs the same body becomes that body, without dispatch
+    /// ([`switch`]). On by default: it only joins structurally identical bodies or removes a
+    /// dispatch whose arms are all that one body, so it preserves behaviour and makes the emitted
+    /// C and WASM smaller. This is the canonical form both backends read.
+    pub switch: bool,
 }
 
 impl LirRules {
@@ -234,6 +252,7 @@ impl LirRules {
             drop_spec: true,
             borrow: true,
             reuse: true,
+            switch: true,
         }
     }
 
@@ -249,16 +268,19 @@ impl LirRules {
             drop_spec: false,
             borrow: false,
             reuse: false,
+            switch: false,
         }
     }
 }
 
 impl Default for LirRules {
     /// The passes that are on by default: SRA, the `rc` cleanup with the local-base borrow
-    /// elision, DCE and borrow inference (the M3 memory passes that pay for themselves). Drop
-    /// specialisation stays opt-in because its default-build size cost has no measured runtime
-    /// gain; reuse stays opt-in so that the default build's output is unchanged; record SRA and
-    /// closure devirtualisation stay off until M5/M6; frame pruning has no pass, because
+    /// elision, DCE, borrow inference (the M3 memory passes that pay for themselves) and the
+    /// switch normalisation (E4), which only joins structurally identical bodies or removes a
+    /// dispatch whose arms all run one body. Drop specialisation stays opt-in because its
+    /// default-build size cost has no measured runtime gain; reuse stays opt-in so that the
+    /// default build's output is unchanged; record SRA and closure devirtualisation stay off
+    /// until M5/M6; frame pruning has no pass, because
     /// [`frame_prune::scan`] finds no stale saved slot on the corpus.
     fn default() -> Self {
         Self {
@@ -271,6 +293,7 @@ impl Default for LirRules {
             drop_spec: false,
             borrow: true,
             reuse: false,
+            switch: true,
         }
     }
 }
@@ -279,8 +302,8 @@ impl Default for LirRules {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
     /// Which LIR passes to run. [`LirRules::default`] by default: SRA, the `rc` cleanup with the
-    /// borrow elision, DCE and borrow inference, with record SRA, closure devirtualisation, drop
-    /// specialisation and reuse off.
+    /// borrow elision, DCE, borrow inference and switch normalisation, with record SRA, closure
+    /// devirtualisation, drop specialisation and reuse off.
     pub rules: LirRules,
 }
 
@@ -379,14 +402,15 @@ pub fn run_mid_with(m: &mut Module, options: Options) -> Stats {
 /// variable is consumed between the two, or when the `drop` is not reached on every path. [`dce`]
 /// leaves a `let` alone when its value is not known to be pure, when its destination is a
 /// reference, when it has a defect landing or a suspension edge, or when liveness answers
-/// `Unknown`. [`drop_spec`] leaves a `drop` generic when the value's payload may hold a reference
+/// `Unknown`. [`switch`] leaves cases with different bodies, landings or suspension edges
+/// unmerged. [`drop_spec`] leaves a `drop` generic when the value's payload may hold a reference
 /// or the type has a finalizer. [`reuse`] leaves a `drop` and its `Make` alone unless the value is
 /// read only by that drop, both are references of the same type, and the constructor has no
 /// error, host handle or finalizer; a reference field is released before it is overwritten (see
 /// [`reuse`]).
 ///
 /// This is [`run_heap_with`] with [`Options::default`] (the `rc` cleanup with the local-base
-/// borrow elision and DCE on; drop specialisation and reuse are opt-in).
+/// borrow elision, DCE and switch normalisation on; drop specialisation and reuse are opt-in).
 pub fn run_heap(m: &mut Module, optimize: bool) -> Stats {
     if !optimize {
         assert_eq!(
@@ -416,6 +440,13 @@ pub fn run_heap_with(m: &mut Module, options: Options) -> Stats {
     }
     if options.rules.dce {
         stats.merge(dce::run(m));
+        check(m);
+    }
+    // Switch normalisation runs after DCE, which is the last point at which two arms can become
+    // the same body, and before the passes keyed by statement IDs: it compacts a function it
+    // changed, and drop specialisation and reuse must see the final numbering (E4, [`switch`]).
+    if options.rules.switch {
+        stats.merge(switch::run(m));
         check(m);
     }
     // Drop specialisation runs last: the `rc` cleanup and DCE have cut statements and renumbered
@@ -598,6 +629,8 @@ mod tests {
             drop_deopts: 1,
             reuse: 1,
             reuse_deopts: 2,
+            switch_cases_merged: 1,
+            switch_direct: 1,
         });
         total.merge(Stats {
             sra_tuples: 3,
@@ -617,6 +650,8 @@ mod tests {
             drop_deopts: 2,
             reuse: 4,
             reuse_deopts: 1,
+            switch_cases_merged: 1,
+            switch_direct: 2,
         });
         total.merge(Stats::default());
         assert_eq!(total.sra_tuples, 5);
@@ -636,12 +671,14 @@ mod tests {
         assert_eq!(total.dce_deopts, 3);
         assert_eq!(total.reuse, 5);
         assert_eq!(total.reuse_deopts, 3);
+        assert_eq!(total.switch_cases_merged, 2);
+        assert_eq!(total.switch_direct, 3);
     }
 
     /// `LirRules::all` turns every flag on; `none` turns every flag off. The default turns on the
     /// M3 memory passes that pay for themselves (the `rc` cleanup with the borrow elision, DCE and
-    /// borrow inference), keeps drop specialisation opt-in for its size cost, and keeps record SRA
-    /// and closure devirtualisation off until M5/M6.
+    /// borrow inference) and the E4 switch normalisation, keeps drop specialisation opt-in for its
+    /// size cost, and keeps record SRA and closure devirtualisation off until M5/M6.
     #[test]
     fn the_lir_rule_flags_have_the_m3_defaults() {
         let all = LirRules::all();
@@ -655,10 +692,11 @@ mod tests {
                 && all.drop_spec
                 && all.borrow
                 && all.reuse
+                && all.switch
         );
         let default = LirRules::default();
         assert!(default.sra && default.rc_cleanup);
-        assert!(default.rc_borrow && default.dce && default.borrow);
+        assert!(default.rc_borrow && default.dce && default.borrow && default.switch);
         assert!(!default.sra_records && !default.devirt && !default.drop_spec && !default.reuse);
         let none = LirRules::none();
         assert!(
@@ -670,6 +708,7 @@ mod tests {
                 && !none.drop_spec
                 && !none.borrow
                 && !none.reuse
+                && !none.switch
         );
     }
 
@@ -691,6 +730,8 @@ mod tests {
         assert_eq!(stats.rc_pairs, 0);
         assert_eq!(stats.devirt, 0);
         assert_eq!(stats.dce, 0);
+        assert_eq!(stats.switch_cases_merged, 0);
+        assert_eq!(stats.switch_direct, 0);
         assert_eq!(crate::dump(&m), before);
     }
 

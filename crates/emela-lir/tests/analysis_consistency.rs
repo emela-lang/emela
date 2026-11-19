@@ -1320,7 +1320,7 @@ fn the_lir_rule_flags_are_the_ones_the_tests_assume() {
     let default = Options::default();
     assert!(default.rules.sra && default.rules.rc_cleanup);
     assert!(default.rules.rc_borrow && default.rules.dce);
-    assert!(default.rules.borrow);
+    assert!(default.rules.borrow && default.rules.switch);
     assert!(!default.rules.sra_records && !default.rules.devirt && !default.rules.drop_spec);
 }
 

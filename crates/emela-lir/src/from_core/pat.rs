@@ -447,7 +447,7 @@ impl Lower<'_> {
                         .collect();
                     self.compile(sub, fail, target, arms);
                     cases.push(Case {
-                        key: CaseKey::Variant(k),
+                        keys: vec![CaseKey::Variant(k)],
                         body: self.close(),
                     });
                 }
@@ -519,7 +519,7 @@ impl Lower<'_> {
                         self.open();
                         self.compile(sub, fail, target, arms);
                         cases.push(Case {
-                            key: CaseKey::Lit(lit),
+                            keys: vec![CaseKey::Lit(lit)],
                             body: self.close(),
                         });
                         continue;
