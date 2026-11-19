@@ -1045,6 +1045,19 @@ impl Diagnostic {
                     format!("handler member `{member}` must be bound to a name in `with`"),
                 )
             }
+            TypeDiagnosticKind::MissingMemberArgs {
+                member,
+                effect,
+                params,
+            } => {
+                let args: Vec<String> = params.iter().map(|p| format!("{p}: ...")).collect();
+                help = Some(format!("write `{effect}.{member}({})`", args.join(", ")));
+                (
+                    Severity::Error,
+                    Some(code::MISSING_INIT_ARGS),
+                    format!("handler member `{member}` needs arguments"),
+                )
+            }
             TypeDiagnosticKind::MemberInLayer { member, layer } => (
                 Severity::Error,
                 Some(code::MEMBER_ITEM_FORM),

@@ -2420,6 +2420,53 @@ fn f() -> () uses { Files } {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// A handler member whose init takes parameters, written as an item of `with` without them, is
+/// E0434, as a handler is (`[effect.with]`, issue #700). A member without parameters is not.
+#[test]
+fn member_items_need_init_arguments() {
+    let main = "effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+  handler Temporary(): ReadFile
+}
+
+handler MemoryFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) { Self(path:) }
+    fn read(max) { max }
+  }
+
+  handler Temporary: ReadFile {
+    fn read(max) { max }
+  }
+}
+
+fn main() {
+  with MemoryFiles, f = Files.Open, t = Files.Temporary {
+    _ = f.read(1) + t.read(1)
+  }
+}
+";
+    let analysis = check_files(
+        &[("app/Pome.toml", ""), ("app/src/main.emel", main)],
+        "app",
+        &mut Typecheck::default(),
+    );
+    let output = render(&analysis.diagnostics, &analysis.sources, false);
+    assert!(
+        output.contains("error[E0434]: handler member `Open` needs arguments"),
+        "{output}"
+    );
+    assert!(
+        output.contains("help: write `Files.Open(path: ...)`"),
+        "{output}"
+    );
+    assert_eq!(output.matches("error[").count(), 1, "{output}");
+}
+
 /// A single file has no `Pome.toml` of its own, so there is no license to check.
 #[test]
 fn single_file_does_not_read_a_license() {
