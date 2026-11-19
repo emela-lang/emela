@@ -2411,7 +2411,7 @@ fn effects_differing_only_in_a_capability_type_are_different_effects() {
     // (issue #705).
     let output = run_source(
         "state-of-capabilities",
-        r#"import Std.Console.{Console, SystemConsole}
+        r##"import Std.Console.{Console, SystemConsole}
 import Std.State.{State}
 
 effect Name {
@@ -2447,7 +2447,7 @@ fn main() {
     ()
   }
 }
-"#,
+"##,
     );
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
