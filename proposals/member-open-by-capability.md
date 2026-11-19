@@ -37,7 +37,7 @@ with の項目で handler `H` を書くと，H は本体に effect を名前で�
 
 ### `.` の左の effect の名前の扱いが消える
 
-今の `[module.resolution]` は，`.` の左で effect を引く．引くのは handler member を指すときだけで，モジュールと effect が同じ名前のときは member を先にする（`handler-member-gaps-2`，#670）．`Logger.info` が誤りである理由も，モジュールの関数（小文字）とぶつかるという名前の都合だけである．
+今の `[module.resolution]` は，`.` の左で effect を引く．引くのは handler member を指すときだけで，モジュールと effect が同じ名前のときは member を先にする（`handler-member-gaps-2`，#670）．`[effect.use]` は operation を effect の名前で呼ぶ形を持たないのに，handler member は effect の名前で開ける．operation だけを止める理由は，operation の名前は小文字でモジュールの関数（`State.get`）とぶつかるが，member は大文字なのでぶつからない，という名前の都合だけである．
 
 `.` の左に effect を書く形がなくなれば，この規則はいらない．`Logger.info` と `Files.Open` は，「effect は値ではない」という同じ理由で書けなくなる．
 
@@ -50,16 +50,17 @@ with の項目で handler `H` を書くと，H は本体に effect を名前で�
 
 handler member も capability の値を通して届くので，operation と同じく `c.M(...)` が呼び出しになり，引数がなくても括弧を書く．括弧のない `c.M` を「開く」とすると，capability の値に付けた括弧のない `.name` が，小文字（`log.info`）なら関数の値，大文字（`c.Scratch`）なら開く，と字の大小で意味が分かれる．この提案では，括弧のない `c.M` は誤り（E0448）とし，関数の値も取らない．
 
-今の文法でも，capability に対して開く形は括弧が要る．init の中の `postfix` は `"." type_name "(" [ args ] ")"` で，with の項目の `supply` の 2 つ目の形は `lower_name "." type_name "(" [ args ] ")"` である．括弧を省ける形は `supply` の 1 つ目，つまり effect の名前から開く `x = E.M` だけで，それもこの提案でなくなる．一つの with に `with H, x = (use E).M()` と括弧の有無が違う項目が並ぶのは，名前と値の違いである．
+今の文法でも，capability に対して開く形は括弧が要る．init の中の `postfix` は `"." type_name "(" [ args ] ")"` で，with の項目の `supply` の 2 つ目の形は `lower_name "." type_name "(" [ args ] ")"` である．括弧を省ける形は `supply` の 1 つ目，つまり effect の名前から開く `x = E.M` だけで，それもこの提案でなくなる．この提案の文法は，括弧のない `c.M` も受け付けて，本文の規則で誤り（E0448）にする．括弧を書くよう促す help を出すためである．一つの with に `with H, x = (use E).M()` と括弧の有無が違う項目が並ぶのは，名前と値の違いである．
 
 今の実装は括弧について揃っていない（main，b4312ee）:
 
 | 書き方 | 今の仕様 | 今の実装 | この提案 |
 |---|---|---|---|
-| with の項目 `x = Files.Temporary`（`Temporary()`） | 決まっていない | 通る | E0448（effect の名前） |
-| with の項目 `x = Files.Open`（`Open(path: String)`） | 引数がない | `emela check` は通り，`emela run` で panic（#700．#706 で E0434 にする） | E0448（effect の名前） |
+| with の項目 `x = Files.Temporary`（`Temporary()`） | 決まっていない | 通る | E0448（effect の名前．help は `(use Files).Temporary()`） |
+| with の項目 `x = Files.Open`（`Open(path: String)`） | 引数がない | `emela check` は通り，`emela run` で panic（#700．#706 で E0434 にする） | E0448（effect の名前．help は `(use Files).Open(path: ...)`） |
 | with の項目 `x = fs.Temporary` | 書けない（`supply` は括弧が要る） | 構文エラー（E0110） | E0448（括弧がない） |
-| init の中の `Files.Temporary`（呼ばない） | 書けない（`postfix` は括弧が要る） | E0448（「with か init でしか開けない」で，init の中なので合わない）と E0301 | E0448（括弧がない） |
+| init の中の `Files.Temporary`（呼ばない） | 書けない（`postfix` は括弧が要る） | E0448（「with か init でしか開けない」で，init の中なので合わない）と E0301 | E0448（effect の名前．help は `(use Files).Temporary()`） |
+| init の中の `fs.Temporary`（呼ばない） | 書けない（`postfix` は括弧が要る） | 確かめていない | E0448（括弧がない．help は `fs.Temporary()`） |
 
 ### 失うものはない
 
@@ -69,7 +70,7 @@ handler member も capability の値を通して届くので，operation と同�
 
 ### Syntax
 
-with の項目に `x = (use E).M(arguments)` の形を足し，effect の名前から開く `supply` の形を外す．init の中の式の構文は変えない（`(use E).M(arguments)` は今も `postfix` で書ける）．
+with の項目に `x = (use E).M(arguments)` の形を足し，effect の名前から開く `supply` の形を外す．init の中の式は今も `(use E).M(arguments)` と書ける（`postfix`）．capability に付けた `.M` は，文法では括弧を省けるようにし，括弧がなければ本文の規則で誤り（E0448）にする．
 
 ```emel
 effect ReadFile {
@@ -101,8 +102,8 @@ handler Pair(first: use ReadFile, second: use ReadFile): ReadFile {
 
 - handler member は，capability に対する呼び出し `c.M(arguments)` でだけ開く．c は `(use E)` か，E の capability の値．書ける位置は今と同じで，with の項目 `x = c.M(arguments)` と init の中である
 - `.` の左に effect または label の名前を書いて開くのは誤り（E0448）．with の項目でも（`x = Files.Open(path)`），init の中でも（`Files.Open(path)`）
-- 引数のない member でも括弧を書く（`c.Scratch()`）．括弧のない `c.M` は誤り（E0448）．引数が足りないのは，ほかの呼び出しと同じ誤り（E0305）
-- with は，handler の項目（`H`，`H(arguments)`，`x = H`，label の項目）をすべて init してから，member の項目を書いた順に開く．member の項目 `x = (use E).M(arguments)` の `use E` は，本体の `use E` と同じ供給者を指す．同じ with の handler をすべて見て，上書きも済んだ後の供給者である（`with a = (use Files).Open("a"), MemFiles { ... }` は `MemFiles` の `Open` を開き，`with MemFiles, a = (use Files).Open("a"), DiskFiles { ... }` は `DiskFiles` の `Open` を開く）．`with H1, H2, x = (use E).M(a) { body }` は，引数 a の評価の時期を除いて，`with H1, H2 { with x = (use E).M(a) { body } }` と同じ
+- 引数のない member でも括弧を書く（`c.Scratch()`）．括弧のない `c.M` は誤り（E0448）．引数が足りないのは，ほかの呼び出しと同じ誤り（E0305．今の実装が init の中の `E.M()` でこれを出すかは確かめていない）
+- with は，handler の項目（`H`，`H(arguments)`，`x = H`，label の項目）をすべて init してから，member の項目を書いた順に開く．member の項目 `x = (use E).M(arguments)` の `use E` は，本体の `use E` と同じ供給者を指す．同じ with の handler をすべて見て，上書きも済んだ後の供給者である（`with a = (use Files).Open("a"), MemFiles { ... }` は `MemFiles` の `Open` を開き，`with MemFiles, a = (use Files).Open("a"), DiskFiles { ... }` は `DiskFiles` の `Open` を開く）．`with H1, H2, x = (use E).M(a) { body }` は，`with H1, H2 { with x = (use E).M(a) { body } }` と同じ．違うのは引数 a だけで，a は with の外で init より前に評価されるので，a からは H1 と H2 が供給する effect が見えない
 - member の項目の引数は，今と同じく with の外で，どの init よりも前に，項目を書いた順に評価する．同じ with の項目が供給する effect は使えない
 - member の項目は同じ with のどの handler よりも後に開くので，どの handler よりも先に release される
 - `x = c.M(arguments)`（c は変数）は今と同じ
@@ -134,7 +135,7 @@ Replace the item "On a capability c of an effect E that has handler members, `c.
 
 Replace the item "`E.M(arguments)`, where E is an effect and M one of its handler members, can be written as an item only in the form `x = E.M(arguments)`. ..." with:
 
-> - A handler member M of an effect E can be written as an item only in the form `x = c.M(arguments)`, where c is a capability of E (8.2). The handler member items of a with are opened after all the other items are initialized, in the order they are written. `x = (use E).M(arguments)` calls the init of M of the handler that `use E` refers to in the body: the items of the same with are seen, after a later item takes precedence for the same effect. `x = c.M(arguments)`, where c is a variable, calls the init of M of the handler that provides c. The arguments are evaluated as for `H(arguments)`: outside the with, before any init runs. The item requires E (or c), not the requirements of the inner handler. `x = E.M(arguments)`, with the name of an effect or a label, is a compile error (E0448).
+> - A handler member M of an effect E can be written as an item only in the form `x = c.M(arguments)`, where c is a capability of E (8.2). The handler member items of a with are opened after all the other items are initialized, in the order they are written. `x = (use E).M(arguments)` calls the init of M of the handler that `use E` in the body refers to. As in the body, this `use E` sees the items of the same with, and a later item takes precedence for the same effect; when an item of the same with provides E, E is therefore not a requirement of the with. `x = c.M(arguments)`, where c is a variable, calls the init of M of the handler that provides c. The arguments are evaluated as for `H(arguments)`: outside the with, before any init runs. The item requires E (or c), not the requirements of the inner handler. `x = E.M(arguments)`, with the name of an effect or a label, is a compile error (E0448).
 
 ### `[effect.handler]`
 
@@ -176,7 +177,7 @@ Replace "On the left of `.`, modules and Traits are looked up, and effects, only
 
 Replace "If both a module and an effect are found, `X.M` names the handler member M of the effect if it has one, and otherwise the definition M of the module." with:
 
-> Effects are not looked up on the left of `.`: if both a module and an effect are named X, `X.M` names the definition M of the module.
+> Effects are not looked up on the left of `.` to name a definition: if both a module and an effect are named X, `X.M` names the definition M of the module. When X names no module or Trait but an effect or a label that has a handler member M, or names a module that has no definition M while an effect or a label of the same name has a handler member M, `X.M` is a compile error (E0448) whose help opens M through a capability (8.2).
 
 Replace "An operation cannot be named on an effect (`Logger.info` is a compile error, 8.2); only its handler members can." with:
 
@@ -190,12 +191,17 @@ Replace `supply` with:
 supply       = type_ref [ "(" [ args ] ")" ]
              | member_open                                        (* a handler member of a capability; 8.3 *)
 member_open  = ( lower_name | "(" "use" type_ref [ "[" type { "," type } "]" ] ")" )
-               "." type_name "(" [ args ] ")"
+               "." type_name [ "(" [ args ] ")" ]                  (* without the parentheses, E0448; 8.2 *)
 ```
 
 ### `[grammar.expr]`
 
-In the comment of `postfix`, replace "a handler member, inside an init only; 8.4" with "a handler member of a capability, inside an init only; 8.4".
+Replace `postfix` with:
+
+```ebnf
+postfix    = primary { "(" [ args ] ")" | "." lower_name | "." type_name [ "(" [ args ] ")" ] }
+             (* "." type_name: a handler member of a capability, inside an init only; without the parentheses, E0448; 8.2, 8.4 *)
+```
 
 ### `[diag.list]`
 
@@ -203,16 +209,17 @@ In the row of E0447, replace the help with ``= help: bind it to a name: `x = (us
 
 Replace the row of E0448 with:
 
-> | E0448 | A handler member is opened outside an item of with and an init (`f = (use Files).Open(p)` in a fn, 8.2, 8.4), through the name of an effect or a label (`x = Files.Open(p)`, or `Files.Open(p)` inside an init, 8.2), or without parentheses (`x = fs.Scratch`, 8.2). The help is ``= help: open it as an item of `with`: `with x = (use Files).Open(...) { ... }` `` outside an item of with and an init, ``= help: open it through a capability: `(use Files).Open(...)` `` for the name of an effect or a label, and ``= help: write `fs.Scratch()` `` without parentheses | ``handler member `Open` can only be opened in `with` or called in an `init` `` / ``handler member `Open` is opened through a capability`` / ``handler member `Scratch` is opened by calling it`` |
+> | E0448 | A handler member is opened outside an item of with and an init (`f = (use Files).Open(p)` in a fn, 8.2, 8.4), through the name of an effect or a label (`x = Files.Open(p)`, or `Files.Open(p)` inside an init, 8.2), or without parentheses (`x = fs.Scratch`, 8.2). The help is ``= help: open it as an item of `with`: `with x = (use Files).Open(...) { ... }` `` outside an item of with and an init, ``= help: open it through a capability: `(use Files).Open(...)` `` for the name of an effect or a label, and ``= help: write `fs.Scratch()` `` without parentheses. When more than one of these holds, only the first in this order is reported, and the help shows the form that fixes all of them, with the names of the parameters and the label as written (``x = Audit.Open`` gives ``= help: open it through a capability: `(use Audit).Open(path: ...)` ``) | ``handler member `Open` can only be opened in `with` or called in an `init` `` / ``handler member `Open` is opened through a capability`` / ``handler member `Scratch` is opened by calling it`` |
 
 If the row of E0434 says that a handler member with parameters written without arguments as an item of a with is E0434 (#706), remove that case: such an item is E0448, either for the name of an effect or for the missing parentheses.
 
 ## Diagnostics
 
-- [ ] `x = E.M(arguments)` or `x = L.M(arguments)` as an item of a with: E0448 (extended), with the help `(use E).M(...)`
+- [ ] `x = E.M(arguments)` or `x = L.M(arguments)` as an item of a with: E0448 (extended), with the help `(use E).M(...)` (`(use L).M(...)` for a label)
 - [ ] `E.M(arguments)` or `L.M(arguments)` inside an init: E0448 (extended; it opens the member now), with the help `(use E).M(...)`
+- [ ] One E0448 for a form that breaks more than one rule, in the order: outside a with item and an init, through the name of an effect or a label, without parentheses. The help fixes all of them (`x = Files.Open` gives `(use Files).Open(path: ...)`)
 - [ ] `c.M` without parentheses, as an item of a with (now E0110) or inside an init (now E0448 with another message, and E0301): E0448 with the help `c.M()`
-- [ ] `c.M()` with missing arguments: E0305, as for any call
+- [ ] `c.M()` with missing arguments: E0305, as for any call (to be checked: what the implementation reports now for `E.M()` inside an init)
 - [ ] `E.M(arguments)` outside a with item and an init: E0448 (unchanged)
 - [ ] E0434 no longer applies to handler members (the case added by #706)
 
