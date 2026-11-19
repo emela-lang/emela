@@ -7,6 +7,16 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.28.1](https://github.com/emela-lang/emela/compare/v0.28.0...v0.28.1) - 2026-11-19
+
+### Fixed
+
+- *(cli)* emela check でも [build].target の知らないターゲットを E0232 にし，Pome.toml をプロジェクトからの相対パスで示す ([#698](https://github.com/emela-lang/emela/pull/698)) (by @Allianaab2m)
+- *(types)* 同じ推論グループの参照で相手の推論した E と R に引数を当てはめ，Set.filter に解けていない変数が出ないようにする ([#697](https://github.com/emela-lang/emela/pull/697)) (by @Allianaab2m)
+- *(core)* 同じ with の L by P で，P が使う基の effect を同じ with の先行ハンドラから渡す ([#695](https://github.com/emela-lang/emela/pull/695)) (by @Allianaab2m)
+- *(driver)* 構文エラーがあるとき emela run と build を lowering の前で止め，コードの無いエラーを出さないようにする ([#696](https://github.com/emela-lang/emela/pull/696)) (by @Allianaab2m)
+- *(playground)* emela-playground から言語サーバーを 1 通ずつ動かせるようにし，ブラウザのエディタで補完やホバーを使えるようにする ([#681](https://github.com/emela-lang/emela/pull/681)) (by @Allianaab2m)
+
 ## [0.28.0](https://github.com/emela-lang/emela/compare/v0.27.1...v0.28.0) - 2026-11-18
 
 ### Added
