@@ -387,7 +387,12 @@ fn check(path: &Path, experimental: Vec<String>) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path, true, experimental) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
-    let (analysis, _) = emela_driver::check(&OsFs, &input, &mut Typecheck::default());
+    let (mut analysis, _) = emela_driver::check(&OsFs, &input, &mut Typecheck::default());
+    // `[build].target` is the default target of `check` too (spec 4.7), so an unknown one is
+    // E0232 here, reported together with the other diagnostics.
+    if let Err(diagnostic) = emela_driver::project_target(&OsFs, &input) {
+        analysis.diagnostics.insert(0, diagnostic);
+    }
     report(&analysis)
 }
 
@@ -400,17 +405,25 @@ fn resolve_target(input: &Input, flag: Option<TargetArg>, default: Target) -> Op
         None => match emela_driver::project_target(&OsFs, input) {
             Ok(target) => target.unwrap_or(default),
             Err(diagnostic) => {
-                print_diagnostics(&[diagnostic], &SourceDb::new());
+                print_diagnostics(&[diagnostic], &project_sources(input));
                 return None;
             }
         },
     };
     let unsupported = emela_driver::check_dependency_targets(&input.dependencies, target);
     if !unsupported.is_empty() {
-        print_diagnostics(&unsupported, &SourceDb::new());
+        print_diagnostics(&unsupported, &project_sources(input));
         return None;
     }
     Some(target)
+}
+
+/// An empty source database that shows paths relative to the project, as the diagnostics of the
+/// pipeline do.
+fn project_sources(input: &Input) -> SourceDb {
+    let mut sources = SourceDb::new();
+    sources.set_base(&input.base);
+    sources
 }
 
 fn build(
