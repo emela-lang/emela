@@ -28,6 +28,7 @@ pub mod layout;
 mod runtime;
 mod runtimeop;
 mod suspend;
+mod values;
 
 use emela_core::{Builtin, EnumId, FiberOp, OPTION_NONE, OPTION_SOME, Type, TypeId};
 use emela_lir::{
@@ -44,7 +45,7 @@ use wasm_encoder::{
 
 use crate::check;
 use crate::std_host::StdHost;
-use crate::{WasmError, WasmErrorKind, WasmOutput};
+use crate::{WasmError, WasmErrorKind, WasmOptions, WasmOutput};
 
 /// What the generated `wasi:cli/run@0.3.0` export runs.
 #[allow(dead_code)]
@@ -84,13 +85,14 @@ pub(crate) fn emit(
     m: &Module,
     entry: &Run,
     reach: &check::Reach,
+    options: WasmOptions,
 ) -> Result<WasmOutput, Vec<WasmError>> {
     assert_eq!(
         m.stage,
         Stage::RefCounted,
         "the WASM emitter reads the Heap IR"
     );
-    let mut b = Builder::new(m);
+    let mut b = Builder::new(m, options);
     b.build(entry, reach);
     if !b.errors.is_empty() {
         return Err(b.errors);
@@ -212,6 +214,8 @@ const DESC_SIZE: u32 = 32;
 
 pub(crate) struct Builder<'m> {
     pub(crate) m: &'m Module,
+    /// The records and tuples held by value in locals (E1). Empty unless `options.values`.
+    values: values::Values<'m>,
     types: Vec<(Vec<ValType>, Vec<ValType>)>,
     type_map: FxHashMap<(Vec<ValType>, Vec<ValType>), u32>,
     pub(crate) imports: Vec<(String, String, u32)>,
@@ -273,9 +277,14 @@ pub(crate) struct Builder<'m> {
 }
 
 impl<'m> Builder<'m> {
-    fn new(m: &'m Module) -> Self {
+    fn new(m: &'m Module, options: WasmOptions) -> Self {
         let mut b = Builder {
             m,
+            values: if options.values {
+                values::Values::new(m)
+            } else {
+                values::Values::none(m)
+            },
             types: Vec::new(),
             type_map: FxHashMap::default(),
             imports: Vec::new(),
@@ -326,6 +335,17 @@ impl<'m> Builder<'m> {
 
     pub(crate) fn repr(&self, ty: TypeId) -> Repr {
         repr_of(self.core(), ty)
+    }
+
+    /// The layout of `ty` if the local-only slice holds it by value, or `None` if the boxed
+    /// representation stays.
+    pub(crate) fn layout(&self, ty: TypeId) -> Option<usize> {
+        self.values.index(ty)
+    }
+
+    /// The scalar leaves of `ty` if it is held by value.
+    pub(crate) fn leaves(&self, ty: TypeId) -> Option<&[Repr]> {
+        Some(&self.values.get(self.layout(ty)?).leaves)
     }
 
     pub(crate) fn internal(&mut self, message: impl Into<String>) {
@@ -1483,7 +1503,12 @@ impl<'m> Builder<'m> {
     ) {
         match dst {
             Some(d) => {
-                if repr != Repr::Void {
+                if let Some(n) = cx.aggregate(d) {
+                    // The value's leaves are on the stack in field order; store them in reverse.
+                    for i in (0..n).rev() {
+                        ins.local_set(cx.leaf(d, i));
+                    }
+                } else if repr != Repr::Void {
                     ins.local_set(cx.local(d));
                 }
             }
@@ -1498,7 +1523,13 @@ impl<'m> Builder<'m> {
     fn operand(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, o: &Operand) {
         match o {
             Operand::Var(v) => {
-                ins.local_get(cx.local(*v));
+                if let Some(n) = cx.aggregate(*v) {
+                    for i in 0..n {
+                        ins.local_get(cx.leaf(*v, i));
+                    }
+                } else {
+                    ins.local_get(cx.local(*v));
+                }
             }
             Operand::Const(c) => self.const_val(ins, c),
         }
@@ -1543,6 +1574,17 @@ impl<'m> Builder<'m> {
         index: usize,
         o: &Operand,
     ) {
+        // A value held in locals has no single reference to store in a box. The layout predicate
+        // excludes every operand of a boxed construction; this catches a missed path.
+        if let Operand::Var(v) = o
+            && cx.aggregate(*v).is_some()
+        {
+            let name = cx.f.name.clone();
+            self.internal(format!(
+                "a value held by value is stored into a heap object in {name}"
+            ));
+            return;
+        }
         let off = HDR + index as u32 * 8;
         let r = Self::operand_repr(cx.f, o);
         ins.local_get(cx.local(base));
@@ -1607,13 +1649,21 @@ impl<'m> Builder<'m> {
             Term::Yield(v) => {
                 if let (Some(d), Some(v)) = (yield_dst, v) {
                     self.operand(cx, ins, v);
-                    ins.local_set(cx.local(d));
+                    let repr = Self::operand_repr(cx.f, v);
+                    self.assign(cx, ins, Some(d), repr);
                 } else if let (None, Some(_)) = (yield_dst, v) {
                     self.internal(format!("yield without a target in {}", cx.f.name));
                 }
             }
             Term::Return(v) => {
                 if let Some(v) = v {
+                    // A value held in locals has several wasm results; a function result is
+                    // excluded by the layout predicate, so this cannot happen.
+                    debug_assert!(
+                        !matches!(v, Operand::Var(x) if cx.aggregate(*x).is_some()),
+                        "a value held by value returned from {}",
+                        cx.f.name
+                    );
                     self.operand(cx, ins, v);
                 }
                 ins.return_();
@@ -1630,7 +1680,8 @@ impl<'m> Builder<'m> {
                 };
                 if let (Some(d), Some(v)) = (dst, value) {
                     self.operand(cx, ins, v);
-                    ins.local_set(cx.local(d));
+                    let repr = Self::operand_repr(cx.f, v);
+                    self.assign(cx, ins, Some(d), repr);
                 }
                 ins.br(depth);
             }
@@ -1639,16 +1690,39 @@ impl<'m> Builder<'m> {
                     self.internal(format!("recur outside a loop in {}", cx.f.name));
                     return;
                 };
-                // Parallel assignment through scratch locals.
-                for (i, (o, &v)) in args.iter().zip(&vars).enumerate() {
+                // Parallel assignment through scratch locals. A value held by value contributes
+                // one scratch slot per leaf, in field order; `recur_slots` made room for the
+                // widest `recur`.
+                let mut slot = 0u32;
+                for (o, &v) in args.iter().zip(&vars) {
                     self.operand(cx, ins, o);
-                    let r = cx.f.vars[v].repr;
-                    ins.local_set(cx.scratch(r, i));
+                    if let Some(n) = cx.aggregate(v) {
+                        for i in (0..n).rev() {
+                            let r = cx.leaf_repr(v, i);
+                            ins.local_set(cx.scratch(r, (slot + i) as usize));
+                        }
+                        slot += n;
+                    } else {
+                        let r = cx.f.vars[v].repr;
+                        ins.local_set(cx.scratch(r, slot as usize));
+                        slot += 1;
+                    }
                 }
-                for (i, &v) in vars.iter().enumerate() {
-                    let r = cx.f.vars[v].repr;
-                    ins.local_get(cx.scratch(r, i));
-                    ins.local_set(cx.local(v));
+                let mut slot = 0u32;
+                for &v in &vars {
+                    if let Some(n) = cx.aggregate(v) {
+                        for i in 0..n {
+                            let r = cx.leaf_repr(v, i);
+                            ins.local_get(cx.scratch(r, (slot + i) as usize));
+                            ins.local_set(cx.leaf(v, i));
+                        }
+                        slot += n;
+                    } else {
+                        let r = cx.f.vars[v].repr;
+                        ins.local_get(cx.scratch(r, slot as usize));
+                        ins.local_set(cx.local(v));
+                        slot += 1;
+                    }
                 }
                 ins.br(depth);
             }
@@ -1737,7 +1811,11 @@ impl<'m> Builder<'m> {
             } => {
                 let scrutinee = match on {
                     SwitchOn::Tag(v) => {
-                        if cx.f.vars[v].repr == Repr::Ref {
+                        if cx.aggregate(v).is_some() {
+                            // A value held by value has exactly one constructor, so its tag is 0
+                            // (as the C backend does).
+                            Scrutinee::TagZero
+                        } else if cx.f.vars[v].repr == Repr::Ref {
                             Scrutinee::Tag(v)
                         } else {
                             Scrutinee::Variant(v)
@@ -1755,7 +1833,8 @@ impl<'m> Builder<'m> {
             } => {
                 for (&v, init) in vars.iter().zip(&inits) {
                     self.operand(cx, ins, init);
-                    ins.local_set(cx.local(v));
+                    let repr = Self::operand_repr(cx.f, init);
+                    self.assign(cx, ins, Some(v), repr);
                 }
                 ins.loop_(BlockType::Empty);
                 cx.push(Lbl::Loop(vars.clone()));
@@ -1772,6 +1851,11 @@ impl<'m> Builder<'m> {
             }
             Stmt::Protect { .. } => self.internal(format!("protect left in {}", cx.f.name)),
             Stmt::Dup(v) => {
+                // A value held by value owns no reference: nothing to count (the C backend's
+                // `count` does the same).
+                if cx.aggregate(v).is_some() {
+                    return;
+                }
                 ins.local_get(cx.local(v));
                 // `dup`: count the object unless it is null or static (rc == 0).
                 let obj = cx.scratch(Repr::I32, 0);
@@ -1797,6 +1881,10 @@ impl<'m> Builder<'m> {
                 ins.end();
             }
             Stmt::Drop(v) => {
+                // A value held by value owns no reference: nothing to release.
+                if cx.aggregate(v).is_some() {
+                    return;
+                }
                 ins.local_get(cx.local(v));
                 // Drop specialisation (C3/PR-027): a value whose payload holds no reference and
                 // whose type has no finalizer gives its block back without walking it.
@@ -1999,6 +2087,9 @@ impl<'m> Builder<'m> {
             Scrutinee::Variant(v) | Scrutinee::Lit(v) => {
                 ins.local_get(cx.local(v));
             }
+            Scrutinee::TagZero => {
+                ins.i32_const(0);
+            }
         }
     }
 
@@ -2041,6 +2132,16 @@ impl<'m> Builder<'m> {
                     }
                     return;
                 }
+                // A record held by value is a span of leaves, without an allocation.
+                if let Some(d) = dst
+                    && self.layout(cx.f.vars[d].ty).is_some()
+                {
+                    for a in args {
+                        self.operand(cx, ins, a);
+                    }
+                    self.assign(cx, ins, Some(d), Repr::Ref);
+                    return;
+                }
                 let refs: Vec<bool> = args
                     .iter()
                     .map(|a| Self::operand_repr(cx.f, a) == Repr::Ref)
@@ -2074,6 +2175,16 @@ impl<'m> Builder<'m> {
             }
             Value::Field { base, index, .. } | Value::TupleGet { base, index } => {
                 if let Some(d) = dst {
+                    if let Some(i) = self.layout(cx.f.vars[*base].ty) {
+                        // A record or tuple held by value: its field is a span of leaves, no
+                        // pointer.
+                        let span = self.values.get(i).field(*index);
+                        for k in 0..span.len {
+                            ins.local_get(cx.leaf(*base, (span.start + k) as u32));
+                        }
+                        self.assign(cx, ins, Some(d), Repr::Ref);
+                        return;
+                    }
                     let base = *base;
                     let repr = cx.f.vars[d].repr;
                     self.load_field(cx, ins, base, *index, repr);
@@ -2081,7 +2192,10 @@ impl<'m> Builder<'m> {
                 }
             }
             Value::Tag(v) => {
-                if cx.f.vars[*v].repr == Repr::Ref {
+                if cx.aggregate(*v).is_some() {
+                    // A record has one constructor.
+                    ins.i32_const(0);
+                } else if cx.f.vars[*v].repr == Repr::Ref {
                     self.tag_value(cx, ins, *v);
                 } else {
                     ins.local_get(cx.local(*v));
@@ -2089,6 +2203,15 @@ impl<'m> Builder<'m> {
                 self.assign(cx, ins, dst, Repr::I32);
             }
             Value::Tuple(elems) => {
+                if let Some(d) = dst
+                    && self.layout(cx.f.vars[d].ty).is_some()
+                {
+                    for a in elems {
+                        self.operand(cx, ins, a);
+                    }
+                    self.assign(cx, ins, Some(d), Repr::Ref);
+                    return;
+                }
                 let refs: Vec<bool> = elems
                     .iter()
                     .map(|a| Self::operand_repr(cx.f, a) == Repr::Ref)
@@ -2141,6 +2264,13 @@ impl<'m> Builder<'m> {
             }
             Value::ListHead(v) => {
                 if let Some(d) = dst {
+                    if cx.aggregate(d).is_some() {
+                        // A list head is boxed; unboxing into locals is E1 step 5 and the layout
+                        // predicate excludes it.
+                        let name = cx.f.name.clone();
+                        self.internal(format!("a list head is unboxed into a value in {name}"));
+                        return;
+                    }
                     let base = *v;
                     let repr = cx.f.vars[d].repr;
                     self.load_field(cx, ins, base, 0, repr);
@@ -2192,6 +2322,13 @@ impl<'m> Builder<'m> {
             }
             Value::EnvGet { env, index } => {
                 if let Some(d) = dst {
+                    if cx.aggregate(d).is_some() {
+                        // A closure capture is boxed; unboxing into locals is E1 step 5 and the
+                        // layout predicate excludes it.
+                        let name = cx.f.name.clone();
+                        self.internal(format!("a capture is unboxed into a value in {name}"));
+                        return;
+                    }
                     let base = *env;
                     let repr = cx.f.vars[d].repr;
                     self.load_field(cx, ins, base, index + 1, repr);
@@ -2302,6 +2439,13 @@ impl<'m> Builder<'m> {
             Value::Runtime { op, args } => self.runtime_op(cx, ins, dst, *op, args),
             Value::Coerce(v) => {
                 let Some(d) = dst else { return };
+                if cx.aggregate(*v).is_some() || cx.aggregate(d).is_some() {
+                    // Boxing and unboxing a value held in locals is a later step (E1 step 5);
+                    // the layout predicate excludes every `Coerce`.
+                    let name = cx.f.name.clone();
+                    self.internal(format!("a value held by value crosses `Any` in {name}"));
+                    return;
+                }
                 let from = cx.f.vars[*v].repr;
                 let to = cx.f.vars[d].repr;
                 if from == to {
@@ -2416,6 +2560,14 @@ impl<'m> Builder<'m> {
             // The representation is the tag itself: there is no block.
             ins.local_get(cx.local(old));
             ins.local_set(cx.local(d));
+            return;
+        }
+        if self.layout(cx.f.vars[d].ty).is_some() {
+            // Held by value: there is no allocation to reuse; the copy is the whole statement.
+            for a in args {
+                self.operand(cx, ins, a);
+            }
+            self.assign(cx, ins, Some(d), Repr::Ref);
             return;
         }
         ins.local_get(cx.local(old));
@@ -3195,6 +3347,8 @@ enum Scrutinee {
     Tag(VarId),
     /// An enum value whose representation is its variant number.
     Variant(VarId),
+    /// An enum value held by value in locals: its one constructor is 0.
+    TagZero,
     /// A literal `i32` or `i64` value.
     Lit(VarId),
 }
@@ -3257,10 +3411,18 @@ enum Lbl {
     Other,
 }
 
+/// The locals of one variable held by value: its representation of each leaf. The first local is
+/// `FnCtx::local(v)`.
+struct LocalSpan {
+    leaves: Vec<Repr>,
+}
+
 struct FnCtx<'a> {
     f: &'a Function,
     ret: Repr,
     local: Vec<u32>,
+    /// `Some` when the variable is held by value in a span of locals.
+    spans: Vec<Option<LocalSpan>>,
     scratch_base: [u32; 4],
     decls: Vec<(u32, ValType)>,
     labels: Vec<Lbl>,
@@ -3276,21 +3438,38 @@ impl<'a> FnCtx<'a> {
     fn with_extra_params(f: &'a Function, b: &Builder<'_>, extra: u32) -> Self {
         let nparams = f.params.len() as u32;
         let mut local = vec![0u32; f.vars.len()];
+        let mut spans: Vec<Option<LocalSpan>> = (0..f.vars.len()).map(|_| None).collect();
         let mut decls: Vec<(u32, ValType)> = Vec::new();
         for (i, &p) in f.params.iter().enumerate() {
             local[ix(p)] = i as u32;
         }
         let mut next = nparams + extra;
         for (v, data) in f.vars.iter() {
-            if !f.params.contains(&v) {
-                local[ix(v)] = next;
-                next += 1;
-                decls.push((1, val(data.repr)));
+            if f.params.contains(&v) {
+                continue;
+            }
+            local[ix(v)] = next;
+            match b.leaves(data.ty) {
+                // A value held by value is a span of locals, one per scalar leaf, in field order.
+                Some(leaves) if !leaves.is_empty() => {
+                    for &r in leaves {
+                        decls.push((1, val(r)));
+                    }
+                    next += leaves.len() as u32;
+                    spans[ix(v)] = Some(LocalSpan {
+                        leaves: leaves.to_vec(),
+                    });
+                }
+                _ => {
+                    decls.push((1, val(data.repr)));
+                    next += 1;
+                }
             }
         }
         // Scratch locals, one group per representation: for the `recur` parallel assignment and
-        // the general temporaries. At least one of each so a temporary always exists.
-        let count = max_recur(f).max(1);
+        // the general temporaries. At least one of each so a temporary always exists. A value
+        // held by value takes one slot per leaf, so a whole `recur` needs the sum of the leaves.
+        let count = recur_slots(f, b).max(1);
         let mut scratch_base = [0u32; 4];
         for base in scratch_base.iter_mut() {
             *base = next;
@@ -3305,14 +3484,34 @@ impl<'a> FnCtx<'a> {
             f,
             ret,
             local,
+            spans,
             scratch_base,
             decls,
             labels: Vec::new(),
         }
     }
 
+    /// The first local of `v`.
     fn local(&self, v: VarId) -> u32 {
         self.local[ix(v)]
+    }
+
+    /// The number of locals of `v` if it is held by value, else `None`.
+    fn aggregate(&self, v: VarId) -> Option<u32> {
+        self.spans[ix(v)].as_ref().map(|s| s.leaves.len() as u32)
+    }
+
+    /// The local of leaf `i` of the value in `v`.
+    fn leaf(&self, v: VarId, i: u32) -> u32 {
+        self.local[ix(v)] + i
+    }
+
+    /// The representation of leaf `i` of the value in `v`.
+    fn leaf_repr(&self, v: VarId, i: u32) -> Repr {
+        self.spans[ix(v)]
+            .as_ref()
+            .expect("a leaf of a scalar") // a scalar has exactly one leaf at index 0
+            .leaves[i as usize]
     }
 
     fn scratch(&self, r: Repr, i: usize) -> u32 {
@@ -3357,11 +3556,23 @@ impl<'a> FnCtx<'a> {
     }
 }
 
-fn max_recur(f: &Function) -> u32 {
+/// The number of scratch locals a `recur` needs: one per argument, but a value held by value
+/// contributes one per leaf.
+fn recur_slots(f: &Function, b: &Builder<'_>) -> u32 {
     let mut max = 0;
     for (_, seq) in f.seqs.iter() {
         if let Term::Recur(args) = &seq.term {
-            max = max.max(args.len() as u32);
+            let mut n = 0u32;
+            for a in args {
+                n += match a {
+                    Operand::Var(v) => b
+                        .leaves(f.vars[*v].ty)
+                        .map_or(1, |leaves| leaves.len() as u32),
+                    Operand::Const(c) => u32::from(c.repr() != Repr::Void),
+                };
+            }
+            // At least one slot per argument, as before values existed.
+            max = max.max(n.max(args.len() as u32));
         }
     }
     max
