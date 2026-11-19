@@ -1,0 +1,54 @@
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Audit of Log
+
+handler PrintLog: Log {
+  fn log(msg) { print("print: #{msg}") }
+}
+
+# A handler of Log that itself uses Log.
+handler Prefixed: Log {
+  fn log(msg) { (use Log).log("[audit] #{msg}") }
+}
+
+handler Tagged(tag: String): Log {
+  init {
+    (use Log).log("open")
+    Tagged(tag: "t")
+  }
+
+  release {
+    (use Log).log("close #{self.tag}")
+  }
+
+  fn log(msg) { (use Log).log("#{self.tag}: #{msg}") }
+}
+
+fn main() {
+  # The Log that Prefixed uses is PrintLog in the same with (issue #679).
+  with PrintLog, Audit by Prefixed {
+    (use Audit).log("x")
+  }
+  # Written after it, too.
+  with Audit by Prefixed, PrintLog {
+    (use Audit).log("y")
+  }
+  # And through init and release of a stateful handler.
+  with PrintLog, Audit by Tagged {
+    (use Audit).log("z")
+  }
+  # Nested, as before.
+  with PrintLog {
+    with Audit by Prefixed { (use Audit).log("w") }
+  }
+  # A handler of Log provided as Log still takes its Log from outside.
+  with PrintLog {
+    with Prefixed { (use Log).log("v") }
+  }
+}
