@@ -1384,7 +1384,10 @@ impl<'a> BodyInfer<'a> {
                                     span: Some(item.span),
                                     kind: DiagnosticKind::MissingMemberArgs {
                                         member: program.defs[member].name.clone(),
-                                        effect: self.member_effect_name(member),
+                                        effect: item
+                                            .label
+                                            .map(|l| program.defs[l].name.clone())
+                                            .unwrap_or_else(|| self.member_effect_name(member)),
                                         params: labels
                                             .unwrap_or_default()
                                             .into_iter()

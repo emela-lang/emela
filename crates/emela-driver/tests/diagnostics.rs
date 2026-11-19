@@ -2467,6 +2467,50 @@ fn main() {
     assert_eq!(output.matches("error[").count(), 1, "{output}");
 }
 
+/// A handler member named through a label without its arguments is E0434, and the help names
+/// the label as written (`[effect.label]`, issue #700).
+#[test]
+fn member_items_through_a_label_need_init_arguments() {
+    let main = "effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+}
+
+effect Audit of Files
+
+handler MemoryFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) { Self(path:) }
+    fn read(max) { max }
+  }
+}
+
+fn main() {
+  with MemoryFiles, Audit by Files, a = Audit.Open {
+    _ = a.read(1)
+  }
+}
+";
+    let analysis = check_files(
+        &[("app/Pome.toml", ""), ("app/src/main.emel", main)],
+        "app",
+        &mut Typecheck::default(),
+    );
+    let output = render(&analysis.diagnostics, &analysis.sources, false);
+    assert!(
+        output.contains("error[E0434]: handler member `Open` needs arguments"),
+        "{output}"
+    );
+    assert!(
+        output.contains("help: write `Audit.Open(path: ...)`"),
+        "{output}"
+    );
+    assert_eq!(output.matches("error[").count(), 1, "{output}");
+}
+
 /// A single file has no `Pome.toml` of its own, so there is no license to check.
 #[test]
 fn single_file_does_not_read_a_license() {
