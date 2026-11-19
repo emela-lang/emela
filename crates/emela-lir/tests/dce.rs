@@ -31,6 +31,7 @@ fn only_dce(dce: bool) -> Options {
             borrow: false,
             reuse: false,
             switch: false,
+            prune: false,
         },
     }
 }

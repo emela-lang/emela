@@ -14,6 +14,7 @@
 //! second stage, the Heap IR, on the same data types ([`Stage`] says which have run): closure
 //! conversion, explicit defect paths, the suspend state machines and reference counting.
 
+pub mod analysis;
 mod build;
 mod dump;
 mod from_core;

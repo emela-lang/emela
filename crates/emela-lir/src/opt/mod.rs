@@ -43,6 +43,7 @@
 //! | [`dce`] | [`Stats::dce`] | [`run_heap`] | dead pure `let`s with scalar destinations, on by default (C7/PR-028) |
 //! | [`switch`] | [`Stats::switch_cases_merged`], [`Stats::switch_direct`] | [`run_heap`] | canonical switch cases, shared bodies and direct bodies behind [`LirRules::switch`], on by default (E4) |
 //! | [`frame_prune`] | — | — | read-only analysis (C7/PR-028): the corpus has no stale saved slot, so no pass prunes a frame |
+//! | reachability pruning | — | after [`run_heap`], in the backends | remove functions that [`crate::analysis::reach`] neither calls nor references, behind [`LirRules::prune`]; off by default (E3) |
 //!
 //! A row marked "not implemented" has no code and no flag yet; its pull request adds both. The
 //! analyses are not passes and never change the module.
@@ -258,6 +259,14 @@ pub struct LirRules {
     /// dispatch whose arms are all that one body, so it preserves behaviour and makes the emitted
     /// C and WASM smaller. This is the canonical form both backends read.
     pub switch: bool,
+    /// Function pruning in the backends (E3/PR-039): after the Heap IR, remove every function
+    /// that reachability neither calls nor references, and remap the [`FnId`](crate::ir::FnId)s of
+    /// the module and the entry roots (`crate::analysis::reach::prune_functions`). Off by default:
+    /// it changes what the C source contains and, because a function index disappears, the WASM
+    /// bytes, so the default build's output and the byte pins stay what they were. A handler
+    /// operation that a reachable closure record names stays (referenced, not called), and the
+    /// backend emits a stub body for it as before.
+    pub prune: bool,
 }
 
 impl LirRules {
@@ -275,6 +284,7 @@ impl LirRules {
             borrow: true,
             reuse: true,
             switch: true,
+            prune: true,
         }
     }
 
@@ -292,6 +302,7 @@ impl LirRules {
             borrow: false,
             reuse: false,
             switch: false,
+            prune: false,
         }
     }
 }
@@ -307,7 +318,9 @@ impl Default for LirRules {
     /// specialisation stays opt-in because its default-build size cost has no measured runtime
     /// gain; reuse stays opt-in so that the default build's output is unchanged; record SRA stays
     /// off because it rewrites nothing on the corpus; frame pruning has no pass, because
-    /// [`frame_prune::scan`] finds no stale saved slot on the corpus.
+    /// [`frame_prune::scan`] finds no stale saved slot on the corpus. Reachability function
+    /// pruning is off: it changes the C source and the WASM function indices, so the default
+    /// output and the byte pins stay what they were.
     fn default() -> Self {
         Self {
             sra: true,
@@ -321,6 +334,7 @@ impl Default for LirRules {
             borrow: true,
             reuse: false,
             switch: true,
+            prune: false,
         }
     }
 }
@@ -330,7 +344,7 @@ impl Default for LirRules {
 pub struct Options {
     /// Which LIR passes to run. [`LirRules::default`] by default: SRA, the `rc` cleanup with the
     /// borrow elision, DCE, borrow inference, switch normalisation, and closure devirtualisation
-    /// with closure SRA, with record SRA, drop specialisation and reuse off.
+    /// with closure SRA, with record SRA, drop specialisation, reuse and reachability pruning off.
     pub rules: LirRules,
 }
 

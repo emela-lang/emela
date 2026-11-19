@@ -68,6 +68,24 @@ impl Run {
             Run::Tests(tests) => tests.iter().map(|&(_, id)| id).collect(),
         }
     }
+
+    /// Replaces the roots with their indices after [`prune_functions`](emela_lir::analysis::reach::prune_functions),
+    /// in the same order as [`Run::roots`] returned them.
+    pub(crate) fn set_roots(&mut self, roots: &[FnId]) {
+        let mut roots = roots.iter().copied();
+        match self {
+            Run::Main(main) | Run::Service(main) => {
+                if main.is_some() {
+                    *main = roots.next();
+                }
+            }
+            Run::Tests(tests) => {
+                for (_, id) in tests {
+                    *id = roots.next().expect("a test is a root");
+                }
+            }
+        }
+    }
 }
 
 /// The WASI 0.3 imports shared by the two output interfaces.
@@ -84,7 +102,6 @@ pub(crate) struct OutputImports {
 pub(crate) fn emit(
     m: &Module,
     entry: &Run,
-    reach: &check::Reach,
     options: WasmOptions,
 ) -> Result<WasmOutput, Vec<WasmError>> {
     assert_eq!(
@@ -93,7 +110,7 @@ pub(crate) fn emit(
         "the WASM emitter reads the Heap IR"
     );
     let mut b = Builder::new(m, options);
-    b.build(entry, reach);
+    b.build(entry);
     if !b.errors.is_empty() {
         return Err(b.errors);
     }
@@ -228,7 +245,8 @@ pub(crate) struct Builder<'m> {
     /// The runtime functions the IR bodies call. A runtime module's `setup` reads it to leave
     /// out static data the program never reaches.
     pub(crate) rt_used: FxHashSet<&'static str>,
-    /// The IR functions the entry reaches (`check::Reach`). The runtime gates read it so that a
+    /// The IR functions whose body the entry can run, from
+    /// `emela_lir::analysis::reach::Reachability` on the Heap IR. The runtime gates read it so that a
     /// feature only reachable code uses is emitted.
     pub(crate) reachable: FxHashSet<FnId>,
     /// The runtime functions the runtime body being emitted calls. `runtime::emit` reads it to
@@ -647,28 +665,18 @@ impl<'m> Builder<'m> {
             || self.m.error_shows.iter().any(|&(_, show)| show == id)
     }
 
-    fn build(&mut self, entry: &Run, reach: &check::Reach) {
-        // The runtime gates read which functions the entry reaches. The Flow IR walk the
-        // diagnostics use does not see the functions the Heap IR passes append (a lifted closure
-        // body is its own function there), so the set is walked again on the Heap IR. A const is
-        // evaluated eagerly when the module starts and an error's `show` runs when the error is
-        // shown, so neither is called from the entry: both are roots too, and the builtins they
-        // use keep their runtime.
-        let mut roots = entry.roots();
-        roots.extend(self.m.error_shows.iter().map(|&(_, show)| show));
-        roots.extend(
-            self.m
-                .functions
-                .iter()
-                .filter(|(_, f)| f.constant)
-                .map(|(id, _)| id),
-        );
-        let heap_reach = check::reach(self.m, &roots);
+    fn build(&mut self, entry: &Run) {
+        // The runtime gates read which functions the entry reaches. The analysis is the LIR's
+        // (emela-lir), walked here on the Heap IR: a closure body is its own function at this
+        // stage and a handler operation's body is deferred until it is performed. The same set
+        // decides which host imports are emitted, so a body pruned here never needs an import the
+        // analysis did not count.
+        let reach = emela_lir::analysis::reach::Reachability::walk(self.m, &entry.roots());
         self.reachable = self
             .m
             .functions
             .iter()
-            .filter(|(id, _)| heap_reach.contains(*id))
+            .filter(|(id, _)| reach.is_called(*id))
             .map(|(id, _)| id)
             .collect();
         self.service = matches!(entry, Run::Service(_));
@@ -682,13 +690,13 @@ impl<'m> Builder<'m> {
                 && let Some(binding) = ext.binding("wasm")
             {
                 match crate::std_host::classify(f) {
-                    Some(host) if reach.contains(id) => self.std_hosts.push((id, host)),
+                    Some(host) if reach.is_called(id) => self.std_hosts.push((id, host)),
                     // A host the entry cannot reach is in the module because a handler it builds
                     // bundles the external (`Process` of `Std.Process` bundles several system handlers). It is
                     // never called, so neither its runtime wrapper nor its import is emitted
-                    // (spec `[target.wasm.output]`). The handler constructors still put calls to
-                    // it in their operation bodies, which are emitted whether the operation runs
-                    // or not, so it gets a trapping stub with its signature.
+                    // (spec `[target.wasm.output]`). Its trapping stub is reserved for a call in
+                    // an emitted body; an operation body that is only referenced, not called, is
+                    // a stub too, so it cannot call the host.
                     Some(_) => unreachable_hosts.push(id),
                     None => self.external_import(id, f, binding),
                 }
