@@ -70,14 +70,17 @@ pub const TEST_EVENT_PREFIX: &str = "\u{1e}emela-test ";
 /// everywhere, so the emitted bytes do not change.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WasmOptions {
-    /// E1 steps 2–3: hold eligible records and tuples by value (a span of WASM locals or
+    /// E1 steps 2–4: hold eligible records and tuples by value (a span of WASM locals or
     /// parameters, one per scalar leaf) instead of allocating a heap object per value, and flatten
-    /// the signature of a direct-called function whose value the module never takes.
+    /// the signature of every call of a function type whose parameters or result are held by
+    /// value: a direct call, `call_indirect`, a closure's non-environment parameters and a
+    /// non-suspending effect operation agree.
     ///
     /// Off by default. Descriptors, statics, arrays, lists, enum payloads, closure captures,
-    /// indirect and operation calls, state machines and suspension frames keep the boxed form (E1
-    /// steps 4–6); a function that is taken as a value, exported, external, a constant, an error
-    /// show or suspending keeps its boxed signature too.
+    /// suspension frames, suspending functions and operations, and the fiber thunks keep the
+    /// boxed form, so a type used in one of those places stays boxed everywhere; so do the entry
+    /// thunk, exports, externals, constants and error shows. Boxing at the escape boundaries is E1
+    /// step 5, and turning the option on by default is step 6.
     pub values: bool,
     /// E2 step 2: store an array element that is an all-scalar record or tuple inline (one
     /// 8-byte slot per scalar leaf) instead of a reference to a separately allocated box.

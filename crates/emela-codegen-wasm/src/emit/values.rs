@@ -1,4 +1,4 @@
-//! Records and tuples that the WASM backend may hold by value in WASM locals (E1, step 1).
+//! Records and tuples that the WASM backend may hold by value in WASM locals (E1, steps 1–4).
 //!
 //! A record (`type Point(x: Int, y: Int)`, an enum with exactly one variant) or a tuple whose
 //! leaves are all `i32`, `i64` or `f64` can be represented as a **span of WASM locals**: one local
@@ -10,20 +10,20 @@
 //! # What is never held by value here
 //!
 //! This is deliberately narrower than the C backend. The layouts are used for locals (E1 step 2)
-//! and for the signature of a direct call (E1 step 3); no descriptor, static, array, list, enum
+//! and for the signature of a call (E1 steps 3 and 4); no descriptor, static, array, list, enum
 //! payload, closure capture or suspension frame changes. A type keeps `Repr::Ref` when the module
 //! uses it in any of those places:
 //!
 //! - a parameter or result of a function whose wasm signature is reached through another calling
-//!   convention (a `MakeClosure`/`FnRef` target, an exported, external or const function, a
-//!   suspending function, the entry, an error `show` function), a function type, or an effect
-//!   operation;
+//!   convention (an exported, external or const function, a suspending function, the entry, an
+//!   error `show` function), or an argument or result of a suspending effect operation;
 //! - an element of `Array`, `List` or `Cell` (and, transitively, anything inside such an element);
 //! - a field of an enum that is not itself a value (a multi-variant enum, an error, an external
 //!   type, a nullary enum);
 //! - a captured variable of a closure (`Function::env`, `Value::MakeClosure`);
 //! - an argument of another value's construction that is itself stored in a box;
-//! - the argument of an indirect or operation call, a builtin or a runtime operation;
+//! - an argument of a builtin or a runtime operation, and a function value passed to a fiber
+//!   operation (its thunk passes the result as one word, selected by representation);
 //! - a `Value::Coerce` (the `Any` boundary);
 //! - any variable of a suspending function, or any variable saved across a suspension.
 //!
@@ -31,15 +31,19 @@
 //! keeps its boxed representation everywhere. The exclusion is a whole-module property: a type is
 //! held by value only if every use in the whole program is one the converted slices handle.
 //!
-//! # The direct-call ABI
+//! # The call ABI
 //!
-//! A function that the module never uses as a value (no `MakeClosure`, no `FnRef`, not exported,
-//! external, a const, suspending, the entry or an error `show`, and no `env` parameter) has a wasm
-//! signature that follows the layouts: an `Agg` parameter is its leaves, and an `Agg` result is
-//! zero or several wasm results. A function type ([`Type::Fn`]) and every operation signature
-//! still exclude their parameters and results, so `call_indirect`, the state machines and the
-//! fiber thunks only ever see the boxed form.
+//! Every call of a function type uses one signature. A function whose wasm signature no other
+//! calling convention sees (not exported, external, a const, suspending, the entry or an error
+//! `show`) follows the layouts: an `Agg` parameter is its leaves, and an `Agg` result is zero or
+//! several wasm results. A function used as a value (`MakeClosure`) follows the same rule, so a
+//! direct call and a `call_indirect` of its type agree. A lifted closure keeps its environment as
+//! one reference parameter; only its other parameters and its result may flatten.
 //!
+//! A non-suspending effect operation also uses the layouts of its parameters and result, because
+//! its implementation is a closure of the same function type. A suspending operation, a
+//! suspending function and everything a suspension frame saves stay boxed in this step: the
+//! trampoline returns one `em_word`-shaped result, selected by representation.
 //! No proposal is needed: `[target.unspecified]` leaves the memory representation of values to
 //! the implementation, and this changes only how many objects are allocated.
 //!
@@ -310,53 +314,22 @@ fn mark_subtree(core: &emela_core::Module, ty: TypeId, out: &mut FxHashSet<TypeI
     }
 }
 
-/// The functions whose value the module takes: a `MakeClosure` or a `FnRef` names them, so an
-/// indirect call (or the table) can enter them with the boxed signature.
-fn value_taken(m: &Module) -> FxHashSet<FnId> {
-    let mut out = FxHashSet::default();
-    for (_, f) in m.functions.iter() {
-        for (_, stmt) in f.stmts.iter() {
-            let Stmt::Let { value, .. } = stmt else {
-                continue;
-            };
-            match value {
-                Value::FnRef(g) => {
-                    out.insert(*g);
-                }
-                // Heap IR: a closure was lifted into its own function.
-                Value::MakeClosure { function, .. } => {
-                    out.insert(*function);
-                }
-                // Flow IR: the body is nested, so it is not a function of the module yet.
-                Value::Closure(_) => {}
-                _ => {}
-            }
-        }
-    }
-    out
-}
-
-/// Whether the wasm signature of `f` follows the layouts of its parameters and result (E1 step 3).
+/// Whether the wasm signature of `f` follows the layouts of its parameters and result.
 ///
 /// The signature is flattened only when no other calling convention can see it: the function is
-/// never a value (`value_taken`), is not exported, external, a const, suspending or lifted from a
-/// closure (its environment parameter), is not a root the entry thunk calls, and is not an error's
-/// `show` function (the descriptor calls it through the table). Otherwise its parameters and
-/// result keep the boxed form, so `call_indirect`, the state machines, the fiber thunks and the
-/// entry need no change.
-fn flat_function(
-    m: &Module,
-    id: FnId,
-    f: &Function,
-    taken: &FxHashSet<FnId>,
-    roots: &FxHashSet<FnId>,
-) -> bool {
+/// not exported, external, a const, suspending, a root the entry thunk calls, or an error's `show`
+/// function (the descriptor calls it through the table). Otherwise its parameters and result keep
+/// the boxed form, so the entry, the external hosts, the state machines, the fiber thunks and the
+/// table need no change.
+///
+/// A function used as a value is not excluded: an indirect call now uses the same layouts as a
+/// direct call, so `call_indirect`, a handler operation and every direct call of the type agree.
+/// A lifted closure's environment parameter stays one reference (its type is not a value).
+fn flat_function(m: &Module, id: FnId, f: &Function, roots: &FxHashSet<FnId>) -> bool {
     !f.exported
         && f.external.is_none()
         && !f.constant
         && !f.suspends
-        && f.env.is_none()
-        && !taken.contains(&id)
         && !roots.contains(&id)
         && !m.error_shows.iter().any(|&(_, show)| show == id)
         && !f.stmts.iter().any(|(_, s)| {
@@ -378,9 +351,8 @@ fn flat_function(
 fn excluded(m: &Module, roots: &[FnId]) -> FxHashSet<TypeId> {
     let core = &m.core;
     let mut out = FxHashSet::default();
-    let taken = value_taken(m);
     let roots: FxHashSet<FnId> = roots.iter().copied().collect();
-    let flat = |id: FnId| flat_function(m, id, &m.functions[id], &taken, &roots);
+    let flat = |id: FnId| flat_function(m, id, &m.functions[id], &roots);
 
     // Containers store references: the element of an array, a list or a cell, and every type
     // nested inside such an element.
@@ -395,13 +367,9 @@ fn excluded(m: &Module, roots: &[FnId]) -> FxHashSet<TypeId> {
                     mark_subtree(core, a, &mut out);
                 }
             }
-            // A function type's parameters and result cross a call boundary.
-            Type::Fn(f) => {
-                for &p in &f.params {
-                    mark_subtree(core, p, &mut out);
-                }
-                mark_subtree(core, f.ret, &mut out);
-            }
+            // A function type's parameters and result no longer exclude it: every call of the
+            // type (direct, `call_indirect`, a closure, a non-suspending operation) uses the same
+            // layouts. A function value that crosses a fiber thunk is excluded where it is used.
             _ => {}
         }
     }
@@ -417,9 +385,15 @@ fn excluded(m: &Module, roots: &[FnId]) -> FxHashSet<TypeId> {
         }
     }
 
-    // An operation's parameters and result cross the handler ABI.
+    // A suspending operation returns through the trampoline, which carries one word selected by
+    // representation, and its implementation may be a state machine. Keep its parameters and
+    // result boxed in this step. A non-suspending operation uses the same layouts as its
+    // implementation closure, so its parameters and result may flatten.
     for (_, effect) in core.effects.iter() {
         for op in &effect.ops {
+            if !op.suspend {
+                continue;
+            }
             for &t in &op.params {
                 mark_subtree(core, t, &mut out);
             }
@@ -476,19 +450,16 @@ fn excluded(m: &Module, roots: &[FnId]) -> FxHashSet<TypeId> {
                     out.insert(f.vars[v].ty);
                 }
             }
-            // A call to a function whose signature is flattened returns its leaves, so its
-            // destination is buildable in place like a construction.
-            let flat_call = matches!(
-                value,
-                Value::Call {
-                    callee: Callee::Direct(g),
-                    ..
-                } if flat(*g)
-            );
+            // A call returns its leaves when the callee's signature follows the layouts, so its
+            // destination is buildable in place like a construction. That holds for a direct,
+            // indirect and operation call alike: the type's layout decides, and every call of a
+            // function type uses the same signature. A call whose result type has no layout
+            // (a suspending call, a fiber operation) still stores one reference.
+            let call = matches!(value, Value::Call { .. });
             // A destination is buildable in place only from these values. Everything else (a
-            // builtin, a runtime operation, `Any`, a read out of a box, an indirect or operation
-            // call) needs a reference, so the type stays boxed.
-            let direct = flat_call
+            // builtin, a runtime operation, `Any`, a read out of a box) needs a reference, so the
+            // type stays boxed.
+            let direct = call
                 || matches!(
                     value,
                     Value::Make { .. }
@@ -509,18 +480,29 @@ fn excluded(m: &Module, roots: &[FnId]) -> FxHashSet<TypeId> {
                 }
             };
             match value {
-                Value::Prim { args, .. }
-                | Value::Builtin { args, .. }
-                | Value::Fiber { args, .. }
-                | Value::Runtime { args, .. } => {
+                Value::Prim { args, .. } | Value::Builtin { args, .. } => {
                     for a in args {
                         mark(a);
                     }
                 }
-                // A flattened call spreads an `Agg` argument as its leaves; the others pass a
-                // reference.
+                // A fiber operation's thunk passes the result as one word selected by
+                // representation, and `Attempt` calls the closure with one result. Exclude the
+                // whole function value, including its parameters and result.
+                Value::Fiber { args, .. } | Value::Runtime { args, .. } => {
+                    for a in args {
+                        if let Operand::Var(v) = a {
+                            mark_subtree(core, f.vars[*v].ty, &mut out);
+                        }
+                    }
+                }
+                // A direct call uses the callee's layout-derived signature. An indirect or
+                // operation call uses the layout of each parameter, exactly as the closure it
+                // enters does. A parameter that has no layout is already boxed, so nothing needs
+                // to be marked here; a direct call whose signature stays boxed has its parameter
+                // types excluded above (the function is not flat).
                 Value::Call { callee, args, .. } => {
-                    let flattened = matches!(callee, Callee::Direct(g) if flat(*g));
+                    let flattened = matches!(callee, Callee::Direct(g) if flat(*g))
+                        || matches!(callee, Callee::Indirect(_) | Callee::Op { .. });
                     if !flattened {
                         for a in args {
                             mark(a);
@@ -885,9 +867,9 @@ mod tests {
     }
 
     #[test]
-    fn a_function_whose_value_is_taken_keeps_the_box() {
-        // An indirect call enters the function with the boxed signature, so the whole program
-        // keeps the record boxed.
+    fn a_function_whose_value_is_taken_keeps_the_value_abi() {
+        // A `MakeClosure` target is entered by `call_indirect`, which now uses the same layouts
+        // as a direct call: the function type does not box the record.
         let mut core = emela_core::Module::new();
         let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
         let fty = core.fn_type(vec![rec], TypeId::UNIT);
@@ -909,6 +891,67 @@ mod tests {
         m.add(f.finish());
         let m: &'static Module = Box::leak(Box::new(m));
         let values = Values::new(m, &[]);
+        assert_eq!(
+            values.get(values.index(rec).expect("a value")).leaves,
+            [Repr::I32]
+        );
+    }
+
+    #[test]
+    fn an_indirect_call_parameter_is_held_by_value() {
+        // The closure takes the record, so both the closure's signature and the call's type are
+        // its leaf.
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
+        let fty = core.fn_type(vec![rec], TypeId::UNIT);
+        let mut m = Module::new(core);
+        let mut g = FnBuilder::new(&m.core, "g");
+        g.param("p", rec);
+        g.term(Term::Return(None));
+        let g = m.add(g.finish());
+        let mut f = FnBuilder::new(&m.core, "f");
+        let c = f.assign(
+            "c",
+            fty,
+            Value::MakeClosure {
+                function: g,
+                captures: Vec::new(),
+            },
+        );
+        let p = f.assign("p", rec, Value::Const(Const::Unit));
+        f.let_(
+            None,
+            Value::Call {
+                callee: Callee::Indirect(c),
+                args: vec![Operand::Var(p)],
+                suspends: false,
+                on_fail: None,
+            },
+        );
+        f.term(Term::Return(None));
+        m.add(f.finish());
+        let m: &'static Module = Box::leak(Box::new(m));
+        let values = Values::new(m, &[]);
+        assert!(values.index(rec).is_some());
+    }
+
+    #[test]
+    fn a_suspending_operation_result_keeps_the_box() {
+        // The trampoline returns one word selected by representation.
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
+        let mut op = emela_core::OpDef::new("tick", Vec::new(), rec);
+        op.suspend = true;
+        core.add_effect(emela_core::EffectDef {
+            name: "Tick".to_owned(),
+            decl: "Tick".to_owned(),
+            args: Vec::new(),
+            ops: vec![op],
+            label_of: None,
+        });
+        let values = values_of(core, |b| {
+            b.assign("p", rec, Value::Const(Const::Unit));
+        });
         assert_eq!(values.index(rec), None);
     }
 

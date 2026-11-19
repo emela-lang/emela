@@ -613,9 +613,11 @@ impl<'m> Builder<'m> {
     }
 
     /// The wasm parameters and results of `f`. A parameter held by value is its leaves, and a
-    /// result held by value is one wasm result per leaf (multi-value, E1 step 3). The layout
-    /// predicate keeps a function whose signature another calling convention sees boxed, so the
-    /// flattened form is only ever used by a direct `call`.
+    /// result held by value is one wasm result per leaf (multi-value). The layout predicate keeps
+    /// a function whose signature another calling convention sees (the entry, an external host, a
+    /// state machine, a fiber thunk, the table) boxed, so the flattened form is used by every call
+    /// of a function type that agrees on it: a direct `call`, `call_indirect`, a lifted closure
+    /// and a non-suspending operation.
     fn signature(&self, f: &Function) -> (Vec<ValType>, Vec<ValType>) {
         let mut params = Vec::new();
         for &p in &f.params {
@@ -1138,6 +1140,85 @@ impl<'m> Builder<'m> {
         let params: Vec<ValType> = params.iter().map(|&r| val(r)).collect();
         let results: Vec<ValType> = repr_val(ret).into_iter().collect();
         self.ty(params, results)
+    }
+
+    /// The wasm value types the operands push, in order: one per scalar leaf of a value held by
+    /// value, one for any other value, and none for `()`.
+    ///
+    /// The operands are the authority, not the declared function type: a lifted closure can take
+    /// the evidence table as an ordinary last parameter (spec 8.4), and a `()` parameter has no
+    /// representation.
+    fn operand_val_types(&self, cx: &FnCtx, args: &[Operand]) -> Vec<ValType> {
+        let mut out = Vec::new();
+        for arg in args {
+            match arg {
+                Operand::Var(v) => match cx.aggregate(*v) {
+                    Some(n) => {
+                        for i in 0..n {
+                            out.push(val(cx.leaf_repr(*v, i)));
+                        }
+                    }
+                    None => out.push(val(cx.f.vars[*v].repr)),
+                },
+                Operand::Const(c) => {
+                    if c.repr() != Repr::Void {
+                        out.push(val(c.repr()));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The wasm result types of a call returning `ty`, and the leaves to store when the result is
+    /// held by value.
+    fn result_val_types(&self, ty: TypeId) -> (Vec<ValType>, Option<Vec<Repr>>) {
+        match self.leaves(ty) {
+            Some(leaves) => (
+                leaves.iter().map(|&r| val(r)).collect(),
+                Some(leaves.to_vec()),
+            ),
+            None => (repr_val(self.repr(ty)).into_iter().collect(), None),
+        }
+    }
+
+    /// Stores a call's result: one wasm local per leaf of a value held by value, or the single
+    /// representation of any other result.
+    fn assign_result(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        ret: Repr,
+        leaves: Option<Vec<Repr>>,
+    ) {
+        let Some(leaves) = leaves else {
+            self.assign(cx, ins, dst, ret);
+            return;
+        };
+        match dst {
+            Some(d) => {
+                if cx.aggregate(d) != Some(leaves.len() as u32) {
+                    self.internal(format!(
+                        "a result of {} has no destination in {}",
+                        leaves.len(),
+                        cx.f.name
+                    ));
+                    return;
+                }
+                // The leaves are on the stack in field order; store them in reverse.
+                for i in (0..leaves.len() as u32).rev() {
+                    ins.local_set(cx.leaf(d, i));
+                }
+            }
+            // An unused result is given up like any other value: the leaves own no reference, so
+            // each is dropped from the operand stack.
+            None => {
+                for _ in &leaves {
+                    ins.drop();
+                }
+            }
+        }
     }
 
     // ---- assembly ----
@@ -2936,31 +3017,7 @@ impl<'m> Builder<'m> {
                 }
                 let index = self.fn_index(*g);
                 ins.call(index);
-                match ret_leaves {
-                    Some(leaves) => match dst {
-                        // The leaves are on the stack in field order; store them in reverse.
-                        Some(d) => {
-                            if cx.aggregate(d) != Some(leaves.len() as u32) {
-                                let (callee, caller) = (f.name.clone(), cx.f.name.clone());
-                                self.internal(format!(
-                                    "the result of {callee} has no destination in {caller}"
-                                ));
-                                return;
-                            }
-                            for i in (0..leaves.len() as u32).rev() {
-                                ins.local_set(cx.leaf(d, i));
-                            }
-                        }
-                        // An unused result is given up like any other value: the leaves own no
-                        // reference, so each is dropped from the operand stack.
-                        None => {
-                            for _ in &leaves {
-                                ins.drop();
-                            }
-                        }
-                    },
-                    None => self.assign(cx, ins, dst, ret),
-                }
+                self.assign_result(cx, ins, dst, ret, ret_leaves);
             }
             Callee::Indirect(c) => {
                 let fty = match self.core().ty(cx.f.vars[*c].ty) {
@@ -2973,8 +3030,7 @@ impl<'m> Builder<'m> {
                         return;
                     }
                 };
-                let ret = self.repr(fty.ret);
-                self.indirect(cx, ins, dst, *c, args, ret);
+                self.indirect(cx, ins, dst, *c, args, fty.ret);
             }
             Callee::Op {
                 handler,
@@ -2988,6 +3044,9 @@ impl<'m> Builder<'m> {
         }
     }
 
+    /// A `call_indirect` of a closure. The closure record is one reference parameter (the
+    /// environment); each other parameter and the result follow the layouts of the function type,
+    /// so an indirect call has the same signature as the function it enters.
     fn indirect(
         &mut self,
         cx: &mut FnCtx,
@@ -2995,13 +3054,12 @@ impl<'m> Builder<'m> {
         dst: Option<VarId>,
         closure: VarId,
         args: &[Operand],
-        ret: Repr,
+        ret_ty: TypeId,
     ) {
-        // The closure record is the environment: it goes first, then the arguments, then the
-        // table index.
-        let mut params = vec![Repr::Ref];
-        params.extend(args.iter().map(|a| Self::operand_repr(cx.f, a)));
-        let ty = self.call_ty(&params, ret);
+        let mut params = vec![val(Repr::Ref)];
+        params.extend(self.operand_val_types(cx, args));
+        let (results, ret_leaves) = self.result_val_types(ret_ty);
+        let ty = self.ty(params, results);
         ins.local_get(cx.local(closure));
         for a in args {
             self.operand(cx, ins, a);
@@ -3009,7 +3067,8 @@ impl<'m> Builder<'m> {
         ins.local_get(cx.local(closure));
         ins.i32_load(mem(HDR, 4));
         ins.call_indirect(0, ty);
-        self.assign(cx, ins, dst, ret);
+        let ret = self.repr(ret_ty);
+        self.assign_result(cx, ins, dst, ret, ret_leaves);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3026,14 +3085,19 @@ impl<'m> Builder<'m> {
     ) {
         let suspend = def.suspend;
         // A `suspend fn` implementation takes the resume function last and returns nothing; the
-        // value to continue with comes from `perform_end` (spec 8.4, 14.5).
-        let mut params = vec![Repr::Ref];
-        params.extend(args.iter().map(|a| Self::operand_repr(cx.f, a)));
+        // value to continue with comes from `perform_end` (spec 8.4, 14.5). Its parameters and
+        // result stay boxed, so the trampoline keeps its one-word result.
+        let mut params = vec![val(Repr::Ref)];
+        params.extend(self.operand_val_types(cx, args));
         if suspend {
-            params.push(Repr::Ref);
+            params.push(val(Repr::Ref));
         }
-        let call_ret = if suspend { Repr::Void } else { ret };
-        let ty = self.call_ty(&params, call_ret);
+        let (results, ret_leaves) = if suspend {
+            (Vec::new(), None)
+        } else {
+            self.result_val_types(def.ret)
+        };
+        let ty = self.ty(params, results);
         let op_off = HDR + 8 * (op as u32 + 2);
         // If the handler was released, its operations are a defect (spec 8.6).
         ins.local_get(cx.local(handler));
@@ -3078,8 +3142,10 @@ impl<'m> Builder<'m> {
             ins.local_get(rs);
             ins.call(end);
             self.perform_result(ins, ret);
+            self.assign(cx, ins, dst, ret);
+        } else {
+            self.assign_result(cx, ins, dst, ret, ret_leaves);
         }
-        self.assign(cx, ins, dst, ret);
         ins.end();
     }
 
