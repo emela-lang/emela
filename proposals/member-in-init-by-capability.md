@@ -2,7 +2,7 @@
 title: Handler members inside an init are opened through a capability
 authors: [somnicattus]
 status: draft
-pr:
+pr: 702
 issue:
 decided:
 touches: [effect.handler, type.rules, module.resolution, grammar.expr, diag.list]
