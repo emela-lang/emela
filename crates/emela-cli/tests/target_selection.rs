@@ -57,6 +57,28 @@ fn retired_project_target_is_rejected_without_output() {
     }
 }
 
+/// Issue #691: `[build].target` is the default target of `check` too, and E0232 shows Pome.toml
+/// relative to the project like other diagnostics.
+#[test]
+fn unknown_project_target_is_reported_by_every_command_relative_to_the_project() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(root, "Pome.toml", "[build]\ntarget = \"bogus\"\n");
+    write(root, "src/main.emel", "fn main() {}\n");
+    for command in ["check", "build", "run", "test"] {
+        let output = emela(root, &[command]);
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{command}: {output:?}");
+        assert!(error.contains("E0232"), "{command}: {error}");
+        assert!(
+            error.contains("unknown target `bogus`"),
+            "{command}: {error}"
+        );
+        assert!(error.contains("[ Pome.toml ]"), "{command}: {error}");
+        assert!(!root.join("target").exists(), "{command}");
+    }
+}
+
 #[test]
 fn embedded_table_no_longer_selects_a_board_or_replaces_modules() {
     let temp = tempfile::tempdir().unwrap();
