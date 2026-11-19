@@ -78,7 +78,7 @@ handler Mirror(scratch: use WriteFile): WriteFile {
 ### Meaning
 
 - with の項目では，handler の項目と同じく，member の引数で括弧が決まる．引数のない member は `x = E.M`，`x = c.M` と書き，`x = E.M()` は誤り（E0435）．引数のある member は `x = E.M(arguments)` と書き，括弧を省くのは誤り（E0434）
-- init の中の式では，今と同じく常に括弧を書く．引数のない member は `E.M()`，`c.M()`．括弧のない `E.M` は誤り（E0448 の文を直す．Diagnostics）．init の中で effect の名前から開く形（`E.M()`）をやめる提案（#702）が採られれば，init の中は `c.M()` だけになるが，括弧の規則は変わらない
+- init の中の式では，今と同じく常に括弧を書く．引数のない member は `E.M()`，`c.M()`．括弧のない `E.M` は誤り（E0448 の文を直す．Diagnostics）．init の中で effect の名前から開く形（`E.M()`）をやめる提案（#702）が採られれば，init の中は `c.M()` だけになるが，括弧の規則は変わらない．そのとき init の中の `E.M` は括弧の有無によらず #702 の E0448（capability を通すよう促す）になり，この提案の「括弧を付けて呼ぶ」help は `c.M` にだけ当てはまる
 - 宣言の括弧の有無は，開く形に関係しない．init の `init` と `init()` と同じく，引数があるかだけで決まる
 - inner handler の書き方は変わらない．inner handler の名前の後の括弧はそのフィールドで，member の宣言の括弧とは関係ない．init の引数は今と同じく member の引数と一致させる（引数のない member なら，init は引数を取らない）
 
@@ -136,7 +136,7 @@ In the row of E0448, add: for `E.M` or `c.M` written inside an init without bein
 
 - [ ] A handler member with parameters written without arguments as a with item (`x = Files.Open`): E0434 (extended; it passes silently now)
 - [ ] A handler member without parameters written with parentheses as a with item (`x = Files.Scratch()`): E0435 (extended)
-- [ ] A handler member written inside an init without being called (`Files.Scratch`): E0448 with a message that asks for the call (the message changes)
+- [ ] A handler member written inside an init without being called (`Files.Scratch`, `fs.Scratch`): E0448 with a message that asks for the call (the message changes). If #702 is adopted, `Files.Scratch` gets the E0448 of #702 instead, and this message is for `fs.Scratch`
 
 ## Compatibility
 
