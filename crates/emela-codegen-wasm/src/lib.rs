@@ -73,15 +73,20 @@ pub struct WasmOptions {
     /// E1 steps 2–5: hold eligible records and tuples by value (a span of WASM locals or
     /// parameters, one per scalar leaf) instead of allocating a heap object per value, and flatten
     /// the signature of every call of a function type whose parameters or result are held by
-    /// value: a direct call, `call_indirect`, a closure's non-environment parameters and a
-    /// non-suspending effect operation agree.
+    /// value: a direct call, `call_indirect`, a closure's non-environment parameters, a
+    /// non-suspending effect operation, and a suspending function or operation implementation.
     ///
     /// Off by default. A value held in locals is boxed at a boundary that stores a reference and
     /// unboxed when it is read back: a list head, an enum payload field, a closure capture and
-    /// environment slot, `Any`, and an array element. Suspension frames, suspending functions and
-    /// operations, fiber thunks, the entry thunk, exports, externals, constants and error shows
-    /// keep the boxed form, so a type used in one of those places stays boxed everywhere.
-    /// Turning the option on by default is step 6.
+    /// environment slot, `Any`, and an array element. A variable live across a suspension is saved
+    /// as one frame slot per scalar leaf, and the restore path reads the leaves back in order.
+    ///
+    /// Two results stay boxed: a suspending function's or operation's result of more than one leaf
+    /// (the runtime's resume channel carries one word), and a function value passed to a fiber
+    /// operation together with its parameters and result (the fiber thunk carries one word). The
+    /// entry thunk, exports, externals, constants and error shows keep the boxed form, so a type
+    /// used in one of those places stays boxed everywhere. Turning the option on by default is
+    /// step 6.
     pub values: bool,
     /// E2 step 2: store an array element that is an all-scalar record or tuple inline (one
     /// 8-byte slot per scalar leaf) instead of a reference to a separately allocated box.

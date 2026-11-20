@@ -2,8 +2,11 @@
 //!
 //! A function value's type has one signature: a parameter or result that has an `Agg` layout is
 //! flattened in a direct call, a `call_indirect`, a closure and a non-suspending effect operation
-//! alike. The option is off by default, so the boxed form keeps its bytes. A suspending function,
-//! a suspending operation and a value passed to a fiber thunk stay boxed in this step.
+//! alike. The option is off by default, so the boxed form keeps its bytes.
+//!
+//! The suspending paths are in `values_suspend.rs`: a suspending function and the record
+//! parameters of a suspending operation flatten, a suspending result of more than one leaf and
+//! every value that crosses a fiber thunk stay boxed.
 //!
 //! Each test compiles the same program with `values` off and on, validates both modules and (when
 //! `wasmtime` is present) compares stdout, stderr and the exit code. The structural checks read the
@@ -311,125 +314,6 @@ fn a_non_suspending_operation_flattens_its_parameters_and_result() {
         on_module.indirect
     );
     same_output("indirect-operation", &off, &on, "", OPERATION_OUT);
-}
-
-/// A suspending operation keeps its parameters and result boxed: the trampoline carries one word
-/// selected by representation, and the implementation may be a state machine.
-const SUSPENDING_OPERATION: &str = r#"
-type Point(x: Int, y: Int)
-
-effect Wait {
-  suspend fn wait(p: Point) -> Point
-}
-
-handler Waiter: Wait {
-  suspend fn wait(p, resume) {
-    resume(Point(x: p.x + 1, y: p.y + 2))
-  }
-}
-
-fn main() -> () uses { Async } {
-  with Waiter {
-    q = (use Wait).wait(Point(x: 1, y: 2))
-    dbg(q.x)
-    dbg(q.y)
-    ()
-  }
-}
-"#;
-
-const SUSPENDING_OPERATION_OUT: &str = "2\n4\n";
-
-#[test]
-fn a_suspending_operation_stays_boxed_and_agrees() {
-    let (off, on) = compile_pair("suspending-operation", SUSPENDING_OPERATION);
-    // The whole type is excluded, so the option changes nothing: the recorded limitation.
-    assert_eq!(
-        off, on,
-        "a suspending operation's record must stay boxed in this step"
-    );
-    same_output(
-        "suspending-operation",
-        &off,
-        &on,
-        "",
-        SUSPENDING_OPERATION_OUT,
-    );
-}
-
-/// A record live across a suspension: the state machine saves it in a word-shaped frame, so the
-/// type stays boxed.
-const SUSPENDED_VALUE: &str = r#"
-type Point(x: Int, y: Int)
-
-effect Wait {
-  suspend fn wait() -> Int
-}
-
-handler Waiter: Wait {
-  suspend fn wait(resume) {
-    dbg("wait")
-    resume(1)
-  }
-}
-
-fn work(p: Point) -> Int uses { Wait } {
-  n = (use Wait).wait()
-  p.x + p.y + n
-}
-
-fn main() -> () uses { Async } {
-  with Waiter {
-    p = Point(x: 3, y: 4)
-    dbg(work(p))
-    ()
-  }
-}
-"#;
-
-const SUSPENDED_VALUE_OUT: &str = "\"wait\"\n8\n";
-
-#[test]
-fn a_value_live_across_a_suspension_stays_boxed_and_agrees() {
-    let (off, on) = compile_pair("suspended-value", SUSPENDED_VALUE);
-    assert_eq!(off, on, "a saved-frame record must stay boxed in this step");
-    same_output("suspended-value", &off, &on, "", SUSPENDED_VALUE_OUT);
-}
-
-/// `Exit.attempt` calls the closure through the fiber thunk, which carries one result selected by
-/// representation: a record result stays boxed.
-const ATTEMPT: &str = r#"
-import Std.Exit.{Exit, Success, Failure}
-import Std.Cause.{Cause}
-
-type Point(x: Int, y: Int)
-
-fn main() -> () uses { Async } {
-  e = Exit.attempt(|| Point(x: 1, y: 2))
-  e match {
-    Success(p) -> {
-      dbg(p.x + p.y)
-      ()
-    }
-    Failure(c) -> {
-      dbg(Cause.to_string(c))
-      ()
-    }
-  }
-  ()
-}
-"#;
-
-const ATTEMPT_OUT: &str = "3\n";
-
-#[test]
-fn a_fiber_attempt_record_result_stays_boxed_and_agrees() {
-    let (off, on) = compile_pair("attempt-record", ATTEMPT);
-    assert_eq!(
-        off, on,
-        "a record crossing a fiber thunk must stay boxed in this step"
-    );
-    same_output("attempt-record", &off, &on, "", ATTEMPT_OUT);
 }
 
 /// The memory each program may grow to: six 64 KiB pages, as in `tests/memory.rs`.
