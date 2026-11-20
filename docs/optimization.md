@@ -22,6 +22,13 @@ Core IR (target-neutral, before monomorphisation)
   2 fusion          range / map / fold / filter, Option and Array.get, strings
   3 loops           hoisting, unswitching, induction variables
   4 analyses        effects and defects, uses, call graph, ranges
+Monomorphic Core IR (after monomorphisation)
+  5 δ stage         one δ-only pass over the monomorphic copies: the rule of
+                    1 with the same budget, run where a callee that was
+                    effect-polymorphic before (a higher-order wrapper) is
+                    concrete. The CoreFns identity map is rebuilt through
+                    Monomorphized::origins, so the reserved bundled functions
+                    stay calls. No other rule or fusion law runs here.
 LIR (after lowering; heap passes after reference counting)
   5 LIR passes      escape, liveness, borrow, ownership, SRA, closure
                     devirtualisation, rc cleanup, drop specialisation,
@@ -35,7 +42,7 @@ Runtime
   profiling, no self-modifying code.
 ```
 
-The analyses in layer 4 and in layer 5 are shared: a rewrite consumes a tested analysis and
+The analyses in layer 4 and in layer 6 are shared: a rewrite consumes a tested analysis and
 gives up when the analysis answers `Unknown`.
 
 ## Terms
@@ -79,7 +86,7 @@ changing behaviour is not.
 
 | Where | What |
 |---|---|
-| [`crates/emela-core/src/opt/mod.rs`](../crates/emela-core/src/opt/mod.rs) | The Core IR pipeline: the order of the passes, the fixed point, `Stats`, the pass contract. |
+| [`crates/emela-core/src/opt/mod.rs`](../crates/emela-core/src/opt/mod.rs) | The Core IR pipeline: the order of the passes, the fixed point, `Stats`, the pass contract, and the δ-only stage after monomorphisation. |
 | [`crates/emela-core/src/opt/`](../crates/emela-core/src/opt/) | The Core IR passes: `hoist`, the `reduce` kernel (including δ, the inliner), `option`, `range`. |
 | [`crates/emela-lir/src/opt/mod.rs`](../crates/emela-lir/src/opt/mod.rs) | The LIR stages (`run_flow`, `run_mid`, `run_heap`), `Stats`, the shared analyses. |
 | [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes and analyses: `escape`, `rc`, `sra`. |
