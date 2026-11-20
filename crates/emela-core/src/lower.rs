@@ -34,7 +34,7 @@ use crate::ir::{
 };
 use crate::mono::Monomorphized;
 use crate::named;
-use crate::opt::CoreFn;
+use crate::opt::{CoreFn, CoreFns};
 
 mod builtin_handler;
 mod builtin_impls;
@@ -100,9 +100,11 @@ pub struct Lowered {
     /// The IR function for each test function in `LowerInput::tests`, in the same order. Filled
     /// only with `Roots::Tests`.
     pub tests: Vec<FnId>,
-    /// What the Core IR optimisation passes changed (`opt::run`), including how many sweeps they
-    /// needed (`Stats::passes`). No change counter fires with `lower_with(_, _, false)`, or while
-    /// no pass has fired.
+    /// What the Core IR optimisation passes changed (`opt::run`), and what the δ-only stage after
+    /// monomorphisation changed (`opt::delta_after_monomorphization`). The two stages share
+    /// [`crate::opt::Stats::delta`]; [`crate::opt::Stats::passes`] counts only the sweeps of
+    /// `opt::run`. No change counter fires with `lower_with(_, _, false)`, or while no pass has
+    /// fired.
     pub stats: crate::opt::Stats,
 }
 
@@ -146,7 +148,11 @@ pub struct LowerInput<'a> {
 /// come out as `Expr::Loop` / `Expr::Recur` (`tail::loopify`).
 ///
 /// The Core IR optimisation passes run, `optimize` permitting, after self tail call loopification
-/// and before the IR is checked and monomorphized (`opt::run`); all targets get them.
+/// and before the IR is checked and monomorphized (`opt::run`); all targets get them. After
+/// monomorphisation one δ-only stage runs on the monomorphic module
+/// (`opt::delta_after_monomorphization`), because a callee that is effect-polymorphic before
+/// monomorphisation (such as a higher-order wrapper) is concrete afterwards; see
+/// `opt::reduce::delta`. Both stages share `opt::Stats::delta`.
 pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerError>> {
     lower_with(input, roots, true)
 }
@@ -266,7 +272,7 @@ pub fn lower_with(
     // The Core IR optimisations also run for every target, before the IR is verified and
     // monomorphized. They preserve evaluation order, effects, failures, `with` releases and drop
     // points.
-    let stats = crate::opt::run(&mut cx.module, &cx.core_fns, optimize);
+    let mut stats = crate::opt::run(&mut cx.module, &cx.core_fns, optimize);
     let (Some(target), Roots::Exported | Roots::Public | Roots::Tests) = (input.language, roots)
     else {
         return Ok(Lowered {
@@ -289,7 +295,7 @@ pub fn lower_with(
         Roots::Tests => tests.clone(),
         _ => crate::mono::exported(&cx.module),
     };
-    let mono = crate::mono::monomorphize_traced(&cx.module, &mono_roots);
+    let mut mono = crate::mono::monomorphize_traced(&cx.module, &mono_roots);
     // Until derive generates impls, the type checker counts a `derive` as an impl
     // (`emela_types::Traits::satisfies`), so a call can reach a type without one.
     for (f, ty) in &mono.missing_impls {
@@ -304,6 +310,17 @@ pub fn lower_with(
     if !cx.errors.is_empty() {
         return Err(cx.errors);
     }
+    // The stage after monomorphisation: δ only, on the monomorphic module, with the identity map
+    // rebuilt through `origins`. This is where an effect-polymorphic wrapper (`fn apply(f, x) {
+    // f(x) }`) becomes a candidate; δ left it alone before monomorphisation because of its set
+    // type parameters. The rule keeps its budget and counter; see `opt::reduce::delta`.
+    if optimize {
+        let core_fns = post_mono_core_fns(&mono.origins, &cx.core_fns);
+        stats.merge(crate::opt::delta_after_monomorphization(
+            &mut mono.module,
+            &core_fns,
+        ));
+    }
     let tests = match roots {
         Roots::Tests => mono.roots,
         _ => Vec::new(),
@@ -313,6 +330,19 @@ pub fn lower_with(
         tests,
         stats,
     })
+}
+
+/// The [`CoreFns`] map of the monomorphic module: every output function whose input lowering
+/// recorded as a bundled function. Monomorphisation gives each function a new id, so the identity
+/// is followed through [`Monomorphized::origins`] (output function → the input function it copies)
+/// and lowering's map (input function → [`CoreFn`]). Without the rebuild, δ would treat a
+/// monomorphised `List.fold` or `List.reverse` as an ordinary function and copy it into every
+/// caller.
+fn post_mono_core_fns(origins: &ArenaMap<FnId, FnId>, core_fns: &CoreFns) -> CoreFns {
+    origins
+        .iter()
+        .filter_map(|(new, &old)| core_fns.get(&old).map(|&kind| (new, kind)))
+        .collect()
 }
 
 struct Lowerer<'a> {

@@ -1,4 +1,5 @@
-//! Optimisation of the Core IR, between lowering and monomorphisation.
+//! Optimisation of the Core IR: the target-neutral pipeline after lowering, and the δ stage on the
+//! monomorphic module.
 //!
 //! The passes work on the target-neutral Core IR, so every target gets them. [`run`] is the fixed
 //! sequence; there is no generic pass framework. A build turns all of them off together with
@@ -135,6 +136,29 @@
 //! exposes. A pattern that appears only by substituting an argument into a parameter is not exposed
 //! at all: δ binds each argument to a fresh local first, so the pattern has to be in the callee's
 //! body. A module that is already at the fixed point takes one sweep, which changes nothing.
+//!
+//! # After monomorphisation
+//!
+//! A build checks the module and monomorphizes it after [`run`] (`crate::mono`), and then runs one
+//! further stage on the monomorphic module: δ reduction alone, through
+//! `delta_after_monomorphization`. Nothing else runs there. This is not a second pipeline and it
+//! has no fixed point of its own; the stage is deliberately δ only, with the rule's existing
+//! contract, budget and counter.
+//!
+//! The reason is the rule's `set_params` precondition. Before monomorphisation a callee whose E or
+//! R still mentions a set type parameter is left as a call, because its evidence and type
+//! arguments do not substitute with [`crate::ir::TypeTable::subst`] alone. A small higher-order
+//! wrapper such as `fn apply(f, x) { f(x) }` is exactly such a callee. After monomorphisation its
+//! copy has no type or set parameters and no unresolved dispatch, so the same rule can copy it.
+//! The WASM backend has no inliner of its own, so a call that survives the Core IR stays a call
+//! there.
+//!
+//! The stage's invariant is that its input is monomorphic and that its [`CoreFns`] map is rebuilt
+//! for the output function ids: each output function is followed through
+//! `Monomorphized::origins` to the input function it copies, and then through the identity map
+//! lowering built. A stale or empty map would let δ copy a reserved bundled collection function
+//! (`List.fold`, `List.reverse`, ...) into every caller. See `delta_after_monomorphization` and
+//! [`reduce::delta`] for the stage and the contract.
 //!
 //! # Pass contract
 //!
@@ -521,6 +545,29 @@ pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
     // One sweep is enough to see that there is nothing to do; report that as one.
     stats.passes = changed_sweeps.max(1);
     stats
+}
+
+/// Runs δ reduction once on a monomorphic module: the stage after monomorphisation.
+///
+/// The input must be the module [`crate::mono`] produced, with `core_fns` rebuilt for its function
+/// ids. This calls [`reduce::delta`] once with the rule's existing budget; there is no other
+/// reduction, no fusion law and no fixed-point loop. The returned [`Stats`] fills only
+/// [`Stats::delta`] and [`Stats::deopt`], which the caller merges with the counters of [`run`].
+/// [`Stats::passes`] stays zero: it counts sweeps of [`run_with`], not stages.
+///
+/// δ keeps its contract and is not a different rule here; the only difference is that the module
+/// is monomorphic, so a callee with no set type parameters (an effect-polymorphic wrapper before
+/// it was copied) is eligible. The [`CoreFns`] map must be rebuilt for the monomorphic function
+/// ids, or the reserved bundled functions would become candidates; see the module's
+/// "After monomorphisation" section.
+pub(crate) fn delta_after_monomorphization(m: &mut Module, core_fns: &CoreFns) -> Stats {
+    let done = reduce::delta(m, core_fns);
+    check(m);
+    Stats {
+        delta: done.applied,
+        deopt: done.deopt,
+        ..Stats::default()
+    }
 }
 
 /// Applies `f` to the body of every function, with the module to allocate locals in.
