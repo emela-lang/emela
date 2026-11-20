@@ -112,8 +112,8 @@ fn main() {
   }
 }
 "#,
-        37009,
-        0x366a_12a8_b2be_8662,
+        37031,
+        0xb40f_8d10_8313_76a0,
     ),
     (
         // The default rules now run closure devirtualisation (E5) and closure SRA (C5). The
@@ -228,8 +228,10 @@ fn emitted_test_bytes_do_not_change() {
 }
 
 /// The opt-in E2 form: an array of an all-scalar record stores the element inline. This is a
-/// feature pin for `WasmOptions::aggregate_arrays`, not a change to a boxed pin above; the option
-/// is off by default and every other pin stays as it was.
+/// feature pin for `WasmOptions::aggregate_arrays`, not a change to a boxed pin above; the E2
+/// option is off by default and every other pin stays as it was. It compiles with
+/// [`WasmOptions::boxed`] so it stays the pin of E2 alone, unchanged by the E1 step 6 default; the
+/// by-value default has its own feature pin below.
 #[test]
 fn emitted_inline_array_bytes_do_not_change() {
     const SRC: &str = r#"
@@ -249,10 +251,36 @@ fn main() {
         SRC,
         WasmOptions {
             aggregate_arrays: true,
-            ..WasmOptions::default()
+            ..WasmOptions::boxed()
         },
     );
     wasmparser::validate(&output.module).expect("the inline-array module is valid");
     // The C2 profitability rule changes the borrows of the call sites in this program.
     check([("inline_array", output.module, 15679, 0xc50f_9575_2749_36be)]);
+}
+
+/// The E1 step 6 feature pin: the default build holds an all-scalar record by value. The program
+/// constructs `Point` (no box is allocated), reads a field from the held value and passes it to a
+/// call whose signature is flattened.
+#[test]
+fn emitted_by_value_record_bytes_do_not_change() {
+    const SRC: &str = r#"
+type Point(x: Int, y: Int)
+
+fn sum(p: Point) -> Int {
+  p.x + p.y
+}
+
+fn main() {
+  p = Point(x: 3, y: 4)
+  dbg(p.x)
+  dbg(sum(p))
+}
+"#;
+    check([(
+        "by_value_record",
+        compile_checked(SRC),
+        12599,
+        0x441e_20c9_0930_3d01,
+    )]);
 }

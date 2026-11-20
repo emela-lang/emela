@@ -2,7 +2,8 @@
 //!
 //! A function value's type has one signature: a parameter or result that has an `Agg` layout is
 //! flattened in a direct call, a `call_indirect`, a closure and a non-suspending effect operation
-//! alike. The option is off by default, so the boxed form keeps its bytes.
+//! alike. The option is on by default since E1 step 6; each test compares it with the boxed
+//! form explicitly, so the boxed path is still exercised.
 //!
 //! The suspending paths are in `values_suspend.rs`: a suspending function and the record
 //! parameters of a suspending operation flatten, a suspending result of more than one leaf and

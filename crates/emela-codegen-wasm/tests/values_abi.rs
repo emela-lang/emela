@@ -1,9 +1,10 @@
 //! E1 step 3: the direct-call ABI of records and tuples held by value.
 //!
-//! The option is off by default. With it on, a function whose value the module never takes has a
-//! flattened wasm signature: an `Agg` parameter is its scalar leaves and an `Agg` result is one
-//! wasm result per leaf (multi-value). The same program must print the same thing and exit the
-//! same way in both forms.
+//! The option is on by default since E1 step 6; these tests choose it and the boxed form
+//! explicitly. With it on, a function whose value the module never takes has a flattened wasm
+//! signature: an `Agg` parameter is its scalar leaves and an `Agg` result is one wasm result per
+//! leaf (multi-value). The same program must print the same thing and exit the same way in both
+//! forms.
 //!
 //! The structural checks read the core module inside the component: the flattened form has
 //! functions with several wasm results, and a record passed to or returned from a function no

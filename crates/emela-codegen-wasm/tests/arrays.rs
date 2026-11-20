@@ -1,6 +1,6 @@
 //! E2: arrays of all-scalar records and tuples stored inline.
 //!
-//! The option is off by default. With it on, an element of an all-scalar record or tuple is one
+//! The E2 option is off by default. With it on, an element of an all-scalar record or tuple is one
 //! 8-byte slot per scalar leaf inside the array instead of a reference to a separately allocated
 //! box. The IR still says `Ref`, so every read boxes one element; construction, `set`, `slice`
 //! and `concat` copy the slots. The same program must print the same thing, write the same

@@ -42,8 +42,9 @@ LIR (after lowering; heap passes after reference counting)
                     SRA rewrites nothing on the corpus and stays off.
                     Suspension frame pruning is reserved.
 Lowering and code generation
-  6 representation  string concat, value records, unboxed arrays, tagging,
-                    dead code and import pruning, switches
+  6 representation  string concat, value records (on by default in the
+                    WASM backend since E1 step 6), unboxed arrays (opt-in,
+                    E2), tagging, dead code and import pruning, switches
 Runtime
   A fixed implementation of reference counting, allocation, strings and
   the scheduler. It is not an optimisation layer: no JIT, no runtime
@@ -52,6 +53,19 @@ Runtime
 
 The analyses in layer 4 and in layer 6 are shared: a rewrite consumes a tested analysis and
 gives up when the analysis answers `Unknown`.
+
+The WASM backend holds a record or tuple whose leaves are all scalars by value by default: a span
+of locals or parameters, one per leaf, and a flattened call signature (E1 step 6). The measurement
+that decided it left the WASM size unchanged (the median per-item delta is 0.0% and no item moves
+by more than 0.7%) and cut the allocations of the native record loops from 20,002 to 2 and from
+60,002 to 2. A value is still boxed where a
+boundary stores one reference: a list head, an enum payload, a closure capture or environment
+slot, `Any`, and an array element. The entry thunk, exports, externals, constants and error shows
+keep the boxed form, so a type used there stays boxed everywhere, and two results stay boxed
+because their runtime path carries one word: a suspending function's or operation's result of
+more than one leaf, and a function value passed to a fiber operation together with its parameters
+and result. Array elements stay boxed unless the opt-in E2 `aggregate_arrays` stores an all-scalar
+element inline. `WasmOptions::boxed()` selects the representation from before E1 step 6.
 
 ### Default change: closure devirtualisation and closure SRA
 
@@ -124,7 +138,7 @@ changing behaviour is not.
 | [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes: SRA of tuples (records behind a flag), rc cleanup with the borrow elision, DCE, borrow inference and switch normalisation (E4), on by default. Switch normalisation writes the canonical case form the backends read: sorted and distinct keys, one case for the bodies that are the same sequence, and a direct block when every arm is that body. Drop specialisation is opt-in: with it on the M3 measurement grew the native binary by up to 7.5% and the C source by up to 3.7%, with no measured runtime gain. Reuse of a uniquely owned, same-constructor record, whose old reference fields it releases first (C4/PR-042) is opt-in, and record SRA rewrites nothing on the corpus and is off by default. Closure devirtualisation (E5/PR-037) and closure SRA of a record's scalar captures (C5/PR-043, after E5) are on by default as of the default change recorded above; suspension frame pruning is reserved. |
 | [`crates/emela-lir/src/analysis/reach.rs`](../crates/emela-lir/src/analysis/reach.rs) | The target-independent reachability analysis: called and referenced functions, performed handler operations and reachable externals, on the Flow and Heap IR. `prune_functions` removes neither-called-nor-referenced functions behind `LirRules::prune` (off by default). Both backends read the same analysis for bodies and host imports. |
 | [`crates/emela-codegen-c/`](../crates/emela-codegen-c/) | The C backend: representation and layout; a canonical switch is one C `switch` with a label per key. |
-| [`crates/emela-codegen-wasm/`](../crates/emela-codegen-wasm/) | The WASM backend: representation, dead code elimination, and the switch encoding (`br_table` or the chain of `if`s, chosen from the canonical keys). |
+| [`crates/emela-codegen-wasm/`](../crates/emela-codegen-wasm/) | The WASM backend: representation (records and tuples by value by default, array elements inline only with E2), dead code elimination, and the switch encoding (`br_table` or the chain of `if`s, chosen from the canonical keys). `WasmOptions::boxed()` restores the pre-E1-step-6 representation. |
 
 A pass's rustdoc states the contract; the module rustdoc states the pipeline and the fixed
 point.

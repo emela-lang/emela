@@ -21,7 +21,8 @@
 //!   representation and carries one result word, so the type of the function value and its result
 //!   stay boxed.
 //!
-//! The option is off by default; with it off the boxed form of every program here is unchanged.
+//! The option is on by default since E1 step 6; every test here also builds the boxed form
+//! explicitly, so the boxed path stays exercised.
 
 mod common;
 
@@ -153,7 +154,15 @@ fn compile_with(name: &str, src: &str, values: bool, optimize: bool) -> Vec<u8> 
         &Entry::Main,
         optimize,
         Options {
-            rules: LirRules::default(),
+            // These tests pin the flattened ABI of a `call_indirect`, including a suspending
+            // function reached as a function value. Closure devirtualisation would make that call
+            // direct and remove the indirect type under test, so it stays off here; every other
+            // default pass is kept.
+            rules: LirRules {
+                devirt: false,
+                sra_closures: false,
+                ..LirRules::default()
+            },
         },
         WasmOptions {
             values,

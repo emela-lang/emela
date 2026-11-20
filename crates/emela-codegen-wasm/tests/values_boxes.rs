@@ -1,11 +1,12 @@
 //! E1 step 5: a value held in WASM locals is boxed at an escape boundary and unboxed when it is
 //! read back.
 //!
-//! The option is off by default. With it on, a record is a span of locals; a list head, an enum
-//! payload field, a closure capture, and an array element store a box of its scalar leaves, and a
-//! read into a value unboxes it. The same program must print the same thing, write the same
-//! standard error and exit the same way in both forms, with and without the LIR passes and with
-//! E2's inline array elements on or off.
+//! The option is on by default since E1 step 6; these tests choose it and the boxed form
+//! explicitly. With it on, a record is a span of locals; a list head, an enum payload field, a
+//! closure capture, and an array element store a box of its scalar leaves, and a read into a
+//! value unboxes it. The same program must print the same thing, write the same standard error
+//! and exit the same way in both forms, with and without the LIR passes and with E2's inline
+//! array elements on or off.
 //!
 //! The memory tests keep the option on: a read that unboxes a box owned by the list or the array
 //! must not take a reference of its own, and a temporary box made for `Array.set` must be

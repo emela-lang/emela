@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::sync::OnceLock;
 
+use emela_codegen_wasm::WasmOptions;
 use emela_driver::{
     Analysis, CoreJs, CoreWasm, Input, Lower, MemoryFiles, Output, RunOptions, Target,
     js_host_program, run, wasmtime_program,
@@ -1319,6 +1320,16 @@ struct Outcome {
 
 /// Runs `src` on `target`: its exit code, stdout and stderr, or the diagnostics that stopped it.
 fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Box<Analysis>> {
+    run_on_with_wasm_options(name, src, target, WasmOptions::default())
+}
+
+/// [`run_on`] with the WASM emitter's representation choices. The other targets ignore them.
+fn run_on_with_wasm_options(
+    name: &str,
+    src: &str,
+    target: Target,
+    wasm_options: WasmOptions,
+) -> Result<Outcome, Box<Analysis>> {
     let fs = MemoryFiles::new([("app/Pome.toml", ""), ("app/src/main.emel", src)]);
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
@@ -1337,7 +1348,7 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Box<Analysis
             &fs,
             &input,
             &mut frontend,
-            &mut CoreWasm::default(),
+            &mut CoreWasm::default().with_wasm_options(wasm_options),
             &options,
             |_, _| {},
         ),
@@ -1396,6 +1407,46 @@ fn program_agrees_on_js_and_wasm(name: &str, src: &str) {
     assert!(
         js == wasm,
         "{name}: JS and WASM differ\n  JS:   {js:?}\n  WASM: {wasm:?}"
+    );
+}
+
+/// The default build holds eligible records and tuples by value (E1 step 6). Running the same
+/// program with the explicitly boxed representation must give the same output, so the by-value
+/// path is always compared against the representation it replaced.
+#[test]
+fn boxed_and_by_value_representations_agree_on_wasm() {
+    if !have_wasmtime() {
+        return;
+    }
+    // `traits` constructs, passes and reads `Point` and `Box`, all of whose fields are scalars, so
+    // both representations reach the emitter.
+    let (_, src) = PROGRAMS
+        .iter()
+        .find(|(name, _)| *name == "traits")
+        .expect("the `traits` program");
+    let boxed = run_on_with_wasm_options(
+        "representation-boxed",
+        src,
+        Target::Wasm,
+        WasmOptions::boxed(),
+    )
+    .unwrap_or_else(|analysis| panic!("boxed build failed:\n{}", messages(&analysis).join("\n")));
+    let by_value = run_on_with_wasm_options(
+        "representation-by-value",
+        src,
+        Target::Wasm,
+        WasmOptions::default(),
+    )
+    .unwrap_or_else(|analysis| {
+        panic!("by-value build failed:\n{}", messages(&analysis).join("\n"))
+    });
+    assert_eq!(
+        boxed, by_value,
+        "the boxed and by-value representations differ"
+    );
+    assert!(
+        !by_value.stderr.is_empty(),
+        "the program must print its values"
     );
 }
 

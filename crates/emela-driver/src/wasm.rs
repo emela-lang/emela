@@ -26,8 +26,9 @@ pub struct CoreWasm {
     /// that pay for themselves run, as do switch normalisation and closure devirtualisation with
     /// closure SRA; drop specialisation, reuse and record SRA do not.
     lir_options: emela_lir::opt::Options,
-    /// The emitter's representation choices (see [`WasmOptions`]). The default is the boxed
-    /// representation, so the emitted bytes are the default build's.
+    /// The emitter's representation choices (see [`WasmOptions`]). The default holds eligible
+    /// records and tuples by value (E1 step 6); [`WasmOptions::boxed`] is the representation from
+    /// before step 6.
     wasm_options: WasmOptions,
 }
 
@@ -56,9 +57,8 @@ impl CoreWasm {
     }
 
     /// Chooses the emitter's representation (`WasmOptions`). The default is
-    /// [`WasmOptions::default`] (boxed everywhere), which is the build `emela` makes;
-    /// [`WasmOptions::boxed`] names the same representation for a test that compares it with
-    /// the opt-in by-value one.
+    /// [`WasmOptions::default`] (records and tuples by value), which is the build `emela` makes;
+    /// [`WasmOptions::boxed`] is the representation from before E1 step 6.
     pub fn with_wasm_options(mut self, options: WasmOptions) -> Self {
         self.wasm_options = options;
         self

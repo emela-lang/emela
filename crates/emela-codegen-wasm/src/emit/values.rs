@@ -944,7 +944,7 @@ mod tests {
         let boxed = crate::emit::emit(
             &m,
             &crate::emit::Run::Main(Some(main)),
-            crate::WasmOptions::default(),
+            crate::WasmOptions::boxed(),
         )
         .unwrap_or_else(|e| panic!("{e:?}"));
         wasmparser::validate(&boxed.module).expect("the boxed module is valid");
