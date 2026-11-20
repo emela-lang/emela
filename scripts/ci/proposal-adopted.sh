@@ -15,7 +15,8 @@ status() { sed -n 's/^status:[[:space:]]*\([a-z]*\).*/\1/p' | head -n1; }
 adopting=""
 for f in $(git diff --name-only --diff-filter=AM HEAD^1 HEAD -- 'proposals/*.md'); do
   case "$f" in proposals/README.md | proposals/TEMPLATE.md | proposals/*/*) continue ;; esac
-  before="$(git show "HEAD^1:$f" 2>/dev/null | status)"
+  # A new proposal is not in the base branch; `git show` fails, which `pipefail` would make fatal.
+  before="$( (git show "HEAD^1:$f" 2>/dev/null || true) | status)"
   # A proposal that was already adopted is only being edited (a typo, `implemented`).
   case "$before" in accepted | implemented) continue ;; esac
   after="$(status < "$f")"
