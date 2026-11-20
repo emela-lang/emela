@@ -15,10 +15,17 @@
 //!
 //! Needs wasmtime 49 or later (`EMELA_WASMTIME` or `wasmtime`); the tests are skipped with a
 //! message when it cannot start or is older.
+//!
+//! The harness is libtest-mimic (`harness = false`), so each program is a test of its own: the
+//! test runner spreads them over the CPUs and over the CI shards, which one test that loops over
+//! all of them cannot be.
 
 mod wasm_common;
 
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use libtest_mimic::{Arguments, Trial};
 
 use emela_driver::{
     Analysis, CoreWasm, Input, Lower, MemoryFiles, Output, RunOptions, Target, run,
@@ -160,50 +167,66 @@ fn run_wasm(name: &str, src: &str) -> Result<Outcome, Box<Analysis>> {
     }
 }
 
-#[test]
-fn programs_behave_as_on_js() {
+fn main() -> ExitCode {
+    let mut trials = vec![
+        Trial::test("skipped_programs_still_fail", || {
+            skipped_programs_still_fail();
+            Ok(())
+        }),
+        Trial::test("skip_categories_are_explained", || {
+            skip_categories_are_explained();
+            Ok(())
+        }),
+    ];
+    // A skipped program is not a test of its own: `skipped_programs_still_fail` runs it.
+    for (name, path) in programs() {
+        if skip_of(&name).is_some() {
+            continue;
+        }
+        trials.push(Trial::test(
+            format!("programs_behave_as_on_js::{name}"),
+            move || {
+                program_behaves_as_on_js(&name, &path);
+                Ok(())
+            },
+        ));
+    }
+    libtest_mimic::run(&Arguments::from_args(), trials).exit_code()
+}
+
+/// The program `name` at `path` gives its `.expected` result on the WASM target.
+fn program_behaves_as_on_js(name: &str, path: &Path) {
     if !have_wasmtime() {
         return;
     }
-    let mut failures = Vec::new();
-    for (name, path) in programs() {
-        if let Some(skip) = skip_of(&name) {
-            eprintln!("skipping {name} ({}): {}", skip.feature, skip.reason);
-            continue;
-        }
-        let src = std::fs::read_to_string(&path).unwrap();
-        let expected = parse_expected(
-            &std::fs::read_to_string(path.with_extension("expected"))
-                .unwrap_or_else(|_| panic!("{name}.expected is missing")),
-        );
-        match run_wasm(&name, &with_wasm_print(&src)) {
-            Ok(got) => {
-                if (got.0, got.1.as_str(), got.2.as_str())
-                    != (
-                        expected.code,
-                        expected.stdout.as_str(),
-                        expected.stderr.as_str(),
-                    )
-                {
-                    failures.push(format!(
-                        "{name}: expected exit {}\n{}{}\ngot exit {}\n{}{}",
-                        expected.code, expected.stdout, expected.stderr, got.0, got.1, got.2
-                    ));
-                }
-            }
-            Err(analysis) => failures.push(format!(
-                "{name}: WASM did not build:\n{}",
-                messages(&analysis)
-            )),
-        }
+    let src = std::fs::read_to_string(path).unwrap();
+    let expected = parse_expected(
+        &std::fs::read_to_string(path.with_extension("expected"))
+            .unwrap_or_else(|_| panic!("{name}.expected is missing")),
+    );
+    match run_wasm(name, &with_wasm_print(&src)) {
+        Ok(got) => assert!(
+            (got.0, got.1.as_str(), got.2.as_str())
+                == (
+                    expected.code,
+                    expected.stdout.as_str(),
+                    expected.stderr.as_str(),
+                ),
+            "\n{name}: expected exit {}\n{}{}\ngot exit {}\n{}{}",
+            expected.code,
+            expected.stdout,
+            expected.stderr,
+            got.0,
+            got.1,
+            got.2
+        ),
+        Err(analysis) => panic!("\n{name}: WASM did not build:\n{}", messages(&analysis)),
     }
-    assert!(failures.is_empty(), "\n{}", failures.join("\n\n"));
 }
 
 /// Every skip names a corpus program, and no skipped program matches its `.expected` yet: once it
 /// does, the feature landed and the entry must be removed from [`SKIPPED`]. A program that now
 /// fails for a different reason also fails the test, so the skip stays tied to its feature.
-#[test]
 fn skipped_programs_still_fail() {
     if !have_wasmtime() {
         return;
@@ -264,7 +287,6 @@ fn skipped_programs_still_fail() {
 
 /// Every skip category names its feature and the failure that must still be present, so an entry
 /// cannot be an unexplained exclusion.
-#[test]
 fn skip_categories_are_explained() {
     for skip in SKIPPED {
         assert!(!skip.feature.is_empty());

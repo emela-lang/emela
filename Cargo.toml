@@ -76,6 +76,9 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 flate2 = "1"
 tar = "0.4"
 tempfile = "3"
+# The harness of the tests that run a corpus: one test per program, so the test runner spreads
+# them over the CPUs and the CI shards.
+libtest-mimic = "0.8"
 
 # The version lets `cargo package` (run by release-plz in git_only mode) verify
 # each crate; release-plz bumps it together with the workspace version.

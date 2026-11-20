@@ -2,14 +2,46 @@
 //! of the JS target in `NAME.expected` (the exit code, stdout and stderr, written by running the
 //! program with `emela run`), and the C build must give the same. Every run checks for leaked
 //! allocations, and runs again with ASan and UBSan when cc supports them.
+//!
+//! The harness is libtest-mimic (`harness = false`), so each program is a test of its own: the
+//! test runner spreads them over the CPUs and over the CI shards, which one test that loops over
+//! all of them cannot be.
 
 mod common;
 
-use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use common::{PRELUDE, cc, run, to_c};
 use emela_codegen_c::CErrorKind;
+use libtest_mimic::{Arguments, Trial};
+
+fn main() -> ExitCode {
+    let mut trials = vec![
+        Trial::test("grapheme_builtins_are_rejected", || {
+            grapheme_builtins_are_rejected();
+            Ok(())
+        }),
+        Trial::test("split_by_graphemes_at_run_time_is_a_defect", || {
+            split_by_graphemes_at_run_time_is_a_defect();
+            Ok(())
+        }),
+        Trial::test("callbacks_to_c_are_rejected", || {
+            callbacks_to_c_are_rejected();
+            Ok(())
+        }),
+    ];
+    for (name, path) in programs() {
+        trials.push(Trial::test(
+            format!("programs_behave_as_on_js::{name}"),
+            move || {
+                program_behaves_as_on_js(&name, &path);
+                Ok(())
+            },
+        ));
+    }
+    libtest_mimic::run(&Arguments::from_args(), trials).exit_code()
+}
 
 struct Expected {
     code: i32,
@@ -30,72 +62,42 @@ fn parse_expected(text: &str) -> Expected {
     }
 }
 
-#[test]
-fn programs_behave_as_on_js() {
-    if cc().is_none() {
-        return;
-    }
+/// The programs of `tests/programs`, sorted by name.
+fn programs() -> Vec<(String, PathBuf)> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs");
-    let mut programs: Vec<_> = std::fs::read_dir(&dir)
+    let mut programs: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
         .unwrap()
         .map(|e| e.unwrap().path())
         .filter(|p| p.extension().is_some_and(|e| e == "emel"))
+        .map(|p| (p.file_stem().unwrap().to_str().unwrap().to_owned(), p))
         .collect();
     programs.sort();
     assert!(!programs.is_empty());
-    // Each program builds twice (plainly and with the sanitizers) in its own directory, so they
-    // run in parallel: this test is the slowest of the suite otherwise.
-    let failures = in_parallel(&programs, |path| {
-        let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
-        let src = std::fs::read_to_string(path).unwrap();
-        let expected = parse_expected(
-            &std::fs::read_to_string(path.with_extension("expected"))
-                .unwrap_or_else(|_| panic!("{name}.expected is missing")),
-        );
-        let got = run(&name, &src).expect("cc is available");
-        ((got.code, &got.stdout, &got.stderr)
-            != (expected.code, &expected.stdout, &expected.stderr))
-            .then(|| {
-                format!(
-                    "{name}: expected exit {}\n{}{}\ngot exit {}\n{}{}",
-                    expected.code,
-                    expected.stdout,
-                    expected.stderr,
-                    got.code,
-                    got.stdout,
-                    got.stderr
-                )
-            })
-    });
-    assert!(failures.is_empty(), "\n{}", failures.join("\n\n"));
+    programs
 }
 
-/// Calls `check` on every item from as many threads as there are CPUs, and returns the failures
-/// in the order of `items`.
-fn in_parallel<T: Sync>(items: &[T], check: impl Fn(&T) -> Option<String> + Sync) -> Vec<String> {
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-    let next = AtomicUsize::new(0);
-    let mut results: Vec<(usize, String)> = std::thread::scope(|s| {
-        let workers: Vec<_> = (0..threads.min(items.len()))
-            .map(|_| {
-                s.spawn(|| {
-                    let mut failures = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(item) = items.get(i) else { break };
-                        failures.extend(check(item).map(|f| (i, f)));
-                    }
-                    failures
-                })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|w| w.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
-            .collect()
-    });
-    results.sort_by_key(|(i, _)| *i);
-    results.into_iter().map(|(_, f)| f).collect()
+/// The program `name` at `path`, built plainly and with the sanitizers in its own directory,
+/// gives its `.expected` result.
+fn program_behaves_as_on_js(name: &str, path: &Path) {
+    if cc().is_none() {
+        return;
+    }
+    let src = std::fs::read_to_string(path).unwrap();
+    let expected = parse_expected(
+        &std::fs::read_to_string(path.with_extension("expected"))
+            .unwrap_or_else(|_| panic!("{name}.expected is missing")),
+    );
+    let got = run(name, &src).expect("cc is available");
+    assert!(
+        (got.code, &got.stdout, &got.stderr) == (expected.code, &expected.stdout, &expected.stderr),
+        "\n{name}: expected exit {}\n{}{}\ngot exit {}\n{}{}",
+        expected.code,
+        expected.stdout,
+        expected.stderr,
+        got.code,
+        got.stdout,
+        got.stderr
+    );
 }
 
 /// The message of the only error compiling `src` (after [`PRELUDE`]) to C.
@@ -105,7 +107,6 @@ fn error_of(src: &str) -> (CErrorKind, String) {
     (errors[0].kind, errors[0].message.clone())
 }
 
-#[test]
 fn grapheme_builtins_are_rejected() {
     assert_eq!(
         error_of("fn main() { print(Int.to_string(String.length(\"a\"))) }\n"),
@@ -123,7 +124,6 @@ fn grapheme_builtins_are_rejected() {
 /// An empty separator that turns up at run time splits ASCII text by characters, and is a defect
 /// on other text (C has no grapheme cluster tables yet): releases run and `Exit.attempt` catches
 /// it.
-#[test]
 fn split_by_graphemes_at_run_time_is_a_defect() {
     if cc().is_none() {
         return;
@@ -167,7 +167,6 @@ fn main() -> () uses { Async } {
     );
 }
 
-#[test]
 fn callbacks_to_c_are_rejected() {
     let (kind, message) = error_of(
         r#"

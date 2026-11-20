@@ -5,15 +5,47 @@
 //!
 //! Needs node (`EMELA_JS_HOST` or `node`) and wasmtime (`EMELA_WASMTIME` or `wasmtime`); without
 //! wasmtime the tests are skipped with a message, like the C tests without a C compiler.
+//!
+//! The harness is libtest-mimic (`harness = false`), so each program is a test of its own: the
+//! test runner spreads them over the CPUs and over the CI shards, which one test that loops over
+//! all of them cannot be.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitCode};
 use std::sync::OnceLock;
 
 use emela_driver::{
     Analysis, CoreJs, CoreWasm, Input, Lower, MemoryFiles, Output, RunOptions, Target,
     js_host_program, run, wasmtime_program,
 };
+use libtest_mimic::{Arguments, Trial};
+
+fn main() -> ExitCode {
+    let mut trials = vec![
+        Trial::test("float_binade_boundaries_agree", || {
+            float_binade_boundaries_agree();
+            Ok(())
+        }),
+        Trial::test("float_long_exponents_agree", || {
+            float_long_exponents_agree();
+            Ok(())
+        }),
+        Trial::test("unsupported_programs_stop_on_wasm", || {
+            unsupported_programs_stop_on_wasm();
+            Ok(())
+        }),
+    ];
+    for &(name, src) in PROGRAMS {
+        trials.push(Trial::test(
+            format!("programs_agree_on_js_and_wasm::{name}"),
+            move || {
+                program_agrees_on_js_and_wasm(name, src);
+                Ok(())
+            },
+        ));
+    }
+    libtest_mimic::run(&Arguments::from_args(), trials).exit_code()
+}
 
 /// Programs that use only the pure language and `dbg`, so both targets must run them the same way.
 ///
@@ -1330,60 +1362,46 @@ fn messages(analysis: &Analysis) -> Vec<String> {
         .collect()
 }
 
-#[test]
-fn programs_agree_on_js_and_wasm() {
+/// The program `name` runs the same on JS and on WASM.
+fn program_agrees_on_js_and_wasm(name: &str, src: &str) {
     if !have_wasmtime() {
         return;
     }
-    let mut failures = Vec::new();
-    for (name, src) in PROGRAMS {
-        if *name == "string_graphemes" {
-            match node_unicode() {
-                Some(version) if version.starts_with("17.") => {}
-                Some(version) => {
-                    eprintln!(
-                        "skipping {name}: node uses Unicode {version}, need 17.x \
-                         (Node 24.18 / ICU 78.3)"
-                    );
-                    continue;
-                }
-                // Let the normal JS build report a missing node.
-                None => {}
+    if name == "string_graphemes" {
+        match node_unicode() {
+            Some(version) if version.starts_with("17.") => {}
+            Some(version) => {
+                eprintln!(
+                    "skipping {name}: node uses Unicode {version}, need 17.x \
+                     (Node 24.18 / ICU 78.3)"
+                );
+                return;
             }
-        }
-        let js = match run_on(name, src, Target::Js) {
-            Ok(out) => out,
-            Err(analysis) => {
-                failures.push(format!(
-                    "{name}: JS did not build:\n{}",
-                    messages(&analysis).join("\n")
-                ));
-                continue;
-            }
-        };
-        let wasm = match run_on(name, src, Target::Wasm) {
-            Ok(out) => out,
-            Err(analysis) => {
-                failures.push(format!(
-                    "{name}: WASM did not build:\n{}",
-                    messages(&analysis).join("\n")
-                ));
-                continue;
-            }
-        };
-        if js != wasm {
-            failures.push(format!(
-                "{name}: JS and WASM differ\n  JS:   {js:?}\n  WASM: {wasm:?}"
-            ));
+            // Let the normal JS build report a missing node.
+            None => {}
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    let js = run_on(name, src, Target::Js).unwrap_or_else(|analysis| {
+        panic!(
+            "{name}: JS did not build:\n{}",
+            messages(&analysis).join("\n")
+        )
+    });
+    let wasm = run_on(name, src, Target::Wasm).unwrap_or_else(|analysis| {
+        panic!(
+            "{name}: WASM did not build:\n{}",
+            messages(&analysis).join("\n")
+        )
+    });
+    assert!(
+        js == wasm,
+        "{name}: JS and WASM differ\n  JS:   {js:?}\n  WASM: {wasm:?}"
+    );
 }
 
 /// Long decimal inputs whose kept prefix is exactly a rounding midpoint. They exercise the
 /// sticky bit of `Float.parse`: a digit far past the prefix (`1e-1000` or `1e-400` away from the
 /// midpoint) decides whether the result rounds up or down.
-#[test]
 fn float_binade_boundaries_agree() {
     if !have_wasmtime() {
         return;
@@ -1430,7 +1448,6 @@ fn main() {{
 
 /// Inputs whose exponent has more than six digits and is offset by as many digits in the
 /// significand. The exponent must not stop accumulating before it outgrows any digit count.
-#[test]
 fn float_long_exponents_agree() {
     if !have_wasmtime() {
         return;
@@ -1457,7 +1474,6 @@ fn main() {{
     assert_eq!(js, wasm);
 }
 
-#[test]
 fn unsupported_programs_stop_on_wasm() {
     if !have_wasmtime() {
         return;
