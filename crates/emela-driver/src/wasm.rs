@@ -3,7 +3,9 @@
 
 use std::path::PathBuf;
 
-use emela_codegen_wasm::{Entry, TestEntry, WasmError, WasmErrorKind, compile_with_lir};
+use emela_codegen_wasm::{
+    Entry, TestEntry, WasmError, WasmErrorKind, WasmOptions, compile_with_wasm_options,
+};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
@@ -24,6 +26,9 @@ pub struct CoreWasm {
     /// that pay for themselves run, as do switch normalisation and closure devirtualisation with
     /// closure SRA; drop specialisation, reuse and record SRA do not.
     lir_options: emela_lir::opt::Options,
+    /// The emitter's representation choices (see [`WasmOptions`]). The default is the boxed
+    /// representation, so the emitted bytes are the default build's.
+    wasm_options: WasmOptions,
 }
 
 impl Default for CoreWasm {
@@ -31,6 +36,7 @@ impl Default for CoreWasm {
         CoreWasm {
             optimize: true,
             lir_options: emela_lir::opt::Options::default(),
+            wasm_options: WasmOptions::default(),
         }
     }
 }
@@ -48,6 +54,15 @@ impl CoreWasm {
         self.lir_options = options;
         self
     }
+
+    /// Chooses the emitter's representation (`WasmOptions`). The default is
+    /// [`WasmOptions::default`] (boxed everywhere), which is the build `emela` makes;
+    /// [`WasmOptions::boxed`] names the same representation for a test that compares it with
+    /// the opt-in by-value one.
+    pub fn with_wasm_options(mut self, options: WasmOptions) -> Self {
+        self.wasm_options = options;
+        self
+    }
 }
 
 impl Backend<emela_core::Module> for CoreWasm {
@@ -56,8 +71,14 @@ impl Backend<emela_core::Module> for CoreWasm {
         module: &emela_core::Module,
         _: &Analysis,
     ) -> Result<BuildOutput, Vec<Diagnostic>> {
-        let out = compile_with_lir(module, &Entry::Main, self.optimize, self.lir_options)
-            .map_err(diagnostics)?;
+        let out = compile_with_wasm_options(
+            module,
+            &Entry::Main,
+            self.optimize,
+            self.lir_options,
+            self.wasm_options,
+        )
+        .map_err(diagnostics)?;
         Ok(BuildOutput {
             files: vec![OutputFile::new(WASM_ENTRY_FILE, out.module)],
             entry: PathBuf::from(WASM_ENTRY_FILE),
@@ -87,11 +108,12 @@ impl TestBackend<TestModule> for CoreWasm {
                 function: program.tests[i].function,
             })
             .collect();
-        let out = compile_with_lir(
+        let out = compile_with_wasm_options(
             &program.module,
             &Entry::Tests(tests),
             self.optimize,
             self.lir_options,
+            self.wasm_options,
         )
         .map_err(diagnostics)?;
         Ok(BuildOutput {
