@@ -41,6 +41,68 @@ fn main() {
 }
 ";
 
+/// A program the C2 rule treats differently in each function: `insert` stores every view of the
+/// node and `apply` only calls its parameter, so both keep the owned convention; `depth` and
+/// `check` read views, so they stay borrowed. `first` is passed as a value and is owned.
+const NARROWED: &str = "\
+enum Tree {
+  Leaf
+  Node(left: Tree, value: Int, right: Tree)
+}
+
+fn insert(t: Tree, x: Int) -> Tree {
+  t match {
+    Leaf -> Node(left: Leaf, value: x, right: Leaf)
+    Node(left:, value: here, right:) -> if x < here {
+      Node(left: insert(left, x), value: here, right:)
+    } else {
+      Node(left:, value: here, right: insert(right, x))
+    }
+  }
+}
+
+fn depth(t: Tree) -> Int {
+  t match {
+    Leaf -> 0
+    Node(left:, right:, ..) -> 1 + depth(left) + depth(right)
+  }
+}
+
+fn check(xs: List[Int]) -> Int {
+  xs match {
+    [] -> 0
+    [x, ..rest] -> x + check(rest)
+  }
+}
+
+fn first(xs: List[Int]) -> Int {
+  xs match {
+    [] -> -1
+    [x, ..] -> x
+  }
+}
+
+fn apply(f: fn(List[Int]) -> Int, xs: List[Int]) -> Int { f(xs) }
+
+fn main() {
+  xs = [1, 2, 3]
+  t = Node(left: Leaf, value: 2, right: Leaf)
+  u = insert(t, 1)
+  v = insert(u, 3)
+  dbg(check(xs) + depth(v) + apply(first, xs))
+}
+";
+
+/// The default LIR options with borrow inference off (the owned convention).
+fn owned_options() -> Options {
+    Options {
+        rules: LirRules {
+            borrow: false,
+            ..LirRules::default()
+        },
+    }
+}
+
 /// The default LIR options with borrow inference on.
 fn borrow_options() -> Options {
     Options {
@@ -83,11 +145,16 @@ fn have_wasmtime() -> bool {
 /// directory when it is done (the test runs both builds from it). `name` keeps the two tests from
 /// sharing a directory.
 fn source(name: &str) -> PathBuf {
+    source_with(name, PROGRAM)
+}
+
+/// Writes `program` to a fresh directory and returns the entry file.
+fn source_with(name: &str, program: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("emela-borrow-opt-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("main.emel");
-    std::fs::write(&path, PROGRAM).unwrap();
+    std::fs::write(&path, program).unwrap();
     path
 }
 
@@ -223,6 +290,28 @@ fn the_borrow_flag_keeps_native_behaviour_and_leaks_nothing() {
     assert!(
         borrow_drops < default_drops,
         "the borrow build keeps the callee's drop: default {default_drops}, borrow {borrow_drops}"
+    );
+}
+
+/// The narrowed signature (C2) keeps the program's observable result and leaks nothing: the
+/// `insert` and `apply` parameters are owned under both conventions, while `check` and `depth`
+/// keep their borrow. The native build runs the runtime's leak check, so an unbalanced reference
+/// in either shape exits 99.
+#[test]
+fn the_narrowed_signature_keeps_native_behaviour_and_leaks_nothing() {
+    if !have_cc() {
+        return;
+    }
+    let path = source_with("narrowed", NARROWED);
+    let (owned, _) = run_native(&path, owned_options(), "narrowed-owned");
+    let (borrow, _) = run_native(&path, borrow_options(), "narrowed-borrow");
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+    assert_eq!(owned.0, 0, "the owned build leaks or fails: {owned:?}");
+    assert_eq!(borrow.0, 0, "the borrow build leaks or fails: {borrow:?}");
+    assert_eq!(
+        owned, borrow,
+        "the narrowed signature changed what the program observes"
     );
 }
 

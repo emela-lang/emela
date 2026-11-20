@@ -83,7 +83,7 @@ fn function(m: &Module, name: &str) -> FnId {
     }
     m.functions
         .iter()
-        .find(|(_, f)| f.name.starts_with(&format!("{name}$")))
+        .find(|(_, f)| f.name.starts_with(name))
         .map(|(id, _)| id)
         .unwrap_or_else(|| panic!("no function `{name}`"))
 }
@@ -132,15 +132,19 @@ fn call_arg(m: &Module, caller: FnId, callee: FnId, index: usize) -> emela_lir::
 }
 
 /// A read-only parameter is borrowed: the callee does not drop it and the caller does not `dup`
-/// the argument. The second run of the pass writes the same signature.
+/// the argument. The counted list view is read but not consumed, so the borrow removes counting
+/// work (C2). The second run of the pass writes the same signature.
 const FIRST: &str = "\
-fn first(x: (Int, Int)) -> Int {
-  (a, _) = x
-  a
+fn first(x: (Int, List[Int])) -> Int {
+  (_, xs) = x
+  xs match {
+    [] -> -1
+    [n, ..] -> n
+  }
 }
 
 fn main() {
-  t = (1, 2)
+  t = (0, [1, 2, 3])
   n = first(t)
   m = first(t)
   dbg(n + m)
@@ -335,7 +339,8 @@ fn main() {
 #[test]
 fn exported_functions_and_functions_taken_as_values_are_forced_owned() {
     let mut core = emela_core::Module::new();
-    let pair = core.tuple(vec![TypeId::INT, TypeId::INT]);
+    let ints = core.list(TypeId::INT);
+    let pair = core.tuple(vec![TypeId::INT, ints]);
     let fn_ty = core.func(FnType {
         params: vec![pair],
         ret: TypeId::INT,
@@ -353,8 +358,10 @@ fn exported_functions_and_functions_taken_as_values_are_forced_owned() {
             b.set_exported();
         }
         let x = b.param("x", pair);
-        let a = b.assign("a", TypeId::INT, Value::TupleGet { base: x, index: 0 });
-        b.term(Term::Return(Some(a.into())));
+        let _n = b.assign("n", TypeId::INT, Value::TupleGet { base: x, index: 0 });
+        let xs = b.assign("xs", ints, Value::TupleGet { base: x, index: 1 });
+        let _empty = b.assign("empty", TypeId::BOOL, Value::ListIsEmpty(xs));
+        b.term(Term::Return(Some(Const::Int(0).into())));
         m.add(b.finish())
     };
     let plain = read_only(&mut m, "plain", false);
@@ -608,4 +615,128 @@ fn main() {
         !has_dup(&m, store, store_param) && !has_drop(&m, store, store_param),
         "the callee moves the reference it stores into the record"
     );
+}
+
+/// C2: a wrapper whose only use of a parameter is as an indirect callee removes no counting work.
+/// The B6 facts may borrow `f` (the indirect callee is a read), but the narrowed signature keeps
+/// it owned, so the caller passes the closure record and the callee drops it as before.
+const APPLY: &str = "\
+fn first(x: (Int, List[Int])) -> Int {
+  (_, xs) = x
+  xs match {
+    [] -> -1
+    [n, ..] -> n
+  }
+}
+
+fn apply(f: fn((Int, List[Int])) -> Int, x: (Int, List[Int])) -> Int { f(x) }
+
+fn main() {
+  g = first
+  dbg(apply(g, (0, [1, 2])))
+}
+";
+
+#[test]
+fn a_parameter_used_only_as_an_indirect_callee_is_owned() {
+    let mut m = staged(APPLY);
+    let apply = function(&m, "apply");
+    let facts = borrow::analyze(&m)
+        .known()
+        .expect("a well-formed module has borrow facts");
+    assert_eq!(
+        facts.borrowed_params[&apply].first(),
+        Some(&true),
+        "the facts still say the indirect callee is a read"
+    );
+
+    insert_borrow_signature(&mut m);
+    assert!(
+        m.functions[apply].borrowed.is_empty(),
+        "borrowing the callee value saves no reference operation inside `apply`"
+    );
+    insert_rc(&mut m);
+    check(&m);
+}
+
+/// C2: a read-only recursive traversal keeps its borrow. The `rest` view of the parameter is
+/// passed at `check`'s borrowed position, so it is not consumed; that view is the counting work
+/// the borrow removes, and the fixpoint keeps it.
+const CHECK: &str = "\
+fn check(xs: List[Int]) -> Int {
+  xs match {
+    [] -> 0
+    [x, ..rest] -> x + check(rest)
+  }
+}
+
+fn main() {
+  xs = [1, 2, 3]
+  a = check(xs)
+  b = check(xs)
+  dbg(a + b)
+}
+";
+
+#[test]
+fn a_read_only_traversal_that_reads_a_view_keeps_its_borrow() {
+    let mut m = staged(CHECK);
+    let check_fn = function(&m, "check");
+    insert_borrow_signature(&mut m);
+    assert_eq!(
+        m.functions[check_fn].borrowed,
+        vec![true],
+        "the unconsumed `rest` view is what the borrow saves"
+    );
+    insert_rc(&mut m);
+    check(&m);
+}
+
+/// C2: `insert`-style tree descent reads both children and stores them into the new node, so every
+/// view of the node parameter is consumed. Borrowing the node therefore moves a drop to the caller
+/// without removing a `dup`/`drop` pair; the position is cleared and the owned convention is
+/// balanced.
+const INSERT: &str = "\
+enum Tree {
+  Leaf
+  Node(left: Tree, value: Int, right: Tree)
+}
+
+fn insert(t: Tree, x: Int) -> Tree {
+  t match {
+    Leaf -> Node(left: Leaf, value: x, right: Leaf)
+    Node(left:, value: here, right:) -> if x < here {
+      Node(left: insert(left, x), value: here, right:)
+    } else {
+      Node(left:, value: here, right: insert(right, x))
+    }
+  }
+}
+
+fn depth(t: Tree) -> Int {
+  t match {
+    Leaf -> 0
+    Node(left:, right:, ..) -> 1 + depth(left) + depth(right)
+  }
+}
+
+fn main() {
+  t = Node(left: Leaf, value: 2, right: Leaf)
+  u = insert(t, 1)
+  v = insert(u, 3)
+  dbg(depth(v))
+}
+";
+
+#[test]
+fn a_tree_insert_that_stores_every_view_is_owned() {
+    let mut m = staged(INSERT);
+    let insert_fn = function(&m, "insert");
+    insert_borrow_signature(&mut m);
+    assert!(
+        m.functions[insert_fn].borrowed.is_empty(),
+        "every view of the node is stored, so the borrow removes no counting work"
+    );
+    insert_rc(&mut m);
+    check(&m);
 }
