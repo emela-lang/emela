@@ -203,7 +203,9 @@ fn reduction_direct(m: &mut Module, f: FnId, ty_args: &[TypeId], ft: &FnType) ->
 }
 
 /// The number of nodes in `e`, for the size check of the contract.
-#[cfg(debug_assertions)]
+///
+/// Not gated by `debug_assertions`: the expression of a `debug_assert!` is type checked in every
+/// profile, so a release build needs the function to exist even though it never calls it.
 fn size(e: &Expr) -> usize {
     let mut count = 1;
     e.for_each_child(&mut |c| count += size(c));
