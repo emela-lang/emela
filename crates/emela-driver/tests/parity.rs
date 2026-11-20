@@ -8,14 +8,54 @@
 //!
 //! Needs node and a C compiler (`EMELA_CC` or `cc`); without cc the tests are skipped with a
 //! message.
+//!
+//! The harness is libtest-mimic (`harness = false`), so each example and each program is a test
+//! of its own: the test runner spreads them over the CPUs and over the CI shards, which one test
+//! that loops over all of them cannot be.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
 use emela_driver::{
     Analysis, CoreC, CoreJs, Input, Lower, LowerTests, OsFs, Output, RunOptions, RunOutput, Target,
     TestOptions, TestOutcome, cc_command, run, test,
 };
+use libtest_mimic::{Arguments, Trial};
+
+fn main() -> ExitCode {
+    let mut trials = vec![
+        Trial::test("examples_run_the_same_on_js_and_c", || {
+            examples_run_the_same_on_js_and_c();
+            Ok(())
+        }),
+        Trial::test("suspending_tests_give_the_same_results_on_js_and_c", || {
+            suspending_tests_give_the_same_results_on_js_and_c();
+            Ok(())
+        }),
+    ];
+    for (name, dir) in examples() {
+        if NOT_ON_C.iter().any(|(n, _)| *n == name) {
+            continue;
+        }
+        trials.push(Trial::test(
+            format!("example_tests_give_the_same_results_on_js_and_c::{name}"),
+            move || {
+                example_tests_give_the_same_results_on_js_and_c(&name, &dir);
+                Ok(())
+            },
+        ));
+    }
+    for (name, path) in codegen_programs() {
+        trials.push(Trial::test(
+            format!("codegen_programs_run_the_same_on_js_and_c::{name}"),
+            move || {
+                codegen_program_runs_the_same_on_js_and_c(&name, &path);
+                Ok(())
+            },
+        ));
+    }
+    libtest_mimic::run(&Arguments::from_args(), trials).exit_code()
+}
 
 /// Examples that do not build on C yet, and the code of the first diagnostic that stops them (no
 /// code: the native target's "not supported yet").
@@ -193,7 +233,6 @@ fn examples() -> Vec<(String, PathBuf)> {
     dirs
 }
 
-#[test]
 fn examples_run_the_same_on_js_and_c() {
     let Some(c) = c_backend() else { return };
     let examples = examples();
@@ -241,72 +280,53 @@ fn examples_run_the_same_on_js_and_c() {
     report(&failures);
 }
 
-#[test]
-fn example_tests_give_the_same_results_on_js_and_c() {
-    let Some(c) = c_backend() else { return };
-    let examples: Vec<_> = examples()
-        .into_iter()
-        .filter(|(name, _)| !NOT_ON_C.iter().any(|(n, _)| n == name))
-        .collect();
-    // The tests use file systems in memory, not the current directory, so they run in parallel.
-    let failures = in_parallel(&examples, &c, |(name, dir), c| {
-        let js = test_on(dir, Target::Js, c, name)
-            .unwrap_or_else(|a| panic!("the tests of {name} fail on JS: {:?}", messages(&a)));
-        match test_on(dir, Target::Native, c, name) {
-            Ok(on_c) if on_c == js => None,
-            Ok(on_c) => Some(format!("{name}: JS gives {js:?}\nC gives {on_c:?}")),
-            Err(analysis) => Some(format!(
-                "the tests of {name} do not build on C: {:?}",
-                messages(&analysis)
-            )),
-        }
-    });
-    report(&failures);
+/// The tests of the example `name` give the same results on JS and on C. The tests use file
+/// systems in memory, not the current directory, so the examples run as tests of their own.
+fn example_tests_give_the_same_results_on_js_and_c(name: &str, dir: &Path) {
+    let Some(mut c) = c_backend() else { return };
+    let js = test_on(dir, Target::Js, &mut c, name)
+        .unwrap_or_else(|a| panic!("the tests of {name} fail on JS: {:?}", messages(&a)));
+    match test_on(dir, Target::Native, &mut c, name) {
+        Ok(on_c) if on_c == js => {}
+        Ok(on_c) => report(&[format!("{name}: JS gives {js:?}\nC gives {on_c:?}")]),
+        Err(analysis) => report(&[format!(
+            "the tests of {name} do not build on C: {:?}",
+            messages(&analysis)
+        )]),
+    }
 }
 
-#[test]
-fn codegen_programs_run_the_same_on_js_and_c() {
-    let Some(c) = c_backend() else { return };
+/// The program of emela-codegen-c's tests at `path` runs the same on JS and on C. The programs do
+/// not touch the current directory, so each runs as a test of its own.
+fn codegen_program_runs_the_same_on_js_and_c(name: &str, path: &Path) {
+    let Some(mut c) = c_backend() else { return };
+    // `program-` keeps the output directories apart from those of an example of the same name
+    // (`errors`), which another test builds at the same time.
+    let dir_name = format!("program-{name}");
+    let js = run_on(path, Target::Js, &mut c, &dir_name)
+        .unwrap_or_else(|a| panic!("{name} does not run on JS: {:?}", messages(&a)));
+    match run_on(path, Target::Native, &mut c, &dir_name) {
+        Ok(on_c) if on_c == js => {}
+        Ok(on_c) => report(&[format!("{name}: JS gives {js:?}\nC gives {on_c:?}")]),
+        Err(analysis) => report(&[format!(
+            "{name} does not build on C: {:?}",
+            messages(&analysis)
+        )]),
+    }
+}
+
+/// The programs of emela-codegen-c's tests, sorted by name.
+fn codegen_programs() -> Vec<(String, PathBuf)> {
     let dir = root().join("crates/emela-codegen-c/tests/programs");
-    let mut programs: Vec<PathBuf> = std::fs::read_dir(&dir)
+    let mut programs: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
         .unwrap()
         .map(|e| e.unwrap().path())
         .filter(|p| p.extension().is_some_and(|e| e == "emel"))
+        .map(|p| (p.file_stem().unwrap().to_string_lossy().into_owned(), p))
         .collect();
     programs.sort();
     assert!(!programs.is_empty());
-    // The programs do not touch the current directory, so they run in parallel: this test is the
-    // slowest of the suite otherwise.
-    let failures = in_parallel(&programs, &c, |path, c| {
-        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        // `program-` keeps the output directories apart from those of an example of the same
-        // name (`errors`), which another test builds at the same time.
-        let dir_name = format!("program-{name}");
-        let js = run_on(path, Target::Js, c, &dir_name)
-            .unwrap_or_else(|a| panic!("{name} does not run on JS: {:?}", messages(&a)));
-        match run_on(path, Target::Native, c, &dir_name) {
-            Ok(on_c) if on_c == js => None,
-            Ok(on_c) => Some(format!("{name}: JS gives {js:?}\nC gives {on_c:?}")),
-            Err(analysis) => Some(format!(
-                "{name} does not build on C: {:?}",
-                messages(&analysis)
-            )),
-        }
-    });
-    report(&failures);
-}
-
-/// Calls `check` on every item from as many threads as there are CPUs, each with its own copy of
-/// the C backend, and returns the failures in the order of `items`.
-fn in_parallel<T: Sync>(
-    items: &[T],
-    c: &CoreC,
-    check: impl Fn(&T, &mut CoreC) -> Option<String> + Sync,
-) -> Vec<String> {
-    map_in_parallel(items, c, check)
-        .into_iter()
-        .flatten()
-        .collect()
+    programs
 }
 
 /// Calls `f` on every item from as many threads as there are CPUs, each with its own copy of the
@@ -344,7 +364,6 @@ fn map_in_parallel<T: Sync, R: Send>(
 
 /// Test functions with fibers and suspension (spec chapters 11, 13, 14.5): the outcomes, an
 /// interrupted test included, are the same on both targets.
-#[test]
 fn suspending_tests_give_the_same_results_on_js_and_c() {
     let Some(mut c) = c_backend() else { return };
     let main = r##"import Std.Fiber.{Fiber, Scope}

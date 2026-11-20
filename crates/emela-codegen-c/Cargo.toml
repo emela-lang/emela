@@ -16,3 +16,8 @@ emela-resolve.workspace = true
 emela-syntax.workspace = true
 emela-types.workspace = true
 insta.workspace = true
+libtest-mimic.workspace = true
+
+[[test]]
+name = "run"
+harness = false

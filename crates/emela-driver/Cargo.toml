@@ -28,3 +28,16 @@ pulldown-cmark.workspace = true
 [dev-dependencies]
 insta.workspace = true
 tempfile.workspace = true
+libtest-mimic.workspace = true
+
+[[test]]
+name = "parity"
+harness = false
+
+[[test]]
+name = "wasm_corpus"
+harness = false
+
+[[test]]
+name = "wasm_parity"
+harness = false
