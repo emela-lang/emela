@@ -14,7 +14,7 @@
 mod support;
 
 use emela_core::opt::{CoreFns, Options, Rules, run_with};
-use emela_core::{EffectDef, Expr, Local, Module, dump};
+use emela_core::{BinOp, EffectDef, Expr, Lit, Local, Module, OpTy, TypeId, dump};
 use support::lower_files_with_rules;
 
 /// Only ζ is on: no other reduction rule may do part of what a test asserts.
@@ -338,7 +338,242 @@ fn a_finalizer_typed_var_is_not_propagated() {
     assert!(body.contains("let x"), "the copy was propagated:\n{body}");
 }
 
-/// The rule is idempotent: a run of the pipeline on the IR it already optimised changes nothing.
+/// A copy inside a lambda of a variable bound outside it is refused: the value is a free variable
+/// of the lambda, so propagating it would turn every read of the binding into a read of a free
+/// variable. This is the shape the effects benchmark has (`let hi = n` inside the lambda
+/// `State.run` receives), where the JavaScript target loads the loop bound from the closure
+/// context on every iteration. The `let` stays; the program is unchanged.
+#[test]
+fn a_capture_copy_inside_a_lambda_is_not_propagated() {
+    let mut m = Module::new();
+    let n = m.local("n", TypeId::INT);
+    let hi = m.local("hi", TypeId::INT);
+    let ty = m.fn_type(Vec::new(), TypeId::INT);
+    let main = m.declare("main", true);
+    m.define(
+        main,
+        vec![n],
+        ty,
+        Expr::Lambda {
+            params: Vec::new(),
+            ty,
+            body: Box::new(let_(hi, Expr::Var(n), Expr::Var(hi))),
+            suspends: false,
+        },
+    );
+
+    let stats = run_with(
+        &mut m,
+        &CoreFns::default(),
+        Options {
+            rules: ZETA,
+            ..Options::default()
+        },
+    );
+    assert_eq!(stats.zeta, 0, "{stats:?}");
+    assert_eq!(stats.deopt, 1, "the refused copy is a deopt: {stats:?}");
+    let ir = dump(&m);
+    let body = function(&ir, "export fn main");
+    assert!(
+        body.contains("let hi"),
+        "the capture was propagated:\n{body}"
+    );
+}
+
+/// A copy of a lambda's own parameter is not a capture: the value and the `let` are inside the
+/// same lambda, so every read stays a read of a local. The effects benchmark has this shape too
+/// (`let _ = _` in the per-element lambda), and it must still go.
+#[test]
+fn a_copy_of_a_lambda_parameter_is_propagated() {
+    let mut m = Module::new();
+    let p = m.local("p", TypeId::INT);
+    let x = m.local("x", TypeId::INT);
+    let ty = m.fn_type(vec![TypeId::INT], TypeId::INT);
+    let main = m.declare("main", true);
+    m.define(
+        main,
+        Vec::new(),
+        ty,
+        Expr::Lambda {
+            params: vec![p],
+            ty,
+            body: Box::new(let_(x, Expr::Var(p), Expr::Var(x))),
+            suspends: false,
+        },
+    );
+
+    let stats = run_with(
+        &mut m,
+        &CoreFns::default(),
+        Options {
+            rules: ZETA,
+            ..Options::default()
+        },
+    );
+    assert_eq!(stats.zeta, 1, "{stats:?}");
+    assert_eq!(stats.deopt, 0, "{stats:?}");
+    let ir = dump(&m);
+    assert!(!ir.contains("let x"), "{ir}");
+}
+
+/// The capture restriction applies to a `Var` value only: a scalar literal inside a lambda still
+/// propagates, because a literal read is not a free-variable read.
+#[test]
+fn a_scalar_literal_inside_a_lambda_is_propagated() {
+    let mut m = Module::new();
+    let n = m.local("n", TypeId::INT);
+    let x = m.local("x", TypeId::INT);
+    let hi = m.local("hi", TypeId::INT);
+    let ty = m.fn_type(Vec::new(), TypeId::INT);
+    let main = m.declare("main", true);
+    // `fn main(n) = || { let x = 0; let hi = n; x + hi }`: the literal copy goes, the capture stays.
+    m.define(
+        main,
+        vec![n],
+        ty,
+        Expr::Lambda {
+            params: Vec::new(),
+            ty,
+            body: Box::new(let_(
+                x,
+                Expr::Lit(Lit::Int(0)),
+                let_(
+                    hi,
+                    Expr::Var(n),
+                    Expr::Binary {
+                        op: BinOp::Add,
+                        ty: OpTy::Int,
+                        lhs: Box::new(Expr::Var(x)),
+                        rhs: Box::new(Expr::Var(hi)),
+                    },
+                ),
+            )),
+            suspends: false,
+        },
+    );
+
+    let stats = run_with(
+        &mut m,
+        &CoreFns::default(),
+        Options {
+            rules: ZETA,
+            ..Options::default()
+        },
+    );
+    assert_eq!(stats.zeta, 1, "only the literal copy goes: {stats:?}");
+    // A refused site is counted in every sweep the pass runs, as a finalizer refusal is.
+    assert!(stats.deopt >= 1, "{stats:?}");
+    let ir = dump(&m);
+    assert!(!ir.contains("let x"), "the literal copy stayed:\n{ir}");
+    assert!(ir.contains("let hi"), "the capture was propagated:\n{ir}");
+}
+
+/// Outside every lambda, a variable copy is not a capture: every `let` is in the same function as
+/// the variable it copies. This is matmul's essential ζ (the argument bindings δ writes when it
+/// inlines `get`, inside `dot`), which the loop unswitch needs.
+#[test]
+fn a_matmul_style_copy_outside_a_lambda_is_propagated() {
+    let mut m = Module::new();
+    let a = m.local("a", TypeId::INT);
+    let i = m.local("i", TypeId::INT);
+    let m_local = m.local("m", TypeId::INT);
+    let k = m.local("k", TypeId::INT);
+    let main = m.declare("main", true);
+    m.define(
+        main,
+        vec![a, i],
+        TypeId::INT,
+        let_(
+            m_local,
+            Expr::Var(a),
+            let_(
+                k,
+                Expr::Var(i),
+                Expr::Binary {
+                    op: BinOp::Add,
+                    ty: OpTy::Int,
+                    lhs: Box::new(Expr::Var(m_local)),
+                    rhs: Box::new(Expr::Var(k)),
+                },
+            ),
+        ),
+    );
+
+    let stats = run_with(
+        &mut m,
+        &CoreFns::default(),
+        Options {
+            rules: ZETA,
+            ..Options::default()
+        },
+    );
+    assert_eq!(stats.zeta, 2, "{stats:?}");
+    assert_eq!(stats.deopt, 0, "{stats:?}");
+    let ir = dump(&m);
+    let body = function(&ir, "export fn main");
+    assert!(!body.contains("let "), "a copy stayed:\n{body}");
+}
+
+/// The capture restriction does not make the pass oscillate: a refused copy is refused again and
+/// the IR is the same, so a second run changes nothing.
+#[test]
+fn a_capture_copy_is_stable_across_runs() {
+    let mut m = Module::new();
+    let n = m.local("n", TypeId::INT);
+    let hi = m.local("hi", TypeId::INT);
+    let x = m.local("x", TypeId::INT);
+    let ty = m.fn_type(vec![TypeId::INT], TypeId::INT);
+    let main = m.declare("main", true);
+    // `|p| { let x = p; let hi = n; x + hi }`: one same-owner copy and one capture copy.
+    let p = m.local("p", TypeId::INT);
+    m.define(
+        main,
+        vec![n],
+        ty,
+        Expr::Lambda {
+            params: vec![p],
+            ty,
+            body: Box::new(let_(
+                x,
+                Expr::Var(p),
+                let_(
+                    hi,
+                    Expr::Var(n),
+                    Expr::Binary {
+                        op: BinOp::Add,
+                        ty: OpTy::Int,
+                        lhs: Box::new(Expr::Var(x)),
+                        rhs: Box::new(Expr::Var(hi)),
+                    },
+                ),
+            )),
+            suspends: false,
+        },
+    );
+
+    let first = run_with(
+        &mut m,
+        &CoreFns::default(),
+        Options {
+            rules: ZETA,
+            ..Options::default()
+        },
+    );
+    assert_eq!(first.zeta, 1, "the same-owner copy goes: {first:?}");
+    let once = dump(&m);
+    let second = run_with(
+        &mut m,
+        &CoreFns::default(),
+        Options {
+            rules: ZETA,
+            ..Options::default()
+        },
+    );
+    assert_eq!(second.zeta, 0, "{second:?}");
+    assert!(second.is_empty(), "{second:?}");
+    assert_eq!(dump(&m), once);
+}
+
 #[test]
 fn a_second_run_changes_nothing() {
     let files = [(
