@@ -58,9 +58,9 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: blacksmith-4vcpu-ubuntu-2604
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: blacksmith-6vcpu-macos-15
           - target: x86_64-pc-windows-msvc
             os: windows-latest
     env:

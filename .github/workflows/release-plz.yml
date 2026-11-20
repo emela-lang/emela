@@ -60,11 +60,11 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: blacksmith-4vcpu-ubuntu-2604
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: blacksmith-6vcpu-macos-15
           - target: x86_64-pc-windows-msvc
-            os: windows-latest
+            os: blacksmith-4vcpu-windows-2025
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -199,7 +199,7 @@ jobs:
 
   release-plz-pr:
     name: Release-plz PR
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     # After the release job, so a version bumped by hand (or merged from a
     # release PR) is tagged before this job looks for the latest tag.
     needs: release-plz-release
@@ -224,7 +224,7 @@ jobs:
           owner: emela-lang
           repositories: emela
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: useblacksmith/checkout@v1
         with:
           fetch-depth: 0
           persist-credentials: true
