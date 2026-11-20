@@ -1,0 +1,15 @@
+# A mutation pair: this is the form the δ stage after monomorphisation takes as its input (T21).
+# `apply` is effect-polymorphic before monomorphisation, so the pre-monomorphisation pipeline
+# leaves the call; after monomorphisation the copy is concrete and δ replaces the call by its body.
+# `higher_order_expanded.emel` writes that body at the call site. Both forms must print the same,
+# on every target.
+
+fn apply(f: fn(Int) -> Int, x: Int) -> Int {
+  f(x)
+}
+
+fn main() {
+  fs = List.map([1, 2, 3], |k| { |x| x + k })
+  total = List.fold(fs, from: 0, f: |acc, f| acc + apply(f, 10))
+  dbg(total)
+}

@@ -155,6 +155,26 @@ pub fn lower_files_with_stats(
     (lowered.module, lowered.stats)
 }
 
+/// Lowers from the exported roots with a target language, so the result is monomorphised as a
+/// build's lowering is, and returns what the Core IR passes and the post-monomorphisation δ stage
+/// changed.
+pub fn lower_files_mono_with_stats(
+    files: &[(&str, &str)],
+    language: &str,
+    optimize: bool,
+) -> (Module, emela_core::opt::Stats) {
+    let lowered = try_lower_rooted_lowered_lang(
+        files,
+        Roots::Exported,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+        optimize,
+        Some(language),
+    )
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    (lowered.module, lowered.stats)
+}
+
 /// Lowers with the Core IR passes off, then runs the reduction pipeline with `rules`.
 ///
 /// This is how a rule's tests isolate it while the per-rule flags are off by default (A10 flips
@@ -196,6 +216,19 @@ fn try_lower_rooted_lowered(
     bundled_files: &[(&str, &str)],
     optimize: bool,
 ) -> Result<emela_core::Lowered, Vec<String>> {
+    try_lower_rooted_lowered_lang(files, roots, core, bundled_files, optimize, None)
+}
+
+/// [`try_lower_rooted_lowered`] with a target language. `Some` selects the build's path: the
+/// result is monomorphised, and lowering runs the δ stage after monomorphisation.
+fn try_lower_rooted_lowered_lang(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
+    optimize: bool,
+    language: Option<&str>,
+) -> Result<emela_core::Lowered, Vec<String>> {
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
     // A program that tests how a type parameter that no call determines is instantiated gets
@@ -222,11 +255,17 @@ fn try_lower_rooted_lowered(
         paths: Default::default(),
         shown_paths,
         bundled_files,
-        language: None,
+        language,
     };
     let lowered = lower_with(&input, roots, optimize);
     if let Ok(l) = &lowered {
         assert_well_typed(&l.module);
+        if language.is_some()
+            && let Err(errors) = emela_core::verify_monomorphic(&l.module)
+        {
+            let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+            panic!("not monomorphic:\n{}", lines.join("\n"));
+        }
     }
     lowered.map_err(|errors| {
         errors

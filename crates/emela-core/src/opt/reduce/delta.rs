@@ -7,10 +7,11 @@
 //!
 //! What is copied is deliberately narrow. A callee must be small, take few parameters, not fail,
 //! not suspend, not be in a cycle of the call graph, and not be one of the bundled collection
-//! functions, a trait function (whose impl monomorphization picks), a derived impl or a
-//! compiler-generated helper. Its body must not raise or catch a failure, install a handler,
-//! extend or look up an evidence table, call an operation, or contain a loop. Everything else is
-//! left as a call.
+//! functions or a compiler-generated helper. Before monomorphisation a trait function (whose impl
+//! monomorphization picks) and a derived impl are left alone too; after it the call is to the
+//! chosen impl function and δ judges it like any other. Its body must not raise or catch a failure,
+//! install a handler, extend or look up an evidence table, call an operation, or contain a loop.
+//! Everything else is left as a call.
 //!
 //! # Contract
 //!
@@ -22,18 +23,20 @@
 //!                in the call graph), neither failing nor suspending, and whose body has no Fail,
 //!                Escape, With, Handler, Provide, Use, Op call, Fiber or Loop. The call is neither
 //!                failing nor suspending, its arity and type-argument count match the callee's, and
-//!                the copy fits the expansion budget.
+//!                the copy fits the expansion budget. The callee has no set type parameters; the
+//!                rule runs before and after monomorphisation (see "The two stages"), and after it
+//!                every function satisfies this precondition.
 //! Postconditions: the call is the callee's body with fresh locals and the call's type arguments;
 //!                 each argument is evaluated once, left to right, into the fresh local of its
 //!                 parameter before the body runs. The callee stays in the module. A second run of
-//!                 the pipeline (which repeats every pass to a fixed point) changes nothing.
+//!                 the same stage changes nothing.
 //! Preserves: evaluation order, effects, failures, suspension points, drop points and evidence. The
 //!            arguments are evaluated where they were, once each; the body runs where the call was.
 //!            Since the callee cannot fail and has no `with`, no release order can change.
 //! Deopt: a call that is indirect, to an external function or a const, to a compiler-generated
 //!        helper (a name with `$`), in a cycle, too large, to a bundled collection function, to a
-//!        trait function (including a derived impl), or whose copy would exceed the expansion
-//!        budget is left as a call.
+//!        trait function (including a derived impl; before monomorphisation, where dispatch is
+//!        still a map), or whose copy would exceed the expansion budget is left as a call.
 //! Budget: at most [`MAX_PARAMS`] parameters (the evidence table counts), a callee body of at most
 //!         [`MAX_CALLEE_NODES`] nodes, and at most [`MAX_EXPANDED_NODES`] nodes per call site. A
 //!         site over the per-call budget is abandoned whole, and the same deterministic sweep
@@ -41,8 +44,41 @@
 //! Measures: [`crate::opt::Stats::inline`] (the historical name of the δ counter); `nbody`
 //!           (`zero_body`, `get_body`) and `fannkuch` (its tuple helpers), by bringing the record
 //!           and tuple that escape only because they cross a call into one function for the LIR's
-//!           scalar replacement of aggregates.
+//!           scalar replacement of aggregates. The stage after monomorphisation targets an
+//!           effect-polymorphic wrapper (`apply` in `closures`), which the WASM backend would
+//!           otherwise keep as a call.
 //! ```
+//!
+//! # The two stages
+//!
+//! δ is one rule with one contract, and a build runs it twice.
+//!
+//! 1. **Before monomorphisation**, in the target-neutral pipeline ([`crate::opt::run_with`]). The
+//!    callee is often still generic: a function whose E or R mentions a set type parameter is
+//!    rejected by [`is_candidate`], because its evidence and type arguments do not substitute with
+//!    [`crate::ir::TypeTable::subst`] alone. Trait calls are still dispatch entries, so a trait
+//!    function and a derived impl are rejected too.
+//! 2. **After monomorphisation**, on the module [`crate::mono`] produced
+//!    ([`crate::opt::delta_after_monomorphization`], called by lowering). Every function is
+//!    concrete: ordinary type parameters are zero, set type parameters are empty, and dispatch
+//!    has been resolved to the impl function. The same [`is_candidate`] checks therefore accept a
+//!    small effect-polymorphic wrapper such as `fn apply(f, x) { f(x) }`, whose call is what a
+//!    backend without its own inliner (WASM) would otherwise keep.
+//!
+//! The equation, the cost model, the budget, the counter and everything the rule preserves are the
+//! same in both stages; this is a stage change, not a new rule. What differs is only which callees
+//! pass the preconditions. After monomorphisation a trait function's call is a call to a concrete
+//! impl function, and δ judges that function by the same size and shape rules as any other; before
+//! monomorphisation it is a dispatch entry and is left alone. Functions that still fail, suspend,
+//! contain `Loop`, `Use`, `With`, operations or evidence are rejected in both stages by the
+//! existing [`is_candidate`] and [`forbidden`] checks.
+//!
+//! The second stage's invariant is that its input is monomorphic and that its [`CoreFns`] map is
+//! rebuilt for the output function ids through `Monomorphized::origins`: each output function → the
+//! input function it copies → the identity lowering recorded. It runs once, after lowering has
+//! checked the module, and does not iterate. An empty or stale map would let δ copy a reserved
+//! bundled function (`List.fold`, `List.reverse`, ...) into every caller, which grows every
+//! program for no gain.
 //!
 //! δ runs after the fusions: a fusion recognises the call the source wrote (`List.fold`,
 //! `Option.or`), and expanding those functions first would dissolve the pattern.
