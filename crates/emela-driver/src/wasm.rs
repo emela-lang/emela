@@ -21,8 +21,8 @@ pub struct CoreWasm {
     /// Whether the LIR optimisation passes run (`emela_lir::to_heap_with`). On by default.
     optimize: bool,
     /// Which LIR passes run (see [`emela_lir::opt::Options`]). The default: the M3 memory passes
-    /// that pay for themselves run; drop specialisation, reuse, record SRA and closure
-    /// devirtualisation do not.
+    /// that pay for themselves run, as do switch normalisation and closure devirtualisation with
+    /// closure SRA; drop specialisation, reuse and record SRA do not.
     lir_options: emela_lir::opt::Options,
 }
 

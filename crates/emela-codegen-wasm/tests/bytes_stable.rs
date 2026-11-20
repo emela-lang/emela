@@ -115,6 +115,12 @@ fn main() {
         0x366a_12a8_b2be_8662,
     ),
     (
+        // The default rules now run closure devirtualisation (E5) and closure SRA (C5). The
+        // `|| {…}` closure made in `main` and the two `|xs| …` closures made inside it are each
+        // created and only called in one function; they lose their dispatch and their records.
+        // With `devirt` off the output is the previous pin, 15718 / 0xd6a5_1ebb_ebe5_aa99; with
+        // only `sra_closures` off it is 15712 / 0x51ba_16da_2f8f_968e, so the difference is E5
+        // plus C5 and not another change.
         "state_and_options",
         r#"
 import Std.State.{State}
@@ -131,9 +137,9 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        // The M3 default turns borrow inference on; the C2 profitability rule sets the call sites.
-        15722,
-        0x272e_58b6_142d_fefb,
+        // Closure devirtualisation and closure SRA are on by default (E5 + C5 closure half).
+        15637,
+        0xce5e_1250_53da_4e6f,
     ),
     (
         "numeric",

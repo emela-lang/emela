@@ -49,8 +49,9 @@ pub fn to_heap(m: &mut Module) {
 /// empty one.
 ///
 /// This is [`to_heap_with_options`] with [`opt::Options::default`]: the M3 memory passes that pay
-/// for themselves (borrow inference, the `rc` cleanup with the borrow elision and DCE) run; drop
-/// specialisation, record SRA, closure devirtualisation and closure SRA stay off.
+/// for themselves (borrow inference, the `rc` cleanup with the borrow elision and DCE), the switch
+/// normalisation, and closure devirtualisation with closure SRA run; drop specialisation and record
+/// SRA stay off.
 pub fn to_heap_with(m: &mut Module, optimize: bool) -> opt::Stats {
     to_heap_with_options(m, optimize, opt::Options::default())
 }

@@ -35,8 +35,8 @@
 //! | [`analysis`] (`escape`, `liveness`, `borrow`, `ownership`) | — | every stage | `escape` and its parameter summary implemented (B3/PR-022); the others answer `Unknown` until B4/PR-023 and B6/PR-024 |
 //! | borrow inference | [`Stats::borrow_functions`], [`Stats::borrow_params`], [`Stats::borrow_args`] | between `state_machines` and `insert_rc` | [`LirRules::borrow`], on by default (C2/PR-026). Not a rewrite: it writes the calling convention reference counting follows |
 //! | [`sra`] | [`Stats::sra_tuples`], [`Stats::sra_records`] | [`run_mid`] | scalar tuples; scalar records behind [`LirRules::sra_records`], off by default (C5/PR-043) |
-//! | [`devirt`] | [`Stats::devirt`] | [`run_mid`] | closure records only called in their function (E5/PR-037), off by default |
-//! | [`closure_sra`] | [`Stats::sra_closures`] | [`run_mid`] | scalar captures of a closure record that E5 made direct, behind [`LirRules::sra_closures`], off by default (C5/PR-043) |
+//! | [`devirt`] | [`Stats::devirt`] | [`run_mid`] | closure records only called in their function (E5/PR-037), on by default |
+//! | [`closure_sra`] | [`Stats::sra_closures`] | [`run_mid`] | scalar captures of a closure record that E5 made direct, behind [`LirRules::sra_closures`], on by default (C5/PR-043) |
 //! | [`rc`] cleanup | [`Stats::rc_pairs`], [`Stats::rc_borrow_pairs`] | [`run_heap`] | `dup`/`drop` pairs, with the local-base borrow elision on by default ([`LirRules::rc_borrow`], C1/PR-025) |
 //! | drop specialisation | [`Stats::drop_specialized`], [`Stats::drop_deopts`] | [`run_heap`] | a type-directed block drop for reference-free values behind [`LirRules::drop_spec`], opt-in (C3/PR-027) until its measured size cost pays for a runtime gain |
 //! | reuse / FBIP | [`Stats::reuse`], [`Stats::reuse_deopts`] | [`run_heap`] | a uniquely owned constructor rewritten in place, its old reference fields released first, behind [`LirRules::reuse`], off by default (C4/PR-042) |
@@ -75,14 +75,17 @@
 //! the plan requires a reason and approval for a size increase over 2%. Reuse is off by default
 //! too: it is the first, conservative slice of C4, and its output must stay what it was until a
 //! later change turns it on. The flags are a programmatic API only: no command-line flag is added.
-//! Record SRA, closure devirtualisation and closure SRA stay off by default until M5/M6. Frame
-//! pruning has no pass and no flag: [`frame_prune`] reports no stale saved slot on the corpus.
+//! Record SRA, closure devirtualisation and closure SRA were off by default until M5/M6. That is
+//! now a default change, not a rule change: closure devirtualisation and closure SRA run by default
+//! because the `effects` benchmark measured 0.892–0.906x on WASM and 0.849–0.852x on C with both
+//! on, the WASM output of the other 16 benchmark cases was byte-identical, and the passes are
+//! covered end to end by `tests/closure_sra.rs`. Frame pruning has no pass and no flag:
+//! [`frame_prune`] reports no stale saved slot on the corpus.
 //!
 //! [`LirRules::sra_records`] is off by default so that a default build's output, the WASM byte pins
 //! and the differential tests stay what they were. It only takes part when [`LirRules::sra`] is on
-//! too. [`LirRules::sra_closures`] is off by default as well and only takes part when
-//! [`LirRules::devirt`] made the calls direct: it removes the record E5 left as the environment of
-//! its own calls.
+//! too. [`LirRules::sra_closures`] only takes part when [`LirRules::devirt`] made the calls direct:
+//! it removes the record E5 left as the environment of its own calls.
 
 pub mod analysis;
 pub mod closure_sra;
@@ -208,15 +211,15 @@ pub struct LirRules {
     /// E5/PR-037.
     pub sra_records: bool,
     /// Closure devirtualisation at [`run_mid`]: a call through a closure record that is created and
-    /// only called in its function becomes a direct call. Off by default: the stage's output stays
-    /// what it was before E5/PR-037 until a later change turns it on.
+    /// only called in its function becomes a direct call. On by default (E5/PR-037): it makes the
+    /// `effects` benchmark 0.89x on WASM and 0.85x on C, and leaves the WASM output of every other
+    /// benchmark case byte-identical.
     pub devirt: bool,
     /// Closure scalar replacement at [`run_mid`] (C5/PR-043, closure half): a closure record that
     /// only feeds its own direct calls is removed and its scalar captures are passed directly to a
-    /// specialisation of the lifted function ([`closure_sra`]). Off by default. It only finds
-    /// candidates when [`devirt`](Self::devirt) is on too, because it needs the calls to name the
-    /// lifted function directly. A reference capture or a suspending function is not covered (see
-    /// the pass contract).
+    /// specialisation of the lifted function ([`closure_sra`]). On by default with
+    /// [`devirt`](Self::devirt), whose direct calls it needs to find candidates. A reference
+    /// capture or a suspending function is not covered (see the pass contract).
     pub sra_closures: bool,
     /// `rc` cleanup at [`run_heap`]: `dup`/`drop` pairs removed.
     pub rc_cleanup: bool,
@@ -295,20 +298,22 @@ impl LirRules {
 
 impl Default for LirRules {
     /// The passes that are on by default: SRA, the `rc` cleanup with the local-base borrow
-    /// elision, DCE and borrow inference (the M3 memory passes that pay for themselves) and the
-    /// switch normalisation (E4), which only joins structurally identical bodies or removes a
-    /// dispatch whose arms all run one body. Drop specialisation stays opt-in because its
-    /// default-build size cost has no measured runtime gain; reuse is the first, conservative
-    /// slice of C4 and stays opt-in so that the default build's output is unchanged; record SRA,
-    /// closure devirtualisation and closure SRA stay off until M5/M6; frame pruning has no pass,
-    /// because [`frame_prune::scan`] finds no stale saved slot on the corpus.
+    /// elision, DCE, borrow inference (the M3 memory passes that pay for themselves), the switch
+    /// normalisation (E4), which only joins structurally identical bodies or removes a dispatch
+    /// whose arms all run one body, and closure devirtualisation (E5) with closure SRA (C5). The
+    /// last two are a default change, not a rule change: the `effects` benchmark runs 0.892–0.906x
+    /// on WASM and 0.849–0.852x on C with both on, the WASM output of the other 16 benchmark cases
+    /// is byte-identical, and the passes are covered by `tests/closure_sra.rs` end to end. Drop
+    /// specialisation stays opt-in because its default-build size cost has no measured runtime
+    /// gain; reuse stays opt-in so that the default build's output is unchanged; record SRA stays
+    /// off because it rewrites nothing on the corpus; frame pruning has no pass, because
+    /// [`frame_prune::scan`] finds no stale saved slot on the corpus.
     fn default() -> Self {
         Self {
             sra: true,
             sra_records: false,
-            devirt: false,
-            // Closure SRA needs the direct calls of E5, so it stays off with it.
-            sra_closures: false,
+            devirt: true,
+            sra_closures: true,
             rc_cleanup: true,
             rc_borrow: true,
             dce: true,
@@ -324,8 +329,8 @@ impl Default for LirRules {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
     /// Which LIR passes to run. [`LirRules::default`] by default: SRA, the `rc` cleanup with the
-    /// borrow elision, DCE, borrow inference and switch normalisation, with record SRA, closure
-    /// devirtualisation, closure SRA, drop specialisation and reuse off.
+    /// borrow elision, DCE, borrow inference, switch normalisation, and closure devirtualisation
+    /// with closure SRA, with record SRA, drop specialisation and reuse off.
     pub rules: LirRules,
 }
 
@@ -371,8 +376,8 @@ pub fn run_flow(_m: &mut Module, _optimize: bool) -> Stats {
 /// are sound: running them after `state_machines` would also have to rewrite `Suspend::saved`,
 /// which this stage fixes.
 ///
-/// This is [`run_mid_with`] with [`Options::default`] (SRA on; the Heap IR passes, closure
-/// devirtualisation and closure SRA are not here).
+/// This is [`run_mid_with`] with [`Options::default`] (SRA, closure devirtualisation and closure
+/// SRA on; the Heap IR passes are not here).
 pub fn run_mid(m: &mut Module, optimize: bool) -> Stats {
     if !optimize {
         assert_eq!(
@@ -715,8 +720,9 @@ mod tests {
 
     /// `LirRules::all` turns every flag on; `none` turns every flag off. The default turns on the
     /// M3 memory passes that pay for themselves (the `rc` cleanup with the borrow elision, DCE and
-    /// borrow inference) and the E4 switch normalisation, keeps drop specialisation opt-in for its
-    /// size cost, and keeps record SRA, closure devirtualisation and closure SRA off until M5/M6.
+    /// borrow inference), the E4 switch normalisation, and E5 closure devirtualisation with C5
+    /// closure SRA, keeps drop specialisation opt-in for its size cost and record SRA off because
+    /// it rewrites nothing on the corpus.
     #[test]
     fn the_lir_rule_flags_have_the_m3_defaults() {
         let all = LirRules::all();
@@ -736,13 +742,8 @@ mod tests {
         let default = LirRules::default();
         assert!(default.sra && default.rc_cleanup);
         assert!(default.rc_borrow && default.dce && default.borrow && default.switch);
-        assert!(
-            !default.sra_records
-                && !default.devirt
-                && !default.sra_closures
-                && !default.drop_spec
-                && !default.reuse
-        );
+        assert!(default.devirt && default.sra_closures);
+        assert!(!default.sra_records && !default.drop_spec && !default.reuse);
         let none = LirRules::none();
         assert!(
             !none.sra

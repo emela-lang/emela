@@ -274,9 +274,9 @@ fn main() { dbg(step(0, 5, 0)) }
 }
 
 /// The flag off leaves the module alone; so does closure SRA without E5, because the call is still
-/// indirect and the record is the callee.
+/// indirect and the record is the callee. The default runs E5 and then this pass.
 #[test]
-fn the_flag_is_off_by_default_and_needs_the_direct_call_of_e5() {
+fn the_flag_is_on_by_default_and_needs_the_direct_call_of_e5() {
     let mut off = mid(CAPTURE);
     let before = dump(&off);
     let stats = opt::run_mid_with(&mut off, closure_sra(false, false));
@@ -286,8 +286,9 @@ fn the_flag_is_off_by_default_and_needs_the_direct_call_of_e5() {
 
     let mut default = mid(CAPTURE);
     let stats = opt::run_mid(&mut default, true);
-    assert_eq!(stats.sra_closures, 0);
-    assert_eq!(dump(&default), before, "a default build changed");
+    assert_eq!(stats.devirt, 1);
+    assert_eq!(stats.sra_closures, 1);
+    assert_ne!(dump(&default), before, "a default build changed");
 
     let mut no_devirt = mid(CAPTURE);
     let stats = opt::run_mid_with(&mut no_devirt, closure_sra(false, true));

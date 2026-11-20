@@ -1322,12 +1322,8 @@ fn the_lir_rule_flags_are_the_ones_the_tests_assume() {
     assert!(default.rules.sra && default.rules.rc_cleanup);
     assert!(default.rules.rc_borrow && default.rules.dce);
     assert!(default.rules.borrow && default.rules.switch);
-    assert!(
-        !default.rules.sra_records
-            && !default.rules.devirt
-            && !default.rules.sra_closures
-            && !default.rules.drop_spec
-    );
+    assert!(default.rules.devirt && default.rules.sra_closures);
+    assert!(!default.rules.sra_records && !default.rules.drop_spec);
 }
 
 /// The fixture module compiles a plain function at a chosen stage; this pins that the helper the
