@@ -95,6 +95,10 @@ fn const_memoisation_and_release_notes_agree_on_targets() {
         || !have_tool("EMELA_CC", "cc")
         || !have_tool("EMELA_WASMTIME", "wasmtime")
     {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "skipping: need node, cc and wasmtime"
+        );
         eprintln!("skipping: need node, cc and wasmtime");
         return;
     }

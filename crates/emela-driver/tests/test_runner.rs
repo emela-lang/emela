@@ -1165,6 +1165,11 @@ fn starts(program: &Path, args: &[String]) -> bool {
         .output()
         .is_ok_and(|o| o.status.success());
     if !ok {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "skipping a target: cannot start `{}`",
+            program.display()
+        );
         eprintln!("skipping a target: cannot start `{}`", program.display());
     }
     ok

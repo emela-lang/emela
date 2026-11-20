@@ -18,6 +18,11 @@ fn c_backend() -> Option<CoreC> {
         .output()
         .is_ok_and(|o| o.status.success());
     if !ok {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "skipping C: cannot start the C compiler `{}`",
+            cc.display()
+        );
         eprintln!("skipping C: cannot start the C compiler `{}`", cc.display());
         return None;
     }
