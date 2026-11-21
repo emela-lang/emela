@@ -238,7 +238,8 @@ impl ScopeCall {
 ///
 /// The wrapped function is called by fork's implementation in Scope's handler ([`ScopeCall`]) with
 /// the table at the `Fiber.scope` call. The child's Scope is the capability value `c` that forked
-/// it, so the child can fork siblings (spec 11.2). If `f`'s R needs no table, none is passed.
+/// it, so the child can fork siblings (spec 11.2). `f` is a function value, so it takes the table
+/// whatever its R (`FnType::ev`).
 pub(super) struct ForkCall {
     /// The capability value expression.
     pub(super) handler: Expr,
@@ -248,8 +249,6 @@ pub(super) struct ForkCall {
     ty_args: Vec<TypeId>,
     /// The mark of calls to the child function `f`.
     f_call: Call,
-    /// Whether `f` takes an evidence table.
-    f_takes_ev: bool,
     /// The type of the wrapped child function (`fn(ev) -> A`).
     g_ty: TypeId,
     cap: Local,
@@ -260,14 +259,10 @@ pub(super) struct ForkCall {
 impl ForkCall {
     pub(super) fn apply(self, args: Vec<Expr>) -> Expr {
         let [f]: [Expr; 1] = args.try_into().expect("fork takes one argument");
-        let child_args = if self.f_takes_ev {
-            vec![Expr::Provide {
-                base: Some(Box::new(Expr::Var(self.ev))),
-                bindings: vec![(self.effect, Expr::Var(self.cap))],
-            }]
-        } else {
-            Vec::new()
-        };
+        let child_args = vec![Expr::Provide {
+            base: Some(Box::new(Expr::Var(self.ev))),
+            bindings: vec![(self.effect, Expr::Var(self.cap))],
+        }];
         let g = Expr::Lambda {
             params: vec![self.ev],
             ty: self.g_ty,
@@ -301,14 +296,14 @@ impl ForkCall {
     }
 }
 
-/// What is needed to lower `Exit.attempt(f)`. If `f`'s R needs a table, `f` is wrapped in a
-/// parameterless function that calls it with the current table (the runtime calls `f` with no
-/// arguments).
+/// What is needed to lower `Exit.attempt(f)`. `f` is wrapped in a parameterless function that
+/// calls it with the current table (the runtime calls `f` with no arguments, and a function value
+/// takes the table whatever its R, `FnType::ev`).
 pub(super) struct AttemptCall {
     exit: EnumId,
     f_call: Call,
-    /// The current evidence table to pass to `f`; `None` if it needs none.
-    ev: Option<Expr>,
+    /// The current evidence table to pass to `f`.
+    ev: Expr,
     /// The type of `f` wrapped in a parameterless function.
     wrapped_ty: TypeId,
     f: Local,
@@ -321,9 +316,7 @@ impl AttemptCall {
             exit: self.exit,
             suspends: self.f_call.suspends,
         };
-        let Some(ev) = self.ev else {
-            return Expr::Fiber { op, args: vec![f] };
-        };
+        let ev = self.ev;
         let wrapped = Expr::Lambda {
             params: Vec::new(),
             ty: self.wrapped_ty,
@@ -364,8 +357,8 @@ pub(super) struct PermitsCall {
     /// `try_with_permits`: the constructors `Some` and `None` and the type of `f`'s value.
     try_: Option<(CtorRef, CtorRef, TypeId)>,
     f_call: Call,
-    /// The current evidence table to pass to `f`; `None` if it needs none.
-    ev: Option<Expr>,
+    /// The current evidence table to pass to `f`.
+    ev: Expr,
     s: Local,
     n: Local,
     f: Local,
@@ -382,7 +375,7 @@ impl PermitsCall {
         };
         let call = Expr::Call {
             callee: Callee::Indirect(Box::new(Expr::Var(self.f))),
-            args: self.ev.into_iter().collect(),
+            args: vec![self.ev],
             fails: self.f_call.fails,
             suspends: self.f_call.suspends,
         };
@@ -560,7 +553,7 @@ impl Lowerer<'_> {
                     fails: matches!(f_ty, Ty::Fn(f) if !f.fails.is_empty()),
                     suspends: self.ty_suspends(f_ty),
                 };
-                let ev = self.ty_takes_ev(f_ty).then(|| self.ev_arg());
+                let ev = self.ev_arg();
                 let wrapped_ty = self.wrapped_ty(f_ty, Vec::new(), f_call);
                 let f_ty = self.ty(f_ty);
                 Some(Ok(Target::Attempt(Box::new(AttemptCall {
@@ -586,7 +579,7 @@ impl Lowerer<'_> {
         };
         let a = self.ty(&f.ret);
         let try_ = try_.then(|| (self.module.some_ctor(), self.module.none_ctor(), a));
-        let ev = self.ty_takes_ev(f_ty).then(|| self.ev_arg());
+        let ev = self.ev_arg();
         let s_ty = self.ty(&fn_ty.params[0]);
         let f_ir_ty = self.ty(f_ty);
         Some(PermitsCall {
@@ -749,7 +742,6 @@ impl Lowerer<'_> {
             op: fork,
             ty_args,
             f_call,
-            f_takes_ev: self.ty_takes_ev(f_ty),
             g_ty,
             cap: self.module.local("scope", cap_ty),
             f: self.module.local("f", f_ir_ty),

@@ -14,55 +14,51 @@ export suspend fn main(ev%0: ref (evidence)) -> i32 (Int) {
       runtime unhold()
     }
   }
-  f%19: ref (fn() -> Int suspends ev) = suspend closure(ev%3: ref (evidence)) [] {
+  f%17: ref (fn() -> Int suspends ev) = suspend closure(ev%3: ref (evidence)) [] {
     s%4: ref (handler Std.Fiber.Scope[_, _]) = ev_lookup(ev%3, Std.Fiber.Scope[_, _])
-    f%5: ref (fn() -> Int) = closure() [] {
+    f%6: ref (fn() -> Int ev) = closure(ev%5: ref (evidence)) [] {
       return 1
     }
-    f%8: ref (fn() -> Int ev) = closure(ev%6: ref (evidence)) [f%5] {
-      t%7: i32 (Int) = call_indirect f%5()
-      return t%7
+    f%10: ref (fn(evidence) -> Int) = closure(ev%7: ref (evidence)) [s%4, f%6] {
+      t%8: ref (evidence) = ev_extend(ev%7, [Std.Fiber.Scope[_, _]: s%4])
+      t%9: i32 (Int) = call_indirect f%6(t%8)
+      return t%9
     }
-    f%12: ref (fn(evidence) -> Int) = closure(ev%9: ref (evidence)) [s%4, f%8] {
-      t%10: ref (evidence) = ev_extend(ev%9, [Std.Fiber.Scope[_, _]: s%4])
-      t%11: i32 (Int) = call_indirect f%8(t%10)
-      return t%11
+    f%14: ref (fn(evidence) -> any) = closure(x%11: ref (evidence)) [f%10] {
+      r%12: i32 (Int) = call_indirect f%10(x%11)
+      a%13: ref (any) = coerce r%12
+      return a%13
     }
-    f%16: ref (fn(evidence) -> any) = closure(x%13: ref (evidence)) [f%12] {
-      r%14: i32 (Int) = call_indirect f%12(x%13)
-      a%15: ref (any) = coerce r%14
-      return a%15
-    }
-    a%17: ref (Std.Fiber.Fiber[Int]) = call_op s%4.Std.Fiber.Scope[_, _]#fork(f%16)
-    t%18: i32 (Int) = fiber join(a%17)!
-    return t%18
+    a%15: ref (Std.Fiber.Fiber[Int]) = call_op s%4.Std.Fiber.Scope[_, _]#fork(f%14)
+    t%16: i32 (Int) = fiber join(a%15)!
+    return t%16
   }
-  f%37: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%20: ref (fiber_scope)) [ev%0, f%19] {
-    f%25: ref (fn(fn(evidence) -> any suspends) -> any) = closure(g%21: ref (fn(evidence) -> any suspends)) [ev%0, s%20] {
-      f%23: ref (fn() -> any suspends) = suspend closure() [g%21, ev%0] {
-        t%22: ref (any) = call_indirect g%21(ev%0)!
-        return t%22
+  f%35: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%18: ref (fiber_scope)) [ev%0, f%17] {
+    f%23: ref (fn(fn(evidence) -> any suspends) -> any) = closure(g%19: ref (fn(evidence) -> any suspends)) [ev%0, s%18] {
+      f%21: ref (fn() -> any suspends) = suspend closure() [g%19, ev%0] {
+        t%20: ref (any) = call_indirect g%19(ev%0)!
+        return t%20
       }
-      t%24: ref (any) = fiber fork(s%20, f%23)
+      t%22: ref (any) = fiber fork(s%18, f%21)
+      return t%22
+    }
+    f%25: ref (fn() -> any) = closure() [s%18] {
+      t%24: ref (any) = fiber deferred(s%18)
       return t%24
     }
-    f%27: ref (fn() -> any) = closure() [s%20] {
-      t%26: ref (any) = fiber deferred(s%20)
-      return t%26
+    f%28: ref (fn(Int) -> any) = closure(permits%26: i32 (Int)) [s%18] {
+      t%27: ref (any) = fiber semaphore(s%18, permits%26)
+      return t%27
     }
-    f%30: ref (fn(Int) -> any) = closure(permits%28: i32 (Int)) [s%20] {
-      t%29: ref (any) = fiber semaphore(s%20, permits%28)
-      return t%29
+    f%31: ref (fn(Int) -> any) = closure(capacity%29: i32 (Int)) [s%18] {
+      t%30: ref (any) = fiber queue(s%18, capacity%29)
+      return t%30
     }
-    f%33: ref (fn(Int) -> any) = closure(capacity%31: i32 (Int)) [s%20] {
-      t%32: ref (any) = fiber queue(s%20, capacity%31)
-      return t%32
-    }
-    scope%34: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%25, deferred: f%27, semaphore: f%30, queue: f%33 }
-    t%35: ref (evidence) = ev_extend(ev%0, [Std.Fiber.Scope[_, _]: scope%34])
-    t%36: i32 (Int) = call_indirect f%19(t%35)!
-    return t%36
+    scope%32: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%23, deferred: f%25, semaphore: f%28, queue: f%31 }
+    t%33: ref (evidence) = ev_extend(ev%0, [Std.Fiber.Scope[_, _]: scope%32])
+    t%34: i32 (Int) = call_indirect f%17(t%33)!
+    return t%34
   }
-  t%38: i32 (Int) = fiber scope(f%37)!
-  return t%38
+  t%36: i32 (Int) = fiber scope(f%35)!
+  return t%36
 }

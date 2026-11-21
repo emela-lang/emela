@@ -9,26 +9,26 @@ export fn main() -> List[Int] {
   } {
     @dbg[List[Int]](naps([1, 2]: List[Int], ev%2)!)
   }
-  @dbg[List[Int]](List.map[Int, Int, {}, {}]([1]: List[Int], fn(x%7: Int) -> Int {
+  @dbg[List[Int]](List.map[Int, Int, {}, {}]([1]: List[Int], fn(x%7: Int, ev%8: evidence) -> Int {
     x%7
   }))
 }
 
 suspend fn naps(xs%3: List[Int], ev%4: evidence) -> List[Int] {
-  let clock%10: handler Clock = use[Clock](ev%4)
-  List.map$suspend8[Int, Int, {}, {suspends, ev}](xs%3, suspend fn(ms%14: Int, ev%15: evidence) -> Int {
-    clock%10.Clock#sleep(ms%14)!
+  let clock%11: handler Clock = use[Clock](ev%4)
+  List.map$suspend8[Int, Int, {}, {suspends, ev}](xs%3, suspend fn(ms%15: Int, ev%16: evidence) -> Int {
+    clock%11.Clock#sleep(ms%15)!
   }, ev%4)!
 }
 
-fn List.map[Int, Int, {}, {}](xs%5: List[Int], f%6: fn(Int) -> Int) -> List[Int] {
-  List.reverse[Int](List.fold[Int, List[Int], {}, {}](xs%5, []: List[Int], fn(acc%20: List[Int], x%21: Int) -> List[Int] {
-    [(f%6)(x%21), ..acc%20]: List[Int]
+fn List.map[Int, Int, {}, {}](xs%5: List[Int], f%6: fn(Int) -> Int ev) -> List[Int] {
+  List.reverse[Int](List.fold[Int, List[Int], {}, {}](xs%5, []: List[Int], fn(acc%21: List[Int], x%22: Int, ev%23: evidence) -> List[Int] {
+    [(f%6)(x%22, ev%23), ..acc%21]: List[Int]
   }))
 }
 
-suspend fn List.map$suspend8[Int, Int, {}, {suspends, ev}](xs%11: List[Int], f%12: fn(Int) -> Int suspends ev, ev%13: evidence) -> List[Int] {
-  List.reverse[Int](List.fold$suspend8[Int, List[Int], {}, {suspends, ev}](xs%11, []: List[Int], suspend fn(acc%26: List[Int], x%27: Int, ev%28: evidence) -> List[Int] {
-    [(f%12)(x%27, ev%28)!, ..acc%26]: List[Int]
-  }, ev%13)!)
+suspend fn List.map$suspend8[Int, Int, {}, {suspends, ev}](xs%12: List[Int], f%13: fn(Int) -> Int suspends ev, ev%14: evidence) -> List[Int] {
+  List.reverse[Int](List.fold$suspend8[Int, List[Int], {}, {suspends, ev}](xs%12, []: List[Int], suspend fn(acc%28: List[Int], x%29: Int, ev%30: evidence) -> List[Int] {
+    [(f%13)(x%29, ev%30)!, ..acc%28]: List[Int]
+  }, ev%14)!)
 }

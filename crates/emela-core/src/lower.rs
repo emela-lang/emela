@@ -497,10 +497,10 @@ impl StateRun {
             suspends: false,
         };
         // The function passed to update is pure (spec 8.8), so read, call and write happen in one
-        // step.
+        // step. It is a function value, so it takes the (empty) evidence table (`FnType::ev`).
         let update = set(Expr::Call {
             callee: Callee::Indirect(Box::new(Expr::Var(self.f))),
-            args: vec![get()],
+            args: vec![get(), Expr::Lit(Lit::Unit)],
             fails: false,
             suspends: false,
         });
@@ -783,7 +783,9 @@ impl<'a> Lowerer<'a> {
                     ret,
                     fails: !f.fails.is_empty(),
                     suspends: self.row_suspends(&f.uses),
-                    ev: self.row_needs_ev(&f.uses),
+                    // Every function value takes the evidence table, whatever its R
+                    // (`FnType::ev`).
+                    ev: true,
                     sets: self.fn_sets(&f.fails, &f.uses),
                 })
             }
@@ -1357,10 +1359,69 @@ impl<'a> Lowerer<'a> {
         matches!(self.types.sigs.get(def).map(|s| &s.scheme.ty), Some(Ty::Fn(f)) if self.row_needs_ev(&f.uses))
     }
 
-    /// Whether to pass the evidence table when calling a value of function type: yes if the value
-    /// type's R has an element other than Async.
-    fn ty_takes_ev(&self, ty: &Ty) -> bool {
-        matches!(ty, Ty::Fn(f) if self.row_needs_ev(&f.uses))
+    /// A local of a function type that takes no evidence table: resume in a suspend fn
+    /// implementation, the only function the runtime makes that the program can name.
+    fn is_bare_fn_local(&self, l: Local) -> bool {
+        matches!(self.module.ty(self.module.locals[l].ty), Type::Fn(f) if !f.ev)
+    }
+
+    /// The local `callee` names, if it is one that takes no evidence table
+    /// ([`Self::is_bare_fn_local`]): it is called as it is, without the table.
+    fn bare_fn_callee(&mut self, callee: ExprId) -> Option<Local> {
+        match self.hir.exprs[callee].kind {
+            ExprKind::Path(Res::Local(l)) if self.lifted(Res::Local(l)).is_none() => {
+                let l = self.local(l);
+                self.is_bare_fn_local(l).then_some(l)
+            }
+            _ => None,
+        }
+    }
+
+    /// The local `l` of a function type that takes no evidence table, as a function value: a
+    /// lambda that takes the table and calls it without (`FnType::ev`).
+    fn wrap_local(&mut self, l: Local) -> Expr {
+        let Type::Fn(f) = self.module.ty(self.module.locals[l].ty).clone() else {
+            unreachable!("a bare function local has a function type");
+        };
+        let mut params: Vec<Local> = f
+            .params
+            .iter()
+            .map(|&t| self.module.local("x", t))
+            .collect();
+        let args = params.iter().map(|&p| Expr::Var(p)).collect();
+        params.push(self.ev_local());
+        let (fails, suspends) = (f.fails, f.suspends);
+        let ty = self.module.func(FnType { ev: true, ..f });
+        Expr::Lambda {
+            params,
+            ty,
+            body: Box::new(Expr::Call {
+                callee: Callee::Indirect(Box::new(Expr::Var(l))),
+                args,
+                fails,
+                suspends,
+            }),
+            suspends,
+        }
+    }
+
+    /// Whether a reference to fn `def` as a value can be the function itself: only when the
+    /// function takes the evidence table in every copy monomorphization makes, as every function
+    /// value does (`FnType::ev`). That is a fn with a body whose declared R has an effect that
+    /// is not a host effect. Otherwise (external functions, trait functions, whose impl decides,
+    /// and a fn whose R has only set type parameters and host effects, whose copy for an empty R
+    /// drops the table) the reference is wrapped in a lambda that takes the table.
+    fn is_fn_value(&self, def: DefId) -> bool {
+        if self.hir.defs[def].kind == DefKind::TraitFn {
+            return false;
+        }
+        if !matches!(self.hir.item(def), Some(Item::Fn(f)) if f.body.is_some()) {
+            return false;
+        }
+        matches!(self.types.sigs.get(def).map(|s| &s.scheme.ty), Some(Ty::Fn(f))
+            if f.uses.elems().iter().any(|e| matches!(e, RowElem::Tag(t)
+                if matches!(self.hir.item(t.def), Some(Item::Effect(_)))
+                    && !self.hir.is_host_effect(t.def))))
     }
 
     /// Whether a function with effect set `row` needs an evidence table: yes if it has an element
@@ -1751,8 +1812,16 @@ impl<'a> Lowerer<'a> {
             };
             // A suspend fn implementation takes the operation's parameters plus resume last
             // (spec 8.4). resume is an ordinary function value; calling it neither suspends nor
-            // fails (its type is `fn(T) -> ()`).
+            // fails (its type is `fn(T) -> ()`). The runtime makes it, so it takes no evidence
+            // table: a call to it passes none, and using it as a value (to resume later, spec
+            // 8.7) wraps it in a function value that takes one (`Lowerer::path`).
             let ps: Vec<Local> = op.params.iter().map(|p| self.local(p.local)).collect();
+            if op.is_suspend
+                && let Some(&resume) = ps.last()
+                && let Type::Fn(f) = self.module.ty(self.module.locals[resume].ty).clone()
+            {
+                self.module.locals[resume].ty = self.module.func(FnType { ev: false, ..f });
+            }
             let lowered = self.expr(body);
             // If the body may suspend (awaiting an `@external suspend fn`, say), the implementation
             // is a generator too. Async that only calls resume later (spec 8.7) is not in the
@@ -2504,14 +2573,7 @@ impl<'a> Lowerer<'a> {
         let mut ps: Vec<Local> = params.iter().map(|p| self.local(p.local)).collect();
         let suspends = self.ty_suspends(self.expr_ty(id));
         let ty = self.ty(self.expr_ty(id));
-        if !self.ty_takes_ev(self.expr_ty(id)) {
-            return Expr::Lambda {
-                params: ps,
-                ty,
-                body: Box::new(self.expr(body)),
-                suspends,
-            };
-        }
+        // A function value takes the table whatever its R (`FnType::ev`).
         let p = self.ev_local();
         ps.push(p);
         let body = self.body_with_ev(p, body);
@@ -2540,8 +2602,9 @@ impl<'a> Lowerer<'a> {
         let effect_id = self.module.handler_effect(effect_id);
         let fails = self.callee_fails(id);
         let suspends = self.module.effects[effect_id].ops[index].suspend;
+        // A function value takes the table whatever its R (`FnType::ev`).
         let (param_tys, ev) = match self.expr_ty(id) {
-            Ty::Fn(f) => (f.params.clone(), self.row_needs_ev(&f.uses)),
+            Ty::Fn(f) => (f.params.clone(), true),
             _ => unreachable!("an operation reference has a function type"),
         };
         let param_tys: Vec<TypeId> = param_tys.iter().map(|t| self.ty(t)).collect();
@@ -2857,7 +2920,14 @@ impl<'a> Lowerer<'a> {
             Res::Local(l) => {
                 return match self.lifted(res) {
                     Some(lifted) => self.lifted_value(id, &lifted),
-                    None => Expr::Var(self.local(l)),
+                    None => {
+                        let local = self.local(l);
+                        if self.is_bare_fn_local(local) {
+                            self.wrap_local(local)
+                        } else {
+                            Expr::Var(local)
+                        }
+                    }
                 };
             }
             Res::Def(def) => def,
@@ -2875,18 +2945,11 @@ impl<'a> Lowerer<'a> {
             Some(Item::Fn(f)) if f.body.is_some() && self.has_generic_tags(def) => {
                 self.wrap_in_lambda(id, span)
             }
-            Some(Item::Fn(f)) if f.body.is_some() => self.fn_value(def, id),
             // Builtins and constructors with fields are not IR values, so they are wrapped in a
-            // lambda.
-            Some(Item::Fn(f)) if f.is_intrinsic => self.wrap_in_lambda(id, span),
-            Some(Item::Fn(_)) => self.fn_value(def, id),
-            _ if self.hir.defs[def].kind == DefKind::TraitFn => {
-                if self.has_generic_tags(def) {
-                    self.wrap_in_lambda(id, span)
-                } else {
-                    self.fn_value(def, id)
-                }
-            }
+            // lambda, and so is a fn that may not take the evidence table (`is_fn_value`).
+            Some(Item::Fn(_)) if self.is_fn_value(def) => self.fn_value(def, id),
+            Some(Item::Fn(_)) => self.wrap_in_lambda(id, span),
+            _ if self.hir.defs[def].kind == DefKind::TraitFn => self.wrap_in_lambda(id, span),
             Some(Item::Ctor(_) | Item::Error(_)) => match self.ctors.get(def) {
                 Some(&ctor) if self.module.variant(ctor).fields.is_empty() => Expr::Ctor {
                     ctor,
@@ -3004,11 +3067,10 @@ impl<'a> Lowerer<'a> {
     /// argument and uses it as the caller's table (`State.run`, and generic fns with effects with
     /// type arguments in their R).
     fn wrap_in_lambda(&mut self, id: ExprId, span: Span) -> Expr {
-        let ev = self.ty_takes_ev(self.expr_ty(id)).then(|| self.ev_local());
+        // A function value takes the table whatever its R (`FnType::ev`).
+        let ev = self.ev_local();
         let (outer, bound) = (self.ev, std::mem::take(&mut self.bound));
-        if ev.is_some() {
-            self.ev = ev;
-        }
+        self.ev = Some(ev);
         let target = self.callee(id, span);
         self.ev = outer;
         self.bound = bound;
@@ -3028,7 +3090,7 @@ impl<'a> Lowerer<'a> {
             })
             .collect();
         let args = params.iter().map(|&l| Expr::Var(l)).collect();
-        params.extend(ev);
+        params.push(ev);
         Expr::Lambda {
             params,
             ty: self.ty(self.expr_ty(id)),
@@ -3081,9 +3143,12 @@ impl<'a> Lowerer<'a> {
                 call,
             });
         }
-        let ev = self
-            .ty_takes_ev(self.expr_ty(callee))
-            .then(|| self.ev_arg());
+        // resume takes no table (`is_bare_fn_local`).
+        if let Some(l) = self.bare_fn_callee(callee) {
+            return Ok(Target::Value(Expr::Var(l), call, None));
+        }
+        // A function value takes the table whatever its R (`FnType::ev`).
+        let ev = Some(self.ev_arg());
         // An operation on a capability value (`log.info(...)`).
         if let ExprKind::Field { base, .. } = &hir.exprs[callee].kind
             && let Some(&op) = self.types.ops.get(callee)
@@ -3312,12 +3377,13 @@ impl<'a> Lowerer<'a> {
             None => TypeId::UNIT,
         };
         let result = self.ty(&body.ret);
+        // The function passed to update is a function value of the program (`FnType::ev`).
         let update_ty = self.module.func(FnType {
             params: vec![state],
             ret: state,
             fails: false,
             suspends: false,
-            ev: false,
+            ev: true,
             sets: None,
         });
         let cell_ty = self.module.cell(state);

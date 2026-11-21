@@ -150,8 +150,10 @@ fn main() -> String {
     )]));
     insta::assert_snapshot!(parts(&m, &["fn main("]), @r"
     export fn main() -> String {
-      let b%0: Box[fn(Int) -> Int] = Box.Box[fn(Int) -> Int](value: twice)
-      concat(Box: Show.show[fn(Int) -> Int](b%0) as String)
+      let b%0: Box[fn(Int) -> Int ev] = Box.Box[fn(Int) -> Int ev](value: fn(x%1: Int, ev%2: evidence) -> Int {
+        twice(x%1)
+      })
+      concat(Box: Show.show[fn(Int) -> Int ev](b%0) as String)
     }
     ");
 }

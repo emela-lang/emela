@@ -5,13 +5,13 @@ expression: "parts(&m, &[\"fn main(\", \"fn modify[\", \"fn twice[\", \"fn both(
 effect Std.State.State[Int] = Std.State.State[Int] {
   fn get() -> Int
   fn set(Int) -> ()
-  fn update(fn(Int) -> Int) -> ()
+  fn update(fn(Int) -> Int ev) -> ()
 }
 
 effect Std.State.State[String] = Std.State.State[String] {
   fn get() -> String
   fn set(String) -> ()
-  fn update(fn(String) -> String) -> ()
+  fn update(fn(String) -> String ev) -> ()
 }
 
 export fn main() -> (Int, Int) {
@@ -24,8 +24,8 @@ export fn main() -> (Int, Int) {
       set: fn(value%3: Int) -> () {
         @$Cell.set[Int](cell%1, value%3)
       }
-      update: fn(f%4: fn(Int) -> Int) -> () {
-        @$Cell.set[Int](cell%1, (f%4)(@$Cell.get[Int](cell%1)))
+      update: fn(f%4: fn(Int) -> Int ev) -> () {
+        @$Cell.set[Int](cell%1, (f%4)(@$Cell.get[Int](cell%1), provide(;)))
       }
     }
     let result%5: (String, String) = (fn(ev%6: evidence) -> (String, String) {
@@ -37,8 +37,8 @@ export fn main() -> (Int, Int) {
         set: fn(value%9: String) -> () {
           @$Cell.set[String](cell%7, value%9)
         }
-        update: fn(f%10: fn(String) -> String) -> () {
-          @$Cell.set[String](cell%7, (f%10)(@$Cell.get[String](cell%7)))
+        update: fn(f%10: fn(String) -> String ev) -> () {
+          @$Cell.set[String](cell%7, (f%10)(@$Cell.get[String](cell%7), provide(;)))
         }
       }
       let result%11: String = (fn(ev%12: evidence) -> String {
@@ -48,7 +48,7 @@ export fn main() -> (Int, Int) {
     })(provide(; Std.State.State[Int] = state%2))
     (result%5, @$Cell.get[Int](cell%1))
   })
-  let g%14: fn(fn(Int) -> Int) -> Int ev = fn(x%15: fn(Int) -> Int, ev%16: evidence) -> Int {
+  let g%14: fn(fn(Int) -> Int ev) -> Int ev = fn(x%15: fn(Int) -> Int ev, ev%16: evidence) -> Int {
     modify[Int](x%15, ev%16)
   }
   @dbg[(Int, Int)]({
@@ -60,12 +60,12 @@ export fn main() -> (Int, Int) {
       set: fn(value%21: Int) -> () {
         @$Cell.set[Int](cell%19, value%21)
       }
-      update: fn(f%22: fn(Int) -> Int) -> () {
-        @$Cell.set[Int](cell%19, (f%22)(@$Cell.get[Int](cell%19)))
+      update: fn(f%22: fn(Int) -> Int ev) -> () {
+        @$Cell.set[Int](cell%19, (f%22)(@$Cell.get[Int](cell%19), provide(;)))
       }
     }
     let result%23: Int = (fn(ev%24: evidence) -> Int {
-      (g%14)(fn(x%25: Int) -> Int {
+      (g%14)(fn(x%25: Int, ev%26: evidence) -> Int {
         (x%25 *[Int] 2)
       }, ev%24)
     })(provide(; Std.State.State[Int] = state%20))
@@ -74,26 +74,26 @@ export fn main() -> (Int, Int) {
 }
 
 fn both(ev%13: evidence) -> String {
-  let n%26: Int = modify[Int](fn(n%27: Int) -> Int {
-    (n%27 +[Int] 1)
+  let n%27: Int = modify[Int](fn(n%28: Int, ev%29: evidence) -> Int {
+    (n%28 +[Int] 1)
   }, ev%13)
-  let _%28: () = (use[Std.State.State[String]](ev%13)).Std.State.State[String]#set(concat("n=", n%26 as Int))
-  twice[String](fn(s%31: String) -> String {
-    @String.append(s%31, "!")
+  let _%30: () = (use[Std.State.State[String]](ev%13)).Std.State.State[String]#set(concat("n=", n%27 as Int))
+  twice[String](fn(s%33: String, ev%34: evidence) -> String {
+    @String.append(s%33, "!")
   }, ev%13)
 }
 
-fn modify[Int](f%17: fn(Int) -> Int, ev%18: evidence) -> Int {
-  let _%32: () = (use[Std.State.State[Int]](ev%18)).Std.State.State[Int]#update(f%17)
+fn modify[Int](f%17: fn(Int) -> Int ev, ev%18: evidence) -> Int {
+  let _%35: () = (use[Std.State.State[Int]](ev%18)).Std.State.State[Int]#update(f%17)
   (use[Std.State.State[Int]](ev%18)).Std.State.State[Int]#get()
 }
 
-fn twice[String](f%29: fn(String) -> String, ev%30: evidence) -> String {
-  let _%33: String = modify[String](f%29, ev%30)
-  modify[String](f%29, ev%30)
+fn twice[String](f%31: fn(String) -> String ev, ev%32: evidence) -> String {
+  let _%36: String = modify[String](f%31, ev%32)
+  modify[String](f%31, ev%32)
 }
 
-fn modify[String](f%34: fn(String) -> String, ev%35: evidence) -> String {
-  let _%36: () = (use[Std.State.State[String]](ev%35)).Std.State.State[String]#update(f%34)
-  (use[Std.State.State[String]](ev%35)).Std.State.State[String]#get()
+fn modify[String](f%37: fn(String) -> String ev, ev%38: evidence) -> String {
+  let _%39: () = (use[Std.State.State[String]](ev%38)).Std.State.State[String]#update(f%37)
+  (use[Std.State.State[String]](ev%38)).Std.State.State[String]#get()
 }

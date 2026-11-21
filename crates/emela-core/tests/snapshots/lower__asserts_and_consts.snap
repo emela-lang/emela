@@ -15,11 +15,11 @@ const fn LIMIT() -> Int {
   3
 }
 
-fn classify(n%124: Int) -> String {
-  match n%124 {
-    c%125 if (c%125 ==[Int] LIMIT()) -> "limit"
+fn classify(n%130: Int) -> String {
+  match n%130 {
+    c%131 if (c%131 ==[Int] LIMIT()) -> "limit"
     0 -> "zero"
-    m%126 if (m%126 >[Int] 100) -> "big"
+    m%132 if (m%132 >[Int] 100) -> "big"
     _ -> "other"
   }
 }

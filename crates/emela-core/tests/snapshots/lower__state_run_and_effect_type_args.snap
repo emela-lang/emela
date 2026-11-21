@@ -5,19 +5,19 @@ expression: "mine.join(\"\\n\\n\")"
 effect Std.State.State[String] = Std.State.State[String] {
   fn get() -> String
   fn set(String) -> ()
-  fn update(fn(String) -> String) -> ()
+  fn update(fn(String) -> String ev) -> ()
 }
 
 effect Std.State.State[Int] = Std.State.State[Int] {
   fn get() -> Int
   fn set(Int) -> ()
-  fn update(fn(Int) -> Int) -> ()
+  fn update(fn(Int) -> Int ev) -> ()
 }
 
 effect Std.State.State[$modify.0] = Std.State.State[A] {
   fn get() -> A
   fn set(A) -> ()
-  fn update(fn(A) -> A) -> ()
+  fn update(fn(A) -> A ev) -> ()
 }
 
 export fn main() -> ((Int, Int), String) {
@@ -30,8 +30,8 @@ export fn main() -> ((Int, Int), String) {
       set: fn(value%2: String) -> () {
         @$Cell.set[String](cell%0, value%2)
       }
-      update: fn(f%3: fn(String) -> String) -> () {
-        @$Cell.set[String](cell%0, (f%3)(@$Cell.get[String](cell%0)))
+      update: fn(f%3: fn(String) -> String ev) -> () {
+        @$Cell.set[String](cell%0, (f%3)(@$Cell.get[String](cell%0), ()))
       }
     }
     let result%4: (Int, Int) = (fn(ev%5: evidence) -> (Int, Int) {
@@ -43,13 +43,13 @@ export fn main() -> ((Int, Int), String) {
         set: fn(value%8: Int) -> () {
           @$Cell.set[Int](cell%6, value%8)
         }
-        update: fn(f%9: fn(Int) -> Int) -> () {
-          @$Cell.set[Int](cell%6, (f%9)(@$Cell.get[Int](cell%6)))
+        update: fn(f%9: fn(Int) -> Int ev) -> () {
+          @$Cell.set[Int](cell%6, (f%9)(@$Cell.get[Int](cell%6), ()))
         }
       }
       let result%10: Int = (fn(ev%11: evidence) -> Int {
         let _%12: () = (use[Std.State.State[String]](ev%11)).Std.State.State[String]#set("x")
-        modify[Int](fn(n%13: Int) -> Int {
+        modify[Int](fn(n%13: Int, ev%14: evidence) -> Int {
           (n%13 +[Int] 1)
         }, provide(ev%11; Std.State.State[$modify.0] = use[Std.State.State[Int]](ev%11)))
       })(provide(ev%5; Std.State.State[Int] = state%7))

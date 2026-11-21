@@ -31,14 +31,14 @@ export suspend fn main(ev%0: evidence) -> Int fails {
   })!?
 }
 
-suspend fn passed(q%25: Std.Queue.Queue[String]) -> String fails {
-  let _%26: () = if fiber#offer(q%25, "x")! {
+suspend fn passed(q%26: Std.Queue.Queue[String]) -> String fails {
+  let _%27: () = if fiber#offer(q%26, "x")! {
     ()
   } else {
     fail Std.Queue.QueueClosed.QueueClosed
   }
-  match fiber#take(q%25)! {
-    Option.Some(x%27) -> x%27
+  match fiber#take(q%26)! {
+    Option.Some(x%28) -> x%28
     _ -> fail Std.Queue.QueueClosed.QueueClosed
   }
 }
@@ -46,7 +46,7 @@ suspend fn passed(q%25: Std.Queue.Queue[String]) -> String fails {
 fn tried(s%20: Std.Semaphore.Semaphore) -> Option[Int] {
   let s%21: Std.Semaphore.Semaphore = s%20
   let n%22: Int = 1
-  let f%23: fn() -> Int = fn() -> Int {
+  let f%23: fn() -> Int ev = fn(ev%25: evidence) -> Int {
     fiber#available(s%20)
   }
   if fiber#try_acquire(s%21, n%22) {
@@ -55,7 +55,7 @@ fn tried(s%20: Std.Semaphore.Semaphore) -> Option[Int] {
         fiber#release(s%21, n%22)
       }
     } {
-      Option.Some[Int]((f%23)())
+      Option.Some[Int]((f%23)(()))
     }
   } else {
     Option.None[Int]
