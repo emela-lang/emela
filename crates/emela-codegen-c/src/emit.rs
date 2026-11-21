@@ -1048,6 +1048,13 @@ impl<'m> Emitter<'m> {
                     self.internal(format!("evidence without a destination in {}", f.name));
                     return;
                 };
+                // The empty table is `NULL`, which `em_ev_new`, `em_ev_lookup`, `em_dup` and
+                // `em_drop` accept, so passing it (to a function value whose R needs no table)
+                // allocates nothing.
+                if base.is_none() && bindings.is_empty() {
+                    cx.w.assign(&var(d), "NULL");
+                    return;
+                }
                 let base = base.map_or_else(|| "NULL".to_owned(), var);
                 let n = bindings.len();
                 cx.w.assign(&var(d), &call("em_ev_new", [base, n.to_string()]));

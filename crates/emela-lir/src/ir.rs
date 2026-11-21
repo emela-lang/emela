@@ -483,7 +483,9 @@ pub enum Value {
         effect: EffectId,
     },
     /// A new evidence table: `base` (or an empty table) plus `bindings`, later bindings winning
-    /// (`emela_core::Expr::Provide`).
+    /// (`emela_core::Expr::Provide`). The empty table (no `base`, no `bindings`) is the null
+    /// reference on WASM and C: it allocates nothing, and looking an effect up in it never
+    /// happens, because the type checker has checked R.
     EvExtend {
         base: Option<VarId>,
         bindings: Vec<(EffectId, VarId)>,
