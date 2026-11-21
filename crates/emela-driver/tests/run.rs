@@ -2162,6 +2162,103 @@ fn main() {
 }
 
 #[test]
+fn effects_differing_only_in_a_capability_type_are_different_effects() {
+    // `State[use Name]` and `State[use Count]` are two effects (`[effect.use]`): the inner
+    // `State.run` does not take the place of the outer one, nested or one after the other
+    // (issue #705).
+    let output = run_source(
+        "state-of-capabilities",
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.State.{State}
+
+effect Name {
+  fn name() -> String
+}
+
+effect Count {
+  fn count() -> Int
+}
+
+handler Alice: Name {
+  fn name() { "alice" }
+}
+
+handler Three: Count {
+  fn count() { 3 }
+}
+
+fn main() {
+  with SystemConsole, Alice, Three {
+    State.run(use Name, || {
+      State.run(use Count, || {
+        n = (use State[use Name]).get()
+        c = (use State[use Count]).get()
+        (use Console).print_line("#{n.name()} #{c.count()}")
+      })
+    })
+    State.run(use Name, || (use Console).print_line((use State[use Name]).get().name()))
+    State.run(use Count, || {
+      c = (use State[use Count]).get()
+      (use Console).print_line("#{c.count()}")
+    })
+    ()
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "alice 3\nalice\n3\n", "")
+    );
+}
+
+#[test]
+fn effects_differing_in_the_type_arguments_of_a_capability_type_are_different_effects() {
+    // `State[use Box[Int]]` and `State[use Box[String]]` are two effects: the type arguments of
+    // the effect in a capability type are in the key (`[effect.use]`, issue #705), also when the
+    // key is looked up in another function.
+    let output = run_source(
+        "state-of-generic-capabilities",
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.State.{State}
+
+effect Box[T] {
+  fn get() -> T
+}
+
+handler Seven: Box[Int] {
+  fn get() { 7 }
+}
+
+handler Word: Box[String] {
+  fn get() { "word" }
+}
+
+fn word() -> String uses { State[use Box[String]], Box[String] } {
+  (use State[use Box[String]]).get().get()
+}
+
+fn main() {
+  with SystemConsole, Seven, Word {
+    State.run(use Box[Int], || {
+      State.run(use Box[String], || {
+        n = (use State[use Box[Int]]).get().get()
+        (use Console).print_line("#{n} #{word()}")
+      })
+    })
+    State.run(use Box[String], || (use Console).print_line(word()))
+    ()
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "7 word\nword\n", "")
+    );
+}
+
+#[test]
 fn platform_layer_provides_system_handlers() {
     // `Std.Platform.Platform` is a layer bundling the System handlers (spec 15.2). Some can be
     // replaced by Test handlers listed after it (spec 8.3). std modules are used through imports.

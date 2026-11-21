@@ -1560,7 +1560,23 @@ impl<'a> Lowerer<'a> {
                 .and_then(|def| self.types.generalized_tys.get(def))
                 .and_then(|vars| vars.iter().find(|(w, _)| w == v))
                 .map_or_else(|| "_".to_owned(), |&(_, i)| self.key_ty(&Ty::Bound(i), ctx)),
-            Ty::Set(..) | Ty::Cap(_) | Ty::Error => "_".to_owned(),
+            // The effects of a capability type are in the key, so that `State[use Name]` and
+            // `State[use Count]` are different effects (issue #705).
+            Ty::Cap(tags) => {
+                let effects: Vec<String> = tags
+                    .iter()
+                    .map(|t| {
+                        let name = self.ir_name(t.def);
+                        if t.args.is_empty() {
+                            name
+                        } else {
+                            format!("{name}[{}]", list(&t.args))
+                        }
+                    })
+                    .collect();
+                format!("use {}", effects.join(" + "))
+            }
+            Ty::Set(..) | Ty::Error => "_".to_owned(),
         }
     }
 
