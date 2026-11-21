@@ -899,10 +899,11 @@ pub(crate) fn is_intrinsic_effect(program: &Program, effect: DefId) -> bool {
     matches!(program.item(effect), Some(Item::Effect(e)) if e.is_intrinsic)
 }
 
-/// Whether an effect is Immediate (spec 9.5): it has no suspend fn and is not Async. An effect
-/// whose declaration is unknown (name resolution has reported it) counts as Immediate, so no
-/// further error follows from it.
-pub(crate) fn is_immediate_effect(program: &Program, effect: DefId) -> bool {
+/// Whether an effect is Immediate (spec 9.5): it has no suspend fn, no suspend handler member, and
+/// is not Async. An effect whose declaration is unknown (name resolution has reported it) counts as
+/// Immediate, so no further error follows from it. Lowering decides which code may suspend by the
+/// same function.
+pub fn is_immediate_effect(program: &Program, effect: DefId) -> bool {
     if program.prelude_def("Async") == Some(effect) {
         return false;
     }

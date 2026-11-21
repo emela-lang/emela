@@ -25,7 +25,7 @@
 //! that do not suspend themselves (a function that only builds lambdas). The output is right; the
 //! code is only larger.
 
-use emela_resolve::hir::{DefId, ExprId, Item};
+use emela_resolve::hir::{DefId, ExprId};
 use emela_types::{CapElem, Row, RowElem, Scheme, SetKind, Ty};
 
 use super::Lowerer;
@@ -39,16 +39,10 @@ pub(super) type Specialization = u64;
 const IMMEDIATE: &str = "Immediate";
 
 impl Lowerer<'_> {
-    /// Whether the effect is Immediate (spec 9.5): it has no suspend fn and is not Async.
+    /// Whether the effect is Immediate (spec 9.5), as the type checker decides it: no suspend fn,
+    /// no suspend handler member, and not Async (issue #699).
     pub(super) fn is_immediate_effect(&self, effect: DefId) -> bool {
-        let hir = self.hir;
-        if hir.prelude_def("Async") == Some(effect) {
-            return false;
-        }
-        // A label is Immediate when its base is (issue #255).
-        hir.effect_ops(effect)
-            .iter()
-            .all(|&op| !matches!(hir.item(op), Some(Item::Op(o)) if o.sig.is_suspend))
+        emela_types::is_immediate_effect(self.hir, effect)
     }
 
     /// Whether the set `row` inside the function being lowered may suspend. Set type parameters
