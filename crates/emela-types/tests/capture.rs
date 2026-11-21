@@ -787,3 +787,61 @@ fn used_inside() -> Int uses { Files } {
 "##
     )));
 }
+
+/// `[effect.escape]`: a value of a named type holds what its fields hold, also when no type
+/// argument of the type can hold a capability (`type One(db: use Db)`). A type whose fields cannot
+/// contain a capability holds nothing.
+#[test]
+fn fields_of_named_types() {
+    insta::assert_snapshot!(render(&with_prelude(
+        r#"
+type One(db: use Db)
+
+type Many(dbs: List[use Db])
+
+type Later(f: fn() -> Int uses { Db })
+
+enum Maybe {
+  Here(db: use Db)
+  Gone
+}
+
+type Node(next: Option[Node], db: use Db)
+
+type Plain(n: Int)
+
+type Wrap[A](a: A)
+
+fn one() -> One {
+  with PrimaryDb { One(db: use Db) }
+}
+
+fn many() -> Many {
+  with PrimaryDb { Many(dbs: [use Db]) }
+}
+
+fn later() -> Later {
+  with PrimaryDb {
+    p = use Db
+    Later(f: || p.query("x"))
+  }
+}
+
+fn here() -> Maybe {
+  with PrimaryDb { Here(db: use Db) }
+}
+
+fn node() -> Node {
+  with PrimaryDb { Node(next: None, db: use Db) }
+}
+
+fn plain() -> Plain {
+  with PrimaryDb { Plain(n: (use Db).query("x")) }
+}
+
+fn wrapped() -> Wrap[Int] {
+  with PrimaryDb { Wrap(a: (use Db).query("x")) }
+}
+"#
+    )));
+}

@@ -1,0 +1,18 @@
+---
+source: crates/emela-types/tests/capture.rs
+assertion_line: 796
+expression: "render(&with_prelude(r#\"\ntype One(db: use Db)\n\ntype Many(dbs: List[use Db])\n\ntype Later(f: fn() -> Int uses { Db })\n\nenum Maybe {\n  Here(db: use Db)\n  Gone\n}\n\ntype Node(next: Option[Node], db: use Db)\n\ntype Plain(n: Int)\n\ntype Wrap[A](a: A)\n\nfn one() -> One {\n  with PrimaryDb { One(db: use Db) }\n}\n\nfn many() -> Many {\n  with PrimaryDb { Many(dbs: [use Db]) }\n}\n\nfn later() -> Later {\n  with PrimaryDb {\n    p = use Db\n    Later(f: || p.query(\"x\"))\n  }\n}\n\nfn here() -> Maybe {\n  with PrimaryDb { Here(db: use Db) }\n}\n\nfn node() -> Node {\n  with PrimaryDb { Node(next: None, db: use Db) }\n}\n\nfn plain() -> Plain {\n  with PrimaryDb { Plain(n: (use Db).query(\"x\")) }\n}\n\nfn wrapped() -> Wrap[Int] {\n  with PrimaryDb { Wrap(a: (use Db).query(\"x\")) }\n}\n\"#))"
+---
+one: fn() -> One
+many: fn() -> Many
+later: fn() -> Later
+  p: use Db  holds: p (with PrimaryDb)
+here: fn() -> Maybe
+node: fn() -> Node
+plain: fn() -> Plain
+wrapped: fn() -> Wrap[Int]
+`One(db: use Db)` leaves: `PrimaryDb` (with)
+`Many(dbs: [use Db])` leaves: `PrimaryDb` (with)
+`Later(f: || p.query("x"))` leaves: `p` (with)
+`Here(db: use Db)` leaves: `PrimaryDb` (with)
+`Node(next: None, db: use Db)` leaves: `PrimaryDb` (with)

@@ -941,24 +941,48 @@ fn has_body(program: &Program, def: DefId) -> bool {
 }
 
 /// Whether a value of type `ty` can hold a capability: whether its type contains a function type,
-/// a capability, a type parameter, a handle of a scope or a handler value (`[effect.escape]`).
+/// a capability, a type parameter, a handle of a scope or a handler value (`[effect.escape]`),
+/// directly or in the fields of a type it names.
 fn may_hold(input: &Input<'_>, ty: &Ty) -> bool {
+    may_hold_in(input, ty, false, &mut FxHashSet::default())
+}
+
+/// `may_hold` for `ty`. Inside the field types of a named type (`in_fields`), `Bound(i)` is a type
+/// parameter of that type, whose argument has already been found to hold nothing; outside, it is
+/// a type parameter of the definition being analyzed. `seen` holds the named types whose fields
+/// are being looked at: a recursive field adds nothing that the other fields do not.
+fn may_hold_in(input: &Input<'_>, ty: &Ty, in_fields: bool, seen: &mut FxHashSet<DefId>) -> bool {
     match ty {
+        Ty::Bound(_) => !in_fields,
         // A type variable left in the body of a definition without a declared type may be one
         // of its type parameters.
-        Ty::Fn(_) | Ty::Cap(_) | Ty::Bound(_) | Ty::Var(_) => true,
+        Ty::Fn(_) | Ty::Cap(_) | Ty::Var(_) => true,
         Ty::Prim(_) | Ty::Never | Ty::Set(..) | Ty::Error => false,
-        Ty::Tuple(elems) => elems.iter().any(|t| may_hold(input, t)),
-        Ty::List(elem) => may_hold(input, elem),
+        Ty::Tuple(elems) => elems.iter().any(|t| may_hold_in(input, t, in_fields, seen)),
+        Ty::List(elem) => may_hold_in(input, elem, in_fields, seen),
         Ty::Named(con, args) => {
             let data = &input.ty_table.cons[*con];
-            data.kind == TyConKind::Handler
-                || input.fibers.handles.contains(&input.ty_table.def(*con))
+            let def = input.ty_table.def(*con);
+            if data.kind == TyConKind::Handler
+                || input.fibers.handles.contains(&def)
                 || data
                     .params
                     .iter()
                     .any(|p| p.kind == crate::ty::ParamKind::Set)
-                || args.iter().any(|t| may_hold(input, t))
+                || args.iter().any(|t| may_hold_in(input, t, in_fields, seen))
+            {
+                return true;
+            }
+            // A field whose type contains a capability or a function type
+            // (`type Box(r: use E)`).
+            if !seen.insert(def) {
+                return false;
+            }
+            let found = crate::traits::field_tys(input.program, input.sigs, def)
+                .iter()
+                .any(|t| may_hold_in(input, t, true, seen));
+            seen.remove(&def);
+            found
         }
     }
 }
