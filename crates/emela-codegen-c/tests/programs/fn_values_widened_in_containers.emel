@@ -1,0 +1,52 @@
+# Function values with a smaller R used as ones with a larger R inside a list and a tuple (spec
+# 9.4; issue #717): every function value is called the same way, whatever its R.
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+effect Log {
+  fn log(s: String) -> ()
+}
+
+handler Printing: Log {
+  fn log(s) { print("log: #{s}") }
+}
+
+fn quiet() { print("quiet") }
+
+fn loud() uses { Log } { (use Log).log("loud") }
+
+fn apply[R](f: fn() -> () uses { R }) uses { R } { f() }
+
+fn widen(xs: List[fn() -> () uses {}]) -> List[fn() -> () uses { Log }] { xs }
+
+fn widen_pair(p: (fn() -> () uses {}, Int)) -> (fn() -> () uses { Log }, Int) { p }
+
+fn widen_nested(xs: List[(fn() -> () uses {}, Int)]) -> List[(fn() -> () uses { Log }, Int)] {
+  xs
+}
+
+fn widen_printer(xs: List[fn(String) -> () uses {}]) -> List[fn(String) -> () uses { Log }] {
+  xs
+}
+
+fn main() {
+  with Printing {
+    n = 7
+    List.each(widen([quiet, || print("lambda"), || print("captured #{n}")]), |f| f())
+    List.each(List.append(widen([quiet]), [loud]), |f| f())
+    (f, k) = widen_pair((quiet, 1))
+    f()
+    print("#{k}")
+    List.each(widen_nested([(quiet, 2)]), |(g, j)| {
+      g()
+      print("#{j}")
+    })
+    List.each(widen_printer([print]), |p| p("external"))
+    fs: List[fn() -> () uses { Log }] = [|| apply(quiet), || apply(loud)]
+    List.each(fs, |g| g())
+    List.each(widen([quiet]), apply)
+    List.each([quiet], apply)
+  }
+}

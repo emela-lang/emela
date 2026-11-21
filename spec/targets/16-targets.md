@@ -64,6 +64,7 @@ Informative.
 | fn operations | Pass the handler as an argument and call it directly | Same | Same |
 | Functions that reach a suspend fn | Converted to generators | Converted to state machines. Replaced once Stack Switching becomes available | Converted to state machines (emitted from the same low-level IR as WASM) |
 | Functions with a polymorphic R (`R(f)` of `List.map`) | The original function is kept as non-suspending output, and a separate "suspending copy" (`List.map$suspend8`) is emitted for calls that pass a suspending function (specialization) | Monomorphized together with generics | Same |
+| Function values (lambdas and functions used as values) | Take the evidence table as the last argument whatever their R, so a value whose R is included in a larger R (`[type.rules]`), also inside a List or a tuple, is called the same way. A function used as a value that does not take the table is wrapped in a function that takes it and ignores it | Same. The empty table is the null reference, so passing it allocates nothing | Same as WASM |
 | Async | Has no handler value, so it is not put in the evidence table. main and test functions whose R is only Async are called with no arguments | Same | Same |
 | Errors | Returned as return values | Same | Same |
 | defect | An exception of a dedicated class | Propagated explicitly through return values (no exceptions) | Same |

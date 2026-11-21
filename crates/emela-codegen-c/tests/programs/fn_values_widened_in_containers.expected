@@ -1,0 +1,17 @@
+exit: 0
+--- stdout
+quiet
+lambda
+captured 7
+quiet
+log: loud
+quiet
+1
+quiet
+2
+external
+quiet
+log: loud
+quiet
+quiet
+--- stderr

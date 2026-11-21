@@ -191,7 +191,7 @@ external enum Std.Http.HostResponse {
 }
 
 enum Std.Http.TestServer {
-  TestServer(respond: fn(Std.Http.Request.Request, Int) -> Option[Std.Http.Response.Response], sent: List[Std.Http.Request.Request])
+  TestServer(respond: fn(Std.Http.Request.Request, Int) -> Option[Std.Http.Response.Response] ev, sent: List[Std.Http.Request.Request])
 }
 
 external enum Std.Http.Incoming {
@@ -242,7 +242,7 @@ enum Std.FileSystem.TestFiles {
 }
 
 enum Std.Cause.Cause[A] {
-  Cause(failure: fn() -> Never fails (E {A}, R {}))
+  Cause(failure: fn() -> Never fails ev (E {A}, R {}))
 }
 
 enum Std.Cause.CauseKind {
@@ -282,11 +282,11 @@ export fn main() -> String {
   }
 }
 
-fn area(s%69: Shape) -> Float {
-  match s%69 {
-    Shape.Circle(r%70) -> ((r%70 *[Float] r%70) *[Float] 3.0)
-    Shape.Rect(width: w%71, height: _) if (w%71 >[Float] 10.0) -> 0.0
-    Shape.Rect(width: w%72, height: h%73) -> (w%72 *[Float] h%73)
+fn area(s%70: Shape) -> Float {
+  match s%70 {
+    Shape.Circle(r%71) -> ((r%71 *[Float] r%71) *[Float] 3.0)
+    Shape.Rect(width: w%72, height: _) if (w%72 >[Float] 10.0) -> 0.0
+    Shape.Rect(width: w%73, height: h%74) -> (w%73 *[Float] h%74)
     Shape.Empty -> 0.0
   }
 }
@@ -307,28 +307,28 @@ fn Eq.eq[A](self%7: A, other%8: A) -> Bool {
   @panic("no impl of `Eq.eq`")
 }
 
-fn List.List: Eq.eq[A](self%61: List[A], other%62: List[A]) -> Bool {
-  List.eq_lists[A](self%61, other%62)
+fn List.List: Eq.eq[A](self%62: List[A], other%63: List[A]) -> Bool {
+  List.eq_lists[A](self%62, other%63)
 }
 
-fn Option.Option: Eq.eq[A](self%57: Option[A], other%58: Option[A]) -> Bool {
-  match (self%57, other%58) {
-    (Option.Some(x%59), Option.Some(y%60)) -> Eq.eq[A](x%59, y%60)
+fn Option.Option: Eq.eq[A](self%58: Option[A], other%59: Option[A]) -> Bool {
+  match (self%58, other%59) {
+    (Option.Some(x%60), Option.Some(y%61)) -> Eq.eq[A](x%60, y%61)
     (Option.None, Option.None) -> true
     _ -> false
   }
 }
 
-fn Std.Array.Array: Eq.eq[A](self%50: Array[A], other%51: Array[A]) -> Bool {
-  ((@Std.Array.size[A](self%50) ==[Int] @Std.Array.size[A](other%51)) &&[Bool] Std.Array.eq_from[A](self%50, other%51, 0))
+fn Std.Array.Array: Eq.eq[A](self%51: Array[A], other%52: Array[A]) -> Bool {
+  ((@Std.Array.size[A](self%51) ==[Int] @Std.Array.size[A](other%52)) &&[Bool] Std.Array.eq_from[A](self%51, other%52, 0))
 }
 
-fn Std.Bytes.Bytes: Eq.eq(self%43: Bytes, other%44: Bytes) -> Bool {
-  ((@Std.Bytes.size(self%43) ==[Int] @Std.Bytes.size(other%44)) &&[Bool] (Std.Bytes.compare_from(self%43, other%44, 0) ==[Structural] Prelude.Ordering.Equal))
+fn Std.Bytes.Bytes: Eq.eq(self%44: Bytes, other%45: Bytes) -> Bool {
+  ((@Std.Bytes.size(self%44) ==[Int] @Std.Bytes.size(other%45)) &&[Bool] (Std.Bytes.compare_from(self%44, other%45, 0) ==[Structural] Prelude.Ordering.Equal))
 }
 
-fn Std.Map.Map: Eq.eq[A, B](self%39: Std.Map.Map[A, B], other%40: Std.Map.Map[A, B]) -> Bool {
-  ((Std.Map.size[A, B](self%39) ==[Int] Std.Map.size[A, B](other%40)) &&[Bool] (Std.Map.to_list[A, B](self%39) ==[Structural] Std.Map.to_list[A, B](other%40)))
+fn Std.Map.Map: Eq.eq[A, B](self%40: Std.Map.Map[A, B], other%41: Std.Map.Map[A, B]) -> Bool {
+  ((Std.Map.size[A, B](self%40) ==[Int] Std.Map.size[A, B](other%41)) &&[Bool] (Std.Map.to_list[A, B](self%40) ==[Structural] Std.Map.to_list[A, B](other%41)))
 }
 
 fn Std.Set.Set: Eq.eq[A](self%9: Std.Set.Set[A], other%10: Std.Set.Set[A]) -> Bool {
@@ -340,71 +340,71 @@ fn Std.Set.to_list[A](s%11: Std.Set.Set[A]) -> List[A] {
 }
 
 fn Std.Map.keys[A, B](m%12: Std.Map.Map[A, B]) -> List[A] {
-  List.map[(A, B), A, {}, {}](Std.Map.to_list[A, B](m%12), fn((key, _)%13: (A, B)) -> A {
+  List.map[(A, B), A, {}, {}](Std.Map.to_list[A, B](m%12), fn((key, _)%13: (A, B), ev%14: evidence) -> A {
     match (key, _)%13 {
-      (key%14, _) -> key%14
+      (key%15, _) -> key%15
     }
   }, ())
 }
 
-fn List.map[A, B, C, D](xs%22: List[A], f%23: fn(A) -> B fails ev (E {C}, R {D}), ev%24: evidence) -> List[B] fails {
-  List.reverse[B](List.fold[A, List[B], {C}, {D}](xs%22, []: List[B], fn(acc%25: List[B], x%26: A, ev%27: evidence) -> List[B] fails {
-    [(f%23)(x%26, ev%27)?, ..acc%25]: List[B]
-  }, ev%24)?)
+fn List.map[A, B, C, D](xs%23: List[A], f%24: fn(A) -> B fails ev (E {C}, R {D}), ev%25: evidence) -> List[B] fails {
+  List.reverse[B](List.fold[A, List[B], {C}, {D}](xs%23, []: List[B], fn(acc%26: List[B], x%27: A, ev%28: evidence) -> List[B] fails {
+    [(f%24)(x%27, ev%28)?, ..acc%26]: List[B]
+  }, ev%25)?)
 }
 
-fn Std.Map.to_list[A, B](m%15: Std.Map.Map[A, B]) -> List[(A, B)] {
-  Std.Map.to_list_onto[A, B](m%15, []: List[(A, B)])
+fn Std.Map.to_list[A, B](m%16: Std.Map.Map[A, B]) -> List[(A, B)] {
+  Std.Map.to_list_onto[A, B](m%16, []: List[(A, B)])
 }
 
-fn Std.Map.to_list_onto[A, B](m%16: Std.Map.Map[A, B], acc%17: List[(A, B)]) -> List[(A, B)] {
-  loop(m%92: Std.Map.Map[A, B] = m%16, acc%93: List[(A, B)] = acc%17) {
-    match m%92 {
-      Std.Map.Map.Empty -> acc%93
-      Std.Map.Map.Node(size: _, key: key%18, value: value%19, left: left%20, right: right%21) -> recur(left%20, [(key%18, value%19), ..Std.Map.to_list_onto[A, B](right%21, acc%93)]: List[(A, B)])
+fn Std.Map.to_list_onto[A, B](m%17: Std.Map.Map[A, B], acc%18: List[(A, B)]) -> List[(A, B)] {
+  loop(m%93: Std.Map.Map[A, B] = m%17, acc%94: List[(A, B)] = acc%18) {
+    match m%93 {
+      Std.Map.Map.Empty -> acc%94
+      Std.Map.Map.Node(size: _, key: key%19, value: value%20, left: left%21, right: right%22) -> recur(left%21, [(key%19, value%20), ..Std.Map.to_list_onto[A, B](right%22, acc%94)]: List[(A, B)])
     }
   }
 }
 
-fn List.reverse[A](xs%34: List[A]) -> List[A] {
-  List.reverse_onto[A](xs%34, []: List[A])
+fn List.reverse[A](xs%35: List[A]) -> List[A] {
+  List.reverse_onto[A](xs%35, []: List[A])
 }
 
-fn List.fold[A, B, C, D](xs%28: List[A], from%29: B, f%30: fn(B, A) -> B fails ev (E {C}, R {D}), ev%31: evidence) -> B fails {
-  loop(xs%94: List[A] = xs%28, from%95: B = from%29, f%96: fn(B, A) -> B fails ev (E {C}, R {D}) = f%30, ev%97: evidence = ev%31) {
-    match xs%94 {
-      [] -> from%95
-      [x%32, ..rest%33] -> recur(rest%33, (f%96)(from%95, x%32, ev%97)?, f%96, ev%97)
+fn List.fold[A, B, C, D](xs%29: List[A], from%30: B, f%31: fn(B, A) -> B fails ev (E {C}, R {D}), ev%32: evidence) -> B fails {
+  loop(xs%95: List[A] = xs%29, from%96: B = from%30, f%97: fn(B, A) -> B fails ev (E {C}, R {D}) = f%31, ev%98: evidence = ev%32) {
+    match xs%95 {
+      [] -> from%96
+      [x%33, ..rest%34] -> recur(rest%34, (f%97)(from%96, x%33, ev%98)?, f%97, ev%98)
     }
   }
 }
 
-fn List.reverse_onto[A](xs%35: List[A], acc%36: List[A]) -> List[A] {
-  loop(xs%98: List[A] = xs%35, acc%99: List[A] = acc%36) {
-    match xs%98 {
-      [] -> acc%99
-      [x%37, ..rest%38] -> recur(rest%38, [x%37, ..acc%99]: List[A])
+fn List.reverse_onto[A](xs%36: List[A], acc%37: List[A]) -> List[A] {
+  loop(xs%99: List[A] = xs%36, acc%100: List[A] = acc%37) {
+    match xs%99 {
+      [] -> acc%100
+      [x%38, ..rest%39] -> recur(rest%39, [x%38, ..acc%100]: List[A])
     }
   }
 }
 
-fn Std.Map.size[A, B](m%41: Std.Map.Map[A, B]) -> Int {
-  match m%41 {
+fn Std.Map.size[A, B](m%42: Std.Map.Map[A, B]) -> Int {
+  match m%42 {
     Std.Map.Map.Empty -> 0
-    Std.Map.Map.Node(size: n%42, key: _, value: _, left: _, right: _) -> n%42
+    Std.Map.Map.Node(size: n%43, key: _, value: _, left: _, right: _) -> n%43
   }
 }
 
-fn Std.Bytes.compare_from(a%45: Bytes, b%46: Bytes, i%47: Int) -> Prelude.Ordering {
-  loop(a%100: Bytes = a%45, b%101: Bytes = b%46, i%102: Int = i%47) {
-    match (@Std.Bytes.get(a%100, i%102), @Std.Bytes.get(b%101, i%102)) {
-      (Option.Some(x%48), Option.Some(y%49)) -> if (x%48 <[Int] y%49) {
+fn Std.Bytes.compare_from(a%46: Bytes, b%47: Bytes, i%48: Int) -> Prelude.Ordering {
+  loop(a%101: Bytes = a%46, b%102: Bytes = b%47, i%103: Int = i%48) {
+    match (@Std.Bytes.get(a%101, i%103), @Std.Bytes.get(b%102, i%103)) {
+      (Option.Some(x%49), Option.Some(y%50)) -> if (x%49 <[Int] y%50) {
         Prelude.Ordering.Less
       } else {
-        if (x%48 >[Int] y%49) {
+        if (x%49 >[Int] y%50) {
           Prelude.Ordering.Greater
         } else {
-          recur(a%100, b%101, (i%102 +[Int] 1))
+          recur(a%101, b%102, (i%103 +[Int] 1))
         }
       }
       (Option.Some(_), Option.None) -> Prelude.Ordering.Greater
@@ -414,11 +414,11 @@ fn Std.Bytes.compare_from(a%45: Bytes, b%46: Bytes, i%47: Int) -> Prelude.Orderi
   }
 }
 
-fn Std.Array.eq_from[A](a%52: Array[A], b%53: Array[A], i%54: Int) -> Bool {
-  loop(a%103: Array[A] = a%52, b%104: Array[A] = b%53, i%105: Int = i%54) {
-    match (@Std.Array.get[A](a%103, i%105), @Std.Array.get[A](b%104, i%105)) {
-      (Option.Some(x%55), Option.Some(y%56)) -> if (x%55 ==[Structural] y%56) {
-        recur(a%103, b%104, (i%105 +[Int] 1))
+fn Std.Array.eq_from[A](a%53: Array[A], b%54: Array[A], i%55: Int) -> Bool {
+  loop(a%104: Array[A] = a%53, b%105: Array[A] = b%54, i%106: Int = i%55) {
+    match (@Std.Array.get[A](a%104, i%106), @Std.Array.get[A](b%105, i%106)) {
+      (Option.Some(x%56), Option.Some(y%57)) -> if (x%56 ==[Structural] y%57) {
+        recur(a%104, b%105, (i%106 +[Int] 1))
       } else {
         false
       }
@@ -428,12 +428,12 @@ fn Std.Array.eq_from[A](a%52: Array[A], b%53: Array[A], i%54: Int) -> Bool {
   }
 }
 
-fn List.eq_lists[A](xs%63: List[A], ys%64: List[A]) -> Bool {
-  loop(xs%106: List[A] = xs%63, ys%107: List[A] = ys%64) {
-    match (xs%106, ys%107) {
+fn List.eq_lists[A](xs%64: List[A], ys%65: List[A]) -> Bool {
+  loop(xs%107: List[A] = xs%64, ys%108: List[A] = ys%65) {
+    match (xs%107, ys%108) {
       ([], []) -> true
-      ([x%65, ..xs_rest%66], [y%67, ..ys_rest%68]) -> if Eq.eq[A](x%65, y%67) {
-        recur(xs_rest%66, ys_rest%68)
+      ([x%66, ..xs_rest%67], [y%68, ..ys_rest%69]) -> if Eq.eq[A](x%66, y%68) {
+        recur(xs_rest%67, ys_rest%69)
       } else {
         false
       }
@@ -442,34 +442,34 @@ fn List.eq_lists[A](xs%63: List[A], ys%64: List[A]) -> Bool {
   }
 }
 
-fn Int: Eq.eq(self%74: Int, other%75: Int) -> Bool {
-  (self%74 ==[Int] other%75)
+fn Int: Eq.eq(self%75: Int, other%76: Int) -> Bool {
+  (self%75 ==[Int] other%76)
 }
 
-fn Int64: Eq.eq(self%76: Int64, other%77: Int64) -> Bool {
-  (self%76 ==[Int64] other%77)
+fn Int64: Eq.eq(self%77: Int64, other%78: Int64) -> Bool {
+  (self%77 ==[Int64] other%78)
 }
 
-fn Float: Eq.eq(self%78: Float, other%79: Float) -> Bool {
-  (self%78 ==[Float] other%79)
+fn Float: Eq.eq(self%79: Float, other%80: Float) -> Bool {
+  (self%79 ==[Float] other%80)
 }
 
-fn Bool: Eq.eq(self%80: Bool, other%81: Bool) -> Bool {
-  (self%80 ==[Bool] other%81)
+fn Bool: Eq.eq(self%81: Bool, other%82: Bool) -> Bool {
+  (self%81 ==[Bool] other%82)
 }
 
-fn String: Eq.eq(self%82: String, other%83: String) -> Bool {
-  (self%82 ==[String] other%83)
+fn String: Eq.eq(self%83: String, other%84: String) -> Bool {
+  (self%83 ==[String] other%84)
 }
 
-fn (): Eq.eq(self%84: (), other%85: ()) -> Bool {
+fn (): Eq.eq(self%85: (), other%86: ()) -> Bool {
   true
 }
 
-fn (A, B): Eq.eq[A, B](self%86: (A, B), other%87: (A, B)) -> Bool {
-  match self%86 {
-    (a0%88, a1%89) -> match other%87 {
-      (b0%90, b1%91) -> (Eq.eq[A](a0%88, b0%90) &&[Bool] Eq.eq[B](a1%89, b1%91))
+fn (A, B): Eq.eq[A, B](self%87: (A, B), other%88: (A, B)) -> Bool {
+  match self%87 {
+    (a0%89, a1%90) -> match other%88 {
+      (b0%91, b1%92) -> (Eq.eq[A](a0%89, b0%91) &&[Bool] Eq.eq[B](a1%90, b1%92))
     }
   }
 }

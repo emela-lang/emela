@@ -717,7 +717,8 @@ pub struct SetSummary {
     pub fails: bool,
     /// As an R: a call may suspend (not Immediate, spec 9.5).
     pub suspends: bool,
-    /// As an R: it has an element other than Async, so the function takes the evidence table.
+    /// As an R: it has an element other than a host effect, so a function (not a function value,
+    /// which always takes it, [`FnType::ev`]) with it takes the evidence table.
     pub ev: bool,
     pub params: Vec<TypeId>,
 }
@@ -763,12 +764,15 @@ pub struct FnType {
     /// Whether a call may suspend (the R is not Immediate, spec 9.5); the same as
     /// `Expr::Call::suspends` for `Callee::Indirect`.
     pub suspends: bool,
-    /// Whether the function takes the evidence table as its last argument (the R has effects
-    /// other than Async, spec 16.5).
+    /// Whether the function takes the evidence table as its last argument. True for every type
+    /// of a function value (the types lowering gives to function types of the program), whatever
+    /// its R: a value whose R needs no table ignores it, so widening R (`List[fn() uses {}]` as a
+    /// `List[fn() uses { Console }]`, spec 9.4) never changes how a value is called. False only
+    /// for function types lowering builds by hand (fiber wrappers, operation implementations).
     pub ev: bool,
     /// The E and R when they contain set type parameters of the enclosing definition (`R(f)`),
     /// `None` otherwise. Then the flags above over-approximate every instantiation (a set type
-    /// parameter counts as failing and needing the evidence table; whether it may suspend follows
+    /// parameter counts as failing; whether it may suspend follows
     /// the suspending copy being lowered), and substituting known sets for the parameters
     /// ([`subst_type`]) makes them exact.
     pub sets: Option<FnSets>,
@@ -1019,8 +1023,9 @@ fn subst_set(types: &TypeTable, set: &SetSummary, args: &[TypeId]) -> SetSummary
 }
 
 /// A function type like `old` with parameters `params`, return type `ret`, E `errors` and R
-/// `effects` (both `Type::Set`). If neither set has set type parameters left, the flags come from
-/// them; otherwise `old`'s flags are kept, raised by the known parts.
+/// `effects` (both `Type::Set`). If neither set has set type parameters left, `fails` and
+/// `suspends` come from them; otherwise `old`'s flags are kept, raised by the known parts. `ev`
+/// is always `old`'s ([`FnType::ev`]).
 pub fn fn_with_sets(
     types: &TypeTable,
     params: Vec<TypeId>,
@@ -1038,7 +1043,7 @@ pub fn fn_with_sets(
             ret,
             fails: e.fails,
             suspends: r.suspends,
-            ev: r.ev,
+            ev: old.ev,
             sets: None,
         }
     } else {
@@ -1047,7 +1052,7 @@ pub fn fn_with_sets(
             ret,
             fails: old.fails || e.fails,
             suspends: old.suspends || r.suspends,
-            ev: old.ev || r.ev,
+            ev: old.ev,
             sets: Some(FnSets { errors, effects }),
         }
     }
@@ -1271,7 +1276,8 @@ pub enum Expr {
     /// Looks up the current handler of the effect in the evidence table `ctx` (`use X`, spec 8.2).
     ///
     /// The evidence table maps effects to handler values and is passed as the last argument of
-    /// functions and lambdas whose R is not empty (evidence passing, spec 16.5).
+    /// functions whose R has an effect other than a host effect, and of every function value
+    /// (`FnType::ev`) (evidence passing, spec 16.5).
     ///
     /// The table is one value, not one argument per effect: a caller of a function whose R is
     /// opaque (`R(f)` of `List.map`) cannot tell which effects the callee needs, so it passes the
