@@ -25,7 +25,7 @@ If writing code at the everyday level requires knowledge of the foundation level
 - Errors are not effects. They are handled in a separate channel.
 - Expected errors (which appear in types) are distinct from defects (which do not appear in types).
 - Variables are immutable. There is no loop syntax.
-- There are no higher-kinded types, subtyping, null, implicit type conversions, or operator overloading.
+- There are no higher-kinded types, null, implicit type conversions, or operator overloading. The only subtyping is the containment of E and R (`[type.rules]`).
 
 ## 1.4 How to read this document `[intro.reading]`
 
