@@ -1,10 +1,10 @@
 ---
 title: "Effect aliases: `x <- Effect` resolves at the call"
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 731
 issue: 719
-decided:
+decided: 2026-11-23
 touches: [grammar.expr, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, diag.list]
 requires: []
 related: [capability-type, capture-checking, scope-handle-values, handler-member]
@@ -224,3 +224,7 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 ## Open questions
 
 ## Decision
+
+A capability is fixed to a handler even when it is only called in place, so a closure that calls `(use E).op(...)` leaves its with still fixed to that handler, and only capture checking can stop it. Effect aliases give a name that is resolved at the call: what leaves a with keeps E in its R, and the types protect it. Each construct is now checked by one mechanism: effect aliases and calls in place by R, fixed values by capture sets.
+
+Binding a value made by `use E` to a name is what makes capabilities hard to follow, so `use E` written as an expression is deprecated in both forms. Nothing stops working in this step; the warning names the rewrite. `capability-identity` (#732) is the second step, which tells capabilities apart in types and in R and removes `use E` written as an expression.
