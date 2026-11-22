@@ -7,7 +7,7 @@ issue:
 decided:
 touches: [ext.decl, grammar.decl, diag.list]
 requires: []
-related: [host-effect-declaration, host-effects]
+related: [host-effects]
 ---
 
 # Bindings for a kind of host
