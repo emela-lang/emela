@@ -297,6 +297,13 @@ fn main() {
     )];
     let (mut m, stats) = lower_files_with_rules(&files, beta_only());
     assert!(stats.beta > 0, "{stats:?}");
-    let again = opt::run_with(&mut m, &CoreFns::default(), Options { rules: beta_only() });
+    let again = opt::run_with(
+        &mut m,
+        &CoreFns::default(),
+        Options {
+            rules: beta_only(),
+            ..Options::default()
+        },
+    );
     assert_eq!(again.beta, 0, "{again:?}");
 }
