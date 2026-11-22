@@ -7,7 +7,7 @@ issue: 719
 decided:
 touches: [grammar.expr, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, diag.list]
 requires: []
-related: [local-labels, capability-type, capture-checking, scope-handle-values, handler-member]
+related: [capability-type, capture-checking, scope-handle-values, handler-member]
 ---
 
 # Effect bindings: `x <- Effect` resolves at the call
