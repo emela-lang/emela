@@ -1,10 +1,10 @@
 ---
 title: Reading an Instant from text, and Encode, Decode and Shaped for Instant
 authors: [somnicattus]
-status: draft
+status: accepted
 pr: 730
 issue:
-decided:
+decided: 2026-11-23
 touches: [lib.layers, api.std.instant, api.std.dynamic, api.std.shape]
 requires: []
 related: []
@@ -188,3 +188,11 @@ No program that compiles now changes meaning.
 ## Open questions
 
 ## Decision
+
+Adopted. An Instant could be written as text with `to_string` but not read back, and a record with an Instant field could not derive Encode or Decode; since Instant is an opaque type of std, the only way around it was a wrapping type.
+
+- `parse` is written in Emela, so that the three targets give the same result. C has no portable reader of a date and time with an offset, and `Date.parse` of JS leaves most inputs to the engine.
+- The form is the output of `to_string` and the `date-time` of RFC 3339, widened only as far as the timestamps that PostgreSQL, SQL Server and other common writers produce. The offset is required, because Emela has no time zones and a date and time without one does not denote a point in time.
+- Each restriction (no comma, no leap second, no hour alone, no offset seconds, no time zone names, the limit of 256 code points) can be lifted later without changing the result of any text read now.
+- Instant is encoded as the text of `to_string` rather than as a number, so that the written value shows that it is a time and carries no unit to guess.
+- ObjectKey for Instant is left out, to be decided together with the ObjectKey of the other basic types.
