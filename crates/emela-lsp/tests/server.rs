@@ -3704,3 +3704,26 @@ fn method_calls_in_navigation_and_completion() {
     assert!(labels(&items).contains(&"length"), "{items:?}");
     client.shutdown();
 }
+
+/// An effect alias (`[effect.use]`) is marked as a capability where it is declared and where it
+/// is the receiver of an operation, inside closures too.
+#[test]
+fn semantic_tokens_mark_effect_aliases() {
+    let src = "effect Logger {
+  fn info(msg: String) -> ()
+}
+
+fn greet() {
+  log <- Logger
+  log.info(\"a\")
+  List.each([1], |n| log.info(\"#{n}\"))
+}
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    assert_eq!(
+        client.semantic_tokens(MAIN, None).unwrap(),
+        [cap(5, 2, 3), cap(6, 2, 3), cap(7, 21, 3)]
+    );
+    client.shutdown();
+}
