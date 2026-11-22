@@ -1,10 +1,10 @@
 ---
 title: "The R of a closure is provided only by its caller"
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 736
 issue: 719
-decided:
+decided: 2026-11-23
 touches: [effect.use, effect.with, type.rules, fiber.scope, grammar.lex, ext.boundary, diag.list]
 requires: [effect-alias]
 related: [capture-checking, scope-handle-values]
@@ -172,3 +172,5 @@ with g = Plain {
 ## Open questions
 
 ## Decision
+
+Make the rule of execution match the types: the R of a closure stays in its type and is provided where the closure is called, so the withs that enclose the place where it is made no longer provide it. This closes the paths of #719 that #731 alone leaves open (reproduction 3 and a closure that calls a closure), and makes the handlers of forked children uniform. Callbacks to the host cannot carry effects in R, since the host passes no handlers; capturing a capability covers that use. `<-` becomes one token to avoid misreading `x < -y`. The spec changes of #731 and this proposal are applied together, and #735 implements both.
