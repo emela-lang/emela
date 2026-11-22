@@ -2,7 +2,7 @@
 title: "Local labels, and removing capability values"
 authors: [Alliana]
 status: draft
-pr:
+pr: 732
 issue: 719
 decided:
 touches: [grammar.expr, grammar.type, effect.use, effect.with, effect.handler, effect.label, effect.escape, fiber.scope, fiber.escape, type.rules, open.next, diag.list]
