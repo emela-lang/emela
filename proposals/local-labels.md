@@ -16,7 +16,7 @@ related: [capability-type, capability-trait, handler-member, handler-init-argume
 
 `effect-binding`（#731）の二段目．capability を値として扱うのをやめる．
 
-- with の項目と `Fiber.scope` に，その本体の中だけで有効な label（局所の label）を付けられるようにする（`with f <- Files.Open(path)`）．
+- with の項目と `Fiber.scope` に，その本体の中だけで有効な label（局所の label）を付けられるようにする（`with f = Files.Open(path)`）．今の `with x = Item` の構文のまま，x の意味を値から局所の label に変える．
 - 特定の handler を選ぶ手段は，値ではなく label にする．label は R に入るので，with の外へ出たかを型が見る．
 - `use E` の式と `use E` の型を deprecated にし，段階を踏んでなくす．
 - なくし終えたら，capability についての capture checking（`[effect.escape]`）は要らなくなる．残るのは Fiber などのハンドルだけ．
@@ -44,20 +44,21 @@ related: [capability-type, capability-trait, handler-member, handler-init-argume
 
 ### 局所の label
 
-- with の項目を `x <- Item` と書くと，x は本体の中だけで有効な label になる．Item が供給する effect E の label で，Item の handler が x を供給する．
-- handler member も同じ形で書く（`with f <- Files.Open(path)`）．
+- with の項目を `x = Item` と書くと，x は本体の中だけで有効な label になる．Item が供給する effect E の label で，Item の handler が x を供給する．構文は今の名前付きの項目（`[effect.with]`）と同じで，x が値でなくなる．
+- handler member も同じ形で書く（`with f = Files.Open(path)`）．
+- `<-` は with の項目に使わない．文の `x <- E` は固定しない名前で，局所の label は項目の handler に固定される．同じ記号で二つの意味を持たせない．
 - `x.op(...)` は R に x を足す．x は本体の外では名前が見えないので，x を R に持つ型は本体の外に書けない．本体の値，操作の引数，エラーなど，どの道を通っても，x を R に持つ closure が本体の外へ出ると型エラーになる（局所の型の名前が外へ出る検査）．
 - `L by x` の右に x を書ける．`with ReadFile by f { read_all() }` は，`uses { ReadFile }` と書いた関数に f をつなぐ．
 
 ```emel
-with primary <- PrimaryDb {
-  with replica <- ReplicaDb {
+with primary = PrimaryDb {
+  with replica = ReplicaDb {
     with Db by replica { copy_from_replica() }
     primary.execute("...")
   }
 }
 
-with f <- Files.Open("a.txt") {
+with f = Files.Open("a.txt") {
   with ReadFile by f { read_all() }
 }
 ```
@@ -79,7 +80,7 @@ with f <- Files.Open("a.txt") {
 1. 一段目（`effect-binding`）が入った版: `(use E).op()` は `<-` に展開される．警告なし．
 2. 局所の label が入った版: 値として書いた `use E` と，`use E` 型に警告（W04xx，deprecated）．help に書き換え先を出す．
    - `x = use E` で x を受け手にしか使わないもの → `x <- E`
-   - 外の handler を指し続けるもの → `with x <- H` か label
+   - 外の handler を指し続けるもの → `with x = H`（局所の label）か label
    - 引数，フィールド，State に入れるもの → `by` か requirement
 3. 次の minor: 値として書いた `use E` と `use E` 型をコンパイルエラーにする．`(use E).op()` の略記は残すか，`<-` に寄せて消すかを決める．
 4. capability についての capture checking と，`[effect.escape]` の実行時の検査（release 後の使用は defect）を外す．
@@ -90,7 +91,7 @@ with f <- Files.Open("a.txt") {
 
 ### `[effect.with]`
 
-- An item can be written as `x <- Item`. Within the body, x is a label of the effect E that Item provides, and the handler of the item provides x. x is visible only inside the body. A handler member item is written `x <- E.M(arguments)` or `x <- c.M(arguments)`.
+- An item written as `x = Item` makes x a label of the effect E that Item provides, and the handler of the item provides x. x is not a value, and is visible only inside the body. A handler member item is written `x = E.M(arguments)`, or `x = c.M(arguments)` where c is a local label of E.
 - A type that contains x in an effect set cannot be written outside the body, and the type of a value that leaves the body (the value of the body, an argument of an operation of a handler that outlives the with, an error) cannot contain x. Otherwise it is a compile error (E04xx).
 
 ### `[effect.label]`
@@ -125,6 +126,7 @@ with f <- Files.Open("a.txt") {
 | `x = use E` | 278 | x を受け手にしか使わないなら `x <- E`．機械的に判定できる |
 | 値として渡す，格納する，返す | 約 59 行 | label，`by`，requirement．機械的にはできない |
 | 外の値を，同じ E を上書きした内側の with で使う | 18 | 局所の label |
+| `with x = H`，`with x = E.M(...)` | 未計数 | 構文は変わらない．x を受け手と `by` の右にしか使っていなければそのまま通る |
 
 - 書けなくなる形: capability をコレクションに入れる形（#701 の `map`），`State[use Name]`（#708），handler のフィールドの `use E`．個数が実行時に決まる資源は，再帰で with を重ねて書く．
 - 置き換えか書き換えになる proposal: `capability-type`，`capability-trait`，`handler-member`（`x = E.M(...)` の形），`handler-init-arguments`，`capture-checking`（capability の部分）．
@@ -138,6 +140,8 @@ with f <- Files.Open("a.txt") {
 
 - 値を残し，capture checking で道を塞ぎ続ける（`capture-checking-exits`）．コレクションに capability を入れる形は残るが，#719 の「決めること 1，2」と，host と Deferred / Queue の未決が残る．
 - 値をなくすが局所の label を入れず，top-level で宣言した label だけにする．handler member で開いた資源ごとに label を宣言できないので，資源を複数同時に開けない．
+- 局所の label を `with f <- Files.Open(path)` と書く．文の `x <- E`（固定しない名前）と同じ記号が，固定する名前を作ることになる．`<-` は固定しないものだけに使う．
+- 局所の label を `with Files.Open(path) as f` と書く．`=` が値を作るようには読めないが，今の `with x = ...` の書き換えが要る．with の項目の `=` は文の束縛とは別の文法（`with_item`）なので，`=` のまま意味を変える．
 - 一段で値をなくす（deprecation の期間を置かない）．`std-exit` のように期間を置かなかった例はあるが，影響が言語の中心なので期間を置く．
 
 ## Prior art
