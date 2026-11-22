@@ -7,7 +7,7 @@ issue:
 decided:
 touches: [effect.host, effect.decl, ext.call, ext.entry, module.pome, grammar.decl, diag.list]
 requires: []
-related: [host-bindings, host-effects]
+related: [host-effects]
 ---
 
 # Host effects declared by Pomes
