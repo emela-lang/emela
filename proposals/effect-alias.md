@@ -19,7 +19,7 @@ related: [capability-type, capture-checking, scope-handle-values, handler-member
 - `(use E).op(...)` は `{ h <- E; h.op(...) }` の略記にする．その場で呼ぶ形は root を作らず，R だけで検査される．
 - `use E` を値として書く形（`x = use E`，引数，データ構造）は今のまま残す．固定された値で，capture checking が検査する．
 
-この proposal は一段目．二段目の `local-labels` で，capability を値として扱うのをやめ，`use E` の式を deprecated にして段階を踏んでなくす．
+この proposal は一段目．二段目の `capability-identity`（#732）で，capability を handler の実体と定めて型と R で区別し，名前のない `use E` の値を deprecated にして段階を踏んでなくす．
 
 構文ごとに，受け持つ検査が一つに決まる．
 
@@ -207,6 +207,6 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 - `x <- E` の x に型注釈を書けるか．複数の効果を一つの名前にまとめたいか．
 - #701（handler member の capability を closure の引数や戻り値から使うと E0402）は，固定された値の問題なので，この案では直らない見込み．試作で確かめる．via E 要素の案と組み合わせるか．
 - closure の中の `(use E).op(...)` の意味が変わる形を，移行の期間に警告するか．
-- 同じ `use E` が，受け手の位置では呼んだ時点で解決し，それ以外では書いた位置に固定される．closure の中で同じ E を上書きした with があると，`(use E).op()` と `c = use E; c.op()` で届く先が変わる．二段目（`local-labels`）で値の `use E` をなくすまでの間，これを許すか，警告するか．
+- 同じ `use E` が，受け手の位置では呼んだ時点で解決し，それ以外では書いた位置に固定される．closure の中で同じ E を上書きした with があると，`(use E).op()` と `c = use E; c.op()` で届く先が変わる．二段目（`capability-identity`）で名前のない `use E` の値をなくすまでの間，これを許すか，警告するか．
 
 ## Decision
