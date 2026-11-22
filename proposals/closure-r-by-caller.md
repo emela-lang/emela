@@ -14,97 +14,99 @@ related: [capture-checking, scope-handle-values]
 
 ## Summary
 
-`effect-alias`（#731）を補う．
+This proposal completes `effect-alias` (#731).
 
-- closure と local fn の R は，それを呼ぶ側だけが満たす．closure を作った場所を囲む with は，closure の本体の中の呼び出しに handler を渡さない．
-- 型はもともとそう言っている（closure の R は closure の型に残り，呼んだところで現れる．`[type.rules]`）．実行の規則を型に合わせる．
-- fork の子が使う handler は，`Fiber.scope` を呼んだ時点のものにそろい，`[fiber.scope]` の例外の文が要らなくなる．
-- host に渡す callback は，handler を渡されずに呼ばれるので，R に効果名を持つ closure を渡せないようにする（型で止める）．
-- #731 の試作で見つかった三点を決める．`x.op` の関数値が解決する時点，`(use E).M(...)` を展開から外すこと，`<-` を一つの字句にすること．
+- The R of an anonymous function or a local fn is provided only by the side that calls it. The withs that enclose the place where the function is made do not pass handlers to the calls in its body.
+- The types already say so: the R of a closure stays in the type of the closure and appears where it is called (`[type.rules]`). The rule of execution is made to match the types.
+- The handlers that a forked child uses are the ones at the time `Fiber.scope` is called, without exception. The exception in `[fiber.scope]` is removed.
+- A callback passed to the host is called without handlers, so a function whose R contains an effect cannot be passed to the host. The types stop it.
+- Three points found in the prototype of #731 are decided: when a function value `x.op` resolves, that `(use E).M(...)` is not expanded, and that `<-` is one token.
 
 ## Motivation
 
-### #731 だけでは固定が一段外へ移る
+### #731 alone moves the fixing one level out
 
-#731 の試作（ブランチ `proto/effect-binding-arrow`）で分かったこと．
+Found in the prototype of #731 (branch `proto/effect-binding-arrow`):
 
-- 今の lowering は，closure を作るときに，closure を囲む with の handler を closure に持たせる．仕様では `[effect.with]` の「`use X` inside an anonymous function or a local fn first looks at the withs that enclose the function」と，`[fiber.scope]` の例外の文がこれにあたる．
-- #731 は `x.op(...)` と `(use E).op(...)` についてだけ，囲む with で解決しないことにした．closure の中で別の closure を呼ぶ `h()` は，今までどおり囲む with で解決される．
-- その結果，#731 の文面のまま実装すると:
-  - #719 の再現 3（外の scope の子に渡した closure）は直らない．
-  - closure の中で closure を呼ぶ形は悪くなる．今は W0402 / E0444 で止まるが，`<-` で書くと何も出ずに終わった handler に届く．
+- Lowering today gives a closure, when it is made, the handlers of the withs that enclose it. In the specification this is the sentence of `[effect.with]` "`use X` inside an anonymous function or a local fn first looks at the withs that enclose the function", and the exception in `[fiber.scope]`.
+- #731 stops enclosing withs from resolving only `x.op(...)` and `(use E).op(...)`. A call `h()` of another closure inside a closure is still resolved by the enclosing withs.
+- As a result, implementing the text of #731 alone:
+  - does not fix reproduction 3 of #719 (a closure passed to a child of an outer scope);
+  - makes a closure that calls a closure worse. Today it is stopped by W0402 / E0444; written with `<-`, it reaches an ended handler without any diagnostic.
 
-### 呼ぶ側だけが満たせば直る
+### Providing R only from the caller fixes them
 
-試作で「closure の R は呼ぶ側だけが満たす」実験（`EMELA_PROTO_CALLER_TABLE=1`）を併せた結果．
+Results of the prototype with the rule "the R of a closure is provided only by its caller" (`EMELA_PROTO_CALLER_TABLE=1`):
 
-| 形 | 今 | #731 のまま | この proposal |
+| Form | Today | #731 alone | This proposal |
 |---|---|---|---|
-| #719 の再現 2，4，5，決めること 1（`<-` か `(use E).op` で書いた形） | 終わった handler に届く | 外の handler に届く | 外の handler に届く |
-| #719 の再現 3（外の scope の子） | 終わった handler に届く | 終わった handler に届く | 外の handler に届く |
-| closure の中で closure を呼ぶ形 | W0402 / E0444 | 何も出ずに終わった handler に届く | 外の handler に届く |
-| scope の本体の中の with で作った closure を子に渡す | 内側の handler | 外の handler（`<-` で書いた場合） | 外の handler（`Fiber.scope` を呼んだ時点） |
+| Reproductions 2, 4 and 5 of #719, and Decision 1 (written with `<-` or `(use E).op`) | Reaches an ended handler | Reaches the outer handler | Reaches the outer handler |
+| Reproduction 3 of #719 (a child of an outer scope) | Reaches an ended handler | Reaches an ended handler | Reaches the outer handler |
+| A closure that calls a closure | W0402 / E0444 | Reaches an ended handler silently | Reaches the outer handler |
+| A closure made in a with inside the scope body and passed to a child | The inner handler | The outer handler (when written with `<-`) | The outer handler (at the time `Fiber.scope` is called) |
 
-- cargo test は 8 件変わり，すべて意味の変化として予想どおり．
-  - `children_get_the_handlers_where_scope_is_called` と `fiber_scope`（JS，native，WASM の 3 件）: 子の出力が inner から outer になる．上の表の最後の行．
-  - lowering と mono のスナップショット 5 件: closure が handler を捕えなくなり，`(use Clock)` が呼ぶ側の table から引くようになる．どれも with の中で呼ぶ closure なので，実行結果は同じ．
+- 8 cargo tests change, all as expected from the change of meaning.
+  - `children_get_the_handlers_where_scope_is_called` and `fiber_scope` (3 tests for JS, native and WASM): the output of the child changes from inner to outer, as in the last row of the table.
+  - 5 snapshots of lowering and mono: the closure no longer captures handlers, and `(use Clock)` is looked up in the table of the caller. Each closure is called inside the same with, so the results are the same.
 
-### 型と実行がずれている
+### Types and execution disagree
 
-- closure の型には R が残る（`fn(String) -> String uses { Greeter }`）．型の上では，closure を呼ぶ側が Greeter を供給する．
-- 実行では，closure を作った場所の with が供給している．同じ closure が，型では呼ぶ側の handler を使い，実行では作った側の handler を使う．
-- この食い違いが，終わった handler に黙って届く道を作っている（#719）．
+- The R of a closure stays in its type (`fn(String) -> String uses { Greeter }`). In the types, the side that calls the closure provides Greeter.
+- In execution, the with where the closure is made provides it. The same closure uses the handler of the caller in the types and the handler of the maker in execution.
+- This disagreement is what lets a call silently reach an ended handler (#719).
 
-### host への callback には，今も穴がある
+### Callbacks to the host already have a hole
 
-試作で JS の `@external` に closure を渡して確かめた（WASM はユーザーの `@external` を書けず，native は callback が E0427）．
+Checked in the prototype by passing closures to a JS `@external` (WASM cannot declare user `@external` functions, and on native a callback is E0427).
 
-| 形 | 今 | 呼ぶ側だけが満たす規則 |
+| Form | Today | Provided only by the caller |
 |---|---|---|
-| callback の型に `uses { Greeter, Console }` と書き，closure の中で `(use Greeter).greet` を呼ぶ | 動く（作った場所の handler） | 型は通り，実行時に defect（`TypeError`） |
-| callback の型に `uses {}` と書く | E0403 | E0403 |
-| 外部関数の引数で uses を省き，handler の操作の中で closure を作って渡す | 実行時に defect（`TypeError`） | 同じ |
-| closure が `g = use Greeter` の値を捕える | 動く | 動く（値は固定されたまま） |
+| The callback type says `uses { Greeter, Console }`, and the closure calls `(use Greeter).greet` | Works (the handler where it is made) | Type checks, and fails at run time with a defect (`TypeError`) |
+| The callback type says `uses {}` | E0403 | E0403 |
+| `uses` is omitted on the parameter of the external function, and the closure is made inside an operation of a handler | Defect at run time (`TypeError`) | The same |
+| The closure captures a value of `g = use Greeter` | Works | Works (the value stays fixed) |
 
-- host は closure を呼ぶときに handler を渡さない．今動いているのは，closure が作った場所の handler を持っているから．
-- `[ext.boundary]` は callback の R について何も言っていない．今も 3 行目の形が実行時に壊れる．
+- The host calls a closure without passing handlers. The first row works today only because the closure holds the handlers of the place where it is made.
+- `[ext.boundary]` says nothing about the R of a callback. The third row already breaks at run time today.
 
 ## Proposal
 
-### 規則
+### Rule
 
-- closure と local fn の本体の中の呼び出しが要る handler は，closure を呼ぶ側が渡す．closure を作った場所を囲む with は渡さない．
-- 名前付きの項目の capability（`with x = H` の x）と，値として書いた `use E`（deprecated）を closure が捕えた場合は，今のまま捕えた値の handler に届く．固定は値だけが持つ．
-- with の本体に closure を書いて，その with の中で呼ぶ形（`List.map(names, |n| log.info(n))`）は結果が変わらない．呼ぶ側がその with の中にいるため．
+- The handlers that the calls in the body of an anonymous function or a local fn need are passed by the side that calls the function. The withs that enclose the place where the function is made do not pass them.
+- When a closure captures the capability of a named item (x of `with x = H`) or a value of `use E` (deprecated), calls through it reach the handler of that value, as today. Only values are fixed.
+- A closure written in the body of a with and called inside that with (`List.map(names, |n| log.info(n))`) gives the same result, because the caller is inside the with.
 
-### fork の子
+### Forked children
 
-- 子が使う handler は，`Fiber.scope` を呼んだ時点のもの（`[fiber.scope]` の今の規則）．scope の本体の中の with は，子に渡した closure にも渡らない．
-- `[fiber.scope]` の例外の文（scope の本体の中の with で作った closure を子に渡すと内側の handler を使う）と「capture sets in 0.22 stop it statically」は消える．
-- scope の本体の中の with の handler を子に使わせたいときは，名前付きの項目の capability を子の closure に捕えさせる．
+- A child uses the handlers at the time `Fiber.scope` is called (the current rule of `[fiber.scope]`). A with inside the scope body does not pass its handlers to closures passed to children either.
+- The exception in `[fiber.scope]` (a closure made in a with inside the scope body and passed to a child uses the inner handler) and "capture sets in 0.22 stop it statically" are removed.
+- To let a child use the handler of a with inside the scope body, the child captures the capability of a named item.
 
-### host への callback
+### Callbacks to the host
 
-- 外部関数の引数と戻り値の関数型（callback）の R は，effect を含んではならない．uses を省いた場合の隠れた set variable も空とみなす．effect を含む closure を渡すのはコンパイルエラー（E04xx）．
-- closure の中で handler を使いたいときは，名前付きの項目の capability を捕えさせる．
+- The R of a function type in the parameters or the result of an external function (a callback) MUST NOT contain an effect. A hidden set variable of an omitted `uses` is taken as empty. Passing a function whose R contains an effect is a compile error (E04xx).
+- The R of a callback may contain capabilities (roots of named items and of captured capability values). A call through a captured capability reaches its handler without the host passing anything. How capabilities are counted in R is decided by `capability-identity`; this rule only excludes effects.
+- To use a handler inside a callback, the closure captures the capability of a named item.
 
 ```emel
 with g = Plain {
-  set_timeout(10, || g.greet("later")) # g を捕える．callback の R に effect は入らない
+  set_timeout(10, || g.greet("later")) # captures g; no effect in the R of the callback
 }
 ```
 
-### #731 から持ち越した三点
+### Three points carried over from #731
 
-1. effect alias の `x.op` と `(use E).op` を呼ばずに書いた関数値は，呼んだ時点で解決する．capability の値の `c.op`（`log = use Logger` の `log.info`）は今のまま書いた位置で解決する．リポジトリで影響を受けるのは `crates/emela-driver/tests/diagnostics.rs:1515` の `List.map([1], (use Clock).sleep)` だけで，同じ with の中で呼ぶので結果は変わらない．
-2. `(use E).M(...)`（handler member を開く形）は展開しない．今のまま，その位置でいちばん内側の E の handler の member を開く（`use E` の式なので deprecated）．#731 のとおり，effect alias から handler member は開けない．
-3. `<-` を一つの字句にする．
-   - 試作は文の頭の `lower_name < - TYPE_NAME` を `x <- E` と読み，`x < -Int.abs(3)` や `{ x < -Money(cents: 1).cents }` のような正しいプログラムを誤読した（ブロックの最後の式で起きる）．
-   - 今は `<` と `-` が別々の字句なので，`a<-1` も空白を入れた `a <- 1` も `a < -1`（比較）と読まれる．一つの字句にすると，どちらもコンパイルエラー（E01xx）になる．黙って別の意味になる形はない．
-   - 式の中（被演算子の後ろ）に `<-` が来たら E01xx を出し，比較なら `a < -b` と書くよう示す．
-   - 文の頭の `x <- R` で，R が effect の名前でないとき（`x <- 1`，`x <- LIMIT`，`x <- Int.abs(3)`）も E01xx を出し，help に書いたものから作った比較を示す（`` write `x < -Int.abs(3)` ``）．
-   - `a < -1`（空白を入れた比較）は今のまま残す．`x <- E` の右に書けるのは effect の名前，`a < -b` の `b` に書けるのは値で，両方を満たす名前はない．空白の位置を取り違えた形は，試作ではどれもコンパイルエラーになった（`x <- 1`，`x <- LIMIT`，`x <- Int.abs(3)`，`x <- Plain`，`x < -Greeter`，`x < -Plain`）．黙って別の意味で通る組み合わせはない．
-   - `emela fmt` は比較を `a < -1` と出力するので，整形したコードでは起きない．std，examples，テストに該当する形は 0 件．
+1. A function value written without a call, `x.op` where x is an effect alias or `(use E).op`, resolves E when it is called. `c.op` where c is a capability value (`log.info` of `log = use Logger`) resolves at the position where it is written, as today. The only place in this repository affected is `List.map([1], (use Clock).sleep)` in `crates/emela-driver/tests/diagnostics.rs:1515`, which is called inside the same with, so its result is the same.
+2. `(use E).M(...)`, which opens a handler member, is not expanded. It opens a member of the innermost handler of E at that position, as today (it is `use E` written as an expression, so it is deprecated). As decided in #731, a handler member cannot be opened through an effect alias.
+3. `<-` is one token.
+   - The prototype read `lower_name < - TYPE_NAME` at the head of a statement as `x <- E`, and misread valid programs such as `x < -Int.abs(3)` and `{ x < -Money(cents: 1).cents }` (as the last expression of a block).
+   - As one token, `a<-1` written without spaces changes meaning (it is no longer `a < -1`). `emela fmt` prints `a < -1`, so formatted code is not affected. There are no occurrences in this repository.
+
+### Applying and implementing
+
+- The "Specification changes" of `effect-alias` and of this proposal are applied to `spec/` together, in one pull request.
+- #735 (the implementation of `effect-alias`) implements both proposals together. Implementing `effect-alias` alone would ship the regressions in Motivation.
 
 ## Specification changes
 
@@ -129,55 +131,44 @@ with g = Plain {
 ### `[grammar.lex]`
 
 - `<-` is one token. A comparison with a negated operand is written with a space between `<` and `-` (`a < -1`).
-- `<-` after an operand in an expression (`a<-1`, `a <- 1`) is a compile error (E01xx). `<-` is written only in a statement `x <- E` (`[grammar.expr]`).
-- In a statement `x <- R`, R that is not an effect name (`x <- 1`, `x <- LIMIT`, `x <- Int.abs(3)`) is a compile error (E01xx). The diagnostic shows the comparison written with a space, `x < -R`, as a help.
 
 ### `[ext.boundary]`
 
-- The R of a function type in a boundary type (a callback) MUST NOT contain an effect. A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E04xx). A callback reaches a handler only through a capability value it captures.
+- The R of a function type in a boundary type (a callback) MUST NOT contain an effect. A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E04xx). The R may contain capabilities; a callback reaches a handler only through a capability it captures.
 
 ### `[diag.list]`
 
 - E04xx: a callback passed to or returned from an external function has an effect in its R.
-- E01xx: `<-` after an operand in an expression, or the right side of `x <- R` that is not an effect name.
 
 ## Diagnostics
 
-- [ ] E04xx: callback の R に effect がある（help: 名前付きの項目の capability を捕えさせる）
-- [ ] E01xx: 式の中の `<-`，または `x <- R` の R が effect の名前でない．試作（E0199）のメッセージ:
-  - 式の中: `` `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b` ``
-  - 文の頭: `` the right side of `<-` must be an effect ``，help は `` `x <- E` binds an effect; to compare with a negative value, write `x < -Int.abs(3)` ``（書いたものから作る）
+- [ ] E04xx: a callback has an effect in its R (help: capture the capability of a named item)
 
 ## Compatibility
 
-- 意味が変わるのは，closure を作った場所の with の handler に頼っていた形．
-  - with の中で作った closure を，その with の外で呼ぶ形．今は終わった handler に届くか W0402 / E0444．この proposal では呼ぶ側の handler に届くか，型で止まる．
-  - scope の本体の中の with で作った closure を子に渡す形（`[fiber.scope]` の例外）．子は外の handler を使う．
-- with の中で作って with の中で呼ぶ closure は変わらない．
-- callback の型に effect を書いて，その closure の中で handler を使っていた形は，E04xx になる．名前付きの項目の capability を捕えさせる形に書き換える．
-- `a<-1` と `a <- 1` は今 `a < -1`（比較）と読まれるが，コンパイルエラー（E01xx）になる．黙って意味が変わる形はない．`emela fmt` を通したコードには現れない．
+- The meaning changes for code that relied on the handlers of the withs where a closure is made.
+  - A closure made inside a with and called outside it. Today it reaches an ended handler or gets W0402 / E0444. With this proposal it reaches the handler of the caller, or the types stop it.
+  - A closure made in a with inside a scope body and passed to a child (the exception in `[fiber.scope]`). The child uses the outer handler.
+- A closure made inside a with and called inside that with does not change.
+- A callback whose type has an effect in R and whose body uses a handler becomes E04xx. It is rewritten to capture the capability of a named item.
+- `a<-b` written without spaces, other than `x<-E`, is no longer `a < -b`.
 
 ## Implementation
 
-- lowering: closure を作るときに，囲む with の evidence を closure の table に足さない．closure の table は呼ぶ側から受け取ったものだけにする（試作の `caller_ev`）．
-- capture checking: closure の中の root は，closure の内側の with と捕えた値だけから決める．
-- 型検査: callback の型の R を確かめる．
-- 字句: `<-` を一つの字句（LEFT_ARROW）にする．parser は式の中の `<-` に E01xx を出す（試作では E0199）．
-- `x <- R` の R は parser で広く読み（effect の名前でなくても行末まで読む），構文の検査（`validation.rs`）が E01xx と help を出す．resolve は，そのとき E0217 を重ねて出さない．
-- fmt: `x <- E` の文を `c <- Console`，`st <- State[Int]` の形に整える（`emela-fmt` の printer に EFFECT_BINDING を足す）．
-- 試作の残り: 試作は `fs <- Files` から with の項目で member を開ける（`t = fs.Temporary()`）ようにしたが，#731 の決定どおりコンパイルエラーにする．
+- Lowering: when a closure is made, do not add the evidence of enclosing withs to the table of the closure. The table of a closure is only what it receives from its caller (`caller_ev` in the prototype).
+- Capture checking: the roots inside a closure are decided only from the withs inside the closure and the captured values.
+- Type checking: check the R of callback types.
+- Lexing: make `<-` one token.
+- Left over from the prototype: it allows opening a member through `fs <- Files` in a with item (`t = fs.Temporary()`). As decided in #731, this is a compile error.
 
 ## Alternatives
 
-- `x <- E` と `(use E).op` だけを呼ぶ側で解決する（#731 のまま）．closure の中で closure を呼ぶ形で固定が残り，悪くなる形がある．
-- callback に限って，作った場所の handler を持たせる．host が呼ぶ callback だけ規則が変わり，型（R が残る）と実行がずれたままになる．capability を捕えさせれば同じことが書ける．
-- `<-` の代わりに別の記号を使う．#731 で `<-` を採択しており，一つの字句にすれば誤読はなくなる．
+- Resolve only `x <- E` and `(use E).op` at the caller (#731 alone). Fixing remains for a closure that calls a closure, and some forms get worse.
+- Give only callbacks the handlers of the place where they are made. The rule would differ only for callbacks called by the host, and types (where R stays) and execution would still disagree. Capturing a capability expresses the same thing.
+- Use another symbol instead of `<-`. `<-` was adopted in #731, and making it one token removes the misreading.
 
 ## Prior art
 
 ## Open questions
-
-- callback の規則を，effect を含まない R に限るか，capability だけを含む R まで許すか（`with g = Plain { set_timeout(10, || g.greet("later")) }` の closure の R に g をどう数えるか．`capability-identity` で R に capability が入ると関係する）．
-- この proposal と #731 の「Specification changes」を一緒に `spec/` に反映し，#735 も合わせて実装するか．
 
 ## Decision
