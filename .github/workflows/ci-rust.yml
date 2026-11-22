@@ -2,8 +2,9 @@ name: CI / Rust
 
 # The compiler's Rust code: formatting, clippy and the test suite. Called from ci.yml.
 #
-# A push to main builds what the jobs would test without running it, to refill the caches
-# (ci.yml). Only main saves them.
+# On Linux the tests run from the archive that ci-build.yml builds. A push to main runs the lint
+# and builds the tests on macOS without running them, to refill the caches (ci.yml). Only main
+# saves them.
 
 on:
   workflow_call:
@@ -27,44 +28,26 @@ jobs:
   # Every test on Node, and the JS tests of the compiler on Bun, the other JS host that `[target]`
   # supports: `emela run` and `emela test` in `crates/emela-driver` and `crates/emela-cli`, and the
   # JS side of the WASM tests. The examples and the laws on Bun are in ci-emela.yml.
+  #
+  # The tests are bound by CPU. They are built once (ci-build.yml) and split over four runners;
+  # each runs its share on Node, then its share of the Bun tests. Running both hosts on the same
+  # runners, rather than a runner per host, halves the jobs a pull request waits for.
   test:
+    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
-        host: [node, bun]
-        # The tests are bound by CPU, not by how they are scheduled on one runner:
-        # on Linux they are split over three runners, each building the tests itself.
-        # A push only builds them, which one runner does.
-        shard: ${{ fromJSON(github.event_name == 'push' && '[1]' || '[1, 2, 3]') }}
-        # macOS runs them on Node on one runner. The organization has few macOS runners, and the
-        # merge queue builds several groups at once: three shards per group kept jobs waiting for a
-        # runner far longer than the tests take.
-        exclude:
-          - os: macos-latest
-            host: bun
-          - os: macos-latest
-            shard: 2
-          - os: macos-latest
-            shard: 3
-    runs-on: ${{ matrix.os }}
+        shard: [1, 2, 3, 4]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Line tables are enough for the backtraces, and build faster. Set on the
-    # job, not the step, so that rust-cache keys the cache on it.
     env:
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
-      SHARDS: ${{ matrix.os == 'macos-latest' && 1 || 3 }}
-      # Empty on Node: the tests then take node from the PATH.
-      EMELA_JS_HOST: ${{ matrix.host == 'bun' && 'bun' || '' }}
-      PACKAGES: ${{ matrix.host == 'bun' && '-p emela-driver -p emela-cli -p emela-codegen-wasm' || '--workspace' }}
+      PARTITION: count:${{ matrix.shard }}/4
     steps:
       - uses: actions/checkout@v7
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
         with:
-          shared-key: test
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          name: tests-linux
       - uses: oven-sh/setup-bun@v2
-        if: matrix.host == 'bun'
         with:
           bun-version: 1.4.3
       # `emela run` and the JS backend tests execute the generated code with node. On Bun some
@@ -82,9 +65,45 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
+      - name: Test on Node
+        run: cargo nextest run --archive-file tests.tar.zst --workspace-remap . --profile ci --partition "$PARTITION"
+      - name: Test on Bun
+        if: ${{ !cancelled() }}
+        env:
+          EMELA_JS_HOST: bun
+        run: >-
+          cargo nextest run --archive-file tests.tar.zst --workspace-remap . --profile ci --partition "$PARTITION"
+          -E 'package(emela-driver) | package(emela-cli) | package(emela-codegen-wasm)'
+
+  # Every test on macOS, on Node. The organization has few macOS runners, and the merge queue builds
+  # several groups at once, so one runner builds the tests and runs them all. A pull request skips
+  # it; a push to main only builds, to refill the cache.
+  macos:
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    # Line tables are enough for the backtraces, and build faster. Set on the
+    # job, not the step, so that rust-cache keys the cache on it.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          version: 49.0.3
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: Test
         if: github.event_name != 'push'
-        run: cargo nextest run $PACKAGES --locked --profile ci --partition "count:${{ matrix.shard }}/$SHARDS"
+        run: cargo nextest run --workspace --locked --profile ci
       - name: Build the tests
         if: github.event_name == 'push'
-        run: cargo nextest run $PACKAGES --locked --profile ci --no-run
+        run: cargo nextest run --workspace --locked --profile ci --no-run

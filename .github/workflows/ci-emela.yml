@@ -3,8 +3,8 @@ name: CI / Emela
 # Emela programs run by the compiler: the examples, the properties of core and std (tests/laws),
 # the compiler for the browser, and Windows. Called from ci.yml.
 #
-# `build` builds the compiler for Linux once and hands it to the jobs that run programs with it.
-# The compiler embeds core and std, so it runs from any directory.
+# `programs` runs the compiler that ci-build.yml builds for Linux. The compiler embeds core and
+# std, so it runs from any directory.
 #
 # A push to main only builds, to refill the caches (ci.yml): the merge queue already ran the
 # programs on the same commit. Only main saves the caches.
@@ -13,25 +13,11 @@ on:
   workflow_call:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: examples
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Build
-        run: cargo build --bin emela --locked
-      - uses: actions/upload-artifact@v4
-        if: github.event_name != 'push'
-        with:
-          name: emela-linux
-          path: target/debug/emela
-          retention-days: 1
-
-  examples:
-    needs: build
+  # The examples and the properties of core and std (tests/laws, checked with brix), on Node and
+  # on Bun, the other JS host that `[target]` supports. Each part takes seconds, so one runner runs
+  # them all, one after another: a runner per part waited for a runner far longer than it ran.
+  # brix comes through the proxy and is checked against the hash in Pome.lock.
+  programs:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
@@ -46,30 +32,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Check, test and fmt every example
-        run: scripts/ci/examples.sh bin/emela
-
-  # The properties of core and std, checked with brix.
-  # brix comes through the proxy and is checked against the hash in Pome.lock.
-  laws:
-    needs: build
-    if: github.event_name != 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      # Bun before 1.4.3 does not run the microtasks that a `beforeExit` listener queues
+      # (oven-sh/bun#43826), which `emela test` relies on to go on after a test left suspended.
+      - uses: oven-sh/setup-bun@v2
         with:
-          name: emela-linux
-          path: bin
-      - run: chmod +x bin/emela
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
+          bun-version: 1.4.3
       # `emela test --target wasm` runs the WASI 0.3 component with wasmtime (49 or newer).
       - uses: bytecodealliance/actions/wasmtime/setup@v1
         with:
           version: 49.0.3
-      - name: Test on JS, native and WASM
+      - name: Check, test and fmt every example
+        run: scripts/ci/examples.sh bin/emela
+      - name: Test the laws on JS, native and WASM
+        if: ${{ !cancelled() }}
         working-directory: tests/laws
         run: |
           emela="$GITHUB_WORKSPACE/bin/emela"
@@ -78,33 +53,16 @@ jobs:
           "$emela" test --target js
           "$emela" test --target native
           "$emela" test --target wasm
-
-  # The examples and the laws on Bun, the other JS host that `[target]` supports. Bun before
-  # 1.4.3 does not run the microtasks that a `beforeExit` listener queues (oven-sh/bun#43826),
-  # which `emela test` relies on to go on after a test left suspended.
-  bun:
-    needs: build
-    if: github.event_name != 'push'
-    runs-on: ubuntu-latest
-    env:
-      EMELA_JS_HOST: bun
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
-        with:
-          name: emela-linux
-          path: bin
-      - run: chmod +x bin/emela
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.3
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
       - name: Test every example on Bun
+        if: ${{ !cancelled() }}
+        env:
+          EMELA_JS_HOST: bun
         run: scripts/ci/examples.sh bin/emela --target js
       - name: Test the laws on Bun
+        if: ${{ !cancelled() }}
         working-directory: tests/laws
+        env:
+          EMELA_JS_HOST: bun
         run: |
           emela="$GITHUB_WORKSPACE/bin/emela"
           "$emela" pome install
