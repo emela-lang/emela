@@ -24,7 +24,7 @@ related: [capability-type, capability-trait, handler-member, handler-init-argume
 - capability を元の effect に広げない．
 - capability は普通の値のまま．渡す，格納する，返す，データ構造に入れる，closure で捕えることは，同じ with の中ならほかの値と同じにできる．
 - capability についての capture checking（capture set，root）は，この型検査で置き換える．
-- 名前のない `use E` の値と，capability を effect に広げることを deprecated にし，段階を踏んでなくす．
+- `use E` の式（#731 で deprecated）と，capability を effect に広げること（この proposal で deprecated）を，段階を踏んでなくす．
 
 ## Motivation
 
@@ -122,20 +122,18 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 - 外で型が決まったもの（外の `State` の型引数，外で供給された handler の操作の引数の型）には，そもそも capability を入れられない．代入や呼び出しの型が合わないので，型エラーになる（E0403 か型の不一致）．
 - 関数の境目でも同じ．型引数に capability が入るのは，その with の中で呼ぶときだけ．
 
-### 名前のない `use E` の値
+### `use E` の式
 
 - `x = use E` の x は，どの capability かが決まらない（書いた位置でいちばん内側の E の capability に固定されるが，型には出ない）．
-- 段階を踏んでなくす．移る先:
+- `use E` の式は，略記も値も #731 で deprecated になっている．この proposal では型の中で，effect の名前 E に決まった capability として扱い，次の minor でなくす．移る先:
   - x を受け手にしか使わない → `x <- E`（#731）
   - 外の handler を指し続ける，渡す，格納する → 名前付きの項目（`with x = H`）
 
 ### deprecation の段階（たたき台）
 
-1. 一段目（`effect-alias`，#731）: `(use E).op()` を `<-` に展開する．警告なし．
-2. この proposal が入った版: 型と R で capability を区別する．次の二つに W04xx（deprecated）を出す．
-   - 名前のない `use E` の値
-   - capability を effect の名前に広げること
-3. 次の minor: 上の二つをコンパイルエラーにする．capability についての capture checking（W0402，E0444 の capability の部分）と，`[effect.escape]` の実行時の検査（release 後の使用は defect）を外す．
+1. 一段目（`effect-alias`，#731）: `(use E).op()` を `<-` に展開する．`use E` の式（略記も値も）に W04xx（deprecated）を出す．
+2. この proposal が入った版: 型と R で capability を区別する．capability を effect の名前に広げることに W04xx（deprecated）を出す．
+3. 次の minor: `use E` の式と，広げることをコンパイルエラーにする．capability についての capture checking（W0402，E0444 の capability の部分）と，`[effect.escape]` の実行時の検査（release 後の使用は defect）を外す．
 
 ## Specification changes
 
@@ -158,7 +156,7 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 - Calling an operation of a capability adds that capability to R. The with that made the capability removes it from R.
 - A capability is not widened to its effect. An effect set that contains a capability is not included in an effect set that contains only the effect of the capability.
 - A parameter of type `use E` gives the function a type parameter that ranges over the capabilities of E. At a call, it is decided by the argument. An argument that is an effect alias, or a `use E` written as an expression, decides it as E itself.
-- `use E` written as an expression is deprecated (W04xx).
+- `use E` written as an expression (deprecated by `effect-alias`) is a compile error after the deprecation period.
 
 ### `[effect.escape]`
 
@@ -172,7 +170,7 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 ## Diagnostics
 
 - [ ] E04xx: capability を持ち出した（型か R に capability を含む値が with の外へ出る）
-- [ ] W04xx: 名前のない `use E` の値（deprecated）．help: `x <- E` か `with x = H`
+- [ ] `use E` の式の W04xx は #731 で入る．廃止の版でエラーにする
 - [ ] W04xx: capability を effect の名前に広げた（deprecated）．help: 引数を `use E` にする
 - [ ] 廃止の版: W04xx をエラーにする．W0402，E0444 の capability の部分を外す
 
@@ -206,7 +204,7 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 - 局所の label を立て，x をその label の capability とする（この PR の二つ目の版）．利用者が capability と label の二つを覚える必要がある．capability そのものを R に入れれば，label は要らない．
 - capability を effect の名前に広げて，別々の with の capability を同じリストに入れる．広げた値は型が R で追えず，今の #719 の穴に戻る．集合で持てば広げずに入れられる．
 - 名前付きの項目を `with f <- Files.Open(path)` や `with Files.Open(path) as f` と書く．`<-` は effect alias と同じ記号になり，`as` は今の `with x = ...` の書き換えが要る．
-- 一段で名前のない `use E` の値をなくす（deprecation の期間を置かない）．影響が言語の中心なので期間を置く．
+- 一段で `use E` の式をなくす（deprecation の期間を置かない）．影響が言語の中心なので期間を置く．
 
 ## Prior art
 
