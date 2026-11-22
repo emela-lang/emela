@@ -101,7 +101,9 @@ with g = Plain {
 3. `<-` を一つの字句にする．
    - 試作は文の頭の `lower_name < - TYPE_NAME` を `x <- E` と読み，`x < -Int.abs(3)` や `{ x < -Money(cents: 1).cents }` のような正しいプログラムを誤読した（ブロックの最後の式で起きる）．
    - 今は `<` と `-` が別々の字句なので，`a<-1` も空白を入れた `a <- 1` も `a < -1`（比較）と読まれる．一つの字句にすると，どちらもコンパイルエラー（E01xx）になる．黙って別の意味になる形はない．
-   - 式の中（被演算子の後ろ）に `<-` が来たら E01xx を出し，比較なら `a < -b` と書くよう示す．文の頭に `a <- 1` と書いた場合は，effect の名前を期待する構文エラーになる．
+   - 式の中（被演算子の後ろ）に `<-` が来たら E01xx を出し，比較なら `a < -b` と書くよう示す．
+   - 文の頭の `x <- R` で，R が effect の名前でないとき（`x <- 1`，`x <- LIMIT`，`x <- Int.abs(3)`）も E01xx を出し，help に書いたものから作った比較を示す（`` write `x < -Int.abs(3)` ``）．
+   - `a < -1`（空白を入れた比較）は今のまま残す．`x <- E` の右に書けるのは effect の名前，`a < -b` の `b` に書けるのは値で，両方を満たす名前はない．空白の位置を取り違えた形は，試作ではどれもコンパイルエラーになった（`x <- 1`，`x <- LIMIT`，`x <- Int.abs(3)`，`x <- Plain`，`x < -Greeter`，`x < -Plain`）．黙って別の意味で通る組み合わせはない．
    - `emela fmt` は比較を `a < -1` と出力するので，整形したコードでは起きない．std，examples，テストに該当する形は 0 件．
 
 ## Specification changes
@@ -128,6 +130,7 @@ with g = Plain {
 
 - `<-` is one token. A comparison with a negated operand is written with a space between `<` and `-` (`a < -1`).
 - `<-` after an operand in an expression (`a<-1`, `a <- 1`) is a compile error (E01xx). `<-` is written only in a statement `x <- E` (`[grammar.expr]`).
+- In a statement `x <- R`, R that is not an effect name (`x <- 1`, `x <- LIMIT`, `x <- Int.abs(3)`) is a compile error (E01xx). The diagnostic shows the comparison written with a space, `x < -R`, as a help.
 
 ### `[ext.boundary]`
 
@@ -136,12 +139,14 @@ with g = Plain {
 ### `[diag.list]`
 
 - E04xx: a callback passed to or returned from an external function has an effect in its R.
-- E01xx: `<-` after an operand in an expression.
+- E01xx: `<-` after an operand in an expression, or the right side of `x <- R` that is not an effect name.
 
 ## Diagnostics
 
 - [ ] E04xx: callback の R に effect がある（help: 名前付きの項目の capability を捕えさせる）
-- [ ] E01xx: 式の中の `<-`．メッセージは試作では `` `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b` ``
+- [ ] E01xx: 式の中の `<-`，または `x <- R` の R が effect の名前でない．試作（E0199）のメッセージ:
+  - 式の中: `` `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b` ``
+  - 文の頭: `` the right side of `<-` must be an effect ``，help は `` `x <- E` binds an effect; to compare with a negative value, write `x < -Int.abs(3)` ``（書いたものから作る）
 
 ## Compatibility
 
@@ -158,6 +163,7 @@ with g = Plain {
 - capture checking: closure の中の root は，closure の内側の with と捕えた値だけから決める．
 - 型検査: callback の型の R を確かめる．
 - 字句: `<-` を一つの字句（LEFT_ARROW）にする．parser は式の中の `<-` に E01xx を出す（試作では E0199）．
+- `x <- R` の R は parser で広く読み（effect の名前でなくても行末まで読む），構文の検査（`validation.rs`）が E01xx と help を出す．resolve は，そのとき E0217 を重ねて出さない．
 - fmt: `x <- E` の文を `c <- Console`，`st <- State[Int]` の形に整える（`emela-fmt` の printer に EFFECT_BINDING を足す）．
 - 試作の残り: 試作は `fs <- Files` から with の項目で member を開ける（`t = fs.Temporary()`）ようにしたが，#731 の決定どおりコンパイルエラーにする．
 
