@@ -2,7 +2,7 @@
 title: Reading an Instant from text, and Encode, Decode and Shaped for Instant
 authors: [somnicattus]
 status: draft
-pr:
+pr: 730
 issue:
 decided:
 touches: [lib.layers, api.std.instant, api.std.dynamic, api.std.shape]
