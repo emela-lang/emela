@@ -199,12 +199,37 @@ A point in time. An opaque type whose contents are an Int64 of milliseconds sinc
 | `subtract` | `subtract(t: Instant, d: Duration) -> Instant` | Emela | `d` earlier |
 | `since` | `since(t: Instant, earlier: Instant) -> Duration` | Emela | The length from `earlier` to `t` |
 | `to_string` | `to_string(t: Instant) -> String` | Emela | The date and time in UTC (`2025-10-12T03:04:05.678Z`). The format is below |
+| `parse` | `parse(s: String) -> Instant fails ParseError` | Emela | The point in time written in `s`, in the form below. Fails with `ParseError(input: s)` otherwise |
 
 - `to_string` writes `YYYY-MM-DDTHH:MM:SS.sssZ`: the year, the month (2 digits), the day (2 digits), the hour (2 digits, 00 to 23), the minute (2 digits), the second (2 digits, 00 to 59) and the milliseconds (always 3 digits), with the separators `-`, `T`, `:`, `.` and the suffix `Z` as written. Dates are counted in the proleptic Gregorian calendar.
 - If the year is 0 to 9999, it is written as 4 digits (`0000` to `9999`). The result is then a `date-time` of RFC 3339 whose offset is `Z`.
 - If the year is outside 0 to 9999, it is written as a sign (`+` or `-`) followed by the absolute value zero-padded to at least 6 digits (`+010000-01-01T00:00:00.000Z`, `-000001-12-31T00:00:00.000Z`). This is the expanded representation of the year of ISO 8601, and the result is not a `date-time` of RFC 3339. A year whose absolute value has more than 6 digits is written with all its digits, without padding. Every value of Instant is written by these rules, without a range limit.
+- `parse` reads a date and time with an offset from UTC, by this grammar. The whole of `s` MUST match it; no whitespace is allowed around it.
 
-impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl is the same as `to_string`.
+  ```ebnf
+  date_time = date , ( "T" | "t" | " " ) , time , offset ;
+  date      = year , "-" , digit2 , "-" , digit2 ;
+  year      = digit4 | sign , digit6 , { digit } ;
+  time      = digit2 , ":" , digit2 , [ ":" , digit2 , [ "." , digit , { digit } ] ] ;
+  offset    = "Z" | "z" | [ " " ] , sign , digit2 , [ [ ":" ] , digit2 ] ;
+  sign      = "+" | "-" ;
+  digit6    = digit2 , digit2 , digit2 ;
+  digit4    = digit2 , digit2 ;
+  digit2    = digit , digit ;
+  digit     = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+  ```
+
+- The fields are read as the date and the time of day at the given offset, in the proleptic Gregorian calendar. The month is 01 to 12, the day is 01 to the number of days of that month in that year, the hour is 00 to 23, the minute is 00 to 59, and the second is 00 to 59; an omitted second is 00. The hour of the offset is 00 to 23 and its minute is 00 to 59; an offset written with the hour only (`+09`) has the minute 00. `Z`, `z`, and an offset whose hour and minute are both 00 (`+00:00`, `-0000`, `+00`) are the offset 0.
+- If `s` has more than 256 code points, `parse` fails without reading it.
+- The separator between the date and the time, and the space before the offset, are one space (U+0020). No other whitespace is allowed.
+- A year written with a sign is that many years after (`+`) or before (`-`) the year 0. The sign `-` with the value 0 (`-000000`) is not read. A year of 4 digits is 0000 to 9999.
+- A comma is reserved for the decimal sign of the fraction (`03:04:05,678`). `parse` does not read it yet, and a comma is not given any other meaning in this form.
+- The fraction of a second is read to the millisecond: the first three digits are the milliseconds (fewer digits are padded with zeros on the right), and the digits after the third are dropped. The result is the latest millisecond that is not later than the time written.
+- The point in time is the date and time minus the offset. If it is outside the range of Instant (an Int64 of milliseconds), `parse` fails. The fields are read as exact integers: a year of any number of digits (with any number of leading zeros) that is outside the range fails, and does not wrap around by the rules of Int64. The milliseconds depend only on the first three digits of the fraction, however many digits follow.
+- For every Instant `t`, `parse(to_string(t)) == t`.
+- `parse` is O(n) in the length of `s`.
+
+impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl is the same as `to_string`. Encode, Decode and Shaped are in `[api.std.dynamic]` and `[api.std.shape]`.
 
 ### Std.Bytes (`std/bytes.emel`) `[api.std.bytes]`
 
@@ -341,7 +366,7 @@ impl (`[trait.builtin]`): `impl Set[A: Eq]: Eq`, `impl Set[A: Show]: Show` (`Set
 | `object`, `variant` | `object(fields: List[(String, Dynamic)]) -> Dynamic`, `variant(tag: String, value: Option[Dynamic]) -> Dynamic` | Build Fields, and the form of an enum |
 | `kind` | `kind(value: Dynamic) -> String` | `"null"`, `"bool"`, `"number"`, `"text"`, `"items"`, `"fields"` or `"binary"` |
 
-impl: Bool, Int, Int64, Float, String, Bytes, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. Bytes is encoded as Binary, and its Decode reads only Binary. `Array[A]` and `Set[A]` are encoded as Items in their order, and decoded from Items; the Decode of `Set[A]` drops repeated elements. The Decode of `List[A]`, `Array[A]`, `Set[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None. As a field of an object, None leaves the key out (`to_field`), and a missing key decodes as None (`from_absent`, by its default).
+impl: Bool, Int, Int64, Float, String, Bytes, Instant, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. Bytes is encoded as Binary, and its Decode reads only Binary. An Instant is encoded as Text of `Instant.to_string`, and decoded from Text with `Instant.parse`. A value that is not Text fails with `DecodeError(expected: "text", ...)`, and Text that `Instant.parse` does not read fails with `DecodeError(expected: "date-time", actual: the value, path: [])`. `Array[A]` and `Set[A]` are encoded as Items in their order, and decoded from Items; the Decode of `Set[A]` drops repeated elements. The Decode of `List[A]`, `Array[A]`, `Set[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None. As a field of an object, None leaves the key out (`to_field`), and a missing key decodes as None (`from_absent`, by its default).
 
 ### Std.Dynamic.Presence (`std/dynamic/presence.emel`) `[api.std.dynamic.presence]`
 
@@ -386,7 +411,7 @@ impl: Eq, Ord and Show are derived. Encode: `to_dynamic` writes Absent and Null 
 | `name_of` | `name_of(shape: Shape) -> String` | The name of the type as it is written (`Int`, `List[String]`, `Page[Member]`) |
 | `generic_name` | `generic_name(name: String, arguments: List[Shape]) -> String` | `name` followed by the names of `arguments` in brackets, or `name` alone without arguments |
 
-impl: Bool, Int, Int64, Float, String, Bytes, Dynamic, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K, V]` have Shaped. The shape of Bytes is `Bytes`, and the shapes of `Array[A]` and `Set[A]` are `List` of the shape of `A`. The impls of `List`, `Array`, `Set`, `Option` and `Map` pass `visiting` on to their type arguments.
+impl: Bool, Int, Int64, Float, String, Bytes, Instant, Dynamic, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K, V]` have Shaped. The shape of Instant is `Named("Instant", Shape.format(Shape.String, "date-time"))`. The shape of Bytes is `Bytes`, and the shapes of `Array[A]` and `Set[A]` are `List` of the shape of `A`. The impls of `List`, `Array`, `Set`, `Option` and `Map` pass `visiting` on to their type arguments.
 
 The notes defined by `Std.Shape` are `"description"`, `"pattern"`, `"format"`, `"minimum"`, `"maximum"`, `"min_length"`, `"max_length"`, `"min_items"` and `"max_items"`, each with the value its function above writes. Notes are only described: the notes do not change which values a shape describes, and nothing in `Std.Shape` checks them. Other notes may be added with `annotate`.
 
