@@ -2,7 +2,7 @@
 title: "The R of a closure is provided only by its caller"
 authors: [Alliana]
 status: draft
-pr:
+pr: 736
 issue: 719
 decided:
 touches: [effect.use, effect.with, type.rules, fiber.scope, grammar.lex, ext.boundary, diag.list]
