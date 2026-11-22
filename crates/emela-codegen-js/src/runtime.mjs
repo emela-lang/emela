@@ -1427,10 +1427,6 @@ export async function $launch(url, main) {
   const proc = globalThis.process;
   const script = proc?.argv?.[1];
   if (typeof script !== "string" || proc.versions?.node === undefined) return;
-  const evaluating = (proc.execArgv ?? []).some(
-    (arg) => ["-e", "-p", "--eval", "--print"].includes(arg) || /^--(eval|print)=/.test(arg),
-  );
-  if (evaluating) return;
   const fs = proc.getBuiltinModule?.("node:fs") ?? (await import("node:fs"));
   const nodeUrl = proc.getBuiltinModule?.("node:url") ?? (await import("node:url"));
   if (fs.realpathSync(script) === nodeUrl.fileURLToPath(url)) $launchMain(proc, main);
