@@ -2,7 +2,7 @@
 title: Reading a Duration from text, and Encode, Decode and Shaped for Duration
 authors: [somnicattus]
 status: draft
-pr:
+pr: 737
 issue:
 decided:
 touches: [lib.layers, api.std.duration, api.std.dynamic, api.std.shape, open.list]
