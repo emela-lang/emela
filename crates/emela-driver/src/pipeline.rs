@@ -22,8 +22,7 @@ use crate::hover::HoverInfo;
 use crate::nav::{NavTarget, RenameError};
 use crate::output::{BuildOutput, write_output};
 use crate::run::{
-    Output, ProgramCommand, RunOutput, node_command, node_script_command, wasmtime_command,
-    wasmtime_serve_command,
+    Output, ProgramCommand, RunOutput, node_command, wasmtime_command, wasmtime_serve_command,
 };
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
@@ -977,15 +976,12 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
     let server = frontend.is_http_service();
     let command = entry.map(|entry| match backend.runner() {
         Runner::Node => crate::js_host::check_version(&options.js_host).map(|()| {
-            if server {
-                node_script_command(
-                    &options.js_host,
-                    &entry.with_file_name(emela_codegen_js::SERVE_FILE),
-                    &options.args,
-                )
+            let script = if server {
+                entry.with_file_name(emela_codegen_js::SERVE_FILE)
             } else {
-                node_command(&options.js_host, &entry, &options.args)
-            }
+                entry
+            };
+            node_command(&options.js_host, &script, &options.args)
         }),
         Runner::Native => Ok(native_command(&entry, &options.args)),
         Runner::Wasmtime if server => wasmtime_serve_command(&entry, &options.args),

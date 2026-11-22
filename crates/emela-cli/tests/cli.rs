@@ -137,10 +137,8 @@ fn new_application_runs() {
     // The JS host is `EMELA_JS_HOST` when the tests run on another host (`[cmd.build]`).
     let host = emela_driver::js_host_program();
     assert!(
-        command.starts_with(&format!(
-            "running `{} --input-type=module -e <launcher> -- ",
-            host.display()
-        )) && command.ends_with("main.mjs`"),
+        command.starts_with(&format!("running `{} ", host.display()))
+            && command.ends_with("main.mjs`"),
         "{command}"
     );
 }
@@ -1400,10 +1398,7 @@ fn emela_node_is_read_with_a_warning() {
         "{run:?}"
     );
     assert_eq!(run.stderr.matches(W0902).count(), 1, "{run:?}");
-    let prefix = format!(
-        "running `{} --input-type=module -e <launcher> -- ",
-        host.display()
-    );
+    let prefix = format!("running `{} ", host.display());
     assert!(
         run.command
             .as_deref()

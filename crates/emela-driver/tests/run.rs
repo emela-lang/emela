@@ -22,6 +22,7 @@ impl HandWritten {
         HandWritten {
             files: vec![
                 OutputFile::new("main.mjs", js),
+                OutputFile::new("emela_runtime.mjs", emela_codegen_js::RUNTIME),
                 OutputFile::new(
                     "runtime/defect.mjs",
                     "export class Defect extends Error {\n  constructor(message) { super(message); this.name = \"Defect\"; }\n}\n",
@@ -130,12 +131,20 @@ fn passes_args_and_exit_code() {
     assert_eq!(output.code, 3);
 }
 
+/// A `main.mjs` that launches its `main` through the runtime, as the emitted one does
+/// (`[target.js.module]`).
+fn launching(main_body: &str) -> String {
+    format!(
+        "import {{ $launch }} from \"./emela_runtime.mjs\";\nimport {{ Defect }} from \"./runtime/defect.mjs\";\nfunction main() {{\n{main_body}}}\n$launch(import.meta.url, main);\n"
+    )
+}
+
 #[test]
 fn defect_has_its_own_exit_code() {
     let (_, output) = run_js(
         "defect",
         MAIN,
-        "import { Defect } from \"./runtime/defect.mjs\";\nconsole.log(\"before\");\nthrow new Defect(\"整数を 0 で割った\");\n",
+        &launching("console.log(\"before\");\nthrow new Defect(\"整数を 0 で割った\");\n"),
         &[],
     );
     let output = output.unwrap();
