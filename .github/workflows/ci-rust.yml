@@ -52,7 +52,7 @@ jobs:
           bun-version: 1.4.3
       # `emela run` and the JS backend tests execute the generated code with node. On Bun some
       # tests still start node themselves (the JS backend's own tests and the HTTP harness).
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       # The WASM backend tests execute the generated WASI 0.3 components with
@@ -97,7 +97,7 @@ jobs:
         with:
           shared-key: test
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - uses: bytecodealliance/actions/wasmtime/setup@v1

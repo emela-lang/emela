@@ -29,7 +29,7 @@ jobs:
       # An artifact does not keep the executable bit.
       - run: chmod +x bin/emela
       # `emela run` and `emela test` execute the generated JS with node.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       # Bun before 1.4.3 does not run the microtasks that a `beforeExit` listener queues
@@ -85,7 +85,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Build
@@ -113,7 +113,7 @@ jobs:
         with:
           shared-key: windows
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Build
