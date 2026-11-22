@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-23 (The R of a closure is provided only by its caller)
+
+- `[effect.use]`, `[effect.with]`, `[type.rules]`, `[fiber.scope]`, `[grammar.lex]`, `[ext.boundary]`, `[diag.list]`: The R of an anonymous function or a local fn is provided only by the side that calls it; the withs that enclose the place where it is made no longer provide handlers, matching the types. Forked children use the handlers at the time `Fiber.scope` is called, without exception. The R of a callback to the host MUST NOT contain an effect. A function value `x.op` of an effect alias resolves when it is called, `(use E).M(...)` is not expanded, and `<-` is one token. Adopted in the proposal `closure-r-by-caller` (#736).
+
 ## 2026-11-23 (Reading an Instant from text, and Encode, Decode and Shaped for Instant)
 
 - `[lib.layers]`, `[api.std.instant]`, `[api.std.dynamic]`, `[api.std.shape]`: Add `Instant.parse(s: String) -> Instant fails ParseError`. It reads a date and time with an offset from UTC, in the form that `Instant.to_string` writes and the `date-time` of RFC 3339, extended with a space between the date and the time, the offsets `±HHMM` and `±HH`, and a space before a numeric offset, so that the timestamps written by PostgreSQL and SQL Server can be read too. The offset is required. Instant also gets Encode, Decode and Shaped, written and read as the text of `Instant.to_string` and `Instant.parse`. The range (an Int64 of milliseconds) and the unit of Instant do not change. Adopted in the proposal `instant-parse` (#730).
