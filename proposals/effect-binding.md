@@ -2,7 +2,7 @@
 title: "Effect bindings: `x <- Effect` resolves at the call"
 authors: [Alliana]
 status: draft
-pr:
+pr: 731
 issue: 719
 decided:
 touches: [grammar.expr, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, diag.list]
