@@ -100,7 +100,9 @@ with g = Plain {
 2. `(use E).M(...)`（handler member を開く形）は展開しない．今のまま，その位置でいちばん内側の E の handler の member を開く（`use E` の式なので deprecated）．#731 のとおり，effect alias から handler member は開けない．
 3. `<-` を一つの字句にする．
    - 試作は文の頭の `lower_name < - TYPE_NAME` を `x <- E` と読み，`x < -Int.abs(3)` や `{ x < -Money(cents: 1).cents }` のような正しいプログラムを誤読した（ブロックの最後の式で起きる）．
-   - 一つの字句にすると，空白なしの `a<-1` の意味が変わる（`a < -1` ではなくなる）．`emela fmt` は `a < -1` と出力するので，整形したコードでは起きない．リポジトリには 0 件．
+   - 今は `<` と `-` が別々の字句なので，`a<-1` も空白を入れた `a <- 1` も `a < -1`（比較）と読まれる．一つの字句にすると，どちらもコンパイルエラー（E01xx）になる．黙って別の意味になる形はない．
+   - 式の中（被演算子の後ろ）に `<-` が来たら E01xx を出し，比較なら `a < -b` と書くよう示す．文の頭に `a <- 1` と書いた場合は，effect の名前を期待する構文エラーになる．
+   - `emela fmt` は比較を `a < -1` と出力するので，整形したコードでは起きない．std，examples，テストに該当する形は 0 件．
 
 ## Specification changes
 
@@ -125,6 +127,7 @@ with g = Plain {
 ### `[grammar.lex]`
 
 - `<-` is one token. A comparison with a negated operand is written with a space between `<` and `-` (`a < -1`).
+- `<-` after an operand in an expression (`a<-1`, `a <- 1`) is a compile error (E01xx). `<-` is written only in a statement `x <- E` (`[grammar.expr]`).
 
 ### `[ext.boundary]`
 
@@ -133,10 +136,12 @@ with g = Plain {
 ### `[diag.list]`
 
 - E04xx: a callback passed to or returned from an external function has an effect in its R.
+- E01xx: `<-` after an operand in an expression.
 
 ## Diagnostics
 
 - [ ] E04xx: callback の R に effect がある（help: 名前付きの項目の capability を捕えさせる）
+- [ ] E01xx: 式の中の `<-`．メッセージは試作では `` `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b` ``
 
 ## Compatibility
 
@@ -145,14 +150,15 @@ with g = Plain {
   - scope の本体の中の with で作った closure を子に渡す形（`[fiber.scope]` の例外）．子は外の handler を使う．
 - with の中で作って with の中で呼ぶ closure は変わらない．
 - callback の型に effect を書いて，その closure の中で handler を使っていた形は，E04xx になる．名前付きの項目の capability を捕えさせる形に書き換える．
-- 空白なしの `x<-E` 以外の `a<-b` は，`a < -b` ではなくなる．
+- `a<-1` と `a <- 1` は今 `a < -1`（比較）と読まれるが，コンパイルエラー（E01xx）になる．黙って意味が変わる形はない．`emela fmt` を通したコードには現れない．
 
 ## Implementation
 
 - lowering: closure を作るときに，囲む with の evidence を closure の table に足さない．closure の table は呼ぶ側から受け取ったものだけにする（試作の `caller_ev`）．
 - capture checking: closure の中の root は，closure の内側の with と捕えた値だけから決める．
 - 型検査: callback の型の R を確かめる．
-- 字句: `<-` を一つの字句にする．
+- 字句: `<-` を一つの字句（LEFT_ARROW）にする．parser は式の中の `<-` に E01xx を出す（試作では E0199）．
+- fmt: `x <- E` の文を `c <- Console`，`st <- State[Int]` の形に整える（`emela-fmt` の printer に EFFECT_BINDING を足す）．
 - 試作の残り: 試作は `fs <- Files` から with の項目で member を開ける（`t = fs.Temporary()`）ようにしたが，#731 の決定どおりコンパイルエラーにする．
 
 ## Alternatives
