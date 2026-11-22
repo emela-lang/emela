@@ -47,14 +47,14 @@ jobs:
           mv tests-long.tar.zst tests.tar.zst
           ls -l tests.tar.zst
       # The archive is already compressed with zstd; compressing it again only costs time.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.event_name != 'push'
         with:
           name: tests-linux
           path: tests.tar.zst
           compression-level: 0
           retention-days: 1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.event_name != 'push'
         with:
           name: emela-linux
