@@ -14,7 +14,7 @@ export fn main() -> List[Int] {
     let ev%9: evidence = provide(; Clock = h%8)
   } {
     @dbg[List[Int]](List.map[Int, Int, {}, {ev}]([1]: List[Int], fn(x%13: Int, ev%14: evidence) -> Int {
-      (x%13 +[Int] h%8.Clock#now())
+      (x%13 +[Int] (use[Clock](ev%14)).Clock#now())
     }, ev%9))
   }
 }

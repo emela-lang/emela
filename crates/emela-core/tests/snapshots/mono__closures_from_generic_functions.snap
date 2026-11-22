@@ -14,7 +14,7 @@ export fn main() -> Int {
     let ev%7: evidence = provide(; Log = h%6)
   } {
     let k%8: fn(Int) -> Int ev = compose[Int, Int, Int, {}, {ev}, {}, {}](fn(x%11: Int, ev%12: evidence) -> Int {
-      let _%13: () = h%6.Log#info("x")
+      let _%13: () = (use[Log](ev%12)).Log#info("x")
       x%11
     }, fn(y%14: Int) -> Int {
       y%14

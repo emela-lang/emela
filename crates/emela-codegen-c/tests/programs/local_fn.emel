@@ -67,7 +67,8 @@ fn checked(xs: List[Int]) -> Int fails Boom {
 }
 
 fn greeting() -> String uses { Name } {
-  # `use Name` looks at the `with` around the declaration first.
+  # The `with` around the declaration does not provide `use Name` in the body: the side that
+  # calls the local fn does (`[effect.with]`).
   with Alice {
     fn greet(suffix: String) -> String {
       n = use Name

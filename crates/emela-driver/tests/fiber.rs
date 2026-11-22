@@ -295,8 +295,8 @@ fn main() {
 #[test]
 fn children_get_the_handlers_where_scope_is_called() {
     // spec 11.2: a child uses the handlers in effect when Fiber.scope was called. A `with` inside
-    // the scope body does not reach children, but a closure created inside a `with` uses that
-    // `with`'s handler.
+    // the scope body does not reach children, even through a closure created inside that `with`
+    // (`[effect.with]`: the side that calls a closure provides its R).
     let (code, out, err) = run_main(
         "handlers",
         &source(
@@ -320,7 +320,7 @@ fn main() {
     );
     assert_eq!(
         (code, out.as_str(), err.as_str()),
-        (0, "body inner\nouter\ninner\n", "")
+        (0, "body inner\nouter\nouter\n", "")
     );
 }
 
