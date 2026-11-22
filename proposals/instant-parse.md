@@ -27,7 +27,7 @@ There is no way in std to make an Instant from text. An Instant comes only from 
 import Std.Instant.{Instant}
 
 type Event(name: String, at: Instant)
-  derive Encode, Decode   # E0326 today: Instant implements neither
+  derive Encode, Decode # E0326 today: Instant implements neither
 ```
 
 `Instant.to_string` was written, when Instant was added (#154), to give the same text as `Date.prototype.toISOString` of JS, and its unit, milliseconds, was chosen to match `Date.now()` (the notes of `emela-core` at that time). Reading the same form keeps text passed between Emela and a JS host the same in both directions.
