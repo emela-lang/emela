@@ -54,7 +54,7 @@ jobs:
       # tests still start node themselves (the JS backend's own tests and the HTTP harness).
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26
       # The WASM backend tests execute the generated WASI 0.3 components with
       # wasmtime. p3 support needs 49 or newer.
       - uses: bytecodealliance/actions/wasmtime/setup@v1
@@ -99,7 +99,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26
       - uses: bytecodealliance/actions/wasmtime/setup@v1
         with:
           version: 49.0.3
