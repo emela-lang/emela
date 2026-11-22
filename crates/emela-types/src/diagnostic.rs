@@ -399,6 +399,13 @@ pub enum DiagnosticKind {
         sets: Vec<SmolStr>,
         required: ImmediateSource,
     },
+    /// The R of a callback passed to or returned from an external function contains effects
+    /// (E0454, `[ext.boundary]`): the host calls it without handlers. `callee` is the external
+    /// function, `None` at the declaration.
+    CallbackEffects {
+        effects: Vec<SmolStr>,
+        callee: Option<SmolStr>,
+    },
     /// `Immediate` on a type parameter that is not an effect set (E0322, spec 9.5).
     ImmediateOnNonEffect { param: SmolStr },
     /// A set (`{ Db }`, `A | B`) in a non-set type argument position (E0324, spec 9.2).

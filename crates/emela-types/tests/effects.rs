@@ -841,7 +841,8 @@ handler MixedSleep: Clock {
 
 /// `R: Immediate` (spec 9.5). An effect is Immediate when it has no suspend fn and is not Async; a
 /// set type parameter only when it has the bound. Callbacks passed to external functions must be
-/// Immediate too.
+/// Immediate too, and their R cannot contain an effect other than a host effect at all (E0454,
+/// `[ext.boundary]`).
 #[test]
 fn immediate_constraint() {
     insta::assert_snapshot!(render_effects(

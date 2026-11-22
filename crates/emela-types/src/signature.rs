@@ -521,23 +521,24 @@ fn check_bounds(
     if !item.is_external {
         return;
     }
-    // The `uses` clauses of an external function's callbacks.
-    fn walk(
-        program: &Program,
-        ty: TypeId,
-        constrained: &[DefId],
-        effects: &mut Vec<SmolStr>,
-        sets: &mut Vec<SmolStr>,
-    ) {
+    // The `uses` clauses of an external function's callbacks. An effect other than a host
+    // effect cannot be there at all (`[ext.boundary]`); a host effect and a set must be
+    // Immediate.
+    struct Found {
+        callback: Vec<SmolStr>,
+        effects: Vec<SmolStr>,
+        sets: Vec<SmolStr>,
+    }
+    fn walk(program: &Program, ty: TypeId, constrained: &[DefId], found: &mut Found) {
         match &program.types[ty].kind {
             TypeKind::Path { args, .. } => {
                 for &a in args {
-                    walk(program, a, constrained, effects, sets);
+                    walk(program, a, constrained, found);
                 }
             }
             TypeKind::Tuple(elems) => {
                 for &e in elems {
-                    walk(program, e, constrained, effects, sets);
+                    walk(program, e, constrained, found);
                 }
             }
             TypeKind::Fn {
@@ -549,8 +550,9 @@ fn check_bounds(
                     };
                     let name = program.defs[d].name.clone();
                     let list = match program.defs[d].kind {
-                        DefKind::Effect if !is_immediate_effect(program, d) => &mut *effects,
-                        DefKind::TypeParam if !constrained.contains(&d) => &mut *sets,
+                        DefKind::Effect if !program.is_host_effect(d) => &mut found.callback,
+                        DefKind::Effect if !is_immediate_effect(program, d) => &mut found.effects,
+                        DefKind::TypeParam if !constrained.contains(&d) => &mut found.sets,
                         _ => continue,
                     };
                     if !list.contains(&name) {
@@ -558,10 +560,10 @@ fn check_bounds(
                     }
                 }
                 for &p in params {
-                    walk(program, p, constrained, effects, sets);
+                    walk(program, p, constrained, found);
                 }
                 if let Some(r) = ret {
-                    walk(program, *r, constrained, effects, sets);
+                    walk(program, *r, constrained, found);
                 }
             }
             TypeKind::SelfType
@@ -576,8 +578,26 @@ fn check_bounds(
         let Some(ty) = p.ty else {
             continue;
         };
-        let (mut effects, mut sets) = (Vec::new(), Vec::new());
-        walk(program, ty, &constrained, &mut effects, &mut sets);
+        let mut found = Found {
+            callback: Vec::new(),
+            effects: Vec::new(),
+            sets: Vec::new(),
+        };
+        walk(program, ty, &constrained, &mut found);
+        let Found {
+            callback,
+            effects,
+            sets,
+        } = found;
+        if !callback.is_empty() {
+            diags.push(Diagnostic {
+                span: program.types[ty].span,
+                kind: DiagnosticKind::CallbackEffects {
+                    effects: callback,
+                    callee: None,
+                },
+            });
+        }
         if effects.is_empty() && sets.is_empty() {
             continue;
         }

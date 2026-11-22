@@ -79,8 +79,38 @@ impl BodyInfer<'_> {
             let params = ob.owner.map(|d| self.def_params(d)).unwrap_or_default();
             let mut effects: Vec<SmolStr> = Vec::new();
             let mut sets: Vec<SmolStr> = Vec::new();
+            // The R of a callback cannot contain an effect, since the host passes no handlers
+            // (`[ext.boundary]`). A capability is allowed: the callback reaches its handler
+            // through it. Host effects (Async) are left to the check of Immediate.
+            let mut callback: Vec<SmolStr> = Vec::new();
+            if let ImmediateSource::ExternalCallback { .. } = &ob.source {
+                for e in row.elems() {
+                    if let RowElem::Tag(effect) = e
+                        && !program.is_host_effect(effect.def)
+                    {
+                        let name = program.defs[effect.def].name.clone();
+                        if !callback.contains(&name) {
+                            callback.push(name);
+                        }
+                    }
+                }
+            }
+            if !callback.is_empty() {
+                let ImmediateSource::ExternalCallback { callee } = &ob.source else {
+                    unreachable!("only callbacks are collected");
+                };
+                self.diags.push(Diagnostic {
+                    span: Some(ob.span),
+                    kind: DiagnosticKind::CallbackEffects {
+                        effects: callback.clone(),
+                        callee: Some(callee.clone()),
+                    },
+                });
+            }
             for e in row.elems() {
                 match e {
+                    RowElem::Tag(effect)
+                        if callback.contains(&program.defs[effect.def].name) => {}
                     // A capability counts as its effect (`[effect.use]`).
                     RowElem::Tag(effect) | RowElem::Cap(CapElem { tag: effect, .. })
                         if !is_immediate_effect(program, effect.def) =>
