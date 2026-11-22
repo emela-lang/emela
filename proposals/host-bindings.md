@@ -163,6 +163,6 @@ No prototype has been written.
 ## Open questions
 
 - Launches of different hosts. When an external function is reached from launches with different hosts, the annotation without a host is selected (proposed), or each launch gets its own selection, which needs the code reachable from both to be emitted once per host.
-- Whether `host:` may name several hosts for one annotation (`host: PageHost | WebWorker`), which `host-effect-declaration` leaves open as the relations between kinds of host.
+- Several hosts for one annotation. Repeating the annotation for each host (`host: PageHost` and `host: WebWorker`) already selects it on any of them. A set (`host: { ProcessHost, NodeJsHost }`) would select it only on a launch that provides all of them, as `{ ... }` means in a uses clause: for example a faster host function for a process on Node.js, under an external function whose uses clause has only `ProcessHost`. When several annotations apply, the one whose hosts include the others' would be selected, and two that apply where neither includes the other would be an error. A set has a meaning only when a launch can provide several host effects, which `host-effect-declaration` leaves open (an entry that provides several, or relations between kinds of host).
 
 ## Decision
