@@ -31,6 +31,9 @@ literal    = int_lit | float_lit | string_lit
 - `letter` and `digit` are limited to ASCII.
 - `char` is any character except `"`, `\`, and newline. `hex_digit` is `0` to `9`, `a` to `f`, and `A` to `F`.
 - `1..2` reads as `dec_lit ".." dec_lit`, and `1.x` reads as `dec_lit "." lower_name`. If no digit follows the decimal point, the literal is not a floating-point number.
+- `<-` is one token. A comparison with a negated operand is written with a space between `<` and `-` (`a < -1`).
+- `<-` after an operand in an expression (`a<-1`, `a <- 1`) is a compile error (E0152). `<-` is written only in a statement `x <- E` (`[grammar.expr]`).
+- In a statement `x <- R`, R that is not an effect name (`x <- 1`, `x <- LIMIT`, `x <- Int.abs(3)`) is a compile error (E0152). The diagnostic shows the comparison written with a space, `x < -R`, as a help.
 
 ## 17.3 Modules and declarations `[grammar.decl]`
 
@@ -139,8 +142,9 @@ effect_item = type_ref [ "[" type { "," type } "]" ] | upper_name   (* an effect
 
 ```ebnf
 block      = "{" { stmt NL } "}"
-stmt       = binding | local_fn | expr
+stmt       = binding | effect_alias | local_fn | expr
 binding    = pattern [ ":" type ] "=" expr
+effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 local_fn   = "fn" lower_name "(" [ params ] ")" [ signature ] block
 
 expr       = "fail" expr
@@ -188,6 +192,7 @@ lambda_param = pattern [ ":" type ]
 
 - When the last statement of a block is an expression, its value is the value of the block. When the last statement is a binding, the value of the block is `()`. The last statement cannot be a local_fn (E0151).
 - Whether a statement is a binding or an expression is decided by whether a sequence that reads as a pattern is immediately followed by `=` or `:`.
+- An effect_alias is a statement (8.2). Whether a statement is an effect_alias is decided by whether a lower_name is immediately followed by `<-`.
 - To call an operation of `use X` in place, wrap it in parentheses: `(use X).op(...)`. Writing `.` or `(` directly after `use X` is a compile error (E0121).
 - In an argument list, a positional argument cannot follow a named argument.
 - The type arguments on the right of `by` (`Hits by State[Int]`) can be written only when it names an effect, and arguments only when it names a handler.

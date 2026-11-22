@@ -86,6 +86,7 @@ Only the following types can be used for the parameters and the return value of 
 
 List and user-defined types cannot be passed directly. They are converted inside a handler.
 
+- The R of a function type in a boundary type (a callback) MUST NOT contain an effect. A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E0454). The R may contain capabilities; a callback reaches a handler only through a capability it captures (8.2), since the host calls it without passing handlers.
 - The parameters and return value of a function passed as a callback are treated the same as the parameters and return value of an external function (a String received from the host is normalized as in 12.5).
 - An external function that returns `()` discards the host's return value and returns `()`.
 - A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.
