@@ -2,7 +2,7 @@
 title: Bindings for a kind of host
 authors: [somnicattus]
 status: draft
-pr:
+pr: 727
 issue:
 decided:
 touches: [ext.decl, grammar.decl, diag.list]
