@@ -14,7 +14,6 @@ mod support;
 use common::{PRELUDE, Run, build_and_run, cc, out_dir};
 use emela_codegen_c::{COutput, Entry, compile_with_values};
 use emela_core::Roots;
-use emela_core::opt::{CoreFns, Options, Rules};
 use support::try_lower;
 
 /// A program with a record or a tuple in every place the emitter converts: an array of records
@@ -99,31 +98,6 @@ fn main() {
 fn to_c(name: &str, src: &str, optimize: bool, values: bool) -> COutput {
     let core = try_lower(&[("main.emel", src)], Roots::Exported)
         .unwrap_or_else(|e| panic!("{name}: lowering failed: {e:#?}"));
-    compile_with_values(&core, &Entry::Main, optimize, values)
-        .unwrap_or_else(|e| panic!("{name}: C compilation failed: {e:#?}"))
-}
-
-/// Lowers and compiles `src` with ζ reduction on, then the LIR passes and the by-value layout
-/// on or off.
-///
-/// The loop pass sees a fixed record read as invariant only once the `let` copies in front of it
-/// are propagated. ζ does that from A2/PR-011 on, and A10/PR-019 turns it on by default; a test
-/// that needs the hoist before A10 names the rule here. The default pipeline has already inlined
-/// the bundled `List.fold` by then, so the second run only has to propagate the copies.
-fn to_c_with_zeta(name: &str, src: &str, optimize: bool, values: bool) -> COutput {
-    let mut core = try_lower(&[("main.emel", src)], Roots::Exported)
-        .unwrap_or_else(|e| panic!("{name}: lowering failed: {e:#?}"));
-    emela_core::opt::run_with(
-        &mut core,
-        &CoreFns::default(),
-        Options {
-            rules: Rules {
-                zeta: true,
-                ..Rules::none()
-            },
-            ..Options::default()
-        },
-    );
     compile_with_values(&core, &Entry::Main, optimize, values)
         .unwrap_or_else(|e| panic!("{name}: C compilation failed: {e:#?}"))
 }
@@ -285,7 +259,7 @@ fn main() {
     );
     assert!(!values.stdout.trim().is_empty(), "the program prints");
     // The fixed read is out of the loop: nothing outside it but the read, nothing inside.
-    let out = to_c_with_zeta("values-hoist-c", &src, true, true);
+    let out = to_c("values-hoist-c", &src, true, true);
     let sum = out
         .main
         .split("/* sum */")
