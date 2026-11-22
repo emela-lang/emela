@@ -18,7 +18,7 @@ related: [capability-type, capability-trait, handler-member, handler-init-argume
 
 - capability を「init が終わり，まだ release されていない handler（handler の実体）」と定める．with の項目ごとに一つできる．
 - `with x = Item` の x は capability そのもの．型検査は，型と R の中で，どの capability かを区別する．
-- capability の操作を呼ぶと，R にはその capability が入る（`x.read()` なら x）．R に入るものは，effect，宣言した label，capability の三種類になる．
+- capability の操作を呼ぶと，R にはその capability が入る（`x.read()` なら x）．capability の型は，どの capability かを集合で持つので，別々の with の capability も同じリストに入れられる．R に入るものは，effect，宣言した label，capability の三種類になる．
 - 原則は一つ: capability は，それを作った with の外へ持ち出せない．型か R にその capability を含む値は with の外に出せず，型検査がこれを見る．どの道を通っても型に capability が残るので，道を数える必要がない．
 - capability の型はソースでは `use E` のまま書く．引数の `x: use E` は，呼ぶ側が渡す capability を受け取る．
 - capability を元の effect に広げない．
@@ -95,10 +95,24 @@ with f = Files.Open("a.txt") {
 - 型が `use E` の値は，型検査の中では，どの capability かを持つ．`[f]` の要素の型は f の capability．
 - capability を元の effect の名前に広げない．R に f を持つ closure は，`uses { ReadFile }` と書いた関数型には入らない．
 
+### capability の集合
+
+- capability の型は，どの capability かを一つではなく集合で持つ．ソースの形は `use E` のまま．
+- 別々の with で作った capability も，同じリストに入れられる．`[x, y]` の要素の型は「E の capability のうち x か y」．単一化は R と同じく集合の和で行い，一般の部分型は使わない．
+- 集合を持つ値の操作を呼ぶと，R に集合のすべてが入る（`[x, y]` の要素なら x と y）．どれが来ても足りるように，すべてを要求する．
+- x の with と y の with がそれぞれ外す．`[x, y]` は x と y の両方が生きている範囲でしか使えず，持ち出せない原則がそのまま働く．
+- 失うのは精度だけ．要素ごとにどの capability かは型から分からないが，安全には影響しない．
+
+```emel
+with x = Counters.Open(1), y = Counters.Open(10) {
+  ns = [x, y].map(|c| c.next()) # closure の R は x と y．この with が両方を外す
+}
+```
+
 ### capability の引数
 
-- 引数の型に `use E` と書くと，その関数は E の capability を一つ受け取る型引数を持つ．関数の中の `x.read()` は R にその型引数を入れる．
-- 呼び出しで，型引数は渡した capability に決まる．`read_all(f)` は，呼ぶ側の R に f を入れる．
+- 引数の型に `use E` と書くと，その関数は E の capability の集合を受け取る型引数を持つ．関数の中の `x.read()` は R にその型引数を入れる．
+- 呼び出しで，型引数は渡した値の集合に決まる．`read_all(f)` は呼ぶ側の R に f を入れ，`[x, y]` の要素を渡せば x と y を入れる．
 - 同じ effect の引数を二つ取ると，型引数も二つになる（`fn copy(from: use Db, to: use Db)`）．
 - 引数に effect alias や `use E`（名前のない値）を渡すと，型引数は effect の名前 E に決まる．呼んだ時点でいちばん内側の E に届く．
 
@@ -181,7 +195,7 @@ with f = Files.Open("a.txt") {
 ## Implementation
 
 - 型検査: capability の型と effect set に，どの capability かを持たせる．with の出口で，本体の値の型，エラー，R にその with の capability が残らないかを確かめる．型引数の範囲の検査と同じ仕組みを使う．
-- 引数の `use E` を capability の型引数として扱い，呼び出しで単一化する．
+- capability の型の集合と，引数の `use E` の型引数は，R の集合と同じ仕組み（集合の和と set variable）で推論する．
 - lowering: capability の evidence は，その項目の handler．effect の名前に決まった型引数は，呼んだ時点の evidence を使う．
 - capture checking: deprecation の期間は今のまま動かし，廃止の版で capability の部分を外す．
 
@@ -190,6 +204,7 @@ with f = Files.Open("a.txt") {
 - 値を残し，capture checking で道を塞ぎ続ける（`capture-checking-exits`）．#719 の「決めること 1，2」と，host と Deferred / Queue の未決が残る．#701 は直らない．
 - capability を値でなくす（この PR の最初の版）．capability をコレクションに入れる形と，`State[use Name]` が書けなくなる．型で区別すれば，値のままで同じ安全が得られる．
 - 局所の label を立て，x をその label の capability とする（この PR の二つ目の版）．利用者が capability と label の二つを覚える必要がある．capability そのものを R に入れれば，label は要らない．
+- capability を effect の名前に広げて，別々の with の capability を同じリストに入れる．広げた値は型が R で追えず，今の #719 の穴に戻る．集合で持てば広げずに入れられる．
 - 名前付きの項目を `with f <- Files.Open(path)` や `with Files.Open(path) as f` と書く．`<-` は effect alias と同じ記号になり，`as` は今の `with x = ...` の書き換えが要る．
 - 一段で名前のない `use E` の値をなくす（deprecation の期間を置かない）．影響が言語の中心なので期間を置く．
 
@@ -197,7 +212,8 @@ with f = Files.Open("a.txt") {
 
 ## Open questions
 
-- 別々の with で作った capability を一つのリストに入れる形（`[f, g]`）．要素の型を capability の集合にし，操作は R に両方を入れるか．#651（regions）の「同じ region で開いた資源」とどう合わせるか．
+- 開く個数が実行時に決まる資源（`paths.map(|p| open(p))`）は，capability の集合では書けない（with の数がソースで決まらない）．まとめて開く capability を一つ作り，開いた資源をその寿命に従わせる形（#651 の regions）と合わせるか．
+- LSP の hover で capability の集合をどう表示するか．
 - capability の型引数を明示する構文が要るか．関数型にも capability の引数を書けるか（`fn(use ReadFile) -> ()`）．
 - handler の init の引数とフィールドに capability を持つ形（`with PostgresUsers(db: replica)`）．handler の型に capability が入る．
 - handler の操作の中の `self` を，その handler の capability と見るか．`self` はフィールドに触れるので，capability より多くのことができる．
@@ -207,7 +223,6 @@ with f = Files.Open("a.txt") {
 - 移行の道具．`x = use E` → `x <- E` の書き換えを自動にするか．
 - `[C: Capability]`（`capability-trait`）はそのまま使えるか．#651 の `close[C: Capability](item: C)` を確かめる．
 - capability を effect の名前に広げられないことで書けなくなるコードがどれだけあるか．
-- LSP の hover で，どの capability かをどう表示するか（`use ReadFile` に名前を添えるなど）．
 - 日本語の訳．用語集は capability を「能力」と訳している．定義を変えるのに合わせて訳を見直すか．
 
 ## Decision
