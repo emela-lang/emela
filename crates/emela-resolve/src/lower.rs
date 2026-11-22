@@ -79,6 +79,8 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         type_arg: false,
         ignored_type_params: Vec::new(),
         member_label: None,
+        effect_aliases: FxHashMap::default(),
+        alias_receiver: false,
     };
     let item = match &pending.item {
         ast::Item::Import(_) => return,
@@ -153,6 +155,11 @@ struct Lower<'r, 'a> {
     /// The label through which the last handler member was named (`Audit.Open`,
     /// `[effect.label]`); taken by the expression or the item of `with` that names it.
     member_label: Option<DefId>,
+    /// The effect aliases declared in the item (`x <- E`), with the effect and its type
+    /// arguments (`[effect.use]`).
+    effect_aliases: FxHashMap<LocalId, (Res, Vec<TypeId>)>,
+    /// Set while the base of `x.op` is lowered: a reference to an effect alias is allowed there.
+    alias_receiver: bool,
 }
 
 /// Names bound by one pattern (or parameter list). Binding the same name twice is reported.
@@ -1583,7 +1590,16 @@ impl Lower<'_, '_> {
                 _ => ExprKind::Missing,
             },
             STRING => self.string(node),
-            NAME_REF => ExprKind::Path(self.name_ref(node)),
+            NAME_REF => {
+                let receiver = std::mem::take(&mut self.alias_receiver);
+                let res = self.name_ref(node);
+                if let Res::Local(local) = res
+                    && let Some(id) = self.alias_use(local, range, receiver)
+                {
+                    return id;
+                }
+                ExprKind::Path(res)
+            }
             PATH_EXPR => match node.children().find_map(ast::Path::cast) {
                 Some(path) => {
                     self.member_label = None;
@@ -1738,13 +1754,15 @@ impl Lower<'_, '_> {
         let mut stmts = Vec::new();
         let children: Vec<SyntaxNode> = node
             .children()
-            .filter(|c| matches!(c.kind(), BINDING | LOCAL_FN) || is_expr(c.kind()))
+            .filter(|c| matches!(c.kind(), BINDING | LOCAL_FN | EFFECT_ALIAS) || is_expr(c.kind()))
             .collect();
         let mut tail = None;
         for (i, child) in children.iter().enumerate() {
             let last = i + 1 == children.len();
             if child.kind() == BINDING {
                 stmts.push(self.binding(child));
+            } else if let Some(alias) = ast::EffectAlias::cast(child.clone()) {
+                self.effect_alias(&alias);
             } else if let Some(f) = ast::LocalFn::cast(child.clone()) {
                 stmts.push(self.local_fn(&f));
             } else {
@@ -1757,6 +1775,62 @@ impl Lower<'_, '_> {
             }
         }
         Block { stmts, tail }
+    }
+
+    /// `x <- E[args]` (`[effect.use]`). Binds x for the rest of the block. It adds no statement:
+    /// each reference to x becomes its own `use E` ([`Program::alias_uses`]).
+    fn effect_alias(&mut self, alias: &ast::EffectAlias) {
+        let node = alias.syntax();
+        // A right side that is not an effect name is reported by syntax validation (E0152);
+        // name resolution does not report it again.
+        let effect = match alias.path() {
+            Some(path) if !alias.is_malformed() => self.resolve_type_ns(&path, Expected::Effect),
+            _ => Res::Err,
+        };
+        let args = self.type_arg_list(node.children().find(|n| n.kind() == TYPE_ARG_LIST));
+        let Some(token) = alias.name() else {
+            return;
+        };
+        let (name, range) = token_name(&token);
+        let mut binder = Binder::default();
+        let local = self.bind(&mut binder, name, LocalKind::EffectAlias, range);
+        self.bind_all(binder);
+        self.effect_aliases.insert(local, (effect, args));
+    }
+
+    /// A reference to `local`, if it is an effect alias: its own `use E`, recorded in
+    /// [`Program::alias_uses`]. Anywhere but the receiver of `x.op(...)` or `x.op` it is E0453;
+    /// it is still lowered to `use E`, so that type checking goes on.
+    fn alias_use(&mut self, local: LocalId, range: TextRange, receiver: bool) -> Option<ExprId> {
+        let (effect, args) = self.effect_aliases.get(&local)?.clone();
+        if !receiver {
+            let name = self.r.program.locals[local].name.clone();
+            self.error(range, DiagnosticKind::EffectAliasAsValue { name });
+        }
+        let id = self.alloc_expr(ExprKind::Use { effect, args }, range);
+        self.r.program.alias_uses.insert(id, Some(local));
+        Some(id)
+    }
+
+    /// The handler member `member` opened through `local`, if it is an effect alias (E0453).
+    fn member_through_alias(&mut self, local: LocalId, range: TextRange, member: &SmolStr) -> bool {
+        let Some((effect, _)) = self.effect_aliases.get(&local) else {
+            return false;
+        };
+        let effect = match effect {
+            Res::Def(d) => self.r.program.defs[*d].name.clone(),
+            _ => SmolStr::new_static("E"),
+        };
+        let alias = self.r.program.locals[local].name.clone();
+        self.error(
+            range,
+            DiagnosticKind::MemberThroughEffectAlias {
+                alias,
+                effect,
+                member: member.clone(),
+            },
+        );
+        true
     }
 
     /// `pat: ty = value`. The right side is resolved first and the pattern's names are bound
@@ -2078,7 +2152,13 @@ impl Lower<'_, '_> {
                     Some(e) => (self.expr(&e), false),
                     None => {
                         let res = self.value(&name, range, LOWER_NAME);
-                        (self.alloc_expr(ExprKind::Path(res), range), true)
+                        let value = match res {
+                            Res::Local(local) => self.alias_use(local, range, false),
+                            _ => None,
+                        };
+                        let value =
+                            value.unwrap_or_else(|| self.alloc_expr(ExprKind::Path(res), range));
+                        (value, true)
                     }
                 };
                 args.push(Arg {
@@ -2148,7 +2228,15 @@ impl Lower<'_, '_> {
         // inference.
         if let Some((cap, member)) = s.cap_member() {
             let (name, range) = token_name(&cap);
-            let res = self.value(&name, range, LOWER_NAME);
+            let mut res = self.value(&name, range, LOWER_NAME);
+            // A handler member cannot be opened through an effect alias (`[effect.use]`). The
+            // item is kept, so that its name is still bound.
+            if let Res::Local(local) = res
+                && let Some(m) = &member
+                && self.member_through_alias(local, range, &token_name(m).0)
+            {
+                res = Res::Err;
+            }
             let cap_expr = self.alloc_expr(ExprKind::Path(res), range);
             let label = member.map(|m| {
                 let (name, range) = token_name(&m);
@@ -2314,8 +2402,29 @@ impl Lower<'_, '_> {
             };
             return ExprKind::Path(res);
         }
+        let op = token.kind() == LOWER_NAME;
         let base = match base {
-            Some(b) => self.expr(&b),
+            Some(b) => {
+                // `x.op` with an effect alias x; `x.M` that opens a handler member is E0453.
+                self.alias_receiver = b.kind() == NAME_REF;
+                let e = self.expr(&b);
+                self.alias_receiver = false;
+                if let ExprKind::Use { .. } = self.r.program.exprs[e].kind {
+                    match self.r.program.alias_uses.get(e).copied() {
+                        Some(Some(local)) if !op => {
+                            let span = self.r.program.exprs[e].span.range;
+                            self.member_through_alias(local, span, &name);
+                        }
+                        // `(use E).op` is `{ h <- E; h.op }`. `(use E).M(...)`, which opens a
+                        // handler member, is not expanded (`[effect.use]`).
+                        None if op => {
+                            self.r.program.alias_uses.insert(e, None);
+                        }
+                        _ => {}
+                    }
+                }
+                e
+            }
             None => self.alloc_expr(ExprKind::Missing, node.text_range()),
         };
         ExprKind::Field {

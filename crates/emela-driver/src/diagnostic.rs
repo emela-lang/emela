@@ -319,6 +319,32 @@ impl Diagnostic {
                     "`Self` can only be used as a value in the `init` of a handler".to_owned(),
                 )
             }
+            DiagnosticKind::EffectAliasAsValue { name } => {
+                help = Some("for a fixed value, use a named item `with x = H`".to_owned());
+                (
+                    Severity::Error,
+                    code::EFFECT_ALIAS_MISUSE,
+                    format!(
+                        "`{name}` is an effect alias, not a value: only `{name}.op(...)` and `{name}.op` can be written"
+                    ),
+                )
+            }
+            DiagnosticKind::MemberThroughEffectAlias {
+                alias,
+                effect,
+                member,
+            } => {
+                help = Some(format!(
+                    "open it through the effect: `x = {effect}.{member}(...)`"
+                ));
+                (
+                    Severity::Error,
+                    code::EFFECT_ALIAS_MISUSE,
+                    format!(
+                        "handler member `{member}` cannot be opened through effect alias `{alias}`"
+                    ),
+                )
+            }
             DiagnosticKind::SelfUpdate => {
                 help = Some("`Self` constructs a handler from its fields only".to_owned());
                 (

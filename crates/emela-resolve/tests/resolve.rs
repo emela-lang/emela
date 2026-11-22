@@ -1748,3 +1748,75 @@ fn g() -> Int {
 "##,
     )]));
 }
+
+/// An effect alias `x <- E` is not a value: each reference is lowered to its own `use E`, and
+/// `(use E).op` is marked the same way (`[effect.use]`). The HIR shows both.
+#[test]
+fn effect_alias() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"effect Logger {
+  fn info(msg: String) -> ()
+}
+
+fn greet() {
+  log <- Logger
+  log.info("a")
+  f = log.info
+  (use Logger).info("b")
+  g = |s| log.info(s)
+  g("c")
+}
+"##,
+    )]));
+}
+
+/// E0453: an effect alias written as a value, and a handler member opened through one
+/// (`[effect.use]`).
+#[test]
+fn effect_alias_misuse() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+}
+
+type Box(log: Int)
+
+fn pass(x: Int) -> Int { x }
+
+fn values() {
+  log <- Logger
+  a = log
+  pass(log)
+  b = [log]
+  c = Box(log:)
+  d = "#{log}"
+  log
+}
+
+fn members() -> Int {
+  fs <- Files
+  with t = fs.Open("a") { t.read(1) }
+}
+
+handler Quiet: Logger {
+  init {
+    fs <- Files
+    r = fs.Open("a")
+    Quiet
+  }
+
+  fn info(msg) { () }
+}
+"##,
+    )]));
+}

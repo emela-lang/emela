@@ -133,6 +133,8 @@ pub const UNUSED_LABEL_PROVIDER: &str = "W0401";
 /// `[effect.escape]`, `[fiber.escape]`: a value that holds a root leaves the `with` or the
 /// `Fiber.scope` that provides it. E0444 with the experimental feature `capture-checking`.
 pub const CAPTURE_ESCAPE: &str = "W0402";
+/// `[effect.use]`: `use E` written as an expression is deprecated.
+pub const DEPRECATED_USE: &str = "W0403";
 
 // E04xx: effects and handlers (spec chapter 8)
 pub const UNKNOWN_OPERATION: &str = "E0401";
@@ -204,6 +206,9 @@ pub const INNER_HANDLER_MISMATCH: &str = "E0449";
 pub const SHARED_OPERATION_NAME: &str = "E0450";
 pub const REPEATED_HANDLER_EFFECT: &str = "E0451";
 pub const MISSING_CAPABILITY_EFFECTS: &str = "E0452";
+// Effect aliases (`[effect.use]`) and callbacks to the host (`[ext.boundary]`)
+pub const EFFECT_ALIAS_MISUSE: &str = "E0453";
+pub const CALLBACK_EFFECT: &str = "E0454";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";
