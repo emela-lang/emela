@@ -49,7 +49,7 @@ jobs:
           name: tests-linux
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.5
       # `emela run` and the JS backend tests execute the generated code with node. On Bun some
       # tests still start node themselves (the JS backend's own tests and the HTTP harness).
       - uses: actions/setup-node@v4
