@@ -1974,7 +1974,9 @@ impl Lower<'_, '_> {
         self.bind_all(binder);
         if ty.is_none()
             && let PatKind::Bind(local) = self.r.program.pats[pat].kind
-            && binding.value().is_some_and(|v| v.syntax().kind() == USE_EXPR)
+            && binding
+                .value()
+                .is_some_and(|v| v.syntax().kind() == USE_EXPR)
         {
             self.set_use_form(value, UseForm::Binding(local));
             self.use_binds.insert(

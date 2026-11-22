@@ -163,19 +163,27 @@ fn deprecated_use(root: &SyntaxNode, diagnostic: &Diagnostic, range: TextRange) 
         let binding = use_expr
             .parent()
             .filter(|p| p.kind() == SyntaxKind::BINDING)?;
-        let name = ast::Binding::cast(binding.clone())?.lhs()?.syntax().text().to_string();
+        let name = ast::Binding::cast(binding.clone())?
+            .lhs()?
+            .syntax()
+            .text()
+            .to_string();
         if help != format!("write `{name} <- {effect}`") {
             return None;
         }
         let text = format!("{name} <- {effect}");
-        return Some((format!("Rewrite as `{text}`"), vec![(binding.text_range(), text)]));
+        return Some((
+            format!("Rewrite as `{text}`"),
+            vec![(binding.text_range(), text)],
+        ));
     }
     let paren = use_expr
         .parent()
         .filter(|p| p.kind() == SyntaxKind::PAREN_EXPR)?;
-    let stmt = paren
-        .ancestors()
-        .find(|n| n.parent().is_some_and(|p| p.kind() == SyntaxKind::BLOCK_EXPR))?;
+    let stmt = paren.ancestors().find(|n| {
+        n.parent()
+            .is_some_and(|p| p.kind() == SyntaxKind::BLOCK_EXPR)
+    })?;
     let base = help
         .strip_prefix("write `")?
         .split(" <- ")

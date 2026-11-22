@@ -109,8 +109,7 @@ impl BodyInfer<'_> {
             }
             for e in row.elems() {
                 match e {
-                    RowElem::Tag(effect)
-                        if callback.contains(&program.defs[effect.def].name) => {}
+                    RowElem::Tag(effect) if callback.contains(&program.defs[effect.def].name) => {}
                     // A capability counts as its effect (`[effect.use]`).
                     RowElem::Tag(effect) | RowElem::Cap(CapElem { tag: effect, .. })
                         if !is_immediate_effect(program, effect.def) =>

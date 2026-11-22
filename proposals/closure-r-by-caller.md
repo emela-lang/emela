@@ -1,7 +1,7 @@
 ---
 title: "The R of a closure is provided only by its caller"
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 736
 issue: 719
 decided: 2026-11-23
@@ -149,8 +149,8 @@ with g = Plain {
 
 ## Diagnostics
 
-- [ ] E04xx: a callback has an effect in its R (help: capture the capability of a named item)
-- [ ] E01xx: `<-` in an expression, or R of `x <- R` that is not an effect name. Messages in the prototype (E0199):
+- [x] E0454: a callback has an effect in its R (help: capture the capability of a named item)
+- [x] E0152: `<-` in an expression, or R of `x <- R` that is not an effect name. Messages in the prototype (E0199):
   - In an expression: `` `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b` ``
   - At the head of a statement: `` the right side of `<-` must be an effect ``, with the help `` `x <- E` binds an effect; to compare with a negative value, write `x < -Int.abs(3)` `` (built from what was written)
 

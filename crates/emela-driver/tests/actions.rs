@@ -523,13 +523,15 @@ fn deprecated_uses_are_rewritten_to_effect_aliases() {
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].title, "Rewrite as `log <- Logger`");
     let edited = apply(&text, &actions[0]);
-    assert!(edited.contains("  log <- Logger\n  log.info(\"a\")\n"), "{edited}");
+    assert!(
+        edited.contains("  log <- Logger\n  log.info(\"a\")\n"),
+        "{edited}"
+    );
     assert_clean(&edited, &[]);
     assert_eq!(deprecated(&edited), 0);
 
     // Inside a later `with`, an alias could reach another handler: no quick fix.
-    let text = format!(
-        "{prelude}fn f() {{\n  log = use Logger\n  with Quiet {{ log.info(\"a\") }}\n}}\n"
-    );
+    let text =
+        format!("{prelude}fn f() {{\n  log = use Logger\n  with Quiet {{ log.info(\"a\") }}\n}}\n");
     assert!(fixes(&text, "use Logger", &[]).is_empty());
 }

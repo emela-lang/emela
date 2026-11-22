@@ -499,9 +499,7 @@ impl<'a, 'b> Cx<'a, 'b> {
                 Val::default()
             }
             // An effect alias and `(use E).op(...)` hold nothing (`[effect.escape]`).
-            ExprKind::Use { .. } if self.program().alias_uses.get(expr).is_some() => {
-                Val::default()
-            }
+            ExprKind::Use { .. } if self.program().alias_uses.get(expr).is_some() => Val::default(),
             ExprKind::Use {
                 effect: Res::Def(effect),
                 ..

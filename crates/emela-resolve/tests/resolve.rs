@@ -80,7 +80,8 @@ fn run_impl(files: &[(&str, &str)], core: &[(&str, &str)], deprecated: bool) -> 
     assert_eq!(graph_diagnostics, []);
     let (program, mut diagnostics) = resolve(&modules, &trees, &builtins());
     if !deprecated {
-        diagnostics.retain(|d| !matches!(d.kind, emela_resolve::DiagnosticKind::DeprecatedUse { .. }));
+        diagnostics
+            .retain(|d| !matches!(d.kind, emela_resolve::DiagnosticKind::DeprecatedUse { .. }));
     }
 
     let mut out = String::new();
