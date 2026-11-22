@@ -17,9 +17,10 @@ related: [capability-type, capture-checking, scope-handle-values, handler-member
 - `x <- Effect` を文として足す．x を effect alias（効果の別名）と呼ぶ．x は値ではなく，名前の範囲はレキシカルで，`x.op(...)` は呼んだ時点でいちばん内側の Effect に届き，R に Effect を足す．
 - closure や local fn の中でも，囲む with では解決しない．Effect は closure の R に残り，呼ぶ側が供給する．
 - `(use E).op(...)` は `{ h <- E; h.op(...) }` の略記にする．その場で呼ぶ形は root を作らず，R だけで検査される．
-- `use E` を値として書く形（`x = use E`，引数，データ構造）は今のまま残す．固定された値で，capture checking が検査する．
+- `use E` を値として書く形（`x = use E`，引数，データ構造）は，今のまま固定された値として動き，capture checking が検査する．
+- `use E` の式は，略記も値も deprecated にする（W04xx）．`use E` で値を作り，名前に束縛する書き方をやめ，`x <- E` か名前付きの項目（`with x = H`）に移す．
 
-この proposal は一段目．二段目の `capability-identity`（#732）で，capability を handler の実体と定めて型と R で区別し，名前のない `use E` の値を deprecated にして段階を踏んでなくす．
+この proposal は一段目．二段目の `capability-identity`（#732）で，capability を handler の実体と定めて型と R で区別し，`use E` の式をエラーにする．
 
 構文ごとに，受け持つ検査が一つに決まる．
 
@@ -57,7 +58,7 @@ related: [capability-type, capture-checking, scope-handle-values, handler-member
 | 外で取った値を，同じ E を上書きした内側の with で使う | 18 |
 | `use E` の値を渡す，格納する，返す | 約 59 行 |
 
-この案で書き換えが要るものはない．意味が変わるのは，closure の中の `(use E).op(...)` を囲む with で解決していた形だけ（Compatibility）．
+この案で動かなくなるものはない．`use E` の式には警告が出る．意味が変わるのは，closure の中の `(use E).op(...)` を囲む with で解決していた形だけ（Compatibility）．
 
 ## Proposal
 
@@ -98,6 +99,7 @@ fn greet(id: Int) {
 - closure や local fn の中の `x.op(...)` は，closure を囲む with では解決しない．closure を呼ぶ側が E を供給する．
 - `(use E).op(arguments)` は `{ h <- E; h.op(arguments) }` と同じ（h は新しい名前）．`(use E).op` も同じく展開する．
 - `use E` を受け手以外の場所に書いたものは，今のまま固定された値になる．
+- `use E` の式は，どちらの形も deprecated．略記には `x <- E`，値には `x <- E`（受け手にしか使わないとき）か名前付きの項目（`with x = H`）を help に出す．
 
 ```emel
 with PrimaryDb {
@@ -149,6 +151,7 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 - x can be written only as the receiver of `x.op(...)` or `x.op`. Writing x anywhere else is a compile error (E04xx).
 - `(use E).op(arguments)` means `{ h <- E; h.op(arguments) }`, where h is a fresh name. `(use E).op` without a call is expanded in the same way.
 - `use E` written anywhere else is a capability value. It refers to the handler that provides E at that position, and keeps referring to it.
+- `use E` written as an expression, in either form, is deprecated (W04xx). It is removed by `capability-identity`.
 
 ### `[effect.with]`
 
@@ -172,7 +175,8 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 
 ## Diagnostics
 
-- [ ] E04xx: `x <- E` の x を値として書いた（help: 固定した値が欲しいなら `x = use E` にする）
+- [ ] E04xx: `x <- E` の x を値として書いた（help: 固定した値が欲しいなら名前付きの項目 `with x = H` にする）
+- [ ] W04xx: `use E` の式（deprecated）．略記なら help に `x <- E`，値なら `x <- E` か `with x = H` を出す．自動の書き換えを付けられる形には付ける
 
 ## Compatibility
 
@@ -180,7 +184,8 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
   - closure がその with の中で呼ばれるなら，結果は変わらない（`List.map(names, |n| (use Logger).info(n))`）．
   - closure が with の外で呼ばれるなら，呼んだ場所の handler に届くか，型で止まる．終わった handler には届かなくなる．
   - with の中で作った closure を，`uses {}` と書いた関数型（host への callback など）に渡す形は，E0402 か E0403 になる．
-- `x = use E` と値としての `use E` は変わらない．
+- `x = use E` と値としての `use E` は，動きは変わらないが警告が出る．
+- 警告が出る数: `(use E).op(...)` 803，`x = use E` 278，値として渡す，格納する，返す形 約 59 行．略記と，受け手にしか使わない `x = use E` は機械的に `x <- E` に書き換えられる．
 
 ## Implementation
 
@@ -192,7 +197,8 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 
 ## Alternatives
 
-- `use E` の式をなくし，固定した値は名前付きの with の項目だけにする．root の種類は減るが，`x = use E`（278）と値としての `use E`（約 59 行）の書き換えが要り，spec の `copy(replica, primary)` の例も変わる．
+- `use E` の式を，警告の期間を置かずにこの proposal でなくす．`x = use E`（278）と値としての `use E`（約 59 行）の書き換えが一度に要る．
+- 略記の `(use E).op(...)` は deprecated にせず残す．`use E` が位置で意味を変える（受け手では呼んだ時点で解決し，それ以外では固定される）ことが残る．`use E` で値を作って名前に束縛する書き方も残り続ける．
 - `capture-checking-exits`（#719 の期待どおり，操作の引数とエラーを with を出る場所に数える）．固定された値を追う検査として，この案と組み合わせる．単独では，その場で呼ぶだけの closure にも関数の境目の問題が残る．
 - R の root を効果名に広げない（#719 の候補 3）．関数値は型で止まるが，広げに頼る今のコードが E0403 になる．
 - `x <- E` が指す handler も束縛の位置で決める．x は固定された値と同じになり，捕えた closure が外へ出ると終わった handler に届く．capture checking が要り，`<-` を足す意味がなくなる．
@@ -206,7 +212,8 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 - 外の scope へ fork する手段（`[fiber.scope]`）は `s = use Scope` で今のまま残る．`s <- Scope` の `s.fork` を許すか（その時点でいちばん内側の scope になる）．
 - `x <- E` の x に型注釈を書けるか．複数の効果を一つの名前にまとめたいか．
 - #701（handler member の capability を closure の引数や戻り値から使うと E0402）は，固定された値の問題なので，この案では直らない見込み．試作で確かめる．via E 要素の案と組み合わせるか．
-- closure の中の `(use E).op(...)` の意味が変わる形を，移行の期間に警告するか．
-- 同じ `use E` が，受け手の位置では呼んだ時点で解決し，それ以外では書いた位置に固定される．closure の中で同じ E を上書きした with があると，`(use E).op()` と `c = use E; c.op()` で届く先が変わる．二段目（`capability-identity`）で名前のない `use E` の値をなくすまでの間，これを許すか，警告するか．
+- 警告の期間．W04xx を出す版から，`capability-identity` でエラーにする版までを一つの minor にするか．
+- 移行の道具．略記と，受け手にしか使わない `x = use E` を `x <- E` に書き換えるのを，`emela fmt` か専用のコマンドで自動にするか．
+- 803 箇所の略記を書き換えると，関数の頭に `log <- Logger` のような宣言が増える．その場で呼ぶ短い形（`use E` を使わないもの）が要るか．
 
 ## Decision
