@@ -95,13 +95,18 @@ Add after the item "Each build target uses one language.":
 ### `[grammar.decl]`
 
 ```ebnf
-annot_arg    = lower_name | literal | lower_name ":" literal | lower_name ":" type_ref | qualified
+annot_arg    = annot_value | lower_name ":" annot_value
+annot_value  = lower_name | literal | qualified | type_ref
 ```
 
-Add to the restrictions:
+A named argument takes the same values as a positional one, and the restrictions say where each value is allowed. The grammar accepts the same annotations as before, plus `host:` with a type_ref.
+
+Replace "A `qualified` annot_arg is allowed only as the argument of `@entry`." with:
 
 ```markdown
-- `lower_name ":" type_ref` is allowed only as the last argument `host:` of `@external`. A host effect of another module MAY be written with its module (`host: Cloudflare.CloudflareWorker`).
+- A `qualified` annot_value is allowed only as the argument of `@entry`.
+- A `type_ref` annot_value is allowed only as the value of `host:`, the last argument of `@external` (`[ext.decl]`). A host effect of another module MAY be written with its module (`host: Cloudflare.CloudflareWorker`).
+- After `lower_name ":"`, an annot_value is a literal, or a type_ref as above.
 ```
 
 ### `[diag.list]`
@@ -115,7 +120,7 @@ Add:
 
 Change:
 
-- E0138: the condition also covers a `host:` that is not the last argument, and the message becomes ``expected `@external(target, "name")` or `@external(target, "name", host: PageHost)` ``.
+- E0138: the condition also covers a `host:` that is not the last argument, and a type name that is not the value of `host:`, and the message becomes ``expected `@external(target, "name")` or `@external(target, "name", host: PageHost)` ``.
 - E0139: also two annotations of the same language for the same host, with the message ``duplicate `@external` for target `js` and host `PageHost` ``.
 - E0412: when the annotations of the language are all for hosts, the message names the host of the launch: ``external function `store_read` has no `@external(js, ...)` for `PageHost` ``; for a launch without a host effect, ``... for a launch without a host effect``; and when the launches that reach it have different hosts, the note ``= note: `store_read` is reached from launches on `ProcessHost` and on `PageHost`; only an `@external` without `host:` serves both``.
 
@@ -137,7 +142,7 @@ No program that compiles now changes. An `@external` without `host:` is selected
 
 - `emela-syntax`, `emela-fmt`: the `host:` argument of `@external`.
 - `emela-resolve`, `emela-types`: the name after `host:`; the two new diagnostics; E0138 and E0139 for hosts.
-- `editors/tree-sitter-emela`: an annotation argument of the form `name: Type`.
+- `editors/tree-sitter-emela`: a named annotation argument whose value is a type name.
 - The reachability of `[ext.decl]` (code generation): the host of the launches that reach each external function, the selection, E0412 with the host.
 - `emela-driver`: tests for an external function with annotations for a process and a page, built from `main` and from an entry adapter for a page; an external function reached from launches of different hosts.
 
