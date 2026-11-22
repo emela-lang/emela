@@ -241,7 +241,18 @@ impl BodyInfer<'_> {
                 self.sub_effects(expr)
             }
             ExprKind::With { handlers, body } => self.with_effects(expr, handlers, *body),
+            // `x.op` without a call, through an effect alias or `(use E)`: a function value that
+            // resolves E when it is called (`[effect.use]`). E is in the R of its type, not in
+            // the R of the function that makes it.
+            ExprKind::Field { base, .. }
+                if self.ops.get(expr).is_some()
+                    && program.alias_uses.get(*base).is_some()
+                    && !self.called.contains(&expr) =>
+            {
+                Row::empty()
+            }
             ExprKind::Call { callee, .. } => {
+                self.called.insert(*callee);
                 let mut row = self.sub_effects(expr);
                 let uses = self.callee_uses(*callee);
                 // The arguments of `x |> f(a)` are recorded on the pipe expression.
@@ -258,6 +269,8 @@ impl BodyInfer<'_> {
             } => {
                 if matches!(program.exprs[*rhs].kind, ExprKind::Call { .. }) {
                     self.piped_calls.insert(*rhs, expr);
+                } else {
+                    self.called.insert(*rhs);
                 }
                 let mut row = self.sub_effects(expr);
                 if !matches!(program.exprs[*rhs].kind, ExprKind::Call { .. }) {

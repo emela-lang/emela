@@ -2094,3 +2094,50 @@ fn d[B, A](y: B, x: A, f: fn(A) -> Bool, n: Int) {
         "∀ B, A, E(f), R(f). fn(B, A, fn(A) -> Bool fails E(f) uses { R(f) }, Int) -> Bool fails E(f) uses { R(f) }"
     );
 }
+
+/// `[effect.use]`, `[type.rules]`: a call through an effect alias or `(use E).op(...)` adds E to
+/// the R of the innermost function that contains it, a closure or a local fn included. A `with`
+/// around the closure removes E only from the R of its own body; the closure's type keeps it.
+/// `x.op` without a call is a function value whose R contains E.
+#[test]
+fn effect_aliases_in_closures() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Greeter {
+  fn greet(s: String) -> String
+}
+
+handler Plain: Greeter {
+  fn greet(s) { "plain #{s}" }
+}
+
+fn made_inside() -> fn(String) -> String uses { Greeter } {
+  with Plain {
+    g <- Greeter
+    |s| g.greet(s)
+  }
+}
+
+fn in_place() -> fn(String) -> String uses { Greeter } {
+  with Plain { |s| (use Greeter).greet(s) }
+}
+
+fn op_value() -> fn(String) -> String uses { Greeter } {
+  with Plain {
+    g <- Greeter
+    g.greet
+  }
+}
+
+fn local() -> String {
+  with Plain {
+    fn go(s: String) -> String {
+      g <- Greeter
+      g.greet(s)
+    }
+    go("x")
+  }
+}
+"#
+    ));
+}
