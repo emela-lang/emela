@@ -319,6 +319,22 @@ impl Diagnostic {
                     "`Self` can only be used as a value in the `init` of a handler".to_owned(),
                 )
             }
+            DiagnosticKind::DeprecatedUse { effect, rewrite } => {
+                help = Some(match rewrite {
+                    Some(emela_resolve::DeprecatedRewrite::InPlace { alias, op }) => format!(
+                        "write `{alias} <- {effect}` before the statement, and call `{alias}.{op}` here"
+                    ),
+                    Some(emela_resolve::DeprecatedRewrite::Binding { alias }) => {
+                        format!("write `{alias} <- {effect}`")
+                    }
+                    None => format!("write `x <- {effect}`, or a named item `with x = H`"),
+                });
+                (
+                    Severity::Warning,
+                    code::DEPRECATED_USE,
+                    format!("`use {effect}` as an expression is deprecated"),
+                )
+            }
             DiagnosticKind::EffectAliasAsValue { name } => {
                 help = Some("for a fixed value, use a named item `with x = H`".to_owned());
                 (
@@ -1572,6 +1588,21 @@ impl Diagnostic {
                     ),
                 };
                 (Severity::Error, Some(code::NOT_IMMEDIATE), message)
+            }
+            TypeDiagnosticKind::CallbackEffects { effects, callee } => {
+                help = Some(
+                    "capture the capability of a named item (`with g = H { ... }`) and call its operations".to_owned(),
+                );
+                let list = quoted_list("effect", "effects", effects);
+                let message = match callee {
+                    Some(callee) => format!(
+                        "{list} cannot be used by a callback of external function `{callee}`: the host calls it without handlers"
+                    ),
+                    None => format!(
+                        "{list} cannot be in the `uses` of a callback: the host calls it without handlers"
+                    ),
+                };
+                (Severity::Error, Some(code::CALLBACK_EFFECT), message)
             }
             TypeDiagnosticKind::SetAsType => (
                 Severity::Error,

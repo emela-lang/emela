@@ -30,14 +30,16 @@ pub effect Http {
 pub fn get(url: String) -> Response
   fails InvalidUrl | ConnectionFailed | ResponseNotText
   uses { Http } {
-  (use Http).send(Request.new(Get, url))
+  http <- Http
+  http.send(Request.new(Get, url))
 }
 
 ## Sends a POST request to `url` with `body`.
 pub fn post(url: String, body: String) -> Response
   fails InvalidUrl | ConnectionFailed | ResponseNotText
   uses { Http } {
-  (use Http).send(Request(body:, ..Request.new(Post, url)))
+  http <- Http
+  http.send(Request(body:, ..Request.new(Post, url)))
 }
 
 ## A request with no headers and an empty body.
@@ -174,7 +176,7 @@ pub type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Re
 ## ResponseNotText.
 pub handler TestHttp: Http {
   suspend fn send(request, resume) {
-    st = use State[TestServer]
+    st <- State[TestServer]
     server = st.get()
     st.set(TestServer(sent: server.sent.append([request]), ..server))
     respond = server.respond
@@ -208,7 +210,10 @@ pub fn serve[E](
   incoming: Incoming,
 ) -> Outgoing
   uses { Async, ProcessHost } {
-  received = with SystemHostHttp { (use HostHttp).read(incoming) }
+  received = with SystemHostHttp {
+    host <- HostHttp
+    host.read(incoming)
+  }
   response = received_request(received) match {
     None                                     -> status_only(405).add_header("allow", ALLOW)
     Some(_) if !host_received_text(received) -> status_only(400)
@@ -237,7 +242,10 @@ fn launch[E](
 
 ## Writes `line` to standard error and answers with 500.
 fn failed(line: String) -> Response {
-  with SystemConsole { (use Console).print_error_line(line) }
+  with SystemConsole {
+    console <- Console
+    console.print_error_line(line)
+  }
   status_only(500)
 }
 

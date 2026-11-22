@@ -2764,7 +2764,7 @@ fn impl_stubs_are_quickfixes_linked_to_published_diagnostics() {
 
 #[test]
 fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
-    let main = "error Missing\neffect Log { fn log() -> () }\nfn io() -> () { Io.print(\"hi\") }\nfn fails() -> () uses {} { fail Missing }\nfn effects() -> () uses {} { (use Log).log() }\n";
+    let main = "error Missing\neffect Log { fn log() -> () }\nfn io() -> () { Io.print(\"hi\") }\nfn fails() -> () uses {} { fail Missing }\nfn effects() -> () uses {} {\n  log <- Log\n  log.log()\n}\n";
     let files = [
         ("/app/Pome.toml", ""),
         (MAIN, main),
@@ -2776,7 +2776,7 @@ fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
     for (at, code, inserted) in [
         ((2, 16), "E0211", "import Io\n"),
         ((3, 27), "E0318", " fails Missing"),
-        ((4, 30), "E0402", "uses { Log }"),
+        ((6, 4), "E0402", "uses { Log }"),
     ] {
         let actions = client.quickfixes(MAIN, at, at);
         assert_eq!(actions.len(), 1, "at {at:?}: {actions:?}");

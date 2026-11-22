@@ -39,6 +39,12 @@ fn run(files: &[(&str, &str)]) -> String {
 /// `core` is the bundled core's sources (file name and contents), placed under `<core>/`.
 /// Only the `src/` modules are dumped.
 fn run_with_core(files: &[(&str, &str)], core: &[(&str, &str)]) -> String {
+    run_impl(files, core, false)
+}
+
+/// W0403 (`use E` written as an expression is deprecated) is left out unless `deprecated`: most
+/// programs here still use the deprecated forms.
+fn run_impl(files: &[(&str, &str)], core: &[(&str, &str)], deprecated: bool) -> String {
     let fs = MemoryFs::new(files.iter().map(|(path, _)| format!("src/{path}")));
     let (mut modules, diagnostics) = collect_modules(&fs, Path::new("src"));
     assert_eq!(diagnostics, []);
@@ -72,7 +78,10 @@ fn run_with_core(files: &[(&str, &str)], core: &[(&str, &str)]) -> String {
     }
     let (_, graph_diagnostics) = build_import_graph(&modules, &import_lists);
     assert_eq!(graph_diagnostics, []);
-    let (program, diagnostics) = resolve(&modules, &trees, &builtins());
+    let (program, mut diagnostics) = resolve(&modules, &trees, &builtins());
+    if !deprecated {
+        diagnostics.retain(|d| !matches!(d.kind, emela_resolve::DiagnosticKind::DeprecatedUse { .. }));
+    }
 
     let mut out = String::new();
     for (id, data) in modules.iter().filter(|(id, _)| !modules.is_core(*id)) {
@@ -1819,4 +1828,42 @@ handler Quiet: Logger {
 }
 "##,
     )]));
+}
+
+/// W0403: `use E` written as an expression is deprecated, in either form (`[effect.use]`). The
+/// help names an effect alias where it means the same: for `(use E).op(...)`, and for `x = use E`
+/// whose x is only the receiver of operations in the same function and outside later `with`s.
+#[test]
+fn deprecated_use() {
+    let src = r##"effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect LogStore {
+  fn put(msg: String) -> ()
+}
+
+handler Quiet: Logger {
+  fn info(msg) { () }
+}
+
+fn keep(x: use Logger) -> use Logger { x }
+
+fn forms() {
+  (use Logger).info("a")
+  f = (use LogStore).put
+  receiver = use Logger
+  receiver.info("b")
+  passed = use Logger
+  keep(passed).info("c")
+  captured = use Logger
+  g = || captured.info("d")
+  inner = use Logger
+  with Quiet { inner.info("e") }
+  keep(use Logger)
+}
+"##;
+    let out = run_impl(&[("main.emel", src)], &[], true);
+    let diagnostics = out.split("== diagnostics\n").nth(1).unwrap_or_default();
+    insta::assert_snapshot!(diagnostics);
 }

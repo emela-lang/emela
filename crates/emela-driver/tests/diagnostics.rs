@@ -11,7 +11,21 @@ use emela_resolve::{Import, ModuleId, ModuleName};
 use emela_types::{InferCtx, Prim, Ty, TyCons};
 use line_index::{TextRange, TextSize};
 
+/// The diagnostics of checking `path`, but W0403: most programs here still write `use E` as an
+/// expression (deprecated, `[effect.use]`). [`check_files_with_deprecated`] keeps them.
 fn check_files(files: &[(&str, &str)], path: &str, frontend: &mut impl Frontend) -> Analysis {
+    let mut analysis = check_files_with_deprecated(files, path, frontend);
+    analysis
+        .diagnostics
+        .retain(|d| d.code != Some(emela_driver::code::DEPRECATED_USE));
+    analysis
+}
+
+fn check_files_with_deprecated(
+    files: &[(&str, &str)],
+    path: &str,
+    frontend: &mut impl Frontend,
+) -> Analysis {
     let fs = MemoryFiles::new(files.iter().copied());
     let input = Input::resolve(&fs, Path::new(path)).unwrap();
     check(&fs, &input, frontend).0
@@ -2223,7 +2237,11 @@ fn make_greeter() -> fn() -> () {
         let fs = MemoryFiles::new([("app/Pome.toml", manifest), ("app/src/main.emel", main)]);
         let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
         input.experimental = flags.iter().map(|f| f.to_string()).collect();
-        let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
+        let (mut analysis, _) = check(&fs, &input, &mut Typecheck::default());
+        // The example writes `log = use Logger` (W0403, deprecated); only W0402 is checked.
+        analysis
+            .diagnostics
+            .retain(|d| d.code != Some(emela_driver::code::DEPRECATED_USE));
         render(&analysis.diagnostics, &analysis.sources, false)
     };
     insta::assert_snapshot!("capture_escape_warning", run(&manifest(""), &[]));

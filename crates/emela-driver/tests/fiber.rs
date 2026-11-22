@@ -79,12 +79,13 @@ fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) 
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // leaves a capability on purpose, and gets W0402 for it. The programs still write `use E` as
+    // an expression (W0403, deprecated).
     assert!(
-        analysis
-            .diagnostics
-            .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+        analysis.diagnostics.iter().all(|d| matches!(
+            d.code,
+            Some(emela_driver::code::CAPTURE_ESCAPE | emela_driver::code::DEPRECATED_USE)
+        )),
         "{target}: {:?}",
         analysis.diagnostics
     );
@@ -151,7 +152,15 @@ fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutc
         Target::Wasm => unreachable!("the fiber tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    assert_eq!(analysis.diagnostics, [], "{target}");
+    // The programs still write `use E` as an expression (W0403, deprecated).
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
+        "{target}: {:?}",
+        analysis.diagnostics
+    );
     report
         .unwrap()
         .results
