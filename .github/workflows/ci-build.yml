@@ -6,8 +6,9 @@ name: CI / Build
 # The tests are packed with `cargo nextest archive`: the test binaries, the `emela` binary that
 # the tests of emela-cli start, and what the build scripts produced. The test jobs unpack it and
 # run their share without building anything. The tests embed the paths of the workspace at build
-# time (`CARGO_MANIFEST_DIR`, `CARGO_BIN_EXE_emela`); every Linux runner checks the repository
-# out at the same path, so these paths hold on the runner that runs them.
+# time (`CARGO_MANIFEST_DIR`, `CARGO_BIN_EXE_emela`). Every Linux runner checks the repository
+# out at the same path, and the test jobs unpack the archive into the checkout, so `target/`
+# is where the tests look for it.
 #
 # A push to main builds the same thing without uploading it, to refill the cache: the merge queue
 # already tested the same commit. Only main saves the cache.
@@ -18,10 +19,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Line tables are enough for the backtraces, and keep the archive small. Set on the job, not
+    # No debug info: on Linux it is in the executables, and each test binary links the whole
+    # compiler, so even line tables made the archive about 900 MB, which every test job downloads.
+    # A panic still names its file and line; a backtrace names the functions. Set on the job, not
     # the step, so that rust-cache keys the cache on it.
     env:
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_DEV_STRIP: debuginfo
     steps:
       - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
@@ -33,6 +37,15 @@ jobs:
           tool: cargo-nextest
       - name: Build the tests
         run: cargo nextest archive --workspace --locked --archive-file tests.tar.zst
+      # The test binaries share most of their code, further apart than the window zstd uses by
+      # default. Long distance matching finds it. A window of 2^27 bytes is the largest a decoder
+      # accepts without being told, so nextest still reads the archive.
+      - name: Compress the tests again
+        if: github.event_name != 'push'
+        run: |
+          zstd -dc tests.tar.zst | zstd -q --long=27 -T0 -3 -o tests-long.tar.zst
+          mv tests-long.tar.zst tests.tar.zst
+          ls -l tests.tar.zst
       # The archive is already compressed with zstd; compressing it again only costs time.
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'push'

@@ -65,14 +65,19 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
+      # Unpack into the checkout, where the tests were built: they start `target/debug/emela` by
+      # the path built into them. The run on Bun unpacks over the first.
       - name: Test on Node
-        run: cargo nextest run --archive-file tests.tar.zst --workspace-remap . --profile ci --partition "$PARTITION"
+        run: >-
+          cargo nextest run --archive-file tests.tar.zst --workspace-remap . --extract-to . --extract-overwrite
+          --profile ci --partition "$PARTITION"
       - name: Test on Bun
         if: ${{ !cancelled() }}
         env:
           EMELA_JS_HOST: bun
         run: >-
-          cargo nextest run --archive-file tests.tar.zst --workspace-remap . --profile ci --partition "$PARTITION"
+          cargo nextest run --archive-file tests.tar.zst --workspace-remap . --extract-to . --extract-overwrite
+          --profile ci --partition "$PARTITION"
           -E 'package(emela-driver) | package(emela-cli) | package(emela-codegen-wasm)'
 
   # Every test on macOS, on Node. The organization has few macOS runners, and the merge queue builds
