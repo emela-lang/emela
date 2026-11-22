@@ -101,7 +101,11 @@ with g = Plain {
 2. `(use E).M(...)`, which opens a handler member, is not expanded. It opens a member of the innermost handler of E at that position, as today (it is `use E` written as an expression, so it is deprecated). As decided in #731, a handler member cannot be opened through an effect alias.
 3. `<-` is one token.
    - The prototype read `lower_name < - TYPE_NAME` at the head of a statement as `x <- E`, and misread valid programs such as `x < -Int.abs(3)` and `{ x < -Money(cents: 1).cents }` (as the last expression of a block).
-   - As one token, `a<-1` written without spaces changes meaning (it is no longer `a < -1`). `emela fmt` prints `a < -1`, so formatted code is not affected. There are no occurrences in this repository.
+   - Today `<` and `-` are separate tokens, so both `a<-1` and `a <- 1` are read as `a < -1` (a comparison). As one token, both become compile errors (E01xx). No form silently changes meaning.
+   - `<-` after an operand in an expression reports E01xx, and the diagnostic shows `a < -b` for a comparison.
+   - In a statement `x <- R` where R is not an effect name (`x <- 1`, `x <- LIMIT`, `x <- Int.abs(3)`), E01xx is reported too, and the help shows the comparison built from what was written (`` write `x < -Int.abs(3)` ``).
+   - `a < -1` (a comparison written with a space) stays as it is. The right side of `x <- E` is an effect name and the `b` of `a < -b` is a value, and no name is both. In the prototype, every form with a misplaced space was a compile error (`x <- 1`, `x <- LIMIT`, `x <- Int.abs(3)`, `x <- Plain`, `x < -Greeter`, `x < -Plain`). No combination passes silently with another meaning.
+   - `emela fmt` prints a comparison as `a < -1`, so formatted code is not affected. There are no such forms in std, the examples or the tests.
 
 ### Applying and implementing
 
@@ -131,6 +135,8 @@ with g = Plain {
 ### `[grammar.lex]`
 
 - `<-` is one token. A comparison with a negated operand is written with a space between `<` and `-` (`a < -1`).
+- `<-` after an operand in an expression (`a<-1`, `a <- 1`) is a compile error (E01xx). `<-` is written only in a statement `x <- E` (`[grammar.expr]`).
+- In a statement `x <- R`, R that is not an effect name (`x <- 1`, `x <- LIMIT`, `x <- Int.abs(3)`) is a compile error (E01xx). The diagnostic shows the comparison written with a space, `x < -R`, as a help.
 
 ### `[ext.boundary]`
 
@@ -139,10 +145,14 @@ with g = Plain {
 ### `[diag.list]`
 
 - E04xx: a callback passed to or returned from an external function has an effect in its R.
+- E01xx: `<-` after an operand in an expression, or the right side of `x <- R` that is not an effect name.
 
 ## Diagnostics
 
 - [ ] E04xx: a callback has an effect in its R (help: capture the capability of a named item)
+- [ ] E01xx: `<-` in an expression, or R of `x <- R` that is not an effect name. Messages in the prototype (E0199):
+  - In an expression: `` `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b` ``
+  - At the head of a statement: `` the right side of `<-` must be an effect ``, with the help `` `x <- E` binds an effect; to compare with a negative value, write `x < -Int.abs(3)` `` (built from what was written)
 
 ## Compatibility
 
@@ -151,14 +161,16 @@ with g = Plain {
   - A closure made in a with inside a scope body and passed to a child (the exception in `[fiber.scope]`). The child uses the outer handler.
 - A closure made inside a with and called inside that with does not change.
 - A callback whose type has an effect in R and whose body uses a handler becomes E04xx. It is rewritten to capture the capability of a named item.
-- `a<-b` written without spaces, other than `x<-E`, is no longer `a < -b`.
+- `a<-1` and `a <- 1`, read today as `a < -1` (a comparison), become compile errors (E01xx). No form silently changes meaning. They do not appear in code formatted by `emela fmt`.
 
 ## Implementation
 
 - Lowering: when a closure is made, do not add the evidence of enclosing withs to the table of the closure. The table of a closure is only what it receives from its caller (`caller_ev` in the prototype).
 - Capture checking: the roots inside a closure are decided only from the withs inside the closure and the captured values.
 - Type checking: check the R of callback types.
-- Lexing: make `<-` one token.
+- Lexing: make `<-` one token (LEFT_ARROW). The parser reports E01xx for `<-` in an expression (E0199 in the prototype).
+- The parser reads R of `x <- R` broadly (to the end of the line, even when it is not an effect name), and the syntax check (`validation.rs`) reports E01xx with the help. Name resolution does not report E0217 on top of it.
+- fmt: format a statement `x <- E` as `c <- Console`, `st <- State[Int]` (add EFFECT_BINDING to the printer of `emela-fmt`).
 - Left over from the prototype: it allows opening a member through `fs <- Files` in a with item (`t = fs.Temporary()`). As decided in #731, this is a compile error.
 
 ## Alternatives
