@@ -538,6 +538,10 @@
           "named": true
         },
         {
+          "type": "effect_alias",
+          "named": true
+        },
+        {
           "type": "local_function",
           "named": true
         }
@@ -698,6 +702,42 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "effect_alias",
+    "named": true,
+    "fields": {
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_reference",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type_arguments": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_arguments",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -2936,6 +2976,10 @@
   },
   {
     "type": "<",
+    "named": false
+  },
+  {
+    "type": "<-",
     "named": false
   },
   {
