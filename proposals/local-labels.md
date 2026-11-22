@@ -14,13 +14,13 @@ related: [capability-type, capability-trait, handler-member, handler-init-argume
 
 ## Summary
 
-`effect-binding`（#731）の二段目．capability の型に，どの handler かを表す label を入れる．
+`effect-alias`（#731）の二段目．capability の型に，どの handler かを表す label を入れる．
 
-- with の項目 `x = Item` は，本体の中だけで有効な label（局所の label）x を作る．x は capability の値で，型は `use x`．
-- `use l` の値の操作を呼ぶと，R に l が入る．
+- with の名前付きの項目 `x = Item` は，二つのものを作る．本体の中だけで有効な名前のない label（局所の label）と，その label の capability x．
+- capability の操作を呼ぶと，R にはその capability の label が入る．
 - 引数の `x: use E` は，E の label を一つ受け取る型引数を持つ関数として扱う．呼び出しで label が実引数のものに決まる．
 - label を元の effect の名前に広げない．
-- `use x` や `{ x }` を含む型は，x の with の本体の外に書けない．capability を持つ値が with の外へ出るのは，どの道を通っても型エラーになる．capability についての capture checking は，この型の範囲の検査で置き換える．
+- 局所の label を含む型と R は，その with の本体の外に書けない．capability を持つ値が with の外へ出るのは，どの道を通っても型エラーになる．capability についての capture checking は，この型の範囲の検査で置き換える．
 - capability は普通の値で，`use l` は普通の値の型になる．渡す，格納する，返す，データ構造に入れる，closure で捕えることは，ほかの値と同じにできる．
 - 名前のない `use E` の値（`x = use E`）と，label を効果名に広げることを deprecated にし，段階を踏んでなくす．
 
@@ -38,7 +38,7 @@ related: [capability-type, capability-trait, handler-member, handler-init-argume
 
 ### label を型に入れれば，型の範囲の検査で足りる
 
-- 局所の label は，with の本体の中でだけ名前が見える．with の中で宣言した型引数が外へ出せないのと同じく，label を含む型は本体の外に書けない．
+- 局所の label は，with の本体の中でだけ有効．with の中で宣言した型引数が外へ出せないのと同じく，局所の label を含む型は本体の外に書けない．
 - 外へ出る道を数えなくても，外で決まった型（外の `State` の型引数，外の handler の操作の引数の型，エラーの型，関数の型引数）に label を入れられないので，すべての道が止まる．
 - R にも label が入るので，member の with がそれを外せる（#701）．
 
@@ -49,11 +49,30 @@ related: [capability-type, capability-trait, handler-member, handler-init-argume
 
 ## Proposal
 
+### 用語
+
+| 英語 | 日本語 | 何か | ソースでの形 |
+|---|---|---|---|
+| label | label | `effect L of E` で宣言した，E と同じ操作を持つ別の effect（今の `[effect.label]`） | `AuditLog` |
+| local label | 局所の label | with の名前付きの項目が作る，名前のない label．その with の本体の中でだけ有効で，その項目の handler を表す | 書かない |
+| label parameter | label の型引数 | 型が `use E` の引数が関数に足す label | 書かない |
+| capability | 能力（capability） | 値．一つの label（または effect）の操作を呼べる | `with x = Item` の x，引数の x |
+| capability type | 能力の型 | capability の型．ソースでは `use E` と書き，型検査の中では label を持つ | `use ReadFile` |
+| capability parameter | 能力の引数 | 型が `use E` の引数 | `fn copy(from: use Db)` |
+| named item | 名前付きの項目 | `with x = Item`．局所の label と capability x を作る | `with f = Files.Open(p)` |
+| effect alias | 効果の別名 | `x <- E` の x（#731）．値でも label でもなく，R に E そのものを入れる | `log <- Logger` |
+| widen | 広げる | label を元のエフェクトとして扱うこと．この proposal で deprecated | |
+| label scope check | label の範囲の検査 | 局所の label を含む型と R が with の外へ出ないかの検査 | |
+
+- 局所の label と label の型引数は，ソースに名前を書かない．型推論で決まり，型を書く場面では引数の `use E` を使う．
+- capability と label は別のもの．capability は値で，label は型と R の中の名前．`x.read()` で R に入るのは x ではなく x の label．
+- capture checking の root と hold（抱える）は，capability には使わなくなる．Fiber などのハンドルにだけ残る．
+
 ### 局所の label
 
-- with の項目 `x = Item` は，Item が供給する effect E の局所の label x を作る．Item の handler が x を供給する．構文は今の名前付きの項目（`[effect.with]`）と同じ．
+- with の名前付きの項目 `x = Item` は，Item が供給する effect E の局所の label を作る．Item の handler がその label を供給する．x はその label の capability．構文は今の名前付きの項目（`[effect.with]`）と同じ．
 - handler member も同じ（`with f = Files.Open(path)`）．
-- 本体の中で，x は capability の値で，型は `use x`．`L by x` の右にも書ける．
+- x は `L by x` の右にも書ける（x の label を L に差し込む）．
 - `<-` は with の項目に使わない．文の `x <- E`（#731）は固定しない名前で，局所の label は項目の handler に固定される．
 
 ```emel
@@ -66,17 +85,17 @@ with primary = PrimaryDb {
 
 with f = Files.Open("a.txt") {
   lines = read_all(f)
-  [f].map(|x| x.read(10)) # x: use f．closure の R は { f } で，f の with が外す
+  [f].map(|x| x.read(10)) # closure の R は f の局所の label で，この with が外す
 }
 ```
 
 ### capability の型
 
-- `use l` は，label l の capability の型．l は局所の label，label の型引数（下），top-level の label（`[effect.label]`），または effect の名前．
+- capability の型は，型検査の中で label l を持つ（以下 `use l` と書くが，l はソースに書かない）．l は局所の label，label の型引数（下），宣言した label（`[effect.label]`），または effect の名前．
 - effect の名前を l にした `use E` は「呼んだ時点でいちばん内側の E」を表す（#731 の `x <- E` と同じ）．
 - `use l` の値の操作を呼ぶと，R に l が入る．
 - `use l` を含む型と，l を含む effect set は，l の範囲の外に書けない．局所の label の範囲は with の本体．
-- label を元の effect の名前に広げない．`{ f }` を持つ closure は，`uses { ReadFile }` と書いた関数型には入らない．
+- label を元の effect の名前に広げない．f の局所の label を R に持つ closure は，`uses { ReadFile }` と書いた関数型には入らない．
 
 ### 引数の `use E`
 
@@ -99,7 +118,7 @@ with f = Files.Open("a.txt") {
 
 ### deprecation の段階（たたき台）
 
-1. 一段目（`effect-binding`，#731）: `(use E).op()` を `<-` に展開する．警告なし．
+1. 一段目（`effect-alias`，#731）: `(use E).op()` を `<-` に展開する．警告なし．
 2. この proposal が入った版: 局所の label と，型の中の label を入れる．次の二つに W04xx（deprecated）を出す．
    - 名前のない `use E` の値
    - label を効果名に広げること
@@ -111,7 +130,7 @@ with f = Files.Open("a.txt") {
 
 ### `[effect.with]`
 
-- An item written as `x = Item` makes x a local label of the effect E that Item provides, and the handler of the item provides x. x is visible only inside the body. Inside the body, x is a capability value of type `use x`. A handler member item is written `x = E.M(arguments)`, or `x = c.M(arguments)` where c is a capability of E.
+- A named item `x = Item` makes a local label of the effect E that Item provides, and binds x to a capability of that label. The handler of the item provides the label. The local label has no name in source, and is valid only inside the body. A handler member item is written `x = E.M(arguments)`, or `x = c.M(arguments)` where c is a capability of E.
 
 ### `[effect.use]`
 
@@ -125,6 +144,10 @@ with f = Files.Open("a.txt") {
 
 - A type that contains a local label, and an effect set that contains one, cannot be written outside the body of the with that makes the label. If the type of the value of a with body, the error set that leaves the body, or the R that leaves the body contains a local label of that with, it is a compile error (E04xx).
 - After the deprecation period, capture sets are not used for capabilities. The section covers only the handles of scopes (`[fiber.escape]`).
+
+### `[glossary.terms]`
+
+- Add: local label（局所の label），label parameter（label の型引数），capability type（能力の型），capability parameter（能力の引数），named item（名前付きの項目），widen（広げる），label scope check（label の範囲の検査）．
 
 ### `[open.next]`
 
@@ -147,7 +170,7 @@ with f = Files.Open("a.txt") {
 | `x = use E` | 278 | 受け手にしか使わないなら `x <- E`（機械的に判定できる）．それ以外は `with x = H` |
 | 値として渡す，格納する，返す | 約 59 行 | 名前付きの with の値ならそのまま通る．`use E` から取った値は `with x = H` に書き換える |
 | 外の値を，同じ E を上書きした内側の with で使う | 18 | `with x = H` |
-| `with x = H`，`with x = E.M(...)` | 未計数 | そのまま通る．型が `use E` から `use x` に変わる |
+| `with x = H`，`with x = E.M(...)` | 未計数 | そのまま通る．x の型が持つものが effect E から局所の label に変わる（ソースの形は `use E` のまま） |
 | label を効果名に広げているもの | 未計数 | 試作で数える |
 
 - 引数の `use E` は書き方が変わらない（`fn copy(from: use Db, to: use Db)`，`copy(replica, primary)`）．
@@ -181,5 +204,6 @@ with f = Files.Open("a.txt") {
 - `Fiber.scope` の Scope と，Fiber，Deferred，Queue のハンドルにも scope の局所の label を型に入れるか（#719 の再現 1，6）．入れれば `[fiber.escape]` の capture set も要らなくなる．
 - `[C: Capability]`（`capability-trait`）は `use l` も満たす．#651 の `close[C: Capability](item: C)` はそのまま書けるか．
 - 局所の label を効果名に広げられないことで書けなくなるコードがどれだけあるか．
+- LSP の hover で，局所の label と label の型引数をどう表示するか（ソースに書かない名前なので，表示の形だけ決める）．
 
 ## Decision
