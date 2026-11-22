@@ -1,5 +1,5 @@
 ---
-title: "Effect bindings: `x <- Effect` resolves at the call"
+title: "Effect aliases: `x <- Effect` resolves at the call"
 authors: [Alliana]
 status: draft
 pr: 731
@@ -10,11 +10,11 @@ requires: []
 related: [capability-type, capture-checking, scope-handle-values, handler-member]
 ---
 
-# Effect bindings: `x <- Effect` resolves at the call
+# Effect aliases: `x <- Effect` resolves at the call
 
 ## Summary
 
-- `x <- Effect` を文として足す．x は値ではなく，名前の範囲はレキシカルで，`x.op(...)` は呼んだ時点でいちばん内側の Effect に届き，R に Effect を足す．
+- `x <- Effect` を文として足す．x を effect alias（効果の別名）と呼ぶ．x は値ではなく，名前の範囲はレキシカルで，`x.op(...)` は呼んだ時点でいちばん内側の Effect に届き，R に Effect を足す．
 - closure や local fn の中でも，囲む with では解決しない．Effect は closure の R に残り，呼ぶ側が供給する．
 - `(use E).op(...)` は `{ h <- E; h.op(...) }` の略記にする．その場で呼ぶ形は root を作らず，R だけで検査される．
 - `use E` を値として書く形（`x = use E`，引数，データ構造）は今のまま残す．固定された値で，capture checking が検査する．
@@ -61,11 +61,22 @@ related: [capability-type, capture-checking, scope-handle-values, handler-member
 
 ## Proposal
 
+### 用語
+
+| 英語 | 日本語 | 何か |
+|---|---|---|
+| effect alias | 効果の別名 | `x <- E` の x．値ではなく，E を呼ぶための名前．R に入るのは E そのもの |
+| declaration of an effect alias | 効果の別名の宣言 | 文 `x <- E` |
+| resolved at the call / fixed | 呼んだ時点で解決する / 固定する | 操作が届く handler を決める時点 |
+
+effect alias は label ではない．label（`[effect.label]`）は R の中で元のエフェクトと別の effect として数えるが，effect alias は E そのものを R に入れる．
+
+
 ### Syntax
 
 ```ebnf
-stmt           = binding | effect_binding | local_fn | expr
-effect_binding = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
+stmt           = binding | effect_alias | local_fn | expr
+effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 ```
 
 ```emel
@@ -122,11 +133,11 @@ with Plain {
 ### `[grammar.expr]`
 
 ```ebnf
-stmt           = binding | effect_binding | local_fn | expr
-effect_binding = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
+stmt           = binding | effect_alias | local_fn | expr
+effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 ```
 
-- An effect_binding is a statement. Whether a statement is an effect_binding is decided by whether a lower_name is immediately followed by `<-`.
+- An effect_alias is a statement. Whether a statement is an effect_alias is decided by whether a lower_name is immediately followed by `<-`.
 
 ### `[effect.use]`
 
@@ -141,23 +152,23 @@ effect_binding = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 
 ### `[effect.with]`
 
-- "`use X` inside an anonymous function or a local fn first looks at the withs that enclose the function ..." applies only to `use X` written as a capability value. A call through an effect binding or `(use X).op(...)` inside the function is provided by the side that calls the function.
+- "`use X` inside an anonymous function or a local fn first looks at the withs that enclose the function ..." applies only to `use X` written as a capability value. A call through an effect alias or `(use X).op(...)` inside the function is provided by the side that calls the function.
 
 ### `[effect.handler]`
 
-- "The `use` expressions inside `init` are the requirements of the handler" also covers the effect bindings inside `init`.
+- "The `use` expressions inside `init` are the requirements of the handler" also covers the effect aliases inside `init`.
 
 ### `[effect.escape]`
 
-- An effect binding is not a root and holds nothing. `(use E).op(...)` does not refer to a root.
+- An effect alias is not a root and holds nothing. `(use E).op(...)` does not refer to a root.
 
 ### `[fiber.scope]`
 
-- The exception "a closure created inside a with in the scope body ... is passed to a child" no longer applies to a closure that calls operations through effect bindings or `(use E).op(...)`: the child resolves the effect at its own call.
+- The exception "a closure created inside a with in the scope body ... is passed to a child" no longer applies to a closure that calls operations through effect aliases or `(use E).op(...)`: the child resolves the effect at its own call.
 
 ### `[diag.list]`
 
-- E04xx: an effect binding written as a value.
+- E04xx: an effect alias written as a value.
 
 ## Diagnostics
 
