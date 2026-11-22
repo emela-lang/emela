@@ -198,9 +198,11 @@ A point in time. An opaque type whose contents are an Int64 of milliseconds sinc
 | `add` | `add(t: Instant, d: Duration) -> Instant` | Emela | `d` later |
 | `subtract` | `subtract(t: Instant, d: Duration) -> Instant` | Emela | `d` earlier |
 | `since` | `since(t: Instant, earlier: Instant) -> Duration` | Emela | The length from `earlier` to `t` |
-| `to_string` | `to_string(t: Instant) -> String` | Emela | ISO 8601 in UTC (`2025-10-12T03:04:05.678Z`) |
+| `to_string` | `to_string(t: Instant) -> String` | Emela | The date and time in UTC (`2025-10-12T03:04:05.678Z`). The format is below |
 
-- If the year is outside 0 to 9999, `to_string` writes the year as a sign and six digits (`+010000-01-01T00:00:00.000Z`, `-000001-12-31T00:00:00.000Z`). Dates are counted in the proleptic Gregorian calendar. Every value of Instant is written by this rule, without a range limit.
+- `to_string` writes `YYYY-MM-DDTHH:MM:SS.sssZ`: the year, the month (2 digits), the day (2 digits), the hour (2 digits, 00 to 23), the minute (2 digits), the second (2 digits, 00 to 59) and the milliseconds (always 3 digits), with the separators `-`, `T`, `:`, `.` and the suffix `Z` as written. Dates are counted in the proleptic Gregorian calendar.
+- If the year is 0 to 9999, it is written as 4 digits (`0000` to `9999`). The result is then a `date-time` of RFC 3339 whose offset is `Z`.
+- If the year is outside 0 to 9999, it is written as a sign (`+` or `-`) followed by the absolute value zero-padded to at least 6 digits (`+010000-01-01T00:00:00.000Z`, `-000001-12-31T00:00:00.000Z`). This is the expanded representation of the year of ISO 8601, and the result is not a `date-time` of RFC 3339. A year whose absolute value has more than 6 digits is written with all its digits, without padding. Every value of Instant is written by these rules, without a range limit.
 
 impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl is the same as `to_string`.
 

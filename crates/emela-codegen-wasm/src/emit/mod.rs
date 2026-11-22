@@ -2169,6 +2169,13 @@ impl<'m> Builder<'m> {
                     self.internal(format!("evidence without a destination in {}", cx.f.name));
                     return;
                 };
+                // The empty table is 0, which `ev_lookup`, `dup` and `drop` accept, so passing it
+                // (to a function value whose R needs no table) allocates nothing.
+                if base.is_none() && bindings.is_empty() {
+                    ins.i32_const(0);
+                    ins.local_set(cx.local(d));
+                    return;
+                }
                 let mut refs = vec![true, false];
                 for _ in bindings {
                     refs.push(false);

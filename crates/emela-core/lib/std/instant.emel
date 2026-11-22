@@ -32,8 +32,9 @@ pub fn since(t: Instant, earlier: Instant) -> Duration {
   Duration.milliseconds(t.milliseconds - earlier.milliseconds)
 }
 
-## UTC in ISO 8601 (`2026-10-12T03:04:05.678Z`). Same format as JS `Date.prototype.toISOString`:
-## years outside 0 to 9999 are written with a sign and six digits (`+010000`, `-000001`).
+## The date and time in UTC (`2026-10-12T03:04:05.678Z`), an RFC 3339 `date-time` for years 0 to
+## 9999. Other years are written with a sign and at least six digits (`+010000`, `-000001`), the
+## expanded year of ISO 8601. The format is in spec `[api.std.instant]`.
 pub fn to_string(t: Instant) -> String {
   days = floor_div(t.milliseconds, 86400000)
   ms_of_day = t.milliseconds - days * 86400000
