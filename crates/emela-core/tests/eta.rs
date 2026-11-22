@@ -23,6 +23,7 @@ fn eta_only() -> Options {
             eta: true,
             ..Rules::none()
         },
+        ..Options::default()
     }
 }
 
