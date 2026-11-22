@@ -385,6 +385,7 @@ mod tests {
             release: Some(Release {
                 handler: "h".to_owned(),
                 body: Expr::Lit(Lit::Unit),
+                mark: true,
             }),
         };
         let f = function(
