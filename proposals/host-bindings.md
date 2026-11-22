@@ -49,7 +49,7 @@ Types do not depend on the target, and must not depend on the annotation chosen.
 
 ### Syntax
 
-An `@external` annotation MAY end with `host:` and a host effect other than Async:
+An `@external` annotation MAY end with `host:` and a host effect other than Async. The name after `host:` is looked up as a type name in the module of the declaration, so a host effect of another module is imported or written with its module. An annotation argument that names a declaration has a precedent: the argument of `@entry` names an entry adapter (`@entry(Http.serve)`, `[ext.entry]`). `@entry` looks up a fn; `host:` looks up a host effect.
 
 ```emel
 @external(js, "./store_process.mjs", "read", host: ProcessHost)
@@ -86,7 +86,7 @@ The arguments of `@external` on a fn have the form `(language, "name")` or `(lan
 Add after the item "Each build target uses one language.":
 
 ```markdown
-- `host:` names a host effect other than Async (`@external(js, "./store_page.mjs", "read", host: PageHost)`); naming anything else is a compile error (E04xx). For each language, a fn has at most one annotation without a host and at most one annotation for each host effect (E0139).
+- `host:` names a host effect other than Async (`@external(js, "./store_page.mjs", "read", host: PageHost)`); naming anything else is a compile error (E04xx). The name is looked up as a type name in the module of the declaration (`[module.resolution]`): a host effect of another module is imported, or written with its module (`host: Cloudflare.CloudflareWorker`). For each language, a fn has at most one annotation without a host and at most one annotation for each host effect (E0139).
 - The host of a launch is given by its entry (`[effect.host]`). The build selects, for each reachable external function, the annotation of the target's language for the host of the launches that reach it, and otherwise the annotation without a host. When the launches that reach it have different hosts, it selects the annotation without a host. If no annotation is selected, it is a compile error (E0412).
 - In a library-only project, which has no launch, an external function reachable from public functions is checked to have an annotation of the target's language, for a host or without one; none is selected.
 - An annotation for a host effect that the uses clause of the fn does not allow is a compile error (E04xx): a fn whose uses clause has a host effect runs only on that host.
