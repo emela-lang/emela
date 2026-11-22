@@ -2,7 +2,7 @@
 title: Host effects declared by Pomes
 authors: [somnicattus]
 status: draft
-pr:
+pr: 726
 issue:
 decided:
 touches: [effect.host, effect.decl, ext.call, ext.entry, module.pome, grammar.decl, diag.list]
