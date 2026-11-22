@@ -14,69 +14,72 @@ related: [capability-type, capture-checking, scope-handle-values, handler-member
 
 ## Summary
 
-- `x <- Effect` を文として足す．x を effect alias（効果の別名）と呼ぶ．x は値ではなく，名前の範囲はレキシカルで，`x.op(...)` は呼んだ時点でいちばん内側の Effect に届き，R に Effect を足す．
-- closure や local fn の中でも，囲む with では解決しない．Effect は closure の R に残り，呼ぶ側が供給する．
-- `(use E).op(...)` は `{ h <- E; h.op(...) }` の略記にする．その場で呼ぶ形は root を作らず，R だけで検査される．
-- `use E` を値として書く形（`x = use E`，引数，データ構造）は，今のまま固定された値として動き，capture checking が検査する．
-- `use E` の式は，略記も値も deprecated にする（W04xx）．`use E` で値を作り，名前に束縛する書き方をやめ，`x <- E` か名前付きの項目（`with x = H`）に移す．
+- A statement `x <- Effect` is added. x is called an effect alias. x is not a value; its name is scoped lexically, and `x.op(...)` reaches the innermost handler of Effect at the time of the call and adds Effect to R.
+- Inside a closure or a local fn, the withs that enclose the function do not resolve it. Effect stays in the R of the closure, and the side that calls the closure provides it.
+- `(use E).op(...)` becomes shorthand for `{ h <- E; h.op(...) }`. A call written in place makes no root, and is checked only through R.
+- `use E` written as a value (`x = use E`, an argument, an element of a data structure) still works as a fixed value, and capture checking still checks it.
+- `use E` written as an expression is deprecated in both forms (W04xx). Making a value with `use E` and binding it to a name is replaced by `x <- E` or by a named item (`with x = H`).
 
-この proposal は一段目．二段目の `capability-identity`（#732）で，capability を handler の実体と定めて型と R で区別し，`use E` の式をエラーにする．
+This proposal is the first step. The second step, `capability-identity` (#732), defines a capability as an instance of a handler, tells capabilities apart in types and in R, and makes `use E` written as an expression a compile error.
 
-構文ごとに，受け持つ検査が一つに決まる．
+Each construct is checked by exactly one mechanism.
 
-| 構文 | 何か | 検査 |
+| Construct | What it is | Checked by |
 |---|---|---|
-| `x <- E`，`(use E).op(...)` | 効果名（呼んだ時点で解決） | R（型） |
-| `x = use E`，`with x = H`，値として書いた `use E` | 固定された値 | capture set |
+| `x <- E`, `(use E).op(...)` | The effect, resolved at the call | R (types) |
+| `x = use E`, `with x = H`, `use E` written as a value | A fixed value | Capture sets |
 
 ## Motivation
 
-### 名前を付けずに呼んでも固定される
+### A call is fixed even without a name
 
-- `use E` の値は，書いた場所でいちばん内側の with の handler に固定される（`[effect.with]`）．
-- closure の中の `use E` も，まず closure を囲む with を見る（`[effect.with]`）．囲む with で解決した Effect は closure の R に残らない．
-- そのため，値として取り出していない `|s| (use Greeter).greet(s)` も `Plain` に固定されたまま外へ出る．
+- A value of `use E` is fixed to the handler of the innermost with that provides E at the position where it is written (`[effect.with]`).
+- `use E` inside a closure also looks first at the withs that enclose the closure (`[effect.with]`). An effect resolved by an enclosing with does not stay in the R of the closure.
+- So `|s| (use Greeter).greet(s)`, which never takes a value out, leaves the with while still fixed to `Plain`.
 
-### それが #719 の再現 2〜5 になる
+### This is reproductions 2 to 5 of #719
 
-- 固定された値や，それを捕えた closure は，外の `State.set`，外の scope の `Scope.fork`，先に init された handler の操作，エラーのフィールドを通って with の外へ出る．
-- 出た closure の R には Greeter が残らない．あるいは `uses { Greeter }` に広げられる（`[effect.use]`）．型は何も止めず，終わった handler に届く．
-- 止める手段は capture checking だけで，今は本体の値しか見ない（#719）．道を一つずつ塞ぐ案（`capture-checking-exits`）は，関数の境目（#719 の「決めること 1」）と誤検出（「決めること 2」）を抱える．
+- A fixed value, or a closure that captures one, leaves the with through `State.set` of an outer state, `Scope.fork` of an outer scope, an operation of a handler initialized earlier, or a field of an error.
+- The R of the closure that leaves does not contain Greeter, or it is widened to `uses { Greeter }` (`[effect.use]`). The types stop nothing, and the call reaches a handler whose with has ended.
+- Only capture checking stops this, and today it looks only at the value of the body (#719). Closing each path one by one (`capture-checking-exits`) brings the function boundary ("Decision 1" of #719) and false positives ("Decision 2").
 
-### 固定しない手段がない
+### There is no way to name an effect without fixing it
 
-- 操作を呼びたいだけの場面でも，今は固定された値しか作れない．固定された値は capture checking の対象になり，外へ出る道をすべて塞ぐ必要がある．
-- 固定しない名前があれば，外へ出ても R が型で守る．capture checking が見る値は，本当に固定が要る値だけに減る．
+- Even when a program only wants to call operations, the only name it can make today is a fixed value. A fixed value is subject to capture checking, and every path out of the with has to be closed.
+- With a name that is not fixed, R protects the program in the types even when a closure leaves the with. Capture checking is left with only the values that really need to be fixed.
 
-数えた結果（.snap を除く）．
+Counts in this repository (excluding `.snap` files):
 
-| 形 | 数 |
+| Form | Count |
 |---|---|
-| `use E` の式 | 約 1,110 |
-| `(use E).op(...)`（その場で呼ぶ） | 803 |
+| `use E` written as an expression | about 1,110 |
+| `(use E).op(...)` (called in place) | 803 |
 | `x = use E` | 278 |
-| 外で取った値を，同じ E を上書きした内側の with で使う | 18 |
-| `use E` の値を渡す，格納する，返す | 約 59 行 |
+| A value taken outside used inside an inner with that provides the same E | 18 |
+| A value of `use E` passed, stored or returned | about 59 lines |
 
-この案で動かなくなるものはない．`use E` の式には警告が出る．意味が変わるのは，closure の中の `(use E).op(...)` を囲む with で解決していた形だけ（Compatibility）．
+Nothing stops working with this proposal. `use E` written as an expression gets a warning. The meaning changes only where `(use E).op(...)` inside a closure was resolved by a with that encloses the closure (Compatibility).
+
+### Out of scope
+
+- #701 (calling an operation of a capability of a handler member received as a closure parameter or a return value leaves the effect in R, E0402) is a problem of fixed values. This proposal does not solve it; `capability-identity` does.
 
 ## Proposal
 
-### 用語
+### Terms
 
-| 英語 | 日本語 | 何か |
-|---|---|---|
-| effect alias | 効果の別名 | `x <- E` の x．値ではなく，E を呼ぶための名前．R に入るのは E そのもの |
-| declaration of an effect alias | 効果の別名の宣言 | 文 `x <- E` |
-| resolved at the call / fixed | 呼んだ時点で解決する / 固定する | 操作が届く handler を決める時点 |
+| Term | Meaning |
+|---|---|
+| effect alias | The x of `x <- E`. Not a value, but a name for calling the operations of E. What goes into R is E itself |
+| declaration of an effect alias | The statement `x <- E` |
+| resolved at the call / fixed | When the handler that an operation reaches is decided: at each call, or once where the value is made |
 
-effect alias は label ではない．label（`[effect.label]`）は R の中で元のエフェクトと別の effect として数えるが，effect alias は E そのものを R に入れる．
-
+An effect alias is not a label. A label (`[effect.label]`) counts in R as an effect different from its underlying effect; an effect alias puts E itself into R.
 
 ### Syntax
 
 ```ebnf
-stmt           = binding | effect_alias | local_fn | expr
+stmt         = binding | effect_alias | local_fn | expr
 effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 ```
 
@@ -91,19 +94,22 @@ fn greet(id: Int) {
 }
 ```
 
+- An effect alias names one effect. A type annotation cannot be written on it, and one alias cannot name several effects; the right side already names the effect.
+- `<-` is not used in with items. An effect alias is not fixed, while an item of a with provides one handler.
+
 ### Meaning
 
-- `x <- E` は値を作らない．x は，続くブロックの中で E の操作を呼ぶための名前になる．
-- `x.op(arguments)` は，その呼び出しを評価する時点でいちばん内側の E の handler の操作を呼ぶ．
-- `x.op` を呼ばずに書くと，関数値になる．その関数値を呼んだ時点で E を解決する．
-- closure や local fn の中の `x.op(...)` は，closure を囲む with では解決しない．closure を呼ぶ側が E を供給する．
-- `(use E).op(arguments)` は `{ h <- E; h.op(arguments) }` と同じ（h は新しい名前）．`(use E).op` も同じく展開する．
-- `use E` を受け手以外の場所に書いたものは，今のまま固定された値になる．
-- `use E` の式は，どちらの形も deprecated．略記には `x <- E`，値には `x <- E`（受け手にしか使わないとき）か名前付きの項目（`with x = H`）を help に出す．
+- `x <- E` does not make a value. x becomes a name for calling the operations of E in the rest of the block.
+- `x.op(arguments)` calls the operation op of the handler of E that is innermost at the time the call is evaluated.
+- `x.op` without a call gives a function value. E is resolved each time the function value is called.
+- `x.op(...)` inside a closure or a local fn is not resolved by the withs that enclose the function. The side that calls the closure provides E.
+- `(use E).op(arguments)` means `{ h <- E; h.op(arguments) }`, where h is a fresh name. `(use E).op` without a call is expanded in the same way.
+- `use E` written anywhere else is a fixed value, as today.
+- `s <- Scope` is allowed. `s.fork(f)` forks into the innermost scope at the time of the call, as `Fiber.fork(f)` does. Forking into an outer scope still uses a value of `use Scope` taken in the outer scope until `capability-identity`.
 
 ```emel
 with PrimaryDb {
-  primary = use Db # 固定された値
+  primary = use Db # a fixed value (deprecated)
   with ReplicaDb {
     db <- Db
     db.query("...") # ReplicaDb
@@ -114,28 +120,36 @@ with PrimaryDb {
 
 ```emel
 with Plain {
-  st.set(|s| (use Greeter).greet(s)) # closure の R に Greeter が残る
+  st.set(|s| (use Greeter).greet(s)) # Greeter stays in the R of the closure
 }
 ```
 
 ### Typing rules
 
-- x を，`x.op(...)` と `x.op` の受け手以外の場所に書くのはコンパイルエラー（引数，データ構造の要素，戻り値，束縛の右辺）．
-- `x.op(...)` は，その呼び出しを含むいちばん内側の関数（closure と local fn を含む）の R に E を足す．
-- with が R から外すのは，その本体の R だけ．本体の中の closure の R は，closure の型に残る．
+- Writing x anywhere other than as the receiver of `x.op(...)` or `x.op` is a compile error: as an argument, an element of a data structure, a return value, or the right side of a binding.
+- A handler member cannot be opened through x (`with f = x.Open(...)` is a compile error). x is not a capability; the item is written `f = E.Open(...)`.
+- `x.op(...)` adds E to the R of the innermost function that contains the call, including a closure or a local fn.
+- A with removes effects only from the R of its body. The R of a closure inside the body stays in the type of the closure.
 
 ### Capture checking
 
-- x は値ではないので，capture set に入らない．x を捕えた closure は，x について何も持たない．`(use E).op(...)` も root を作らない．
-- 値として書いた `use E` は，今のまま「その位置でいちばん内側の with の root」を持つ．
-- #719 の A と B（操作の引数とエラー）の検査は，固定された値と Fiber などのハンドルについて残る．
+- x is not a value, so it is not in any capture set. A closure that captures x holds nothing for it. `(use E).op(...)` makes no root either.
+- `use E` written as a value still holds the root of the innermost with at that position.
+- The checks of A and B of #719 (arguments of operations and errors) remain for fixed values and for the handles of scopes.
+
+### Deprecation
+
+- `use E` written as an expression, in either form, reports W04xx. The help names the replacement: `x <- E` for the shorthand and for a value used only as a receiver, and a named item `with x = H` otherwise.
+- The diagnostic carries the rewrite where it can be done mechanically, and the language server offers it as a code action. `emela fmt` does not rewrite it, since formatting does not change meaning.
+- The warning lasts one minor version. `capability-identity` makes it a compile error in the minor version after the one that adds this warning.
+- No shorter form for calling in place is added. If one is wanted, it is a separate proposal.
 
 ## Specification changes
 
 ### `[grammar.expr]`
 
 ```ebnf
-stmt           = binding | effect_alias | local_fn | expr
+stmt         = binding | effect_alias | local_fn | expr
 effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 ```
 
@@ -145,13 +159,13 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 
 (Added.)
 
-- `x <- E` is a statement that names the effect E for the rest of the block. It does not make a value. E is an effect, with its type arguments, or a label.
+- `x <- E` is a statement that declares x as an effect alias of E for the rest of the block. It does not make a value. E is an effect, with its type arguments, or a label. A type annotation cannot be written on it.
 - `x.op(arguments)` calls the operation op of the handler of E that is innermost at the time the call is evaluated, and adds E to the R of the innermost function that contains the call. Inside an anonymous function or a local fn, the withs that enclose the function do not provide E to the call; the side that calls the function provides it.
 - `x.op` without a call gives a function value whose R contains E. E is resolved each time the function value is called.
-- x can be written only as the receiver of `x.op(...)` or `x.op`. Writing x anywhere else is a compile error (E04xx).
+- x can be written only as the receiver of `x.op(...)` or `x.op`. Writing x anywhere else is a compile error (E04xx). A handler member cannot be opened through x.
 - `(use E).op(arguments)` means `{ h <- E; h.op(arguments) }`, where h is a fresh name. `(use E).op` without a call is expanded in the same way.
 - `use E` written anywhere else is a capability value. It refers to the handler that provides E at that position, and keeps referring to it.
-- `use E` written as an expression, in either form, is deprecated (W04xx). It is removed by `capability-identity`.
+- `use E` written as an expression, in either form, is deprecated (W04xx). It is read for one more minor version.
 
 ### `[effect.with]`
 
@@ -159,7 +173,7 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 
 ### `[effect.handler]`
 
-- "The `use` expressions inside `init` are the requirements of the handler" also covers the effect aliases inside `init`.
+- "The `use` expressions inside `init` are the requirements of the handler" also covers the effect aliases declared inside `init`.
 
 ### `[effect.escape]`
 
@@ -167,53 +181,46 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 
 ### `[fiber.scope]`
 
+- `s <- Scope` declares an effect alias of the innermost scope at each call. `s.fork(f)` is the same as `Fiber.fork(f)`.
 - The exception "a closure created inside a with in the scope body ... is passed to a child" no longer applies to a closure that calls operations through effect aliases or `(use E).op(...)`: the child resolves the effect at its own call.
 
 ### `[diag.list]`
 
-- E04xx: an effect alias written as a value.
+- E04xx: an effect alias written as a value, or a handler member opened through an effect alias.
+- W04xx: `use E` written as an expression is deprecated. The help is `` = help: write `x <- E`, or a named item `with x = H` ``.
 
 ## Diagnostics
 
-- [ ] E04xx: `x <- E` の x を値として書いた（help: 固定した値が欲しいなら名前付きの項目 `with x = H` にする）
-- [ ] W04xx: `use E` の式（deprecated）．略記なら help に `x <- E`，値なら `x <- E` か `with x = H` を出す．自動の書き換えを付けられる形には付ける
+- [ ] E04xx: an effect alias written as a value, or a handler member opened through it (help: for a fixed value, use a named item `with x = H`)
+- [ ] W04xx: `use E` written as an expression (deprecated), with a machine-applicable rewrite where it can be done mechanically
 
 ## Compatibility
 
-- 意味が変わるのは，closure の中で書いた `(use E).op(...)` を，closure を囲む with で解決していた形．
-  - closure がその with の中で呼ばれるなら，結果は変わらない（`List.map(names, |n| (use Logger).info(n))`）．
-  - closure が with の外で呼ばれるなら，呼んだ場所の handler に届くか，型で止まる．終わった handler には届かなくなる．
-  - with の中で作った closure を，`uses {}` と書いた関数型（host への callback など）に渡す形は，E0402 か E0403 になる．
-- `x = use E` と値としての `use E` は，動きは変わらないが警告が出る．
-- 警告が出る数: `(use E).op(...)` 803，`x = use E` 278，値として渡す，格納する，返す形 約 59 行．略記と，受け手にしか使わない `x = use E` は機械的に `x <- E` に書き換えられる．
+- The meaning changes where `(use E).op(...)` inside a closure was resolved by a with that encloses the closure.
+  - If the closure is called inside that with, the result is the same (`List.map(names, |n| (use Logger).info(n))`).
+  - If the closure is called outside that with, the call reaches the handler at the place of the call, or the types stop it. It no longer reaches a handler whose with has ended.
+  - Passing such a closure to a function type written with `uses {}` (a callback for the host, for example) becomes E0402 or E0403.
+- `x = use E` and `use E` written as a value keep working, with a warning.
+- Warnings in this repository: 803 for the shorthand, 278 for `x = use E`, and about 59 lines for values passed, stored or returned. The shorthand, and `x = use E` used only as a receiver, can be rewritten to `x <- E` mechanically.
 
 ## Implementation
 
-- 試作中（ブランチ `proto/effect-binding-arrow`）．結果をここに書く．
-- 構文: `x <- E` を足す．`(use E).op(...)` を `<-` に展開する（名前解決の前か，型検査の入口）．
-- 型検査: `<-` の名前を通した呼び出しは，closure の中でも E を R に足す．囲む with で解決する経路を通さない．
-- lowering: closure の中の呼び出しは，呼ぶ側から渡される evidence を使う．今の「囲む with がないとき」の経路と同じ．
-- capture checking: 展開した呼び出しは root を持たない．
+- A prototype is on the branch `proto/effect-binding-arrow`.
+- Syntax: add `x <- E`. Expand `(use E).op(...)` into an effect alias, before name resolution or at the entry of type checking.
+- Type checking: a call through an effect alias adds E to R even inside a closure, and does not take the path that resolves it by an enclosing with.
+- Lowering: a call inside a closure uses the evidence passed by the caller, which is the path taken today when no with encloses the function.
+- Capture checking: an expanded call holds no root.
 
 ## Alternatives
 
-- `use E` の式を，警告の期間を置かずにこの proposal でなくす．`x = use E`（278）と値としての `use E`（約 59 行）の書き換えが一度に要る．
-- 略記の `(use E).op(...)` は deprecated にせず残す．`use E` が位置で意味を変える（受け手では呼んだ時点で解決し，それ以外では固定される）ことが残る．`use E` で値を作って名前に束縛する書き方も残り続ける．
-- `capture-checking-exits`（#719 の期待どおり，操作の引数とエラーを with を出る場所に数える）．固定された値を追う検査として，この案と組み合わせる．単独では，その場で呼ぶだけの closure にも関数の境目の問題が残る．
-- R の root を効果名に広げない（#719 の候補 3）．関数値は型で止まるが，広げに頼る今のコードが E0403 になる．
-- `x <- E` が指す handler も束縛の位置で決める．x は固定された値と同じになり，捕えた closure が外へ出ると終わった handler に届く．capture checking が要り，`<-` を足す意味がなくなる．
+- Remove `use E` written as an expression in this proposal without a deprecation period. The 278 `x = use E` and the about 59 lines of values would have to be rewritten at once.
+- Keep the shorthand `(use E).op(...)` without deprecating it. `use E` would keep changing meaning by position (resolved at the call as a receiver, fixed elsewhere), and making a value with `use E` and binding it to a name would stay.
+- `capture-checking-exits` (count arguments of operations and errors as places where a value leaves the with, as #719 expects). It can be combined with this proposal as the check for fixed values. On its own, the function boundary stays a problem even for closures that only call operations.
+- Do not widen roots in R to effects (candidate 3 of #719). Function values are stopped by types, but existing code that relies on widening becomes E0403.
+- Decide the handler of `x <- E` where it is declared. x would be the same as a fixed value, and a closure that captures it would reach an ended handler after leaving the with. It needs capture checking, and `<-` would add nothing.
 
 ## Prior art
 
 ## Open questions
-
-- `(use E).op` を呼ばずに書いた形（数え上げで 8 箇所）を展開するか，固定された値の操作として残すか．
-- `x <- E` の x から handler member を開けるか（`with f = x.Open(...)`）．開けるなら「その時点でいちばん内側の E の handler の member を開く」になる．
-- 外の scope へ fork する手段（`[fiber.scope]`）は `s = use Scope` で今のまま残る．`s <- Scope` の `s.fork` を許すか（その時点でいちばん内側の scope になる）．
-- `x <- E` の x に型注釈を書けるか．複数の効果を一つの名前にまとめたいか．
-- #701（handler member の capability を closure の引数や戻り値から使うと E0402）は，固定された値の問題なので，この案では直らない見込み．試作で確かめる．via E 要素の案と組み合わせるか．
-- 警告の期間．W04xx を出す版から，`capability-identity` でエラーにする版までを一つの minor にするか．
-- 移行の道具．略記と，受け手にしか使わない `x = use E` を `x <- E` に書き換えるのを，`emela fmt` か専用のコマンドで自動にするか．
-- 803 箇所の略記を書き換えると，関数の頭に `log <- Logger` のような宣言が増える．その場で呼ぶ短い形（`use E` を使わないもの）が要るか．
 
 ## Decision
