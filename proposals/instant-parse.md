@@ -70,6 +70,7 @@ fn reads_what_to_string_writes() {
   - The year has 4 digits, or a sign and 6 or more digits, the form in which `to_string` writes a year outside 0 to 9999. Years of 7 or more digits are read, so everything that `to_string` writes can be read back.
   - A leap second (`:60`) and `24:00` are not read. Instant does not count leap seconds (`[lib.layers]`).
   - The decimal sign of the fraction is `.` only. The comma is reserved for the decimal sign: it is not read yet, and is not given another meaning, so that it can be read as the decimal sign later.
+- Text of more than 256 code points fails before it is read. The longest text that `to_string` writes has 30 code points, and the longest of the forms in Motivation has fewer than 40.
 - For every Instant `t`, `parse(to_string(t)) == t`.
 - Encode writes `Text(Instant.to_string(t))`. Decode reads Text with `Instant.parse`. Shaped is the shape of String with the note `format: "date-time"`, inside `Named("Instant", ...)`. The note describes what Encode writes, which is a `date-time` of RFC 3339 for the years 0 to 9999. Decode reads more forms than that, and an Instant outside those years does not fit the note; notes describe and do not restrict values (`[api.std.shape]`), so the note stays.
 
@@ -109,6 +110,7 @@ Add after the bullets on `to_string`:
 >   ```
 >
 > - The fields are read as the date and the time of day at the given offset, in the proleptic Gregorian calendar. The month is 01 to 12, the day is 01 to the number of days of that month in that year, the hour is 00 to 23, the minute is 00 to 59, and the second is 00 to 59; an omitted second is 00. The hour of the offset is 00 to 23 and its minute is 00 to 59; an offset written with the hour only (`+09`) has the minute 00. `Z`, `z`, and an offset whose hour and minute are both 00 (`+00:00`, `-0000`, `+00`) are the offset 0.
+> - If `s` has more than 256 code points, `parse` fails without reading it.
 > - The separator between the date and the time, and the space before the offset, are one space (U+0020). No other whitespace is allowed.
 > - A year written with a sign is that many years after (`+`) or before (`-`) the year 0. The sign `-` with the value 0 (`-000000`) is not read. A year of 4 digits is 0000 to 9999.
 > - A comma is reserved for the decimal sign of the fraction (`03:04:05,678`). `parse` does not read it yet, and a comma is not given any other meaning in this form.
@@ -144,13 +146,13 @@ No program that compiles now changes meaning.
 - `Std.Instant` gains the pub fn `parse`. A method call `s.parse()` looks up the fns of the module that defines String (`[type.rules]`), so existing calls do not become ambiguous.
 - Instant gains Encode, Decode and Shaped. Users could not write these impls (E0331), so no program becomes E0330.
 - The output of `to_string` does not change, including years outside 0 to 9999.
-- Each restriction in Alternatives (no comma, no leap second, no hour alone, no offset seconds, no time zone names) can be lifted later without changing the result of any text that `parse` reads now.
+- Each restriction in Alternatives (no comma, no leap second, no hour alone, no offset seconds, no time zone names) and the limit of 256 code points can be lifted later without changing the result of any text that `parse` reads now.
 
 ## Implementation
 
 - emela-core (std sources): write `parse` in Emela in `std/instant.emel`, as the inverse of the civil_from_days of `to_string` (days_from_civil). Add the impls for Instant to `std/dynamic.emel` and `std/shape.emel`, the modules of the traits, where the impls for Bytes, Array, Map and Set are (`[trait.impl]` allows either module; users see no difference).
 - No change to the compiler.
-- Tests: `parse(to_string(t)) == t` at the epoch, -1 ms, a leap day, the years 0, -1, 9999 and 10000, and both ends of Int64. Every form in the table of Motivation reads as the same Instant. A time without seconds reads as 00 seconds. Failures for a date that does not exist, `:60`, `24:00`, no offset, a date alone, the hour alone, two spaces, whitespace around the text, a tab, `±HH:MM:SS`, a time zone name and a comma. The first and the last point of Instant written with every offset, and the points just outside them, which fail. Years with many significant digits (more than an Int64 holds) and with many leading zeros. Fractions of 20 digits or more, and fractions that a Float does not hold exactly (`.678` is 678 milliseconds, not 677). The same results on the three targets.
+- Tests: `parse(to_string(t)) == t` at the epoch, -1 ms, a leap day, the years 0, -1, 9999 and 10000, and both ends of Int64. Every form in the table of Motivation reads as the same Instant. A time without seconds reads as 00 seconds. Text of exactly 256 code points that is read (a long fraction), and text of 257 code points that fails. Failures for a date that does not exist, `:60`, `24:00`, no offset, a date alone, the hour alone, two spaces, whitespace around the text, a tab, `±HH:MM:SS`, a time zone name and a comma. The first and the last point of Instant written with every offset, and the points just outside them, which fail. Years with many significant digits (more than an Int64 holds) and with many leading zeros. Fractions of 20 digits or more, and fractions that a Float does not hold exactly (`.678` is 678 milliseconds, not 677). The same results on the three targets.
 - `parse` reads the code points of `s` once from the start (`String.code_points`), not with a slice per character, which would be O(n²). Each field is read into an Int64 with a bound on its digits: the year fails when its significant digits are more than 9 (Instant runs from `-292275055-05-17T16:47:04.192Z` to `+292278994-08-17T07:12:55.807Z`). The range is checked on the result, after the offset is applied: the date and time as written can lie just outside the range (the last point of Instant written with `+09:00`), so the days and the milliseconds of the day are kept apart until the check, and no intermediate value wraps around. Only the first three digits of the fraction are read as a number; the rest are checked to be digits and skipped. No Float is used.
 - A check of the grammar against Node 24 (V8) and Bun 1.4.3 (JavaScriptCore), on 384 combinations of separator, offset and fraction: both engines read 275 of them as this proposal does. They do not read `±HH` or a space before the offset after `T` or `t` (108 combinations), nor a year of 7 digits (outside the range of a JS Date). Every form in the table of Motivation is read.
 
@@ -175,6 +177,7 @@ No program that compiles now changes meaning.
   - The only basic type with ObjectKey today is String; Int and Int64 do not have it (`[api.std.dynamic]`). The ObjectKey of the basic types is better decided together.
   - Many texts denote the same Instant (`...Z` and `...+09:00`, different numbers of digits in the fraction). When Fields has two keys for the same point in time, the Decode of Map inserts the same key twice and keeps one. Fields is ordered by the text of the keys (`[api.std.map]`), so the one kept is the later in the order of the text, not the later in the document. Making it a failure needs a change to the Decode of Map.
   - It can be added later without breaking programs: users cannot write the ObjectKey of Instant (E0331). Until then, a user writes it on a wrapping type (`type At(inner: Instant)`).
+- **No limit on the length of `s`.** Not chosen: no writer of a date and time comes near 256 code points, and the limit bounds the work of `parse` and the digits of each field whatever text it is given. The limit counts code points, as `Shape.max_length` does, not the grapheme clusters of `String.length`. It can be raised later without changing the result of any text that `parse` reads now.
 - **A `parse` that returns Option.** `[lib.api-rules]` has no Option versions for malformed input.
 
 ## Prior art
