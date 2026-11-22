@@ -6,7 +6,7 @@ pr: 732
 issue: 719
 decided:
 touches: [glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, type.rules, open.next, diag.list]
-requires: []
+requires: [effect-alias]
 related: [capability-type, capability-trait, handler-member, handler-init-arguments, capture-checking, scope-handle-values]
 ---
 
