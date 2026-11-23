@@ -158,7 +158,12 @@ module.exports = grammar({
 
     parameter: $ => choice(
       $.self,
-      seq(field('name', $.identifier), optional(seq(':', field('type', $._type)))),
+      // `@borrowed` (12.4).
+      seq(
+        repeat($.annotation),
+        field('name', $.identifier),
+        optional(seq(':', field('type', $._type))),
+      ),
     ),
 
     type_parameters: $ => seq('[', commaSep1($.type_parameter), ']'),
@@ -176,6 +181,7 @@ module.exports = grammar({
       field('name', $.type_identifier),
       optional(field('type_parameters', $.type_parameters)),
       optional(field('fields', $.field_list)),
+      optional($.bound_clause),
       optional($._derive),
     ),
 
@@ -184,6 +190,7 @@ module.exports = grammar({
       'enum',
       field('name', $.type_identifier),
       optional(field('type_parameters', $.type_parameters)),
+      optional($.bound_clause),
       field('body', $.variant_list),
       optional($._derive),
     ),
@@ -221,6 +228,12 @@ module.exports = grammar({
       field('name', $.identifier),
       ':',
       field('type', $._type),
+    ),
+
+    // A capability-bound type (9.4).
+    bound_clause: $ => seq(
+      'uses',
+      field('effect', choice($.type_reference, $.generic_type)),
     ),
 
     _derive: $ => seq(optional($._derive_continues), $.derive_clause),

@@ -15,17 +15,14 @@
 //!   variables whose solutions exclude those effects; nothing is removed from set type
 //!   parameters (sets with unknown contents).
 //! - A lambda encloses its body's R in its function type.
-//! - Calling an operation of a captured capability, or of a parameter of the function, adds the
-//!   capability itself (`RowElem::Cap`, `[effect.use]`). It is removed where its root `with`
-//!   ends. At the end of the body that binds the variable it is removed if the variable was
-//!   bound to `use E` (which has already added E, so removing it loses nothing), and replaced
-//!   with its effect otherwise (the variable may hold a capability that no `use E` of the body
-//!   made). The parameters of a function stay in its R.
-//! - A call replaces each capability element of the callee's R that is one of its parameters
-//!   with what the argument is (`[type.rules]`): the capability of the argument variable when it
-//!   is itself an element (captured, or a parameter of the caller), and the effect otherwise.
-//!   A capability element of another function's parameter that a call cannot replace (the callee
-//!   is a function value) is replaced with its effect.
+//! - Calling an operation of a capability adds the capabilities its type records (`RowElem::Cap`,
+//!   set variables and the set type parameters of capability parameters, `[effect.use]`). The
+//!   `with` that made a capability removes it. A capability parameter's set stays in the R of
+//!   its function, and a call puts the argument's set in its place by instantiation.
+//! - A closure or a local fn also has in its R the capabilities in the types of the values it
+//!   captures (`[effect.use]`).
+//! - The `self` of a handler ([`crate::row::CapId::SelfOf`]) is removed at the end of the body
+//!   of its operation, init or release.
 //! - A body's R is contained in the declared R. Without a `uses` clause the declared R is a set
 //!   variable, and the body's R becomes its solution as is (spec 9.3). The bodies of `main` and
 //!   test functions must have an empty R apart from Async (spec 8.3, 13.3), since the runtime
@@ -34,13 +31,13 @@
 //!   (a set variable). A suspend fn implementation that may call resume later also depends on
 //!   Async (spec 8.7, `body/suspend.rs`).
 
-use emela_resolve::hir::{BinaryOp, DefId, ExprId, ExprKind, Item, PatKind, Res, Stmt, WithItem};
+use emela_resolve::hir::{BinaryOp, DefId, ExprId, ExprKind, Item, Res, Stmt, WithItem};
 
 use super::{BodyInfer, fn_parts};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
 use crate::layer::{self, PendingWith, Supplier, WithBind, WithInfo};
-use crate::row::{CapElem, Row, RowElem, Tag};
+use crate::row::{CapElem, CapId, Row, RowElem, Tag};
 use crate::ty::Ty;
 
 impl BodyInfer<'_> {
@@ -50,6 +47,7 @@ impl BodyInfer<'_> {
         let program = self.program;
         for def in self.defs.clone() {
             self.current = Some(def);
+            self.ctx.scopes.reset();
             match program.item(def) {
                 Some(Item::Fn(_) | Item::TraitFn(_)) | None => {
                     let Some(parts) = fn_parts(program, def) else {
@@ -63,7 +61,6 @@ impl BodyInfer<'_> {
                         _ => continue,
                     };
                     let row = self.expr_effects(body);
-                    let row = self.end_binder(&row, def, None);
                     let closed = self.closed.get(&def);
                     if let Some(context) = closed {
                         // The entry provides its host effects (`[effect.host]`): Async and
@@ -119,8 +116,15 @@ impl BodyInfer<'_> {
                         .map(|b| (b.index, b.body, b.resume_later))
                         .collect();
                     for (index, body, resume_later) in bodies {
+                        self.ctx.scopes.enter(body);
                         let row = self.expr_effects(body);
-                        let mut row = self.end_binder(&row, def, None);
+                        self.ctx.scopes.exit();
+                        let mut row = self.end_self(&row, def);
+                        // The capability parameters end with the body (`[effect.handler]`).
+                        if let Some(rigid) = self.quantified_lambdas.get(&body).cloned() {
+                            let minus: Vec<RowElem> = rigid.into_iter().map(RowElem::Cap).collect();
+                            row = self.subtract_elems(&row, &minus);
+                        }
                         // A suspend fn implementation that may call resume later requires Async
                         // (spec 8.7).
                         if resume_later && let Some(async_) = program.prelude_def("Async") {
@@ -146,7 +150,7 @@ impl BodyInfer<'_> {
                         .collect();
                     for body in parts {
                         let row = self.expr_effects(body);
-                        let row = self.end_binder(&row, def, None);
+                        let row = self.end_self(&row, def);
                         self.ctx.add_subset_of(
                             SetKind::Effects,
                             row,
@@ -186,7 +190,7 @@ impl BodyInfer<'_> {
             // The capability value type's tag (`State[Int]` for effects with type arguments,
             // spec 8.1).
             ExprKind::Use { .. } => match self.exprs.get(expr) {
-                Some(Ty::Cap(tags)) => Row::from_elems(tags.iter().cloned().map(RowElem::Tag)),
+                Some(Ty::Cap(tags, _)) => Row::from_elems(tags.iter().cloned().map(RowElem::Tag)),
                 _ => Row::empty(),
             },
             // The body's R is enclosed in the lambda type's R; it surfaces when the lambda is
@@ -195,10 +199,18 @@ impl BodyInfer<'_> {
             ExprKind::Lambda { body, .. } => {
                 let outer = self.binder.replace(expr);
                 let withs = std::mem::take(&mut self.with_stack);
-                let body_row = self.expr_effects(*body);
+                self.ctx.scopes.enter(expr);
+                let mut body_row = self.expr_effects(*body);
+                self.ctx.scopes.exit();
                 self.with_stack = withs;
                 self.binder = outer;
-                let body_row = self.end_binder_here(&body_row, Some(expr));
+                body_row.extend(&self.captured_caps(expr));
+                // The unknown sets of a closure checked against a quantified function type are
+                // in the R of that type; the side that calls it provides them (`[type.rules]`).
+                if let Some(rigid) = self.quantified_lambdas.get(&expr).cloned() {
+                    let rigid: Vec<RowElem> = rigid.into_iter().map(RowElem::Cap).collect();
+                    body_row = self.subtract_elems(&body_row, &rigid);
+                }
                 if let Some(&(_, v)) = self.lambda_rows.get(expr) {
                     self.ctx
                         .add_subset_of(SetKind::Effects, body_row, Row::var(v), Origin::Lambda);
@@ -215,27 +227,18 @@ impl BodyInfer<'_> {
                         let (body, uses) = (info.body, info.uses.clone());
                         let outer = self.binder.replace(body);
                         let withs = std::mem::take(&mut self.with_stack);
-                        let body_row = self.expr_effects(body);
+                        self.ctx.scopes.enter(body);
+                        let mut body_row = self.expr_effects(body);
+                        self.ctx.scopes.exit();
                         self.with_stack = withs;
                         self.binder = outer;
-                        let body_row = self.end_binder_here(&body_row, Some(body));
+                        body_row.extend(&self.captured_caps(body));
                         self.ctx.add_subset_of(
                             SetKind::Effects,
                             body_row,
                             uses,
                             Origin::LocalFn(f.local),
                         );
-                    }
-                    if let Stmt::Let { pat, value, .. } = stmt
-                        && let PatKind::Bind(local) = program.pats[*pat].kind
-                        && let ExprKind::Use { .. } = program.exprs[*value].kind
-                        && let Some(Ty::Cap(tags)) = self.exprs.get(*value).cloned()
-                        && let Some(tag) = tags.first()
-                    {
-                        self.use_bound.insert(local);
-                        if let Some(with) = self.innermost_with(tag) {
-                            self.cap_roots.insert(local, with);
-                        }
                     }
                 }
                 self.sub_effects(expr)
@@ -255,9 +258,7 @@ impl BodyInfer<'_> {
                 self.called.insert(*callee);
                 let mut row = self.sub_effects(expr);
                 let uses = self.callee_uses(*callee);
-                // The arguments of `x |> f(a)` are recorded on the pipe expression.
-                let call = self.piped_calls.get(expr).copied().unwrap_or(expr);
-                row.extend(&self.replace_params(call, *callee, &uses));
+                row.extend(&uses);
                 row
             }
             // `x |> f(a)` is `f(x, a)`. If the right side is a call, that call expression adds
@@ -275,7 +276,7 @@ impl BodyInfer<'_> {
                 let mut row = self.sub_effects(expr);
                 if !matches!(program.exprs[*rhs].kind, ExprKind::Call { .. }) {
                     let uses = self.callee_uses(*rhs);
-                    row.extend(&self.replace_params(expr, *rhs, &uses));
+                    row.extend(&uses);
                 }
                 row
             }
@@ -291,55 +292,6 @@ impl BodyInfer<'_> {
             row.extend(&self.expr_effects(e));
         }
         row
-    }
-
-    /// `uses`, the R of the callee of the call `call`, with each capability element that is a
-    /// parameter of the callee replaced by what the argument is (`[type.rules]`). For a pipe
-    /// `x |> f(a)`, `call` is the pipe expression, where the arguments are recorded, and `callee`
-    /// is `f`.
-    ///
-    /// A capability element of a variable of another definition that is not a parameter of the
-    /// callee (a function value whose R names the parameters of the function it refers to) is
-    /// replaced with its effect.
-    fn replace_params(&mut self, call: ExprId, callee: ExprId, uses: &Row) -> Row {
-        let program = self.program;
-        let uses = self.ctx.resolve_row(uses);
-        if !uses.elems().iter().any(|e| matches!(e, RowElem::Cap(_))) {
-            return uses;
-        }
-        let callee_def = match &program.exprs[callee].kind {
-            ExprKind::Path(Res::Def(def)) => Some(*def),
-            ExprKind::Field { .. } => self.methods.get(callee).copied(),
-            _ => None,
-        };
-        let params: Vec<emela_resolve::hir::LocalId> = callee_def
-            .and_then(|def| fn_parts(program, def))
-            .map(|p| p.params.iter().map(|p| p.local).collect())
-            .unwrap_or_default();
-        let args = self.calls.get(call).cloned().unwrap_or_default();
-        let mut out = Row::empty();
-        for e in uses.elems() {
-            let RowElem::Cap(c) = e else {
-                out.insert(e.clone());
-                continue;
-            };
-            if let Some(i) = params.iter().position(|&p| p == c.local) {
-                let arg = args.get(i).copied().flatten();
-                match arg.and_then(|a| self.named_capability(a)) {
-                    Some(local) => out.insert(RowElem::Cap(CapElem {
-                        local,
-                        name: program.locals[local].name.clone(),
-                        tag: c.tag.clone(),
-                    })),
-                    None => out.insert(RowElem::Tag(c.tag.clone())),
-                }
-            } else if self.local_owner.get(c.local) == self.current.as_ref() {
-                out.insert(e.clone());
-            } else {
-                out.insert(RowElem::Tag(c.tag.clone()));
-            }
-        }
-        out
     }
 
     fn callee_uses(&mut self, callee: ExprId) -> Row {
@@ -378,19 +330,10 @@ impl BodyInfer<'_> {
             .filter(|e| e.named)
             .map(|e| e.effect.clone())
             .collect();
-        // A variable bound to an item is the capability of that item; it cannot leave the
-        // `with` (`[effect.use]`). The capability of a handler that provides its effect by name
-        // stands for that effect, as one bound to `use E` does.
-        for item in items {
-            if let Some(local) = item.bind {
-                self.cap_roots.insert(local, expr);
-                if !layer::is_member_item(program, item) {
-                    self.use_bound.insert(local);
-                }
-            }
-        }
         self.with_stack.push((expr, provides.clone()));
+        self.ctx.scopes.enter(expr);
         let body_row = self.expr_effects(body);
+        self.ctx.scopes.exit();
         self.with_stack.pop();
         layer::check_with_items(program, self.sigs, self.ty_table, items, &mut self.diags);
         let deps: Vec<Row> = entries
@@ -416,18 +359,27 @@ impl BodyInfer<'_> {
         }
         let mut for_body = provided.clone();
         for_body.extend(defaults.iter().map(|(t, _)| t.clone()));
-        let mut row = self.subtract(&body_row, &for_body);
-        // The capabilities whose root is this `with` (`[effect.use]`).
-        let locals: Vec<_> = self
-            .cap_roots
-            .iter()
-            .filter(|&(_, &with)| with == expr)
-            .map(|(local, _)| local)
-            .collect();
-        let roots: Vec<RowElem> = locals.into_iter().flat_map(|l| self.cap_elems(l)).collect();
-        if !roots.is_empty() {
-            row = self.subtract_elems(&row, &roots);
-        }
+        // The effects it provides, and the capabilities it made (`[effect.with]`), are removed
+        // at once: a set variable made outside the `with` cannot have its capabilities, even on
+        // the way (`[effect.escape]`).
+        let mut minus: Vec<RowElem> = for_body.iter().cloned().map(RowElem::Tag).collect();
+        // The handler members that an init opened through this `with`'s handlers end with it too
+        // (`[effect.handler]`, [`crate::row::OPENED_IN_INIT`]).
+        minus.extend(
+            (0..items.len() as u32)
+                .chain([crate::row::OPENED_IN_INIT])
+                .map(|i| {
+                    RowElem::Cap(CapElem {
+                        id: CapId::Item {
+                            with: expr,
+                            item: i,
+                        },
+                        name: Default::default(),
+                        tag: Tag::new(self.current.expect("a `with` is inside a definition")),
+                    })
+                }),
+        );
+        let mut row = self.subtract_elems(&body_row, &minus);
         // Handler dependencies may be met by handlers in the same `with` providing other effects
         // (spec 14.2). The handler's own effects, all those of a handler of several effects, are
         // met from outside (`[effect.handler]`). Dependencies a layer leaves unmet also remain
@@ -467,132 +419,82 @@ impl BodyInfer<'_> {
         row
     }
 
-    /// The innermost enclosing `with` that provides `tag` (`[effect.with]`), inside the current
-    /// function: the `with`s around a closure or a local fn do not provide its R.
-    fn innermost_with(&mut self, tag: &Tag) -> Option<ExprId> {
-        let stack = self.with_stack.clone();
-        stack
-            .iter()
-            .rev()
-            .find(|(_, provides)| provides.iter().any(|p| self.ctx.same_tag(p, tag)))
-            .map(|(with, _)| *with)
+    /// `row` without the `self` of the handler `def` ([`CapId::SelfOf`]): it ends with the body
+    /// of the operation, the init or the release (`[effect.handler]`).
+    fn end_self(&mut self, row: &Row, def: DefId) -> Row {
+        let elem = RowElem::Cap(CapElem {
+            id: CapId::SelfOf(def),
+            name: Default::default(),
+            tag: Tag::new(def),
+        });
+        self.subtract_elems(row, &[elem])
     }
 
-    /// The capability elements of a local variable holding a capability value: one for each of
-    /// its effects, since calling an operation adds the capability for that operation's effect
-    /// (`[type.rules]`).
-    fn cap_elems(&mut self, local: emela_resolve::hir::LocalId) -> Vec<RowElem> {
-        let Some(ty) = self.locals.get(local).cloned() else {
-            return Vec::new();
-        };
-        match self.ctx.resolve(&ty) {
-            Ty::Cap(tags) => tags
-                .into_iter()
-                .map(|tag| {
-                    RowElem::Cap(CapElem {
-                        local,
-                        name: self.program.locals[local].name.clone(),
-                        tag,
-                    })
-                })
-                .collect(),
-            _ => Vec::new(),
-        }
-    }
-
-    /// `row` without the capabilities of the variables bound in `binder` of `def`: their binding
-    /// ends with that body (`[effect.use]`).
-    fn end_binder(&mut self, row: &Row, def: DefId, binder: Option<ExprId>) -> Row {
-        let locals: Vec<_> = self
-            .local_binder
-            .iter()
-            .filter(|&(local, b)| *b == binder && self.local_owner.get(local) == Some(&def))
-            .map(|(local, _)| local)
-            .filter(|&local| !self.is_fn_param(local))
-            .collect();
-        // The `use E` that bound a variable has already added E, so its capability is removed.
-        // Another variable may hold a capability no `use E` of the body made, so its capability
-        // is replaced with its effect.
-        let (used, others): (Vec<_>, Vec<_>) =
-            locals.into_iter().partition(|l| self.use_bound.contains(l));
-        // The `self` of a handler stands for the capabilities in its fields (`self.inner.read`):
-        // removed by the variable alone, whatever their effects.
-        let used: Vec<RowElem> = used
-            .into_iter()
-            .flat_map(|l| self.cap_or_self_elems(l, def))
-            .collect();
-        let others: Vec<RowElem> = others
-            .into_iter()
-            .flat_map(|l| self.cap_or_self_elems(l, def))
-            .collect();
-        let mut row = row.clone();
-        if !used.is_empty() {
-            row = self.subtract_elems(&row, &used);
-        }
-        if !others.is_empty() {
-            row = self.widen_elems(&row, &others);
-        }
-        row
-    }
-
-    /// The capability elements of a local variable ([`Self::cap_elems`]), or else the element of
-    /// a handler's `self` ([`Self::self_elem`]).
-    fn cap_or_self_elems(
-        &mut self,
-        local: emela_resolve::hir::LocalId,
-        def: DefId,
-    ) -> Vec<RowElem> {
-        let elems = self.cap_elems(local);
-        if elems.is_empty() {
-            self.self_elem(local, def).into_iter().collect()
-        } else {
-            elems
-        }
-    }
-
-    /// The element of the `self` of a handler `def`, which stands for the capabilities in its
-    /// fields. Only its variable matters when it is removed or widened; each element in a row
-    /// keeps its own effect.
-    fn self_elem(&self, local: emela_resolve::hir::LocalId, def: DefId) -> Option<RowElem> {
-        (self.program.locals[local].kind == emela_resolve::hir::LocalKind::SelfParam).then(|| {
-            RowElem::Cap(CapElem {
-                local,
-                name: self.program.locals[local].name.clone(),
-                tag: Tag::new(def),
-            })
-        })
-    }
-
-    /// Replaces the capabilities `caps` in `row` with their effects. Set variables are replaced
-    /// with fresh ones whose solutions do the same.
-    fn widen_elems(&mut self, row: &Row, caps: &[RowElem]) -> Row {
+    /// The capabilities in the types of the values that the closure or local fn `binder`
+    /// captures (`[effect.use]`): they are in its R. A captured `self` is the capability of its
+    /// handler.
+    fn captured_caps(&mut self, binder: ExprId) -> Row {
+        let program = self.program;
         let mut out = Row::empty();
-        for e in self.ctx.resolve_row(row).elems() {
-            match e {
-                RowElem::Cap(c)
-                    if caps
-                        .iter()
-                        .any(|m| matches!(m, RowElem::Cap(m) if m.local == c.local)) =>
-                {
-                    out.insert(RowElem::Tag(c.tag.clone()));
-                }
-                RowElem::Var(v) => {
-                    let d = self.ctx.new_row_var();
-                    self.row_widens.push((d, *v, caps.to_vec()));
-                    out.insert(RowElem::Var(d));
-                }
-                e => out.insert(e.clone()),
+        for local in self.captured_locals(binder) {
+            if program.locals[local].kind == emela_resolve::hir::LocalKind::SelfParam
+                && let Some(def) = self.current
+                && matches!(program.item(def), Some(Item::Handler(_)))
+            {
+                out.insert(RowElem::Cap(CapElem {
+                    id: CapId::SelfOf(def),
+                    name: "self".into(),
+                    tag: Tag::new(def),
+                }));
+                continue;
             }
+            let Some(ty) = self.locals.get(local).cloned() else {
+                continue;
+            };
+            let ty = self.ctx.resolve(&ty);
+            caps_in(&ty, &mut out);
         }
         out
     }
 
-    /// [`Self::end_binder`] for a closure or local fn of the definition being computed.
-    fn end_binder_here(&mut self, row: &Row, binder: Option<ExprId>) -> Row {
-        match self.current {
-            Some(def) => self.end_binder(row, def, binder),
-            None => row.clone(),
+    /// The local variables referred to inside `binder` (the expression of a closure, or the body
+    /// of a local fn) that are bound outside it.
+    fn captured_locals(&self, binder: ExprId) -> Vec<emela_resolve::hir::LocalId> {
+        let program = self.program;
+        let span = program.exprs[binder].span;
+        // Bound in `binder` or in a closure or local fn inside it.
+        let bound_inside = |local: emela_resolve::hir::LocalId| match self.local_binder.get(local) {
+            Some(Some(b)) => {
+                *b == binder || {
+                    let s = program.exprs[*b].span;
+                    s.module == span.module && span.range.contains_range(s.range)
+                }
+            }
+            _ => false,
+        };
+        let mut out = Vec::new();
+        let mut stack = vec![binder];
+        while let Some(e) = stack.pop() {
+            if let ExprKind::Path(Res::Local(local)) = program.exprs[e].kind
+                && !bound_inside(local)
+                && !out.contains(&local)
+            {
+                out.push(local);
+            }
+            stack.extend(self.sub_exprs(e));
+            match &program.exprs[e].kind {
+                ExprKind::Lambda { body, .. } => stack.push(*body),
+                ExprKind::Block(block) => {
+                    for stmt in &block.stmts {
+                        if let Stmt::LocalFn(f) = stmt {
+                            stack.push(f.body);
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
+        out
     }
 
     /// Removes tags and capabilities from `row`, as [`Self::subtract`] does tags. A tag removes
@@ -604,11 +506,17 @@ impl BodyInfer<'_> {
                 RowElem::Tag(t) => minus
                     .iter()
                     .any(|m| matches!(m, RowElem::Tag(m) if self.ctx.same_tag(m, t))),
-                RowElem::Cap(c) => minus
-                    .iter()
-                    .any(|m| matches!(m, RowElem::Cap(m) if m.local == c.local)),
+                RowElem::Cap(c) => minus.iter().any(|m| match m {
+                    RowElem::Cap(m) => m.same(c),
+                    // In R, the name of an effect is the effect (`[type.rules]`).
+                    RowElem::Tag(m) => {
+                        matches!(c.id, CapId::Named { .. }) && self.ctx.same_tag(m, &c.tag)
+                    }
+                    _ => false,
+                }),
                 RowElem::Var(v) => {
                     let d = self.ctx.new_row_var();
+                    self.ctx.effect_vars.insert(d);
                     self.row_diffs.push((d, *v, minus.to_vec()));
                     out.insert(RowElem::Var(d));
                     continue;
@@ -631,8 +539,13 @@ impl BodyInfer<'_> {
         for e in self.ctx.resolve_row(row).elems() {
             match e {
                 RowElem::Tag(t) if tags.iter().any(|p| self.ctx.same_tag(p, t)) => {}
+                // In R, the name of an effect is the effect (`[type.rules]`).
+                RowElem::Cap(c)
+                    if matches!(c.id, CapId::Named { .. })
+                        && tags.iter().any(|p| self.ctx.same_tag(p, &c.tag)) => {}
                 RowElem::Var(v) if !tags.is_empty() => {
                     let d = self.ctx.new_row_var();
+                    self.ctx.effect_vars.insert(d);
                     let minus = tags.iter().map(|t| RowElem::Tag(t.clone())).collect();
                     self.row_diffs.push((d, *v, minus));
                     out.insert(RowElem::Var(d));
@@ -737,7 +650,7 @@ impl BodyInfer<'_> {
             // For an item that opens a handler member, the effect only names the capability it
             // binds; with several effects, the first (its local has the whole type).
             let effect = match self.ctx.resolve(&f.ret) {
-                Ty::Cap(tags) if !tags.is_empty() => tags[0].clone(),
+                Ty::Cap(tags, _) if !tags.is_empty() => tags[0].clone(),
                 _ => continue,
             };
             let (provider, after) = match &items[item].cap {
@@ -830,4 +743,20 @@ impl BodyInfer<'_> {
             }
         }
     }
+}
+
+/// Adds the capabilities that `ty` records to `out` (`[effect.use]`): the sets of its capability
+/// types and capability-bound types, and the capabilities in the R of its function types. In R,
+/// the name of an effect is the effect.
+fn caps_in(ty: &Ty, out: &mut Row) {
+    match ty {
+        Ty::Cap(_, caps) | Ty::Set(SetKind::Caps, caps) => out.extend(&caps.names_as_effects()),
+        Ty::Fn(f) => {
+            for c in f.uses.caps() {
+                out.insert(RowElem::Cap(c.clone()));
+            }
+        }
+        _ => {}
+    }
+    ty.for_each_child(|child| caps_in(child, out));
 }

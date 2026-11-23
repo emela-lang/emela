@@ -548,7 +548,21 @@ impl Lower<'_, '_> {
             };
             let ty = param.ty().map(|t| self.lower_type(&t));
             let local = self.bind(&mut binder, name, local_kind, range);
-            params.push(Param { local, ty });
+            let borrowed = param
+                .syntax()
+                .children()
+                .filter(|n| n.kind() == ANNOTATION)
+                .find(|n| {
+                    n.children_with_tokens()
+                        .filter_map(|t| t.into_token())
+                        .any(|t| t.kind() == LOWER_NAME && t.text() == "borrowed")
+                })
+                .map(|n| self.span(n.text_range()));
+            params.push(Param {
+                local,
+                ty,
+                borrowed,
+            });
         }
         self.bind_all(binder);
         params
@@ -570,7 +584,11 @@ impl Lower<'_, '_> {
             if let Some(token) = param.name() {
                 let (name, range) = token_name(&token);
                 let local = self.bind(&mut binder, name, LocalKind::LambdaParam, range);
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
             } else if let Some(token) = child_token(param.syntax(), SELF_KW) {
                 // As in [`Self::params`].
                 if !self.self_type {
@@ -585,14 +603,22 @@ impl Lower<'_, '_> {
                     LocalKind::SelfParam,
                     token.text_range(),
                 );
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
             } else if let Some(node) = param.pattern() {
                 let range = node.text_range();
                 let pat = self.pat(&node, &mut binder);
                 let local =
                     self.alloc_local(node.text().to_string().into(), LocalKind::PatParam, range);
                 let value = self.alloc_expr(ExprKind::Path(Res::Local(local)), range);
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
                 lets.push(Stmt::Let {
                     pat,
                     ty: None,
@@ -657,6 +683,7 @@ impl Lower<'_, '_> {
             Some(fields) => Fields::Named(fields),
             None => Fields::None,
         };
+        let bound = self.bound(t.syntax());
         let derives = self.derives(t.derive());
         self.pop_type_params();
         if let Some(ctor) = ctor {
@@ -673,6 +700,7 @@ impl Lower<'_, '_> {
             ctor,
             fields,
             derives,
+            bound,
             // Outside the bundled sources, `@intrinsic` is E0224 and the type stays a user type.
             is_intrinsic: t.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
         })
@@ -683,6 +711,7 @@ impl Lower<'_, '_> {
             def,
             e.syntax().children().find(|n| n.kind() == TYPE_PARAM_LIST),
         );
+        let bound = self.bound(e.syntax());
         // Variants with unreadable names were skipped during collection, so match up only the
         // named ones, in order.
         let syntax_variants: Vec<_> = e.variants().filter(|v| v.name().is_some()).collect();
@@ -712,8 +741,16 @@ impl Lower<'_, '_> {
             type_params,
             variants: variants.to_vec(),
             derives,
+            bound,
             tags,
         })
+    }
+
+    /// The effect of `uses E` on a type or enum declaration (`[type.rules]`). The clause names
+    /// one effect; further ones are ignored.
+    fn bound(&mut self, decl: &SyntaxNode) -> Option<EffectRef> {
+        let clause = decl.children().find(|n| n.kind() == USES_CLAUSE)?;
+        self.effect_set(&clause).items.into_iter().next()
     }
 
     fn effect_item(&mut self, def: DefId, children: &[DefId], e: &ast::EffectDecl) -> Item {

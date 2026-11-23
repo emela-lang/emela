@@ -3,31 +3,32 @@ source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
 export suspend fn main(ev%0: evidence) -> Int fails {
-  let body%1: fn() -> Int fails suspends ev = suspend fn(ev%2: evidence) -> Int fails {
-    let s%3: Std.Semaphore.Semaphore = Std.Fiber.semaphore[{}, {}](2, ev%2)
-    let q%4: Std.Queue.Queue[String] = Std.Fiber.queue[String, {}, {}](1, ev%2)
-    let _%5: String = passed(q%4)!?
-    let _%6: Option[Int] = tried(s%3)
-    limited(s%3, ev%2)!
+  let body%1: fn(handler Std.Fiber.Scope[_, _]) -> Int fails suspends ev = suspend fn(_%2: handler Std.Fiber.Scope[_, _], ev%3: evidence) -> Int fails {
+    let _%4: handler Std.Fiber.Scope[_, _] = _%2
+    let s%5: Std.Semaphore.Semaphore = Std.Fiber.semaphore[{}, {}](2, ev%3)
+    let q%6: Std.Queue.Queue[String] = Std.Fiber.queue[String, {}, {}](1, ev%3)
+    let _%7: String = passed(q%6)!?
+    let _%8: Option[Int] = tried(s%5)
+    limited(s%5, ev%3)!
   }
-  fiber#scope(suspend fn(s%7: fiber_scope) -> Int fails {
-    let scope%8: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
-      fork: fn(g%9: fn(evidence) -> any fails suspends) -> any {
-        fiber#fork(s%7, suspend fn() -> any fails {
-          (g%9)(ev%0)!?
+  fiber#scope(suspend fn(s%9: fiber_scope) -> Int fails {
+    let scope%10: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
+      fork: fn(g%11: fn(evidence) -> any fails suspends) -> any {
+        fiber#fork(s%9, suspend fn() -> any fails {
+          (g%11)(ev%0)!?
         })
       }
       deferred: fn() -> any {
-        fiber#deferred(s%7)
+        fiber#deferred(s%9)
       }
-      semaphore: fn(permits%10: Int) -> any {
-        fiber#semaphore(s%7, permits%10)
+      semaphore: fn(permits%12: Int) -> any {
+        fiber#semaphore(s%9, permits%12)
       }
-      queue: fn(capacity%11: Int) -> any {
-        fiber#queue(s%7, capacity%11)
+      queue: fn(capacity%13: Int) -> any {
+        fiber#queue(s%9, capacity%13)
       }
     }
-    (body%1)(provide(ev%0; Std.Fiber.Scope[_, _] = scope%8))!?
+    (body%1)(scope%10, provide(ev%0; Std.Fiber.Scope[_, _] = scope%10))!?
   })!?
 }
 

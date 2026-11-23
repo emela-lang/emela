@@ -41,7 +41,7 @@ fn main() -> () uses { Async } {
       Some(how) -> how
       None      -> "stdout"
     }
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       clock <- Clock
       Fiber.fork(|| with Released { clock.sleep(600000) })
       # Lets the forked fiber start and enter its `with` before the writes, which never suspend.

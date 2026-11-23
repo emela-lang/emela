@@ -2206,80 +2206,10 @@ fn experimental_feature_note() {
     ");
 }
 
-/// `[effect.escape]`, `[diag.list]`: a value that holds a root and leaves the `with` that
-/// provides it is W0402, with labels at the `with` item and at the value. With the experimental
-/// feature `capture-checking`, from `[experimental]` or from the flag, it is E0444 with the note of
-/// the feature (`[intro.experimental]`), and the name is known (no W0206).
-#[test]
-fn capture_escape() {
-    let main = "\
-effect Logger {
-  fn info(msg: String) -> ()
-}
-
-handler FileLogger: Logger {
-  fn info(msg) { () }
-}
-
-fn make_greeter() -> fn() -> () {
-  with FileLogger {
-    log = use Logger
-    || log.info(\"hi\")
-  }
-}
-";
-    let manifest = |table: &str| {
-        format!(
-            "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.28.0\"\n\n[experimental]\n{table}"
-        )
-    };
-    let run = |manifest: &str, flags: &[&str]| {
-        let fs = MemoryFiles::new([("app/Pome.toml", manifest), ("app/src/main.emel", main)]);
-        let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
-        input.experimental = flags.iter().map(|f| f.to_string()).collect();
-        let (mut analysis, _) = check(&fs, &input, &mut Typecheck::default());
-        // The example writes `log = use Logger` (W0403, deprecated); only W0402 is checked.
-        analysis
-            .diagnostics
-            .retain(|d| d.code != Some(emela_driver::code::DEPRECATED_USE));
-        render(&analysis.diagnostics, &analysis.sources, false)
-    };
-    insta::assert_snapshot!("capture_escape_warning", run(&manifest(""), &[]));
-    let error = run(&manifest("capture-checking = true\n"), &[]);
-    insta::assert_snapshot!("capture_escape_error", error);
-    assert_eq!(run(&manifest(""), &["capture-checking"]), error);
-    assert_eq!(
-        run(&manifest("capture-checking = false\n"), &[]),
-        run(&manifest(""), &[])
-    );
-}
-
-/// `[fiber.escape]`: the value of `Fiber.scope` that holds its Scope is W0402, labelled at the
-/// callee.
-#[test]
-fn capture_escape_from_a_scope() {
-    let main = "\
-import Std.Fiber.{Fiber, Scope}
-
-fn leak() -> fn() -> Int {
-  Fiber.scope(|| {
-    h = Fiber.fork(|| 1)
-    || Fiber.join(h)
-  })
-}
-";
-    let analysis = check_files(
-        &[("app/Pome.toml", ""), ("app/src/main.emel", main)],
-        "app",
-        &mut Typecheck::default(),
-    );
-    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
-}
-
 /// `[effect.use]`, `[diag.list]`: the type `use E` names an effect; another kind of name is
 /// E0217. An operation that E does not have, called on a value of type `use E`, is E0401. A
 /// capability value passed, stored and returned is not an error (E0408 to E0410 are retired),
-/// and one that leaves its `with` is W0402.
+/// and one that leaves the `with` that made it is E0455.
 #[test]
 fn capability_types() {
     let main = "\
@@ -2316,60 +2246,59 @@ fn leaks() -> use Db {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// `[fiber.escape]`: the value of `Fiber.scope` that holds a Semaphore or Queue made by the scope
-/// is W0402, labelled at the callee. With `capture-checking`, from `[experimental]` or from the
-/// flag, it is E0444. A value taken out of them is not.
+/// The diagnostics of capabilities told apart in types (`[effect.escape]`, `[effect.handler]`,
+/// `[type.rules]`, `[ext.boundary]`, `[diag.list]`): a capability that leaves the `with` that
+/// made it (E0455), a capability type in the result of an operation (E0456), `@borrowed` on a
+/// parameter that is not a callback of an external function (E0457), a value of a
+/// capability-bound type made outside a handler of its effect (E0458), and a capability in the R
+/// of a callback (E0454).
 #[test]
-fn capture_escape_of_semaphores_and_queues() {
+fn capability_identity() {
     let main = "\
-import Std.Fiber.{Fiber}
-import Std.Queue.{Queue}
-
-fn leak_semaphore() -> fn() -> Int {
-  Fiber.scope(|| {
-    s = Fiber.semaphore(1)
-    || s.available()
-  })
+effect Db {
+  fn query(q: String) -> Int
+  fn conn() -> use Db
 }
 
-fn leak_queue() -> fn() -> Option[Int] {
-  Fiber.scope(|| {
-    q: Queue[Int] = Fiber.queue(1)
-    || q.poll()
-  })
+type Ticket(n: Int) uses Db
+
+handler PrimaryDb: Db {
+  fn query(q) { 1 }
+  fn conn() { panic(\"no\") }
 }
 
-fn taken() -> Option[Int] {
-  Fiber.scope(|| {
-    q: Queue[Int] = Fiber.queue(1)
-    q.try_offer(1)
-    q.poll()
-  })
+@external(js, \"setTimeout\")
+fn set_timeout(ms: Int, f: fn() -> ()) -> ()
+
+fn plain(@borrowed f: fn() -> ()) { f() }
+
+fn leaks() {
+  with db = PrimaryDb {
+    || db.query(\"x\")
+  }
 }
 
-fn permitted() -> Int {
-  Fiber.scope(|| Fiber.semaphore(1).with_permit(|| 1))
+fn made() -> Ticket uses { Db } { Ticket(1) }
+
+handler Late: Db {
+  fn query(q) {
+    with db = PrimaryDb {
+      set_timeout(1, || {
+        db.query(q)
+        ()
+      })
+    }
+    1
+  }
+  fn conn() { panic(\"no\") }
 }
 ";
-    let manifest = |table: &str| {
-        format!(
-            "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.28.0\"\n\n[experimental]\n{table}"
-        )
-    };
-    let run = |manifest: &str, flags: &[&str]| {
-        let fs = MemoryFiles::new([("app/Pome.toml", manifest), ("app/src/main.emel", main)]);
-        let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
-        input.experimental = flags.iter().map(|f| f.to_string()).collect();
-        let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
-        render(&analysis.diagnostics, &analysis.sources, false)
-    };
-    let warning = run(&manifest(""), &[]);
-    assert_eq!(warning.matches("warning[W0402]").count(), 2, "{warning}");
-    insta::assert_snapshot!("capture_escape_of_semaphores_and_queues_warning", warning);
-    let error = run(&manifest("capture-checking = true\n"), &[]);
-    assert_eq!(error.matches("error[E0444]").count(), 2, "{error}");
-    insta::assert_snapshot!("capture_escape_of_semaphores_and_queues_error", error);
-    assert_eq!(run(&manifest(""), &["capture-checking"]), error);
+    let analysis = check_files(
+        &[("app/Pome.toml", ""), ("app/src/main.emel", main)],
+        "app",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
 /// Handler members (`[effect.decl]`, `[effect.handler]`, `[effect.with]`): an item without
@@ -2621,32 +2550,6 @@ fn undeclared() {
     log.info("x")
   }
   say()
-}
-"#,
-        )],
-        "home/main.emel",
-        &mut frontend,
-    );
-    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
-}
-
-/// A Semaphore or a Queue in the value of `Fiber.scope` is E0425, named by its type
-/// (`[fiber.escape]`).
-#[test]
-fn semaphore_and_queue_cannot_leave_the_scope() {
-    let mut frontend = Typecheck::default();
-    let analysis = check_files(
-        &[(
-            "home/main.emel",
-            r#"import Std.Fiber.{Fiber}
-import Std.Queue.{Queue}
-
-fn semaphore() {
-  Fiber.scope(|| Fiber.semaphore(2))
-}
-
-fn queue() -> Option[Queue[Int]] uses { Async } {
-  Fiber.scope(|| Some(Fiber.queue(1)))
 }
 "#,
         )],

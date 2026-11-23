@@ -45,7 +45,7 @@ fn is_auto_trait(program: &Program, trait_def: DefId) -> bool {
 /// A capability of several effects (`use E1 + ... + En`) is a capability value as well and counts
 /// as one. Every decision about which types are capability types is made here.
 pub fn is_capability_type(ty: &Ty) -> bool {
-    matches!(ty, Ty::Cap(_))
+    matches!(ty, Ty::Cap(..))
 }
 
 /// The traits a `derive` may list (spec 10.5), by the module that defines them and their name.
@@ -250,7 +250,7 @@ impl Traits {
                 };
             }
             // A capability satisfies no trait other than Capability (`[effect.use]`).
-            Ty::Fn(_) | Ty::Cap(_) => return fail(),
+            Ty::Fn(_) | Ty::Cap(..) => return fail(),
             _ => {}
         }
         let args: Vec<Ty> = match ty {

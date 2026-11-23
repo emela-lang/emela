@@ -310,8 +310,7 @@ import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 fn main() -> Int uses { Async } {
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     a = s.fork(|| [1])
     b = Fiber.fork(|| 2)
     d = s.deferred()
@@ -368,7 +367,7 @@ fn generic_roots_are_instantiated() {
             "main.emel",
             "import Std.Fiber.{Fiber, Scope}\n\
              fn child_defect() {\n\
-               Fiber.scope(|| {\n\
+               Fiber.scope(|_| {\n\
                  h = Fiber.fork(|| panic(\"child\"))\n\
                  Fiber.join(h)\n\
                })\n\

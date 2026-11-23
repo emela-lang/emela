@@ -8,7 +8,7 @@ fn print(s: String) -> () uses {}
 # nothing) and set parameters; the native target instantiates them instead of skipping main.
 fn main() {
   print("start")
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     h = Fiber.fork(|| panic("child"))
     Fiber.join(h)
   })

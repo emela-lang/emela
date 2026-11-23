@@ -5,7 +5,7 @@
 //! (spec 9.3).
 
 use emela_resolve::hir::{DefId, ExprKind, Item, LocalKind, RefTarget, Res};
-use emela_types::{Row, Ty, TyParam};
+use emela_types::{CapId, Row, RowElem, SetKind, Supplier, Ty, TyParam};
 use line_index::{TextRange, TextSize};
 
 use crate::frontend::TypedProgram;
@@ -202,29 +202,60 @@ pub(crate) fn hover(
     Some(info)
 }
 
-/// The line `holds: ...` (`[lsp.hover]`): each root by its name, and for a root provided by a
-/// `with` or a scope, where (`p (with PrimaryDb, line 4)`). Empty when nothing is held.
-fn holds_line(analysis: &Analysis, held: Option<&Vec<emela_types::Held>>) -> String {
-    let Some(held) = held.filter(|h| !h.is_empty()) else {
-        return String::new();
+/// The line `capabilities: ...` (`[lsp.hover]`): the capabilities the type `ty` records, each by
+/// the variable of its named item, the handler of an item without a name, the parameter that
+/// received it, or `any` for a parameter of a quantified function type. Empty when it records
+/// none.
+fn capabilities_line(program: &TypedProgram, ty: &Ty, params: &[TyParam]) -> String {
+    let hir = &program.hir;
+    let types = &program.types;
+    let mut names: Vec<String> = Vec::new();
+    let mut push = |name: String| {
+        if !names.contains(&name) {
+            names.push(name);
+        }
     };
-    let roots: Vec<String> = held
-        .iter()
-        .map(|h| match &h.provider {
-            Some(p) => {
-                let line = analysis
-                    .files
-                    .get(p.span.module)
-                    .map(|&f| analysis.sources[f].line_col(p.span.range.start()).line + 1);
-                match line {
-                    Some(line) => format!("{} ({}, line {line})", h.name, p.what),
-                    None => format!("{} ({})", h.name, p.what),
+    ty.visit(&mut |t| {
+        let (Ty::Cap(_, row) | Ty::Set(SetKind::Caps, row)) = t else {
+            return;
+        };
+        for e in row.elems() {
+            match e {
+                RowElem::Cap(c) => match c.id {
+                    CapId::Named { provider, effect } => {
+                        // The handler of the item that provides the effect by name.
+                        let handler = types.with_handlers.get(provider).and_then(|info| {
+                            info.binds.iter().find_map(|b| match b.supplier {
+                                Supplier::Handler(h) if b.named && b.effect.def == effect => {
+                                    Some(hir.defs[h].name.to_string())
+                                }
+                                _ => None,
+                            })
+                        });
+                        push(handler.unwrap_or_else(|| c.name.to_string()));
+                    }
+                    _ => push(c.name.to_string()),
+                },
+                RowElem::Tag(tag) => push(hir.defs[tag.def].name.to_string()),
+                RowElem::Bound(i) => {
+                    if let Some(p) = params.get(*i as usize) {
+                        let name = p.name.as_str();
+                        let name = name
+                            .strip_prefix("C(")
+                            .and_then(|n| n.strip_suffix(')'))
+                            .map_or(name, |n| n.split(',').next().unwrap_or(n));
+                        push(name.to_owned());
+                    }
                 }
+                _ => {}
             }
-            None => h.name.to_string(),
-        })
-        .collect();
-    format!("\n  holds: {}", roots.join(", "))
+        }
+    });
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!("\ncapabilities: {}", names.join(", "))
+    }
 }
 
 fn hover_type(
@@ -252,11 +283,10 @@ fn hover_type(
         && let Some(sig) = types.sigs.get(def)
     {
         let text = format!(
-            "{}: {}{}{}",
+            "{}: {}{}",
             data.name,
             suspend_prefix(hir, def),
             sig.scheme.display(cons),
-            holds_line(analysis, types.captures.defs.get(def)),
         );
         return Some(HoverInfo {
             range: data.span?.range,
@@ -326,13 +356,25 @@ fn hover_type(
             if e.is_none_or(|(_, e)| data.span.range.len() <= e.span.range.len()) =>
         {
             let ty = types.locals.get(local)?;
+            // A parameter's binding site is outside the body: the type parameters are those of
+            // its function.
+            let params = match hir.defs.iter().find(|(d, _)| {
+                matches!(hir.item(*d), Some(Item::Fn(f)) if f.sig.params.iter().any(|p| p.local == local))
+            }) {
+                Some((def, _)) if params.is_empty() => types
+                    .sigs
+                    .get(def)
+                    .map(|sig| sig.scheme.params.clone())
+                    .unwrap_or_default(),
+                _ => params,
+            };
             Some(HoverInfo {
                 range: data.span.range,
                 contents: code(&format!(
                     "{}: {}{}",
                     data.name,
                     ty.display_with(cons, &params),
-                    holds_line(analysis, types.captures.locals.get(local)),
+                    capabilities_line(program, ty, &params),
                 )),
             })
         }
@@ -341,11 +383,10 @@ fn hover_type(
                 ExprKind::Path(Res::Def(def)) => {
                     let sig = types.sigs.get(*def)?;
                     format!(
-                        "{}: {}{}{}",
+                        "{}: {}{}",
                         hir.defs[*def].name,
                         suspend_prefix(hir, *def),
                         sig.scheme.display(cons),
-                        holds_line(analysis, types.captures.defs.get(*def)),
                     )
                 }
                 ExprKind::Path(Res::Local(local)) => {
@@ -354,7 +395,7 @@ fn hover_type(
                         "{}: {}{}",
                         hir.locals[*local].name,
                         ty.display_with(cons, &params),
-                        holds_line(analysis, types.captures.locals.get(*local)),
+                        capabilities_line(program, ty, &params),
                     )
                 }
                 _ => {
@@ -364,7 +405,11 @@ fn hover_type(
                         .ops
                         .get(expr)
                         .map_or("", |&op| suspend_prefix(hir, op));
-                    let mut text = format!("{prefix}{}", ty.display_with(cons, &params));
+                    let mut text = format!(
+                        "{prefix}{}{}",
+                        ty.display_with(cons, &params),
+                        capabilities_line(program, ty, &params)
+                    );
                     let errors = types.errors.get(expr).cloned().unwrap_or_else(Row::empty);
                     if !errors.is_empty() {
                         text.push_str(&format!("\nfails {}", errors.display_with(cons, &params)));
@@ -373,7 +418,6 @@ fn hover_type(
                     if !effects.is_empty() {
                         text.push_str(&format!("\nuses {}", effects.display_uses(cons, &params)));
                     }
-                    text.push_str(&holds_line(analysis, types.captures.exprs.get(expr)));
                     text
                 }
             };

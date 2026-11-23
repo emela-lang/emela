@@ -413,7 +413,7 @@ fn joins() {
 
 @test
 fn child_error() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     h = Fiber.fork(|| boom())
     Fiber.join(h)
   })
@@ -421,7 +421,7 @@ fn child_error() {
 
 @test
 fn child_defect() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     h = Fiber.fork(|| explode())
     Fiber.join(h)
   })
@@ -429,7 +429,7 @@ fn child_defect() {
 
 @test
 fn waits_forever() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     d = Fiber.deferred()
     Deferred.await(d) + 1
   })

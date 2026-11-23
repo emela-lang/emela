@@ -2220,6 +2220,8 @@ impl<'m> Builder<'m> {
             Value::Handler { name, ops, .. } => {
                 let mut refs = vec![false, true];
                 refs.extend(std::iter::repeat_n(true, ops.len()));
+                // Slots 0 and 1 are left from the check of a released handler, which the types
+                // made unneeded (`[effect.escape]`): a flag that stays 0 and the old message.
                 let defect = self
                     .string_literal(format!("handler {name} was used after release").as_bytes());
                 let desc = self.desc(DescKey {
@@ -2600,16 +2602,6 @@ impl<'m> Builder<'m> {
         let call_ret = if suspend { Repr::Void } else { ret };
         let ty = self.call_ty(&params, call_ret);
         let op_off = HDR + 8 * (op as u32 + 2);
-        // If the handler was released, its operations are a defect (spec 8.6).
-        ins.local_get(cx.local(handler));
-        ins.i32_load(mem(HDR, 4));
-        ins.if_(BlockType::Empty);
-        ins.local_get(cx.local(handler));
-        ins.i32_load(mem(HDR + 8, 4));
-        let raise = self.rt("raise");
-        ins.call(raise);
-        dummy_return(ins, cx.ret);
-        ins.else_();
         let rs = if suspend {
             let rs = cx.scratch(Repr::Ref, 0);
             let prefix =
@@ -2645,7 +2637,6 @@ impl<'m> Builder<'m> {
             self.perform_result(ins, ret);
         }
         self.assign(cx, ins, dst, ret);
-        ins.end();
     }
 
     /// `Fiber.scope`, `fork`, `join`, `await`, `interrupt`, the Deferred operations and the

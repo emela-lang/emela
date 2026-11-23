@@ -42,7 +42,7 @@ fn main() -> () fails QueueClosed uses { Async } {
   with Ticks {
     # A queue of capacity 1 with several producers: the values come out in the order the offers
     # started.
-    got = Fiber.scope(|| {
+    got = Fiber.scope(|_| {
       q = Fiber.queue(1)
       dbg(q)
       dbg([q])
@@ -63,7 +63,7 @@ fn main() -> () fails QueueClosed uses { Async } {
     dbg(got)
 
     # Consumers waiting to take are served in order.
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       q = Fiber.queue(4)
       Fiber.fork(|| dbg("first took #{q.take()}"))
       Fiber.fork(|| dbg("second took #{q.take()}"))
@@ -77,7 +77,7 @@ fn main() -> () fails QueueClosed uses { Async } {
     })
 
     # try_offer, poll and size.
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       q = Fiber.queue(2)
       dbg(q.poll())
       dbg([q.try_offer(1), q.try_offer(2), q.try_offer(3)])
@@ -87,7 +87,7 @@ fn main() -> () fails QueueClosed uses { Async } {
     })
 
     # Close with values left: they can still be taken, then take fails with QueueClosed.
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       q = Fiber.queue(10)
       Fiber.fork(|| {
         [1, 2, 3].each(|x| q.offer(x))
@@ -108,7 +108,7 @@ fn main() -> () fails QueueClosed uses { Async } {
 
     # Close with waiting fibers: takers and offerers fail with QueueClosed, and the offers waiting
     # add nothing.
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       empty = Fiber.queue(1)
       full = Fiber.queue(1)
       full.offer("kept")
@@ -129,7 +129,7 @@ fn main() -> () fails QueueClosed uses { Async } {
     })
 
     # An interrupted offer adds nothing, and a taker interrupted while it waits leaves the line.
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       q = Fiber.queue(1)
       q.offer(1)
       offerer = Fiber.fork(|| q.offer(2))
@@ -153,32 +153,32 @@ fn main() -> () fails QueueClosed uses { Async } {
     dbg(
       show(
         Exit.attempt(
-          || Fiber.scope(|| {
+          || Fiber.scope(|_| {
             q: Queue[Int] = Fiber.queue(0)
             q.size()
           }),
         ),
       ),
     )
-    later = Fiber.scope(|| {
+    later = Fiber.scope(|_| {
       q = Fiber.queue(1)
       || q.try_offer(1)
     })
     dbg(show(Exit.attempt(|| later())))
-    take_later = Fiber.scope(|| {
+    take_later = Fiber.scope(|_| {
       q: Queue[Int] = Fiber.queue(1)
       || q.take() escape { QueueClosed -> 0 }
     })
     dbg(show(Exit.attempt(|| take_later())))
 
     # A fiber of another scope still waiting when the scope ends stops with a defect.
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       leak = Fiber.deferred()
       Fiber.fork(|| {
         q: Queue[Int] = leak.await()
         dbg("waiter: #{show(Exit.attempt(|| q.take() escape { QueueClosed -> 0 }))}")
       })
-      Fiber.scope(|| {
+      Fiber.scope(|_| {
         q = Fiber.queue(1)
         leak.complete(q)
         spin(3000)

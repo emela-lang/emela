@@ -432,7 +432,7 @@ fn main() {
     late = Fiber.timeout(100, || fetch(8, 1000))
     console.print_line("timeout: #{late}")
     # A failing child interrupts its siblings, and the error reaches the scope.
-    failed = Fiber.scope(|| {
+    failed = Fiber.scope(|_| {
       ok = Fiber.fork(|| fetch(9, 1000))
       bad = Fiber.fork(|| fetch(-1, 100))
       "#{Fiber.join(ok)} #{Fiber.join(bad)}"

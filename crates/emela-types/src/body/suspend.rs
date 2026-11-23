@@ -54,6 +54,7 @@ impl BodyInfer<'_> {
             let callee = program.defs[def].name.clone();
             // An external function's invisible sets (`R(f)`) are callback Rs. Written type
             // parameters are reported as bounds.
+            let borrowed = external && self.borrowed_param(def, &p.name);
             let source = if external && p.name.contains('(') {
                 ImmediateSource::ExternalCallback { callee }
             } else {
@@ -67,8 +68,27 @@ impl BodyInfer<'_> {
                 span,
                 owner: self.current,
                 source,
+                borrowed,
             });
         }
+    }
+
+    /// Whether the parameter of the external function `def` that the invisible set `set` (`R(f)`)
+    /// belongs to is `@borrowed` (`[ext.boundary]`).
+    fn borrowed_param(&self, def: DefId, set: &str) -> bool {
+        let program = self.program;
+        let Some(Item::Fn(f)) = program.item(def) else {
+            return false;
+        };
+        let name = set
+            .split_once('(')
+            .map(|(_, rest)| rest.trim_end_matches(')'))
+            .and_then(|rest| rest.split(',').next())
+            .unwrap_or_default();
+        f.sig
+            .params
+            .iter()
+            .any(|p| p.borrowed.is_some() && program.locals[p.local].name == name)
     }
 
     /// Checks that the recorded sets are Immediate (E0416). Call after sets are solved.
@@ -93,6 +113,30 @@ impl BodyInfer<'_> {
                             callback.push(name);
                         }
                     }
+                }
+            }
+            // Nor a capability, since the host may keep the callback after the with of the
+            // capability has ended, unless the parameter is `@borrowed`.
+            if let ImmediateSource::ExternalCallback { callee } = &ob.source
+                && !ob.borrowed
+            {
+                let mut caps: Vec<SmolStr> = Vec::new();
+                for c in row.caps() {
+                    if matches!(c.id, crate::row::CapId::Named { .. }) {
+                        continue;
+                    }
+                    if !caps.contains(&c.name) {
+                        caps.push(c.name.clone());
+                    }
+                }
+                if !caps.is_empty() {
+                    self.diags.push(Diagnostic {
+                        span: Some(ob.span),
+                        kind: DiagnosticKind::CallbackCapabilities {
+                            caps,
+                            callee: callee.clone(),
+                        },
+                    });
                 }
             }
             if !callback.is_empty() {

@@ -468,6 +468,37 @@ fn old_use_clause_is_rewritten() {
     }
 }
 
+/// `[fiber.scope]`: the body of `Fiber.scope` takes the scope's capability as its parameter. A
+/// body without one (a type mismatch) is rewritten to `|_|`, or to `|s|` when it starts by
+/// binding `s = use Scope`, whose statement is removed.
+#[test]
+fn scope_bodies_take_the_scope() {
+    let text = "import Std.Fiber.{Fiber, Scope}\n\nfn main() -> () uses { Async } {\n  Fiber.scope(|| {\n    s = use Scope\n    s.fork(|| 1)\n    ()\n  })\n  _ = Fiber.scope(|| Fiber.fork(|| 2).join())\n  ()\n}\n";
+    let actions: Vec<CodeAction> = fixes(text, "|| {\n    s", &[])
+        .into_iter()
+        .filter(|a| a.title.starts_with("Take the scope"))
+        .collect();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Take the scope as the parameter `|s|`");
+    let edited = apply(text, &actions[0]);
+    assert!(
+        edited.contains("  Fiber.scope(|s| {\n    s.fork(|| 1)\n"),
+        "{edited}"
+    );
+    let actions: Vec<CodeAction> = fixes(&edited, "|| Fiber.fork(|| 2)", &[])
+        .into_iter()
+        .filter(|a| a.title.starts_with("Take the scope"))
+        .collect();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Take the scope as the parameter `|_|`");
+    let edited = apply(&edited, &actions[0]);
+    assert!(
+        edited.contains("Fiber.scope(|_| Fiber.fork(|| 2).join())"),
+        "{edited}"
+    );
+    assert_clean(&edited, &[]);
+}
+
 /// W0403 (`[effect.use]`): `(use E).op(...)` and `x = use E` used only as a receiver are rewritten
 /// to effect aliases. A binding used otherwise gets no quick fix, since an alias would not mean the
 /// same. The rewritten program has no W0403 left.

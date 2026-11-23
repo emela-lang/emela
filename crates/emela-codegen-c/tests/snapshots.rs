@@ -110,7 +110,7 @@ fn nap(ms: Int) -> Int uses { Clock } {
 
 fn main() -> () uses { Async } {
   with Instant {
-    total = Fiber.scope(|| {
+    total = Fiber.scope(|_| {
       a = Fiber.fork(|| nap(1))
       nap(2) + Fiber.join(a)
     })

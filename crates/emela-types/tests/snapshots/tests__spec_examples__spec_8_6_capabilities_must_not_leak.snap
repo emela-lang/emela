@@ -1,11 +1,11 @@
 ---
 source: crates/emela-types/tests/spec_examples.rs
-expression: "render_bodies(r#\"\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\nhandler ConsoleLogger: Logger {  # 補\n  fn info(msg) { () }\n}\n\nfn make_greeter() {\n  with ConsoleLogger {\n    log = use Logger\n    || log.info(\"hi\") # W0402: leaves the with while holding log (E0444 with `capture-checking`)\n  }\n}\n\nfn used_up(names: List[String]) {  # 補\n  with ConsoleLogger {\n    log = use Logger\n    List.map(names, |n| log.info(n))\n  }\n}\n\"#)"
+expression: "render_bodies(r#\"\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\nhandler ConsoleLogger: Logger {  # 補\n  fn info(msg) { () }\n}\n\nfn make_greeter() {\n  with log = ConsoleLogger {\n    || log.info(\"hi\") # E0455: the R of the closure contains log, which leaves the with\n  }\n}\n\nfn used_up(names: List[String]) {  # 補\n  with log = ConsoleLogger {\n    List.map(names, |n| log.info(n))\n  }\n}\n\"#)"
 ---
-make_greeter: fn() -> fn() -> () uses { Logger }
+make_greeter: fn() -> fn() -> () uses { log }
   log: use Logger
 used_up: fn(List[String]) -> List[()]
   names: List[String]
   log: use Logger
   n: String
-`|| log.info("hi")` warning: holds `log` and leaves the `with` that provides it
+`|| log.info("hi")` CapabilityLeak { cap: "log", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 153..166 }) }

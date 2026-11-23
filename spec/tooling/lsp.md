@@ -72,9 +72,15 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - The name of a layer: `layer L { H1, H2 }` (in initialization order). If the layer has requirements not satisfied inside it, a `uses { R }` line is added.
   - The name of a label (`[effect.label]`), and a name that refers to a label (`uses { AuditLog }`, `with AuditLog by H`): the declaration as is (`effect DebugLog of Console default`). Whether it falls back to the underlying effect can be read from `default` in the declaration.
   - A suspend fn (an effect operation and `@external suspend fn`): `suspend` is put before the type.
-  - The type of a capability value is shown as `use Logger` (`log: use Logger`). For an effect with type arguments, `use State[Int]`.
+  - The type of a capability value is shown as `use Logger` (`log: use Logger`). For an effect with type arguments, `use State[Int]`. Types are shown as written in source (`use Counter`, `Fiber[Int]`); the sets of capabilities they record are not written in them.
   - The type of a handler value shows the handler's name and its type arguments (`self: PostgresUsers`, `self: Memory[S]`).
-- On a function or a value that may hold capabilities, the hover shows a line `holds: ...` with the roots it may hold, and for each root the with that provides it. A root is shown by the variable of its binding, the parameter that received it, the handler of an unbound with item, or the name of the effect for a `use E` provided by the caller.
+- When the type of a value records capabilities (`[type.rules]`), the hover shows a line `capabilities: ...` below the type that names which capabilities the type of the value records: the variable of a named item, the handler of an item without a name, the parameter that received it, or `any` for a parameter of a quantified function type.
+- The `uses { ... }` of a closure or a function lists capabilities by the same names (`uses { f, Console }`).
+
+```
+ns: List[use Counter]
+capabilities: x, y
+```
 - Among the things containing the cursor position, the innermost (the one with the shortest range) is chosen. The end position of a range is not included.
 - For a document that cannot be type checked, the server returns `null`.
 - If the definition has a `##` documentation comment (`[lex.comment]`), it is shown as Markdown after the code block, separated by a horizontal rule (`[lsp.doc]`).
@@ -215,6 +221,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - E0318 and E0402 (the E and R of the body are not included in the declaration): writes the union of the body's E and R and the written clauses, by the same rules as inserting omitted annotations. Written elements are not removed. For E0402 on main, test, const, and handler operations, no edit that propagates uses is offered.
   - E0144 and E0145 (the old form of impl and handler heads): for E0144, the head (from `impl` to the end of the head) is replaced with the rewritten head. For E0145, the text from after the name (or after the field sequence, if any) up to `implements` is replaced with `:`. The rewritten form is the same as the form shown in the diagnostic message (`[diag.list]`).
   - E0147 (the old clause): replaces the clause with its canonical form (`use Db` becomes `uses { Db }`).
+  - E0301 on a closure without parameters passed to `Fiber.scope` (`[fiber.scope]`): the closure takes the scope's capability as its parameter. A statement `s = use Scope` in its body is removed and its name becomes the parameter (`|s|`); otherwise the parameter is `_` (`|_|`).
   - W0305 (a type parameter that does not appear in the type of the fn): removes the type parameter together with its bound and the `,` that separates it from its neighbour. When the list becomes empty, the brackets are removed too (`fn f[A]() -> Int` becomes `fn f() -> Int`). It is not offered when the type parameter appears in a type annotation inside the body, because removing it makes that annotation E0211. The title has the form ``Remove type parameter `A` ``.
 - There is no diagnostic for unused imports, so there is no quickfix that removes them.
 

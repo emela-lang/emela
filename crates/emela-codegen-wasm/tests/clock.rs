@@ -131,7 +131,7 @@ fn main() -> () uses { Async } {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
   (_, end) = State.run(start, || {
     with TestClock {
-      Fiber.scope(|| {
+      Fiber.scope(|_| {
         a = Fiber.fork(|| sleeper("a", 100))
         b = Fiber.fork(|| sleeper("b", 50))
         Fiber.join(a)

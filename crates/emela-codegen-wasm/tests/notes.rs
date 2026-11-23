@@ -181,7 +181,7 @@ fn spin(n: Int) -> () uses { Tick } {
 fn once() -> Exit[(), Boom] uses { Async } {
   with Ticks {
     Exit.attempt(|| {
-      Fiber.scope(|| {
+      Fiber.scope(|_| {
         Fiber.fork(|| {
           spin(1000)
           fail Boom(text: "boom")

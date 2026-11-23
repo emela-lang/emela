@@ -6,7 +6,7 @@
 mod common;
 
 mod body;
-mod capture;
+mod capabilities;
 mod effect_type_params;
 mod effects;
 mod errors;

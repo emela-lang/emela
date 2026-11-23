@@ -33,7 +33,7 @@ fn spin(n: Int) -> () uses { Tick } {
 
 fn main() -> () fails Boom uses { Async } {
   with Ticks {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       Fiber.fork(|| {
         spin(1000)
         fail Boom

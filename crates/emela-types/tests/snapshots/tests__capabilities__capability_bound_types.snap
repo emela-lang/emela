@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/capabilities.rs
+expression: "run(r#\"\ntype Ticket(n: Int) uses Tickets\n\neffect Tickets {\n  fn issue() -> Ticket\n}\n\neffect Wrong {\n  fn leak() -> use Logger\n  fn other() -> Ticket\n}\n\nhandler Issuer: Tickets {\n  fn issue() { Ticket(1) }\n}\n\nfn outside() -> Ticket uses { Tickets } { Ticket(2) }\n\nfn kept() -> Int {\n  with t = Issuer {\n    t.issue().n\n  }\n}\n\nfn leaves() {\n  with t = Issuer {\n    t.issue()\n  }\n}\n\"#)"
+---
+outside: fn() -> Ticket uses { Tickets }
+kept: fn() -> Int
+  t: use Tickets
+leaves: fn() -> Ticket
+  t: use Tickets
+`use Logger` CapabilityInOpResult { op: "leak", ty: "use Logger" }
+`Ticket` CapabilityInOpResult { op: "other", ty: "Ticket" }
+`Ticket` BoundTypeOutsideHandler { ty: "Ticket", effect: "Tickets" }
+`t.issue()` CapabilityLeak { cap: "t", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 752..758 }) }

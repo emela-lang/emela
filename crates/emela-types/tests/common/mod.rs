@@ -179,15 +179,13 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
                 effects.join(", ")
             )
         }
-        DiagnosticKind::EffectSetMismatch { expected, found } => {
+        DiagnosticKind::EffectSetMismatch {
+            expected, found, ..
+        } => {
             format!(
                 "`{text}` effect set mismatch: expected `uses {expected}`, found `uses {found}`"
             )
         }
-        DiagnosticKind::CaptureEscape { root, scope, .. } => format!(
-            "`{text}` warning: holds `{root}` and leaves the `{}` that provides it",
-            scope.as_deref().unwrap_or("with")
-        ),
         kind => format!("`{text}` {kind:?}"),
     }
 }

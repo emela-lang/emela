@@ -46,7 +46,7 @@ export fn main() -> Int {
     let h%16: handler Query = h%11
     let ev%17: evidence = provide(; Execute = h%15 Query = h%16)
   } {
-    (read_only(match hs%10 {
+    (read_only[{ev}](match hs%10 {
       (x%18, _) -> x%18
     }, ev%17) +[Int] {
       let h%19: handler Query = match hs%10 {
@@ -75,8 +75,4 @@ fn Tx$init() -> Tx {
 
 fn Tx$release(self%0: Tx) -> Int {
   @dbg[Int](self%0.conn#0)
-}
-
-fn read_only(q%0: handler Query, ev%1: evidence) -> Int {
-  q%0.Query#query("a")
 }
