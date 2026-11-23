@@ -2,12 +2,10 @@
 title: Reading a Duration from text, and Encode, Decode and Shaped for Duration
 authors: [somnicattus]
 status: draft
-pr: 737
 issue:
-decided:
-touches: [lib.layers, api.std.duration, api.std.dynamic, api.std.shape, open.list]
+touches: [api.prelude, lib.layers, api.std.duration, api.std.dynamic, api.std.shape, open.list]
 requires: []
-related: []
+related: [instant-parse]
 ---
 
 # Reading a Duration from text, and Encode, Decode and Shaped for Duration
@@ -56,7 +54,7 @@ fn reads_the_forms() {
 ### Meaning
 
 - `parse` reads a length of time and returns it as a Duration. Text that does not have one of the forms, and a length outside the range of Duration, fail with `ParseError(input: s)`. The name and the error follow `[lib.api-rules]`: `parse` is a conversion from a string that can fail, and malformed input fails with the Prelude's ParseError.
-- The forms are given by the grammar in Specification changes. In short:
+- The forms are given by the grammar in `[api.std.duration]`. In short:
   - Numbers with units (`unit_form`): components from the longest unit to the shortest, each unit at most once. The units are the hour, the minute, the second, the millisecond, the microsecond and the nanosecond, each with a short name (`h`, `m`, `s`, `ms`, `us`, `ns`), an abbreviation (`hr`, `min`, `sec`, `msec`, `usec`, `nsec`) and the English word in the singular and the plural (`hour`, `hours`). The units are lowercase. One space may come between a number and its unit and between two components. `0` alone is the length 0.
   - The time part of an ISO 8601 duration (`iso_form`): `PT` followed by hours, minutes and seconds (`PT1H30M`, `PT1.5S`), in either case and without whitespace.
   - A sign comes only at the start and applies to the whole length (`-1h30m`, `-PT1H30M`). A component has no sign of its own.
@@ -72,97 +70,6 @@ fn reads_the_forms() {
 ### Typing rules
 
 No new typing rules.
-
-## Specification changes
-
-### `[lib.layers]`
-
-In the bullet on Instant and Duration, after the sentence on creating an Instant, add:
-
-> A Duration can be created with `Duration.milliseconds`, `Duration.seconds`, `Duration.minutes` and `Duration.hours`, and read from text with `Duration.parse` (`[api.std.duration]`).
-
-### `[api.std.duration]`
-
-Change the second sentence of the introduction, "Overflow wraps around by the Int64 rules.", to:
-
-> The constructors, `add` and `subtract` wrap around on overflow by the Int64 rules; `parse` fails instead (below).
-
-Change the row of `to_string` to:
-
-> | `to_string` | `to_string(d: Duration) -> String` | Emela | The number of milliseconds in decimal, with `-` before a negative one, followed by `ms` (`0ms`, `1500ms`, `-1500ms`, `5400000ms`) |
-
-Add rows to the table, after `to_string`:
-
-> | `to_iso8601` | `to_iso8601(d: Duration) -> String` | Emela | The time part of an ISO 8601 duration (`PT1H30M`, `PT1.5S`, `-PT0.5S`), in the form below |
-> | `parse` | `parse(s: String) -> Duration fails ParseError` | Emela | The length of time written in `s`, in the forms below. Fails with `ParseError(input: s)` otherwise |
-
-Add after the table:
-
-> - `parse` reads a length of time in one of two forms: numbers with units (`unit_form`: `1h30m`, `1.5s`, `2h 30min`, `30 seconds`), and the time part of an ISO 8601 duration (`iso_form`: `PT1H30M`, `-PT1.5S`). The whole of `s` MUST match this grammar; no whitespace is allowed around it.
->
->   ```ebnf
->   duration       = unit_form | iso_form ;
->
->   unit_form      = [ sign ] , ( "0" | { component , [ " " ] } , last_component ) ;
->   component      = digits , [ " " ] , unit ;
->   last_component = number , [ " " ] , unit ;
->   unit           = hour | minute | second | millisecond | microsecond | nanosecond ;
->   hour           = "h" | "hr" | "hour" | "hours" ;
->   minute         = "m" | "min" | "minute" | "minutes" ;
->   second         = "s" | "sec" | "second" | "seconds" ;
->   millisecond    = "ms" | "msec" | "millisecond" | "milliseconds" ;
->   microsecond    = "us" | "µs" | "μs" | "usec" | "microsecond" | "microseconds" ;
->   nanosecond     = "ns" | "nsec" | "nanosecond" | "nanoseconds" ;
->
->   iso_form       = [ sign ] , ( "P" | "p" ) , ( "T" | "t" ) , ( iso_hours | iso_minutes | iso_seconds ) ;
->   iso_hours      = digits , ( "H" | "h" ) , ( iso_minutes | iso_seconds )
->                  | number , ( "H" | "h" ) ;
->   iso_minutes    = digits , ( "M" | "m" ) , iso_seconds
->                  | number , ( "M" | "m" ) ;
->   iso_seconds    = number , ( "S" | "s" ) ;
->
->   number         = digits , [ "." , digits ] ;
->   sign           = "+" | "-" ;
->   digits         = digit , { digit } ;
->   digit          = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
->   ```
->
-> - An hour (`hour`, `iso_hours`) is 60 minutes, a minute (`minute`, `iso_minutes`) is 60 seconds, a second (`second`, `iso_seconds`) is 1000 milliseconds, a microsecond is 10⁻³ milliseconds and a nanosecond is 10⁻⁶ milliseconds. The `µ` of `µs` is U+00B5 MICRO SIGN and the `μ` of `μs` is U+03BC GREEK SMALL LETTER MU. A unit name is read whatever the number before it: `1 seconds`, `2 second` and `1.5 hour` are read.
-> - Duration has no unit longer than an hour. A day of the calendar is not a fixed length: a day on which daylight saving time starts or ends has 23 or 25 hours, and a leap hour, which may be inserted into UTC in place of leap seconds, would make a day of 25 hours, possibly also in the time that Instant counts (`[lib.layers]`). A week, a month and a year are made of days. Reading them as fixed lengths would let a length be mistaken for a span of the calendar, which Emela does not have. A day, a week, a month and a year are not read in either form (`1d`, `2w`, `P1D`, `P1W`, `P1M`, `P1Y`, `P1DT2H`).
-> - If `s` has more than 256 code points, `parse` fails without reading it.
-> - The only whitespace is one space (U+0020) between a number and its unit, and one space between two components of `unit_form` (`2 h 30 min` is read; `2h  30min` is not). No whitespace is allowed after the sign or anywhere in `iso_form`.
-> - In `unit_form` the units are lowercase only (`1H`, `30S` and `1M` are not read). In `iso_form` the letters `P`, `T`, `H`, `M` and `S` are read in either case.
-> - In `unit_form` the components are written from the longest unit to the shortest (hour, minute, second, millisecond, microsecond, nanosecond), and each unit is written at most once; the names of one unit are the same unit (`30s1h`, `1s2s` and `1m1min` are not read). The length is the sum of the components. `0` alone is the length 0.
-> - A sign applies to the whole length (`-1h30m` and `-PT1H30M` are −90 minutes). A component has no sign of its own (`PT-1.3S` and `PT1H-30M` are not read).
-> - Only the last component may have a fraction, as the grammar says: in `unit_form` only `last_component` has a fraction, and in `iso_form` a component followed by another is written with `digits` (`1h30.5m` and `PT1H30.5M` are read; `1.5h30m` and `PT1.5H30M` are not). The fraction of an hour or a minute has at most two digits (`1.25h`, `2.5min` and `PT1.25H` are read; `1.125h` is not). The fraction of a second, a millisecond, a microsecond or a nanosecond may have any number of digits.
-> - A comma is reserved for the decimal sign of a fraction (`PT1,5S`). `parse` does not read it yet, and a comma is not given any other meaning in either form. The plurals of the abbreviations (`hrs`, `mins`, `secs`, `msecs`, `usecs`, `nsecs`) are reserved as names of their units; `parse` does not read them yet.
-> - The length is the exact sum of the components, with the sign applied, truncated toward 0 to a whole number of milliseconds: the digits below the millisecond are dropped (`1.0009s` is 1000 milliseconds; `1.5us` and `-0.0005s` are 0).
-> - If the length is outside the range of Duration (an Int64 of milliseconds), `parse` fails. The numbers are read as exact numbers: a length outside the range fails, however many digits its numbers have, and does not wrap around by the rules of Int64.
-> - `to_iso8601` writes `-` for a negative length, then `PT`, then the hours with `H`, the minutes with `M` and the seconds with `S`, leaving out each of them whose value is 0. The minutes are 0 to 59, and the seconds are less than 60; the hours are not carried into days (`PT48H`). The seconds are written with the milliseconds as a fraction, without trailing zeros (`PT1.5S`, `PT1M0.001S`, `PT1H0.5S`). The length 0 is `PT0S`. A sign is never written on a component.
-> - For every Duration `d`, `parse(to_string(d)) == d` and `parse(to_iso8601(d)) == d`.
-> - `parse` is O(n) in the length of `s`.
-
-Change the impl paragraph to:
-
-> impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl is the same as `to_string`. Encode, Decode and Shaped are in `[api.std.dynamic]` and `[api.std.shape]`.
-
-### `[api.std.dynamic]`
-
-In the impl paragraph, add Duration to the list of types that have Encode and Decode, and add:
-
-> A Duration is encoded as Text of `Duration.to_string`, and decoded from Text with `Duration.parse`, which also reads the ISO 8601 form. A value that is not Text, including a Number, fails with `DecodeError(expected: "text", ...)`, and Text that `Duration.parse` does not read fails with `DecodeError(expected: "duration", actual: the value, path: [])`.
-
-### `[api.std.shape]`
-
-In the impl paragraph, add Duration to the list of types that have Shaped, and add:
-
-> The shape of Duration is `Named("Duration", Shape.String)`. It has no `format` note, because the text that Encode writes (`1500ms`) is not an ISO 8601 duration.
-
-### `[open.list]`
-
-Change row 48 to:
-
-> | 48 | ~~`Duration.to_string` gives the form `1500ms`. Whether to use forms like `1.5s` or `1h2m3s`~~ Decided (the date of adoption): `to_string` keeps the form `1500ms`. `Duration.parse` reads it as a form with units, and `Duration.to_iso8601` writes the ISO 8601 form | `[api.std.duration]` |
 
 ## Diagnostics
 
@@ -208,7 +115,7 @@ No program that compiles now changes meaning.
 - **Sum a repeated unit** (`300ms20s 5day`). A component has no sign, so the repetitions can be written as one component, and no writer repeats a unit.
 - **Read a number without a unit** (`1500`). Writers differ on its unit (nanoseconds, milliseconds, seconds), and the value does not say which. `0` alone is read, since its length does not depend on the unit.
 - **Decode a Number.** The same reason as a number without a unit. The Decode of Instant does not read a Number either.
-- **Read days and weeks as 24 hours and 7 days.** A day of the calendar is not 24 hours (Specification changes), and a fixed day could be mistaken for one. Lengths written with days (`P3DT4H5M6S`) cannot be read; lengths written in hours without days (`PT48H`, `48h0m0s`) are read.
+- **Read days and weeks as 24 hours and 7 days.** A day of the calendar is not 24 hours (`[api.std.duration]`), and a fixed day could be mistaken for one. Lengths written with days (`P3DT4H5M6S`) cannot be read; lengths written in hours without days (`PT48H`, `48h0m0s`) are read.
 
 ## Prior art
 
