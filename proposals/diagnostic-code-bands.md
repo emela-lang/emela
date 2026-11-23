@@ -1,11 +1,13 @@
 ---
 title: Diagnostic codes in bands of 1000, and one code per kind of mistake
 authors: [Alliana]
-status: draft
+status: accepted
 issue:
 touches: [diag, diag.bands]
 requires: []
 related: []
+pr: 837
+decided: 2026-11-24
 ---
 
 # Diagnostic codes in bands of 1000, and one code per kind of mistake
@@ -126,3 +128,9 @@ At the end of 0.29, after the proposals that are under review and add or retire 
 ## Open questions
 
 ## Decision
+
+Adopted. A stage had only 100 codes, and E04xx, which holds effects, handlers, labels, capabilities and the restrictions of external functions and targets, would have been full within weeks. Overflowing into a reserved band would have split one subject between two distant bands, so the codes are renumbered once, during 0.x, into bands of 1000 per stage with subject bands of 100.
+
+- The first digit of a new code is never 0, so earlier and new codes cannot be mistaken for each other, and `[diag.list]` keeps the earlier codes in a column until 1.0.
+- A code names one kind of mistake. Codes that only told positions or forms apart are merged, and the message tells them apart instead; codes stay separate where the fix or the code action of the language server differs.
+- Only the rules change now. The renumbering, the merges and the references in `spec/` and `[lsp]` are done at the end of 0.29, after the proposals that add or retire codes have landed, so that none of them has to be redone.
