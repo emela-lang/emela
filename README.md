@@ -365,10 +365,10 @@ liftoff
 
 The bundled std lives under `Std` and is imported: the platform effects
 `Std.Console`, `Std.Clock`, `Std.Random`, `Std.Env`, `Std.FileSystem`,
-`Std.Http` and `Std.Process` (`Args`, `Stdin`, `Stdout`, `Stderr`), each with
-its host handler (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemEnv`,
-`SystemFileSystem`, `SystemHttp`, `SystemArgs`, `SystemStdin`, `SystemStdout`,
-`SystemStderr`), the layer `Std.Platform.Platform` that bundles the ones every
+`Std.Http`, `Std.Tcp` and `Std.Process` (`Args`, `Stdin`, `Stdout`, `Stderr`),
+each with its host handler (`SystemConsole`, `SystemClock`, `SystemRandom`,
+`SystemEnv`, `SystemFileSystem`, `SystemHttp`, `SystemTcp`, `SystemArgs`,
+`SystemStdin`, `SystemStdout`, `SystemStderr`), the layer `Std.Platform.Platform` that bundles the ones every
 host has (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemHttp`), the
 layer `Std.Process.Process` that adds the ones that need a process,
 `Std.State`, `Std.Fiber`, `Std.Exit`, `Std.Cause`, `Std.Deferred`, the values
@@ -649,6 +649,8 @@ Set.from_list(["a", "b"])
 
 ## Known limitations
 
+- `Std.Tcp` runs on JS only so far: on native and WASM, calling its
+  operations is E0412 ([`tcp`](proposals/tcp.md) is implemented in steps).
 - `FileSystem` and `Http` handle UTF-8 text only; `Std.Bytes` exists, but they
   do not read or write it yet.
 - No limit on how many fibers run at once (`Semaphore`) or `Queue` yet. Both

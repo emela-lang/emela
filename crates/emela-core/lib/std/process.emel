@@ -22,6 +22,7 @@ import Std.Env.{SystemEnv}
 import Std.FileSystem.{SystemFileSystem}
 import Std.Platform.{Platform}
 import Std.State.{State}
+import Std.Tcp.{SystemTcp}
 
 ## The arguments of the process, in order, without the name of the program.
 pub effect Args {
@@ -300,7 +301,7 @@ fn append_stderr(text: String) -> () uses { State[StderrText] } {
 # ---- Process ----
 
 ## Platform and the System handlers that need a process: the arguments, the standard streams, the
-## environment variables and the file system. Requires Async and ProcessHost (`[effect.host]`),
+## environment variables, the file system and TCP. Requires Async and ProcessHost (`[effect.host]`),
 ## which `main`, tests and `Http.serve` are given. A program that uses none of these writes
 ## `with Platform { ... }` instead.
 pub layer Process {
@@ -311,6 +312,7 @@ pub layer Process {
   SystemStderr
   SystemEnv
   SystemFileSystem
+  SystemTcp
 }
 
 # ---- ExitCode ----

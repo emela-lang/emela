@@ -231,6 +231,50 @@ enum Std.FileSystem.TestFiles {
   TestFiles(files: List[(String, String)], directories: List[String])
 }
 
+error enum Std.Tcp.HostNotFound {
+  HostNotFound(host: String)
+}
+
+error enum Std.Tcp.ConnectionRefused {
+  ConnectionRefused(host: String, port: Int)
+}
+
+error enum Std.Tcp.ConnectionClosed {
+  ConnectionClosed
+}
+
+error enum Std.Tcp.TlsFailure {
+  TlsFailure(message: String)
+}
+
+error enum Std.Tcp.TcpFailure {
+  TcpFailure(message: String)
+}
+
+external enum Std.Tcp.Connection {
+}
+
+enum Std.Tcp.Roots {
+  SystemRoots
+  Pem(text: String)
+}
+
+enum Std.Tcp.Verify {
+  Full(roots: Std.Tcp.Roots)
+  ChainOnly(roots: Std.Tcp.Roots)
+  NoVerification
+}
+
+external enum Std.Tcp.Registry {
+}
+
+external enum Std.Tcp.Outcome {
+}
+
+enum Std.Tcp.SystemTcp {
+  SystemTcp(registry: Std.Tcp.Registry)
+}
+
 enum Std.Cause.Cause[A] {
   Cause(failure: fn() -> Never fails (E {A}, R {}))
 }

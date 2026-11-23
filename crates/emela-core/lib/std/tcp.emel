@@ -1,0 +1,250 @@
+# The Tcp effect and its handler (the platform layer of `[lib.layers]`, `[api.std.tcp]`).
+#
+# A TCP client. Use it as `tcp <- Tcp` and `tcp.connect("localhost", 6379)`, and provide it with
+# `with SystemTcp { ... }`, or with `with Process { ... }` from `Std.Process`.
+#
+# SystemTcp keeps a registry of the connections it opened, made by its init and closed by its
+# release. A connection records the registry that opened it, so an operation can tell a
+# connection of another with (or of a with that has ended) and stop with a defect.
+#
+# The host functions return an `Outcome`, as in `Std.FileSystem`: an external function cannot
+# fail (`[ext.exception]`), so the host names the error (or the defect) and the handler raises it.
+# The defects are raised here and not in the host, so that their messages are the same on every
+# target.
+#
+# The registry functions are bound on every target, because the init and the release of a handler
+# are reached by every `with Process` (`[ext.decl]`). The operations are bound on JS only for now:
+# calling them on native or WASM is E0412 until those targets implement them.
+
+import Std.Bytes.{Bytes}
+
+## The name could not be resolved.
+pub error HostNotFound(host: String) derive Show
+## Nothing accepted the connection.
+pub error ConnectionRefused(host: String, port: Int) derive Show
+## The connection was closed by `close`, by the release of the handler, or by the peer resetting
+## it, or the peer finished sending before `read_exact` got its bytes.
+pub error ConnectionClosed derive Show
+## The TLS handshake failed, including a certificate that could not be verified.
+pub error TlsFailure(message: String) derive Show
+## Any other failure of the host. `message` is the host's description.
+pub error TcpFailure(message: String) derive Show
+
+## An open connection, or one that was closed. Held by the host.
+@external
+pub type Connection
+
+## The certificates trusted as roots.
+pub enum Roots {
+  ## The roots that the host trusts.
+  SystemRoots
+  ## One or more CA certificates in PEM, which are then the only roots trusted.
+  Pem(text: String)
+}
+
+## How much of the peer's certificate `upgrade_tls` checks.
+pub enum Verify {
+  ## Verifies the chain up to `roots`, and that the certificate is for the server name.
+  Full(roots: Roots)
+  ## Verifies the chain up to `roots` only.
+  ChainOnly(roots: Roots)
+  ## Checks nothing: the connection is encrypted, but the peer is not authenticated.
+  NoVerification
+}
+
+## The usual check: the chain up to the roots that the host trusts, and the server name.
+pub const VERIFY_FULL: Verify = Full(roots: SystemRoots)
+
+## A TCP client.
+pub effect Tcp {
+  ## Resolves `host` (a name or an IP address) and connects to `port`.
+  suspend fn connect(host: String, port: Int) -> Connection
+    fails HostNotFound | ConnectionRefused | TcpFailure
+  ## At least 1 and at most `max` bytes, as many as have arrived, or `None` after the peer has
+  ## finished sending.
+  suspend fn read(conn: Connection, max: Int) -> Option[Bytes] fails ConnectionClosed | TcpFailure
+  ## Returns after all of `data` has been handed to the host.
+  suspend fn write(conn: Connection, data: Bytes) -> () fails ConnectionClosed | TcpFailure
+  ## Performs a TLS handshake as the client, and turns the same connection into a TLS connection.
+  suspend fn upgrade_tls(conn: Connection, server_name: String, verify: Verify) -> ()
+    fails ConnectionClosed | TlsFailure | TcpFailure
+  ## Closes the connection. Closing a closed connection does nothing.
+  suspend fn close(conn: Connection) -> ()
+}
+
+## Exactly `n` bytes, read with `read` as many times as needed. ConnectionClosed if the peer
+## finishes sending first. An `n` of 0 reads nothing; a negative `n` is a defect.
+pub fn read_exact(conn: Connection, n: Int) -> Bytes
+  fails ConnectionClosed | TcpFailure
+  uses { Tcp } {
+  if n < 0 { panic("Tcp.read_exact was given n #{n}, which is negative") }
+  read_onto(conn, n, [])
+}
+
+## Reads the `n` bytes still missing, after `parts` (newest first).
+fn read_onto(conn: Connection, n: Int, parts: List[Bytes]) -> Bytes
+  fails ConnectionClosed | TcpFailure
+  uses { Tcp } {
+  if n == 0 {
+    Bytes.concat(parts.reverse())
+  } else {
+    tcp <- Tcp
+    tcp.read(conn, n) match {
+      Some(b) -> read_onto(conn, n - Bytes.size(b), [b, ..parts])
+      None    -> fail ConnectionClosed
+    }
+  }
+}
+
+# ---- SystemTcp ----
+
+## The connections that one SystemTcp opened.
+@external
+type Registry
+
+## The result of a host operation: the name of the error or the defect (`""` on success), the
+## host's message, and the connection or the bytes.
+@external
+type Outcome
+
+@external(js, "./tcp.mjs", "openRegistry")
+@external(c, "./tcp.c", "emela_tcp_open_registry")
+@external(wasm, "emela:runtime/tcp@0.1.0", "open-registry")
+fn host_open_registry() -> Registry uses { ProcessHost }
+
+## Closes the connections of the registry that are still open. Afterwards, every connection of
+## the registry is one of a with that has ended.
+@external(js, "./tcp.mjs", "releaseRegistry")
+@external(c, "./tcp.c", "emela_tcp_release_registry")
+@external(wasm, "emela:runtime/tcp@0.1.0", "release-registry")
+fn host_release_registry(registry: Registry) -> () uses { ProcessHost }
+
+@external(js, "./tcp.mjs", "connect")
+suspend fn host_connect(registry: Registry, host: String, port: Int) -> Outcome uses { ProcessHost }
+
+@external(js, "./tcp.mjs", "read")
+suspend fn host_read(registry: Registry, conn: Connection, max: Int) -> Outcome
+  uses { ProcessHost }
+
+@external(js, "./tcp.mjs", "write")
+suspend fn host_write(registry: Registry, conn: Connection, data: Bytes) -> Outcome
+  uses { ProcessHost }
+
+## `mode` is 0 for Full, 1 for ChainOnly and 2 for NoVerification. `pem` is the text of `Pem`, and
+## is used only when `system_roots` is False.
+@external(js, "./tcp.mjs", "upgradeTls")
+suspend fn host_upgrade_tls(
+  registry: Registry,
+  conn: Connection,
+  server_name: String,
+  mode: Int,
+  system_roots: Bool,
+  pem: String,
+) -> Outcome uses { ProcessHost }
+
+@external(js, "./tcp.mjs", "close")
+suspend fn host_close(registry: Registry, conn: Connection) -> Outcome uses { ProcessHost }
+
+@external(js, "./tcp.mjs", "error")
+fn outcome_error(o: Outcome) -> String uses {}
+
+@external(js, "./tcp.mjs", "message")
+fn outcome_message(o: Outcome) -> String uses {}
+
+## The connection opened by `host_connect`.
+@external(js, "./tcp.mjs", "connection")
+fn outcome_connection(o: Outcome) -> Connection uses {}
+
+## The bytes read by `host_read`.
+@external(js, "./tcp.mjs", "bytes")
+fn outcome_bytes(o: Outcome) -> Bytes uses {}
+
+## Stops with the defect that the host named, if it named one (`[api.std.tcp]`).
+fn check_defect(code: String) -> () {
+  code match {
+    "Foreign"    -> panic("a connection was used outside the with of the handler that opened it")
+    "ReadBusy"   -> panic("a connection was read by two fibers at once")
+    "WriteBusy"  -> panic("a connection was written by two fibers at once")
+    "AlreadyTls" -> panic("Tcp.upgrade_tls was given a connection that is already TLS")
+    "Busy"       -> panic("Tcp.upgrade_tls was given a connection that is being read or written")
+    _            -> ()
+  }
+}
+
+fn check_connect(code: String, message: String, host: String, port: Int) -> ()
+  fails HostNotFound | ConnectionRefused | TcpFailure {
+  code match {
+    ""                  -> ()
+    "HostNotFound"      -> fail HostNotFound(host:)
+    "ConnectionRefused" -> fail ConnectionRefused(host:, port:)
+    _                   -> fail TcpFailure(message:)
+  }
+}
+
+fn check_transfer(code: String, message: String) -> () fails ConnectionClosed | TcpFailure {
+  check_defect(code)
+  code match {
+    ""                 -> ()
+    "End"              -> ()
+    "ConnectionClosed" -> fail ConnectionClosed
+    _                  -> fail TcpFailure(message:)
+  }
+}
+
+fn check_upgrade(code: String, message: String) -> ()
+  fails ConnectionClosed | TlsFailure | TcpFailure {
+  check_defect(code)
+  code match {
+    ""                 -> ()
+    "ConnectionClosed" -> fail ConnectionClosed
+    "TlsFailure"       -> fail TlsFailure(message:)
+    _                  -> fail TcpFailure(message:)
+  }
+}
+
+## The host's TCP client: `node:net` and `node:tls` on JS. Its release closes the connections it
+## opened that are still open.
+pub handler SystemTcp(registry: Registry): Tcp {
+  init { SystemTcp(registry: host_open_registry()) }
+
+  release { host_release_registry(self.registry) }
+
+  suspend fn connect(host, port, resume) {
+    if port < 1 || port > 65535 {
+      fail TcpFailure(message: "port #{port} is outside 1 to 65535")
+    }
+    o = host_connect(self.registry, host, port)
+    check_connect(outcome_error(o), outcome_message(o), host, port)
+    resume(outcome_connection(o))
+  }
+  suspend fn read(conn, max, resume) {
+    if max < 1 { panic("Tcp.read was given max #{max}, which is less than 1") }
+    o = host_read(self.registry, conn, max)
+    code = outcome_error(o)
+    check_transfer(code, outcome_message(o))
+    resume(if code == "End" { None } else { Some(outcome_bytes(o)) })
+  }
+  suspend fn write(conn, data, resume) {
+    o = host_write(self.registry, conn, data)
+    check_transfer(outcome_error(o), outcome_message(o))
+    resume(())
+  }
+  suspend fn upgrade_tls(conn, server_name, verify, resume) {
+    (mode, roots) = verify match {
+      Full(roots:)      -> (0, roots)
+      ChainOnly(roots:) -> (1, roots)
+      NoVerification    -> (2, SystemRoots)
+    }
+    (system_roots, pem) = roots match {
+      SystemRoots -> (True, "")
+      Pem(text:)  -> (False, text)
+    }
+    o = host_upgrade_tls(self.registry, conn, server_name, mode, system_roots, pem)
+    check_upgrade(outcome_error(o), outcome_message(o))
+    resume(())
+  }
+  suspend fn close(conn, resume) {
+    check_defect(outcome_error(host_close(self.registry, conn)))
+    resume(())
+  }
+}
