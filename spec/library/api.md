@@ -21,7 +21,7 @@ This document defines the API of the `.emel` sources bundled with the compiler. 
 | `todo` | `todo() -> Never` | intrinsic | A defect with `not yet implemented` |
 | `dbg` | `dbg[A](value: A) -> A` | intrinsic | Writes the debug representation to standard error and returns the value. Does not require Show. For a type that satisfies Show, the same as `inspect`; for a type that does not, the constructed form (values inside that satisfy Show use Show, functions are `<fn>`) |
 | `inspect` | `inspect[A: Show](value: A) -> String` | intrinsic | The debug representation. The result of the Show implementation; a String is enclosed in `"` even at the top level |
-| `ParseError` | `error ParseError(input: String)` | Emela | A malformed input to `Int.parse`, `Float.parse`, `Bool.parse`, `Instant.parse` (`[api.std.instant]`), `Number.parse` (`[api.std.dynamic.number]`), or `decode_query` (`[api.std.http.request]`). `input` is the whole input |
+| `ParseError` | `error ParseError(input: String)` | Emela | A malformed input to `Int.parse`, `Float.parse`, `Bool.parse`, `Instant.parse` (`[api.std.instant]`), `Duration.parse` (`[api.std.duration]`), `Number.parse` (`[api.std.dynamic.number]`), or `decode_query` (`[api.std.http.request]`). `input` is the whole input |
 
 impl (`[trait.derive]`): ParseError has `derive Show` (its contents are shown when it reaches main or a test; `[dyn.error]`).
 
@@ -171,7 +171,7 @@ A conversion to Int is a defect if the result is outside the range of Int or the
 
 ### Std.Duration (`std/duration.emel`) `[api.std.duration]`
 
-A length of time. An opaque type whose contents are an Int64 of milliseconds (`[lib.layers]`). Overflow wraps around by the Int64 rules.
+A length of time. An opaque type whose contents are an Int64 of milliseconds (`[lib.layers]`). The constructors, `add` and `subtract` wrap around on overflow by the Int64 rules; `parse` fails instead (below).
 
 | Function | Signature | Implementation | Description |
 |---|---|---|---|
@@ -183,9 +183,55 @@ A length of time. An opaque type whose contents are an Int64 of milliseconds (`[
 | `to_seconds` | `to_seconds(d: Duration) -> Int64` | Emela | The number of seconds. The fraction is truncated toward 0 |
 | `add` | `add(d: Duration, other: Duration) -> Duration` | Emela | The sum |
 | `subtract` | `subtract(d: Duration, other: Duration) -> Duration` | Emela | The difference. Can be negative |
-| `to_string` | `to_string(d: Duration) -> String` | Emela | `1500ms` |
+| `to_string` | `to_string(d: Duration) -> String` | Emela | The number of milliseconds in decimal, with `-` before a negative one, followed by `ms` (`0ms`, `1500ms`, `-1500ms`, `5400000ms`) |
+| `to_iso8601` | `to_iso8601(d: Duration) -> String` | Emela | The time part of an ISO 8601 duration (`PT1H30M`, `PT1.5S`, `-PT0.5S`), in the form below |
+| `parse` | `parse(s: String) -> Duration fails ParseError` | Emela | The length of time written in `s`, in the forms below. Fails with `ParseError(input: s)` otherwise |
 
-impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl gives `1500ms`, the same as `to_string`.
+- `parse` reads a length of time in one of two forms: numbers with units (`unit_form`: `1h30m`, `1.5s`, `2h 30min`, `30 seconds`), and the time part of an ISO 8601 duration (`iso_form`: `PT1H30M`, `-PT1.5S`). The whole of `s` MUST match this grammar; no whitespace is allowed around it.
+
+  ```ebnf
+  duration       = unit_form | iso_form ;
+
+  unit_form      = [ sign ] , ( "0" | { component , [ " " ] } , last_component ) ;
+  component      = digits , [ " " ] , unit ;
+  last_component = number , [ " " ] , unit ;
+  unit           = hour | minute | second | millisecond | microsecond | nanosecond ;
+  hour           = "h" | "hr" | "hour" | "hours" ;
+  minute         = "m" | "min" | "minute" | "minutes" ;
+  second         = "s" | "sec" | "second" | "seconds" ;
+  millisecond    = "ms" | "msec" | "millisecond" | "milliseconds" ;
+  microsecond    = "us" | "µs" | "μs" | "usec" | "microsecond" | "microseconds" ;
+  nanosecond     = "ns" | "nsec" | "nanosecond" | "nanoseconds" ;
+
+  iso_form       = [ sign ] , ( "P" | "p" ) , ( "T" | "t" ) , ( iso_hours | iso_minutes | iso_seconds ) ;
+  iso_hours      = digits , ( "H" | "h" ) , ( iso_minutes | iso_seconds )
+                 | number , ( "H" | "h" ) ;
+  iso_minutes    = digits , ( "M" | "m" ) , iso_seconds
+                 | number , ( "M" | "m" ) ;
+  iso_seconds    = number , ( "S" | "s" ) ;
+
+  number         = digits , [ "." , digits ] ;
+  sign           = "+" | "-" ;
+  digits         = digit , { digit } ;
+  digit          = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+  ```
+
+- An hour (`hour`, `iso_hours`) is 60 minutes, a minute (`minute`, `iso_minutes`) is 60 seconds, a second (`second`, `iso_seconds`) is 1000 milliseconds, a microsecond is 10⁻³ milliseconds and a nanosecond is 10⁻⁶ milliseconds. The `µ` of `µs` is U+00B5 MICRO SIGN and the `μ` of `μs` is U+03BC GREEK SMALL LETTER MU. A unit name is read whatever the number before it: `1 seconds`, `2 second` and `1.5 hour` are read.
+- Duration has no unit longer than an hour. A day of the calendar is not a fixed length: a day on which daylight saving time starts or ends has 23 or 25 hours, and a leap hour, which may be inserted into UTC in place of leap seconds, would make a day of 25 hours, possibly also in the time that Instant counts (`[lib.layers]`). A week, a month and a year are made of days. Reading them as fixed lengths would let a length be mistaken for a span of the calendar, which Emela does not have. A day, a week, a month and a year are not read in either form (`1d`, `2w`, `P1D`, `P1W`, `P1M`, `P1Y`, `P1DT2H`).
+- If `s` has more than 256 code points, `parse` fails without reading it.
+- The only whitespace is one space (U+0020) between a number and its unit, and one space between two components of `unit_form` (`2 h 30 min` is read; `2h  30min` is not). No whitespace is allowed after the sign or anywhere in `iso_form`.
+- In `unit_form` the units are lowercase only (`1H`, `30S` and `1M` are not read). In `iso_form` the letters `P`, `T`, `H`, `M` and `S` are read in either case.
+- In `unit_form` the components are written from the longest unit to the shortest (hour, minute, second, millisecond, microsecond, nanosecond), and each unit is written at most once; the names of one unit are the same unit (`30s1h`, `1s2s` and `1m1min` are not read). The length is the sum of the components. `0` alone is the length 0.
+- A sign applies to the whole length (`-1h30m` and `-PT1H30M` are −90 minutes). A component has no sign of its own (`PT-1.3S` and `PT1H-30M` are not read).
+- Only the last component may have a fraction, as the grammar says: in `unit_form` only `last_component` has a fraction, and in `iso_form` a component followed by another is written with `digits` (`1h30.5m` and `PT1H30.5M` are read; `1.5h30m` and `PT1.5H30M` are not). The fraction of an hour or a minute has at most two digits (`1.25h`, `2.5min` and `PT1.25H` are read; `1.125h` is not). The fraction of a second, a millisecond, a microsecond or a nanosecond may have any number of digits.
+- A comma is reserved for the decimal sign of a fraction (`PT1,5S`). `parse` does not read it yet, and a comma is not given any other meaning in either form. The plurals of the abbreviations (`hrs`, `mins`, `secs`, `msecs`, `usecs`, `nsecs`) are reserved as names of their units; `parse` does not read them yet.
+- The length is the exact sum of the components, with the sign applied, truncated toward 0 to a whole number of milliseconds: the digits below the millisecond are dropped (`1.0009s` is 1000 milliseconds; `1.5us` and `-0.0005s` are 0).
+- If the length is outside the range of Duration (an Int64 of milliseconds), `parse` fails. The numbers are read as exact numbers: a length outside the range fails, however many digits its numbers have, and does not wrap around by the rules of Int64.
+- `to_iso8601` writes `-` for a negative length, then `PT`, then the hours with `H`, the minutes with `M` and the seconds with `S`, leaving out each of them whose value is 0. The minutes are 0 to 59, and the seconds are less than 60; the hours are not carried into days (`PT48H`). The seconds are written with the milliseconds as a fraction, without trailing zeros (`PT1.5S`, `PT1M0.001S`, `PT1H0.5S`). The length 0 is `PT0S`. A sign is never written on a component.
+- For every Duration `d`, `parse(to_string(d)) == d` and `parse(to_iso8601(d)) == d`.
+- `parse` is O(n) in the length of `s`.
+
+impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl is the same as `to_string`. Encode, Decode and Shaped are in `[api.std.dynamic]` and `[api.std.shape]`.
 
 ### Std.Instant (`std/instant.emel`) `[api.std.instant]`
 
@@ -366,7 +412,7 @@ impl (`[trait.builtin]`): `impl Set[A: Eq]: Eq`, `impl Set[A: Show]: Show` (`Set
 | `object`, `variant` | `object(fields: List[(String, Dynamic)]) -> Dynamic`, `variant(tag: String, value: Option[Dynamic]) -> Dynamic` | Build Fields, and the form of an enum |
 | `kind` | `kind(value: Dynamic) -> String` | `"null"`, `"bool"`, `"number"`, `"text"`, `"items"`, `"fields"` or `"binary"` |
 
-impl: Bool, Int, Int64, Float, String, Bytes, Instant, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. Bytes is encoded as Binary, and its Decode reads only Binary. An Instant is encoded as Text of `Instant.to_string`, and decoded from Text with `Instant.parse`. A value that is not Text fails with `DecodeError(expected: "text", ...)`, and Text that `Instant.parse` does not read fails with `DecodeError(expected: "date-time", actual: the value, path: [])`. `Array[A]` and `Set[A]` are encoded as Items in their order, and decoded from Items; the Decode of `Set[A]` drops repeated elements. The Decode of `List[A]`, `Array[A]`, `Set[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None. As a field of an object, None leaves the key out (`to_field`), and a missing key decodes as None (`from_absent`, by its default).
+impl: Bool, Int, Int64, Float, String, Bytes, Instant, Duration, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. Bytes is encoded as Binary, and its Decode reads only Binary. An Instant is encoded as Text of `Instant.to_string`, and decoded from Text with `Instant.parse`. A value that is not Text fails with `DecodeError(expected: "text", ...)`, and Text that `Instant.parse` does not read fails with `DecodeError(expected: "date-time", actual: the value, path: [])`. A Duration is encoded as Text of `Duration.to_string`, and decoded from Text with `Duration.parse`, which also reads the ISO 8601 form. A value that is not Text, including a Number, fails with `DecodeError(expected: "text", ...)`, and Text that `Duration.parse` does not read fails with `DecodeError(expected: "duration", actual: the value, path: [])`. `Array[A]` and `Set[A]` are encoded as Items in their order, and decoded from Items; the Decode of `Set[A]` drops repeated elements. The Decode of `List[A]`, `Array[A]`, `Set[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None. As a field of an object, None leaves the key out (`to_field`), and a missing key decodes as None (`from_absent`, by its default).
 
 ### Std.Dynamic.Presence (`std/dynamic/presence.emel`) `[api.std.dynamic.presence]`
 
@@ -411,7 +457,7 @@ impl: Eq, Ord and Show are derived. Encode: `to_dynamic` writes Absent and Null 
 | `name_of` | `name_of(shape: Shape) -> String` | The name of the type as it is written (`Int`, `List[String]`, `Page[Member]`) |
 | `generic_name` | `generic_name(name: String, arguments: List[Shape]) -> String` | `name` followed by the names of `arguments` in brackets, or `name` alone without arguments |
 
-impl: Bool, Int, Int64, Float, String, Bytes, Instant, Dynamic, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K, V]` have Shaped. The shape of Instant is `Named("Instant", Shape.format(Shape.String, "date-time"))`. The shape of Bytes is `Bytes`, and the shapes of `Array[A]` and `Set[A]` are `List` of the shape of `A`. The impls of `List`, `Array`, `Set`, `Option` and `Map` pass `visiting` on to their type arguments.
+impl: Bool, Int, Int64, Float, String, Bytes, Instant, Duration, Dynamic, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K, V]` have Shaped. The shape of Instant is `Named("Instant", Shape.format(Shape.String, "date-time"))`. The shape of Duration is `Named("Duration", Shape.String)`. It has no `format` note, because the text that Encode writes (`1500ms`) is not an ISO 8601 duration. The shape of Bytes is `Bytes`, and the shapes of `Array[A]` and `Set[A]` are `List` of the shape of `A`. The impls of `List`, `Array`, `Set`, `Option` and `Map` pass `visiting` on to their type arguments.
 
 The notes defined by `Std.Shape` are `"description"`, `"pattern"`, `"format"`, `"minimum"`, `"maximum"`, `"min_length"`, `"max_length"`, `"min_items"` and `"max_items"`, each with the value its function above writes. Notes are only described: the notes do not change which values a shape describes, and nothing in `Std.Shape` checks them. Other notes may be added with `annotate`.
 
