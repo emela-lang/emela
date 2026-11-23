@@ -214,6 +214,27 @@ pub effect Scope[E, R] {
 - #719 の再現 1（外の State に Fiber を入れる）は型の不一致，再現 6（Fiber をエラーに入れる）は持ち出しの検査（E04xx）で止まる．
 - 外の scope に fork するには，外の scope の本体の引数 s を使う（今の `outer = use Scope` の代わり）．
 
+### handler のフィールドと操作
+
+- handler のフィールドの `use E`（と capability を持つ型）の集合は，with の項目が init するときに決まる．`with users = PostgresUsers(db: replica)` の users は，フィールドの集合が {replica} の handler．
+- users の型に replica を書き足さない．init の引数は with の外で評価されるので，replica の with は users の with を囲み，users が生きている間は replica も生きている．users を持ち出せない原則だけで replica も守られる．
+- 操作の引数の `use E` は，関数の引数と同じく呼ぶたびに決まり，handler の実装の中では「どの capability でも」の扱いになる．実装は受け取った capability をフィールドや State に入れられない（型エラー）．#719 の A（長く生きる handler の操作の引数を通って出ていく）は，capability と capability を持つ型について型で閉じる．
+- 操作の戻り値に capability の型と capability を持つ型を書くことは禁止する（E04xx）．capability を返せることは持ち出しに直結し，名前で呼んだ操作ではどの handler の capability かも決まらない．capability を作って渡すのは handler member（`with c = Pool.Conn()`）で書く．
+- 関数の戻り値の `use E` は書ける．`fn pick(primary: use Db, replica: use Db, write: Bool) -> use Db` の戻り値の集合は二つの引数の和．
+
+```emel
+handler PostgresUsers: Users {
+  init(db: use Db) { Self(db:) }
+  fn find(id: Int) -> User { self.db.query("...") }
+}
+
+with replica = ReplicaDb {
+  with users = PostgresUsers(db: replica) {
+    users.find(1)
+  }
+}
+```
+
 ### host の callback
 
 - 外部関数の引数と戻り値の callback は，既定では host が持ち続けるものとする．host は外部関数が返った後にも呼べるので，callback の R に capability を入れられない（E0454 を capability にも広げる）．
@@ -281,6 +302,7 @@ pub effect Scope[E, R] {
 ## Diagnostics
 
 - [ ] E04xx: capability を持ち出した（型か R に capability を含む値が with の外へ出る）
+- [ ] E04xx: effect の操作の戻り値に capability の型か capability を持つ型を書いた
 - [ ] `use E` の式の W0403 は #791 で入った．廃止の版でエラーにする
 - [ ] W04xx: capability を effect の名前に広げた（deprecated）．help: 引数を `use E` にする
 - [ ] 廃止の版: W04xx をエラーにする．W0402，E0444 の capability の部分を外す
@@ -326,7 +348,6 @@ pub effect Scope[E, R] {
 ## Open questions
 
 - LSP の hover で capability の集合をどう表示するか．
-- handler の init の引数とフィールドに capability を持つ形（`with PostgresUsers(db: replica)`）．handler の型に capability が入る．
 - handler の操作の中の `self` を，その handler の capability と見るか．`self` はフィールドに触れるので，capability より多くのことができる．
 - 名前のない `use E` の値を，なくす代わりに「型引数が effect の名前に決まった capability の値」（呼んだ時点で解決する値）にする手もある．内側で同じ E を上書きした with で使う 18 箇所の意味が変わる．
 - deprecation の版．W0403 は 0.29 に入る．`use E` の式をエラーにするのを 0.30 にするか，この proposal の実装（広げることの警告）を待つか．#666 の 0.29（capture checking を既定にし，W0402 と実行時の検査を外す）を capability について取り下げるか．
