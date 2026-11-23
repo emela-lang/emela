@@ -725,7 +725,8 @@ fn from_param(db: use Db) -> Int {
 
 /// `[effect.use]`: only the operations of E can be called on a value of type `use E` (E0401).
 /// `use E` and `use F` are the same type only for the same effect with the same type arguments;
-/// a label is a different effect. No trait is implemented for `use E`, and `==` is not defined.
+/// a label is a different effect. `use E` satisfies no trait other than Capability, and `==` is
+/// not defined.
 #[test]
 fn capability_type_rules() {
     insta::assert_snapshot!(render(&with_prelude(

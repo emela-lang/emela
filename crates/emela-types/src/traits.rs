@@ -24,6 +24,30 @@ use crate::ty::{ParamKind, Prim, Ty, TyParam};
 /// the compiler provides (see [`Traits::satisfies`]).
 const BUILTIN_TRAITS: &[&str] = &["Eq", "Ord", "Show"];
 
+/// The built-in traits determined automatically from the type, which no impl may implement
+/// (`[trait.builtin]`, E0341). Immediate is a constraint on effect sets (spec 9.5); Capability is
+/// satisfied by capability types ([`is_capability_type`]).
+const AUTO_TRAITS: &[&str] = &["Immediate", "Capability"];
+
+/// The name of the built-in trait Capability (`[trait.builtin]`).
+pub(crate) const CAPABILITY: &str = "Capability";
+
+/// Whether `trait_def` is one of the Prelude's [`AUTO_TRAITS`].
+fn is_auto_trait(program: &Program, trait_def: DefId) -> bool {
+    let data = &program.defs[trait_def];
+    data.module == DefModule::Prelude && AUTO_TRAITS.contains(&data.name.as_str())
+}
+
+/// Whether `ty` is a capability type, the types that satisfy Capability (`[trait.builtin]`,
+/// `[effect.use]`): the type of a capability value, `use E`. A type that contains one
+/// (`List[use Db]`, `(use Db, Int)`) and a function type are not.
+///
+/// A capability of several effects (`use E1 + ... + En`) is a capability value as well and counts
+/// as one. Every decision about which types are capability types is made here.
+pub fn is_capability_type(ty: &Ty) -> bool {
+    matches!(ty, Ty::Cap(_))
+}
+
 /// The traits a `derive` may list (spec 10.5), by the module that defines them and their name.
 /// They are recognized only there, so a user trait of the same name is not derivable (E0326).
 const DERIVABLE: &[(&str, &str)] = &[
@@ -216,7 +240,16 @@ impl Traits {
                 }
                 return fail();
             }
-            // No trait is implemented for a capability (`[effect.use]`).
+            // Capability is decided by the form of the type alone; no impl can add to it
+            // (`[trait.builtin]`).
+            _ if program.prelude_def(CAPABILITY) == Some(trait_def) => {
+                return if is_capability_type(ty) {
+                    Ok(())
+                } else {
+                    fail()
+                };
+            }
+            // A capability satisfies no trait other than Capability (`[effect.use]`).
             Ty::Fn(_) | Ty::Cap(_) => return fail(),
             _ => {}
         }
@@ -682,6 +715,15 @@ fn register(
         return;
     };
     if program.defs[trait_def].kind != DefKind::Trait {
+        return;
+    }
+    if is_auto_trait(program, trait_def) {
+        diags.push(Diagnostic {
+            span: head_span(program, def, item),
+            kind: DiagnosticKind::AutoTraitImpl {
+                trait_name: program.defs[trait_def].name.clone(),
+            },
+        });
         return;
     }
     let Some(self_ref) = item.self_ty else {
