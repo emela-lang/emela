@@ -222,6 +222,11 @@ impl InferCtx {
         self.error_tags.get(&con).copied()
     }
 
+    /// The span and definition that [`Self::set_origin`] set last.
+    pub(crate) fn origin(&self) -> (Option<Span>, Option<DefId>) {
+        self.origin
+    }
+
     /// The span for inclusion constraints that unification collects from now on.
     pub(crate) fn set_origin(&mut self, span: Option<Span>, def: Option<DefId>) {
         self.origin = (span, def);

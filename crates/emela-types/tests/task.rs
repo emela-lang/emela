@@ -749,3 +749,44 @@ fn through_helper() {
 "#
     ));
 }
+
+/// The sets of TaskGroup and Spawn in the R of a function value are compared too: a function that
+/// starts tasks using more effects, or failing with more errors, does not fit where its caller
+/// provides a group whose tasks have fewer (`[task.group]`, `[type.rules]`). Fewer fit, and a set
+/// variable takes what is started.
+#[test]
+fn task_sets_of_function_values() {
+    insta::assert_snapshot!(render(
+        r#"
+import Std.Task.{TaskGroup, Spawn}
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+error Boom
+
+fn takes_group(f: fn() -> () uses { TaskGroup[{}, { Async }] }) { () }
+
+fn takes_spawn[F](f: fn() -> () uses { Spawn[F, { Async }] }) { () }
+
+fn more_effects() uses { TaskGroup[{}, { Async, Log }] } { () }
+
+fn more_errors() uses { TaskGroup[Boom, { Async }] } { () }
+
+fn fewer() uses { TaskGroup[{}, {}] } { () }
+
+fn spawns_boom() uses { Spawn[Boom, { Async }] } { () }
+
+fn spawns_log() uses { Spawn[{}, { Log }] } { () }
+
+fn main() {
+  takes_group(more_effects)
+  takes_group(more_errors)
+  takes_group(fewer)
+  takes_spawn(spawns_boom)
+  takes_spawn(spawns_log)
+}
+"#
+    ));
+}

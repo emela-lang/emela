@@ -663,7 +663,29 @@ impl BodyInfer<'_> {
                         }
                     }
                 }
-                None => upper.extend(sub.vars()),
+                None => {
+                    upper.extend(sub.vars());
+                    // A tag with set type arguments is contained when its sets are contained in
+                    // those of the other tag (`InferCtx::same_tag`). Comparing them adds those
+                    // constraints; add them here too, so that they are solved and checked like
+                    // the others, also when this set has no set variable.
+                    let nested = sub.elems().iter().any(|e| {
+                        e.effect_tag()
+                            .is_some_and(|t| t.args.iter().any(|a| matches!(a, Ty::Set(..))))
+                    });
+                    if nested {
+                        let saved = self.ctx.origin();
+                        let (span, def) = match &c.origin {
+                            Origin::Coerce { span, def } => (*span, *def),
+                            origin => (self.origin_span(origin), None),
+                        };
+                        self.ctx.set_origin(span, def);
+                        for e in sub.elems() {
+                            self.contains_elem(c.kind, &sup, e);
+                        }
+                        self.ctx.set_origin(saved.0, saved.1);
+                    }
+                }
             }
         }
 
