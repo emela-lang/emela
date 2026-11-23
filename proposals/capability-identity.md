@@ -5,7 +5,7 @@ status: draft
 pr: 732
 issue: 719
 decided:
-touches: [ext.boundary, glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.deferred, fiber.semaphore, fiber.queue, api.std.fiber, type.rules, open.next, diag.list]
+touches: [lsp.hover, ext.boundary, glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.deferred, fiber.semaphore, fiber.queue, api.std.fiber, type.rules, open.next, diag.list]
 requires: [effect-alias]
 related: [closure-r-by-caller, capability-type, capability-trait, handler-member, handler-init-arguments, capture-checking, scope-handle-values]
 ---
@@ -260,6 +260,18 @@ handler SystemFiles: Files {
 }
 ```
 
+### LSP の hover
+
+- 型はソースと同じ形（`use Counter`，`Fiber[Int]`）で出し，その下に `capabilities: ...` の行で，どの capability かを出す．`holds:` の行（capture checking）はなくなる．
+- 名前付きの項目の capability はその名前，名前のない項目は handler の名前（`Plain`），関数の引数の集合は引数の名前，量化した関数型の引数は `any` で出す．
+- closure や関数の hover の `uses { ... }` には，capability の名前もそのまま並べる（`uses { f, Console }`）．
+- 持ち出しのエラーのメッセージにも同じ名前を使う．
+
+```
+ns: List[use Counter]
+capabilities: x, y
+```
+
 ### host の callback
 
 - 外部関数の引数と戻り値の callback は，既定では host が持ち続けるものとする．host は外部関数が返った後にも呼べるので，callback の R に capability を入れられない（E0454 を capability にも広げる）．
@@ -334,6 +346,11 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 
 - Replace "The R may contain capabilities; a callback reaches a handler only through a capability it captures (8.2), since the host calls it without passing handlers." by: "The R MUST NOT contain a capability either, since the host may keep the callback and call it after the with of the capability has ended (E0454). A parameter of an external function marked `@borrowed` (the host holds the callback only during the call) may take a callback whose R contains capabilities. `@borrowed` can be written only on a parameter of function type of an external function (E04xx)."
 
+### `[lsp.hover]`
+
+- Replace the line `holds: ...` by a line `capabilities: ...` that names which capabilities the type of the value records: the variable of a named item, the handler of an item without a name, the parameter that received it, or `any` for a parameter of a quantified function type. The type itself is shown as written in source.
+- The `uses { ... }` of a closure or a function lists capabilities by the same names.
+
 ### `[open.next]`
 
 - The 0.29 item ("make E0444 the default ... remove the run-time check of 8.6") is replaced by this proposal: in 0.29, capture sets and the run-time checks are removed for capabilities and handles, and their leaks are compile errors from the types.
@@ -391,7 +408,6 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 
 ## Open questions
 
-- LSP の hover で capability の集合をどう表示するか．
 - capability を effect の名前に広げられないことで書けなくなるコードがどれだけあるか．
 - 日本語の訳．用語集は capability を「能力」と訳している．定義を変えるのに合わせて訳を見直すか．
 
