@@ -89,7 +89,13 @@ pub fn try_lower_with(
 ) -> Result<Module, Vec<String>> {
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
-    let diags = &types.diags;
+    // A program that tests how a type parameter that no call determines is instantiated gets
+    // W0305 (`[fn.decl]`).
+    let diags: Vec<_> = types
+        .diags
+        .iter()
+        .filter(|d| !matches!(d.kind, emela_types::DiagnosticKind::UnusedTypeParam { .. }))
+        .collect();
     assert!(diags.is_empty(), "{diags:?}");
     // The files under `src`, as diagnostics would show them (the bundled sources have none).
     let shown_paths = modules

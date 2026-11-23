@@ -5,21 +5,21 @@ JavaScript, WebAssembly and C.
 
 ## Status
 
-The current release is **0.27.1**. Each release is listed in
+The current release is **0.28.2**. Each release is listed in
 [`CHANGELOG.md`](CHANGELOG.md). The 0.11 compiler lives on the
 [`legacy`](https://github.com/emela-lang/emela/tree/legacy) branch.
 
-| Release | Adds                                                                                                                                                                                       |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0.20    | The language: data, pattern matching, modules, typed errors and effects, `suspend fn`, handlers with state, fibers, files, an `Http` client, `@test`                                       |
-| 0.21    | The WebAssembly and C targets, `emela doc`, effect labels                                                                                                                                  |
-| 0.22    | Dependencies (`emela pome`), `@external` files copied to the output                                                                                                                        |
-| 0.23    | The test root `test/` and `[dev-dependencies]`, more of the language server                                                                                                                |
-| 0.24    | `trait`, `impl`, `derive` (`Eq`, `Ord`, `Show`), `Std.Map`, `Std.Set`; test helpers move to the Pome [`brix`](https://github.com/emela-lang/brix)                                          |
-| 0.25    | HTTP services (`@entry(Http.serve)`), `@export`, handler `init` arguments, every construct on WASM, `emela test --reporter`, `emela new`                                                   |
-| 0.26    | Method calls `x.f(a)`, `Std.Bytes`                                                                                                                                                         |
-| 0.27    | Closures `\|x\| e`, `uses { R }`, `_` in `escape`, `Std.Array`, `Std.Exit`                                                                                                                 |
-| next    | `--target native`, `Std.Process` (arguments, standard input and output, the exit code of `main`), local `fn`, `each`, `Std.Json` and `derive Encode, Decode`, Bun, `emela doctor`, Windows |
+| Release | Adds                                                                                                                                                                                                                                                                                                                         |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.20    | The language: data, pattern matching, modules, typed errors and effects, `suspend fn`, handlers with state, fibers, files, an `Http` client, `@test`                                                                                                                                                                         |
+| 0.21    | The WebAssembly and C targets, `emela doc`, effect labels                                                                                                                                                                                                                                                                    |
+| 0.22    | Dependencies (`emela pome`), `@external` files copied to the output                                                                                                                                                                                                                                                          |
+| 0.23    | The test root `test/` and `[dev-dependencies]`, more of the language server                                                                                                                                                                                                                                                  |
+| 0.24    | `trait`, `impl`, `derive` (`Eq`, `Ord`, `Show`), `Std.Map`, `Std.Set`; test helpers move to the Pome [`brix`](https://github.com/emela-lang/brix)                                                                                                                                                                            |
+| 0.25    | HTTP services (`@entry(Http.serve)`), `@export`, handler `init` arguments, every construct on WASM, `emela test --reporter`, `emela new`                                                                                                                                                                                     |
+| 0.26    | Method calls `x.f(a)`, `Std.Bytes`                                                                                                                                                                                                                                                                                           |
+| 0.27    | Closures `\|x\| e`, `uses { R }`, `_` in `escape`, `Std.Array`, `Std.Exit`                                                                                                                                                                                                                                                   |
+| 0.28    | `--target native`, `Std.Process` (arguments, standard input and output, the exit code of `main`), local `fn`, `each`, `Std.Json` and `derive Encode, Decode`, capability types `use E`, handler members, one handler for several effects, `Semaphore` and `Queue`, Bun, `emela doctor`, Windows, the compiler in the browser |
 
 The language specification is in [`spec/`](spec/README.md). Changes to it are
 proposed in [`proposals/`](proposals/README.md). The

@@ -26,6 +26,7 @@ mod signature;
 mod sparse;
 mod traits;
 mod ty;
+mod unused_type_params;
 
 #[cfg(test)]
 mod tests;

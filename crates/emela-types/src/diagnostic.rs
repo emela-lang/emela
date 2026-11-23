@@ -60,6 +60,9 @@ pub enum DiagnosticKind {
     /// The entry's `main` returns `ty`, which is none of `()`, `ExitCode` and Never (W0304,
     /// `[dyn.error]`). A warning: the value is discarded.
     MainValueDiscarded { ty: SmolStr },
+    /// A type parameter `param` of the fn `function` does not appear in the type of the fn
+    /// (W0305, `[fn.decl]`). A warning: no call can determine it.
+    UnusedTypeParam { param: SmolStr, function: SmolStr },
     /// A trait is its own supertrait (E0329, spec 10.1). `cycle` starts and ends with the same
     /// trait.
     SupertraitCycle { cycle: Vec<SmolStr> },
@@ -572,6 +575,7 @@ impl DiagnosticKind {
                 | DiagnosticKind::UnusedLabelProvider { .. }
                 | DiagnosticKind::UnusedDerive { .. }
                 | DiagnosticKind::MainValueDiscarded { .. }
+                | DiagnosticKind::UnusedTypeParam { .. }
         )
     }
 }

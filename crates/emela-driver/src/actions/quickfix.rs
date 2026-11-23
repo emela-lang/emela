@@ -1,7 +1,7 @@
 //! Diagnostic-linked edits. All locations refer to the current analysis snapshot.
 
 use emela_resolve::ModuleId;
-use emela_resolve::hir::{DefId, DefModule, ExprKind, Item};
+use emela_resolve::hir::{DefId, DefKind, DefModule, ExprKind, Item, RefTarget, Span};
 use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{DiagnosticCode, SyntaxKind, SyntaxNode, rewrite};
 use emela_types::{DiagnosticKind, EffectContext, Ty};
@@ -55,6 +55,9 @@ pub(super) fn quickfixes(
             }
             Some(code::DEPRECATED_USE) => deprecated_use(tree.syntax(), diagnostic, span.range),
             Some(code::TYPE_MISMATCH) => scope_body_param(tree.syntax(), span.range, text),
+            Some(code::UNUSED_TYPE_PARAM) => {
+                unused_type_param(program, module, span.range, tree.syntax())
+            }
             _ => None,
         };
         if let Some((title, edits)) = edits {
@@ -191,6 +194,65 @@ fn scope_body_param(root: &SyntaxNode, range: TextRange, text: &str) -> Option<F
             vec![(head, "|_|".to_owned())],
         )),
     }
+}
+
+/// A type parameter that does not appear in the type of its fn (W0305, `[lsp.code-action]`) is
+/// removed with its bound and the `,` next to it, and the brackets with it when it is the only
+/// one. Not offered when it is named in the body of the fn: removing it would make that annotation
+/// E0211.
+fn unused_type_param(
+    program: &TypedProgram,
+    module: ModuleId,
+    range: TextRange,
+    root: &SyntaxNode,
+) -> Option<Fix> {
+    let hir = &program.hir;
+    let span = Span { module, range };
+    let (param, data) = hir
+        .defs
+        .iter()
+        .find(|(_, d)| d.kind == DefKind::TypeParam && d.span == Some(span))?;
+    let body = hir.defs.iter().find_map(|(def, _)| match hir.item(def) {
+        Some(Item::Fn(item) | Item::TraitFn(item))
+            if item.sig.type_params.iter().any(|tp| tp.def == param) =>
+        {
+            Some(item.body)
+        }
+        _ => None,
+    })?;
+    if let Some(body) = body {
+        let body = hir.exprs[body].span;
+        let named_in_body = hir.refs.iter().any(|r| {
+            r.target == RefTarget::Def(param)
+                && r.span.module == body.module
+                && body.range.contains_range(r.span.range)
+        });
+        if named_in_body {
+            return None;
+        }
+    }
+    let node = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::TYPE_PARAM && n.text_range().start() == range.start())?;
+    let list = node
+        .parent()
+        .filter(|n| n.kind() == SyntaxKind::TYPE_PARAM_LIST)?;
+    let params: Vec<SyntaxNode> = list
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::TYPE_PARAM)
+        .collect();
+    let at = params.iter().position(|n| *n == node)?;
+    let removed = if params.len() == 1 {
+        list.text_range()
+    } else if let Some(next) = params.get(at + 1) {
+        TextRange::new(node.text_range().start(), next.text_range().start())
+    } else {
+        TextRange::new(params[at - 1].text_range().end(), node.text_range().end())
+    };
+    Some((
+        format!("Remove type parameter `{}`", data.name),
+        vec![(removed, String::new())],
+    ))
 }
 
 /// `use E` written as an expression (W0403, `[effect.use]`), rewritten to an effect alias when

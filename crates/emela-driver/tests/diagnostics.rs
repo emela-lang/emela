@@ -2883,3 +2883,145 @@ fn forms() {
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
+
+/// W0305 (`[fn.decl]`, `[trait.decl]`, `[ext.decl]`): a type parameter of a top-level fn, of a
+/// trait function or of an `@external` fn that does not appear in the type of the fn. One that
+/// appears only in a bound or in type annotations inside the body is warned about too, and set
+/// type parameters are treated as ordinary ones. The warning points at the type parameter in the
+/// list, once for a trait function and not at its impls.
+#[test]
+fn unused_type_parameters() {
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"fn f[A]() -> Int { 1 }
+
+fn g[A](x: Int) -> Int {
+  y: Option[A] = None
+  x
+}
+
+fn h[A: Show]() -> Int { 1 }
+
+fn e[E, R](x: Int) -> Int { x }
+
+fn kept[A, B](x: A) -> A { x }
+
+trait Describe {
+  fn describe[A](self) -> String
+}
+
+type User(name: String)
+
+impl User: Describe {
+  fn describe(self) { self.name }
+}
+
+@external(js, "./x.mjs", "f")
+fn ext[A](x: Int) -> Int uses {}
+
+fn main() {
+  dbg(f())
+  dbg(g(1))
+  dbg(h())
+  dbg(e(1))
+  dbg(kept(1))
+  dbg(User("a").describe())
+  ()
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// No W0305 for a type parameter that appears in the type of the fn (`[fn.decl]`): in a
+/// parameter, the return type, fails or uses, inside a function type or a type argument, or in a
+/// return type, fails or uses inferred from the body. Nor for type parameters of types and enums
+/// (phantom types), of an impl head, the `Self` of a trait function, or a fn whose signature
+/// could not be read (the error is reported instead).
+#[test]
+fn used_type_parameters_without_warning() {
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r##"error Oops
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+fn param[A](x: A) -> Int { 1 }
+
+fn ret[A]() -> Option[A] { None }
+
+fn fails_[E](f: fn() -> Int fails E) -> Int fails E { f() }
+
+fn uses_[R](f: fn() -> Int uses { R }) -> Int uses { R } { f() }
+
+fn inside[A, B](f: fn(A) -> B) -> List[fn(A) -> B] { [f] }
+
+fn inferred[A](x: Int) {
+  none: Option[A] = None
+  none
+}
+
+fn bounded[A: Show](x: A) -> String { "#{x}" }
+
+type Tagged[A](id: Int)
+
+enum Phantom[A] {
+  Mark
+}
+
+trait Describe {
+  fn describe(self) -> String
+  fn tag[A](self, x: A) -> A { x }
+}
+
+type Box[A](value: A)
+
+impl Box[A]: Describe {
+  fn describe(self) { "box" }
+}
+
+@external(js, "./x.mjs", "f")
+fn ext[A](x: A) -> A uses {}
+
+fn main() {
+  dbg(param(1))
+  o: Option[String] = inferred(1)
+  dbg(o)
+  t: Tagged[Int] = Tagged(1)
+  dbg(t.id)
+  ()
+}
+"##,
+        )],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    let warnings: Vec<_> = analysis
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == Some("W0305"))
+        .collect();
+    let rendered = render(&analysis.diagnostics, &analysis.sources, false);
+    assert!(warnings.is_empty(), "{rendered}");
+    assert!(!analysis.has_errors(), "{rendered}");
+}
+
+/// No W0305 when a type in the signature could not be read: the error is reported instead.
+#[test]
+fn unused_type_parameter_not_reported_for_a_broken_signature() {
+    let analysis = check_files(
+        &[("home/main.emel", "fn f[A](x: Lst[A]) -> Int { 1 }\n")],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().map(|d| d.code).collect();
+    assert!(!codes.contains(&Some("W0305")), "{codes:?}");
+    assert!(codes.contains(&Some("E0211")), "{codes:?}");
+}

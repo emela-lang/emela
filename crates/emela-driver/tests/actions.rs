@@ -566,3 +566,61 @@ fn deprecated_uses_are_rewritten_to_effect_aliases() {
         format!("{prelude}fn f() {{\n  log = use Logger\n  with Quiet {{ log.info(\"a\") }}\n}}\n");
     assert!(fixes(&text, "use Logger", &[]).is_empty());
 }
+
+/// W0305 (`[lsp.code-action]`): the type parameter is removed with its bound and the `,` next to
+/// it, and the brackets with it when the list becomes empty. Not offered when the type parameter
+/// appears in a type annotation in the body.
+#[test]
+fn unused_type_parameter_is_removed() {
+    for (text, at, title, expected) in [
+        (
+            "fn f[A]() -> Int { 1 }\n",
+            "A]",
+            "Remove type parameter `A`",
+            "fn f() -> Int { 1 }\n",
+        ),
+        (
+            "fn f[A, B](x: A) -> A { x }\n",
+            "B]",
+            "Remove type parameter `B`",
+            "fn f[A](x: A) -> A { x }\n",
+        ),
+        (
+            "fn f[A: Show + Eq, B](x: B) -> B { x }\n",
+            "A:",
+            "Remove type parameter `A`",
+            "fn f[B](x: B) -> B { x }\n",
+        ),
+        (
+            "fn f[A, R: Immediate, B](x: A, y: B) -> A { x }\n",
+            "R:",
+            "Remove type parameter `R`",
+            "fn f[A, B](x: A, y: B) -> A { x }\n",
+        ),
+        (
+            "trait Describe {\n  fn describe[A](self) -> String\n}\n",
+            "A]",
+            "Remove type parameter `A`",
+            "trait Describe {\n  fn describe(self) -> String\n}\n",
+        ),
+    ] {
+        let actions = fixes(text, at, &[]);
+        assert_eq!(actions.len(), 1, "{text}");
+        assert_eq!(actions[0].title, title);
+        assert_eq!(actions[0].diagnostics[0].code, Some("W0305"));
+        let edited = apply(text, &actions[0]);
+        assert_eq!(edited, expected);
+        let (analysis, _, _) = checked(&edited, &[]);
+        assert!(analysis.diagnostics.is_empty(), "{edited}");
+    }
+}
+
+/// W0305 has no quick fix when the type parameter appears in the body: removing it would make the
+/// annotation E0211 (`[lsp.code-action]`).
+#[test]
+fn unused_type_parameter_in_the_body_is_not_removed() {
+    let text = "fn g[A](x: Int) -> Int {\n  y: Option[A] = None\n  x\n}\n";
+    let (analysis, _, _) = checked(text, &[]);
+    assert!(analysis.diagnostics.iter().any(|d| d.code == Some("W0305")));
+    assert!(fixes(text, "A]", &[]).is_empty());
+}
