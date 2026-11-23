@@ -130,7 +130,9 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 - 引数の型に `use E` と書くと，その関数は E の capability の集合を受け取る型引数を持つ．関数の中の `x.read()` は R にその型引数を入れる．
 - 呼び出しで，型引数は渡した値の集合に決まる．`read_all(f)` は呼ぶ側の R に f を入れ，`[x, y]` の要素を渡せば x と y を入れる．
 - 同じ effect の引数を二つ取ると，型引数も二つになる（`fn copy(from: use Db, to: use Db)`）．
-- 引数に effect alias や `use E`（名前のない値）を渡すと，型引数は effect の名前 E に決まる．呼んだ時点でいちばん内側の E に届く．
+- capability の引数に渡せるのは，名前付きの項目の capability と，それを含む値だけ．effect alias は引数に渡せない（E0453 のまま）．
+- いちばん内側の E を使いたい関数は，capability を受け取らず，R に E を書いて（`uses { Db }`）中で `db <- Db` と書く．呼んだ時点で決まるものは R，決まった handler は名前付きの項目，と役割を分ける．
+- `use E` の値（W0403）は，移行の期間だけ，型の中で effect の名前 E に決まった capability として扱う．
 
 ### 関数型の中の capability の引数
 
@@ -299,7 +301,7 @@ handler SystemFiles: Files {
 - The type of a capability is written `use E`. Type checking tells capabilities apart: the type of a capability records which capability it is.
 - Calling an operation of a capability adds that capability to R. The with that made the capability removes it from R.
 - A capability is not widened to its effect. An effect set that contains a capability is not included in an effect set that contains only the effect of the capability.
-- A parameter of type `use E` gives the function a type parameter that ranges over the capabilities of E. At a call, it is decided by the argument. An argument that is an effect alias, or a `use E` written as an expression, decides it as E itself.
+- A parameter of type `use E` gives the function a type parameter that ranges over the capabilities of E. At a call, it is decided by the argument. An effect alias cannot be an argument (E0453). During the deprecation period, a `use E` written as an expression decides it as E itself.
 - `use E` written as an expression (deprecated by `effect-alias`) is a compile error after the deprecation period.
 
 ### `[effect.escape]`
@@ -357,6 +359,7 @@ handler SystemFiles: Files {
 - capability を effect の名前に広げて，別々の with の capability を同じリストに入れる．広げた値は型が R で追えず，今の #719 の穴に戻る．集合で持てば広げずに入れられる．
 - capability の型引数に名前を付ける（`fn retry[C: use Db](db: C, f: fn(C) -> ())`）．二つの引数が同じ集合を共有する形が書けるが，closure に捕えさせれば同じことが書け，名前が要る場面は少ない．後から足しても今の書き方の意味は変わらない．
 - 名前付きの項目を `with f <- Files.Open(path)` や `with Files.Open(path) as f` と書く．`<-` は effect alias と同じ記号になり，`as` は今の `with x = ...` の書き換えが要る．
+- 名前のない `use E` の値を，なくす代わりに「呼んだ時点でいちばん内側の E に届く値」として残す．型の中では effect の名前としてしか表せず，渡したり格納したりできる限り，どの handler を指すかが型から分からない（#719 の穴の元）．内側で同じ E を上書きした with で外の値を使う 18 箇所の意味も黙って変わる．
 - 一段で `use E` の式をなくす（deprecation の期間を置かない）．影響が言語の中心なので期間を置く．
 
 ## Prior art
@@ -364,7 +367,6 @@ handler SystemFiles: Files {
 ## Open questions
 
 - LSP の hover で capability の集合をどう表示するか．
-- 名前のない `use E` の値を，なくす代わりに「型引数が effect の名前に決まった capability の値」（呼んだ時点で解決する値）にする手もある．内側で同じ E を上書きした with で使う 18 箇所の意味が変わる．
 - deprecation の版．W0403 は 0.29 に入る．`use E` の式をエラーにするのを 0.30 にするか，この proposal の実装（広げることの警告）を待つか．#666 の 0.29（capture checking を既定にし，W0402 と実行時の検査を外す）を capability について取り下げるか．
 - 外部関数の引数に付ける「その場でしか呼ばない」印の書き方（属性の名前）．
 - `[C: Capability]`（`capability-trait`）はそのまま使えるか．#651 の `close[C: Capability](item: C)` を確かめる．
