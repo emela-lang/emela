@@ -7,14 +7,14 @@ issue: 719
 decided:
 touches: [glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, type.rules, open.next, diag.list]
 requires: [effect-alias]
-related: [capability-type, capability-trait, handler-member, handler-init-arguments, capture-checking, scope-handle-values]
+related: [closure-r-by-caller, capability-type, capability-trait, handler-member, handler-init-arguments, capture-checking, scope-handle-values]
 ---
 
 # Capabilities are told apart in types and in R
 
 ## Summary
 
-`effect-alias`（#731）の二段目．
+`effect-alias`（#731）と `closure-r-by-caller`（#736）の次の段．二つは #791 で実装され，次の minor（0.29）に入る．
 
 - capability を「init が終わり，まだ release されていない handler（handler の実体）」と定める．with の項目ごとに一つできる．
 - `with x = Item` の x は capability そのもの．型検査は，型と R の中で，どの capability かを区別する．
@@ -24,9 +24,25 @@ related: [capability-type, capability-trait, handler-member, handler-init-argume
 - capability を元の effect に広げない．
 - capability は普通の値のまま．渡す，格納する，返す，データ構造に入れる，closure で捕えることは，同じ with の中ならほかの値と同じにできる．
 - capability についての capture checking（capture set，root）は，この型検査で置き換える．
-- `use E` の式（#731 で deprecated）と，capability を effect に広げること（この proposal で deprecated）を，段階を踏んでなくす．
+- `use E` の式（#791 で W0403）と，capability を effect に広げること（この proposal で deprecated）を，段階を踏んでなくす．
 
 ## Motivation
+
+### #791 のあとに残っているもの
+
+#791 で，名前を付けずに操作を呼ぶ形は型（R）だけで守られるようになった．
+
+- `x <- E` と `(use E).op(...)` は root を作らず，E は closure の R に残って呼ぶ側が満たす（#731）．
+- closure と local fn の R は呼ぶ側だけが満たす．囲む with は handler を渡さない（#736）．#719 の再現 2〜5 と，scope の子に渡した closure（再現 3）は，外の handler に届くようになった．
+- std，examples，tests/laws の `use E` の式は `<-` に書き換えた（`(use E).op` も `x = use E` も 0 件）．
+
+固定された値は，まだ capture checking だけが守っている．
+
+- 名前付きの項目の capability（`with x = H` の x）と，値として書いた `use E`（W0403）．closure がこれを捕えると，closure の型の R には effect の名前が入り（広げる），型は何も止めない．
+- 持ち出す道は capture set で数えている．操作の引数とエラー（#719 の A，B）は今も見ていない．host の callback は #736 で effect を R に入れられなくなったが，capability を捕えた callback（`set_timeout(10, || g.greet("later"))`）が with より長く生きることは止めていない．
+- #701（handler member の capability を closure の引数や戻り値を通して使うと E0402）は残っている．
+- Fiber，Deferred，Queue のハンドルを持ち出す形（#719 の再現 1，6）も capture set で見ている．
+- #666 は 0.29 で capture checking を既定にし，W0402 と実行時の検査を外す予定だった．この proposal は，capability についてはその代わりになる．
 
 ### 型が，どの capability かを表していない
 
@@ -125,15 +141,17 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 ### `use E` の式
 
 - `x = use E` の x は，どの capability かが決まらない（書いた位置でいちばん内側の E の capability に固定されるが，型には出ない）．
-- `use E` の式は，略記も値も #731 で deprecated になっている．この proposal では型の中で，effect の名前 E に決まった capability として扱い，次の minor でなくす．移る先:
-  - x を受け手にしか使わない → `x <- E`（#731）
-  - 外の handler を指し続ける，渡す，格納する → 名前付きの項目（`with x = H`）
+- `use E` の式は，略記も値も #791 で W0403 になっている．この proposal では型の中で，effect の名前 E に決まった capability として扱い，次の minor でなくす．移る先:
+  - x を同じ関数の中で受け手にしか使わない → `x <- E`．W0403 の quick fix が書き換える（#791）
+  - 外の handler を指し続ける，渡す，格納する → 名前付きの項目（`with x = H`）．機械的には書き換えられない
 
 ### deprecation の段階（たたき台）
 
-1. 一段目（`effect-alias`，#731）: `(use E).op()` を `<-` に展開する．`use E` の式（略記も値も）に W04xx（deprecated）を出す．
+1. 済み（#791，0.29）: `(use E).op()` を `<-` の略記にする．`use E` の式（略記も値も）に W0403 を出す．
 2. この proposal が入った版: 型と R で capability を区別する．capability を effect の名前に広げることに W04xx（deprecated）を出す．
-3. 次の minor: `use E` の式と，広げることをコンパイルエラーにする．capability についての capture checking（W0402，E0444 の capability の部分）と，`[effect.escape]` の実行時の検査（release 後の使用は defect）を外す．
+3. その次の minor: `use E` の式と，広げることをコンパイルエラーにする．capability についての capture checking（W0402，E0444 の capability の部分）と，`[effect.escape]` の実行時の検査（release 後の使用は defect）を外す．
+
+`[effect.use]` は「`use E` の式は one more minor version 読む」と書いている（#731）．2 と 3 の版の並べ方は Open questions．
 
 ## Specification changes
 
@@ -170,21 +188,22 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 ## Diagnostics
 
 - [ ] E04xx: capability を持ち出した（型か R に capability を含む値が with の外へ出る）
-- [ ] `use E` の式の W04xx は #731 で入る．廃止の版でエラーにする
+- [ ] `use E` の式の W0403 は #791 で入った．廃止の版でエラーにする
 - [ ] W04xx: capability を effect の名前に広げた（deprecated）．help: 引数を `use E` にする
 - [ ] 廃止の版: W04xx をエラーにする．W0402，E0444 の capability の部分を外す
 
 ## Compatibility
 
-数え上げ（.snap を除く）．
+数え上げ（#791 のあとの main，.snap を除く）．std，examples，tests/laws には `use E` の式が残っていない．残りはコンパイラのテストのプログラム（Rust の文字列），`spec/`，`proposals/` の中．
 
 | 形 | 数 | 移る先 |
 |---|---|---|
-| `(use E).op()` | 803 | 一段目で展開される．書き換え不要 |
-| `x = use E` | 278 | 受け手にしか使わないなら `x <- E`（機械的に判定できる）．それ以外は `with x = H` |
-| 値として渡す，格納する，返す | 約 59 行 | 名前付きの項目の capability ならそのまま通る．`use E` から取った値は `with x = H` に書き換える |
+| `(use E).op()` | 817 | W0403 の quick fix で `<-` に書き換えられる |
+| `x = use E` | 278 | 同じ関数の中で受け手にしか使わないなら quick fix で `x <- E`．それ以外は `with x = H` |
+| `x <- E` | 160 | 変わらない |
+| 引数や型の `: use E` | 171 | 書き方は変わらない．capability の引数になる |
 | 外の値を，同じ E を上書きした内側の with で使う | 18 | `with x = H` |
-| `with x = H`，`with x = E.M(...)` | 未計数 | そのまま通る．x の型が，どの capability かを持つようになる |
+| `with x = H`，`with x = E.M(...)`（`.emel`） | 14 | そのまま通る．x の型が，どの capability かを持つようになる |
 | capability を effect の名前に広げているもの | 未計数 | 試作で数える |
 
 - 引数の `use E` は書き方が変わらない（`fn copy(from: use Db, to: use Db)`，`copy(replica, primary)`）．
@@ -195,7 +214,7 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 - 型検査: capability の型と effect set に，どの capability かを持たせる．with の出口で，本体の値の型，エラー，R にその with の capability が残らないかを確かめる．型引数の範囲の検査と同じ仕組みを使う．
 - capability の型の集合と，引数の `use E` の型引数は，R の集合と同じ仕組み（集合の和と set variable）で推論する．
 - lowering: capability の evidence は，その項目の handler．effect の名前に決まった型引数は，呼んだ時点の evidence を使う．
-- capture checking: deprecation の期間は今のまま動かし，廃止の版で capability の部分を外す．
+- capture checking: deprecation の期間は今のまま動かし，廃止の版で capability の部分を外す．#791 で `use_root` は closure の境界で止まるようになっている．
 
 ## Alternatives
 
@@ -217,8 +236,8 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 - handler の操作の中の `self` を，その handler の capability と見るか．`self` はフィールドに触れるので，capability より多くのことができる．
 - `Fiber.scope` の Scope を capability として扱い，Fiber，Deferred，Queue のハンドルの型に scope の capability を入れるか（#719 の再現 1，6）．入れれば `[fiber.escape]` の capture set も要らなくなる．
 - 名前のない `use E` の値を，なくす代わりに「型引数が effect の名前に決まった capability の値」（呼んだ時点で解決する値）にする手もある．内側で同じ E を上書きした with で使う 18 箇所の意味が変わる．
-- deprecation の版．警告の期間を一つの minor にするか．#666 の 0.29（E0444 を既定にする）とどう並べるか．
-- 移行の道具．`x = use E` → `x <- E` の書き換えを自動にするか．
+- deprecation の版．W0403 は 0.29 に入る．`use E` の式をエラーにするのを 0.30 にするか，この proposal の実装（広げることの警告）を待つか．#666 の 0.29（capture checking を既定にし，W0402 と実行時の検査を外す）を capability について取り下げるか．
+- host の callback に capability を捕えさせる形（`with g = Plain { set_timeout(10, || g.greet("later")) }`）．外部関数の型は with の外で決まっているので，「持ち出せない」をそのまま当てると g を R に持つ callback は渡せない．#736 は「callback の R は capability を含んでよい」とした．host が with の後で呼ぶ callback をどう止めるか（host に渡すことを持ち出しとみなすか，同期の callback だけ許すか）．
 - `[C: Capability]`（`capability-trait`）はそのまま使えるか．#651 の `close[C: Capability](item: C)` を確かめる．
 - capability を effect の名前に広げられないことで書けなくなるコードがどれだけあるか．
 - 日本語の訳．用語集は capability を「能力」と訳している．定義を変えるのに合わせて訳を見直すか．
