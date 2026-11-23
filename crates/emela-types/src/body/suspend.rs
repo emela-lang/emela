@@ -559,3 +559,195 @@ impl Walker<'_> {
         }
     }
 }
+
+/// Where resume may have been called on some path so far: the span of the direct call or of the
+/// other use, and whether it was another use (`passed`).
+type Resumed = Option<(Span, bool)>;
+
+impl BodyInfer<'_> {
+    /// Checks that no call that may suspend can be evaluated after resume may have been called
+    /// in a suspend fn implementation (E0461, `[effect.handler]`). Call after sets are solved.
+    ///
+    /// The check follows the order of evaluation (`[dyn.order]`) and joins the paths of the
+    /// branches of an if, a match and an escape: what follows a branch that may resume is after
+    /// resume. resume may be called at a direct call of it (`resume(v)`, `v |> resume`), and at
+    /// any other mention of it, including inside a lambda or a local fn, which lets a callback or
+    /// another fiber call it while the implementation is still running (`[effect.async]`). A
+    /// call inside a lambda runs where the lambda is called, so it is checked as a call of a
+    /// function value there.
+    pub(super) fn check_suspend_after_resume(&mut self) {
+        let bodies: Vec<(ExprId, LocalId)> = self
+            .handler_bodies
+            .iter()
+            .filter_map(|b| Some((b.body, b.resume?)))
+            .collect();
+        for (body, resume) in bodies {
+            self.after_resume(body, resume, None);
+        }
+    }
+
+    /// Walks `expr` given where resume may have been called before it, reports the calls that may
+    /// suspend after it, and returns where resume may have been called after `expr`.
+    fn after_resume(&mut self, expr: ExprId, resume: LocalId, mut state: Resumed) -> Resumed {
+        let program = self.program;
+        let span = program.exprs[expr].span;
+        match &program.exprs[expr].kind {
+            ExprKind::Path(Res::Local(l)) if *l == resume => state.or(Some((span, true))),
+            ExprKind::Lambda { body, .. } => state.or(mention_of(self, *body, resume)),
+            ExprKind::Call { callee, args } => {
+                let direct = is_local(program, *callee, resume);
+                if !direct {
+                    state = self.after_resume(*callee, resume, state);
+                }
+                for arg in args {
+                    state = self.after_resume(arg.value, resume, state);
+                }
+                if direct {
+                    return state.or(Some((span, false)));
+                }
+                self.report_after_resume(*callee, span, state);
+                state
+            }
+            ExprKind::Binary {
+                op: BinaryOp::Pipe,
+                lhs,
+                rhs,
+            } => {
+                state = self.after_resume(*lhs, resume, state);
+                if matches!(program.exprs[*rhs].kind, ExprKind::Call { .. }) {
+                    return self.after_resume(*rhs, resume, state);
+                }
+                if is_local(program, *rhs, resume) {
+                    return state.or(Some((span, false)));
+                }
+                state = self.after_resume(*rhs, resume, state);
+                self.report_after_resume(*rhs, span, state);
+                state
+            }
+            ExprKind::Block(block) => {
+                for stmt in &block.stmts {
+                    state = match stmt {
+                        Stmt::Let { value, .. } | Stmt::Expr(value) => {
+                            self.after_resume(*value, resume, state)
+                        }
+                        Stmt::LocalFn(f) => state.or(mention_of(self, f.body, resume)),
+                    };
+                }
+                match block.tail {
+                    Some(tail) => self.after_resume(tail, resume, state),
+                    None => state,
+                }
+            }
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                state = self.after_resume(*cond, resume, state);
+                let then = self.after_resume(*then_branch, resume, state);
+                let other = match else_branch {
+                    Some(e) => self.after_resume(*e, resume, state),
+                    None => state,
+                };
+                then.or(other)
+            }
+            ExprKind::Match {
+                scrutinee: inner,
+                arms,
+            }
+            | ExprKind::Escape { expr: inner, arms } => {
+                // A guard is evaluated after the guards of the arms before it.
+                let mut guards = self.after_resume(*inner, resume, state);
+                let mut out = guards;
+                for arm in arms {
+                    if let Some(guard) = arm.guard {
+                        guards = self.after_resume(guard, resume, guards);
+                    }
+                    out = out.or(self.after_resume(arm.body, resume, guards));
+                }
+                out.or(guards)
+            }
+            ExprKind::With { handlers, body } => {
+                for arg in crate::layer::evaluated_args(
+                    program,
+                    self.sigs,
+                    self.ty_table,
+                    handlers,
+                    &self.item_insts(expr, handlers),
+                ) {
+                    state = self.after_resume(arg, resume, state);
+                }
+                // Opening a suspend handler member may suspend where the item opens it and where
+                // the with releases it (`[effect.decl]`).
+                let opened = state;
+                let after = self.after_resume(*body, resume, state);
+                for item in handlers {
+                    if let Some(call) = self.suspending_member_item(item)
+                        && let Some((at, passed)) = opened.or(after)
+                    {
+                        self.diags.push(Diagnostic {
+                            span: Some(item.span),
+                            kind: DiagnosticKind::SuspendAfterResume {
+                                call,
+                                resume: at,
+                                passed,
+                            },
+                        });
+                    }
+                }
+                after
+            }
+            _ => {
+                for sub in self.sub_exprs(expr) {
+                    state = self.after_resume(sub, resume, state);
+                }
+                state
+            }
+        }
+    }
+
+    /// Reports the call `call` of `callee` if it may suspend and resume may have been called.
+    fn report_after_resume(&mut self, callee: ExprId, call: Span, state: Resumed) {
+        let Some((resume, passed)) = state else {
+            return;
+        };
+        if let Some(why) = self.suspending_call(callee) {
+            self.diags.push(Diagnostic {
+                span: Some(call),
+                kind: DiagnosticKind::SuspendAfterResume {
+                    call: why,
+                    resume,
+                    passed,
+                },
+            });
+        }
+    }
+}
+
+fn is_local(program: &Program, expr: ExprId, local: LocalId) -> bool {
+    matches!(program.exprs[expr].kind, ExprKind::Path(Res::Local(l)) if l == local)
+}
+
+/// The first mention of `resume` in `expr`, including inside lambdas and local fns: a use of it
+/// that is not a direct call where the implementation runs (`[effect.async]`).
+fn mention_of(infer: &BodyInfer<'_>, expr: ExprId, resume: LocalId) -> Resumed {
+    let program = infer.program;
+    if is_local(program, expr, resume) {
+        return Some((program.exprs[expr].span, true));
+    }
+    let mut subs = infer.sub_exprs(expr);
+    match &program.exprs[expr].kind {
+        ExprKind::Lambda { body, .. } => subs.push(*body),
+        ExprKind::Block(block) => {
+            for stmt in &block.stmts {
+                if let Stmt::LocalFn(f) = stmt {
+                    subs.push(f.body);
+                }
+            }
+        }
+        _ => {}
+    }
+    subs.into_iter()
+        .filter_map(|sub| mention_of(infer, sub, resume))
+        .min_by_key(|(span, _)| span.range.start())
+}

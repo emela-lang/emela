@@ -387,6 +387,15 @@ pub enum DiagnosticKind {
         effect: SmolStr,
         call: SuspendingCall,
     },
+    /// In the implementation of a suspend fn, a call that may suspend can be evaluated after
+    /// resume may have been called (E0461, `[effect.handler]`). `resume` is where it may have
+    /// been called: a direct call of it, or another use (`passed`) that lets a callback or another
+    /// fiber call it (`[effect.async]`). Reported once per call.
+    SuspendAfterResume {
+        call: SuspendingCall,
+        resume: Span,
+        passed: bool,
+    },
     /// An effect set required to be `Immediate` contains an effect that may suspend, or a set not
     /// known to be Immediate (E0416, spec 9.5). `effects` lists the effects that may suspend
     /// (those with a suspend fn, or Async); `sets` names set type parameters without an
