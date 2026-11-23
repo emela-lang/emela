@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-24 (Reading a Duration from text, and Encode, Decode and Shaped for Duration)
+
+- `[api.prelude]`, `[lib.layers]`, `[api.std.duration]`, `[api.std.dynamic]`, `[api.std.shape]`, `[open.list]`: Add `Duration.parse(s: String) -> Duration fails ParseError`. It reads a length of time in two forms: numbers with units (`1h30m`, `1.5s`, `2h 30min`, `30 seconds`), and the time part of an ISO 8601 duration (`PT1H30M`, `-PT1.5S`). The units are the hour and shorter ones; days and weeks are not read. Add `Duration.to_iso8601`, which writes the ISO 8601 form. `to_string` keeps its form (`1500ms`), which answers `[open.list]` 48. Duration also gets Encode, Decode and Shaped: Encode writes the text of `to_string`, Decode reads text with `parse`, and the shape is a String with no note. The range (an Int64 of milliseconds) and the unit of Duration do not change. Adopted in the proposal `duration-parse` (#737).
+
 ## 2026-11-23 (Telling the entry module of the JS host with import.meta.main)
 
 - `[target.js.module]`: `main.mjs` decides whether it is the entry module of the JS host with `import.meta.main`. Only a JS host that does not define `import.meta.main` compares the real path of `process.argv[1]` with the path of `main.mjs`, as `js-direct-entry` (#677) specified for every host. With this, importing `main.mjs` from code that the JS host evaluates (`node -e`) does not launch `main`, on every host that defines `import.meta.main`. Adopted in the proposal `js-entry-import-meta-main` (#829).
