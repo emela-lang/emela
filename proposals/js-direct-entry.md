@@ -1,7 +1,7 @@
 ---
 title: Running main.mjs directly
 authors: [Satoru314]
-status: accepted
+status: implemented
 pr: 677
 issue:
 decided: 2026-11-23

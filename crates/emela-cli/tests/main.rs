@@ -4,6 +4,7 @@
 //! `every_file_is_a_module` fails when one is missing.
 
 mod cli;
+mod direct_entry;
 mod doc_command;
 mod doctor_command;
 mod fmt_command;

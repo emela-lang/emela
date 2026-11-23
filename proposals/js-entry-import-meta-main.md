@@ -1,7 +1,7 @@
 ---
 title: Telling the entry module of the JS host with import.meta.main
 authors: [Allianaab2m]
-status: accepted
+status: implemented
 issue:
 touches: [target.js.module]
 requires: [js-direct-entry]

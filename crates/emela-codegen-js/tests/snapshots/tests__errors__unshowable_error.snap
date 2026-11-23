@@ -1412,9 +1412,96 @@ function $output(fd, text) {
   }
 }
 
-// std/process.mjs, std/console.mjs, the launcher and the test runner reach the output through this key, since the
-// runtime may be inlined into the output. `stdoutClosed()` tells the launcher to exit with 141.
+// std/process.mjs, std/console.mjs and the test runner reach the output through this key, since the runtime may be
+// inlined into the output.
 globalThis[Symbol.for("emela.output")] = { write: $output, stdoutClosed: () => $stdoutClosed };
+
+// Launches `main` when this `main.mjs` is the entry module of the JS host (`[target.js.module]`). `entry` is
+// `import.meta.main` of `main.mjs`, and `url` its `import.meta.url`. A host that does not define `import.meta.main`
+// (older releases of Node 22) is asked through the real path of `process.argv[1]` instead.
+function $launch(entry, url, main) {
+  const proc = globalThis.process;
+  if (typeof proc?.on !== "function") return;
+  if (entry === true) $launchMain(proc, main);
+  else if (entry === undefined) {
+    $startedWith(proc, url).then((started) => {
+      if (started) $launchMain(proc, main);
+    });
+  }
+}
+// Whether the real path of `process.argv[1]` is the path of `url`. `false` when either cannot be read: under
+// `node -e '...' word`, `process.argv[1]` is a word, not a file, and importing `main.mjs` there must not throw.
+// `node:fs` is imported only on Node and Bun, and only when `process.getBuiltinModule` is missing (before Node 22.3).
+async function $startedWith(proc, url) {
+  try {
+    const script = proc.argv?.[1];
+    if (typeof script !== "string" || proc.versions?.node === undefined) return false;
+    const fs = proc.getBuiltinModule?.("node:fs") ?? (await import("node:fs"));
+    const nodeUrl = proc.getBuiltinModule?.("node:url") ?? (await import("node:url"));
+    return fs.realpathSync(script) === nodeUrl.fileURLToPath(url);
+  } catch {
+    return false;
+  }
+}
+// Runs `main` and exits with the standard error and the exit code of `[cmd.build]`.
+function $launchMain(proc, main) {
+  let over = false;
+  function closed() {
+    if (!$stdoutClosed) return false;
+    proc.exit(141);
+    return true;
+  }
+  function stop(code, text) {
+    if (closed()) return;
+    proc.exitCode = code;
+    $output(2, text);
+    proc.stderr.write("", () => proc.exit(code));
+  }
+  function finish(value) {
+    over = true;
+    if (closed()) return;
+    const show = value?.[Symbol.for("emela.fail")];
+    if (typeof show === "function") {
+      $output(2, `error: ${show.call(value)}\n`);
+      proc.exitCode = 1;
+    }
+  }
+  function crash(error) {
+    if (over) return;
+    over = true;
+    if (error instanceof Error && error.name === "Interrupted") {
+      stop(130, "interrupted\n");
+    } else if (error instanceof Error && error.name === "Defect") {
+      stop(101, `defect: ${error.message}\n`);
+    } else {
+      stop(1, `${error?.stack ?? String(error)}\n`);
+    }
+  }
+  let cancel;
+  proc.on("uncaughtException", crash);
+  proc.on("beforeExit", () => {
+    if (over) return;
+    if (cancel !== undefined) {
+      cancel();
+      return;
+    }
+    over = true;
+    if (closed()) return;
+    $output(2, "interrupted\n");
+    proc.exitCode = 130;
+  });
+  globalThis[Symbol.for("emela.args")] = proc.argv.slice(2);
+  try {
+    const value = main();
+    if (Object.prototype.toString.call(value) === "[object Generator]") {
+      cancel = $start(value, (ok, result) => (ok ? finish(result) : crash(result)));
+    } else {
+      finish(value);
+    }
+  } catch (error) {
+    crash(error);
+  }
+}
 
 // The Prelude's `dbg(value)`. `show` is the display function generated from the value's type.
 function $dbg(value, show) {
