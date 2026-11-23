@@ -1184,7 +1184,6 @@ impl<'a> BodyInfer<'a> {
         self.check_fn_op_bodies();
         self.check_handler_cycles();
         self.check_coverage();
-        self.check_scope_values();
 
         let program = self.program;
         let mut inferred = Vec::new();

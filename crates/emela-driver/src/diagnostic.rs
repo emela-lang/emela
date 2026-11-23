@@ -451,63 +451,6 @@ impl Diagnostic {
         out
     }
 
-    /// W0402, or E0444 when the experimental feature `capture-checking` is enabled for the module
-    /// (`as_error`): a value that holds a root leaves the `with` or the scope function that
-    /// provides it (`[effect.escape]`, `[fiber.escape]`, `[diag.list]`).
-    pub fn from_capture_escape(
-        diagnostic: &emela_types::Diagnostic,
-        files: &ArenaMap<ModuleId, FileId>,
-        as_error: bool,
-    ) -> Self {
-        let TypeDiagnosticKind::CaptureEscape {
-            root,
-            scope,
-            provided_at,
-        } = &diagnostic.kind
-        else {
-            unreachable!("only for CaptureEscape");
-        };
-        let span_of =
-            |s: emela_resolve::hir::Span| files.get(s.module).map(|&file| Span::new(file, s.range));
-        let provider = match scope {
-            Some(scope) => format!("`{scope}`"),
-            None => "`with`".to_owned(),
-        };
-        let mut out = if as_error {
-            Diagnostic::error(format!(
-                "a value that holds `{root}` cannot leave the {provider} that provides it"
-            ))
-            .with_code(code::CAPTURE_ESCAPE_ERROR)
-        } else {
-            Diagnostic::warning(format!(
-                "a value that holds `{root}` leaves the {provider} that provides it"
-            ))
-            .with_code(code::CAPTURE_ESCAPE)
-        };
-        let value = diagnostic.span.and_then(span_of);
-        if let Some(value) = value {
-            out = out.with_span(value);
-        }
-        if let Some(at) = span_of(*provided_at) {
-            out = out.with_label(
-                at,
-                format!("`{root}` is released at the end of this {provider}"),
-            );
-        }
-        if let Some(value) = value {
-            let body = if scope.is_some() {
-                "the value of the scope"
-            } else {
-                "the value of the body"
-            };
-            out = out.with_label(value, format!("{body} holds `{root}`"));
-        }
-        if as_error {
-            out = out.from_experimental_feature(crate::experimental::CAPTURE_CHECKING);
-        }
-        out
-    }
-
     /// E0455: a capability leaves what made it (`[effect.escape]`, `[diag.list]`).
     pub fn from_capability_leak(
         diagnostic: &emela_types::Diagnostic,
@@ -666,9 +609,6 @@ impl Diagnostic {
         let mut help = None;
         let mut note = None;
         let (severity, code, message) = match &diagnostic.kind {
-            TypeDiagnosticKind::CaptureEscape { .. } => {
-                return Diagnostic::from_capture_escape(diagnostic, files, false);
-            }
             TypeDiagnosticKind::CapabilityLeak { .. } => {
                 return Diagnostic::from_capability_leak(diagnostic, files);
             }
@@ -1544,16 +1484,6 @@ impl Diagnostic {
                     "handler `{handler}` cannot implement `{effect}`: only `{provider}` provides it"
                 ),
             ),
-            TypeDiagnosticKind::EscapingFromScope { ty, scope } => {
-                note = Some(format!(
-                    "every fiber has ended once `{scope}` returns, so the value would be of no use outside it"
-                ));
-                (
-                    Severity::Error,
-                    Some(code::ESCAPING_FROM_SCOPE),
-                    format!("a `{ty}` cannot leave the `{scope}` that started it"),
-                )
-            }
             TypeDiagnosticKind::OpTypeParams { op } => (
                 Severity::Error,
                 Some(code::OP_TYPE_PARAMS),

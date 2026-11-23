@@ -472,36 +472,6 @@ fn main() -> () uses { Async } {
     }
 }
 
-/// A scope capability, a fiber handle or a Deferred used after its scope ended is a defect, not a
-/// trap (spec 11.8).
-#[test]
-fn use_after_scope_close_is_a_defect() {
-    let Some(run) = run(
-        "fiber-after-close",
-        r##"
-import Std.Fiber.{Fiber, Scope}
-import Std.Deferred.{Deferred}
-
-fn main() -> () uses { Async } {
-  join_later = Fiber.scope(|_| {
-    h = Fiber.fork(|| 1)
-    || Fiber.join(h)
-  })
-  dbg("before join")
-  join_later()
-  ()
-}
-"##,
-    ) else {
-        return;
-    };
-    assert_eq!(run.code, 101, "{}", run.stderr);
-    assert_eq!(
-        run.stderr,
-        "\"before join\"\ndefect: fiber was joined after its scope ended\n"
-    );
-}
-
 #[test]
 fn deferred_use_after_scope_close_is_a_defect() {
     let Some(run) = run(

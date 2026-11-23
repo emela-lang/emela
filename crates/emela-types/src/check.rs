@@ -125,8 +125,6 @@ pub struct ProgramTypes {
     pub layer_args: ArenaMap<DefId, Vec<Vec<Option<ExprId>>>>,
     /// Supertraits and impls (spec 10.1–10.2).
     pub traits: Traits,
-    /// What values may hold (`[effect.escape]`), for the language server.
-    pub captures: crate::capture::Captures,
     pub diags: Vec<Diagnostic>,
 }
 
@@ -217,12 +215,10 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         member_open_withs: ArenaMap::default(),
         layer_args: ArenaMap::default(),
         traits,
-        captures: crate::capture::Captures::default(),
         diags,
     };
 
     let fibers = crate::fiber::Fibers::new(program);
-    let mut captures = crate::capture::State::default();
     for group in groups(program, &sigs) {
         let mut infer = BodyInfer::new(
             program,
@@ -307,20 +303,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types.self_caps.extend(body.self_caps.iter().copied());
         types.layer_args.extend(body.layer_args);
         types.diags.extend(body.diags);
-        let input = crate::capture::Input {
-            program,
-            ty_table: &types.ty_table,
-            sigs: &sigs,
-            fibers: &fibers,
-            exprs: &types.exprs,
-            locals: &types.locals,
-            calls: &types.calls,
-            ops: &types.ops,
-            methods: &types.methods,
-        };
-        crate::capture::check_group(&input, &mut captures, &group, &mut types.diags);
     }
-    types.captures = captures.captures;
 
     crate::export::check(program, &types.ty_table, &sigs, options, &mut types.diags);
     crate::traits::unused_derives(program, &types.traits, &mut types.diags);

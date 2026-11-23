@@ -2,13 +2,12 @@
 //!
 //! A built-in effect is an `@intrinsic effect` of the bundled sources (`Scope`). Its provider is
 //! the `@intrinsic` fn of the same module whose parameter function type names the effect in its
-//! `uses` clause (`Fiber.scope`). The types the effect's operations return (`Fiber`, `Deferred`)
-//! are the handles that cannot leave the provider (E0425, spec 11.8).
+//! `uses` clause (`Fiber.scope`).
 //!
 //! Everything here is found from the declarations, not from names, so the checks follow the
 //! bundled sources.
 
-use emela_resolve::hir::{DefId, DefKind, DefModule, Item, Program, Res, TypeId, TypeKind};
+use emela_resolve::hir::{DefId, DefModule, Item, Program, Res, TypeId, TypeKind};
 use smol_str::SmolStr;
 
 use crate::lower::is_intrinsic_effect;
@@ -27,8 +26,6 @@ pub(crate) struct ScopeFn {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Fibers {
     pub(crate) scope_fns: Vec<ScopeFn>,
-    /// Named types the operations of built-in effects return (`Fiber`, `Deferred`).
-    pub(crate) handles: Vec<DefId>,
 }
 
 impl Fibers {
@@ -42,25 +39,6 @@ impl Fibers {
         let mut fibers = Fibers::default();
         if effects.is_empty() {
             return fibers;
-        }
-        for &effect in &effects {
-            let Some(Item::Effect(e)) = program.item(effect) else {
-                continue;
-            };
-            for &op in &e.ops {
-                let Some(Item::Op(o)) = program.item(op) else {
-                    continue;
-                };
-                if let Some(ret) = o.sig.ret
-                    && let TypeKind::Path {
-                        res: Res::Def(ty), ..
-                    } = program.types[ret].kind
-                    && program.defs[ty].kind == DefKind::Type
-                    && !fibers.handles.contains(&ty)
-                {
-                    fibers.handles.push(ty);
-                }
-            }
         }
         for (def, data) in program.defs.iter() {
             let Some(Item::Fn(f)) = program.item(def) else {

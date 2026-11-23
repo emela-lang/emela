@@ -70,11 +70,6 @@ fn main() -> () uses { Async } {
     print("map #{ys}")
     r = Fiber.race([|| boom(), || fetch(8, 1000)]) escape { Boom -> -1 }
     print("race failed #{r}")
-    join_later = Fiber.scope(|_| {
-      h = Fiber.fork(|| 1)
-      || Fiber.join(h)
-    })
-    print(show(Exit.attempt(|| join_later())))
     complete_later = Fiber.scope(|_| {
       d = Fiber.deferred()
       || Deferred.complete(d, 1)

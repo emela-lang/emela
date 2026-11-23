@@ -11,4 +11,3 @@ main: fn() -> ()
 leaks: fn() -> Pair
   a: use Logger
 `Pair(first: a, second: a)` CapabilityLeak { cap: "a", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 661..666 }) }
-`Pair(first: a, second: a)` warning: holds `a` and leaves the `with` that provides it

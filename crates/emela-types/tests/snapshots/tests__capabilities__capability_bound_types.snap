@@ -11,4 +11,3 @@ leaves: fn() -> Ticket
 `Ticket` CapabilityInOpResult { op: "other", ty: "Ticket" }
 `Ticket` BoundTypeOutsideHandler { ty: "Ticket", effect: "Tickets" }
 `t.issue()` CapabilityLeak { cap: "t", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 752..758 }) }
-`t.issue()` warning: holds `t` and leaves the `with` that provides it

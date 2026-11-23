@@ -354,19 +354,6 @@ pub enum DiagnosticKind {
         effect: SmolStr,
         provider: SmolStr,
     },
-    /// The value type of a scope function (`Fiber.scope`) contains a fiber handle or a Deferred
-    /// (E0425, spec 11.8). `ty` names the type (`Fiber`, `Deferred`); `scope` names the function.
-    EscapingFromScope { ty: SmolStr, scope: SmolStr },
-    /// W0402 (E0444 with the experimental feature `capture-checking`, decided by the driver). The
-    /// value of a `with` body or of a scope function holds a root that it provides
-    /// (`[effect.escape]`, `[fiber.escape]`). The span is the value of the body. `root` names the
-    /// root; `scope` is the scope function (`Fiber.scope`), `None` for a `with`; `provided_at` is
-    /// the `with` item or the callee of the scope function.
-    CaptureEscape {
-        root: SmolStr,
-        scope: Option<SmolStr>,
-        provided_at: Span,
-    },
     /// Type parameters on an operation of a user effect (E0426, spec 8.1). Only built-in effects
     /// may have them.
     OpTypeParams { op: SmolStr },

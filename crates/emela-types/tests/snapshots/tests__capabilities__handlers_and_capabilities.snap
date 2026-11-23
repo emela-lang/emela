@@ -9,4 +9,3 @@ main: fn() -> ()
   h: use Logger
   s: use Store
 `Self(c: x)` CapabilityLeak { cap: "x", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 708..721 }) }
-`Self(c: x)` warning: holds `x` and leaves the `with` that provides it

@@ -164,10 +164,8 @@ static em_ref e2_Std_Fiber_fork_suspend4_Int_______suspends__ev__(em_ref v0, em_
   v4 = em_alloc(&em_d6, 2);
   v4->slots[0] = (em_word){.fn = (em_fnptr)e15_Std_Fiber_fork_suspend4_Int_______suspends__ev__};
   v4->slots[1] = (em_word){.p = v3};
-  if (em_handler_ok(v2)) {
+  {
     v5 = ((em_ref (*)(em_ref, em_ref))em_closure_fn(v2->slots[1].p))(v2->slots[1].p, v4);
-  } else {
-    em_drop(v4);
   }
   if (em_defect != NULL) {
     em_drop(v2);
@@ -215,7 +213,7 @@ em_r0:;
     em_drop(v2);
     return 0;
   }
-  if (em_handler_ok(v2)) {
+  {
     em_ref rs = em_resume_new(v2, "sleep", EM_REPR_I32);
     ((void (*)(em_ref, int32_t, em_ref))em_closure_fn(v2->slots[1].p))(v2->slots[1].p, v0, rs);
     em_word pw = em_perform_end(rs);

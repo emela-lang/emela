@@ -20,4 +20,13 @@ error[E0454]: effect `Greeter` cannot be used by a callback of external function
 ────╯
    = help: capture the capability of a named item (`with g = H { ... }`) and call its operations
 
-2 errors
+error[E0454]: capability `g` cannot be used by a callback of external function `later`: the host may call it after `g` has ended
+    ╭─[ main.emel:23:5 ]
+    │
+ 23 │     later(|| {
+    │     ──┬──  
+    │       ╰──── 
+────╯
+   = help: finish the work on the host side, or hand it to a fiber through a `Queue`
+
+3 errors

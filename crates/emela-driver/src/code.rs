@@ -133,9 +133,8 @@ pub const UNUSED_DERIVE: &str = "W0303";
 /// `[dyn.error]`: the entry's `main` returns a type other than `()`, `ExitCode` and Never.
 pub const MAIN_VALUE_DISCARDED: &str = "W0304";
 pub const UNUSED_LABEL_PROVIDER: &str = "W0401";
-/// `[effect.escape]`, `[fiber.escape]`: a value that holds a root leaves the `with` or the
-/// `Fiber.scope` that provides it. E0444 with the experimental feature `capture-checking`.
-pub const CAPTURE_ESCAPE: &str = "W0402";
+// W0402 is retired: a capability that leaves the `with` that made it is E0455
+// (`[effect.escape]`).
 /// `[effect.use]`: `use E` written as an expression is deprecated.
 pub const DEPRECATED_USE: &str = "W0403";
 
@@ -168,8 +167,8 @@ pub const LAYER_CYCLE: &str = "E0422";
 // Effect type parameters (spec 8.1)
 pub const MISSING_EFFECT_TYPE_ARGS: &str = "E0423";
 pub const EFFECT_PARAM_NOT_TYPE: &str = "E0424";
-// fiber（11.2，11.8）
-pub const ESCAPING_FROM_SCOPE: &str = "E0425";
+// E0425 is retired: `Fiber` is a capability-bound type of Scope, so a Fiber that leaves its
+// scope is E0455 (`[fiber.escape]`).
 pub const OP_TYPE_PARAMS: &str = "E0426";
 // External functions the native target does not support yet (spec 12.4). E0428 is retired: `suspend
 // fn` external functions on C complete their task later (spec 12.6).
@@ -195,8 +194,7 @@ pub const SUSPENDING_EXPORT: &str = "E0441";
 pub const HTTP_SERVICE_ON_C: &str = "E0442";
 // Bytes and Arrays at the boundary on the native target (`[ext.boundary]`)
 pub const BOUNDARY_TYPE_ON_C: &str = "E0443";
-// Capture sets with the experimental feature `capture-checking` (`[effect.escape]`)
-pub const CAPTURE_ESCAPE_ERROR: &str = "E0444";
+// E0444 is retired with the experimental feature `capture-checking` (`[effect.escape]`).
 // Host effects (`[effect.host]`): the uses of an external function (`[ext.call]`) and effects
 // without operations (`[effect.decl]`)
 pub const EXTERNAL_USES: &str = "E0445";

@@ -17,21 +17,6 @@ semaphore: fn() -> Semaphore uses { Async }
 queue: fn() -> List[Queue[Int]] uses { Async }
   _: use Scope[{}, {}]
   q: Queue[Int]
-`Fiber.scope(|_| Fiber.fork(|| 1))` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
 `Fiber.fork(|| 1)` CapabilityLeak { cap: "Scope", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 87..107 }) }
-`Fiber.fork(|| 1)` warning: holds `Scope` and leaves the `Fiber.scope` that provides it
-`Fiber.scope(|_| Some(Fiber.fork(|| 1)))` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
 `Some(Fiber.fork(|| 1))` CapabilityLeak { cap: "Scope", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 142..168 }) }
-`Some(Fiber.fork(|| 1))` warning: holds `Scope` and leaves the `Fiber.scope` that provides it
-`Fiber.scope(|_| (Fiber.deferred(), 1))` EscapingFromScope { ty: "Deferred", scope: "Fiber.scope" }
-`(Fiber.deferred(), 1)` warning: holds `Scope` and leaves the `Fiber.scope` that provides it
-`(|_| Fiber.fork(|| 1)) |> Fiber.scope()` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
 `Fiber.fork(|| 1)` CapabilityLeak { cap: "Scope", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 314..334 }) }
-`Fiber.fork(|| 1)` warning: holds `Scope` and leaves the `Fiber.scope` that provides it
-`Fiber.scope(|_| Fiber.semaphore(2))` EscapingFromScope { ty: "Semaphore", scope: "Fiber.scope" }
-`Fiber.semaphore(2)` warning: holds `Scope` and leaves the `Fiber.scope` that provides it
-`Fiber.scope(|_| {
-    q: Queue[Int] = Fiber.queue(1)
-    [q]
-  })` EscapingFromScope { ty: "Queue", scope: "Fiber.scope" }
-`[q]` warning: holds `Scope` and leaves the `Fiber.scope` that provides it

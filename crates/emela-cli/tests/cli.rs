@@ -275,10 +275,9 @@ fn check_clean_project() {
     assert_eq!(run.status.code(), Some(0));
 }
 
-/// `[intro.experimental]`, `[effect.escape]`: `capture-checking` is an experimental feature.
-/// Without it a value that leaves the `with` providing a capability it holds is the warning W0402
-/// and the command succeeds; with `--experimental-capture-checking` it is E0444 and the command
-/// fails. `--help` lists the flag.
+/// `[intro.experimental]`, `[effect.escape]`: `capture-checking` was removed in 0.29. A value
+/// that leaves the `with` that made the capability it holds is E0455 without any flag, and the
+/// name is accepted with W0206. `--help` no longer lists the flag.
 #[test]
 fn capture_checking_flag() {
     let project = Project::new(
@@ -287,24 +286,20 @@ fn capture_checking_flag() {
             ("app/Pome.toml", ""),
             (
                 "app/src/main.emel",
-                "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\nfn leak() -> fn() -> () {\n  with Quiet {\n    log = use Logger\n    || log.info(\"hi\")\n  }\n}\n\nfn main() {\n  leak()\n  ()\n}\n",
+                "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\nfn leak() -> fn() -> () {\n  with log = Quiet {\n    || log.info(\"hi\")\n  }\n}\n\nfn main() {\n  leak()\n  ()\n}\n",
             ),
         ],
     );
     let run = project.emela(&["check", "app"]);
-    assert_eq!(run.code, Some(0), "{run:?}");
-    assert!(run.stderr.contains("warning[W0402]"), "{run:?}");
+    assert_eq!(run.code, Some(1), "{run:?}");
+    assert!(run.stderr.contains("error[E0455]"), "{run:?}");
     let run = project.emela(&["check", "--experimental-capture-checking", "app"]);
     assert_eq!(run.code, Some(1), "{run:?}");
-    assert!(run.stderr.contains("error[E0444]"), "{run:?}");
-    assert!(
-        run.stderr
-            .contains("= note: experimental feature `capture-checking`"),
-        "{run:?}"
-    );
+    assert!(run.stderr.contains("warning[W0206]"), "{run:?}");
+    assert!(run.stderr.contains("error[E0455]"), "{run:?}");
     let help = project.emela(&["check", "--help"]);
     assert!(
-        help.stdout.contains("--experimental-capture-checking"),
+        !help.stdout.contains("--experimental-capture-checking"),
         "{help:?}"
     );
 }

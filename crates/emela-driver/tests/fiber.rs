@@ -78,14 +78,12 @@ fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) 
         Target::Wasm => unreachable!("the fiber tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it. The programs still write `use E` as
-    // an expression (W0403, deprecated).
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
-        analysis.diagnostics.iter().all(|d| matches!(
-            d.code,
-            Some(emela_driver::code::CAPTURE_ESCAPE | emela_driver::code::DEPRECATED_USE)
-        )),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{target}: {:?}",
         analysis.diagnostics
     );
@@ -544,19 +542,15 @@ fn main() {
 
 #[test]
 fn using_an_ended_scope_is_a_defect() {
-    // spec 11.8: an escape the types do not stop (captured in a closure and taken outside) is a
-    // defect at run time.
+    // A Deferred records no capability (`[fiber.scope]`), so the types do not stop it from
+    // leaving its scope; the implementation still makes using it afterwards a defect. A Fiber
+    // that leaves its scope is E0455.
     let (code, out, err) = run_main(
         "ended-scope",
         &source(
             r##"
 fn main() {
   with SystemConsole {
-    join_later = Fiber.scope(|_| {
-      h = Fiber.fork(|| 1)
-      || Fiber.join(h)
-    })
-    say(show(Exit.attempt(|| join_later())))
     complete_later = Fiber.scope(|_| {
       d = Fiber.deferred()
       || Deferred.complete(d, 1)
@@ -577,8 +571,7 @@ fn main() {
         (code, out.as_str()),
         (
             101,
-            "Die defect: fiber was joined after its scope ended\n\
-             Die defect: deferred was completed after its scope ended\n"
+            "Die defect: deferred was completed after its scope ended\n"
         )
     );
     assert!(

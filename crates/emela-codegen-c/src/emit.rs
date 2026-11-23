@@ -1309,7 +1309,7 @@ impl<'m> Emitter<'m> {
                 let ret = self.repr(def.ret);
                 let h = var(*handler);
                 let closure = format!("{h}->slots[{}].p", op + 1);
-                cx.w.if_begin(&call("em_handler_ok", [&h]));
+                cx.w.block_begin();
                 if def.suspend {
                     // The implementation takes a resume function value last and returns
                     // nothing; the value to continue with comes from `em_perform_end`.
@@ -1331,20 +1331,6 @@ impl<'m> Emitter<'m> {
                 } else {
                     let e = closure_call(&closure, ret, f, args, &a);
                     Self::assign(cx, dst, &e);
-                }
-                // A released handler takes none of the arguments: they are given up here.
-                let given: Vec<String> = args
-                    .iter()
-                    .filter_map(|o| match o {
-                        Operand::Var(v) if f.vars[*v].repr == Repr::Ref => Some(var(*v)),
-                        _ => None,
-                    })
-                    .collect();
-                if !given.is_empty() {
-                    cx.w.else_begin();
-                    for v in given {
-                        cx.w.stmt(&call("em_drop", [v]));
-                    }
                 }
                 cx.w.end();
             }
