@@ -7,6 +7,7 @@ use emela_resolve::hir::Span;
 use smol_str::SmolStr;
 
 use crate::error::TypeError;
+use crate::row::SetKind;
 use crate::ty::Ty;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -408,6 +409,12 @@ pub enum DiagnosticKind {
     },
     /// `Immediate` on a type parameter that is not an effect set (E0322, spec 9.5).
     ImmediateOnNonEffect { param: SmolStr },
+    /// `Capability` on an error set or effect set type parameter (E0340, `[trait.builtin]`).
+    /// `set` is the clause the parameter is used in.
+    CapabilityOnSet { param: SmolStr, set: SetKind },
+    /// An impl of a built-in trait that is determined automatically, Immediate or Capability
+    /// (E0341, `[trait.builtin]`).
+    AutoTraitImpl { trait_name: SmolStr },
     /// A set (`{ Db }`, `A | B`) in a non-set type argument position (E0324, spec 9.2).
     SetAsType,
     /// An effect name in a non-set type argument position (E0221, spec 8.2). Name resolution lets

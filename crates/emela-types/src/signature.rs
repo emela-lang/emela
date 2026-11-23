@@ -16,10 +16,11 @@ use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, LabelBaseRe
 use crate::lower::{
     Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_fn_sets, classify_params, classify_sets,
     effect_op_types, effect_params, has_omitted_fails, has_omitted_uses, immediate_bounds,
-    is_immediate_effect, is_intrinsic_effect, ty_params, type_param_defs,
+    is_immediate_effect, is_intrinsic_effect, prelude_bounds, ty_params, type_param_defs,
 };
 use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::scheme::Scheme;
+use crate::traits::CAPABILITY;
 use crate::ty::{ParamKind, Ty, TyParam};
 
 pub struct Signature {
@@ -452,10 +453,12 @@ fn prelude_trait_fn_signature(
     })
 }
 
-/// Checks the bounds on a fn's type parameters (spec 9.5). Only Immediate is handled.
+/// Checks the bounds on a fn's type parameters (spec 9.5, `[trait.builtin]`).
 ///
 /// - Immediate can only be put on effect sets (type parameters written in a `uses` clause)
 ///   (E0322).
+/// - Capability can only be put on ordinary type parameters, not on error sets or effect sets
+///   (E0340).
 /// - Bounds other than Immediate (traits) on an effect set are "not supported yet". Trait bounds
 ///   on ordinary type parameters are checked where the fn is referenced (spec 10.3).
 /// - A `uses` clause written in a function-typed parameter of an external function must be
@@ -476,6 +479,7 @@ fn check_bounds(
         .chain(sig.ret)
         .collect();
     let immediate = program.prelude_def(IMMEDIATE);
+    let capability = program.prelude_def(CAPABILITY);
     let mut constrained = Vec::new();
     let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
     let sets = classify_fn_sets(
@@ -492,6 +496,22 @@ fn check_bounds(
                 .iter()
                 .flat_map(|u| &u.items)
                 .any(|item| item.res == Res::Def(tp.def));
+        // Capability constrains only ordinary type parameters (E0340, `[trait.builtin]`).
+        if let Some(set) = if in_uses {
+            Some(SetKind::Effects)
+        } else {
+            sets[i]
+        } {
+            for span in prelude_bounds(program, tp, CAPABILITY) {
+                diags.push(Diagnostic {
+                    span: Some(span),
+                    kind: DiagnosticKind::CapabilityOnSet {
+                        param: program.defs[tp.def].name.clone(),
+                        set,
+                    },
+                });
+            }
+        }
         let spans = immediate_bounds(program, tp);
         if !in_uses {
             for span in spans {
@@ -508,7 +528,7 @@ fn check_bounds(
             constrained.push(tp.def);
         }
         for &(res, span) in &tp.bounds {
-            if matches!(res, Res::Def(d) if Some(d) != immediate) {
+            if matches!(res, Res::Def(d) if Some(d) != immediate && Some(d) != capability) {
                 diags.push(Diagnostic {
                     span: Some(span),
                     kind: DiagnosticKind::Unsupported {

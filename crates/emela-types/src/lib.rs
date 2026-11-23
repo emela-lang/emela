@@ -52,7 +52,7 @@ pub use lower::{TyTable, is_immediate_effect};
 pub use methods::methods_of;
 pub use scheme::Scheme;
 pub use signature::{InitParams, Signature, Signatures};
-pub use traits::{ImplHead, Traits, Unsatisfied, derivable, head_def};
+pub use traits::{ImplHead, Traits, Unsatisfied, derivable, head_def, is_capability_type};
 pub use ty::{
     CapElem, FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData, TyConId,
     TyConKind, TyCons, TyParam, TyVar,

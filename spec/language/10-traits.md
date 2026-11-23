@@ -143,8 +143,8 @@ trait Encode {
 | Capability | The type is a capability type `use E` (8.2) | Not allowed (determined automatically) |
 
 - Capability has no functions. It is satisfied only by `use E`, where E is an effect or a label, with its type arguments. A type that contains a capability type (`List[use Db]`, `(use Db, Int)`) and a function type do not satisfy it.
-- Capability can be put only on an ordinary type parameter. Putting it on an error set or effect set type parameter is a compile error (code to be assigned).
-- An impl of Capability or Immediate is a compile error (code to be assigned).
+- Capability can be put only on an ordinary type parameter. Putting it on an error set or effect set type parameter is a compile error (E0340).
+- An impl of Capability or Immediate is a compile error (E0341).
 
 The compiler owns the declarations of Eq, Ord and Show. Written in source form, they are as follows. `==` and `!=` call `eq`, `<`, `<=`, `>` and `>=` call `compare`, and interpolation calls `show`.
 
