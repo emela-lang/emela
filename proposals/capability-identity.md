@@ -176,10 +176,10 @@ fn with_all[T](paths: List[String], acc: List[use ReadFile], k: fn(List[use Read
 
 ### capability を持つ型
 
-- 型の宣言に，その型の値が E の capability を持つことを書ける（たたき台: `pub type Fiber[A] by Scope`）．
+- 型の宣言に，その型の値が E の capability を持つことを書ける（`pub type Fiber[A] uses Scope`）．`uses` は関数のシグネチャと同じ文脈キーワードで，この型の値はその capability が生きている間しか使えないことを表す．`use E`（capability そのものの型）とは別．
 - E の capability c の操作がこの型の値を返すと，その値の型は c を持つ．名前で E を呼んだ操作（`x <- E` や `Fiber.fork`）が返した値の型は，effect の名前 E を持つ．
 - capability を持つ値なので，持ち出せない原則がそのまま働く．
-- 利用者の型にも使える．pool が返す番号を `pub type EnemyId by Engine` とすれば，番号は pool の with の外へ出せない．
+- 利用者の型にも使える．pool が返す番号を `pub type EnemyId uses Engine` とすれば，番号は pool の with の外へ出せない．
 
 ### 名前で供給する with と，型の中の effect の名前
 
@@ -196,7 +196,7 @@ pub fn scope[A, E, R](body: fn(use Scope[E, R]) -> A fails E uses { Async, R }) 
   uses { Async, R }
 
 @external
-pub type Fiber[A] by Scope
+pub type Fiber[A] uses Scope
 
 @intrinsic
 pub effect Scope[E, R] {
@@ -328,7 +328,6 @@ pub effect Scope[E, R] {
 - LSP の hover で capability の集合をどう表示するか．
 - handler の init の引数とフィールドに capability を持つ形（`with PostgresUsers(db: replica)`）．handler の型に capability が入る．
 - handler の操作の中の `self` を，その handler の capability と見るか．`self` はフィールドに触れるので，capability より多くのことができる．
-- capability を持つ型の書き方．`by E` は label の `L by P` と同じ語になる．`of E` や属性にするか．
 - 名前のない `use E` の値を，なくす代わりに「型引数が effect の名前に決まった capability の値」（呼んだ時点で解決する値）にする手もある．内側で同じ E を上書きした with で使う 18 箇所の意味が変わる．
 - deprecation の版．W0403 は 0.29 に入る．`use E` の式をエラーにするのを 0.30 にするか，この proposal の実装（広げることの警告）を待つか．#666 の 0.29（capture checking を既定にし，W0402 と実行時の検査を外す）を capability について取り下げるか．
 - 外部関数の引数に付ける「その場でしか呼ばない」印の書き方（属性の名前）．
