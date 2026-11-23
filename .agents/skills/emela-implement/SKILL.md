@@ -17,9 +17,9 @@ Talk with the person who asked in the language they use. Code, comments, rustdoc
 ## 0. Check that the proposal can be implemented
 
 1. Find the proposal: by slug (`proposals/<slug>.md`) or by its pull request number (`rg -l '^pr: <N>$' proposals`).
-2. It MUST be `status: accepted` and its "Specification changes" MUST already be in `spec/` on main. If it is `draft`, stop: an agent does not implement an undecided proposal. If the specification changes are not applied yet, stop and say so (the `emela-proposal` skill applies them).
+2. It MUST be `status: accepted` (its pull request changed `spec/` when it was merged). If it is `draft`, the record of its adoption is not merged yet, or it is still under review: stop, an agent does not implement an undecided proposal.
 3. Read `requires`. Every proposal listed there MUST be `implemented` first. Otherwise stop and name it.
-4. Find its implementation issue (`gh issue list --label implementation --state all --search "proposals/<slug>.md in:body"`, opened when the proposal was merged). If someone else is assigned, or `gh pr list --search "Implements: proposals/<slug>.md"` finds a pull request, stop: someone else is implementing it. Otherwise ask the person you work for to assign themselves to the issue.
+4. Find its implementation issue (`gh issue list --label implementation --state all --search "proposals/<slug>.md in:body"`, opened when the record of its adoption was merged). If someone else is assigned, or `gh pr list --search "Implements: proposals/<slug>.md"` finds a pull request, stop: someone else is implementing it. Otherwise ask the person you work for to assign themselves to the issue.
 5. Start a branch from main: `feat/<slug>`.
 
 ## 1. Read the specification, not only the proposal
@@ -101,7 +101,7 @@ The parity tests need node, a C compiler and wasmtime; without them they are ski
 
 Stop and report, instead of guessing, when:
 
-- the proposal is not `accepted`, or its specification changes are not in `spec/`
+- the proposal is not `accepted`
 - a proposal in `requires` is not `implemented`
 - the specification is ambiguous, contradicts itself, or cannot be implemented as written
 - a target cannot support the construct
