@@ -10,6 +10,7 @@ mod fmt_command;
 mod host_files;
 mod pome_command;
 mod process;
+mod readme;
 mod suspend;
 mod target_selection;
 mod test_command;
