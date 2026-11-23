@@ -37,7 +37,7 @@ pub fn since(t: Instant, earlier: Instant) -> Duration {
 ## expanded year of ISO 8601. The format is in spec `[api.std.instant]`.
 pub fn to_string(t: Instant) -> String {
   days = floor_div(t.milliseconds, 86400000)
-  ms_of_day = t.milliseconds - days * 86400000
+  ms_of_day = floor_mod(t.milliseconds, 86400000)
   # Days to a civil date (proleptic Gregorian; H. Hinnant's civil_from_days).
   z = days + 719468
   era = floor_div(z, 146097)
@@ -56,9 +56,19 @@ pub fn to_string(t: Instant) -> String {
   "#{date}T#{pad(hour, 2)}:#{pad(minute, 2)}:#{pad(second, 2)}.#{pad(milli, 3)}Z"
 }
 
-## `b` must be positive.
+## `b` must be positive. `/` truncates toward 0 and `%` has the sign of `a`, so a negative
+## remainder means the quotient is one above the floor. Nothing here wraps around, for every `a`
+## down to the least Int64.
 fn floor_div(a: Int64, b: Int64) -> Int64 {
-  if a >= 0 { a / b } else { (a - b + 1) / b }
+  q = a / b
+  if a % b < 0 { q - 1 } else { q }
+}
+
+## The remainder of `floor_div`, from 0 to `b - 1`. `b` must be positive. It is computed from `%`,
+## not as `a - floor_div(a, b) * b`, whose product wraps around near the least Int64.
+fn floor_mod(a: Int64, b: Int64) -> Int64 {
+  r = a % b
+  if r < 0 { r + b } else { r }
 }
 
 fn year_to_string(year: Int64) -> String {
