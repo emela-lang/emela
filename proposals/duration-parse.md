@@ -1,11 +1,13 @@
 ---
 title: Reading a Duration from text, and Encode, Decode and Shaped for Duration
 authors: [somnicattus]
-status: draft
+status: accepted
 issue:
 touches: [api.prelude, lib.layers, api.std.duration, api.std.dynamic, api.std.shape, open.list]
 requires: []
 related: [instant-parse]
+pr: 737
+decided: 2026-11-24
 ---
 
 # Reading a Duration from text, and Encode, Decode and Shaped for Duration
@@ -139,3 +141,11 @@ No program that compiles now changes meaning.
 ## Open questions
 
 ## Decision
+
+Adopted. A Duration could be written as text with `to_string` but not read back, and a record with a Duration field could not derive Encode or Decode; since Duration is an opaque type of std, the only way around it was a wrapping type.
+
+- `parse` reads two forms: numbers with units, which people write in configuration, and the time part of an ISO 8601 duration, which programs exchange. It reads the output of `to_string`, so `to_string` keeps the form `1500ms` and `[open.list]` 48 is decided without changing any output.
+- Units stop at the hour. A day of the calendar is not a fixed length, and Emela has no calendar, so reading a day as 24 hours would let a length be mistaken for a span of the calendar.
+- A sign applies to the whole length, and only the last component has a fraction. Lengths below the millisecond are truncated toward 0, and a length outside the range fails instead of wrapping around.
+- Each restriction (no comma, components in one order, no repeated unit, lowercase units, no plurals of abbreviations, one space, the limit of 256 code points) can be lifted later without changing the result of any text read now. The limit, the reserved comma and the single space match `Instant.parse`.
+- Duration is encoded as the text of `to_string`, as Instant is, and its shape has no `format` note, because that text is not an ISO 8601 duration. A user who needs the ISO 8601 form in Dynamic wraps Duration in a type of their own.
