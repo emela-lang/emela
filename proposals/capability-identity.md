@@ -5,7 +5,7 @@ status: draft
 pr: 732
 issue: 719
 decided:
-touches: [intro.experimental, lsp.hover, ext.boundary, glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.deferred, fiber.semaphore, fiber.queue, api.std.fiber, type.rules, open.next, diag.list]
+touches: [intro.experimental, lsp.hover, ext.boundary, glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.deferred, fiber.semaphore, fiber.queue, api.std.fiber, type.rules, trait.builtin, open.next, diag.list]
 requires: [effect-alias]
 related: [closure-r-by-caller, capability-type, capability-trait, handler-member, handler-init-arguments, capture-checking, scope-handle-values]
 ---
@@ -14,85 +14,85 @@ related: [closure-r-by-caller, capability-type, capability-trait, handler-member
 
 ## Summary
 
-`effect-alias`（#731）と `closure-r-by-caller`（#736）の次の段．二つは #791 で実装され，次の minor（0.29）に入る．
+This proposal follows `effect-alias` (#731) and `closure-r-by-caller` (#736), which #791 implemented for 0.29.
 
-- capability を「init が終わり，まだ release されていない handler（handler の実体）」と定める．with の項目ごとに一つできる．
-- `with x = Item` の x は capability そのもの．型検査は，型と R の中で，どの capability かを区別する．
-- capability の操作を呼ぶと，R にはその capability が入る（`x.read()` なら x）．capability type は，どの capability かを集合で持つので，別々の with の capability も同じリストに入れられる．R に入るものは，effect，宣言した label，capability の三種類になる．
-- 原則は一つ: capability は，それを作った with の外へ持ち出せない．型か R にその capability を含む値は with の外に出せず，型検査がこれを見る．どの道を通っても型に capability が残るので，道を数える必要がない．
-- capability type はソースでは `use E` のまま書く．引数の `x: use E` は，呼ぶ側が渡す capability を受け取る．
-- capability を元の effect に広げない．
-- capability は普通の値のまま．渡す，格納する，返す，データ構造に入れる，closure で捕えることは，同じ with の中ならほかの値と同じにできる．
-- capability についての capture checking（capture set，root）は，この型検査で置き換える．
-- capability を effect に広げることは，0.29 からコンパイルエラー．`use E` の式（#791 で W0403）は 0.30 でコンパイルエラーにする．
+- A capability is a handler after its init has run and before its release: an instance of a handler. Each item of a with makes one.
+- The x of `with x = Item` is the capability itself. Type checking tells capabilities apart, in types and in R.
+- Calling an operation of a capability adds that capability to R (x for `x.read()`). A capability type records a set of capabilities, so capabilities of different withs can be put in the same list. The elements of R are effects, declared labels and capabilities.
+- One principle: a capability cannot leave the with that made it. A value whose type or R contains the capability cannot leave the with, and type checking sees it. Whatever path a value takes, the capability stays in its type, so there are no paths to enumerate.
+- A capability type is still written `use E` in source. A parameter `x: use E` receives a capability that the caller passes.
+- A capability is not widened to its effect.
+- A capability is still an ordinary value. Inside the same with, it can be passed, stored, returned, put in a data structure and captured by a closure, as any other value.
+- Capture checking (capture sets and roots) is no longer needed. The experimental feature `capture-checking` is removed without being made stable.
+- Everything lands in 0.29, with #791. `use E` written as an expression (W0403 since #791) becomes a compile error in 0.30.
 
 ## Motivation
 
-### #791 のあとに残っているもの
+### What remains after #791
 
-#791 で，名前を付けずに操作を呼ぶ形は型（R）だけで守られるようになった．
+After #791, calling operations without naming a handler is protected by the types (R) alone.
 
-- `x <- E` と `(use E).op(...)` は root を作らず，E は closure の R に残って呼ぶ側が満たす（#731）．
-- closure と local fn の R は呼ぶ側だけが満たす．囲む with は handler を渡さない（#736）．#719 の再現 2〜5 と，scope の子に渡した closure（再現 3）は，外の handler に届くようになった．
-- std，examples，tests/laws の `use E` の式は `<-` に書き換えた（`(use E).op` も `x = use E` も 0 件）．
+- `x <- E` and `(use E).op(...)` make no root; E stays in the R of a closure and the caller provides it (#731).
+- The R of a closure or a local fn is provided only by its caller; enclosing withs do not pass handlers (#736). Reproductions 2 to 5 of #719, and a closure passed to a child of a scope (reproduction 3), now reach the outer handler.
+- std, examples and tests/laws no longer contain `use E` written as an expression.
 
-固定された値は，まだ capture checking だけが守っている．
+Fixed values are still protected only by capture checking.
 
-- 名前付きの項目の capability（`with x = H` の x）と，値として書いた `use E`（W0403）．closure がこれを捕えると，closure の型の R には effect の名前が入り（広げる），型は何も止めない．
-- 持ち出す道は capture set で数えている．操作の引数とエラー（#719 の A，B）は今も見ていない．host の callback は #736 で effect を R に入れられなくなったが，capability を捕えた callback（`set_timeout(10, || g.greet("later"))`）が with より長く生きることは止めていない．
-- #701（handler member の capability を closure の引数や戻り値を通して使うと E0402）は残っている．
-- Fiber，Deferred，Queue のハンドルを持ち出す形（#719 の再現 1，6）も capture set で見ている．
-- #666 は 0.29 で capture checking を既定にし，W0402 と実行時の検査を外す予定だった．この proposal は，その代わりに 0.29 に入る．
+- The capability of a named item (x of `with x = H`) and `use E` written as a value (W0403). When a closure captures one, the R in the type of the closure contains the name of the effect (widening), and the types stop nothing.
+- The paths out of a with are enumerated by capture sets. Arguments of operations and errors (A and B of #719) are still not seen. #736 keeps effects out of the R of host callbacks, but a callback that captures a capability (`set_timeout(10, || g.greet("later"))`) can still outlive the with.
+- #701 (calling an operation of a handler member's capability received as a closure parameter or a return value leaves the effect in R, E0402) remains.
+- Taking the handles of fibers, Deferreds and Queues out (reproductions 1 and 6 of #719) is also left to capture sets and checks at run time.
+- #666 planned to make capture checking the default in 0.29 and remove W0402 and the checks at run time. This proposal replaces it in 0.29.
 
-### 型が，どの capability かを表していない
+### Types do not say which capability
 
-- 今の capability type は `use ReadFile` で，どの with の handler かが型に出ない（`capability-type`）．capability の操作は R に effect の名前を足す（`[effect.use]`）．
-- どの handler かは，型とは別の capture set で追っている（`[effect.escape]`）．そのため，with の外へ出る道を一つずつ数える必要がある．
-  - 今は本体の値しか見ていない（#719）．操作の引数，エラー，関数の境目が漏れている．
-  - host への callback と Deferred / Queue はまだ決まっていない（#666）．
-- R に effect の名前が入るので，handler member の capability の操作は，member の with で外せない（#701）．開いた資源をリストに入れて `map` で回すと E0402 になる．
-- R の中で capability が effect の名前に広げられるので，型だけでは何も止まらない（#719 の再現 2〜5 が `uses { Greeter }` で通る理由）．
+- Today a capability type is `use ReadFile`; which with's handler it is does not appear in the type (`capability-type`). An operation of a capability adds the name of the effect to R (`[effect.use]`).
+- Which handler it is, is followed by capture sets, separately from types (`[effect.escape]`). So every path out of a with has to be counted.
+  - Today only the value of the body is seen (#719). Arguments of operations, errors and function boundaries leak.
+  - Host callbacks and Deferred / Queue are undecided (#666).
+- Since R contains the name of the effect, an operation of a handler member's capability cannot be removed by the member's with (#701). Putting opened resources in a list and calling `map` on it gives E0402.
+- Since a capability in R is widened to the name of its effect, the types alone stop nothing (this is why reproductions 2 to 5 of #719 pass as `uses { Greeter }`).
 
-### 区別すれば，型で原則を守れる
+### Telling them apart lets the types keep the principle
 
-- capability は with の本体の中でだけ生きている．with の中で宣言した型引数が外へ出せないのと同じく，capability を含む型と R は本体の外に書けない．
-- 外で型が決まったもの（外の `State` の型引数，外の handler の操作の引数の型，エラーの型，関数の型引数）には capability を入れられない．持ち出す道はすべて型エラーになる．
-- R にも capability が入るので，その with が外せる（#701 が直る）．
+- A capability lives only inside the body of its with. Types and R that contain the capability cannot be written outside the body.
+- Types fixed outside (the type argument of an outer `State`, the parameter types of an outer handler's operations, error types, type arguments of functions) cannot contain the capability. Every path out is a type error.
+- R contains capabilities too, so their with can remove them (#701 is fixed).
 
-### 原則は今と同じ
+### The principle is unchanged
 
-- 「capability を持ち出せない」は今の `[effect.escape]` の原則そのもの．変わるのは守り方で，capture set の代わりに型が守る．
-- `capability-type` の動機（capability を関数に渡す，格納する，返す）も残る．capability は普通の値のまま．
+- "A capability cannot leak" is the principle of `[effect.escape]` today. Only how it is kept changes: types keep it instead of capture sets.
+- The motivation of `capability-type` (passing, storing and returning capabilities) stays. A capability is an ordinary value.
 
 ## Proposal
 
-### 用語
+### Terms
 
-| 英語 | 日本語 | 何か | ソースでの形 |
-|---|---|---|---|
-| handler | handler | 宣言（`handler Plain: Greeter`）．今と同じ | `Plain` |
-| capability | capability | init が終わり，まだ release されていない handler．handler の実体．with の項目ごとに一つ，`Fiber.scope` ごとに Scope の一つができる．値として扱える | `with x = Item` の x，引数の x |
-| capability type | capability type | capability の値の型．ソースでは `use E` と書き，型検査はどの capability かまで区別する | `use ReadFile` |
-| capability parameter | capability parameter | 型が `use E` の引数．どの capability かは呼び出しで決まる | `fn copy(from: use Db)` |
-| named item | 名前付きの項目 | `with x = Item`．その項目の capability に x という名前を付ける | `with f = Files.Open(p)` |
-| provide by name | 名前で供給する | with が R から effect の名前を外すこと．名前のない項目の capability はこれだけをする | `with Plain { ... }` |
-| leak | 持ち出す | 型か R に capability を含む値が，その capability を作った with の外へ出ること．コンパイルエラー | |
-| widen | 広げる | R の中で capability を元の effect の名前として扱うこと．この proposal でコンパイルエラーにする | |
-| capability-bound type | capability-bound type | 値が E の capability に寿命を縛られている型．宣言に `uses E` と書く．値そのものは capability ではない | `pub type Fiber[A] uses Scope` |
-| borrowed callback | borrowed callback | 外部関数の `@borrowed` の引数に渡す callback．host は呼び出しの間だけ持つ | `@borrowed compare: fn(Int, Int) -> Int` |
-| effect alias | 効果の別名 | `x <- E` の x（#731）．capability ではなく，R に E そのものを入れる | `log <- Logger` |
+| Term | What it is | In source |
+|---|---|---|
+| handler | A declaration (`handler Plain: Greeter`), as today | `Plain` |
+| capability | A handler after its init has run and before its release. Each item of a with makes one, and each `Fiber.scope` makes one capability of Scope. It is a value | x of `with x = Item`, a parameter x |
+| capability type | The type of a capability. Written `use E`; type checking tells which capabilities | `use ReadFile` |
+| capability parameter | A parameter whose type is `use E`. Which capabilities is decided at each call | `fn copy(from: use Db)` |
+| capability-bound type | A type whose values live only while a capability of E does. Declared with `uses E`. Its values are not capabilities | `pub type Fiber[A] uses Scope` |
+| borrowed callback | A callback passed to a `@borrowed` parameter of an external function. The host holds it only during the call | `@borrowed compare: fn(Int, Int) -> Int` |
+| named item | `with x = Item`. Names the capability of the item x | `with f = Files.Open(p)` |
+| provide by name | A with removing the name of an effect from R. The capability of an item without a name does only this | `with Plain { ... }` |
+| leak | A value whose type or R contains a capability leaves the with that made it. A compile error | |
+| widen | Treating a capability in R as the name of its effect. A compile error with this proposal | |
+| effect alias | x of `x <- E` (#731). Not a capability; it puts E itself in R | `log <- Logger` |
 
-- capability，capability type，capability parameter，capability-bound type，borrowed callback は，日本語の文の中でも英語のまま書く．
-- R の要素は，effect，宣言した label，capability．
-- capability ではないもの: effect alias（名前で供給される E を呼ぶ名前），handler の宣言，`L by P` の L（宣言した label）．
-- 使わなくなるもの: capture checking の root と hold（抱える）は，capability にも Fiber などのハンドルにも使わない．
+- In Japanese text, capability, capability type, capability parameter, capability-bound type and borrowed callback are written in English.
+- The elements of R are effects, declared labels and capabilities.
+- Not capabilities: an effect alias (a name for calling the E provided by name), a handler declaration, and L of `L by P` (a declared label).
+- No longer used: the roots and holding of capture checking, for capabilities and for handles.
 
-### capability
+### Capabilities
 
-- with の項目は，init を走らせて capability を作る．with を出るときに release し，capability は終わる．
-- `with x = Item` は，その capability に x という名前を付ける．handler member も同じ（`with f = Files.Open(path)`）．
-- 名前のない項目（`with Plain { ... }`）の capability は，名前で供給するだけ．本体の中の `x <- Greeter` や `(use Greeter).op()` は R に Greeter を入れ，この with がそれを外す．
-- `L by x` の右に capability を書ける（x を L に差し込む）．
+- An item of a with runs its init and makes a capability. Leaving the with releases it, and the capability ends.
+- `with x = Item` names that capability x. The same holds for a handler member (`with f = Files.Open(path)`).
+- The capability of an item without a name (`with Plain { ... }`) only provides by name. `x <- Greeter` and `(use Greeter).op()` in the body put Greeter in R, and the with removes it.
+- A capability can be written on the right of `L by x` (plugging x into L).
 
 ```emel
 with primary = PrimaryDb {
@@ -104,67 +104,68 @@ with primary = PrimaryDb {
 
 with f = Files.Open("a.txt") {
   lines = read_all(f)
-  [f].map(|x| x.read(10)) # closure の R は f．この with が外す
+  [f].map(|x| x.read(10)) # the R of the closure is f; this with removes it
 }
 ```
 
-### R と型
+### R and types
 
-- capability x の操作を呼ぶと，R に x が入る．x を作った with が，R から x を外す．
-- 型が `use E` の値は，型検査の中では，どの capability かを持つ．`[f]` の要素の型は f の capability．
-- capability を元の effect の名前に広げない．R に f を持つ closure は，`uses { ReadFile }` と書いた関数型には入らない．
-- closure が捕えた値の型に capability（capability-bound type の分も含む）があれば，その capability を closure の R に入れる．capture set がしていたことを R に畳み込む．値の側には何も記録せず，closure の型にだけ現れる．
+- Calling an operation of a capability x adds x to R. The with that made x removes x from R.
+- A value of type `use E` records, inside type checking, which capabilities it is. The element type of `[f]` is the capability f.
+- A capability is not widened to the name of its effect. A closure whose R contains f does not fit a function type written `uses { ReadFile }`.
+- If the type of a value that a closure captures contains capabilities (including through capability-bound types), those capabilities are in the R of the closure. This is what capture sets did, folded into R: nothing is recorded on values, and it appears only in the type of the closure.
 
 ```emel
 Fiber.scope(|s| {
   f = s.fork(|| 1)
-  st.set(|| Fiber.join(f)) # closure の R は s．外の State の型と合わず，型エラー
+  st.set(|| Fiber.join(f)) # the R of the closure is s; it does not fit the type of the outer State
 })
 ```
 
-### capability の集合
+### Sets of capabilities
 
-- capability type は，どの capability かを一つではなく集合で持つ．ソースの形は `use E` のまま．
-- 別々の with で作った capability も，同じリストに入れられる．`[x, y]` の要素の型は「E の capability のうち x か y」．単一化は R と同じく集合の和で行い，一般の部分型は使わない．
-- 集合を持つ値の操作を呼ぶと，R に集合のすべてが入る（`[x, y]` の要素なら x と y）．どれが来ても足りるように，すべてを要求する．
-- x の with と y の with がそれぞれ外す．`[x, y]` は x と y の両方が生きている範囲でしか使えず，持ち出せない原則がそのまま働く．
-- 失うのは精度だけ．要素ごとにどの capability かは型から分からないが，安全には影響しない．
+- A capability type records a set of capabilities, not one. In source it is still `use E` (and `use E1 + ... + En`).
+- Capabilities made by different withs can be put in the same list. The element type of `[x, y]` is "a capability of E that is x or y". Unification takes the union of sets, as for R; there is no general subtyping.
+- Calling an operation of a value with a set adds the whole set to R (x and y for an element of `[x, y]`). Every capability is required, so that whichever comes is provided.
+- The with of x and the with of y each remove theirs. `[x, y]` can be used only where both are alive, and the principle holds as is.
+- Only precision is lost: the type does not say which capability each element is, which does not affect safety.
 
 ```emel
 with x = Counters.Open(1), y = Counters.Open(10) {
-  ns = [x, y].map(|c| c.next()) # closure の R は x と y．この with が両方を外す
+  ns = [x, y].map(|c| c.next()) # the R of the closure is x and y; this with removes both
 }
 ```
 
-### capability parameter
+### Capability parameters
 
-- 引数の型に `use E` と書くと，その関数は E の capability の集合を受け取る型引数を持つ．関数の中の `x.read()` は R にその型引数を入れる．
-- 呼び出しで，型引数は渡した値の集合に決まる．`read_all(f)` は呼ぶ側の R に f を入れ，`[x, y]` の要素を渡せば x と y を入れる．
-- 同じ effect の引数を二つ取ると，型引数も二つになる（`fn copy(from: use Db, to: use Db)`）．
-- capability parameter に渡せるのは，名前付きの項目の capability と，それを含む値だけ．effect alias は引数に渡せない（E0453 のまま）．
-- いちばん内側の E を使いたい関数は，capability を受け取らず，R に E を書いて（`uses { Db }`）中で `db <- Db` と書く．呼んだ時点で決まるものは R，決まった handler は名前付きの項目，と役割を分ける．
-- `use E` の値（W0403）は，移行の期間だけ，型の中で effect の名前 E に決まった capability として扱う．
+- A parameter of type `use E` gives the function a type parameter that ranges over sets of capabilities of E. `x.read()` inside the function adds that type parameter to R.
+- At a call, the type parameter is decided by the argument. `read_all(f)` adds f to the caller's R; passing an element of `[x, y]` adds x and y.
+- Two parameters of the same effect give two type parameters (`fn copy(from: use Db, to: use Db)`).
+- The result of a function can be a capability type. The set of the result of `fn pick(primary: use Db, replica: use Db, write: Bool) -> use Db` is the union of those of the two parameters.
+- Only capabilities of named items, and values that contain them, can be passed to a capability parameter. An effect alias cannot be an argument (E0453, as today).
+- A function that wants the innermost E does not take a capability; it has E in its R (`uses { Db }`) and writes `db <- Db` inside. What is decided at the call is R; a fixed handler is a named item.
+- During 0.29, a value of `use E` written as an expression (W0403) is a capability of the name of the effect E in types.
 
-### 関数型の中の capability parameter
+### Capability parameters in function types
 
-- 関数型の引数に書いた `use E`（`fn(use ReadFile) -> String`）は，その関数型で量化する．E のどの capability の集合を渡されても動く関数の型になる．
-- そのような関数型を期待する位置に書いた closure は，中身の分からない集合 C を受け取るものとして型検査する．C を戻り値に入れることはできない．closure の R には C が入ってよく，closure を呼んだ側でその集合の持ち主の with が外す．
-- 期待する型がない closure（`k = |fs| ...`）は量化しない．引数の集合はふつうの集合の変数になり，使い方から決まる．量化した型は推論せず，書いてある型と照らし合わせるだけにする．
-- capability の型引数に名前を付ける構文（`[C: use Db]`）は足さない．二つの引数が同じ集合を共有する形は，capability を引数で渡す代わりに，それを使う closure に捕えさせて書く．
+- `use E` written as a parameter of a function type (`fn(use ReadFile) -> String`) is quantified at that function type: it is the type of a function that works for whatever set of capabilities of E it is given.
+- A closure written where such a function type is expected is checked as receiving an unknown set C. C cannot be in its result. C may be in its R, and the with that owns the set removes it on the side that calls the closure.
+- A closure without an expected type (`k = |fs| ...`) is not quantified. The set of its parameter is an ordinary set variable decided by its uses. A quantified type is never inferred; it is only checked against a written type.
+- There is no syntax for naming the type parameter of a capability parameter (`[C: use Db]`). When two arguments should share a set, a closure that captures the capability is passed instead of the capability.
 
 ```emel
 fn retry(attempts: Int, f: fn() -> ()) { ... }
 
 with primary = PrimaryDb {
-  retry(3, || primary.execute("...")) # closure の R は primary．この with が外す
+  retry(3, || primary.execute("...")) # the R of the closure is primary; this with removes it
 }
 ```
 
-### 開く数が実行時に決まる資源
+### Resources opened a number of times decided at run time
 
-- with の項目は一つにつき capability を一つ作るので，`paths.map(|p| Files.Open(p))` とは書けない．with を再帰で入れ子にして書く．
-- capability parameter は集合の型引数なので，再帰で呼ぶたびに集合が増えても型が付く（シグネチャに型があるので，多相再帰を推論する必要はない）．
-- 寿命は入れ子になり，開いた順の逆に閉じる．同じ寿命で使う用途はこれで書ける．
+- An item of a with makes one capability, so `paths.map(|p| Files.Open(p))` cannot be written. The withs are nested by recursion.
+- A capability parameter is a type parameter over sets, so the type holds as the set grows at each recursive call (the signature has the type, so no polymorphic recursion has to be inferred).
+- Lifetimes nest, and resources are closed in the reverse order of opening. Uses with one common lifetime are written this way.
 
 ```emel
 fn concat_all(paths: List[String], acc: List[use ReadFile]) -> String {
@@ -173,11 +174,7 @@ fn concat_all(paths: List[String], acc: List[use ReadFile]) -> String {
     [p, ..rest] -> with f = Files.Open(p) { concat_all(rest, acc ++ [f]) }
   }
 }
-```
 
-- 本体を関数として受け取る汎用の補助関数も，関数型の中の capability parameter で書ける．
-
-```emel
 fn with_all[T](paths: List[String], acc: List[use ReadFile], k: fn(List[use ReadFile]) -> T) -> T {
   match paths {
     [] -> k(acc)
@@ -185,55 +182,49 @@ fn with_all[T](paths: List[String], acc: List[use ReadFile], k: fn(List[use Read
   }
 }
 ```
-- この proposal は regions（#651）に頼らない．任意の時点で開閉する用途に regions が要るかは #651 で決める．この proposal のもとでは，pool が返す番号の型に pool の capability を入れて，持ち出しを型で止める形も取れる．
 
-### capability-bound type
+- This proposal does not depend on regions (#651). Whether regions are needed for opening and closing at any time is decided in #651. Under this proposal, a pool can also return ids of a capability-bound type, so that the types stop them from leaving the pool's with.
 
-- 型の宣言に，その型の値が E の capability を持つことを書ける（`pub type Fiber[A] uses Scope`）．`uses` は関数のシグネチャと同じ文脈キーワードで，この型の値はその capability が生きている間しか使えないことを表す．`use E`（capability そのものの型）とは別．
-- E の capability c の操作がこの型の値を返すと，その値の型は c を持つ．名前で E を呼んだ操作（`x <- E` や `Fiber.fork`）が返した値の型は，effect の名前 E を持つ．
-- capability を持つ値なので，持ち出せない原則がそのまま働く．
-- 利用者の型にも使える．pool が返す番号を `pub type EnemyId uses Engine` とすれば，番号は pool の with の外へ出せない．
+### Capability-bound types
 
-### 名前で供給する with と，型の中の effect の名前
+- A type declaration can say that its values live only while a capability of E does: `pub type Fiber[A] uses Scope`. `uses` is the same contextual keyword as in signatures. This is different from `use E`, the type of a capability itself.
+- When an operation of a capability c of E returns a value of such a type, the type of the value records c. A value returned by an operation called through the name of E (`x <- E`, `Fiber.fork`) records the name E.
+- Such a value is treated as a value that contains the capability, so the principle applies as is.
+- User types can use it too. With `pub type EnemyId uses Engine`, an id returned by a pool cannot leave the with of the pool.
 
-- 名前のない項目（`with Plain { ... }`）や `Fiber.scope` が E を名前で供給するとき，持ち出しの検査では，値の型の中の名前 E を自分の capability として数える．
-- `Fiber.fork(f)` が返す Fiber は，型に名前 Scope を持つ．それを名前で供給した scope の外へは出せない．
+### Withs that provide by name, and names of effects in types
+
+- When an item without a name (`with Plain { ... }`) or `Fiber.scope` provides E by name, the leak check counts the name E in the types of values as its own capability.
+- The Fiber returned by `Fiber.fork(f)` records the name Scope in its type. It cannot leave the scope that provided Scope by name.
+- A value of `use E` written as an expression (0.29 only) leaves no with that provides E by name, for the same reason.
 
 ### `Fiber.scope`
 
-- `Fiber.scope` が作る Scope は capability．本体は，その capability を引数で受け取る．引数の型は量化した `use Scope[E, R]` なので，本体は s を含む値を返せない．
+- The Scope that `Fiber.scope` makes is a capability. The body receives it as a parameter. The parameter type is a quantified `use Scope[E, R]`, so the body cannot return a value that contains s. The body still has Scope in its R, so `Fiber.fork` works in it as today.
 
 ```emel
-pub fn scope[A, E, R](body: fn(use Scope[E, R]) -> A fails E uses { Async, R }) -> A
+@intrinsic
+pub fn scope[A, E, R](body: fn(use Scope[E, R]) -> A fails E uses { Scope[E, R], Async, R }) -> A
   fails E
   uses { Async, R }
 
 @external
 pub type Fiber[A] uses Scope
-
-@intrinsic
-pub effect Scope[E, R] {
-  fn fork[A](f: fn(use Scope[E, R]) -> A fails E uses { R }) -> Fiber[A]
-  fn deferred[A]() -> Deferred[A]
-  fn semaphore(permits: Int) -> Semaphore
-  fn queue[A](capacity: Int) -> Queue[A]
-}
 ```
 
-- `Fiber`，`Deferred`，`Semaphore`，`Queue` は Scope の capability-bound type．`s.fork(f)` の Fiber は s を持つ．
-- 子は，自分が入った scope の capability を引数で受け取る．兄弟を fork する規則（型検査が f の R に Scope を足す）は要らなくなる．
-- これで `Fiber.scope` に型の上の特別扱いはなくなる．子の実行，本体が返ったときの中断，失敗の伝わり方はランタイムが実装する（`@intrinsic`）．
-- なくなるもの: E0425（型の名前で `Fiber` などを探す規則），ハンドルを capture set の root として追うこと，終わった scope のハンドルを使ったときの実行時の検査．
-- #719 の再現 1（外の State に Fiber を入れる）は型の不一致，再現 6（Fiber をエラーに入れる）は持ち出しの検査（E04xx）で止まる．
-- 外の scope に fork するには，外の scope の本体の引数 s を使う（今の `outer = use Scope` の代わり）．
+- `Fiber`, `Deferred`, `Semaphore` and `Queue` are capability-bound types of Scope. The Fiber of `s.fork(f)` records s.
+- The operations of Scope keep their signatures. A child still has Scope in its R, provided by the scope it is forked into, as the signature of `fork` says.
+- `Fiber.scope` has no special typing rules left. Running the children, interrupting them when the body returns, and propagating failures are done by the runtime (`@intrinsic`).
+- Removed: E0425 (looking for `Fiber` and the like by type name), following handles as roots of capture sets, and the checks at run time for handles of a finished scope.
+- Reproduction 1 of #719 (a Fiber in an outer State) is a type mismatch; reproduction 6 (a Fiber in an error) is a leak (E04xx).
+- To fork into an outer scope, the parameter s of the outer scope's body is used (instead of `outer = use Scope` today).
 
-### handler のフィールドと操作
+### Fields and operations of handlers
 
-- handler のフィールドの `use E`（と capability-bound type）の集合は，with の項目が init するときに決まる．`with users = PostgresUsers(db: replica)` の users は，フィールドの集合が {replica} の handler．
-- users の型に replica を書き足さない．init の引数は with の外で評価されるので，replica の with は users の with を囲み，users が生きている間は replica も生きている．users を持ち出せない原則だけで replica も守られる．
-- 操作の引数の `use E` は，関数の引数と同じく呼ぶたびに決まり，handler の実装の中では「どの capability でも」の扱いになる．実装は受け取った capability をフィールドや State に入れられない（型エラー）．#719 の A（長く生きる handler の操作の引数を通って出ていく）は，capability と capability-bound type について型で閉じる．
-- 操作の戻り値に capability type と capability-bound type を書くことは禁止する（E04xx）．capability を返せることは持ち出しに直結し，名前で呼んだ操作ではどの handler の capability かも決まらない．capability を作って渡すのは handler member（`with c = Pool.Conn()`）で書く．
-- 関数の戻り値の `use E` は書ける．`fn pick(primary: use Db, replica: use Db, write: Bool) -> use Db` の戻り値の集合は二つの引数の和．
+- The set of a field of type `use E` (or of a capability-bound type) is decided when an item of a with runs the init. The users of `with users = PostgresUsers(db: replica)` is a handler whose field has the set {replica}.
+- The type of users does not mention replica. The arguments of init are evaluated outside the with, so the with of replica encloses the with of users, and replica is alive while users is. The principle for users alone protects replica.
+- A parameter of type `use E` of an operation is decided at each call, as for a function, and is an unknown set inside the implementation of the handler. The implementation cannot store a received capability in a field or in State (a type error). A of #719 (leaving through the arguments of an operation of a longer-lived handler) is closed by the types for capabilities and capability-bound types.
+- The result type of an operation MUST NOT contain a capability type or a capability-bound type (E04xx). Returning a capability leads straight to a leak, and for an operation called by name it is not even decided which handler's capability it is. A capability is made and handed out by a handler member (`with c = Pool.Conn()`).
 
 ```emel
 handler PostgresUsers: Users {
@@ -248,113 +239,151 @@ with replica = ReplicaDb {
 }
 ```
 
-### `Capability` trait
-
-- `[C: Capability]`（`capability-trait`）はそのまま使える．C はトップレベル関数の型引数なので，呼ぶたびに渡した capability type に，集合ごと決まる（`close[C: Capability](item: C)` に f を渡せば，C は f の capability）．
-- 関数型の中の `use E` を量化する規則は，`use E` と書いた場所にだけ効き，`[C: Capability]` には関係しない．
-- capability-bound type（`uses E` で宣言した型）は `Capability` を満たさない．capability そのものではなく，操作も呼べない．
-- ふつうの型引数（`[A]`）も capability type を受け取れる（`List[use ReadFile]`）．`Capability` はそれを capability に限る．
-
 ### `self`
 
-- 操作の本体と release の中の `self` は，その handler の capability として数える．`self` は，capability にフィールドを読む力を足したもの．
-- `self` を捕えた closure は，捕えた値の規則（R と型）により，R にその capability を持つ．操作が返す closure がフィールドを読むと，with の外へ出すと E04xx になる．
-- `self` を `use E` の引数に渡せる．渡した先では，ほかの capability と同じく操作を呼べるが，フィールドには触れない．
+- `self` in an operation body and in release is counted as the capability of that handler. `self` is a capability with the added power of reading the fields.
+- A closure that captures `self` has that capability in its R, by the rule for captured values. A closure returned by an operation that reads a field cannot leave the with (E04xx).
+- `self` can be passed to a parameter of type `use E`. The receiver can call operations through it, as through any capability, but cannot read fields.
 
 ```emel
 handler SystemFiles: Files {
   handler Open(handle: Handle): ReadFile {
     init(path: String) { Self(handle: host_open(path)) }
     release { host_close(self.handle) }
-    fn reader(resume) { resume(|| host_read(self.handle)) } # closure の R は，この handler の capability
+    fn reader(resume) { resume(|| host_read(self.handle)) } # the R of the closure is this handler's capability
   }
 }
 ```
 
-### LSP の hover
+### The trait `Capability`
 
-- 型はソースと同じ形（`use Counter`，`Fiber[Int]`）で出し，その下に `capabilities: ...` の行で，どの capability かを出す．`holds:` の行（capture checking）はなくなる．
-- 名前付きの項目の capability はその名前，名前のない項目は handler の名前（`Plain`），関数の引数の集合は引数の名前，量化した関数型の引数は `any` で出す．
-- closure や関数の hover の `uses { ... }` には，capability の名前もそのまま並べる（`uses { f, Console }`）．
-- 持ち出しのエラーのメッセージにも同じ名前を使う．
+- `[C: Capability]` (`capability-trait`) works as it is. C is a type parameter of a top-level function, decided at each call to the capability type passed, with its set (passing f to `close[C: Capability](item: C)` makes C the capability f).
+- The rule that quantifies `use E` in function types applies only where `use E` is written, not to `[C: Capability]`.
+- A capability-bound type does not satisfy Capability. Its values are not capabilities, and no operations can be called on them.
+- An ordinary type parameter (`[A]`) accepts a capability type too (`List[use ReadFile]`). Capability limits it to capabilities.
 
-```
-ns: List[use Counter]
-capabilities: x, y
-```
+### Host callbacks
 
-### host の callback
-
-- 外部関数の引数と戻り値の callback は，既定では host が持ち続けるものとする．host は外部関数が返った後にも呼べるので，callback の R に capability を入れられない（E0454 を capability にも広げる）．
-- 外部関数が返る前にしか呼ばない callback（並べ替えの比較関数など）は，宣言の引数に属性 `@borrowed` を付ける．host は呼び出しの間だけ callback を借り，返るときに手放す．`@borrowed` の引数の callback だけが，R に capability を入れられる．印が正しいかは，`@external` の型と同じく宣言を書く人が責任を持つ．
-- `@borrowed` は外部関数の関数型の引数にだけ付けられる．ほかの位置（戻り値，外部関数でない関数の引数，関数型でない引数）に付けるとコンパイルエラー（E04xx）．
+- A callback in the parameters or the result of an external function is, by default, one that the host may keep. The host may call it after the external function returns, so the R of the callback MUST NOT contain a capability either (E0454 extended to capabilities).
+- A callback that is called only before the external function returns (a comparison for sorting, for example) is marked with the attribute `@borrowed` on the parameter. The host borrows the callback for the duration of the call and lets it go when it returns. Only a callback passed to a `@borrowed` parameter can have capabilities in its R. The writer of the declaration is responsible for the mark, as for the types of `@external`.
+- `@borrowed` can be written only on a parameter of function type of an external function. Anywhere else (a result, a parameter of a function that is not external, a parameter that is not a function type) it is a compile error (E04xx).
+- The types alone cannot tell the two apart: the set of a callback in the type of an external function is decided at each call, and no capability remains in the result, so the leak check cannot see it.
+- The example of `closure-r-by-caller`, `with g = Plain { set_timeout(10, || g.greet("later")) }`, is an error. To use a handler from work that the host calls later, the work is completed on the host side, or handed to an Emela fiber through a Queue.
 
 ```emel
 @external("js", "./array.js", "sortBy")
 fn sort_by(items: Array[Int], @borrowed compare: fn(Int, Int) -> Int) -> Array[Int]
 
 @external("js", "./timer.js", "setTimeout")
-fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f に capability は入れられない
+fn set_timeout(ms: Int, f: fn() -> ()) -> () # the host may keep f; f cannot have capabilities in R
 ```
-- 型だけでは二つを区別できない．外部関数の型の callback の集合は呼ぶたびに決まり，戻り値に capability が残らないので，持ち出しの検査では見えない．
-- `closure-r-by-caller` の例 `with g = Plain { set_timeout(10, || g.greet("later")) }` はエラーになる．host が後で呼ぶ処理から handler を使うには，host の側で完結させるか，Queue で Emela の fiber に渡す．
 
-### 持ち出せない
+### Leaks
 
-- with の型を決めるとき，本体の値の型，本体から伝わるエラーの型，with の R に，その with の capability が残っていればコンパイルエラー（E04xx）．
-- 外で型が決まったもの（外の `State` の型引数，外で供給された handler の操作の引数の型）には，そもそも capability を入れられない．代入や呼び出しの型が合わないので，型エラーになる（E0403 か型の不一致）．
-- 関数の境目でも同じ．型引数に capability が入るのは，その with の中で呼ぶときだけ．
+- When the type of a with is decided, if the type of the value of the body, the error type that leaves the body, or the R of the with contains a capability made by that with, it is a compile error (E04xx).
+- A type fixed outside (the type argument of an outer `State`, the parameter types of the operations of a handler provided outside) cannot contain the capability at all. The assignment or the call does not type check (E0403 or a type mismatch).
+- The same holds at function boundaries. A type parameter contains a capability only when the function is called inside its with.
 
-### `use E` の式
+### The language server
 
-- `x = use E` の x は，どの capability かが決まらない（書いた位置でいちばん内側の E の capability に固定されるが，型には出ない）．
-- `use E` の式は，略記も値も #791 で W0403 になっている．この proposal では型の中で，effect の名前 E に決まった capability として扱い，0.30 でなくす．移る先:
-  - x を同じ関数の中で受け手にしか使わない → `x <- E`．W0403 の quick fix が書き換える（#791）
-  - 外の handler を指し続ける，渡す，格納する → 名前付きの項目（`with x = H`）．機械的には書き換えられない
+- Types are shown as in source (`use Counter`, `Fiber[Int]`). A line `capabilities: ...` below names which capabilities. The line `holds:` of capture checking is gone.
+- A named item's capability is shown by its name, an item without a name by the name of its handler (`Plain`), the set of a parameter by the name of the parameter, and a parameter of a quantified function type as `any`.
+- The `uses { ... }` of a closure or a function lists capabilities by the same names (`uses { f, Console }`).
+- The messages of leaks use the same names.
 
-### 版
+```
+ns: List[use Counter]
+capabilities: x, y
+```
 
-0.29 に #791 と一緒に入れる．0.29 はこの proposal の実装を待って出す．
+### `use E` written as an expression
+
+- The x of `x = use E` does not say which capability it is (it is fixed to the innermost capability of E where it is written, but that is not in the type).
+- `use E` written as an expression, in either form, is W0403 since #791. With this proposal it is a capability of the name E in types during 0.29, and a compile error in 0.30. It is replaced by:
+  - `x <- E`, when x is used only as a receiver in the same function (the quick fix of W0403 does this, #791);
+  - a named item (`with x = H`), when it keeps referring to an outer handler, or is passed or stored. This cannot be done mechanically.
+
+### Versions
+
+This proposal lands in 0.29, with #791. 0.29 is released after this proposal is implemented.
 
 - 0.29:
-  - 型と R で capability を区別する．`uses E` の型，関数型の中の capability parameter，`self`，handler のフィールドと操作，host の callback，`Fiber.scope(|s| ...)` を入れる．
-  - 新しく止める形（持ち出し，広げること，操作の戻り値の capability，capability を捕えた callback）は，最初からコンパイルエラーにする．警告の段階は挟まない．
-  - capability とハンドルの capture checking（W0402，E0444，capture set），E0425，`[effect.escape]` と `[fiber.escape]` の実行時の検査を外す．
-  - `use E` の式は W0403 のまま読む（#731 の「一つの minor の間は読む」を守る）．型の中では effect の名前 E の capability として扱う．名前で E を供給する with は，型の中の名前 E を自分の capability として数えるので，`x = use E` の値を持ち出すことも型で止まる．
-  - 書き換えは W0403 の quick fix と，`Fiber.scope(|| ...)` を `|s|` に直す quick fix で助ける．
-- 0.30: `use E` の式をコンパイルエラーにする．
-- #666 は，この proposal に置き換えて閉じる．
-- capture checking はもう要らない．capture set が追っていたのは capability（Scope を含む）とハンドルだけで，どちらも型と R が持つ．experimental feature `capture-checking` は stable にせず，検査の仕組みごと 0.29 で外す．`[intro.experimental]` の規則どおり，名前は少なくとも一つの minor の間，W0206（効果がない）を出して受け付ける．
+  - Capabilities are told apart in types and in R. Capability-bound types, capability parameters in function types, `self`, the fields and operations of handlers, host callbacks and `Fiber.scope(|s| ...)` come in.
+  - The newly stopped forms (leaks, widening, capabilities in the results of operations, callbacks that capture capabilities) are compile errors from the start. There is no warning stage.
+  - Capture checking (W0402, E0444, capture sets), E0425, and the checks at run time of `[effect.escape]` and `[fiber.escape]` are removed.
+  - `use E` written as an expression is still read with W0403 (#731 keeps it for one minor version). In types it is a capability of the name E. A with that provides E by name counts the name E in types as its own capability, so a value of `x = use E` cannot leak either.
+  - The rewrites are helped by the quick fix of W0403, and by a quick fix that turns `Fiber.scope(|| ...)` into `|s|`.
+- 0.30: `use E` written as an expression is a compile error.
+- #666 is closed, replaced by this proposal.
+- Capture checking is no longer needed: capture sets followed only capabilities (including Scope) and handles, and types and R carry both now. The experimental feature `capture-checking` is not made stable; the checks are removed in 0.29. As `[intro.experimental]` says for a removed feature, its name is accepted with W0206 (no effect) for at least one minor version.
 
 ## Specification changes
-
-（たたき台．Open questions が決まってから書き直す．）
 
 ### `[glossary.terms]`
 
 - capability: a handler after its init has run and before its release. Each item of a with makes one, and each `Fiber.scope` makes one capability of Scope.
-- The Japanese term of capability and capability value becomes "capability" (written in English in Japanese text). Remove hold (抱える).
+- The Japanese term of capability and capability value becomes "capability" (written in English in Japanese text). Remove hold.
 - Add, with the Japanese term in English: capability type, capability parameter, capability-bound type (a type declared with `uses E`, whose values live only while a capability of E does), borrowed callback (a callback passed to a `@borrowed` parameter of an external function).
-- Add: named item (名前付きの項目), provide by name (名前で供給する), widen (広げる). Redefine leak: a value whose type or effect set contains a capability leaves the with that made the capability.
+- Add named item, provide by name and widen, with their Japanese terms. Redefine leak: a value whose type or effect set contains a capability leaves the with that made the capability.
+
+### `[effect.use]`
+
+- Replace "Calling an operation of a capability value obtained by `use E` adds E to R. Calling an operation of a capability captured by a closure or a local fn adds that capability to R (`uses { primary }`). A capability in R can be widened to its effect ..." by:
+  - Calling an operation of a capability adds that capability to R. The with that made the capability removes it from R.
+  - A capability is not widened to its effect. An effect set that contains a capability is not included in an effect set that contains only the effect of the capability.
+  - If the type of a value that a closure or a local fn captures contains capabilities, including through capability-bound types, those capabilities are in the R of the function.
+- Replace "The type of a capability value of E is written `use E`. ..." by: The type of a capability of E is written `use E` (or `use E1 + ... + En`). Type checking records in it a set of capabilities. Unification takes the union of sets. Calling an operation of a value whose type has a set adds every capability of the set to R.
+- A parameter of type `use E` gives the function a type parameter that ranges over sets of capabilities of E, decided at each call by the argument. An effect alias cannot be an argument (E0453). The result of a function can be a capability type; its set comes from the parameters.
+- `use E` written as a parameter of a function type is quantified at that function type. A closure checked against such a type receives an unknown set, which cannot be in its result. A closure without an expected type is not quantified. A quantified type is never inferred.
+- In 0.29, `use E` written as an expression is a capability of the name E in types. From 0.30 it is a compile error.
+- Remove "A closure or a local fn that captures a capability value can be passed where its effect is expected (the `copy` example below)." Rewrite the `copy` example with named items (`with primary = PrimaryDb { with replica = ReplicaDb { copy(replica, primary) } }`).
 
 ### `[effect.with]`
 
 - Each item of a with runs its init and makes a capability. Leaving the with releases it, and the capability ends.
-- A named item `x = Item` binds x to the capability of the item. A handler member item is written `x = E.M(arguments)`, or `x = c.M(arguments)` where c is a capability of E.
-- An item without a name provides its effect by name only.
+- A named item `x = Item` binds x to the capability of the item. An item without a name provides its effect by name only.
+- Replace "A capability value taken out on the outer side keeps referring to the outer handler even if an inner with overrides the same effect." by: "The capability of a named item keeps referring to its handler even if an inner with overrides the same effect."
 
-### `[effect.use]`
+### `[effect.handler]`
 
-- The type of a capability is written `use E`. Type checking tells capabilities apart: the type of a capability records which capability it is.
-- Calling an operation of a capability adds that capability to R. The with that made the capability removes it from R.
-- A capability is not widened to its effect. An effect set that contains a capability is not included in an effect set that contains only the effect of the capability.
-- A parameter of type `use E` gives the function a type parameter that ranges over the capabilities of E. At a call, it is decided by the argument. An effect alias cannot be an argument (E0453). During the deprecation period, a `use E` written as an expression decides it as E itself.
-- `use E` written as an expression (deprecated by `effect-alias`) is a compile error from 0.30.
+- The set of a field of a capability type or a capability-bound type is decided when an item of a with runs the init.
+- A parameter of type `use E` of an operation is decided at each call and is an unknown set in the implementation; it cannot be stored in a field or in State.
+- The result type of an operation MUST NOT contain a capability type or a capability-bound type (E04xx).
+- `self` in an operation body and in release is the capability of the handler, with the added power of reading the fields. It can be passed to a parameter of type `use E`. A closure that captures `self` has the capability in its R.
 
 ### `[effect.escape]`
 
-- A capability cannot leak: if the type of the value of a with body, the error set that leaves the body, or the R that leaves the body contains a capability made by that with, it is a compile error (E04xx).
-- Capture sets are not used for capabilities and handles, and the run-time checks of leaks are removed.
+- Replace the section by: A capability cannot leak. If the type of the value of a with body, the error type that leaves the body, or the R of the with contains a capability made by that with, it is a compile error (E04xx). A with that provides E by name counts the name E in types as its own capability. A type fixed outside the with cannot contain the capability, so other paths out are type errors.
+- Remove capture sets, roots, W0402, E0444 and the check at run time ("calling an operation of a handler that has already been released is a defect").
+
+### `[type.rules]`
+
+- Add the rules of sets of capabilities in capability types and in R, the quantification of `use E` in function types, and capability-bound types, as in `[effect.use]`.
+- A type declaration may end with `uses E`: its values live only while a capability of E does. When an operation of a capability c of E returns a value of such a type, the type of the value records c; an operation called through the name of E records the name E. A value of such a type is treated as containing the capability.
+
+### `[trait.builtin]`
+
+- Capability is satisfied by capability types, not by capability-bound types. `[C: Capability]` is decided at each call with the set of the capability passed.
+
+### `[fiber.scope]`
+
+- `Fiber.scope` has the signature `pub fn scope[A, E, R](body: fn(use Scope[E, R]) -> A fails E uses { Scope[E, R], Async, R }) -> A fails E uses { Async, R }`. The body receives the capability of the scope, and still has Scope in its R.
+- `Fiber`, `Deferred`, `Semaphore` and `Queue` are capability-bound types of Scope (`@external pub type Fiber[A] uses Scope`). The handles that `s.fork`, `s.deferred`, `s.semaphore` and `s.queue` return record s; those that `Fiber.fork` and the like return record the name Scope.
+- To fork into an outer scope, the parameter of the outer scope's body is used. Remove the text that says `s = use Scope` is written to refer to an outer scope, and that helper functions cannot take the scope as a parameter.
+- Rewrite the examples with `Fiber.scope(|s| ...)`.
+
+### `[fiber.escape]`
+
+- Replace the section by: The capability of a scope, and the handles that record it, cannot leave the scope (`[effect.escape]`).
+- Remove E0425, the roots of scopes, the table of what is checked at run time, and the defects of using a handle of a finished scope.
+
+### `[fiber.deferred]`, `[fiber.semaphore]`, `[fiber.queue]`
+
+- A Deferred, Semaphore or Queue is a capability-bound type of the Scope that made it. Its element type is fixed when it is made, so a capability made later in an inner with cannot be put in it.
+
+### `[api.std.fiber]`
+
+- Change the declarations of `scope` and of the handle types as in `[fiber.scope]`.
 
 ### `[ext.boundary]`
 
@@ -371,61 +400,73 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 
 ### `[open.next]`
 
-- The 0.29 item ("make E0444 the default ... remove the run-time check of 8.6") is replaced by this proposal: in 0.29, capture sets and the run-time checks are removed for capabilities and handles, and their leaks are compile errors from the types.
+- Replace the 0.29 item ("make E0444 the default ... remove the run-time check of 8.6") by this proposal: in 0.29, capture checking and the checks at run time are removed, and leaks of capabilities and handles are compile errors from the types.
 - `use E` written as an expression becomes a compile error in 0.30.
+
+### `[diag.list]`
+
+- E04xx: a capability leaks out of the with or scope that made it.
+- E04xx: the result type of an operation contains a capability type or a capability-bound type.
+- E04xx: `@borrowed` on something other than a parameter of function type of an external function.
+- E0454: also a capability in the R of a callback passed to a parameter without `@borrowed`.
+- Remove W0402, E0425 and E0444.
 
 ## Diagnostics
 
-- [ ] E04xx: capability を持ち出した（型か R に capability を含む値が with の外へ出る）
-- [ ] E04xx: `@borrowed` を外部関数の関数型の引数以外に書いた
-- [ ] E04xx: effect の操作の戻り値に capability type か capability-bound type を書いた
-- [ ] `use E` の式の W0403 は #791 で入った．0.30 でエラーにする
-- [ ] E04xx: capability を effect の名前に広げた．help: 引数を `use E` にする
-- [ ] W0402，E0444，E0425 を外す（0.29）．experimental feature `capture-checking` を外す（名前は W0206）
-- [ ] 0.30: W0403 をエラーにする
+- [ ] E04xx: a capability leaks (a value whose type or R contains a capability leaves the with). The message names the capability as the language server does.
+- [ ] E04xx: a capability type or a capability-bound type in the result of an operation
+- [ ] E04xx: `@borrowed` in a wrong position
+- [ ] E0454 for capabilities in the R of a callback without `@borrowed`
+- [ ] Widening is reported where an effect set does not fit (E0403), with the help: take the capability as a parameter `use E`, or capture it in a closure
+- [ ] Remove W0402, E0444 and E0425 (0.29). Remove the experimental feature `capture-checking` (its name gives W0206)
+- [ ] 0.30: W0403 becomes an error
 
 ## Compatibility
 
-数え上げ（#791 のあとの main，.snap を除く）．std，examples，tests/laws には `use E` の式が残っていない．残りはコンパイラのテストのプログラム（Rust の文字列），`spec/`，`proposals/` の中．
+Counts in main after #791, excluding `.snap` files. std, examples and tests/laws contain no `use E` written as an expression; the rest is in the programs of the compiler's tests (Rust strings), `spec/` and `proposals/`.
 
-| 形 | 数 | 移る先 |
+| Form | Count | Replaced by |
 |---|---|---|
-| `(use E).op()` | 817 | W0403 の quick fix で `<-` に書き換えられる |
-| `x = use E` | 278 | 同じ関数の中で受け手にしか使わないなら quick fix で `x <- E`．それ以外は `with x = H` |
-| `x <- E` | 160 | 変わらない |
-| 引数や型の `: use E` | 171 | 書き方は変わらない．capability parameter になる |
-| 外の値を，同じ E を上書きした内側の with で使う | 18 | `with x = H` |
-| `Fiber.scope(|| ...)` | 244 | `Fiber.scope(|s| ...)` か `|_|`．機械的に書き換えられる |
-| `= use Scope` | 34 | `Fiber.scope` の本体の引数 |
-| `with x = H`，`with x = E.M(...)`（`.emel`） | 14 | そのまま通る．x の型が，どの capability かを持つようになる |
-| capability を effect の名前に広げているもの | 数えない | 0.29 でコンパイルエラー．help で capability parameter にする形か，closure に捕えさせる形を示す |
+| `(use E).op()` | 817 | `<-`, by the quick fix of W0403 |
+| `x = use E` | 278 | `x <- E` by the quick fix when x is only a receiver in the same function; otherwise `with x = H` |
+| `x <- E` | 160 | Unchanged |
+| `: use E` in parameters and types | 171 | Written the same; they become capability parameters |
+| An outer value used in an inner with that overrides the same E | 18 | `with x = H` |
+| `Fiber.scope(|| ...)` | 244 | `Fiber.scope(|s| ...)` or `|_|`, mechanically |
+| `= use Scope` | 34 | The parameter of the body of `Fiber.scope` |
+| `with x = H`, `with x = E.M(...)` (`.emel`) | 14 | Unchanged; the type of x records which capability it is |
+| Widening a capability to the name of its effect | Not counted | A compile error in 0.29; the help shows a capability parameter or a closure that captures it |
 
-- 引数の `use E` は書き方が変わらない（`fn copy(from: use Db, to: use Db)`，`copy(replica, primary)`）．
-- capability をコレクションに入れる形，`State[use Name]`（#708），handler のフィールドの `use E` は，同じ with の中なら今までどおり書ける．
+- Capability parameters are written the same (`fn copy(from: use Db, to: use Db)`, `copy(replica, primary)`).
+- Capabilities in collections, `State[use Name]` (#708) and fields of type `use E` keep working inside the same with.
+- `capture-checking` in `[experimental]` of `Pome.toml` and `--experimental-capture-checking` give W0206.
 
 ## Implementation
 
-- 型検査: capability type と effect set に，どの capability かを持たせる．with の出口で，本体の値の型，エラー，R にその with の capability が残らないかを確かめる．型引数の範囲の検査と同じ仕組みを使う．
-- capability type の集合と，引数の `use E` の型引数は，R の集合と同じ仕組み（集合の和と set variable）で推論する．
-- lowering: capability の evidence は，その項目の handler．effect の名前に決まった型引数は，呼んだ時点の evidence を使う．
-- capture checking: 検査の仕組み（`emela-types` の `capture.rs`，driver の W0402 / E0444 の切り替え，hover の `holds:`）を外す．`use E` の値は，型の中の effect の名前として持ち出しの検査で見る．
+- Type checking: give capability types and effect sets the capabilities they record. At the exit of a with, check that the type of the value of the body, the errors and R do not contain the with's capabilities. Sets of capability types and the type parameters of capability parameters are inferred by the same machinery as R (unions and set variables).
+- Quantified function types: check a closure against a written type with a fresh set, and check that the set is not in its result.
+- Capability-bound types: parse `uses E` at the end of a type declaration, and record the capability when an operation returns such a value.
+- Lowering: the evidence of a capability is the handler of its item. A type parameter decided as the name of an effect uses the evidence at the time of the call.
+- Capture checking: remove the checks (`capture.rs` in `emela-types`, the switch between W0402 and E0444 in the driver, `holds:` in hover). Values of `use E` are checked by the leak check through the names of effects in types.
+- std: change `Std.Fiber` as in `[fiber.scope]`, and rewrite `Fiber.scope(|| ...)` in the repository.
 
 ## Alternatives
 
-- `capture-checking` を stable にしてから外す．stable にした時点で E0444 が既定になり，すぐ後の版でまた外すことになる．experimental のまま外せば，互換性の約束の外で済む．
-- 値を残し，capture checking で道を塞ぎ続ける（`capture-checking-exits`）．#719 の「決めること 1，2」と，host と Deferred / Queue の未決が残る．#701 は直らない．
-- capability を値でなくす（この PR の最初の版）．capability をコレクションに入れる形と，`State[use Name]` が書けなくなる．型で区別すれば，値のままで同じ安全が得られる．
-- 局所の label を立て，x をその label の capability とする（この PR の二つ目の版）．利用者が capability と label の二つを覚える必要がある．capability そのものを R に入れれば，label は要らない．
-- capability を effect の名前に広げて，別々の with の capability を同じリストに入れる．広げた値は型が R で追えず，今の #719 の穴に戻る．集合で持てば広げずに入れられる．
-- capability の型引数に名前を付ける（`fn retry[C: use Db](db: C, f: fn(C) -> ())`）．二つの引数が同じ集合を共有する形が書けるが，closure に捕えさせれば同じことが書け，名前が要る場面は少ない．後から足しても今の書き方の意味は変わらない．
-- 名前付きの項目を `with f <- Files.Open(path)` や `with Files.Open(path) as f` と書く．`<-` は effect alias と同じ記号になり，`as` は今の `with x = ...` の書き換えが要る．
-- 名前のない `use E` の値を，なくす代わりに「呼んだ時点でいちばん内側の E に届く値」として残す．型の中では effect の名前としてしか表せず，渡したり格納したりできる限り，どの handler を指すかが型から分からない（#719 の穴の元）．内側で同じ E を上書きした with で外の値を使う 18 箇所の意味も黙って変わる．
-- 一段で `use E` の式をなくす（deprecation の期間を置かない）．#731 で一つの minor の間は読むと決めたので，0.30 まで読む．
-- 0.29 は #791 だけで出し，この proposal を 0.30 に入れる．0.29 で W0403 を出したあと 0.30 でまた大きく壊すことになり，capture checking の扱いも 0.29 と 0.30 で二度変わる．
+- Keep values and keep closing paths with capture checking (`capture-checking-exits`). Decisions 1 and 2 of #719, and the host and Deferred / Queue questions, remain. #701 is not fixed.
+- Make capture checking stable, then remove it. E0444 would become the default and be removed in the next version. Removing it as an experimental feature stays outside the compatibility guarantees.
+- Make capabilities not values (the first version of this pull request). Capabilities in collections and `State[use Name]` could not be written. Telling them apart in types gives the same safety while keeping them values.
+- Make a local label and let x be a capability of that label (the second version of this pull request). Users would learn both capabilities and labels. Putting the capability itself in R needs no label.
+- Widen capabilities to the name of their effect so that capabilities of different withs fit in one list. A widened value is not followed by R, which is the hole of #719. Sets let them fit without widening.
+- Name the type parameter of a capability parameter (`fn retry[C: use Db](db: C, f: fn(C) -> ())`). It lets two arguments share a set, but a closure that captures the capability writes the same thing, and few places need a name. Adding it later does not change the meaning of what is written now.
+- Give a forked child its scope as a parameter (`fork[A](f: fn(use Scope[E, R]) -> A ...)`). Every `Fiber.fork(|| ...)` would change, and a child reaches its own scope by name already.
+- Write named items as `with f <- Files.Open(path)` or `with Files.Open(path) as f`. `<-` is the symbol of effect aliases, and `as` would require rewriting every `with x = ...`.
+- Keep `use E` without a name as "a value that reaches the innermost E at the call". In types it is only the name of an effect, so while it can be passed and stored, the type does not say which handler it refers to (the source of the hole of #719). The 18 places that use an outer value inside an inner with overriding the same E would silently change meaning.
+- Release 0.29 with #791 alone and this proposal in 0.30. 0.30 would break again right after W0403 in 0.29, and the handling of capture checking would change twice.
+- Default host callbacks to "called only during the call" and mark the ones the host keeps. A missing mark would let a capability outlive its with silently.
+- Use regions (#651) for resources opened a number of times decided at run time. Recursion writes them, and capability-bound types let a pool stop its ids from leaving.
 
 ## Prior art
 
 ## Open questions
-
 
 ## Decision
