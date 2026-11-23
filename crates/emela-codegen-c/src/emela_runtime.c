@@ -1713,15 +1713,10 @@ struct em_scope {
   em_ref first;
   /* The scope's wait for its last child (counted). */
   em_wait *closer;
-  /* Its Semaphores and Queues (not counted: each removes itself when freed). Fibers of other
-   * scopes still waiting on them when the scope ends stop waiting (spec 11.8). */
-  em_vec cells;
 };
 
 typedef struct em_deferred {
   em_ref self;
-  /* The scope's object, counted. */
-  em_ref scope;
   bool full;
   bool ref;
   em_word value;
@@ -3688,7 +3683,6 @@ static void em_scope_fin(em_ref o) {
   em_drop(s->first);
   em_wait_unref(s->closer);
   em_vec_free(&s->children);
-  em_vec_free(&s->cells);
   em_rt_free(s);
 }
 
@@ -3722,12 +3716,10 @@ static void em_scope_child_ended(em_scope *s, em_fiber *child) {
 }
 
 /* After every child ended: the first failure, or how the body ended. Takes `so` and `in`. */
-static void em_cell_end(em_ref cell);
 
 static em_word em_scope_finish(em_ref so, em_input in) {
   em_scope *s = em_scope_of(so);
   s->ended = true;
-  for (size_t i = 0; i < s->cells.len; i++) em_cell_end(s->cells.items[i]);
   em_ref first = s->first;
   em_word out = em_zero();
   if (first != NULL) {
@@ -3923,12 +3915,14 @@ em_ref em_fiber_attempt(em_ref fn, int32_t repr) {
   return em_attempt_finish(repr, em_input_taken(out, repr == EM_REPR_REF));
 }
 
-/* ---- Deferred (spec 11.7) ---- */
+/* ---- Deferred (`[task.deferred]`) ----
+ *
+ * A Deferred, a Semaphore and a Queue live as long as the with of their built-in handler, and the
+ * types keep their capabilities from leaving it, so they are not tied to a scope. */
 
 static void em_deferred_fin(em_ref o) {
   em_deferred *d = (em_deferred *)o->slots[0].h;
   if (d->full && d->ref) em_drop(d->value.p);
-  em_drop(d->scope);
   for (size_t i = 0; i < d->waiters.len; i++) {
     em_watch *watch = d->waiters.items[i];
     em_wait_unref(watch->w);
@@ -3940,28 +3934,16 @@ static void em_deferred_fin(em_ref o) {
 
 static em_deferred *em_deferred_of(em_ref o) { return (em_deferred *)o->slots[0].h; }
 
-static bool em_deferred_ended(em_deferred *d) { return em_scope_of(d->scope)->ended; }
-
-em_ref em_fiber_deferred(em_ref so) {
-  if (em_scope_of(so)->closed) {
-    em_raise_cstr("fiber scope was used after it ended");
-    return NULL;
-  }
+em_ref em_fiber_deferred(void) {
   em_deferred *d = em_rt_alloc(sizeof(em_deferred));
   em_ref o = em_alloc(&em_desc_deferred, 1);
   o->slots[0].h = d;
   d->self = o;
-  em_dup(so);
-  d->scope = so;
   return o;
 }
 
 int32_t em_deferred_complete(em_ref o, em_word value, int32_t repr) {
   em_deferred *d = em_deferred_of(o);
-  if (em_deferred_ended(d)) {
-    em_raise_cstr("deferred was completed after its scope ended");
-    return 0;
-  }
   if (d->full) return 0;
   d->full = true;
   d->ref = repr == EM_REPR_REF;
@@ -3983,10 +3965,6 @@ int32_t em_deferred_complete(em_ref o, em_word value, int32_t repr) {
 em_word em_deferred_await(em_ref o, int32_t repr) {
   if (em_interrupt_here()) return em_zero();
   em_deferred *d = em_deferred_of(o);
-  if (em_deferred_ended(d)) {
-    em_raise_cstr("deferred was awaited after its scope ended");
-    return em_zero();
-  }
   if (d->full) {
     if (d->ref) em_dup(d->value.p);
     return d->value;
@@ -3999,16 +3977,12 @@ em_word em_deferred_await(em_ref o, int32_t repr) {
 
 em_ref em_deferred_poll(em_ref o, int32_t repr) {
   em_deferred *d = em_deferred_of(o);
-  if (em_deferred_ended(d)) {
-    em_raise_cstr("deferred was polled after its scope ended");
-    return NULL;
-  }
   if (!d->full) return EM_NONE;
   if (d->ref) em_dup(d->value.p);
   return em_some(d->value, repr == EM_REPR_REF);
 }
 
-/* ---- Semaphore and Queue (spec 11.9, 11.10) ----
+/* ---- Semaphore and Queue (`[task.semaphore]`, `[task.queue]`) ----
  *
  * Fibers wait in first-in first-out lines (`em_vec` of `em_line_entry`). A fiber given what it
  * waits for (permits, a value, the news that the queue is closed) is taken out of the line and
@@ -4026,8 +4000,6 @@ typedef struct em_line_entry {
 
 typedef struct em_semaphore {
   em_ref self;
-  /* The scope's object, counted. */
-  em_ref scope;
   int32_t permits;
   int32_t free;
   em_vec line;
@@ -4035,8 +4007,6 @@ typedef struct em_semaphore {
 
 typedef struct em_qcell {
   em_ref self;
-  /* The scope's object, counted. */
-  em_ref scope;
   int32_t capacity;
   bool closed;
   /* Values, front first. */
@@ -4094,18 +4064,6 @@ static bool em_line_remove(em_vec *v, em_wait *w) {
   return false;
 }
 
-/* Wakes every fiber in `v` with the defect `msg` (a fiber of another scope, spec 11.8). */
-static void em_line_end(em_vec *v, const char *msg) {
-  while (v->len > 0) {
-    em_line_entry *e = em_line_shift(v);
-    if (e->ref) em_drop(e->value.p);
-    em_wait *w = e->w;
-    em_rt_free(e);
-    em_cont(w, em_in_ref(EM_THROW, em_str_cstr(msg)));
-    em_wait_unref(w);
-  }
-}
-
 static void em_line_free(em_vec *v) {
   for (size_t i = 0; i < v->len; i++) {
     em_line_entry *e = v->items[i];
@@ -4128,14 +4086,10 @@ static em_word em_word_ref(em_ref p) {
   return w;
 }
 
-static bool em_cell_ended(em_ref scope) { return em_scope_of(scope)->ended; }
-
-/* A new Semaphore or Queue object of the scope `so`, holding `h`. */
-static em_ref em_cell_new(em_ref so, const em_desc *desc, void *h) {
+/* A new Semaphore or Queue object, holding `h`. */
+static em_ref em_cell_new(const em_desc *desc, void *h) {
   em_ref o = em_alloc(desc, 1);
   o->slots[0].h = h;
-  em_dup(so);
-  em_vec_push(&em_scope_of(so)->cells, o);
   return o;
 }
 
@@ -4143,9 +4097,7 @@ static em_ref em_cell_new(em_ref so, const em_desc *desc, void *h) {
 
 static void em_semaphore_fin(em_ref o) {
   em_semaphore *s = em_semaphore_of(o);
-  em_vec_remove(&em_scope_of(s->scope)->cells, o);
   em_line_free(&s->line);
-  em_drop(s->scope);
   em_rt_free(s);
 }
 
@@ -4170,14 +4122,10 @@ static void em_semaphore_leave(em_wait *w) {
   if (em_line_remove(&s->line, w)) em_semaphore_serve(s);
 }
 
-/* Raises the defect of a Semaphore used after its scope ended or asked for a bad number of
- * permits by `name`; true if it did. */
+/* Raises the defect of a Semaphore asked for a bad number of permits by the handler member
+ * `name`; true if it did. */
 static bool em_semaphore_defect(em_semaphore *s, int32_t n, const char *name) {
   char buf[160];
-  if (em_cell_ended(s->scope)) {
-    em_raise_cstr("semaphore was used after its scope ended");
-    return true;
-  }
   if (n < 1) {
     snprintf(buf, sizeof buf, "`%s` needs at least 1 permit, but got %d", name, (int)n);
     em_raise_cstr(buf);
@@ -4192,11 +4140,7 @@ static bool em_semaphore_defect(em_semaphore *s, int32_t n, const char *name) {
   return false;
 }
 
-em_ref em_fiber_semaphore(em_ref so, int32_t permits) {
-  if (em_scope_of(so)->closed) {
-    em_raise_cstr("fiber scope was used after it ended");
-    return NULL;
-  }
+em_ref em_fiber_semaphore(int32_t permits) {
   if (permits < 1) {
     char buf[96];
     snprintf(buf, sizeof buf, "semaphore needs at least 1 permit, but got %d", (int)permits);
@@ -4204,19 +4148,18 @@ em_ref em_fiber_semaphore(em_ref so, int32_t permits) {
     return NULL;
   }
   em_semaphore *s = em_rt_alloc(sizeof(em_semaphore));
-  em_ref o = em_cell_new(so, &em_desc_semaphore, s);
+  em_ref o = em_cell_new(&em_desc_semaphore, s);
   s->self = o;
-  s->scope = so;
   s->permits = permits;
   s->free = permits;
   return o;
 }
 
-/* The init of `with_permits`: waits until `n` permits are free and no fiber is ahead. */
+/* The init of `Permits`: waits until `n` permits are free and no fiber is ahead. */
 void em_semaphore_acquire(em_ref o, int32_t n) {
   if (em_interrupt_here()) return;
   em_semaphore *s = em_semaphore_of(o);
-  if (em_semaphore_defect(s, n, "with_permits")) return;
+  if (em_semaphore_defect(s, n, "Permits")) return;
   if (s->line.len == 0 && s->free >= n) {
     s->free -= n;
     return;
@@ -4226,35 +4169,27 @@ void em_semaphore_acquire(em_ref o, int32_t n) {
 
 int32_t em_semaphore_try_acquire(em_ref o, int32_t n) {
   em_semaphore *s = em_semaphore_of(o);
-  if (em_semaphore_defect(s, n, "try_with_permits")) return 0;
+  if (em_semaphore_defect(s, n, "TryPermits")) return 0;
   if (s->line.len > 0 || s->free < n) return 0;
   s->free -= n;
   return 1;
 }
 
-/* The release of `with_permits`. After the scope ended nobody can take the permits, so it does
- * nothing. */
+/* The release of `Permits` and `TryPermits`. */
 void em_semaphore_release(em_ref o, int32_t n) {
   em_semaphore *s = em_semaphore_of(o);
-  if (em_cell_ended(s->scope)) return;
   s->free += n;
   em_semaphore_serve(s);
 }
 
 int32_t em_semaphore_available(em_ref o) {
-  em_semaphore *s = em_semaphore_of(o);
-  if (em_cell_ended(s->scope)) {
-    em_raise_cstr("semaphore was used after its scope ended");
-    return 0;
-  }
-  return s->free;
+  return em_semaphore_of(o)->free;
 }
 
 /* Queue */
 
 static void em_qcell_fin(em_ref o) {
   em_qcell *q = em_qcell_of(o);
-  em_vec_remove(&em_scope_of(q->scope)->cells, o);
   for (size_t i = 0; i < q->items.len; i++) {
     em_line_entry *e = q->items.items[i];
     if (e->ref) em_drop(e->value.p);
@@ -4263,14 +4198,7 @@ static void em_qcell_fin(em_ref o) {
   em_vec_free(&q->items);
   em_line_free(&q->takers);
   em_line_free(&q->offerers);
-  em_drop(q->scope);
   em_rt_free(q);
-}
-
-static bool em_qcell_defect(em_qcell *q) {
-  if (!em_cell_ended(q->scope)) return false;
-  em_raise_cstr("queue was used after its scope ended");
-  return true;
 }
 
 /* Adds `value` (owned): to the first fiber waiting to take, or at the end. The caller has checked
@@ -4309,11 +4237,7 @@ static void em_qcell_leave(em_wait *w) {
   if (!em_line_remove(&q->takers, w)) em_line_remove(&q->offerers, w);
 }
 
-em_ref em_fiber_queue(em_ref so, int32_t capacity) {
-  if (em_scope_of(so)->closed) {
-    em_raise_cstr("fiber scope was used after it ended");
-    return NULL;
-  }
+em_ref em_fiber_queue(int32_t capacity) {
   if (capacity < 1) {
     char buf[96];
     snprintf(buf, sizeof buf, "queue needs a capacity of at least 1, but got %d", (int)capacity);
@@ -4321,18 +4245,16 @@ em_ref em_fiber_queue(em_ref so, int32_t capacity) {
     return NULL;
   }
   em_qcell *q = em_rt_alloc(sizeof(em_qcell));
-  em_ref o = em_cell_new(so, &em_desc_qcell, q);
+  em_ref o = em_cell_new(&em_desc_qcell, q);
   q->self = o;
-  q->scope = so;
   q->capacity = capacity;
   return o;
 }
 
-/* `Queue.offer`: False when the queue is closed (lowering makes it the failure QueueClosed). */
+/* `offer` of a Queue: False when the queue is closed (lowering makes it the failure QueueClosed). */
 em_word em_queue_offer(em_ref o, em_word value, int32_t repr) {
   if (em_interrupt_here()) return em_zero();
   em_qcell *q = em_qcell_of(o);
-  if (em_qcell_defect(q)) return em_zero();
   if (q->closed) return em_word_i32(0);
   bool ref = repr == EM_REPR_REF;
   if (ref) em_dup(value.p);
@@ -4346,12 +4268,11 @@ em_word em_queue_offer(em_ref o, em_word value, int32_t repr) {
   return em_zero();
 }
 
-/* `Queue.take`: None when the queue is closed and empty. */
+/* `take` of a Queue: None when the queue is closed and empty. */
 em_word em_queue_take(em_ref o, int32_t repr) {
   (void)repr;
   if (em_interrupt_here()) return em_zero();
   em_qcell *q = em_qcell_of(o);
-  if (em_qcell_defect(q)) return em_zero();
   if (q->items.len > 0) {
     em_dup(o);
     em_ref some = em_qcell_shift(q);
@@ -4365,7 +4286,6 @@ em_word em_queue_take(em_ref o, int32_t repr) {
 
 int32_t em_queue_try_offer(em_ref o, em_word value, int32_t repr) {
   em_qcell *q = em_qcell_of(o);
-  if (em_qcell_defect(q)) return 0;
   if (q->closed || q->items.len >= (size_t)q->capacity) return 0;
   bool ref = repr == EM_REPR_REF;
   if (ref) em_dup(value.p);
@@ -4378,7 +4298,6 @@ int32_t em_queue_try_offer(em_ref o, em_word value, int32_t repr) {
 em_ref em_queue_poll(em_ref o, int32_t repr) {
   (void)repr;
   em_qcell *q = em_qcell_of(o);
-  if (em_qcell_defect(q)) return NULL;
   if (q->items.len == 0) return EM_NONE;
   em_dup(o);
   em_ref some = em_qcell_shift(q);
@@ -4388,14 +4307,13 @@ em_ref em_queue_poll(em_ref o, int32_t repr) {
 
 int32_t em_queue_size(em_ref o) {
   em_qcell *q = em_qcell_of(o);
-  if (em_qcell_defect(q)) return 0;
   return (int32_t)q->items.len;
 }
 
 /* The fibers waiting to take or to offer stop with QueueClosed. */
 void em_queue_close(em_ref o) {
   em_qcell *q = em_qcell_of(o);
-  if (em_qcell_defect(q) || q->closed) return;
+  if (q->closed) return;
   q->closed = true;
   em_dup(o);
   while (q->takers.len > 0) {
@@ -4414,19 +4332,6 @@ void em_queue_close(em_ref o) {
     em_wait_unref(w);
   }
   em_drop(o);
-}
-
-/* The scope of a Semaphore or Queue ended: the fibers still waiting on it stop with a defect. */
-static void em_cell_end(em_ref cell) {
-  em_dup(cell);
-  if (cell->hdr.desc == &em_desc_semaphore) {
-    em_line_end(&em_semaphore_of(cell)->line, "semaphore was used after its scope ended");
-  } else {
-    em_qcell *q = em_qcell_of(cell);
-    em_line_end(&q->takers, "queue was used after its scope ended");
-    em_line_end(&q->offerers, "queue was used after its scope ended");
-  }
-  em_drop(cell);
 }
 
 /* ---- Standard output and standard error (`[api.std.process]`) ----

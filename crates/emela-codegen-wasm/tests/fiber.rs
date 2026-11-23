@@ -139,7 +139,7 @@ fn main() -> () uses { Async } {
 }
 
 /// A Deferred passes a value from a child to any number of waiting fibers; `complete` stores only
-/// the first value and `poll` does not wait (spec 11.7).
+/// the first value and `poll` does not wait (`[task.deferred]`).
 #[test]
 fn deferred_multiple_waiters_and_complete_once() {
     let Some(run) = run_ok(
@@ -149,20 +149,22 @@ import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 
 fn main() -> () uses { Async } {
-  Fiber.scope(|_| {
-    d = Fiber.deferred()
-    a = Fiber.fork(|| Deferred.await(d) + 1)
-    b = Fiber.fork(|| Deferred.await(d) + 2)
-    dbg(Deferred.poll(d))
-    Fiber.fork(|| dbg(Deferred.complete(d, 40)))
-    dbg("#{Fiber.join(a)} #{Fiber.join(b)}")
-    dbg(Deferred.complete(d, 1))
-    dbg(Deferred.poll(d))
-    names = Fiber.deferred()
-    Fiber.fork(|| Deferred.complete(names, ["x", "y"]))
-    dbg(Deferred.await(names))
-    ()
-  })
+  with d = Deferred {
+    with names = Deferred {
+      Fiber.scope(|_| {
+        a = Fiber.fork(|| d.await() + 1)
+        b = Fiber.fork(|| d.await() + 2)
+        dbg(d.poll())
+        Fiber.fork(|| dbg(d.complete(40)))
+        dbg("#{Fiber.join(a)} #{Fiber.join(b)}")
+        dbg(d.complete(1))
+        dbg(d.poll())
+        Fiber.fork(|| names.complete(["x", "y"]))
+        dbg(names.await())
+        ()
+      })
+    }
+  }
   ()
 }
 "##,
@@ -472,62 +474,6 @@ fn main() -> () uses { Async } {
     }
 }
 
-#[test]
-fn deferred_use_after_scope_close_is_a_defect() {
-    let Some(run) = run(
-        "fiber-deferred-after-close",
-        r##"
-import Std.Fiber.{Fiber, Scope}
-import Std.Deferred.{Deferred}
-
-fn main() -> () uses { Async } {
-  complete_later = Fiber.scope(|_| {
-    d = Fiber.deferred()
-    || Deferred.complete(d, 1)
-  })
-  dbg("before complete")
-  complete_later()
-  ()
-}
-"##,
-    ) else {
-        return;
-    };
-    assert_eq!(run.code, 101, "{}", run.stderr);
-    assert_eq!(
-        run.stderr,
-        "\"before complete\"\ndefect: deferred was completed after its scope ended\n"
-    );
-}
-
-#[test]
-fn poll_after_scope_close_is_a_defect() {
-    let Some(run) = run(
-        "fiber-poll-after-close",
-        r##"
-import Std.Fiber.{Fiber, Scope}
-import Std.Deferred.{Deferred}
-
-fn main() -> () uses { Async } {
-  poll_later = Fiber.scope(|_| {
-    d = Fiber.deferred()
-    || Deferred.poll(d)
-  })
-  dbg("before poll")
-  poll_later()
-  ()
-}
-"##,
-    ) else {
-        return;
-    };
-    assert_eq!(run.code, 101, "{}", run.stderr);
-    assert_eq!(
-        run.stderr,
-        "\"before poll\"\ndefect: deferred was polled after its scope ended\n"
-    );
-}
-
 /// `Exit.attempt` does not catch the interruption of its own fiber (spec 11.5).
 #[test]
 fn attempt_does_not_catch_its_own_interruption() {
@@ -677,17 +623,18 @@ fn step(n: Int, tag: String) -> Int uses { Tick } {
 
 fn main() -> () uses { Async } {
   with Ticks {
-    total = Fiber.scope(|_| {
-      a = Fiber.fork(|| step(3000, "a"))
-      b = Fiber.fork(|| step(2000, "b"))
-      d = Fiber.deferred()
-      Fiber.fork(|| {
-        step(1000, "c")
-        Deferred.complete(d, "done")
+    total = with d = Deferred {
+      Fiber.scope(|_| {
+        a = Fiber.fork(|| step(3000, "a"))
+        b = Fiber.fork(|| step(2000, "b"))
+        Fiber.fork(|| {
+          step(1000, "c")
+          d.complete("done")
+        })
+        dbg(d.await())
+        Fiber.join(a) + Fiber.join(b)
       })
-      dbg(Deferred.await(d))
-      Fiber.join(a) + Fiber.join(b)
-    })
+    }
     dbg(total)
     ()
   }
@@ -732,13 +679,14 @@ import Std.Fiber.{Fiber, Scope}
 import Std.Deferred.{Deferred}
 
 fn main() -> () uses { Async } {
-  Fiber.scope(|_| {
-    d = Fiber.deferred()
-    h = Fiber.fork(|| Deferred.await(d))
-    Fiber.interrupt(h)
-    Fiber.join(h)
-    ()
-  })
+  with d = Deferred[Int] {
+    Fiber.scope(|_| {
+      h = Fiber.fork(|| d.await())
+      Fiber.interrupt(h)
+      Fiber.join(h)
+      ()
+    })
+  }
   ()
 }
 "##,

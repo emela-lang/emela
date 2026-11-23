@@ -288,13 +288,14 @@ import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 fn main() -> Int uses { Async } {
-  Fiber.scope(|s| {
-    a = s.fork(|| [1])
-    d = s.deferred()
-    Deferred.complete(d, ())
-    e = Exit.attempt(|| 3)
-    List.length(Fiber.join(a))
-  })
+  with d = Deferred {
+    Fiber.scope(|s| {
+      a = s.fork(|| [1])
+      d.complete(())
+      e = Exit.attempt(|| 3)
+      List.length(Fiber.join(a))
+    })
+  }
 }
 ",
     );

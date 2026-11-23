@@ -797,8 +797,9 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// Concurrency (spec chapter 11). `Fiber.scope` builds the scope capability's handler (fork and
-/// deferred) and calls the body, and fork wraps the child function. A child runs with the table at
+/// Concurrency (spec chapter 11). `Fiber.scope` builds the scope capability's handler (fork) and
+/// calls the body, and fork wraps the child function. `with d = Deferred` makes the Deferred and
+/// binds a handler value over it (`[task.deferred]`). A child runs with the table at
 /// the `Fiber.scope` call plus the forking capability value as Scope (spec 11.2). attempt wraps a
 /// function with an R into one that calls it with the current table.
 #[test]
@@ -813,15 +814,16 @@ import Std.Deferred.{Deferred}
 effect Log { fn info(msg: String) -> () }
 
 fn main() -> Int uses { Log, Async } {
-  Fiber.scope(|s| {
-    a = s.fork(|| (use Log).info(\"a\"))
-    b = Fiber.fork(|| 2)
-    d = s.deferred()
-    Deferred.complete(d, 1)
-    Fiber.join(a)
-    e = Exit.attempt(|| (use Log).info(\"e\"))
-    Fiber.join(b) + Deferred.await(d)
-  })
+  with d = Deferred {
+    Fiber.scope(|s| {
+      a = s.fork(|| (use Log).info(\"a\"))
+      b = Fiber.fork(|| 2)
+      d.complete(1)
+      Fiber.join(a)
+      e = Exit.attempt(|| (use Log).info(\"e\"))
+      Fiber.join(b) + d.await()
+    })
+  }
 }
 ",
     )]);
@@ -838,9 +840,11 @@ fn main() -> Int uses { Log, Async } {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// `with_permits` is a `with` whose init waits for the permits and whose release gives them back
-/// (`[fiber.semaphore]`); `try_with_permits` takes them first and wraps the value in `Some`.
-/// `offer` and `take` turn a closed queue into the failure `QueueClosed` (`[fiber.queue]`).
+/// The built-in handlers Semaphore and Queue (`[task.semaphore]`, `[task.queue]`): an item makes
+/// the runtime object and binds a handler value over it. The handler member `Permits` waits for
+/// the permits and pairs a `Permit` with the function that gives them back; `TryPermits` takes
+/// them first or fails with `NoPermits`. `offer` and `take` turn a closed queue into the failure
+/// `QueueClosed`.
 #[test]
 fn semaphore_and_queue() {
     let m = lower_files(&[(
@@ -852,30 +856,30 @@ import Std.Queue.{Queue, QueueClosed}
 
 effect Log { fn info(msg: String) -> () }
 
-fn limited(s: Semaphore) -> Int uses { Log, Async } {
-  s.with_permits(2, || {
+fn limited(s: use Semaphore) -> Int uses { Log, Async } {
+  with p = s.Permits(n: 2) {
     (use Log).info(\"in\")
-    1
-  })
+    p.count()
+  }
 }
 
-fn tried(s: Semaphore) -> Option[Int] {
-  s.try_with_permits(1, || s.available())
+fn tried(s: use Semaphore) -> Option[Int] {
+  Semaphore.try_with_permits(s, 1, || s.available())
 }
 
-fn passed(q: Queue[String]) -> String fails QueueClosed uses { Async } {
+fn passed(q: use Queue[String]) -> String fails QueueClosed uses { Async } {
   q.offer(\"x\")
   q.take()
 }
 
 fn main() -> Int fails QueueClosed uses { Log, Async } {
-  Fiber.scope(|_| {
-    s = Fiber.semaphore(2)
-    q = Fiber.queue(1)
-    passed(q)
-    tried(s)
-    limited(s)
-  })
+  with s = Semaphore(permits: 2) {
+    with q = Queue(capacity: 1) {
+      passed(q)
+      tried(s)
+      limited(s)
+    }
+  }
 }
 ",
     )]);
@@ -883,7 +887,7 @@ fn main() -> Int fails QueueClosed uses { Log, Async } {
     let mine: Vec<&str> = out
         .split("\n\n")
         .filter(|f| {
-            ["limited(", "tried(", "passed("]
+            ["fn limited", "fn tried", "fn passed", "fn main("]
                 .iter()
                 .any(|k| f.contains(k))
         })

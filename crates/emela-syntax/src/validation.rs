@@ -14,7 +14,7 @@
 //! - Report what a local fn cannot have (E0150) and a local fn as the last statement of its
 //!   block (E0151).
 
-use rowan::TextRange;
+use rowan::{TextRange, TextSize};
 
 use crate::SyntaxKind::*;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
@@ -131,6 +131,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                     &format!("write `{head}` instead of `implements`"),
                 );
             }
+            missing_handler_bodies(node, out);
         }
         LAMBDA_EXPR => {
             if let Some((_, rewritten, head)) = crate::rewrite::old_lambda(node) {
@@ -660,6 +661,33 @@ fn missing_body(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
 
 fn is_external(node: &SyntaxNode) -> bool {
     has_annotation(node, "external")
+}
+
+/// Only a built-in handler (`@intrinsic`, `[kw.annotation]`) leaves out its body and the block of
+/// its init. Elsewhere the missing `{` is reported as the parser reported it before it read
+/// handlers without a body.
+fn missing_handler_bodies(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let top = node.parent().is_none_or(|p| p.kind() != ITEM_LIST);
+    if top && has_annotation(node, "intrinsic") {
+        return;
+    }
+    let expected = |out: &mut Vec<Diagnostic>, end: TextSize| {
+        error(
+            out,
+            TextRange::empty(end),
+            DiagnosticCode::ExpectedToken,
+            "expected `{`",
+        );
+    };
+    let Some(list) = child_kind(node, ITEM_LIST) else {
+        expected(out, node.text_range().end());
+        return;
+    };
+    for init in list.children().filter(|c| c.kind() == HANDLER_INIT) {
+        if child_kind(&init, BLOCK_EXPR).is_none() {
+            expected(out, init.text_range().end());
+        }
+    }
 }
 
 fn has_annotation(node: &SyntaxNode, name: &str) -> bool {

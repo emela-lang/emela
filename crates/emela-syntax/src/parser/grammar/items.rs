@@ -737,6 +737,8 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
 ///
 /// Type parameters are read on an inner handler too; the type checker reports them (E0460).
 ///
+/// The body, and the block of init, are left out only in a built-in handler (`@intrinsic`).
+///
 /// `handler_item = "init" [ "(" [ params ] ")" ] block | "release" block
 ///               | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block
 ///               | handler_decl`
@@ -760,6 +762,12 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
         handler_effects(p);
     } else {
         p.error(DiagnosticCode::ExpectedToken, "expected `:`");
+    }
+    // A built-in handler (`@intrinsic`) has no body; validation reports a missing body elsewhere
+    // as before (`[kw.annotation]`).
+    if matches!(p.current(), NEWLINE | EOF | R_BRACE) {
+        m.complete(p, HANDLER_DECL);
+        return;
     }
     item_list_in(p, true, |p, m| {
         let kind = if p.at_contextual_kw("init") && matches!(p.nth(1), L_BRACE | L_PAREN) {
@@ -785,7 +793,11 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
         if p.at(L_PAREN) {
             param_list(p);
         }
-        block(p);
+        // The init of a built-in handler declares only its parameters (`[task.background]`);
+        // validation reports a missing block elsewhere.
+        if p.at(L_BRACE) {
+            block(p);
+        }
         m.complete(p, kind);
     });
     m.complete(p, HANDLER_DECL);

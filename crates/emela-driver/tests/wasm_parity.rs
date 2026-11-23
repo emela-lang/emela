@@ -1151,6 +1151,12 @@ fn main() {
         "fiber_queue",
         include_str!("../../emela-codegen-c/tests/programs/fiber_queue.emel"),
     ),
+    // `[task.deferred]`, `[task.queue]`, `[task.semaphore]`: the built-in handlers as items of a
+    // with, Permits and TryPermits, their defects, and dbg of the capabilities.
+    (
+        "builtin_handlers",
+        include_str!("../../emela-codegen-c/tests/programs/builtin_handlers.emel"),
+    ),
     // `[trait.derive]`: derived Encode, Decode, ObjectKey and Shaped, with `@key` and `@tag`.
     (
         "derive_encode_decode",

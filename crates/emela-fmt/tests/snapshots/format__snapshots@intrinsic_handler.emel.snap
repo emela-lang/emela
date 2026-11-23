@@ -1,0 +1,15 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/intrinsic_handler.emel
+---
+@intrinsic
+pub handler Deferred[A]: Deferred[A]
+
+@intrinsic
+pub handler Queue[A](capacity: Int): Queue[A]
+
+@intrinsic
+pub handler Background[E, R]: Spawn[E, R] {
+  init(on_failure: fn(Cause[E]) -> () uses { R })
+}

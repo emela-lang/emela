@@ -241,13 +241,8 @@ enum Std.Cause.CauseKind {
   Interrupt
 }
 
-external enum Std.Deferred.Deferred[A] {
-}
-
-external enum Std.Semaphore.Semaphore {
-}
-
-external enum Std.Queue.Queue[A] {
+error enum Std.Semaphore.NoPermits {
+  NoPermits
 }
 
 error enum Std.Queue.QueueClosed {

@@ -1,52 +1,75 @@
-# Semaphore (`[fiber.semaphore]`): limits how many fibers run a piece of code at the same time.
+# Semaphore (`[task.semaphore]`): limits how many fibers run a piece of code at the same time.
 #
-# Only the `semaphore` operation of `Scope` (or `Fiber.semaphore(n)`) makes one, so it belongs to
-# a scope and cannot leave it (`[fiber.escape]`):
+# `with s = Semaphore(permits: p)` makes a semaphore with `p` permits, and `s` is its capability.
+# Permits are opened with the handler members `Permits` and `TryPermits`: the init takes them and
+# the release gives them back.
 #
-#   Fiber.scope(|_| {
-#     db = Fiber.semaphore(10)
-#     Fiber.map(ids, |id| db.with_permit(|| load(id)))
-#   })
+#   with db = Semaphore(permits: 10) {
+#     Fiber.map(ids, |id| Semaphore.with_permit(db, || load(id)))
+#   }
 #
-# `with_permits`, `try_with_permits` and `available` are built in: the runtime holds the permits
-# and the line of waiting fibers. Lowering turns them into concurrency operations of the Core IR,
-# not rows of the builtin table.
+# The effects and the handler are built in: the runtime holds the permits and the line of waiting
+# fibers. Lowering turns the handler into a handler value whose operations and handler members
+# are concurrency operations of the Core IR. `with_permits` and the others are plain Emela.
 
-## A fixed number of permits. Held by the runtime.
-@external
-pub type Semaphore
+## A fixed number of permits. dbg shows the capability as `<semaphore>`.
+@intrinsic
+pub effect Semaphore {
+  ## Waits until `n` permits are free and takes them; its release gives them back. Waiting
+  ## fibers are served in the order they started to wait.
+  suspend handler Permits(n: Int): Permit
+  ## Takes `n` permits if they are free and no fiber is waiting; otherwise fails with
+  ## `NoPermits`. Its release gives them back. Does not suspend.
+  handler TryPermits(n: Int): Permit fails NoPermits
+  ## The number of permits that no fiber holds. Does not suspend.
+  fn available() -> Int
+}
+
+## Permits held, opened with `Permits` or `TryPermits`.
+@intrinsic
+pub effect Permit {
+  ## How many permits are held.
+  fn count() -> Int
+}
+
+## Makes a semaphore with `permits` permits. `permits` less than 1 is a defect.
+@intrinsic
+pub handler Semaphore(permits: Int): Semaphore
+
+## `TryPermits` could not take the permits without waiting.
+pub error NoPermits
 
 ## Waits for a permit, runs `f`, and gives the permit back however `f` ends. Same as
 ## `with_permits(s, 1, f)`.
-pub fn with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> A
+pub fn with_permit[A, E, R](s: use Semaphore, f: fn() -> A fails E uses { R }) -> A
   fails E
   uses { Async, R } {
   with_permits(s, 1, f)
 }
 
-## Waits until `n` permits are free and takes them, runs `f`, and gives the `n` permits back when
-## `f` ends: with a value, an error, a defect or an interruption. Waiting fibers are served in the
-## order they started to wait.
-@intrinsic
-pub fn with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> A
+## Opens `Permits` of `n`, runs `f` in it, and gives the permits back when `f` ends: with a
+## value, an error, a defect or an interruption.
+pub fn with_permits[A, E, R](s: use Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> A
   fails E
-  uses { Async, R }
+  uses { Async, R } {
+  with _held = s.Permits(n:) { f() }
+}
 
 ## Runs `f` with a permit only if one can be taken without waiting. Same as
 ## `try_with_permits(s, 1, f)`.
-pub fn try_with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> Option[A]
+pub fn try_with_permit[A, E, R](s: use Semaphore, f: fn() -> A fails E uses { R }) -> Option[A]
   fails E
   uses { R } {
   try_with_permits(s, 1, f)
 }
 
-## Takes `n` permits if they are free and no fiber is waiting, runs `f` as `with_permits` does, and
-## returns `Some` of its value. Otherwise returns `None` without running `f`. Does not suspend.
-@intrinsic
-pub fn try_with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> Option[A]
+## Opens `TryPermits` of `n` and runs `f` in it, returning `Some` of its value; returns `None`
+## without running `f` if the permits cannot be taken. If `f` itself fails with `NoPermits`, this
+## returns `None` too.
+pub fn try_with_permits[A, E, R](s: use Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> Option[A]
   fails E
-  uses { R }
-
-## The number of permits that no fiber holds. Does not suspend.
-@intrinsic
-pub fn available(s: Semaphore) -> Int
+  uses { R } {
+  Some(with _held = s.TryPermits(n:) { f() }) escape {
+    NoPermits -> None
+  }
+}
