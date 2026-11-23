@@ -170,16 +170,29 @@ jobs:
             gh run rerun "$run" --repo "$REPO" --failed
           fi
 
-      # On a branch that requires the merge queue, `gh pr merge` adds the pull request to the queue
-      # once the required checks pass ("Merge when ready"); `--auto` and the repository's
-      # auto-merge setting are not needed.
       - name: Add to the merge queue
         if: steps.command.outputs.verb == 'accept'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
-          PR: ${{ github.event.issue.number }}
-        run: gh pr merge "$PR" --repo "$REPO"
+          TARGET: ${{ github.event.issue.number }}
+        run: |
+          # Wait for the required checks, then add the pull request to the merge queue. Calling
+          # `gh pr merge` while a check is pending enables auto-merge, which the repository does
+          # not allow; with every required check passed, it adds the pull request to the queue.
+          sleep 20
+          for _ in $(seq 120); do
+            buckets="$(gh pr checks "$TARGET" --repo "$REPO" --required --json bucket \
+              --jq '[.[].bucket] | unique | join(" ")' 2>/dev/null || true)"
+            case " $buckets " in
+              *" fail "* | *" cancel "*) echo "::error::a required check failed: $buckets"; exit 1 ;;
+              "  " | *" pending "*) ;;
+              *) gh pr merge "$TARGET" --repo "$REPO"; exit 0 ;;
+            esac
+            sleep 15
+          done
+          echo "::error::the required checks did not finish in 30 minutes"
+          exit 1
 
       - name: Report a failure
         if: failure()

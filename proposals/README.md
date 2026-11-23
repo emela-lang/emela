@@ -54,7 +54,7 @@ The language's author decides with a comment on the pull request whose first lin
 - `/reject` closes the pull request with the reasons.
 - CI (`proposal-adopted`, part of the required `ci-ok`) fails on a pull request that adds a proposal until the marker names its head commit. A commit pushed after `/accept` needs a new `/accept`. Nothing else merges a proposal.
 
-After the pull request is closed, the `Proposal record` workflow (`.github/workflows/proposal-record.yml`) opens a pull request with the label `proposal-record` and merges it automatically:
+After the pull request is closed, the `Proposal record` workflow (`.github/workflows/proposal-record.yml`) opens a pull request with the label `proposal-record` and adds it to the merge queue once its checks pass:
 
 - adopted: `scripts/spec.py accept` sets `status: accepted`, `pr` and `decided`, writes the reasons of `/accept` into "Decision", and adds an entry to `spec/history.md` (the date, the proposal's slug and title, and the names of the sections in `touches`)
 - rejected: `scripts/spec.py reject` keeps the proposal as it stood, with `status: rejected` and the reasons in "Decision", in `proposals/rejected/<slug>.md`

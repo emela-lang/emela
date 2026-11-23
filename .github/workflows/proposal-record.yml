@@ -1,7 +1,8 @@
 name: Proposal record
 
 # Records the author's decision on a proposal once its pull request (label `proposal`) is closed,
-# in a pull request of its own (label `proposal-record`) that is merged automatically:
+# in a pull request of its own (label `proposal-record`), which it adds to the merge queue once
+# its checks pass:
 #
 # - merged (`/accept`): `scripts/spec.py accept` sets `status: accepted`, `pr` and `decided`,
 #   writes the reasons of the `/accept` comment into "Decision", and adds the entry to
@@ -117,7 +118,7 @@ jobs:
           python3 scripts/spec.py check
           echo "MESSAGE=docs(proposal): $SLUG の却下を記録する" >> "$GITHUB_ENV"
 
-      - name: Open the record and merge it automatically
+      - name: Open the record
         if: steps.decision.outputs.verb != ''
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -145,9 +146,31 @@ jobs:
               --head "$branch" --label proposal-record --title "$MESSAGE" \
               --body "Records the $what of \`$SLUG\` (#$PR) decided by the language's author. Opened and merged by the \`Proposal record\` workflow.")"
           fi
-          # The merge queue takes it once `ci-ok` passes ("Merge when ready"; see proposal-decision.yml).
-          gh pr merge "$url" --repo "$REPO"
           gh pr comment "$PR" --repo "$REPO" --body "The $what is recorded in $url."
+          echo "TARGET=$url" >> "$GITHUB_ENV"
+
+      - name: Add the record to the merge queue
+        if: steps.decision.outputs.verb != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Wait for the required checks, then add the pull request to the merge queue. Calling
+          # `gh pr merge` while a check is pending enables auto-merge, which the repository does
+          # not allow; with every required check passed, it adds the pull request to the queue.
+          sleep 20
+          for _ in $(seq 120); do
+            buckets="$(gh pr checks "$TARGET" --repo "$REPO" --required --json bucket \
+              --jq '[.[].bucket] | unique | join(" ")' 2>/dev/null || true)"
+            case " $buckets " in
+              *" fail "* | *" cancel "*) echo "::error::a required check failed: $buckets"; exit 1 ;;
+              "  " | *" pending "*) ;;
+              *) gh pr merge "$TARGET" --repo "$REPO"; exit 0 ;;
+            esac
+            sleep 15
+          done
+          echo "::error::the required checks did not finish in 30 minutes"
+          exit 1
 
       - name: Report a failure
         if: failure()
