@@ -1,11 +1,13 @@
 ---
 title: Std.Tcp, a TCP client as a platform effect
 authors: [Alliana]
-status: draft
+status: accepted
 issue:
 touches: [lib.layers, api.std.process, api.std.tcp (new), target.wasm.output, target.wasm.run, target.wasm.external]
 requires: []
 related: [js-host-variable]
+pr: 563
+decided: 2026-11-24
 ---
 
 # Std.Tcp, a TCP client as a platform effect
@@ -197,3 +199,5 @@ None. The defects have messages and no codes. Calling `upgrade_tls` on native is
 ## Open questions
 
 ## Decision
+
+TCP lets protocols such as PostgreSQL and Redis be written as Pomes in pure Emela that run on JS, native and WASM, instead of through libraries of one host. Upgrading an open connection in place covers both the protocols that negotiate TLS after a plaintext exchange and those that start with TLS, with one operation. Taking the verification as a value lets a library map the trust settings of a connection string directly, and keeps turning verification off visible in the code. Refusing to upgrade when unread bytes are held closes the injection hole of STARTTLS. Bundling TLS in the WASM component keeps the three kinds of `Verify` on every target that has TLS, as the prototype showed. `SystemTcp` requires ProcessHost and is bundled in `Process`, since a page of a web browser has no TCP. TLS on native and listening are left to later proposals.
