@@ -5,7 +5,7 @@ status: draft
 pr: 732
 issue: 719
 decided:
-touches: [glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.fork, type.rules, open.next, diag.list]
+touches: [glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.deferred, fiber.semaphore, fiber.queue, api.std.fiber, type.rules, open.next, diag.list]
 requires: [effect-alias]
 related: [closure-r-by-caller, capability-type, capability-trait, handler-member, handler-init-arguments, capture-checking, scope-handle-values]
 ---
