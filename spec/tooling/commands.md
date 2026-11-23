@@ -45,12 +45,12 @@ Starting the program:
 - Before starting the program, `run` writes one line ``running `<command>` `` to standard error, for every build target. The line comes after the diagnostics and before any output of the program. It is not written when the program is not started (an error in the diagnostics, the JS host too old (E0904), or wasmtime too old (E0909)). When the command is written but cannot be started (the JS host or the executable not found), the diagnostic about it follows the line.
 - `<command>` is the program that is started followed by its arguments, separated by single spaces: the JS host with its options for `js`, the executable `main` for `native`, and wasmtime with its options for `wasm` (`[target.wasm.output]`), each followed by the arguments after `--`.
 - Each word is written as is when it is not empty and consists only of ASCII letters, digits and the characters `-_./=:@%+,`. Otherwise it is enclosed in single quotes, and each `'` inside it is written as `'\''`. Pasting the line into a POSIX shell starts the same command.
-- For `js`, the module that the JS host runs with `-e` to load the entry is written as `<launcher>` (``running `node --input-type=module -e <launcher> -- target/emela/js/main.mjs` ``). This word alone does not follow the quoting rule above.
+- For `js`, the command is the JS host followed by the path of `main.mjs`, or of `serve.mjs` for an HTTP service (``running `node target/emela/js/main.mjs` ``).
 
 Running the program (JS):
 
 - For an HTTP service, `run` runs `serve.mjs` (`[target.js.module]`) with the JS host with the arguments after `--`, instead of what follows.
-- `run` loads the entry module and calls the exported `main` with no arguments. The return value of `main` is discarded, except that when the return type of `main` is `ExitCode` the program exits with its exit code. Arguments to the program are passed after `--` as arguments of the JS host, and the launcher passes them to the runtime, where `Args.list` of SystemArgs returns them (`[api.std.process]`).
+- `run` starts the JS host with `main.mjs` followed by the arguments after `--`, and `main.mjs` launches `main` (`[target.js.module]`). The return value of `main` is discarded, except that when the return type of `main` is `ExitCode` the program exits with its exit code. The rest of this part applies equally when the JS host is started with `main.mjs` without `emela`.
 - A `main` that can suspend is awaited on the event loop until it finishes.
 - The standard error output and exit code when execution stops are as follows. The exit code is determined after writing to standard error finishes (writes to a pipe are not cut off midway).
 
