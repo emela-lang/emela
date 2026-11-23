@@ -22,6 +22,7 @@ suspend fn fetch_text(url: String) -> String
 
 - The parameter types and the return type are always written. The compiler cannot see inside the function, so it does not infer them.
 - A type parameter of an `@external` fn follows the rule of `[fn.decl]` for type parameters that do not appear in the type (W0305). Type parameters do not exist at run time, so one that does not appear in the type distinguishes nothing on the host side either.
+- An `@external` fn MUST NOT be pub (E0237). Other modules reach the host through the handlers of its module, an effect and a handler that the module declares for them, or, for a function declared with `uses {}`, a fn that calls it (`[effect.external]`).
 - One `@external` is written per language. A fn MAY have annotations for several languages. Two annotations for the same language on the same fn is a compile error (E0139).
 - The arguments of `@external` on a fn have the form `(language, "name")` or `(language, "file", "name")` only (E0138). The language names the language of the code that is linked with: `js`, `wasm` or `c` (E0140). The strings cannot contain interpolation.
 - Each build target uses one language. An annotation takes effect when its language is the language of the build target.
@@ -49,12 +50,12 @@ suspend fn fetch_text(url: String) -> String
 | Declaration | Meaning | What a call adds to R |
 |---|---|---|
 | `uses {}` written explicitly | Declares that the function is pure | Nothing |
-| `uses` omitted | Has host side effects | The External of the module where the call is written (`[effect.external]`) |
-| host effects in `uses` (`uses { ProcessHost }`) | Has host side effects, and works only on that host (`[effect.host]`) | The External of the module where the call is written, and those host effects |
-| `suspend fn` | Needs to wait for completion | Async, the External of the module where the call is written (even with `uses {}`), and the host effects in its uses |
+| `uses` omitted | Has host side effects | The External of its module (`[effect.external]`) |
+| host effects in `uses` (`uses { ProcessHost }`) | Has host side effects, and works only on that host (`[effect.host]`) | The External of its module, and those host effects |
+| `suspend fn` | Needs to wait for completion | Async, the External of its module (even with `uses {}`), and the host effects in its uses |
 
 - The compiler cannot verify that a `uses {}` declaration is correct. The person who declares it is responsible for it.
-- Every external function, except one declared with `uses {}` that is not a `suspend fn`, has in its type the External of the module that names it (`[effect.external]`). External is not written in its uses clause.
+- Every external function, except one declared with `uses {}` that is not a `suspend fn`, has in its type the External of the module that declares it (`[effect.external]`). External is not written in its uses clause.
 - An external function can be called and referred to anywhere. What it requires is in R: External, which only the bodies of the handlers of the module remove, and the host effects and Async, which only the entry provides. A function value that refers to it can be carried wherever its type allows, and called only where its R is provided, so only inside the handlers of the module when it adds External (`[effect.external]`).
 - An external function declared with `uses {}` that is not a `suspend fn` adds nothing, and can be called anywhere.
 - An external function declared as `suspend fn` adds External and Async even when `uses {}` is written.
@@ -87,7 +88,7 @@ Only the following types can be used for the parameters and the return value of 
 
 List and user-defined types cannot be passed directly. They are converted inside a handler.
 
-- The R of a function type in a boundary type (a callback) MUST NOT contain an effect other than the host effects (`[effect.host]`), and, for a function passed at a call of the external function, the External of the module where the call is written (`[effect.external]`). A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E0454). The R may contain capabilities; a callback reaches a handler only through a capability it captures (8.2), since the host calls it without passing handlers.
+- The R of a function type in a boundary type (a callback) MUST NOT contain an effect other than the host effects (`[effect.host]`), and, for a function passed at a call of the external function, the External of the module of the external function (`[effect.external]`). A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E0454). The R may contain capabilities; a callback reaches a handler only through a capability it captures (8.2), since the host calls it without passing handlers.
 - The parameters and return value of a function passed as a callback are treated the same as the parameters and return value of an external function (a String received from the host is normalized as in 12.5).
 - An external function that returns `()` discards the host's return value and returns `()`.
 - A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.
