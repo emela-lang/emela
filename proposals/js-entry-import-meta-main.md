@@ -1,11 +1,13 @@
 ---
 title: Telling the entry module of the JS host with import.meta.main
 authors: [Allianaab2m]
-status: draft
+status: accepted
 issue:
 touches: [target.js.module]
 requires: [js-direct-entry]
 related: []
+pr: 829
+decided: 2026-11-23
 ---
 
 # Telling the entry module of the JS host with import.meta.main
@@ -80,3 +82,9 @@ The bullet on the entry module is replaced with:
 - Entry-module detection through a property of the module itself, set by the host for the module it was started with, instead of reading the command line.
 
 ## Open questions
+
+## Decision
+
+`js-direct-entry` said both that importing `main.mjs` does not launch `main` and that `main.mjs` is the entry module when the real path of `process.argv[1]` is its path. The two disagree when the JS host evaluates code that imports `main.mjs` with the path of `main.mjs` after it (`node -e 'import("./main.mjs")' main.mjs`): `main` was launched.
+
+`import.meta.main` is set by the JS host for the module it was started with, so it tells these apart without reading the options of the JS host. The path comparison stays only for JS hosts that do not define `import.meta.main`, so the older releases of Node 22 that `[target]` supports keep working.
