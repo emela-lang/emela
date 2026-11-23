@@ -377,7 +377,12 @@ impl BodyInfer<'_> {
                 for entry in entries {
                     if let Some(h) = entry.handler() {
                         let fails = self.handler_init_fails(h);
-                        row.extend(&crate::layer::instantiate_row(&fails, &entry.ty_args));
+                        let fails = self.instantiate_facts(
+                            fails,
+                            &entry.ty_args,
+                            crate::row::SetKind::Errors,
+                        );
+                        row.extend(&fails);
                     }
                 }
                 // Opening a handler member fails as its init may (`[type.rules]`).

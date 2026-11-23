@@ -405,7 +405,10 @@ impl BodyInfer<'_> {
         let deps: Vec<Row> = entries
             .iter()
             .map(|e| match &e.supplier {
-                Supplier::Handler(h) => layer::instantiate_row(&self.handler_deps(*h), &e.ty_args),
+                Supplier::Handler(h) => {
+                    let deps = self.handler_deps(*h);
+                    self.instantiate_facts(deps, &e.ty_args, SetKind::Effects)
+                }
                 Supplier::Effect(t) => Row::of_tag(t.clone()),
                 Supplier::Member { .. } => Row::empty(),
             })

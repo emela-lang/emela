@@ -137,6 +137,35 @@ impl BodyInfer<'_> {
         }
     }
 
+    /// requires(H) (`uses`) or the E of init (`fails`) of `handler`, instantiated with the type
+    /// arguments of an item (`[type.rules]`). For a handler of an earlier group the set is known
+    /// and its type parameters are replaced. For one of this group it is a set variable not
+    /// solved yet: a fresh set variable stands for it, which contains its solution with the type
+    /// arguments placed once solved, as for a reference to a definition of the same group
+    /// (`InstanceSet`).
+    pub(super) fn instantiate_facts(
+        &mut self,
+        facts: Row,
+        ty_args: &[Ty],
+        kind: crate::row::SetKind,
+    ) -> Row {
+        if ty_args.is_empty() {
+            return facts;
+        }
+        if facts.vars().next().is_none() {
+            return crate::layer::instantiate_row(&facts, ty_args);
+        }
+        let v = self.ctx.new_row_var();
+        self.instance_sets.push(super::InstanceSet {
+            inferred: facts,
+            instance: v,
+            kind,
+            args: ty_args.to_vec(),
+            rows: Vec::new(),
+        });
+        Row::var(v)
+    }
+
     /// Unifies the effect of the handler with type parameters on the right of `by` that serves
     /// the label `label` with the underlying effect of the label (`[effect.label]`). A label has
     /// no type parameters, so its underlying effect fits in one way only.

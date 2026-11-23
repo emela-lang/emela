@@ -425,3 +425,40 @@ fn mismatch() { with Constant[Int](value: "a") { () } }
 "#
     ));
 }
+
+/// A handler with type parameters and a `with` that lists it in the same group of definitions
+/// that refer to each other: its requirements are not solved yet when the item is inferred, and
+/// are placed with the item's type arguments once solved (`[type.rules]`).
+#[test]
+fn same_group() {
+    insta::assert_snapshot!(render(
+        r#"
+import Std.State.{State}
+
+handler Pass[S]: State[S] {
+  fn get() {
+    _ = helper()
+    st <- State[S]
+    st.get()
+  }
+
+  fn set(value) {
+    st <- State[S]
+    st.set(value)
+  }
+
+  fn update(f) {
+    st <- State[S]
+    st.update(f)
+  }
+}
+
+fn helper() -> Int {
+  (n, _) = State.run(1, || with x = Pass { 0 })
+  n
+}
+
+fn outside() -> Int { helper() }
+"#
+    ));
+}
