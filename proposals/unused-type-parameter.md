@@ -1,7 +1,7 @@
 ---
 title: Warn about type parameters of a fn that its signature does not use
 authors: [Alliana]
-status: accepted
+status: implemented
 issue:
 touches: [fn.decl, trait.decl, ext.decl, diag.list, lsp.code-action]
 requires: []
@@ -99,7 +99,7 @@ warning[W0305]: type parameter `A` of `f` does not appear in its signature
 
 ## Diagnostics
 
-- [ ] W0305: new. A type warning, so it is in W03xx (`[diag.bands]`). W0305 is not used in `[diag.list]`, `proposals/`, the local drafts or `crates/`.
+- [x] W0305: new. A type warning, so it is in W03xx (`[diag.bands]`). W0305 is not used in `[diag.list]`, `proposals/`, the local drafts or `crates/`.
 
 ## Compatibility
 

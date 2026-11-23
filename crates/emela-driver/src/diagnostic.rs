@@ -858,6 +858,18 @@ impl Diagnostic {
                     format!("the value of type `{ty}` returned by `main` is discarded"),
                 )
             }
+            TypeDiagnosticKind::UnusedTypeParam { param, function } => {
+                help = Some(format!(
+                    "a call cannot determine `{param}`; remove it, or use it in a parameter, the return type, `fails` or `uses`"
+                ));
+                (
+                    Severity::Warning,
+                    Some(code::UNUSED_TYPE_PARAM),
+                    format!(
+                        "type parameter `{param}` of `{function}` does not appear in its signature"
+                    ),
+                )
+            }
             TypeDiagnosticKind::UnreachableArm => (
                 Severity::Warning,
                 Some(code::UNREACHABLE_MATCH_ARM),

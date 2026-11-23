@@ -132,6 +132,8 @@ pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_DERIVE: &str = "W0303";
 /// `[dyn.error]`: the entry's `main` returns a type other than `()`, `ExitCode` and Never.
 pub const MAIN_VALUE_DISCARDED: &str = "W0304";
+/// `[fn.decl]`: a type parameter of a fn does not appear in the type of the fn.
+pub const UNUSED_TYPE_PARAM: &str = "W0305";
 pub const UNUSED_LABEL_PROVIDER: &str = "W0401";
 /// `[effect.escape]`, `[fiber.escape]`: a value that holds a root leaves the `with` or the
 /// `Fiber.scope` that provides it. E0444 with the experimental feature `capture-checking`.
