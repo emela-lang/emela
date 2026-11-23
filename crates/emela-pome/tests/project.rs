@@ -514,3 +514,98 @@ fn dev_dependencies_share_the_selection_and_are_marked() {
         ["github.com/acme/d@v1.1.0", "github.com/acme/router@v0.1.0"]
     );
 }
+
+/// Records the progress of a command as lines.
+#[derive(Clone, Default)]
+struct Recorder(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+impl Recorder {
+    fn take(&self) -> Vec<String> {
+        std::mem::take(&mut self.0.lock().unwrap())
+    }
+}
+
+impl emela_pome::fetch::progress::Progress for Recorder {
+    fn start(&self, phase: emela_pome::fetch::progress::Phase, total: Option<usize>) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("start {phase:?} {total:?}"));
+    }
+    fn step(&self, step: emela_pome::fetch::progress::Step<'_>) {
+        use emela_pome::fetch::progress::Step;
+        let line = match step {
+            Step::Latest(p) => format!("latest {p}"),
+            Step::Manifest(p, v) => format!("manifest {p} {v}"),
+            Step::Fetch(p, v) => format!("fetch {p} {v}"),
+        };
+        self.0.lock().unwrap().push(line);
+    }
+    fn fetched(&self, path: &emela_pome::SourcePath, version: &emela_pome::Version) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("fetched {path} {version}"));
+    }
+    fn finish(&self, phase: emela_pome::fetch::progress::Phase, count: usize) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("finish {phase:?} {count}"));
+    }
+}
+
+#[test]
+fn update_reports_its_phases_and_what_it_fetched() {
+    let d = dirs();
+    let r = registry();
+    let recorder = Recorder::default();
+    let f = fetcher(&r, &d.cache, &d.repos).with_progress(recorder.clone());
+    let dir = d.repos.join("app");
+    app(&dir, "\"github.com/acme/router\" = \"v0.1.0\"\n");
+    let mut project = Project::find(&dir).unwrap();
+    project.install(&f).unwrap();
+    recorder.take();
+
+    project.update(&f, None).unwrap();
+    // How often the graph walk reads a `Pome.toml` is up to the walk; which ones it reads is not.
+    let (manifests, events): (Vec<String>, Vec<String>) = recorder
+        .take()
+        .into_iter()
+        .partition(|e| e.starts_with("manifest "));
+    assert_eq!(
+        manifests
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        [
+            "manifest github.com/acme/d v1.2.0".to_string(),
+            "manifest github.com/acme/router v0.2.0".to_string()
+        ]
+        .into()
+    );
+    assert_eq!(
+        events,
+        [
+            "start Latest Some(1)",
+            "latest github.com/acme/router",
+            "finish Latest 1",
+            "start Resolve None",
+            "finish Resolve 2",
+            "start Fetch Some(2)",
+            "fetch github.com/acme/d v1.2.0",
+            "fetched github.com/acme/d v1.2.0",
+            "fetch github.com/acme/router v0.2.0",
+            "fetched github.com/acme/router v0.2.0",
+            "finish Fetch 2",
+        ]
+    );
+
+    // Nothing new: the cache has every version, so nothing is fetched.
+    project.install(&f).unwrap();
+    let events = recorder.take();
+    assert!(
+        !events.iter().any(|e| e.starts_with("fetched")),
+        "{events:?}"
+    );
+    assert_eq!(events.last().map(String::as_str), Some("finish Fetch 2"));
+}

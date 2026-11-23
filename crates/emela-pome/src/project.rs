@@ -10,6 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::edit;
+use crate::fetch::progress::Phase;
 use crate::fetch::transport::Transport;
 use crate::fetch::{FetchError, Fetcher};
 use crate::hash::MANIFEST_FILE;
@@ -166,7 +167,12 @@ impl Project {
         }
         let version = match version {
             Some(v) => v,
-            None => fetcher.latest(&path)?,
+            None => {
+                fetcher.progress().start(Phase::Latest, Some(1));
+                let latest = fetcher.latest(&path)?;
+                fetcher.progress().finish(Phase::Latest, 1);
+                latest
+            }
         };
         if dev && self.manifest.dependencies.contains_key(&path) {
             return Err(PomeError::Usage(format!(
@@ -288,8 +294,15 @@ impl Project {
         };
         let mut text = self.text.clone();
         let mut changes = Vec::new();
-        for (path, current, dev) in targets {
-            let latest = fetcher.latest(path)?;
+        let asked = targets.len();
+        fetcher.progress().start(Phase::Latest, Some(asked));
+        let mut latests = Vec::with_capacity(asked);
+        for target in targets {
+            let latest = fetcher.latest(target.0)?;
+            latests.push((target, latest));
+        }
+        fetcher.progress().finish(Phase::Latest, asked);
+        for ((path, current, dev), latest) in latests {
             if latest > *current {
                 let table = if dev {
                     edit::DEV_DEPENDENCIES
@@ -446,13 +459,18 @@ pub fn resolve<T: Transport>(
         .cloned()
         .chain(pairs(&manifest.dev_dependencies))
         .collect();
+    let progress = fetcher.progress();
+    progress.start(Phase::Resolve, None);
     let list = mvs::build_list(&all, &mut graph)?;
     let built = mvs::reached(&requirements, &list, &mut graph)?;
+    let list: Vec<(SourcePath, Version)> = list
+        .into_iter()
+        .filter(|(path, _)| *path != manifest.name && !manifest.replace.contains_key(path))
+        .collect();
+    progress.finish(Phase::Resolve, list.len());
+    progress.start(Phase::Fetch, Some(list.len()));
     let mut pomes = Vec::new();
     for (path, version) in list {
-        if path == manifest.name || manifest.replace.contains_key(&path) {
-            continue;
-        }
         let locked = match old
             .and_then(|l| l.get(&path))
             .filter(|l| l.version == version)
@@ -477,6 +495,7 @@ pub fn resolve<T: Transport>(
             ..locked
         });
     }
+    progress.finish(Phase::Fetch, pomes.len());
     Ok(Lock::new(pomes))
 }
 

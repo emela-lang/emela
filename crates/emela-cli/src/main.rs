@@ -8,9 +8,9 @@
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use emela_driver::{
-    Analysis, Backend, CoreC, CoreJs, CoreWasm, Diagnostic, DoctorFormat, FileSystem, Input, Lower,
-    LowerTests, MemoryFiles, OsFs, Output, Reporter, RunOptions, SourceDb, Target, TestBackend,
-    TestModule, TestOptions, Typecheck,
+    Analysis, Backend, BuildOutput, CoreC, CoreJs, CoreWasm, Diagnostic, DoctorFormat, FileSystem,
+    Input, Lower, LowerTests, MemoryFiles, OsFs, Output, Reporter, RunOptions, Runner, SourceDb,
+    Target, TestBackend, TestModule, TestOptions, Typecheck,
 };
 use std::ffi::OsString;
 use std::io::{IsTerminal, Read, Write};
@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 mod pome;
+mod progress;
 
 /// The version `--version` prints: the workspace version, then `+<short hash>` when built from a
 /// git checkout (see `build.rs`).
@@ -446,7 +447,7 @@ fn build(
             &OsFs,
             &input,
             &mut frontend,
-            &mut CoreC::default(),
+            &mut Native::default(),
             &out_dir,
         ),
         Target::Wasm => emela_driver::build(&OsFs, &input, &mut frontend, &mut CoreWasm, &out_dir),
@@ -475,7 +476,7 @@ fn run(
     };
     match target {
         Target::Js => run_with(&input, &options, target, &mut CoreJs),
-        Target::Native => run_with(&input, &options, target, &mut CoreC::default()),
+        Target::Native => run_with(&input, &options, target, &mut Native::default()),
         Target::Wasm => run_with(&input, &options, target, &mut CoreWasm),
     }
 }
@@ -551,7 +552,7 @@ fn test(
     };
     match target {
         Target::Js => test_with(&input, &options, target, &mut CoreJs),
-        Target::Native => test_with(&input, &options, target, &mut CoreC::default()),
+        Target::Native => test_with(&input, &options, target, &mut Native::default()),
         Target::Wasm => test_with(&input, &options, target, &mut CoreWasm),
     }
 }
@@ -787,6 +788,76 @@ fn resolve_input(
         }
     }
     Some(input)
+}
+
+/// [`CoreC`] with progress while the C compiler runs: the only slow step of a native build.
+/// The status line lives inside `finish`, so it is gone before the diagnostics and the program
+/// write anything.
+#[derive(Default)]
+struct Native(CoreC);
+
+impl Native {
+    fn compile(
+        &mut self,
+        finish: impl FnOnce(&mut CoreC) -> Result<PathBuf, Vec<Diagnostic>>,
+    ) -> Result<PathBuf, Vec<Diagnostic>> {
+        let cc = emela_driver::cc_command().0;
+        let cc = cc.display();
+        let line = progress::StatusLine::stderr();
+        let started = std::time::Instant::now();
+        line.set(format!("compiling C with {cc}"));
+        let built = finish(&mut self.0);
+        if built.is_ok() {
+            line.keep(&format!(
+                "compiled C with {cc} ({})",
+                progress::seconds(started.elapsed())
+            ));
+        }
+        built
+    }
+}
+
+impl<P> Backend<P> for Native
+where
+    CoreC: Backend<P>,
+{
+    fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<BuildOutput, Vec<Diagnostic>> {
+        self.0.emit(program, analysis)
+    }
+
+    fn finish(&mut self, out_dir: &Path, entry: PathBuf) -> Result<PathBuf, Vec<Diagnostic>> {
+        self.compile(|c| Backend::<P>::finish(c, out_dir, entry))
+    }
+
+    fn runner(&self) -> Runner {
+        Backend::<P>::runner(&self.0)
+    }
+}
+
+impl<P> TestBackend<P> for Native
+where
+    CoreC: TestBackend<P>,
+{
+    fn test_names(&self, program: &P) -> Vec<String> {
+        self.0.test_names(program)
+    }
+
+    fn emit_tests(
+        &mut self,
+        program: &P,
+        selected: &[usize],
+        analysis: &Analysis,
+    ) -> Result<BuildOutput, Vec<Diagnostic>> {
+        self.0.emit_tests(program, selected, analysis)
+    }
+
+    fn finish(&mut self, out_dir: &Path, entry: PathBuf) -> Result<PathBuf, Vec<Diagnostic>> {
+        self.compile(|c| TestBackend::<P>::finish(c, out_dir, entry))
+    }
+
+    fn runner(&self) -> Runner {
+        TestBackend::<P>::runner(&self.0)
+    }
 }
 
 /// Returns 1 if there are errors.
