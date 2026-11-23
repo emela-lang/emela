@@ -265,7 +265,7 @@ fn hover_type(
     }
     // Handler names (spec 8.4).
     if let Some((def, data)) = def
-        && let Some(text) = handler_text(program, def)
+        && let Some(text) = handler_text(program, def, None)
     {
         return Some(HoverInfo {
             range: data.span?.range,
@@ -290,6 +290,14 @@ fn hover_type(
             contents: code(&text),
         });
     }
+    // A handler with type parameters named at an item of a `with`, of a layer or on the right
+    // of `by`: with the type arguments of that item (`[lsp.hover]`).
+    if let Some((range, text)) = item_handler(program, module, offset) {
+        return Some(HoverInfo {
+            range,
+            contents: code(&text),
+        });
+    }
     if let Some((range, text)) = hir.refs.iter().find_map(|r| match r.target {
         RefTarget::Def(def) if r.span.module == module && contains(r.span.range) => {
             Some((r.span.range, label_text(program, def)?))
@@ -302,12 +310,15 @@ fn hover_type(
         });
     }
 
-    // Type parameters of the enclosing definition (names of `Bound(i)` in body types).
+    // Type parameters of the enclosing definition (names of `Bound(i)` in body types): those of
+    // a handler in its bodies (`self: Memory[S]`, `[lsp.hover]`).
     let owner = enclosing_def(program, module, offset);
-    let params: Vec<TyParam> = owner
-        .and_then(|def| types.sigs.get(def))
-        .map(|sig| sig.scheme.params.clone())
-        .unwrap_or_default();
+    let params: Vec<TyParam> = match owner.and_then(|def| types.sigs.get(def)) {
+        Some(sig) => sig.scheme.params.clone(),
+        None => enclosing_handler(program, module, offset)
+            .map(|h| types.ty_table.handler_params(h).to_vec())
+            .unwrap_or_default(),
+    };
 
     // Local binding sites (parameters, binding patterns).
     let local = hir
@@ -390,14 +401,38 @@ fn hover_type(
 /// has parameters (`[effect.handler]`) or an E (part of the with's E, spec 9.4), and `uses { R }` if
 /// it has dependencies (shows whether Async remains, spec 8.7). `None` if `def` is not a
 /// handler.
-pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String> {
+///
+/// A handler with type parameters is `handler Memory[S](value: S): State[S]`, or with the type
+/// arguments of an item (`item`, already displayable) substituted,
+/// `handler Memory[Int](value: Int): State[Int]` (`[lsp.hover]`).
+pub(crate) fn handler_text(
+    program: &TypedProgram,
+    def: DefId,
+    item_args: Option<&[emela_types::Ty]>,
+) -> Option<String> {
     let hir = &program.hir;
     let types = &program.types;
     let cons = &types.ty_table.cons;
     let Some(Item::Handler(item)) = hir.item(def) else {
         return None;
     };
+    let own = types.ty_table.handler_params(def);
+    let bound: &[TyParam] = types
+        .ty_table
+        .con(def)
+        .map_or(&[], |c| types.ty_table.cons[c].params.as_slice());
     let mut text = format!("handler {}", hir.defs[def].name);
+    let inst = |ty: &emela_types::Ty| match item_args {
+        Some(args) => emela_types::substitute_bound(ty, args),
+        None => ty.clone(),
+    };
+    if !own.is_empty() {
+        let names: Vec<String> = match item_args {
+            Some(args) => args.iter().map(|t| t.display(cons).to_string()).collect(),
+            None => own.iter().map(|p| p.name.to_string()).collect(),
+        };
+        text.push_str(&format!("[{}]", names.join(", ")));
+    }
     let ctor_ty = item
         .ctor
         .and_then(|ctor| types.sigs.get(ctor))
@@ -407,7 +442,14 @@ pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String>
         let fields: Vec<String> = labels
             .iter()
             .zip(&f.params)
-            .map(|(l, ty)| format!("{}: {}", l.as_deref().unwrap_or("_"), ty.display(cons)))
+            .map(|(l, ty)| {
+                let ty = inst(ty);
+                format!(
+                    "{}: {}",
+                    l.as_deref().unwrap_or("_"),
+                    ty.display_with(cons, bound)
+                )
+            })
             .collect();
         text.push_str(&format!("({})", fields.join(", ")));
     }
@@ -426,8 +468,8 @@ pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String>
                 .iter()
                 .find(|t| t.def == effect);
             Some(match tag {
-                Some(tag) => Row::of_tag(tag.clone())
-                    .display_effects(cons, &[])
+                Some(tag) => Row::of_tag(tag.map_args(inst))
+                    .display_effects(cons, bound)
                     .to_string(),
                 None => hir.defs[effect].name.to_string(),
             })
@@ -442,7 +484,14 @@ pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String>
             .labels
             .iter()
             .zip(&p.tys)
-            .map(|(l, ty)| format!("{}: {}", l.as_deref().unwrap_or("_"), ty.display(cons)))
+            .map(|(l, ty)| {
+                let ty = inst(ty);
+                format!(
+                    "{}: {}",
+                    l.as_deref().unwrap_or("_"),
+                    ty.display_with(cons, bound)
+                )
+            })
             .collect();
         format!("({})", params.join(", "))
     });
@@ -461,9 +510,163 @@ pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String>
     if let Some(deps) = types.handler_uses.get(def)
         && !deps.is_empty()
     {
-        text.push_str(&format!("\nuses {}", deps.display_uses(cons, &[])));
+        let deps = deps.map_tys(inst);
+        text.push_str(&format!("\nuses {}", deps.display_uses(cons, bound)));
     }
     Some(text)
+}
+
+/// The handler with type parameters named at an item of a `with`, of a layer or on the right of
+/// `by` under `offset`, with the range of its name and [`handler_text`] for the type arguments of
+/// that item. A type argument generalized into the enclosing definition is shown as its type
+/// parameter (`[effect.with]`).
+fn item_handler(
+    program: &TypedProgram,
+    module: emela_resolve::ModuleId,
+    offset: TextSize,
+) -> Option<(TextRange, String)> {
+    let item = item_args_in(program, module)
+        .into_iter()
+        .find(|i| i.range.contains(offset))?;
+    let args = generalized_args(program, item.owner, &item.args);
+    Some((
+        item.range,
+        handler_text(program, item.handler, Some(&args))?,
+    ))
+}
+
+/// The type arguments `args` of an item in the body of `owner`, with the type variables
+/// generalized into `owner` replaced by its type parameters (`Ty::Bound`).
+pub(crate) fn generalized_args(
+    program: &TypedProgram,
+    owner: Option<DefId>,
+    args: &[emela_types::Ty],
+) -> Vec<emela_types::Ty> {
+    let vars = owner.and_then(|d| program.types.generalized_tys.get(d));
+    args.iter()
+        .map(|t| replace_vars(t, vars.map_or(&[][..], Vec::as_slice)))
+        .collect()
+}
+
+fn replace_vars(ty: &emela_types::Ty, vars: &[(emela_types::TyVar, u32)]) -> emela_types::Ty {
+    match ty {
+        emela_types::Ty::Var(v) => vars
+            .iter()
+            .find(|(w, _)| w == v)
+            .map_or_else(|| ty.clone(), |&(_, i)| emela_types::Ty::Bound(i)),
+        _ => ty.map_children(|c| replace_vars(c, vars)),
+    }
+}
+
+/// An item of a `with`, of a layer or the right of `by` that names a handler with type parameters
+/// (`[effect.with]`).
+pub(crate) struct ItemArgs {
+    pub(crate) handler: DefId,
+    /// The handler's name at the item.
+    pub(crate) range: TextRange,
+    /// The type arguments of the item (`ProgramTypes::with_ty_args`, `layer_ty_args`).
+    pub(crate) args: Vec<emela_types::Ty>,
+    /// The definition whose body has the item; `None` in a layer.
+    pub(crate) owner: Option<DefId>,
+    /// Whether the type arguments are written.
+    pub(crate) written: bool,
+}
+
+/// Every item of a `with`, of a layer or the right of `by` in `module` that names a handler with
+/// type parameters.
+pub(crate) fn item_args_in(
+    program: &TypedProgram,
+    module: emela_resolve::ModuleId,
+) -> Vec<ItemArgs> {
+    let hir = &program.hir;
+    let types = &program.types;
+    let mut out = Vec::new();
+    let generic = |res: Res| match res {
+        Res::Def(d) if !types.ty_table.handler_params(d).is_empty() => Some(d),
+        _ => None,
+    };
+    for (expr, items) in types.with_ty_args.iter() {
+        let e = &hir.exprs[expr];
+        if e.span.module != module {
+            continue;
+        }
+        let emela_resolve::hir::ExprKind::With { handlers, .. } = &e.kind else {
+            continue;
+        };
+        let owner = enclosing_def(program, module, e.span.range.start());
+        for (item, args) in handlers.iter().zip(items) {
+            let (res, span) = match item.by {
+                Some((by, span)) => (by, span),
+                None => (item.res, item.span),
+            };
+            if let Some(def) = generic(res)
+                && !args.is_empty()
+            {
+                let range = TextRange::at(
+                    span.range.start(),
+                    TextSize::of(hir.defs[def].name.as_str()),
+                );
+                out.push(ItemArgs {
+                    handler: def,
+                    range,
+                    args: args.clone(),
+                    owner,
+                    written: !item.supplier_ty_args().is_empty(),
+                });
+            }
+        }
+    }
+    for (layer, members) in types.layer_ty_args.iter() {
+        let Some(Item::Layer(l)) = hir.item(layer) else {
+            continue;
+        };
+        for (m, args) in l.members.iter().zip(members) {
+            if m.span.module != module {
+                continue;
+            }
+            if let Some(def) = generic(m.res)
+                && !args.is_empty()
+            {
+                out.push(ItemArgs {
+                    handler: def,
+                    range: m.span.range,
+                    args: args.clone(),
+                    owner: None,
+                    written: !m.ty_args.is_empty(),
+                });
+            }
+        }
+    }
+    out
+}
+
+/// The handler whose init, release or operation bodies contain `offset`; the innermost one for
+/// an inner handler.
+fn enclosing_handler(
+    program: &TypedProgram,
+    module: emela_resolve::ModuleId,
+    offset: TextSize,
+) -> Option<DefId> {
+    let hir = &program.hir;
+    let inside = |e: emela_resolve::hir::ExprId| {
+        let span = hir.exprs[e].span;
+        span.module == module && span.range.contains(offset)
+    };
+    hir.defs
+        .iter()
+        .filter_map(|(def, _)| match hir.item(def) {
+            Some(Item::Handler(h)) => {
+                let mut bodies = h.init.into_iter().chain(h.release.map(|(_, b)| b));
+                let hit = bodies.any(inside) || h.ops.iter().filter_map(|o| o.body).any(inside);
+                hit.then_some(def)
+            }
+            _ => None,
+        })
+        .min_by_key(|&def| {
+            hir.defs[def]
+                .span
+                .map_or(u32::MAX.into(), |s| s.range.len())
+        })
 }
 
 /// `layer L { handlers in initialization order }`, plus `uses { R }` for dependencies unmet inside

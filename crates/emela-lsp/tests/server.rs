@@ -1513,6 +1513,82 @@ fn hover_shows_effect_type_args() {
     client.shutdown();
 }
 
+/// Handlers with type parameters (`[lsp.hover]`, `[lsp.inlay-hint]`): the declaration shows its
+/// type parameters, an item of a `with`, of a layer or the right of `by` shows them substituted
+/// with the type arguments of that item, `self` has the handler applied to its type parameters,
+/// and type arguments that are not written are shown after the handler's name.
+#[test]
+fn generic_handlers_in_hover_and_inlay_hints() {
+    let src = "effect Cell[S] {
+  fn get() -> S
+}
+
+effect Hits of Cell[Int]
+
+handler Memory[S](value: S): Cell[S] {
+  init(value: S) { Memory(value:) }
+  fn get() { self.value }
+}
+
+layer Both {
+  Memory(value: \"a\")
+}
+
+fn read() -> Int uses { Cell[Int] } {
+  c <- Cell[Int]
+  c.get()
+}
+
+fn main() {
+  with Memory(value: 1) { read() }
+  with Memory[Int](value: 2) { read() }
+  with Hits by Memory(value: 3) { () }
+}
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 6, 9)),
+        "```emela\nhandler Memory[S](value: S): Cell[S]\ninit(value: S)\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 8, 14)),
+        "```emela\nself: Memory[S]\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 12, 3)),
+        "```emela\nhandler Memory[String](value: String): Cell[String]\ninit(value: String)\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 21, 8)),
+        "```emela\nhandler Memory[Int](value: Int): Cell[Int]\ninit(value: Int)\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 23, 16)),
+        "```emela\nhandler Memory[Int](value: Int): Cell[Int]\ninit(value: Int)\n```"
+    );
+    let hints: Vec<_> = client
+        .inlay_hints(MAIN)
+        .unwrap()
+        .into_iter()
+        .filter(|h| h.2.starts_with('['))
+        .collect();
+    let hint = |line, col, label: &str| (line, col, label.to_owned(), false);
+    assert_eq!(
+        hints,
+        [
+            hint(12, 8, "[String]"),
+            hint(21, 13, "[Int]"),
+            hint(23, 21, "[Int]"),
+        ]
+    );
+    client.shutdown();
+}
+
 /// A handler of several effects is shown with its effects joined by `+`, and a capability of
 /// several effects as `use A + B` (`[effect.handler]`, `[effect.use]`).
 #[test]
@@ -3273,6 +3349,21 @@ fn completion_in_clauses_and_types() {
         &effects,
         &not_effects,
     );
+    // The effect of a handler with type parameters (`[effect.handler]`).
+    check(
+        at("handler Quiet[A]: $"),
+        &interface,
+        &effects,
+        &not_effects,
+    );
+    check(
+        at("handler Quiet[A](n: A): $"),
+        &interface,
+        &effects,
+        &not_effects,
+    );
+    // A bound of a type parameter of a handler.
+    check(at("handler Quiet[A: $"), &interface, &traits, &not_traits);
     // After `fails`, and after `|` in its error set.
     for line in [
         "fn f() -> Int fails $",
@@ -3313,6 +3404,10 @@ fn completion_in_clauses_and_types() {
         "enum Shape { Dot($",
         "const C: $",
         "  q: $",
+        // The type arguments of an item of `with` and of the right of `by` (`[effect.with]`).
+        "  with Quiet[$",
+        "  with Quiet[Int, $",
+        "  with Audit by Quiet[$",
     ] {
         check(at(line), &type_kinds, &types, &not_types);
     }
