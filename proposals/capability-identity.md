@@ -18,9 +18,9 @@ related: [closure-r-by-caller, capability-type, capability-trait, handler-member
 
 - capability を「init が終わり，まだ release されていない handler（handler の実体）」と定める．with の項目ごとに一つできる．
 - `with x = Item` の x は capability そのもの．型検査は，型と R の中で，どの capability かを区別する．
-- capability の操作を呼ぶと，R にはその capability が入る（`x.read()` なら x）．capability の型は，どの capability かを集合で持つので，別々の with の capability も同じリストに入れられる．R に入るものは，effect，宣言した label，capability の三種類になる．
+- capability の操作を呼ぶと，R にはその capability が入る（`x.read()` なら x）．capability type は，どの capability かを集合で持つので，別々の with の capability も同じリストに入れられる．R に入るものは，effect，宣言した label，capability の三種類になる．
 - 原則は一つ: capability は，それを作った with の外へ持ち出せない．型か R にその capability を含む値は with の外に出せず，型検査がこれを見る．どの道を通っても型に capability が残るので，道を数える必要がない．
-- capability の型はソースでは `use E` のまま書く．引数の `x: use E` は，呼ぶ側が渡す capability を受け取る．
+- capability type はソースでは `use E` のまま書く．引数の `x: use E` は，呼ぶ側が渡す capability を受け取る．
 - capability を元の effect に広げない．
 - capability は普通の値のまま．渡す，格納する，返す，データ構造に入れる，closure で捕えることは，同じ with の中ならほかの値と同じにできる．
 - capability についての capture checking（capture set，root）は，この型検査で置き換える．
@@ -46,7 +46,7 @@ related: [closure-r-by-caller, capability-type, capability-trait, handler-member
 
 ### 型が，どの capability かを表していない
 
-- 今の capability の型は `use ReadFile` で，どの with の handler かが型に出ない（`capability-type`）．capability の操作は R に effect の名前を足す（`[effect.use]`）．
+- 今の capability type は `use ReadFile` で，どの with の handler かが型に出ない（`capability-type`）．capability の操作は R に effect の名前を足す（`[effect.use]`）．
 - どの handler かは，型とは別の capture set で追っている（`[effect.escape]`）．そのため，with の外へ出る道を一つずつ数える必要がある．
   - 今は本体の値しか見ていない（#719）．操作の引数，エラー，関数の境目が漏れている．
   - host への callback と Deferred / Queue はまだ決まっていない（#666）．
@@ -72,7 +72,7 @@ related: [closure-r-by-caller, capability-type, capability-trait, handler-member
 |---|---|---|---|
 | handler | handler | 宣言（`handler Plain: Greeter`）．今と同じ | `Plain` |
 | capability | capability | init が終わり，まだ release されていない handler．handler の実体．with の項目ごとに一つ，`Fiber.scope` ごとに Scope の一つができる．値として扱える | `with x = Item` の x，引数の x |
-| capability type | capability type | capability の型．ソースでは `use E` と書き，型検査はどの capability かまで区別する | `use ReadFile` |
+| capability type | capability type | capability の値の型．ソースでは `use E` と書き，型検査はどの capability かまで区別する | `use ReadFile` |
 | capability parameter | capability parameter | 型が `use E` の引数．どの capability かは呼び出しで決まる | `fn copy(from: use Db)` |
 | named item | 名前付きの項目 | `with x = Item`．その項目の capability に x という名前を付ける | `with f = Files.Open(p)` |
 | provide by name | 名前で供給する | with が R から effect の名前を外すこと．名前のない項目の capability はこれだけをする | `with Plain { ... }` |
@@ -116,7 +116,7 @@ with f = Files.Open("a.txt") {
 
 ### capability の集合
 
-- capability の型は，どの capability かを一つではなく集合で持つ．ソースの形は `use E` のまま．
+- capability type は，どの capability かを一つではなく集合で持つ．ソースの形は `use E` のまま．
 - 別々の with で作った capability も，同じリストに入れられる．`[x, y]` の要素の型は「E の capability のうち x か y」．単一化は R と同じく集合の和で行い，一般の部分型は使わない．
 - 集合を持つ値の操作を呼ぶと，R に集合のすべてが入る（`[x, y]` の要素なら x と y）．どれが来ても足りるように，すべてを要求する．
 - x の with と y の with がそれぞれ外す．`[x, y]` は x と y の両方が生きている範囲でしか使えず，持ち出せない原則がそのまま働く．
@@ -128,16 +128,16 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 }
 ```
 
-### capability の引数
+### capability parameter
 
 - 引数の型に `use E` と書くと，その関数は E の capability の集合を受け取る型引数を持つ．関数の中の `x.read()` は R にその型引数を入れる．
 - 呼び出しで，型引数は渡した値の集合に決まる．`read_all(f)` は呼ぶ側の R に f を入れ，`[x, y]` の要素を渡せば x と y を入れる．
 - 同じ effect の引数を二つ取ると，型引数も二つになる（`fn copy(from: use Db, to: use Db)`）．
-- capability の引数に渡せるのは，名前付きの項目の capability と，それを含む値だけ．effect alias は引数に渡せない（E0453 のまま）．
+- capability parameter に渡せるのは，名前付きの項目の capability と，それを含む値だけ．effect alias は引数に渡せない（E0453 のまま）．
 - いちばん内側の E を使いたい関数は，capability を受け取らず，R に E を書いて（`uses { Db }`）中で `db <- Db` と書く．呼んだ時点で決まるものは R，決まった handler は名前付きの項目，と役割を分ける．
 - `use E` の値（W0403）は，移行の期間だけ，型の中で effect の名前 E に決まった capability として扱う．
 
-### 関数型の中の capability の引数
+### 関数型の中の capability parameter
 
 - 関数型の引数に書いた `use E`（`fn(use ReadFile) -> String`）は，その関数型で量化する．E のどの capability の集合を渡されても動く関数の型になる．
 - そのような関数型を期待する位置に書いた closure は，中身の分からない集合 C を受け取るものとして型検査する．C を戻り値に入れることはできない．closure の R には C が入ってよく，closure を呼んだ側でその集合の持ち主の with が外す．
@@ -155,7 +155,7 @@ with primary = PrimaryDb {
 ### 開く数が実行時に決まる資源
 
 - with の項目は一つにつき capability を一つ作るので，`paths.map(|p| Files.Open(p))` とは書けない．with を再帰で入れ子にして書く．
-- capability の引数は集合の型引数なので，再帰で呼ぶたびに集合が増えても型が付く（シグネチャに型があるので，多相再帰を推論する必要はない）．
+- capability parameter は集合の型引数なので，再帰で呼ぶたびに集合が増えても型が付く（シグネチャに型があるので，多相再帰を推論する必要はない）．
 - 寿命は入れ子になり，開いた順の逆に閉じる．同じ寿命で使う用途はこれで書ける．
 
 ```emel
@@ -167,7 +167,7 @@ fn concat_all(paths: List[String], acc: List[use ReadFile]) -> String {
 }
 ```
 
-- 本体を関数として受け取る汎用の補助関数も，関数型の中の capability の引数で書ける．
+- 本体を関数として受け取る汎用の補助関数も，関数型の中の capability parameter で書ける．
 
 ```emel
 fn with_all[T](paths: List[String], acc: List[use ReadFile], k: fn(List[use ReadFile]) -> T) -> T {
@@ -179,7 +179,7 @@ fn with_all[T](paths: List[String], acc: List[use ReadFile], k: fn(List[use Read
 ```
 - この proposal は regions（#651）に頼らない．任意の時点で開閉する用途に regions が要るかは #651 で決める．この proposal のもとでは，pool が返す番号の型に pool の capability を入れて，持ち出しを型で止める形も取れる．
 
-### capability を持つ型
+### capability-bound type
 
 - 型の宣言に，その型の値が E の capability を持つことを書ける（`pub type Fiber[A] uses Scope`）．`uses` は関数のシグネチャと同じ文脈キーワードで，この型の値はその capability が生きている間しか使えないことを表す．`use E`（capability そのものの型）とは別．
 - E の capability c の操作がこの型の値を返すと，その値の型は c を持つ．名前で E を呼んだ操作（`x <- E` や `Fiber.fork`）が返した値の型は，effect の名前 E を持つ．
@@ -212,7 +212,7 @@ pub effect Scope[E, R] {
 }
 ```
 
-- `Fiber`，`Deferred`，`Semaphore`，`Queue` は Scope の capability を持つ型．`s.fork(f)` の Fiber は s を持つ．
+- `Fiber`，`Deferred`，`Semaphore`，`Queue` は Scope の capability-bound type．`s.fork(f)` の Fiber は s を持つ．
 - 子は，自分が入った scope の capability を引数で受け取る．兄弟を fork する規則（型検査が f の R に Scope を足す）は要らなくなる．
 - これで `Fiber.scope` に型の上の特別扱いはなくなる．子の実行，本体が返ったときの中断，失敗の伝わり方はランタイムが実装する（`@intrinsic`）．
 - なくなるもの: E0425（型の名前で `Fiber` などを探す規則），ハンドルを capture set の root として追うこと，終わった scope のハンドルを使ったときの実行時の検査．
@@ -221,10 +221,10 @@ pub effect Scope[E, R] {
 
 ### handler のフィールドと操作
 
-- handler のフィールドの `use E`（と capability を持つ型）の集合は，with の項目が init するときに決まる．`with users = PostgresUsers(db: replica)` の users は，フィールドの集合が {replica} の handler．
+- handler のフィールドの `use E`（と capability-bound type）の集合は，with の項目が init するときに決まる．`with users = PostgresUsers(db: replica)` の users は，フィールドの集合が {replica} の handler．
 - users の型に replica を書き足さない．init の引数は with の外で評価されるので，replica の with は users の with を囲み，users が生きている間は replica も生きている．users を持ち出せない原則だけで replica も守られる．
-- 操作の引数の `use E` は，関数の引数と同じく呼ぶたびに決まり，handler の実装の中では「どの capability でも」の扱いになる．実装は受け取った capability をフィールドや State に入れられない（型エラー）．#719 の A（長く生きる handler の操作の引数を通って出ていく）は，capability と capability を持つ型について型で閉じる．
-- 操作の戻り値に capability の型と capability を持つ型を書くことは禁止する（E04xx）．capability を返せることは持ち出しに直結し，名前で呼んだ操作ではどの handler の capability かも決まらない．capability を作って渡すのは handler member（`with c = Pool.Conn()`）で書く．
+- 操作の引数の `use E` は，関数の引数と同じく呼ぶたびに決まり，handler の実装の中では「どの capability でも」の扱いになる．実装は受け取った capability をフィールドや State に入れられない（型エラー）．#719 の A（長く生きる handler の操作の引数を通って出ていく）は，capability と capability-bound type について型で閉じる．
+- 操作の戻り値に capability type と capability-bound type を書くことは禁止する（E04xx）．capability を返せることは持ち出しに直結し，名前で呼んだ操作ではどの handler の capability かも決まらない．capability を作って渡すのは handler member（`with c = Pool.Conn()`）で書く．
 - 関数の戻り値の `use E` は書ける．`fn pick(primary: use Db, replica: use Db, write: Bool) -> use Db` の戻り値の集合は二つの引数の和．
 
 ```emel
@@ -242,10 +242,10 @@ with replica = ReplicaDb {
 
 ### `Capability` trait
 
-- `[C: Capability]`（`capability-trait`）はそのまま使える．C はトップレベル関数の型引数なので，呼ぶたびに渡した capability の型に，集合ごと決まる（`close[C: Capability](item: C)` に f を渡せば，C は f の capability）．
+- `[C: Capability]`（`capability-trait`）はそのまま使える．C はトップレベル関数の型引数なので，呼ぶたびに渡した capability type に，集合ごと決まる（`close[C: Capability](item: C)` に f を渡せば，C は f の capability）．
 - 関数型の中の `use E` を量化する規則は，`use E` と書いた場所にだけ効き，`[C: Capability]` には関係しない．
-- capability を持つ型（`uses E` で宣言した型）は `Capability` を満たさない．capability そのものではなく，操作も呼べない．
-- ふつうの型引数（`[A]`）も capability の型を受け取れる（`List[use ReadFile]`）．`Capability` はそれを capability に限る．
+- capability-bound type（`uses E` で宣言した型）は `Capability` を満たさない．capability そのものではなく，操作も呼べない．
+- ふつうの型引数（`[A]`）も capability type を受け取れる（`List[use ReadFile]`）．`Capability` はそれを capability に限る．
 
 ### `self`
 
@@ -309,7 +309,7 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 0.29 に #791 と一緒に入れる．0.29 はこの proposal の実装を待って出す．
 
 - 0.29:
-  - 型と R で capability を区別する．`uses E` の型，関数型の中の capability の引数，`self`，handler のフィールドと操作，host の callback，`Fiber.scope(|s| ...)` を入れる．
+  - 型と R で capability を区別する．`uses E` の型，関数型の中の capability parameter，`self`，handler のフィールドと操作，host の callback，`Fiber.scope(|s| ...)` を入れる．
   - 新しく止める形（持ち出し，広げること，操作の戻り値の capability，capability を捕えた callback）は，最初からコンパイルエラーにする．警告の段階は挟まない．
   - capability とハンドルの capture checking（W0402，E0444，capture set），E0425，`[effect.escape]` と `[fiber.escape]` の実行時の検査を外す．
   - `use E` の式は W0403 のまま読む（#731 の「一つの minor の間は読む」を守る）．型の中では effect の名前 E の capability として扱う．名前で E を供給する with は，型の中の名前 E を自分の capability として数えるので，`x = use E` の値を持ち出すことも型で止まる．
@@ -365,7 +365,7 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 
 - [ ] E04xx: capability を持ち出した（型か R に capability を含む値が with の外へ出る）
 - [ ] E04xx: `@borrowed` を外部関数の関数型の引数以外に書いた
-- [ ] E04xx: effect の操作の戻り値に capability の型か capability を持つ型を書いた
+- [ ] E04xx: effect の操作の戻り値に capability type か capability-bound type を書いた
 - [ ] `use E` の式の W0403 は #791 で入った．0.30 でエラーにする
 - [ ] E04xx: capability を effect の名前に広げた．help: 引数を `use E` にする
 - [ ] W0402，E0444，E0425 を外す（0.29）
@@ -380,7 +380,7 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 | `(use E).op()` | 817 | W0403 の quick fix で `<-` に書き換えられる |
 | `x = use E` | 278 | 同じ関数の中で受け手にしか使わないなら quick fix で `x <- E`．それ以外は `with x = H` |
 | `x <- E` | 160 | 変わらない |
-| 引数や型の `: use E` | 171 | 書き方は変わらない．capability の引数になる |
+| 引数や型の `: use E` | 171 | 書き方は変わらない．capability parameter になる |
 | 外の値を，同じ E を上書きした内側の with で使う | 18 | `with x = H` |
 | `Fiber.scope(|| ...)` | 244 | `Fiber.scope(|s| ...)` か `|_|`．機械的に書き換えられる |
 | `= use Scope` | 34 | `Fiber.scope` の本体の引数 |
@@ -392,8 +392,8 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 
 ## Implementation
 
-- 型検査: capability の型と effect set に，どの capability かを持たせる．with の出口で，本体の値の型，エラー，R にその with の capability が残らないかを確かめる．型引数の範囲の検査と同じ仕組みを使う．
-- capability の型の集合と，引数の `use E` の型引数は，R の集合と同じ仕組み（集合の和と set variable）で推論する．
+- 型検査: capability type と effect set に，どの capability かを持たせる．with の出口で，本体の値の型，エラー，R にその with の capability が残らないかを確かめる．型引数の範囲の検査と同じ仕組みを使う．
+- capability type の集合と，引数の `use E` の型引数は，R の集合と同じ仕組み（集合の和と set variable）で推論する．
 - lowering: capability の evidence は，その項目の handler．effect の名前に決まった型引数は，呼んだ時点の evidence を使う．
 - capture checking: capability とハンドルの部分を外す．`use E` の値は，型の中の effect の名前として持ち出しの検査で見る．
 
