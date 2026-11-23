@@ -107,6 +107,29 @@ fn add_writes_the_requirement_and_the_lock() {
     );
 }
 
+/// The files are written through a private temporary file. A new `Pome.lock` is 0644, and a
+/// rewritten `Pome.toml` keeps its mode.
+#[cfg(unix)]
+#[test]
+fn a_new_lock_is_0644_and_a_rewritten_manifest_keeps_its_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let d = dirs();
+    let r = registry();
+    let f = fetcher(&r, &d.cache, &d.repos);
+    let dir = d.repos.join("app");
+    app(&dir, "");
+    fs::set_permissions(dir.join("Pome.toml"), fs::Permissions::from_mode(0o640)).unwrap();
+
+    Project::find(&dir)
+        .unwrap()
+        .add(&f, "github:acme/router@v0.1.0", false, false)
+        .unwrap();
+    let mode = |name: &str| fs::metadata(dir.join(name)).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode("Pome.lock"), 0o644);
+    assert_eq!(mode("Pome.toml"), 0o640);
+}
+
 #[test]
 fn update_raises_and_remove_drops() {
     let d = dirs();

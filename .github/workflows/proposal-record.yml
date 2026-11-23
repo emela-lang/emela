@@ -148,6 +148,7 @@ jobs:
           fi
           gh pr comment "$PR" --repo "$REPO" --body "The $what is recorded in $url."
           echo "TARGET=$url" >> "$GITHUB_ENV"
+          echo "HEAD_OID=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Add the record to the merge queue
         if: steps.decision.outputs.verb != ''
@@ -155,9 +156,10 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
         run: |
-          # Wait for the required checks, then add the pull request to the merge queue. Calling
-          # `gh pr merge` while a check is pending enables auto-merge, which the repository does
-          # not allow; with every required check passed, it adds the pull request to the queue.
+          # Wait for the required checks, then add the pull request to the merge queue with the
+          # `enqueuePullRequest` mutation ("Merge when ready"). `gh pr merge` cannot be used: on a
+          # branch that requires the merge queue it always enables auto-merge, which the repository
+          # does not allow. `expectedHeadOid` makes the queue refuse a commit pushed after HEAD_OID.
           sleep 20
           for _ in $(seq 120); do
             buckets="$(gh pr checks "$TARGET" --repo "$REPO" --required --json bucket \
@@ -165,7 +167,17 @@ jobs:
             case " $buckets " in
               *" fail "* | *" cancel "*) echo "::error::a required check failed: $buckets"; exit 1 ;;
               "  " | *" pending "*) ;;
-              *) gh pr merge "$TARGET" --repo "$REPO"; exit 0 ;;
+              *)
+                id="$(gh pr view "$TARGET" --repo "$REPO" --json id --jq .id)"
+                # shellcheck disable=SC2016 # GraphQL variables, not shell ones
+                gh api graphql -f id="$id" -f oid="$HEAD_OID" -f query='
+                  mutation($id: ID!, $oid: GitObjectID!) {
+                    enqueuePullRequest(input: {pullRequestId: $id, expectedHeadOid: $oid}) {
+                      mergeQueueEntry { state }
+                    }
+                  }'
+                exit 0
+                ;;
             esac
             sleep 15
           done

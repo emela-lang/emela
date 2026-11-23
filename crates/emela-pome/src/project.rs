@@ -699,19 +699,21 @@ fn write(file: &Path, text: &str) -> Result<(), PomeError> {
     let io = |e: std::io::Error| PomeError::Io(format!("{}: {e}", file.display()));
     let mut tmp = tempfile::NamedTempFile::new_in(dir).map_err(io)?;
     std::io::Write::write_all(&mut tmp, text.as_bytes()).map_err(io)?;
-    // A temporary file is private (0600); keep the permissions of the file it replaces.
-    let perms = match fs::metadata(file) {
-        Ok(m) => m.permissions(),
-        Err(_) => fs::metadata(dir).map_err(io)?.permissions(),
-    };
-    #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut perms = perms;
-    #[cfg(unix)]
-    if !file.exists() {
-        use std::os::unix::fs::PermissionsExt;
-        perms.set_mode(0o644);
+    // A temporary file is private (0600); keep the permissions of the file it replaces, and give
+    // a new file 0644 on Unix. A new file elsewhere keeps the permissions it was created with: the
+    // permissions of the directory are not copied, because on Windows they carry the directory
+    // attribute, which a file cannot have (os error 87).
+    match fs::metadata(file) {
+        Ok(m) => tmp.as_file().set_permissions(m.permissions()).map_err(io)?,
+        #[cfg(unix)]
+        Err(_) => {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = fs::Permissions::from_mode(0o644);
+            tmp.as_file().set_permissions(perms).map_err(io)?;
+        }
+        #[cfg(not(unix))]
+        Err(_) => {}
     }
-    tmp.as_file().set_permissions(perms).map_err(io)?;
     tmp.persist(file).map_err(|e| io(e.error))?;
     Ok(())
 }
