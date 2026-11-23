@@ -3,7 +3,8 @@
 Diagnostics of the compiler and the tools have codes.
 
 - An error code is `E` followed by 4 digits, and a warning code is `W` followed by 4 digits. A number, once assigned, is not reused even after the diagnostic is retired.
-- Numbers are divided into bands by stage. Warnings use the same bands (`W03xx` are type warnings).
+- The first digit of a number names the stage, and the second digit the subject within the stage (`[diag.bands]`). Warnings use the same bands (`W3xxx` are type warnings).
+- A code names one kind of mistake. Mistakes that are fixed in the same way have the same code even when they are written in different positions or forms, and the message tells the forms apart. Mistakes that are fixed in different ways, or for which the language server offers different code actions (`[lsp]`), have different codes.
 - Messages are written in English. Messages are not part of the specification, and an implementation MAY change them to improve them. Codes do not change.
 - Diagnostics are displayed in the following form. A diagnostic without a code is printed as `error: ...`.
 
@@ -33,14 +34,20 @@ error[E0204]: duplicate module `Http.Client`
 
 ## Bands `[diag.bands]`
 
-| Band | Stage |
-|---|---|
-| E01xx | Lexing and parsing (E0101 to E0109 are lexical, E0110 to E0189 are syntax, E0190 to E0199 are additional lexical codes) |
-| E02xx | Modules, imports, project structure |
-| E03xx | Types |
-| E04xx | effect, handler, layer, capability |
-| E05xx to E08xx | Reserved (assigned when needed, for traits and derive, external functions, tests, and so on) |
-| E09xx | Tools (I/O, node, and so on) |
+| Band | Stage | Subjects |
+|---|---|---|
+| E1xxx | Lexing and parsing | E10xx lexical, E11xx syntax of expressions, patterns and types, E12xx syntax of declarations, E13xx syntax of attributes, E14xx forms that are no longer written |
+| E2xxx | Modules, names, projects | E20xx files and modules, E21xx name resolution, E22xx definitions restricted to the bundled core or to tests, E23xx `Pome.toml` and dependencies |
+| E3xxx | Types | E30xx types in general, E31xx calls and patterns, E32xx error types (E), E33xx traits, impls and derive |
+| E4xxx | Effects | E40xx declarations of effects and handlers, E41xx with, layers and handler members, E42xx effect labels, E43xx R, Immediate and suspension, E44xx capabilities |
+| E5xxx | External functions and targets | E50xx `@external`, E51xx `@export` and `@entry`, E52xx restrictions of a build target |
+| E6xxx to E8xxx | Reserved | |
+| E9xxx | Tools | E90xx input and output, E91xx external tools (the JS host, cc, wasmtime) |
+
+- The last two digits number the codes within a subject, from 01.
+- When the codes of a subject reach 99, the subject continues in an unassigned subject band of the same stage, which this table then names.
+- The first digit of a code in these bands is not 0, so a code in these bands is never mistaken for a code of the earlier bands (`E0xxx`, `W0xxx`).
+- The codes in `[diag.list]` are still in the earlier bands (E01xx lexing and parsing, E02xx modules, E03xx types, E04xx effects, E09xx tools) until they are renumbered into the bands above at the end of 0.29. Until then, a new code is assigned in the earlier bands.
 
 ## List `[diag.list]`
 
