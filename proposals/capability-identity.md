@@ -263,7 +263,16 @@ handler SystemFiles: Files {
 ### host の callback
 
 - 外部関数の引数と戻り値の callback は，既定では host が持ち続けるものとする．host は外部関数が返った後にも呼べるので，callback の R に capability を入れられない（E0454 を capability にも広げる）．
-- 外部関数が返る前にしか呼ばない callback（並べ替えの比較関数など）は，宣言の引数に印を付ける．印のある引数の callback だけが，R に capability を入れられる．印が正しいかは，`@external` の型と同じく宣言を書く人が責任を持つ．
+- 外部関数が返る前にしか呼ばない callback（並べ替えの比較関数など）は，宣言の引数に属性 `@borrowed` を付ける．host は呼び出しの間だけ callback を借り，返るときに手放す．`@borrowed` の引数の callback だけが，R に capability を入れられる．印が正しいかは，`@external` の型と同じく宣言を書く人が責任を持つ．
+- `@borrowed` は外部関数の関数型の引数にだけ付けられる．ほかの位置（戻り値，外部関数でない関数の引数，関数型でない引数）に付けるとコンパイルエラー（E04xx）．
+
+```emel
+@external("js", "./array.js", "sortBy")
+fn sort_by(items: Array[Int], @borrowed compare: fn(Int, Int) -> Int) -> Array[Int]
+
+@external("js", "./timer.js", "setTimeout")
+fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f に capability は入れられない
+```
 - 型だけでは二つを区別できない．外部関数の型の callback の集合は呼ぶたびに決まり，戻り値に capability が残らないので，持ち出しの検査では見えない．
 - `closure-r-by-caller` の例 `with g = Plain { set_timeout(10, || g.greet("later")) }` はエラーになる．host が後で呼ぶ処理から handler を使うには，host の側で完結させるか，Queue で Emela の fiber に渡す．
 
@@ -323,7 +332,7 @@ handler SystemFiles: Files {
 
 ### `[ext.boundary]`
 
-- Replace "The R may contain capabilities; a callback reaches a handler only through a capability it captures (8.2), since the host calls it without passing handlers." by: "The R MUST NOT contain a capability either, since the host may keep the callback and call it after the with of the capability has ended (E0454). A parameter of an external function marked as called only before the function returns may take a callback whose R contains capabilities."
+- Replace "The R may contain capabilities; a callback reaches a handler only through a capability it captures (8.2), since the host calls it without passing handlers." by: "The R MUST NOT contain a capability either, since the host may keep the callback and call it after the with of the capability has ended (E0454). A parameter of an external function marked `@borrowed` (the host holds the callback only during the call) may take a callback whose R contains capabilities. `@borrowed` can be written only on a parameter of function type of an external function (E04xx)."
 
 ### `[open.next]`
 
@@ -333,6 +342,7 @@ handler SystemFiles: Files {
 ## Diagnostics
 
 - [ ] E04xx: capability を持ち出した（型か R に capability を含む値が with の外へ出る）
+- [ ] E04xx: `@borrowed` を外部関数の関数型の引数以外に書いた
 - [ ] E04xx: effect の操作の戻り値に capability の型か capability を持つ型を書いた
 - [ ] `use E` の式の W0403 は #791 で入った．0.30 でエラーにする
 - [ ] E04xx: capability を effect の名前に広げた．help: 引数を `use E` にする
@@ -382,7 +392,6 @@ handler SystemFiles: Files {
 ## Open questions
 
 - LSP の hover で capability の集合をどう表示するか．
-- 外部関数の引数に付ける「その場でしか呼ばない」印の書き方（属性の名前）．
 - capability を effect の名前に広げられないことで書けなくなるコードがどれだけあるか．
 - 日本語の訳．用語集は capability を「能力」と訳している．定義を変えるのに合わせて訳を見直すか．
 
