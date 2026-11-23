@@ -246,7 +246,7 @@ fn make_greeter() {
 - If the type of the value of a with body, the error type that leaves the body, or the R of the with contains a capability made by that with, it is a compile error (E0455).
 - A with that provides E by name counts the name E in types as its own capability.
 - A function provides E by name to an argument when the R of the function type of that parameter has E written out and the R of the function does not have E (`body` of `Fiber.scope` and of `State.run`). At a call of such a function, if the result type or the error type of the function passed to that parameter contains the name E, it is a compile error (E0455). A hidden set variable does not write E out, so it does not provide E by name.
-- A type fixed outside the with cannot contain the capability, so other paths out are type errors.
+- A type fixed outside the with (the type argument of an outer `State`, the parameter types of an operation of a handler provided outside) cannot contain the capability, so other paths out do not type check. They are reported as E0455 too, at the place where the capability enters the type fixed outside.
 - A closure that is used up inside the with (`List.map(names, |n| log.info(n))`) is fine.
 - An effect alias (8.2) is not a capability. A closure that captures it has E in its R, which the caller provides.
 
