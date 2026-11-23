@@ -10,6 +10,8 @@ import Std.State.{State}
 import Std.Console.{Console, SystemConsole}
 import Std.Cause
 import Std.Exit.{Success, Failure}
+import Std.Task.{Spawn}
+import Std.Task
 import Std.Http.Request.{Request, Method, Get, Head, Post, Put, Patch, Delete, Options}
 import Std.Http.Response.{Response, UnexpectedStatus}
 
@@ -204,10 +206,15 @@ pub type Outgoing
 ## a defect or returns a response the host cannot send, the cause is written to standard error as
 ## one line and the response is 500; the cause is never in the response. An HTTP service runs in
 ## a process, so `app` is given ProcessHost (`[effect.host]`) and can write `with Process { ... }`.
+##
+## `app` is called inside a `Task.Background` that provides Spawn by name. The response goes to
+## the host as soon as `app` returns, and the launch ends when the release of that background has
+## waited for the tasks `app` started. A task that ends with an error or a defect writes its cause
+## to standard error as one line.
 @export(js, "default", "fetch")
 @export(wasm, "wasi:http/handler@0.3.0", "handle")
-pub fn serve[E](
-  app: fn(Request) -> Response fails E uses { Async, ProcessHost },
+pub fn serve[E, F](
+  app: fn(Request) -> Response fails E uses { Spawn[F, { Async }], Async, ProcessHost },
   incoming: Incoming,
 ) -> Outgoing
   uses { Async, ProcessHost } {
@@ -215,38 +222,54 @@ pub fn serve[E](
     host <- HostHttp
     host.read(incoming)
   }
-  response = received_request(received) match {
-    None                                     -> status_only(405).add_header("allow", ALLOW)
-    Some(_) if !host_received_text(received) -> status_only(400)
-    Some(request) if !well_formed(request)   -> status_only(400)
-    Some(request)                            -> launch(app, request)
+  received_request(received) match {
+    None -> answer(incoming, status_only(405).add_header("allow", ALLOW))
+    Some(_) if !host_received_text(received) -> answer(incoming, status_only(400))
+    Some(request) if !well_formed(request) -> answer(incoming, status_only(400))
+    Some(request) -> launch(app, request, incoming)
   }
-  to_outgoing(response)
 }
 
 const ALLOW: String = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
 
-## Runs `app` and turns how it ends into the response to send.
-fn launch[E](
-  app: fn(Request) -> Response fails E uses { Async, ProcessHost },
+## Hands `res` to the host for `incoming`, and returns it as the value of `serve` as well.
+fn answer(incoming: Incoming, res: Response) -> Outgoing {
+  outgoing = to_outgoing(res)
+  host_respond(incoming, outgoing)
+  outgoing
+}
+
+## Runs `app` inside the background of the launch, and answers with how it ends before the
+## release of the background waits for the tasks `app` started.
+fn launch[E, F](
+  app: fn(Request) -> Response fails E uses { Spawn[F, { Async }], Async, ProcessHost },
   request: Request,
-) -> Response
+  incoming: Incoming,
+) -> Outgoing
   uses { Async, ProcessHost } {
-  Exit.attempt(|| app(request)) match {
-    Success(res) -> invalid_reason(res) match {
-      None         -> with_content_type(res)
-      Some(reason) -> failed("invalid response: #{reason}")
+  with Task.Background(on_failure: |cause| print_error(cause.to_string())) {
+    res = Exit.attempt(|| app(request)) match {
+      Success(res) -> invalid_reason(res) match {
+        None         -> with_content_type(res)
+        Some(reason) -> failed("invalid response: #{reason}")
+      }
+      Failure(cause) -> failed(cause.to_string())
     }
-    Failure(cause) -> failed(cause.to_string())
+    answer(incoming, res)
+  }
+}
+
+## Writes `line` to standard error.
+fn print_error(line: String) {
+  with SystemConsole {
+    console <- Console
+    console.print_error_line(line)
   }
 }
 
 ## Writes `line` to standard error and answers with 500.
 fn failed(line: String) -> Response {
-  with SystemConsole {
-    console <- Console
-    console.print_error_line(line)
-  }
+  print_error(line)
   status_only(500)
 }
 
@@ -461,3 +484,9 @@ fn host_draft_header(draft: Draft, name: String, value: String) -> Draft uses {}
 @external(js, "./http.mjs", "finishDraft")
 @external(wasm, "emela:runtime/http@0.1.0", "finish-draft")
 fn host_finish(draft: Draft) -> Outgoing uses {}
+
+## Hands `outgoing` to the host as the response to `incoming`, before the launch ends. Only the
+## first call for a request has an effect; `serve` returns the same response after it.
+@external(js, "./http.mjs", "respond")
+@external(wasm, "emela:runtime/http@0.1.0", "respond")
+fn host_respond(incoming: Incoming, outgoing: Outgoing) -> () uses {}

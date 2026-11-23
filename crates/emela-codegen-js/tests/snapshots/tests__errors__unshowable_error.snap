@@ -499,6 +499,27 @@ function $export(gen) {
   });
 }
 
+// The `fetch` of an HTTP service (`[lib.http-service]`): runs `launch()` (a `$export` of the entry for `request`) and
+// returns a Promise of the response. The Promise resolves when the launch hands over the response (`respond` of
+// `http.mjs`), before the launch ends; the end of the launch goes to `ctx.waitUntil` where the host has it (Cloudflare
+// Workers). A launch that ends with a defect or an interruption before it answers rejects the Promise; one that ends
+// so after it answered writes the line `serve.mjs` writes for a rejected Promise to standard error.
+// The function that answers goes on the request under a registered symbol, because `respond` is in another module.
+function $serve(request, ctx, launch) {
+  return new Promise((resolve, reject) => {
+    let answered = false;
+    request[Symbol.for("emela.respond")] = (outgoing) => {
+      answered = true;
+      resolve(outgoing);
+    };
+    const end = launch().then(resolve, (e) => {
+      if (!answered) return reject(e);
+      globalThis.console.error(e?.name === "Interrupted" ? "interrupted" : `defect: ${e?.message ?? e}`);
+    });
+    if (typeof ctx?.waitUntil === "function") ctx.waitUntil(end);
+  });
+}
+
 // A continuation unwound while interrupted (11.4, 14.5). Thrown into a fiber when it is interrupted, by `$sync`
 // when a suspend operation inside a non-suspending function is not resumed in place, and by `Cause.raise` of an
 // Interrupt. It unwinds like a defect, but `Exit.attempt` does not catch it. `scope` is the scope whose body is

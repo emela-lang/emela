@@ -102,6 +102,8 @@ pub(crate) enum StdHost {
     HttpDraftHeader,
     /// The `response` resource of the response built.
     HttpFinishDraft,
+    /// `Std.Http.serve`: hands the response to the host before the launch ends.
+    HttpRespond,
 }
 
 impl StdHost {
@@ -148,6 +150,7 @@ impl StdHost {
             StdHost::HttpNewDraft => "http_new_draft",
             StdHost::HttpDraftHeader => "http_draft_header",
             StdHost::HttpFinishDraft => "http_finish_draft",
+            StdHost::HttpRespond => "http_answer",
         }
     }
 
@@ -198,6 +201,7 @@ impl StdHost {
                 | StdHost::HttpNewDraft
                 | StdHost::HttpDraftHeader
                 | StdHost::HttpFinishDraft
+                | StdHost::HttpRespond
         )
     }
 
@@ -290,6 +294,7 @@ const STD_HOSTS: &[(&str, StdHost)] = &[
     ("Std.Http.host_draft", StdHost::HttpNewDraft),
     ("Std.Http.host_draft_header", StdHost::HttpDraftHeader),
     ("Std.Http.host_finish", StdHost::HttpFinishDraft),
+    ("Std.Http.host_respond", StdHost::HttpRespond),
 ];
 
 /// If `f` is a bundled `Std` external with a `wasm` binding that the runtime implements, which

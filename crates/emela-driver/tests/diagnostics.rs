@@ -1323,7 +1323,8 @@ fn main() {}
 }
 
 /// `[lib.http-service]`: `@entry(Http.serve)` takes an fn from `Request` to `Response` whose E is
-/// anything and whose R is empty apart from Async (E0440 otherwise). The native target does not support
+/// anything and whose R has only Async and Spawn, whose tasks may fail with anything and use only
+/// Async (E0440 otherwise). The native target does not support
 /// HTTP services (E0442); an entry adapter of the program's own named `serve` in a module `Http`
 /// is not one. check (no target) reports nothing.
 #[test]
@@ -1358,6 +1359,44 @@ pub fn app(request: Request) -> Response {
 "#,
         ),
         (
+            "spawns/main.emel",
+            r#"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+import Std.Task.{Spawn}
+
+error Teapot
+
+fn brew() -> () fails Teapot uses { Async } { fail Teapot }
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response uses { Spawn[Teapot, { Async }] } {
+  spawn <- Spawn
+  spawn.start(|| brew())
+  Response.new(200, request.url)
+}
+"#,
+        ),
+        (
+            "wide/main.emel",
+            r#"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+import Std.Task.{Spawn}
+import Std.Console.{Console}
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response uses { Spawn[{}, { Async, Console }] } {
+  spawn <- Spawn
+  spawn.start(|| {
+    console <- Console
+    console.print_line(request.url)
+  })
+  Response.new(200, "")
+}
+"#,
+        ),
+        (
             "own/main.emel",
             r#"import Http
 
@@ -1375,7 +1414,13 @@ pub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }
         ),
     ];
     let mut out = String::new();
-    for entry in ["home/main.emel", "other/main.emel", "own/main.emel"] {
+    for entry in [
+        "home/main.emel",
+        "other/main.emel",
+        "spawns/main.emel",
+        "wide/main.emel",
+        "own/main.emel",
+    ] {
         for target in [Target::Js, Target::Native] {
             let analysis = check_files(&files, entry, &mut Lower::default().with_target(target));
             out.push_str(&format!("== {entry} {}\n", target.name()));

@@ -315,8 +315,16 @@ impl Emitter<'_> {
     /// back. A fn that may suspend returns a Promise of the value, which rejects with the defect or
     /// the interruption the launch ends with; one that does not suspend returns the value and
     /// throws a defect.
-    pub(super) fn host_export_fn(&mut self, id: FnId, f: &Function, name: &str) {
-        let params: Vec<String> = (0..f.params.len()).map(|i| format!("$p{i}")).collect();
+    ///
+    /// With `serve`, it is the `fetch` of an HTTP service (`[lib.http-service]`): it also takes the
+    /// arguments the host passes after the request, and `$serve` resolves its Promise when the
+    /// launch hands over the response, before the launch ends.
+    pub(super) fn host_export_fn(&mut self, id: FnId, f: &Function, name: &str, serve: bool) {
+        let mut params: Vec<String> = (0..f.params.len()).map(|i| format!("$p{i}")).collect();
+        let serve = serve && f.suspends && params.len() == 1;
+        if serve {
+            params.extend(["$env".to_owned(), "$ctx".to_owned()]);
+        }
         self.line(&format!("function {name}({}) {{", params.join(", ")));
         self.indent += 1;
         let fn_name = source_name(&f.name);
@@ -331,7 +339,13 @@ impl Emitter<'_> {
             .collect();
         let call = format!("{}({})", self.fn_js(id), args.join(", "));
         let site = Site::Return(fn_name);
-        if f.suspends {
+        if serve {
+            let launch = self.rt("$export");
+            let serve = self.rt("$serve");
+            self.line(&format!(
+                "return {serve}($p0, $ctx, () => {launch}({call}));"
+            ));
+        } else if f.suspends {
             let launch = self.rt("$export");
             let value = self.convert(f.ret, "$v", Dir::ToHost, 0, &site);
             if value == "$v" {

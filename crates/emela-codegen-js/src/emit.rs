@@ -172,7 +172,12 @@ pub(crate) fn emit_module(
             continue;
         }
         let wrapper = format!("{}$host", e.fn_js(id));
-        e.host_export_fn(id, f, &wrapper);
+        // The `fetch` that `@entry(Http.serve)` makes answers before its launch ends.
+        let serve = m.http_service
+            && js_exports
+                .iter()
+                .any(|x| x.interface.as_deref() == Some("default") && x.name == "fetch");
+        e.host_export_fn(id, f, &wrapper, serve);
         e.line("");
         for x in js_exports {
             match x.interface {
