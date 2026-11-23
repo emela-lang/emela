@@ -23,6 +23,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
 - The server does not answer `completionItem/resolve`. Completion items carry their full contents in the first response.
 - Documents with URIs that are not `file:` (`untitled:` and so on) are not handled. Unsaved buffers get no diagnostics.
 - The path of a URI is expressed with `%` encoding. All characters other than alphanumerics and `-._~/` are encoded.
+- On Windows, the path of a URI for a file on a drive starts with `/` and the drive letter, and separates with `/`: the file `C:\a\b.emel` is `file:///C%3A/a/b.emel`. A received URI may write the drive letter in either case and the `:` with or without encoding. Files on a UNC path (`\\server\share\…`) are not handled.
 
 ## What is checked `[lsp.project]`
 

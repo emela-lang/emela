@@ -734,7 +734,9 @@ fn lsp_over_stdio() {
         stdout.read_exact(&mut body).unwrap();
         String::from_utf8(body).unwrap()
     };
-    let root = format!("file://{}", project.path().display());
+    // Pasting the path would put `\` into the JSON string on Windows.
+    let root = emela_lsp::path_to_uri(project.path()).unwrap();
+    let root = root.as_str();
     send(format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"capabilities":{{}},"rootUri":"{root}"}}}}"#
     ));
