@@ -5,7 +5,7 @@ status: draft
 pr: 732
 issue: 719
 decided:
-touches: [lsp.hover, ext.boundary, glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.deferred, fiber.semaphore, fiber.queue, api.std.fiber, type.rules, open.next, diag.list]
+touches: [intro.experimental, lsp.hover, ext.boundary, glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.deferred, fiber.semaphore, fiber.queue, api.std.fiber, type.rules, open.next, diag.list]
 requires: [effect-alias]
 related: [closure-r-by-caller, capability-type, capability-trait, handler-member, handler-init-arguments, capture-checking, scope-handle-values]
 ---
@@ -113,6 +113,14 @@ with f = Files.Open("a.txt") {
 - capability x の操作を呼ぶと，R に x が入る．x を作った with が，R から x を外す．
 - 型が `use E` の値は，型検査の中では，どの capability かを持つ．`[f]` の要素の型は f の capability．
 - capability を元の effect の名前に広げない．R に f を持つ closure は，`uses { ReadFile }` と書いた関数型には入らない．
+- closure が捕えた値の型に capability（capability-bound type の分も含む）があれば，その capability を closure の R に入れる．capture set がしていたことを R に畳み込む．値の側には何も記録せず，closure の型にだけ現れる．
+
+```emel
+Fiber.scope(|s| {
+  f = s.fork(|| 1)
+  st.set(|| Fiber.join(f)) # closure の R は s．外の State の型と合わず，型エラー
+})
+```
 
 ### capability の集合
 
@@ -250,7 +258,7 @@ with replica = ReplicaDb {
 ### `self`
 
 - 操作の本体と release の中の `self` は，その handler の capability として数える．`self` は，capability にフィールドを読む力を足したもの．
-- `self` のフィールドを読むことは，その capability を使うこととして R に入る．操作が返す closure がフィールドを読むと，closure の R にその capability が入り，with の外へ出すと E04xx になる．
+- `self` を捕えた closure は，捕えた値の規則（R と型）により，R にその capability を持つ．操作が返す closure がフィールドを読むと，with の外へ出すと E04xx になる．
 - `self` を `use E` の引数に渡せる．渡した先では，ほかの capability と同じく操作を呼べるが，フィールドには触れない．
 
 ```emel
@@ -315,7 +323,8 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
   - `use E` の式は W0403 のまま読む（#731 の「一つの minor の間は読む」を守る）．型の中では effect の名前 E の capability として扱う．名前で E を供給する with は，型の中の名前 E を自分の capability として数えるので，`x = use E` の値を持ち出すことも型で止まる．
   - 書き換えは W0403 の quick fix と，`Fiber.scope(|| ...)` を `|s|` に直す quick fix で助ける．
 - 0.30: `use E` の式をコンパイルエラーにする．
-- #666 は，この proposal に置き換えて閉じる．capture checking は既定にならないまま，capability とハンドルについては外れる．
+- #666 は，この proposal に置き換えて閉じる．
+- capture checking はもう要らない．capture set が追っていたのは capability（Scope を含む）とハンドルだけで，どちらも型と R が持つ．experimental feature `capture-checking` は stable にせず，検査の仕組みごと 0.29 で外す．`[intro.experimental]` の規則どおり，名前は少なくとも一つの minor の間，W0206（効果がない）を出して受け付ける．
 
 ## Specification changes
 
@@ -351,6 +360,10 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 
 - Replace "The R may contain capabilities; a callback reaches a handler only through a capability it captures (8.2), since the host calls it without passing handlers." by: "The R MUST NOT contain a capability either, since the host may keep the callback and call it after the with of the capability has ended (E0454). A parameter of an external function marked `@borrowed` (the host holds the callback only during the call) may take a callback whose R contains capabilities. `@borrowed` can be written only on a parameter of function type of an external function (E04xx)."
 
+### `[intro.experimental]`
+
+- Remove the row of `capture-checking`. The feature is removed, not made stable; its name is accepted with W0206 as the rules for a removed feature say.
+
 ### `[lsp.hover]`
 
 - Replace the line `holds: ...` by a line `capabilities: ...` that names which capabilities the type of the value records: the variable of a named item, the handler of an item without a name, the parameter that received it, or `any` for a parameter of a quantified function type. The type itself is shown as written in source.
@@ -368,7 +381,7 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 - [ ] E04xx: effect の操作の戻り値に capability type か capability-bound type を書いた
 - [ ] `use E` の式の W0403 は #791 で入った．0.30 でエラーにする
 - [ ] E04xx: capability を effect の名前に広げた．help: 引数を `use E` にする
-- [ ] W0402，E0444，E0425 を外す（0.29）
+- [ ] W0402，E0444，E0425 を外す（0.29）．experimental feature `capture-checking` を外す（名前は W0206）
 - [ ] 0.30: W0403 をエラーにする
 
 ## Compatibility
@@ -395,10 +408,11 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 - 型検査: capability type と effect set に，どの capability かを持たせる．with の出口で，本体の値の型，エラー，R にその with の capability が残らないかを確かめる．型引数の範囲の検査と同じ仕組みを使う．
 - capability type の集合と，引数の `use E` の型引数は，R の集合と同じ仕組み（集合の和と set variable）で推論する．
 - lowering: capability の evidence は，その項目の handler．effect の名前に決まった型引数は，呼んだ時点の evidence を使う．
-- capture checking: capability とハンドルの部分を外す．`use E` の値は，型の中の effect の名前として持ち出しの検査で見る．
+- capture checking: 検査の仕組み（`emela-types` の `capture.rs`，driver の W0402 / E0444 の切り替え，hover の `holds:`）を外す．`use E` の値は，型の中の effect の名前として持ち出しの検査で見る．
 
 ## Alternatives
 
+- `capture-checking` を stable にしてから外す．stable にした時点で E0444 が既定になり，すぐ後の版でまた外すことになる．experimental のまま外せば，互換性の約束の外で済む．
 - 値を残し，capture checking で道を塞ぎ続ける（`capture-checking-exits`）．#719 の「決めること 1，2」と，host と Deferred / Queue の未決が残る．#701 は直らない．
 - capability を値でなくす（この PR の最初の版）．capability をコレクションに入れる形と，`State[use Name]` が書けなくなる．型で区別すれば，値のままで同じ安全が得られる．
 - 局所の label を立て，x をその label の capability とする（この PR の二つ目の版）．利用者が capability と label の二つを覚える必要がある．capability そのものを R に入れれば，label は要らない．
