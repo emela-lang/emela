@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-23 (Handlers with type parameters)
+
+- `[effect.decl]`, `[effect.with]`, `[effect.handler]`, `[effect.layer]`, `[effect.label]`, `[type.rules]`, `[grammar.decl]`, `[grammar.expr]`, `[diag.list]`, `[lsp.hover]`, `[lsp.completion]`, `[lsp.inlay-hint]`: - A handler can declare type parameters of ordinary types (`handler Memory[S](value: S): State[S]`). Set type parameters (E, R) stay out, as for effects (E0424). - Each item of a with determines the type arguments. They are inferred from the arguments of init and from what uses the effects the item provides; when they are not determined, they are written (`with InMemoryRepo[UserId, User] { ... }`). - Type parameters can have trait bounds, checked at the item. - An item of a layer writes its type arguments unless the arguments of init determine them. - Type parameters on handler members (`handler Open[T](...)` declared in an effect) are out of scope. Adopted in the proposal `generic-handler` (#817).
+
 ## 2026-11-23 (Warn about type parameters of a fn that its signature does not use)
 
 - `[fn.decl]`, `[trait.decl]`, `[ext.decl]`, `[diag.list]`, `[lsp.code-action]`: When a type parameter of a top-level fn, a trait function or an `@external` fn does not appear in the type of the fn (its parameters, return type, fails and uses), the compiler warns (W0305), and the language server offers a quick fix that removes it. A type parameter that appears only in type annotations inside the body is warned about too, because no call can determine it. Type parameters of types, enums and handlers are out of scope. Adopted in the proposal `unused-type-parameter` (#806).

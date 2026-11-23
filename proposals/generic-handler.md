@@ -1,10 +1,10 @@
 ---
 title: Handlers with type parameters
 authors: [Alliana]
-status: draft
-pr:
+status: accepted
+pr: 817
 issue:
-decided:
+decided: 2026-11-23
 touches: [effect.decl, effect.with, effect.handler, effect.layer, effect.label, type.rules, grammar.decl, grammar.expr, diag.list, lsp.hover, lsp.completion, lsp.inlay-hint]
 requires: []
 related: [capability-identity, handler-init-arguments, handler-member, semaphore-queue]
@@ -205,3 +205,7 @@ The changes are applied to `spec/` in this pull request.
 ## Open questions
 
 ## Decision
+
+The rule against handlers with type parameters had no recorded reason; it came in with the type parameters of effects as a limit of the implementation. `State.run[S]` already provides `State[S]` for every S, so lifting it brings no new problem with the run-time key of handlers, and monomorphisation copies a handler per instantiation as it copies functions.
+
+Task needs a handler that implements `Queue[A]` for every A, and this does it without an exception for built-in handlers. Type arguments are inferred where the provided effects are used, and when inference cannot decide (nothing determines them, several effects fit, or an item may override another), they are written instead of guessed. A layer writes them unless init determines them, since it has no body to infer from.
