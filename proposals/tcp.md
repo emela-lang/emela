@@ -2,10 +2,8 @@
 title: Std.Tcp, a TCP client as a platform effect
 authors: [Alliana]
 status: draft
-pr: 563
 issue:
-decided:
-touches: [lib.layers, api.std.tcp (new), target.js, target.c, target.wasm.output, target.wasm.run, target.wasm.external, diag.list]
+touches: [lib.layers, api.std.process, api.std.tcp (new), target.wasm.output, target.wasm.run, target.wasm.external]
 requires: []
 related: [js-host-variable]
 ---
@@ -14,13 +12,15 @@ related: [js-host-variable]
 
 ## Summary
 
-std の platform 層に TCP の client を足す．effect `Tcp` は接続を開き，`Bytes` を読み書きし，閉じる．開いた接続は `upgrade_tls` でその場で TLS に上げられる．system handler `SystemTcp` は JS で `node:net` と `node:tls`，C で POSIX の socket，WASM で `wasi:sockets@0.3.0` を使う．WASM の TLS は，コンパイラに同梱した TLS の component を `main.wasm` に合成して動かす．C の TLS と待ち受け（listen / accept）は入れない．
+Adds a TCP client to the platform layer of std. The effect `Tcp` opens connections, reads and writes `Bytes` on them, and closes them. An open connection can be upgraded to TLS in place with `upgrade_tls`. The system handler `SystemTcp` uses `node:net` and `node:tls` on JS, POSIX sockets on native, and `wasi:sockets@0.3.0` on WASM, where TLS runs in a TLS component bundled with the compiler and composed into `main.wasm`. TLS on native and listening for connections are not included.
 
 ```emel
 import Std.Bytes
-import Std.Tcp.{Tcp}
+import Std.Tcp.{Tcp, HostNotFound, ConnectionRefused, ConnectionClosed, TcpFailure}
 
-fn ping(host: String) -> Option[Bytes] fails TcpError uses { Tcp } {
+fn ping(host: String) -> Option[Bytes]
+  fails HostNotFound | ConnectionRefused | ConnectionClosed | TcpFailure
+  uses { Tcp } {
   tcp = use Tcp
   conn = tcp.connect(host, 6379)
   tcp.write(conn, Bytes.encode_utf8("PING\r\n"))
@@ -32,17 +32,17 @@ fn ping(host: String) -> Option[Bytes] fails TcpError uses { Tcp } {
 
 ## Motivation
 
-- データベース（PostgreSQL，Redis，MySQL）やメッセージブローカーのプロトコルは TCP の上にある．今の Emela はこれらを host の library（`Bun.sql`，`bun:sqlite`）経由でしか使えず，その Pome は 1 つの host でしか動かない
-- TCP があれば，プロトコルを純 Emela の Pome として書ける．例えば PostgreSQL のワイヤプロトコルを書いた Pome は，x/sql の `Sql` の handler として JS と C の両方で動く
-- `[ext.decl]` はすでに「Host features that most programs use are added to std as platform effects or as value types (Socket, Bytes, and so on)」と書いている．Bytes（`[api.std.bytes]`）は入ったが，Socket はまだない
-- 今できる回避策は，Pome が `@external` で `node:net` を呼ぶこと．これは JS でしか動かず，その Pome を使う側は `[external]` で許可する必要がある（`[module.pome]`）
+- The protocols of databases (PostgreSQL, Redis, MySQL) and message brokers run on TCP. Emela can use them today only through libraries of a host (`Bun.sql`, `bun:sqlite`), and a Pome that does so runs on one host only.
+- With TCP, a protocol can be written as a Pome in pure Emela. A Pome that implements the PostgreSQL wire protocol, for example, runs as a handler of `Sql` of x/sql on both JS and native.
+- `[ext.decl]` already says "Host features that most programs use are added to std as platform effects or as value types (Socket, Bytes, and so on)". Bytes (`[api.std.bytes]`) is in std; Socket is not yet.
+- The workaround today is a Pome that calls `node:net` through `@external`. It runs only on JS, and every user of the Pome has to allow it in `[external]` (`[module.pome]`).
 
-TLS は接続を開いた後に上げる 1 つの操作にする．TLS を使うプロトコルは，始め方が 2 通りある．
+TLS is one operation, applied to a connection after it is opened. Protocols that use TLS start it in one of two ways:
 
-- 平文で少しやり取りしてから，同じ接続を TLS に上げる．PostgreSQL（SSLRequest に `S` が返ってから），SMTP と IMAP（STARTTLS）
-- 接続した直後から TLS で話す．Redis（`rediss://`），PostgreSQL 17 の `sslnegotiation=direct`，HTTPS
+- They exchange a few plaintext messages and then upgrade the same connection: PostgreSQL (after `S` answers SSLRequest), SMTP and IMAP (STARTTLS).
+- They speak TLS from the first byte: Redis (`rediss://`), `sslnegotiation=direct` of PostgreSQL 17, HTTPS.
 
-後者は「`connect` の直後に `upgrade_tls`」と書けるので，`connect` に TLS の option を付けなくても両方を 1 つの操作で書ける．
+The second is written as `upgrade_tls` right after `connect`, so one operation covers both without a TLS option on `connect`.
 
 ## Proposal
 
@@ -86,7 +86,7 @@ pub effect Tcp {
 pub fn read_exact(conn: Connection, n: Int) -> Bytes fails ConnectionClosed | TcpFailure uses { Tcp }
 ```
 
-PostgreSQL の SSLRequest は次のように書ける．
+The SSLRequest of PostgreSQL is written as follows.
 
 ```emel
 fn open_postgres(host: String) -> Connection
@@ -101,184 +101,98 @@ fn open_postgres(host: String) -> Connection
 }
 ```
 
-- `connect` は名前を解決して接続する．`host` は名前でも IP アドレスの文字列でもよい．`port` が 1 から 65535 の外なら TcpFailure
-- `read` は 1 バイト以上 `max` バイト以下を，届いた分だけ `Some` で返す．相手が送り終えて閉じた（EOF）後は `None` を返す．`max` が 1 未満なら defect
-  - EOF を空の Bytes で表さないのは，呼ぶ側が見忘れると無限ループになり，型にも出ないため．`Option` なら EOF を扱わずに中身を取り出せない
-- `read_exact` は `read` をくり返して，ちょうど `n` バイトを返す．`n` バイトそろう前に EOF になったら ConnectionClosed．`n` が 0 なら何も読まずに空の Bytes，負なら defect．PostgreSQL と Redis のプロトコルは長さの決まったまとまりを読むのが基本なので，実装のほとんどはこれで書ける．effect の操作ではなく，`read` の上の関数なので，handler を書く人は実装しなくてよい
-- `write` は `data` を全部 host に渡してから戻る
-- `upgrade_tls` は，その接続の上で TLS の handshake をして，同じ `Connection` を TLS の接続に変える．戻った後の `read` と `write` は TLS を通る．新しい値を返さないのは，上げる前の値を使い続ける誤りを起こさないため
-  - `server_name` は SNI に使う．証明書をどこまで確かめるかは `verify` で選ぶ
-    - `Full(roots:)`：`roots` までチェーンをたどり，証明書が `server_name` のものかを照らす．ふつうはこれで，`VERIFY_FULL`（host の信頼する root）を渡す
-    - `ChainOnly(roots:)`：チェーンだけをたどり，名前は照らさない．PostgreSQL の `verify-ca` を写すために入れる
-    - `NoVerification`：証明書を確かめない．暗号化はするが，相手が本物かはわからない
-    - `roots` は `SystemRoots`（host の信頼する root）か，`Pem(text:)`（PEM で書いた 1 つ以上の CA 証明書．これだけを信頼する）
-  - 検証に失敗したら TlsFailure で，接続は閉じる．`Pem` の中身が PEM の証明書として読めないのも TlsFailure
-  - 検証の値を引数にするのは，信頼の設定が接続文字列（PostgreSQL の `sslmode` と `sslrootcert`，Redis の `--cacert` と `--insecure`）として library に届くため．library がそのまま `Verify` に写せる．検証を切る所には `NoVerification` と書かれるので，読めばわかる
-  - PEM は `String` で受ける．ファイルからは `FileSystem.read_text` で読める
-  - client 証明書（mTLS，PostgreSQL の `sslcert` と `sslkey`）はこの proposal に入れない．入れるときは `upgrade_tls` に引数を足すことになるので，別の proposal にする
-  - 呼んだ時点で，届いていて `read` がまだ返していないバイトを handler が持っていたら，handshake を始めずに TlsFailure にして接続を閉じる
-    - client が ClientHello を送る前に，server が TLS のバイトを送ることはない．なので，このバイトは handshake の一部ではありえない．届いていたら，平文の段階で経路の途中から差し込まれたものとみなす
-    - 捨てて続けたり，TLS の後の平文として渡したりすると，差し込まれた平文を暗号化した接続のデータとして扱う穴になる（PostgreSQL の CVE-2021-23214 と CVE-2021-23222，Postfix の STARTTLS の CVE-2011-0411）
-    - `read` は `max` までしか返さないので，host が先に読んだバイトを handler が持つことはある．`read_exact` は要る分だけ読むので，正しい相手との間でこれが起きるのは相手がプロトコルを破ったときだけ
-  - TLS の接続をもう一度上げるのは defect．`read` か `write` を待っている接続を上げるのも defect
-- `close` は接続を閉じる．閉じた接続に `close` しても何もしない．閉じた接続への `read` と `write` は ConnectionClosed
-- 相手が接続を切った（reset）後の `read` と `write` も ConnectionClosed
-- 時間切れはない．`Fiber.timeout` で書く．`read` や `connect` を待っている fiber が中断されたら，待ちを取りやめる（`[ext.call]` の AbortSignal，`[ext.c-host]` の `em_on_cancel`）．中断で接続そのものは閉じない
-- `SystemTcp` は，release で自分が開いて閉じていない接続を全部閉じる
-- 接続は，それを開いた handler の with の中でだけ使える．with を抜けた後の接続や，別の handler（別の with の `SystemTcp`）が開いた接続を操作に渡すのは，`close` も含めて defect
-  - fail（ConnectionClosed）にしないのは，相手が閉じた場合と区別がつかず，プログラムの誤りを通信の失敗として扱うことになるため．正しいプログラムでは起きないので，`fails` に出す必要もない
-  - release の後に handler を使うのが defect なのと同じ扱い（`[effect.escape]`）
-- 同じ接続に 2 つの fiber が同時に `read`（または同時に `write`）するのは defect．`read` と `write` を別の fiber から同時に呼ぶのはよい（全二重）
-- エラーは種類ごとに分ける（FileSystem と同じ方針，`[lib.layers]`）．その他の host のエラーは TcpFailure にまとめ，理由を message に入れる
+- `connect` resolves the name and connects. `host` is a name or an IP address written as a string. A `port` outside 1 to 65535 is TcpFailure.
+- `read` returns `Some` of at least 1 and at most `max` bytes, as many as have arrived. After the peer has finished sending and closed its side (end of stream), it returns `None`. A `max` less than 1 is a defect.
+  - The end of stream is not the empty Bytes: a caller that forgets to check for it would loop forever, and the type would not show it. With `Option`, the contents cannot be taken out without handling the end of stream.
+- `read_exact` calls `read` until it has exactly `n` bytes. If the end of stream comes first, it fails with ConnectionClosed. An `n` of 0 returns the empty Bytes without reading; a negative `n` is a defect. The protocols of PostgreSQL and Redis mostly read pieces of known length, so most of their implementations are written with it. It is a function on top of `read`, not an operation, so a writer of a handler does not implement it.
+- `write` returns after all of `data` has been handed to the host.
+- `upgrade_tls` performs a TLS handshake on the connection and turns the same `Connection` into a TLS connection. `read` and `write` after it go through TLS. It returns no new value, so the value from before the upgrade cannot be used by mistake.
+  - `server_name` is used for the server name indication. `verify` chooses how much of the certificate is checked.
+    - `Full(roots:)`: follows the chain up to `roots` and checks that the certificate is for `server_name`. This is the usual choice, passed as `VERIFY_FULL` (the roots the host trusts).
+    - `ChainOnly(roots:)`: follows the chain only, and does not check the name. It is there to express `verify-ca` of PostgreSQL.
+    - `NoVerification`: does not check the certificate. The connection is encrypted, but whether the peer is genuine is unknown.
+    - `roots` is `SystemRoots` (the roots the host trusts) or `Pem(text:)` (one or more CA certificates in PEM, which are then the only roots trusted).
+  - When the verification fails, it is TlsFailure and the connection is closed. `text` of `Pem` that cannot be read as certificates in PEM is also TlsFailure.
+  - The verification is an argument because the trust settings reach a library in a connection string (`sslmode` and `sslrootcert` of PostgreSQL, `--cacert` and `--insecure` of Redis). The library maps them to `Verify` directly. Where verification is turned off, `NoVerification` is written, so it is visible to a reader.
+  - PEM is taken as a `String`. It can be read from a file with `FileSystem.read_text`.
+  - Client certificates (mutual TLS, `sslcert` and `sslkey` of PostgreSQL) are not in this proposal. Adding them adds arguments to `upgrade_tls`, so it is a separate proposal.
+  - If, when it is called, the handler holds bytes that have arrived and that `read` has not returned, it does not start the handshake: it fails with TlsFailure and closes the connection.
+    - A server sends no TLS bytes before the client sends its ClientHello, so such bytes cannot be part of the handshake. If they arrived, they were injected by someone on the path during the plaintext phase.
+    - Dropping them and continuing, or handing them over as plaintext after TLS, would treat injected plaintext as data of the encrypted connection (CVE-2021-23214 and CVE-2021-23222 of PostgreSQL, CVE-2011-0411 of the STARTTLS of Postfix).
+    - `read` returns at most `max` bytes, so a handler can hold bytes that the host read ahead. `read_exact` reads only what it needs, so with an honest peer this happens only when the peer breaks the protocol.
+  - Upgrading a TLS connection again is a defect. Upgrading a connection on which a `read` or a `write` is waiting is also a defect.
+- `close` closes the connection. Closing a closed connection does nothing. `read` and `write` on a closed connection are ConnectionClosed.
+- `read` and `write` after the peer has reset the connection are also ConnectionClosed.
+- There is no timeout. It is written with `Task.timeout`. When a fiber waiting in `read` or `connect` is interrupted, the wait is abandoned (AbortSignal in `[ext.call]`, `em_on_cancel` in `[ext.c-host]`). An interruption does not close the connection.
+- The release of `SystemTcp` closes every connection it opened that is still open.
+- A connection can be used only inside the with of the handler that opened it. Passing a connection to an operation, `close` included, after that with has ended, or a connection that another handler (`SystemTcp` of another with) opened, is a defect.
+  - It is not a failure (ConnectionClosed): that could not be told apart from the peer closing the connection, and would treat an error of the program as a failure of the network. A correct program never does it, so it does not belong in `fails`.
+  - Using a handler after its release is a defect in the same way (`[effect.escape]`).
+- Two fibers reading the same connection at once (or writing it at once) is a defect. A `read` and a `write` from different fibers at once are allowed (full duplex).
+- Errors are split by kind, as in FileSystem (`[lib.layers]`). Other errors of the host are TcpFailure, with the reason in `message`.
+- `SystemTcp` requires ProcessHost (`[effect.host]`) and is bundled in the layer `Process`, not `Platform`. A page of a web browser has no TCP. `main`, tests and HTTP services (`Http.serve` provides ProcessHost, `[lib.http-service]`) can use it.
 
 ### Targets
 
-- JS：`node:net` の `Socket`．`upgrade_tls` は `node:tls` の `connect` に既存の socket を渡す．Node と Bun で動く．渡す前に，handler の buffer と socket の `readableLength` が空であることを確かめる
-- C：POSIX の `getaddrinfo`，ノンブロッキングの `socket` / `connect` / `recv` / `send`．待ちは `em_on_readable` と `em_on_writable`（`[ext.c-host]`）．`getaddrinfo` は止まるので，別のスレッドで呼ぶ．`upgrade_tls` は後の版にする．TLS の library（OpenSSL など）へのリンクが要り，C の出力が今は libc と OS の library しか使わない前提（`[target.c.cc]` の `-pthread` と `-lm` だけ）を変えるため
-- WASM：`wasi:sockets@0.3.0`．名前は `ip-name-lookup` の `resolve-addresses` で解決し，`tcp-socket` の `connect` で接続する．読み書きは `receive` と `send` の stream．`wasi:sockets` を出すのは runtime の中だけで，利用者向けの `Std.Sockets` は作らない（Alternatives）
-  - wasmtime は既定でネットワークを渡さない．`emela run` は，component が `wasi:sockets` を import するときだけ `-S inherit-network=y,allow-ip-name-lookup=y` を足す
-  - `upgrade_tls` は component の中で TLS を動かす．TLS の実装（Rust の rustls）を `wasm32-wasip3` でビルドした component をコンパイラに同梱し，entry から `upgrade_tls` に届くときだけ `main.wasm` に合成する．この component は I/O をしない（暗号文を受け取って平文を返す）ので，socket は runtime が持ったまま．上げる前に届いていたバイトがあるかも，runtime が自分の buffer を見ればわかる
-  - host の TLS（`wasi:tls@0.3.0-draft`）は使わない．WASI の提案として Phase 1，wasmtime でも experimental（`-S tls`）で，handshake に guest が渡せるのは server name だけ．`Pem`，`ChainOnly`，`NoVerification` を表せない（Alternatives）
-  - WASI のサンドボックスからは OS の証明書ストアが見えない．WASM の `SystemRoots` は，コンパイラに同梱した root（Mozilla の CA の一覧，`webpki-roots`）にする．root の更新はコンパイラのリリースに乗る
-  - 試作（2026-11-14）：rustls 0.23 と `rustls-rustcrypto` を Rust 1.101 beta の `wasm32-wasip3` でビルドし，呼ぶ側の component と `wac-graph` で合成して wasmtime 50 で動かした．`Full`，`ChainOnly`，`NoVerification` の成功と失敗が期待どおり．TLS の component は 919KB（gzip で 357KB）．`Pem` は未確認
-
-## Specification changes
-
-### `[lib.layers]`
-
-In the table of layers, add Tcp to the platform layer: "Console, Clock, Random, Env, FileSystem, Http, Tcp".
-
-Add `SystemTcp` to the list of system handlers, and to the handlers bundled in `Platform`.
-
-Add after the item on Http:
-
-- Tcp (`Std.Tcp`) is a TCP client. An open connection can be upgraded to TLS in place. Its declarations are in `[api.std.tcp]`. It does not listen for connections.
-
-### `[api.std.tcp]` (new)
-
-### Std.Tcp (`std/tcp.emel`, `std/tcp.mjs`, `std/tcp.c`) `[api.std.tcp]`
-
-The platform layer (`[lib.layers]`). A TCP client: it opens connections, reads and writes bytes on them, and upgrades them to TLS.
-
-| Declaration | Signature | Description |
-|---|---|---|
-| `Connection` | `opaque type Connection` | An open connection, or one that was closed |
-| `HostNotFound` | `error HostNotFound(host: String)` | The name could not be resolved |
-| `ConnectionRefused` | `error ConnectionRefused(host: String, port: Int)` | Nothing accepted the connection |
-| `ConnectionClosed` | `error ConnectionClosed` | The connection was closed by `close`, by the release of the handler, or by the peer resetting it, or the peer finished sending before `read_exact` got its bytes |
-| `TlsFailure` | `error TlsFailure(message: String)` | The TLS handshake failed, including a certificate that could not be verified. The reason is in `message` |
-| `TcpFailure` | `error TcpFailure(message: String)` | Any other failure of the host. The reason is in `message` |
-| `Roots` | `enum Roots { SystemRoots, Pem(text: String) }` | The certificates trusted as roots |
-| `Verify` | `enum Verify { Full(roots: Roots), ChainOnly(roots: Roots), NoVerification }` | How much of the peer's certificate `upgrade_tls` checks |
-| `VERIFY_FULL` | `const VERIFY_FULL = Full(roots: SystemRoots)` | The usual check |
-| `Tcp` | `effect Tcp` | `connect`, `read`, `write`, `upgrade_tls` and `close`, below |
-| `read_exact` | `fn read_exact(conn: Connection, n: Int) -> Bytes fails ConnectionClosed \| TcpFailure uses { Tcp }` | Exactly `n` bytes, below |
-| `SystemTcp` | `handler SystemTcp: Tcp` | `node:net` and `node:tls` on JS, POSIX sockets on C, `wasi:sockets@0.3.0` on WASM. Bundled in `Platform` |
-
-```emel
-pub effect Tcp {
-  suspend fn connect(host: String, port: Int) -> Connection
-    fails HostNotFound | ConnectionRefused | TcpFailure
-  suspend fn read(conn: Connection, max: Int) -> Option[Bytes] fails ConnectionClosed | TcpFailure
-  suspend fn write(conn: Connection, data: Bytes) -> () fails ConnectionClosed | TcpFailure
-  suspend fn upgrade_tls(conn: Connection, server_name: String, verify: Verify) -> ()
-    fails ConnectionClosed | TlsFailure | TcpFailure
-  suspend fn close(conn: Connection) -> ()
-}
-
-pub fn read_exact(conn: Connection, n: Int) -> Bytes fails ConnectionClosed | TcpFailure uses { Tcp }
-```
-
-- `connect` resolves `host`, which is a name or an IP address written as a string, and connects to `port`. A `port` outside 1 to 65535 fails with TcpFailure.
-- `read` returns `Some` of at least 1 and at most `max` bytes, as many as have arrived. After the peer has finished sending and closed its side, it returns `None`. A `max` less than 1 is a defect (``Tcp.read was given max <max>, which is less than 1``).
-- `read_exact` calls `read` until it has exactly `n` bytes, and returns them. When `read` returns `None` before that, it fails with ConnectionClosed. An `n` of 0 returns the empty Bytes without reading, and a negative `n` is a defect (``Tcp.read_exact was given n <n>, which is negative``). It is a function on top of `read`, not an operation, so a handler does not implement it.
-- `write` returns after all of `data` has been handed to the host.
-- `upgrade_tls` performs a TLS handshake on the connection, as the client, and turns the same `Connection` into a TLS connection: `read` and `write` after it go through TLS. `server_name` is sent as the server name indication. `verify` chooses how the certificate of the peer is checked: `Full(roots:)` verifies its chain up to `roots` and checks that it is for `server_name`; `ChainOnly(roots:)` verifies the chain only; `NoVerification` checks nothing, so the connection is encrypted but the peer is not authenticated. `roots` is `SystemRoots`, the roots that the host trusts (on WASM, the roots bundled with emela, `[target.wasm.external]`), or `Pem(text:)`, one or more CA certificates in PEM, which are then the only roots trusted. `VERIFY_FULL` is `Full(roots: SystemRoots)`. When the handshake or the verification fails, or `text` of `Pem` is not one or more certificates in PEM, it fails with TlsFailure and the connection is closed. If, when it is called, the handler holds bytes that have arrived on the connection and that `read` has not returned, it does not start the handshake: it fails with TlsFailure and the connection is closed. A server sends no TLS bytes before the client's first handshake message, so such bytes cannot be part of the handshake. Upgrading a TLS connection is a defect (``Tcp.upgrade_tls was given a connection that is already TLS``), and so is upgrading a connection while a `read` or a `write` on it is waiting (``Tcp.upgrade_tls was given a connection that is being read or written``).
-- `close` closes the connection. Closing a closed connection does nothing. `read` and `write` on a closed connection fail with ConnectionClosed, as they do after the peer has reset the connection.
-- There is no timeout. Write it with `Fiber.timeout` (`[fiber.combinators]`). When a fiber waiting in `connect`, `read`, `write` or `upgrade_tls` is interrupted, the wait is abandoned (`[ext.call]`, `[ext.c-host]`). The connection stays open.
-- The release of `SystemTcp` closes the connections it opened that are still open. A connection can be used only inside the with of the handler that opened it. Passing a connection to an operation, `close` included, after that with has ended, or passing it to another handler than the one that opened it, is a defect (``a connection was used outside the with of the handler that opened it``).
-- Two concurrent `read`s on the same connection, or two concurrent `write`s, are a defect (``a connection was read by two fibers at once``, ``a connection was written by two fibers at once``). A `read` and a `write` on the same connection MAY run concurrently.
-- The R of Tcp is not Immediate (9.5), so it cannot be used inside the callback of an external function.
-- `SystemTcp` uses `node:net` on JS. On C it resolves names with `getaddrinfo` on another thread and waits on non-blocking sockets with `em_on_readable` and `em_on_writable`. On WASM it uses `wasi:sockets@0.3.0`, and performs TLS inside the component (`[target.wasm.external]`). `upgrade_tls` has no C implementation yet, and calling it on C is a compile error (E0412).
-
-### `[target.wasm.output]`
-
-In the item on imports, replace "each only when the entry reaches a host function of `Std.Env`, `Std.Random` or `Std.Clock` that uses it" with "each only when the entry reaches a host function of `Std.Env`, `Std.Random` or `Std.Clock` that uses it, and `wasi:sockets/types@0.3.0` and `wasi:sockets/ip-name-lookup@0.3.0` only when the entry reaches an operation of `SystemTcp`. When the entry reaches `SystemTcp.upgrade_tls`, it also imports `wasi:random/random@0.3.0` and `wasi:clocks/system-clock@0.3.0`".
-
-In the item "`emela build` and `emela run` write exactly one file, `main.wasm`, ...", add after "The runtime is included in the same component": "When the entry reaches `SystemTcp.upgrade_tls`, the TLS implementation bundled with emela is included in the same component as well."
-
-### `[target.wasm.run]`
-
-Add after the first item:
-
-- When `main.wasm` imports `wasi:sockets/types@0.3.0`, `emela run` and `emela test` also pass `-S inherit-network=y,allow-ip-name-lookup=y`, before `main.wasm`. Otherwise they do not, and the program has no access to the network.
-
-### `[target.wasm.external]`
-
-Add rows to the table of handlers that work on WASM:
-
-| Handler | Host function |
-|---|---|
-| `SystemTcp` (`connect`) | `resolve-addresses` of `wasi:sockets/ip-name-lookup@0.3.0`, then `create` and `connect` of `tcp-socket` in `wasi:sockets/types@0.3.0`, for each address in the order resolved, until one connects. No address is HostNotFound; every address refusing is ConnectionRefused |
-| `SystemTcp` (`read`, `write`, `close`) | The stream returned by `receive` and the stream passed to `send` of `tcp-socket`. `close` drops both streams and the socket |
-
-| `SystemTcp` (`upgrade_tls`) | None for TLS itself. The TLS handshake and records are computed inside the component, by the TLS implementation bundled with emela, and the bytes go through the streams of `tcp-socket` above. It uses `get-random-bytes` of `wasi:random/random@0.3.0` and `now` of `wasi:clocks/system-clock@0.3.0`, the latter for the validity period of certificates |
-
-On WASM, `SystemRoots` is the set of root certificates bundled with emela, which is the list of certificate authorities trusted by Mozilla at the release of that version of emela. The roots that the operating system trusts are not read.
-
-### `[diag.list]`
-
-No new codes. The defects of `[api.std.tcp]` have no code.
+- JS: `Socket` of `node:net`. `upgrade_tls` passes the existing socket to `connect` of `node:tls`. It runs on Node and Bun. Before passing it, the handler checks that its own buffer and `readableLength` of the socket are empty.
+- Native: `getaddrinfo` of POSIX, and non-blocking `socket`, `connect`, `recv` and `send`. It waits with `em_on_readable` and `em_on_writable` (`[ext.c-host]`). `getaddrinfo` blocks, so it is called on another thread. `upgrade_tls` comes in a later version: it needs a TLS library (OpenSSL or another) to be linked, which changes the assumption that the native output uses only libc and the libraries of the OS (only `-pthread` and `-lm` in `[target.native.cc]`).
+- WASM: `wasi:sockets@0.3.0`. Names are resolved with `resolve-addresses` of `ip-name-lookup`, and `connect` of `tcp-socket` connects. Reads and writes go through the streams of `receive` and `send`. `wasi:sockets` is used only inside the runtime; no `Std.Sockets` is offered to users (Alternatives).
+  - wasmtime gives no network by default. `emela run` adds `-S inherit-network=y,allow-ip-name-lookup=y` only when the component imports `wasi:sockets`.
+  - `upgrade_tls` runs TLS inside the component. A component of a TLS implementation (rustls, in Rust) built for `wasm32-wasip3` is bundled with the compiler, and composed into `main.wasm` only when the entry reaches `upgrade_tls`. The component performs no I/O (it takes ciphertext and returns plaintext), so the runtime keeps the socket. Whether bytes arrived before the upgrade is known from the runtime's own buffer.
+  - The host's TLS (`wasi:tls@0.3.0-draft`) is not used. It is a Phase 1 WASI proposal, experimental in wasmtime (`-S tls`), and the only thing a guest can pass to the handshake is the server name. It cannot express `Pem`, `ChainOnly` or `NoVerification` (Alternatives).
+  - The sandbox of WASI does not see the certificate store of the OS. `SystemRoots` on WASM is the set of roots bundled with the compiler (the list of certificate authorities of Mozilla, `webpki-roots`). Updates of the roots come with releases of the compiler.
+  - Prototype (2026-11-14): rustls 0.23 with `rustls-rustcrypto`, built with the `wasm32-wasip3` of Rust 1.101 beta, composed with a calling component by `wac-graph` and run on wasmtime 50. Success and failure of `Full`, `ChainOnly` and `NoVerification` were as expected. The TLS component is 919KB (357KB with gzip). `Pem` was not tried.
 
 ## Diagnostics
 
-- [ ] なし（defect のメッセージだけ）
+None. The defects have messages and no codes. Calling `upgrade_tls` on native is E0412, which already exists.
 
 ## Compatibility
 
-- `Std.Tcp` と，`Platform` に `SystemTcp` が増えるだけ．既存のプログラムの意味は変わらない
-- `Tcp`，`Connection` などの名前は `Std.Tcp` の中にあるので，import しなければ利用者の名前とぶつからない
+- Only `Std.Tcp` is added, and `SystemTcp` in `Process`. No existing program changes meaning.
+- `Tcp`, `Connection` and the other names are in `Std.Tcp`, so they do not collide with a user's names unless imported.
 
 ## Implementation
 
-- std：`std/tcp.emel`，`std/tcp.mjs`，`std/tcp.c`．`Platform` に `SystemTcp` を足す
-- C の runtime：`getaddrinfo` を別スレッドで呼び，task を完了させる（`[ext.c-host]` の「A host function that hands a task to another thread」）
-- WASM の runtime：`crates/emela-codegen-wasm/src/emit/runtime/tcp.rs` を足し，`wasi:sockets/types` と `wasi:sockets/ip-name-lookup` を到達したときだけ import する
-- WASM の TLS：
-  - TLS の component を新しい crate（例：`crates/emela-tls-wasm`）にし，`wasm32-wasip3` でビルドする．I/O をしない session（暗号文を受け取る，送る暗号文を取り出す，平文を読む，書く）を WIT の interface として export する
-  - コンパイラはそれを `include_bytes!` で埋め込み，`wac-graph` で Emela の出力と合成する．コンパイラのバイナリは約 1MB 増える
-  - 暗号の provider は実装の PR で選ぶ（`rustls-rustcrypto` はプレリリース．ring が `wasm32-wasip3` で通るかは未確認）
-  - toolchain：`wasm32-wasip3` は Rust 1.100 で stable になる．`rust-toolchain.toml` の `stable` がそれ以上になってから入れるか，生成物を commit するかを実装の PR で決める
-  - TLS の component から Rust の std の import（`wasi:cli` など）を外し，`wasi:random` と `wasi:clocks` だけにする
-- emela-driver：`main.wasm` の import に `wasi:sockets/types@0.3.0` があるとき，`wasmtime run` に `-S inherit-network=y,allow-ip-name-lookup=y` を足す（`run.rs`，`emela test` も）
-- PR は JS，C，WASM の順に分ける．WASM が v0.28 に間に合わなければ，その PR だけ次の版に送る
-- テスト：tests/ にローカルの echo server を立てて JS，C，WASM で回す．`emela test` からは server を立てられないので，server を立てるのは Rust のテストか CI の手順にする．TLS は自己署名の証明書では検証に通らないので，検証の失敗（TlsFailure）を確かめるテストと，CI で信頼される証明書を持つ相手に繋ぐテストに分ける
-- テスト用の handler（`TestTcp`）は std に入れない．TCP は読み書きの区切りが自由で，`TestHttp` のような純関数の台本の形が決まらないので，x の Pome で形を探り，固まってから std に入れる
+- std: `std/tcp.emel`, `std/tcp.mjs`, `std/tcp.c`. `SystemTcp` is added to `Process`.
+- Native runtime: calls `getaddrinfo` on another thread and completes the task ("A host function that hands a task to another thread" in `[ext.c-host]`).
+- WASM runtime: adds `crates/emela-codegen-wasm/src/emit/runtime/tcp.rs`, and imports `wasi:sockets/types` and `wasi:sockets/ip-name-lookup` only when they are reached.
+- TLS on WASM:
+  - The TLS component is a new crate (`crates/emela-tls-wasm`, for example), built for `wasm32-wasip3`. It exports, as a WIT interface, a session that performs no I/O (take ciphertext, take out ciphertext to send, read plaintext, write plaintext).
+  - The compiler embeds it with `include_bytes!` and composes it with the output of Emela with `wac-graph`. The binary of the compiler grows by about 1MB.
+  - The pull request of the implementation chooses the crypto provider (`rustls-rustcrypto` is a pre-release; whether ring builds for `wasm32-wasip3` is not known).
+  - Toolchain: `wasm32-wasip3` is stable from Rust 1.100. The pull request of the implementation decides whether to wait until `stable` of `rust-toolchain.toml` is at least that, or to commit the built component.
+  - The imports of the Rust std (`wasi:cli` and others) are removed from the TLS component, leaving only `wasi:random` and `wasi:clocks`.
+- emela-driver: when the imports of `main.wasm` include `wasi:sockets/types@0.3.0`, adds `-S inherit-network=y,allow-ip-name-lookup=y` to `wasmtime run` and `wasmtime serve` (`run.rs`, and `emela test`).
+- The pull requests are split into JS, native and WASM, in that order. If WASM is not ready for v0.29, only that pull request moves to the next version.
+- Tests: a local echo server in tests/, run on JS, native and WASM. `emela test` cannot start a server, so the server is started by a Rust test or a step of CI. A self-signed certificate does not pass verification, so TLS is tested in two parts: a test that verification fails (TlsFailure), and a test in CI that connects to a peer with a trusted certificate.
+- A handler for tests (`TestTcp`) is not added to std. Reads and writes on TCP can be split anywhere, so the shape of a script of pure functions (as `TestHttp` has) is not settled. It is tried in a Pome of x, and moves to std once its shape is settled.
 
 ## Alternatives
 
-- `@external` のまま，Pome ごとに `node:net` を呼ぶ．host ごとに書き直しになり，`[external]` の許可が要る
-- `connect` に TLS の option を付ける（`connect(host, port, tls: True)`）．接続の途中で TLS に上げるプロトコル（PostgreSQL，STARTTLS）が書けない．`upgrade_tls` があれば最初から TLS の場合も書けるので，両方を持つ理由がない
-- 検証の段階ごとに操作を分ける（`upgrade_tls`，`upgrade_tls_trusting`，`upgrade_tls_unverified`）．段階が増えるたびに操作が増え，接続文字列から選ぶ library は結局 match で操作を振り分ける
-- 何を信頼するかを handler に持たせる（`with SystemTcp(trust: ...)`）．library は名前だけを渡せばよくなるが，信頼の設定は接続文字列で library に届くので，それを with の側へ戻す配線が要る
-- `ChainOnly` を入れない．名前を照らさない検証は他のプロトコルではまれだが，入れないと PostgreSQL の `sslmode=verify-ca` を写せない
-- 検証せずに証明書を返し，利用者が確かめる．チェーンの検証を利用者が書くことになり，暗号の誤りを招く
-- `upgrade_tls` が新しい `Connection` を返し，元の値を閉じた扱いにする．元の値を使い続ける誤りが，ConnectionClosed として実行時にしか見つからない
-- TLS を別の proposal にする．JS では `node:tls` に socket を渡すだけで書け，PostgreSQL と Redis の両方がこれを要る．C の TLS だけを後に回せば足りる
-- EOF を空の Bytes で表す．「1 バイト以上返す」約束があるので値は取り違えないが，見忘れると無限ループになり，型にも出ない
-- 待ち受け（listen / accept）も入れる．PostgreSQL と Redis の client には要らず，HTTP のサーバは `Http.serve` がある．要る場面が出てから別の proposal にする
-- C を後の版にする（Tier 2 は遅れてよい，`[target]`）．純 Emela で書いたプロトコルをネイティブでも動かすのが動機なので，C の平文の client は最初から入れる．C の runtime にはもう `em_on_readable` と `em_on_writable` があり，足すのは `getaddrinfo` を別のスレッドで呼ぶところが主
-- 名前を `Std.Socket` や `Std.Net` にする．UDP や Unix domain socket を入れる予定がないので，中身の名前にした
-- WASM のために `wasi:sockets` の粒度（socket の作成，bind，アドレス）の `Std.Sockets` を出し，`Std.Tcp` をその上に Emela で書く．JS の `node:net` は名前を渡して接続する口しかないので，JS と C にも同じ粒度の実装が要る．TLS は socket そのものを host に渡す形（`node:tls`）なので Emela では書けず，platform との境目は `Tcp` の高さに置くしかない．UDP が要るようになったら `Std.Udp` を同じ高さの effect として別に提案する
-- WASM の `upgrade_tls` を `wasi:tls@0.3.0-draft` で入れ，`Verify` は `Full(roots: SystemRoots)` だけを受けて，ほかは TlsFailure にする．`main.wasm` は小さく済むが，PostgreSQL の `sslmode=require`（`NoVerification`）や自前の CA（`Pem`）が WASM でだけ失敗する．Phase 1 の draft と experimental な flag に仕様の動作を載せると，wasmtime を上げるたびに壊れる．`wasi:tls` が安定して検証の設定を渡せるようになったら，同梱の TLS から移すかを考える
-- WASM の `upgrade_tls` を後の版にする（E0412）．WASM から PostgreSQL と Redis にほぼつなげなくなる．試作で，同梱の TLS が 3 つの `Verify` を守れることを確かめた
-- TLS を純 Emela で書く．暗号を Emela で書き直すことになり，量と安全性のどちらも割に合わない
-- WASM を後の版にする．`wasi:sockets@0.3.0` はもう vendor してあり，wasmtime 50 は `-S p3=y` でこれを動かせる．runtime には WASI 0.3 の stream を使う import の前例（`fs.rs`）がある
+- Keep `@external`, with each Pome calling `node:net`. It is rewritten for each host and needs an `[external]` permission.
+- A TLS option on `connect` (`connect(host, port, tls: True)`). Protocols that upgrade partway (PostgreSQL, STARTTLS) cannot be written with it. `upgrade_tls` also covers TLS from the start, so there is no reason to have both.
+- One operation for each level of verification (`upgrade_tls`, `upgrade_tls_trusting`, `upgrade_tls_unverified`). Each new level adds an operation, and a library that chooses from a connection string ends up dispatching to the operations with a match.
+- The handler holds what is trusted (`with SystemTcp(trust: ...)`). A library would pass only the name, but the trust settings reach the library in a connection string, and would have to be wired back to the with.
+- No `ChainOnly`. Verification without the name is rare in other protocols, but without it `sslmode=verify-ca` of PostgreSQL cannot be expressed.
+- Return the certificate without verifying it, and let the user check it. The user would write the verification of the chain, which invites cryptographic mistakes.
+- `upgrade_tls` returns a new `Connection` and treats the old value as closed. Using the old value by mistake would be found only at run time, as ConnectionClosed.
+- TLS in a separate proposal. On JS it is a matter of passing the socket to `node:tls`, and both PostgreSQL and Redis need it. Postponing only TLS on native is enough.
+- The empty Bytes for the end of stream. Since `read` returns at least 1 byte otherwise, the values cannot be confused, but a caller that forgets to check loops forever, and the type does not show it.
+- Listening (listen and accept) as well. Clients of PostgreSQL and Redis do not need it, and HTTP servers have `Http.serve`. It is a separate proposal when it is needed.
+- Native in a later version (Tier 2 may lag, `[target]`). Running protocols written in pure Emela natively is part of the motivation, so the plaintext client on native comes from the start. The native runtime already has `em_on_readable` and `em_on_writable`; most of what is added is calling `getaddrinfo` on another thread.
+- The name `Std.Socket` or `Std.Net`. There is no plan for UDP or Unix domain sockets, so the module is named after what it has.
+- For WASM, offer `Std.Sockets` at the level of `wasi:sockets` (creating sockets, bind, addresses), and write `Std.Tcp` on it in Emela. `node:net` on JS only connects by name, so JS and native would also need implementations at that level. TLS hands the socket itself to the host (`node:tls`), so it cannot be written in Emela, and the boundary with the platform has to be at the level of `Tcp`. When UDP is needed, `Std.Udp` is proposed separately as an effect at the same level.
+- `upgrade_tls` on WASM through `wasi:tls@0.3.0-draft`, accepting only `Full(roots: SystemRoots)` as `Verify` and failing with TlsFailure for the others. `main.wasm` would be smaller, but `sslmode=require` of PostgreSQL (`NoVerification`) and a private CA (`Pem`) would fail only on WASM. Behavior of the specification resting on a Phase 1 draft and an experimental flag would break with each update of wasmtime. Moving from the bundled TLS is considered when `wasi:tls` is stable and can take settings of verification.
+- `upgrade_tls` on WASM in a later version (E0412). WASM could then hardly connect to PostgreSQL or Redis. The prototype showed that the bundled TLS keeps the three kinds of `Verify`.
+- TLS written in pure Emela. It would rewrite cryptography in Emela, which pays off neither in volume nor in safety.
+- WASM in a later version. `wasi:sockets@0.3.0` is already vendored, and wasmtime 50 runs it with `-S p3=y`. The runtime already has an import that uses streams of WASI 0.3 (`fs.rs`).
+- `SystemTcp` in `Platform`. `Platform` bundles the handlers that every host has, and a page of a web browser has no TCP. With ProcessHost, `with Platform` in a page keeps type checking, and every entry that runs in a process (main, tests, HTTP services) still has TCP through `Process`.
 
 ## Prior art
 
-- Cloudflare Workers の `connect()` と `startTls()`：開いた socket をその場で TLS に上げる．検証は host の root だけで，自前の CA は渡せない
-- `wasi-pg-client`（Rust）：WASI 0.3 の `wasi:sockets` の上で，guest の中の rustls と `webpki-roots` で TLS を張る PostgreSQL の client．`sslmode` の `require`，`verify-ca`，`verify-full` を持つ
+- `connect()` and `startTls()` of Cloudflare Workers: upgrades an open socket to TLS in place. Verification uses only the host's roots; a private CA cannot be passed.
+- `wasi-pg-client` (Rust): a PostgreSQL client on `wasi:sockets` of WASI 0.3 that runs TLS with rustls and `webpki-roots` inside the guest. It has `require`, `verify-ca` and `verify-full` of `sslmode`.
 
 ## Open questions
 
