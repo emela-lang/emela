@@ -20,7 +20,7 @@ export const withHeader = (req, name, value) => ({ ...req, headers: [...req.head
 
 /**
  * Sends `req` and reads the whole body as UTF-8. `signal` is the AbortSignal the runtime appends
- * to the arguments of a suspending external function (spec 12.2); it may be undefined. Aborting
+ * to the arguments of a suspending external function (`[ext.call]`); it may be undefined. Aborting
  * gives a ConnectionFailed outcome ("This operation was aborted"), which the interrupted fiber
  * drops.
  */

@@ -23,6 +23,7 @@ import Std.FileSystem.{SystemFileSystem}
 import Std.Platform.{Platform}
 import Std.State.{State}
 
+## The arguments of the process, in order, without the name of the program.
 pub effect Args {
   ## The argument at `index` (from 0), or `None` when `index` is negative or not less than the
   ## number of arguments.
@@ -36,6 +37,7 @@ pub error InvalidInput derive Show
 ## The host cannot read standard input. `message` is the host's text.
 pub error StdinFailure(message: String) derive Show
 
+## Reads standard input as text (UTF-8).
 pub effect Stdin {
   ## The next line without its line terminator (`\n`, or `\r\n`), or `None` at the end of the
   ## input.
@@ -340,7 +342,9 @@ pub fn exit_code_to_int(code: ExitCode) -> Int {
   n
 }
 
+## The exit code 0.
 pub const EXIT_SUCCESS: ExitCode = exit_code(0)
+## The exit code 1.
 pub const EXIT_FAILURE: ExitCode = exit_code(1)
 
 # The exit code of a `main` that returns an `ExitCode`. Lowering calls `exit_with` with the value

@@ -1,4 +1,5 @@
-# The Clock effect and its handlers (spec 8.1; the platform and test layers of spec 15.2).
+# The Clock effect and its handlers (`[effect.decl]`; the platform and test layers of
+# `[lib.layers]`).
 #
 # Use it as `clock <- Clock` and `clock.now()` and provide it with `with SystemClock { ... }`, or with
 # `with Platform { ... }` from `Std.Platform`.
@@ -10,14 +11,17 @@
 # runtime (`when_stalled`). It is reached as an `@external suspend fn`, not an `@intrinsic`: a
 # suspending `@intrinsic` would need new paths in lowering and the type checker, and an
 # `@external suspend fn` gets the AbortSignal, so interrupting a sleeper removes its wait, as for
-# any external call (spec 12.2).
+# any external call (`[ext.call]`).
 
 import Std.Duration.{Duration}
 import Std.Instant.{Instant}
 import Std.State.{State}
 
+## The current point in time, and waiting.
 pub effect Clock {
+  ## Waits `ms` milliseconds. A negative `ms` is the same as 0.
   suspend fn sleep(ms: Int) -> ()
+  ## The current point in time.
   fn now() -> Instant
 }
 
@@ -36,9 +40,11 @@ suspend fn sleep_milliseconds(ms: Int) -> ()
 @external(wasm, "emela:runtime/scheduler@0.1.0", "when-stalled")
 suspend fn when_stalled(at: Int64) -> ()
 
-## The host's clock. `sleep` waits for a timer (JS `setTimeout`, C the runtime's event loop) as
-## an `@external suspend fn`, so SystemClock depends on Async (spec 8.7), and interrupting the
-## sleeping fiber clears the timer (spec 12.2, 12.6). `now` is milliseconds since the Unix epoch (JS `Date.now()`).
+# `sleep` waits as an `@external suspend fn`, so SystemClock depends on Async, and interrupting the
+# sleeping fiber clears the timer (`[ext.call]`, `[ext.c-host]`).
+## The host's clock. `sleep` waits for a timer (JS `setTimeout`, C the runtime's event loop).
+## SystemClock depends on Async (`[effect.async]`), and interrupting the sleeping fiber clears the
+## timer. `now` is milliseconds since the Unix epoch (JS `Date.now()`).
 pub handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
     sleep_milliseconds(ms)
@@ -58,9 +64,9 @@ pub handler SystemClock: Clock {
 ## })
 ## ```
 ##
-## The time is virtual (spec 8.8). `sleep` really waits: when no fiber can go on and the host has
-## nothing pending, the time moves forward to the earliest time a sleeper waits for, and that
-## sleeper wakes (sleepers with the same time wake in the order they called `sleep`). With one
+## The time is virtual (`[effect.state]`). `sleep` really waits: when no fiber can go on and the
+## host has nothing pending, the time moves forward to the earliest time a sleeper waits for, and
+## that sleeper wakes (sleepers with the same time wake in the order they called `sleep`). With one
 ## fiber this is the same as moving the time forward by `ms` at once. A negative `ms` is the same
 ## as 0. `now` returns the time in `State[Instant]`. TestClock depends on Async.
 pub handler TestClock: Clock {

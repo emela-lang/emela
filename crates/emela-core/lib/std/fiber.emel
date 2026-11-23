@@ -1,4 +1,4 @@
-# Fibers and scopes (spec chapter 11). A fiber is a light unit of execution on one thread; it can
+# Fibers and scopes (`[fiber]`). A fiber is a light unit of execution on one thread; it can
 # only be started inside a scope, and every fiber ends before its scope does.
 #
 # Import it with `import Std.Fiber.{Fiber, Scope}`:
@@ -12,7 +12,7 @@
 #
 # `Scope`, `scope`, `join`, `await` and `interrupt` are built in (the runtime schedules the
 # fibers; `@intrinsic` on an effect marks a built-in effect). The combinators `all`, `race`,
-# `both`, `map` and `timeout` are written in Emela on top of them (spec 11.3).
+# `both`, `map` and `timeout` are written in Emela on top of them (`[fiber.combinators]`).
 #
 # How a fiber ended is an `Exit` of `Std.Exit`. `Exit.attempt`, which turns errors and defects
 # into an `Exit` without starting a fiber, is there too.
@@ -24,22 +24,22 @@ import Std.Queue.{Queue}
 import Std.Semaphore.{Semaphore}
 
 ## The handle of a fiber that produces a value of type `A`. Held by the runtime. It records the
-## scope that started it and cannot leave it (spec 11.8).
+## scope that started it and cannot leave it (`[fiber.escape]`).
 @external
 pub type Fiber[A] uses Scope
 
 ## The capability to start fibers in a scope. `E` and `R` are the `fails` and `use` of the
-## children. Only `Fiber.scope` provides it: a handler cannot implement it (spec 11.2).
+## children. Only `Fiber.scope` provides it: a handler cannot implement it (`[fiber.scope]`).
 @intrinsic
 pub effect Scope[E, R] {
   ## Starts `f` as a child fiber of the scope. `f` may use `Scope` itself to fork siblings; the
-  ## type checker adds `Scope[E, R]` to the `use` of `f`, provided by this scope (spec 11.2).
+  ## type checker adds `Scope[E, R]` to the `use` of `f`, provided by this scope (`[fiber.scope]`).
   fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]
-  ## Makes a `Deferred` that belongs to the scope (spec 11.7).
+  ## Makes a `Deferred` that belongs to the scope (`[fiber.deferred]`).
   fn deferred[A]() -> Deferred[A]
-  ## Makes a `Semaphore` with `permits` permits that belongs to the scope (spec 11.9).
+  ## Makes a `Semaphore` with `permits` permits that belongs to the scope (`[fiber.semaphore]`).
   fn semaphore(permits: Int) -> Semaphore
-  ## Makes an empty `Queue` of capacity `capacity` that belongs to the scope (spec 11.10).
+  ## Makes an empty `Queue` of capacity `capacity` that belongs to the scope (`[fiber.queue]`).
   fn queue[A](capacity: Int) -> Queue[A]
 }
 
@@ -49,7 +49,7 @@ pub effect Scope[E, R] {
 ## siblings (and `body`) are interrupted and the failure propagates.
 ##
 ## Children get the handlers in effect where `scope` is called, so the effects they use must be
-## provided outside `scope` (spec 11.2).
+## provided outside `scope` (`[fiber.scope]`).
 @intrinsic
 pub fn scope[A, E, R](body: fn(use Scope[E, R]) -> A fails E uses { Scope[E, R], Async, R }) -> A
   fails E
@@ -58,7 +58,7 @@ pub fn scope[A, E, R](body: fn(use Scope[E, R]) -> A fails E uses { Scope[E, R],
 ## Starts `f` as a child fiber of the innermost scope. Same as `fork(f)` of the innermost `Scope`.
 ##
 ## `f` may fork siblings: its `Scope` is the scope it is forked into, so the `Scope[E, R]` in its
-## `use` is provided by that scope and not from outside (spec 11.2).
+## `use` is provided by that scope and not from outside (`[fiber.scope]`).
 pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
   uses { Scope[E, R] } {
   s <- Scope

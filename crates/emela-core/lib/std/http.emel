@@ -1,5 +1,5 @@
 # The Http effect (a client), its handlers and the functions over `send` (the platform and test
-# layers of spec 15.2), and the entry adapter `serve` of HTTP services (`[lib.http-service]`).
+# layers of `[lib.layers]`), and the entry adapter `serve` of HTTP services (`[lib.http-service]`).
 #
 # Use it as `Http.get(url)` and provide it with `with SystemHttp { ... }`, or with
 # `with Platform { ... }` from `Std.Platform`. Requests and responses are values in
@@ -22,6 +22,7 @@ pub error ResponseNotText(url: String) derive Show
 
 ## Sends requests. 4xx and 5xx are responses, not failures; fail only when no response is received.
 pub effect Http {
+  ## Sends `request` and returns its response.
   suspend fn send(request: Request) -> Response
     fails InvalidUrl | ConnectionFailed | ResponseNotText
 }
@@ -85,7 +86,7 @@ pub fn response(status: Int, body: String) -> Response {
 }
 
 ## The request being built on the host (a JS object). `List` cannot cross the external function
-## boundary (spec 12.4), so the headers are added one by one.
+## boundary (`[ext.boundary]`), so the headers are added one by one.
 @external
 type HostRequest
 
@@ -138,7 +139,7 @@ fn method_name(method: Method) -> String {
 
 ## The host's HTTP client (JS `fetch`). It follows redirects, keeps no cookies and ignores the
 ## proxy environment variables. Interrupting the fiber waiting on `send` aborts the request
-## (spec 12.2).
+## (`[ext.call]`).
 pub handler SystemHttp: Http {
   suspend fn send(request, resume) {
     start = host_request(method_name(request.method), request.url, request.body)
@@ -406,8 +407,8 @@ handler SystemHostHttp: HostHttp {
 }
 
 ## A request read on the host: its method, URL, headers and whole body. `List` cannot cross the
-## external function boundary (spec 12.4), so the headers are read one by one by index. On WASM
-## the runtime keeps the request being served, so the value only stands for it.
+## external function boundary (`[ext.boundary]`), so the headers are read one by one by index. On
+## WASM the runtime keeps the request being served, so the value only stands for it.
 @external
 type Received
 
