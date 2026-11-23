@@ -132,6 +132,21 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 - 同じ effect の引数を二つ取ると，型引数も二つになる（`fn copy(from: use Db, to: use Db)`）．
 - 引数に effect alias や `use E`（名前のない値）を渡すと，型引数は effect の名前 E に決まる．呼んだ時点でいちばん内側の E に届く．
 
+### 関数型の中の capability の引数
+
+- 関数型の引数に書いた `use E`（`fn(use ReadFile) -> String`）は，その関数型で量化する．E のどの capability の集合を渡されても動く関数の型になる．
+- そのような関数型を期待する位置に書いた closure は，中身の分からない集合 C を受け取るものとして型検査する．C を戻り値に入れることはできない．closure の R には C が入ってよく，closure を呼んだ側でその集合の持ち主の with が外す．
+- 期待する型がない closure（`k = |fs| ...`）は量化しない．引数の集合はふつうの集合の変数になり，使い方から決まる．量化した型は推論せず，書いてある型と照らし合わせるだけにする．
+- capability の型引数に名前を付ける構文（`[C: use Db]`）は足さない．二つの引数が同じ集合を共有する形は，capability を引数で渡す代わりに，それを使う closure に捕えさせて書く．
+
+```emel
+fn retry(attempts: Int, f: fn() -> ()) { ... }
+
+with primary = PrimaryDb {
+  retry(3, || primary.execute("...")) # closure の R は primary．この with が外す
+}
+```
+
 ### 開く数が実行時に決まる資源
 
 - with の項目は一つにつき capability を一つ作るので，`paths.map(|p| Files.Open(p))` とは書けない．with を再帰で入れ子にして書く．
@@ -147,7 +162,16 @@ fn concat_all(paths: List[String], acc: List[use ReadFile]) -> String {
 }
 ```
 
-- 本体を関数として受け取る汎用の補助関数（`with_all(paths, |fs| ...)`）は，引数の関数の型が capability の型引数を持つ必要がある（Open questions の関数型の中の capability の引数）．
+- 本体を関数として受け取る汎用の補助関数も，関数型の中の capability の引数で書ける．
+
+```emel
+fn with_all[T](paths: List[String], acc: List[use ReadFile], k: fn(List[use ReadFile]) -> T) -> T {
+  match paths {
+    [] -> k(acc)
+    [p, ..rest] -> with f = Files.Open(p) { with_all(rest, acc ++ [f], k) }
+  }
+}
+```
 - この proposal は regions（#651）に頼らない．任意の時点で開閉する用途に regions が要るかは #651 で決める．この proposal のもとでは，pool が返す番号の型に pool の capability を入れて，持ち出しを型で止める形も取れる．
 
 ### 持ち出せない
@@ -240,6 +264,7 @@ fn concat_all(paths: List[String], acc: List[use ReadFile]) -> String {
 - capability を値でなくす（この PR の最初の版）．capability をコレクションに入れる形と，`State[use Name]` が書けなくなる．型で区別すれば，値のままで同じ安全が得られる．
 - 局所の label を立て，x をその label の capability とする（この PR の二つ目の版）．利用者が capability と label の二つを覚える必要がある．capability そのものを R に入れれば，label は要らない．
 - capability を effect の名前に広げて，別々の with の capability を同じリストに入れる．広げた値は型が R で追えず，今の #719 の穴に戻る．集合で持てば広げずに入れられる．
+- capability の型引数に名前を付ける（`fn retry[C: use Db](db: C, f: fn(C) -> ())`）．二つの引数が同じ集合を共有する形が書けるが，closure に捕えさせれば同じことが書け，名前が要る場面は少ない．後から足しても今の書き方の意味は変わらない．
 - 名前付きの項目を `with f <- Files.Open(path)` や `with Files.Open(path) as f` と書く．`<-` は effect alias と同じ記号になり，`as` は今の `with x = ...` の書き換えが要る．
 - 一段で `use E` の式をなくす（deprecation の期間を置かない）．影響が言語の中心なので期間を置く．
 
@@ -248,7 +273,6 @@ fn concat_all(paths: List[String], acc: List[use ReadFile]) -> String {
 ## Open questions
 
 - LSP の hover で capability の集合をどう表示するか．
-- capability の型引数を明示する構文が要るか．関数型にも capability の引数を書けるか（`fn(use ReadFile) -> ()`）．
 - handler の init の引数とフィールドに capability を持つ形（`with PostgresUsers(db: replica)`）．handler の型に capability が入る．
 - handler の操作の中の `self` を，その handler の capability と見るか．`self` はフィールドに触れるので，capability より多くのことができる．
 - `Fiber.scope` の Scope を capability として扱い，Fiber，Deferred，Queue のハンドルの型に scope の capability を入れるか（#719 の再現 1，6）．入れれば `[fiber.escape]` の capture set も要らなくなる．
