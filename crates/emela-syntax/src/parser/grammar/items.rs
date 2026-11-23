@@ -721,8 +721,10 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, OP_SIG);
 }
 
-/// `"handler" type_name [ "(" [ fields ] ")" ] ":" effect_ref { "+" effect_ref }
+/// `"handler" type_name [ type_params ] [ "(" [ fields ] ")" ] ":" effect_ref { "+" effect_ref }
 /// "{" { handler_item NL } "}"`
+///
+/// Type parameters are read on an inner handler too; the type checker reports them (E0460).
 ///
 /// `handler_item = "init" [ "(" [ params ] ")" ] block | "release" block
 ///               | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block
@@ -730,6 +732,9 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
 fn handler_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(HANDLER_KW);
     decl_name(p, TYPE_NAME);
+    if p.at(L_BRACK) {
+        type_param_list(p);
+    }
     if p.at(L_PAREN) {
         field_list(p);
     }

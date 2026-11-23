@@ -435,6 +435,11 @@ impl HandlerDecl {
     pub fn name(&self) -> Option<SyntaxToken> {
         name(&self.0)
     }
+    /// The type parameters (`[K: Eq, V]` of `handler InMemoryRepo[K: Eq, V]`,
+    /// `[effect.handler]`).
+    pub fn type_param_list(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| n.kind() == TYPE_PARAM_LIST)
+    }
     pub fn field_list(&self) -> Option<FieldList> {
         child(&self.0)
     }
@@ -512,6 +517,11 @@ impl Supply {
     /// The ARG_LIST of the arguments of init. `None` without parentheses.
     pub fn arg_list(&self) -> Option<SyntaxNode> {
         self.0.children().find(|n| n.kind() == ARG_LIST)
+    }
+    /// The TYPE_ARG_LIST of the type arguments (`Memory[Int]`, `State[Int]` right of `by`).
+    /// `None` without brackets.
+    pub fn type_args(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| n.kind() == TYPE_ARG_LIST)
     }
 }
 

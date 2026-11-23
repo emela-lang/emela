@@ -122,10 +122,12 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
                     let p = s.path()?;
                     let res = lower.resolve_type_ns(&p, Expected::HandlerOrLayer);
                     let args = lower.supply_args(&s, res);
+                    let ty_args = lower.type_arg_list(s.type_args());
                     Some(LayerMember {
                         res,
                         span: lower.span(p.syntax().text_range()),
                         args,
+                        ty_args,
                     })
                 })
                 .collect();
@@ -818,7 +820,23 @@ impl Lower<'_, '_> {
         defs
     }
 
+    /// The type parameters of a handler (`[effect.handler]`) are in scope in its fields, the
+    /// effects after `:`, init, release, the operation bodies and the inner handlers. Those of an
+    /// inner handler are kept so that their names resolve; type inference reports them (E0460).
     fn handler_body(&mut self, def: DefId, ctor: Option<DefId>, h: &ast::HandlerDecl) -> Item {
+        let type_params = self.type_params(def, h.type_param_list());
+        let item = self.handler_body_in(def, ctor, h, type_params);
+        self.pop_type_params();
+        item
+    }
+
+    fn handler_body_in(
+        &mut self,
+        def: DefId,
+        ctor: Option<DefId>,
+        h: &ast::HandlerDecl,
+        type_params: Vec<TypeParam>,
+    ) -> Item {
         let fields = self.named_fields(h.field_list());
         if let Some(ctor) = ctor {
             // The constructor of a handler without fields is a value (`ConsoleLogger`).
@@ -886,6 +904,7 @@ impl Lower<'_, '_> {
             .collect();
         let inner = self.inner_handlers(def, &effects, h);
         Item::Handler(HandlerItem {
+            type_params,
             effects,
             fields,
             ctor,
@@ -2347,14 +2366,16 @@ impl Lower<'_, '_> {
                 None => Res::Err,
             };
             let args = self.supply_args(&label, res);
+            let ty_args = self.type_arg_list(label.type_args());
             let mut by_init_args = None;
+            let mut by_args = Vec::new();
             let by = supplies.next().and_then(|s| {
                 let p = s.path()?;
                 let res = self.resolve_type_ns(&p, Expected::HandlerOrEffect);
                 by_init_args = self.supply_args(&s, res);
+                by_args = self.type_arg_list(s.type_args());
                 Some((res, self.span(p.syntax().text_range())))
             });
-            let by_args = self.type_arg_list(c.children().find(|n| n.kind() == TYPE_ARG_LIST));
             return Some((
                 WithItem {
                     res,
@@ -2363,6 +2384,7 @@ impl Lower<'_, '_> {
                     label: None,
                     cap: None,
                     args,
+                    ty_args,
                     by: Some(by.unwrap_or((Res::Err, self.span(c.text_range())))),
                     by_args,
                     by_init_args,
@@ -2404,6 +2426,7 @@ impl Lower<'_, '_> {
                     label: None,
                     cap: Some((cap_expr, label)),
                     args,
+                    ty_args: Vec::new(),
                     by: None,
                     by_args: Vec::new(),
                     by_init_args: None,
@@ -2416,6 +2439,7 @@ impl Lower<'_, '_> {
         let res = self.resolve_type_ns(&p, Expected::WithItem);
         let label = self.member_label.take();
         let args = self.supply_args(&s, res);
+        let ty_args = self.type_arg_list(s.type_args());
         Some((
             WithItem {
                 res,
@@ -2424,6 +2448,7 @@ impl Lower<'_, '_> {
                 label,
                 cap: None,
                 args,
+                ty_args,
                 by: None,
                 by_args: Vec::new(),
                 by_init_args: None,

@@ -209,14 +209,15 @@ ROOT@0..352
           WHITESPACE@327..328 " "
           LOWER_NAME@328..330 "by"
           WHITESPACE@330..331 " "
-          PATH@331..336
-            TYPE_NAME@331..336 "State"
-          TYPE_ARG_LIST@336..341
-            L_BRACK@336..337 "["
-            PATH_TYPE@337..340
-              PATH@337..340
-                TYPE_NAME@337..340 "Int"
-            R_BRACK@340..341 "]"
+          SUPPLY@331..341
+            PATH@331..336
+              TYPE_NAME@331..336 "State"
+            TYPE_ARG_LIST@336..341
+              L_BRACK@336..337 "["
+              PATH_TYPE@337..340
+                PATH@337..340
+                  TYPE_NAME@337..340 "Int"
+              R_BRACK@340..341 "]"
         WHITESPACE@341..342 " "
         BLOCK_EXPR@342..349
           L_BRACE@342..343 "{"

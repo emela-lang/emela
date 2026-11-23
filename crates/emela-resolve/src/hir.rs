@@ -438,8 +438,12 @@ pub struct WithItem {
     /// The arguments written after `res` (`WorkerKv(binding: "KV")`). With `by`, they follow the
     /// label, which takes none.
     pub args: Option<SupplyArgs>,
+    /// The type arguments written after `res` (`Memory[Int]`, `[effect.with]`). Empty when none
+    /// are written. With `by`, they follow the label, which takes none.
+    pub ty_args: Vec<TypeId>,
     pub by: Option<(Res, Span)>,
-    /// Type arguments of an effect right of `by` (`Counter by State[Int]`).
+    /// Type arguments of an effect or a handler with type parameters right of `by`
+    /// (`Counter by State[Int]`, `Hits by Memory[Int](initial: 0)`).
     pub by_args: Vec<TypeId>,
     /// The arguments written after the right of `by` (`AuditLog by FileLog(path: "a.log")`).
     pub by_init_args: Option<SupplyArgs>,
@@ -452,6 +456,14 @@ impl WithItem {
         match self.by {
             Some((by, _)) => (by, self.by_init_args.as_ref()),
             None => (self.res, self.args.as_ref()),
+        }
+    }
+
+    /// The type arguments written after the supplier ([`Self::supplier`]).
+    pub fn supplier_ty_args(&self) -> &[TypeId] {
+        match self.by {
+            Some(_) => &self.by_args,
+            None => &self.ty_args,
         }
     }
 }
@@ -689,6 +701,9 @@ pub struct MemberItem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerItem {
+    /// The type parameters (`[effect.handler]`): the `S` of `handler Memory[S](value: S)`.
+    /// [`DefKind::TypeParam`]s whose parent is the handler. Those of an inner handler are E0460.
+    pub type_params: Vec<TypeParam>,
     /// The effects after `:`, in the order written (`handler SystemTx: Query + Execute`,
     /// `[effect.handler]`), with their type arguments (the `Int` of `handler H: State[Int]`,
     /// spec 8.1).
@@ -734,6 +749,9 @@ pub struct LayerMember {
     pub span: Span,
     /// The arguments of the handler's init (`WorkerKv(binding: "KV")`).
     pub args: Option<SupplyArgs>,
+    /// The type arguments written (`InMemoryRepo[UserId, User]`, `[effect.layer]`). Empty when
+    /// none are written.
+    pub ty_args: Vec<TypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
