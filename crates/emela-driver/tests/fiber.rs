@@ -243,8 +243,7 @@ fn children_run_concurrently_and_are_joined() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    total = Fiber.scope(|| {
-      s = use Scope
+    total = Fiber.scope(|s| {
       a = s.fork(|| fetch(1, 60))
       b = Fiber.fork(|| fetch(2, 10))
       Fiber.join(a) + Fiber.join(b)
@@ -312,7 +311,7 @@ fn children_get_the_handlers_where_scope_is_called() {
             r##"
 fn main() {
   with SystemConsole, Outer {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       outside = || say((use Name).name())
       with Inner {
         a = Fiber.fork(outside)
@@ -345,7 +344,7 @@ fn children_fork_siblings_into_their_own_scope() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       a = Fiber.fork(|| {
         b = Fiber.fork(|| fetch(2, 10))
         say("child")
@@ -353,10 +352,9 @@ fn main() {
       })
       say("joined #{Fiber.join(a)}")
     })
-    r = Fiber.scope(|| {
-      outer = use Scope
+    r = Fiber.scope(|outer| {
       late = outer.fork(|| fetch(9, 50))
-      inner = Fiber.scope(|| {
+      inner = Fiber.scope(|_| {
         Fiber.fork(|| {
           h = Fiber.fork(|| boom())
           Fiber.join(h)
@@ -394,7 +392,7 @@ fn a_failing_child_interrupts_its_siblings() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    r = Fiber.scope(|| {
+    r = Fiber.scope(|_| {
       Fiber.fork(|| with Res { (use Clock).sleep(1000) })
       Fiber.fork(|| {
         (use Clock).sleep(10)
@@ -405,7 +403,7 @@ fn main() {
       1
     }) escape { Boom -> -1 }
     say("scope #{r}")
-    v = Fiber.scope(|| {
+    v = Fiber.scope(|_| {
       Fiber.fork(|| with Res { (use Clock).sleep(1000) })
       (use Clock).sleep(10)
       2
@@ -436,7 +434,7 @@ fn later_failures_are_notes() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       Fiber.fork(|| {
         (use Clock).sleep(10)
         panic("first")
@@ -479,7 +477,7 @@ fn main() {
     say(show(Exit.attempt(|| boom())))
     say(show(Exit.attempt(|| panic("bad"))))
     say(show(Exit.attempt(|| fetch(1, 1))))
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       h = Fiber.fork(|| with Res { (use Clock).sleep(1000) })
       (use Clock).sleep(10)
       Fiber.interrupt(h)
@@ -488,7 +486,7 @@ fn main() {
       ok = Fiber.fork(|| 7)
       say("await #{show(Fiber.await(ok))}")
     })
-    r = Fiber.scope(|| {
+    r = Fiber.scope(|_| {
       Exit.attempt(|| boom()) match {
         Success(v) -> v
         Failure(c) -> Cause.raise(c)
@@ -521,7 +519,7 @@ fn deferred() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       d = Fiber.deferred()
       a = Fiber.fork(|| Deferred.await(d) + 1)
       b = Fiber.fork(|| Deferred.await(d) + 2)
@@ -554,17 +552,17 @@ fn using_an_ended_scope_is_a_defect() {
             r##"
 fn main() {
   with SystemConsole {
-    join_later = Fiber.scope(|| {
+    join_later = Fiber.scope(|_| {
       h = Fiber.fork(|| 1)
       || Fiber.join(h)
     })
     say(show(Exit.attempt(|| join_later())))
-    complete_later = Fiber.scope(|| {
+    complete_later = Fiber.scope(|_| {
       d = Fiber.deferred()
       || Deferred.complete(d, 1)
     })
     say(show(Exit.attempt(|| complete_later())))
-    poll_later = Fiber.scope(|| {
+    poll_later = Fiber.scope(|_| {
       d = Fiber.deferred()
       || Deferred.poll(d)
     })
@@ -615,7 +613,7 @@ fn races() {
 
 @test
 fn child_error() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     h = Fiber.fork(|| boom())
     Fiber.join(h)
   })
@@ -623,7 +621,7 @@ fn child_error() {
 
 @test
 fn child_defect() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     h = Fiber.fork(|| panic("child"))
     Fiber.join(h)
   })
@@ -673,7 +671,7 @@ fn wakes_in_time_order() {
   ((_, lines), end) = State.run(zero(), || {
     State.run([], || {
       with TestConsole, TestClock {
-        Fiber.scope(|| {
+        Fiber.scope(|_| {
           Fiber.fork(|| {
             (use Clock).sleep(30)
             at("a")

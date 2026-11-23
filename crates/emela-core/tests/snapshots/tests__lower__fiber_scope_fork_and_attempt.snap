@@ -3,7 +3,7 @@ source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
 effect Std.Fiber.Scope[_, _] = Std.Fiber.Scope[(), ()] {
-  fn fork[A](fn(evidence) -> A fails suspends) -> Std.Fiber.Fiber[A]
+  fn fork[A, B](fn(evidence) -> A fails suspends) -> Std.Fiber.Fiber[A, {B}]
   fn deferred[A]() -> Std.Deferred.Deferred[A]
   fn semaphore(Int) -> Std.Semaphore.Semaphore
   fn queue[A](Int) -> Std.Queue.Queue[A]
@@ -14,21 +14,20 @@ effect Log {
 }
 
 export suspend fn main(ev%0: evidence) -> Int {
-  let body%1: fn() -> Int suspends ev = suspend fn(ev%7: evidence) -> Int {
-    let s%8: handler Std.Fiber.Scope[_, _] = use[Std.Fiber.Scope[_, _]](ev%7)
-    let a%13: Std.Fiber.Fiber[()] = {
-      let scope%9: handler Std.Fiber.Scope[_, _] = s%8
+  let body%1: fn(handler Std.Fiber.Scope[_, _]) -> Int suspends ev = suspend fn(s%7: handler Std.Fiber.Scope[_, _], ev%8: evidence) -> Int {
+    let a%13: Std.Fiber.Fiber[(), {ev}] = {
+      let scope%9: handler Std.Fiber.Scope[_, _] = s%7
       let f%10: fn() -> () ev = fn(ev%12: evidence) -> () {
         (use[Log](ev%12)).Log#info("a")
       }
-      scope%9.Std.Fiber.Scope[_, _]#fork[()](fn(ev%11: evidence) -> () {
+      scope%9.Std.Fiber.Scope[_, _]#fork[(), ()](fn(ev%11: evidence) -> () {
         (f%10)(provide(ev%11; Std.Fiber.Scope[_, _] = scope%9))
       })
     }
-    let b%14: Std.Fiber.Fiber[Int] = Std.Fiber.fork[Int, {}, {}](fn() -> Int {
+    let b%14: Std.Fiber.Fiber[Int, {ev}] = Std.Fiber.fork[Int, {}, {}](fn() -> Int {
       2
-    }, ev%7)
-    let d%15: Std.Deferred.Deferred[Int] = s%8.Std.Fiber.Scope[_, _]#deferred[Int]()
+    }, ev%8)
+    let d%15: Std.Deferred.Deferred[Int] = s%7.Std.Fiber.Scope[_, _]#deferred[Int]()
     let _%16: Bool = fiber#complete(d%15, 1)
     let _%17: () = fiber#join(a%13)!
     let e%20: Std.Exit.Exit[(), {}] = {
@@ -36,7 +35,7 @@ export suspend fn main(ev%0: evidence) -> Int {
         (use[Log](ev%19)).Log#info("e")
       }
       fiber#attempt[Std.Exit.Exit](fn() -> () {
-        (f%18)(ev%7)
+        (f%18)(ev%8)
       })
     }
     (fiber#join(b%14)! +[Int] fiber#deferred_await(d%15)!)
@@ -58,6 +57,6 @@ export suspend fn main(ev%0: evidence) -> Int {
         fiber#queue(s%2, capacity%6)
       }
     }
-    (body%1)(provide(ev%0; Std.Fiber.Scope[_, _] = scope%3))!
+    (body%1)(scope%3, provide(ev%0; Std.Fiber.Scope[_, _] = scope%3))!
   })!
 }

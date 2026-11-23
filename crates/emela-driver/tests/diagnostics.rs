@@ -2262,7 +2262,7 @@ fn capture_escape_from_a_scope() {
 import Std.Fiber.{Fiber, Scope}
 
 fn leak() -> fn() -> Int {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     h = Fiber.fork(|| 1)
     || Fiber.join(h)
   })
@@ -2326,21 +2326,21 @@ import Std.Fiber.{Fiber}
 import Std.Queue.{Queue}
 
 fn leak_semaphore() -> fn() -> Int {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     s = Fiber.semaphore(1)
     || s.available()
   })
 }
 
 fn leak_queue() -> fn() -> Option[Int] {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     q: Queue[Int] = Fiber.queue(1)
     || q.poll()
   })
 }
 
 fn taken() -> Option[Int] {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     q: Queue[Int] = Fiber.queue(1)
     q.try_offer(1)
     q.poll()
@@ -2348,7 +2348,7 @@ fn taken() -> Option[Int] {
 }
 
 fn permitted() -> Int {
-  Fiber.scope(|| Fiber.semaphore(1).with_permit(|| 1))
+  Fiber.scope(|_| Fiber.semaphore(1).with_permit(|| 1))
 }
 ";
     let manifest = |table: &str| {
@@ -2642,11 +2642,11 @@ fn semaphore_and_queue_cannot_leave_the_scope() {
 import Std.Queue.{Queue}
 
 fn semaphore() {
-  Fiber.scope(|| Fiber.semaphore(2))
+  Fiber.scope(|_| Fiber.semaphore(2))
 }
 
 fn queue() -> Option[Queue[Int]] uses { Async } {
-  Fiber.scope(|| Some(Fiber.queue(1)))
+  Fiber.scope(|_| Some(Fiber.queue(1)))
 }
 "#,
         )],

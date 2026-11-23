@@ -43,16 +43,17 @@ pub effect Scope[E, R] {
 }
 
 @intrinsic
-pub fn scope[A, E, R](
-  body: fn(use Scope[E, R]) -> A fails E uses { Scope[E, R], Async, R },
-) -> A fails E uses { Async, R }
+pub fn scope[A, E, R](body: fn(use Scope[E, R]) -> A fails E uses { Scope[E, R], Async, R }) -> A
+  fails E
+  uses { Async, R }
 
 @external
 pub type Fiber[A] uses Scope
 ```
 
 - The Scope that `Fiber.scope` makes is a capability. The body receives it as a parameter. The parameter type is a quantified `use Scope[E, R]` (9.4), so the body cannot return a value that contains it. The body still has Scope in its R, so `Fiber.fork` works in it.
-- `Fiber`, `Deferred`, `Semaphore` and `Queue` are capability-bound types of Scope (9.4). The handles that `s.fork`, `s.deferred`, `s.semaphore` and `s.queue` return record s; those that `Fiber.fork` and the like return record the name Scope.
+- `Fiber` is a capability-bound type of Scope (9.4). The Fiber that `s.fork` returns records s; the one that `Fiber.fork` returns records the name Scope. A child that captures a Fiber of its own scope has that scope in its R, which does not fit the R of fork, so it cannot be forked (`[effect.escape]`).
+- `Deferred`, `Semaphore` and `Queue` are not capability-bound types: they record no capability, and a child can capture them. Taking one out of the scope that made it is not checked, and what an operation on it does after that scope has ended is unspecified.
 
 - Scope is a built-in effect, and only `Fiber.scope` can provide it. Users cannot write a handler for Scope (E0413). Writing such a handler in a with provides nothing. `use Scope` can be written.
 - A `use` expression of a built-in effect MAY omit the type arguments (`use Scope`). Omitted type arguments are inferred. They cannot be omitted in a uses clause or a handler head (E0423, the same rule as State in 8.1).
@@ -225,13 +226,13 @@ d = (use Scope).deferred() # Deferred[A], belongs to the scope
 
 - To tie its lifetime to the scope, a Deferred can be created only by the Scope operation `deferred`.
 - A child waiting on a Deferred that no one fills is interrupted at the end of the scope.
-- A Deferred is a capability-bound type of the Scope that made it (11.2). Its element type is fixed when it is made, so a capability made later in an inner with cannot be put in it.
+- A Deferred records no capability (11.2). Its element type is fixed when it is made, so a capability made later in an inner with cannot be put in it.
 - There are three uses: waiting for any one of several things to finish (race), receiving an intermediate value from a child that keeps running (a signal that it is ready to accept), and distributing a stop signal (checked with `poll` at each step). Cancelling forcibly from outside is done with `Fiber.interrupt` (11.4). Any number of fibers MAY wait on one Deferred, and when a value is stored, all of them resume.
 - A Deferred is a mutable container (14.6). Only two states can be observed: "not filled yet" and "filled with this value".
 
 ## 11.8 No leaking `[fiber.escape]`
 
-The capability of a scope, and the handles that record it (`Fiber[A]`, Deferreds, Semaphores and Queues, 11.2), cannot leave the scope (`[effect.escape]`).
+The capability of a scope, and the Fibers that record it (11.2), cannot leave the scope (`[effect.escape]`). Deferreds, Semaphores and Queues are not checked (11.2).
 
 - A scope closes when its body returns a value or when a child fails. A fork after it closes is a defect (`fiber scope was used after it ended`).
 
@@ -262,7 +263,7 @@ rows = db.with_permit(|| query(sql))
 - Fibers forked inside `f` do not hold the permits. The permits are given back when `f` ends, which, when `f` contains a Fiber.scope, is after that scope's children have ended.
 - `available(s)` counts the permits that no fiber holds. Another fiber can run between `available` and a later call, so `available` cannot be used to check and take atomically.
 - A Semaphore is a mutable container (14.6). It has no Eq and no Show; dbg shows it as `<semaphore>`.
-- A Semaphore is a capability-bound type of the Scope that made it (11.2).
+- A Semaphore records no capability (11.2).
 
 ## 11.10 Queue `[fiber.queue]`
 
@@ -298,4 +299,4 @@ pub error QueueClosed
   - `offer` fails with QueueClosed and adds nothing, and so do the fibers waiting to offer when q is closed; their values are not added;
   - `try_offer` returns False.
 - A Queue is a mutable container (14.6). It has no Eq and no Show; dbg shows it as `<queue>`.
-- A Queue is a capability-bound type of the Scope that made it (11.2). Its element type is fixed when it is made, so a capability made later in an inner with cannot be put in it.
+- A Queue records no capability (11.2). Its element type is fixed when it is made, so a capability made later in an inner with cannot be put in it.

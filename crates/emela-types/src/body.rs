@@ -259,6 +259,11 @@ pub(crate) struct BodyInfer<'a> {
     /// the effects they provide by name. `None` marks the body of an anonymous function or a local
     /// fn, whose R the withs around it do not provide (`[effect.with]`).
     name_providers: Vec<Option<(ExprId, Vec<Tag>)>>,
+    /// The R of the function being called, for the arguments checked next ([`Self::check_args`]).
+    callee_uses: Option<Row>,
+    /// The effects that the function being called provides by name to the lambda checked next
+    /// (`[effect.escape]`).
+    provided_to_lambda: Option<Vec<Tag>>,
     /// `with` expressions → the items that open handler members, with the types of opening them.
     with_members: SparseMap<ExprId, Vec<(usize, crate::ty::FnTy)>>,
     /// Method calls (the `Field` callee) → the fn or trait function called (`[type.rules]`).
@@ -387,6 +392,8 @@ impl<'a> BodyInfer<'a> {
             member_callees: FxHashSet::default(),
             member_bound: FxHashSet::default(),
             name_providers: Vec::new(),
+            callee_uses: None,
+            provided_to_lambda: None,
             with_members: SparseMap::new(),
             methods: SparseMap::new(),
             withs: Vec::new(),
@@ -773,10 +780,30 @@ impl<'a> BodyInfer<'a> {
                 .and_then(|op| self.sigs.handler_effect_of(program, def, op))
                 .map(|t| t.args.clone())
                 .unwrap_or_default();
-            let f = match op
-                .and_then(|op| self.sigs.get(op))
-                .map(|s| substitute_bound(&s.scheme.ty, &effect_args))
-            {
+            // A capability-bound type of the effect in the result records the handler's
+            // `self` (`[effect.handler]`).
+            let f = match op.and_then(|op| self.sigs.get(op)).map(|s| {
+                let ty = substitute_bound(&s.scheme.ty, &effect_args);
+                match s.scheme.params.last() {
+                    Some(p) if p.name == "C(self)" => {
+                        let recv = s.scheme.params.len() - 1;
+                        let mut rows: Vec<Row> = (0..recv)
+                            .map(|i| Row::from_elems([RowElem::Bound(i as u32)]))
+                            .collect();
+                        rows.push(Row::from_elems([RowElem::Cap(CapElem {
+                            id: CapId::SelfOf(def),
+                            name: SmolStr::new("self"),
+                            tag: p
+                                .caps
+                                .as_ref()
+                                .and_then(|t| t.first().cloned())
+                                .unwrap_or_else(|| Tag::new(def)),
+                        })]));
+                        substitute(&ty, &[], &rows)
+                    }
+                    _ => ty,
+                }
+            }) {
                 Some(Ty::Fn(f)) => Some(*f),
                 _ => None,
             };
@@ -1224,10 +1251,14 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Path(Res::Def(def)) => {
                 self.check_external(*def, e.span);
                 self.check_handler_ctor(*def, e.span);
+                let made_by = self.check_bound_ctor(*def, e.span);
                 if program.defs[*def].kind == DefKind::Member {
                     self.check_member_open(expr, *def, e.span);
                 }
                 let (ty, args, rows) = self.instantiate_def(*def, e.span);
+                if let Some(cap) = made_by {
+                    self.record_maker(&ty, cap);
+                }
                 let ty = match program.member_labels.get(expr) {
                     Some(&label) => through_label(ty, label),
                     None => ty,
@@ -1641,6 +1672,65 @@ impl<'a> BodyInfer<'a> {
                 handler: program.defs[ctor.owner].name.clone(),
             },
         });
+    }
+
+    /// A value of a capability-bound type of E can be constructed only inside a handler of E
+    /// (E0458, `[type.rules]`). Returns the capability the value records: the handler's `self`.
+    fn check_bound_ctor(&mut self, def: DefId, span: Span) -> Option<CapElem> {
+        let program = self.program;
+        let owner = match program.item(def) {
+            Some(Item::Ctor(ctor)) => ctor.owner,
+            _ => return None,
+        };
+        let effect = self.ty_table.bound_effect(owner)?;
+        let handler = self.current.filter(|_| self.in_handler());
+        let implements = handler.and_then(|h| {
+            self.sigs
+                .handler_effects(h)
+                .iter()
+                .find(|t| t.def == effect)
+                .map(|t| (h, t.clone()))
+        });
+        match implements {
+            Some((h, tag)) => Some(CapElem {
+                id: CapId::SelfOf(h),
+                name: SmolStr::new("self"),
+                tag,
+            }),
+            None => {
+                self.diags.push(Diagnostic {
+                    span: Some(span),
+                    kind: DiagnosticKind::BoundTypeOutsideHandler {
+                        ty: program.defs[owner].name.clone(),
+                        effect: program.defs[effect].name.clone(),
+                    },
+                });
+                None
+            }
+        }
+    }
+
+    /// Puts `cap` in the set of the capability-bound type that the constructor type `ty` makes.
+    fn record_maker(&mut self, ty: &Ty, cap: CapElem) {
+        let made = match ty {
+            Ty::Fn(f) => &f.ret,
+            ty => ty,
+        };
+        let Ty::Named(con, args) = made else {
+            return;
+        };
+        let def = self.ty_table.def(*con);
+        let Some(i) = self.ty_table.decl_caps(def).map(|c| c.visible) else {
+            return;
+        };
+        if let Some(Ty::Set(SetKind::Caps, row)) = args.get(i) {
+            self.ctx.add_subset_of(
+                SetKind::Caps,
+                Row::from_elems([RowElem::Cap(cap)]),
+                row.clone(),
+                Origin::Lambda,
+            );
+        }
     }
 
     /// An `@external` fn with `uses` omitted or with host effects in it, and an
@@ -2116,6 +2206,7 @@ impl<'a> BodyInfer<'a> {
             }
         };
 
+        self.callee_uses = Some(f.uses.clone());
         let slots = self.check_args(callee_name, labels, &f.params, args, span);
         self.calls.insert(expr, slots);
 
@@ -2150,8 +2241,25 @@ impl<'a> BodyInfer<'a> {
                 },
             });
         }
+        let own = self.callee_uses.take();
         for (slot, param_ty) in assigned.slots.iter().zip(params) {
             if let Some(arg) = slot {
+                // A function whose parameter's R writes out an effect that its own R does not
+                // have provides that effect by name to the argument (`[effect.escape]`).
+                if let Some(own) = &own
+                    && matches!(self.program.exprs[*arg].kind, ExprKind::Lambda { .. })
+                    && let Ty::Fn(f) = self.ctx.shallow_resolve(param_ty)
+                {
+                    let provided: Vec<Tag> = f
+                        .uses
+                        .effect_tags()
+                        .filter(|t| !own.effect_tags().any(|o| o.def == t.def))
+                        .cloned()
+                        .collect();
+                    if !provided.is_empty() {
+                        self.provided_to_lambda = Some(provided);
+                    }
+                }
                 if let Ty::Cap(wanted, _) = self.ctx.shallow_resolve(param_ty) {
                     self.check_cap_arg(*arg, &wanted, param_ty);
                 } else {
@@ -2343,13 +2451,45 @@ impl<'a> BodyInfer<'a> {
         let mut rigid = Vec::new();
         let expected_fn = match expected_fn {
             Some(f) if quantified => {
-                let opened = Ty::Fn(Box::new(f)).open_quant(&mut |i, c| {
+                // Named after the parameter whose type has it (`s` of `|s|`).
+                let names: Vec<Option<SmolStr>> = f
+                    .params
+                    .iter()
+                    .zip(params)
+                    .map(|(ty, p)| {
+                        let name = &self.program.locals[p.local].name;
+                        let mut has = false;
+                        ty.visit(&mut |t| {
+                            if let Ty::Cap(_, row) | Ty::Set(SetKind::Caps, row) = t {
+                                has |= row.caps().any(|c| matches!(c.id, CapId::Quant(_)));
+                            }
+                        });
+                        (has && name != "_").then(|| name.clone())
+                    })
+                    .collect();
+                let opened = Ty::Fn(Box::new(f.clone())).open_quant(&mut |i, c| {
+                    let name = f
+                        .params
+                        .iter()
+                        .position(|ty| {
+                            let mut has = false;
+                            ty.visit(&mut |t| {
+                                if let Ty::Cap(_, row) | Ty::Set(SetKind::Caps, row) = t {
+                                    has |= row
+                                        .caps()
+                                        .any(|c| matches!(c.id, CapId::Quant(j) if j == i));
+                                }
+                            });
+                            has
+                        })
+                        .and_then(|k| names[k].clone())
+                        .unwrap_or_else(|| c.name.clone());
                     let cap = CapElem {
                         id: CapId::Rigid {
                             binder: expr,
                             index: i,
                         },
-                        name: c.name.clone(),
+                        name,
                         tag: c.tag.clone(),
                     };
                     rigid.push(cap.clone());
@@ -2367,6 +2507,11 @@ impl<'a> BodyInfer<'a> {
         }
         let outer = self.binder.replace(expr);
         self.name_providers.push(None);
+        let provided = self.provided_to_lambda.take();
+        let by_name = provided.is_some();
+        if let Some(provided) = provided {
+            self.name_providers.push(Some((expr, provided)));
+        }
         self.ctx.scopes.enter(expr);
 
         let mut param_tys = Vec::new();
@@ -2396,6 +2541,9 @@ impl<'a> BodyInfer<'a> {
             None => self.infer_expr(body),
         };
         self.ctx.scopes.exit();
+        if by_name {
+            self.name_providers.pop();
+        }
         self.name_providers.pop();
         self.binder = outer;
 
@@ -2507,6 +2655,7 @@ impl<'a> BodyInfer<'a> {
         // operation's own (`fork[A]`, spec 8.1), which are instantiated per reference. Through a
         // label, they are the base's type arguments (`effect Hits of State[Int]`).
         let args = self.sigs.base_of(tag).args.clone();
+        let mut receiver = None;
         let ty = self.sigs.get(op).map(|sig| {
             let n = args.len().min(sig.scheme.params.len());
             let (fresh, fresh_rows) = self.ctx.fresh_args(&sig.scheme.params[n..]);
@@ -2522,10 +2671,28 @@ impl<'a> BodyInfer<'a> {
             if !fresh.is_empty() {
                 self.type_args.insert(expr, fresh.clone());
             }
+            // The set of the receiver (`[effect.handler]`, `op_signature`): the capability the
+            // operation is called on.
+            if sig
+                .scheme
+                .params
+                .last()
+                .is_some_and(|p| p.name == "C(self)")
+                && let Some(row) = fresh_rows.last()
+            {
+                receiver = Some(row.clone());
+            }
             tys.extend(fresh);
             rows.extend(fresh_rows);
             substitute(&sig.scheme.ty, &tys, &rows)
         });
+        if let Some(row) = receiver
+            && let Some(Ty::Cap(_, caps)) =
+                self.exprs.get(base).map(|t| self.ctx.shallow_resolve(t))
+        {
+            self.ctx
+                .add_subset_of(SetKind::Caps, caps, row, Origin::Lambda);
+        }
         // A capability held in a field of the handler outlives the handler: it belongs to a
         // `with` around the handler's, or to a handler member its init opened (`[effect.use]`,
         // `[effect.handler]`). It is not a requirement of the handler: its element is the

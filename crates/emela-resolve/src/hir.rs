@@ -607,6 +607,8 @@ pub struct TypeItem {
     pub ctor: Option<DefId>,
     pub fields: Fields,
     pub derives: Vec<(Res, Span)>,
+    /// The effect of `uses E` on a capability-bound type (`[type.rules]`).
+    pub bound: Option<EffectRef>,
     /// A built-in type of the bundled sources, marked with `@intrinsic` (`Std.Bytes.Bytes`,
     /// `Std.Array.Array`, `[kw.annotation]`). Its values are represented by the runtime.
     pub is_intrinsic: bool,
@@ -618,6 +620,8 @@ pub struct EnumItem {
     /// [`DefKind::Ctor`]s, in declaration order.
     pub variants: Vec<DefId>,
     pub derives: Vec<(Res, Span)>,
+    /// The effect of `uses E` on a capability-bound enum (`[type.rules]`).
+    pub bound: Option<EffectRef>,
     /// Per variant, in the order of `variants`, the argument of `@tag("...")`: the tag of the
     /// variant in a derived Encode, Decode, Shaped and ObjectKey (`[kw.annotation]`).
     pub tags: Vec<Option<SmolStr>>,

@@ -396,7 +396,7 @@ fn fibers_are_supported() {
     // `[target.wasm.unsupported]` lists no construct: a fiber scope emits and runs.
     let (analysis, output) = run_wasm(
         "fibers",
-        "import Std.Fiber.{Fiber}\nfn main() -> () uses { Async } {\n  Fiber.scope(|| ())\n}\n",
+        "import Std.Fiber.{Fiber}\nfn main() -> () uses { Async } {\n  Fiber.scope(|_| ())\n}\n",
     );
     assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
     let output = output.expect("the program ran");

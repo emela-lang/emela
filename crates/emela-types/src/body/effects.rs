@@ -503,6 +503,7 @@ impl BodyInfer<'_> {
                 }),
                 RowElem::Var(v) => {
                     let d = self.ctx.new_row_var();
+                    self.ctx.effect_vars.insert(d);
                     self.row_diffs.push((d, *v, minus.to_vec()));
                     out.insert(RowElem::Var(d));
                     continue;
@@ -531,6 +532,7 @@ impl BodyInfer<'_> {
                         && tags.iter().any(|p| self.ctx.same_tag(p, &c.tag)) => {}
                 RowElem::Var(v) if !tags.is_empty() => {
                     let d = self.ctx.new_row_var();
+                    self.ctx.effect_vars.insert(d);
                     let minus = tags.iter().map(|t| RowElem::Tag(t.clone())).collect();
                     self.row_diffs.push((d, *v, minus));
                     out.insert(RowElem::Var(d));

@@ -659,7 +659,7 @@ handler Retrying: Retry {
 fn main() -> () uses { Async } {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
   (_, end) = State.run(start, || {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       with TestClock {
         with Ticks, Retrying {
           dbg("go #{(use Retry).go()}")
@@ -707,7 +707,7 @@ fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
   State.run(start, || {
     with TestClock {
-      v = Fiber.scope(|| {
+      v = Fiber.scope(|_| {
         d = Fiber.deferred()
         h = Fiber.fork(|| {
           n = Deferred.await(d)
@@ -788,7 +788,7 @@ fn main() -> () uses { Async } {
   State.run(start, || {
     with TestClock {
       with CallingOuter, SlowInner {
-        Fiber.scope(|| {
+        Fiber.scope(|_| {
           h = Fiber.fork(|| (use Outer).outer())
           (use Clock).sleep(20)
           (use Clock).sleep(30)

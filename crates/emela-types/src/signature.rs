@@ -14,9 +14,9 @@ use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, LabelBaseReason};
 use crate::lower::{
-    Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_fn_sets, classify_params, classify_sets,
-    effect_op_types, effect_params, has_omitted_fails, has_omitted_uses, immediate_bounds,
-    is_immediate_effect, is_intrinsic_effect, ty_params, type_param_defs,
+    FieldCaps, Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_fn_sets, classify_params,
+    classify_sets, effect_op_types, effect_params, has_omitted_fails, has_omitted_uses,
+    immediate_bounds, is_immediate_effect, is_intrinsic_effect, ty_params, type_param_defs,
 };
 use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::scheme::Scheme;
@@ -127,10 +127,10 @@ impl Signatures {
                     fn_signature(program, ty_table, item, diags)
                 }
                 Some(Item::Ctor(item)) => {
-                    ctor_signature(program, ty_table, item.owner, &item.fields, diags)
+                    ctor_signature(program, ty_table, item.owner, def, &item.fields, diags)
                 }
                 Some(Item::Error(item)) => {
-                    ctor_signature(program, ty_table, def, &item.fields, diags)
+                    ctor_signature(program, ty_table, def, def, &item.fields, diags)
                 }
                 Some(Item::TraitFn(item)) => program.defs[def]
                     .parent
@@ -144,7 +144,10 @@ impl Signatures {
                 }),
                 Some(Item::Op(item)) => {
                     let effect = program.defs[def].parent;
-                    Some(op_signature(program, ty_table, effect, &item.sig, diags))
+                    let name = &program.defs[def].name;
+                    Some(op_signature(
+                        program, ty_table, effect, name, &item.sig, diags,
+                    ))
                 }
                 Some(Item::Member(item)) => {
                     let effect = program.defs[def].parent;
@@ -631,6 +634,7 @@ fn op_signature(
     program: &Program,
     ty_table: &TyTable,
     effect: Option<DefId>,
+    name: &SmolStr,
     sig: &FnSig,
     diags: &mut Vec<Diagnostic>,
 ) -> Signature {
@@ -686,24 +690,122 @@ fn op_signature(
         }
         _ => params,
     };
+    // A capability-bound type of the operation's own effect in the result records the receiver
+    // (`[effect.handler]`): a set type parameter after the others, which a call fills with the
+    // set of the capability it is called on, and a handler with its `self`.
+    let receiver = defs.len() as u32;
+    let receiver_caps: Vec<(Vec<DefId>, Row)> = effect
+        .map(|e| (vec![e], Row::from_elems([RowElem::Bound(receiver)])))
+        .into_iter()
+        .collect();
+    scope.result_caps = Some(&receiver_caps);
     let ret = match sig.ret {
-        Some(ret) => ty_table.lower_in(program, &mut scope, ret, true, diags),
+        Some(ret) => {
+            let ty = ty_table.lower_in(program, &mut scope, ret, true, diags);
+            if let Some(found) = caps_in_op_result(program, ty_table, effect, ret, &ty) {
+                diags.push(Diagnostic {
+                    span: program.types[ret].span,
+                    kind: DiagnosticKind::CapabilityInOpResult {
+                        op: name.clone(),
+                        ty: found,
+                    },
+                });
+            }
+            ty
+        }
         None => Ty::UNIT,
     };
+    scope.result_caps = None;
     let fails = match &sig.fails {
         Some(set) => ty_table.lower_error_set(program, &scope, set, diags),
         None => Row::empty(),
     };
     // An operation's `uses` clause is E0137 in the syntax stage (spec 8.1); not read here.
-    let ty_params = ty_params(program, &defs)
+    let mut ty_params: Vec<TyParam> = ty_params(program, &defs)
         .into_iter()
         .zip(&kinds)
         .map(|(p, &kind)| TyParam { kind, ..p })
         .collect();
+    if let Some(e) = effect
+        && mentions_bound(&ret, receiver)
+    {
+        let mut p = TyParam::set("C(self)");
+        p.caps = Some(vec![Tag::new(e)]);
+        ty_params.push(p);
+    }
     Signature {
         scheme: Scheme::new(ty_params, Ty::func_fails(params, ret, fails)),
         labels: param_labels(program, &sig.params),
     }
+}
+
+/// What makes the result type `ty` of an operation of `effect` E0456 (`[effect.handler]`), as
+/// written: a capability type, or a type with hidden capability sets of another effect.
+fn caps_in_op_result(
+    program: &Program,
+    ty_table: &TyTable,
+    effect: Option<DefId>,
+    written: TypeId,
+    ty: &Ty,
+) -> Option<SmolStr> {
+    if let Some(cap) = written_cap(program, written) {
+        return Some(cap);
+    }
+    let mut found = None;
+    ty.visit(&mut |t| {
+        if found.is_some() {
+            return;
+        }
+        if let Ty::Named(con, _) = t {
+            let def = ty_table.def(*con);
+            if let Some(caps) = ty_table.decl_caps(def)
+                && caps
+                    .effects
+                    .iter()
+                    .flatten()
+                    .any(|tag| Some(tag.def) != effect)
+            {
+                found = Some(program.defs[def].name.clone());
+            }
+        }
+    });
+    found
+}
+
+/// The first capability type `use E` written in the type expression `ty`, as written.
+fn written_cap(program: &Program, ty: TypeId) -> Option<SmolStr> {
+    match &program.types[ty].kind {
+        TypeKind::Cap(effects) => Some(SmolStr::new(format!(
+            "use {}",
+            effects
+                .iter()
+                .filter_map(|e| match e.res {
+                    Res::Def(d) => Some(program.defs[d].name.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" + ")
+        ))),
+        TypeKind::Path { args, .. } => args.iter().find_map(|&a| written_cap(program, a)),
+        TypeKind::Tuple(elems) => elems.iter().find_map(|&e| written_cap(program, e)),
+        TypeKind::Fn { params, ret, .. } => params
+            .iter()
+            .chain(ret)
+            .find_map(|&t| written_cap(program, t)),
+        _ => None,
+    }
+}
+
+/// Whether a capability set in `ty` has the set type parameter `i`.
+fn mentions_bound(ty: &Ty, i: u32) -> bool {
+    let mut found = false;
+    ty.visit(&mut |t| match t {
+        Ty::Set(SetKind::Caps, row) | Ty::Cap(_, row) => {
+            found |= row.elems().contains(&RowElem::Bound(i));
+        }
+        _ => {}
+    });
+    found
 }
 
 /// The checks on one more effect `tag` listed after the `:` of `handler`, after `earlier`
@@ -767,7 +869,14 @@ fn member_signature(
     item: &MemberItem,
     diags: &mut Vec<Diagnostic>,
 ) -> Signature {
-    let mut sig = op_signature(program, ty_table, effect, &item.sig, diags);
+    let mut sig = op_signature(
+        program,
+        ty_table,
+        effect,
+        &SmolStr::default(),
+        &item.sig,
+        diags,
+    );
     let defs: Vec<DefId> = effect
         .map(|e| effect_params(program, e).iter().map(|tp| tp.def).collect())
         .unwrap_or_default();
@@ -1109,11 +1218,13 @@ fn ctor_signature(
     program: &Program,
     ty_table: &TyTable,
     owner: DefId,
+    ctor: DefId,
     fields: &Fields,
     diags: &mut Vec<Diagnostic>,
 ) -> Option<Signature> {
     let ret_ty = ty_table.self_ty(owner)?;
     let defs = type_param_defs(program, owner);
+    let is_handler = program.defs[owner].kind == DefKind::Handler;
 
     let (field_tys, labels): (Vec<TypeId>, Vec<Option<SmolStr>>) = match fields {
         Fields::None => (Vec::new(), Vec::new()),
@@ -1126,25 +1237,36 @@ fn ctor_signature(
         Some(id) => ty_table.cons[id].params.clone(),
         None => ty_params(program, &defs),
     };
-    let kinds: Vec<ParamKind> = params.iter().map(|p| p.kind).collect();
-    let mut scope = Scope {
-        params: &defs,
-        kinds: &kinds,
-        omitted: Omitted::Empty,
-        sets: true,
-        self_ty: None,
-        result_caps: None,
-        quant: None,
-    };
+    // The capability sets in the fields are the hidden set type parameters of the type
+    // (`[type.rules]`).
     let ty = match fields {
         Fields::None => ret_ty,
-        _ => Ty::func(
-            field_tys
-                .iter()
-                .map(|&t| ty_table.lower_in(program, &mut scope, t, true, diags))
-                .collect::<Vec<_>>(),
-            ret_ty,
-        ),
+        _ if ty_table.con(owner).is_some() && !is_handler => {
+            let mut caps = FieldCaps::new(ty_table, owner);
+            Ty::func(
+                ty_table.lower_fields(program, owner, ctor, &mut caps, diags),
+                ret_ty,
+            )
+        }
+        _ => {
+            let kinds: Vec<ParamKind> = params.iter().map(|p| p.kind).collect();
+            let mut scope = Scope {
+                params: &defs,
+                kinds: &kinds,
+                omitted: Omitted::Empty,
+                sets: true,
+                self_ty: None,
+                result_caps: None,
+                quant: None,
+            };
+            Ty::func(
+                field_tys
+                    .iter()
+                    .map(|&t| ty_table.lower_in(program, &mut scope, t, true, diags))
+                    .collect::<Vec<_>>(),
+                ret_ty,
+            )
+        }
     };
 
     Some(Signature {

@@ -295,9 +295,17 @@ impl fmt::Display for TyDisplay<'_> {
             Ty::List(elem) => write!(f, "List[{}]", self.child(elem)),
             Ty::Named(id, args) => {
                 f.write_str(&self.cons[*id].name)?;
-                if !args.is_empty() {
+                // The hidden capability sets of a declaration are not written (`[type.rules]`).
+                let params = &self.cons[*id].params;
+                let visible: Vec<Ty> = args
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| params.get(*i).is_none_or(|p| p.caps.is_none()))
+                    .map(|(_, a)| a.clone())
+                    .collect();
+                if !visible.is_empty() {
                     f.write_str("[")?;
-                    self.list(f, args)?;
+                    self.list(f, &visible)?;
                     f.write_str("]")?;
                 }
                 Ok(())

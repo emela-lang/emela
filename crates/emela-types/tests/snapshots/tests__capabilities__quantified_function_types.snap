@@ -24,4 +24,4 @@ not_quantified: fn() -> Int
   cs: List[use Counter]
   k: fn(List[use Counter]) -> Int uses { c }
 `with_all(n - 1, [c, ..acc], k)` warning: holds `c` and leaves the `with` that provides it
-`cs` CapabilityLeak { cap: "any", from: Call("Main.with_all"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 946..953 }) }
+`cs` CapabilityLeak { cap: "cs", from: Call("Main.with_all"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 946..953 }) }

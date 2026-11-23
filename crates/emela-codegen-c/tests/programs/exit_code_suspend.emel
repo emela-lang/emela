@@ -8,7 +8,7 @@ fn print(s: String) -> () uses {}
 # `[dyn.error]`: a main that suspends returns its `ExitCode` after every child of `Fiber.scope`
 # has ended.
 fn main() -> ExitCode uses { Async } {
-  n = Fiber.scope(|| {
+  n = Fiber.scope(|_| {
     a = Fiber.fork(|| 40)
     b = Fiber.fork(|| 2)
     Fiber.join(a) + Fiber.join(b)

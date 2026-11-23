@@ -41,7 +41,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
 
 fn main() -> () uses { Async } {
   with Ticks {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       d = Fiber.deferred()
       a = Fiber.fork(|| Deferred.await(d) + 1)
       b = Fiber.fork(|| Deferred.await(d) + 2)
@@ -70,17 +70,17 @@ fn main() -> () uses { Async } {
     print("map #{ys}")
     r = Fiber.race([|| boom(), || fetch(8, 1000)]) escape { Boom -> -1 }
     print("race failed #{r}")
-    join_later = Fiber.scope(|| {
+    join_later = Fiber.scope(|_| {
       h = Fiber.fork(|| 1)
       || Fiber.join(h)
     })
     print(show(Exit.attempt(|| join_later())))
-    complete_later = Fiber.scope(|| {
+    complete_later = Fiber.scope(|_| {
       d = Fiber.deferred()
       || Deferred.complete(d, 1)
     })
     print(show(Exit.attempt(|| complete_later())))
-    poll_later = Fiber.scope(|| {
+    poll_later = Fiber.scope(|_| {
       d = Fiber.deferred()
       || Deferred.poll(d)
     })

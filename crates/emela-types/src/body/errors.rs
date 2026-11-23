@@ -491,8 +491,22 @@ impl BodyInfer<'_> {
     /// effect inside its provider ([`CapId::Named`]) is contained in a set that has the name of
     /// the effect: it is the same name, seen from inside the provider. Whether it leaves its
     /// provider is checked separately (`[effect.escape]`).
-    fn contains_elem(&mut self, row: &Row, e: &RowElem) -> bool {
+    fn contains_elem(&mut self, kind: SetKind, row: &Row, e: &RowElem) -> bool {
         match e {
+            // In a capability set the name of an effect is the effect, whatever its type
+            // arguments (`[type.rules]`).
+            RowElem::Tag(t) if kind == SetKind::Caps => row.elems().iter().any(|r| match r {
+                RowElem::Tag(r) => r.def == t.def,
+                RowElem::Cap(c) => matches!(c.id, CapId::Named { .. }) && c.tag.def == t.def,
+                _ => false,
+            }),
+            RowElem::Cap(c) if kind == SetKind::Caps && matches!(c.id, CapId::Named { .. }) => {
+                row.contains(e)
+                    || row
+                        .elems()
+                        .iter()
+                        .any(|r| matches!(r, RowElem::Tag(r) if r.def == c.tag.def))
+            }
             RowElem::Tag(t) => {
                 self.ctx.row_has_tag(row, t)
                     || row.caps().any(|c| {
@@ -600,7 +614,7 @@ impl BodyInfer<'_> {
                         .cloned()
                         .collect();
                     for e in sub.elems() {
-                        if !self.contains_elem(&sup, e) {
+                        if !self.contains_elem(c.kind, &sup, e) {
                             lowers.entry(v).or_default().push(Lower {
                                 elem: e.clone(),
                                 minus: minus.clone(),
@@ -671,7 +685,7 @@ impl BodyInfer<'_> {
             let missing: Vec<RowElem> = sub
                 .elems()
                 .iter()
-                .filter(|e| !self.contains_elem(&sup, e))
+                .filter(|e| !self.contains_elem(c.kind, &sup, e))
                 .cloned()
                 .collect();
             if missing.is_empty() {
@@ -1463,7 +1477,11 @@ impl BodyInfer<'_> {
         }
         for (v, row) in self.ctx.solution_entries() {
             let scope = self.ctx.scopes.row_var(v);
+            let effects = self.ctx.effect_vars.contains(&v);
             for c in row.caps() {
+                if effects && matches!(c.id, CapId::Named { .. }) {
+                    continue;
+                }
                 if !self.ctx.scopes.fits(c, scope) {
                     let span = self
                         .cap_provenance
@@ -1522,18 +1540,16 @@ impl BodyInfer<'_> {
                             self.push_leak(&c, span);
                         }
                     }
-                    RowElem::Tag(t) => {
-                        if provides.iter().any(|p| p.def == t.def) {
-                            let cap = CapElem {
-                                id: CapId::Named {
-                                    provider: with,
-                                    effect: t.def,
-                                },
-                                name: program.defs[t.def].name.clone(),
-                                tag: t,
-                            };
-                            self.push_leak(&cap, span);
-                        }
+                    RowElem::Tag(t) if provides.iter().any(|p| p.def == t.def) => {
+                        let cap = CapElem {
+                            id: CapId::Named {
+                                provider: with,
+                                effect: t.def,
+                            },
+                            name: program.defs[t.def].name.clone(),
+                            tag: t,
+                        };
+                        self.push_leak(&cap, span);
                     }
                     _ => {}
                 }

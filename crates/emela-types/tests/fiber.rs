@@ -158,8 +158,7 @@ fn fetch_orders(id: Int) -> List[Order] {
 }
 
 fn profile() {
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     a = s.fork(|| fetch_user(1))
     b = s.fork(|| fetch_orders(1))
     Profile(user: Fiber.join(a), orders: Fiber.join(b))
@@ -167,7 +166,7 @@ fn profile() {
 }
 
 fn wrapped() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     a = Fiber.fork(|| fetch_user(1))
     Fiber.join(a)
   })
@@ -182,7 +181,7 @@ fn pairs() {
 }
 
 fn signal() -> Int uses { Async } {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     ready = Fiber.deferred()
     Fiber.fork(|| Deferred.complete(ready, 1))
     n = Deferred.await(ready)
@@ -220,7 +219,7 @@ fn load(id: Int) -> User fails NotFound uses { Users } {
 }
 
 fn load_all(ids: List[Int]) {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     db = Fiber.semaphore(10)
     Fiber.map(ids, |id| db.with_permit(|| load(id)))
   })
@@ -243,7 +242,7 @@ fn counted(s: Semaphore) {
 }
 
 fn run(jobs: List[Job]) {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     q = Fiber.queue(100)
     Fiber.fork(|| {
       jobs.each(|job| q.offer(job))
@@ -276,7 +275,7 @@ fn query(sql: String) -> List[String] {
 }
 
 fn spec_11_9(sql: String) {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     db = Fiber.semaphore(10) # Semaphore, belongs to the scope
     rows = db.with_permit(|| query(sql))
     rows
@@ -284,7 +283,7 @@ fn spec_11_9(sql: String) {
 }
 
 fn spec_11_10(job: Job) {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     q = Fiber.queue(100) # Queue[A], belongs to the scope
     q.offer(job)
     taken = q.take()
@@ -328,7 +327,7 @@ fn declared() -> Fiber[Int] uses { Scope[Bust, {}] } {
 }
 
 fn both_helpers() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     a = spawn_boom()
     b = spawn_log()
     c = declared()
@@ -337,9 +336,8 @@ fn both_helpers() {
 }
 
 fn outer_scope() {
-  Fiber.scope(|| {
-    outer = use Scope
-    Fiber.scope(|| {
+  Fiber.scope(|outer| {
+    Fiber.scope(|_| {
       outer.fork(|| boom())
       Fiber.fork(|| (use Log).info("inner"))
       ()
@@ -398,7 +396,7 @@ fn kinds(c: Cause[Boom]) -> Bool {
 }
 
 fn watched() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     child = Fiber.fork(|| 1)
     Fiber.interrupt(child)
     Fiber.await(child) match {
@@ -432,8 +430,7 @@ handler PostgresUsers: Users {
 }
 
 fn main() {
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     with PostgresUsers {
       s.fork(|| (use Users).find(1))
     }
@@ -443,7 +440,7 @@ fn main() {
 
 fn fixed() -> () uses { Async } {
   with PostgresUsers {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       Fiber.fork(|| (use Users).find(1))
       ()
     })
@@ -451,14 +448,14 @@ fn fixed() -> () uses { Async } {
 }
 
 fn body_itself() -> () uses { Async } {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     (use Users).find(1)
     ()
   })
 }
 
 fn test_forked() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     Fiber.fork(|| (use Users).find(1))
     ()
   })
@@ -478,8 +475,7 @@ import Std.Fiber.{Fiber, Scope}
 fn take[A](x: A) -> () { () }
 
 fn leaks() {
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     take(s)
     xs = [s]
     ()
@@ -491,8 +487,7 @@ fn returned() {
 }
 
 fn closure_is_fine() {
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     run = || s.fork(|| 1)
     Fiber.join(run())
   })
@@ -512,31 +507,31 @@ import Std.Fiber.{Fiber, Scope}
 import Std.Queue.{Queue}
 
 fn handle() {
-  Fiber.scope(|| Fiber.fork(|| 1))
+  Fiber.scope(|_| Fiber.fork(|| 1))
 }
 
 fn optional() {
-  Fiber.scope(|| Some(Fiber.fork(|| 1)))
+  Fiber.scope(|_| Some(Fiber.fork(|| 1)))
 }
 
 fn deferred() {
-  Fiber.scope(|| (Fiber.deferred(), 1))
+  Fiber.scope(|_| (Fiber.deferred(), 1))
 }
 
 fn joined() {
-  Fiber.scope(|| Fiber.join(Fiber.fork(|| 1)))
+  Fiber.scope(|_| Fiber.join(Fiber.fork(|| 1)))
 }
 
 fn piped() {
-  (|| Fiber.fork(|| 1)) |> Fiber.scope()
+  (|_| Fiber.fork(|| 1)) |> Fiber.scope()
 }
 
 fn semaphore() {
-  Fiber.scope(|| Fiber.semaphore(2))
+  Fiber.scope(|_| Fiber.semaphore(2))
 }
 
 fn queue() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     q: Queue[Int] = Fiber.queue(1)
     [q]
   })
@@ -596,8 +591,9 @@ fn wrapped() -> List[Int] uses { Wrap } {
 }
 
 /// A child may fork its siblings (spec 11.2): the `Scope` in the child's R is provided by the
-/// scope it is forked into, not from outside, through `Fiber.fork` and through the capability.
-/// The errors and effects of the grandchildren still reach the scope.
+/// scope it is forked into, not from outside, through `Fiber.fork`. The errors and effects of the
+/// grandchildren still reach the scope. A child that captures the capability of its scope has it
+/// in its R, which does not fit the R of fork (E0455, `[fiber.scope]`).
 #[test]
 fn children_fork_siblings() {
     insta::assert_snapshot!(render(
@@ -611,7 +607,7 @@ fn boom() -> Int fails Boom { fail Boom }
 
 fn main() {
   with SystemConsole {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       Fiber.fork(|| {
         Fiber.fork(|| (use Console).print_line("x"))
         ()
@@ -622,8 +618,7 @@ fn main() {
 }
 
 fn through_capability() {
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     s.fork(|| {
       s.fork(|| boom())
       ()
@@ -645,7 +640,7 @@ fn spawn_tree(depth: Int) -> () uses { Scope[Boom, {}] } {
 }
 
 fn recursive() {
-  Fiber.scope(|| spawn_tree(3))
+  Fiber.scope(|_| spawn_tree(3))
 }
 "#
     ));
@@ -668,9 +663,9 @@ fn boom() -> Int fails Boom { fail Boom }
 fn bust() -> Int fails Bust { fail Bust }
 
 fn nested() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     Fiber.fork(|| boom())
-    inner = Fiber.scope(|| {
+    inner = Fiber.scope(|_| {
       Fiber.fork(|| {
         Fiber.fork(|| bust())
         ()
@@ -682,8 +677,8 @@ fn nested() {
 }
 
 fn test_nested() {
-  Fiber.scope(|| {
-    Fiber.scope(|| {
+  Fiber.scope(|_| {
+    Fiber.scope(|_| {
       Fiber.fork(|| {
         Fiber.fork(|| ())
         ()

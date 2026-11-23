@@ -2,6 +2,7 @@
 source: crates/emela-types/tests/handler_member.rs
 expression: "run(r#\"\neffect Slow {\n  suspend fn wait() -> Int\n}\n\neffect Quick {\n  fn get() -> Int\n}\n\nhandler Through(inner: use Slow): Quick {\n  init(inner: use Slow) { Self(inner:) }\n  fn get() { self.inner.wait() }\n}\n\nhandler Closing(inner: use Slow): Console {\n  init(inner: use Slow) { Self(inner:) }\n  release { _ = self.inner.wait() }\n  fn print_line(s) { () }\n}\n\nfn closing(s: use Slow) -> () {\n  with Closing(inner: s) { (use Console).print_line(\"x\") }\n}\n\"#)"
 ---
-closing: fn(use Slow) -> () uses { Async }
+closing: ∀ C(s). fn(use Slow) -> () uses { Async }
   s: use Slow
 `self.inner.wait()` SuspendingFnOp { op: "get", call: Op { effect: "Slow", op: "wait" } }
+`s` CapabilitySetMismatch { expected: "{}", found: "{ s }" }

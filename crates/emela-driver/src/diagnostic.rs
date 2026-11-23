@@ -1117,6 +1117,29 @@ impl Diagnostic {
                     ),
                 )
             }
+            TypeDiagnosticKind::CapabilityInOpResult { op, ty } => {
+                help = Some(
+                    "hand out a capability with a handler member (`with c = Pool.Conn()`)"
+                        .to_owned(),
+                );
+                (
+                    Severity::Error,
+                    Some(code::CAPABILITY_IN_OP_RESULT),
+                    format!(
+                        "the result of operation `{op}` cannot contain a capability type: `{ty}`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::BoundTypeOutsideHandler { ty, effect } => {
+                note = Some(format!(
+                    "a value of `{ty}` lives only while a capability of `{effect}` does, so only a handler of `{effect}` can make one"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::BOUND_TYPE_OUTSIDE_HANDLER),
+                    format!("a value of `{ty}` can only be made inside a handler of `{effect}`"),
+                )
+            }
             TypeDiagnosticKind::CapabilitySetMismatch { expected, found } => (
                 Severity::Error,
                 Some(code::TYPE_MISMATCH),

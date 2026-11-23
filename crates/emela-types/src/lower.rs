@@ -23,6 +23,9 @@ use crate::ty::{ParamKind, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam};
 pub(crate) enum Omitted<'a> {
     /// Inside a declaration (fields, consts, ...): empty.
     Empty,
+    /// The field types of a type, enum or error declaration: omitted clauses are empty, and each
+    /// capability set is a hidden set type parameter of the declaration ([`FieldCaps`]).
+    Fields(&'a mut FieldCaps),
     /// Inside a top-level fn's parameter types: adds an invisible set type parameter.
     Hidden(&'a mut Hidden),
     /// Return type and binding annotations, lambda parameters: inferred from the body, so a fresh
@@ -134,6 +137,77 @@ impl Hidden {
     }
 }
 
+/// The hidden capability set type parameters of a type, enum or error declaration
+/// (`[type.rules]`), placed after its written type parameters: first the set of a
+/// capability-bound type (`uses E`), then one for each place a capability type or a type with
+/// hidden sets of its own is written in the fields, in the order of the fields.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct DeclCaps {
+    /// The number of written type parameters.
+    pub(crate) visible: usize,
+    /// The effect of a capability-bound type: its `uses E`.
+    pub(crate) bound: Option<DefId>,
+    /// The effects of each hidden set.
+    pub(crate) effects: Vec<Vec<Tag>>,
+}
+
+/// Gives the capability sets in the field types of `owner` its hidden set type parameters
+/// ([`DeclCaps`]).
+pub(crate) struct FieldCaps {
+    owner: DefId,
+    /// The index of the next hidden set type parameter.
+    next: u32,
+    /// While the sets are being found: the effects and the name of each one found. Otherwise the
+    /// sets are known, and `end` is past the last one.
+    found: Option<Vec<(Vec<Tag>, SmolStr)>>,
+    end: u32,
+    /// The name of the field being read, for naming its sets (`C(read)`), and how many it has.
+    field: SmolStr,
+    in_field: usize,
+}
+
+impl FieldCaps {
+    /// For the constructor of `owner`, whose hidden sets are known.
+    pub(crate) fn new(table: &TyTable, owner: DefId) -> Self {
+        let (next, end) = match table.decl_caps(owner) {
+            Some(caps) => (
+                (caps.visible + usize::from(caps.bound.is_some())) as u32,
+                (caps.visible + caps.effects.len()) as u32,
+            ),
+            None => (0, 0),
+        };
+        FieldCaps {
+            owner,
+            next,
+            found: None,
+            end,
+            field: SmolStr::default(),
+            in_field: 0,
+        }
+    }
+
+    pub(crate) fn start_field(&mut self, name: SmolStr) {
+        self.field = name;
+        self.in_field = 0;
+    }
+
+    fn next_caps(&mut self, effects: &[Tag]) -> Row {
+        if let Some(found) = &mut self.found {
+            self.in_field += 1;
+            let name = match self.in_field {
+                1 => format!("C({})", self.field),
+                n => format!("C({}, {n})", self.field),
+            };
+            found.push((effects.to_vec(), name.into()));
+        } else if self.next >= self.end {
+            return Row::empty();
+        }
+        let row = Row::from_elems([RowElem::Bound(self.next)]);
+        self.next += 1;
+        row
+    }
+}
+
 /// Context for reading type expressions: type parameters (`params[i]` is `Bound(i)`), their
 /// kinds, and what an omitted `fails` means.
 pub(crate) struct Scope<'a> {
@@ -178,6 +252,7 @@ impl Scope<'_> {
         }
         match &mut self.omitted {
             Omitted::Empty => Row::empty(),
+            Omitted::Fields(fields) => fields.next_caps(effects),
             Omitted::Hidden(hidden) => hidden.fresh_caps(effects),
             Omitted::Fresh(ctx) => Row::var(ctx.new_row_var()),
             Omitted::Local {
@@ -193,7 +268,7 @@ impl Scope<'_> {
     /// The set for an omitted `fails` clause (`uses` clause if `effects`).
     fn omitted_row(&mut self, positive: bool, effects: bool) -> Row {
         match &mut self.omitted {
-            Omitted::Empty => Row::empty(),
+            Omitted::Empty | Omitted::Fields(_) => Row::empty(),
             Omitted::Hidden(hidden) => hidden.fresh(positive, effects),
             Omitted::Fresh(ctx) => Row::var(ctx.new_row_var()),
             Omitted::Local {
@@ -226,6 +301,11 @@ pub struct TyTable {
     def_of: ArenaMap<TyConId, DefId>,
     /// The set kinds of type and enum type parameters (`type Handler[E, R]` in spec 9.2).
     sets: DeclSets,
+    /// The hidden capability sets of declarations that have them (`[type.rules]`).
+    caps: ArenaMap<DefId, DeclCaps>,
+    /// The order the hidden sets of declarations were found in: one whose fields refer to
+    /// another comes after it, unless they refer to each other.
+    caps_order: ArenaMap<DefId, u32>,
 }
 
 impl TyTable {
@@ -265,13 +345,145 @@ impl TyTable {
             def_of.insert(id, def);
         }
 
-        TyTable {
+        let mut table = TyTable {
             cons,
             by_def,
             bool_def,
             def_of,
             sets,
+            caps: ArenaMap::default(),
+            caps_order: ArenaMap::default(),
+        };
+        table.find_decl_caps(program);
+        table
+    }
+
+    /// The hidden capability sets of a declaration, if it has any.
+    pub(crate) fn decl_caps(&self, def: DefId) -> Option<&DeclCaps> {
+        self.caps.get(def)
+    }
+
+    /// The effect of a capability-bound type (`[type.rules]`).
+    pub fn bound_effect(&self, def: DefId) -> Option<DefId> {
+        self.caps.get(def).and_then(|c| c.bound)
+    }
+
+    /// Finds the hidden capability sets of every type, enum and error declaration
+    /// ([`DeclCaps`]). A declaration whose fields have a type with hidden sets of its own gets a
+    /// set for each of them, so the declarations are read in the order of their references. A
+    /// declaration that refers to itself passes its own sets; one that refers to a declaration
+    /// that refers back to it gives that one empty sets.
+    fn find_decl_caps(&mut self, program: &Program) {
+        let decls: Vec<DefId> = program
+            .defs
+            .iter()
+            .filter(|(def, d)| {
+                matches!(d.kind, DefKind::Type | DefKind::Enum | DefKind::Error)
+                    && self.by_def.get(*def).is_some()
+            })
+            .map(|(def, _)| def)
+            .collect();
+        let mut order = Vec::new();
+        let mut state: FxHashMap<DefId, bool> = FxHashMap::default();
+        for &def in &decls {
+            visit_decl(program, def, &mut state, &mut order);
         }
+        for (i, &def) in order.iter().enumerate() {
+            self.caps_order.insert(def, i as u32);
+        }
+        for def in order {
+            let Some(&id) = self.by_def.get(def) else {
+                continue;
+            };
+            let visible = self.cons[id].params.len();
+            let bound = match program.item(def) {
+                Some(Item::Type(t)) => t.bound.as_ref(),
+                Some(Item::Enum(e)) => e.bound.as_ref(),
+                _ => None,
+            }
+            .and_then(|b| match b.res {
+                Res::Def(e) if program.defs[e].kind == DefKind::Effect => Some(e),
+                _ => None,
+            });
+            let mut fields = FieldCaps {
+                owner: def,
+                next: (visible + usize::from(bound.is_some())) as u32,
+                found: Some(Vec::new()),
+                end: 0,
+                field: SmolStr::default(),
+                in_field: 0,
+            };
+            self.lower_fields(program, def, def, &mut fields, &mut Vec::new());
+            let found = fields.found.unwrap_or_default();
+            if bound.is_none() && found.is_empty() {
+                continue;
+            }
+            let mut effects = Vec::new();
+            let mut params = Vec::new();
+            if let Some(e) = bound {
+                effects.push(vec![Tag::new(e)]);
+                let mut p = TyParam::set("C");
+                p.caps = Some(vec![Tag::new(e)]);
+                params.push(p);
+            }
+            for (tags, name) in found {
+                let mut p = TyParam::set(name);
+                p.caps = Some(tags.clone());
+                params.push(p);
+                effects.push(tags);
+            }
+            let mut kinds = self.sets.get(def).cloned().unwrap_or_default();
+            kinds.resize(visible, None);
+            kinds.extend(params.iter().map(|_| Some(SetKind::Caps)));
+            self.sets.insert(def, kinds);
+            self.cons.params_mut(id).extend(params);
+            self.caps.insert(
+                def,
+                DeclCaps {
+                    visible,
+                    bound,
+                    effects,
+                },
+            );
+        }
+    }
+
+    /// Reads the field types of `owner` with `fields` giving its hidden sets, and returns those
+    /// of the constructor `ctor`. The fields of the other constructors are read too, for the
+    /// numbering of the sets, without their diagnostics.
+    pub(crate) fn lower_fields(
+        &self,
+        program: &Program,
+        owner: DefId,
+        ctor: DefId,
+        fields: &mut FieldCaps,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Vec<Ty> {
+        let defs = type_param_defs(program, owner);
+        let kinds: Vec<ParamKind> = match self.by_def.get(owner) {
+            Some(&id) => self.cons[id].params.iter().map(|p| p.kind).collect(),
+            None => Vec::new(),
+        };
+        let mut out = Vec::new();
+        let mut others = Vec::new();
+        for (of, name, ty) in decl_fields(program, owner) {
+            fields.start_field(name);
+            let mut scope = Scope {
+                params: &defs,
+                kinds: &kinds,
+                omitted: Omitted::Fields(fields),
+                sets: true,
+                self_ty: None,
+                result_caps: None,
+                quant: None,
+            };
+            if of == ctor {
+                out.push(self.lower_in(program, &mut scope, ty, true, diags));
+            } else {
+                self.lower_in(program, &mut scope, ty, true, &mut others);
+            }
+        }
+        out
     }
 
     pub(crate) fn decl_sets(&self) -> &DeclSets {
@@ -656,9 +868,12 @@ impl TyTable {
 
         let expected = match data.kind {
             DefKind::BuiltinType if data.name == "List" => 1,
-            DefKind::Type | DefKind::Enum | DefKind::Error => match self.by_def.get(def) {
-                Some(&id) => self.cons[id].params.len(),
-                None => 0,
+            DefKind::Type | DefKind::Enum | DefKind::Error => match self.caps.get(def) {
+                Some(caps) => caps.visible,
+                None => match self.by_def.get(def) {
+                    Some(&id) => self.cons[id].params.len(),
+                    None => 0,
+                },
             },
             _ => 0,
         };
@@ -697,7 +912,7 @@ impl TyTable {
                 let Some(&id) = self.by_def.get(def) else {
                     return Ty::Error;
                 };
-                let args: Vec<Ty> = args
+                let mut args: Vec<Ty> = args
                     .iter()
                     .enumerate()
                     .map(|(i, &a)| match self.set_kind(def, i) {
@@ -705,9 +920,34 @@ impl TyTable {
                         None => self.lower_in(program, scope, a, positive, diags),
                     })
                     .collect();
+                self.hidden_args(scope, def, &mut args);
                 Ty::named(id, args)
             }
             _ => Ty::Error,
+        }
+    }
+}
+
+impl TyTable {
+    /// Adds the hidden capability sets of `def` to the written type arguments `args`, each as a
+    /// capability type of its effects written at the same place would have (`[type.rules]`).
+    /// In the fields of `def` itself they are its own sets; in the fields of a declaration whose
+    /// sets were found before those of `def`, they are empty ([`Self::find_decl_caps`]).
+    fn hidden_args(&self, scope: &mut Scope<'_>, def: DefId, args: &mut Vec<Ty>) {
+        let Some(caps) = self.caps.get(def) else {
+            return;
+        };
+        for (j, effects) in caps.effects.iter().enumerate() {
+            let row = match &scope.omitted {
+                Omitted::Fields(f) if f.owner == def => {
+                    Row::from_elems([RowElem::Bound((caps.visible + j) as u32)])
+                }
+                Omitted::Fields(f) if self.caps_order.get(def) >= self.caps_order.get(f.owner) => {
+                    Row::empty()
+                }
+                _ => scope.caps_row(effects),
+            };
+            args.push(Ty::Set(SetKind::Caps, row));
         }
     }
 }
@@ -1296,6 +1536,85 @@ pub(crate) fn effect_op_types(program: &Program, effect: DefId) -> Vec<TypeId> {
             _ => Vec::new(),
         })
         .collect()
+}
+
+/// Visits the declarations that the fields of `def` refer to before `def`, then adds `def` to
+/// `order`. `state` is false while a declaration is being visited, true once added.
+fn visit_decl(
+    program: &Program,
+    def: DefId,
+    state: &mut FxHashMap<DefId, bool>,
+    order: &mut Vec<DefId>,
+) {
+    if state.contains_key(&def) {
+        return;
+    }
+    state.insert(def, false);
+    let mut refs = Vec::new();
+    for (_, _, ty) in decl_fields(program, def) {
+        type_refs(program, ty, &mut refs);
+    }
+    for r in refs {
+        if matches!(
+            program.defs[r].kind,
+            DefKind::Type | DefKind::Enum | DefKind::Error
+        ) {
+            visit_decl(program, r, state, order);
+        }
+    }
+    state.insert(def, true);
+    order.push(def);
+}
+
+/// The declarations named in the type expression `ty`.
+fn type_refs(program: &Program, ty: TypeId, out: &mut Vec<DefId>) {
+    match &program.types[ty].kind {
+        TypeKind::Path { res, args } => {
+            if let Res::Def(d) = res {
+                out.push(*d);
+            }
+            for &a in args {
+                type_refs(program, a, out);
+            }
+        }
+        TypeKind::Tuple(elems) => {
+            for &e in elems {
+                type_refs(program, e, out);
+            }
+        }
+        TypeKind::Fn { params, ret, .. } => {
+            for &p in params.iter().chain(ret) {
+                type_refs(program, p, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The fields of the constructors of a type, enum or error, with their constructor (the error
+/// itself for an error) and their names (the index for an unnamed one).
+fn decl_fields(program: &Program, def: DefId) -> Vec<(DefId, SmolStr, TypeId)> {
+    let fields = |ctor: DefId, f: &Fields| -> Vec<(DefId, SmolStr, TypeId)> {
+        match f {
+            Fields::None => Vec::new(),
+            Fields::Positional(tys) => tys
+                .iter()
+                .enumerate()
+                .map(|(i, &t)| (ctor, SmolStr::new(i.to_string()), t))
+                .collect(),
+            Fields::Named(fs) => fs.iter().map(|f| (ctor, f.name.clone(), f.ty)).collect(),
+        }
+    };
+    let ctor_fields = |ctor: DefId| match program.item(ctor) {
+        Some(Item::Ctor(c)) => fields(ctor, &c.fields),
+        _ => Vec::new(),
+    };
+    match program.item(def) {
+        Some(Item::Type(t)) => t.ctor.map(ctor_fields).unwrap_or_default(),
+        Some(Item::Enum(e)) => e.variants.iter().flat_map(|&v| ctor_fields(v)).collect(),
+        Some(Item::Error(e)) => fields(def, &e.fields),
+        _ => Vec::new(),
+    }
 }
 
 /// The field type expressions of a type or enum's constructors.

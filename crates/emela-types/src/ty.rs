@@ -182,6 +182,11 @@ impl TyCons {
         self.arena.alloc(data)
     }
 
+    /// The type parameters of `id`, for adding hidden ones once the table is built.
+    pub(crate) fn params_mut(&mut self, id: TyConId) -> &mut Vec<TyParam> {
+        &mut self.arena[id].params
+    }
+
     pub fn set_tag_name(&mut self, def: DefId, name: SmolStr) {
         self.tags.insert(def, name);
     }
@@ -374,6 +379,12 @@ impl Ty {
             f.fails.clone(),
             row(&f.uses, with),
         )
+    }
+
+    /// Visits this type and every type inside it.
+    pub fn visit(&self, f: &mut dyn FnMut(&Ty)) {
+        f(self);
+        self.for_each_child(|c| c.visit(f));
     }
 
     /// Visits the immediate child types, including types inside a function type's error set

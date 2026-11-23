@@ -4,7 +4,7 @@
 # Only the `queue` operation of `Scope` (or `Fiber.queue(n)`) makes one, so it belongs to a scope
 # and cannot leave it (spec 11.8):
 #
-#   Fiber.scope(|| {
+#   Fiber.scope(|_| {
 #     q = Fiber.queue(100)
 #     Fiber.fork(|| {
 #       jobs.each(|job| q.offer(job))

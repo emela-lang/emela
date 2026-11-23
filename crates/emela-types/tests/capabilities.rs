@@ -189,3 +189,72 @@ fn not_quantified() -> Int {
 }
 "#));
 }
+
+/// A capability type written in a field gives the type a hidden set, decided when a value is
+/// made: a record of capabilities of two `with`s records both, and cannot leave either
+/// (`[type.rules]`, E0455). The hidden sets are not shown.
+#[test]
+fn fields_record_capabilities() {
+    insta::assert_snapshot!(run(r#"
+type Pair(first: use Logger, second: use Logger)
+
+fn both(p: Pair) {
+  p.first.info("a")
+  p.second.info("b")
+}
+
+fn main() {
+  with a = Quiet {
+    with b = Loud {
+      p = Pair(first: a, second: b)
+      both(p)
+    }
+  }
+}
+
+fn leaks() {
+  with a = Quiet {
+    Pair(first: a, second: a)
+  }
+}
+"#));
+}
+
+/// A type or enum with `uses E` is a capability-bound type of E: only a handler of E makes its
+/// values (E0458), and a value made there records the handler's `self`. An operation of E that
+/// returns one records the capability it is called on, which cannot leave its `with` (E0455).
+/// An operation's result cannot contain a capability type, or a bound type of another effect
+/// (E0456).
+#[test]
+fn capability_bound_types() {
+    insta::assert_snapshot!(run(r#"
+type Ticket(n: Int) uses Tickets
+
+effect Tickets {
+  fn issue() -> Ticket
+}
+
+effect Wrong {
+  fn leak() -> use Logger
+  fn other() -> Ticket
+}
+
+handler Issuer: Tickets {
+  fn issue() { Ticket(1) }
+}
+
+fn outside() -> Ticket uses { Tickets } { Ticket(2) }
+
+fn kept() -> Int {
+  with t = Issuer {
+    t.issue().n
+  }
+}
+
+fn leaves() {
+  with t = Issuer {
+    t.issue()
+  }
+}
+"#));
+}

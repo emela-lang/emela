@@ -106,6 +106,9 @@ pub struct InferCtx {
     origin: (Option<Span>, Option<DefId>),
     /// Named error type → tag. Used to turn `RowElem::Of` into tags.
     error_tags: FxHashMap<TyConId, DefId>,
+    /// The set variables that receive effect sets (R). The name of an effect in R is the effect,
+    /// so a capability of a name there does not leave anything (`[effect.escape]`).
+    pub(crate) effect_vars: rustc_hash::FxHashSet<RowVar>,
     /// Solutions of set variables. Present only after solving ([`Self::set_row_solution`]).
     row_solution: Option<FxHashMap<RowVar, Row>>,
     /// Whether the inclusion constraints are being solved ([`Self::set_solving`]).
@@ -233,6 +236,9 @@ impl InferCtx {
         if sub.is_empty() || sub == sup {
             return;
         }
+        if kind == SetKind::Effects {
+            self.effect_vars.extend(sup.vars());
+        }
         // While solving, comparing tags with set type arguments adds the same constraints again
         // on every round (`body/errors.rs`); keep one of each so the rounds end.
         if self.solving
@@ -348,13 +354,32 @@ impl InferCtx {
             RowElem::Var(v) => match &self.row_solution {
                 Some(solution) => {
                     let row = solution.get(v).cloned().unwrap_or_default();
-                    row.map_tys(|t| self.resolve(t))
+                    // As below, the set arguments of the effect of a capability are not
+                    // followed.
+                    Row::from_elems(row.elems().iter().map(|e| match e {
+                        RowElem::Cap(c) => RowElem::Cap(crate::row::CapElem {
+                            tag: c.tag.map_args(|a| match a {
+                                Ty::Set(..) => a.clone(),
+                                a => self.resolve(a),
+                            }),
+                            ..c.clone()
+                        }),
+                        RowElem::Of(ty) => RowElem::Of(self.resolve(ty)),
+                        RowElem::Tag(t) => RowElem::Tag(t.map_args(|a| self.resolve(a))),
+                        e => e.clone(),
+                    }))
                 }
                 None => Row::var(*v),
             },
             RowElem::Tag(t) => Row::of_tag(t.map_args(|a| self.resolve(a))),
+            // The set arguments of the effect of a capability are not followed: the R of
+            // `Fiber.scope`'s body holds the capability of `use Scope[E, R]`, whose effect has
+            // that R as an argument (`[fiber.scope]`).
             RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
-                tag: c.tag.map_args(|a| self.resolve(a)),
+                tag: c.tag.map_args(|a| match a {
+                    Ty::Set(..) => a.clone(),
+                    a => self.resolve(a),
+                }),
                 ..c.clone()
             })]),
             e => Row::from_elems([e.clone()]),
@@ -373,11 +398,16 @@ impl InferCtx {
     /// or use more effects serves code that forks fewer. The constraints are recorded and solved
     /// with the others.
     pub(crate) fn same_tag(&mut self, a: &Tag, b: &Tag) -> bool {
-        if a.def != b.def || a.args.len() != b.args.len() {
+        if a.def != b.def {
             return false;
         }
-        if a.args.is_empty() {
+        // The name of an effect recorded by a capability-bound type has no type arguments
+        // (`Fiber[A]` records the name Scope, `[type.rules]`): it is that effect with any.
+        if a.args.is_empty() || b.args.is_empty() {
             return true;
+        }
+        if a.args.len() != b.args.len() {
+            return false;
         }
         let snapshot = self.table.snapshot();
         self.row_buffer.clear();

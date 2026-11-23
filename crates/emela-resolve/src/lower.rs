@@ -657,6 +657,7 @@ impl Lower<'_, '_> {
             Some(fields) => Fields::Named(fields),
             None => Fields::None,
         };
+        let bound = self.bound(t.syntax());
         let derives = self.derives(t.derive());
         self.pop_type_params();
         if let Some(ctor) = ctor {
@@ -673,6 +674,7 @@ impl Lower<'_, '_> {
             ctor,
             fields,
             derives,
+            bound,
             // Outside the bundled sources, `@intrinsic` is E0224 and the type stays a user type.
             is_intrinsic: t.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
         })
@@ -683,6 +685,7 @@ impl Lower<'_, '_> {
             def,
             e.syntax().children().find(|n| n.kind() == TYPE_PARAM_LIST),
         );
+        let bound = self.bound(e.syntax());
         // Variants with unreadable names were skipped during collection, so match up only the
         // named ones, in order.
         let syntax_variants: Vec<_> = e.variants().filter(|v| v.name().is_some()).collect();
@@ -712,8 +715,16 @@ impl Lower<'_, '_> {
             type_params,
             variants: variants.to_vec(),
             derives,
+            bound,
             tags,
         })
+    }
+
+    /// The effect of `uses E` on a type or enum declaration (`[type.rules]`). The clause names
+    /// one effect; further ones are ignored.
+    fn bound(&mut self, decl: &SyntaxNode) -> Option<EffectRef> {
+        let clause = decl.children().find(|n| n.kind() == USES_CLAUSE)?;
+        self.effect_set(&clause).items.into_iter().next()
     }
 
     fn effect_item(&mut self, def: DefId, children: &[DefId], e: &ast::EffectDecl) -> Item {

@@ -153,8 +153,11 @@ impl BodyInfer<'_> {
                 return Ty::Error;
             }
         };
-        let FnTy { params, ret, .. } = f;
+        let FnTy {
+            params, ret, uses, ..
+        } = f;
         self.coerce_at(program.exprs[base].span, &params[0], base_ty);
+        self.callee_uses = Some(uses);
         // A fn of the same group without a declared type has no signature yet; its labels are
         // the names of its parameters.
         let labels: Option<Vec<Option<SmolStr>>> = match self.sigs.get(def) {

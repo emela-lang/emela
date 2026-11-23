@@ -3,7 +3,7 @@
 # Only the `semaphore` operation of `Scope` (or `Fiber.semaphore(n)`) makes one, so it belongs to
 # a scope and cannot leave it (spec 11.8):
 #
-#   Fiber.scope(|| {
+#   Fiber.scope(|_| {
 #     db = Fiber.semaphore(10)
 #     Fiber.map(ids, |id| db.with_permit(|| load(id)))
 #   })

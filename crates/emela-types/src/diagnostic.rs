@@ -424,6 +424,13 @@ pub enum DiagnosticKind {
     /// reason other than a leak (`[type.rules]`): a name of an effect or the set of a parameter
     /// where the result type of a function records other parameters (E0301).
     CapabilitySetMismatch { expected: SmolStr, found: SmolStr },
+    /// The result type of an operation contains a capability type, or a capability-bound type of
+    /// another effect than the operation's own (E0456, `[effect.handler]`). `ty` is what is
+    /// written there (`use Conn`).
+    CapabilityInOpResult { op: SmolStr, ty: SmolStr },
+    /// A value of a capability-bound type is constructed outside a handler of its effect (E0458,
+    /// `[type.rules]`).
+    BoundTypeOutsideHandler { ty: SmolStr, effect: SmolStr },
     /// `Immediate` on a type parameter that is not an effect set (E0322, spec 9.5).
     ImmediateOnNonEffect { param: SmolStr },
     /// A set (`{ Db }`, `A | B`) in a non-set type argument position (E0324, spec 9.2).
