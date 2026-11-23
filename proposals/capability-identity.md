@@ -85,7 +85,7 @@ related: [closure-r-by-caller, capability-type, capability-trait, handler-member
 - capability，capability type，capability parameter，capability-bound type，borrowed callback は，日本語の文の中でも英語のまま書く．
 - R の要素は，effect，宣言した label，capability．
 - capability ではないもの: effect alias（名前で供給される E を呼ぶ名前），handler の宣言，`L by P` の L（宣言した label）．
-- 使わなくなるもの: capture checking の root と hold（抱える）は，capability には使わない．Fiber などのハンドルにも同じ原則を広げるなら，そちらでも使わなくなる（Open questions）．
+- 使わなくなるもの: capture checking の root と hold（抱える）は，capability にも Fiber などのハンドルにも使わない．
 
 ### capability
 
@@ -385,7 +385,7 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 | `Fiber.scope(|| ...)` | 244 | `Fiber.scope(|s| ...)` か `|_|`．機械的に書き換えられる |
 | `= use Scope` | 34 | `Fiber.scope` の本体の引数 |
 | `with x = H`，`with x = E.M(...)`（`.emel`） | 14 | そのまま通る．x の型が，どの capability かを持つようになる |
-| capability を effect の名前に広げているもの | 未計数 | 試作で数える |
+| capability を effect の名前に広げているもの | 数えない | 0.29 でコンパイルエラー．help で capability parameter にする形か，closure に捕えさせる形を示す |
 
 - 引数の `use E` は書き方が変わらない（`fn copy(from: use Db, to: use Db)`，`copy(replica, primary)`）．
 - capability をコレクションに入れる形，`State[use Name]`（#708），handler のフィールドの `use E` は，同じ with の中なら今までどおり書ける．
@@ -413,6 +413,5 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 
 ## Open questions
 
-- capability を effect の名前に広げられないことで書けなくなるコードがどれだけあるか．
 
 ## Decision
