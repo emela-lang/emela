@@ -24,7 +24,7 @@ related: [closure-r-by-caller, capability-type, capability-trait, handler-member
 - capability を元の effect に広げない．
 - capability は普通の値のまま．渡す，格納する，返す，データ構造に入れる，closure で捕えることは，同じ with の中ならほかの値と同じにできる．
 - capability についての capture checking（capture set，root）は，この型検査で置き換える．
-- `use E` の式（#791 で W0403）と，capability を effect に広げること（この proposal で deprecated）を，段階を踏んでなくす．
+- capability を effect に広げることは，0.29 からコンパイルエラー．`use E` の式（#791 で W0403）は 0.30 でコンパイルエラーにする．
 
 ## Motivation
 
@@ -42,7 +42,7 @@ related: [closure-r-by-caller, capability-type, capability-trait, handler-member
 - 持ち出す道は capture set で数えている．操作の引数とエラー（#719 の A，B）は今も見ていない．host の callback は #736 で effect を R に入れられなくなったが，capability を捕えた callback（`set_timeout(10, || g.greet("later"))`）が with より長く生きることは止めていない．
 - #701（handler member の capability を closure の引数や戻り値を通して使うと E0402）は残っている．
 - Fiber，Deferred，Queue のハンドルを持ち出す形（#719 の再現 1，6）も capture set で見ている．
-- #666 は 0.29 で capture checking を既定にし，W0402 と実行時の検査を外す予定だった．この proposal は，capability についてはその代わりになる．
+- #666 は 0.29 で capture checking を既定にし，W0402 と実行時の検査を外す予定だった．この proposal は，その代わりに 0.29 に入る．
 
 ### 型が，どの capability かを表していない
 
@@ -77,7 +77,7 @@ related: [closure-r-by-caller, capability-type, capability-trait, handler-member
 | named item | 名前付きの項目 | `with x = Item`．その項目の capability に x という名前を付ける | `with f = Files.Open(p)` |
 | provide by name | 名前で供給する | with が R から effect の名前を外すこと．名前のない項目の capability はこれだけをする | `with Plain { ... }` |
 | leak | 持ち出す | 型か R に capability を含む値が，その capability を作った with の外へ出ること．コンパイルエラー | |
-| widen | 広げる | R の中で capability を元の effect の名前として扱うこと．この proposal で deprecated | |
+| widen | 広げる | R の中で capability を元の effect の名前として扱うこと．この proposal でコンパイルエラーにする | |
 | effect alias | 効果の別名 | `x <- E` の x（#731）．capability ではなく，R に E そのものを入れる | `log <- Logger` |
 
 - R の要素は，effect，宣言した label，capability．
@@ -269,17 +269,22 @@ handler SystemFiles: Files {
 ### `use E` の式
 
 - `x = use E` の x は，どの capability かが決まらない（書いた位置でいちばん内側の E の capability に固定されるが，型には出ない）．
-- `use E` の式は，略記も値も #791 で W0403 になっている．この proposal では型の中で，effect の名前 E に決まった capability として扱い，次の minor でなくす．移る先:
+- `use E` の式は，略記も値も #791 で W0403 になっている．この proposal では型の中で，effect の名前 E に決まった capability として扱い，0.30 でなくす．移る先:
   - x を同じ関数の中で受け手にしか使わない → `x <- E`．W0403 の quick fix が書き換える（#791）
   - 外の handler を指し続ける，渡す，格納する → 名前付きの項目（`with x = H`）．機械的には書き換えられない
 
-### deprecation の段階（たたき台）
+### 版
 
-1. 済み（#791，0.29）: `(use E).op()` を `<-` の略記にする．`use E` の式（略記も値も）に W0403 を出す．
-2. この proposal が入った版: 型と R で capability を区別する．capability を effect の名前に広げることに W04xx（deprecated）を出す．
-3. その次の minor: `use E` の式と，広げることをコンパイルエラーにする．capability についての capture checking（W0402，E0444 の capability の部分）と，`[effect.escape]` の実行時の検査（release 後の使用は defect）を外す．
+0.29 に #791 と一緒に入れる．0.29 はこの proposal の実装を待って出す．
 
-`[effect.use]` は「`use E` の式は one more minor version 読む」と書いている（#731）．2 と 3 の版の並べ方は Open questions．
+- 0.29:
+  - 型と R で capability を区別する．`uses E` の型，関数型の中の capability の引数，`self`，handler のフィールドと操作，host の callback，`Fiber.scope(|s| ...)` を入れる．
+  - 新しく止める形（持ち出し，広げること，操作の戻り値の capability，capability を捕えた callback）は，最初からコンパイルエラーにする．警告の段階は挟まない．
+  - capability とハンドルの capture checking（W0402，E0444，capture set），E0425，`[effect.escape]` と `[fiber.escape]` の実行時の検査を外す．
+  - `use E` の式は W0403 のまま読む（#731 の「一つの minor の間は読む」を守る）．型の中では effect の名前 E の capability として扱う．名前で E を供給する with は，型の中の名前 E を自分の capability として数えるので，`x = use E` の値を持ち出すことも型で止まる．
+  - 書き換えは W0403 の quick fix と，`Fiber.scope(|| ...)` を `|s|` に直す quick fix で助ける．
+- 0.30: `use E` の式をコンパイルエラーにする．
+- #666 は，この proposal に置き換えて閉じる．capture checking は既定にならないまま，capability とハンドルについては外れる．
 
 ## Specification changes
 
@@ -302,12 +307,12 @@ handler SystemFiles: Files {
 - Calling an operation of a capability adds that capability to R. The with that made the capability removes it from R.
 - A capability is not widened to its effect. An effect set that contains a capability is not included in an effect set that contains only the effect of the capability.
 - A parameter of type `use E` gives the function a type parameter that ranges over the capabilities of E. At a call, it is decided by the argument. An effect alias cannot be an argument (E0453). During the deprecation period, a `use E` written as an expression decides it as E itself.
-- `use E` written as an expression (deprecated by `effect-alias`) is a compile error after the deprecation period.
+- `use E` written as an expression (deprecated by `effect-alias`) is a compile error from 0.30.
 
 ### `[effect.escape]`
 
 - A capability cannot leak: if the type of the value of a with body, the error set that leaves the body, or the R that leaves the body contains a capability made by that with, it is a compile error (E04xx).
-- After the deprecation period, capture sets are not used for capabilities.
+- Capture sets are not used for capabilities and handles, and the run-time checks of leaks are removed.
 
 ### `[ext.boundary]`
 
@@ -315,15 +320,17 @@ handler SystemFiles: Files {
 
 ### `[open.next]`
 
-- The 0.29 item ("make E0444 the default ... remove the run-time check of 8.6") is replaced for capabilities by this proposal.
+- The 0.29 item ("make E0444 the default ... remove the run-time check of 8.6") is replaced by this proposal: in 0.29, capture sets and the run-time checks are removed for capabilities and handles, and their leaks are compile errors from the types.
+- `use E` written as an expression becomes a compile error in 0.30.
 
 ## Diagnostics
 
 - [ ] E04xx: capability を持ち出した（型か R に capability を含む値が with の外へ出る）
 - [ ] E04xx: effect の操作の戻り値に capability の型か capability を持つ型を書いた
-- [ ] `use E` の式の W0403 は #791 で入った．廃止の版でエラーにする
-- [ ] W04xx: capability を effect の名前に広げた（deprecated）．help: 引数を `use E` にする
-- [ ] 廃止の版: W04xx をエラーにする．W0402，E0444 の capability の部分を外す
+- [ ] `use E` の式の W0403 は #791 で入った．0.30 でエラーにする
+- [ ] E04xx: capability を effect の名前に広げた．help: 引数を `use E` にする
+- [ ] W0402，E0444，E0425 を外す（0.29）
+- [ ] 0.30: W0403 をエラーにする
 
 ## Compatibility
 
@@ -349,7 +356,7 @@ handler SystemFiles: Files {
 - 型検査: capability の型と effect set に，どの capability かを持たせる．with の出口で，本体の値の型，エラー，R にその with の capability が残らないかを確かめる．型引数の範囲の検査と同じ仕組みを使う．
 - capability の型の集合と，引数の `use E` の型引数は，R の集合と同じ仕組み（集合の和と set variable）で推論する．
 - lowering: capability の evidence は，その項目の handler．effect の名前に決まった型引数は，呼んだ時点の evidence を使う．
-- capture checking: deprecation の期間は今のまま動かし，廃止の版で capability の部分を外す．#791 で `use_root` は closure の境界で止まるようになっている．
+- capture checking: capability とハンドルの部分を外す．`use E` の値は，型の中の effect の名前として持ち出しの検査で見る．
 
 ## Alternatives
 
@@ -360,14 +367,14 @@ handler SystemFiles: Files {
 - capability の型引数に名前を付ける（`fn retry[C: use Db](db: C, f: fn(C) -> ())`）．二つの引数が同じ集合を共有する形が書けるが，closure に捕えさせれば同じことが書け，名前が要る場面は少ない．後から足しても今の書き方の意味は変わらない．
 - 名前付きの項目を `with f <- Files.Open(path)` や `with Files.Open(path) as f` と書く．`<-` は effect alias と同じ記号になり，`as` は今の `with x = ...` の書き換えが要る．
 - 名前のない `use E` の値を，なくす代わりに「呼んだ時点でいちばん内側の E に届く値」として残す．型の中では effect の名前としてしか表せず，渡したり格納したりできる限り，どの handler を指すかが型から分からない（#719 の穴の元）．内側で同じ E を上書きした with で外の値を使う 18 箇所の意味も黙って変わる．
-- 一段で `use E` の式をなくす（deprecation の期間を置かない）．影響が言語の中心なので期間を置く．
+- 一段で `use E` の式をなくす（deprecation の期間を置かない）．#731 で一つの minor の間は読むと決めたので，0.30 まで読む．
+- 0.29 は #791 だけで出し，この proposal を 0.30 に入れる．0.29 で W0403 を出したあと 0.30 でまた大きく壊すことになり，capture checking の扱いも 0.29 と 0.30 で二度変わる．
 
 ## Prior art
 
 ## Open questions
 
 - LSP の hover で capability の集合をどう表示するか．
-- deprecation の版．W0403 は 0.29 に入る．`use E` の式をエラーにするのを 0.30 にするか，この proposal の実装（広げることの警告）を待つか．#666 の 0.29（capture checking を既定にし，W0402 と実行時の検査を外す）を capability について取り下げるか．
 - 外部関数の引数に付ける「その場でしか呼ばない」印の書き方（属性の名前）．
 - `[C: Capability]`（`capability-trait`）はそのまま使えるか．#651 の `close[C: Capability](item: C)` を確かめる．
 - capability を effect の名前に広げられないことで書けなくなるコードがどれだけあるか．
