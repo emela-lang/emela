@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-23 (Telling the entry module of the JS host with import.meta.main)
+
+- `[target.js.module]`: `main.mjs` decides whether it is the entry module of the JS host with `import.meta.main`. Only a JS host that does not define `import.meta.main` compares the real path of `process.argv[1]` with the path of `main.mjs`, as `js-direct-entry` (#677) specified for every host. With this, importing `main.mjs` from code that the JS host evaluates (`node -e`) does not launch `main`, on every host that defines `import.meta.main`. Adopted in the proposal `js-entry-import-meta-main` (#829).
+
 ## 2026-11-23 (Running main.mjs directly)
 
 - `[target.js.module]`, `[cmd.build]`: `main.mjs` written by `emela build` for the `js` target launches `main` when the JS host is started with it (`node target/emela/js/main.mjs`), with the same outcomes and exit codes as `emela run`. Importing `main.mjs` from another module does not launch `main`. An HTTP service is unchanged: it is started through `serve.mjs`, and its `main.mjs` does not launch anything. For a program that is not an HTTP service, `emela run` starts the JS host with `main.mjs` itself instead of a launcher passed with `-e`. Adopted in the proposal `js-direct-entry` (#677).
