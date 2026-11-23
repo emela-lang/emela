@@ -132,6 +132,24 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 - 同じ effect の引数を二つ取ると，型引数も二つになる（`fn copy(from: use Db, to: use Db)`）．
 - 引数に effect alias や `use E`（名前のない値）を渡すと，型引数は effect の名前 E に決まる．呼んだ時点でいちばん内側の E に届く．
 
+### 開く数が実行時に決まる資源
+
+- with の項目は一つにつき capability を一つ作るので，`paths.map(|p| Files.Open(p))` とは書けない．with を再帰で入れ子にして書く．
+- capability の引数は集合の型引数なので，再帰で呼ぶたびに集合が増えても型が付く（シグネチャに型があるので，多相再帰を推論する必要はない）．
+- 寿命は入れ子になり，開いた順の逆に閉じる．同じ寿命で使う用途はこれで書ける．
+
+```emel
+fn concat_all(paths: List[String], acc: List[use ReadFile]) -> String {
+  match paths {
+    [] -> acc.map(|f| f.read_all()).join("")
+    [p, ..rest] -> with f = Files.Open(p) { concat_all(rest, acc ++ [f]) }
+  }
+}
+```
+
+- 本体を関数として受け取る汎用の補助関数（`with_all(paths, |fs| ...)`）は，引数の関数の型が capability の型引数を持つ必要がある（Open questions の関数型の中の capability の引数）．
+- この proposal は regions（#651）に頼らない．任意の時点で開閉する用途に regions が要るかは #651 で決める．この proposal のもとでは，pool が返す番号の型に pool の capability を入れて，持ち出しを型で止める形も取れる．
+
 ### 持ち出せない
 
 - with の型を決めるとき，本体の値の型，本体から伝わるエラーの型，with の R に，その with の capability が残っていればコンパイルエラー（E04xx）．
@@ -229,7 +247,6 @@ with x = Counters.Open(1), y = Counters.Open(10) {
 
 ## Open questions
 
-- 開く個数が実行時に決まる資源（`paths.map(|p| open(p))`）は，capability の集合では書けない（with の数がソースで決まらない）．まとめて開く capability を一つ作り，開いた資源をその寿命に従わせる形（#651 の regions）と合わせるか．
 - LSP の hover で capability の集合をどう表示するか．
 - capability の型引数を明示する構文が要るか．関数型にも capability の引数を書けるか（`fn(use ReadFile) -> ()`）．
 - handler の init の引数とフィールドに capability を持つ形（`with PostgresUsers(db: replica)`）．handler の型に capability が入る．
