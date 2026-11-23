@@ -3,11 +3,11 @@ source: crates/emela-codegen-js/tests/fiber.rs
 expression: main
 ---
 export suspend fn main() -> Int {
-  fiber#scope(suspend fn(s%7: fiber_scope) -> any fails {
-    let h%8: Fiber[Int] = fiber#fork(s%7, suspend fn() -> any fails {
+  fiber#scope(suspend fn(s%0: fiber_scope) -> any fails {
+    let h%1: Fiber[Int] = fiber#fork(s%0, suspend fn() -> any fails {
       1
     })
-    let _%9: Exit[Int, ()] = fiber#await[Exit](h%8)!
-    fiber#join(h%8)!
+    let _%2: Exit[Int, ()] = fiber#await[Exit](h%1)!
+    fiber#join(h%1)!
   })!?
 }

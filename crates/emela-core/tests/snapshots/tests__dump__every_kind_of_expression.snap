@@ -27,29 +27,29 @@ fn Shapes.area(s%0: Shapes.Shape) -> Float {
   }
 }
 
-fn sum(xs%3: List[Int], acc%4: Int) -> Int {
-  loop(xs%5: List[Int] = xs%3, acc%6: Int = acc%4) {
-    match xs%5 {
-      [] -> acc%6
-      [x%7, ..rest%8] -> recur(rest%8, (acc%6 +[Int] x%7))
+fn sum(xs%0: List[Int], acc%1: Int) -> Int {
+  loop(xs%2: List[Int] = xs%0, acc%3: Int = acc%1) {
+    match xs%2 {
+      [] -> acc%3
+      [x%4, ..rest%5] -> recur(rest%5, (acc%3 +[Int] x%4))
     }
   }
 }
 
-fn id[A](v%9: A) -> A {
-  v%9
+fn id[A](v%0: A) -> A {
+  v%0
 }
 
 export fn main() -> (Int, Int64, Int, Float, fn(Shapes.Shape) -> Float, Pair[Int, String], Int, String, Option[Int], Option[Int], (), (), String, fn(Int) -> Int) {
-  let p%10: Pair[Int, String] = Pair.Pair[Int, String](first: 1, second: "a")
-  let f%11: fn(Int64) -> Int64 = fn(y%12: Int64) -> Int64 {
-    (y%12 +[Int64] 1i64)
+  let p%0: Pair[Int, String] = Pair.Pair[Int, String](first: 1, second: "a")
+  let f%1: fn(Int64) -> Int64 = fn(y%2: Int64) -> Int64 {
+    (y%2 +[Int64] 1i64)
   }
-  let name%13: String = if (true &&[Bool] (![Bool] false)) {
+  let name%3: String = if (true &&[Bool] (![Bool] false)) {
     "yes"
   } else {
-    let z%14: () = ()
+    let z%4: () = ()
     "no"
   }
-  (p%10.first#0, (f%11)(41i64), sum([1, 2, ..[]: List[Int]]: List[Int], 0), Shapes.area(Shapes.Shape.Circle((-[Float] 1.5))), Shapes.area, @dbg[Pair[Int, String]](p%10), @String.length(name%13), concat("n = ", name%13 as String), Option.Some[Int](1), Option.None[Int], assert(p%10 ==[Structural] p%10, ty: Pair[Int, String], text: "p == p"), assert(true, text: "True"), id[String]("s"), id[Int])
+  (p%0.first#0, (f%1)(41i64), sum([1, 2, ..[]: List[Int]]: List[Int], 0), Shapes.area(Shapes.Shape.Circle((-[Float] 1.5))), Shapes.area, @dbg[Pair[Int, String]](p%0), @String.length(name%3), concat("n = ", name%3 as String), Option.Some[Int](1), Option.None[Int], assert(p%0 ==[Structural] p%0, ty: Pair[Int, String], text: "p == p"), assert(true, text: "True"), id[String]("s"), id[Int])
 }

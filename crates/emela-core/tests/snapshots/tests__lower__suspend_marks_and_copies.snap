@@ -8,32 +8,32 @@ effect Clock {
 }
 
 export suspend fn main() -> List[Int] {
-  let _%2: List[Int] = with {
-    let h%0: handler Clock = SystemClock()
-    let ev%1: evidence = provide(; Clock = h%0)
+  let _%0: List[Int] = with {
+    let h%1: handler Clock = SystemClock()
+    let ev%2: evidence = provide(; Clock = h%1)
   } {
-    @dbg[List[Int]](naps([1, 2]: List[Int], ev%1)!)
+    @dbg[List[Int]](naps([1, 2]: List[Int], ev%2)!)
+  }
+  let _%3: Int = with {
+    let h%4: handler Clock = InstantClock()
+  } {
+    @dbg[Int](h%4.Clock#sleep(1)!)
   }
   let _%5: Int = with {
-    let h%3: handler Clock = InstantClock()
-  } {
-    @dbg[Int](h%3.Clock#sleep(1)!)
-  }
-  let _%8: Int = with {
     let h%6: handler Clock = FetchingClock()
   } {
     @dbg[Int](h%6.Clock#sleep(1)!)
   }
-  @dbg[List[Int]](List.map[Int, Int, {}, {}]([1]: List[Int], fn(x%9: Int) -> Int {
-    x%9
+  @dbg[List[Int]](List.map[Int, Int, {}, {}]([1]: List[Int], fn(x%7: Int) -> Int {
+    x%7
   }, ()))
 }
 
 fn SystemClock() -> handler Clock {
   handler SystemClock: Clock {
-    sleep: fn(ms%113: Int, resume%114: fn(Int) -> ()) -> () {
-      after[{}, {}](ms%113, fn() -> () {
-        (resume%114)(ms%113)
+    sleep: fn(ms%0: Int, resume%1: fn(Int) -> ()) -> () {
+      after[{}, {}](ms%0, fn() -> () {
+        (resume%1)(ms%0)
       })
     }
     now: fn() -> Int {
@@ -42,17 +42,17 @@ fn SystemClock() -> handler Clock {
   }
 }
 
-suspend fn naps(xs%32: List[Int], ev%33: evidence) -> List[Int] {
-  let clock%34: handler Clock = use[Clock](ev%33)
-  List.map$suspend8[Int, Int, {}, {suspends, ev}](xs%32, suspend fn(ms%35: Int, ev%36: evidence) -> Int {
-    (clock%34.Clock#sleep(ms%35)! +[Int] clock%34.Clock#now())
-  }, ev%33)!
+suspend fn naps(xs%0: List[Int], ev%1: evidence) -> List[Int] {
+  let clock%2: handler Clock = use[Clock](ev%1)
+  List.map$suspend8[Int, Int, {}, {suspends, ev}](xs%0, suspend fn(ms%3: Int, ev%4: evidence) -> Int {
+    (clock%2.Clock#sleep(ms%3)! +[Int] clock%2.Clock#now())
+  }, ev%1)!
 }
 
 fn InstantClock() -> handler Clock {
   handler InstantClock: Clock {
-    sleep: fn(ms%30: Int, resume%31: fn(Int) -> ()) -> () {
-      (resume%31)(0)
+    sleep: fn(ms%0: Int, resume%1: fn(Int) -> ()) -> () {
+      (resume%1)(0)
     }
     now: fn() -> Int {
       0
@@ -62,8 +62,8 @@ fn InstantClock() -> handler Clock {
 
 fn FetchingClock() -> handler Clock {
   handler FetchingClock: Clock {
-    sleep: suspend fn(ms%27: Int, resume%28: fn(Int) -> ()) -> () {
-      (resume%28)(@String.length(fetch_text("x")!))
+    sleep: suspend fn(ms%0: Int, resume%1: fn(Int) -> ()) -> () {
+      (resume%1)(@String.length(fetch_text("x")!))
     }
     now: fn() -> Int {
       0
@@ -71,16 +71,16 @@ fn FetchingClock() -> handler Clock {
   }
 }
 
-fn List.map[A, B, C, D](xs%10: List[A], f%11: fn(A) -> B fails ev (E {C}, R {D}), ev%12: evidence) -> List[B] fails {
-  List.reverse[B](List.fold[A, List[B], {C}, {D}](xs%10, []: List[B], fn(acc%13: List[B], x%14: A, ev%15: evidence) -> List[B] fails {
-    [(f%11)(x%14, ev%15)?, ..acc%13]: List[B]
-  }, ev%12)?)
+fn List.map[A, B, C, D](xs%0: List[A], f%1: fn(A) -> B fails ev (E {C}, R {D}), ev%2: evidence) -> List[B] fails {
+  List.reverse[B](List.fold[A, List[B], {C}, {D}](xs%0, []: List[B], fn(acc%3: List[B], x%4: A, ev%5: evidence) -> List[B] fails {
+    [(f%1)(x%4, ev%5)?, ..acc%3]: List[B]
+  }, ev%2)?)
 }
 
-suspend external fn fetch_text(url%29: String) -> String = js["./ffi.mjs", "fetchText"]
+suspend external fn fetch_text(url%0: String) -> String = js["./ffi.mjs", "fetchText"]
 
-suspend fn List.map$suspend8[A, B, C, D](xs%37: List[A], f%38: fn(A) -> B fails suspends ev (E {C}, R {D}), ev%39: evidence) -> List[B] fails {
-  List.reverse[B](List.fold$suspend8[A, List[B], {C}, {D}](xs%37, []: List[B], suspend fn(acc%40: List[B], x%41: A, ev%42: evidence) -> List[B] fails {
-    [(f%38)(x%41, ev%42)!?, ..acc%40]: List[B]
-  }, ev%39)!?)
+suspend fn List.map$suspend8[A, B, C, D](xs%0: List[A], f%1: fn(A) -> B fails suspends ev (E {C}, R {D}), ev%2: evidence) -> List[B] fails {
+  List.reverse[B](List.fold$suspend8[A, List[B], {C}, {D}](xs%0, []: List[B], suspend fn(acc%3: List[B], x%4: A, ev%5: evidence) -> List[B] fails {
+    [(f%1)(x%4, ev%5)!?, ..acc%3]: List[B]
+  }, ev%2)!?)
 }
