@@ -1,6 +1,6 @@
 //! `emela pome` on a project directory, against the fake proxy and checksum database.
 
-mod common;
+use crate::common;
 
 use std::fs;
 use std::path::Path;

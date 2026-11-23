@@ -16,7 +16,7 @@
 //! change comes from what you changed, then paste the values from the failure message, which
 //! lists every program whose output changed, in place of the old ones.
 
-mod common;
+use crate::common;
 
 use common::*;
 

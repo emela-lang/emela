@@ -7,7 +7,7 @@
 //!
 //! The output shows declared types, local variable types, and diagnostics of `main.emel`.
 
-mod common;
+use crate::common;
 
 use std::fmt::Write;
 

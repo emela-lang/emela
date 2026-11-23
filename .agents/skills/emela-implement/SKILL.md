@@ -50,6 +50,7 @@ Write tests from the list of rules, and see them fail before implementing. Put e
 | Formatting of the new syntax | `crates/emela-fmt/tests/format.rs` |
 | The language server | `crates/emela-lsp/tests/server.rs` |
 
+- The files in a crate's `tests/` are modules of one test binary, `tests/main.rs`. A new file there is declared in `tests/main.rs` with `mod <name>;`; until it is, its tests are not built and `every_file_is_a_module` fails.
 - For every compile error in the rules, write the smallest program that MUST be rejected, and assert the code.
 - For every construct that MUST be accepted, write a program that uses it in each place the grammar allows it.
 - A result at run time MUST be the same on every target (spec chapter 16). A program under `emela-codegen-c/tests/programs/` runs on JS and C through `crates/emela-driver/tests/parity.rs`. Add a program that uses only the pure language and `dbg` to `PROGRAMS` in `crates/emela-driver/tests/wasm_parity.rs` as well, so that WASM is checked against JS. Do not leave a target out: a target that cannot run the new construct yet is a defect to report, not a reason to skip it.

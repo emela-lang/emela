@@ -7,7 +7,7 @@
 //! not an out-of-bounds store past the memory. A reservation made from `cabi_realloc` traps
 //! without writing its line, because the host can forbid a blocking call inside the callback.
 
-mod common;
+use crate::common;
 
 use common::*;
 use wasmparser::{Operator, Parser, Payload};

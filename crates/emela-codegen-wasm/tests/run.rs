@@ -1,6 +1,6 @@
 //! Programs run under `wasmtime` and their output is checked (skipped without `wasmtime`).
 
-mod common;
+use crate::common;
 
 use common::*;
 

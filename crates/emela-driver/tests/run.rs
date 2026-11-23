@@ -1602,7 +1602,7 @@ fn main() {
     insta::assert_snapshot!(text(&output.stdout));
 }
 
-mod suspend;
+use crate::suspend;
 
 #[test]
 fn suspended_main_waits_for_promises() {

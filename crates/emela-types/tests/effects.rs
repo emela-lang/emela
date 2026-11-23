@@ -5,7 +5,7 @@
 //! the expressions of `main.emel` with a non-empty R, in source order, as `expr: R`. A fn named
 //! `main` is checked as `main` (its R must be empty, spec 8.3).
 
-mod common;
+use crate::common;
 
 use std::fmt::Write;
 

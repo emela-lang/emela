@@ -2,8 +2,7 @@
 //! programs are lowered, monomorphized and converted, and the result must pass the Flow IR
 //! verifier.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::{Module, dump_function, from_core, verify};
