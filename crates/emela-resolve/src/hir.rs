@@ -728,6 +728,10 @@ pub struct HandlerItem {
     /// For an inner handler, the handler member of the outer handler's effect it implements,
     /// matched by name. `None` for a top-level handler; `Res::Err` when no member has its name.
     pub member: Option<Res>,
+    /// A built-in handler of the bundled sources, marked with `@intrinsic` and without a body
+    /// (`Deferred`, `[kw.annotation]`). The runtime implements its init, release and operations;
+    /// the fields declared after its name are the parameters of its init.
+    pub is_intrinsic: bool,
 }
 
 /// Parameter types come from the effect declaration.
@@ -857,6 +861,18 @@ pub struct Program {
     /// `{ h <- E; h.op(...) }`). Such a `use E` is not a capability value: it makes no root
     /// (`[effect.escape]`), and `x.op` without a call resolves E each time it is called.
     pub alias_uses: ArenaMap<ExprId, Option<LocalId>>,
+    /// Built-in handlers with the name of the one effect they implement (`Deferred`, `Queue`,
+    /// `Semaphore`, `[module.resolution]`): the effect → the handler. Only the effect is in the
+    /// type namespace; the name means the handler at an item of a with or a layer and on the
+    /// right of `by`.
+    pub twin_handlers: ArenaMap<DefId, DefId>,
+}
+
+impl Program {
+    /// The built-in handler with the name of `effect`, if it has one (`[module.resolution]`).
+    pub fn twin_handler(&self, effect: DefId) -> Option<DefId> {
+        self.twin_handlers.get(effect).copied()
+    }
 }
 
 /// The fn that `@entry(T)` on `f` exposes for each `@export` of `T` (spec 12.8): a top-level fn

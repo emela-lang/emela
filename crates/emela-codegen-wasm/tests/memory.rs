@@ -887,11 +887,11 @@ fn main() -> () uses { Async } {
 
 #[test]
 fn semaphores_and_queues_free_their_values_and_lines() {
-    // Two thousand scopes, each with a Queue of capacity 2 that passes twenty Strings from a
+    // Two thousand rounds, each with a Queue of capacity 2 that passes twenty Strings from a
     // producer to the body (so offerers wait in its line), a Queue closed with Strings left in it,
     // and a Semaphore of one permit with five fibers waiting in its line. The values, the line
-    // entries and the records are freed by the end of each scope (`[fiber.semaphore]`,
-    // `[fiber.queue]`), so the run stays in six pages.
+    // entries and the records are freed by the end of each with (`[task.semaphore]`,
+    // `[task.queue]`), so the run stays in six pages.
     run_limited(
         "memory-semaphore-queue",
         r#"
@@ -899,7 +899,7 @@ import Std.Fiber.{Fiber, Scope}
 import Std.Queue.{Queue, QueueClosed}
 import Std.Semaphore.{Semaphore}
 
-fn drain(q: Queue[String], n: Int) -> Int uses { Async } {
+fn drain(q: use Queue[String], n: Int) -> Int uses { Async } {
   next = Some(q.take()) escape {
     QueueClosed -> None
   }
@@ -910,21 +910,22 @@ fn drain(q: Queue[String], n: Int) -> Int uses { Async } {
 }
 
 fn round(i: Int) -> Int uses { Async } {
-  Fiber.scope(|_| {
-    q = Fiber.queue(2)
-    Fiber.fork(|| {
-      List.range(0, 20).each(|j| q.offer("value #{i} #{j}"))
-      q.close()
+  with q = Queue(capacity: 2), s = Semaphore(permits: 1) {
+    with left = Queue(capacity: 4) {
+      left.offer("left behind #{i}")
+      left.offer("also left #{i}")
+      left.close()
+    }
+    Fiber.scope(|_| {
+      Fiber.fork(|| {
+        List.range(0, 20).each(|j| q.offer("value #{i} #{j}"))
+        q.close()
+      })
+      hs = List.range(0, 5).map(|j| Fiber.fork(|| Semaphore.with_permit(s, || "held #{j}")))
+      held = List.fold(hs, 0, |acc, h| acc + String.length(Fiber.join(h)))
+      drain(q, 0) + held - held
     })
-    left = Fiber.queue(4)
-    left.offer("left behind #{i}")
-    left.offer("also left #{i}")
-    left.close()
-    s = Fiber.semaphore(1)
-    hs = List.range(0, 5).map(|j| Fiber.fork(|| s.with_permit(|| "held #{j}")))
-    held = List.fold(hs, 0, |acc, h| acc + String.length(Fiber.join(h)))
-    drain(q, 0) + held - held
-  }) escape {
+  } escape {
     QueueClosed -> 0
   }
 }

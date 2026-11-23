@@ -82,6 +82,10 @@ error enum Std.FileSystem.FileSystemFailure {
   FileSystemFailure(path: String, message: String)
 }
 
+error enum Std.Semaphore.NoPermits {
+  NoPermits
+}
+
 error enum Std.Queue.QueueClosed {
   QueueClosed
 }

@@ -235,7 +235,7 @@ The changes are applied to `spec/` in this pull request.
 
 - [ ] E0461 (new): a call that may suspend after resume
 - [ ] E0413 covers TaskGroup, Spawn, Deferred, Semaphore, Permit and Queue
-- [ ] E0213: the exception for built-in handlers
+- [x] E0213: the exception for built-in handlers
 - [ ] E0402: the note moves from `Fiber.scope` to the tasks of a group
 - [ ] E0205: the help for `Std.Fiber`
 - Numbers: E0455 to E0458 are used by `capability-identity`, and E0459, E0460 and E0462 by `generic-handler`. E0461 is free.

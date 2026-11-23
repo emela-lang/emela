@@ -889,19 +889,46 @@ impl Lower<'_, '_> {
                 }),
             );
         }
-        let fields = fields.unwrap_or_default();
+        let mut fields = fields.unwrap_or_default();
         let effects = self.handler_effects(h.effects());
+        let is_intrinsic = !h.has_body()
+            && h.syntax()
+                .children()
+                .filter_map(ast::Annotation::cast)
+                .any(|a| a.name().is_some_and(|n| n.text() == "intrinsic"))
+            && self.r.modules.is_core(self.module);
         // `init` runs on entering `with` and builds the handler value; there is no `self` yet. Its
         // parameters are in scope in its body only.
-        let (init_params, init) = match h.init() {
-            Some(b) => {
+        // The init of a built-in handler declares only its parameters (`[task.background]`).
+        let (init_params, init) = match (h.init(), h.init_params()) {
+            (Some(b), params) => {
                 self.push_scope();
-                let params = self.params(h.init_params(), LocalKind::Param);
+                let params = self.params(params, LocalKind::Param);
                 let body = self.block(&b);
                 self.pop_scope();
                 (params, Some(body))
             }
-            None => (Vec::new(), None),
+            (None, Some(params)) => {
+                self.push_scope();
+                let params = self.params(Some(params), LocalKind::Param);
+                self.pop_scope();
+                (params, None)
+            }
+            // The fields of a built-in handler are the parameters of its init, which the
+            // runtime implements (`Queue(capacity: 100)`, `[task.queue]`); it has no value to
+            // hold them in.
+            (None, None) if is_intrinsic => {
+                let params = std::mem::take(&mut fields)
+                    .into_iter()
+                    .map(|f| Param {
+                        local: self.alloc_local(f.name, LocalKind::Param, f.span.range),
+                        ty: Some(f.ty),
+                        borrowed: None,
+                    })
+                    .collect();
+                (params, None)
+            }
+            (None, None) => (Vec::new(), None),
         };
         let release = h.release().map(|b| {
             self.push_scope();
@@ -951,6 +978,7 @@ impl Lower<'_, '_> {
             ops,
             inner,
             member: None,
+            is_intrinsic,
         })
     }
 
@@ -1457,6 +1485,14 @@ impl Lower<'_, '_> {
                 Some(def) => def,
                 None => return Res::Err,
             }
+        };
+        // A built-in handler with the name of its effect is named where a handler is expected
+        // (`[module.resolution]`).
+        let def = match expected {
+            Expected::WithItem | Expected::HandlerOrLayer | Expected::HandlerOrEffect => {
+                self.r.program.twin_handler(def).unwrap_or(def)
+            }
+            _ => def,
         };
         let kind = self.r.program.defs[def].kind;
         let fits = match expected {

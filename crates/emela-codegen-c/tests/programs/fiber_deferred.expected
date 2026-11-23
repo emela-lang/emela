@@ -1,4 +1,4 @@
-exit: 101
+exit: 0
 --- stdout
 poll None
 joined 41 42
@@ -17,6 +17,4 @@ fetched 1
 fetched 3
 map [10, 20, 30]
 race failed -1
-defect: deferred was completed after its scope ended
 --- stderr
-defect: deferred was polled after its scope ended
