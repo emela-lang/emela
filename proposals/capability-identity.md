@@ -5,7 +5,7 @@ status: draft
 pr: 732
 issue: 719
 decided:
-touches: [glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.deferred, fiber.semaphore, fiber.queue, api.std.fiber, type.rules, open.next, diag.list]
+touches: [ext.boundary, glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.deferred, fiber.semaphore, fiber.queue, api.std.fiber, type.rules, open.next, diag.list]
 requires: [effect-alias]
 related: [closure-r-by-caller, capability-type, capability-trait, handler-member, handler-init-arguments, capture-checking, scope-handle-values]
 ---
@@ -214,6 +214,13 @@ pub effect Scope[E, R] {
 - #719 の再現 1（外の State に Fiber を入れる）は型の不一致，再現 6（Fiber をエラーに入れる）は持ち出しの検査（E04xx）で止まる．
 - 外の scope に fork するには，外の scope の本体の引数 s を使う（今の `outer = use Scope` の代わり）．
 
+### host の callback
+
+- 外部関数の引数と戻り値の callback は，既定では host が持ち続けるものとする．host は外部関数が返った後にも呼べるので，callback の R に capability を入れられない（E0454 を capability にも広げる）．
+- 外部関数が返る前にしか呼ばない callback（並べ替えの比較関数など）は，宣言の引数に印を付ける．印のある引数の callback だけが，R に capability を入れられる．印が正しいかは，`@external` の型と同じく宣言を書く人が責任を持つ．
+- 型だけでは二つを区別できない．外部関数の型の callback の集合は呼ぶたびに決まり，戻り値に capability が残らないので，持ち出しの検査では見えない．
+- `closure-r-by-caller` の例 `with g = Plain { set_timeout(10, || g.greet("later")) }` はエラーになる．host が後で呼ぶ処理から handler を使うには，host の側で完結させるか，Queue で Emela の fiber に渡す．
+
 ### 持ち出せない
 
 - with の型を決めるとき，本体の値の型，本体から伝わるエラーの型，with の R に，その with の capability が残っていればコンパイルエラー（E04xx）．
@@ -262,6 +269,10 @@ pub effect Scope[E, R] {
 
 - A capability cannot leak: if the type of the value of a with body, the error set that leaves the body, or the R that leaves the body contains a capability made by that with, it is a compile error (E04xx).
 - After the deprecation period, capture sets are not used for capabilities.
+
+### `[ext.boundary]`
+
+- Replace "The R may contain capabilities; a callback reaches a handler only through a capability it captures (8.2), since the host calls it without passing handlers." by: "The R MUST NOT contain a capability either, since the host may keep the callback and call it after the with of the capability has ended (E0454). A parameter of an external function marked as called only before the function returns may take a callback whose R contains capabilities."
 
 ### `[open.next]`
 
@@ -320,7 +331,7 @@ pub effect Scope[E, R] {
 - capability を持つ型の書き方．`by E` は label の `L by P` と同じ語になる．`of E` や属性にするか．
 - 名前のない `use E` の値を，なくす代わりに「型引数が effect の名前に決まった capability の値」（呼んだ時点で解決する値）にする手もある．内側で同じ E を上書きした with で使う 18 箇所の意味が変わる．
 - deprecation の版．W0403 は 0.29 に入る．`use E` の式をエラーにするのを 0.30 にするか，この proposal の実装（広げることの警告）を待つか．#666 の 0.29（capture checking を既定にし，W0402 と実行時の検査を外す）を capability について取り下げるか．
-- host の callback に capability を捕えさせる形（`with g = Plain { set_timeout(10, || g.greet("later")) }`）．外部関数の型は with の外で決まっているので，「持ち出せない」をそのまま当てると g を R に持つ callback は渡せない．#736 は「callback の R は capability を含んでよい」とした．host が with の後で呼ぶ callback をどう止めるか（host に渡すことを持ち出しとみなすか，同期の callback だけ許すか）．
+- 外部関数の引数に付ける「その場でしか呼ばない」印の書き方（属性の名前）．
 - `[C: Capability]`（`capability-trait`）はそのまま使えるか．#651 の `close[C: Capability](item: C)` を確かめる．
 - capability を effect の名前に広げられないことで書けなくなるコードがどれだけあるか．
 - 日本語の訳．用語集は capability を「能力」と訳している．定義を変えるのに合わせて訳を見直すか．
