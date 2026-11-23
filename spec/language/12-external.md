@@ -44,25 +44,25 @@ suspend fn fetch_text(url: String) -> String
 - The prototype of a C function is determined from the types of the Emela declaration by the table in 12.4. The compiler does not read C headers. The behavior when the types of the declaration and the host function do not match is unspecified.
 - A call is written the same way as a call to an ordinary function.
 
-## 12.2 Where they can be called `[ext.call]`
+## 12.2 What a call adds to R `[ext.call]`
 
-| Declaration | Meaning | Where it can be called |
+| Declaration | Meaning | What a call adds to R |
 |---|---|---|
-| `uses {}` written explicitly | Declares that the function is pure | Anywhere |
-| `uses` omitted | Has host side effects | Only inside the init, the release and the operation bodies of a handler |
-| `uses { ProcessHost }` or `uses { PageHost }` | Has host side effects, and works only on that host (`[effect.host]`) | Only inside the init, the release and the operation bodies of a handler |
-| `suspend fn` | Needs to wait for completion. Requires Async | Only inside a handler |
+| `uses {}` written explicitly | Declares that the function is pure | Nothing |
+| `uses` omitted | Has host side effects | The External of the module where the call is written (`[effect.external]`) |
+| host effects in `uses` (`uses { ProcessHost }`) | Has host side effects, and works only on that host (`[effect.host]`) | The External of the module where the call is written, and those host effects |
+| `suspend fn` | Needs to wait for completion | Async, the External of the module where the call is written (even with `uses {}`), and the host effects in its uses |
 
 - The compiler cannot verify that a `uses {}` declaration is correct. The person who declares it is responsible for it.
-- The restriction on where a function can be called applies to references, not only to calls. An external function with `uses` omitted cannot be carried out of a handler as a function value either. The inside of an anonymous function inside an operation body of a handler counts as inside.
-- An external function declared as `suspend fn` can be used only inside a handler, even when `uses {}` is written (E0407).
-- The host side effects of an external function are not put in R. The R of an external function with `uses` omitted is empty, and its side effects are handled by the restriction on where it can be called.
+- Every external function, except one declared with `uses {}` that is not a `suspend fn`, has in its type the External of the module that names it (`[effect.external]`). External is not written in its uses clause.
+- An external function can be called and referred to anywhere. What it requires is in R: External, which only the bodies of the handlers of the module remove, and the host effects and Async, which only the entry provides. A function value that refers to it can be carried wherever its type allows, and called only where its R is provided, so only inside the handlers of the module when it adds External (`[effect.external]`).
+- An external function declared with `uses {}` that is not a `suspend fn` adds nothing, and can be called anywhere.
+- An external function declared as `suspend fn` adds External and Async even when `uses {}` is written.
 - An external function declared as `suspend fn` corresponds to a function that returns a Promise in JS, and to an async import in WASI. The calling fiber suspends until completion.
 - In JS, the runtime adds an `AbortSignal` as the last argument of an external function declared as `suspend fn`. It aborts when the waiting fiber is interrupted. When an implementation of a suspend fn operation is waiting on an external function and the caller is interrupted before resume, the runtime also unwinds the implementation and aborts. This is for stopping network requests and timers (without it, even if the result is discarded, the requests and timers stay in the host event loop and the process does not exit). A function that does not use the signal MAY ignore it. Interruption stops only waits of this form. A handler that resumes later from a callback is not stopped (discarded continuations in 14.5). The bundled handlers (including `sleep` of SystemClock) are written in this form.
 - In JS, a returned value that is not a Promise is treated as a resolved value. A rejected Promise is a defect, the same as an exception thrown by the call (12.5).
 - In C, an external function declared as `suspend fn` is written so that it reports completion later (12.6).
 - The uses clause of an external function contains only ProcessHost and PageHost, or nothing. Any other effect, including Async and a set type parameter, is a compile error (E0445). Suspension is declared with `suspend fn`, not with Async.
-- The host effects in the uses clause are added to the R of each call.
 
 ## 12.3 Host types `[ext.host-type]`
 
@@ -87,7 +87,7 @@ Only the following types can be used for the parameters and the return value of 
 
 List and user-defined types cannot be passed directly. They are converted inside a handler.
 
-- The R of a function type in a boundary type (a callback) MUST NOT contain an effect. A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E0454). The R may contain capabilities; a callback reaches a handler only through a capability it captures (8.2), since the host calls it without passing handlers.
+- The R of a function type in a boundary type (a callback) MUST NOT contain an effect other than the host effects (`[effect.host]`), and, for a function passed at a call of the external function, the External of the module where the call is written (`[effect.external]`). A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E0454). The R may contain capabilities; a callback reaches a handler only through a capability it captures (8.2), since the host calls it without passing handlers.
 - The parameters and return value of a function passed as a callback are treated the same as the parameters and return value of an external function (a String received from the host is normalized as in 12.5).
 - An external function that returns `()` discards the host's return value and returns `()`.
 - A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.
