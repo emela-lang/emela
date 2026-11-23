@@ -2089,36 +2089,6 @@ fn license_that_is_not_an_spdx_expression() {
     }
 }
 
-/// `[target.native]`: the build target `c` in `[build].target` and in `[pome].targets` of the
-/// project's `Pome.toml` is W0903 at each value, and the check goes on. `native` is not reported.
-#[test]
-fn deprecated_build_target_c() {
-    let check_manifest = |manifest: &str| {
-        check_files(
-            &[
-                ("app/Pome.toml", manifest),
-                ("app/src/main.emel", "let x = 1\n"),
-            ],
-            "app",
-            &mut LexOnly,
-        )
-    };
-    let analysis = check_manifest(
-        "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.28.0\"\ntargets = [\"js\", \"c\"]\n\n[build]\ntarget = \"c\"\n",
-    );
-    assert_eq!(analysis.error_count(), 0);
-    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
-
-    let analysis = check_manifest(
-        "[pome]\nname = \"github.com/acme/app\"\nversion = \"0.1.0\"\nemela = \"0.28.0\"\ntargets = [\"native\"]\n\n[build]\ntarget = \"native\"\n",
-    );
-    assert!(
-        analysis.diagnostics.is_empty(),
-        "{:?}",
-        analysis.diagnostics
-    );
-}
-
 /// `[pome.manifest]`: an unknown name in `[experimental]` is W0206 at the key, whatever its value,
 /// and a value that is not a boolean is W0207 at the value. The check goes on.
 #[test]

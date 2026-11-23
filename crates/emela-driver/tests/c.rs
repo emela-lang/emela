@@ -610,8 +610,14 @@ fn build_target_from_pome_toml() {
         read("[build]\ntarget = \"native\"\n"),
         Ok(Some(Target::Native))
     );
-    // `[target.native]`: `c` is a deprecated name of `native`.
-    assert_eq!(read("[build]\ntarget = \"c\"\n"), Ok(Some(Target::Native)));
+    // `[target.native]`: `c` is an unknown target since 0.29.
+    assert_eq!(
+        read("[build]\ntarget = \"c\"\n"),
+        Err((
+            Some("E0232"),
+            "unknown target `c` in `[build].target`".to_owned()
+        ))
+    );
     assert_eq!(
         read("[build]\ntarget = \"node\"\n"),
         Err((

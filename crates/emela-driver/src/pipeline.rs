@@ -695,13 +695,6 @@ pub fn check<F: Frontend>(
                 &manifest,
                 &mut analysis.sources,
             ));
-            analysis
-                .diagnostics
-                .extend(crate::target::deprecated_targets(
-                    text,
-                    &manifest,
-                    &mut analysis.sources,
-                ));
         }
     }
     if let Some(entry) = &input.entry {
