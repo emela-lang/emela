@@ -12,21 +12,23 @@ related: [scope-handle-values, semaphore-queue, http-service, closure-r-by-calle
 
 ## Summary
 
-- 並行処理の単位を `Fiber.scope` という特別な関数から外し，with の項目（組み込みの handler）にする
-- 名前を Fiber から Task に変える．`Std.Fiber` は `Std.Task`，`Fiber[A]` は `Task[A]`，`fork` は `start`
-- 結果を待つ並行は `Task.Group`，結果を見ずに切り出す仕事は `Task.Background`
-- Deferred，Queue，Semaphore は Scope の操作から外し，独立した with の項目（組み込みの effect の capability）にする
-- Task から受け取る方法は `join` だけにする．`await` と `interrupt` を外し，`CauseKind` から Interrupt を外す
+- The range of concurrent work is no longer the special function `Fiber.scope`. It is an item of a with, provided by a built-in handler.
+- Fiber is renamed Task: `Std.Fiber` becomes `Std.Task`, `Fiber[A]` becomes `Task[A]`, and `fork` becomes `start`.
+- Work whose results are awaited is started in a `Task.Group`. Work whose results are not looked at is started in a `Task.Background`.
+- Deferred, Queue and Semaphore are no longer made by operations of Scope. Each is an item of a with of its own: the capability of a built-in effect, provided by a built-in handler of the same name.
+- A task gives its result only through `join`. `await` and `interrupt` are removed, and so is `Interrupt` of `CauseKind`.
+- In the implementation of a suspend fn, a call that may suspend cannot follow a direct call of resume (E0461).
+- Fiber is removed in the same version, without a period in which both exist.
 
 ## Motivation
 
-- Scope に例外規則が集まっている．集合型引数，操作ごとの型引数，handler を書けない（E0413），型引数の省略（E0423 の例外），子の R の包含規則，E0402 の専用 note，E0425，寿命の実行時検査
-- 子が使う handler を決める規則（`Fiber.scope` を呼んだ時点の handler）が，with の入れ子とも `closure-r-by-caller` とも違う三つ目の規則になっている．scope の本体に書いた with は子に届かない
-- Deferred／Semaphore／Queue が Scope の操作でしか作れず，資源の寿命を with と handler member で決める仕組みの外にある
-- 結果の受け取り方が join／await／attempt／raise の四つあり，Fail／Die／Interrupt と掛け合わされる（11.5 の表）
-- 応答の後に続ける仕事（監査ログ，計測の送信）のように，結果を見ずに切り出す処理を書く場所がない．`@entry(Http.serve)` は要求ごとの打ち上げなので，打ち上げを越える仕事も書けない
-- resume の後も走り続ける操作の実装（14.5）は，scope が待たない構造化されていない切り出しになっている
-- `capability-identity` は `Fiber.scope(|s| ...)` と capability-bound type で漏れを型で止めたが，Scope の例外規則と「s を引数で受け取る」「R の Scope」の二重化は残る
+- Exceptions gather around Scope: set type parameters, type parameters on an operation, no user handler (E0413), type arguments that may be omitted (an exception to E0423), the inclusion rule for the R of a child, a note of its own for E0402, E0425, and checks of lifetimes at run time.
+- The rule that decides which handlers a child uses (the handlers in effect where `Fiber.scope` is called) is a third rule, different from both the nesting of withs and `closure-r-by-caller`. A with written in the body of a scope does not reach its children.
+- A Deferred, a Semaphore or a Queue can be made only by an operation of Scope, so it stays outside the mechanism that decides the lifetimes of resources: withs and handler members.
+- There are four ways to receive a result (join, await, attempt and raise), and they combine with three causes (Fail, Die and Interrupt), as the table of `[fiber.cause]` shows.
+- There is no place for work whose result is not looked at, such as work that continues after a response (an audit log, sending metrics). `@entry(Http.serve)` makes one launch per request, so work cannot outlive the launch either.
+- An operation implementation that keeps running after resume (`[dyn.suspend]`) is unstructured work that no scope waits for.
+- `capability-identity` made the types stop leaks with `Fiber.scope(|s| ...)` and capability-bound types, but the exceptions of Scope remain, and so does the doubling of "s received as a parameter" and "Scope in R".
 
 ## Proposal
 
@@ -52,101 +54,107 @@ with jobs = Queue(capacity: 100), tasks = Task.Group {
 (user, orders) = Task.both(|| fetch_user(1), || fetch_orders(1))
 ```
 
-### 決まったこと
+The examples use syntax that `emela fmt` does not read yet, so they have not been run through it.
 
-#### Task.Group
+### Task.Group
 
-- 組み込みの handler．with の項目として書き，init で範囲を作る
-- `tasks.start(f)` は `Task[A]` を返す．子は親が次に suspend したときに走り始める
-- 本体が値を返したら残りの子を中断し，release で巻き戻しの終わりを待つ
-- 子が失敗したら兄弟を中断し，その失敗を本体の次の suspension point で本体の失敗として届ける．with の E に子の E が入る．release の E は空のまま（E0420 を破らない）
-- 複数の子が失敗したら最初の失敗を結果にし，残りは note にする（今と同じ）
-- 子の R は Group の with の外側が与える．同じ with の中では Group より前の項目まで（8.3 の向きと同じ）．本体の中の with で作った capability を捕まえた closure は，`capability-identity` で型が合わずに start できない
-- `Task[A]` は Group の capability に縛られた型（capability-bound type）
+- A built-in handler. It is written as an item of a with, and its init makes the range.
+- `tasks.start(f)` returns a `Task[A]`. The task starts running the next time the starting task suspends.
+- When the body returns a value, the tasks left are interrupted, and the release waits until they have unwound.
+- When a task fails, its siblings are interrupted, and the failure is delivered to the body at its next suspension point, as a failure of the body. The E of the tasks is in the E of the with. The E of the release stays empty (E0420 holds).
+- When several tasks fail, the first failure is the result and the others are notes, as now.
+- The R of the tasks is provided outside the with of the group: within the same with, only by the items before the group (the direction of `[effect.with]`). A closure that captures a capability made by a with inside the body does not fit the type of start, by `capability-identity`.
+- `Task[A]` is a capability-bound type of the group's capability.
 
-#### Task.Background（決定 1，2）
+### Task.Background
 
-- `bg.start(f)` は `()` を返す．手綱がない
-- release は残りを中断せず，終わるまで待つ．本体が値で終わっても失敗で終わっても同じ．with の結果は本体の結果のまま
-- 外から中断されたときだけ子も中断する．release が子を待っている間に中断が届いたら，その中断を子へ回し，子の巻き戻しの終わりを待ってから release を終える（「release 中は中断を保留する」は保ったまま，待っている子へは伝える）
-- 子の失敗は兄弟を止めず，`on_failure` に渡す
-- `on_failure: fn(Cause[E]) -> () uses { R }` は必須の引数．E は子の E の集合，R は子と同じく with の外側が与える
-- `on_failure` の E は空．受け取るのは Fail と Die だけ
-- `on_failure` は失敗した子の巻き戻しが終わった後，その子の中で呼ぶ．release はそれも待つ
-- `on_failure` の中の defect は release の中の defect と同じ扱い（14.4）
+- `bg.start(f)` returns `()`. There is no handle.
+- The release does not interrupt the tasks left; it waits until they end, whether the body ended with a value or a failure. The result of the with is the result of the body.
+- Its tasks are interrupted only when the with is interrupted from outside. If the interruption arrives while the release waits for its tasks, it is passed on to them, and the release ends after they have unwound. A release still holds off interruptions of its own task; it only passes them on to the tasks it waits for.
+- A failure of a task does not stop its siblings. It is passed to `on_failure`.
+- `on_failure: fn(Cause[E]) -> () uses { R }` is a required argument. E is the set of the errors of the tasks, and R is provided outside the with, as for the tasks.
+- The E of `on_failure` is empty. It receives only Fail and Die.
+- `on_failure` is called in the failed task, after that task has unwound. The release waits for it.
+- A defect in `on_failure` is treated as a defect in a release (`[dyn.defect]`).
 
-#### `@entry(Http.serve)` とのつなぎ方（決定 3）
+### `@entry(Http.serve)` and Spawn
 
-- app の R に許すものを「Async だけ」から「Async と Spawn だけ」に広げる（`pub fn app(request: Request) -> Response uses { Spawn }`）
-- adapter は要求ごとに `Task.Background` を名前で与えて app を呼ぶ．app が返した時点で応答をホストへ渡し，打ち上げは release の終わりで終える
-- adapter の `on_failure` は Cause を標準エラーへ書く
-- Deno，Bun，`emela run` は Promise を先に解決するだけ．Cloudflare Workers は ctx の `waitUntil` に打ち上げの終わりを渡す．C は serve がないので対象外
-
-#### Deferred，Queue，Semaphore（決定 4）
-
-- `effect Deferred[A]`，`effect Queue[A]`，`effect Semaphore` を組み込みの effect にし，`offer`／`take`／`await` などは suspend fn の操作にする
-- 組み込みの handler を effect と同じ名前で置き，with の項目として書く（`with ready = Deferred, jobs = Queue(capacity: 100), db = Semaphore(permits: 10)`）．型引数は本体の使い方から推論し，書くなら `Queue[Job](capacity: 100)`（決定 8）
-
-#### effect と同じ名前の handler（決定 8）
-
-- 今は effect と handler が同じ型の名前空間にあり（4.6），同じモジュールで同じ名前にすると E0213 になる
-- 組み込みの handler（`@intrinsic`）に限って，実装する effect と同じ名前を許す．その handler はその effect だけを実装する
-- 名前が書かれる場所で引き分ける．with の項目，layer の項目，`by` の右では handler を指す．`uses`，`use E`，`x <- E`，`L of E`，`E.M(...)` では effect を指す
-- 重なるのは `L by P` の右だけで，同名のときは handler を指す（外側の effect へ戻す意味にはならない）
-- ユーザーには許さない．effect と handler を分けて with で差し替えることが Emela の中心にあり，同名を許すと差し替えるべき抽象と本番の実装が同じ名前に見える．Deferred，Queue，Semaphore は実装が一つで差し替えるものがないので当たらない．必要になったら広げる
-- 選ばなかった形：ユーザーにも許す，`Queue.New(100)` のような共通の handler 名（with の読み方として不自然），effect に既定の handler を宣言させる（`with Console` のような書き方が一般にでき，テストと本番が紛れる），`Deferred.Empty`／`Queue.Bounded`／`Semaphore.Permits`（長い）
-- 任意の A について実装する handler は，別の proposal `generic-handler`（ユーザーにも総称 handler を許す）に任せる．この proposal では例外を作らない
-- 三つとも capability なので，capability-bound type も「scope への所属」も要らない
-
-#### 結果の受け取り方（決定 5）
-
-- Task に残すのは `join` だけ．`await` と `interrupt` を外す
-- Task が中断されるのは「Group の本体が値を返した」「兄弟が失敗した」の二つだけになり，どちらも Group 全体が巻き戻される場面なので，中断された子を中断されていない誰かが join する場面がなくなる
-- `join` の「中断された子なら defect」という規則を外す．release の中で中断が保留されている間に失敗した子や中断された子を join したら，呼んだ側を中断として巻き戻す（今と同じ）
-- `CauseKind` は Fail と Die の二つになる
-- 一つの子だけ止めたいときは with を入れ子にし，その with を終わらせる．動的に増える子を個別に止めるときは，止める合図を Deferred で渡す
-- `Exit.attempt` と `Cause.raise` は Task と関係なく残す
-
-#### 名前
-
-| 今 | 新しい名前 |
-|---|---|
-| `Std.Fiber` | `Std.Task` |
-| `Fiber[A]` | `Task[A]` |
-| `Fiber.scope` | `with tasks = Task.Group` |
-| `fork` | `start` |
-| `Fiber.all／race／both／map／timeout` | `Task.all／race／both／map／timeout` |
-
-- fiber という語は 14 章とターゲットの章で実行時の用語として残す
-- C の `em_task *` とは「完了を待っている仕事」という意味でそろう
-
-#### effect と handler の名前（決定 7）
-
-- effect は「何ができる capability か」を表し，`uses { ... }` と `use ...` に出る．handler は「どう与えるか（寿命の方針）」を表し，`モジュール.Handler` と書く
-- `Task.Group` が実装する effect は `TaskGroup`．`start` は `Task[A]` を返す
-- `Task.Background` が実装する effect は `Spawn`．`start` は `()` を返す．寿命は handler が決めるので effect 名に入れない
-- 二つの名前の非対称（名詞と動詞）は，Group が「まとまり」，Spawn が「行為」であることに合わせたもの
+- The R that the app may have grows from Async to Async and Spawn.
+- The adapter provides Spawn by name with a `Task.Background` for each request, and calls the app inside it. When the app returns, the response goes to the host, and the launch ends at the end of the release.
+- The `on_failure` of the adapter writes the cause to standard error.
+- On Node, Bun and `emela run`, the promise of the response is resolved first. On Cloudflare Workers, the end of the launch is passed to `waitUntil` of the context. The native target has no serve yet.
+- The type of serve is `serve[E, F](app: fn(Request) -> Response fails E uses { Spawn[F, { Async }], Async }, incoming: Incoming) -> Outgoing uses { Async }`. The errors F of the work started with Spawn are left open: `on_failure` writes any cause to standard error. The R of that work is Async only. An app writes, for example, `uses { Spawn[{}, { Async }] }`.
 
 ```emel
-fn crawl(tasks: use TaskGroup, url: String) -> () uses { Http, Async } {
-  tasks.start(|| fetch(url))
-}
-
 @entry(Http.serve)
-pub fn app(request: Request) -> Response uses { Spawn } {
+pub fn app(request: Request) -> Response uses { Spawn[{}, { Async }] } {
   spawn <- Spawn
   spawn.start(|| audit(request))
   Routes.route(request)
 }
 ```
 
-#### resume の後の suspend を禁じる（決定 9，14.5）
+### Deferred, Queue and Semaphore
 
-- suspend fn の実装の本体で，直接の `resume(...)` 呼び出しの後に実行されうる，suspend しうる呼び出しは compile error（E0417 の仲間で新しいコード）
-- 判定は Async の判定（8.7）と同じく構文で，安全側に倒す．分岐の片方で resume していれば，その後ろは「後」とみなす
-- 取り残される継続が生まれるのはここだけ．host のコールバックの R は Immediate なので（9.5）resume の後に suspend できず，別の fiber からの resume はその fiber 自身が続きを走らせる
-- resume の後に残るのは suspend しない部分だけになり，その場で最後まで走る
-- 長く続く仕事が要るなら，handler が `Spawn` を要求して明示的に切り出す．切り出しが R に出るので型から見える
+- `effect Deferred[A]`, `effect Queue[A]` and `effect Semaphore` are built-in effects. `offer`, `take`, `await` and the other operations that wait are suspend fn operations.
+- Each has a built-in handler of the same name, written as an item of a with (`with ready = Deferred, jobs = Queue(capacity: 100), db = Semaphore(permits: 10)`). The type arguments are inferred from how the body uses the item, or written (`Queue[Job](capacity: 100)`).
+- All three are capabilities, so they need no capability-bound type and no "belonging to a scope". Their releases do nothing: a task that can use one is in a group or a background whose with is inside the with of the item.
+
+### A handler with the name of its effect
+
+- An effect and a handler share the type namespace (`[module.resolution]`), so the same name twice in a module is E0213.
+- Only a built-in handler (`@intrinsic`) may have the name of the effect it implements, and it then implements only that effect.
+- The place where the name is written decides which one it is. An item of a with, an item of a layer and the right of `by` mean the handler. `uses`, `use E`, `x <- E`, `L of E` and `E.M(...)` mean the effect.
+- The two meet only on the right of `L by P`. There the name means the handler: `L by Queue` plugs in a new queue, and does not merge L into the outer Queue.
+- Users cannot do this. Separating an effect from its handlers, and replacing the handler at a with, is central to Emela; the same name would make the abstraction to replace and the production implementation look the same. Deferred, Queue and Semaphore have one implementation each and nothing to replace. This can be widened when it is needed.
+- Handlers that implement the effect for every A are those of `generic-handler`. This proposal makes no exception for them.
+
+### Receiving results
+
+- A task keeps only `join`. `await` and `interrupt` are removed.
+- A task is interrupted only when the body of its group returns a value, or when a sibling fails. Both unwind the whole group, so no task that is not unwinding joins an interrupted task.
+- The rule "joining an interrupted task is a defect" is removed. Joining a failed or interrupted task while a release holds off an interruption unwinds the caller as interrupted, as now.
+- `CauseKind` has two variants, Fail and Die.
+- To stop one task, nest a with and end it. To stop tasks that are added dynamically, pass them a stop signal with a Deferred.
+- `Exit.attempt` and `Cause.raise` stay, independent of tasks.
+
+### Names
+
+| Now | New |
+|---|---|
+| `Std.Fiber` | `Std.Task` |
+| `Fiber[A]` | `Task[A]` |
+| `Fiber.scope` | `with tasks = Task.Group` |
+| `fork` | `start` |
+| `Fiber.all`, `race`, `both`, `map`, `timeout` | `Task.all`, `race`, `both`, `map`, `timeout` |
+
+- The word fiber stays in chapter 14 and the chapters of the targets, as a term of the run time.
+- It agrees with `em_task *` of the native target, a piece of work whose completion is awaited.
+
+### Names of effects and handlers
+
+- An effect names what a capability can do, and appears in `uses { ... }` and `use ...`. A handler names how it is provided (the policy of its lifetime), and is written `Module.Handler`.
+- `Task.Group` implements the effect `TaskGroup`, whose `start` returns `Task[A]`.
+- `Task.Background` implements the effect `Spawn`, whose `start` returns `()`. The lifetime is decided by the handler, so it is not in the name of the effect.
+- One name is a noun and the other a verb: a group is a collection, and spawning is an act.
+- A `use` expression and an effect alias may omit the type arguments of TaskGroup and Spawn. A uses clause and a type position write them, as for State (E0423). A function that receives a group writes them with type parameters, and puts the effects of its tasks in the set:
+
+```emel
+fn crawl[E, R](tasks: use TaskGroup[E, { Http, Async, R }], url: String) -> () {
+  tasks.start(|| fetch(url))
+  ()
+}
+```
+
+- No rule is added to omit them in a signature. Most code starts tasks inside `with tasks = Task.Group`, where the type arguments are inferred. Whether to allow omitting them in a signature, and what the omission would mean, can be decided by another proposal after this one is used.
+
+### No suspension after resume
+
+- In the body of the implementation of a suspend fn, a call that may suspend and can be evaluated after a direct call of `resume(...)` is a compile error (E0461).
+- The check is syntactic and errs on the safe side, like the check for Async (`[effect.async]`). If one branch resumes, what follows the branch is after resume.
+- This is the only place where a continuation is left behind. The R of a host callback is Immediate (`[type.effect-bound]`), so it cannot suspend after resume, and a resume from another fiber is run by that fiber itself.
+- What remains after resume does not suspend, and runs to its end on the spot.
+- Work that has to continue is started explicitly with Spawn, which becomes a requirement of the handler. The start is visible in the types, because it is in R.
 
 ```emel
 handler RemoteLog: Logger {
@@ -158,62 +166,54 @@ handler RemoteLog: Logger {
 }
 ```
 
-- 14.5 から消す規則：操作の実装は同じ fiber の別の継続として走る，中断はそこへ届かない，scope はそれを待たない，打ち上げの終わりに閉じる，main の後で残った継続の with は release しない
-- 残す規則：resume の後で fail したら defect（`failed after resume`）
-- 選ばなかった形：handler の release が resume の後も走る実装の終わりを待つ（どの handler の with にも待ち合わせが付き，ランタイムが handler ごとに追跡する．`Spawn` を要求すれば同じことが書ける）
-- std と examples は簡易な検索で該当なし（resume は本体の最後にある）．テストと tests/laws は未確認
+- Removed from `[dyn.suspend]`: an operation implementation runs as another continuation of the same fiber; an interruption does not reach it; a scope does not wait for it; it is closed at the end of the launch; the withs of continuations left after main are not released.
+- Kept: failing after resume is a defect (`failed after resume`).
+- A simple search found no such handler in std and examples (resume is at the end of the body). Tests and `tests/laws` are checked by the implementation.
 
-#### 名前付きの項目の型引数（決定 11）
+### Type arguments of a named item
 
-- 名前付きの項目（`with x = H`）の型引数を x の使われ方から推論する規則は，`generic-handler`（#817，実装 #825）が `[effect.with]` に入れた．`with ready = Deferred` の A は `ready.await()` の戻り値の型との単一化で決まり，決まらなければ E0459
-- この proposal で足す規則はない
+- `generic-handler` already infers the type arguments of a named item (`with x = H`) from how x is used (`[effect.with]`). The A of `with ready = Deferred` is unified with the type that `ready.await()` returns, and is E0459 if it is not determined.
+- This proposal adds no rule for it.
 
-#### Semaphore の許可を handler member にする（決定 12）
+### Permits of a Semaphore are a handler member
 
-- 許可は Semaphore の handler member で開く資源にする．取るのは init，返すのは release
-- `suspend handler Permits(n: Int): Permit` は待って取る．`handler TryPermits(n: Int): Permit fails NoPermits` は待たずに取り，取れなければ init が失敗する
-- `with_permits` と `try_with_permits` は std の普通の Emela の関数で，member を開いて f を呼ぶだけ．操作が関数を受け取って E と R を呼び出し側に足す例外は要らない
-- 「どう終わっても返す」「f の中の with が先に閉じる」「待っている間に中断されたら取らずに抜ける」は，release と with の入れ子と init の規則（8.4，14.2）から出る
-- `Permit` effect（`fn count() -> Int`）と `NoPermits` エラーが増える．E0446 を避けるため Permit に操作を一つ置く
-- 選ばなかった形：`with_permits` を組み込みの操作にする（関数を受け取る例外），`acquire`／`release` を操作にする（中断を受け取る手段が要る），`@intrinsic` の関数にする（本体のない関数の R に capability を書けない）
+- Permits are a resource opened with a handler member of Semaphore. Its init takes them, and its release gives them back.
+- `suspend handler Permits(n: Int): Permit` waits for them. `handler TryPermits(n: Int): Permit fails NoPermits` does not wait, and its init fails if they cannot be taken.
+- `with_permits` and `try_with_permits` are plain Emela functions of std that open a member and call f. No exception is needed for an operation that takes a function and adds its E and R to the caller.
+- "Given back however it ends", "the withs inside f close first" and "an interruption while waiting leaves without taking any" follow from the rules of release, the nesting of withs and init (`[effect.handler]`, `[dyn.with]`).
+- The effect `Permit` (`fn count() -> Int`) and the error `NoPermits` are added. Permit has one operation, to avoid E0446.
+- If f itself fails with NoPermits (it opened TryPermits of another semaphore), `try_with_permits` returns None, because the escape that receives NoPermits of its own TryPermits receives that one too. NoPermits comes only from TryPermits, so this is rare. Telling them apart needs a built-in function, which would go against keeping these functions in plain Emela.
 
-#### Spawn.start の関数は () を返す（決定 13）
+### The function of Spawn.start returns ()
 
-- `fn start(f: fn() -> () fails E uses { R }) -> ()`．`List.each` の `f: fn(A) -> ()` と同じ形
-- 結果が欲しいのに Background に入れた誤り（`bg.start(|| fetch_user(1))`）が型エラーになる
-- 選ばなかった形：任意の A を受けて捨てる（取り違えが通る），A を受けて捨てたら警告（新しい警告が要る）
+- `fn start(f: fn() -> () fails E uses { R }) -> ()`, the same form as `f: fn(A) -> ()` of `List.each`.
+- Starting work whose result is wanted in a background (`bg.start(|| fetch_user(1))`) is a type error.
 
-#### 節の名前（決定 6）
+### Names of sections
 
-- `[fiber.*]` を `[task.*]` に改名し，旧名は `spec/history.md` に「(renamed)」の項で残す（`[target.c.export]` の前例）
-- 採択済みの proposals は旧名のまま．spec と code comment は実装の PR で置き換える
+- `[fiber.*]` are renamed `[task.*]`. The old names are kept in `spec/history.md` as renamed sections, as for `[target.c.export]`.
+- Adopted proposals keep the old names. The comments in the code are updated by the implementation.
 
-| 今 | 新しい名前 |
+| Now | New |
 |---|---|
 | `[fiber]` | `[task]` |
 | `[fiber.basic]` | `[task.basic]` |
 | `[fiber.scope]` | `[task.group]` |
-| （新規） | `[task.background]` |
+| (new) | `[task.background]` |
 | `[fiber.combinators]` | `[task.combinators]` |
 | `[fiber.interrupt]` | `[task.interrupt]` |
 | `[fiber.cause]` | `[task.cause]` |
 | `[fiber.parallel]` | `[task.parallel]` |
-| `[fiber.deferred]`，`[fiber.semaphore]`，`[fiber.queue]` | `[task.deferred]`，`[task.semaphore]`，`[task.queue]` |
-| `[fiber.escape]` | 外す（`capability-identity` の規則で足りる）．history に「(retired)」で残す |
+| `[fiber.deferred]`, `[fiber.semaphore]`, `[fiber.queue]` | `[task.deferred]`, `[task.semaphore]`, `[task.queue]` |
+| `[fiber.escape]` | Retired (the rules of `capability-identity` are enough), kept in history |
 | `[api.std.fiber]` | `[api.std.task]` |
 
-### 消えるもの，残るもの
+### What goes and what stays
 
-- 消える：`Fiber.scope`，effect `Scope` とその型の例外，Scope 経由の資源の作成，E0425，`Fiber.await`，`Fiber.interrupt`，`CauseKind.Interrupt`
-- 残る：Group が組み込みであること．任意の E と R を持つ関数を受け取る例外は Group と Background の `start` に寄る
-- 残る：capability-bound type（`Task[A]`）．一般の仕組みとして使う
-- 変わらない：async／await の構文を持たないこと，suspend を呼ぶ側で印を付けないこと，Async と Immediate
-
-### Syntax
-
-### Meaning
-
-### Typing rules
+- Removed: `Fiber.scope`, the effect `Scope` and the exceptions for its type, making resources through Scope, `Fiber.await`, `Fiber.interrupt` and `CauseKind.Interrupt`.
+- Kept: the group is built in. The exception of a function that takes any E and R moves to `start` of Group and Background.
+- Kept: capability-bound types (`Task[A]`), as a general mechanism.
+- Unchanged: there is no syntax for async and await, a caller does not mark a suspending call, and Async and Immediate.
 
 ## Specification changes
 
@@ -226,69 +226,70 @@ The changes are applied to `spec/` in this pull request.
 - `[api.std.task]` (was `[api.std.fiber]`), `[api.std.deferred]`, `[api.std.semaphore]`, `[api.std.queue]`, `[api.std.exit]`, `[api.std.cause]`: the new declarations. `CauseKind` loses Interrupt.
 - `[api.std.http]`, `[lib.http-service]`, `[target.wasm.output]`: the app can use Spawn, and its tasks run after the response.
 - `[lsp.code-action]`: the quickfix for a closure without parameters passed to `Fiber.scope` is removed. `[lsp.hover]`, `[lsp.completion]`: examples.
-- `[diag.list]`: E0213, E0402, E0413, E0455 and the new E0461.
+- `[diag.list]`: E0205, E0213, E0402, E0413, E0455 and the new E0461.
 - Other sections: the names Fiber and Scope, and numbers of sections, in `[api.std.process]`, `[dyn.memory]`, `[lib.layers]`, `[lib.api-rules]`, `[target.js.outcome]`, `[target.js.event-loop]`, `[glossary.context]`, `[glossary.terms]` and `[open.next]`.
 
 ## Diagnostics
 
-- [ ] E0461（新規）resume の後に suspend しうる呼び出し
-- [ ] E0413 に TaskGroup，Spawn，Deferred，Semaphore，Queue を足す
-- [ ] E0213 に組み込みの handler の例外を足す
-- [ ] E0402 の note を `Fiber.scope` から `Task.Group` に移す
-- [ ] 番号：E0455〜E0458 は capability-identity，E0459，E0460，E0462 は generic-handler が使う．E0461 は空いている
+- [ ] E0461 (new): a call that may suspend after resume
+- [ ] E0413 covers TaskGroup, Spawn, Deferred, Semaphore, Permit and Queue
+- [ ] E0213: the exception for built-in handlers
+- [ ] E0402: the note moves from `Fiber.scope` to the tasks of a group
+- [ ] E0205: the help for `Std.Fiber`
+- Numbers: E0455 to E0458 are used by `capability-identity`, and E0459, E0460 and E0462 by `generic-handler`. E0461 is free.
 
 ## Compatibility
 
-- 前提の `capability-identity`（#732，実装 #813）と `generic-handler`（#817，実装 #825）は実装済み．capability-identity のうち `Fiber.scope(|s| ...)` の部分はこの proposal で置き換わる
-- Fiber は一度に外す．旧名を警告付きで残す期間は置かない．Deferred，Semaphore，Queue の型の形が変わるので，旧名を残しても同じ意味にはならず，Fiber と Task を並べると二つの規則が同時に有効になって混乱する
-- `Std.Fiber` を import すると E0205（モジュールがない）になり，help で `Std.Task` を示す
-- 通らなくなるもの：`Std.Fiber` を使うコード，Deferred／Semaphore／Queue の関数（`Deferred.await(d)` など．capability の操作になる），`CauseKind.Interrupt` への match，`Fiber.await` と `Fiber.interrupt`，resume の後に suspend しうる handler（E0461）
-- 変わらないもの：Task を使わない `@entry(Http.serve)` の app，`Exit.attempt` と `Cause.raise`
+- `capability-identity` (#732, implemented in #813) and `generic-handler` (#817, implemented in #825) are implemented. The `Fiber.scope(|s| ...)` part of `capability-identity` is replaced by this proposal. This proposal goes into 0.29, so that the change of `Fiber.scope` in #813 and this one are one breaking change.
+- Fiber is removed at once, with no period in which the old names are accepted with a warning. Deferred, Semaphore and Queue change shape, so old names would not keep their meaning, and having Fiber and Task side by side would make two sets of rules hold at the same time.
+- Importing `Std.Fiber` is E0205, with a help that names `Std.Task`.
+- Programs that stop compiling: code that uses `Std.Fiber`; the functions of Deferred, Semaphore and Queue (`Deferred.await(d)` and so on, which become operations of a capability); a match on `CauseKind.Interrupt`; `Fiber.await` and `Fiber.interrupt`; a handler that may suspend after resume (E0461).
+- Unchanged: an `@entry(Http.serve)` app that does not use Spawn, `Exit.attempt` and `Cause.raise`.
 
 ## Implementation
 
-- WASM の `@entry(Http.serve)`（決定 10）：応答を先に返し，`Spawn` で切り出した仕事は同じ task の中で `task.return` の後に走らせる．今の entry は待つときに `waitable-set.wait` でブロックするので，その間 instance の lock を持ち続け，次の `handle` が待たされる．これは WASM ターゲットの実装上の制約として書き，言語の意味は変えない．entry を callback に WAIT を返す形へ作り直すのは別の issue にする
-- WASM で `Spawn` を compile error にする形は取らない（entry の型が通ればどのターゲットでも動く，`[effect.host]`）
-- 触る場所：`crates/emela-codegen-wasm/src/emit/runtime/http.rs` の `respond`（応答の確定とその後に分ける），`emit/mod.rs` の `Run::Service`，`std/http.emel` の `serve`
+- `@entry(Http.serve)` on WASM: the response is returned first, and the work started with Spawn runs in the same task after `task.return`. The entry now blocks in `waitable-set.wait` when it waits, so it keeps the lock of the instance meanwhile, and the next `handle` waits. This is written as a limit of the WASM target, and does not change the meaning of the language. Rebuilding the entry as a callback that returns WAIT is a separate issue.
+- Spawn is not a compile error on WASM: an entry whose type checks runs on every target (`[effect.host]`).
+- Places to change: `respond` in `crates/emela-codegen-wasm/src/emit/runtime/http.rs` (split into making the response and what follows), `Run::Service` in `emit/mod.rs`, and `serve` in `std/http.emel`.
 
 ## Alternatives
 
-- 案 A：`capability-identity` の `Fiber.scope(|s| ...)` で止める．Scope の例外規則が残り，切り出しの需要に答えない
-- 案 C：スケジューラを利用者が書ける handler にする．継続を捨てる `resume` の使い方と，効果を持つ関数を受け取る操作が要る．後者は 8.1 の「handler を差し替えても呼ぶ側の R は変わらない」に触れる．長期の方向として残す
-- 案 D：手綱をなくし組み合わせ関数だけにする．途中の join，接続ごとの処理，準備完了の合図を覆えない
-- 名前：Fiber（仕組みの名前），Concurrent（長い，打ち間違えやすい），Bud ほか果樹の語（普遍的な語を選んだ），Job，Thread，Coroutine
-- Background の本体が失敗したら子を中断する形：失敗した要求の記録が消える
-- `on_failure` を effect にする形：`Cause[E]` を操作の引数にするには集合型引数が要る（E0424）
-- app が capability を引数で受け取る形：すべての app の型が変わる
-- Deferred などを Group の操作に戻す形，`Queue.run(100, |q| ...)` の形
-- `await` と `interrupt` を残す形
+- Stop at `Fiber.scope(|s| ...)` of `capability-identity`. The exceptions of Scope stay, and there is still no place for work whose result is not looked at.
+- Make the scheduler a handler that users can write. It needs a use of resume that discards a continuation, and an operation that takes a function with effects. The latter conflicts with "replacing a handler does not change the R of the caller" (`[effect.decl]`). It stays as a long-term direction.
+- No handles, only combinators. They do not cover joining partway, work per connection, or a signal that something is ready.
+- Names: Fiber (the name of the mechanism), Concurrent (long, easy to mistype), Bud and other words of fruit trees (a common word was chosen), Job, Thread, Coroutine.
+- A background that interrupts its tasks when its body fails: the record of a failed request would be lost.
+- `on_failure` as an effect: taking `Cause[E]` as an argument of an operation needs a set type parameter (E0424).
+- An app that receives the capability as an argument: the type of every app would change.
+- Making Deferred and the others operations of a group again, or `Queue.run(100, |q| ...)`.
+- Keeping `await` and `interrupt`.
+- A release of a handler that waits for its operation implementations that run after resume: every with of every handler would wait, and the runtime would track each handler. Requiring Spawn writes the same thing.
+- A handler with the name of its effect for users, a common handler name (`Queue.New(100)`, which reads unnaturally in a with), a default handler declared by the effect (`with Console` could be written in general, and test and production handlers would be confused), and `Deferred.Empty`, `Queue.Bounded`, `Semaphore.Permits` (long).
+- `with_permits` as a built-in operation (an exception for an operation that takes a function), `acquire` and `release` as operations (they need a way to receive an interruption), and an `@intrinsic` function (the R of a function without a body cannot name a capability).
+- `Spawn.start` taking any A and discarding it (a mistake goes through), or warning when it discards one (a new warning).
+- Introducing Task as an experimental feature next to Fiber, and removing Fiber later. The tools of Fiber and Task would share names with different shapes, and two sets of rules would hold at once.
 
 ## Prior art
 
-- Effect-TS の Fiber，Scope，Deferred（今の 11 章の元）
-- 構造化並行（nursery，task group）
+- Fiber, Scope and Deferred of Effect-TS, from which the current chapter 11 came.
+- Structured concurrency (nurseries, task groups).
 
-## std の組み合わせ関数の案
+## Combinators that may be added later
 
-今ある `all`，`race`，`both`，`map`，`timeout` は `Task` に移して残す．次は，必要になったら足す候補．この proposal では足さない．
+`all`, `race`, `both`, `map` and `timeout` move to `Task`. The following are candidates to add when they are needed. This proposal does not add them.
 
-| 関数 | 型 | 意味 | 動機 |
+| Function | Type | Meaning | Why |
 |---|---|---|---|
-| `until` | `until[A, E, R](stop: use Deferred[()], f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { Async, R }` | stop が埋まるまで f を走らせる．先に埋まれば f を中断して None | `interrupt` を外した後，動的に増える子を個別に止める形（決定 5） |
-| `map_limit` | `map_limit[A, B, E, R](xs: List[A], limit: Int, f: fn(A) -> B fails E uses { R }) -> List[B] fails E uses { Async, R }` | 同時に走るのを limit 個までにして map する | 11.3 が Semaphore を組む形として挙げている「1000 件を 10 並行で」を一行にする |
-| `each` | `each[A, E, R](xs: List[A], f: fn(A) -> () fails E uses { R }) -> () fails E uses { Async, R }` | 結果を集めずに並行に回す | 15.4 の `each` に合わせる．`map` の結果を捨てる書き方を避ける |
-| `first_success` | `first_success[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }` | 最初に成功したものを取り，失敗は無視する．全部失敗したら最後の原因で失敗する | 11.3 が「attempt と Deferred で書ける」と書いている形．複製先の読み取りなど |
-| `settle` | `settle[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[Exit[A, E]] uses { Async, R }` | 全部を走らせ，失敗で止めずに Exit の列を返す | 一括処理で「成功したものだけ使い，失敗は報告する」形．各子を attempt で包む手間を省く |
-| `workers` | `workers[A, E, R](jobs: use Queue[A], n: Int, f: fn(A) -> () fails E uses { R }) -> () fails E uses { Async, R }` | n 個の子が jobs から取り出して f を回し，jobs が閉じて空になったら終わる | 受け付けループと処理の分離，生産者と消費者．`semaphore-queue` の例の `work` を一般にした形 |
+| `until` | `until[A, E, R](stop: use Deferred[()], f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { Async, R }` | Runs f until stop is filled. If stop is filled first, interrupts f and returns None | Stopping tasks that are added dynamically, one by one, now that `interrupt` is gone |
+| `map_limit` | `map_limit[A, B, E, R](xs: List[A], limit: Int, f: fn(A) -> B fails E uses { R }) -> List[B] fails E uses { Async, R }` | map with at most limit running at the same time | "1000 items, at most 10 concurrently" in one line |
+| `each` | `each[A, E, R](xs: List[A], f: fn(A) -> () fails E uses { R }) -> () fails E uses { Async, R }` | Runs f on each element concurrently without collecting results | The `each` of `[lib.api-rules]`, instead of discarding the result of `map` |
+| `first_success` | `first_success[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }` | The first success, ignoring failures. Fails with the last cause if all fail | Reading from replicas |
+| `settle` | `settle[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[Exit[A, E]] uses { Async, R }` | Runs all of them without stopping on failure, and returns their Exits | Batch work that uses the successes and reports the failures |
+| `workers` | `workers[A, E, R](jobs: use Queue[A], n: Int, f: fn(A) -> () fails E uses { R }) -> () fails E uses { Async, R }` | n tasks take from jobs and run f, until jobs is closed and empty | Producers and consumers, the `work` of the example of `semaphore-queue` made general |
 
-- 名前は 15.4 の規則（`map`，`each`）に合わせる．`map_limit` は `map` に引数を足す形（`limit:` を省けない引数にはできないので別名）にしている
-- `settle` の Exit は `CauseKind` が Fail と Die の二つになった後の形
-- 監督（失敗したら走らせ直す）は，方針の種類が多く std で一つに決めにくいので候補から外した．案 C の方向で利用者が書けるようになってから考える
+- The names follow `[lib.api-rules]` (`map`, `each`). `map_limit` is a separate name, because `limit:` cannot be a parameter that may be left out.
+- Supervision (restarting on failure) is left out: there are many policies, and std cannot choose one. It can be considered once users can write it, in the direction of the scheduler as a handler.
 
 ## Open questions
-
-- 型引数を省いた `TaskGroup` と `Spawn` を書けるか．決定 7 の例（`tasks: use TaskGroup`，`uses { Spawn }`）は型引数を省いているが，今の規則では uses 節と型の位置で省くと E0423 になる（省けるのは `use` 式だけ）．spec には今の規則のまま型引数を書く形を入れた（11.2 の `fn crawl[E, R](tasks: use TaskGroup[E, R], ...)`，15.3 の `uses { Spawn[{}, { Async }] }`）．省けるようにするなら，省いたときの意味（その場で量化するか，推論するか）を決める
-- `Http.serve` の app の型．spec には `serve[E, F](app: fn(Request) -> Response fails E uses { Spawn[F, { Async }], Async }, ...)` を入れた．F は切り出した仕事の E，`{ Async }` は adapter がその仕事に与える R．app の側で E を持つ仕事を切り出せるか（F を開くか `{}` に固定するか），R に Async 以外（ProcessHost）を入れるかが未決
-- `try_with_permits` の f が NoPermits で失敗したとき，escape が受けて None になる．f の E に NoPermits が入る場合を許すか，`with_permits` と同じく組み込みの側で区別するか
 
 ## Decision

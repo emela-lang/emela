@@ -53,7 +53,16 @@ pub fn join[A](task: Task[A]) -> A uses { Async }
 - `with tasks = Task.Group { body }` makes a group. Its E and R are inferred from the tasks started in it (`[effect.with]`).
 - `tasks.start(f)` starts f as a task of the group and returns a `Task[A]`. start is not a suspension point (it is a fn operation). The task goes into the queue and starts running the next time the starting task suspends. A task interrupted before it starts running ends without calling f.
 - The E and R of f MUST be included in the E and R of the group. The exception is the capability of the group itself (and TaskGroup provided by name by it): the R of f MAY contain it, so that a task can start siblings.
-- A requirement `TaskGroup[E1, R1]` in an R is satisfied by a group `TaskGroup[E2, R2]` with E1 ⊆ E2 and R1 ⊆ R2. A function that starts tasks in a group it does not make writes its requirement with type parameters (`fn crawl[E, R](tasks: use TaskGroup[E, R], ...)`), so that another task can add a different error or effect to the same group.
+- A `use` expression and an effect alias of TaskGroup MAY omit its type arguments (`use TaskGroup`, `tasks <- TaskGroup`); they are inferred. A uses clause, the type of a parameter and the other type positions MUST write them (E0423, the same rule as for State in 8.1).
+- A requirement `TaskGroup[E1, R1]` in an R is satisfied by a group `TaskGroup[E2, R2]` with E1 ⊆ E2 and R1 ⊆ R2. A function that starts tasks in a group it does not make writes the type arguments with type parameters, and puts the effects its tasks use in the set, so that another task can add a different error or effect to the same group:
+
+```emel
+fn crawl[E, R](tasks: use TaskGroup[E, { Http, Async, R }], url: String) -> () {
+  tasks.start(|| fetch(url))
+  ()
+}
+```
+
 - R is provided outside the with of the group: by the withs that enclose it, and by items written before the group in the same with (8.3). A task cannot use a capability made inside the body of the group, or by an item written after the group in the same with: the R of f then contains a capability that the R of the group cannot contain, because the type arguments of an item are fixed outside its body (`[effect.with]`, `[effect.escape]`).
 - The E of the group is added to the E of the with, and its R to the R of the with, together with Async.
 - When the body ends with a value, the tasks left are interrupted, and the release of the group waits until all of them have unwound (including their releases). The value of the with is the value of the body.
@@ -97,7 +106,7 @@ pub handler Background[E, R]: Spawn[E, R] {
 }
 ```
 
-- Spawn is a built-in effect, and only `Task.Background` implements it (E0413). Its set type parameters are treated as those of TaskGroup (11.2), including the inclusion of a requirement `Spawn[E1, R1]` in a provided `Spawn[E2, R2]`.
+- Spawn is a built-in effect, and only `Task.Background` implements it (E0413). Its type arguments are treated as those of TaskGroup (11.2): they MAY be omitted in a `use` expression and an effect alias, and a requirement `Spawn[E1, R1]` is satisfied by a provided `Spawn[E2, R2]` with E1 ⊆ E2 and R1 ⊆ R2.
 - `bg.start(f)` starts f as a task and returns `()`. f returns `()`: a task whose value is wanted is started in a group. The rules of 11.2 on start, on the E and R of f, and on where R is provided apply to a background as they are.
 - The release of a background waits until all its tasks have ended. It does not interrupt them, whether the body ended with a value or a failure. The value or failure of the with is that of the body.
 - When the with is interrupted from outside, its tasks are interrupted too. An interruption that arrives while the release waits is held off for the release (11.5), and is passed on to the tasks: they are interrupted, and the release ends after they have unwound.
@@ -275,7 +284,7 @@ with db = Semaphore(permits: 10) {
 - `x = s.TryPermits(n: n)` takes n permits if they are free and no task is waiting on s. Otherwise its init fails with NoPermits. It does not suspend.
 - n less than 1 is a defect (`` `Permits` needs at least 1 permit, but got 0 ``). n greater than the number of permits s was made with is a defect (`` `Permits` asked for 4 permits of a semaphore with 3 ``). The same holds for TryPermits, with its name in the message.
 - `x.count()` is n.
-- `with_permits(s, n, f)` opens Permits and runs f in it, and `try_with_permits(s, n, f)` opens TryPermits and runs f in it, returning `Some` of the value of f, or `None` without running f if the permits cannot be taken. `with_permit(s, f)` and `try_with_permit(s, f)` are `with_permits(s, 1, f)` and `try_with_permits(s, 1, f)`. All four are plain Emela functions of `Std.Semaphore`.
+- `with_permits(s, n, f)` opens Permits and runs f in it, and `try_with_permits(s, n, f)` opens TryPermits and runs f in it, returning `Some` of the value of f, or `None` without running f if the permits cannot be taken. If f itself fails with NoPermits (it opened TryPermits of another semaphore and did not escape it), `try_with_permits` also returns `None`. `with_permit(s, f)` and `try_with_permit(s, f)` are `with_permits(s, 1, f)` and `try_with_permits(s, 1, f)`. All four are plain Emela functions of `Std.Semaphore`.
 - Tasks that wait are served in the order they started to wait. Permits given back go to the first waiting task when enough are free for it. While it waits, no task behind it takes permits, even if fewer permits would be enough. Tasks that receive their permits resume at a later suspension point of the task that gave them back (11.1); giving permits back does not suspend.
 - Permits are counted per opening. Opening Permits of the same semaphore inside the body of another takes further permits. When no task can make progress, the tasks are interrupted as in `[dyn.suspend]`.
 - Tasks started inside the body do not hold the permits. The permits are given back at the release of the Permits item, which, when the body contains the with of a group or a background, is after its tasks have ended.
