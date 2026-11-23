@@ -141,7 +141,7 @@ jobs:
           tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
       - name: Install wasm-opt
         run: sudo apt-get update && sudo apt-get install -y binaryen
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Build
