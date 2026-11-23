@@ -26,7 +26,7 @@ The standard library is divided into two parts: core, which cannot be separated 
 | Part | Location | Contents |
 |---|---|---|
 | core | Short names (`List`, `String`). Usable without an import | The Prelude and the modules of the types the compiler knows as syntax (numbers, String, List, Option, Bool; literals, interpolation, `..`, and so on). They correspond one to one with the table of built-in functions, so they work only with the same version of the compiler |
-| std | Under `Std` (`Std.Console`). Used through an import | Everything else. Modules that can be written in pure Emela and the platform handlers can be distributed separately from the compiler. The effect layer that has `@intrinsic` (State, Fiber) works only with the same version of the runtime |
+| std | Under `Std` (`Std.Console`). Used through an import | Everything else. Modules that can be written in pure Emela and the platform handlers can be distributed separately from the compiler. The effect layer that has `@intrinsic` (State, Task) works only with the same version of the runtime |
 
 The compiler does not bundle `Std.Embedded.*` modules.
 
@@ -35,7 +35,7 @@ Within std, modules are divided into four layers by their nature.
 | Layer | Nature | Contents |
 |---|---|---|
 | value | Pure and independent of the host | Instant, Duration, Path, Bytes, Array, Dynamic (values in no particular format, and Encode and Decode), Shape (the shapes of types, and Shaped), Json. Collections (Map, Set) in 0.24 |
-| effect | Concurrency and state | State, Fiber, Exit, Cause, Deferred (0.20), Semaphore, Queue. Schedule and Stream come in later versions |
+| effect | Concurrency and state | State, Task, Exit, Cause, Deferred (0.20), Semaphore, Queue. Schedule and Stream come in later versions |
 | platform | Effect declarations and the host handlers, and the value types used only with them | Console, Process (Args, Stdin, Stdout, Stderr, ExitCode), Clock, Random, Env, FileSystem, Http |
 | test | Replacements for testing | Handlers such as TestClock and TestConsole. They keep their state in State (8.8), so they are used inside `State.run`. Value comparison helpers, generators, and property testing are not placed in std (below) |
 
@@ -147,7 +147,7 @@ pub effect FileSystem {
   - A relative path is resolved from the current directory of the process. A path is represented as a String, and there is no normalization (resolving `..`), conversion to an absolute path, or expansion of `~`.
   - The system handler SystemFileSystem uses `node:fs/promises` on JS and is bundled in Process.
   - The test handler TestFileSystem keeps its state in `State[TestFiles]` and resumes immediately. With `pub type TestFiles(files: List[(String, String)], directories: List[String])`, files keeps pairs of a path and its contents in path order. The ancestors of a file are treated as directories. Paths are compared as strings. Errors are raised under the same rules as SystemFileSystem. FileAccessDenied, InvalidText, and FileSystemFailure cannot be raised, so to test them, the user writes a small handler.
-  - The R of FileSystem is not Immediate, so it cannot be used inside the callback of an external function (9.5). This is because a JS callback cannot wait. From a callback, signal a fiber with a Deferred (11.7), and handle the files on the fiber's side.
+  - The R of FileSystem is not Immediate, so it cannot be used inside the callback of an external function (9.5). This is because a JS callback cannot wait. From a callback, signal a task with a Deferred (11.8), and handle the files on the task's side.
 - Http (`Std.Http`) has a client, and the entry adapter `serve` for HTTP services (`[lib.http-service]`). The client has one operation, `send`, and requests and responses are values. Common forms are functions on top of send. A handler author only has to implement send, and the code that builds requests can be tested as ordinary functions. Requests are in the module `Std.Http.Request` and responses in `Std.Http.Response`, each with the functions on them (`[api.std.http.request]`, `[api.std.http.response]`).
 
 ```emel
@@ -186,7 +186,7 @@ pub fn post(url: String, body: String) -> Response fails InvalidUrl | Connection
   - The method is an enum, and a method not in the list cannot be sent.
   - A URL whose scheme is neither `http:` nor `https:` is InvalidUrl (it cannot be sent, so it is distinguished from ConnectionFailed, which means the request did not arrive). An empty body for GET and HEAD is sent as no body. A non-empty body for GET or HEAD, and an invalid header, are ConnectionFailed. header and headers compare names case-insensitively within the ASCII range.
   - 4xx and 5xx are not failures and are returned in status. This is because there are many situations where code needs to branch on 404 or 409. To make them failures, insert require_ok. send fails only when it could not receive a response: name resolution, connection, TLS, and exceeding the redirect limit are all collected into ConnectionFailed. The detailed reason goes in message. Redirects are followed automatically.
-  - There is no timeout option. Write it with `Fiber.timeout` (11.3) or race. When a fiber waiting on send is interrupted, the request is aborted (the AbortSignal of 12.2).
+  - There is no timeout option. Write it with `Task.timeout` (11.4) or race. When a task waiting on send is interrupted, the request is aborted (the AbortSignal of 12.2).
   - encode_query converts each name and value to a UTF-8 byte sequence, replaces every byte other than ASCII letters and digits and `-` `_` `.` `!` `~` `*` `'` `(` `)` with `%` and two uppercase hexadecimal digits (percent-encoding), and then joins the `name=value` pairs with `&`. There is no type that splits a URL into parts.
   - The system handler SystemHttp uses JS `fetch` and is bundled in Platform. It does not store cookies and does not use the proxy environment variables.
   - The test handler TestHttp keeps its state in `State[TestServer]` and resumes immediately. With `pub type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Request])`, respond is a pure function that takes a request and its count (from 0) and returns a response; None means ConnectionFailed. The requests sent are appended to sent in order. InvalidUrl and ResponseNotText cannot be raised. Slow responses cannot be produced, and tests involving time rely on TestClock (15.2).
@@ -204,8 +204,17 @@ pub fn app(request: Request) -> Response {
 }
 ```
 
+```emel
+@entry(Http.serve)
+pub fn app(request: Request) -> Response uses { Spawn[{}, { Async }] } {
+  spawn <- Spawn
+  spawn.start(|| audit(request))
+  Routes.route(request)
+}
+```
+
 - A program whose entry module has an fn with `@entry(Http.serve)` is an HTTP service. The host calls that fn once for each request it receives, and each call is one launch. Launches share no state: a `with` inside the fn runs its init and release once per request.
-- The host MAY call the fn again before an earlier call has returned. Launches in progress switch only at suspension points (`[fiber.basic]`).
+- The host MAY call the fn again before an earlier call has returned. Launches in progress switch only at suspension points (`[task.basic]`).
 - The request is converted to a `Request` as follows.
   - A method that is not one of `Method` is answered with status 405 and the header `allow: GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS`, without calling the fn.
   - `url` is the absolute URL of the request, `<scheme>://<authority><path-with-query>`, as the host parsed it. On JS the host parses it by the URL Standard, so it is normalized there: the scheme and the host are lowercase, `.` and `..` segments are removed from the path, and characters outside ASCII in the path and the query are percent-encoded. On WASM the path and the query are as the host received them, and the scheme and the authority are what the host gives: `http` when it gives no scheme, and empty when it gives no authority (`wasmtime serve` gives neither, so `url` is `http:///<path-with-query>` there). `url`, and `Request.path`, `Request.segments` and `Request.query`, of the same request can therefore differ between the targets.
@@ -219,6 +228,7 @@ pub fn app(request: Request) -> Response {
   - `status <status> cannot have a body`: the status is 204, 205 or 304 and the body is not empty.
   - ``header name `<name>` ``: a header name is empty or has a character that is not an ASCII letter, a digit, or one of ``!#$%&'*+-.^_`|~``.
   - ``header value of `<name>` ``: a header value has a character other than a tab and the printable ASCII characters (U+0020 to U+007E). The Headers of the JS Fetch API take only Latin-1, and `wasi:http` rejects control characters, so this is what both accept.
+- The R of the fn MAY contain Spawn besides Async. `serve` provides Spawn by name with a `Task.Background` (`[task.background]`) for each request, and calls the fn inside it. When the fn returns, the response is handed to the host at once, and the launch ends when the release of that background ends. Its `on_failure` writes `Cause.to_string` of the cause to standard error as one line. On a host that calls the entry once per request and waits for its promise (`fetch` of the default export), the promise of the response is resolved first, and the end of the launch is passed to the host's way of extending the lifetime of the request where it has one (`waitUntil` of the context on Cloudflare Workers).
 - When the fn ends with an error or a defect, one line describing the cause (`Cause.to_string`) is written to standard error, and the response has status 500. The cause is not written in the response.
 - When the launch ends with an interruption (it stalled, `[dyn.suspend]`), no response is made, and the host gets an error: on JS the Promise that `fetch` returned rejects (`[target.js.module]`). `serve.mjs` then writes `interrupted` to standard error and answers with status 500.
 - The responses with status 405, 400 and 500 above have the body `Method Not Allowed`, `Bad Request` and `Internal Server Error`, with `content-type: text/plain;charset=UTF-8`.
@@ -231,7 +241,7 @@ Functions in the standard library (core and std) are named according to the foll
 
 - The subject is the first argument, so the function can be written with a pipe, as in `xs |> List.map(f)`.
 - An argument that takes a function is named `f` and is passed by position, not by name (`List.map(xs, |x| ...)`). The proposal to use `with` and `where` as argument names was not adopted: both are reserved words (3.1, 3.3) and cannot be used as parameter names, and the case is not strong enough to add syntax that separates the external argument name from the internal name.
-- A function that calls `f` with the elements of a collection calls it in the order of the collection (List from the first element, Array from index 0, Map and Set in key order), at most once per element. When the result is decided before the last element (`any`, `all`, `find`, `find_index`), or when `f` fails, `f` is not called on the remaining elements. This does not apply to `sort_by`, whose calls of `f` are not specified, or to the functions of `Std.Fiber`, which run concurrently (`[api.std.fiber]`).
+- A function that calls `f` with the elements of a collection calls it in the order of the collection (List from the first element, Array from index 0, Map and Set in key order), at most once per element. When the result is decided before the last element (`any`, `all`, `find`, `find_index`), or when `f` fails, `f` is not called on the remaining elements. This does not apply to `sort_by`, whose calls of `f` are not specified, or to the functions of `Std.Task`, which run concurrently (`[api.std.task]`).
 - A function that joins two values is `append` (`List.append(xs, ys)`, `String.append(a, b)`), a function that flattens a sequence is `List.flatten(xss)` or `String.concat(parts)`, and a function that joins with a separator in between is `join` (`List.join(parts, sep)`).
 - The argument for the initial value of a fold is named `from` (`List.fold(xs, from: 0, f: add)`).
 - How a function reports that something did not work depends on the situation.

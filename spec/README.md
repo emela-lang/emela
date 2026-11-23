@@ -21,7 +21,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | `language/08-effects.md` | 8. Effects | `effect` |
 | `language/09-types.md` | 9. Types and effects | `type` |
 | `language/10-traits.md` | 10. Traits and deriving | `trait` |
-| `language/11-concurrency.md` | 11. Concurrency | `fiber` |
+| `language/11-concurrency.md` | 11. Concurrency | `task` |
 | `language/12-external.md` | 12. External functions | `ext` |
 | `language/13-testing.md` | 13. Testing | `test` |
 | `language/14-dynamics.md` | 14. Dynamic semantics | `dyn` |

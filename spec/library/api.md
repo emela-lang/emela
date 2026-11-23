@@ -563,8 +563,8 @@ Stdin:
 - A line ends at `\n`. The `\n`, and a `\r` immediately before it, are not part of the line. The text after the last `\n`, if not empty, is the last line. Once `read_line` has returned `None`, every later call returns `None` and every later `read_text` returns `""`.
 - `read_line` and `read_text` read from the same position. `read_text` after `read_line` returns the input that follows the line.
 - When a line (for `read_text`, the rest of the input) is not valid UTF-8, it is consumed and the operation fails with InvalidInput. Invalid UTF-8 is not replaced with the replacement character, as in `[api.std.bytes]`. The next `read_line` starts at the following line. U+0000 is read as is on every target.
-- When the fiber waiting in an operation of SystemStdin is interrupted (11.4), the operation is canceled. Input that the host has already delivered is kept and returned by the next operation; no input is lost.
-- Waiting for input does not stop other fibers on any target.
+- When the task waiting in an operation of SystemStdin is interrupted (11.5), the operation is canceled. Input that the host has already delivered is kept and returned by the next operation; no input is lost.
+- Waiting for input does not stop other tasks on any target.
 - SystemStdin does not hold the host open: a program that has no operation of Stdin waiting ends when its main ends, even if standard input is still open (a terminal, for example).
 - Under `emela test`, standard input is not passed to the program (`[cmd.test.output]`). SystemStdin reads it as an empty input.
 - `read_line` of TestStdin removes the first element of `lines` and returns it, or returns `None` when `lines` is empty. `read_text` returns the elements of `lines` joined with `\n` and sets `lines` to `[]`.
@@ -578,7 +578,7 @@ Stdout and Stderr:
 - When the program ends, in any of the ways of `[cmd.build]`, everything written so far is written out before the exit code is set.
 - `\n` inside `text` is written as is; it is not converted to another line ending.
 - SystemStdout and SystemStderr need a host that gives the process a standard output and a standard error. The hosts of the JS target (`[target]`) do. Their behavior on other hosts is not specified.
-- When a write to standard output fails because the reader has closed it (a pipe whose reading end is closed), the operation does not return. The fiber that wrote unwinds as interrupted from that point, running the releases of its handlers from the inside out, and every other fiber of the program is interrupted (`[fiber.interrupt]`). After that, writes to standard output are discarded. When the unwinding of main finishes, the program exits with exit code 141 and writes nothing to standard error (no `interrupted` line). The same holds for writes of `print_line` of SystemConsole to standard output.
+- When a write to standard output fails because the reader has closed it (a pipe whose reading end is closed), the operation does not return. The fiber that wrote unwinds as interrupted from that point, running the releases of its handlers from the inside out, and every other fiber of the program is interrupted (`[task.interrupt]`). After that, writes to standard output are discarded. When the unwinding of main finishes, the program exits with exit code 141 and writes nothing to standard error (no `interrupted` line). The same holds for writes of `print_line` of SystemConsole to standard output.
 - When a write to standard error fails because the reader has closed it, the program continues. That write and every later write to standard error (SystemStderr, `print_error_line` of SystemConsole, `dbg`, and the lines that the runtime writes when execution stops) are discarded.
 
 ExitCode:
@@ -647,84 +647,81 @@ fn main() {
 - The System handler requires `ProcessHost` (`[effect.host]`).
 - `get` of SystemEnv sees only names set as environment variables of the process. Even on the JS host, it does not pick up names from the object prototype (such as `toString`) as values.
 
-### Std.Fiber (`std/fiber.emel`) `[api.std.fiber]`
+### Std.Task (`std/task.emel`) `[api.std.task]`
 
-Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
+Concurrency (`[task]`). Used with `import Std.Task.{Task}`.
 
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
-| `Fiber` | `@external type Fiber[A] uses Scope` | runtime | A handle to a fiber. A capability-bound type of Scope: cannot be leaked out of the scope (`[fiber.escape]`) |
-| `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]; fn deferred[A]() -> Deferred[A]; fn semaphore(permits: Int) -> Semaphore; fn queue[A](capacity: Int) -> Queue[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
-| `scope` | `scope[A, E, R](body: fn(use Scope[E, R]) -> A fails E uses { Scope[E, R], Async, R }) -> A fails E uses { Async, R }` | intrinsic | Runs the body with the capability of the scope and returns the value after all children have finished. Children use the handlers in effect where `scope` was called |
-| `fork` | `fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A] uses { Scope[E, R] }` | Emela | `(use Scope).fork(f)` |
-| `deferred` | `deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] }` | Emela | `(use Scope).deferred()` |
-| `semaphore` | `semaphore[E, R](permits: Int) -> Semaphore uses { Scope[E, R] }` | Emela | `(use Scope).semaphore(permits)` |
-| `queue` | `queue[A, E, R](capacity: Int) -> Queue[A] uses { Scope[E, R] }` | Emela | `(use Scope).queue(capacity)` |
-| `join` | `join[A](fiber: Fiber[A]) -> A uses { Async }` | intrinsic | Waits for the child to finish and returns its value. A defect if the child was interrupted |
-| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | intrinsic | Waits for the child to finish and returns how it ended (`Exit` of `Std.Exit`) |
-| `interrupt` | `interrupt[A](fiber: Fiber[A]) -> () uses { Async }` | intrinsic | Interrupts the child and waits until its unwinding finishes |
+| `Task` | `@external type Task[A] uses TaskGroup` | runtime | A task started in a group. A capability-bound type of TaskGroup: cannot leave the with of the group (`[task.group]`) |
+| `TaskGroup` | `@intrinsic effect TaskGroup[E, R] { fn start[A](f: fn() -> A fails E uses { R }) -> Task[A] }` | built-in | The capability to start tasks whose results are awaited. Only `Group` provides it |
+| `Spawn` | `@intrinsic effect Spawn[E, R] { fn start(f: fn() -> () fails E uses { R }) -> () }` | built-in | The capability to start tasks whose results are not awaited. Only `Background` provides it |
+| `Group` | `@intrinsic handler Group[E, R]: TaskGroup[E, R]` | intrinsic | When the body ends, interrupts the tasks left and waits until they have unwound. A failure of a task interrupts its siblings and fails the with |
+| `Background` | `@intrinsic handler Background[E, R]: Spawn[E, R]`, `init(on_failure: fn(Cause[E]) -> () uses { R })` | intrinsic | When the body ends, waits until the tasks have ended. A failure of a task goes to `on_failure` (`[task.background]`) |
+| `join` | `join[A](task: Task[A]) -> A uses { Async }` | intrinsic | Waits for the task to finish and returns its value |
 | `all` | `all[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[A] fails E uses { Async, R }` | Emela | Runs all of them concurrently and collects the results in the original order |
 | `race` | `race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }` | Emela | Takes the first one to finish and interrupts the rest |
 | `both` | `both[A, B, E, R](f: fn() -> A fails E uses { R }, g: fn() -> B fails E uses { R }) -> (A, B) fails E uses { Async, R }` | Emela | Runs the two concurrently and returns a pair |
 | `map` | `map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E uses { R }) -> List[B] fails E uses { Async, R }` | Emela | Applies `f` to each element concurrently |
 | `timeout` | `timeout[A, E, R](ms: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { Clock, Async, R }` | Emela | Waits up to `ms` milliseconds. If `f` does not finish in time, interrupts it and returns `None` |
 
-- `all` and `map` launch all children first, then join them in the original order.
-- `timeout` launches a child that puts `Some(f())` into a Deferred and a child that waits ms with Clock and then puts None, and returns whichever was put first. Time is measured with the Clock handler at the call site, so inside TestClock it is measured in virtual time.
+- `all` and `map` start all tasks first, then join them in the original order.
+- `timeout` starts a task that puts `Some(f())` into a Deferred and a task that waits ms with Clock and then puts None, and returns whichever was put first. Time is measured with the Clock handler at the call site, so inside TestClock it is measured in virtual time.
 
 ### Std.Exit (`std/exit.emel`) `[api.std.exit]`
 
-How a computation ended, and `attempt`, which turns errors and defects into that value (`[fiber.cause]`). Used with `import Std.Exit.{Success, Failure}`.
+How a computation ended, and `attempt`, which turns errors and defects into that value (`[task.cause]`). Used with `import Std.Exit.{Success, Failure}`.
 
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
 | `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | How a computation ended |
-| `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | intrinsic | Runs `f` in place and turns Fail and Die into values. Starts no fiber. Does not catch an interruption of the calling fiber itself |
+| `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | intrinsic | Runs `f` in place and turns Fail and Die into values. Starts no task. Does not catch an interruption of the calling task itself |
 
 ### Std.Cause (`std/cause.emel`) `[api.std.cause]`
 
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
-| `Cause` | `opaque type Cause[E]` | runtime | The reason a fiber did not end normally. The error inside cannot be taken out |
-| `CauseKind` | `enum CauseKind { Fail, Die, Interrupt }` | Emela | The kind of cause |
+| `Cause` | `opaque type Cause[E]` | runtime | The reason a computation failed. The error inside cannot be taken out |
+| `CauseKind` | `enum CauseKind { Fail, Die }` | Emela | The kind of cause |
 | `kind` | `kind[E](c: Cause[E]) -> CauseKind` | intrinsic | The kind of cause |
-| `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`, `defect: …`, `interrupted` |
-| `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | Raises it again. Fail fails, Die is a defect, and Interrupt unwinds as an interruption |
+| `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`, `defect: …` |
+| `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | Raises it again. Fail fails, and Die is a defect |
 
 impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions, so it does not satisfy Eq, Ord, or Show (display it with `to_string` or dbg). For the same reason, Exit of Std.Exit does not satisfy them either.
 
 ### Std.Deferred (`std/deferred.emel`) `[api.std.deferred]`
 
+Used with `import Std.Deferred.{Deferred}` (`[task.deferred]`).
+
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
-| `Deferred` | `@external type Deferred[A]` | runtime | A container that can be filled with a value only once. Only `deferred` of Scope can create one. |
-| `complete` | `complete[A](d: Deferred[A], value: A) -> Bool` | intrinsic | Puts in the value and returns True only the first time. False from the second time on |
-| `await` | `await[A](d: Deferred[A]) -> A uses { Async }` | intrinsic | Waits until a value is put in |
-| `poll` | `poll[A](d: Deferred[A]) -> Option[A]` | intrinsic | `Some` if a value is in. Does not wait |
+| `Deferred` (effect) | `@intrinsic effect Deferred[A] { fn complete(value: A) -> Bool; suspend fn await() -> A; fn poll() -> Option[A] }` | built-in | A container that can be filled with a value only once |
+| `Deferred` (handler) | `@intrinsic handler Deferred[A]: Deferred[A]` | intrinsic | Makes an empty Deferred. Its release does nothing |
 
 ### Std.Semaphore (`std/semaphore.emel`) `[api.std.semaphore]`
 
+Used with `import Std.Semaphore.{Semaphore}` (`[task.semaphore]`).
+
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
-| `Semaphore` | `@external type Semaphore` | runtime | A fixed number of permits. Only `semaphore` of Scope can create one. |
-| `with_permit` | `with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | Emela | `with_permits(s, 1, f)` |
-| `with_permits` | `with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | intrinsic | Waits for n permits, runs `f`, and gives them back however `f` ends |
-| `try_with_permit` | `try_with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | Emela | `try_with_permits(s, 1, f)` |
-| `try_with_permits` | `try_with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | intrinsic | Runs `f` only if n permits can be taken without waiting |
-| `available` | `available(s: Semaphore) -> Int` | intrinsic | The number of free permits |
+| `Semaphore` (effect) | `@intrinsic effect Semaphore { suspend handler Permits(n: Int): Permit; handler TryPermits(n: Int): Permit fails NoPermits; fn available() -> Int }` | built-in | A fixed number of permits. `available` is the number of free permits |
+| `Permit` | `@intrinsic effect Permit { fn count() -> Int }` | built-in | Permits held. `count` is how many |
+| `Semaphore` (handler) | `@intrinsic handler Semaphore(permits: Int): Semaphore` | intrinsic | Makes a semaphore with that many permits |
+| `NoPermits` | `error NoPermits` | Emela | TryPermits could not take the permits without waiting |
+| `with_permit` | `with_permit[A, E, R](s: use Semaphore, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | Emela | `with_permits(s, 1, f)` |
+| `with_permits` | `with_permits[A, E, R](s: use Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | Emela | Opens Permits of n, runs `f` in it, and gives them back however `f` ends |
+| `try_with_permit` | `try_with_permit[A, E, R](s: use Semaphore, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | Emela | `try_with_permits(s, 1, f)` |
+| `try_with_permits` | `try_with_permits[A, E, R](s: use Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | Emela | Runs `f` only if n permits can be taken without waiting |
 
 ### Std.Queue (`std/queue.emel`) `[api.std.queue]`
 
+Used with `import Std.Queue.{Queue}` (`[task.queue]`).
+
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
-| `Queue` | `@external type Queue[A]` | runtime | Values in order, up to a capacity. Only `queue` of Scope can create one. |
+| `Queue` (effect) | `@intrinsic effect Queue[A] { suspend fn offer(value: A) -> () fails QueueClosed; suspend fn take() -> A fails QueueClosed; fn try_offer(value: A) -> Bool; fn poll() -> Option[A]; fn size() -> Int; fn close() -> () }` | built-in | Values in order, up to a capacity |
+| `Queue` (handler) | `@intrinsic handler Queue[A](capacity: Int): Queue[A]` | intrinsic | Makes an empty queue. Its release does nothing |
 | `QueueClosed` | `error QueueClosed` | Emela | The queue is closed (and, for `take`, empty) |
-| `offer` | `offer[A](q: Queue[A], value: A) -> () fails QueueClosed uses { Async }` | intrinsic | Adds value at the end. Waits while full |
-| `take` | `take[A](q: Queue[A]) -> A fails QueueClosed uses { Async }` | intrinsic | Removes the value at the front. Waits while empty |
-| `try_offer` | `try_offer[A](q: Queue[A], value: A) -> Bool` | intrinsic | Adds value if neither full nor closed |
-| `poll` | `poll[A](q: Queue[A]) -> Option[A]` | intrinsic | Removes the value at the front if there is one |
-| `size` | `size[A](q: Queue[A]) -> Int` | intrinsic | The number of values |
-| `close` | `close[A](q: Queue[A]) -> ()` | intrinsic | Closes the queue. The values in it can still be taken |
 
 ### Std.Http (`std/http.emel`, `std/http.mjs`) `[api.std.http]`
 
@@ -743,7 +740,7 @@ The client effect, its errors, and the entry adapter for HTTP services. Requests
 | `TestHttp` | `handler TestHttp: Http` | The state is `State[TestServer]`. Appends the request to `sent` and resumes immediately with the response from `respond`. `None` means ConnectionFailed |
 | `Incoming` | `@external type Incoming` | The request as the host handed it over. Used only when writing an export by hand |
 | `Outgoing` | `@external type Outgoing` | The response for the host to send |
-| `serve` | `serve[E](app: fn(Request) -> Response fails E uses { Async }, incoming: Incoming) -> Outgoing uses { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
+| `serve` | `serve[E, F](app: fn(Request) -> Response fails E uses { Spawn[F, { Async }], Async }, incoming: Incoming) -> Outgoing uses { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
 
 - `request`, `add_header`, `header`, `headers`, `encode_query`, `require_ok`, and `response` remain for one minor version with `@deprecated`, pointing to their new places (`Request.new`, `Request.add_header`, `Response.header`, `Response.header_values`, `Request.encode_query`, `Response.require_ok`, `Response.new`).
 - The message of ConnectionFailed is the text of the host's exception. If cause information is available, the cause's code and text, joined by a space, are appended after `: ` (`fetch failed: ECONNREFUSED connect ECONNREFUSED 127.0.0.1:1234`). The text depends on the host.

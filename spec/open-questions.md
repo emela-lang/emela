@@ -71,5 +71,5 @@ This is the list of points that are not yet agreed on. To decide one, write a pr
 - [x] Decide the format of the conformance tests based on Chapters 2 and 17, and start implementing the lexer and the parser (the lexer is implemented; the parser is in progress)
 - [x] Things decided in the specification that the implementation does not handle yet. alpha.3 (suspend, Async), alpha.4 (handlers with state, layer, State), and alpha.5 (fiber, FileSystem, the Http client) handled them. For those not handled, a diagnostic without a code, `not supported yet: ...`, is emitted
 - [ ] Remaining for 0.20: the Http server. In 0.24, Trait, collections (18.1 #36), and JSON
-- [ ] 0.29: capabilities are told apart in types and in R (`capability-identity`). Capture checking and the checks at run time of 8.6 and 11.8 are removed, and leaks of capabilities and handles are compile errors from the types
+- [ ] 0.29: capabilities are told apart in types and in R (`capability-identity`). Capture checking and the checks at run time of 8.6 and `[fiber.escape]` are removed, and leaks of capabilities and handles are compile errors from the types
 - [ ] 0.30: `use E` written as an expression becomes a compile error (8.2)
