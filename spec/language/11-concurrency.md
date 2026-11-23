@@ -24,8 +24,7 @@ Adding a way to discard continuations or receive defects to the language would l
 ```emel
 import Std.Fiber.{Fiber, Scope}
 
-profile = Fiber.scope(|| {
-  s = use Scope
+profile = Fiber.scope(|s| {
   a = s.fork(|| fetch_user(1))
   b = s.fork(|| fetch_orders(1))
   Profile(user: Fiber.join(a), orders: Fiber.join(b))
@@ -44,15 +43,21 @@ pub effect Scope[E, R] {
 }
 
 @intrinsic
-pub fn scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) -> A
-  fails E
-  uses { Async, R }
+pub fn scope[A, E, R](
+  body: fn(use Scope[E, R]) -> A fails E uses { Scope[E, R], Async, R },
+) -> A fails E uses { Async, R }
+
+@external
+pub type Fiber[A] uses Scope
 ```
+
+- The Scope that `Fiber.scope` makes is a capability. The body receives it as a parameter. The parameter type is a quantified `use Scope[E, R]` (9.4), so the body cannot return a value that contains it. The body still has Scope in its R, so `Fiber.fork` works in it.
+- `Fiber`, `Deferred`, `Semaphore` and `Queue` are capability-bound types of Scope (9.4). The handles that `s.fork`, `s.deferred`, `s.semaphore` and `s.queue` return record s; those that `Fiber.fork` and the like return record the name Scope.
 
 - Scope is a built-in effect, and only `Fiber.scope` can provide it. Users cannot write a handler for Scope (E0413). Writing such a handler in a with provides nothing. `use Scope` can be written.
 - A `use` expression of a built-in effect MAY omit the type arguments (`use Scope`). Omitted type arguments are inferred. They cannot be omitted in a uses clause or a handler head (E0423, the same rule as State in 8.1).
 - The operations of Scope have their own type parameters (`fork[A]`) and set type parameters (E, R). Both are allowed only for built-in effects (8.1).
-- `Fiber.fork(f)`, `Fiber.deferred()`, `Fiber.semaphore(permits)` and `Fiber.queue(capacity)` are functions that wrap the operations of `use Scope` of the same names. These are the usual way, and `s = use Scope` is written only to refer to an outer scope.
+- `Fiber.fork(f)`, `Fiber.deferred()`, `Fiber.semaphore(permits)` and `Fiber.queue(capacity)` are functions that wrap the operations of `use Scope` of the same names. These are the usual way.
 
 ```emel
 pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
@@ -68,7 +73,7 @@ pub fn queue[A, E, R](capacity: Int) -> Queue[A] uses { Scope[E, R] } {
 }
 ```
 
-- A fork can happen only where Scope is provided: inside the function passed to Fiber.scope and inside functions called from it. Helper functions do not take the scope as a parameter. They take it with `use Scope` (capability values cannot be passed as arguments. 8.2). The Scope in R shows which scope a fork goes to. In nested scopes, `use Scope` refers to the innermost scope. To fork into an outer scope, use a capability value taken out in the outer scope (8.3).
+- A fork can happen only where Scope is provided: inside the function passed to Fiber.scope and inside functions called from it. The Scope in R shows which scope a fork goes to. In nested scopes, `Fiber.fork` forks into the innermost scope. To fork into an outer scope, the parameter of the outer scope's body is used.
 - A child fiber always finishes before the scope is exited. Children that remain when the body of the scope returns a value are interrupted, and the scope returns the body's value after the unwinding of all children (including releases) has finished.
 - When a child ends with an error or a defect, its sibling fibers (including the body of the scope) are interrupted, and the cause propagates out of the scope. The fails of a child joins the fails of the scope through the E of `Scope[E, R]`. When two or more children fail, the first failure becomes the result of the scope, and later failures are added to the display as notes (`note: another fiber also failed: <cause>`) (the same as a defect in a release in 14.4).
 - Inside a child, the handlers passed from the caller (8.3) are the ones in effect at the call to Fiber.scope. The exception is Scope, which refers to the scope the child belongs to (so that a child can fork siblings).
@@ -76,19 +81,18 @@ pub fn queue[A, E, R](capacity: Int) -> Queue[A] uses { Scope[E, R] } {
 - For E0402 about a missing effect, if the expression it comes from is a call to Fiber.scope and the effect is not a top-level element of the R of the function type of the scope body, the effect is treated as coming from a forked child, and a note and help are added (suggesting to write the with outside Fiber.scope). They are not added for an effect the body uses itself. They are not added for one that comes from a Fiber.scope called inside a helper function, because the expression it comes from is then the call to the helper function.
 
 ```emel
-Fiber.scope(|| {
-  s = use Scope
+Fiber.scope(|s| {
   with PostgresUsers {
     s.fork(|| (use Users).find(1)) # error[E0402]: effect `Users` is not provided
   }
   ()
 })
-# Fix: with PostgresUsers { Fiber.scope(|| { ... }) }
+# Fix: with PostgresUsers { Fiber.scope(|s| { ... }) }
 ```
 
-- With this rule, the types prevent a child from using the handler of a with that ends before the child. The handlers that a child uses are the ones at the time `Fiber.scope` is called, even for a closure created inside a with in the scope body (8.3). The exception is a capability value taken out in a with inside the scope body that the child captures: the child then uses that handler, and if that with ends first, it is a defect by the run-time check of 8.6 (capture sets stop it statically, 8.6).
+- With this rule, the types prevent a child from using the handler of a with that ends before the child. The handlers that a child uses are the ones at the time `Fiber.scope` is called, even for a closure created inside a with in the scope body (8.3). The exception is the capability of a named item inside the scope body that the child captures: the child then uses that handler, and the R of the child contains the capability, which does not fit the type of `fork` of an outer scope (8.6).
 - To let a child use a handler of a with inside the scope body, the child captures the capability of a named item.
-- `s <- Scope` declares an effect alias of the innermost scope at each call (8.2). `s.fork(f)` is the same as `Fiber.fork(f)`. Forking into an outer scope uses a capability value taken out in the outer scope.
+- `s <- Scope` declares an effect alias of the innermost scope at each call (8.2). `s.fork(f)` is the same as `Fiber.fork(f)`. Forking into an outer scope uses the parameter of the outer scope's body.
 - fork is not a suspension point (the operations of Scope are fn). The child goes into the queue and starts running the next time the parent suspends. A child interrupted before it starts running ends with Interrupt without calling f.
 - The result of the scope is the first Fail or Die among the body and the children, or otherwise the way the body ended. If a child ends with a defect while the body is unwinding because of an interruption from outside, that defect becomes the result (the same direction as a defect in a release in 14.4).
 - The scope closes when a child fails (11.8). A fork, deferred, semaphore or queue during the unwinding caused by a sibling's failure is a defect and goes into the notes.
@@ -109,8 +113,7 @@ The combinators are written in plain Emela on top of Fiber.scope as part of the 
 
 ```emel
 pub fn race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R } {
-  scope(|| {
-    s = use Scope
+  scope(|s| {
     d = s.deferred()
     List.map(fs, |f| s.fork(|| Deferred.complete(d, f())))
     Deferred.await(d)
@@ -222,32 +225,15 @@ d = (use Scope).deferred() # Deferred[A], belongs to the scope
 
 - To tie its lifetime to the scope, a Deferred can be created only by the Scope operation `deferred`.
 - A child waiting on a Deferred that no one fills is interrupted at the end of the scope.
+- A Deferred is a capability-bound type of the Scope that made it (11.2). Its element type is fixed when it is made, so a capability made later in an inner with cannot be put in it.
 - There are three uses: waiting for any one of several things to finish (race), receiving an intermediate value from a child that keeps running (a signal that it is ready to accept), and distributing a stop signal (checked with `poll` at each step). Cancelling forcibly from outside is done with `Fiber.interrupt` (11.4). Any number of fibers MAY wait on one Deferred, and when a value is stored, all of them resume.
 - A Deferred is a mutable container (14.6). Only two states can be observed: "not filled yet" and "filled with this value".
 
 ## 11.8 No leaking `[fiber.escape]`
 
-The Scope capability, fiber handles (`Fiber[A]`), Deferreds, Semaphores and Queues cannot be leaked out of their scope.
+The capability of a scope, and the handles that record it (`Fiber[A]`, Deferreds, Semaphores and Queues, 11.2), cannot leave the scope (`[effect.escape]`).
 
-- Scope is a capability, so the capability rules (8.2, 8.6) apply as they are. It cannot leave the scope that provides it.
-- If the type of the value of `Fiber.scope` contains `Fiber`, `Deferred`, `Semaphore` or `Queue` anywhere, it is a compile error (E0425). This includes `Option[Fiber[User]]`. The type of the value is examined all the way through after the sets are solved. One diagnostic is reported at the call to Fiber.scope (including a pipe, `f |> Fiber.scope()`). Outside the scope the children have already finished, so no correct program is rejected.
-- The Scope of a `Fiber.scope`, and the Fibers, Deferreds, Semaphores and Queues it makes, are roots of that scope (8.6). If the value of `Fiber.scope` holds one of them, it is a warning (W0402).
-- Experimental (`capture-checking`). It is a compile error (E0444) instead.
-- A value taken out of a handle (`join`, `await`, `poll`, `take`, `with_permit`, and the other functions of `Std.Fiber`, `Std.Deferred`, `Std.Queue` and `Std.Semaphore` that receive one) does not hold the root of the scope, unless its type contains Fiber, Deferred, Semaphore or Queue (8.6). A value put into a Deferred or a Queue is not tracked through it; the checks at run time catch a capability that leaves this way.
-- Leaks that the types do not stop (putting it in State, capturing it in a closure and returning it) are checked at run time. An operation of Scope on a finished scope; join, await or interrupt on a handle of a finished scope; complete, await or poll on a Deferred of a finished scope; and any function of `Std.Semaphore` or `Std.Queue` on a Semaphore or Queue of a finished scope are defects (`fiber scope was used after it ended`, `fiber was joined after its scope ended`, and so on).
-- A scope closes when its body returns a value or when a child fails. A fork after it closes is a defect.
-- The messages are `fiber scope was used after it ended`, `fiber was joined after its scope ended` (the same form for awaited and interrupted), and `deferred was completed after its scope ended` (the same form for awaited). poll is checked in the same way.
-- The message of the defect for poll on a Deferred of a finished scope is `deferred was polled after its scope ended`.
-- The messages for Semaphores and Queues are `semaphore was used after its scope ended` and `queue was used after its scope ended`. A fiber that is not a child of the scope and is still waiting on the Semaphore or Queue when the scope ends stops waiting with the same defect.
-
-Capture sets (8.6) track handles, Deferreds, Semaphores and Queues as values that hold the root of the scope that created them. Leaving the scope is a warning, and a compile error with the experimental feature `capture-checking`.
-
-| How it leaks | 0.20 | With `capture-checking` |
-|---|---|---|
-| Taking a capability value (including Scope), or a value that holds one, out of its with or scope | Run time (stateful handlers and Scope) | Static |
-| Taking a closure that captures a capability out of a with or a scope | Run time (stateful handlers and Scope) | Static |
-| Returning a value whose type contains `Fiber`, `Deferred`, `Semaphore` or `Queue` from Fiber.scope | Static (E0425) | Static |
-| Putting a `Fiber`, `Deferred`, `Semaphore` or `Queue` in State, or capturing it in a closure and taking it out | Run time | Static |
+- A scope closes when its body returns a value or when a child fails. A fork after it closes is a defect (`fiber scope was used after it ended`).
 
 ## 11.9 Semaphore `[fiber.semaphore]`
 
@@ -276,6 +262,7 @@ rows = db.with_permit(|| query(sql))
 - Fibers forked inside `f` do not hold the permits. The permits are given back when `f` ends, which, when `f` contains a Fiber.scope, is after that scope's children have ended.
 - `available(s)` counts the permits that no fiber holds. Another fiber can run between `available` and a later call, so `available` cannot be used to check and take atomically.
 - A Semaphore is a mutable container (14.6). It has no Eq and no Show; dbg shows it as `<semaphore>`.
+- A Semaphore is a capability-bound type of the Scope that made it (11.2).
 
 ## 11.10 Queue `[fiber.queue]`
 
@@ -311,3 +298,4 @@ pub error QueueClosed
   - `offer` fails with QueueClosed and adds nothing, and so do the fibers waiting to offer when q is closed; their values are not added;
   - `try_offer` returns False.
 - A Queue is a mutable container (14.6). It has no Eq and no Show; dbg shows it as `<queue>`.
+- A Queue is a capability-bound type of the Scope that made it (11.2). Its element type is fixed when it is made, so a capability made later in an inner with cannot be put in it.

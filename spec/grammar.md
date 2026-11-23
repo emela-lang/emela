@@ -57,7 +57,7 @@ fn_decl      = [ "suspend" ] "fn" lower_name [ type_params ]
                "(" [ params ] ")" [ signature ] [ block ]
 signature    = [ "->" type [ "fails" error_set ] ] [ "uses" effect_set ]
 params       = param { "," param }
-param        = "self" | lower_name [ ":" type ]
+param        = "self" | { annotation } lower_name [ ":" type ]   (* `@borrowed`; 12.4 *)
 
 type_params  = "[" type_param { "," type_param } "]"
 type_param   = ( upper_name | type_name ) [ ":" bound { "+" bound } ]
