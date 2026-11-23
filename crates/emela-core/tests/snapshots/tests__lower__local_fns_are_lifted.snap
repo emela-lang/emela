@@ -267,33 +267,33 @@ export fn main() -> List[Int] {
   range(1, 4)
 }
 
-fn count(limit%9: Int) -> Int {
-  count$go(limit%9, 0, 0)
+fn count(limit%0: Int) -> Int {
+  count$go(limit%0, 0, 0)
 }
 
-fn range(from%1: Int, to%2: Int) -> List[Int] {
-  let f%8: fn(Int, List[Int]) -> List[Int] = fn(x%6: Int, x%7: List[Int]) -> List[Int] {
-    range$onto(from%1, x%6, x%7)
+fn range(from%0: Int, to%1: Int) -> List[Int] {
+  let f%2: fn(Int, List[Int]) -> List[Int] = fn(x%3: Int, x%4: List[Int]) -> List[Int] {
+    range$onto(from%0, x%3, x%4)
   }
-  (f%8)(to%2, []: List[Int])
+  (f%2)(to%1, []: List[Int])
 }
 
-fn range$onto(from%3: Int, to%4: Int, acc%5: List[Int]) -> List[Int] {
-  loop(from%13: Int = from%3, to%14: Int = to%4, acc%15: List[Int] = acc%5) {
-    if (to%14 <=[Int] from%13) {
-      acc%15
+fn range$onto(from%0: Int, to%1: Int, acc%2: List[Int]) -> List[Int] {
+  loop(from%3: Int = from%0, to%4: Int = to%1, acc%5: List[Int] = acc%2) {
+    if (to%4 <=[Int] from%3) {
+      acc%5
     } else {
-      recur(from%13, (to%14 -[Int] 1), [(to%14 -[Int] 1), ..acc%15]: List[Int])
+      recur(from%3, (to%4 -[Int] 1), [(to%4 -[Int] 1), ..acc%5]: List[Int])
     }
   }
 }
 
-fn count$go(limit%10: Int, n%11: Int, acc%12: Int) -> Int {
-  loop(limit%16: Int = limit%10, n%17: Int = n%11, acc%18: Int = acc%12) {
-    if (n%17 ==[Int] limit%16) {
-      acc%18
+fn count$go(limit%0: Int, n%1: Int, acc%2: Int) -> Int {
+  loop(limit%3: Int = limit%0, n%4: Int = n%1, acc%5: Int = acc%2) {
+    if (n%4 ==[Int] limit%3) {
+      acc%5
     } else {
-      recur(limit%16, (n%17 +[Int] 1), (acc%18 +[Int] 1))
+      recur(limit%3, (n%4 +[Int] 1), (acc%5 +[Int] 1))
     }
   }
 }

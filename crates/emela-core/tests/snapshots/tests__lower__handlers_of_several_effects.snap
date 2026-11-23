@@ -7,63 +7,63 @@ enum Tx {
 }
 
 export fn main() -> Int {
-  let _%9: Int = @dbg[Int](with {
-    let self%2: Tx = Tx$init()
-    let hs%1: (handler Query, handler Execute) = Tx(self%2) cleanup Tx {
-      Tx$release(self%2)
+  let _%0: Int = @dbg[Int](with {
+    let self%1: Tx = Tx$init()
+    let hs%2: (handler Query, handler Execute) = Tx(self%1) cleanup Tx {
+      Tx$release(self%1)
     }
-    let h%3: handler Query = match hs%1 {
+    let h%3: handler Query = match hs%2 {
       (x%4, _) -> x%4
     } release Tx {
       ()
     }
-    let h%5: handler Execute = match hs%1 {
+    let h%5: handler Execute = match hs%2 {
       (_, x%6) -> x%6
     } release Tx {
       ()
     }
-    let h%0: handler Execute = h%5
-    let h%7: handler Query = h%3
+    let h%7: handler Execute = h%5
+    let h%8: handler Query = h%3
   } {
-    h%7.Query#query("b")
+    h%8.Query#query("b")
   })
   @dbg[Int](with {
-    let self%12: Tx = Tx$init()
-    let hs%11: (handler Query, handler Execute) = Tx(self%12) cleanup Tx {
-      Tx$release(self%12)
+    let self%9: Tx = Tx$init()
+    let hs%10: (handler Query, handler Execute) = Tx(self%9) cleanup Tx {
+      Tx$release(self%9)
     }
-    let h%13: handler Query = match hs%11 {
-      (x%14, _) -> x%14
+    let h%11: handler Query = match hs%10 {
+      (x%12, _) -> x%12
     } release Tx {
       ()
     }
-    let h%15: handler Execute = match hs%11 {
-      (_, x%16) -> x%16
+    let h%13: handler Execute = match hs%10 {
+      (_, x%14) -> x%14
     } release Tx {
       ()
     }
-    let h%10: handler Execute = h%15
-    let h%17: handler Query = h%13
-    let ev%18: evidence = provide(; Execute = h%10 Query = h%17)
+    let h%15: handler Execute = h%13
+    let h%16: handler Query = h%11
+    let ev%17: evidence = provide(; Execute = h%15 Query = h%16)
   } {
-    (read_only(match hs%11 {
-      (x%19, _) -> x%19
-    }, ev%18) +[Int] {
-      let h%21: handler Query = match hs%11 {
+    (read_only(match hs%10 {
+      (x%18, _) -> x%18
+    }, ev%17) +[Int] {
+      let h%19: handler Query = match hs%10 {
         (x%20, _) -> x%20
       }
-      h%21.Query#query("c")
+      h%19.Query#query("c")
     })
   })
 }
 
-fn Tx(self%25: Tx) -> (handler Query, handler Execute) {
+fn Tx(self%0: Tx) -> (handler Query, handler Execute) {
   (handler Tx: Query {
-    query: fn(sql%26: String) -> Int {
-      self%25.conn#0
+    query: fn(sql%1: String) -> Int {
+      self%0.conn#0
     }
   }, handler Tx: Execute {
-    execute: fn(sql%27: String) -> () {
+    execute: fn(sql%2: String) -> () {
       ()
     }
   })
@@ -73,10 +73,10 @@ fn Tx$init() -> Tx {
   Tx.Tx(conn: 1)
 }
 
-fn Tx$release(self%24: Tx) -> Int {
-  @dbg[Int](self%24.conn#0)
+fn Tx$release(self%0: Tx) -> Int {
+  @dbg[Int](self%0.conn#0)
 }
 
-fn read_only(q%22: handler Query, ev%23: evidence) -> Int {
-  q%22.Query#query("a")
+fn read_only(q%0: handler Query, ev%1: evidence) -> Int {
+  q%0.Query#query("a")
 }

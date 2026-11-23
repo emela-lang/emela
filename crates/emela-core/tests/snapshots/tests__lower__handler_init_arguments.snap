@@ -3,48 +3,48 @@ source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
 export fn main() -> String {
-  let _%8: String = with {
-    let arg%0: Int = port()
-    let arg%1: String = "a"
-    let self%3: Env = Env$init(arg%1)
-    let h%2: handler Config = Env(self%3) release Env {
+  let _%0: String = with {
+    let arg%1: Int = port()
+    let arg%2: String = "a"
+    let self%3: Env = Env$init(arg%2)
+    let h%4: handler Config = Env(self%3) release Env {
       ()
     }
-    let ev%5: evidence = provide(; Config = h%2)
-    let self%6: Pool = Pool$init(arg%0, ev%5)
-    let h%4: handler Users = Pool(self%6, ev%5) release Pool {
+    let ev%5: evidence = provide(; Config = h%4)
+    let self%6: Pool = Pool$init(arg%1, ev%5)
+    let h%7: handler Users = Pool(self%6, ev%5) release Pool {
       ()
     }
   } {
-    @dbg[String](h%4.Users#find(1))
+    @dbg[String](h%7.Users#find(1))
   }
-  let _%16: String = with {
+  let _%8: String = with {
     let arg%9: Int = 2
-    let self%11: Env = Env$init(AppLive$arg0())
-    let h%10: handler Config = Env(self%11) release Env {
+    let self%10: Env = Env$init(AppLive$arg0())
+    let h%11: handler Config = Env(self%10) release Env {
       ()
     }
-    let ev%13: evidence = provide(; Config = h%10)
-    let self%14: Pool = Pool$init(arg%9, ev%13)
-    let h%12: handler Users = Pool(self%14, ev%13) release Pool {
+    let ev%12: evidence = provide(; Config = h%11)
+    let self%13: Pool = Pool$init(arg%9, ev%12)
+    let h%14: handler Users = Pool(self%13, ev%12) release Pool {
       ()
     }
   } {
-    @dbg[String](h%12.Users#find(2))
+    @dbg[String](h%14.Users#find(2))
   }
   with {
-    let h%17: handler Users = Spare()
+    let h%15: handler Users = Spare()
   } {
-    @dbg[String](h%17.Users#find(3))
+    @dbg[String](h%15.Users#find(3))
   }
 }
 
-fn Env$init(url%25: String) -> Env {
-  Env.Env(url: url%25)
+fn Env$init(url%0: String) -> Env {
+  Env.Env(url: url%0)
 }
 
-fn Pool$init(n%20: Int, ev%21: evidence) -> Pool {
-  Pool.Pool(url: (use[Config](ev%21)).Config#url())
+fn Pool$init(n%0: Int, ev%1: evidence) -> Pool {
+  Pool.Pool(url: (use[Config](ev%1)).Config#url())
 }
 
 const fn AppLive$arg0() -> String {

@@ -14,50 +14,50 @@ effect Log {
 }
 
 export suspend fn main(ev%0: evidence) -> Int {
-  let body%1: fn() -> Int suspends ev = suspend fn(ev%7: evidence) -> Int {
-    let s%8: handler Std.Fiber.Scope[_, _] = use[Std.Fiber.Scope[_, _]](ev%7)
-    let a%13: Std.Fiber.Fiber[()] = {
-      let scope%9: handler Std.Fiber.Scope[_, _] = s%8
-      let f%10: fn() -> () ev = fn(ev%12: evidence) -> () {
-        (use[Log](ev%12)).Log#info("a")
+  let body%1: fn() -> Int suspends ev = suspend fn(ev%2: evidence) -> Int {
+    let s%3: handler Std.Fiber.Scope[_, _] = use[Std.Fiber.Scope[_, _]](ev%2)
+    let a%4: Std.Fiber.Fiber[()] = {
+      let scope%5: handler Std.Fiber.Scope[_, _] = s%3
+      let f%6: fn() -> () ev = fn(ev%7: evidence) -> () {
+        (use[Log](ev%7)).Log#info("a")
       }
-      scope%9.Std.Fiber.Scope[_, _]#fork[()](fn(ev%11: evidence) -> () {
-        (f%10)(provide(ev%11; Std.Fiber.Scope[_, _] = scope%9))
+      scope%5.Std.Fiber.Scope[_, _]#fork[()](fn(ev%8: evidence) -> () {
+        (f%6)(provide(ev%8; Std.Fiber.Scope[_, _] = scope%5))
       })
     }
-    let b%14: Std.Fiber.Fiber[Int] = Std.Fiber.fork[Int, {}, {}](fn() -> Int {
+    let b%9: Std.Fiber.Fiber[Int] = Std.Fiber.fork[Int, {}, {}](fn() -> Int {
       2
-    }, ev%7)
-    let d%15: Std.Deferred.Deferred[Int] = s%8.Std.Fiber.Scope[_, _]#deferred[Int]()
-    let _%16: Bool = fiber#complete(d%15, 1)
-    let _%17: () = fiber#join(a%13)!
-    let e%20: Std.Exit.Exit[(), {}] = {
-      let f%18: fn() -> () ev = fn(ev%19: evidence) -> () {
-        (use[Log](ev%19)).Log#info("e")
+    }, ev%2)
+    let d%10: Std.Deferred.Deferred[Int] = s%3.Std.Fiber.Scope[_, _]#deferred[Int]()
+    let _%11: Bool = fiber#complete(d%10, 1)
+    let _%12: () = fiber#join(a%4)!
+    let e%13: Std.Exit.Exit[(), {}] = {
+      let f%14: fn() -> () ev = fn(ev%15: evidence) -> () {
+        (use[Log](ev%15)).Log#info("e")
       }
       fiber#attempt[Std.Exit.Exit](fn() -> () {
-        (f%18)(ev%7)
+        (f%14)(ev%2)
       })
     }
-    (fiber#join(b%14)! +[Int] fiber#deferred_await(d%15)!)
+    (fiber#join(b%9)! +[Int] fiber#deferred_await(d%10)!)
   }
-  fiber#scope(suspend fn(s%2: fiber_scope) -> Int {
-    let scope%3: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
-      fork: fn(g%4: fn(evidence) -> any suspends) -> any {
-        fiber#fork(s%2, suspend fn() -> any {
-          (g%4)(ev%0)!
+  fiber#scope(suspend fn(s%16: fiber_scope) -> Int {
+    let scope%17: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
+      fork: fn(g%18: fn(evidence) -> any suspends) -> any {
+        fiber#fork(s%16, suspend fn() -> any {
+          (g%18)(ev%0)!
         })
       }
       deferred: fn() -> any {
-        fiber#deferred(s%2)
+        fiber#deferred(s%16)
       }
-      semaphore: fn(permits%5: Int) -> any {
-        fiber#semaphore(s%2, permits%5)
+      semaphore: fn(permits%19: Int) -> any {
+        fiber#semaphore(s%16, permits%19)
       }
-      queue: fn(capacity%6: Int) -> any {
-        fiber#queue(s%2, capacity%6)
+      queue: fn(capacity%20: Int) -> any {
+        fiber#queue(s%16, capacity%20)
       }
     }
-    (body%1)(provide(ev%0; Std.Fiber.Scope[_, _] = scope%3))!
+    (body%1)(provide(ev%0; Std.Fiber.Scope[_, _] = scope%17))!
   })!
 }
