@@ -20,6 +20,10 @@ jobs:
   programs:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
+    # As in the tests (ci-rust.yml): -O0 on a pull request, the -O2 of a native build in the
+    # merge queue.
+    env:
+      EMELA_CC_ARGS: ${{ github.event_name == 'pull_request' && '-O0' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4

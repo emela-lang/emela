@@ -42,6 +42,10 @@ jobs:
     timeout-minutes: 30
     env:
       PARTITION: count:${{ matrix.shard }}/4
+      # A pull request compiles the C the tests generate without optimization: cc at -O2 took
+      # about half the CPU time of the tests. The merge queue keeps the -O2 of a native build, so a
+      # fault that only optimization brings out still stops a change before it lands.
+      EMELA_CC_ARGS: ${{ github.event_name == 'pull_request' && '-O0' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
