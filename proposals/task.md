@@ -233,7 +233,7 @@ The changes are applied to `spec/` in this pull request.
 
 ## Diagnostics
 
-- [ ] E0461 (new): a call that may suspend after resume
+- [x] E0461 (new): a call that may suspend after resume
 - [ ] E0413 covers TaskGroup, Spawn, Deferred, Semaphore, Permit and Queue
 - [ ] E0213: the exception for built-in handlers
 - [ ] E0402: the note moves from `Fiber.scope` to the tasks of a group
