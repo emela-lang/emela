@@ -35,7 +35,7 @@ jobs:
       # `emela run` and `emela test` execute the generated JS with node.
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
       # Bun before 1.4.3 does not run the microtasks that a `beforeExit` listener queues
       # (oven-sh/bun#43826), which `emela test` relies on to go on after a test left suspended.
       - uses: oven-sh/setup-bun@v2
@@ -91,7 +91,7 @@ jobs:
           tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
       - name: Build
         run: scripts/build-playground.sh
       - name: Compile and run a program with it
@@ -119,7 +119,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
       - name: Build
         run: cargo build --bin emela --locked
       - name: Check, test and fmt every example
