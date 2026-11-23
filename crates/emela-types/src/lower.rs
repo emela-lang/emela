@@ -142,9 +142,9 @@ impl Hidden {
 /// capability-bound type (`uses E`), then one for each place a capability type or a type with
 /// hidden sets of its own is written in the fields, in the order of the fields.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct DeclCaps {
+pub struct DeclCaps {
     /// The number of written type parameters.
-    pub(crate) visible: usize,
+    pub visible: usize,
     /// The effect of a capability-bound type: its `uses E`.
     pub(crate) bound: Option<DefId>,
     /// The effects of each hidden set.
@@ -154,7 +154,8 @@ pub(crate) struct DeclCaps {
 /// Gives the capability sets in the field types of `owner` its hidden set type parameters
 /// ([`DeclCaps`]).
 pub(crate) struct FieldCaps {
-    owner: DefId,
+    /// The declaration whose fields are read; `None` for parameters.
+    owner: Option<DefId>,
     /// The index of the next hidden set type parameter.
     next: u32,
     /// While the sets are being found: the effects and the name of each one found. Otherwise the
@@ -167,6 +168,24 @@ pub(crate) struct FieldCaps {
 }
 
 impl FieldCaps {
+    /// Finds the capability sets of parameters (of an init or an operation), numbered from
+    /// `next`; [`Self::found`] gives them.
+    pub(crate) fn finding(owner: Option<DefId>, next: u32) -> Self {
+        FieldCaps {
+            owner,
+            next,
+            found: Some(Vec::new()),
+            end: 0,
+            field: SmolStr::default(),
+            in_field: 0,
+        }
+    }
+
+    /// The effects and names of the sets found.
+    pub(crate) fn found(self) -> Vec<(Vec<Tag>, SmolStr)> {
+        self.found.unwrap_or_default()
+    }
+
     /// For the constructor of `owner`, whose hidden sets are known.
     pub(crate) fn new(table: &TyTable, owner: DefId) -> Self {
         let (next, end) = match table.decl_caps(owner) {
@@ -177,7 +196,7 @@ impl FieldCaps {
             None => (0, 0),
         };
         FieldCaps {
-            owner,
+            owner: Some(owner),
             next,
             found: None,
             end,
@@ -359,7 +378,7 @@ impl TyTable {
     }
 
     /// The hidden capability sets of a declaration, if it has any.
-    pub(crate) fn decl_caps(&self, def: DefId) -> Option<&DeclCaps> {
+    pub fn decl_caps(&self, def: DefId) -> Option<&DeclCaps> {
         self.caps.get(def)
     }
 
@@ -378,8 +397,10 @@ impl TyTable {
             .defs
             .iter()
             .filter(|(def, d)| {
-                matches!(d.kind, DefKind::Type | DefKind::Enum | DefKind::Error)
-                    && self.by_def.get(*def).is_some()
+                matches!(
+                    d.kind,
+                    DefKind::Type | DefKind::Enum | DefKind::Error | DefKind::Handler
+                ) && self.by_def.get(*def).is_some()
             })
             .map(|(def, _)| def)
             .collect();
@@ -406,7 +427,7 @@ impl TyTable {
                 _ => None,
             });
             let mut fields = FieldCaps {
-                owner: def,
+                owner: Some(def),
                 next: (visible + usize::from(bound.is_some())) as u32,
                 found: Some(Vec::new()),
                 end: 0,
@@ -939,12 +960,12 @@ impl TyTable {
         };
         for (j, effects) in caps.effects.iter().enumerate() {
             let row = match &scope.omitted {
-                Omitted::Fields(f) if f.owner == def => {
+                Omitted::Fields(f) if f.owner == Some(def) => {
                     Row::from_elems([RowElem::Bound((caps.visible + j) as u32)])
                 }
-                Omitted::Fields(f) if self.caps_order.get(def) >= self.caps_order.get(f.owner) => {
-                    Row::empty()
-                }
+                Omitted::Fields(FieldCaps {
+                    owner: Some(owner), ..
+                }) if self.caps_order.get(def) >= self.caps_order.get(*owner) => Row::empty(),
                 _ => scope.caps_row(effects),
             };
             args.push(Ty::Set(SetKind::Caps, row));
@@ -1618,6 +1639,7 @@ fn decl_fields(program: &Program, def: DefId) -> Vec<(DefId, SmolStr, TypeId)> {
         Some(Item::Type(t)) => t.ctor.map(ctor_fields).unwrap_or_default(),
         Some(Item::Enum(e)) => e.variants.iter().flat_map(|&v| ctor_fields(v)).collect(),
         Some(Item::Error(e)) => fields(def, &e.fields),
+        Some(Item::Handler(h)) => h.ctor.map(ctor_fields).unwrap_or_default(),
         _ => Vec::new(),
     }
 }

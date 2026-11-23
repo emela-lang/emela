@@ -258,3 +258,52 @@ fn leaves() {
 }
 "#));
 }
+
+/// Handlers and capabilities (`[effect.handler]`): a field of type `use E` takes the set of the
+/// capability given to init at each item; a capability parameter of an operation is an unknown
+/// set in the implementation; `self` is the capability of the handler and can be passed to a
+/// parameter of type `use E`. The fields given to `Self(...)` cannot record a capability of a
+/// with inside the init (E0455).
+#[test]
+fn handlers_and_capabilities() {
+    insta::assert_snapshot!(run(r#"
+effect Store {
+  fn keep(l: use Logger) -> ()
+}
+
+handler Keeper: Store {
+  fn keep(l) { l.info("kept") }
+}
+
+handler Holder(c: use Counter): Logger {
+  init(c: use Counter) { Self(c:) }
+  fn info(msg) {
+    self.c.next()
+    ()
+  }
+}
+
+handler Inner(c: use Counter): Logger {
+  init() {
+    with x = Counters.Open(1) { Self(c: x) }
+  }
+  fn info(msg) { () }
+}
+
+fn again(l: use Logger) { l.info("") }
+
+handler Echo: Logger {
+  fn info(msg) {
+    if msg == "" { () } else { again(self) }
+  }
+}
+
+fn main() {
+  with Plain, x = Counters.Open(1) {
+    with h = Holder(c: x), s = Keeper {
+      s.keep(h)
+    }
+  }
+}
+"#));
+}

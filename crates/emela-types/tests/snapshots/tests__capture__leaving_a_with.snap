@@ -7,7 +7,7 @@ make_greeter: fn() -> fn() -> () uses { Logger }
 nested: fn() -> List[fn() -> Int uses { Db }]
   p: use Db  holds: p (with PrimaryDb)
   r: use Db  holds: r (with ReplicaDb)
-  f: fn() -> Int uses { r }  holds: r (with ReplicaDb)
+  f: fn() -> Int uses { Db }  holds: r (with ReplicaDb)
 used_up: fn(List[String]) -> List[()]
   names: List[String]
   log: use Logger  holds: log (with ConsoleLogger)
@@ -15,6 +15,9 @@ used_up: fn(List[String]) -> List[()]
 outer_is_fine: fn() -> fn() -> Int uses { Db }
   p: use Db  holds: p (with PrimaryDb)
 unbound: fn() -> fn() -> () uses { Logger }
+`|| log.info("hi")` CapabilityLeak { cap: "Logger", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 340..350 }) }
 `|| log.info("hi")` leaves: `log` (with)
+`[f]` CapabilityLeak { cap: "Db", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 460..469 }) }
 `[f]` leaves: `r` (with)
+`with ReplicaDb { || p.query("...") }` CapabilityLeak { cap: "Db", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 684..693 }) }
 `with ReplicaDb { || p.query("...") }` leaves: `p` (with)

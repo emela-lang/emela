@@ -4,11 +4,12 @@ expression: "render(&with_prelude(r#\"\ntype Box(f: fn() -> Int uses { Db })\n\n
 ---
 data: ∀ E. fn() -> ((Int, fn() -> Int uses { Db }), Option[fn() -> Int fails E uses { Db }], fn() -> Int uses { Db }, Int)
   p: use Db  holds: p (with PrimaryDb)
-  t: (Int, fn() -> Int uses { p })  holds: p (with PrimaryDb)
-  o: Option[fn() -> Int fails ?e6 uses { p }]  holds: p (with PrimaryDb)
-  local: fn() -> Int uses { p }  holds: p (with PrimaryDb)
+  t: (Int, fn() -> Int uses { Db })  holds: p (with PrimaryDb)
+  o: Option[fn() -> Int fails ?e8 uses { Db }]  holds: p (with PrimaryDb)
+  local: fn() -> Int uses { Db }  holds: p (with PrimaryDb)
   n: Int
 plain: fn() -> Int
   p: use Db  holds: p (with PrimaryDb)
-  f: fn() -> Int uses { p }  holds: p (with PrimaryDb)
+  f: fn() -> Int uses { Db }  holds: p (with PrimaryDb)
+`(t, o, local, n)` CapabilityLeak { cap: "Db", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 356..365 }) }
 `(t, o, local, n)` leaves: `p` (with)

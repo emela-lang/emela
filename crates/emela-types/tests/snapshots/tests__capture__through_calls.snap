@@ -22,7 +22,10 @@ countdown: ∀ E(f), R(f). fn(Int, fn() -> Int fails E(f) uses { R(f) }) -> fn()
   f: fn() -> Int fails '0 uses { '1 }  holds: f
 recursive: fn() -> fn() -> Int uses { Db }
   p: use Db  holds: p (with PrimaryDb)
+`pass(|| p.query("x"))` CapabilityLeak { cap: "Db", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 482..491 }) }
 `pass(|| p.query("x"))` leaves: `p` (with)
 `logger()` leaves: `ConsoleLogger` (with)
+`(|| p.query("x")) |> keep()` CapabilityLeak { cap: "Db", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 647..656 }) }
 `(|| p.query("x")) |> keep()` leaves: `p` (with)
+`countdown(3, || p.query("x"))` CapabilityLeak { cap: "Db", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 856..865 }) }
 `countdown(3, || p.query("x"))` leaves: `p` (with)

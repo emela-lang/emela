@@ -26,6 +26,18 @@ error[E0401]: effect `Db` has no operation `info`
     │        ╰─── 
 ────╯
 
+error[E0455]: capability `Db` leaves the `with` that made it
+    ╭─[ src/main.emel:22:5 ]
+    │
+ 20 │   with PrimaryDb {
+    │        ────┬────  
+    │            ╰────── made here; it ends with this `with`
+    │ 
+ 22 │     db
+    │     ─┬  
+    │      ╰── 
+────╯
+
 warning[W0402]: a value that holds `db` leaves the `with` that provides it
     ╭─[ src/main.emel:22:5 ]
     │
@@ -38,4 +50,4 @@ warning[W0402]: a value that holds `db` leaves the `with` that provides it
     │      ╰── the value of the body holds `db`
 ────╯
 
-3 errors, 1 warning
+4 errors, 1 warning

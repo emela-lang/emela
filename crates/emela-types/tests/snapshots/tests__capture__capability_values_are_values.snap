@@ -2,15 +2,15 @@
 source: crates/emela-types/tests/capture.rs
 expression: "render(&with_prelude(r##\"\ntype Pair(first: use Db, second: use Db)\n\nfn copy(from: use Db, to: use Db) -> Int {\n  to.query(\"#{from.query(\"...\")}\")\n}\n\nfn pick(primary: use Db, replica: use Db, write: Bool) -> use Db {\n  if write { primary } else { replica }\n}\n\nfn first(dbs: List[use Db]) -> Option[use Db] {\n  dbs match {\n    [db, ..] -> Some(db)\n    _ -> None\n  }\n}\n\nfn pass[A](x: A) -> A { x }\n\nfn caller() -> Int {\n  with PrimaryDb {\n    primary = use Db\n    with ReplicaDb {\n      replica = use Db\n      pair = Pair(first: primary, second: replica)\n      both = [primary, replica]\n      chosen = pick(primary, replica, True)\n      same = pass(replica)\n      copy(replica, primary) + chosen.query(\"x\") + same.query(\"y\") + pair.first.query(\"z\")\n    }\n  }\n}\n\"##))"
 ---
-copy: fn(use Db, use Db) -> Int uses { from, to }
+copy: ∀ C(from), C(to). fn(use Db, use Db) -> Int uses { from, to }
   from: use Db  holds: from
   to: use Db  holds: to
-pick: fn(use Db, use Db, Bool) -> use Db
+pick: ∀ C(primary), C(replica). fn(use Db, use Db, Bool) -> use Db
   holds: primary, replica
   primary: use Db  holds: primary
   replica: use Db  holds: replica
   write: Bool
-first: fn(List[use Db]) -> Option[use Db]
+first: ∀ C(dbs). fn(List[use Db]) -> Option[use Db]
   holds: dbs
   dbs: List[use Db]  holds: dbs
   db: use Db  holds: dbs
@@ -20,7 +20,7 @@ pass: ∀ A. fn(A) -> A
 caller: fn() -> Int
   primary: use Db  holds: primary (with PrimaryDb)
   replica: use Db  holds: replica (with ReplicaDb)
-  pair: Pair
+  pair: Pair  holds: replica (with ReplicaDb), primary (with PrimaryDb)
   both: List[use Db]  holds: replica (with ReplicaDb), primary (with PrimaryDb)
   chosen: use Db  holds: replica (with ReplicaDb), primary (with PrimaryDb)
   same: use Db  holds: replica (with ReplicaDb)

@@ -36,6 +36,9 @@ pub struct Signature {
 pub struct InitParams {
     pub tys: Vec<Ty>,
     pub labels: Vec<Option<SmolStr>>,
+    /// The number of capability sets in `tys`, `Bound(0)` and on: each item of a with that runs
+    /// the init decides them (`[effect.handler]`).
+    pub caps: usize,
 }
 
 /// Also holds the effect tags that handlers implement and the parameters of their inits.
@@ -688,14 +691,33 @@ fn op_signature(
         result_caps: None,
         quant: None,
     };
+    // A capability set in a parameter type is decided at each call (`[effect.handler]`): a set
+    // type parameter after the others, in the R of the operation as for a function
+    // (`[type.inference]`).
+    let mut param_caps = FieldCaps::finding(None, defs.len() as u32);
     let params: Vec<Ty> = sig
         .params
         .iter()
         .map(|p| match p.ty {
-            Some(ty) => ty_table.lower_in(program, &mut scope, ty, true, diags),
+            Some(ty) => {
+                param_caps.start_field(program.locals[p.local].name.clone());
+                let mut scope = Scope {
+                    params: &defs,
+                    kinds: &kinds,
+                    omitted: Omitted::Fields(&mut param_caps),
+                    sets: true,
+                    self_ty: None,
+                    result_caps: None,
+                    quant: None,
+                };
+                ty_table.lower_in(program, &mut scope, ty, true, diags)
+            }
             None => param_ty(program, ty_table, &defs, p, diags),
         })
         .collect();
+    let param_caps = param_caps.found();
+    let caps_uses =
+        Row::from_elems((0..param_caps.len()).map(|i| RowElem::Bound((defs.len() + i) as u32)));
     // A child forked through a built-in effect may use the effect itself (to fork a sibling),
     // and that is provided by the same scope, not from outside (spec 11.2): a function-typed
     // parameter whose `use` names the effect's set type parameter also gets the effect with its
@@ -714,7 +736,7 @@ fn op_signature(
     // A capability-bound type of the operation's own effect in the result records the receiver
     // (`[effect.handler]`): a set type parameter after the others, which a call fills with the
     // set of the capability it is called on, and a handler with its `self`.
-    let receiver = defs.len() as u32;
+    let receiver = (defs.len() + param_caps.len()) as u32;
     let receiver_caps: Vec<(Vec<DefId>, Row)> = effect
         .map(|e| (vec![e], Row::from_elems([RowElem::Bound(receiver)])))
         .into_iter()
@@ -747,6 +769,11 @@ fn op_signature(
         .zip(&kinds)
         .map(|(p, &kind)| TyParam { kind, ..p })
         .collect();
+    for (tags, name) in param_caps {
+        let mut p = TyParam::set(name);
+        p.caps = Some(tags);
+        ty_params.push(p);
+    }
     if let Some(e) = effect
         && mentions_bound(&ret, receiver)
     {
@@ -755,7 +782,7 @@ fn op_signature(
         ty_params.push(p);
     }
     Signature {
-        scheme: Scheme::new(ty_params, Ty::func_fails(params, ret, fails)),
+        scheme: Scheme::new(ty_params, Ty::func_sets(params, ret, fails, caps_uses)),
         labels: param_labels(program, &sig.params),
     }
 }
@@ -1245,7 +1272,6 @@ fn ctor_signature(
 ) -> Option<Signature> {
     let ret_ty = ty_table.self_ty(owner)?;
     let defs = type_param_defs(program, owner);
-    let is_handler = program.defs[owner].kind == DefKind::Handler;
 
     let (field_tys, labels): (Vec<TypeId>, Vec<Option<SmolStr>>) = match fields {
         Fields::None => (Vec::new(), Vec::new()),
@@ -1262,7 +1288,7 @@ fn ctor_signature(
     // (`[type.rules]`).
     let ty = match fields {
         Fields::None => ret_ty,
-        _ if ty_table.con(owner).is_some() && !is_handler => {
+        _ if ty_table.con(owner).is_some() => {
             let mut caps = FieldCaps::new(ty_table, owner);
             Ty::func(
                 ty_table.lower_fields(program, owner, ctor, &mut caps, diags),
@@ -1306,10 +1332,25 @@ fn init_params(
     params: &[Param],
     diags: &mut Vec<Diagnostic>,
 ) -> InitParams {
+    // A capability set in a parameter type is decided by each item of a with that runs the init
+    // (`[effect.handler]`): `Bound(i)`, replaced at the item.
+    let mut caps = FieldCaps::finding(None, 0);
     let tys = params
         .iter()
         .map(|p| match p.ty {
-            Some(ty) => ty_table.lower(program, &[], ty, diags),
+            Some(ty) => {
+                caps.start_field(program.locals[p.local].name.clone());
+                let mut scope = Scope {
+                    params: &[],
+                    kinds: &[],
+                    omitted: Omitted::Fields(&mut caps),
+                    sets: false,
+                    self_ty: None,
+                    result_caps: None,
+                    quant: None,
+                };
+                ty_table.lower_in(program, &mut scope, ty, true, diags)
+            }
             None => {
                 let local = &program.locals[p.local];
                 diags.push(Diagnostic {
@@ -1326,6 +1367,7 @@ fn init_params(
     InitParams {
         tys,
         labels: param_labels(program, params),
+        caps: caps.found().len(),
     }
 }
 

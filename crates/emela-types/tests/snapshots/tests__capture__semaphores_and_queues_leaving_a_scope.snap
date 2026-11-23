@@ -1,6 +1,5 @@
 ---
 source: crates/emela-types/tests/capture.rs
-assertion_line: 434
 expression: "render(r#\"\nimport Std.Fiber.{Fiber}\nimport Std.Queue.{Queue}\n\nfn semaphore_in_a_closure() -> fn() -> Int {\n  Fiber.scope(|| {\n    s = Fiber.semaphore(1)\n    || s.available()\n  })\n}\n\nfn queue_in_a_list() -> List[fn() -> Option[Int]] {\n  Fiber.scope(|| {\n    q: Queue[Int] = Fiber.queue(1)\n    [|| q.poll()]\n  })\n}\n\nfn piped() -> fn() -> Bool {\n  (|| {\n    q: Queue[Int] = Fiber.queue(1)\n    || q.try_offer(1)\n  }) |> Fiber.scope()\n}\n\"#)"
 ---
 semaphore_in_a_closure: fn() -> (fn() -> Int) uses { Async }
@@ -9,6 +8,18 @@ queue_in_a_list: fn() -> List[fn() -> Option[Int]] uses { Async }
   q: Queue[Int]  holds: Scope
 piped: fn() -> (fn() -> Bool) uses { Async }
   q: Queue[Int]  holds: Scope
+`|| {
+    s = Fiber.semaphore(1)
+    || s.available()
+  }` mismatch: expected `fn(use Scope[{}, {}]) -> ?0 uses { Async, Scope[{}, {}] }`, found `fn() -> fn() -> Int`
 `|| s.available()` leaves: `Scope` (Fiber.scope)
+`|| {
+    q: Queue[Int] = Fiber.queue(1)
+    [|| q.poll()]
+  }` mismatch: expected `fn(use Scope[{}, {}]) -> ?0 uses { Async, Scope[{}, {}] }`, found `fn() -> List[fn() -> Option[Int]]`
 `[|| q.poll()]` leaves: `Scope` (Fiber.scope)
+`|| {
+    q: Queue[Int] = Fiber.queue(1)
+    || q.try_offer(1)
+  }` mismatch: expected `fn(use Scope[{}, {}]) -> ?0 uses { Async, Scope[{}, {}] }`, found `fn() -> fn() -> Bool`
 `|| q.try_offer(1)` leaves: `Scope` (Fiber.scope)

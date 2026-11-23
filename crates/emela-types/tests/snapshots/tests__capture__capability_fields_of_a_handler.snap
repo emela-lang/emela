@@ -3,5 +3,5 @@ source: crates/emela-types/tests/capture.rs
 expression: "render(&with_prelude(r##\"\neffect Users {\n  fn find(id: Int) -> Int\n}\n\nhandler PostgresUsers(db: use Db): Users {\n  init(db: use Db) { PostgresUsers(db:) }\n  fn find(id) { self.db.query(\"#{id}\") }\n}\n\nfn run() -> Int {\n  with PrimaryDb {\n    with PostgresUsers(db: use Db) {\n      (use Users).find(1)\n    }\n  }\n}\n\nfn from_param(db: use Db) -> Int {\n  with PostgresUsers(db:) {\n    (use Users).find(2)\n  }\n}\n\"##))"
 ---
 run: fn() -> Int
-from_param: fn(use Db) -> Int
+from_param: ∀ C(db). fn(use Db) -> Int
   db: use Db  holds: db

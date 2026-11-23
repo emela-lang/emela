@@ -116,8 +116,15 @@ impl BodyInfer<'_> {
                         .map(|b| (b.index, b.body, b.resume_later))
                         .collect();
                     for (index, body, resume_later) in bodies {
+                        self.ctx.scopes.enter(body);
                         let row = self.expr_effects(body);
+                        self.ctx.scopes.exit();
                         let mut row = self.end_self(&row, def);
+                        // The capability parameters end with the body (`[effect.handler]`).
+                        if let Some(rigid) = self.quantified_lambdas.get(&body).cloned() {
+                            let minus: Vec<RowElem> = rigid.into_iter().map(RowElem::Cap).collect();
+                            row = self.subtract_elems(&row, &minus);
+                        }
                         // A suspend fn implementation that may call resume later requires Async
                         // (spec 8.7).
                         if resume_later && let Some(async_) = program.prelude_def("Async") {

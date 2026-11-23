@@ -16,6 +16,9 @@
 //!   with the handler being initialized. The init takes a cell holding a function that releases
 //!   what it opened so far, newest first. The handler's release then runs that function after
 //!   its own release; if the init fails, the init runs it before the failure propagates.
+//! - A handler member opened inside an init through a handler that a `with` inside the init
+//!   provides is registered instead in a cell of that `with`, which runs it when the `with` ends,
+//!   before the release of its handlers.
 
 use emela_resolve::hir::{DefId, ExprId, HandlerItem, Item, Res};
 use emela_types::{Tag, Ty};
@@ -401,11 +404,21 @@ impl Lowerer<'_> {
     pub(super) fn open_in_init(
         &mut self,
         call: Expr,
+        callee: ExprId,
         effect: crate::ir::EffectId,
         index: usize,
     ) -> Expr {
         let op = self.module.effects[effect].ops[index].clone();
-        let Some((cell, suspends)) = self.opened_cell else {
+        // Opened through a handler that a `with` inside the init provides: released at the end
+        // of that `with` (`[effect.handler]`).
+        let in_with = self.types.member_open_withs.get(callee).and_then(|w| {
+            self.with_cells
+                .iter()
+                .rev()
+                .find(|(id, _)| id == w)
+                .map(|(_, cell)| *cell)
+        });
+        let Some((cell, suspends)) = in_with.or(self.opened_cell) else {
             // The type checker allows it only inside an init (E0448).
             return call;
         };

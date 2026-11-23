@@ -90,6 +90,9 @@ pub struct ProgramTypes {
     /// of `Files.Open(p)` or `fs.Open(p)` inside an init, and the capability expression of an item
     /// `x = fs.Open(p)` of `with`.
     pub members: ArenaMap<ExprId, DefId>,
+    /// Handler members opened inside an init through a handler that a `with` inside the init
+    /// provides → that `with`, at whose end they are released (`[effect.handler]`).
+    pub member_open_withs: ArenaMap<ExprId, ExprId>,
     /// Method calls (the `Field` callee of `x.f(a)`, `[type.rules]`) → the fn of the module of the
     /// type of x, or the trait function, that it calls. The callee has that function's
     /// instantiated type and its `type_args` and `type_rows`, as a `Path` to it would, and the
@@ -114,6 +117,9 @@ pub struct ProgramTypes {
     /// Arguments whose capability is passed as fewer effects (`[effect.use]`) → the effects of
     /// the parameter, in the order of [`Ty::Cap`]. Lowering keeps only those operation tables.
     pub narrowings: ArenaMap<ExprId, Vec<Tag>>,
+    /// `self` passed as the capability of its handler (`[effect.handler]`): lowering makes the
+    /// handler's value from the state.
+    pub self_caps: rustc_hash::FxHashSet<ExprId>,
     /// Layers → per item, the arguments of init reordered by parameter. Only for layers with
     /// arguments.
     pub layer_args: ArenaMap<DefId, Vec<Vec<Option<ExprId>>>>,
@@ -207,6 +213,8 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         layers: ArenaMap::default(),
         with_args: ArenaMap::default(),
         narrowings: ArenaMap::default(),
+        self_caps: Default::default(),
+        member_open_withs: ArenaMap::default(),
         layer_args: ArenaMap::default(),
         traits,
         captures: crate::capture::Captures::default(),
@@ -280,6 +288,9 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             .members
             .extend(body.members.iter().map(|(id, &m)| (id, m)));
         types
+            .member_open_withs
+            .extend(body.member_open_withs.iter().map(|(id, &w)| (id, w)));
+        types
             .methods
             .extend(body.methods.iter().map(|(id, &def)| (id, def)));
         types.handler_uses.extend(body.handler_uses);
@@ -293,6 +304,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types
             .narrowings
             .extend(body.narrowings.iter().map(|(id, tags)| (id, tags.clone())));
+        types.self_caps.extend(body.self_caps.iter().copied());
         types.layer_args.extend(body.layer_args);
         types.diags.extend(body.diags);
         let input = crate::capture::Input {

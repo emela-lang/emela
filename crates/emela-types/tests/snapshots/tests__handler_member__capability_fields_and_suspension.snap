@@ -5,4 +5,3 @@ expression: "run(r#\"\neffect Slow {\n  suspend fn wait() -> Int\n}\n\neffect Qu
 closing: ∀ C(s). fn(use Slow) -> () uses { Async }
   s: use Slow
 `self.inner.wait()` SuspendingFnOp { op: "get", call: Op { effect: "Slow", op: "wait" } }
-`s` CapabilitySetMismatch { expected: "{}", found: "{ s }" }

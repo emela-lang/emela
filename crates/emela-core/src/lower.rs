@@ -164,6 +164,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         handler_parts: FxHashMap::default(),
         ev: None,
         opened_cell: None,
+        self_cap: None,
+        with_cells: Vec::new(),
         bound: Vec::new(),
         paths: &input.paths,
         shown_paths: &input.shown_paths,
@@ -333,6 +335,13 @@ struct Lowerer<'a> {
     /// Inside the init of a handler that opens handler members, the cell that keeps the release of
     /// what it opened, and whether that may suspend (`lower/member.rs`).
     opened_cell: Option<(Local, bool)>,
+    /// Inside the operation bodies and the release of a handler: the handler, and the state and
+    /// evidence table that the function making its value takes. `self` passed as the capability
+    /// of the handler calls that function (`[effect.handler]`).
+    self_cap: Option<(DefId, Option<Local>, Option<Local>)>,
+    /// The cells of the `with`s inside an init that release the handler members opened through
+    /// their handlers ([`emela_types::ProgramTypes::member_open_withs`]).
+    with_cells: Vec<(ExprId, (Local, bool))>,
     /// Effects and handler values provided by enclosing `with`s, outermost first. Only `with`s in
     /// the same function: a top-level fn, a handler operation, or the body of a lambda or a local
     /// fn, which starts empty, since the side that calls it provides its R (`[effect.with]`).
@@ -804,8 +813,17 @@ impl<'a> Lowerer<'a> {
                         }
                     };
                 }
+                // The hidden capability sets of a declaration (`[type.rules]`) have no run-time
+                // representation and decide nothing about calls.
+                let visible = self
+                    .types
+                    .ty_table
+                    .decl_caps(def)
+                    .map_or(args.len(), |c| c.visible);
                 match self.enums.get(def) {
-                    Some(&id) => Type::Enum(id, args.iter().map(|t| self.ty(t)).collect()),
+                    Some(&id) => {
+                        Type::Enum(id, args[..visible].iter().map(|t| self.ty(t)).collect())
+                    }
                     // `self` of a stateless handler. The value is `()` (`Lowerer::path`).
                     None => return TypeId::UNIT,
                 }
@@ -1286,6 +1304,19 @@ impl<'a> Lowerer<'a> {
     /// the type variables that become type parameters, so each parameter of `def` is its generalized
     /// variable seen from the definition being lowered, and a self reference passes on its own
     /// parameters.
+    /// The number of type arguments a constructor `def` gives its type at run time: the hidden
+    /// capability sets of the type (`[type.rules]`) are left out.
+    fn visible_params(&self, def: DefId) -> usize {
+        let owner = match self.hir.item(def) {
+            Some(Item::Ctor(c)) => c.owner,
+            _ => def,
+        };
+        match self.types.ty_table.decl_caps(owner) {
+            Some(caps) => caps.visible,
+            None => usize::MAX,
+        }
+    }
+
     fn ty_args(&mut self, def: DefId, expr: ExprId) -> Vec<TypeId> {
         let types = self.types;
         let n = types.sigs.get(def).map_or(0, |s| s.scheme.params.len());
@@ -1550,7 +1581,14 @@ impl<'a> Lowerer<'a> {
             Ty::List(e) => format!("List[{}]", self.key_ty(e, ctx)),
             Ty::Tuple(es) => format!("({})", list(es)),
             Ty::Named(id, args) => {
-                let name = self.ir_name(self.types.ty_table.def(*id));
+                let def = self.types.ty_table.def(*id);
+                let name = self.ir_name(def);
+                let visible = self
+                    .types
+                    .ty_table
+                    .decl_caps(def)
+                    .map_or(args.len(), |c| c.visible);
+                let args = &args[..visible];
                 if args.is_empty() {
                     name
                 } else {
@@ -1743,6 +1781,11 @@ impl<'a> Lowerer<'a> {
             params.push(ev);
             self.ev = Some(ev);
         }
+        self.self_cap = Some((
+            def,
+            stateful.then(|| params[0]),
+            self.ev.filter(|_| takes_ev),
+        ));
         // One table per effect; an operation goes into the table of the effect that declares it.
         let mut tables: Vec<Vec<Option<Expr>>> = effect_ids
             .iter()
@@ -1825,6 +1868,7 @@ impl<'a> Lowerer<'a> {
                 self.unsupported_at("handler with missing operations", span),
             );
         }
+        self.self_cap = None;
         let name = hir.defs[def].name.to_string();
         let mut values: Vec<Expr> = tables
             .into_iter()
@@ -1899,9 +1943,11 @@ impl<'a> Lowerer<'a> {
             self.module.locals[state].ty = state_ty;
             let mut params = vec![state];
             params.extend(ev_param(self));
+            self.self_cap = Some((def, Some(state), self.ev));
             // The release block's value is discarded (spec 8.4), but the function returns it as is.
             let ret = self.ty(self.expr_ty(body));
             let body = self.expr(body);
+            self.self_cap = None;
             self.module.define(f, params, ret, body);
         }
     }
@@ -2306,6 +2352,27 @@ impl<'a> Lowerer<'a> {
                 self.locals.insert(local, value);
             }
         }
+        // Handler members that the init around opens through this `with`'s handlers are released
+        // at its end, before its handlers (`[effect.handler]`, `lower/member.rs`).
+        let opens: Vec<DefId> = self
+            .types
+            .member_open_withs
+            .iter()
+            .filter(|(_, w)| **w == id)
+            .filter_map(|(callee, _)| self.types.members.get(callee).copied())
+            .collect();
+        let with_cell = (!opens.is_empty()).then(|| {
+            let s = opens.iter().any(|&m| member::member_suspends(hir, m));
+            let ty = self.opened_cell_ty(s);
+            let c = self.module.local("opened", ty);
+            let value = self.new_opened_cell(s);
+            let release = self.release_opened(c, s);
+            binds.push(WithBind::cleanup(c, value, "opened", release));
+            (c, s)
+        });
+        if let Some(cell) = with_cell {
+            self.with_cells.push((id, cell));
+        }
         let ctx = self.ev_local();
         let depth = self.bound.len();
         for (((_, effect), &l), _) in hs.iter().zip(&locals).zip(&named).filter(|(_, n)| **n) {
@@ -2318,6 +2385,9 @@ impl<'a> Lowerer<'a> {
         let body = self.expr(body);
         self.ev = outer;
         self.bound.truncate(depth);
+        if with_cell.is_some() {
+            self.with_cells.pop();
+        }
         // Not built if the body does not use the table (when `use` only refers to this `with`'s
         // handlers directly).
         if mentions(&body, ctx) {
@@ -2712,6 +2782,22 @@ impl<'a> Lowerer<'a> {
         });
     }
 
+    /// The capability of the handler whose operation body or release is being lowered: the value
+    /// that the function of the handler makes from the state.
+    fn self_capability(&mut self) -> Option<Expr> {
+        let (def, state, ev) = self.self_cap?;
+        let args = state.into_iter().chain(ev).map(Expr::Var).collect();
+        Some(Expr::Call {
+            callee: Callee::Direct {
+                f: self.fn_id(def, 0),
+                ty_args: Vec::new(),
+            },
+            args,
+            fails: false,
+            suspends: false,
+        })
+    }
+
     /// The type checker has typed every expression.
     fn expr_ty(&self, id: ExprId) -> &'a Ty {
         &self.types.exprs[id]
@@ -2895,6 +2981,11 @@ impl<'a> Lowerer<'a> {
 
     /// A name reference outside a call (a reference as a value).
     fn path(&mut self, id: ExprId, res: Res, span: Span) -> Expr {
+        if self.types.self_caps.contains(&id)
+            && let Some(value) = self.self_capability()
+        {
+            return value;
+        }
         let def = match res {
             // `self` of a stateless handler has no value (the function building the handler value
             // does not take one).
@@ -3034,7 +3125,7 @@ impl<'a> Lowerer<'a> {
         };
         let mut call = named::in_written_order(&mut self.module, args, |args| target.apply(args));
         if let Some((effect, index)) = opened {
-            call = self.open_in_init(call, effect, index);
+            call = self.open_in_init(call, callee, effect, index);
         }
         match binding {
             Some((var, value)) => Expr::Let {
@@ -3239,7 +3330,11 @@ impl<'a> Lowerer<'a> {
                 Ok(Target::Direct(f, ty_args, self.direct_call(f, call), None))
             }
             Some(Item::Ctor(_) | Item::Error(_)) => match self.ctors.get(def) {
-                Some(&ctor) => Ok(Target::Ctor(ctor, self.ty_args(def, callee))),
+                Some(&ctor) => {
+                    let mut ty_args = self.ty_args(def, callee);
+                    ty_args.truncate(self.visible_params(def));
+                    Ok(Target::Ctor(ctor, ty_args))
+                }
                 None => Err(self.unsupported("this constructor", span)),
             },
             // A trait function, called directly; monomorphization picks the impl (spec 10.3).

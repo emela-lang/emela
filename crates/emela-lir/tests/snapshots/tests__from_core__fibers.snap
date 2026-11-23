@@ -17,7 +17,7 @@ export suspend fn main() -> i32 (Int) {
       t%9: ref (List[Int]) = call_indirect f%6(t%8)
       return t%9
     }
-    a%11: ref (Std.Fiber.Fiber[List[Int], {fails, suspends, ev}]) = call_op s%0.Std.Fiber.Scope[_, _]#fork(f%10)
+    a%11: ref (Std.Fiber.Fiber[List[Int]]) = call_op s%0.Std.Fiber.Scope[_, _]#fork(f%10)
     d%12: ref (Std.Deferred.Deferred[()]) = call_op s%0.Std.Fiber.Scope[_, _]#deferred()
     _%13: i32 (Bool) = fiber complete(d%12, ())
     f%14: ref (fn() -> Int) = closure() [] {

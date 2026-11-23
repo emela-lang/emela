@@ -11,7 +11,12 @@ initialized: fn() -> use Db
   p: use Db  holds: p (with PrimaryDb)
 used_inside: fn() -> Int uses { Files }
   f: use ReadFile  holds: f (with Open)
+`f` CapabilityLeak { cap: "f", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 460..470 }) }
 `f` leaves: `f` (with)
 `[f, g]` leaves: `f` (with)
 `[f, g]` leaves: `g` (with)
+`f` CapabilityLeak { cap: "f", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 550..560 }) }
+`g` CapabilityLeak { cap: "g", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 571..581 }) }
+`p` CapabilityLeak { cap: "p", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 641..650 }) }
+`p` CapabilityLeak { cap: "Db", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 641..650 }) }
 `p` leaves: `p` (with)

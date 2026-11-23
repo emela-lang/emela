@@ -27,7 +27,15 @@ call_param_without_arguments: ∀ E(g), R(g), E(g, 2), R(g, 2). fn(fn() -> (fn()
         q = p
         1
       })` leaves: `m` (with)
+`|| {
+        q = p
+        1
+      }` effect set mismatch: expected `uses {}`, found `uses { Db }`
 `g(|| {
       q = p
       1
     })` leaves: `p` (with)
+`|| {
+      q = p
+      1
+    }` effect set mismatch: expected `uses { R(g, 3) }`, found `uses { Db }`

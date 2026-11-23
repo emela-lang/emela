@@ -1,27 +1,45 @@
 ---
 source: crates/emela-types/tests/capture.rs
-assertion_line: 468
 expression: "render(&format!(\"import Std.Fiber.{{Fiber}}\\nimport Std.Queue.{{Queue, QueueClosed}}\\n{}\",\nwith_prelude(r#\"\nfn taken() -> Int fails QueueClosed {\n  Fiber.scope(|| {\n    q: Queue[Int] = Fiber.queue(1)\n    q.offer(1)\n    q.take()\n  })\n}\n\nfn polled() -> Option[Int] {\n  Fiber.scope(|| {\n    q: Queue[Int] = Fiber.queue(1)\n    q.try_offer(1)\n    q.poll()\n  })\n}\n\nfn permitted[A](f: fn() -> A) -> A {\n  Fiber.scope(|| Fiber.semaphore(1).with_permit(f))\n}\n\nfn tried[A](f: fn() -> A) -> Option[A] {\n  Fiber.scope(|| Fiber.semaphore(1).try_with_permit(f))\n}\n\nfn counted() -> Int {\n  Fiber.scope(|| Fiber.semaphore(2).available())\n}\n\nfn queue_of_a_queue() -> Queue[Int] fails QueueClosed {\n  Fiber.scope(|| {\n    qq: Queue[Queue[Int]] = Fiber.queue(1)\n    qq.offer(Fiber.queue(1))\n    qq.take()\n  })\n}\n\nfn other_roots() -> fn() -> () {\n  with ConsoleLogger {\n    log = use Logger\n    Fiber.scope(|| Fiber.semaphore(1).with_permit(|| || log.info(\"x\")))\n  }\n}\n\"#)))"
 ---
 taken: fn() -> Int fails QueueClosed uses { Async }
   q: Queue[Int]  holds: Scope
 polled: fn() -> Option[Int] uses { Async }
   q: Queue[Int]  holds: Scope
-permitted: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) uses { R(f) }) -> A fails E(f) uses { Async, R(f) }
+permitted: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) uses { R(f) }) -> A fails E(f) uses { Async }
   holds: f
   f: fn() -> '0 fails '1 uses { '2 }  holds: f
-tried: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) uses { R(f) }) -> Option[A] fails E(f) uses { Async, R(f) }
+tried: ∀ A, E(f), R(f). fn(fn() -> A fails E(f) uses { R(f) }) -> Option[A] fails E(f) uses { Async }
   holds: f
   f: fn() -> '0 fails '1 uses { '2 }  holds: f
 counted: fn() -> Int uses { Async }
 queue_of_a_queue: fn() -> Queue[Int] fails QueueClosed uses { Async }
   qq: Queue[Queue[Int]]  holds: Scope
-other_roots: fn() -> (fn() -> () uses { Logger }) uses { Async }
+other_roots: fn() -> (fn() -> ()) uses { Async }
   log: use Logger  holds: log (with ConsoleLogger)
+`|| {
+    q: Queue[Int] = Fiber.queue(1)
+    q.offer(1)
+    q.take()
+  }` mismatch: expected `fn(use Scope[{}, {}]) -> ?0 uses { Async, Scope[{}, {}] }`, found `fn() -> Int`
+`|| {
+    q: Queue[Int] = Fiber.queue(1)
+    q.try_offer(1)
+    q.poll()
+  }` mismatch: expected `fn(use Scope[{}, {}]) -> ?0 uses { Async, Scope[{}, {}] }`, found `fn() -> Option[Int]`
+`|| Fiber.semaphore(1).with_permit(f)` mismatch: expected `fn(use Scope[{}, {}]) -> ?0 uses { Async, Scope[{}, {}] }`, found `fn() -> '0`
+`|| Fiber.semaphore(1).try_with_permit(f)` mismatch: expected `fn(use Scope[{}, {}]) -> ?0 uses { Async, Scope[{}, {}] }`, found `fn() -> Option['0]`
+`|| Fiber.semaphore(2).available()` mismatch: expected `fn(use Scope[{}, {}]) -> ?0 uses { Async, Scope[{}, {}] }`, found `fn() -> Int`
 `Fiber.scope(|| {
     qq: Queue[Queue[Int]] = Fiber.queue(1)
     qq.offer(Fiber.queue(1))
     qq.take()
   })` EscapingFromScope { ty: "Queue", scope: "Fiber.scope" }
+`|| {
+    qq: Queue[Queue[Int]] = Fiber.queue(1)
+    qq.offer(Fiber.queue(1))
+    qq.take()
+  }` mismatch: expected `fn(use Scope[{}, {}]) -> ?0 uses { Async, Scope[{}, {}] }`, found `fn() -> Queue[Int]`
 `qq.take()` leaves: `Scope` (Fiber.scope)
 `Fiber.scope(|| Fiber.semaphore(1).with_permit(|| || log.info("x")))` leaves: `log` (with)
+`|| Fiber.semaphore(1).with_permit(|| || log.info("x"))` mismatch: expected `fn(use Scope[{}, {}]) -> ?0 uses { Async, Scope[{}, {}] }`, found `fn() -> fn() -> ()`
