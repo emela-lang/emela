@@ -5,7 +5,7 @@ status: draft
 pr: 732
 issue: 719
 decided:
-touches: [glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, type.rules, open.next, diag.list]
+touches: [glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.fork, type.rules, open.next, diag.list]
 requires: [effect-alias]
 related: [closure-r-by-caller, capability-type, capability-trait, handler-member, handler-init-arguments, capture-checking, scope-handle-values]
 ---
@@ -174,6 +174,46 @@ fn with_all[T](paths: List[String], acc: List[use ReadFile], k: fn(List[use Read
 ```
 - この proposal は regions（#651）に頼らない．任意の時点で開閉する用途に regions が要るかは #651 で決める．この proposal のもとでは，pool が返す番号の型に pool の capability を入れて，持ち出しを型で止める形も取れる．
 
+### capability を持つ型
+
+- 型の宣言に，その型の値が E の capability を持つことを書ける（たたき台: `pub type Fiber[A] by Scope`）．
+- E の capability c の操作がこの型の値を返すと，その値の型は c を持つ．名前で E を呼んだ操作（`x <- E` や `Fiber.fork`）が返した値の型は，effect の名前 E を持つ．
+- capability を持つ値なので，持ち出せない原則がそのまま働く．
+- 利用者の型にも使える．pool が返す番号を `pub type EnemyId by Engine` とすれば，番号は pool の with の外へ出せない．
+
+### 名前で供給する with と，型の中の effect の名前
+
+- 名前のない項目（`with Plain { ... }`）や `Fiber.scope` が E を名前で供給するとき，持ち出しの検査では，値の型の中の名前 E を自分の capability として数える．
+- `Fiber.fork(f)` が返す Fiber は，型に名前 Scope を持つ．それを名前で供給した scope の外へは出せない．
+
+### `Fiber.scope`
+
+- `Fiber.scope` が作る Scope は capability．本体は，その capability を引数で受け取る．引数の型は量化した `use Scope[E, R]` なので，本体は s を含む値を返せない．
+
+```emel
+pub fn scope[A, E, R](body: fn(use Scope[E, R]) -> A fails E uses { Async, R }) -> A
+  fails E
+  uses { Async, R }
+
+@external
+pub type Fiber[A] by Scope
+
+@intrinsic
+pub effect Scope[E, R] {
+  fn fork[A](f: fn(use Scope[E, R]) -> A fails E uses { R }) -> Fiber[A]
+  fn deferred[A]() -> Deferred[A]
+  fn semaphore(permits: Int) -> Semaphore
+  fn queue[A](capacity: Int) -> Queue[A]
+}
+```
+
+- `Fiber`，`Deferred`，`Semaphore`，`Queue` は Scope の capability を持つ型．`s.fork(f)` の Fiber は s を持つ．
+- 子は，自分が入った scope の capability を引数で受け取る．兄弟を fork する規則（型検査が f の R に Scope を足す）は要らなくなる．
+- これで `Fiber.scope` に型の上の特別扱いはなくなる．子の実行，本体が返ったときの中断，失敗の伝わり方はランタイムが実装する（`@intrinsic`）．
+- なくなるもの: E0425（型の名前で `Fiber` などを探す規則），ハンドルを capture set の root として追うこと，終わった scope のハンドルを使ったときの実行時の検査．
+- #719 の再現 1（外の State に Fiber を入れる）は型の不一致，再現 6（Fiber をエラーに入れる）は持ち出しの検査（E04xx）で止まる．
+- 外の scope に fork するには，外の scope の本体の引数 s を使う（今の `outer = use Scope` の代わり）．
+
 ### 持ち出せない
 
 - with の型を決めるとき，本体の値の型，本体から伝わるエラーの型，with の R に，その with の capability が残っていればコンパイルエラー（E04xx）．
@@ -245,6 +285,8 @@ fn with_all[T](paths: List[String], acc: List[use ReadFile], k: fn(List[use Read
 | `x <- E` | 160 | 変わらない |
 | 引数や型の `: use E` | 171 | 書き方は変わらない．capability の引数になる |
 | 外の値を，同じ E を上書きした内側の with で使う | 18 | `with x = H` |
+| `Fiber.scope(|| ...)` | 244 | `Fiber.scope(|s| ...)` か `|_|`．機械的に書き換えられる |
+| `= use Scope` | 34 | `Fiber.scope` の本体の引数 |
 | `with x = H`，`with x = E.M(...)`（`.emel`） | 14 | そのまま通る．x の型が，どの capability かを持つようになる |
 | capability を effect の名前に広げているもの | 未計数 | 試作で数える |
 
@@ -275,7 +317,7 @@ fn with_all[T](paths: List[String], acc: List[use ReadFile], k: fn(List[use Read
 - LSP の hover で capability の集合をどう表示するか．
 - handler の init の引数とフィールドに capability を持つ形（`with PostgresUsers(db: replica)`）．handler の型に capability が入る．
 - handler の操作の中の `self` を，その handler の capability と見るか．`self` はフィールドに触れるので，capability より多くのことができる．
-- `Fiber.scope` の Scope を capability として扱い，Fiber，Deferred，Queue のハンドルの型に scope の capability を入れるか（#719 の再現 1，6）．入れれば `[fiber.escape]` の capture set も要らなくなる．
+- capability を持つ型の書き方．`by E` は label の `L by P` と同じ語になる．`of E` や属性にするか．
 - 名前のない `use E` の値を，なくす代わりに「型引数が effect の名前に決まった capability の値」（呼んだ時点で解決する値）にする手もある．内側で同じ E を上書きした with で使う 18 箇所の意味が変わる．
 - deprecation の版．W0403 は 0.29 に入る．`use E` の式をエラーにするのを 0.30 にするか，この proposal の実装（広げることの警告）を待つか．#666 の 0.29（capture checking を既定にし，W0402 と実行時の検査を外す）を capability について取り下げるか．
 - host の callback に capability を捕えさせる形（`with g = Plain { set_timeout(10, || g.greet("later")) }`）．外部関数の型は with の外で決まっているので，「持ち出せない」をそのまま当てると g を R に持つ callback は渡せない．#736 は「callback の R は capability を含んでよい」とした．host が with の後で呼ぶ callback をどう止めるか（host に渡すことを持ち出しとみなすか，同期の callback だけ許すか）．
