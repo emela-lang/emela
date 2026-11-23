@@ -240,7 +240,10 @@ The changes are applied to `spec/` in this pull request.
 ## Compatibility
 
 - 前提の `capability-identity`（#732，実装 #813）と `generic-handler`（#817，実装 #825）は実装済み．capability-identity のうち `Fiber.scope(|s| ...)` の部分はこの proposal で置き換わる
-- 旧名（`Fiber.scope`，`Std.Fiber`）は 1 minor の間警告にし，次で compile error にする
+- Fiber は一度に外す．旧名を警告付きで残す期間は置かない．Deferred，Semaphore，Queue の型の形が変わるので，旧名を残しても同じ意味にはならず，Fiber と Task を並べると二つの規則が同時に有効になって混乱する
+- `Std.Fiber` を import すると E0205（モジュールがない）になり，help で `Std.Task` を示す
+- 通らなくなるもの：`Std.Fiber` を使うコード，Deferred／Semaphore／Queue の関数（`Deferred.await(d)` など．capability の操作になる），`CauseKind.Interrupt` への match，`Fiber.await` と `Fiber.interrupt`，resume の後に suspend しうる handler（E0461）
+- 変わらないもの：Task を使わない `@entry(Http.serve)` の app，`Exit.attempt` と `Cause.raise`
 
 ## Implementation
 

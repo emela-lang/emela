@@ -102,7 +102,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0202 | A directory name does not form a module name | ``directory name `My-Dir` cannot be a module name: not lower snake_case`` |
 | E0203 | A reserved module name (`prelude.emel` directly under the root, the module names of core, `std`, and `main.emel` and `lib.emel` directly under the test root). Includes a dependency whose root name is a reserved name (4.7) | ``module name `Prelude` is reserved`` |
 | E0204 | Duplicate modules (including those that differ only in case, and those across the source root and the test root). Includes a dependency whose root name collides with a module of its own or with the root name of another dependency (4.7) | ``duplicate module `Http.Client` `` |
-| E0205 | The imported module does not exist | ``undefined module `Http.Clinet` `` |
+| E0205 | The imported module does not exist. For `Std.Fiber`, the help is ``= help: `Std.Fiber` was replaced by `Std.Task` (`[task]`) `` | ``undefined module `Http.Clinet` `` |
 | E0206 | An import cycle (including a self-import) | ``import cycle: `A` -> `B` -> `A` `` |
 | E0207 | A directory was given, but no `Pome.toml` was found | ``no `Pome.toml` found in `proj` or its ancestors`` |
 | E0208 | The given file or directory is outside the source root. A file inside the test root was given to `build` or `run` (4.1, Appendix B) | ``file `scripts/x.emel` is outside the source root `src` `` / ``directory `scripts` is outside the source root `src` `` / ``` `test/a.emel` is under the test root, which only check and test read ``` |
