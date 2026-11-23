@@ -29,6 +29,7 @@ trait Decode {
 - A trait function whose return type is omitted returns `()`.
 - A function can also be written without `self`. The expected return type determines which type's implementation is used.
 - A function with a body is a default implementation and can be omitted in an impl.
+- A type parameter that a trait function declares itself follows the rule of `[fn.decl]` for type parameters that do not appear in the type (W0305). The warning is reported at the trait declaration, not at the impls.
 - `trait A: B` requires that every type implementing A also implements B. B is called a supertrait of A.
 - Writing `impl Type: A` checks at that point that an implementation of `Type: B` exists (E0326 if not). For an impl with type parameters, the bounds that the impl of B requires MUST be derivable from the bounds of the impl of A (10.3). `impl Pair[A: Eq, B: Eq]: Eq` for `impl Pair[A: Ord, B: Ord]: Ord` is accepted, because `A: Eq` can be derived from `A: Ord`. When they cannot be derived, E0326 is reported at the head of the impl of A (for `impl Pair[A: Ord, B]: Ord` with `impl Pair[A: Eq, B: Eq]: Eq`, ``type `B` does not implement `Eq` ``).
 - A declaration that returns to itself by following supertraits (`trait A: B` and `trait B: A`) is a compile error (E0329). The diagnostic is reported once per cycle, at the name of the trait in the cycle that is defined first, and lists the cycle starting from that trait.
