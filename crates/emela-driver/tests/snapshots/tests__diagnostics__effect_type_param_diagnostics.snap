@@ -17,7 +17,7 @@ error[E0423]: handler `Generic` must implement `Cell[S]` with concrete types
    │         ───┬───  
    │            ╰───── 
 ───╯
-   = help: write the types, like `handler Generic: Cell[...]`; a handler cannot be generic
+   = help: write the types, like `handler Generic: Cell[...]`, or give the handler type parameters, like `handler Generic[S]: Cell[S]`
 
 error[E0423]: missing type arguments for effect `Cell[S]`
     ╭─[ main.emel:17:17 ]

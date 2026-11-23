@@ -6,8 +6,8 @@
 //! values.
 
 use emela_resolve::hir::{
-    DefId, DefKind, DefModule, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, LocalKind,
-    MemberItem, Param, Program, Res, Span, TypeId, TypeKind, TypeParam,
+    DefId, DefKind, DefModule, EffectItem, Fields, FnItem, FnSig, HandlerItem, Item, LabelOf,
+    LocalKind, MemberItem, Param, Program, Res, Span, TypeId, TypeKind, TypeParam,
 };
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
@@ -192,8 +192,11 @@ impl Signatures {
                     None
                 }
                 Some(Item::Handler(item)) => {
+                    check_handler_params(program, ty_table, def, item, diags);
+                    let defs = type_param_defs(program, def);
                     if !item.init_params.is_empty() {
-                        let init = init_params(program, ty_table, def, &item.init_params, diags);
+                        let init =
+                            init_params(program, ty_table, def, &defs, &item.init_params, diags);
                         sigs.init_params.insert(def, init);
                     }
                     let mut tags: Vec<Tag> = Vec::new();
@@ -225,17 +228,18 @@ impl Signatures {
                         if program.is_host_effect(effect) || is_intrinsic_effect(program, effect) {
                             continue;
                         }
+                        let kinds = vec![ParamKind::Type; defs.len()];
                         let scope = Scope {
-                            params: &[],
-                            kinds: &[],
+                            params: &defs,
+                            kinds: &kinds,
                             omitted: Omitted::Empty,
                             sets: false,
                             self_ty: None,
                             result_caps: None,
                             quant: None,
                         };
-                        // Generic handlers with type parameters left over are not kept
-                        // (spec 8.1); omitting them is E0423.
+                        // The type arguments are written; they may name the handler's own type
+                        // parameters (`[effect.decl]`). Omitting them is E0423.
                         let span = program.defs[def].span;
                         let name = program.defs[def].name.clone();
                         let Some(tag) = ty_table.effect_tag(
@@ -1090,6 +1094,67 @@ fn check_effect_params(
     }
 }
 
+/// The type parameters of a handler (`[effect.handler]`). Each is an ordinary type: one that
+/// appears only in the `fails` or `uses` of a function type would be a set (E0424). Each appears
+/// in the effects after the colon, in the type of a field or in the type of a parameter of init
+/// (E0462): the type of a handler cannot be written, so one that appears nowhere else would tell
+/// nothing apart. An inner handler cannot have its own (E0460); it reads the declaration with
+/// those of its outer handler.
+fn check_handler_params(
+    program: &Program,
+    ty_table: &TyTable,
+    handler: DefId,
+    item: &HandlerItem,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let inner = program.defs[handler]
+        .parent
+        .is_some_and(|p| program.defs[p].kind == DefKind::Handler);
+    if inner {
+        if let Some(first) = item.type_params.first() {
+            diags.push(Diagnostic {
+                span: program.defs[first.def].span,
+                kind: DiagnosticKind::InnerHandlerTypeParams {
+                    handler: program.defs[handler].name.clone(),
+                },
+            });
+        }
+        return;
+    }
+    if item.type_params.is_empty() {
+        return;
+    }
+    let defs: Vec<DefId> = item.type_params.iter().map(|tp| tp.def).collect();
+    let types: Vec<TypeId> = item
+        .effects
+        .iter()
+        .flat_map(|e| e.args.iter().copied())
+        .chain(item.fields.iter().map(|f| f.ty))
+        .chain(item.init_params.iter().filter_map(|p| p.ty))
+        .collect();
+    let marks = crate::lower::mark_all(program, ty_table.decl_sets(), &defs, types);
+    for (tp, (in_type, in_set)) in item.type_params.iter().zip(marks) {
+        let param = program.defs[tp.def].name.clone();
+        let kind = if in_type {
+            continue;
+        } else if in_set.is_some() {
+            DiagnosticKind::HandlerParamNotType {
+                handler: program.defs[handler].name.clone(),
+                param,
+            }
+        } else {
+            DiagnosticKind::UnusedHandlerParam {
+                handler: program.defs[handler].name.clone(),
+                param,
+            }
+        };
+        diags.push(Diagnostic {
+            span: program.defs[tp.def].span,
+            kind,
+        });
+    }
+}
+
 pub(crate) fn param_labels(program: &Program, params: &[Param]) -> Vec<Option<SmolStr>> {
     params
         .iter()
@@ -1356,11 +1421,12 @@ fn ctor_signature(
 
 /// The parameters of a handler's init. Their types MUST be written (E0316, `[effect.handler]`);
 /// a missing one becomes `Ty::Error`. An omitted E or R in a function type is empty, as in the
-/// type of a const: the handler is not generic.
+/// type of a const. The handler's type parameters (`type_params`) are `Ty::Bound(i)`.
 fn init_params(
     program: &Program,
     ty_table: &TyTable,
     handler: DefId,
+    type_params: &[DefId],
     params: &[Param],
     diags: &mut Vec<Diagnostic>,
 ) -> InitParams {
@@ -1372,9 +1438,10 @@ fn init_params(
         .map(|p| match p.ty {
             Some(ty) => {
                 caps.start_field(program.locals[p.local].name.clone());
+                let kinds = vec![ParamKind::Type; type_params.len()];
                 let mut scope = Scope {
-                    params: &[],
-                    kinds: &[],
+                    params: type_params,
+                    kinds: &kinds,
                     omitted: Omitted::Fields(&mut caps),
                     sets: false,
                     self_ty: None,

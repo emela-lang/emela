@@ -12,6 +12,7 @@ mod effects;
 mod errors;
 mod export;
 mod fiber;
+mod generic_handler;
 mod handler_member;
 mod lower;
 mod methods;

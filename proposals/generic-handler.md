@@ -1,7 +1,7 @@
 ---
 title: Handlers with type parameters
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 817
 issue:
 decided: 2026-11-23
@@ -167,12 +167,12 @@ The changes are applied to `spec/` in this pull request.
 
 ## Diagnostics
 
-- [ ] E0304 covers handlers
-- [ ] E0423: new help in the head of a handler
-- [ ] E0424 covers type parameters of handlers
-- [ ] E0459 (new): the type arguments of an item are not determined
-- [ ] E0460 (new): type parameters on an inner handler
-- [ ] E0462 (new): a type parameter of a handler appears in none of its effects, fields and init parameters
+- [x] E0304 covers handlers
+- [x] E0423: new help in the head of a handler
+- [x] E0424 covers type parameters of handlers
+- [x] E0459 (new): the type arguments of an item are not determined
+- [x] E0460 (new): type parameters on an inner handler
+- [x] E0462 (new): a type parameter of a handler appears in none of its effects, fields and init parameters
 
 ## Compatibility
 

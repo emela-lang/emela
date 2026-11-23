@@ -3025,3 +3025,89 @@ fn unused_type_parameter_not_reported_for_a_broken_signature() {
     assert!(!codes.contains(&Some("W0305")), "{codes:?}");
     assert!(codes.contains(&Some("E0211")), "{codes:?}");
 }
+
+/// The diagnostics of handlers with type parameters (`[effect.handler]`, `[effect.with]`,
+/// `[effect.layer]`): E0424, E0459, E0460, E0462, E0304 on an item, and the help of E0423 in the
+/// head of a handler.
+#[test]
+fn generic_handler_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Cell[S] {
+  fn get() -> S
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect ReadFile {
+  fn read() -> String
+}
+
+effect Files {
+  fn exists(path: String) -> Bool
+  handler Open(path: String): ReadFile
+}
+
+handler Generic: Cell {
+  fn get() { 0 }
+}
+
+handler AsSet[E]: Cell[fn() -> () fails E] {
+  fn get() { || () }
+}
+
+handler Nowhere[A]: Logger {
+  fn info(msg) { () }
+}
+
+handler Outer: Files {
+  fn exists(path) { True }
+  handler Open[T](path: String): ReadFile {
+    init(path: String) { Self(path:) }
+    fn read() { self.path }
+  }
+}
+
+handler Fixed: Cell[Int] {
+  fn get() { 0 }
+}
+
+handler Pass[S]: Cell[S] {
+  fn get() { (use Cell[S]).get() }
+}
+
+handler Empty[A]: Cell[List[A]] {
+  fn get() { [] }
+}
+
+handler Blank[A](xs: List[A]): Logger {
+  init() { Blank(xs: []) }
+  fn info(msg) { () }
+}
+
+fn ints() -> List[Int] uses { Cell[List[Int]] } { (use Cell[List[Int]]).get() }
+
+fn strings() -> List[String] uses { Cell[List[String]] } { (use Cell[List[String]]).get() }
+
+fn unknown() { with Blank { () } }
+
+fn two_fit() { with Empty { (ints(), strings()) } }
+
+fn may_override() { with Fixed, Pass { (use Cell[Int]).get() } }
+
+fn not_generic() { with Fixed[Int] { () } }
+
+layer Missing {
+  Blank
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}

@@ -15,14 +15,15 @@
 
 use emela_resolve::hir::{DefId, DefKind, ExprId, Item, Program, Res, Span, TypeId, WithItem};
 use la_arena::ArenaMap;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
+use crate::infer::substitute_bound;
 use crate::lower::{Omitted, Scope, TyTable};
 use crate::row::{Row, RowElem, Tag};
 use crate::signature::{Signatures, is_label};
-use crate::ty::TyCons;
+use crate::ty::{Ty, TyCons};
 
 /// What provides an effect listed in `with`: a handler, or the provider of an effect already in
 /// scope (a label in `with AuditLog`, or the right of `by` in `with AuditLog by Console`, issue
@@ -84,6 +85,99 @@ pub(crate) struct Entry {
     /// implements (`[effect.handler]`, `[effect.with]`), or `effect` alone. A handler of several
     /// effects has one entry for each, which share this.
     pub(crate) own: Vec<Tag>,
+    /// The type arguments of a handler with type parameters (`[effect.with]`): `effect` and
+    /// `own` are instantiated with them. Empty otherwise.
+    pub(crate) ty_args: Vec<Ty>,
+}
+
+/// The type arguments of the handlers listed in a `with` (`[effect.with]`) and in the layers it
+/// lists (`[effect.layer]`). Empty for a handler without type parameters.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Insts {
+    /// Per item of the `with`, those of the handler that supplies it (the right of `by`, or the
+    /// item). Missing items have none.
+    pub(crate) items: Vec<Vec<Ty>>,
+    /// Per layer, per member.
+    pub(crate) layers: FxHashMap<DefId, Vec<Vec<Ty>>>,
+}
+
+impl Insts {
+    /// The type arguments of `items` (per item) and of the members of the layers they list,
+    /// nested ones included, looked up with `layer`.
+    pub(crate) fn new(
+        program: &Program,
+        items: &[WithItem],
+        item_args: Vec<Vec<Ty>>,
+        mut layer: impl FnMut(DefId) -> Option<Vec<Vec<Ty>>>,
+    ) -> Self {
+        let mut layers = FxHashMap::default();
+        let mut todo: Vec<DefId> = items
+            .iter()
+            .filter_map(|i| match i.res {
+                Res::Def(d) if matches!(program.item(d), Some(Item::Layer(_))) => Some(d),
+                _ => None,
+            })
+            .collect();
+        while let Some(l) = todo.pop() {
+            if layers.contains_key(&l) {
+                continue;
+            }
+            if let Some(Item::Layer(item)) = program.item(l) {
+                todo.extend(item.members.iter().filter_map(|m| match m.res {
+                    Res::Def(d) if matches!(program.item(d), Some(Item::Layer(_))) => Some(d),
+                    _ => None,
+                }));
+            }
+            layers.insert(l, layer(l).unwrap_or_default());
+        }
+        Insts {
+            items: item_args,
+            layers,
+        }
+    }
+
+    fn of(&self, source: ArgsSource) -> &[Ty] {
+        match source {
+            ArgsSource::Item(i) => self.items.get(i).map_or(&[], Vec::as_slice),
+            ArgsSource::Layer { layer, member } => self
+                .layers
+                .get(&layer)
+                .and_then(|m| m.get(member))
+                .map_or(&[], Vec::as_slice),
+        }
+    }
+}
+
+/// The effects of `handler` (provides(H), `[type.rules]`) instantiated with `args`. For a handler
+/// with type parameters whose type arguments are not known (an error elsewhere), the type
+/// parameters become broken types.
+pub(crate) fn handler_tags(
+    sigs: &Signatures,
+    ty_table: &TyTable,
+    handler: DefId,
+    args: &[Ty],
+) -> Vec<Tag> {
+    let own = sigs.handler_effects(handler);
+    let n = handler_arity(ty_table, handler);
+    if n == 0 {
+        return own.to_vec();
+    }
+    let errors;
+    let args = if args.len() == n {
+        args
+    } else {
+        errors = vec![Ty::Error; n];
+        &errors
+    };
+    own.iter()
+        .map(|t| t.map_args(|a| substitute_bound(a, args)))
+        .collect()
+}
+
+/// The number of type parameters of a handler (`[effect.handler]`). Zero for an inner handler,
+/// whose type arguments are those of its outer handler.
+pub(crate) fn handler_arity(ty_table: &TyTable, handler: DefId) -> usize {
+    ty_table.handler_params(handler).len()
 }
 
 /// A provider of a `with`, as lowering needs it (issue #255).
@@ -92,6 +186,8 @@ pub struct WithBind {
     /// The effect provided.
     pub effect: Tag,
     pub supplier: Supplier,
+    /// The type arguments of a handler with type parameters (`[effect.with]`). Empty otherwise.
+    pub ty_args: Vec<Ty>,
     /// Where the arguments of the handler's init are written.
     pub args: ArgsSource,
     /// Whether it provides `effect` by name ([`Entry::named`]). False for an item that opens a
@@ -221,6 +317,7 @@ pub(crate) fn with_entries(
     sigs: &Signatures,
     ty_table: &TyTable,
     items: &[WithItem],
+    insts: &Insts,
 ) -> Vec<Entry> {
     let mut all = Vec::new();
     for (origin, item) in items.iter().enumerate() {
@@ -232,12 +329,25 @@ pub(crate) fn with_entries(
             let Some(base) = sigs.label_base(def) else {
                 continue;
             };
-            let by = by_tag(program, sigs, ty_table, by, &item.by_args, &mut Vec::new());
+            let ty_args = insts.of(ArgsSource::Item(origin));
+            let by = by_tag(
+                program,
+                sigs,
+                ty_table,
+                by,
+                &item.by_args,
+                ty_args,
+                &mut Vec::new(),
+            );
             let Some(supplier) = by
                 .filter(|(_, provided)| provided.contains(base))
                 .map(|(s, _)| s)
             else {
                 continue;
+            };
+            let ty_args = match supplier {
+                Supplier::Handler(_) => ty_args.to_vec(),
+                _ => Vec::new(),
             };
             all.push(Entry {
                 supplier,
@@ -248,6 +358,7 @@ pub(crate) fn with_entries(
                 from_layer: false,
                 named: true,
                 own: vec![Tag::new(def)],
+                ty_args,
             });
             continue;
         }
@@ -271,6 +382,7 @@ pub(crate) fn with_entries(
                         from_layer: false,
                         named: true,
                         own: vec![base.clone()],
+                        ty_args: Vec::new(),
                     });
                 }
                 continue;
@@ -279,8 +391,9 @@ pub(crate) fn with_entries(
         };
         // A handler of several effects provides each of them (`[effect.with]`).
         for (handler, args) in members {
-            let own = sigs.handler_effects(handler);
-            for effect in own {
+            let ty_args = insts.of(args);
+            let own = handler_tags(sigs, ty_table, handler, ty_args);
+            for effect in &own {
                 all.push(Entry {
                     supplier: Supplier::Handler(handler),
                     args,
@@ -289,7 +402,8 @@ pub(crate) fn with_entries(
                     origin,
                     from_layer,
                     named: true,
-                    own: own.to_vec(),
+                    own: own.clone(),
+                    ty_args: ty_args.to_vec(),
                 });
             }
         }
@@ -299,22 +413,23 @@ pub(crate) fn with_entries(
 
 /// The right of `by` as a supplier, with the effects it provides (with type arguments): a
 /// handler provides every effect it implements, one of which serves the label
-/// (`[effect.label]`); an effect `X` (or `X[Int]`) provides itself, or its base if it is a
-/// label. `None` for anything else.
+/// (`[effect.label]`), instantiated with `ty_args` if it has type parameters; an effect `X` (or
+/// `X[Int]`) provides itself, or its base if it is a label. `None` for anything else.
 fn by_tag(
     program: &Program,
     sigs: &Signatures,
     ty_table: &TyTable,
     by: Res,
     args: &[TypeId],
+    ty_args: &[Ty],
     diags: &mut Vec<Diagnostic>,
 ) -> Option<(Supplier, Vec<Tag>)> {
     let Res::Def(by) = by else {
         return None;
     };
-    let effects = sigs.handler_effects(by);
-    if !effects.is_empty() {
-        return Some((Supplier::Handler(by), effects.to_vec()));
+    if !sigs.handler_effects(by).is_empty() {
+        let effects = handler_tags(sigs, ty_table, by, ty_args);
+        return Some((Supplier::Handler(by), effects));
     }
     if program.defs[by].kind != DefKind::Effect {
         return None;
@@ -341,11 +456,12 @@ pub(crate) fn check_with_items(
     sigs: &Signatures,
     ty_table: &TyTable,
     items: &[WithItem],
+    insts: &Insts,
     diags: &mut Vec<Diagnostic>,
 ) {
     let name = |def: DefId| program.defs[def].name.clone();
     let mut plugged: Vec<DefId> = Vec::new();
-    for item in items {
+    for (origin, item) in items.iter().enumerate() {
         let Res::Def(def) = item.res else {
             continue;
         };
@@ -378,9 +494,15 @@ pub(crate) fn check_with_items(
         };
         let mut arg_diags = Vec::new();
         let by_res = by;
-        let Some((_, provided)) =
-            by_tag(program, sigs, ty_table, by, &item.by_args, &mut arg_diags)
-        else {
+        let Some((_, provided)) = by_tag(
+            program,
+            sigs,
+            ty_table,
+            by,
+            &item.by_args,
+            insts.of(ArgsSource::Item(origin)),
+            &mut arg_diags,
+        ) else {
             continue;
         };
         // Missing or wrong type arguments are reported once (E0423, E0304).
@@ -452,8 +574,9 @@ pub(crate) fn evaluated_args(
     sigs: &Signatures,
     ty_table: &TyTable,
     items: &[WithItem],
+    insts: &Insts,
 ) -> Vec<ExprId> {
-    let entries = with_entries(program, sigs, ty_table, items);
+    let entries = with_entries(program, sigs, ty_table, items, insts);
     items
         .iter()
         .enumerate()
@@ -540,14 +663,17 @@ pub struct LayerInfo {
 }
 
 /// Checks layer declarations and returns their expansions. `handler_uses` holds the dependencies
-/// of handlers already inferred.
+/// of handlers already inferred, and `layer_ty_args` the type arguments of the members of each
+/// layer (`[effect.layer]`).
 pub(crate) fn check_layers(
     program: &Program,
     sigs: &Signatures,
-    cons: &TyCons,
+    ty_table: &TyTable,
     handler_uses: &ArenaMap<DefId, Row>,
+    layer_ty_args: &ArenaMap<DefId, Vec<Vec<Ty>>>,
     diags: &mut Vec<Diagnostic>,
 ) -> ArenaMap<DefId, LayerInfo> {
+    let cons = &ty_table.cons;
     let mut out = ArenaMap::default();
     let mut reported_cycles: FxHashSet<Vec<DefId>> = FxHashSet::default();
     for (layer, data) in program.defs.iter() {
@@ -593,7 +719,14 @@ pub(crate) fn check_layers(
             args,
         } in flat
         {
-            let own = sigs.handler_effects(handler);
+            let ty_args = match args {
+                ArgsSource::Layer { layer, member } => layer_ty_args
+                    .get(layer)
+                    .and_then(|m| m.get(member))
+                    .map_or(&[][..], Vec::as_slice),
+                ArgsSource::Item(_) => &[],
+            };
+            let own = handler_tags(sigs, ty_table, handler, ty_args);
             // A handler of several effects counts as providing each of them (E0421,
             // `[effect.layer]`).
             for effect in own.iter().cloned() {
@@ -624,7 +757,8 @@ pub(crate) fn check_layers(
                     origin,
                     from_layer,
                     named: true,
-                    own: own.to_vec(),
+                    own: own.clone(),
+                    ty_args: ty_args.to_vec(),
                 });
             }
         }
@@ -633,7 +767,8 @@ pub(crate) fn check_layers(
             .iter()
             .map(|e| {
                 e.handler()
-                    .and_then(|h| handler_uses.get(h).cloned())
+                    .and_then(|h| handler_uses.get(h))
+                    .map(|r| instantiate_row(r, &e.ty_args))
                     .unwrap_or_default()
             })
             .collect();
@@ -677,6 +812,15 @@ pub(crate) fn check_layers(
         );
     }
     out
+}
+
+/// requires(H) of a handler with type parameters, instantiated with the type arguments of an
+/// item (`[type.rules]`). As is without them.
+pub(crate) fn instantiate_row(row: &Row, ty_args: &[Ty]) -> Row {
+    if ty_args.is_empty() {
+        return row.clone();
+    }
+    crate::infer::substitute_row(row, ty_args, &[])
 }
 
 /// The effect name for diagnostics; `State[Int]` if it has type arguments.

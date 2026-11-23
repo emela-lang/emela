@@ -320,6 +320,8 @@ pub struct TyTable {
     def_of: ArenaMap<TyConId, DefId>,
     /// The set kinds of type and enum type parameters (`type Handler[E, R]` in spec 9.2).
     sets: DeclSets,
+    /// Inner handlers (`[effect.handler]`), whose type parameters are their outer handler's.
+    inner_handlers: rustc_hash::FxHashSet<DefId>,
     /// The hidden capability sets of declarations that have them (`[type.rules]`).
     caps: ArenaMap<DefId, DeclCaps>,
     /// The order the hidden sets of declarations were found in: one whose fields refer to
@@ -364,12 +366,23 @@ impl TyTable {
             def_of.insert(id, def);
         }
 
+        let inner_handlers = program
+            .defs
+            .iter()
+            .filter(|(_, d)| {
+                d.kind == DefKind::Handler
+                    && d.parent
+                        .is_some_and(|p| program.defs[p].kind == DefKind::Handler)
+            })
+            .map(|(def, _)| def)
+            .collect();
         let mut table = TyTable {
             cons,
             by_def,
             bool_def,
             def_of,
             sets,
+            inner_handlers,
             caps: ArenaMap::default(),
             caps_order: ArenaMap::default(),
         };
@@ -524,6 +537,24 @@ impl TyTable {
 
     pub fn def(&self, id: TyConId) -> DefId {
         self.def_of[id]
+    }
+
+    /// The type parameters of a handler that an item of a `with`, of a layer or the right of
+    /// `by` gives type arguments to (`[effect.with]`), with the traits of their bounds. Empty for
+    /// an inner handler: its declaration is read with the type parameters of its outer handler,
+    /// whose instance opens it.
+    pub fn handler_params(&self, handler: DefId) -> &[TyParam] {
+        if self.inner_handlers.contains(&handler) {
+            return &[];
+        }
+        let Some(id) = self.con(handler) else {
+            return &[];
+        };
+        // The hidden capability sets of its fields come after them (`[type.rules]`): each item
+        // decides them as it decides those of the parameters of init.
+        let params = self.cons[id].params.as_slice();
+        let visible = self.caps.get(handler).map_or(params.len(), |c| c.visible);
+        &params[..visible]
     }
 
     /// Named error type → that error's definition.
@@ -1149,6 +1180,18 @@ fn decl_params(program: &Program, def: DefId, sets: &[Option<SetKind>]) -> Vec<T
     let type_params: &[TypeParam] = match program.item(def) {
         Some(Item::Type(TypeItem { type_params, .. }))
         | Some(Item::Enum(EnumItem { type_params, .. })) => type_params,
+        // The type parameters of a handler are ordinary types (E0424), with the traits of their
+        // bounds, which are checked at each item (`[effect.with]`).
+        Some(Item::Handler(_)) => {
+            return handler_type_params(program, def)
+                .iter()
+                .map(|tp| {
+                    let mut p = TyParam::new(program.defs[tp.def].name.clone());
+                    crate::signature::with_traits(program, &mut p, tp);
+                    p
+                })
+                .collect();
+        }
         _ => &[],
     };
     type_params
@@ -1203,10 +1246,27 @@ pub(crate) fn type_param_defs(program: &Program, def: DefId) -> Vec<DefId> {
         Some(Item::Type(TypeItem { type_params, .. }))
         | Some(Item::Enum(EnumItem { type_params, .. }))
         | Some(Item::Effect(EffectItem { type_params, .. })) => type_params,
+        Some(Item::Handler(_)) => handler_type_params(program, def),
         _ => &[],
     };
 
     type_params.iter().map(|tp| tp.def).collect()
+}
+
+/// The type parameters a handler's declaration is read with (`[effect.handler]`): its own, or for
+/// an inner handler, those of its outer handler. The type parameters written on an inner handler
+/// are E0460 and are not among them.
+pub(crate) fn handler_type_params(program: &Program, handler: DefId) -> &[TypeParam] {
+    let mut def = handler;
+    while let Some(outer) = program.defs[def].parent
+        && program.defs[outer].kind == DefKind::Handler
+    {
+        def = outer;
+    }
+    match program.item(def) {
+        Some(Item::Handler(h)) => &h.type_params,
+        _ => &[],
+    }
 }
 
 /// The name of the built-in Immediate bound (spec 9.5).
@@ -1344,6 +1404,25 @@ pub(crate) fn classify_fn_sets(
         .zip(&marks.in_set)
         .map(|(&t, &s)| if t { None } else { s })
         .collect()
+}
+
+/// For each of `params`, whether it is written in `types` as an ordinary type, and the kind of
+/// set it is written as, if any ([`classify_sets`] keeps only the second when the first is
+/// false).
+pub(crate) fn mark_all(
+    program: &Program,
+    decls: &DeclSets,
+    params: &[DefId],
+    types: impl IntoIterator<Item = TypeId>,
+) -> Vec<(bool, Option<SetKind>)> {
+    let mut marks = Marks {
+        in_type: vec![false; params.len()],
+        in_set: vec![None; params.len()],
+    };
+    for ty in types {
+        mark_params(program, decls, params, ty, &mut marks);
+    }
+    marks.in_type.into_iter().zip(marks.in_set).collect()
 }
 
 pub(crate) struct Marks {

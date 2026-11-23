@@ -403,3 +403,100 @@ fn taken_out() uses { Async } {
 "#
     ));
 }
+
+/// Handlers with type parameters and capabilities (`[effect.handler]`, `[effect.with]`,
+/// `[type.rules]`, `[effect.escape]`):
+///
+/// 1. A handler with a capability field and a type parameter: each item decides the hidden set of
+///    the field together with the type arguments. The R of `b.read()` has `b` only: `x` is in the
+///    hidden set of `b`, and calling an operation of the field through `self` adds nothing to the
+///    R of the caller (`[effect.handler]`).
+/// 2. `self` (of type `Box[A]`) is passed as `use Cell[A]`.
+/// 3. A capability made by a `with` inside init cannot be put in a field of `Self(...)` (E0455).
+/// 4. A capability as a type argument (`A = use Counter`): used inside the `with` that made it,
+///    and leaving it (E0455).
+/// 5. The hidden sets do not make the type arguments of an item ambiguous (E0459).
+/// 6. A capability made inside the body cannot go into a type argument fixed at an outer item
+///    (E0455).
+#[test]
+fn generic_handlers_and_capabilities() {
+    insta::assert_snapshot!(run(r#"
+effect Cell[A] {
+  fn read() -> A
+}
+
+handler Box[A](c: use Counter, v: A): Cell[A] {
+  init(c: use Counter, v: A) { Self(c:, v:) }
+  fn read() {
+    _ = self.c.next()
+    _ = peek(self)
+    self.v
+  }
+}
+
+fn peek[A](cell: use Cell[A]) -> () { () }
+
+handler Made[A](c: use Counter, v: A): Cell[A] {
+  init(v: A) {
+    with x = Counters.Open(1) { Self(c: x, v:) }
+  }
+  fn read() { self.v }
+}
+
+handler Keep[A](v: A): Cell[A] {
+  init(v: A) { Self(v:) }
+  fn read() { self.v }
+}
+
+effect Slot[A] {
+  fn put(value: A) -> ()
+}
+
+handler Drop[A]: Slot[A] {
+  fn put(value) { () }
+}
+
+fn boxed() -> Int {
+  with Plain, x = Counters.Open(1) {
+    with b = Box(c: x, v: 2) { b.read() }
+  }
+}
+
+fn kept_inside() -> Int {
+  with Plain, x = Counters.Open(1) {
+    with k = Keep(v: x) { k.read().next() }
+  }
+}
+
+fn kept_outside() {
+  with Plain {
+    with x = Counters.Open(1) {
+      with k = Keep(v: x) { () }
+    }
+  }
+}
+
+fn taken() {
+  with Plain {
+    c = with x = Counters.Open(1) {
+      with k = Keep(v: x) { k.read() }
+    }
+    ()
+  }
+}
+
+fn not_ambiguous() -> Int {
+  with Plain, x = Counters.Open(1), y = Counters.Open(2) {
+    with b = Box(c: x, v: 1), d = Box(c: y, v: "a") { b.read() }
+  }
+}
+
+fn into_outer() {
+  with s = Drop {
+    with l = Quiet {
+      s.put(|| l.info("x"))
+    }
+  }
+}
+"#));
+}

@@ -1923,6 +1923,22 @@
           "members": [
             {
               "type": "FIELD",
+              "name": "type_parameters",
+              "content": {
+                "type": "SYMBOL",
+                "name": "type_parameters"
+              }
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
               "name": "fields",
               "content": {
                 "type": "SYMBOL",
@@ -2293,6 +2309,22 @@
             "type": "SYMBOL",
             "name": "type_reference"
           }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "type_arguments",
+              "content": {
+                "type": "SYMBOL",
+                "name": "type_arguments"
+              }
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         },
         {
           "type": "CHOICE",
@@ -4497,25 +4529,28 @@
                   "type": "CHOICE",
                   "members": [
                     {
-                      "type": "CHOICE",
-                      "members": [
-                        {
-                          "type": "FIELD",
-                          "name": "type_arguments",
-                          "content": {
-                            "type": "SYMBOL",
-                            "name": "type_arguments"
-                          }
-                        },
-                        {
-                          "type": "FIELD",
-                          "name": "arguments",
-                          "content": {
-                            "type": "SYMBOL",
-                            "name": "arguments"
-                          }
-                        }
-                      ]
+                      "type": "FIELD",
+                      "name": "type_arguments",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "type_arguments"
+                      }
+                    },
+                    {
+                      "type": "BLANK"
+                    }
+                  ]
+                },
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "FIELD",
+                      "name": "arguments",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "arguments"
+                      }
                     },
                     {
                       "type": "BLANK"

@@ -35,6 +35,7 @@ use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
 mod capabilities;
 mod effects;
 mod errors;
+mod items;
 mod methods;
 mod suspend;
 
@@ -92,6 +93,12 @@ pub(crate) struct BodyTypes {
     pub(crate) self_caps: FxHashSet<ExprId>,
     /// Layers → per member, the arguments of init reordered by parameter.
     pub(crate) layer_args: Vec<(DefId, Vec<Vec<Option<ExprId>>>)>,
+    /// `with` expressions → per item, the type arguments of the handler with type parameters
+    /// that supplies it (`[effect.with]`). Empty for other items.
+    pub(crate) with_ty_args: SparseMap<ExprId, Vec<Vec<Ty>>>,
+    /// Layers → per member, the type arguments of a handler with type parameters
+    /// (`[effect.layer]`).
+    pub(crate) layer_ty_args: Vec<(DefId, Vec<Vec<Ty>>)>,
 }
 
 /// A handler operation body ([`BodyInfer::infer_handler`]), used when computing E and R.
@@ -141,6 +148,8 @@ pub(crate) struct HandlerFacts<'a> {
     pub(crate) uses: &'a ArenaMap<DefId, Row>,
     /// init's E, which goes into the E of `with` (spec 9.4).
     pub(crate) fails: &'a ArenaMap<DefId, Row>,
+    /// The type arguments of the members of layers (`[effect.layer]`).
+    pub(crate) layer_ty_args: &'a ArenaMap<DefId, Vec<Vec<Ty>>>,
 }
 
 /// State while inferring one group of definitions.
@@ -290,11 +299,20 @@ pub(crate) struct BodyInfer<'a> {
     with_args: SparseMap<ExprId, Vec<Vec<Option<ExprId>>>>,
     /// Layers → per member, the arguments of init reordered by parameter.
     layer_args: Vec<(DefId, Vec<Vec<Option<ExprId>>>)>,
+    /// `with` expressions → per item, the type arguments it gives a handler with type
+    /// parameters (`body/items.rs`).
+    item_insts: SparseMap<ExprId, Vec<items::ItemInst>>,
+    /// Layers of this group → per member, the type arguments it gives a handler with type
+    /// parameters.
+    layer_insts: Vec<(DefId, Vec<items::ItemInst>)>,
     /// Effect sets required to be `Immediate` (`body/suspend.rs`).
     immediates: Vec<ImmediateObligation>,
     /// Types required to satisfy a trait by the constraints of instantiated type parameters,
     /// checked once the group's types are settled ([`Self::check_traits`]).
     trait_obligations: Vec<TraitObligation>,
+    /// The trait constraints of the type parameters of handlers instantiated at items
+    /// (`body/items.rs`), checked once the effects of the group are inferred.
+    item_obligations: Vec<TraitObligation>,
     /// The `Self` of referenced trait functions that only the result type determines, checked
     /// to be known once the group's types are settled ([`Self::check_known_selves`]).
     self_obligations: Vec<SelfObligation>,
@@ -414,8 +432,11 @@ impl<'a> BodyInfer<'a> {
             with_handlers: SparseMap::new(),
             with_args: SparseMap::new(),
             layer_args: Vec::new(),
+            item_insts: SparseMap::new(),
+            layer_insts: Vec::new(),
             immediates: Vec::new(),
             trait_obligations: Vec::new(),
+            item_obligations: Vec::new(),
             self_obligations: Vec::new(),
             immediate_vars: Default::default(),
         }
@@ -429,6 +450,13 @@ impl<'a> BodyInfer<'a> {
         self.module = self.program.defs[def].module.clone();
         self.self_ty = None;
         (self.type_params, self.param_kinds) = match self.program.item(def) {
+            // The handler's type parameters (`[effect.handler]`), or for an inner handler those
+            // of its outer handler.
+            Some(Item::Handler(_)) => {
+                let defs = crate::lower::type_param_defs(self.program, def);
+                let kinds = vec![ParamKind::Type; defs.len()];
+                (defs, kinds)
+            }
             Some(Item::Fn(item)) => {
                 let params = FnParams::new(self.program, self.ty_table, item);
                 (params.defs, params.kinds)
@@ -541,12 +569,20 @@ impl<'a> BodyInfer<'a> {
             return;
         }
         if let Some(Item::Layer(item)) = program.item(def) {
+            let mut insts = Vec::new();
             let args = item
                 .members
                 .iter()
-                .map(|m| self.infer_supply_args(m.res, m.args.as_ref(), m.span))
+                .map(|m| {
+                    let mut inst = self.instantiate_item(m.res, &m.ty_args, m.span, true);
+                    let args = self.infer_supply_args(m.res, m.args.as_ref(), m.span, &inst.args);
+                    self.freeze(&mut inst);
+                    insts.push(inst);
+                    args
+                })
                 .collect();
             self.layer_args.push((def, args));
+            self.layer_insts.push((def, insts));
             return;
         }
         let declared = match self.sigs.get(def) {
@@ -1178,6 +1214,8 @@ impl<'a> BodyInfer<'a> {
         // Compute and solve the error and effect sets (`body/errors.rs`, `body/effects.rs`).
         self.infer_errors();
         self.infer_effects();
+        self.trait_obligations = std::mem::take(&mut self.item_obligations);
+        self.check_traits();
         self.solve_errors();
         self.check_leaks();
         self.check_immediates();
@@ -1202,6 +1240,25 @@ impl<'a> BodyInfer<'a> {
             generalized_rows.push((def, rows));
             generalized_tys.push((def, tys));
         }
+        self.check_items_determined(&generalized_tys);
+        let mut with_ty_args = SparseMap::default();
+        for (expr, insts) in self.item_insts.clone().iter() {
+            let args = insts
+                .iter()
+                .map(|i| i.args.iter().map(|t| self.ctx.resolve(t)).collect())
+                .collect();
+            with_ty_args.insert(expr, args);
+        }
+        let layer_ty_args = std::mem::take(&mut self.layer_insts)
+            .into_iter()
+            .map(|(layer, insts)| {
+                let args = insts
+                    .iter()
+                    .map(|i| i.args.iter().map(|t| self.ctx.resolve(t)).collect())
+                    .collect();
+                (layer, args)
+            })
+            .collect();
 
         let exprs = resolve_all(&mut self.ctx, &self.exprs);
         let mut errors = SparseMap::default();
@@ -1260,6 +1317,8 @@ impl<'a> BodyInfer<'a> {
             narrowings: self.narrowings,
             self_caps: self.self_caps,
             layer_args: self.layer_args,
+            with_ty_args,
+            layer_ty_args,
         }
     }
 
@@ -1443,8 +1502,9 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Use { .. } => Ty::Error,
             ExprKind::With { handlers, body } => {
                 self.infer_with_args(expr, handlers);
+                let insts = self.item_insts(expr, handlers);
                 let provides =
-                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers)
+                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts)
                         .into_iter()
                         .filter(|e| e.named)
                         .map(|e| e.effect)
@@ -1479,9 +1539,41 @@ impl<'a> BodyInfer<'a> {
     /// arguments of the member's init, and binds x to the capability of the effect the member
     /// declares (`[effect.with]`). Another bound item binds x to the capability of the effect it
     /// provides.
+    ///
+    /// The handler with type parameters that supplies an item is instantiated first
+    /// (`body/items.rs`), so that the effects the item provides, the type of a name bound to it
+    /// and the parameters of its init have the same type variables.
     fn infer_with_args(&mut self, expr: ExprId, items: &[WithItem]) {
         let program = self.program;
-        let entries = crate::layer::with_entries(program, self.sigs, self.ty_table, items);
+        let insts: Vec<items::ItemInst> = items
+            .iter()
+            .map(|item| {
+                if crate::layer::is_member_item(program, item) {
+                    return items::ItemInst::default();
+                }
+                // A label left of `by` takes no type arguments (E0304).
+                if item.by.is_some() && !item.ty_args.is_empty() {
+                    self.instantiate_item(item.res, &item.ty_args, item.span, false);
+                }
+                let (target, _) = item.supplier();
+                let span = item.by.map_or(item.span, |(_, s)| s);
+                let written = match (item.by, target) {
+                    // The type arguments of an effect right of `by` are read by `by_tag`.
+                    (Some(_), Res::Def(d)) if program.defs[d].kind == DefKind::Effect => &[][..],
+                    _ => item.supplier_ty_args(),
+                };
+                let mut inst = self.instantiate_item(target, written, span, false);
+                if item.by.is_some() {
+                    self.unify_with_label(item.res, &inst);
+                }
+                self.freeze(&mut inst);
+                inst
+            })
+            .collect();
+        self.item_insts.insert(expr, insts.clone());
+        let insts_now = self.item_insts(expr, items);
+        let entries =
+            crate::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
         let mut opened = Vec::new();
         let args = items
             .iter()
@@ -1576,17 +1668,36 @@ impl<'a> BodyInfer<'a> {
                     };
                     self.set_local(local, ty);
                 }
+                let ty_args = &insts[i].args;
                 match item.by {
                     // The label left of `by` takes no arguments.
                     Some((by, by_span)) => {
-                        self.infer_supply_args(item.res, item.args.as_ref(), item.span);
-                        self.infer_supply_args(by, item.by_init_args.as_ref(), by_span)
+                        self.infer_supply_args(item.res, item.args.as_ref(), item.span, &[]);
+                        self.infer_supply_args(by, item.by_init_args.as_ref(), by_span, ty_args)
                     }
-                    None => self.infer_supply_args(item.res, item.args.as_ref(), item.span),
+                    None => {
+                        self.infer_supply_args(item.res, item.args.as_ref(), item.span, ty_args)
+                    }
                 }
             })
             .collect();
         self.with_args.insert(expr, args);
+        // The arguments of init may have determined the type arguments; only then does the item
+        // take part in overriding (`[effect.with]`).
+        for (i, inst) in insts.iter().enumerate() {
+            if !inst.args.is_empty() && !inst.determined && self.inst_known(inst) {
+                let mut inst = inst.clone();
+                inst.determined = true;
+                self.freeze(&mut inst);
+                if let Some(v) = self.item_insts.get_mut(expr) {
+                    v[i] = inst;
+                }
+            }
+        }
+        let insts_now = self.item_insts(expr, items);
+        let entries =
+            crate::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
+        self.check_item_overrides(expr, &entries);
         if !opened.is_empty() {
             self.with_members.insert(expr, opened);
         }
@@ -1672,11 +1783,15 @@ impl<'a> BodyInfer<'a> {
     /// parameters of its init, as the arguments of a call (`[effect.handler]`, spec 6.2), and
     /// returns them reordered by parameter. A handler whose init takes parameters needs them
     /// (E0434); anything else takes none (E0435). `span` is where `target` is written.
+    ///
+    /// For a handler with type parameters, the types of the parameters are instantiated with
+    /// `ty_args`, the type arguments of the item (`[effect.with]`).
     fn infer_supply_args(
         &mut self,
         target: Res,
         args: Option<&SupplyArgs>,
         span: Span,
+        ty_args: &[Ty],
     ) -> Vec<Option<ExprId>> {
         let program = self.program;
         let sigs = self.sigs;
@@ -1684,7 +1799,14 @@ impl<'a> BodyInfer<'a> {
             Res::Def(def) if matches!(program.item(def), Some(Item::Handler(_))) => Some(def),
             _ => None,
         };
-        let params = handler.and_then(|h| sigs.init_params(h).map(|p| (h, p)));
+        let instantiated = handler.and_then(|h| sigs.init_params(h)).map(|p| {
+            let mut p = p.clone();
+            if !ty_args.is_empty() {
+                p.tys = p.tys.iter().map(|t| substitute_bound(t, ty_args)).collect();
+            }
+            p
+        });
+        let params = handler.zip(instantiated.as_ref());
         match (params, args) {
             (None, None) => Vec::new(),
             (Some((h, params)), None) => {

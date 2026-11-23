@@ -218,6 +218,10 @@ pub const CAPABILITY_LEAK: &str = "E0455";
 pub const CAPABILITY_IN_OP_RESULT: &str = "E0456";
 pub const BORROWED_POSITION: &str = "E0457";
 pub const BOUND_TYPE_OUTSIDE_HANDLER: &str = "E0458";
+// Handlers with type parameters (`[effect.handler]`, `[effect.with]`)
+pub const HANDLER_ARGS_UNKNOWN: &str = "E0459";
+pub const INNER_HANDLER_TYPE_PARAMS: &str = "E0460";
+pub const UNUSED_HANDLER_PARAM: &str = "E0462";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

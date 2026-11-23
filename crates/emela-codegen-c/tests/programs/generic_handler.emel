@@ -1,0 +1,112 @@
+import Std.State.{State}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+# Handlers with type parameters (`[effect.handler]`, `[effect.with]`): each item copies the
+# handler for its type arguments.
+
+effect Cell[A] {
+  fn read() -> A
+  fn write(value: A) -> ()
+}
+
+effect Repo[K, V] {
+  fn find(key: K) -> Option[V]
+  fn save(key: K, value: V) -> ()
+}
+
+handler Memory[A](initial: A, show: fn(A) -> String): Cell[A] {
+  init(initial: A, show: fn(A) -> String) {
+    print("open #{show(initial)}")
+    Memory(initial:, show:)
+  }
+
+  release {
+    print("close #{(self.show)(self.initial)}")
+  }
+
+  fn read() { self.initial }
+  fn write(value) { print("write #{(self.show)(value)}") }
+}
+
+handler InMemoryRepo[K: Eq, V]: Repo[K, V] {
+  fn find(key) {
+    st <- State[List[(K, V)]]
+    List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v)
+  }
+
+  fn save(key, value) {
+    st <- State[List[(K, V)]]
+    st.update(|xs| [(key, value), ..xs])
+  }
+}
+
+handler Pass[S]: State[S] {
+  fn get() {
+    st <- State[S]
+    st.get()
+  }
+
+  fn set(value) {
+    st <- State[S]
+    st.set(value)
+  }
+
+  fn update(f) {
+    st <- State[S]
+    st.update(f)
+  }
+}
+
+effect Hits of State[Int]
+
+fn ints() -> Int uses { Cell[Int] } {
+  c <- Cell[Int]
+  c.read() + 1
+}
+
+fn names() -> String uses { Cell[String] } {
+  c <- Cell[String]
+  c.read()
+}
+
+fn repo_test() -> String uses { Repo[Int, String] } {
+  repo <- Repo[Int, String]
+  repo.save(1, "one")
+  repo.save(2, "two")
+  repo.find(2) match {
+    Some(v) -> v
+    None    -> "none"
+  }
+}
+
+fn hits() -> Int uses { Hits } {
+  h <- Hits
+  h.update(|n| n + 10)
+  h.get()
+}
+
+# The type argument is generalized into peek (`[effect.with]`).
+fn touch() { with x = Pass { x.set(x.get()) } }
+
+layer Both {
+  Memory(initial: 7, show: Int.to_string)
+  Memory[String](initial: "seven", show: |s| s)
+}
+
+fn main() {
+  with Memory(initial: 1, show: Int.to_string) { print("ints #{ints()}") }
+  with Memory(initial: "a", show: |s| s) { print("names #{names()}") }
+  with c = Memory[Int](initial: 2, show: Int.to_string) {
+    c.write(c.read() + 1)
+  }
+  with Both { print("both #{ints()} #{names()}") }
+  (found, saved) = State.run([], || with InMemoryRepo { repo_test() })
+  print("found #{found}, saved #{List.length(saved)}")
+  (n, _) = State.run(5, || with Hits by Pass { hits() })
+  print("hits #{n}")
+  (_, t) = State.run("touched", || touch())
+  print(t)
+}

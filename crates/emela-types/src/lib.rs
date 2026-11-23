@@ -33,8 +33,8 @@ mod tests;
 
 pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
 pub use diagnostic::{
-    Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, InnerHandlerMismatch,
-    LabelBaseReason, LayerArg, LeakFrom, SuspendingCall,
+    Diagnostic, DiagnosticKind, EffectContext, HandlerArgsReason, ImmediateSource,
+    InnerHandlerMismatch, LabelBaseReason, LayerArg, LeakFrom, SuspendingCall,
 };
 pub use display::{SchemeDisplay, TyDisplay};
 pub use entry_main::is_exit_code;
