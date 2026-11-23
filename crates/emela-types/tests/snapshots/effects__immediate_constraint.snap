@@ -15,13 +15,14 @@ inferred: ∀ E, R: Immediate. fn() -> fn(fn(Int) -> Int fails E uses { R }) -> 
 not_effect: ∀ A. fn(A) -> A
 trait_bound: ∀ R, E(f). fn(fn() -> () fails E(f) uses { R }) -> () fails E(f) uses { R }
 handler Ticking: use { Async, Logger, Clock }
-`fn() -> () uses { Clock }` NotImmediate { effects: ["Clock"], sets: [], required: ExternalCallback { callee: "on_tick" } }
+`fn() -> () uses { Clock }` CallbackEffects { effects: ["Clock"], callee: None }
 `update` NotImmediate { effects: ["Clock"], sets: [], required: Bound { param: "R", callee: "update" } }
 `update` NotImmediate { effects: [], sets: ["R(f)"], required: Bound { param: "R", callee: "update" } }
 `update` NotImmediate { effects: [], sets: ["R"], required: Bound { param: "R", callee: "update" } }
 `Immediate` ImmediateOnNonEffect { param: "A" }
 `Show` not supported yet: trait bounds on effect sets
-`set_timeout` NotImmediate { effects: ["Clock"], sets: [], required: ExternalCallback { callee: "set_timeout" } }
+`set_timeout` CallbackEffects { effects: ["Logger"], callee: Some("set_timeout") }
+`set_timeout` CallbackEffects { effects: ["Clock"], callee: Some("set_timeout") }
 `set_timeout(1, || (use Clock).sleep(1))` SuspendingFnOp { op: "info", call: Fn { callee: Some("set_timeout"), effects: ["Clock"] } }
 `set_timeout` NotImmediate { effects: ["Async"], sets: [], required: ExternalCallback { callee: "set_timeout" } }
 `set_timeout(1, || {

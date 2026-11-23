@@ -55,9 +55,12 @@ pub fn resolve_files<'s>(
     let (program, diagnostics) = resolve(&modules, &trees, &NoBuiltins);
     // E0130 is still allowed: it used to be reported on the `@intrinsic` declarations of the
     // bundled sources. The syntax check exempts them now (`emela_syntax` validation).
+    // W0403 (`use E` written as an expression is deprecated, `[effect.use]`) is checked by the
+    // tests of diagnostics; the programs here still use the deprecated forms.
     let diagnostics: Vec<_> = diagnostics
         .iter()
         .filter(|d| !d.to_string().contains("E0130"))
+        .filter(|d| !matches!(d.kind, emela_resolve::DiagnosticKind::DeprecatedUse { .. }))
         .collect();
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     (program, modules, entry, texts)

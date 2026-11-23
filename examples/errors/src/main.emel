@@ -25,7 +25,8 @@ handler SampleUsers: Users {
 # Inferred: fails NotFound | Invalid, uses { Users }.
 fn greeting(id: Int) {
   if id < 0 { fail Invalid(reason: "negative id") }
-  user = (use Users).find(id)
+  users <- Users
+  user = users.find(id)
   "Hello, #{user.name}!"
 }
 
@@ -38,7 +39,7 @@ fn greeting_or_guest(id: Int) {
 
 fn main() {
   with SystemConsole, SampleUsers {
-    console = use Console
+    console <- Console
     console.print_line(greeting_or_guest(1))
     console.print_line(greeting_or_guest(3))
     console.print_line(greeting_or_guest(-1))

@@ -109,7 +109,7 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `e match { pi -> ei }` | The common type of the arms | Ee ∪ Eei | Re ∪ Rei |
 
 - A call `f(a)` adds to R the elements of the R of f, with each capability element that is a parameter replaced by the elements of the corresponding argument.
-- An anonymous function and a local fn enclose the E and R of their bodies in their function types. They surface when the function is called. A reference to a local fn inside its own body has the type being inferred, and is not generalized.
+- An anonymous function and a local fn enclose the E and R of their bodies in their function types. They surface when the function is called. The R of the function is provided where the function is called, not where it is made. A reference to a local fn inside its own body has the type being inferred, and is not generalized.
 - Never can form a common type with any type. Even if one branch of an if or a match is a fail, the type of the whole is the type of the other branch.
 - When there is no expected type and the types of the branches do not match, the type of the first branch is reported as the expected type and the type of a later branch as the actual type (E0301), and checking continues with the type of the first branch as the type of the whole.
 - For a field access `x.name`, the type of x MUST already be determined to be a named type when checking reaches it. Otherwise it is a compile error (E0314). The type is not worked out backward from the field name (there is no row polymorphism).

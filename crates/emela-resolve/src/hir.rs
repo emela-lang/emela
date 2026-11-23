@@ -123,6 +123,9 @@ pub enum LocalKind {
     Binding,
     /// The name of a local fn (`[fn.local]`). Its parameters are [`LocalKind::Param`].
     LocalFn,
+    /// The x of an effect alias `x <- E` (`[effect.use]`). It is not a value: each reference is
+    /// lowered to its own `use E` ([`Program::alias_uses`]).
+    EffectAlias,
     /// Variables in the patterns of match and escape arms.
     ArmBinding,
 }
@@ -824,6 +827,12 @@ pub struct Program {
     /// Paths to a handler member named through a label (`Audit.Open` inside an init,
     /// `[effect.label]`) → the label. The path resolves to the member of the label's base.
     pub member_labels: ArenaMap<ExprId, DefId>,
+    /// The `use E` expressions resolved at the call (`[effect.use]`): each reference `x` of an
+    /// effect alias `x <- E`, lowered to `use E` and recorded with `Some(x)`, and the receiver
+    /// `use E` of `(use E).op(...)` and `(use E).op`, recorded with `None` (the expansion
+    /// `{ h <- E; h.op(...) }`). Such a `use E` is not a capability value: it makes no root
+    /// (`[effect.escape]`), and `x.op` without a call resolves E each time it is called.
+    pub alias_uses: ArenaMap<ExprId, Option<LocalId>>,
 }
 
 /// The fn that `@entry(T)` on `f` exposes for each `@export` of `T` (spec 12.8): a top-level fn

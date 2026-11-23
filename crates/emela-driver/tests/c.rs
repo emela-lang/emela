@@ -60,10 +60,12 @@ fn run_c(name: &str, main: &str, backend: &mut CoreC) -> (Analysis, Option<RunOu
     result
 }
 
+/// The diagnostics but W0403: the programs still write `use E` as an expression (deprecated).
 fn codes(analysis: &Analysis) -> Vec<(Option<&str>, &str)> {
     analysis
         .diagnostics
         .iter()
+        .filter(|d| d.code != Some(emela_driver::code::DEPRECATED_USE))
         .map(|d| (d.code, d.message.as_str()))
         .collect()
 }

@@ -15,9 +15,11 @@ fn checked(files: &[(&str, &str)]) -> Analysis {
 /// The errors and warnings of `main.emel` as `code message @ source text`.
 fn diagnostics(main: &str) -> Vec<String> {
     let analysis = checked(&[("/app/src/main.emel", main)]);
+    // W0403: the programs still write `use E` as an expression (deprecated).
     analysis
         .diagnostics
         .iter()
+        .filter(|d| d.code != Some(emela_driver::code::DEPRECATED_USE))
         .map(|d| {
             let at = match d.location {
                 Some(Location::Span(span)) => &main[span.range],

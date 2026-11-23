@@ -105,7 +105,7 @@ impl Printer {
             DERIVE_CLAUSE => self.seq(node, |_, cur| cur != COMMA),
             // Effect type arguments (`handler H: State[Int]`, `use State[Int]`, `of State[Int]`)
             // attach to the name.
-            HANDLER_EFFECT | USE_EXPR | EFFECT_LABEL => {
+            HANDLER_EFFECT | USE_EXPR | EFFECT_LABEL | EFFECT_ALIAS => {
                 self.seq(node, |_, cur| cur != TYPE_ARG_LIST)
             }
             WITH_BY => self.seq(node, |_, cur| cur != TYPE_ARG_LIST),

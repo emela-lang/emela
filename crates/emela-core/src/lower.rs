@@ -334,8 +334,9 @@ struct Lowerer<'a> {
     /// what it opened, and whether that may suspend (`lower/member.rs`).
     opened_cell: Option<(Local, bool)>,
     /// Effects and handler values provided by enclosing `with`s, outermost first. Only `with`s in
-    /// the same function (a top-level fn or a handler operation), carried into lambdas. `use X`
-    /// searches from the back (spec 8.3).
+    /// the same function: a top-level fn, a handler operation, or the body of a lambda or a local
+    /// fn, which starts empty, since the side that calls it provides its R (`[effect.with]`).
+    /// `use X` searches from the back (spec 8.3).
     bound: Vec<(EffectKey, Local)>,
     paths: &'a ArenaMap<ModuleId, &'a Path>,
     shown_paths: &'a ArenaMap<ModuleId, String>,
@@ -2492,29 +2493,31 @@ impl<'a> Lowerer<'a> {
     }
 
     /// A lambda. If its type's R is not empty, it takes the evidence table as its last argument.
-    /// Bindings of enclosing `with`s are added to the received table for the body (`use X` looks
-    /// at enclosing `with`s first, spec 8.3).
     ///
-    /// `[effect.with]` says `use X` takes X from the caller when no `with` in the same function
-    /// provides it. For the enclosing `with`s, "the same function" is the top-level fn the lambda
-    /// is in; for the table, it is the lambda itself. The type checker keeps the R of a lambda's
-    /// body in the lambda's type instead of adding it to the enclosing function's R, so the
-    /// enclosing function's table need not hold X, and only the lambda's caller can supply it.
+    /// The handlers that the calls in the body need are passed by the side that calls the
+    /// lambda; the enclosing `with`s do not provide them (`[effect.with]`, `[type.rules]`). The
+    /// type checker keeps the R of a lambda's body in the lambda's type, so the table its caller
+    /// passes holds them. A capability value the lambda captures is a local, and keeps referring
+    /// to its handler.
     fn lambda(&mut self, id: ExprId, params: &[emela_resolve::hir::Param], body: ExprId) -> Expr {
         let mut ps: Vec<Local> = params.iter().map(|p| self.local(p.local)).collect();
         let suspends = self.ty_suspends(self.expr_ty(id));
         let ty = self.ty(self.expr_ty(id));
+        let bound = std::mem::take(&mut self.bound);
         if !self.ty_takes_ev(self.expr_ty(id)) {
+            let body = self.expr(body);
+            self.bound = bound;
             return Expr::Lambda {
                 params: ps,
                 ty,
-                body: Box::new(self.expr(body)),
+                body: Box::new(body),
                 suspends,
             };
         }
         let p = self.ev_local();
         ps.push(p);
         let body = self.body_with_ev(p, body);
+        self.bound = bound;
         Expr::Lambda {
             params: ps,
             ty,
@@ -2526,6 +2529,10 @@ impl<'a> Lowerer<'a> {
     /// An operation on a capability value used as a value without calling it
     /// (`List.each(xs, log.info)`). Becomes a lambda that just calls it. The capability value is
     /// evaluated at the reference.
+    ///
+    /// Through an effect alias or `(use E)` (`x.op`, `(use E).op`), the handler is looked up when
+    /// the function value is called, in the table its caller passes (`[effect.use]`): the lambda
+    /// is `|a| x.op(a)`.
     fn op_value(&mut self, id: ExprId, base: ExprId, op: DefId, span: Span) -> Expr {
         let Some(Ty::Cap(tags)) = self.types.exprs.get(base).cloned() else {
             return self.unsupported("effect operation", span);
@@ -2546,12 +2553,49 @@ impl<'a> Lowerer<'a> {
         };
         let param_tys: Vec<TypeId> = param_tys.iter().map(|t| self.ty(t)).collect();
         let ty = self.ty(self.expr_ty(id));
-        let value = self.expr(base);
+        let ev = ev.then(|| self.ev_local());
+        let at_call = ev.is_some() && self.hir.alias_uses.get(base).is_some();
+        let value = if at_call {
+            let (outer, bound) = (self.ev, std::mem::take(&mut self.bound));
+            self.ev = ev;
+            let value = self.expr(base);
+            self.ev = outer;
+            self.bound = bound;
+            value
+        } else {
+            self.expr(base)
+        };
         let (handler, _) = self
             .cap_table(value, &tags, op)
             .expect("the operation's effect is one of the capability's");
         let h_ty = self.module.handler(effect_id);
         let h = self.module.local("h", h_ty);
+        // The handler is bound inside the lambda when it is looked up at the call, and outside
+        // it otherwise.
+        let bind = |lambda: Expr, handler: Expr| -> Expr {
+            match lambda {
+                Expr::Lambda {
+                    params,
+                    ty,
+                    body,
+                    suspends,
+                } if at_call => Expr::Lambda {
+                    params,
+                    ty,
+                    body: Box::new(Expr::Let {
+                        var: h,
+                        value: Box::new(handler),
+                        body,
+                    }),
+                    suspends,
+                },
+                lambda => Expr::Let {
+                    var: h,
+                    value: Box::new(handler),
+                    body: Box::new(lambda),
+                },
+            }
+        };
         // Scope's fork wraps the child function, as at a call (`fiber.rs`).
         if self.is_fork_op(tag.def, op) {
             let op_ty = self.expr_ty(id).clone();
@@ -2560,51 +2604,41 @@ impl<'a> Lowerer<'a> {
             };
             let x_ty = param_tys.first().copied().unwrap_or(TypeId::UNIT);
             let x = self.module.local("x", x_ty);
-            // The evidence table, if the type takes one, is unused: operation calls take no table
-            // (`Callee::Op`).
+            // The evidence table, if the type takes one, is used only to look up the handler:
+            // operation calls take no table (`Callee::Op`).
             let mut params = vec![x];
-            if ev {
-                params.push(self.ev_local());
-            }
-            return Expr::Let {
-                var: h,
-                value: Box::new(handler),
-                body: Box::new(Expr::Lambda {
-                    params,
-                    ty,
-                    body: Box::new(fork.apply(vec![Expr::Var(x)])),
-                    suspends: false,
-                }),
+            params.extend(ev);
+            let lambda = Expr::Lambda {
+                params,
+                ty,
+                body: Box::new(fork.apply(vec![Expr::Var(x)])),
+                suspends: false,
             };
+            return bind(lambda, handler);
         }
         let mut params: Vec<Local> = param_tys
             .into_iter()
             .map(|t| self.module.local("x", t))
             .collect();
         let args = params.iter().map(|&l| Expr::Var(l)).collect();
-        if ev {
-            params.push(self.ev_local());
-        }
-        Expr::Let {
-            var: h,
-            value: Box::new(handler),
-            body: Box::new(Expr::Lambda {
-                params,
-                ty,
-                body: Box::new(Expr::Call {
-                    callee: Callee::Op {
-                        handler: Box::new(Expr::Var(h)),
-                        effect: effect_id,
-                        op: index,
-                        ty_args: self.op_ty_args(effect_id, index, id),
-                    },
-                    args,
-                    fails,
-                    suspends,
-                }),
+        params.extend(ev);
+        let lambda = Expr::Lambda {
+            params,
+            ty,
+            body: Box::new(Expr::Call {
+                callee: Callee::Op {
+                    handler: Box::new(Expr::Var(h)),
+                    effect: effect_id,
+                    op: index,
+                    ty_args: self.op_ty_args(effect_id, index, id),
+                },
+                args,
+                fails,
                 suspends,
             }),
-        }
+            suspends,
+        };
+        bind(lambda, handler)
     }
 
     /// Reports external functions reachable from `entries` (functions of the monomorphized

@@ -94,23 +94,20 @@ suspend fn count(i%0: i32 (Int), acc%1: i32 (Int), ev%2: ref (evidence)) -> i32 
   return t%12
 }
 
-suspend fn main$closure0(env%0: ref (fn() -> Int suspends ev), ev%1: ref (evidence)) -> i32 (Int) defects env[handler Clock] {
-  h%2: ref (handler Clock) = env_get env%0#0
-  dup h%2
-  ev%3: ref (evidence) = ev_extend(ev%1, [Clock: h%2])
-  runtime yield() on_suspend #0 [ev%3] on_defect {
-    drop ev%3
+suspend fn main$closure0(env%0: ref (fn() -> Int suspends ev), ev%1: ref (evidence)) -> i32 (Int) defects env[] {
+  runtime yield() on_suspend #0 [ev%1] on_defect {
+    drop ev%1
     unwind
   }
-  dup ev%3
-  t%4: i32 (Int) = call count(2, 0, ev%3)! on_suspend #1 [ev%3] on_defect {
-    drop ev%3
+  dup ev%1
+  t%2: i32 (Int) = call count(2, 0, ev%1)! on_suspend #1 [ev%1] on_defect {
+    drop ev%1
     unwind
   }
-  runtime yield() on_suspend #2 [ev%3, t%4] on_defect {
-    drop ev%3
+  runtime yield() on_suspend #2 [ev%1, t%2] on_defect {
+    drop ev%1
     unwind
   }
-  t%5: i32 (Int) = call nap(t%4, "a", ev%3)! on_suspend #3 [] on_defect { unwind }
-  return t%5
+  t%3: i32 (Int) = call nap(t%2, "a", ev%1)! on_suspend #3 [] on_defect { unwind }
+  return t%3
 }

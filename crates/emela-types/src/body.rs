@@ -209,6 +209,9 @@ pub(crate) struct BodyInfer<'a> {
     /// Local variables bound to `use E` (`body/effects.rs`): at the end of their binding their
     /// capability is removed from R, not replaced with its effect.
     use_bound: rustc_hash::FxHashSet<LocalId>,
+    /// While computing R: the callees of calls and pipes, so that an operation of an effect alias
+    /// that is called is told from one taken as a function value (`body/effects.rs`).
+    called: rustc_hash::FxHashSet<ExprId>,
     /// Field access expressions → field indices.
     fields: SparseMap<ExprId, usize>,
     /// Call, pipe and update expressions → the arguments reordered by position.
@@ -371,6 +374,7 @@ impl<'a> BodyInfer<'a> {
             row_diffs: Vec::new(),
             row_widens: Vec::new(),
             use_bound: Default::default(),
+            called: Default::default(),
             piped_calls: SparseMap::default(),
             binder: None,
             local_binder: SparseMap::default(),

@@ -1088,7 +1088,7 @@ fn run_calls_external_module_next_to_the_source() {
             ),
             (
                 "src/main.emel",
-                "import Host.Host.{Host, NodeHost}\n\nfn main() {\n  with NodeHost {\n    h = use Host\n    dbg(String.code_points(h.lone()))\n    h.boom()\n  }\n}\n",
+                "import Host.Host.{Host, NodeHost}\n\nfn main() {\n  with NodeHost {\n    h <- Host\n    dbg(String.code_points(h.lone()))\n    h.boom()\n  }\n}\n",
             ),
         ],
     );

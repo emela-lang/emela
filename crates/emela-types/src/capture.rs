@@ -218,6 +218,9 @@ struct Cx<'a, 'b> {
     withs: Vec<(ExprId, Vec<Option<DefId>>)>,
     /// The binders enclosing the current expression, innermost last.
     binders: Vec<Binder>,
+    /// For each closure or local fn in `binders`, the length of `withs` when its body was
+    /// entered: the `with`s before it do not provide its R (`[effect.with]`).
+    binder_withs: Vec<usize>,
     /// The variable bound to each root, for display.
     names: FxHashMap<Holder, LocalId>,
     diags: Vec<Diagnostic>,
@@ -234,6 +237,7 @@ impl<'a, 'b> Cx<'a, 'b> {
             env: FxHashMap::default(),
             withs: Vec::new(),
             binders: Vec::new(),
+            binder_withs: Vec::new(),
             names: FxHashMap::default(),
             diags: Vec::new(),
             exprs: Vec::new(),
@@ -330,9 +334,12 @@ impl<'a, 'b> Cx<'a, 'b> {
         }
     }
 
-    /// The root `use E` refers to here (`[effect.with]`).
+    /// The root `use E` refers to here (`[effect.with]`): the innermost `with` that provides E
+    /// inside the current function, closures and local fns included, or else what its caller
+    /// passes.
     fn use_root(&self, effect: DefId) -> Holder {
-        for (with, provides) in self.withs.iter().rev() {
+        let floor = self.binder_withs.last().copied().unwrap_or(0);
+        for (with, provides) in self.withs[floor..].iter().rev() {
             if let Some(entry) = provides.iter().position(|&e| e == Some(effect)) {
                 return Holder::With(*with, entry);
             }
@@ -383,11 +390,12 @@ impl<'a, 'b> Cx<'a, 'b> {
                 if let Some(&op) = self.input.ops.get(expr) {
                     // An operation not called: calling it gives what its arguments and the
                     // handler hold.
+                    let handler = self.handler_holds(*base, &base_val);
                     return Val {
                         holds: base_val.holds.clone(),
                         call: Some(Rc::new(FnVal {
                             binder: Binder::Def(op),
-                            ret: self.default_ret(op, base_val.holds),
+                            ret: self.default_ret(op, handler),
                         })),
                     };
                 }
@@ -490,6 +498,8 @@ impl<'a, 'b> Cx<'a, 'b> {
                 self.eval(*e);
                 Val::default()
             }
+            // An effect alias and `(use E).op(...)` hold nothing (`[effect.escape]`).
+            ExprKind::Use { .. } if self.program().alias_uses.get(expr).is_some() => Val::default(),
             ExprKind::Use {
                 effect: Res::Def(effect),
                 ..
@@ -526,6 +536,7 @@ impl<'a, 'b> Cx<'a, 'b> {
         let mut captured = Holds::new();
         self.captured(body, &inside, &mut captured);
         self.binders.push(binder);
+        self.binder_withs.push(self.withs.len());
         for (i, &p) in params.iter().enumerate() {
             let param = Holder::Param(binder, i);
             self.names.insert(param, p);
@@ -533,6 +544,7 @@ impl<'a, 'b> Cx<'a, 'b> {
         }
         let ret = self.eval(body).holds;
         self.binders.pop();
+        self.binder_withs.pop();
         Val {
             holds: captured,
             call: Some(Rc::new(FnVal { binder, ret })),
@@ -632,6 +644,23 @@ impl<'a, 'b> Cx<'a, 'b> {
         holds
     }
 
+    /// The handler that an operation called on `base` reaches, as the return value of the
+    /// operation holds it (`[effect.escape]`). An effect alias and `(use E)` hold nothing
+    /// themselves, but the call reaches the handler of E where it is evaluated: the root of the
+    /// innermost `with` in the current function, or what its caller passes. For `x.op` without a
+    /// call this is where it is written, which is the same place unless the function value is
+    /// called elsewhere.
+    fn handler_holds(&self, base: ExprId, base_val: &Val) -> Holds {
+        let program = self.program();
+        match program.exprs[base].kind {
+            ExprKind::Use {
+                effect: Res::Def(effect),
+                ..
+            } if program.alias_uses.get(base).is_some() => Holds::from([self.use_root(effect)]),
+            _ => base_val.holds.clone(),
+        }
+    }
+
     /// A call. `written` are the arguments as written (for a pipe, the left side first).
     fn call(&mut self, expr: ExprId, callee: ExprId, written: &[ExprId]) -> Val {
         let program = self.program();
@@ -650,7 +679,7 @@ impl<'a, 'b> Cx<'a, 'b> {
             (ExprKind::Field { .. }, Some(_), _) => (Val::default(), Holds::new()),
             (ExprKind::Field { base, .. }, None, Some(_)) => {
                 let base_val = self.eval(*base);
-                (Val::default(), base_val.holds)
+                (Val::default(), self.handler_holds(*base, &base_val))
             }
             _ => (self.eval(callee), Holds::new()),
         };

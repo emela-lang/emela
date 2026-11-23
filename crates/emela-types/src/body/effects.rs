@@ -190,10 +190,13 @@ impl BodyInfer<'_> {
                 _ => Row::empty(),
             },
             // The body's R is enclosed in the lambda type's R; it surfaces when the lambda is
-            // called (spec 9.4).
+            // called (spec 9.4). The `with`s around the lambda do not provide it
+            // (`[effect.with]`), so `use E` inside has no root outside.
             ExprKind::Lambda { body, .. } => {
                 let outer = self.binder.replace(expr);
+                let withs = std::mem::take(&mut self.with_stack);
                 let body_row = self.expr_effects(*body);
+                self.with_stack = withs;
                 self.binder = outer;
                 let body_row = self.end_binder_here(&body_row, Some(expr));
                 if let Some(&(_, v)) = self.lambda_rows.get(expr) {
@@ -211,7 +214,9 @@ impl BodyInfer<'_> {
                     {
                         let (body, uses) = (info.body, info.uses.clone());
                         let outer = self.binder.replace(body);
+                        let withs = std::mem::take(&mut self.with_stack);
                         let body_row = self.expr_effects(body);
+                        self.with_stack = withs;
                         self.binder = outer;
                         let body_row = self.end_binder_here(&body_row, Some(body));
                         self.ctx.add_subset_of(
@@ -236,7 +241,18 @@ impl BodyInfer<'_> {
                 self.sub_effects(expr)
             }
             ExprKind::With { handlers, body } => self.with_effects(expr, handlers, *body),
+            // `x.op` without a call, through an effect alias or `(use E)`: a function value that
+            // resolves E when it is called (`[effect.use]`). E is in the R of its type, not in
+            // the R of the function that makes it.
+            ExprKind::Field { base, .. }
+                if self.ops.get(expr).is_some()
+                    && program.alias_uses.get(*base).is_some()
+                    && !self.called.contains(&expr) =>
+            {
+                Row::empty()
+            }
             ExprKind::Call { callee, .. } => {
+                self.called.insert(*callee);
                 let mut row = self.sub_effects(expr);
                 let uses = self.callee_uses(*callee);
                 // The arguments of `x |> f(a)` are recorded on the pipe expression.
@@ -253,6 +269,8 @@ impl BodyInfer<'_> {
             } => {
                 if matches!(program.exprs[*rhs].kind, ExprKind::Call { .. }) {
                     self.piped_calls.insert(*rhs, expr);
+                } else {
+                    self.called.insert(*rhs);
                 }
                 let mut row = self.sub_effects(expr);
                 if !matches!(program.exprs[*rhs].kind, ExprKind::Call { .. }) {
@@ -449,8 +467,8 @@ impl BodyInfer<'_> {
         row
     }
 
-    /// The innermost enclosing `with` that provides `tag` (`[effect.with]`): `use` inside a
-    /// closure looks at the `with`s around it in the same top-level definition.
+    /// The innermost enclosing `with` that provides `tag` (`[effect.with]`), inside the current
+    /// function: the `with`s around a closure or a local fn do not provide its R.
     fn innermost_with(&mut self, tag: &Tag) -> Option<ExprId> {
         let stack = self.with_stack.clone();
         stack
