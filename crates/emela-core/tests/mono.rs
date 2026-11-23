@@ -1,6 +1,6 @@
 //! Tests for monomorphization (`emela_core::monomorphize`).
 
-mod support;
+use crate::support;
 
 use emela_core::{Module, Roots, Type, dump, monomorphize, monomorphize_from, verify_monomorphic};
 use support::{lower_files, try_lower};
@@ -420,7 +420,7 @@ fn every_core_function_monomorphizes() {
 
 /// Prints function counts and times for lowering and monomorphizing the program at
 /// `EMELA_MONO_BENCH` (a path to an `.emel` file). Not a timing test: run it by hand with
-/// `cargo test --release -p emela-core --test mono measure -- --ignored --nocapture`.
+/// `cargo test --release -p emela-core --test tests mono::measure -- --ignored --nocapture`.
 #[test]
 #[ignore = "a measurement, run by hand"]
 fn measure() {

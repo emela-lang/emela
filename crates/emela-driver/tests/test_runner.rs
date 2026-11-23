@@ -14,7 +14,7 @@ use emela_driver::{
 };
 use emela_resolve::ModuleId;
 
-mod suspend;
+use crate::suspend;
 
 /// A frontend that returns hand-built test IR in place of the type checking results.
 struct HandBuiltTests(TestModule);

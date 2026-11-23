@@ -1,6 +1,6 @@
 //! Tests for lowering (`emela_core::lower`).
 
-mod support;
+use crate::support;
 
 use emela_core::{EnumDef, Expr, Module, Roots, Type, TypeId, VariantFields, dump};
 use support::{lower_files, try_lower, try_lower_with};

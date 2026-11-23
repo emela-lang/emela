@@ -6,7 +6,7 @@
 //! the `with` or `Fiber.scope` providing a root it holds (W0402) as
 //! `` `value` leaves: `root` (provider) ``, and the others as in the other tests.
 
-mod common;
+use crate::common;
 
 use std::fmt::Write;
 

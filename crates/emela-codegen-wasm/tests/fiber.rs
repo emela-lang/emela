@@ -2,7 +2,7 @@
 //! ports of `crates/emela-codegen-c/tests/programs/fiber_*.emel`; `print` is `dbg` here, so the
 //! order of the lines is what is compared. Skipped without `wasmtime`.
 
-mod common;
+use crate::common;
 
 use common::*;
 

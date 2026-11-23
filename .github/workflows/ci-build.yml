@@ -36,7 +36,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: test
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: true # TEMPORARY: measure the build with a warm cache on this pull request
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest

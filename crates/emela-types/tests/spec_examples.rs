@@ -5,7 +5,7 @@
 //! numbers are the spec's. The first half holds examples that must pass; the second half holds
 //! code the text declares to be errors.
 
-mod common;
+use crate::common;
 
 use common::render_bodies;
 
