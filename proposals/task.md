@@ -1,11 +1,13 @@
 ---
 title: Task replaces Fiber, and the range of concurrent work is a with item
 authors: [Alliana]
-status: draft
+status: accepted
 issue:
 touches: [task, task.basic, task.group, task.background (new), task.combinators, task.interrupt, task.cause, task.parallel, task.deferred, task.semaphore, task.queue, api.std.task, api.std.exit, api.std.cause, api.std.deferred, api.std.semaphore, api.std.queue, api.std.http, api.std.process, module.resolution, kw.annotation, effect.decl, effect.handler, effect.escape, effect.async, effect.label, type.fn, type.rules, ext.call, dyn.suspend, dyn.memory, lib.layers, lib.http-service, lib.api-rules, target.js.outcome, target.js.abort, target.js.event-loop, target.wasm.output, lsp.hover, lsp.completion, lsp.code-action, glossary.context, glossary.terms, open.next, diag.list]
 requires: [capability-identity, generic-handler]
 related: [scope-handle-values, semaphore-queue, http-service, closure-r-by-caller]
+pr: 834
+decided: 2026-11-24
 ---
 
 # Task replaces Fiber, and the range of concurrent work is a with item
@@ -293,3 +295,11 @@ The changes are applied to `spec/` in this pull request.
 ## Open questions
 
 ## Decision
+
+Make the range of concurrent work an item of a with, so that tasks follow the same rules as every other capability: the lifetime is the with, the R of a task is provided outside it, and a leak is a type error by `capability-identity`. This removes the exceptions that gathered around Scope (its special typing, the handlers taken where `Fiber.scope` is called, the run-time checks of lifetimes, E0425), and gives a place to work whose result is not looked at, with `Task.Background` and Spawn, including work that continues after the response of `@entry(Http.serve)`.
+
+- Deferred, Queue and Semaphore become capabilities of built-in effects, provided by built-in handlers of the same name, so their lifetimes are decided by withs and handler members like any other resource. Only built-in handlers may share the name of their effect.
+- A task gives its result only through `join`. A task is interrupted only when its whole group unwinds, so `await`, `interrupt` and `CauseKind.Interrupt` are no longer needed.
+- A call that may suspend cannot follow resume in a suspend fn (E0461), which removes the continuations that no scope waited for. Work that continues is started with Spawn, and shows in R.
+- The type arguments of TaskGroup and Spawn are written in signatures, as for State; no rule to omit them is added until it is needed.
+- This lands in 0.29 together with #813, so that Fiber changes once. Fiber is removed at once rather than kept beside Task, since the tools would share names with different shapes and two sets of rules would hold at the same time.
