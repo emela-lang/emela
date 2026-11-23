@@ -71,15 +71,18 @@ related: [closure-r-by-caller, capability-type, capability-trait, handler-member
 | 英語 | 日本語 | 何か | ソースでの形 |
 |---|---|---|---|
 | handler | handler | 宣言（`handler Plain: Greeter`）．今と同じ | `Plain` |
-| capability | capability（能力） | init が終わり，まだ release されていない handler．handler の実体．with の項目ごとに一つ，`Fiber.scope` ごとに Scope の一つができる．値として扱える | `with x = Item` の x，引数の x |
-| capability type | capability の型 | capability の型．ソースでは `use E` と書き，型検査はどの capability かまで区別する | `use ReadFile` |
-| capability parameter | capability の引数 | 型が `use E` の引数．どの capability かは呼び出しで決まる | `fn copy(from: use Db)` |
+| capability | capability | init が終わり，まだ release されていない handler．handler の実体．with の項目ごとに一つ，`Fiber.scope` ごとに Scope の一つができる．値として扱える | `with x = Item` の x，引数の x |
+| capability type | capability type | capability の型．ソースでは `use E` と書き，型検査はどの capability かまで区別する | `use ReadFile` |
+| capability parameter | capability parameter | 型が `use E` の引数．どの capability かは呼び出しで決まる | `fn copy(from: use Db)` |
 | named item | 名前付きの項目 | `with x = Item`．その項目の capability に x という名前を付ける | `with f = Files.Open(p)` |
 | provide by name | 名前で供給する | with が R から effect の名前を外すこと．名前のない項目の capability はこれだけをする | `with Plain { ... }` |
 | leak | 持ち出す | 型か R に capability を含む値が，その capability を作った with の外へ出ること．コンパイルエラー | |
 | widen | 広げる | R の中で capability を元の effect の名前として扱うこと．この proposal でコンパイルエラーにする | |
+| capability-bound type | capability-bound type | 値が E の capability に寿命を縛られている型．宣言に `uses E` と書く．値そのものは capability ではない | `pub type Fiber[A] uses Scope` |
+| borrowed callback | borrowed callback | 外部関数の `@borrowed` の引数に渡す callback．host は呼び出しの間だけ持つ | `@borrowed compare: fn(Int, Int) -> Int` |
 | effect alias | 効果の別名 | `x <- E` の x（#731）．capability ではなく，R に E そのものを入れる | `log <- Logger` |
 
+- capability，capability type，capability parameter，capability-bound type，borrowed callback は，日本語の文の中でも英語のまま書く．
 - R の要素は，effect，宣言した label，capability．
 - capability ではないもの: effect alias（名前で供給される E を呼ぶ名前），handler の宣言，`L by P` の L（宣言した label）．
 - 使わなくなるもの: capture checking の root と hold（抱える）は，capability には使わない．Fiber などのハンドルにも同じ原則を広げるなら，そちらでも使わなくなる（Open questions）．
@@ -321,7 +324,9 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 ### `[glossary.terms]`
 
 - capability: a handler after its init has run and before its release. Each item of a with makes one, and each `Fiber.scope` makes one capability of Scope.
-- Add: capability type, capability parameter, named item, provide by name, widen. Redefine leak: a value whose type or effect set contains a capability leaves the with that made the capability.
+- The Japanese term of capability and capability value becomes "capability" (written in English in Japanese text). Remove hold (抱える).
+- Add, with the Japanese term in English: capability type, capability parameter, capability-bound type (a type declared with `uses E`, whose values live only while a capability of E does), borrowed callback (a callback passed to a `@borrowed` parameter of an external function).
+- Add: named item (名前付きの項目), provide by name (名前で供給する), widen (広げる). Redefine leak: a value whose type or effect set contains a capability leaves the with that made the capability.
 
 ### `[effect.with]`
 
@@ -409,6 +414,5 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> () # host が持ち続けうる．f �
 ## Open questions
 
 - capability を effect の名前に広げられないことで書けなくなるコードがどれだけあるか．
-- 日本語の訳．用語集は capability を「能力」と訳している．定義を変えるのに合わせて訳を見直すか．
 
 ## Decision
