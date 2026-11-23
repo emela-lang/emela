@@ -23,7 +23,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | English | 日本語 | Meaning |
 |---|---|---|
 | suspend, suspension | 中断（suspend fn、resume） | A call that may stop and be resumed later by the handler |
-| interrupt, interruption | 中断（`Fiber.interrupt`、スコープの終わり） | Stopping a fiber from outside and unwinding it |
+| interrupt, interruption | 中断（グループの終わり、兄弟の失敗） | Stopping a task from outside and unwinding it ([task.interrupt]) |
 | suspension point | 中断点 | Where fibers switch and where interruptions take effect |
 | type parameter | 型引数（宣言） | The `A` in `fn f[A]` |
 | type argument | 型引数（使う所） | The `Int` in `List[Int]` |
@@ -38,8 +38,8 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | std layer | 層 | The value, effect, platform and test layers of std ([lib.layers]). A `layer` declaration is always written in code font |
 | level | 層（1.2 の日常の層、基盤の層） | The everyday level and the foundation level of the language ([intro.layers]) |
 | unwind | 巻き戻す（継続） | Running releases while a computation is abandoned |
-| semaphore, permit | セマフォ、許可 | A Semaphore and what a fiber takes from it to run ([fiber.semaphore]) |
-| queue, capacity, close (a queue) | キュー、容量、閉じる | A Queue, how many values it holds, and saying no more values will come ([fiber.queue]) |
+| semaphore, permit | セマフォ、許可 | A Semaphore and what a task takes from it to run ([task.semaphore]) |
+| queue, capacity, close (a queue) | キュー、容量、閉じる | A Queue, how many values it holds, and saying no more values will come ([task.queue]) |
 | wrap around | 巻き戻る（整数のあふれ） | Two's complement overflow ([target.number]) |
 | requirement | 依存（ハンドラ） | See requires(H) above |
 | version requirement | 要求（Pome の version） | The minimum version a `Pome.toml` asks for ([module.pome]) |
@@ -48,7 +48,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 | English | 日本語 |
 |---|---|
-| capability, capability value (a handler after its init has run and before its release; each item of a with makes one, and each `Fiber.scope` makes one capability of Scope) | capability |
+| capability, capability value (a handler after its init has run and before its release; each item of a with makes one) | capability |
 | capability type (the type `use E` of a capability), capability parameter (a parameter of type `use E`) | capability type、capability parameter |
 | capability-bound type (a type declared with `uses E`, whose values live only while a capability of E does) | capability-bound type |
 | borrowed callback (a callback passed to a `@borrowed` parameter of an external function) | borrowed callback |
@@ -167,4 +167,4 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | design flaw | 設計の不具合 |
 | last resort | 逃げ道 |
 
-Used as they are: defect, escape, fail, fails, use, uses, with, handler, layer, effect, Immediate, Async, Scope, fiber, Deferred, Prelude, Pome, trait, Tier.
+Used as they are: defect, escape, fail, fails, use, uses, with, handler, layer, effect, Immediate, Async, task, fiber, Deferred, Prelude, Pome, trait, Tier.

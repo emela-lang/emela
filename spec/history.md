@@ -2,6 +2,58 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## Section names of chapter 11 before Task
+
+- The section names below were renamed or retired when Task replaced Fiber (the proposal `task`). They are kept for references from earlier history and proposals, and MUST NOT be reused.
+
+### Concurrency (renamed) `[fiber]`
+
+Renamed to `[task]`.
+
+### fiber (renamed) `[fiber.basic]`
+
+Renamed to `[task.basic]`.
+
+### Fiber.scope (renamed) `[fiber.scope]`
+
+Renamed to `[task.group]`.
+
+### Combinators (renamed) `[fiber.combinators]`
+
+Renamed to `[task.combinators]`.
+
+### Interruption (renamed) `[fiber.interrupt]`
+
+Renamed to `[task.interrupt]`.
+
+### Causes of failure (renamed) `[fiber.cause]`
+
+Renamed to `[task.cause]`.
+
+### Parallelism (renamed) `[fiber.parallel]`
+
+Renamed to `[task.parallel]`.
+
+### Deferred (renamed) `[fiber.deferred]`
+
+Renamed to `[task.deferred]`.
+
+### Semaphore (renamed) `[fiber.semaphore]`
+
+Renamed to `[task.semaphore]`.
+
+### Queue (renamed) `[fiber.queue]`
+
+Renamed to `[task.queue]`.
+
+### Std.Fiber (renamed) `[api.std.fiber]`
+
+Renamed to `[api.std.task]`.
+
+### No leaking (retired) `[fiber.escape]`
+
+Informative. Retired when Task replaced Fiber. The capabilities of chapter 11 cannot leak by the rules of `[effect.escape]`, and `Task[A]` is a capability-bound type (`[task.group]`).
+
 ## 2026-11-24 (Reading a Duration from text, and Encode, Decode and Shaped for Duration)
 
 - `[api.prelude]`, `[lib.layers]`, `[api.std.duration]`, `[api.std.dynamic]`, `[api.std.shape]`, `[open.list]`: Add `Duration.parse(s: String) -> Duration fails ParseError`. It reads a length of time in two forms: numbers with units (`1h30m`, `1.5s`, `2h 30min`, `30 seconds`), and the time part of an ISO 8601 duration (`PT1H30M`, `-PT1.5S`). The units are the hour and shorter ones; days and weeks are not read. Add `Duration.to_iso8601`, which writes the ISO 8601 form. `to_string` keeps its form (`1500ms`), which answers `[open.list]` 48. Duration also gets Encode, Decode and Shaped: Encode writes the text of `to_string`, Decode reads text with `parse`, and the shape is a String with no note. The range (an Int64 of milliseconds) and the unit of Duration do not change. Adopted in the proposal `duration-parse` (#737).
