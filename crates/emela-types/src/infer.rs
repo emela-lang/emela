@@ -342,8 +342,11 @@ impl InferCtx {
     pub fn resolve_row(&mut self, row: &Row) -> Row {
         row.flat_map(|e| match e {
             RowElem::Of(ty) => match self.resolve(ty) {
-                Ty::Named(con, _) => match self.error_tag(con) {
-                    Some(def) => Row::tag(def),
+                // An error whose fields record capabilities keeps their sets in its tag
+                // (`[type.rules]`), so that it cannot leave the with that made them.
+                Ty::Named(con, args) => match self.error_tag(con) {
+                    Some(def) if args.is_empty() => Row::tag(def),
+                    Some(def) => Row::of_tag(Tag::with_args(def, args)),
                     None => Row::empty(),
                 },
                 ty @ (Ty::Bound(_) | Ty::Var(_)) => Row::from_elems([RowElem::Of(ty)]),

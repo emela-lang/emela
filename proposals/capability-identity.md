@@ -1,7 +1,7 @@
 ---
 title: "Capabilities are told apart in types and in R"
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 732
 issue: 719
 decided: 2026-11-23
@@ -413,12 +413,13 @@ This proposal lands in 0.29, with #791. 0.29 is released after this proposal is 
 
 ## Diagnostics
 
-- [ ] E04xx: a capability leaks (a value whose type or R contains a capability leaves the with). The message names the capability as the language server does.
-- [ ] E04xx: a capability type or a capability-bound type in the result of an operation
-- [ ] E04xx: `@borrowed` in a wrong position
-- [ ] E0454 for capabilities in the R of a callback without `@borrowed`
-- [ ] Widening is reported where an effect set does not fit (E0403), with the help: take the capability as a parameter `use E`, or capture it in a closure
-- [ ] Remove W0402, E0444 and E0425 (0.29). Remove the experimental feature `capture-checking` (its name gives W0206)
+- [x] E0455: a capability leaks (a value whose type or R contains a capability leaves the with). The message names the capability as the language server does.
+- [x] E0456: a capability type or a capability-bound type in the result of an operation
+- [x] E0457: `@borrowed` in a wrong position
+- [x] E0458: a value of a capability-bound type made outside a handler of its effect (decided in the implementation)
+- [x] E0454 for capabilities in the R of a callback without `@borrowed`
+- [x] Widening is reported where an effect set does not fit (E0403), with the help: take the capability as a parameter `use E`, or capture it in a closure
+- [x] Remove W0402, E0444 and E0425 (0.29). Remove the experimental feature `capture-checking` (its name gives W0206)
 - [ ] 0.30: W0403 becomes an error
 
 ## Compatibility

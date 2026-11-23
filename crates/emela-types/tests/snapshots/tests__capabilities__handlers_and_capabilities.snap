@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/capabilities.rs
-expression: "run(r#\"\neffect Store {\n  fn keep(l: use Logger) -> ()\n}\n\nhandler Keeper: Store {\n  fn keep(l) { l.info(\"kept\") }\n}\n\nhandler Holder(c: use Counter): Logger {\n  init(c: use Counter) { Self(c:) }\n  fn info(msg) {\n    self.c.next()\n    ()\n  }\n}\n\nhandler Inner(c: use Counter): Logger {\n  init() {\n    with x = Counters.Open(1) { Self(c: x) }\n  }\n  fn info(msg) { () }\n}\n\nfn again(l: use Logger) { l.info(\"\") }\n\nhandler Echo: Logger {\n  fn info(msg) {\n    if msg == \"\" { () } else { again(self) }\n  }\n}\n\nfn main() {\n  with Plain, x = Counters.Open(1) {\n    with h = Holder(c: x), s = Keeper {\n      s.keep(h)\n    }\n  }\n}\n\"#)"
+expression: "run(r#\"\neffect Store {\n  fn keep(l: use Logger) -> ()\n}\n\nhandler Keeper: Store {\n  fn keep(l) { l.info(\"kept\") }\n}\n\nhandler Holder(c: use Counter): Logger {\n  init(c: use Counter) { Self(c:) }\n  fn info(msg) {\n    self.c.next()\n    ()\n  }\n}\n\nhandler Inner(c: use Counter): Logger {\n  init() {\n    with x = Counters.Open(1) { Self(c: x) }\n  }\n  fn info(msg) { () }\n}\n\nhandler ByName(c: use Counter): Logger {\n  init() {\n    with Plain { Self(c: Counters.Open(1)) }\n  }\n  fn info(msg) { () }\n}\n\nhandler ByCapability(c: use Counter): Logger {\n  init() {\n    with p = Plain { Self(c: p.Open(1)) }\n  }\n  fn info(msg) { () }\n}\n\nhandler UsedInside(n: Int): Logger {\n  init() {\n    n = with Plain { Counters.Open(1).next() }\n    Self(n:)\n  }\n  fn info(msg) { () }\n}\n\nfn again(l: use Logger) { l.info(\"\") }\n\nhandler Echo: Logger {\n  fn info(msg) {\n    if msg == \"\" { () } else { again(self) }\n  }\n}\n\nfn main() {\n  with Plain, x = Counters.Open(1) {\n    with h = Holder(c: x), s = Keeper {\n      s.keep(h)\n    }\n  }\n}\n\"#)"
 ---
 again: fn(use Logger) -> () uses { l }
   l: use Logger
@@ -9,3 +9,5 @@ main: fn() -> ()
   h: use Logger
   s: use Store
 `Self(c: x)` CapabilityLeak { cap: "x", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 708..721 }) }
+`Self(c: Counters.Open(1))` CapabilityLeak { cap: "Open", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 830..835 }) }
+`Self(c: p.Open(1))` CapabilityLeak { cap: "Open", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 966..971 }) }

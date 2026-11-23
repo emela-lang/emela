@@ -263,7 +263,8 @@ fn leaves() {
 /// capability given to init at each item; a capability parameter of an operation is an unknown
 /// set in the implementation; `self` is the capability of the handler and can be passed to a
 /// parameter of type `use E`. The fields given to `Self(...)` cannot record a capability of a
-/// with inside the init (E0455).
+/// with inside the init, nor a handler member opened through its handlers, by name or through a
+/// capability (E0455, #658); one used inside that with is fine.
 #[test]
 fn handlers_and_capabilities() {
     insta::assert_snapshot!(run(r#"
@@ -286,6 +287,28 @@ handler Holder(c: use Counter): Logger {
 handler Inner(c: use Counter): Logger {
   init() {
     with x = Counters.Open(1) { Self(c: x) }
+  }
+  fn info(msg) { () }
+}
+
+handler ByName(c: use Counter): Logger {
+  init() {
+    with Plain { Self(c: Counters.Open(1)) }
+  }
+  fn info(msg) { () }
+}
+
+handler ByCapability(c: use Counter): Logger {
+  init() {
+    with p = Plain { Self(c: p.Open(1)) }
+  }
+  fn info(msg) { () }
+}
+
+handler UsedInside(n: Int): Logger {
+  init() {
+    n = with Plain { Counters.Open(1).next() }
+    Self(n:)
   }
   fn info(msg) { () }
 }
@@ -336,4 +359,47 @@ handler Ticking: Counter {
   }
 }
 "#));
+}
+
+/// An error whose fields record capabilities records them in its tag in E (`[type.rules]`): it
+/// cannot leave the with that made them (E0455, #719), and the fields of an error caught by
+/// `escape` take the capabilities of the tag, so a value taken out of it cannot leave either.
+#[test]
+fn errors_record_capabilities() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+import Std.Fiber.{Fiber, Scope}
+
+error Leak(f: Fiber[Int])
+
+fn raise(s: use Scope[{}, {}]) {
+  f = s.fork(|| 1)
+  fail Leak(f:)
+}
+
+fn caught() uses { Async } {
+  Fiber.scope(|s| {
+    raise(s) escape {
+      Leak(f:) -> ()
+    }
+  })
+}
+
+fn leaves() -> Int fails Leak uses { Async } {
+  Fiber.scope(|s| {
+    f = s.fork(|| 1)
+    if True { fail Leak(f:) } else { Fiber.join(f) }
+  })
+}
+
+fn taken_out() uses { Async } {
+  Fiber.scope(|s| {
+    f = s.fork(|| 1)
+    (if True { fail Leak(f:) } else { f }) escape {
+      Leak(f:) -> f
+    }
+  })
+}
+"#
+    ));
 }

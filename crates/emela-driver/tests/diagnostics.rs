@@ -2209,7 +2209,7 @@ fn experimental_feature_note() {
 /// `[effect.use]`, `[diag.list]`: the type `use E` names an effect; another kind of name is
 /// E0217. An operation that E does not have, called on a value of type `use E`, is E0401. A
 /// capability value passed, stored and returned is not an error (E0408 to E0410 are retired),
-/// and one that leaves its `with` is W0402.
+/// and one that leaves the `with` that made it is E0455.
 #[test]
 fn capability_types() {
     let main = "\
@@ -2236,6 +2236,61 @@ fn leaks() -> use Db {
     db = use Db
     db
   }
+}
+";
+    let analysis = check_files(
+        &[("app/Pome.toml", ""), ("app/src/main.emel", main)],
+        "app",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// The diagnostics of capabilities told apart in types (`[effect.escape]`, `[effect.handler]`,
+/// `[type.rules]`, `[ext.boundary]`, `[diag.list]`): a capability that leaves the `with` that
+/// made it (E0455), a capability type in the result of an operation (E0456), `@borrowed` on a
+/// parameter that is not a callback of an external function (E0457), a value of a
+/// capability-bound type made outside a handler of its effect (E0458), and a capability in the R
+/// of a callback (E0454).
+#[test]
+fn capability_identity() {
+    let main = "\
+effect Db {
+  fn query(q: String) -> Int
+  fn conn() -> use Db
+}
+
+type Ticket(n: Int) uses Db
+
+handler PrimaryDb: Db {
+  fn query(q) { 1 }
+  fn conn() { panic(\"no\") }
+}
+
+@external(js, \"setTimeout\")
+fn set_timeout(ms: Int, f: fn() -> ()) -> ()
+
+fn plain(@borrowed f: fn() -> ()) { f() }
+
+fn leaks() {
+  with db = PrimaryDb {
+    || db.query(\"x\")
+  }
+}
+
+fn made() -> Ticket uses { Db } { Ticket(1) }
+
+handler Late: Db {
+  fn query(q) {
+    with db = PrimaryDb {
+      set_timeout(1, || {
+        db.query(q)
+        ()
+      })
+    }
+    1
+  }
+  fn conn() { panic(\"no\") }
 }
 ";
     let analysis = check_files(

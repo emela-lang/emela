@@ -363,16 +363,22 @@ impl BodyInfer<'_> {
         // at once: a set variable made outside the `with` cannot have its capabilities, even on
         // the way (`[effect.escape]`).
         let mut minus: Vec<RowElem> = for_body.iter().cloned().map(RowElem::Tag).collect();
-        minus.extend((0..items.len()).map(|i| {
-            RowElem::Cap(CapElem {
-                id: CapId::Item {
-                    with: expr,
-                    item: i as u32,
-                },
-                name: Default::default(),
-                tag: Tag::new(self.current.expect("a `with` is inside a definition")),
-            })
-        }));
+        // The handler members that an init opened through this `with`'s handlers end with it too
+        // (`[effect.handler]`, [`crate::row::OPENED_IN_INIT`]).
+        minus.extend(
+            (0..items.len() as u32)
+                .chain([crate::row::OPENED_IN_INIT])
+                .map(|i| {
+                    RowElem::Cap(CapElem {
+                        id: CapId::Item {
+                            with: expr,
+                            item: i,
+                        },
+                        name: Default::default(),
+                        tag: Tag::new(self.current.expect("a `with` is inside a definition")),
+                    })
+                }),
+        );
         let mut row = self.subtract_elems(&body_row, &minus);
         // Handler dependencies may be met by handlers in the same `with` providing other effects
         // (spec 14.2). The handler's own effects, all those of a handler of several effects, are

@@ -220,6 +220,7 @@ capabilities: x, y
   - E0318 and E0402 (the E and R of the body are not included in the declaration): writes the union of the body's E and R and the written clauses, by the same rules as inserting omitted annotations. Written elements are not removed. For E0402 on main, test, const, and handler operations, no edit that propagates uses is offered.
   - E0144 and E0145 (the old form of impl and handler heads): for E0144, the head (from `impl` to the end of the head) is replaced with the rewritten head. For E0145, the text from after the name (or after the field sequence, if any) up to `implements` is replaced with `:`. The rewritten form is the same as the form shown in the diagnostic message (`[diag.list]`).
   - E0147 (the old clause): replaces the clause with its canonical form (`use Db` becomes `uses { Db }`).
+  - E0301 on a closure without parameters passed to `Fiber.scope` (`[fiber.scope]`): the closure takes the scope's capability as its parameter. A statement `s = use Scope` in its body is removed and its name becomes the parameter (`|s|`); otherwise the parameter is `_` (`|_|`).
 - There is no diagnostic for unused imports, so there is no quickfix that removes them.
 
 ## Inlay hints `[lsp.inlay-hint]`

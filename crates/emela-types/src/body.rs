@@ -1321,6 +1321,11 @@ impl<'a> BodyInfer<'a> {
                     Some(&label) => through_label(ty, label),
                     None => ty,
                 };
+                let ty = if program.defs[*def].kind == DefKind::Member {
+                    self.opened_in_init(expr, *def, ty)
+                } else {
+                    ty
+                };
                 if !args.is_empty() {
                     self.type_args.insert(expr, args);
                 }
@@ -2908,8 +2913,20 @@ impl<'a> BodyInfer<'a> {
             return;
         }
         let caps: Vec<CapElem> = match base {
-            Some(base) => match self.exprs.get(base).map(|t| self.ctx.shallow_resolve(t)) {
-                Some(Ty::Cap(_, caps)) => self.ctx.resolve_row(&caps).caps().cloned().collect(),
+            // A local's own type: a reference to it has a fresh set that contains it.
+            Some(base) => match (&self.program.exprs[base].kind, self.exprs.get(base)) {
+                (ExprKind::Path(Res::Local(l)), _) if self.locals.get(*l).is_some() => {
+                    match self.locals.get(*l).map(|t| self.ctx.shallow_resolve(t)) {
+                        Some(Ty::Cap(_, caps)) => {
+                            self.ctx.resolve_row(&caps).caps().cloned().collect()
+                        }
+                        _ => Vec::new(),
+                    }
+                }
+                (_, Some(t)) => match self.ctx.shallow_resolve(t) {
+                    Ty::Cap(_, caps) => self.ctx.resolve_row(&caps).caps().cloned().collect(),
+                    _ => Vec::new(),
+                },
                 _ => Vec::new(),
             },
             None => match self.program.defs[member].parent {
@@ -2932,6 +2949,35 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
+    /// The type `ty` of opening `member` at `expr`, with the capability opened recording the
+    /// `with` inside the init that provides its provider, if any ([`Self::record_open_with`]):
+    /// it cannot leave that `with` (`[effect.handler]`).
+    fn opened_in_init(&mut self, expr: ExprId, member: DefId, ty: Ty) -> Ty {
+        let Some(&with) = self.member_open_withs.get(expr) else {
+            return ty;
+        };
+        let Ty::Fn(mut f) = ty else {
+            return ty;
+        };
+        if let Ty::Cap(tags, _) = &f.ret
+            && let Some(tag) = tags.first().cloned()
+        {
+            let name = self.program.defs[member].name.clone();
+            f.ret = Ty::Cap(
+                tags.clone(),
+                Row::from_elems([RowElem::Cap(CapElem {
+                    id: CapId::Item {
+                        with,
+                        item: crate::row::OPENED_IN_INIT,
+                    },
+                    name,
+                    tag,
+                })]),
+            );
+        }
+        Ty::Fn(f)
+    }
+
     /// The type of opening the handler member `name` through the capability `base` of `tag`
     /// (`fs.Open`, `[type.rules]`): the member's type with the effect's type parameters replaced
     /// by the capability's type arguments, and the capability itself as its R, as for an
@@ -2952,7 +2998,8 @@ impl<'a> BodyInfer<'a> {
         };
         self.check_member_open(expr, member, name.span);
         self.record_open_with(expr, member, Some(base));
-        self.cap_member_ty(base, tag, member)
+        let ty = self.cap_member_ty(base, tag, member);
+        self.opened_in_init(expr, member, ty)
     }
 
     /// The type of opening `member` through the capability `cap` of `tag`.
@@ -3196,7 +3243,9 @@ impl<'a> BodyInfer<'a> {
                 PatKind::Ctor {
                     res: Res::Def(def), ..
                 } if program.defs[*def].kind == DefKind::Error => {
+                    // The sets of the error's fields come from the tag in E (`body/errors.rs`).
                     let ty = self.ty_table.self_ty(*def).unwrap_or(Ty::Error);
+                    let ty = self.fresh_hidden_caps(*def, &ty);
                     self.bind_pat(arm.pat, &ty);
                     if !below_wildcard {
                         match groups.iter_mut().find(|(d, _, _)| d == def) {

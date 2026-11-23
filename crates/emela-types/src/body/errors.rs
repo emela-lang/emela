@@ -276,6 +276,19 @@ impl BodyInfer<'_> {
                 // Errors caught only partially (`NotFound(id: 1)`, guarded arms) stay in E, and
                 // unmatched values propagate.
                 let tags = self.escaped_tags(reachable, &caught);
+                // The fields of an error caught by its constructor record the capabilities its
+                // tag records (`[type.rules]`): the tag in E is compared with that of the pattern,
+                // whose sets take those of the tag.
+                for &(pat, def) in &caught {
+                    if let Some(Ty::Named(_, args)) = self.pats.get(pat).cloned()
+                        && !args.is_empty()
+                    {
+                        let rest = Row::var(self.ctx.new_row_var());
+                        let mut sup = Row::of_tag(Tag::with_args(def, args));
+                        sup.extend(&rest);
+                        self.ctx.add_subset(inner_row.clone(), sup, Origin::Lambda);
+                    }
+                }
                 // If some arm is a variable or a guarded `_` (E0320), treat everything as caught
                 // so errors do not cascade.
                 let broken = arms.iter().any(|arm| match &program.pats[arm.pat].kind {
@@ -1304,7 +1317,8 @@ impl BodyInfer<'_> {
                 });
             }
             for (pat, tag) in caught {
-                if !row.contains(&RowElem::Tag(Tag::new(tag))) {
+                // A tag may record the capability sets of the error's fields.
+                if !row.tags().any(|t| t.def == tag) {
                     let error = self.program.defs[tag].name.clone();
                     self.diags.push(Diagnostic {
                         span: Some(self.program.pats[pat].span),
@@ -1395,6 +1409,13 @@ impl BodyInfer<'_> {
         let (from, made_at) = match cap.id {
             CapId::Item { with, item } => {
                 let made_at = match &program.exprs[with].kind {
+                    // A handler member opened through the `with`'s handlers: the items.
+                    ExprKind::With { handlers, .. } if item == crate::row::OPENED_IN_INIT => {
+                        handlers.first().zip(handlers.last()).map(|(a, b)| Span {
+                            module: a.span.module,
+                            range: a.span.range.cover(b.span.range),
+                        })
+                    }
                     ExprKind::With { handlers, .. } => handlers.get(item as usize).map(|i| i.span),
                     _ => None,
                 };
@@ -1478,7 +1499,17 @@ impl BodyInfer<'_> {
         for (v, row) in self.ctx.solution_entries() {
             let scope = self.ctx.scopes.row_var(v);
             let effects = self.ctx.effect_vars.contains(&v);
-            for c in row.caps() {
+            // The sets an error tag records (`[type.rules]`).
+            let mut in_tags: Vec<CapElem> = Vec::new();
+            for t in row.tags() {
+                for a in &t.args {
+                    if let Ty::Set(SetKind::Caps, r) = a {
+                        let r = self.ctx.resolve_row(r);
+                        in_tags.extend(r.caps().cloned());
+                    }
+                }
+            }
+            for c in row.caps().chain(in_tags.iter()) {
                 if effects && matches!(c.id, CapId::Named { .. }) {
                     continue;
                 }

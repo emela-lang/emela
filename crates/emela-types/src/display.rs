@@ -197,9 +197,16 @@ impl TyDisplay<'_> {
             Some(name) => f.write_str(name)?,
             None => write!(f, "#{}", tag.def.into_raw())?,
         }
-        if !tag.args.is_empty() {
+        // The capability sets an error records are not written (`[type.rules]`).
+        let args: Vec<Ty> = tag
+            .args
+            .iter()
+            .filter(|a| !matches!(a, Ty::Set(SetKind::Caps, _)))
+            .cloned()
+            .collect();
+        if !args.is_empty() {
             f.write_str("[")?;
-            self.list(f, &tag.args)?;
+            self.list(f, &args)?;
             f.write_str("]")?;
         }
         Ok(())

@@ -81,6 +81,11 @@ impl Tag {
     }
 }
 
+/// The `item` of [`CapId::Item`] for the handler members that an init opens through the handlers
+/// of a `with` inside the init (`[effect.handler]`): they live as long as that `with`, as its
+/// items do, and the `with` removes them from R.
+pub const OPENED_IN_INIT: u32 = u32::MAX;
+
 /// Which capability an element is (`[effect.with]`, `[type.rules]`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CapId {
