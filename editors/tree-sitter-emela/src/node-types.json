@@ -549,6 +549,26 @@
     }
   },
   {
+    "type": "bound_clause",
+    "named": true,
+    "fields": {
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "generic_type",
+            "named": true
+          },
+          {
+            "type": "type_reference",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "call_expression",
     "named": true,
     "fields": {
@@ -898,6 +918,10 @@
       "multiple": true,
       "required": false,
       "types": [
+        {
+          "type": "bound_clause",
+          "named": true
+        },
         {
           "type": "derive_clause",
           "named": true
@@ -2161,9 +2185,13 @@
       }
     },
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": false,
       "types": [
+        {
+          "type": "annotation",
+          "named": true
+        },
         {
           "type": "self",
           "named": true
@@ -2527,6 +2555,10 @@
       "multiple": true,
       "required": false,
       "types": [
+        {
+          "type": "bound_clause",
+          "named": true
+        },
         {
           "type": "derive_clause",
           "named": true
