@@ -134,7 +134,7 @@ fn passes_args_and_exit_code() {
 /// (`[target.js.module]`).
 fn launching(main_body: &str) -> String {
     format!(
-        "import {{ $launch }} from \"./emela_runtime.mjs\";\nimport {{ Defect }} from \"./runtime/defect.mjs\";\nfunction main() {{\n{main_body}}}\n$launch(import.meta.url, main);\n"
+        "import {{ $launch }} from \"./emela_runtime.mjs\";\nimport {{ Defect }} from \"./runtime/defect.mjs\";\nfunction main() {{\n{main_body}}}\n$launch(import.meta.main, import.meta.url, main);\n"
     )
 }
 

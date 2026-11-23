@@ -1416,17 +1416,33 @@ function $output(fd, text) {
 // inlined into the output.
 globalThis[Symbol.for("emela.output")] = { write: $output, stdoutClosed: () => $stdoutClosed };
 
-// Launches `main` when the JS host was started with this `main.mjs` (`[target.js.module]`). `url` is compared as the
-// host resolved it, so `--preserve-symlinks-main` through a symbolic link does not launch.
-async function $launch(url, main) {
+// Launches `main` when this `main.mjs` is the entry module of the JS host (`[target.js.module]`). `entry` is
+// `import.meta.main` of `main.mjs`, and `url` its `import.meta.url`. A host that does not define `import.meta.main`
+// (older releases of Node 22) is asked through the real path of `process.argv[1]` instead.
+function $launch(entry, url, main) {
   const proc = globalThis.process;
-  const script = proc?.argv?.[1];
-  if (typeof script !== "string" || proc.versions?.node === undefined) return;
-  const fs = proc.getBuiltinModule?.("node:fs") ?? (await import("node:fs"));
-  const nodeUrl = proc.getBuiltinModule?.("node:url") ?? (await import("node:url"));
-  if (fs.realpathSync(script) === nodeUrl.fileURLToPath(url)) $launchMain(proc, main);
+  if (typeof proc?.on !== "function") return;
+  if (entry === true) $launchMain(proc, main);
+  else if (entry === undefined) {
+    $startedWith(proc, url).then((started) => {
+      if (started) $launchMain(proc, main);
+    });
+  }
 }
-
+// Whether the real path of `process.argv[1]` is the path of `url`. `false` when either cannot be read: under
+// `node -e '...' word`, `process.argv[1]` is a word, not a file, and importing `main.mjs` there must not throw.
+// `node:fs` is imported only on Node and Bun, and only when `process.getBuiltinModule` is missing (before Node 22.3).
+async function $startedWith(proc, url) {
+  try {
+    const script = proc.argv?.[1];
+    if (typeof script !== "string" || proc.versions?.node === undefined) return false;
+    const fs = proc.getBuiltinModule?.("node:fs") ?? (await import("node:fs"));
+    const nodeUrl = proc.getBuiltinModule?.("node:url") ?? (await import("node:url"));
+    return fs.realpathSync(script) === nodeUrl.fileURLToPath(url);
+  } catch {
+    return false;
+  }
+}
 // Runs `main` and exits with the standard error and the exit code of `[cmd.build]`.
 function $launchMain(proc, main) {
   let over = false;
