@@ -1,10 +1,10 @@
 ---
 title: Running main.mjs directly
 authors: [Satoru314]
-status: accepted
+status: draft
 pr: 677
 issue:
-decided: 2026-11-20
+decided:
 touches: [target.js.module, cmd.build]
 requires: []
 related: [js-launcher-names, http-service]
@@ -108,8 +108,3 @@ with
 
 ## Open questions
 
-## Decision
-
-The `.mjs` files that Emela builds for JS could not be run directly. `emela run` called the `main` function exported from `main.mjs`, but when the program was started directly, as with `node main.mjs`, nothing called `main`, and running it gave nothing back.
-
-This proposal makes the files written by the build give the same outcome as `emela run` when a JavaScript runtime starts them directly.
