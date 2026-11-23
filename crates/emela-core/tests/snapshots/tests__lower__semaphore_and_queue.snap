@@ -3,78 +3,78 @@ source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
 export suspend fn main(ev%0: evidence) -> Int fails {
-  let body%1: fn(handler Std.Fiber.Scope[_, _]) -> Int fails suspends ev = suspend fn(_%7: handler Std.Fiber.Scope[_, _], ev%8: evidence) -> Int fails {
-    let _%9: handler Std.Fiber.Scope[_, _] = _%7
-    let s%10: Std.Semaphore.Semaphore = Std.Fiber.semaphore[{}, {}](2, ev%8)
-    let q%11: Std.Queue.Queue[String] = Std.Fiber.queue[String, {}, {}](1, ev%8)
-    let _%12: String = passed(q%11)!?
-    let _%13: Option[Int] = tried(s%10)
-    limited(s%10, ev%8)!
+  let body%1: fn(handler Std.Fiber.Scope[_, _]) -> Int fails suspends ev = suspend fn(_%2: handler Std.Fiber.Scope[_, _], ev%3: evidence) -> Int fails {
+    let _%4: handler Std.Fiber.Scope[_, _] = _%2
+    let s%5: Std.Semaphore.Semaphore = Std.Fiber.semaphore[{}, {}](2, ev%3)
+    let q%6: Std.Queue.Queue[String] = Std.Fiber.queue[String, {}, {}](1, ev%3)
+    let _%7: String = passed(q%6)!?
+    let _%8: Option[Int] = tried(s%5)
+    limited(s%5, ev%3)!
   }
-  fiber#scope(suspend fn(s%2: fiber_scope) -> Int fails {
-    let scope%3: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
-      fork: fn(g%4: fn(evidence) -> any fails suspends) -> any {
-        fiber#fork(s%2, suspend fn() -> any fails {
-          (g%4)(ev%0)!?
+  fiber#scope(suspend fn(s%9: fiber_scope) -> Int fails {
+    let scope%10: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
+      fork: fn(g%11: fn(evidence) -> any fails suspends) -> any {
+        fiber#fork(s%9, suspend fn() -> any fails {
+          (g%11)(ev%0)!?
         })
       }
       deferred: fn() -> any {
-        fiber#deferred(s%2)
+        fiber#deferred(s%9)
       }
-      semaphore: fn(permits%5: Int) -> any {
-        fiber#semaphore(s%2, permits%5)
+      semaphore: fn(permits%12: Int) -> any {
+        fiber#semaphore(s%9, permits%12)
       }
-      queue: fn(capacity%6: Int) -> any {
-        fiber#queue(s%2, capacity%6)
+      queue: fn(capacity%13: Int) -> any {
+        fiber#queue(s%9, capacity%13)
       }
     }
-    (body%1)(scope%3, provide(ev%0; Std.Fiber.Scope[_, _] = scope%3))!?
+    (body%1)(scope%10, provide(ev%0; Std.Fiber.Scope[_, _] = scope%10))!?
   })!?
 }
 
-suspend fn passed(q%27: Std.Queue.Queue[String]) -> String fails {
-  let _%28: () = if fiber#offer(q%27, "x")! {
+suspend fn passed(q%0: Std.Queue.Queue[String]) -> String fails {
+  let _%1: () = if fiber#offer(q%0, "x")! {
     ()
   } else {
     fail Std.Queue.QueueClosed.QueueClosed
   }
-  match fiber#take(q%27)! {
-    Option.Some(x%29) -> x%29
+  match fiber#take(q%0)! {
+    Option.Some(x%2) -> x%2
     _ -> fail Std.Queue.QueueClosed.QueueClosed
   }
 }
 
-fn tried(s%22: Std.Semaphore.Semaphore) -> Option[Int] {
-  let s%23: Std.Semaphore.Semaphore = s%22
-  let n%24: Int = 1
-  let f%25: fn() -> Int = fn() -> Int {
-    fiber#available(s%22)
+fn tried(s%0: Std.Semaphore.Semaphore) -> Option[Int] {
+  let s%1: Std.Semaphore.Semaphore = s%0
+  let n%2: Int = 1
+  let f%3: fn() -> Int = fn() -> Int {
+    fiber#available(s%0)
   }
-  if fiber#try_acquire(s%23, n%24) {
+  if fiber#try_acquire(s%1, n%2) {
     with {
-      let permits%26: () = () release Semaphore {
-        fiber#release(s%23, n%24)
+      let permits%4: () = () release Semaphore {
+        fiber#release(s%1, n%2)
       }
     } {
-      Option.Some[Int]((f%25)())
+      Option.Some[Int]((f%3)())
     }
   } else {
     Option.None[Int]
   }
 }
 
-suspend fn limited(s%14: Std.Semaphore.Semaphore, ev%15: evidence) -> Int {
-  let s%16: Std.Semaphore.Semaphore = s%14
-  let n%17: Int = 2
-  let f%18: fn() -> Int ev = fn(ev%20: evidence) -> Int {
-    let _%21: () = (use[Log](ev%20)).Log#info("in")
+suspend fn limited(s%0: Std.Semaphore.Semaphore, ev%1: evidence) -> Int {
+  let s%2: Std.Semaphore.Semaphore = s%0
+  let n%3: Int = 2
+  let f%4: fn() -> Int ev = fn(ev%5: evidence) -> Int {
+    let _%6: () = (use[Log](ev%5)).Log#info("in")
     1
   }
   with {
-    let permits%19: () = fiber#acquire(s%16, n%17)! release Semaphore {
-      fiber#release(s%16, n%17)
+    let permits%7: () = fiber#acquire(s%2, n%3)! release Semaphore {
+      fiber#release(s%2, n%3)
     }
   } {
-    (f%18)(ev%15)
+    (f%4)(ev%1)
   }
 }

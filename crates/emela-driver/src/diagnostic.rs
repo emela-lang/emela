@@ -9,7 +9,7 @@ use emela_resolve::ModuleId;
 use emela_resolve::{DiagnosticKind, NameError};
 use emela_types::{
     DiagnosticKind as TypeDiagnosticKind, EffectContext, ImmediateSource, InnerHandlerMismatch,
-    SuspendingCall, Ty, TyCons, TypeError, TypeErrorKind,
+    SetKind, SuspendingCall, Ty, TyCons, TypeError, TypeErrorKind,
 };
 use la_arena::ArenaMap;
 use line_index::TextRange;
@@ -1817,6 +1817,24 @@ impl Diagnostic {
                 format!(
                     "`Immediate` can only constrain effect sets, but `{param}` is not used in `uses`"
                 ),
+            ),
+            TypeDiagnosticKind::CapabilityOnSet { param, set } => (
+                Severity::Error,
+                Some(code::CAPABILITY_ON_SET),
+                format!(
+                    "`Capability` can only constrain ordinary type parameters, but `{param}` is \
+                     used in `{}`",
+                    match set {
+                        SetKind::Errors => "fails",
+                        // A set of capabilities is never written as a type parameter.
+                        SetKind::Effects | SetKind::Caps => "uses",
+                    }
+                ),
+            ),
+            TypeDiagnosticKind::AutoTraitImpl { trait_name } => (
+                Severity::Error,
+                Some(code::AUTO_TRAIT_IMPL),
+                format!("`{trait_name}` is determined automatically and cannot be implemented"),
             ),
         };
         let mut out = Diagnostic::new(severity, message);

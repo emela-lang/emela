@@ -1,7 +1,7 @@
 ---
 title: Reading an Instant from text, and Encode, Decode and Shaped for Instant
 authors: [somnicattus]
-status: accepted
+status: implemented
 pr: 730
 issue:
 decided: 2026-11-23

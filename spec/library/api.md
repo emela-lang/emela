@@ -21,7 +21,7 @@ This document defines the API of the `.emel` sources bundled with the compiler. 
 | `todo` | `todo() -> Never` | intrinsic | A defect with `not yet implemented` |
 | `dbg` | `dbg[A](value: A) -> A` | intrinsic | Writes the debug representation to standard error and returns the value. Does not require Show. For a type that satisfies Show, the same as `inspect`; for a type that does not, the constructed form (values inside that satisfy Show use Show, functions are `<fn>`) |
 | `inspect` | `inspect[A: Show](value: A) -> String` | intrinsic | The debug representation. The result of the Show implementation; a String is enclosed in `"` even at the top level |
-| `ParseError` | `error ParseError(input: String)` | Emela | A malformed input to `Int.parse`, `Float.parse`, or `Bool.parse`. `input` is the whole input |
+| `ParseError` | `error ParseError(input: String)` | Emela | A malformed input to `Int.parse`, `Float.parse`, `Bool.parse`, `Instant.parse` (`[api.std.instant]`), `Number.parse` (`[api.std.dynamic.number]`), or `decode_query` (`[api.std.http.request]`). `input` is the whole input |
 
 impl (`[trait.derive]`): ParseError has `derive Show` (its contents are shown when it reaches main or a test; `[dyn.error]`).
 
@@ -219,7 +219,7 @@ A point in time. An opaque type whose contents are an Int64 of milliseconds sinc
   digit     = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
   ```
 
-- The fields are read as the date and the time of day at the given offset, in the proleptic Gregorian calendar. The month is 01 to 12, the day is 01 to the number of days of that month in that year, the hour is 00 to 23, the minute is 00 to 59, and the second is 00 to 59; an omitted second is 00. The hour of the offset is 00 to 23 and its minute is 00 to 59; an offset written with the hour only (`+09`) has the minute 00. `Z`, `z`, and an offset whose hour and minute are both 00 (`+00:00`, `-0000`, `+00`) are the offset 0.
+- The fields are read as the date and the time of day at the given offset, in the proleptic Gregorian calendar. The month is 01 to 12, the day is 01 to the number of days of that month in that year, the hour is 00 to 23, the minute is 00 to 59, and the second is 00 to 59; an omitted second is 00. The hour of the offset is 00 to 23 and its minute is 00 to 59; an offset written with the hour only (`+09`) has the minute 00. `Z`, `z`, and an offset whose hour and minute are both 00 (`+00:00`, `-0000`, `+00`) are the offset 0. `-00:00`, which RFC 3339 uses for an unknown local offset, is also the offset 0.
 - If `s` has more than 256 code points, `parse` fails without reading it.
 - The separator between the date and the time, and the space before the offset, are one space (U+0020). No other whitespace is allowed.
 - A year written with a sign is that many years after (`+`) or before (`-`) the year 0. The sign `-` with the value 0 (`-000000`) is not read. A year of 4 digits is 0000 to 9999.

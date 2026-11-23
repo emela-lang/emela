@@ -5,6 +5,7 @@
 
 import Std.Array.{Array}
 import Std.Bytes.{Bytes}
+import Std.Instant.{Instant}
 import Std.Map.{Map}
 import Std.Set.{Set}
 import Std.Dynamic.{Dynamic, Number, Text}
@@ -114,6 +115,12 @@ impl Bytes: Shaped {
 
 impl Dynamic: Shaped {
   fn shape_in(proxy, visiting) { Any }
+}
+
+## The note describes what Encode writes, a `date-time` of RFC 3339 for the years 0 to 9999; like
+## every note, it does not restrict the values (`[api.std.shape]`).
+impl Instant: Shaped {
+  fn shape_in(proxy, visiting) { Named(name: "Instant", shape: format(String, "date-time")) }
 }
 
 impl List[A: Shaped]: Shaped {

@@ -4,6 +4,7 @@
 
 import Std.Array.{Array}
 import Std.Bytes.{Bytes}
+import Std.Instant.{Instant}
 import Std.Map.{Map}
 import Std.Set.{Set}
 import Std.Dynamic.Number.{OutOfRange}
@@ -415,6 +416,26 @@ impl Bytes: Encode {
 impl Bytes: Decode {
   fn from_dynamic(d) {
     bytes(d)
+  }
+}
+
+## Text in the form of `Instant.to_string`.
+impl Instant: Encode {
+  fn to_dynamic(self) {
+    Text(Instant.to_string(self))
+  }
+}
+
+## Reads Text with `Instant.parse`, so it accepts every form that `parse` reads
+## (`2025-10-12 12:04:05.678+09`).
+impl Instant: Decode {
+  fn from_dynamic(d) {
+    d match {
+      Text(s) -> Instant.parse(s) escape {
+        ParseError(..) -> fail DecodeError(expected: "date-time", actual: d, path: [])
+      }
+      _ -> fail DecodeError(expected: "text", actual: d, path: [])
+    }
   }
 }
 

@@ -124,6 +124,9 @@ pub const OPAQUE_DERIVE: &str = "E0336";
 pub const DUPLICATE_KEY: &str = "E0337";
 pub const MISPLACED_KEY_TAG: &str = "E0338";
 pub const OBJECT_KEY_FORM: &str = "E0339";
+// Built-in traits determined automatically (`[trait.builtin]`).
+pub const CAPABILITY_ON_SET: &str = "E0340";
+pub const AUTO_TRAIT_IMPL: &str = "E0341";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_DERIVE: &str = "W0303";

@@ -87,29 +87,29 @@ error enum Std.Queue.QueueClosed {
 }
 
 export fn main() -> Int fails {
-  let a%1: Int = {
+  let a%0: Int = {
     find(1)?
   } escape {
-    NotFound.NotFound(id: id%0) if (id%0 >[Int] 5) -> id%0
+    NotFound.NotFound(id: id%1) if (id%1 >[Int] 5) -> id%1
     Unauthorized.Unauthorized -> fail NotFound.NotFound(id: 0)
   }
   let b%2: Int = Option.or_fail[Int, Unauthorized](Option.Some[Int](1), Unauthorized.Unauthorized)?
-  let c%3: Int = (pure(a%1) +[Int] b%2)
+  let c%3: Int = (pure(a%0) +[Int] b%2)
   @dbg[Int](c%3)
 }
 
-fn find(id%85: Int) -> Int fails {
-  if (id%85 >[Int] 0) {
-    id%85
+fn find(id%0: Int) -> Int fails {
+  if (id%0 >[Int] 0) {
+    id%0
   } else {
-    if (id%85 ==[Int] 0) {
-      fail NotFound.NotFound(id: id%85)
+    if (id%0 ==[Int] 0) {
+      fail NotFound.NotFound(id: id%0)
     } else {
       fail Unauthorized.Unauthorized
     }
   }
 }
 
-fn pure(n%4: Int) -> Int {
-  (n%4 +[Int] 1)
+fn pure(n%0: Int) -> Int {
+  (n%0 +[Int] 1)
 }

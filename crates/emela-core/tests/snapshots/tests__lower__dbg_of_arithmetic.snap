@@ -270,8 +270,8 @@ export fn main() -> Bool {
   greet(2, "emela")
 }
 
-fn greet(times%4: Int, name%5: String) -> Bool {
-  if ((times%4 >[Int] 0) &&[Bool] (@String.length(name%5) !=[Int] 0)) {
+fn greet(times%0: Int, name%1: String) -> Bool {
+  if ((times%0 >[Int] 0) &&[Bool] (@String.length(name%1) !=[Int] 0)) {
     true
   } else {
     false

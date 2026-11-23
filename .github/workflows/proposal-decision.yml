@@ -5,10 +5,13 @@ name: Proposal decision
 #   /accept               /reject
 #   <the reasons>         <the reasons>
 #
-# `/accept` records the adoption with `scripts/spec.py accept` (front matter, "Decision",
-# `spec/history.md`), pushes it to the pull request and marks it ready for review. Applying
-# "Specification changes" to `spec/` and merging stay with the author. `/reject` closes the pull
-# request with the reasons. Comments from anyone else are ignored (proposals/README.md, "Decision").
+# `/accept` checks the proposal as the head commit has it (`scripts/spec.py ready` and `check`),
+# comments a marker with that commit, which the `proposal-adopted` job of CI requires, runs that job
+# again, marks the pull request ready for review, and adds it to the merge queue. `/reject` closes
+# the pull request with the reasons. Neither pushes to the pull request's branch, so a pull request
+# from a fork is decided the same way. After the pull request is closed, the `Proposal record`
+# workflow records the decision in the repository. Comments from anyone else are ignored
+# (proposals/README.md, "Decision").
 
 on:
   issue_comment:
@@ -26,9 +29,9 @@ jobs:
       github.event.comment.user.login == 'Allianaab2m' &&
       (startsWith(github.event.comment.body, '/accept') || startsWith(github.event.comment.body, '/reject'))
     runs-on: ubuntu-latest
-    # Everything goes through the App token: a push made with GITHUB_TOKEN does not run CI, so the
-    # merge queue would never see `ci-ok`.
-    permissions: {}
+    # GITHUB_TOKEN only runs CI again; everything else goes through the App token.
+    permissions:
+      actions: write
     steps:
       - name: "Mint token (GitHub App: emela-bot)"
         id: app-token
@@ -76,7 +79,7 @@ jobs:
           gh pr comment "$PR" --repo "$REPO" --body-file "$RUNNER_TEMP/comment.md"
           gh pr close "$PR" --repo "$REPO"
 
-      - name: Find the pull request's branch and proposal
+      - name: Find the proposal and the head commit
         id: pr
         if: steps.command.outputs.verb == 'accept'
         env:
@@ -84,31 +87,29 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.issue.number }}
         run: |
-          # The App can push only to branches of this repository.
-          if [ "$(gh pr view "$PR" --repo "$REPO" --json isCrossRepository --jq .isCrossRepository)" = true ]; then
-            echo "::error::the pull request comes from a fork; finish the adoption by hand (the emela-proposal skill)"
+          echo "sha=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid)" >> "$GITHUB_OUTPUT"
+          gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | "\(.status) \(.filename)"' > "$RUNNER_TEMP/files"
+          added="$(sed -n 's/^added \(proposals\/[^/]*\.md\)$/\1/p' "$RUNNER_TEMP/files" \
+            | grep -vE '^proposals/(README|TEMPLATE)\.md$' || true)"
+          if [ "$(printf '%s' "$added" | grep -c .)" != 1 ]; then
+            echo "::error::expected exactly one new proposal in the pull request, found: ${added:-none}"
             exit 1
           fi
-          echo "branch=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq .headRefName)" >> "$GITHUB_OUTPUT"
-          files="$(gh pr diff "$PR" --repo "$REPO" --name-only \
-            | grep -E '^proposals/[^/]+\.md$' | grep -vE '^proposals/(README|TEMPLATE)\.md$' || true)"
-          if [ "$(printf '%s' "$files" | grep -c .)" != 1 ]; then
-            echo "::error::expected exactly one proposal in the pull request, found: ${files:-none}"
+          if ! cut -d' ' -f2- "$RUNNER_TEMP/files" | grep '^spec/' | grep -qvx 'spec/history.md'; then
+            echo "::error::the pull request does not change spec/; the proposal's change to the specification goes in the same pull request"
             exit 1
           fi
-          slug="$(basename "$files" .md)"
-          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+          echo "slug=$(basename "$added" .md)" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout the pull request
+      # The head commit is read as data. The code that runs is scripts/spec.py of the default
+      # branch: a pull request must not choose the code the bot runs.
+      - name: Checkout the head commit
         if: steps.command.outputs.verb == 'accept'
         uses: actions/checkout@v7
         with:
-          ref: ${{ steps.pr.outputs.branch }}
-          token: ${{ steps.app-token.outputs.token }}
-          persist-credentials: true
+          ref: ${{ steps.pr.outputs.sha }}
+          persist-credentials: false
 
-      # scripts/spec.py comes from the default branch, not from the pull request: a branch made
-      # before `accept` was added lacks it, and a pull request must not choose the code the bot runs.
       - name: Checkout scripts/spec.py of the default branch
         if: steps.command.outputs.verb == 'accept'
         uses: actions/checkout@v7
@@ -118,41 +119,80 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
-      - name: Record the adoption
+      - name: Check the proposal
         if: steps.command.outputs.verb == 'accept'
         env:
           SLUG: ${{ steps.pr.outputs.slug }}
         run: |
           cp base/scripts/spec.py scripts/spec.py
           rm -rf base
-          # No `spec.py check` here: the entry in `spec/history.md` names the new sections of
-          # `touches`, which exist only once "Specification changes" are applied. The `spec` job of
-          # CI checks the pull request after that.
-          python3 scripts/spec.py accept "$SLUG" "$RUNNER_TEMP/reasons.md" "$(TZ=Asia/Tokyo date +%F)"
+          python3 scripts/spec.py ready "$SLUG"
+          python3 scripts/spec.py check
 
-      - name: Push and mark ready for review
+      - name: Accept the head commit
         if: steps.command.outputs.verb == 'accept'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.issue.number }}
+          SHA: ${{ steps.pr.outputs.sha }}
           SLUG: ${{ steps.pr.outputs.slug }}
-          BRANCH: ${{ steps.pr.outputs.branch }}
         run: |
-          id="$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)"
-          git config user.name "${APP_SLUG}[bot]"
-          git config user.email "${id}+${APP_SLUG}[bot]@users.noreply.github.com"
-          git add "proposals/$SLUG.md" spec/history.md
-          git commit -m "docs(proposal): $SLUG を採択する"
-          git push origin "HEAD:$BRANCH"
-          gh pr ready "$PR" --repo "$REPO"
           {
-            echo "Recorded the adoption of \`proposals/$SLUG.md\` and an entry in \`spec/history.md\`."
+            echo "<!-- proposal-accepted: $SHA -->"
+            echo "Accepted \`proposals/$SLUG.md\` at $SHA. The pull request is added to the merge queue; after it is merged, the adoption is recorded in a pull request of its own."
             echo
-            echo "Left to do before merging: apply \"Specification changes\" to \`spec/\` (in this pull request or a following one), and mark any decided row of \`[open.list]\`."
+            echo "A commit pushed after this one needs a new \`/accept\`."
           } > "$RUNNER_TEMP/comment.md"
           gh pr comment "$PR" --repo "$REPO" --body-file "$RUNNER_TEMP/comment.md"
+          gh pr ready "$PR" --repo "$REPO" || true
+
+      # The `proposal-adopted` job failed before the marker existed. Wait for the run of the head
+      # commit to finish, then run its failed jobs again so that `ci-ok` can pass.
+      - name: Run CI again
+        if: steps.command.outputs.verb == 'accept'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.pr.outputs.sha }}
+        run: |
+          run="$(gh run list --repo "$REPO" --workflow ci.yml --commit "$SHA" --event pull_request \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$run" ]; then
+            echo "::warning::no CI run for $SHA (a run from a fork may be waiting for approval)"
+            exit 0
+          fi
+          for _ in $(seq 120); do
+            [ "$(gh run view "$run" --repo "$REPO" --json status --jq .status)" = completed ] && break
+            sleep 15
+          done
+          if [ "$(gh run view "$run" --repo "$REPO" --json conclusion --jq .conclusion)" != success ]; then
+            gh run rerun "$run" --repo "$REPO" --failed
+          fi
+
+      - name: Add to the merge queue
+        if: steps.command.outputs.verb == 'accept'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          TARGET: ${{ github.event.issue.number }}
+        run: |
+          # Wait for the required checks, then add the pull request to the merge queue. Calling
+          # `gh pr merge` while a check is pending enables auto-merge, which the repository does
+          # not allow; with every required check passed, it adds the pull request to the queue.
+          sleep 20
+          for _ in $(seq 120); do
+            buckets="$(gh pr checks "$TARGET" --repo "$REPO" --required --json bucket \
+              --jq '[.[].bucket] | unique | join(" ")' 2>/dev/null || true)"
+            case " $buckets " in
+              *" fail "* | *" cancel "*) echo "::error::a required check failed: $buckets"; exit 1 ;;
+              "  " | *" pending "*) ;;
+              *) gh pr merge "$TARGET" --repo "$REPO"; exit 0 ;;
+            esac
+            sleep 15
+          done
+          echo "::error::the required checks did not finish in 30 minutes"
+          exit 1
 
       - name: Report a failure
         if: failure()

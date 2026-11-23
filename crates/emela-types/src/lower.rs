@@ -1208,10 +1208,15 @@ pub(crate) fn ty_params(program: &Program, defs: &[DefId]) -> Vec<TyParam> {
 
 /// The spans of a type parameter's bounds that refer to the built-in Immediate.
 pub(crate) fn immediate_bounds(program: &Program, tp: &TypeParam) -> Vec<Span> {
-    let immediate = program.prelude_def(IMMEDIATE);
+    prelude_bounds(program, tp, IMMEDIATE)
+}
+
+/// The spans of a type parameter's bounds that refer to the Prelude's definition `name`.
+pub(crate) fn prelude_bounds(program: &Program, tp: &TypeParam, name: &str) -> Vec<Span> {
+    let def = program.prelude_def(name);
     tp.bounds
         .iter()
-        .filter(|(res, _)| matches!(res, Res::Def(d) if Some(*d) == immediate))
+        .filter(|(res, _)| matches!(res, Res::Def(d) if Some(*d) == def))
         .map(|&(_, span)| span)
         .collect()
 }

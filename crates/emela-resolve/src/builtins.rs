@@ -95,13 +95,14 @@ impl BuiltinModules for BuiltinTable {
 
 /// The types of spec 15.1 that are not enums.
 const PRELUDE_TYPES: &[&str] = &["Int", "Int64", "Float", "String", "Never", "List"];
-/// The traits of spec 15.1 and the built-in constraint `Immediate` (spec 9.5, 10.6), with their
-/// function names. The function signatures belong to type inference.
+/// The traits of spec 15.1 and the built-in traits determined automatically, `Immediate` and
+/// `Capability` (spec 9.5, `[trait.builtin]`), with their function names. The function signatures belong to type inference.
 const PRELUDE_TRAITS: &[(&str, &[&str])] = &[
     ("Eq", &["eq"]),
     ("Ord", &["compare"]),
     ("Show", &["show"]),
     ("Immediate", &[]),
+    ("Capability", &[]),
 ];
 /// The functions of spec 15.1.
 const PRELUDE_FNS: &[&str] = &["panic", "todo", "dbg", "inspect"];
