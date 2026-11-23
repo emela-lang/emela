@@ -249,7 +249,8 @@ impl TyTable {
         if self.inner_handlers.contains(&handler) {
             return &[];
         }
-        self.con(handler).map_or(&[], |id| self.cons[id].params.as_slice())
+        self.con(handler)
+            .map_or(&[], |id| self.cons[id].params.as_slice())
     }
 
     /// Named error type → that error's definition.

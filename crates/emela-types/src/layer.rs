@@ -19,9 +19,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
+use crate::infer::substitute_bound;
 use crate::lower::{Omitted, Scope, TyTable};
 use crate::row::{Row, RowElem, Tag};
-use crate::infer::substitute_bound;
 use crate::signature::{Signatures, is_label};
 use crate::ty::{Ty, TyCons};
 

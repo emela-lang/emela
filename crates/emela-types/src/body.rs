@@ -1450,7 +1450,8 @@ impl<'a> BodyInfer<'a> {
             .collect();
         self.item_insts.insert(expr, insts.clone());
         let insts_now = self.item_insts(expr, items);
-        let entries = crate::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
+        let entries =
+            crate::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
         let mut opened = Vec::new();
         let args = items
             .iter()
@@ -1553,7 +1554,8 @@ impl<'a> BodyInfer<'a> {
             }
         }
         let insts_now = self.item_insts(expr, items);
-        let entries = crate::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
+        let entries =
+            crate::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
         self.check_item_overrides(expr, &entries);
         if !opened.is_empty() {
             self.with_members.insert(expr, opened);

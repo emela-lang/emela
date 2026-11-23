@@ -665,8 +665,9 @@ impl<'a> Lowerer<'a> {
                     }
                     // A stateful handler's value (self) is an enum with the handler's one
                     // constructor (spec 8.4).
+                    // It takes the handler's type parameters (`[effect.handler]`).
                     Some(Item::Handler(h)) if is_stateful(h) => {
-                        let id = self.declare_enum(def, 0);
+                        let id = self.declare_enum(def, self.handler_type_params(def));
                         self.enums.insert(def, id);
                     }
                     _ => {}
@@ -982,6 +983,7 @@ impl<'a> Lowerer<'a> {
             Some(Item::Handler(_)) => {
                 let (params, ret, body) = self.handler(def);
                 self.module.define(id, params, ret, body);
+                self.module.functions[id].type_params = self.handler_type_params(def);
                 return;
             }
             // A trait function is generic in `Self`; monomorphization replaces calls of it with
@@ -1698,7 +1700,7 @@ impl<'a> Lowerer<'a> {
         };
         let effect_ids: Vec<EffectId> = tags
             .iter()
-            .map(|t| self.effect_id(&self.tag_key(t, None)))
+            .map(|t| self.effect_id(&self.key_here(t)))
             .collect();
         let ret = match effect_ids.as_slice() {
             [one] => self.module.handler(*one),
@@ -1881,6 +1883,7 @@ impl<'a> Lowerer<'a> {
         };
         self.opened_cell = None;
         self.module.define(init, params, state_ty, body);
+        self.module.functions[init].type_params = self.handler_type_params(def);
 
         if let (Some(f), Some((self_local, body))) = (release, h.release) {
             // The state's type, which the type checker gives as the handler's type even when the
@@ -1893,20 +1896,60 @@ impl<'a> Lowerer<'a> {
             let ret = self.ty(self.expr_ty(body));
             let body = self.expr(body);
             self.module.define(f, params, ret, body);
+            self.module.functions[f].type_params = self.handler_type_params(def);
         }
     }
 
     /// The type of a stateful handler's state (self, spec 8.4): init's value, else the handler's
     /// constructor value, else `()` (as built by `handler_parts`).
+    ///
+    /// The type parameters of a handler with them are `Type::Param(i)`, as in its functions
+    /// ([`Self::handler_type_params`]).
     fn handler_state_ty(&mut self, def: DefId, h: &emela_resolve::hir::HandlerItem) -> TypeId {
-        match (h.init, self.enums.get(def)) {
+        match (h.init, self.enums.get(def).copied()) {
             (Some(body), _) => {
                 let ty = self.expr_ty(body);
                 self.ty(ty)
             }
-            (None, Some(&id)) if h.ctor.is_some() => self.module.enum_type(id, Vec::new()),
+            (None, Some(id)) if h.ctor.is_some() => {
+                let args = self.own_ty_args(def);
+                self.module.enum_type(id, args)
+            }
             _ => TypeId::UNIT,
         }
+    }
+
+    /// The number of type parameters of the IR functions of a handler, and of the enum of its
+    /// state: its own (`[effect.handler]`), or for an inner handler those of its outer handler,
+    /// which it is read with. Monomorphization copies them per item (`[effect.with]`).
+    fn handler_type_params(&self, def: DefId) -> usize {
+        let table = &self.types.ty_table;
+        table.con(def).map_or(0, |c| table.cons[c].params.len())
+    }
+
+    /// `Type::Param(0..n)` for the type parameters of a handler's functions: the type arguments
+    /// with which the outer handler's functions call those of an inner handler.
+    pub(super) fn own_ty_args(&mut self, def: DefId) -> Vec<TypeId> {
+        (0..self.handler_type_params(def))
+            .map(|i| self.module.intern(Type::Param(i)))
+            .collect()
+    }
+
+    /// The type arguments of a provider of a `with` (`[effect.with]`), as IR types.
+    fn bind_ty_args(&mut self, bind: &emela_types::WithBind) -> Vec<TypeId> {
+        bind.ty_args.iter().map(|t| self.ty(t)).collect()
+    }
+
+    /// The effects of `handler` instantiated with the type arguments of an item, in the order
+    /// written (provides(H), `[type.rules]`).
+    fn handler_tags(&self, handler: DefId, ty_args: &[Ty]) -> Vec<Tag> {
+        let own = self.types.sigs.handler_effects(handler);
+        if ty_args.is_empty() {
+            return own.to_vec();
+        }
+        own.iter()
+            .map(|t| t.map_args(|a| emela_types::substitute_bound(a, ty_args)))
+            .collect()
     }
 
     /// The IR functions of a stateful handler's init and release (if any), declared if they do not
@@ -1976,7 +2019,7 @@ impl<'a> Lowerer<'a> {
         // (supplier, key of the provided effect).
         let mut hs: Vec<(Supplier, EffectKey)> = Vec::new();
         for bind in &info.binds {
-            let own = self.tag_key(&bind.effect, None);
+            let own = self.key_here(&bind.effect);
             match &bind.supplier {
                 Supplier::Handler(def) => {
                     // Errors go at the handler as written; for handlers expanded from a layer, at
@@ -2005,7 +2048,7 @@ impl<'a> Lowerer<'a> {
         let defaults: Vec<(EffectKey, usize)> = info
             .defaults
             .iter()
-            .map(|(tag, i)| (self.tag_key(tag, None), *i))
+            .map(|(tag, i)| (self.key_here(tag), *i))
             .collect();
         let outer = self.ev;
         let mut locals: Vec<Local> = Vec::with_capacity(hs.len());
@@ -2039,7 +2082,8 @@ impl<'a> Lowerer<'a> {
                     .iter()
                     .find(|(k, _, _)| *k == (*h, info.binds[i].args))
             {
-                let part = parts[self.tuple_index(*h, &info.binds[i].effect)];
+                let bind = &info.binds[i];
+                let part = parts[self.tuple_index(*h, &bind.ty_args, &bind.effect)];
                 let l = self.module.local("h", handler_ty);
                 locals.push(l);
                 binds.push(WithBind::new(l, Expr::Var(part)));
@@ -2124,7 +2168,7 @@ impl<'a> Lowerer<'a> {
                 // The provider of an effect already in scope: a handler in the same `with`
                 // initialized earlier, or the one the outer table holds (issue #255).
                 Supplier::Effect(tag) => {
-                    let key = self.tag_key(tag, None);
+                    let key = self.key_here(tag);
                     let found = (0..i).find(|&j| named[j] && hs[j].1 == key);
                     let value = match found {
                         Some(j) => Expr::Var(locals[j]),
@@ -2140,6 +2184,10 @@ impl<'a> Lowerer<'a> {
                 }
             };
             let f = self.fn_id(h, 0);
+            // The type arguments of a handler with type parameters (`[effect.with]`): its
+            // functions are generic, and its effects and requirements are instantiated.
+            let bind = &info.binds[i];
+            let ty_args = self.bind_ty_args(bind);
             let ctx = if self
                 .types
                 .handler_uses
@@ -2152,15 +2200,16 @@ impl<'a> Lowerer<'a> {
                 // L, so its dependency on the underlying effect is met in the same `with` too
                 // (`[effect.label]`, issue #679), as `layer::with_entries` orders it.
                 let row = self.types.handler_uses.get(h).cloned().unwrap_or_default();
-                let effects = self.types.sigs.handler_effects(h);
+                let row = row.map_tys(|t| emela_types::substitute_bound(t, &bind.ty_args));
+                let effects = self.handler_tags(h, &bind.ty_args);
                 let owns: Vec<EffectKey> = if effects.contains(&info.binds[i].effect) {
-                    effects.iter().map(|t| self.tag_key(t, None)).collect()
+                    effects.iter().map(|t| self.key_here(t)).collect()
                 } else {
                     Vec::new()
                 };
                 let keys: Vec<EffectKey> = row
                     .tags()
-                    .map(|t| self.tag_key(t, None))
+                    .map(|t| self.key_here(t))
                     .filter(|y| y != own && !owns.contains(y))
                     .collect();
                 let bindings: Vec<(EffectId, Expr)> = keys
@@ -2190,7 +2239,7 @@ impl<'a> Lowerer<'a> {
             // own handler from it after.
             let several = self.types.sigs.handler_effects(h).len() > 1;
             let target = if several {
-                let ty = Ty::cap(self.types.sigs.handler_effects(h).iter().cloned());
+                let ty = Ty::cap(self.handler_tags(h, &bind.ty_args));
                 let ty = self.ty(&ty);
                 self.module.local("hs", ty)
             } else {
@@ -2199,11 +2248,11 @@ impl<'a> Lowerer<'a> {
             if !is_stateful(item) {
                 binds.push(WithBind::new(
                     target,
-                    direct(f, ctx.into_iter().collect(), false),
+                    generic_call(direct(f, ctx.into_iter().collect(), false), &ty_args),
                 ));
                 if several {
-                    let parts = self.bind_tuple_parts(h, target, None, &mut binds);
-                    let part = parts[self.tuple_index(h, &info.binds[i].effect)];
+                    let parts = self.bind_tuple_parts(h, &bind.ty_args, target, None, &mut binds);
+                    let part = parts[self.tuple_index(h, &bind.ty_args, &bind.effect)];
                     binds.push(WithBind::new(l, Expr::Var(part)));
                     tuples.push(((h, info.binds[i].args), target, parts));
                 }
@@ -2220,6 +2269,7 @@ impl<'a> Lowerer<'a> {
             });
             let (init, release) = self.handler_fns(h);
             let state_ty = self.handler_state_ty(h, item);
+            let state_ty = self.module.types.subst(state_ty, &ty_args);
             let state = self.module.local("self", state_ty);
             let init_fails = self
                 .types
@@ -2241,7 +2291,10 @@ impl<'a> Lowerer<'a> {
             init_args.extend(ctx.clone());
             binds.push(WithBind::new(
                 state,
-                direct_marked(&self.module, init, init_args, init_fails),
+                generic_call(
+                    direct_marked(&self.module, init, init_args, init_fails),
+                    &ty_args,
+                ),
             ));
             let with_state = |ctx: &Option<Expr>| {
                 std::iter::once(Expr::Var(state))
@@ -2249,7 +2302,10 @@ impl<'a> Lowerer<'a> {
                     .collect::<Vec<_>>()
             };
             let mut release = match release {
-                Some(r) => direct_marked(&self.module, r, with_state(&ctx), false),
+                Some(r) => generic_call(
+                    direct_marked(&self.module, r, with_state(&ctx), false),
+                    &ty_args,
+                ),
                 None => Expr::Lit(Lit::Unit),
             };
             if let Some((c, s)) = cell {
@@ -2260,19 +2316,19 @@ impl<'a> Lowerer<'a> {
                 let name = hir.defs[h].name.as_str();
                 binds.push(WithBind::cleanup(
                     target,
-                    direct(f, with_state(&ctx), false),
+                    generic_call(direct(f, with_state(&ctx), false), &ty_args),
                     name,
                     release,
                 ));
-                let parts = self.bind_tuple_parts(h, target, Some(name), &mut binds);
-                let part = parts[self.tuple_index(h, &info.binds[i].effect)];
+                let parts = self.bind_tuple_parts(h, &bind.ty_args, target, Some(name), &mut binds);
+                let part = parts[self.tuple_index(h, &bind.ty_args, &bind.effect)];
                 binds.push(WithBind::new(l, Expr::Var(part)));
                 tuples.push(((h, info.binds[i].args), target, parts));
                 continue;
             }
             binds.push(WithBind::managed(
                 target,
-                direct(f, with_state(&ctx), false),
+                generic_call(direct(f, with_state(&ctx), false), &ty_args),
                 &hir.defs[h].name,
                 release,
             ));
@@ -2332,9 +2388,9 @@ impl<'a> Lowerer<'a> {
     }
 
     /// The effects of `handler`, a handler of several effects, in the order of its tuple of
-    /// handlers (`Ty::Cap`).
-    fn tuple_tags(&self, handler: DefId) -> Vec<Tag> {
-        match Ty::cap(self.types.sigs.handler_effects(handler).iter().cloned()) {
+    /// handlers (`Ty::Cap`), instantiated with `ty_args` (`[effect.with]`).
+    fn tuple_tags(&self, handler: DefId, ty_args: &[Ty]) -> Vec<Tag> {
+        match Ty::cap(self.handler_tags(handler, ty_args)) {
             Ty::Cap(tags) => tags,
             _ => unreachable!("a capability type"),
         }
@@ -2342,9 +2398,9 @@ impl<'a> Lowerer<'a> {
 
     /// The position of the handler of `effect` in the tuple of the handlers of `handler`. For a
     /// label (`L by H`), that of its underlying effect (`[effect.label]`).
-    fn tuple_index(&self, handler: DefId, effect: &Tag) -> usize {
+    fn tuple_index(&self, handler: DefId, ty_args: &[Ty], effect: &Tag) -> usize {
         let base = self.types.sigs.base_of(effect);
-        self.tuple_tags(handler)
+        self.tuple_tags(handler, ty_args)
             .iter()
             .position(|t| t == effect || t == base)
             .expect("the bind's effect is one of the handler's")
@@ -2356,16 +2412,17 @@ impl<'a> Lowerer<'a> {
     fn bind_tuple_parts(
         &mut self,
         handler: DefId,
+        ty_args: &[Ty],
         all: Local,
         release: Option<&str>,
         binds: &mut Vec<WithBind>,
     ) -> Vec<Local> {
-        let tags = self.tuple_tags(handler);
+        let tags = self.tuple_tags(handler, ty_args);
         let n = tags.len();
         tags.iter()
             .enumerate()
             .map(|(k, tag)| {
-                let id = self.effect_id(&self.tag_key(tag, None));
+                let id = self.effect_id(&self.key_here(tag));
                 let id = self.module.handler_effect(id);
                 let ty = self.module.handler(id);
                 let part = self.module.local("h", ty);
@@ -4177,6 +4234,20 @@ fn direct(f: FnId, args: Vec<Expr>, fails: bool) -> Expr {
         fails,
         suspends: false,
     }
+}
+
+/// `call`, a direct call made by [`direct`] or [`direct_marked`], with the type arguments
+/// `ty_args` of a generic function (the functions of a handler with type parameters,
+/// `[effect.with]`).
+pub(super) fn generic_call(mut call: Expr, ty_args: &[TypeId]) -> Expr {
+    if let Expr::Call {
+        callee: Callee::Direct { ty_args: args, .. },
+        ..
+    } = &mut call
+    {
+        *args = ty_args.to_vec();
+    }
+    call
 }
 
 /// A direct call to the non-generic function `f`, marked as suspending if the function is.

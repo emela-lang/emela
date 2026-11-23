@@ -305,9 +305,11 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             .narrowings
             .extend(body.narrowings.iter().map(|(id, tags)| (id, tags.clone())));
         types.layer_args.extend(body.layer_args);
-        types
-            .with_ty_args
-            .extend(body.with_ty_args.iter().map(|(id, args)| (id, args.clone())));
+        types.with_ty_args.extend(
+            body.with_ty_args
+                .iter()
+                .map(|(id, args)| (id, args.clone())),
+        );
         types.layer_ty_args.extend(body.layer_ty_args);
         types.diags.extend(body.diags);
         let input = crate::capture::Input {

@@ -6,8 +6,8 @@
 //! values.
 
 use emela_resolve::hir::{
-    DefId, DefKind, DefModule, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, LocalKind,
-    HandlerItem, MemberItem, Param, Program, Res, Span, TypeId, TypeKind, TypeParam,
+    DefId, DefKind, DefModule, EffectItem, Fields, FnItem, FnSig, HandlerItem, Item, LabelOf,
+    LocalKind, MemberItem, Param, Program, Res, Span, TypeId, TypeKind, TypeParam,
 };
 use la_arena::ArenaMap;
 use smol_str::SmolStr;

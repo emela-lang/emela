@@ -33,8 +33,8 @@ mod tests;
 pub use capture::{Captures, Held, Provider};
 pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
 pub use diagnostic::{
-    Diagnostic, DiagnosticKind, EffectContext, HandlerArgsReason, ImmediateSource, InnerHandlerMismatch,
-    LabelBaseReason, LayerArg, SuspendingCall,
+    Diagnostic, DiagnosticKind, EffectContext, HandlerArgsReason, ImmediateSource,
+    InnerHandlerMismatch, LabelBaseReason, LayerArg, SuspendingCall,
 };
 pub use display::{SchemeDisplay, TyDisplay};
 pub use entry_main::is_exit_code;

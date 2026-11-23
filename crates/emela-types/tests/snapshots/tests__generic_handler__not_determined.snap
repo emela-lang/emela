@@ -27,7 +27,7 @@ item Constant: [List[Int]]
 `Eq` UnusedDerive { trait_name: "Eq", ty: "UserId" }
 `Blank` HandlerArgsUnknown { handler: "Blank[A]", reason: Unknown }
 `Empty` HandlerArgsUnknown { handler: "Empty[A]", reason: Several { first: "State[List[Int]]", second: "State[List[String]]" } }
-`Pass` HandlerArgsUnknown { handler: "Pass[S]", reason: Overrides { effect: "State[Int]", other: "Fixed" } }
+`Pass` HandlerArgsUnknown { handler: "Pass[S]", reason: Overrides { effect: "State[Int]", other: "Fixed", at: Span { module: Idx::<ModuleData>(0), range: 1473..1478 } } }
 --- R
 {     st <- State[List[(K, V)]]     List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v)   }: State[List[('0, '1)]]
 List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v): State[List[('0, '1)]]

@@ -702,7 +702,11 @@ impl BodyInfer<'_> {
                 .map(|&i| WithBind {
                     effect: entries[i].effect.map_args(|a| self.ctx.resolve(a)),
                     supplier: entries[i].supplier.clone(),
-                    ty_args: entries[i].ty_args.iter().map(|t| self.ctx.resolve(t)).collect(),
+                    ty_args: entries[i]
+                        .ty_args
+                        .iter()
+                        .map(|t| self.ctx.resolve(t))
+                        .collect(),
                     args: entries[i].args,
                     named: entries[i].named,
                 })
