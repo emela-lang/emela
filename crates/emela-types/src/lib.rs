@@ -5,6 +5,7 @@
 //! E and R are computed with set union and difference.
 
 mod body;
+mod builtin;
 mod check;
 mod const_cycle;
 mod coverage;
@@ -14,7 +15,6 @@ mod entry_main;
 mod error;
 mod exhaustiveness;
 mod export;
-mod fiber;
 mod infer;
 mod layer;
 mod lower;

@@ -6,7 +6,7 @@
 
 import Std.Clock.{Clock}
 import Std.Console.{Console}
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 import Std.Process.{Args, Process, Stderr, Stdout}
 
 effect Guard {
@@ -41,13 +41,13 @@ fn main() -> () uses { Async } {
       Some(how) -> how
       None      -> "stdout"
     }
-    Fiber.scope(|_| {
+    with tasks = Task.Group {
       clock <- Clock
-      Fiber.fork(|| with Released { clock.sleep(600000) })
-      # Lets the forked fiber start and enter its `with` before the writes, which never suspend.
+      tasks.start(|| with Released { clock.sleep(600000) })
+      # Lets the task start and enter its `with` before the writes, which never suspend.
       clock.sleep(10)
       with Released { forever(how, 0) }
-    })
+    }
     stderr <- Stderr
     stderr.print_line("not reached")
   }

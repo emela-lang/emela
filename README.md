@@ -371,7 +371,7 @@ each with its host handler (`SystemConsole`, `SystemClock`, `SystemRandom`,
 `SystemStdin`, `SystemStdout`, `SystemStderr`), the layer `Std.Platform.Platform` that bundles the ones every
 host has (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemHttp`), the
 layer `Std.Process.Process` that adds the ones that need a process,
-`Std.State`, `Std.Fiber`, `Std.Exit`, `Std.Cause`, `Std.Deferred`, the values
+`Std.State`, `Std.Task`, `Std.Exit`, `Std.Cause`, `Std.Deferred`, the values
 `Std.Map`, `Std.Set`, `Std.Array`, `Std.Bytes`, `Std.Dynamic`, `Std.Shape`,
 `Std.Json`, `Std.Path`, `Std.Instant` and `Std.Duration`, and
 `Std.Http.Request` and `Std.Http.Response`. The test handlers `TestConsole`,
@@ -409,36 +409,48 @@ recorded.
 # lines == ["hello, a", "hello, b"]
 ```
 
-Fibers run concurrently on one thread and switch only where a call may
-suspend. They start only inside `Fiber.scope`, and every fiber ends before its
-scope does; a failing fiber interrupts its siblings, and the error reaches the
-scope. `Fiber.both`, `Fiber.map`, `Fiber.all`, `Fiber.race` and `Fiber.timeout`
-are built on the scope, so `Fiber.scope` and `Fiber.fork` are needed only for
-the shapes they do not cover. This is [`examples/fibers`](examples/fibers),
-where `fetch(id, ms)` sleeps for `ms` and prints `fetched <id>`:
+Tasks run concurrently on one thread and switch only where a call may
+suspend. A task starts only through the capability of a with item that bounds
+its lifetime: `Task.Group` for tasks whose results are awaited, and
+`Task.Background` for tasks whose results are not. A failing task of a group
+interrupts its siblings, and the error reaches the with; a background waits
+for its tasks and passes their failures to `on_failure`. `Task.both`,
+`Task.map`, `Task.all`, `Task.race` and `Task.timeout` are built on
+`Task.Group`, so a group is needed only for the shapes they do not cover. This
+is [`examples/tasks`](examples/tasks), where `fetch(id, ms)` sleeps for `ms`
+and prints `fetched <id>`:
 
 ```emela
 fn main() {
   with SystemConsole, SystemClock {
-    console = use Console
+    console <- Console
     # The waits overlap: the second fetch ends first.
-    (a, b) = Fiber.both(|| fetch(1, 200), || fetch(2, 100))
+    (a, b) = Task.both(|| fetch(1, 200), || fetch(2, 100))
     console.print_line("both: #{a}, #{b}")
-    names = Fiber.map([3, 4, 5], |id| fetch(id, 100 * (6 - id)))
+    names = Task.map([3, 4, 5], |id| fetch(id, 100 * (6 - id)))
     console.print_line("map: #{names}")
-    first = Fiber.race([|| fetch(6, 300), || fetch(7, 100)])
+    first = Task.race([|| fetch(6, 300), || fetch(7, 100)])
     console.print_line("race: #{first}")
-    late = Fiber.timeout(100, || fetch(8, 1000))
+    late = Task.timeout(100, || fetch(8, 1000))
     console.print_line("timeout: #{late}")
-    # A failing child interrupts its siblings, and the error reaches the scope.
-    failed = Fiber.scope(|_| {
-      ok = Fiber.fork(|| fetch(9, 1000))
-      bad = Fiber.fork(|| fetch(-1, 100))
-      "#{Fiber.join(ok)} #{Fiber.join(bad)}"
-    }) escape {
+    # A failing task interrupts its siblings, and the error reaches the with.
+    failed = with tasks = Task.Group {
+      ok = tasks.start(|| fetch(9, 1000))
+      bad = tasks.start(|| fetch(-1, 100))
+      "#{ok.join()} #{bad.join()}"
+    } escape {
       NotFound(id:) -> "not found: #{id}"
     }
     console.print_line(failed)
+    # Tasks of a background are waited for, not interrupted, and their failures go to
+    # `on_failure`.
+    with bg = Task.Background(on_failure: |cause| console.print_line(Cause.to_string(cause))) {
+      bg.start(|| {
+        _ = fetch(-2, 100)
+        ()
+      })
+      console.print_line("background started")
+    }
   }
 }
 ```
@@ -457,6 +469,9 @@ race: user 7
 timeout: None
 fetched -1
 not found: -1
+background started
+fetched -2
+error: NotFound
 ```
 
 `FileSystem` reads and writes text, and each operation fails only with the
@@ -509,7 +524,7 @@ fn a_404_is_not_a_failure() {
 ```
 
 With `with Platform { ... }`, the same code sends real requests through
-`fetch`. For a deadline, wrap the call in `Fiber.timeout`; interrupting a fiber
+`fetch`. For a deadline, wrap the call in `Task.timeout`; interrupting a task
 that waits on `send` aborts the request.
 
 ## HTTP services
@@ -662,8 +677,6 @@ Set.from_list(["a", "b"])
   1.4.3 or later. `EMELA_JS_HOST` chooses the one that `emela run` and `emela test`
   start (`node` by default). Browsers are not a target; `emela-playground`
   compiles in the browser, but the platform handlers are not specified there.
-- Some checks that scopes, fiber handles and `Deferred` values do not escape
-  run at run time (a defect such as `fiber scope was used after it ended`).
 - The native target runs on macOS (arm64) and Linux (x86_64 with glibc) only, not
   on Windows, and lacks the constructs listed under [Commands](#commands).
 - The questions still open are in [`spec/open-questions.md`](spec/open-questions.md).

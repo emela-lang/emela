@@ -1229,9 +1229,13 @@ impl<'s> Lower<'s> {
         // monomorphisation made empty. When their failure would leave a body that cannot fail,
         // the types say it cannot fail (the raised cause is then a `Cause[{}]`).
         let op = match op {
-            FiberOp::Scope { fails: true } if !self.fails && self.fail.is_empty() => {
-                FiberOp::Scope { fails: false }
-            }
+            FiberOp::Scope {
+                fails: true,
+                background,
+            } if !self.fails && self.fail.is_empty() => FiberOp::Scope {
+                fails: false,
+                background,
+            },
             FiberOp::CauseRaise { fails: true } if !self.fails && self.fail.is_empty() => {
                 FiberOp::CauseRaise { fails: false }
             }
@@ -1273,17 +1277,11 @@ impl<'s> Lower<'s> {
             FiberOp::Scope { .. } => fn_ret(self, first),
             FiberOp::Fork | FiberOp::Deferred | FiberOp::Semaphore | FiberOp::Queue => TypeId::ANY,
             FiberOp::Join | FiberOp::DeferredAwait => enum_arg(self, first),
-            FiberOp::Await { exit } => {
-                let a = enum_arg(self, first);
-                exit_type(self, exit, a)
-            }
             FiberOp::Attempt { exit, .. } => {
                 let a = fn_ret(self, first);
                 exit_type(self, exit, a)
             }
-            FiberOp::Interrupt | FiberOp::Acquire | FiberOp::Release | FiberOp::Close => {
-                TypeId::UNIT
-            }
+            FiberOp::Acquire | FiberOp::Release | FiberOp::Close => TypeId::UNIT,
             FiberOp::Complete | FiberOp::TryAcquire | FiberOp::Offer | FiberOp::TryOffer => {
                 TypeId::BOOL
             }

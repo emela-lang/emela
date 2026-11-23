@@ -194,15 +194,16 @@ pub enum DiagnosticKind {
     UnknownOperation { effect: SmolStr, op: SmolStr },
     /// The body's R not contained in the R allowed by the declaration or context (E0402, spec
     /// 8.3, 9.3, 13.3). `effects` lists the effects not contained (tags or names of set type
-    /// parameters). `scope` names the scope function (`Fiber.scope`) when some of the effects are
-    /// required by fibers forked inside it; those must be provided outside it (spec 11.2).
+    /// parameters). `in_task` is true when the effects are required by a task started in a group
+    /// or a background, at whose `start` it points; those must be provided outside the `with` of
+    /// the group (`[task.group]`).
     /// `hosts` lists the host effects among `effects` (`[effect.host]`), which only the entry
     /// provides. `process` is true when one of `effects` is provided by the layer `Process` of
     /// `Std.Process` and not by `Platform`, and a with on the way to it lists `Platform`.
     UnhandledEffects {
         effects: Vec<SmolStr>,
         context: EffectContext,
-        scope: Option<SmolStr>,
+        in_task: bool,
         hosts: Vec<SmolStr>,
         process: bool,
     },
@@ -322,7 +323,7 @@ pub enum DiagnosticKind {
     /// cycle, repeating the first one at the end.
     LayerCycle { cycle: Vec<SmolStr> },
     /// The base of a label cannot be used (E0429, issue #255): another label, or a built-in
-    /// effect (Async, Scope).
+    /// effect (Async, TaskGroup).
     LabelBase {
         label: SmolStr,
         base: SmolStr,
@@ -350,8 +351,8 @@ pub enum DiagnosticKind {
     },
     /// A handler written for a host effect (E0413, `[effect.host]`).
     HostEffectHandler { handler: SmolStr, effect: SmolStr },
-    /// A handler written for a built-in effect such as Scope (E0413, spec 11.2). `provider` names
-    /// the function that provides it (`Fiber.scope`).
+    /// A handler written for a built-in effect such as TaskGroup (E0413, `[task.group]`). `provider` names
+    /// the function that provides it (`Task.Group`).
     IntrinsicHandler {
         handler: SmolStr,
         effect: SmolStr,
@@ -631,7 +632,7 @@ pub enum LeakFrom {
     /// The `with` that made it.
     With,
     /// A function that provides its effect, or the capability, to the function passed to it
-    /// (`Fiber.scope`).
+    /// (`Task.Group`).
     Call(SmolStr),
     /// An operation, the init or the release of the handler whose `self` it is.
     Handler(SmolStr),

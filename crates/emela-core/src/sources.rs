@@ -68,7 +68,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Semaphore", include_str!("../lib/std/semaphore.emel")),
     ("Std.Queue", include_str!("../lib/std/queue.emel")),
     ("Std.Exit", include_str!("../lib/std/exit.emel")),
-    ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
+    ("Std.Task", include_str!("../lib/std/task.emel")),
 ];
 
 /// Bundled host files as (path relative to `lib/`, contents) pairs. These are the files that
@@ -190,13 +190,10 @@ mod tests {
         }
     }
 
-    /// Fiber intrinsics (spec chapter 11). Lowering maps them to `Expr::Fiber` in the Core IR
+    /// Task intrinsics (spec chapter 11). Lowering maps them to `Expr::Fiber` in the Core IR
     /// (`FiberFn` in `lower/fiber.rs`), so they have no row in the builtin table.
     const FIBER_INTRINSICS: &[(&str, &str)] = &[
-        ("Std.Fiber", "scope"),
-        ("Std.Fiber", "join"),
-        ("Std.Fiber", "await"),
-        ("Std.Fiber", "interrupt"),
+        ("Std.Task", "join"),
         ("Std.Exit", "attempt"),
         ("Std.Cause", "kind"),
         ("Std.Cause", "to_string"),

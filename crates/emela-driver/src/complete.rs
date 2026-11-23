@@ -856,7 +856,7 @@ fn slot(text: &str) -> Option<Slot> {
                 if t.word_before(open, "uses") {
                     return Some(Slot::Effect);
                 }
-                // `Fiber[A, { `: an effect set as a type argument.
+                // `TaskGroup[E, { `: an effect set as a type argument.
                 if enclosing.is_some_and(|e| t.type_args(e))
                     && matches!(t.kind(open - 1), Some(K::L_BRACK | K::COMMA))
                 {

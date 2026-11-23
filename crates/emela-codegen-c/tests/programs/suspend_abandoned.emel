@@ -1,4 +1,4 @@
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Deferred.{Deferred}
 
 @external(js, "console.log")
@@ -51,14 +51,14 @@ handler SlowRes: Name {
 fn main() -> () uses { Async } {
   with Ticks, Res {
     with d = Deferred[()] {
-      Fiber.scope(|_| {
-        Fiber.fork(|| {
+      with tasks = Task.Group {
+        tasks.start(|| {
           with SlowRes {
             d.await()
             print("never")
           }
         })
-        Fiber.fork(|| {
+        tasks.start(|| {
           with Res {
             spin(2000)
             print("child waits")
@@ -68,7 +68,7 @@ fn main() -> () uses { Async } {
         print("body waits")
         d.await()
         print("never either")
-      })
+      }
     }
   }
 }

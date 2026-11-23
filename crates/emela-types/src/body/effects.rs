@@ -349,6 +349,9 @@ impl BodyInfer<'_> {
             .iter()
             .map(|e| match &e.supplier {
                 Supplier::Handler(h) => {
+                    if let Some(row) = self.builtin_handler_sets(*h, &e.ty_args, SetKind::Effects) {
+                        return row;
+                    }
                     let deps = self.handler_deps(*h);
                     self.instantiate_facts(deps, &e.ty_args, SetKind::Effects)
                 }
@@ -403,6 +406,34 @@ impl BodyInfer<'_> {
                 .filter(|e| !entry.own.contains(e))
                 .cloned()
                 .collect();
+            // The tasks of a built-in handler may use the capabilities of the items before it, and
+            // its own to start siblings (`[task.group]`); they are met in the same `with`. Those
+            // of the items after it are removed too, so that they do not leave through the R of
+            // the `with`: the set type argument of the item reports them (`check_task_items`).
+            if let Supplier::Handler(h) = &entry.supplier
+                && self
+                    .builtin_handler_sets(*h, &entry.ty_args, SetKind::Effects)
+                    .is_some()
+            {
+                let mut minus: Vec<RowElem> = others.into_iter().map(RowElem::Tag).collect();
+                minus.extend((0..items.len() as u32).map(|i| {
+                    RowElem::Cap(CapElem {
+                        id: CapId::Item {
+                            with: expr,
+                            item: i,
+                        },
+                        name: Default::default(),
+                        tag: Tag::new(self.current.expect("a `with` is inside a definition")),
+                    })
+                }));
+                // A capability the tasks cannot have is reported at the item.
+                let hint = self.ctx.hint();
+                self.ctx.set_hint(Some(entry.span));
+                let deps = self.subtract_elems(deps, &minus);
+                self.ctx.set_hint(hint);
+                row.extend(&deps);
+                continue;
+            }
             row.extend(&self.subtract(deps, &others));
         }
         // An item that opens a handler member requires the effect that declares it, or the

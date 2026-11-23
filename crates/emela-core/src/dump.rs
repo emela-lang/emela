@@ -19,7 +19,7 @@
 //! Type arguments follow the name in brackets: direct calls and function values
 //! (`List.map[Shape, Float](xs%1, f%2)`), constructors (`Option.None[Int]`,
 //! `Option.Some[Int](1)`), builtins (`@dbg[Int](x%0)`) and operation calls
-//! (`s%6.Std.Fiber.Scope[_, _]#deferred[Int]()`). A list literal is followed by its type
+//! (`s%6.Std.Task.TaskGroup[_, _]#start[Int]()`). A list literal is followed by its type
 //! (`[1, 2]: List[Int]`), and a lambda by its return type (`fn(x%0: Int) -> Int { .. }`).
 //!
 //! Effects list their operations' types, and an effect with type arguments also what it
@@ -569,7 +569,10 @@ impl Printer<'_> {
             Expr::Fiber { op, args } => {
                 write!(self.out, "fiber#{}", op.name()).unwrap();
                 match op {
-                    FiberOp::Await { exit } | FiberOp::Attempt { exit, .. } => {
+                    FiberOp::Scope {
+                        background: true, ..
+                    } => self.out.push_str("[background]"),
+                    FiberOp::Attempt { exit, .. } => {
                         write!(self.out, "[{}]", self.m.enums[*exit].name).unwrap();
                     }
                     FiberOp::CauseKind { kind } => {

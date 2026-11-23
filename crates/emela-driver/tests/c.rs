@@ -805,7 +805,7 @@ void host_again_threaded(em_task *task) {
 
 const HOST_EMEL: &str = r##"import Std.Console.{Console, SystemConsole}
 import Std.Clock.{SystemClock}
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 
 @external(c, "./host.c", "host_double")
 suspend fn host_double(n: Int, ms: Int) -> Int
@@ -870,9 +870,9 @@ fn main() {
     console.print_line(host.greet("c"))
     console.print_line("#{host.double(21, 10)}")
     console.print_line("#{host.threaded(41)}")
-    console.print_line("#{Fiber.timeout(20, || host.double(5, 60000))}")
-    console.print_line("#{Fiber.all([|| host.double(1, 30), || host.double(2, 10)])}")
-    console.print_line("#{Fiber.race([|| host.double(3, 60000), || host.double(4, 10)])}")
+    console.print_line("#{Task.timeout(20, || host.double(5, 60000))}")
+    console.print_line("#{Task.all([|| host.double(1, 30), || host.double(2, 10)])}")
+    console.print_line("#{Task.race([|| host.double(3, 60000), || host.double(4, 10)])}")
   }
 }
 

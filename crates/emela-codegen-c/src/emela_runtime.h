@@ -365,12 +365,10 @@ em_word em_perform_end(em_ref resume);
  *
  * Arguments are borrowed. `repr` is the representation of the value type `A`. */
 
-em_word em_fiber_scope(em_ref body, int32_t repr);
+em_word em_fiber_scope(em_ref body, int32_t repr, bool background);
 em_ref em_fiber_fork(em_ref scope, em_ref f);
 em_ref em_fiber_deferred(void);
 em_word em_fiber_join(em_ref fiber, int32_t repr);
-em_ref em_fiber_await(em_ref fiber, int32_t repr);
-void em_fiber_interrupt(em_ref fiber);
 em_ref em_fiber_attempt(em_ref f, int32_t repr);
 int32_t em_deferred_complete(em_ref d, em_word value, int32_t repr);
 em_word em_deferred_await(em_ref d, int32_t repr);

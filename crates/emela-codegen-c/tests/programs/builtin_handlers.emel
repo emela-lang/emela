@@ -1,7 +1,7 @@
 # The built-in handlers Deferred, Queue and Semaphore as items of a with (`[task.deferred]`,
 # `[task.queue]`, `[task.semaphore]`): the handler members Permits and TryPermits, the defects of
 # their arguments, a fiber interrupted while it waits in Permits, and dbg of the capabilities.
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 import Std.Deferred.{Deferred}
@@ -70,20 +70,20 @@ fn defects() -> () {
 
 fn interrupted() -> () uses { Async } {
   with s = Semaphore(permits: 1), held = Deferred[()], never = Deferred[()] {
-    Fiber.scope(|f| {
-      f.fork(|| {
+    with f = Task.Group {
+      f.start(|| {
         with _held = s.Permits(n: 1) {
           held.complete(())
           never.await()
         }
       })
-      f.fork(|| {
+      f.start(|| {
         held.await()
         with _held = s.Permits(n: 1) { dbg("waiter: never runs") }
       })
       held.await()
       dbg("body: the holder holds, the waiter waits, #{s.available()} free")
-    })
+    }
     dbg("after the scope, #{s.available()} free")
     ()
   }

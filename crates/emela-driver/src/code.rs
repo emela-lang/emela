@@ -169,8 +169,8 @@ pub const LAYER_CYCLE: &str = "E0422";
 // Effect type parameters (spec 8.1)
 pub const MISSING_EFFECT_TYPE_ARGS: &str = "E0423";
 pub const EFFECT_PARAM_NOT_TYPE: &str = "E0424";
-// E0425 is retired: `Fiber` is a capability-bound type of Scope, so a Fiber that leaves its
-// scope is E0455 (`[fiber.escape]`).
+// E0425 is retired: a task is a capability-bound type of its group, so one that leaves the with
+// of its group is E0455 (`[effect.escape]`).
 pub const OP_TYPE_PARAMS: &str = "E0426";
 // External functions the native target does not support yet (spec 12.4). E0428 is retired: `suspend
 // fn` external functions on C complete their task later (spec 12.6).

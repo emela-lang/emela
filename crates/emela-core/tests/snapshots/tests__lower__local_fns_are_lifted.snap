@@ -282,7 +282,6 @@ enum Std.Cause.Cause[A] {
 enum Std.Cause.CauseKind {
   Fail
   Die
-  Interrupt
 }
 
 error enum Std.Semaphore.NoPermits {
@@ -298,7 +297,7 @@ enum Std.Exit.Exit[A, B] {
   Failure(Std.Cause.Cause[{B}])
 }
 
-external enum Std.Fiber.Fiber[A] {
+external enum Std.Task.Task[A] {
 }
 
 export fn main() -> List[Int] {

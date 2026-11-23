@@ -647,13 +647,13 @@ fn short_lived_fibers_reuse_their_records() {
     run_limited(
         "memory-fibers",
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 
 fn round(i: Int) -> Int uses { Async } {
-  Fiber.scope(|_| {
-    hs = List.map(List.range(0, 20), |j| Fiber.fork(|| i + j))
-    List.fold(hs, 0, |acc, h| acc + Fiber.join(h))
-  })
+  with tasks = Task.Group {
+    hs = List.map(List.range(0, 20), |j| tasks.start(|| i + j))
+    List.fold(hs, 0, |acc, h| acc + h.join())
+  }
 }
 
 fn rounds(n: Int, total: Int) -> Int uses { Async } {
@@ -676,13 +676,13 @@ fn many_short_lived_fibers_keep_the_same_bound() {
     run_limited(
         "memory-many-fibers",
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 
 fn round(i: Int) -> Int uses { Async } {
-  Fiber.scope(|_| {
-    hs = List.map(List.range(0, 20), |j| Fiber.fork(|| i + j))
-    List.fold(hs, 0, |acc, h| acc + Fiber.join(h))
-  })
+  with tasks = Task.Group {
+    hs = List.map(List.range(0, 20), |j| tasks.start(|| i + j))
+    List.fold(hs, 0, |acc, h| acc + h.join())
+  }
 }
 
 fn rounds(n: Int, total: Int) -> Int uses { Async } {
@@ -705,21 +705,21 @@ fn suspended_children_reuse_their_records() {
     run_limited(
         "memory-suspended-fibers",
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
 import Std.State.{State}
 
 fn round(i: Int) -> Int uses { Async, Clock } {
-  Fiber.scope(|_| {
+  with tasks = Task.Group {
     hs = List.map(List.range(0, 20), |j| {
-      Fiber.fork(|| {
+      tasks.start(|| {
         (use Clock).sleep(1)
         i + j
       })
     })
-    List.fold(hs, 0, |acc, h| acc + Fiber.join(h))
-  })
+    List.fold(hs, 0, |acc, h| acc + h.join())
+  }
 }
 
 fn rounds(n: Int, total: Int) -> Int uses { Async, Clock } {
@@ -750,7 +750,7 @@ fn a_failed_scope_releases_the_body_input() {
     run_limited(
         "memory-scope-body-failure",
         r#"
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 import Std.Exit.{Exit, Failure, Success}
 
 error Big(
@@ -767,11 +767,11 @@ error Big(
 )
 
 fn round(k: Int) -> () fails Big {
-  Fiber.scope(|_| {
-    h = Fiber.fork(|| 1)
-    x = Fiber.await(h)
+  with tasks = Task.Group {
+    h = tasks.start(|| 1)
+    x = h.join()
     fail Big(a: "a", b: "b", c: "c", d: "d", e: "e", f: "f", g: "g", h: "h", i: "i", j: "j")
-  })
+  }
 }
 
 fn rounds(n: Int, total: Int) -> Int uses { Async } {
@@ -851,19 +851,19 @@ fn a_closing_scope_releases_its_closer_wait() {
     run_limited(
         "memory-scope-closer",
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
 import Std.State.{State}
 
 fn round(i: Int) -> Int uses { Async, Clock } {
-  Fiber.scope(|_| {
-    h = Fiber.fork(|| {
+  with tasks = Task.Group {
+    h = tasks.start(|| {
       (use Clock).sleep(1)
       1
     })
     0
-  })
+  }
 }
 
 fn rounds(n: Int, total: Int) -> Int uses { Async, Clock } {
@@ -895,7 +895,7 @@ fn semaphores_and_queues_free_their_values_and_lines() {
     run_limited(
         "memory-semaphore-queue",
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Queue.{Queue, QueueClosed}
 import Std.Semaphore.{Semaphore}
 
@@ -916,15 +916,15 @@ fn round(i: Int) -> Int uses { Async } {
       left.offer("also left #{i}")
       left.close()
     }
-    Fiber.scope(|_| {
-      Fiber.fork(|| {
+    with tasks = Task.Group {
+      tasks.start(|| {
         List.range(0, 20).each(|j| q.offer("value #{i} #{j}"))
         q.close()
       })
-      hs = List.range(0, 5).map(|j| Fiber.fork(|| Semaphore.with_permit(s, || "held #{j}")))
-      held = List.fold(hs, 0, |acc, h| acc + String.length(Fiber.join(h)))
+      hs = List.range(0, 5).map(|j| tasks.start(|| Semaphore.with_permit(s, || "held #{j}")))
+      held = List.fold(hs, 0, |acc, h| acc + String.length(h.join()))
       drain(q, 0) + held - held
-    })
+    }
   } escape {
     QueueClosed -> 0
   }

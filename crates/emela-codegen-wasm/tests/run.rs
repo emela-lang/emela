@@ -605,7 +605,7 @@ fn main() {
     );
 }
 
-// Notes added by fiber failures (`note: another fiber also failed: …`, 11.2) are tested in
+// Notes added by task failures (`note: another task also failed: …`, 11.2) are tested in
 // `tests/fiber.rs` (`child_failure_notes_keep_the_first`); this file covers the defect notes of
 // 14.4.
 

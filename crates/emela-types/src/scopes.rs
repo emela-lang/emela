@@ -109,6 +109,14 @@ impl Scopes {
         self.row_spans[i] = span;
     }
 
+    /// Where a capability that leaves through the set variable `v` is reported, when nothing
+    /// better is known.
+    pub(crate) fn set_row_span(&mut self, v: RowVar, span: Span) {
+        if let Some(s) = self.row_spans.get_mut(v.index() as usize) {
+            *s = Some(span);
+        }
+    }
+
     pub(crate) fn ty_var(&self, v: TyVar) -> ScopeId {
         self.ty_vars.get(v.index() as usize).copied().unwrap_or(0)
     }

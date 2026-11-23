@@ -319,13 +319,13 @@ impl<'a> Resolver<'a> {
                 ast::Item::Impl(_) => (DefKind::Impl, None, false, false),
             };
             if !matches!(item, ast::Item::Fn(_)) {
-                // A built-in effect (`Scope`, spec 11.2) and a built-in type (`Bytes`,
+                // A built-in effect (`TaskGroup`, `[task.group]`) and a built-in type (`Bytes`,
                 // `[api.std.bytes]`) are marked with `@intrinsic`.
                 // A built-in handler (`Deferred`, `[kw.annotation]`) has no body.
                 let allowed = match &item {
                     ast::Item::Effect(_) => true,
                     ast::Item::Type(it) => it.field_list().is_none(),
-                    ast::Item::Handler(it) => !it.has_body(),
+                    ast::Item::Handler(it) => it.declares_only(),
                     _ => false,
                 };
                 self.check_intrinsic(module, &syntax, allowed);
@@ -372,7 +372,8 @@ impl<'a> Resolver<'a> {
                 // `init` (spec 8.4).
                 // A built-in handler has none: its value is made by the runtime.
                 ast::Item::Handler(it)
-                    if it.has_body() && (it.field_list().is_some() || it.init().is_some()) =>
+                    if !it.declares_only()
+                        && (it.field_list().is_some() || it.init().is_some()) =>
                 {
                     ctor = Some(self.define_ctor(module, def, &name, range));
                 }
@@ -431,7 +432,7 @@ impl<'a> Resolver<'a> {
     }
 
     /// `@intrinsic` is allowed only on fns without a body, on effects (built-in effects such
-    /// as `Scope`, spec 8.1) and on types without fields (built-in types such as `Bytes`,
+    /// as `TaskGroup`, spec 8.1) and on types without fields (built-in types such as `Bytes`,
     /// `[kw.annotation]`) in the bundled core sources. `allowed` tells whether `node` is one of
     /// those. Fns in traits, impls and handlers are checked too (never allowed), although the
     /// parser does not put annotations inside those bodies yet.
@@ -448,7 +449,7 @@ impl<'a> Resolver<'a> {
             .children()
             .filter_map(ast::Annotation::cast)
             .any(|a| a.name().is_some_and(|n| n.text() == "intrinsic"));
-        if !intrinsic || h.has_body() || !self.modules.is_core(module) {
+        if !intrinsic || !h.declares_only() || !self.modules.is_core(module) {
             return None;
         }
         let mut effects = h.effects();

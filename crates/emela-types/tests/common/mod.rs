@@ -160,13 +160,14 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
         DiagnosticKind::UnhandledEffects {
             effects,
             context,
-            scope,
+            in_task,
             hosts,
             process,
         } => {
-            let mut note = match scope {
-                Some(scope) => format!(" [provide outside `{scope}`]"),
-                None => String::new(),
+            let mut note = if *in_task {
+                " [provide outside the group]".to_owned()
+            } else {
+                String::new()
             };
             if !hosts.is_empty() {
                 note.push_str(&format!(" [host {}]", hosts.join(", ")));

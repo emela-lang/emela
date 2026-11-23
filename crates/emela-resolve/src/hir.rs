@@ -668,7 +668,7 @@ pub struct EffectItem {
     pub ops: Vec<DefId>,
     /// The handler members (`[effect.decl]`), in declaration order.
     pub members: Vec<DefId>,
-    /// A built-in effect of the bundled sources, marked with `@intrinsic` (`Scope`, spec 11.2).
+    /// A built-in effect of the bundled sources, marked with `@intrinsic` (`TaskGroup`, `[task.group]`).
     /// Only built-in effects may have set type parameters and operation type parameters
     /// (spec 8.1).
     pub is_intrinsic: bool,
@@ -820,7 +820,7 @@ pub enum Item {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleItems {
-    /// The module's name (`Std.Fiber`). Used to name definitions in diagnostics (`Fiber.scope`).
+    /// The module's name (`Std.Task`). Used to name definitions in diagnostics (`Task.Group`).
     pub name: ModuleName,
     /// In source order.
     pub items: Vec<DefId>,

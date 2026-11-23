@@ -19,10 +19,10 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use crate::FnTy;
+use crate::builtin::Builtins;
 use crate::coverage::Shapes;
 use crate::diagnostic::{Diagnostic, DiagnosticKind, EffectContext};
 use crate::exhaustiveness::{Witness, check_match};
-use crate::fiber::Fibers;
 use crate::infer::{InferCtx, Origin, SetKind, substitute, substitute_bound};
 use crate::lower::{
     Omitted, Scope, TyTable, effect_params, has_omitted_fails, is_intrinsic_effect,
@@ -164,7 +164,7 @@ pub(crate) struct BodyInfer<'a> {
     /// Definitions whose R must be empty (`main` and test functions).
     closed: &'a FxHashMap<DefId, EffectContext>,
     /// Built-in effects and scope functions (spec chapter 11).
-    fibers: &'a Fibers,
+    builtins: &'a Builtins,
     current: Option<DefId>,
     /// The module of the definition being inferred, for deciding whether opaque fields are
     /// accessible.
@@ -304,6 +304,10 @@ pub(crate) struct BodyInfer<'a> {
     /// `with` expressions → per item, the type arguments it gives a handler with type
     /// parameters (`body/items.rs`).
     item_insts: SparseMap<ExprId, Vec<items::ItemInst>>,
+    /// The set variables that are the set type arguments of a built-in handler at an item
+    /// (`Group[E, R]`), with the `with` and the index of the item. Such a set may have the
+    /// capabilities of the items before it in the same `with` (`[task.group]`).
+    item_set_vars: rustc_hash::FxHashMap<crate::row::RowVar, (ExprId, u32)>,
     /// Layers of this group → per member, the type arguments it gives a handler with type
     /// parameters.
     layer_insts: Vec<(DefId, Vec<items::ItemInst>)>,
@@ -365,7 +369,7 @@ impl<'a> BodyInfer<'a> {
         sigs: &'a Signatures,
         handler_facts: HandlerFacts<'a>,
         closed: &'a FxHashMap<DefId, EffectContext>,
-        fibers: &'a Fibers,
+        builtins: &'a Builtins,
         traits: &'a Traits,
     ) -> Self {
         let mut ctx = InferCtx::new();
@@ -376,7 +380,7 @@ impl<'a> BodyInfer<'a> {
             sigs,
             handler_facts,
             closed,
-            fibers,
+            builtins,
             current: None,
             module: DefModule::Prelude,
             type_params: Vec::new(),
@@ -435,6 +439,7 @@ impl<'a> BodyInfer<'a> {
             with_args: SparseMap::new(),
             layer_args: Vec::new(),
             item_insts: SparseMap::new(),
+            item_set_vars: Default::default(),
             layer_insts: Vec::new(),
             immediates: Vec::new(),
             trait_obligations: Vec::new(),
@@ -662,7 +667,7 @@ impl<'a> BodyInfer<'a> {
                 return;
             }
             // Only a built-in handler, or the scope function, provides a built-in effect
-            // (`Deferred`, `[task.deferred]`; `Scope`, spec 11.2).
+            // (`Task.Group`, `[task.group]`; `Deferred`, `[task.deferred]`).
             if is_intrinsic_effect(program, effect) {
                 let name = program.defs[effect].name.clone();
                 self.diags.push(Diagnostic {
@@ -670,7 +675,7 @@ impl<'a> BodyInfer<'a> {
                     kind: DiagnosticKind::IntrinsicHandler {
                         handler: program.defs[def].name.clone(),
                         provider: self
-                            .fibers
+                            .builtins
                             .provider(effect)
                             .cloned()
                             .unwrap_or(name.clone()),
@@ -1460,7 +1465,7 @@ impl<'a> BodyInfer<'a> {
                 });
                 Ty::Error
             }
-            // A built-in effect's type arguments may be omitted (`use Scope`, spec 11.2); they are
+            // A built-in effect's type arguments may be omitted (`use TaskGroup`, `[task.group]`); they are
             // inferred.
             ExprKind::Use {
                 effect: Res::Def(effect),
@@ -1583,6 +1588,15 @@ impl<'a> BodyInfer<'a> {
             })
             .collect();
         self.item_insts.insert(expr, insts.clone());
+        for (i, inst) in insts.iter().enumerate() {
+            for arg in &inst.args {
+                if let Ty::Set(_, row) = arg
+                    && let [RowElem::Var(v)] = row.elems()
+                {
+                    self.item_set_vars.insert(*v, (expr, i as u32));
+                }
+            }
+        }
         let insts_now = self.item_insts(expr, items);
         let entries =
             crate::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
@@ -2919,7 +2933,7 @@ impl<'a> BodyInfer<'a> {
         };
         self.ops.insert(expr, op);
         // The effect's type parameters come first in the operation's scheme, followed by the
-        // operation's own (`fork[A]`, spec 8.1), which are instantiated per reference. Through a
+        // operation's own (`start[A]`, spec 8.1), which are instantiated per reference. Through a
         // label, they are the base's type arguments (`effect Hits of State[Int]`).
         let args = self.sigs.base_of(tag).args.clone();
         let mut receiver = None;

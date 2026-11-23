@@ -375,9 +375,9 @@ impl InferCtx {
                 None => Row::var(*v),
             },
             RowElem::Tag(t) => Row::of_tag(t.map_args(|a| self.resolve(a))),
-            // The set arguments of the effect of a capability are not followed: the R of
-            // `Fiber.scope`'s body holds the capability of `use Scope[E, R]`, whose effect has
-            // that R as an argument (`[fiber.scope]`).
+            // The set arguments of the effect of a capability are not followed: the R of a task
+            // that starts siblings holds the capability of its group, whose effect has that R as
+            // an argument (`[task.group]`).
             RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
                 tag: c.tag.map_args(|a| match a {
                     Ty::Set(..) => a.clone(),
@@ -396,7 +396,7 @@ impl InferCtx {
     /// `State.run(initial, body)` from the body's R). Otherwise changes nothing and returns false.
     ///
     /// `a` is on the containing side (the declared or provided set) and `b` on the contained side
-    /// (the required one). Set type arguments (the `E` and `R` of `Scope[E, R]`, spec 11.2) only
+    /// (the required one). Set type arguments (the `E` and `R` of `TaskGroup[E, R]`, spec 11.2) only
     /// need `b`'s sets to be contained in `a`'s: a scope whose children may fail with more errors
     /// or use more effects serves code that forks fewer. The constraints are recorded and solved
     /// with the others.
@@ -405,7 +405,7 @@ impl InferCtx {
             return false;
         }
         // The name of an effect recorded by a capability-bound type has no type arguments
-        // (`Fiber[A]` records the name Scope, `[type.rules]`): it is that effect with any.
+        // (`Task[A]` records the name TaskGroup, `[type.rules]`): it is that effect with any.
         if a.args.is_empty() || b.args.is_empty() {
             return true;
         }

@@ -145,8 +145,8 @@ fn core_docs_cover_core_and_std() {
         "Prelude",
         "String",
         "Std.Clock",
-        "Std.Fiber",
         "Std.Http",
+        "Std.Task",
     ] {
         assert!(names.contains(&name), "{name} missing from {names:?}");
     }
@@ -178,16 +178,16 @@ fn core_docs_cover_core_and_std() {
     );
 
     // An operation lists only its own type parameters, not the effect's.
-    let scope = modules
+    let group = modules
         .iter()
-        .find(|m| m.name == "Std.Fiber")
-        .and_then(|m| m.items.iter().find(|i| i.name == "Scope"))
+        .find(|m| m.name == "Std.Task")
+        .and_then(|m| m.items.iter().find(|i| i.name == "TaskGroup"))
         .unwrap();
-    assert_eq!(scope.signature, "effect Scope[E, R]");
+    assert_eq!(group.signature, "effect TaskGroup[E, R]");
     assert!(
-        scope.children[0].signature.starts_with("fn fork[A]("),
+        group.children[0].signature.starts_with("fn start[A]("),
         "{}",
-        scope.children[0].signature
+        group.children[0].signature
     );
 }
 

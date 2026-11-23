@@ -54,7 +54,6 @@ pub(super) fn quickfixes(
                 old_uses_clause(tree.syntax(), span.range)
             }
             Some(code::DEPRECATED_USE) => deprecated_use(tree.syntax(), diagnostic, span.range),
-            Some(code::TYPE_MISMATCH) => scope_body_param(tree.syntax(), span.range, text),
             Some(code::UNUSED_TYPE_PARAM) => {
                 unused_type_param(program, module, span.range, tree.syntax())
             }
@@ -138,62 +137,6 @@ fn old_uses_clause(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
         format!("Rewrite as `{uses}`"),
         vec![(clause.text_range(), uses)],
     ))
-}
-
-/// `Fiber.scope(|| ...)` -> `Fiber.scope(|s| ...)` (`[fiber.scope]`, `[lsp.code-action]`): the body
-/// takes the scope's capability as its parameter. A statement `s = use Scope` at the top of the
-/// body becomes the parameter; otherwise the parameter is `_`. Offered on the type mismatch at a
-/// closure without parameters passed to a function named `scope`.
-fn scope_body_param(root: &SyntaxNode, range: TextRange, text: &str) -> Option<Fix> {
-    let lambda = root.descendants().find(|n| {
-        n.kind() == SyntaxKind::LAMBDA_EXPR
-            && n.text_range() == range
-            && n.text().to_string().starts_with("||")
-    })?;
-    let call = lambda
-        .ancestors()
-        .skip(1)
-        .find(|n| n.kind() == SyntaxKind::CALL_EXPR)?;
-    let callee = call.first_child()?.text().to_string();
-    if !(callee == "scope" || callee.ends_with(".scope")) {
-        return None;
-    }
-    let head = TextRange::at(range.start(), TextSize::from(2));
-    let block = lambda
-        .children()
-        .find(|n| n.kind() == SyntaxKind::BLOCK_EXPR);
-    // `s = use Scope` among the statements of the body.
-    let binding = block.and_then(|b| {
-        b.children().find_map(|stmt| {
-            let t = stmt.text().to_string();
-            let (name, value) = t.split_once('=')?;
-            let name = name.trim();
-            (value.trim() == "use Scope"
-                && !name.is_empty()
-                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
-            .then(|| (name.to_owned(), stmt.text_range()))
-        })
-    });
-    match binding {
-        Some((name, stmt)) => {
-            // The whole line of the statement.
-            let start = text[..usize::from(stmt.start())]
-                .rfind('\n')
-                .map_or(0, |i| i + 1);
-            let end = text[usize::from(stmt.end())..]
-                .find('\n')
-                .map_or(text.len(), |i| usize::from(stmt.end()) + i + 1);
-            let line = TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32));
-            Some((
-                format!("Take the scope as the parameter `|{name}|`"),
-                vec![(head, format!("|{name}|")), (line, String::new())],
-            ))
-        }
-        None => Some((
-            "Take the scope as the parameter `|_|`".to_owned(),
-            vec![(head, "|_|".to_owned())],
-        )),
-    }
 }
 
 /// A type parameter that does not appear in the type of its fn (W0305, `[lsp.code-action]`) is

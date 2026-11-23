@@ -43,7 +43,7 @@ mod local_fn;
 mod member;
 mod suspend;
 
-use fiber::{AttemptCall, ForkCall, ScopeCall};
+use fiber::{AttemptCall, OnFailure, StartCall, TaskItem};
 use local_fn::Lifted;
 use suspend::Specialization;
 
@@ -449,10 +449,8 @@ enum Target {
     StateRun(Box<StateRun>),
     /// A concurrency operation that passes its arguments through (spec chapter 11, `fiber.rs`).
     Fiber(FiberOp),
-    /// `Fiber.scope(body)` (spec 11.2).
-    Scope(Box<ScopeCall>),
-    /// `s.fork(f)`（11.2）．
-    Fork(Box<ForkCall>),
+    /// `tasks.start(f)` (`[task.group]`, `[task.background]`).
+    Start(Box<StartCall>),
     /// `Exit.attempt(f)`（11.5）．
     Attempt(Box<AttemptCall>),
 }
@@ -618,8 +616,7 @@ impl Target {
             },
             Target::StateRun(run) => run.apply(args),
             Target::Fiber(op) => Expr::Fiber { op, args },
-            Target::Scope(scope) => scope.apply(args),
-            Target::Fork(fork) => fork.apply(args),
+            Target::Start(start) => start.apply(args),
             Target::Attempt(attempt) => attempt.apply(args),
         }
     }
@@ -1524,7 +1521,7 @@ impl<'a> Lowerer<'a> {
             *p = self.module.types.subst(*p, &subst);
         }
         let ret = self.module.types.subst(ret, &subst);
-        if self.is_fork_op(effect, op) {
+        if self.is_start_op(effect, op) {
             params = params.into_iter().map(|p| self.wrapped_child(p)).collect();
         }
         OpDef {
@@ -2137,6 +2134,8 @@ impl<'a> Lowerer<'a> {
         // is marked released when the `with` ends. Each bind of the handler refers to its own.
         // (handler, where its arguments are) → the tuple and its handlers.
         let mut tuples: Vec<((DefId, ArgsSource), Local, Vec<Local>)> = Vec::new();
+        // The items of groups and backgrounds (`lower/fiber.rs`).
+        let mut tasks: Vec<TaskItem> = Vec::new();
         for (i, (supplier, own)) in hs.iter().enumerate() {
             let own_id = self.effect_id(own);
             let handler_ty = self.module.handler_effect(own_id);
@@ -2250,6 +2249,54 @@ impl<'a> Lowerer<'a> {
             // does nothing (`lower/builtin_handler.rs`).
             if self.is_builtin_handler(h) {
                 let args = self.init_args(id, info.binds[i].args, &written_args);
+                // A group or a background: the rest of the with runs in its run-time scope
+                // (`lower/fiber.rs`).
+                if let Some(background) = self.task_handler(own_id) {
+                    let l = self.module.local("h", handler_ty);
+                    let earlier: Vec<(EffectId, Expr)> = hs[..i]
+                        .iter()
+                        .zip(&locals)
+                        .zip(&named)
+                        .filter(|(_, n)| **n)
+                        .map(|(((_, k), &l), _)| (self.effect_id(k), Expr::Var(l)))
+                        .collect();
+                    let ev = if earlier.is_empty() {
+                        self.ev_arg()
+                    } else {
+                        Expr::Provide {
+                            base: outer.map(|l| Box::new(Expr::Var(l))),
+                            bindings: earlier,
+                        }
+                    };
+                    locals.push(l);
+                    let fails = self.tasks_fail(id, &info.binds[i].ty_args, background);
+                    let background = match (background, args.into_iter().next()) {
+                        (true, Some(value)) => {
+                            let Some(f_ty) = self.on_failure_ty(id, info.binds[i].args) else {
+                                return self.unsupported("Task.Background", span);
+                            };
+                            let ty = self.ty(&f_ty);
+                            Some(OnFailure {
+                                value,
+                                ty,
+                                takes_ev: self.ty_takes_ev(&f_ty),
+                                suspends: self.ty_suspends(&f_ty),
+                            })
+                        }
+                        (false, _) => None,
+                        (true, None) => return self.unsupported("Task.Background", span),
+                    };
+                    tasks.push(TaskItem {
+                        at: binds.len(),
+                        local: l,
+                        effect: own_id,
+                        background,
+                        ev,
+                        fails,
+                    });
+                    binds.push(WithBind::new(l, Expr::Lit(Lit::Unit)));
+                    continue;
+                }
                 let Some(value) = self.builtin_handler(h, own_id, args) else {
                     return self.unsupported("this built-in handler", span);
                 };
@@ -2480,10 +2527,36 @@ impl<'a> Lowerer<'a> {
                 },
             ));
         }
-        Expr::With {
-            binds,
-            body: Box::new(body),
+        let ret = self.ty(self.expr_ty(id));
+        self.wrap_task_items(binds, body, ret, tasks)
+    }
+
+    /// Whether the tasks of a group or a background at an item of the with `id` may fail, and with
+    /// them the run-time scope. For a group, the E of the with, which includes that of its tasks
+    /// (`[task.group]`); for a background, the E of its tasks, its first type argument
+    /// (`[task.background]`).
+    fn tasks_fail(&self, id: ExprId, ty_args: &[Ty], background: bool) -> bool {
+        let with = self.types.errors.get(id).is_some_and(|r| !r.is_empty());
+        match ty_args.first() {
+            Some(Ty::Set(_, row)) if background => with || !row.is_empty(),
+            _ => with,
         }
+    }
+
+    /// The type of the argument `on_failure` of `Task.Background` at an item of the with `id`.
+    fn on_failure_ty(&self, id: ExprId, source: ArgsSource) -> Option<Ty> {
+        let ArgsSource::Item(i) = source else {
+            return None;
+        };
+        let arg = self
+            .types
+            .with_args
+            .get(id)?
+            .get(i)?
+            .first()?
+            .as_ref()
+            .copied()?;
+        Some(self.expr_ty(arg).clone())
     }
 
     /// The effects of `handler`, a handler of several effects, in the order of its tuple of
@@ -2752,11 +2825,11 @@ impl<'a> Lowerer<'a> {
                 },
             }
         };
-        // Scope's fork wraps the child function, as at a call (`fiber.rs`).
-        if self.is_fork_op(tag.def, op) {
+        // start of TaskGroup and Spawn wraps the task function, as at a call (`fiber.rs`).
+        if self.is_start_op(tag.def, op) {
             let op_ty = self.expr_ty(id).clone();
-            let Some(fork) = self.fork_call(Expr::Var(h), &tag, &op_ty, id) else {
-                return self.unsupported("fork", span);
+            let Some(fork) = self.start_call(Expr::Var(h), &tag, &op_ty, id) else {
+                return self.unsupported("start", span);
             };
             let x_ty = param_tys.first().copied().unwrap_or(TypeId::UNIT);
             let x = self.module.local("x", x_ty);
@@ -3314,12 +3387,12 @@ impl<'a> Lowerer<'a> {
             let (handler, _) = self
                 .cap_table(value, &tags, op)
                 .expect("the operation's effect is one of the capability's");
-            // Scope's fork wraps the child function (`fiber.rs`).
-            if self.is_fork_op(tag.def, op) {
+            // start of TaskGroup and Spawn wraps the task function (`fiber.rs`).
+            if self.is_start_op(tag.def, op) {
                 let op_ty = self.expr_ty(callee).clone();
-                return match self.fork_call(handler, &tag, &op_ty, callee) {
-                    Some(fork) => Ok(Target::Fork(Box::new(fork))),
-                    None => Err(self.unsupported("fork", span)),
+                return match self.start_call(handler, &tag, &op_ty, callee) {
+                    Some(start) => Ok(Target::Start(Box::new(start))),
+                    None => Err(self.unsupported("start", span)),
                 };
             }
             // Calls to suspend fn operations may suspend (spec 8.1); fn operation bodies do not

@@ -15,9 +15,11 @@
 //! - An interruption is delivered as the pending defect (an `interrupted` object), so the defect
 //!   landings of the Heap IR unwind it and run the releases. A continuation abandoned while
 //!   suspended is resumed with one.
-//! - A scope closes when its body returns a value or a child fails: the remaining children are
-//!   interrupted and the scope waits for them (`closer`), then the first failure (or the body's
-//!   result) ends the scope.
+//! - The run-time scope of a group closes when its body returns a value or a task fails: the
+//!   remaining tasks are interrupted and the scope waits for them (`closer`), then the first
+//!   failure (or the body's result) ends the scope (`[task.group]`). That of a background waits
+//!   for its tasks without interrupting them, unless an interruption reaches it
+//!   (`[task.background]`).
 //!
 //! Every runtime record is an ordinary counted object, so `alloc` / `drop` free them. Only the
 //! links between records (target lists, the run's lists, the queue) are raw, so no reference
@@ -29,7 +31,8 @@ use super::*;
 use super::attempt::{CAUSE_DIE, CAUSE_FAIL};
 use super::sched::{F_NEXT, P_CALLER, P_IMPL, P_USED, P_WHERE};
 
-/// The index of `Interrupt` in `CauseKind`.
+/// How an interrupted fiber ended. It is never a value of `CauseKind` (an interruption is not a
+/// cause, `[task.cause]`).
 const CAUSE_INTERRUPT: i32 = 2;
 /// The `perform` record's result representation (see `runtime::sched`).
 const P_REPR: u32 = HDR + 80;
@@ -58,7 +61,8 @@ const F_PREVF: u32 = HDR + 144;
 const F_ITEM: u32 = HDR + 152; // raw: the scope's list of children
 const F_ITEMPREV: u32 = HDR + 160;
 const F_REPR: u32 = HDR + 168;
-const F_SLOTS: i32 = 22;
+const F_WAITING: u32 = HDR + 176; // raw: the background scope whose release waits on this fiber
+const F_SLOTS: i32 = 23;
 
 /// `F_FLAGS`: the fiber ended, unwinds as interrupted, or is in the run's list.
 const FF_ENDED: i32 = 1;
@@ -84,6 +88,9 @@ const S_SLOTS: i32 = 7;
 pub(super) const SF_CLOSED: i32 = 1;
 const SF_BODY_DONE: i32 = 2;
 const SF_ENDED: i32 = 4;
+/// A background (`[task.background]`): its tasks are not interrupted when the body ends or a task
+/// fails.
+const SF_BACKGROUND: i32 = 8;
 
 // ---- the Deferred record ----
 
@@ -126,7 +133,7 @@ pub(super) const W_OWNER: u32 = HDR + 152;
 const W_SLOTS: i32 = 20;
 
 /// What a wait waits for.
-pub(super) const WK_FIBER: i32 = 0; // join, await and interrupt of a child
+pub(super) const WK_FIBER: i32 = 0; // join of a task
 pub(super) const WK_DEFERRED: i32 = 1;
 pub(super) const WK_PAUSE: i32 = 2; // a fairness yield
 pub(super) const WK_CLOSER: i32 = 3; // a scope waiting for its children
@@ -136,8 +143,6 @@ pub(super) const WK_TEST: i32 = 6; // a TestClock sleeper
 pub(super) const WK_LINE: i32 = 7; // a line of a Semaphore or Queue (`runtime::line`)
 /// The verb of a wait registered on a fiber.
 const WV_JOIN: i32 = 0;
-const WV_AWAIT: i32 = 1;
-const WV_INTERRUPT: i32 = 2;
 
 /// `W_FLAGS`: the wait is in its target's list, in the run's list, or is a scope closing (not
 /// cut short when the run is unwound, spec 14.5).
@@ -251,17 +256,11 @@ pub(crate) struct Plan {
     pub(crate) test_seq: u32,
     pub(crate) wait_set: u32,
     pub(crate) cause_desc: u32,
-    pub(crate) failure_desc: u32,
-    pub(crate) success_val: u32,
-    pub(crate) success_ref: u32,
     pub(crate) note_desc: u32,
     pub(crate) scope_body_desc: u32,
     pub(crate) scope_close_desc: u32,
-    pub(crate) msg_join: u32,
     pub(crate) msg_scope_fork: u32,
-    pub(crate) def_join: u32,
-    pub(crate) def_await: u32,
-    pub(crate) def_interrupt: u32,
+    pub(crate) note_background: u32,
     pub(crate) failed_after: u32,
     pub(crate) note_other: u32,
     /// The Semaphores and Queues (`runtime::line`).
@@ -361,7 +360,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ),
     (
         "fb_scope",
-        &[ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
         &[ValType::I64],
     ),
     (
@@ -370,8 +369,6 @@ pub(super) const FUNCS: &[Sig] = &[
         &[ValType::I32],
     ),
     ("fb_join", &[ValType::I32, ValType::I32], &[ValType::I64]),
-    ("fb_await", &[ValType::I32, ValType::I32], &[ValType::I32]),
-    ("fb_interrupt", &[ValType::I32], &[]),
     ("fb_deferred", &[], &[ValType::I32]),
     (
         "fb_complete",
@@ -536,8 +533,6 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fb_scope" => vec![(6, ValType::I32), (1, ValType::I64)],
         "fb_fork" => i32s(7),
         "fb_join" => vec![(5, ValType::I32), (1, ValType::I64)],
-        "fb_await" => vec![(5, ValType::I32), (1, ValType::I64)],
-        "fb_interrupt" => i32s(6),
         "fb_deferred" => i32s(1),
         "fb_complete" => vec![(5, ValType::I32), (1, ValType::I64)],
         "fb_deferred_await" => i32s(6),
@@ -646,7 +641,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         show: None,
         refs: vec![
             true, false, false, false, false, true, false, false, false, true, false, false, false,
-            false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false,
         ],
     });
     let scope_desc = b.desc(DescKey {
@@ -700,30 +695,6 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         show: None,
         refs: vec![true],
     });
-    let failure_desc = b.desc(DescKey {
-        kind: 0,
-        tag: 1,
-        enum_id: -1,
-        name: "Failure".to_owned(),
-        show: None,
-        refs: vec![true],
-    });
-    let success_val = b.desc(DescKey {
-        kind: 0,
-        tag: 0,
-        enum_id: -1,
-        name: "Success".to_owned(),
-        show: None,
-        refs: vec![false],
-    });
-    let success_ref = b.desc(DescKey {
-        kind: 0,
-        tag: 0,
-        enum_id: -1,
-        name: "Success".to_owned(),
-        show: None,
-        refs: vec![true],
-    });
     let note_desc = b.desc(DescKey {
         kind: 0,
         tag: 0,
@@ -736,7 +707,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         kind: 0,
         tag: 0,
         enum_id: -1,
-        name: "Fiber.scope".to_owned(),
+        name: "Task.Group".to_owned(),
         show: None,
         refs: vec![false, false, true, true, false],
     });
@@ -744,7 +715,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         kind: 0,
         tag: 0,
         enum_id: -1,
-        name: "Fiber.scope".to_owned(),
+        name: "Task.Group".to_owned(),
         show: None,
         // Slots 0..7. Slot 6 is `RESVAL`: it shares its word with the high half of the i64
         // `WORD` in slot 5, and only one of the two is live (the body's representation chooses).
@@ -784,13 +755,13 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     let scope_close_table = scope_body_table + 1;
     let notes = if used(b) { b.alloc_static(8) } else { 0 };
     let msg = |b: &mut Builder<'_>, s: &[u8]| b.string_literal(s);
-    let msg_join = msg(b, b"fiber was interrupted");
-    let msg_scope_fork = msg(b, b"fiber scope was used after it ended");
-    let def_join = msg(b, b"fiber was joined after its scope ended");
-    let def_await = msg(b, b"fiber was awaited after its scope ended");
-    let def_interrupt = msg(b, b"fiber was interrupted after its scope ended");
+    let msg_scope_fork = msg(b, b"task group was used after it closed");
+    let note_background = msg(
+        b,
+        b"\nnote: the release of handler Task.Background also failed: ",
+    );
     let failed_after = msg(b, b" failed after resume: ");
-    let note_other = msg(b, b"note: another fiber also failed: ");
+    let note_other = msg(b, b"note: another task also failed: ");
     let line = super::line::prepare(b);
     // The job ring and its free list. The queue takes a slot per wake instead of allocating; a
     // run releases every job before the next one starts (`finish_run`), so the list is ready then.
@@ -843,17 +814,11 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         call1_table,
         notes,
         cause_desc,
-        failure_desc,
-        success_val,
-        success_ref,
         note_desc,
         scope_body_desc,
         scope_close_desc,
-        msg_join,
         msg_scope_fork,
-        def_join,
-        def_await,
-        def_interrupt,
+        note_background,
         failed_after,
         note_other,
         line,
@@ -879,8 +844,6 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_scope" => scope(b, ins),
         "fb_fork" => fork(b, ins),
         "fb_join" => join(b, ins),
-        "fb_await" => await_(b, ins),
-        "fb_interrupt" => interrupt(b, ins),
         "fb_deferred" => deferred(b, ins),
         "fb_complete" => complete(b, ins),
         "fb_deferred_await" => deferred_await(b, ins),
@@ -2572,14 +2535,12 @@ fn cause_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, C);
 }
 
-/// `fb_cause_string(cause) -> String`: `error: ...`, `defect: ...` or `interrupted`. Borrows the
-/// cause.
+/// `fb_cause_string(cause) -> String`: `error: ...` or `defect: ...`. Borrows the cause.
 fn cause_string(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const SHOWN: u32 = 1;
     const TMP: u32 = 2;
     let error = b.string_literal(b"error: ");
     let defect = b.string_literal(b"defect: ");
-    let interrupted = b.string_literal(b"interrupted");
     let append = b.rt("str_append");
     let show = b.rt("show_failure");
     ins.local_get(0);
@@ -2604,18 +2565,10 @@ fn cause_string(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, TMP);
     ins.return_();
     ins.end();
-    ins.local_get(0);
-    ins.i32_load(mem(4, 4));
-    c(ins, CAUSE_DIE);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
     c(ins, defect as i32);
     ins.local_get(0);
     ins.i32_load(mem(HDR, 4));
     ins.call(append);
-    ins.return_();
-    ins.end();
-    c(ins, interrupted as i32);
 }
 
 /// Emits the `Any` value stored at `base`+`off`, unboxed to the representation code in local
@@ -2667,52 +2620,6 @@ fn unbox_word(
     ins.end();
 }
 
-/// Stores the `Any` value at `base`+`off`, unboxed to the representation code in local `repr`,
-/// into the first slot of the object in local `obj`.
-fn unbox_slot(
-    b: &mut Builder<'_>,
-    ins: &mut InstructionSink,
-    repr: u32,
-    base: u32,
-    off: u32,
-    obj: u32,
-) {
-    g(ins, repr);
-    c(ins, R_REF);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    ldl(ins, base, off);
-    call(b, ins, "dup");
-    g(ins, obj);
-    ldl(ins, base, off);
-    ins.i32_store(mem(HDR, 4));
-    ins.else_();
-    g(ins, repr);
-    c(ins, 0);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    g(ins, obj);
-    c(ins, 0);
-    ins.i32_store(mem(HDR, 4));
-    ins.else_();
-    g(ins, repr);
-    c(ins, 1);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    g(ins, obj);
-    ldl(ins, base, off);
-    ins.i32_load(mem(HDR, 4));
-    ins.i32_store(mem(HDR, 4));
-    ins.else_();
-    g(ins, obj);
-    ldl(ins, base, off);
-    ins.i64_load(mem(HDR, 8));
-    ins.i64_store(mem(HDR, 8));
-    ins.end();
-    ins.end();
-    ins.end();
-}
-
 /// `fb_watch_settle(w, f) -> (mode, word)`: what a fiber's end delivers to one of its watchers.
 /// The value is borrowed from the fiber where it can be (the wait duplicates it).
 fn watch_settle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
@@ -2722,11 +2629,6 @@ fn watch_settle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const E: u32 = 5;
     const TMP: u32 = 6;
     const WORD: u32 = 7; // i64
-    let success_val = plan(b).success_val;
-    let success_ref = plan(b).success_ref;
-    let failure = plan(b).failure_desc;
-    let msg_join = plan(b).msg_join;
-    let empty = b.string_literal(b"");
     ldl(ins, 0, W_VERB);
     ins.local_set(VERB);
     ldl(ins, 0, W_REPR);
@@ -2748,72 +2650,26 @@ fn watch_settle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(WORD);
     ins.return_();
     ins.end();
-    g(ins, VERB);
-    c(ins, WV_AWAIT);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    c(ins, 1);
-    g(ins, REPR);
-    c(ins, R_REF);
-    ins.i32_eq();
-    ins.if_(BlockType::Result(ValType::I32));
-    c(ins, success_ref as i32);
-    ins.else_();
-    c(ins, success_val as i32);
     ins.end();
-    call(b, ins, "alloc");
-    ins.local_set(E);
-    unbox_slot(b, ins, REPR, 1, F_RESVAL, E);
-    c(ins, 0);
-    g(ins, E);
-    ins.i64_extend_i32_u();
-    ins.return_();
-    ins.end();
-    ins.end();
-    // An interruption waits for nobody; the others only reach join/await during a release.
+    // A task that failed or was interrupted has unwound its whole group, so a joiner that sees it
+    // (only while it runs a release) unwinds as interrupted (`[task.cause]`).
     g(ins, VERB);
     c(ins, WV_JOIN);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
-    g(ins, CAUSE);
-    ins.i32_load(mem(4, 4));
-    c(ins, CAUSE_INTERRUPT);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    c(ins, msg_join as i32);
-    c(ins, empty as i32);
-    call(b, ins, "str_append");
-    ins.i64_extend_i32_u();
-    ins.local_set(WORD);
-    ins.else_();
     c(ins, 0);
     let intr = b.rt("fb_interrupted_new");
     ins.call(intr);
     ins.i64_extend_i32_u();
     ins.local_set(WORD);
-    ins.end();
     c(ins, 2);
     ins.local_get(WORD);
-    ins.return_();
-    ins.end();
-    g(ins, VERB);
-    c(ins, WV_AWAIT);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    c(ins, 1);
-    c(ins, failure as i32);
-    call(b, ins, "alloc");
-    ins.local_set(E);
-    st_dup(b, ins, E, HDR, CAUSE);
-    c(ins, 0);
-    g(ins, E);
-    ins.i64_extend_i32_u();
     ins.return_();
     ins.end();
     c(ins, 0);
     ins.i64_const(0);
     ins.return_();
-    let _ = (TMP, CAUSE_INTERRUPT);
+    let _ = (CAUSE, E);
 }
 
 /// `fb_strand_end(f, end, mode, word, perform)`: a continuation ended. The input is owned.
@@ -3307,15 +3163,16 @@ fn settled_impl(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
 }
 
-/// `fb_scope(body, thunk, repr)`: `Fiber.scope` (spec 11.2). The body takes the scope capability.
+/// `fb_scope(body, thunk, repr, background)`: the run-time scope of a group or a background
+/// (`[task.group]`, `[task.background]`). The body takes the run-time scope.
 fn scope(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const SO: u32 = 3;
-    const F: u32 = 4;
-    const FR: u32 = 5;
-    const MODE: u32 = 6;
-    const TMP: u32 = 7;
-    const DEPTH: u32 = 8;
-    const WORD: u32 = 9; // i64
+    const SO: u32 = 4;
+    const F: u32 = 5;
+    const FR: u32 = 6;
+    const MODE: u32 = 7;
+    const TMP: u32 = 8;
+    const DEPTH: u32 = 9;
+    const WORD: u32 = 10; // i64
     let sdesc = plan(b).scope_desc;
     let bdesc = plan(b).scope_body_desc;
     let table = plan(b).scope_body_table;
@@ -3335,7 +3192,11 @@ fn scope(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_add();
     ins.local_set(DEPTH);
     stl(ins, F, F_SCOPES, DEPTH);
-    st_const(ins, SO, S_FLAGS, 0);
+    g(ins, 3);
+    c(ins, SF_BACKGROUND);
+    ins.i32_mul();
+    ins.local_set(TMP);
+    stl(ins, SO, S_FLAGS, TMP);
     st_const(ins, SO, S_FIRST, 0);
     st_const(ins, SO, S_CHEAD, 0);
     st_const(ins, SO, S_CTAIL, 0);
@@ -3397,10 +3258,11 @@ fn scope(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, 2);
     let done = b.rt("fb_scope_body_done");
     ins.call(done);
-    let _ = TMP;
 }
 
-/// `fb_scope_body_done(so, mode, word, repr) -> word`: the body ended; close the scope.
+/// `fb_scope_body_done(so, mode, word, repr) -> word`: the body ended; close the scope. A group
+/// interrupts the tasks left; a background only when the body unwound by an interruption or one
+/// is pending (`[task.background]`).
 fn scope_body_done(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const F: u32 = 4;
     const CHILD: u32 = 5;
@@ -3427,7 +3289,12 @@ fn scope_body_done(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_or();
     ins.local_set(TMP);
     stl(ins, 0, S_FLAGS, TMP);
-    // The body's own failure.
+    // The body's own failure (a group only).
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
     g(ins, 1);
     c(ins, 1);
     ins.i32_eq();
@@ -3466,7 +3333,29 @@ fn scope_body_done(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.end();
-    // Interrupt the children that are left.
+    ins.end();
+    // Interrupt the tasks that are left.
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.i32_eqz();
+    g(ins, 1);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.if_(BlockType::Result(ValType::I32));
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    let intr = b.rt("fb_is_interrupted");
+    ins.call(intr);
+    ins.else_();
+    c(ins, 0);
+    ins.end();
+    ins.i32_or();
+    ldl(ins, F, F_PHEAD);
+    c(ins, 0);
+    ins.i32_ne();
+    ins.i32_or();
+    ins.if_(BlockType::Empty);
     ldl(ins, 0, S_CHEAD);
     ins.local_set(CHILD);
     ins.block(BlockType::Empty);
@@ -3485,14 +3374,22 @@ fn scope_body_done(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.br(0);
     ins.end();
     ins.end();
+    ins.end();
     ldl(ins, 0, S_CHEAD);
     ins.if_(BlockType::Empty);
-    // Children remain: wait for the last one, holding interruption off.
+    // Tasks remain: wait for the last one, holding interruption off. The release of a background
+    // passes an interruption that arrives meanwhile on to its tasks (`fb_interrupt_fiber`).
     ldl(ins, F, F_HOLDS);
     c(ins, 1);
     ins.i32_add();
     ins.local_set(TMP);
     stl(ins, F, F_HOLDS, TMP);
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    stl(ins, F, F_WAITING, 0);
+    ins.end();
     c(ins, WK_CLOSER);
     c(ins, 0);
     let wait_new = b.rt("fb_wait_new");
@@ -3556,10 +3453,17 @@ fn scope_body_done(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(finish);
 }
 
-/// `fb_scope_finish(so, mode, word, repr) -> word`: the first failure, or the body's result.
+/// `fb_scope_finish(so, mode, word, repr) -> word`: for a group, the first failure, or the body's
+/// result. For a background, the body's result, unless a task failed (a defect of `on_failure`):
+/// that is a defect of the release of `Task.Background` (`[task.background]`, `[dyn.defect]`):
+/// the result when the body ended with a value, an error or an interruption, and a note on the
+/// body's defect otherwise.
 fn scope_finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const FIRST: u32 = 4;
     const V: u32 = 5;
+    const TMP: u32 = 6;
+    const D: u32 = 7;
+    let prefix = plan(b).note_background;
     ldl(ins, 0, S_FLAGS);
     c(ins, SF_ENDED);
     ins.i32_or();
@@ -3567,6 +3471,79 @@ fn scope_finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     stl(ins, 0, S_FLAGS, FIRST);
     ldl(ins, 0, S_FIRST);
     ins.local_set(FIRST);
+    g(ins, FIRST);
+    ins.if_(BlockType::Empty);
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ldl(ins, FIRST, HDR);
+    ins.local_set(V);
+    g(ins, 1);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.if_(BlockType::Result(ValType::I32));
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    let intr = b.rt("fb_is_interrupted");
+    ins.call(intr);
+    ins.i32_eqz();
+    ins.else_();
+    c(ins, 0);
+    ins.end();
+    ins.if_(BlockType::Empty);
+    // The body ended with a defect: the defect of `on_failure` is a note on it.
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    c(ins, prefix as i32);
+    call(b, ins, "str_append");
+    ins.local_set(TMP);
+    g(ins, TMP);
+    g(ins, V);
+    call(b, ins, "str_append");
+    ins.local_set(D);
+    dropv(b, ins, TMP);
+    // The note keeps the body's defect markers (`aux`).
+    g(ins, D);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    ins.i32_load(mem(4, 4));
+    ins.i32_store(mem(4, 4));
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    call(b, ins, "drop");
+    g(ins, D);
+    ins.global_set(G_DEFECT);
+    ins.else_();
+    g(ins, 1);
+    c(ins, 1);
+    ins.i32_eq();
+    g(ins, 1);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.i32_or();
+    g(ins, 1);
+    ins.i32_eqz();
+    g(ins, 3);
+    c(ins, R_REF);
+    ins.i32_eq();
+    ins.i32_and();
+    ins.i32_or();
+    ins.if_(BlockType::Empty);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    call(b, ins, "drop");
+    ins.end();
+    g(ins, V);
+    call(b, ins, "dup");
+    g(ins, V);
+    ins.global_set(G_DEFECT);
+    ins.end();
+    dropv(b, ins, 0);
+    ins.i64_const(0);
+    ins.return_();
+    ins.end();
+    ins.end();
     g(ins, FIRST);
     ins.if_(BlockType::Empty);
     // A failure wins over how the body ended. The body's own input is released with the
@@ -3729,6 +3706,12 @@ fn scope_close_resume(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_sub();
     ins.local_set(RES);
     stl(ins, F, F_HOLDS, RES);
+    ldl(ins, F, F_WAITING);
+    g(ins, SO);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    st_const(ins, F, F_WAITING, 0);
+    ins.end();
     // The saved word is the reference when the body's value was one.
     g(ins, REPR);
     c(ins, R_REF);
@@ -3778,7 +3761,9 @@ fn scope_close_resume(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i64_store(mem(0, 8));
 }
 
-/// `fb_scope_failed(so, cause)`: a failure of the body or a child (spec 11.2). Takes the cause.
+/// `fb_scope_failed(so, cause)`: a failure of the body or a task (`[task.group]`). Takes the cause.
+/// A failure of a task of a background (a defect of `on_failure`) stops nothing; the body's result
+/// decides what it becomes (`fb_scope_finish`).
 fn scope_failed(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const CHILD: u32 = 2;
     const NEXT: u32 = 3;
@@ -3795,6 +3780,12 @@ fn scope_failed(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.return_();
     ins.end();
     stl(ins, 0, S_FIRST, 1);
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ins.return_();
+    ins.end();
     ldl(ins, 0, S_FLAGS);
     c(ins, SF_CLOSED);
     ins.i32_or();
@@ -3889,7 +3880,7 @@ fn scope_child_ended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
 }
 
-/// `fb_fork(scope, f, thunk, repr) -> Fiber`: launch a child (spec 11.2).
+/// `fb_fork(scope, f, thunk, repr) -> Fiber`: start a task (`[task.group]`).
 fn fork(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const C: u32 = 4;
     const PREV: u32 = 5;
@@ -3916,7 +3907,7 @@ fn fork(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     for off in [
         F_SCOPE, F_FLAGS, F_HOLDS, F_SCOPES, F_BUDGET, F_CAUSE, F_RESMODE, F_RESREF, F_RESVAL,
         F_WAITER, F_WHEAD, F_WTAIL, F_PHEAD, F_PTAIL, F_UHEAD, F_UTAIL, F_NEXTF, F_PREVF, F_ITEM,
-        F_ITEMPREV, F_REPR,
+        F_ITEMPREV, F_REPR, F_WAITING,
     ] {
         st_const(ins, C, off, 0);
     }
@@ -3977,28 +3968,15 @@ fn fork(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let _ = F;
 }
 
-/// `fb_join(h, repr) -> word`: wait for a child and return its value (spec 11.5).
+/// `fb_join(h, repr) -> word`: wait for a task and return its value (`[task.cause]`).
 fn join(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const W: u32 = 2;
     const MODE: u32 = 3;
     const WORD: u32 = 7; // i64
-    let def_join = plan(b).def_join;
     call(b, ins, "fb_interrupt_here");
     ins.if_(BlockType::Empty);
     ins.i64_const(0);
     ins.return_();
-    ins.end();
-    ldl(ins, 0, F_SCOPE);
-    ins.local_tee(MODE);
-    ins.if_(BlockType::Empty);
-    ldl(ins, MODE, S_FLAGS);
-    c(ins, SF_ENDED);
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    raise_msg(b, ins, def_join);
-    ins.i64_const(0);
-    ins.return_();
-    ins.end();
     ins.end();
     ldl(ins, 0, F_FLAGS);
     c(ins, FF_ENDED);
@@ -4042,120 +4020,6 @@ fn join(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 1);
     ins.global_set(G_SUSPENDING);
     ins.i64_const(0);
-}
-
-/// `fb_await(h, repr) -> Exit`: wait for a child and return how it ended (spec 11.5).
-fn await_(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const W: u32 = 2;
-    const MODE: u32 = 3;
-    const WORD: u32 = 7; // i64
-    let def_await = plan(b).def_await;
-    call(b, ins, "fb_interrupt_here");
-    ins.if_(BlockType::Empty);
-    ins.i32_const(0);
-    ins.return_();
-    ins.end();
-    ldl(ins, 0, F_SCOPE);
-    ins.local_tee(MODE);
-    ins.if_(BlockType::Empty);
-    ldl(ins, MODE, S_FLAGS);
-    c(ins, SF_ENDED);
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    raise_msg(b, ins, def_await);
-    ins.i32_const(0);
-    ins.return_();
-    ins.end();
-    ins.end();
-    c(ins, WK_FIBER);
-    g(ins, 1);
-    call(b, ins, "fb_wait_new");
-    ins.local_set(W);
-    st_const(ins, W, W_VERB, WV_AWAIT);
-    ldl(ins, 0, F_FLAGS);
-    c(ins, FF_ENDED);
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    g(ins, W);
-    g(ins, 0);
-    let settle = b.rt("fb_watch_settle");
-    ins.call(settle);
-    ins.local_set(WORD); // i64 on top
-    ins.local_set(MODE);
-    dropv(b, ins, W);
-    g(ins, WORD);
-    ins.i32_wrap_i64();
-    ins.return_();
-    ins.end();
-    g(ins, 0);
-    g(ins, W);
-    call(b, ins, "fb_watch_add");
-    i32_const_cell(b, ins, |p| p.susp_wait);
-    g(ins, W);
-    ins.i32_store(mem(0, 4));
-    c(ins, 1);
-    ins.global_set(G_SUSPENDING);
-    ins.i32_const(0);
-}
-
-/// `fb_interrupt(h)`: interrupt a child and wait until its unwinding finished (spec 11.4).
-fn interrupt(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const W: u32 = 2;
-    const F: u32 = 3;
-    let def = plan(b).def_interrupt;
-    call(b, ins, "fb_interrupt_here");
-    ins.if_(BlockType::Empty);
-    ins.return_();
-    ins.end();
-    ldl(ins, 0, F_SCOPE);
-    ins.local_tee(F);
-    ins.if_(BlockType::Empty);
-    ldl(ins, F, S_FLAGS);
-    c(ins, SF_ENDED);
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    raise_msg(b, ins, def);
-    ins.return_();
-    ins.end();
-    ins.end();
-    g(ins, 0);
-    c(ins, 0);
-    let ifib = b.rt("fb_interrupt_fiber");
-    ins.call(ifib);
-    i32_const_cell(b, ins, |p| p.cur_fiber);
-    ins.i32_load(mem(0, 4));
-    g(ins, 0);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    ldl(ins, 0, F_HOLDS);
-    ins.i32_eqz();
-    ins.if_(BlockType::Empty);
-    g(ins, 0);
-    let deliver = b.rt("fb_deliver");
-    ins.call(deliver);
-    ins.global_set(G_DEFECT);
-    ins.end();
-    ins.return_();
-    ins.end();
-    ldl(ins, 0, F_FLAGS);
-    c(ins, FF_ENDED);
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    ins.return_();
-    ins.end();
-    c(ins, WK_FIBER);
-    c(ins, 0);
-    call(b, ins, "fb_wait_new");
-    ins.local_set(W);
-    st_const(ins, W, W_VERB, WV_INTERRUPT);
-    g(ins, 0);
-    g(ins, W);
-    call(b, ins, "fb_watch_add");
-    i32_const_cell(b, ins, |p| p.susp_wait);
-    g(ins, W);
-    ins.i32_store(mem(0, 4));
-    c(ins, 1);
-    ins.global_set(G_SUSPENDING);
 }
 
 /// `fb_deferred() -> Deferred`: the init of the built-in handler `Deferred`, an empty Deferred
@@ -4505,6 +4369,30 @@ fn interrupt_fiber(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, 1);
     let push = b.rt("fb_pending_push");
     ins.call(push);
+    // The release of a background that waits for its tasks passes the interruption on to them
+    // (`[task.background]`).
+    ldl(ins, 0, F_WAITING);
+    ins.local_tee(W);
+    ins.if_(BlockType::Empty);
+    ldl(ins, W, S_CHEAD);
+    ins.local_set(P);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    g(ins, P);
+    ins.i32_eqz();
+    ins.br_if(1);
+    ldl(ins, P, F_ITEM);
+    ins.local_set(CHAIN);
+    g(ins, P);
+    c(ins, 0);
+    let again = b.rt("fb_interrupt_fiber");
+    ins.call(again);
+    g(ins, CHAIN);
+    ins.local_set(P);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    ins.end();
     ldl(ins, 0, F_HOLDS);
     ins.if_(BlockType::Empty);
     ins.return_();
@@ -4543,8 +4431,8 @@ fn interrupt_fiber(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(push);
 }
 
-/// `fb_note(first, other)`: add `note: another fiber also failed: ...` to the first cause (spec
-/// 11.2). Both causes are borrowed.
+/// `fb_note(first, other)`: add `note: another task also failed: ...` to the first cause
+/// (`[task.group]`). Both causes are borrowed.
 fn note(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const SHOWN: u32 = 2;
     const NOTE: u32 = 3;
@@ -4901,7 +4789,7 @@ fn root_begin(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     for off in [
         F_SCOPE, F_FLAGS, F_HOLDS, F_SCOPES, F_BUDGET, F_CAUSE, F_RESMODE, F_RESREF, F_RESVAL,
         F_WAITER, F_WHEAD, F_WTAIL, F_PHEAD, F_PTAIL, F_UHEAD, F_UTAIL, F_NEXTF, F_PREVF, F_ITEM,
-        F_ITEMPREV, F_REPR,
+        F_ITEMPREV, F_REPR, F_WAITING,
     ] {
         st_const(ins, F, off, 0);
     }

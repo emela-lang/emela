@@ -1156,18 +1156,17 @@ impl<'m> Emitter<'m> {
             None => cx.w.stmt(&format!("(void){expr}")),
         };
         match op {
-            FiberOp::Scope { .. } => {
+            FiberOp::Scope { background, .. } => {
                 let repr = arg_ty(0).map_or(Repr::Void, |t| self.inner_repr(t));
-                word(cx, op_call("em_fiber_scope", repr));
+                let flag = if background { "true" } else { "false" };
+                word(
+                    cx,
+                    call("em_fiber_scope", [a[0].as_str(), repr_code(repr), flag]),
+                );
             }
             FiberOp::Fork => Self::assign(cx, dst, &call("em_fiber_fork", &a[..2])),
             FiberOp::Deferred => Self::assign(cx, dst, &call("em_fiber_deferred", &a[..0])),
             FiberOp::Join => word(cx, op_call("em_fiber_join", dst_repr)),
-            FiberOp::Await { .. } => {
-                let repr = dst_ty.map_or(Repr::Void, |t| self.inner_repr(t));
-                Self::assign(cx, dst, &op_call("em_fiber_await", repr));
-            }
-            FiberOp::Interrupt => cx.w.stmt(&call("em_fiber_interrupt", &a[..1])),
             FiberOp::Attempt { .. } => {
                 let repr = arg_ty(0).map_or(Repr::Void, |t| self.inner_repr(t));
                 Self::assign(cx, dst, &op_call("em_fiber_attempt", repr));

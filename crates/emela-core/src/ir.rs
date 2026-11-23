@@ -428,7 +428,7 @@ pub struct EffectDef {
     /// `State.State[Int]`); the same as `name` for an effect without type parameters.
     pub decl: String,
     /// The type arguments of the instantiation, in the declaration's parameter order. Set type
-    /// arguments (`Scope[E, R]`, spec 11.2) have no IR type and are the placeholder `()`. A
+    /// arguments (`TaskGroup[E, R]`, `[task.group]`) have no IR type and are the placeholder `()`. A
     /// `Type::Param(i)` is a type parameter of the function whose body uses the effect (the key
     /// `State[$modify.0]` is used only in the body of `modify`), as in that function's local types.
     pub args: Vec<TypeId>,
@@ -464,12 +464,12 @@ impl EffectDef {
 /// An operation may have type parameters of its own only in built-in effects (`fork[A]` and
 /// `deferred[A]` of Scope, spec 8.1, 11.2). They are `Type::Param(0..type_params)` in `params` and
 /// `ret`, instantiated per call by `Callee::Op::ty_args`. The type arguments of built-in effects
-/// are sets (`Scope[E, R]`), so such an operation's types contain no other `Type::Param`. A
+/// are sets (`TaskGroup[E, R]`), so such an operation's types contain no other `Type::Param`. A
 /// handler implements a generic operation for every instantiation at once, so its implementation
 /// sees the operation's own type parameters as `Type::Any`.
 ///
 /// Why type parameters rather than `Any` in the `OpDef` itself: so that the value of a call
-/// (`Fiber[Int]` from `s.fork[Int](..)`) has a type the IR alone determines. The type checker
+/// (`Task[Int]` from `tasks.start[Int](..)`) has a type the IR alone determines. The type checker
 /// records the instantiation at the operation reference, so filling `Callee::Op::ty_args` costs
 /// no more than for a direct call.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -532,7 +532,7 @@ pub struct EnumDef {
     /// represent it so the error can be identified at run time.
     pub error: bool,
     /// Whether it is an `@external type` (spec 12.3): an opaque host value with no constructors,
-    /// which Emela only passes around (`Std.Fiber.Fiber` is one too, made by the runtime). Backends
+    /// which Emela only passes around (`Std.Task.Task` is one too, made by the runtime). Backends
     /// represent its values as host handles. An enum without constructors that is not external
     /// has no values.
     pub external: bool,
@@ -546,7 +546,7 @@ pub const OPTION_NONE: usize = 1;
 impl EnumDef {
     /// How the debug display (`dbg`) shows a value of an external type that the runtime holds:
     /// a Semaphore as `<semaphore>` and a Queue as `<queue>` (`[trait.builtin]`,
-    /// `[fiber.semaphore]`, `[fiber.queue]`). `None` for every other type.
+    /// `[task.semaphore]`, `[task.queue]`). `None` for every other type.
     pub fn runtime_display(&self) -> Option<&'static str> {
         if !self.external {
             return None;
@@ -692,10 +692,10 @@ pub enum Type {
     /// A mutable cell holding a value of the type (the state of `State.run`, `Builtin::CellNew`).
     Cell(TypeId),
     /// The run-time scope that `FiberOp::Scope` passes to its body and `FiberOp::Fork` takes
-    /// (spec 11.2). Not Scope's capability value, which is a `Handler`.
+    /// (`[task.group]`). Not the capability value of the group, which is a `Handler`.
     FiberScope,
-    /// A value whose type differs per use and is not tracked: inside Scope's handler, the child
-    /// function that fork receives (the `A` of `fork[A]`, spec 11.2) and the handles that
+    /// A value whose type differs per use and is not tracked: inside the handler of a group, the
+    /// task function that start receives (the `A` of `start[A]`, `[task.group]`) and the handles that
     /// `FiberOp::Fork` and `FiberOp::Deferred` return. Only built-in effects have generic
     /// operations (spec 8.1), and lowering builds their handlers. Backends give it a uniform
     /// representation. A handler's implementation of a generic operation sees the operation's own
@@ -1432,35 +1432,42 @@ impl Expr {
 /// operations they follow from the operation. The two that vary carry them in the variant
 /// (`Scope { fails }`, from the body's E, and `Attempt { suspends }`, from `f`'s R).
 ///
-/// Scopes (the `Scope` capability value), fiber handles (`Fiber[A]`), Deferreds, Semaphores,
+/// Run-time scopes of groups, tasks (`Task[A]`), Deferreds, Semaphores,
 /// Queues and causes (`Cause[E]`) are opaque values chosen by the backend. Capability values may
 /// be put in evidence tables with `Expr::Provide`. Exit (`Std.Exit`) and CauseKind (`Std.Cause`)
 /// are represented like user enums, with constructor order given by `EXIT_SUCCESS`,
-/// `EXIT_FAILURE` and `CAUSE_FAIL`, `CAUSE_DIE`, `CAUSE_INTERRUPT`.
+/// `EXIT_FAILURE` and `CAUSE_FAIL`, `CAUSE_DIE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FiberOp {
-    /// `Fiber.scope(body)` (spec 11.2). `[body]`, where `body` is a function value taking the
-    /// scope capability value. When the body returns a value, the remaining children are
-    /// interrupted, and the value is returned after all children finish. The first failure (Fail,
-    /// Die) of a child or the body is the scope's result. `fails` tells whether the body's (and
-    /// children's) E is not empty.
-    Scope { fails: bool },
-    /// `s.fork(f)` (spec 11.2). `[scope, f]`, where `f` is a parameterless function value run as
-    /// a child fiber. The value is the fiber handle. Not a suspension point (the child starts when
-    /// the parent next suspends).
+    /// The run-time scope of an item of a with that names `Task.Group` or `Task.Background`
+    /// (`[task.group]`, `[task.background]`). `[body]`, where `body` is a function value taking
+    /// the run-time scope; it runs the rest of the with (`lower/fiber.rs`). `fails` tells whether
+    /// the body's (and the tasks') E is not empty.
+    ///
+    /// A group (`background` false): when the body returns a value, the remaining tasks are
+    /// interrupted, and the value is returned after all tasks end. The first failure (Fail, Die)
+    /// of a task or the body is the result, and a failure of a task interrupts its siblings and
+    /// the body.
+    ///
+    /// A background (`background` true): when the body ends, with a value or a failure, the tasks
+    /// are waited for without being interrupted, and the result is the body's. A failure of a task
+    /// (only a defect of `on_failure`, since lowering wraps each task in attempt) stops nothing:
+    /// it becomes the result if the body ended with a value or an error, and a note otherwise.
+    /// When the body unwinds by an interruption, or one arrives while the tasks are waited for,
+    /// the tasks are interrupted.
+    Scope { fails: bool, background: bool },
+    /// `tasks.start(f)` (`[task.group]`). `[scope, f]`, where `f` is a parameterless function
+    /// value run as a task. The value is the task. Not a suspension point (the task starts when
+    /// the starting task next suspends).
     Fork,
     /// The init of the built-in handler `Deferred` (`[task.deferred]`). `[]`. The value is an
     /// empty Deferred.
     Deferred,
-    /// `Fiber.join(h)` (spec 11.5). `[fiber]`. The child's value; a defect if the child was
+    /// `Task.join(task)` (`[task.cause]`). `[task]`. The task's value. If the task failed or was
+    /// interrupted (seen only while a release holds off an interruption), the caller unwinds as
     /// interrupted.
     Join,
-    /// `Fiber.await(h)` (spec 11.5). `[fiber]`. A value of the `exit` enum (`Exit[A, {}]`).
-    Await { exit: EnumId },
-    /// `Fiber.interrupt(h)` (spec 11.4). `[fiber]`. Interrupts the child and waits until it has
-    /// unwound. The value is `()`.
-    Interrupt,
-    /// `Exit.attempt(f)` (spec 11.5). `[f]`. Calls `f` on the spot and turns Fail and Die into
+    /// `Exit.attempt(f)` (`[task.cause]`). `[f]`. Calls `f` on the spot and turns Fail and Die into
     /// `Failure` of the `exit` enum. Interrupt is not caught. `suspends` tells whether `f` may
     /// suspend (the same rule as `Callee::Indirect` of `Expr::Call::suspends`).
     Attempt { exit: EnumId, suspends: bool },
@@ -1507,13 +1514,12 @@ pub enum FiberOp {
     Size,
     /// `close()` of a Queue (`[task.queue]`). `[queue]`. The value is `()`.
     Close,
-    /// `Cause.kind(c)` (spec 11.5). `[cause]`. The value is of the `kind` enum (CauseKind).
+    /// `Cause.kind(c)` (`[task.cause]`). `[cause]`. The value is of the `kind` enum (CauseKind).
     CauseKind { kind: EnumId },
-    /// `Cause.to_string(c)` (spec 11.5). `[cause]`. `error: …`, `defect: …` or `interrupted`.
+    /// `Cause.to_string(c)` (`[task.cause]`). `[cause]`. `error: …` or `defect: …`.
     CauseToString,
-    /// `Cause.raise(c)` (spec 11.5). `[cause]`. Fail becomes a failure, Die a defect, and Interrupt
-    /// unwinds the current fiber's interruption. The type is Never, but it may fail. `fails` tells
-    /// whether the cause's E is not empty.
+    /// `Cause.raise(c)` (`[task.cause]`). `[cause]`. Fail becomes a failure and Die a defect. The
+    /// type is Never, but it may fail. `fails` tells whether the cause's E is not empty.
     CauseRaise { fails: bool },
 }
 
@@ -1525,8 +1531,6 @@ pub const EXIT_FAILURE: usize = 1;
 pub const CAUSE_FAIL: usize = 0;
 /// The index of `Die` in `CauseKind`.
 pub const CAUSE_DIE: usize = 1;
-/// The index of `Interrupt` in `CauseKind`.
-pub const CAUSE_INTERRUPT: usize = 2;
 
 impl FiberOp {
     pub fn arity(self) -> usize {
@@ -1547,8 +1551,6 @@ impl FiberOp {
         match self {
             FiberOp::Scope { .. }
             | FiberOp::Join
-            | FiberOp::Await { .. }
-            | FiberOp::Interrupt
             | FiberOp::DeferredAwait
             | FiberOp::Acquire
             | FiberOp::Offer
@@ -1576,7 +1578,7 @@ impl FiberOp {
     /// Whether it may fail (whether the result must be checked).
     pub fn fails(self) -> bool {
         match self {
-            FiberOp::Scope { fails } | FiberOp::CauseRaise { fails } => fails,
+            FiberOp::Scope { fails, .. } | FiberOp::CauseRaise { fails } => fails,
             _ => false,
         }
     }
@@ -1588,8 +1590,6 @@ impl FiberOp {
             FiberOp::Fork => "fork",
             FiberOp::Deferred => "deferred",
             FiberOp::Join => "join",
-            FiberOp::Await { .. } => "await",
-            FiberOp::Interrupt => "interrupt",
             FiberOp::Attempt { .. } => "attempt",
             FiberOp::Complete => "complete",
             FiberOp::DeferredAwait => "deferred_await",

@@ -57,7 +57,7 @@ pub struct ProgramTypes {
     pub calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
     /// References to generic definitions (`Path`) → the instantiated type arguments, in the
     /// declaration's type parameter order. Also references to capability operations with their
-    /// own type parameters (the `Field` of `s.fork`): only the operation's own, not the effect's.
+    /// own type parameters (the `Field` of `tasks.start`): only the operation's own, not the effect's.
     pub type_args: ArenaMap<ExprId, Vec<Ty>>,
     /// References to generic definitions (`Path`) → the instantiated sets, in the declaration's
     /// type parameter order (empty at positions that are not set parameters). Unlike `type_args`,
@@ -228,7 +228,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         diags,
     };
 
-    let fibers = crate::fiber::Fibers::new(program);
+    let builtins = crate::builtin::Builtins::new(program);
     for group in groups(program, &sigs) {
         let mut infer = BodyInfer::new(
             program,
@@ -240,7 +240,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
                 layer_ty_args: &types.layer_ty_args,
             },
             &closed,
-            &fibers,
+            &builtins,
             &types.traits,
         );
         for &def in &group {

@@ -173,15 +173,13 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
 /// Whether the concurrency operation may raise a defect in the current fiber.
 pub fn fiber_may_defect(op: FiberOp) -> bool {
     match op {
-        // A child's defect, an interrupted child, a raised cause, a scope's body, or an
-        // interruption delivered while waiting.
+        // A task's defect, a raised cause, a scope's body, or an interruption delivered while
+        // waiting.
         FiberOp::Scope { .. }
         | FiberOp::Join
-        | FiberOp::Await { .. }
-        | FiberOp::Interrupt
         | FiberOp::DeferredAwait
         | FiberOp::CauseRaise { .. }
-        // A scope or handle used after its scope ended (spec 11.8).
+        // A group used after it closed (`[task.group]`).
         | FiberOp::Fork
         // A Semaphore or Queue made with a bad size, permits asked for with a bad number, or a
         // wait that is interrupted (`[task.semaphore]`, `[task.queue]`).

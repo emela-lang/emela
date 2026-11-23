@@ -1,20 +1,18 @@
-# Queue (`[task.queue]`): passes values between fibers in order, up to a capacity. It can be closed
+# Queue (`[task.queue]`): passes values between tasks in order, up to a capacity. It can be closed
 # to say that no more values will come.
 #
 # `with q = Queue(capacity: c)` makes an empty queue, and `q` is its capability:
 #
-#   with q = Queue(capacity: 100) {
-#     Fiber.scope(|s| {
-#       s.fork(|| {
-#         jobs.each(|job| q.offer(job))
-#         q.close()
-#       })
-#       work(q)
+#   with q = Queue(capacity: 100), tasks = Task.Group {
+#     tasks.start(|| {
+#       jobs.each(|job| q.offer(job))
+#       q.close()
 #     })
+#     work(q)
 #   }
 #
 # The effect and the handler are built in: the runtime holds the values and the lines of waiting
-# fibers. Lowering turns the handler into a handler value whose operations are concurrency
+# tasks. Lowering turns the handler into a handler value whose operations are concurrency
 # operations of the Core IR.
 
 ## Values of type `A` in order, up to a capacity. dbg shows the capability as `<queue>`.

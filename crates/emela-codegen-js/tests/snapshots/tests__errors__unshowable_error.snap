@@ -329,6 +329,8 @@ class $Fiber {
     this.holds = 0;
     // The number of scopes whose body runs on this fiber (the depth of the next one).
     this.scopes = 0;
+    // The run-time scope of a background whose release waits for its tasks on this fiber.
+    this.waiting = null;
     // Once it ended: `{ ok, value }`, and the cause (a `$Cause`, or null when it returned a value).
     this.result = undefined;
     this.cause = null;
@@ -392,6 +394,8 @@ class $Fiber {
       return;
     }
     this.pending.push(target);
+    // The release of a background that waits for its tasks passes the interruption on to them (11.3).
+    if (this.waiting !== null) this.waiting.interruptedWhileWaiting();
     if (this.holds > 0) return;
     const wait = this.wait;
     if (wait === null || !wait.live) return;
@@ -726,32 +730,37 @@ globalThis[Symbol.for("emela.whenStalled")] = $whenStalled;
 
 // ---- Fiber operations (spec chapter 11) ----
 
-// A scope (11.2): the value of the Scope capability. Its body runs on `fiber`, and its children are forked fibers.
+// The run-time scope of a group or a background (`[task.group]`, `[task.background]`). Its body (the rest of the
+// with) runs on `fiber`, and its tasks are forked fibers.
 class $Scope {
-  constructor(fiber) {
+  constructor(fiber, background) {
     this.fiber = fiber;
     this.depth = fiber.scopes;
-    // Children that have not ended.
+    // A background: its tasks are not interrupted when the body ends or a task fails.
+    this.background = background;
+    // Tasks that have not ended.
     this.children = new Set();
-    // No more forks: the body ended or something failed (11.8).
+    // No more starts: the body ended or something failed.
     this.closed = false;
     this.bodyDone = false;
-    // The scope returned; its handles can no longer be used (11.8).
+    // The scope returned.
     this.ended = false;
-    // The first failure (a Fail or Die `$Cause`) of the body or a child; the result of the scope.
+    // The first failure (a Fail or Die `$Cause`) of the body or a task; the result of the scope.
     this.first = undefined;
-    // Called when the last child ends while the scope waits for them.
+    // Called when the last task ends while the scope waits for them.
     this.closer = null;
   }
 
-  // A failure of the body or a child. The first one becomes the result and interrupts the siblings and the body;
-  // later ones are added as notes (11.2).
+  // A failure of the body or a task. In a group, the first one becomes the result and interrupts the siblings and the
+  // body; later ones are added as notes. A failure of a task of a background (a defect of `on_failure`) stops
+  // nothing, and the body's result decides what it becomes (`$scope`).
   failed(cause) {
     if (this.first !== undefined) {
       this.first.note(cause);
       return;
     }
     this.first = cause;
+    if (this.background) return;
     this.closed = true;
     for (const child of this.children) child.interrupt(null);
     if (!this.bodyDone) this.fiber.interrupt(this);
@@ -767,14 +776,21 @@ class $Scope {
       closer();
     }
   }
+
+  // An interruption of the fiber arrived while the release waits: a background passes it on to its tasks (11.3).
+  interruptedWhileWaiting() {
+    for (const child of this.children) child.interrupt(null);
+  }
 }
 
-// `Fiber.scope(body)` (11.2). Runs `body(scope)` on the current fiber. When the body ends, the remaining children are
-// interrupted, and once all of them ended the scope returns: the first failure of the body or a child if any,
-// otherwise how the body ended.
-function* $scope(body) {
+// The run-time scope of a group or a background (`FiberOp::Scope`). Runs `body(scope)` on the current fiber. When the
+// body ends, a group interrupts the remaining tasks; a background waits for them without interrupting, unless the
+// body unwinds by an interruption. Once all of them ended the scope returns. A group returns the first failure of
+// the body or a task if any, otherwise how the body ended. A background returns how the body ended, unless a task
+// failed (a defect of `on_failure`): that is a defect of its release (14.4).
+function* $scope(body, background = false) {
   const fiber = $current;
-  const scope = new $Scope(fiber);
+  const scope = new $Scope(fiber, background);
   fiber.scopes++;
   let ok;
   let value;
@@ -790,12 +806,18 @@ function* $scope(body) {
   fiber.unwinds.delete(scope);
   scope.bodyDone = true;
   scope.closed = true;
-  if (ok ? value instanceof $Fail : !$isInterrupted(value)) {
-    scope.failed(new $Cause(ok ? $CAUSE_FAIL : $CAUSE_DIE, value));
+  const interrupted = !ok && $isInterrupted(value);
+  if (!background) {
+    if (ok ? value instanceof $Fail : !interrupted) {
+      scope.failed(new $Cause(ok ? $CAUSE_FAIL : $CAUSE_DIE, value));
+    }
+    for (const child of scope.children) child.interrupt(null);
+  } else if (interrupted || fiber.pending.length > 0) {
+    scope.interruptedWhileWaiting();
   }
-  for (const child of scope.children) child.interrupt(null);
   if (scope.children.size > 0) {
     fiber.holds++;
+    if (background) fiber.waiting = scope;
     try {
       yield new $FiberRequest((_, wake) => {
         if (scope.children.size === 0) return { mode: "next", value: undefined };
@@ -804,10 +826,17 @@ function* $scope(body) {
       }, true);
     } finally {
       fiber.holds--;
+      if (background) fiber.waiting = null;
     }
   }
   scope.ended = true;
   const first = scope.first;
+  // A defect of `on_failure` is a defect of the release of the background (11.3, 14.4).
+  if (background && first !== undefined) throw $releaseDefect(ok ? undefined : value, first.value, "Task.Background");
+  if (background) {
+    if (ok) return value;
+    throw value;
+  }
   if (first !== undefined) {
     if (first.kind === $CAUSE_FAIL) return first.value;
     throw first.value;
@@ -816,9 +845,9 @@ function* $scope(body) {
   throw value;
 }
 
-// `s.fork(f)` (11.2). The child starts running when the current fiber next suspends.
+// `tasks.start(f)` (11.2). The task starts running when the current fiber next suspends.
 function $fork(scope, f) {
-  if (scope.closed) throw new $Defect("fiber scope was used after it ended");
+  if (scope.closed) throw new $Defect("task group was used after it closed");
   const root = scope.fiber.root;
   const child = new $Fiber(root, scope);
   scope.children.add(child);
@@ -826,43 +855,16 @@ function $fork(scope, f) {
   return child;
 }
 
-function $fiberRequest(h, verb, settled) {
-  return new $FiberRequest((_, wake) => {
-    if (h.scope.ended) return { mode: "throw", value: new $Defect(`fiber was ${verb} after its scope ended`) };
-    return h.watch(wake, () => settled(h));
-  });
-}
-
-// `Fiber.join(h)` (11.5). An interrupted child is a defect. A child that failed has interrupted its siblings, so a
-// joiner that sees it (only while it runs a release) unwinds as interrupted.
+// `Task.join(h)` (11.6). A task that failed or was interrupted has unwound its whole group, so a joiner that sees it
+// (only while it runs a release) unwinds as interrupted.
 function $join(h) {
-  return $fiberRequest(h, "joined", () => {
-    const cause = h.cause;
-    if (cause === null) return { mode: "next", value: h.result.value };
-    if (cause.kind === $CAUSE_INTERRUPT) return { mode: "throw", value: new $Defect("fiber was interrupted") };
-    return { mode: "throw", value: new $Interrupted() };
-  });
-}
-
-// `Fiber.await(h)` (11.5). Returns an `Exit`.
-function $fiberAwait(h) {
-  return $fiberRequest(h, "awaited", () => {
-    const cause = h.cause;
-    return { mode: "next", value: cause === null ? $exit(0, h.result.value) : $exit(1, cause) };
-  });
-}
-
-// `Fiber.interrupt(h)` (11.4). Waits until the child has unwound. Interrupting the current fiber itself unwinds it
-// at once (or after the release it runs).
-function $interrupt(h) {
-  return new $FiberRequest((fiber, wake) => {
-    if (h.scope.ended) return { mode: "throw", value: new $Defect("fiber was interrupted after its scope ended") };
-    h.interrupt(null);
-    if (h === fiber) {
-      return fiber.holds === 0 ? { mode: "throw", value: fiber.deliver() } : { mode: "next", value: undefined };
-    }
-    return h.watch(wake, () => ({ mode: "next", value: undefined }));
-  });
+  return new $FiberRequest((_, wake) =>
+    h.watch(wake, () => {
+      const cause = h.cause;
+      if (cause === null) return { mode: "next", value: h.result.value };
+      return { mode: "throw", value: new $Interrupted() };
+    }),
+  );
 }
 
 // `Exit.attempt(f)` (11.5). Turns a Fail or a Die of `f` into `Failure(cause)`. An interruption is not caught.
@@ -1113,11 +1115,12 @@ function $close(q) {
   for (const entry of q.offerers.splice(0)) entry.wake("served", false);
 }
 
-// `CauseKind` (`Fail`, `Die`, `Interrupt`, in that order).
+// `CauseKind` (`Fail`, `Die`, in that order). How an interrupted fiber ended is kept as a third kind, which is never a
+// value of `CauseKind` (an interruption is not a cause, 11.6).
 const $CAUSE_FAIL = 0;
 const $CAUSE_DIE = 1;
 const $CAUSE_INTERRUPT = 2;
-const $causeKinds = [Object.freeze({ $tag: 0 }), Object.freeze({ $tag: 1 }), Object.freeze({ $tag: 2 })];
+const $causeKinds = [Object.freeze({ $tag: 0 }), Object.freeze({ $tag: 1 })];
 
 // Why a fiber did not end with a value (11.5). `value` is the `$Fail` of a Fail and the thrown exception of a Die.
 class $Cause {
@@ -1128,7 +1131,7 @@ class $Cause {
 
   // Adds a later failure `other` as a note to the display of this one (11.2).
   note(other) {
-    const note = `note: another fiber also failed: ${$causeToString(other)}`;
+    const note = `note: another task also failed: ${$causeToString(other)}`;
     if (this.kind === $CAUSE_FAIL) (this.value.notes ??= []).push(note);
     else if (this.value instanceof Error) this.value.message += `\n${note}`;
   }
@@ -1142,24 +1145,15 @@ function $causeToString(c) {
   switch (c.kind) {
     case $CAUSE_FAIL:
       return `error: ${c.value[Symbol.for("emela.fail")]()}`;
-    case $CAUSE_DIE:
-      return `defect: ${$foreign(c.value).message}`;
     default:
-      return "interrupted";
+      return `defect: ${$foreign(c.value).message}`;
   }
 }
 
-// `Cause.raise(c)` (11.5). A Fail is returned as the failure; a Die is thrown again; an Interrupt unwinds the
-// current fiber as interrupted.
+// `Cause.raise(c)` (11.6). A Fail is returned as the failure, and a Die is thrown again.
 function $causeRaise(c) {
-  switch (c.kind) {
-    case $CAUSE_FAIL:
-      return c.value;
-    case $CAUSE_DIE:
-      throw c.value;
-    default:
-      throw new $Interrupted();
-  }
+  if (c.kind === $CAUSE_FAIL) return c.value;
+  throw c.value;
 }
 
 // Marks the start of a release that may suspend: the current fiber is not interrupted until `$unhold` (11.4).

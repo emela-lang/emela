@@ -2639,7 +2639,7 @@ impl<'m> Builder<'m> {
         self.assign(cx, ins, dst, ret);
     }
 
-    /// `Fiber.scope`, `fork`, `join`, `await`, `interrupt`, the Deferred operations and the
+    /// the run-time scope of a group, `fork`, `join`, the Deferred operations and the
     /// operations of `Std.Cause` (spec chapter 11), with the runtime of `runtime::fiber`.
     fn fiber(
         &mut self,
@@ -2706,7 +2706,7 @@ impl<'m> Builder<'m> {
                 ins.call(f);
                 self.assign(cx, ins, dst, Repr::I32);
             }
-            FiberOp::Scope { .. } => {
+            FiberOp::Scope { background, .. } => {
                 let ret = self.operand_fn_ret(cx, &args[0]);
                 let repr = self.repr(ret);
                 let table = self.thunk1(repr);
@@ -2715,6 +2715,7 @@ impl<'m> Builder<'m> {
                 }
                 ins.i32_const(table as i32);
                 ins.i32_const(repr_code(repr));
+                ins.i32_const(i32::from(background));
                 let f = self.rt("fb_scope");
                 ins.call(f);
                 self.assign_i64(cx, ins, dst, repr);
@@ -2744,19 +2745,6 @@ impl<'m> Builder<'m> {
                 let f = self.rt("fb_join");
                 ins.call(f);
                 self.assign_i64(cx, ins, dst, repr);
-            }
-            FiberOp::Await { .. } => {
-                let repr = self.exit_value_repr(cx, dst);
-                self.operand(cx, ins, &args[0]);
-                ins.i32_const(repr_code(repr));
-                let f = self.rt("fb_await");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::Ref);
-            }
-            FiberOp::Interrupt => {
-                self.operand(cx, ins, &args[0]);
-                let f = self.rt("fb_interrupt");
-                ins.call(f);
             }
             FiberOp::Complete => {
                 let repr = self.operand_repr_of(cx, &args[1]);
@@ -2926,18 +2914,6 @@ impl<'m> Builder<'m> {
         match dst {
             Some(d) => self.repr(cx.f.vars[d].ty),
             None => Repr::Ref,
-        }
-    }
-
-    /// The `A` of an `Exit[A, E]` destination (the value `Fiber.await` carries).
-    fn exit_value_repr(&self, cx: &FnCtx<'_>, dst: Option<VarId>) -> Repr {
-        let Some(d) = dst else { return Repr::Ref };
-        match self.core().ty(cx.f.vars[d].ty) {
-            Type::Enum(_, args) => match args.first() {
-                Some(&a) => self.repr(a),
-                None => Repr::Void,
-            },
-            _ => Repr::Ref,
         }
     }
 
