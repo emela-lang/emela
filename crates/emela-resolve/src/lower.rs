@@ -548,7 +548,21 @@ impl Lower<'_, '_> {
             };
             let ty = param.ty().map(|t| self.lower_type(&t));
             let local = self.bind(&mut binder, name, local_kind, range);
-            params.push(Param { local, ty });
+            let borrowed = param
+                .syntax()
+                .children()
+                .filter(|n| n.kind() == ANNOTATION)
+                .find(|n| {
+                    n.children_with_tokens()
+                        .filter_map(|t| t.into_token())
+                        .any(|t| t.kind() == LOWER_NAME && t.text() == "borrowed")
+                })
+                .map(|n| self.span(n.text_range()));
+            params.push(Param {
+                local,
+                ty,
+                borrowed,
+            });
         }
         self.bind_all(binder);
         params
@@ -570,7 +584,11 @@ impl Lower<'_, '_> {
             if let Some(token) = param.name() {
                 let (name, range) = token_name(&token);
                 let local = self.bind(&mut binder, name, LocalKind::LambdaParam, range);
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
             } else if let Some(token) = child_token(param.syntax(), SELF_KW) {
                 // As in [`Self::params`].
                 if !self.self_type {
@@ -585,14 +603,22 @@ impl Lower<'_, '_> {
                     LocalKind::SelfParam,
                     token.text_range(),
                 );
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
             } else if let Some(node) = param.pattern() {
                 let range = node.text_range();
                 let pat = self.pat(&node, &mut binder);
                 let local =
                     self.alloc_local(node.text().to_string().into(), LocalKind::PatParam, range);
                 let value = self.alloc_expr(ExprKind::Path(Res::Local(local)), range);
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
                 lets.push(Stmt::Let {
                     pat,
                     ty: None,

@@ -1676,6 +1676,30 @@ impl Diagnostic {
                 };
                 (Severity::Error, Some(code::NOT_IMMEDIATE), message)
             }
+            TypeDiagnosticKind::CallbackCapabilities { caps, callee } => {
+                help = Some(
+                    "finish the work on the host side, or hand it to a fiber through a `Queue`"
+                        .to_owned(),
+                );
+                let list = quoted_list("capability", "capabilities", caps);
+                let ended = match caps.as_slice() {
+                    [one] => format!("`{one}` has"),
+                    _ => "they have".to_owned(),
+                };
+                (
+                    Severity::Error,
+                    Some(code::CALLBACK_EFFECT),
+                    format!(
+                        "{list} cannot be used by a callback of external function `{callee}`: the host may call it after {ended} ended"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::BorrowedPosition => (
+                Severity::Error,
+                Some(code::BORROWED_POSITION),
+                "`@borrowed` can only be written on a parameter of function type of an external function"
+                    .to_owned(),
+            ),
             TypeDiagnosticKind::CallbackEffects { effects, callee } => {
                 help = Some(
                     "capture the capability of a named item (`with g = H { ... }`) and call its operations".to_owned(),

@@ -123,6 +123,7 @@ impl Signatures {
         let mut sigs = Signatures::new();
 
         for (def, _) in program.defs.iter() {
+            check_borrowed(program, def, diags);
             let sig = match program.item(def) {
                 Some(Item::Fn(item)) => {
                     check_bounds(program, ty_table, def, item, diags);
@@ -273,6 +274,37 @@ impl Signatures {
 /// The uses clause of an external function contains only ProcessHost and PageHost (E0445,
 /// `[ext.call]`). Async is declared with `suspend fn` instead, and a set type parameter or an
 /// effect of the program would let the host function run outside a handler.
+/// `@borrowed` can be written only on a parameter of function type of an external function
+/// (E0457, `[ext.boundary]`).
+fn check_borrowed(program: &Program, def: DefId, diags: &mut Vec<Diagnostic>) {
+    let (params, external): (Vec<&Param>, bool) = match program.item(def) {
+        Some(Item::Fn(f) | Item::TraitFn(f)) => (f.sig.params.iter().collect(), f.is_external),
+        Some(Item::Op(o)) => (o.sig.params.iter().collect(), false),
+        Some(Item::Member(m)) => (m.sig.params.iter().collect(), false),
+        Some(Item::Handler(h)) => (
+            h.init_params
+                .iter()
+                .chain(h.ops.iter().flat_map(|o| &o.params))
+                .collect(),
+            false,
+        ),
+        _ => return,
+    };
+    for p in params {
+        let Some(span) = p.borrowed else {
+            continue;
+        };
+        let fn_typed =
+            p.ty.is_some_and(|t| matches!(program.types[t].kind, TypeKind::Fn { .. }));
+        if !(external && fn_typed) {
+            diags.push(Diagnostic {
+                span: Some(span),
+                kind: DiagnosticKind::BorrowedPosition,
+            });
+        }
+    }
+}
+
 fn check_external_uses(program: &Program, def: DefId, item: &FnItem, diags: &mut Vec<Diagnostic>) {
     let Some(uses) = &item.sig.uses else {
         return;

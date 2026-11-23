@@ -307,3 +307,33 @@ fn main() {
 }
 "#));
 }
+
+/// A callback passed to an external function cannot have a capability in its R: the host may
+/// keep it after the capability's with has ended (E0454). A parameter marked `@borrowed` may
+/// take one. `@borrowed` is written only on a parameter of function type of an external
+/// function (E0457, `[ext.boundary]`).
+#[test]
+fn callbacks_of_external_functions() {
+    insta::assert_snapshot!(run(r#"
+@external(js, "setTimeout")
+fn set_timeout(ms: Int, f: fn() -> ()) -> ()
+
+@external(js, "./ffi.mjs", "each")
+fn each_now(n: Int, @borrowed f: fn(Int) -> ()) -> ()
+
+@external(js, "./ffi.mjs", "twice")
+fn twice(@borrowed n: Int) -> Int
+
+fn plain(@borrowed f: fn() -> ()) { f() }
+
+handler Ticking: Counter {
+  fn next() {
+    with log = Quiet {
+      set_timeout(1, || log.info("late"))
+      each_now(3, |i| log.info("now"))
+    }
+    1
+  }
+}
+"#));
+}

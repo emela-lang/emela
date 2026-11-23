@@ -3670,6 +3670,9 @@ struct ImmediateObligation {
     /// The referenced definition (`RowElem::Bound` in `row` refers to its type parameters).
     owner: Option<DefId>,
     source: crate::diagnostic::ImmediateSource,
+    /// For a callback of an external function: whether its parameter is `@borrowed`, so that
+    /// capabilities may be in its R (`[ext.boundary]`).
+    borrowed: bool,
 }
 
 /// A type that must satisfy a trait: the instantiation of a constrained type parameter at a

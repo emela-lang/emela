@@ -520,6 +520,8 @@ pub struct Arm {
 pub struct Param {
     pub local: LocalId,
     pub ty: Option<TypeId>,
+    /// `@borrowed` on the parameter (`[ext.boundary]`): where it is written.
+    pub borrowed: Option<Span>,
 }
 
 /// Shared by top-level fns, trait fns, and impl and handler fns.

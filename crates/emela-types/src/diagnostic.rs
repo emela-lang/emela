@@ -413,6 +413,13 @@ pub enum DiagnosticKind {
         effects: Vec<SmolStr>,
         callee: Option<SmolStr>,
     },
+    /// The R of a callback passed to an external function contains capabilities, and the
+    /// parameter is not `@borrowed` (E0454, `[ext.boundary]`): the host may call it after their
+    /// withs have ended.
+    CallbackCapabilities { caps: Vec<SmolStr>, callee: SmolStr },
+    /// `@borrowed` on something other than a parameter of function type of an external function
+    /// (E0457, `[ext.boundary]`).
+    BorrowedPosition,
     /// A capability leaves what made it (E0455, `[effect.escape]`): the value or the error type
     /// of a `with` body, or the R of the `with`, contains it, or it goes into a type fixed
     /// outside. `cap` is how the language server names it; `made_at` is where it is made.
