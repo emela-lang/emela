@@ -123,6 +123,9 @@ pub enum LocalKind {
     Binding,
     /// The name of a local fn (`[fn.local]`). Its parameters are [`LocalKind::Param`].
     LocalFn,
+    /// The x of an effect alias `x <- E` (`[effect.use]`). It is not a value: each reference is
+    /// lowered to its own `use E` ([`Program::alias_uses`]).
+    EffectAlias,
     /// Variables in the patterns of match and escape arms.
     ArmBinding,
 }
@@ -435,8 +438,12 @@ pub struct WithItem {
     /// The arguments written after `res` (`WorkerKv(binding: "KV")`). With `by`, they follow the
     /// label, which takes none.
     pub args: Option<SupplyArgs>,
+    /// The type arguments written after `res` (`Memory[Int]`, `[effect.with]`). Empty when none
+    /// are written. With `by`, they follow the label, which takes none.
+    pub ty_args: Vec<TypeId>,
     pub by: Option<(Res, Span)>,
-    /// Type arguments of an effect right of `by` (`Counter by State[Int]`).
+    /// Type arguments of an effect or a handler with type parameters right of `by`
+    /// (`Counter by State[Int]`, `Hits by Memory[Int](initial: 0)`).
     pub by_args: Vec<TypeId>,
     /// The arguments written after the right of `by` (`AuditLog by FileLog(path: "a.log")`).
     pub by_init_args: Option<SupplyArgs>,
@@ -449,6 +456,14 @@ impl WithItem {
         match self.by {
             Some((by, _)) => (by, self.by_init_args.as_ref()),
             None => (self.res, self.args.as_ref()),
+        }
+    }
+
+    /// The type arguments written after the supplier ([`Self::supplier`]).
+    pub fn supplier_ty_args(&self) -> &[TypeId] {
+        match self.by {
+            Some(_) => &self.by_args,
+            None => &self.ty_args,
         }
     }
 }
@@ -517,6 +532,8 @@ pub struct Arm {
 pub struct Param {
     pub local: LocalId,
     pub ty: Option<TypeId>,
+    /// `@borrowed` on the parameter (`[ext.boundary]`): where it is written.
+    pub borrowed: Option<Span>,
 }
 
 /// Shared by top-level fns, trait fns, and impl and handler fns.
@@ -604,6 +621,8 @@ pub struct TypeItem {
     pub ctor: Option<DefId>,
     pub fields: Fields,
     pub derives: Vec<(Res, Span)>,
+    /// The effect of `uses E` on a capability-bound type (`[type.rules]`).
+    pub bound: Option<EffectRef>,
     /// A built-in type of the bundled sources, marked with `@intrinsic` (`Std.Bytes.Bytes`,
     /// `Std.Array.Array`, `[kw.annotation]`). Its values are represented by the runtime.
     pub is_intrinsic: bool,
@@ -615,6 +634,8 @@ pub struct EnumItem {
     /// [`DefKind::Ctor`]s, in declaration order.
     pub variants: Vec<DefId>,
     pub derives: Vec<(Res, Span)>,
+    /// The effect of `uses E` on a capability-bound enum (`[type.rules]`).
+    pub bound: Option<EffectRef>,
     /// Per variant, in the order of `variants`, the argument of `@tag("...")`: the tag of the
     /// variant in a derived Encode, Decode, Shaped and ObjectKey (`[kw.annotation]`).
     pub tags: Vec<Option<SmolStr>>,
@@ -686,6 +707,9 @@ pub struct MemberItem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerItem {
+    /// The type parameters (`[effect.handler]`): the `S` of `handler Memory[S](value: S)`.
+    /// [`DefKind::TypeParam`]s whose parent is the handler. Those of an inner handler are E0460.
+    pub type_params: Vec<TypeParam>,
     /// The effects after `:`, in the order written (`handler SystemTx: Query + Execute`,
     /// `[effect.handler]`), with their type arguments (the `Int` of `handler H: State[Int]`,
     /// spec 8.1).
@@ -731,6 +755,9 @@ pub struct LayerMember {
     pub span: Span,
     /// The arguments of the handler's init (`WorkerKv(binding: "KV")`).
     pub args: Option<SupplyArgs>,
+    /// The type arguments written (`InMemoryRepo[UserId, User]`, `[effect.layer]`). Empty when
+    /// none are written.
+    pub ty_args: Vec<TypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -824,6 +851,12 @@ pub struct Program {
     /// Paths to a handler member named through a label (`Audit.Open` inside an init,
     /// `[effect.label]`) → the label. The path resolves to the member of the label's base.
     pub member_labels: ArenaMap<ExprId, DefId>,
+    /// The `use E` expressions resolved at the call (`[effect.use]`): each reference `x` of an
+    /// effect alias `x <- E`, lowered to `use E` and recorded with `Some(x)`, and the receiver
+    /// `use E` of `(use E).op(...)` and `(use E).op`, recorded with `None` (the expansion
+    /// `{ h <- E; h.op(...) }`). Such a `use E` is not a capability value: it makes no root
+    /// (`[effect.escape]`), and `x.op` without a call resolves E each time it is called.
+    pub alias_uses: ArenaMap<ExprId, Option<LocalId>>,
 }
 
 /// The fn that `@entry(T)` on `f` exposes for each `@export` of `T` (spec 12.8): a top-level fn

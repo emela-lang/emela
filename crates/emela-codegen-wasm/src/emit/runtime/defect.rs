@@ -213,10 +213,6 @@ fn defect_resume(b: &mut Builder, ins: &mut InstructionSink) {
 fn retire(b: &mut Builder, ins: &mut InstructionSink) {
     let dup = rt(b, "dup");
     let drop = rt(b, "drop");
-    // Mark the handler value released (spec 8.6): slot 0 is the flag.
-    ins.local_get(0);
-    ins.i32_const(1);
-    ins.i32_store(mem(HDR, 4));
     // Remember the name for the note of a release that fails while another defect unwinds.
     ins.local_get(1);
     ins.call(dup);

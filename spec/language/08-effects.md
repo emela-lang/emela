@@ -24,7 +24,7 @@ effect Clock {
 - If an operation can fail, its declaration has `fails`. Without it, the operation does not fail. A handler cannot fail beyond the declared range. As a result, replacing the handler does not change the caller's E.
 - An effect can have type parameters (`effect State[S]`). Type parameters are limited to ordinary types. Effects with different type arguments are treated as different effects, and in R, `State[Int]` and `State[String]` are distinct. Type arguments cannot be omitted, as in `use State[Int]`. Omitting the type arguments is a compile error (E0423), and a wrong number of them is a compile error (E0304). A type parameter written only in the fails or uses of a function type in an operation's parameters or return value would be a set, so it is a compile error (E0424), but the operation's own `fails S` is accepted as a single error type (7.2), as for fn. In a function type inside a type argument of an effect, omitted fails and uses are empty (as inside declarations in 9.2). However, built-in effects (effects marked `@intrinsic` in the bundled sources; Scope, 11.2) can have set type parameters and type parameters on the operations themselves (`fn fork[A](...)`). Writing type parameters on an operation of a user effect is a compile error (E0426; the diagnostic points at the first type parameter). Users cannot write handlers for built-in effects, so no check is needed for handlers that implement polymorphic operations. The type argument of `use State[S]` can be a type parameter of the enclosing fn. Whether an effect is Immediate is determined by the effect's definition and does not depend on its type arguments.
 - Whether two effects in R are the same is decided by comparing them including their type arguments. If a type argument is not yet determined, they are compared by unification, so in `State.run([], || with TestConsole { greet(1) })` the state type is determined from `State[List[String]]` in the body's R. The with rule "a later handler for the same effect takes precedence" and layer duplication (E0421) also count only effects that are the same including type arguments. Type variables left in R are generalized (`fn peek() { modify(|x| x) }` is `∀ A. fn() -> A uses { State[A] }`).
-- A handler that implements an effect with type parameters states concrete types (`handler Fixed: State[Int]`). There are no generic handlers that implement the effect for every type.
+- A handler that implements an effect with type parameters writes its type arguments (`handler Fixed: State[Int]`). They MAY mention the type parameters of the handler (`handler Memory[S](value: S): State[S]`, `[effect.handler]`).
 - An operation cannot have a `uses` clause (op_sig in 17.3; writing one is a compile error (E0137), and the diagnostic points at the range of the uses clause). When the implementation of an operation uses another effect, that effect is a requirement of the handler (requires(H) in 9.4) and is satisfied at the with. As a result, replacing the handler does not change the caller's R. A function type in the declaration of an operation is pure unless written otherwise (9.2), and a user effect cannot have a set type parameter (E0424), so an operation cannot take a function that uses other effects. To use a different capability, provide a different handler at the with.
 - An effect MAY declare handler members (`handler Open(path: String): ReadFile fails ...`). A handler member is not an operation: it names a handler that every handler of the effect provides. Its parameters are the parameters of that handler's init, and its `fails` is the E of that init. The effect after the colon is the effect that the handler implements.
 - A handler member declared `suspend handler` may suspend when it is opened and when the handler opened is released. The init and the release of a handler that implements a handler member without `suspend` MUST satisfy the same condition as the body of an fn operation below (E0417).
@@ -45,26 +45,48 @@ effect Clock {
 
 ```emel
 fn greet(id: Int) {
-  log = use Logger
-  users = use Users
+  log <- Logger
+  users <- Users
 
   user = users.find(id) |> Option.or_fail(NotFound(id:))
   log.info("hello #{user.name}")
-
-  (use Clock).sleep(1000)
   user
+}
+```
+
+- `x <- E` is a statement that declares x as an effect alias of E for the rest of the block. It does not make a value. E is an effect, with its type arguments, or a label. A type annotation cannot be written on it.
+- `x.op(arguments)` calls the operation op of the handler of E that is innermost at the time the call is evaluated, and adds E to the R of the innermost function that contains the call. Inside an anonymous function or a local fn, the withs that enclose the function do not provide E to the call; the side that calls the function provides it.
+- `x.op` without a call gives a function value whose R contains E. E is resolved each time the function value is called.
+- x can be written only as the receiver of `x.op(...)` or `x.op`. Writing x anywhere else is a compile error (E0453). A handler member cannot be opened through x (E0453).
+- `(use E).op(arguments)` means `{ h <- E; h.op(arguments) }`, where h is a fresh name. `(use E).op` without a call is expanded in the same way, and gives a function value that resolves E each time it is called.
+- `(use E).M(arguments)` that opens a handler member is not expanded into an effect alias. It opens the handler member M of the innermost handler that provides E at that position.
+- `use E` written anywhere else is a capability value. It refers to the handler that provides E at that position, and keeps referring to it.
+- `use E` written as an expression, in either form, is deprecated (W0403). It is read for one more minor version. In 0.29, `use E` written as an expression is a capability of the name E in types. From 0.30 it is a compile error.
+
+```emel
+with PrimaryDb {
+  primary = use Db # a fixed value (deprecated)
+  with ReplicaDb {
+    db <- Db
+    db.query("...") # ReplicaDb
+    primary.execute("...") # PrimaryDb
+  }
 }
 ```
 
 - `use X` is an expression that returns a value representing the capability of effect X. It can appear anywhere in a function.
 - Operations can be called only through a capability value, in the form `log.info(...)`. There is no form that calls them directly by effect name (`Logger.info(...)`).
-- Writing an operation of a capability value without calling it, as `log.info`, gives a function value. The capability value is evaluated at that position, and the type of the function value contains the capability's effect (as for a closure that captures a capability).
-- Calling an operation of a capability value obtained by `use E` adds E to R. Calling an operation of a capability captured by a closure or a local fn adds that capability to R (`uses { primary }`). A capability in R can be widened to its effect: a function whose R contains `p` can be used where R contains the effect of p. Whether a call may suspend (E0417) is decided by the effect of the capability.
+- Writing an operation of a capability value without calling it, as `log.info`, gives a function value. The capability value is evaluated at that position (`c.op` where c is a capability value resolves at the position where it is written), and the type of the function value contains the capability's effect (as for a closure that captures a capability).
+- Calling an operation of a capability adds that capability to R. The with that made the capability removes it from R. Whether a call may suspend (E0417) is decided by the effect of the capability.
+- A capability is not widened to its effect. An effect set that contains a capability is not included in an effect set that contains only the effect of the capability.
+- If the type of a value that a closure or a local fn captures contains capabilities, including through capability-bound types (9.4), those capabilities are in the R of the function.
 - In an operation body of a handler, calling an operation of a capability held in a field through `self` (`self.inner.read(max)`) does not make its effect a requirement of the handler. The capability belongs to a with that encloses the with of the handler, or to a handler member opened in its init (8.4); both outlive the handler. The call still counts as a call of its effect for whether the body may suspend: it may suspend if the operation is a suspend fn, and the R of the operation body is not Immediate if the effect is not (8.1, E0417). The same holds in release, except that if the operation is a suspend fn, Async is a requirement of the handler (9.4), so that the R of the with shows that leaving it may suspend.
-- Calling an operation adds the operation's `fails` to E. A closure or a local fn that captures a capability value can be passed where its effect is expected (the `copy` example below).
-- The type of a capability value of E is written `use E`. E is an effect, with its type arguments, or a label. `use E` is a type, and can be written wherever a type can.
-- A capability value can be passed as an argument, put into a data structure, and returned from a function, as any other value. It cannot leave the with that provides it (8.6).
-- Only the operations of E can be called on a value of type `use E`, or taken as function values. There is no operation that inspects a capability value: no trait is implemented for `use E`, and `==` is not defined for it.
+- Calling an operation adds the operation's `fails` to E.
+- The type of a capability of E is written `use E` (or `use E1 + ... + En`). E is an effect, with its type arguments, or a label. `use E` is a type, and can be written wherever a type can. Type checking records in it a set of capabilities. Unification takes the union of sets. Calling an operation of a value whose type has a set adds every capability of the set to R.
+- A parameter of type `use E` gives the function a type parameter that ranges over sets of capabilities of E, decided at each call by the argument. An effect alias cannot be an argument (E0453). The result of a function can be a capability type; its set comes from the parameters.
+- `use E` written as a parameter of a function type is quantified at that function type. A closure checked against such a type receives an unknown set, which cannot be in its result. A closure without an expected type is not quantified. A quantified type is never inferred.
+- A capability value can be passed as an argument, put into a data structure, and returned from a function, as any other value. It cannot leave the with that made it (8.6).
+- Only the operations of E can be called on a value of type `use E`, or taken as function values. There is no operation that inspects a capability value: no trait other than Capability is satisfied by `use E`, and `==` is not defined for it.
 - `use E` satisfies the built-in trait Capability (10.6). A type parameter with `[C: Capability]` accepts a capability of any effect.
 - The type of a capability of several effects is written `use E1 + ... + En`. A capability can be passed to a parameter of type `use F1 + ... + Fm` when every Fi is one of the Ej. Only the operations of the Fi can be called through the parameter. There is no way to recover the other effects from it. Passing a capability that does not have some Fi is a compile error (E0452).
 - A property that a type has to guarantee, such as contents that do not change or exclusive access, is expressed by a separate effect that no handler implements together with an effect that breaks the property.
@@ -72,17 +94,15 @@ fn greet(id: Int) {
 - Writing an operation that the capability value's effect does not have is a compile error (E0401). The labels of named arguments are the parameter names in the effect's operation declaration.
 - The effect set R of a function that contains `use X` includes X. Even when written inside a branch, X is in the R of the whole function.
 - Calls carry no mark (such as await or `!`) that indicates side effects or suspension. Suspend operations are written in the same form as ordinary calls.
-- To let a function use the capability of a specific handler, pass the capability value.
+- To let a function use the capability of a specific handler, pass the capability.
 
 ```emel
 fn copy(from: use Db, to: use Db) {
   to.execute(from.query("..."))
 }
 
-with PrimaryDb {
-  primary = use Db
-  with ReplicaDb {
-    replica = use Db
+with primary = PrimaryDb {
+  with replica = ReplicaDb {
     copy(replica, primary)
   }
 }
@@ -108,22 +128,26 @@ fn run[R](f: fn() -> () uses { Logger, R }) -> () uses { R } {
 - The requirements of handlers listed in the same with can be satisfied by a handler in the same with that provides a different effect. A requirement on the handler's own effect is satisfied by the outer side. A cycle among the requirements of handlers in the same with is a compile error.
 - H is a handler or a layer. Label items (`L`, `L by P`) can also be written (8.9). When several are listed with commas, a later one takes precedence for the same effect. However, an explicit `L by P` takes precedence over provision through `default` (8.9) regardless of order. A layer is expanded into its handlers before being listed. A handler overridden by a later handler is not even initialized (the E of its init is not included in the E of the with).
 - An item can be written as `H(arguments)`. The arguments are evaluated outside the with, in the order the items are written, before any init runs. The effects provided by the items of the same with cannot be used in the arguments. The E and R of the arguments of a handler that is not overridden are added to the E and R of the with. The arguments of a handler overridden by a later item are not evaluated, and their E and R are not included in the E and R of the with; they are still resolved and type-checked.
+- For a handler with type parameters (`[effect.handler]`), an item determines its type arguments once, at the position of the item, as a call determines the type arguments of a function; the handler is not polymorphic inside the body. They are inferred from the arguments of init; from the R of the body, by the unification that removes the effects the item provides (`[effect.decl]`); from the requirements of the other items of the same with that the item satisfies; and, for `x = Item`, from how x is used. They MAY be written after the name (`with Memory[Int](initial: 0)`, `with InMemoryRepo[UserId, User]`). Writing type arguments for a handler without type parameters, or a wrong number of them, is a compile error (E0304). The bounds of the type parameters are checked at the item (E0326).
+- Type arguments of an item that are not determined are a compile error (E0459). This is decided when the inference of the enclosing top-level declaration ends: a type argument left as a variable that appears in the type of the declaration is generalized with it (`fn peek() { with x = Pass { x.get() } }` is `∀ S. fn() -> S uses { State[S] }`), and only one that does not appear there is E0459.
+- When the R of the body, together with the requirements of the other items of the same with, has two or more effects that unify with an effect the item provides (`State[List[Int]]` and `State[List[String]]` in the body of `with Empty`), and the arguments of init do not narrow them to one, it is a compile error (E0459). The item does not pick one of them.
+- Whether a later item overrides an earlier one for the same effect is decided only with the effects whose type arguments are determined by the arguments of init or written. If an effect of an item whose type arguments are not determined unifies with an effect provided by another item of the same with (including the handlers of a layer), it is a compile error (E0459); the type arguments are written (`with AppLive, InMemoryRepo[UserId, User]`).
+- The type arguments of an item are fixed at the position of the with, outside its body. They cannot contain a capability made inside the body.
 - `use X` refers to the handler provided by the innermost with as seen from the position where it is written. If the same function has no such with, it refers to the one passed from the caller.
-- `use X` inside an anonymous function or a local fn first looks at the withs that enclose the function (in the same top-level function). If there is none, it refers to the one passed from the side that calls the function. This is because the R of these functions is enclosed in their types (9.4) and does not appear in the R of the enclosing function.
-- A capability value taken out on the outer side keeps referring to the outer handler even if an inner with overrides the same effect.
+- The handlers that the calls inside an anonymous function or a local fn need are passed by the side that calls the function. The withs that enclose the function do not provide them. A capability value that the function captures keeps referring to its handler. This is because the R of these functions is enclosed in their types (9.4) and does not appear in the R of the enclosing function.
+- The capability of a named item keeps referring to its handler even if an inner with overrides the same effect.
 - The R of main MUST be empty except for the host effects that main is given (Async and ProcessHost, `[effect.host]`). main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E0230). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a uses clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
 - The return type of main is `()` or `ExitCode` (`[api.std.process]`); another type, other than Never, is W0304 (`[dyn.error]`). This is separate from the rule on R above.
-- An item can be written as `x = Item`. Within the body, x is the capability of the effect that Item provides (`use F`, 8.2), and refers to the handler of that item even when another item of the same with provides the same effect. An item that is not a handler member still provides its effect by name.
+- Each item of a with runs its init and makes a capability. Leaving the with releases it, and the capability ends.
+- An item can be written as `x = Item` (a named item). Within the body, x is bound to the capability of the item (of type `use F`, 8.2), and refers to the handler of that item even when another item of the same with provides the same effect. An item without a name provides its effect by name only. An item that is not a handler member still provides its effect by name.
 - `E.M(arguments)`, where E is an effect and M one of its handler members, can be written as an item only in the form `x = E.M(arguments)`. It calls the init of M of the innermost handler that provides E at that position. `x = c.M(arguments)`, where c is a capability of E, calls the init of M of the handler that provides c. The arguments are treated as for `H(arguments)`. The item requires E (or c), not the requirements of the inner handler.
 - The effect provided by a handler member item is not provided to `use` by name. It is reached only through the bound capability.
 - A handler member cannot be an item of a layer, and a layer cannot be bound (`with x = AppLayer` is a compile error), since it provides more than one effect.
 - A handler that implements several effects provides all of them. Its init and release run once.
 
 ```emel
-with PrimaryDb {
-  primary = use Db
-  with ReplicaDb {
-    replica = use Db
+with primary = PrimaryDb {
+  with replica = ReplicaDb {
     replica.query("...") # ReplicaDb
     primary.execute("...") # PrimaryDb
   }
@@ -163,16 +187,26 @@ handler SystemClock: Clock {
 - Whether an operation has `suspend` MUST match the effect's declaration (E0415). When it does not match, the number of parameters and the body are checked according to the form of the implementation.
 - The E of an operation's body MUST be contained in the `fails` of the operation's declaration. requires(H) (9.4) is the union of the Rs of init, release, and the operation bodies.
 - A handler with state declares fields after its name. Fields are referenced through `self`, as in `self.conn`.
+- A handler MAY declare type parameters after its name, before its fields (`handler Memory[S](value: S): State[S]`). Type parameters are limited to ordinary types. A type parameter that appears only in the fails or uses of a function type would be a set, so it is a compile error (E0424). A type parameter MAY have bounds (`[K: Eq]`), and the functions of the bounds can be called in the handler. The type arguments are determined at each item of a with, a layer, or the right of `by` (`[effect.with]`, `[effect.layer]`, `[effect.label]`).
+- Each type parameter of a handler MUST appear in the effects after its colon, in the type of a field, or in the type of a parameter of its init (E0462). A type parameter that appears only in the bodies of init, release or the operations, or nowhere, is an error: the type of a handler cannot be written in a type position, so such a parameter would tell nothing apart.
+- The type parameters of a handler are visible in its fields, in the effects after its colon, and in its init, release, operation bodies and inner handlers.
+- The type of a handler value with type parameters is the handler applied to them (`self: Memory[S]`). init returns a value of that type: inside the init of `Memory[S]`, `Memory(value: 1)` does not have the type `Memory[S]` and is a type mismatch (E0301).
+- An inner handler cannot declare type parameters (E0460). It can use the type parameters of its outer handler.
 - `init` runs once when entering the with and returns the handler value. It is required for a handler with fields (E0419). A handler without fields can also have init and release. The init of a handler without fields returns the value `ConsoleLogger` for a handler without parentheses, and `H()` for `handler H()`. self cannot be used inside init (because the value has not been made yet). In the operations of a handler without state, self is still the handler value and its type is the handler type (`ConsoleLogger`), as in a handler with state. It has no fields to access (E0312).
 - A handler value (`PostgresUsers(conn: ...)`) can be made only inside that handler's init. If it could be made outside, init and release could be skipped. Making it outside is a compile error (E0418). The inside of an anonymous function inside init counts as inside init. A record update (`H(n: 1, ..self)`) also makes a value, so it cannot be written in an operation body. A constructor pattern does not make a value, so it can be written anywhere.
 - Inside the init of a handler, its value can also be constructed as `Self(...)` (`Self` for a handler without parentheses, `Self()` for `handler H()`). It has the same meaning as writing the handler's name, and the same restriction (E0418). `Self` is not a constructor pattern, and does not construct types in traits and impls.
-- The `use` expressions inside `init` are the requirements of the handler. The capability value can be bound and used (`config = use Config`) or written inside an expression (`(use Config).db_url()`). Both become requirements. There is no syntax for writing requirements in the handler's header.
+- The `use` expressions and the effect aliases inside `init` are the requirements of the handler. The effect can be named by an effect alias (`config <- Config`), or the capability value can be bound and used (`config = use Config`) or written inside an expression (`(use Config).db_url()`). All of them become requirements. There is no syntax for writing requirements in the handler's header.
 - `init` MAY take parameters (`init(url: String) { ... }`). Their types MUST be written. Arguments are passed by writing `H(url: ...)` as an item of a with or a layer, or on the right side of `by` (`[effect.with]`, `[effect.layer]`, `[effect.label]`). A handler whose init takes no parameters cannot be given arguments, and `H()` cannot be written for it.
 - A field of a handler can have the type `use E`. The capability it holds belongs to a with that encloses the with of the handler, because the arguments of init are evaluated outside the with (`[effect.with]`). Calling its operations through `self` does not make its effect a requirement of the handler. In an operation body, it counts for whether the body may suspend; in release, calling a suspend fn that way makes Async a requirement of the handler (8.2).
+- The set of a field of a capability type or a capability-bound type (9.4) is decided when an item of a with runs the init.
+- A parameter of type `use E` of an operation is decided at each call and is an unknown set in the implementation; it cannot be stored in a field or in State.
+- In an init, the fields given to `Self(...)` MUST NOT record a capability made by a with inside the init, or the name of an effect that a with inside the init provides by name (E0455). The capabilities received as arguments of init, and the handlers opened by the init outside such a with, can be stored.
+- The result type of an operation MUST NOT contain a capability type, or a capability-bound type of another effect (E0456). The result type of an operation of E can contain a capability-bound type of E itself (`fork` of Scope returns `Fiber[A]`); the value records the capability the operation is called on, or the name E when it is called through the name of E (9.4).
+- `self` in an operation body and in release is the capability of the handler, with the added power of reading the fields. It can be passed to a parameter of type `use E`. A closure that captures `self` has the capability in its R.
 - A handler of an effect with handler members implements each of them with an inner handler of the same name (`handler Open(handle: Handle, path: String): ReadFile { ... }`). The parentheses after the name declare its fields, and its init MUST take the parameters of the handler member, with the same names and types. A missing handler member is E0404, as for an operation. If the handler member is not a `suspend handler`, the init and the release of the inner handler are checked as the body of an fn operation (E0417, 8.1).
 - The effects used in the init, the release and the operation bodies of an inner handler are requirements of the outer handler (requires(H), 9.4). They are provided where the outer handler is provided.
 - An inner handler cannot be referred to by name outside its outer handler, and cannot refer to the `self` of its outer handler.
-- Inside an init, a handler member can be written as an expression. `E.M(arguments)` runs the init of the handler member M of the innermost handler that provides E, and `c.M(arguments)`, where c is a capability of E, runs that of the handler that provides c. Its value is the capability of the handler opened. The handler opened lives as long as the handler whose init opened it: it is released after that handler's release, in the reverse order of opening. If the init fails, the handlers it opened so far are released in reverse order. A handler member of the handler's own effect refers to the outer handler.
+- Inside an init, a handler member can be written as an expression. `E.M(arguments)` runs the init of the handler member M of the innermost handler that provides E, and `c.M(arguments)`, where c is a capability of E, runs that of the handler that provides c. Its value is the capability of the handler opened. The handler opened lives as long as the handler whose init opened it: it is released after that handler's release, in the reverse order of opening. If the init fails, the handlers it opened so far are released in reverse order. A handler opened through a handler that a with inside the init provides does not outlive that with: it is released at the end of that with, before the release of the handler that provides it, in the reverse order of opening. A handler member of the handler's own effect refers to the outer handler.
 - `H(...)` at a with is a call of init, not a construction of the handler value. As before, the handler value can be constructed only inside init (E0418).
 - `release` runs once when leaving the with. It runs in every case: normal completion, error, defect, or interruption.
 - The E of release MUST be empty (E0420, reported for each expression that can raise an error). Cleanup that can fail escapes inside release or turns the failure into a defect with panic. The value of release is discarded, so its type does not matter. release MAY call suspend operations (it is not interrupted; 11.4). release is not a fn operation, so the E0417 check does not apply to it.
@@ -198,6 +232,7 @@ fn main() {
 - A layer is a declaration that gives a name to a bundle of handlers. It lists handlers or other layers.
 - The order of the list has no meaning. The compiler determines the initialization order from requires(H) (the R of init, release, and operation bodies; 9.4), and release runs in the reverse order. This is because effects used by operation bodies and release are also provided by handlers initialized earlier (14.2). Where the requirements do not determine the order, the written order is kept.
 - An item of a layer can be written as `H(arguments)`. The arguments are limited to pure expressions (E and R are empty), as for the right-hand side of a const (`[data.const]`): `use` and `fail` cannot be written, and function calls can. The order of the items has no meaning, so arguments with E or R would have no defined order of evaluation. To pass a value that is not pure, list the handler after the layer in the with (`with AppLive, WorkerKv(binding: name) { ... }`).
+- The type arguments of a handler with type parameters listed in a layer are determined from the arguments of its init. If they are not, they MUST be written (`InMemoryRepo[UserId, User]`); otherwise it is a compile error (E0459). A layer has no body to infer them from, and E0421 compares effects including their type arguments.
 - A layer in which two handlers provide the same effect is a compile error (E0421), and layers that include each other are a compile error (E0422). The error is reported only once, at the layer declaration.
   - E0421 is reported at the position of the member that brought in the second handler. Listing the same handler twice is also E0421. For effects with type parameters, only effects that are the same including type arguments are counted, and the message shows them in the form `State[Int]`.
 - A handler that implements several effects counts as providing each of them for E0421.
@@ -209,26 +244,22 @@ fn main() {
 
 ## 8.6 Capabilities must not leak `[effect.escape]`
 
-A capability value, and any value that holds one (a closure or a local fn that captures it, a data structure that contains it), cannot leave the with that provides it.
+A capability cannot leak.
 
 ```emel
 fn make_greeter() {
-  with ConsoleLogger {
-    log = use Logger
-    || log.info("hi") # W0402: leaves the with while holding log (E0444 with `capture-checking`)
+  with log = ConsoleLogger {
+    || log.info("hi") # E0455: the R of the closure contains log, which leaves the with
   }
 }
 ```
 
-- The compiler infers, together with its type, which capabilities a value holds (its capture set). The elements of a capture set are roots: the handler of a with item, the Scope of a `Fiber.scope`, and `self` inside the operations of a handler. `use E` refers to the root of the innermost with that provides E at that position.
-- A closure or a local fn holds what its captured variables hold. A data structure holds what its elements hold. The result of a call holds what the return value of the callee holds, with its parameters replaced by the arguments. A value whose type cannot contain a capability holds nothing.
-- The capture set of the return value of a function is inferred from its body. For a declaration without a body (an effect operation, a trait function, an `@external` fn, the function type of a parameter), the return value holds what its arguments hold, and the return value of an operation also holds the handler. An argument whose type is Fiber, Deferred, Semaphore or Queue passes on what it holds except the roots of scopes, unless the type of the return value at the call contains one of these types (11.8).
-- If the value of a with body holds a root of that with, it is a warning (W0402).
-- Experimental (`capture-checking`). It is a compile error (E0444) instead.
-- The check at run time stays while the error is not the default: calling an operation of a handler that has already been released is a defect (`handler PostgresUsers was used after release`). It applies only to handlers that have fields, init, or release.
-- The capture set is not written in source. The language server shows it (`[lsp.hover]`).
+- If the type of the value of a with body, the error type that leaves the body, or the R of the with contains a capability made by that with, it is a compile error (E0455).
+- A with that provides E by name counts the name E in types as its own capability.
+- A function provides E by name to an argument when the R of the function type of that parameter has E written out and the R of the function does not have E (`body` of `Fiber.scope` and of `State.run`). At a call of such a function, if the result type or the error type of the function passed to that parameter contains the name E, it is a compile error (E0455). A hidden set variable does not write E out, so it does not provide E by name.
+- A type fixed outside the with (the type argument of an outer `State`, the parameter types of an operation of a handler provided outside) cannot contain the capability, so other paths out do not type check. They are reported as E0455 too, at the place where the capability enters the type fixed outside.
 - A closure that is used up inside the with (`List.map(names, |n| log.info(n))`) is fine.
-- Leaking Scope capabilities, fiber handles, and Deferreds is prevented by the same idea. The table in 11.8 summarizes what is checked statically and what at run time.
+- An effect alias (8.2) is not a capability. A closure that captures it has E in its R, which the caller provides.
 
 ## 8.7 Async `[effect.async]`
 
@@ -306,7 +337,7 @@ fn main() {
   - `L`: within the body, the provider of L serves E. Provides {E}; requires {L}.
   - `L by P`: plugs P into L. P is a handler of E, E itself, or another label of E. Provides {L}; requires the requirements of P if P is a handler, or {P} if P is an effect. If P serves some other effect, it is a compile error (E0431). Writing E as P removes the distinction of L and goes back to the outer E (merging).
   - In `L by H`, where H implements several effects, H serves L through the effect that is the underlying effect of L. If none of them is, it is E0431.
-- The right side of `by` can be written as `H(arguments)`. The arguments are treated as for an item of a with.
+- The right side of `by` can be written as `H(arguments)`, and with type arguments for a handler with type parameters (`Hits by Memory[Int](initial: 0)`). The arguments and the type arguments are treated as for an item of a with, except that the type arguments are inferred from the arguments of init and from the underlying effect of L (`Hits by Blank`, with `effect Hits of State[Int]` and `handler Blank[S]: State[S]`, gives S = Int). The underlying effect of a label has concrete type arguments, so it fits in one way only.
 - Requirements are satisfied and the initialization order is determined in the same way as for handlers (8.3, 14.2). In `with SystemConsole, AuditLog by Console`, the Console on the right is satisfied by SystemConsole in the same with.
 - Writing an effect that is not a label in a with or on the left of `by` is a compile error (E0430). Writing `by` twice for the same label in the same with is also a compile error (E0432).
 - A label with `default` is provided together by a with that provides E. This is the same as implicitly adding `L by E` to the item that serves E (a handler, or a label item such as `M`), and L falls to the provider of the innermost with that provides E. If the same with has `L by P`, that item takes precedence regardless of order (8.3). L is removed only from the R of the body, and it does not satisfy the requirements of other handlers in the same with. L inside a hidden set is not removed (8.3).

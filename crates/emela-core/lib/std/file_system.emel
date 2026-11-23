@@ -1,6 +1,6 @@
 # The FileSystem effect and its handlers (the platform and test layers of spec 15.2).
 #
-# Text (UTF-8) only. Use it as `(use FileSystem).read_text("notes.txt")` and provide it with
+# Text (UTF-8) only. Use it as `fs <- FileSystem` and `fs.read_text("notes.txt")` and provide it with
 # `with SystemFileSystem { ... }`, or with `with Process { ... }` from `Std.Process`.
 # Relative paths are resolved from the current directory of the process. Paths are not
 # normalized (no `..` resolution, no `~` expansion).
@@ -276,14 +276,18 @@ pub type TestFiles(files: List[(String, String)], directories: List[String])
 ##
 ## ```emela
 ## start = TestFiles(files: [("notes.txt", "hi")], directories: [])
-## (text, _) = State.run(start, || with TestFileSystem { (use FileSystem).read_text("notes.txt") })
+## (text, _) = State.run(start, || with TestFileSystem {
+##   fs <- FileSystem
+##   fs.read_text("notes.txt")
+## })
 ## ```
 ##
 ## The errors follow the rules of SystemFileSystem. It never fails with FileAccessDenied,
 ## InvalidText or FileSystemFailure; to test those, write a small handler.
 pub handler TestFileSystem: FileSystem {
   suspend fn read_text(path, resume) {
-    files = (use State[TestFiles]).get()
+    st <- State[TestFiles]
+    files = st.get()
     file_text(files, path) match {
       Some(text)                  -> resume(text)
       None if is_dir(files, path) -> fail IsADirectory(path:)
@@ -291,22 +295,27 @@ pub handler TestFileSystem: FileSystem {
     }
   }
   suspend fn write_text(path, text, resume) {
-    st = use State[TestFiles]
+    st <- State[TestFiles]
     st.set(put_file(st.get(), path, |_| text))
     resume(())
   }
   suspend fn append_text(path, text, resume) {
-    st = use State[TestFiles]
+    st <- State[TestFiles]
     st.set(put_file(st.get(), path, |old| old.or("").append(text)))
     resume(())
   }
   suspend fn exists(path, resume) {
-    files = (use State[TestFiles]).get()
+    st <- State[TestFiles]
+    files = st.get()
     resume(file_text(files, path).is_some() || is_dir(files, path))
   }
-  suspend fn is_directory(path, resume) { resume(is_dir((use State[TestFiles]).get(), path)) }
+  suspend fn is_directory(path, resume) {
+    st <- State[TestFiles]
+    resume(is_dir(st.get(), path))
+  }
   suspend fn list_directory(path, resume) {
-    files = (use State[TestFiles]).get()
+    st <- State[TestFiles]
+    files = st.get()
     if is_dir(files, path) {
       resume(children(files, path))
     } else if file_text(files, path).is_some() || has_file_ancestor(files, path) {
@@ -316,7 +325,7 @@ pub handler TestFileSystem: FileSystem {
     }
   }
   suspend fn create_directory(path, resume) {
-    st = use State[TestFiles]
+    st <- State[TestFiles]
     files = st.get()
     if file_text(files, path).is_some() || has_file_ancestor(files, path) {
       fail NotADirectory(path:)
@@ -328,7 +337,7 @@ pub handler TestFileSystem: FileSystem {
     resume(())
   }
   suspend fn remove(path, resume) {
-    st = use State[TestFiles]
+    st <- State[TestFiles]
     files = st.get()
     TestFiles(files: fs, directories: dirs) = files
     # The ancestors stay, as they would on a real file system.

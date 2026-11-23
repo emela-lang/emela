@@ -1,0 +1,19 @@
+---
+source: crates/emela-types/tests/capabilities.rs
+expression: "render_bodies(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nerror Leak(f: Fiber[Int])\n\nfn raise(s: use Scope[{}, {}]) {\n  f = s.fork(|| 1)\n  fail Leak(f:)\n}\n\nfn caught() uses { Async } {\n  Fiber.scope(|s| {\n    raise(s) escape {\n      Leak(f:) -> ()\n    }\n  })\n}\n\nfn leaves() -> Int fails Leak uses { Async } {\n  Fiber.scope(|s| {\n    f = s.fork(|| 1)\n    if True { fail Leak(f:) } else { Fiber.join(f) }\n  })\n}\n\nfn taken_out() uses { Async } {\n  Fiber.scope(|s| {\n    f = s.fork(|| 1)\n    (if True { fail Leak(f:) } else { f }) escape {\n      Leak(f:) -> f\n    }\n  })\n}\n\"#)"
+---
+raise: ∀ A. fn(use Scope[{}, {}]) -> A fails Leak uses { s }
+  s: use Scope[{}, {}]
+  f: Fiber[Int]
+caught: fn() -> () uses { Async }
+  s: use Scope[{}, {}]
+  f: Fiber[Int]
+leaves: fn() -> Int fails Leak uses { Async }
+  s: use Scope[Leak, {}]
+  f: Fiber[Int]
+taken_out: ∀ E, R. fn() -> Fiber[Int] uses { Async }
+  s: use Scope[{}, {}]
+  f: Fiber[Int]
+  f: Fiber[Int]
+`Fiber.scope` CapabilityLeak { cap: "s", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 299..382 }) }
+`f` CapabilityLeak { cap: "s", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 433..541 }) }

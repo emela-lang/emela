@@ -48,10 +48,16 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 | English | 日本語 |
 |---|---|
-| capability, capability value | 能力、能力の値 |
+| capability, capability value (a handler after its init has run and before its release; each item of a with makes one, and each `Fiber.scope` makes one capability of Scope) | capability |
+| capability type (the type `use E` of a capability), capability parameter (a parameter of type `use E`) | capability type、capability parameter |
+| capability-bound type (a type declared with `uses E`, whose values live only while a capability of E does) | capability-bound type |
+| borrowed callback (a callback passed to a `@borrowed` parameter of an external function) | borrowed callback |
+| named item (`with x = Item`) | 名前付きの項目 |
+| provide by name (a with removing the name of an effect from R) | 名前で供給する |
+| widen (treating a capability in R as the name of its effect) | 広げる |
 | operation | 操作 |
 | provide, provides(H) | 供給する、供給(H) |
-| leak (a capability, a fiber, a Deferred) | 持ち出す |
+| leak (a value whose type or effect set contains a capability leaves the with that made the capability) | 持ち出す |
 | provider (the `P` of `L by P`) | 担い手 |
 | underlying effect (of a label) | 元のエフェクト |
 | system handler (`System*`) | 本物のハンドラ |
@@ -130,7 +136,6 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | virtual time | 仮の時刻 |
 | evidence table | 証拠の表 |
 | plug in (with `by`), merge (`L by E`), serve (a provider serves E) | 差し込む、合流、担う |
-| hold (a capability) | 抱える |
 | expected type, actual type, common type | 期待する型、実際の型、共通の型 |
 | lower bound, upper bound | 下界、上界 |
 | principal type | 主要型 |

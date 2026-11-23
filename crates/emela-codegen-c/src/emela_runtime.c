@@ -1047,16 +1047,10 @@ void em_defect_resume(em_ref d) {
 }
 
 void em_retire(em_ref handler, em_ref name) {
-  handler->slots[0].i = 1;
+  (void)handler;
   em_dup(name);
   em_drop(em_last_retired);
   em_last_retired = name;
-}
-
-void em_handler_used_after_release(em_ref h) {
-  char msg[256];
-  snprintf(msg, sizeof msg, "handler %s was used after release", h->hdr.desc->name);
-  em_raise_cstr(msg);
 }
 
 _Noreturn void em_unreachable(void) {

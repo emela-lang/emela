@@ -2,8 +2,7 @@
 //! programs are lowered, monomorphized and converted, and the result must pass the Flow IR
 //! verifier.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::{Module, dump_function, from_core, verify};
@@ -289,8 +288,7 @@ import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 fn main() -> Int uses { Async } {
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     a = s.fork(|| [1])
     d = s.deferred()
     Deferred.complete(d, ())
@@ -323,8 +321,7 @@ handler Later: Wait {
 
 fn main() -> Int uses { Async, Wait } {
   with Later { () }
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     a = s.fork(|| 1)
     Fiber.join(a)
   })

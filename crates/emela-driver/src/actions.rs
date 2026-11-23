@@ -290,7 +290,7 @@ impl<'a> Names<'a> {
     fn writable_ty(&self, ty: &Ty) -> bool {
         match ty {
             Ty::Prim(_) | Ty::Never | Ty::Bound(_) => true,
-            Ty::Var(_) | Ty::Cap(_) | Ty::Error => false,
+            Ty::Var(_) | Ty::Cap(..) | Ty::Error => false,
             Ty::Fn(f) => {
                 f.params.iter().all(|p| self.writable_ty(p))
                     && self.writable_ty(&f.ret)

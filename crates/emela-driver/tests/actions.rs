@@ -41,6 +41,14 @@ fn fixes(text: &str, needle: &str, extra: &[(&str, &str)]) -> Vec<CodeAction> {
     actions(text, needle, extra, CodeActionKind::QuickFix)
 }
 
+/// The quick fixes but those of W0403, which every `use E` written as an expression gets.
+fn effect_fixes(text: &str, needle: &str) -> Vec<CodeAction> {
+    fixes(text, needle, &[])
+        .into_iter()
+        .filter(|a| a.diagnostics[0].code != Some(code::DEPRECATED_USE))
+        .collect()
+}
+
 fn refactors(text: &str, needle: &str) -> Vec<CodeAction> {
     actions(text, needle, &[], CodeActionKind::RefactorRewrite)
 }
@@ -281,7 +289,7 @@ fn extends_written_annotations_without_losing_existing_members() {
     assert_clean(&apply(text, &actions[0]), &[]);
 
     let text = "effect Log { fn log() -> () }\neffect Clock { fn now() -> Int }\nfn f() -> Int uses { Log } { (use Clock).now() }\n";
-    let actions = fixes(text, "use Clock", &[]);
+    let actions = effect_fixes(text, "use Clock");
     assert_eq!(actions.len(), 1);
     assert!(actions[0].edits[0].1.contains("Log"));
     assert!(actions[0].edits[0].1.contains("Clock"));
@@ -291,11 +299,11 @@ fn extends_written_annotations_without_losing_existing_members() {
 #[test]
 fn effect_fixes_do_not_propagate_from_main_tests_or_constants() {
     let text = "effect Log { fn log() -> () }\nfn main() -> () { (use Log).log() }\n";
-    assert!(fixes(text, "use Log", &[]).is_empty());
+    assert!(effect_fixes(text, "use Log").is_empty());
     let text = "effect Log { fn log() -> () }\n@test fn test_log() -> () { (use Log).log() }\n";
-    assert!(fixes(text, "use Log", &[]).is_empty());
+    assert!(effect_fixes(text, "use Log").is_empty());
     let text = "effect Log { fn log() -> () }\nconst X = (use Log).log()\n";
-    assert!(fixes(text, "use Log", &[]).is_empty());
+    assert!(effect_fixes(text, "use Log").is_empty());
 }
 
 #[test]
@@ -458,4 +466,161 @@ fn old_use_clause_is_rewritten() {
         assert!(edited.contains(expected), "{edited}");
         assert_clean(&edited, &[]);
     }
+}
+
+/// `[fiber.scope]`: the body of `Fiber.scope` takes the scope's capability as its parameter. A
+/// body without one (a type mismatch) is rewritten to `|_|`, or to `|s|` when it starts by
+/// binding `s = use Scope`, whose statement is removed.
+#[test]
+fn scope_bodies_take_the_scope() {
+    let text = "import Std.Fiber.{Fiber, Scope}\n\nfn main() -> () uses { Async } {\n  Fiber.scope(|| {\n    s = use Scope\n    s.fork(|| 1)\n    ()\n  })\n  _ = Fiber.scope(|| Fiber.fork(|| 2).join())\n  ()\n}\n";
+    let actions: Vec<CodeAction> = fixes(text, "|| {\n    s", &[])
+        .into_iter()
+        .filter(|a| a.title.starts_with("Take the scope"))
+        .collect();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Take the scope as the parameter `|s|`");
+    let edited = apply(text, &actions[0]);
+    assert!(
+        edited.contains("  Fiber.scope(|s| {\n    s.fork(|| 1)\n"),
+        "{edited}"
+    );
+    let actions: Vec<CodeAction> = fixes(&edited, "|| Fiber.fork(|| 2)", &[])
+        .into_iter()
+        .filter(|a| a.title.starts_with("Take the scope"))
+        .collect();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Take the scope as the parameter `|_|`");
+    let edited = apply(&edited, &actions[0]);
+    assert!(
+        edited.contains("Fiber.scope(|_| Fiber.fork(|| 2).join())"),
+        "{edited}"
+    );
+    assert_clean(&edited, &[]);
+}
+
+/// W0403 (`[effect.use]`): `(use E).op(...)` and `x = use E` used only as a receiver are rewritten
+/// to effect aliases. A binding used otherwise gets no quick fix, since an alias would not mean the
+/// same. The rewritten program has no W0403 left.
+#[test]
+fn deprecated_uses_are_rewritten_to_effect_aliases() {
+    let prelude = "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\n";
+    let deprecated = |text: &str| {
+        let (analysis, _, _) = checked(text, &[]);
+        analysis
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == Some(code::DEPRECATED_USE))
+            .count()
+    };
+
+    // In place, as a statement of its own and inside a lambda: the alias goes before the
+    // statement of the block.
+    let text = format!(
+        "{prelude}fn f() {{\n  (use Logger).info(\"a\")\n  List.each([1], |n| (use Logger).info(\"#{{n}}\"))\n}}\n"
+    );
+    let actions = fixes(&text, "use Logger).info(\"a\")", &[]);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Rewrite as `logger <- Logger`");
+    let edited = apply(&text, &actions[0]);
+    assert!(
+        edited.contains("  logger <- Logger\n  logger.info(\"a\")\n"),
+        "{edited}"
+    );
+    let actions = fixes(&edited, "use Logger).info(\"#", &[]);
+    assert_eq!(actions.len(), 1);
+    // `logger` is taken in the function now.
+    let edited = apply(&edited, &actions[0]);
+    assert!(
+        edited.contains("  logger2 <- Logger\n  List.each([1], |n| logger2.info(\"#{n}\"))\n"),
+        "{edited}"
+    );
+    assert_clean(&edited, &[]);
+    assert_eq!(deprecated(&edited), 0);
+
+    // A statement that does not start its line.
+    let text = format!("{prelude}fn f() {{\n  with Quiet {{ (use Logger).info(\"a\") }}\n}}\n");
+    let actions = fixes(&text, "use Logger", &[]);
+    let edited = apply(&text, &actions[0]);
+    assert!(
+        edited.contains("with Quiet { logger <- Logger\n    logger.info(\"a\") }"),
+        "{edited}"
+    );
+    assert_clean(&edited, &[]);
+
+    // A binding used only as a receiver.
+    let text = format!("{prelude}fn f() {{\n  log = use Logger\n  log.info(\"a\")\n}}\n");
+    let actions = fixes(&text, "use Logger", &[]);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Rewrite as `log <- Logger`");
+    let edited = apply(&text, &actions[0]);
+    assert!(
+        edited.contains("  log <- Logger\n  log.info(\"a\")\n"),
+        "{edited}"
+    );
+    assert_clean(&edited, &[]);
+    assert_eq!(deprecated(&edited), 0);
+
+    // Inside a later `with`, an alias could reach another handler: no quick fix.
+    let text =
+        format!("{prelude}fn f() {{\n  log = use Logger\n  with Quiet {{ log.info(\"a\") }}\n}}\n");
+    assert!(fixes(&text, "use Logger", &[]).is_empty());
+}
+
+/// W0305 (`[lsp.code-action]`): the type parameter is removed with its bound and the `,` next to
+/// it, and the brackets with it when the list becomes empty. Not offered when the type parameter
+/// appears in a type annotation in the body.
+#[test]
+fn unused_type_parameter_is_removed() {
+    for (text, at, title, expected) in [
+        (
+            "fn f[A]() -> Int { 1 }\n",
+            "A]",
+            "Remove type parameter `A`",
+            "fn f() -> Int { 1 }\n",
+        ),
+        (
+            "fn f[A, B](x: A) -> A { x }\n",
+            "B]",
+            "Remove type parameter `B`",
+            "fn f[A](x: A) -> A { x }\n",
+        ),
+        (
+            "fn f[A: Show + Eq, B](x: B) -> B { x }\n",
+            "A:",
+            "Remove type parameter `A`",
+            "fn f[B](x: B) -> B { x }\n",
+        ),
+        (
+            "fn f[A, R: Immediate, B](x: A, y: B) -> A { x }\n",
+            "R:",
+            "Remove type parameter `R`",
+            "fn f[A, B](x: A, y: B) -> A { x }\n",
+        ),
+        (
+            "trait Describe {\n  fn describe[A](self) -> String\n}\n",
+            "A]",
+            "Remove type parameter `A`",
+            "trait Describe {\n  fn describe(self) -> String\n}\n",
+        ),
+    ] {
+        let actions = fixes(text, at, &[]);
+        assert_eq!(actions.len(), 1, "{text}");
+        assert_eq!(actions[0].title, title);
+        assert_eq!(actions[0].diagnostics[0].code, Some("W0305"));
+        let edited = apply(text, &actions[0]);
+        assert_eq!(edited, expected);
+        let (analysis, _, _) = checked(&edited, &[]);
+        assert!(analysis.diagnostics.is_empty(), "{edited}");
+    }
+}
+
+/// W0305 has no quick fix when the type parameter appears in the body: removing it would make the
+/// annotation E0211 (`[lsp.code-action]`).
+#[test]
+fn unused_type_parameter_in_the_body_is_not_removed() {
+    let text = "fn g[A](x: Int) -> Int {\n  y: Option[A] = None\n  x\n}\n";
+    let (analysis, _, _) = checked(text, &[]);
+    assert!(analysis.diagnostics.iter().any(|d| d.code == Some("W0305")));
+    assert!(fixes(text, "A]", &[]).is_empty());
 }

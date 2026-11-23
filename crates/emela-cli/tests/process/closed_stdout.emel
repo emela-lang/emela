@@ -17,31 +17,38 @@ handler Released: Guard {
   init { Released }
   fn check() { () }
   release {
-    (use Stdout).print_line("discarded")
-    (use Stderr).print_line("released")
+    stdout <- Stdout
+    stdout.print_line("discarded")
+    stderr <- Stderr
+    stderr.print_line("released")
   }
 }
 
 fn forever(how: String, i: Int) -> () uses { Console, Stdout } {
+  console <- Console
+  stdout <- Stdout
   how match {
-    "console" -> (use Console).print_line("line #{i}")
-    _         -> (use Stdout).print_line("line #{i}")
+    "console" -> console.print_line("line #{i}")
+    _         -> stdout.print_line("line #{i}")
   }
   forever(how, i + 1)
 }
 
 fn main() -> () uses { Async } {
   with Process {
-    how = (use Args).get(0) match {
+    args <- Args
+    how = args.get(0) match {
       Some(how) -> how
       None      -> "stdout"
     }
-    Fiber.scope(|| {
-      Fiber.fork(|| with Released { (use Clock).sleep(600000) })
+    Fiber.scope(|_| {
+      clock <- Clock
+      Fiber.fork(|| with Released { clock.sleep(600000) })
       # Lets the forked fiber start and enter its `with` before the writes, which never suspend.
-      (use Clock).sleep(10)
+      clock.sleep(10)
       with Released { forever(how, 0) }
     })
-    (use Stderr).print_line("not reached")
+    stderr <- Stderr
+    stderr.print_line("not reached")
   }
 }

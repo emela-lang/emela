@@ -1663,16 +1663,12 @@ impl WithBind {
 
 /// The cleanup when leaving a `with` (spec 8.4, 14.2).
 ///
-/// After evaluating `body` and discarding its value, the bound handler value is marked released.
-/// Calling its operations afterwards is a defect (`handler <name> was used after release`,
-/// spec 8.6). `body` may refer to the variables of the same `with` up to and including this
-/// binding. `body` cannot fail (release's E is empty, spec 8.4) but may suspend; the IR does not
-/// check that it cannot fail.
-///
-/// The use-after-release check is only on bindings with release. A stateless handler value has
-/// none, so it keeps working after it leaves its `with`. Lowering gives a release to every
-/// stateful handler (fields, init or release; `()` when release is not written), so that all of
-/// them are checked (`[effect.escape]`).
+/// After evaluating `body` and discarding its value, the bound handler value is marked released:
+/// the backends remember its name for the note of a release that fails while another defect
+/// unwinds (spec 14.4). Using a handler after its release cannot be written: the types keep a
+/// capability inside its `with` (`[effect.escape]`). `body` may refer to the variables of the
+/// same `with` up to and including this binding. `body` cannot fail (release's E is empty, spec
+/// 8.4) but may suspend; the IR does not check that it cannot fail.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Release {
     /// The handler's name (as in source), used in the use-after-release defect message.

@@ -1,0 +1,12 @@
+exit: 0
+--- stdout
+--- stderr
+"open 1"
+"close 1"
+"init done"
+2
+"release Cached"
+"echo hi"
+"echo "
+"3: yo"
+"3: "

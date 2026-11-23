@@ -538,10 +538,34 @@
           "named": true
         },
         {
+          "type": "effect_alias",
+          "named": true
+        },
+        {
           "type": "local_function",
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "bound_clause",
+    "named": true,
+    "fields": {
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "generic_type",
+            "named": true
+          },
+          {
+            "type": "type_reference",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -698,6 +722,42 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "effect_alias",
+    "named": true,
+    "fields": {
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_reference",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type_arguments": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_arguments",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -858,6 +918,10 @@
       "multiple": true,
       "required": false,
       "types": [
+        {
+          "type": "bound_clause",
+          "named": true
+        },
         {
           "type": "derive_clause",
           "named": true
@@ -1319,6 +1383,16 @@
         "types": [
           {
             "type": "type_arguments",
+            "named": true
+          }
+        ]
+      },
+      "type_parameters": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_parameters",
             "named": true
           }
         ]
@@ -2121,9 +2195,13 @@
       }
     },
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": false,
       "types": [
+        {
+          "type": "annotation",
+          "named": true
+        },
         {
           "type": "self",
           "named": true
@@ -2284,6 +2362,16 @@
         "types": [
           {
             "type": "type_reference",
+            "named": true
+          }
+        ]
+      },
+      "type_arguments": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_arguments",
             "named": true
           }
         ]
@@ -2487,6 +2575,10 @@
       "multiple": true,
       "required": false,
       "types": [
+        {
+          "type": "bound_clause",
+          "named": true
+        },
         {
           "type": "derive_clause",
           "named": true
@@ -2936,6 +3028,10 @@
   },
   {
     "type": "<",
+    "named": false
+  },
+  {
+    "type": "<-",
     "named": false
   },
   {

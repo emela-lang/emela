@@ -89,7 +89,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
 
 fn main() -> () uses { Async } {
   with Ticks, Slowly {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       a = Fiber.fork(|| {
         v = (use Slow).slow(1500)
         print("caller got #{v}")
@@ -105,7 +105,7 @@ fn main() -> () uses { Async } {
   }
   (_, left) = State.run([], || {
     with Parked {
-      Fiber.scope(|| {
+      Fiber.scope(|_| {
         x = Fiber.fork(|| print("x woke with #{(use Wait).wait("x")}"))
         y = Fiber.fork(|| print("y woke with #{(use Wait).wait("y")}"))
         Fiber.fork(|| {

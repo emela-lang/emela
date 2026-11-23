@@ -1,0 +1,82 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \": Eq.\", \": Ord.\", \": Show.\"])"
+---
+export fn main() -> Prelude.Ordering {
+  let _%0: String = @dbg[String](User: Show.show(User.User(id: 1, name: Name.Name(value: "a"), nick: "b")))
+  let _%1: Bool = @dbg[Bool](Point: Eq.eq(Point.Point(x: 1, y: 2), Point.Point(x: 1, y: 2)))
+  @dbg[Prelude.Ordering](Shape: Ord.compare(Shape.Dot, Shape.Line(Point.Point(x: 1, y: 2), Point.Point(x: 3, y: 4))))
+}
+
+fn User: Show.show(self%0: User) -> String {
+  match self%0 {
+    User.User(id: x%1, name: x%2, nick: x%3) -> concat("User(id: ", x%1 as Int, ", name: ", Name: Show.show(x%2) as String, ", nick: ", @$Show.string(x%3) as String, ")")
+  }
+}
+
+fn Point: Eq.eq(self%0: Point, other%1: Point) -> Bool {
+  (self%0 ==[Structural] other%1)
+}
+
+fn Shape: Ord.compare(self%0: Shape, other%1: Shape) -> Prelude.Ordering {
+  let tag%2: Int = match self%0 {
+    Shape.Dot -> 0
+    Shape.Line(_, _) -> 1
+  }
+  let tag%3: Int = match other%1 {
+    Shape.Dot -> 0
+    Shape.Line(_, _) -> 1
+  }
+  if (tag%2 <[Int] tag%3) {
+    Prelude.Ordering.Less
+  } else {
+    if (tag%3 <[Int] tag%2) {
+      Prelude.Ordering.Greater
+    } else {
+      match self%0 {
+        Shape.Dot -> match other%1 {
+          Shape.Dot -> Prelude.Ordering.Equal
+          _ -> Prelude.Ordering.Equal
+        }
+        Shape.Line(x%4, x%5) -> match other%1 {
+          Shape.Line(y%6, y%7) -> match Point: Ord.compare(x%4, y%6) {
+            Prelude.Ordering.Equal -> Point: Ord.compare(x%5, y%7)
+            o%8 -> o%8
+          }
+          _ -> Prelude.Ordering.Equal
+        }
+      }
+    }
+  }
+}
+
+fn Point: Ord.compare(self%0: Point, other%1: Point) -> Prelude.Ordering {
+  match self%0 {
+    Point.Point(x: x%2, y: x%3) -> match other%1 {
+      Point.Point(x: y%4, y: y%5) -> match if (x%2 <[Int] y%4) {
+        Prelude.Ordering.Less
+      } else {
+        if (x%2 ==[Int] y%4) {
+          Prelude.Ordering.Equal
+        } else {
+          Prelude.Ordering.Greater
+        }
+      } {
+        Prelude.Ordering.Equal -> if (x%3 <[Int] y%5) {
+          Prelude.Ordering.Less
+        } else {
+          if (x%3 ==[Int] y%5) {
+            Prelude.Ordering.Equal
+          } else {
+            Prelude.Ordering.Greater
+          }
+        }
+        o%6 -> o%6
+      }
+    }
+  }
+}
+
+fn Name: Show.show(self%0: Name) -> String {
+  self%0.value#0
+}

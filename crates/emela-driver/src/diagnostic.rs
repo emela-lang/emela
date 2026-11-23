@@ -9,7 +9,7 @@ use emela_resolve::ModuleId;
 use emela_resolve::{DiagnosticKind, NameError};
 use emela_types::{
     DiagnosticKind as TypeDiagnosticKind, EffectContext, ImmediateSource, InnerHandlerMismatch,
-    SuspendingCall, Ty, TyCons, TypeError, TypeErrorKind,
+    SetKind, SuspendingCall, Ty, TyCons, TypeError, TypeErrorKind,
 };
 use la_arena::ArenaMap;
 use line_index::TextRange;
@@ -319,6 +319,48 @@ impl Diagnostic {
                     "`Self` can only be used as a value in the `init` of a handler".to_owned(),
                 )
             }
+            DiagnosticKind::DeprecatedUse { effect, rewrite } => {
+                help = Some(match rewrite {
+                    Some(emela_resolve::DeprecatedRewrite::InPlace { alias, op }) => format!(
+                        "write `{alias} <- {effect}` before the statement, and call `{alias}.{op}` here"
+                    ),
+                    Some(emela_resolve::DeprecatedRewrite::Binding { alias }) => {
+                        format!("write `{alias} <- {effect}`")
+                    }
+                    None => format!("write `x <- {effect}`, or a named item `with x = H`"),
+                });
+                (
+                    Severity::Warning,
+                    code::DEPRECATED_USE,
+                    format!("`use {effect}` as an expression is deprecated"),
+                )
+            }
+            DiagnosticKind::EffectAliasAsValue { name } => {
+                help = Some("for a fixed value, use a named item `with x = H`".to_owned());
+                (
+                    Severity::Error,
+                    code::EFFECT_ALIAS_MISUSE,
+                    format!(
+                        "`{name}` is an effect alias, not a value: only `{name}.op(...)` and `{name}.op` can be written"
+                    ),
+                )
+            }
+            DiagnosticKind::MemberThroughEffectAlias {
+                alias,
+                effect,
+                member,
+            } => {
+                help = Some(format!(
+                    "open it through the effect: `x = {effect}.{member}(...)`"
+                ));
+                (
+                    Severity::Error,
+                    code::EFFECT_ALIAS_MISUSE,
+                    format!(
+                        "handler member `{member}` cannot be opened through effect alias `{alias}`"
+                    ),
+                )
+            }
             DiagnosticKind::SelfUpdate => {
                 help = Some("`Self` constructs a handler from its fields only".to_owned());
                 (
@@ -409,59 +451,44 @@ impl Diagnostic {
         out
     }
 
-    /// W0402, or E0444 when the experimental feature `capture-checking` is enabled for the module
-    /// (`as_error`): a value that holds a root leaves the `with` or the scope function that
-    /// provides it (`[effect.escape]`, `[fiber.escape]`, `[diag.list]`).
-    pub fn from_capture_escape(
+    /// E0455: a capability leaves what made it (`[effect.escape]`, `[diag.list]`).
+    pub fn from_capability_leak(
         diagnostic: &emela_types::Diagnostic,
         files: &ArenaMap<ModuleId, FileId>,
-        as_error: bool,
     ) -> Self {
-        let TypeDiagnosticKind::CaptureEscape {
-            root,
-            scope,
-            provided_at,
-        } = &diagnostic.kind
-        else {
-            unreachable!("only for CaptureEscape");
+        let TypeDiagnosticKind::CapabilityLeak { cap, from, made_at } = &diagnostic.kind else {
+            unreachable!("only for CapabilityLeak");
         };
         let span_of =
             |s: emela_resolve::hir::Span| files.get(s.module).map(|&file| Span::new(file, s.range));
-        let provider = match scope {
-            Some(scope) => format!("`{scope}`"),
-            None => "`with`".to_owned(),
+        let (message, made) = match from {
+            emela_types::LeakFrom::With => (
+                format!("capability `{cap}` leaves the `with` that made it"),
+                "made here; it ends with this `with`".to_owned(),
+            ),
+            emela_types::LeakFrom::Call(callee) => (
+                format!("capability `{cap}` leaves the `{callee}` that made it"),
+                format!("made for this function by `{callee}`"),
+            ),
+            emela_types::LeakFrom::Handler(handler) => (
+                format!("capability `{cap}` leaves the handler `{handler}`"),
+                String::new(),
+            ),
+            emela_types::LeakFrom::Quantified => (
+                format!(
+                    "capability `{cap}` leaves the function that received it: a function of a quantified type cannot return what it receives"
+                ),
+                String::new(),
+            ),
         };
-        let mut out = if as_error {
-            Diagnostic::error(format!(
-                "a value that holds `{root}` cannot leave the {provider} that provides it"
-            ))
-            .with_code(code::CAPTURE_ESCAPE_ERROR)
-        } else {
-            Diagnostic::warning(format!(
-                "a value that holds `{root}` leaves the {provider} that provides it"
-            ))
-            .with_code(code::CAPTURE_ESCAPE)
-        };
-        let value = diagnostic.span.and_then(span_of);
-        if let Some(value) = value {
-            out = out.with_span(value);
+        let mut out = Diagnostic::error(message).with_code(code::CAPABILITY_LEAK);
+        if let Some(span) = diagnostic.span.and_then(span_of) {
+            out = out.with_span(span);
         }
-        if let Some(at) = span_of(*provided_at) {
-            out = out.with_label(
-                at,
-                format!("`{root}` is released at the end of this {provider}"),
-            );
-        }
-        if let Some(value) = value {
-            let body = if scope.is_some() {
-                "the value of the scope"
-            } else {
-                "the value of the body"
-            };
-            out = out.with_label(value, format!("{body} holds `{root}`"));
-        }
-        if as_error {
-            out = out.from_experimental_feature(crate::experimental::CAPTURE_CHECKING);
+        if let Some(at) = made_at.and_then(span_of)
+            && !made.is_empty()
+        {
+            out = out.with_label(at, made);
         }
         out
     }
@@ -581,9 +608,10 @@ impl Diagnostic {
         let show = |ty: &Ty| format!("`{}`", ty.display(cons));
         let mut help = None;
         let mut note = None;
+        let mut label: Option<(Span, String)> = None;
         let (severity, code, message) = match &diagnostic.kind {
-            TypeDiagnosticKind::CaptureEscape { .. } => {
-                return Diagnostic::from_capture_escape(diagnostic, files, false);
+            TypeDiagnosticKind::CapabilityLeak { .. } => {
+                return Diagnostic::from_capability_leak(diagnostic, files);
             }
             TypeDiagnosticKind::Mismatch(error) => {
                 let out = Diagnostic::type_error(error, cons);
@@ -816,6 +844,18 @@ impl Diagnostic {
                     format!("the value of type `{ty}` returned by `main` is discarded"),
                 )
             }
+            TypeDiagnosticKind::UnusedTypeParam { param, function } => {
+                help = Some(format!(
+                    "a call cannot determine `{param}`; remove it, or use it in a parameter, the return type, `fails` or `uses`"
+                ));
+                (
+                    Severity::Warning,
+                    Some(code::UNUSED_TYPE_PARAM),
+                    format!(
+                        "type parameter `{param}` of `{function}` does not appear in its signature"
+                    ),
+                )
+            }
             TypeDiagnosticKind::UnreachableArm => (
                 Severity::Warning,
                 Some(code::UNREACHABLE_MATCH_ARM),
@@ -1011,10 +1051,52 @@ impl Diagnostic {
                 }
                 (Severity::Error, Some(code::UNHANDLED_EFFECTS), message)
             }
-            TypeDiagnosticKind::EffectSetMismatch { expected, found } => (
+            TypeDiagnosticKind::EffectSetMismatch {
+                expected,
+                found,
+                widened,
+            } => {
+                if *widened {
+                    help = Some(
+                        "take the capability as a parameter `use E`, or capture it in a closure"
+                            .to_owned(),
+                    );
+                }
+                (
+                    Severity::Error,
+                    Some(code::EFFECT_SET_MISMATCH),
+                    format!(
+                        "effect set mismatch: expected `uses {expected}`, found `uses {found}`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::CapabilityInOpResult { op, ty } => {
+                help = Some(
+                    "hand out a capability with a handler member (`with c = Pool.Conn()`)"
+                        .to_owned(),
+                );
+                (
+                    Severity::Error,
+                    Some(code::CAPABILITY_IN_OP_RESULT),
+                    format!(
+                        "the result of operation `{op}` cannot contain a capability type: `{ty}`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::BoundTypeOutsideHandler { ty, effect } => {
+                note = Some(format!(
+                    "a value of `{ty}` lives only while a capability of `{effect}` does, so only a handler of `{effect}` can make one"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::BOUND_TYPE_OUTSIDE_HANDLER),
+                    format!("a value of `{ty}` can only be made inside a handler of `{effect}`"),
+                )
+            }
+            TypeDiagnosticKind::CapabilitySetMismatch { expected, found } => (
                 Severity::Error,
-                Some(code::EFFECT_SET_MISMATCH),
-                format!("effect set mismatch: expected `uses {expected}`, found `uses {found}`"),
+                Some(code::TYPE_MISMATCH),
+                format!("capability set mismatch: expected `{expected}`, found `{found}`"),
             ),
             TypeDiagnosticKind::MissingHandlerOps {
                 handler,
@@ -1296,7 +1378,8 @@ impl Diagnostic {
                 let message = match handler {
                     Some(handler) => {
                         help = Some(format!(
-                            "write the types, like `handler {handler}: {effect}[{holes}]`; a handler cannot be generic"
+                            "write the types, like `handler {handler}: {effect}[{holes}]`, or give the handler type parameters, like `handler {handler}[{params}]: {effect}[{params}]`",
+                            params = params.join(", ")
                         ));
                         format!(
                             "handler `{handler}` must implement `{effect}[{}]` with concrete types",
@@ -1316,6 +1399,61 @@ impl Diagnostic {
                     Some(code::MISSING_EFFECT_TYPE_ARGS),
                     message,
                 )
+            }
+            TypeDiagnosticKind::HandlerParamNotType { handler, param } => (
+                Severity::Error,
+                Some(code::EFFECT_PARAM_NOT_TYPE),
+                format!(
+                    "type parameter `{param}` of handler `{handler}` is used as a set, but handler type parameters must be ordinary types"
+                ),
+            ),
+            TypeDiagnosticKind::UnusedHandlerParam { handler, param } => (
+                Severity::Error,
+                Some(code::UNUSED_HANDLER_PARAM),
+                format!(
+                    "type parameter `{param}` of handler `{handler}` does not appear in its effects, fields or init parameters"
+                ),
+            ),
+            TypeDiagnosticKind::InnerHandlerTypeParams { handler } => {
+                help = Some(
+                    "an inner handler implements a handler member declared by the effect; use the type parameters of the outer handler"
+                        .into(),
+                );
+                (
+                    Severity::Error,
+                    Some(code::INNER_HANDLER_TYPE_PARAMS),
+                    format!("inner handler `{handler}` cannot have type parameters"),
+                )
+            }
+            TypeDiagnosticKind::HandlerArgsUnknown { handler, reason } => {
+                let name = handler.split('[').next().unwrap_or(handler);
+                help = Some(format!("write them, like `{name}[...]`"));
+                let message = match reason {
+                    emela_types::HandlerArgsReason::Unknown => {
+                        format!("cannot infer the type arguments of handler `{handler}`")
+                    }
+                    emela_types::HandlerArgsReason::Layer => {
+                        note = Some(
+                            "a layer infers type arguments only from the arguments of init".into(),
+                        );
+                        format!("cannot infer the type arguments of handler `{handler}`")
+                    }
+                    emela_types::HandlerArgsReason::Several { first, second } => format!(
+                        "cannot infer the type arguments of handler `{handler}`: both `{first}` and `{second}` fit"
+                    ),
+                    emela_types::HandlerArgsReason::Overrides { effect, other, at } => {
+                        if let Some(&file) = files.get(at.module) {
+                            label = Some((
+                                Span::new(file, at.range),
+                                format!("`{other}` provides `{effect}` here"),
+                            ));
+                        }
+                        format!(
+                            "cannot infer the type arguments of handler `{handler}`: it may override `{effect}` of `{other}`"
+                        )
+                    }
+                };
+                (Severity::Error, Some(code::HANDLER_ARGS_UNKNOWN), message)
             }
             TypeDiagnosticKind::EffectParamNotType { effect, param } => (
                 Severity::Error,
@@ -1415,16 +1553,6 @@ impl Diagnostic {
                     "handler `{handler}` cannot implement `{effect}`: only `{provider}` provides it"
                 ),
             ),
-            TypeDiagnosticKind::EscapingFromScope { ty, scope } => {
-                note = Some(format!(
-                    "every fiber has ended once `{scope}` returns, so the value would be of no use outside it"
-                ));
-                (
-                    Severity::Error,
-                    Some(code::ESCAPING_FROM_SCOPE),
-                    format!("a `{ty}` cannot leave the `{scope}` that started it"),
-                )
-            }
             TypeDiagnosticKind::OpTypeParams { op } => (
                 Severity::Error,
                 Some(code::OP_TYPE_PARAMS),
@@ -1546,6 +1674,45 @@ impl Diagnostic {
                     ),
                 };
                 (Severity::Error, Some(code::NOT_IMMEDIATE), message)
+            }
+            TypeDiagnosticKind::CallbackCapabilities { caps, callee } => {
+                help = Some(
+                    "finish the work on the host side, or hand it to a fiber through a `Queue`"
+                        .to_owned(),
+                );
+                let list = quoted_list("capability", "capabilities", caps);
+                let ended = match caps.as_slice() {
+                    [one] => format!("`{one}` has"),
+                    _ => "they have".to_owned(),
+                };
+                (
+                    Severity::Error,
+                    Some(code::CALLBACK_EFFECT),
+                    format!(
+                        "{list} cannot be used by a callback of external function `{callee}`: the host may call it after {ended} ended"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::BorrowedPosition => (
+                Severity::Error,
+                Some(code::BORROWED_POSITION),
+                "`@borrowed` can only be written on a parameter of function type of an external function"
+                    .to_owned(),
+            ),
+            TypeDiagnosticKind::CallbackEffects { effects, callee } => {
+                help = Some(
+                    "capture the capability of a named item (`with g = H { ... }`) and call its operations".to_owned(),
+                );
+                let list = quoted_list("effect", "effects", effects);
+                let message = match callee {
+                    Some(callee) => format!(
+                        "{list} cannot be used by a callback of external function `{callee}`: the host calls it without handlers"
+                    ),
+                    None => format!(
+                        "{list} cannot be in the `uses` of a callback: the host calls it without handlers"
+                    ),
+                };
+                (Severity::Error, Some(code::CALLBACK_EFFECT), message)
             }
             TypeDiagnosticKind::SetAsType => (
                 Severity::Error,
@@ -1674,6 +1841,24 @@ impl Diagnostic {
                     "`Immediate` can only constrain effect sets, but `{param}` is not used in `uses`"
                 ),
             ),
+            TypeDiagnosticKind::CapabilityOnSet { param, set } => (
+                Severity::Error,
+                Some(code::CAPABILITY_ON_SET),
+                format!(
+                    "`Capability` can only constrain ordinary type parameters, but `{param}` is \
+                     used in `{}`",
+                    match set {
+                        SetKind::Errors => "fails",
+                        // A set of capabilities is never written as a type parameter.
+                        SetKind::Effects | SetKind::Caps => "uses",
+                    }
+                ),
+            ),
+            TypeDiagnosticKind::AutoTraitImpl { trait_name } => (
+                Severity::Error,
+                Some(code::AUTO_TRAIT_IMPL),
+                format!("`{trait_name}` is determined automatically and cannot be implemented"),
+            ),
         };
         let mut out = Diagnostic::new(severity, message);
         if let Some(code) = code {
@@ -1681,6 +1866,9 @@ impl Diagnostic {
         }
         if let Some(span) = span {
             out = out.with_span(span);
+        }
+        if let Some((at, message)) = label {
+            out = out.with_label(at, message);
         }
         if let Some(note) = note {
             out = out.with_note(note);

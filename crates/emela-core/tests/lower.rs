@@ -1,6 +1,6 @@
 //! Tests for lowering (`emela_core::lower`).
 
-mod support;
+use crate::support;
 
 use emela_core::{EnumDef, Expr, Module, Roots, Type, TypeId, VariantFields, dump};
 use support::{lower_files, try_lower, try_lower_with};
@@ -813,8 +813,7 @@ import Std.Deferred.{Deferred}
 effect Log { fn info(msg: String) -> () }
 
 fn main() -> Int uses { Log, Async } {
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     a = s.fork(|| (use Log).info(\"a\"))
     b = Fiber.fork(|| 2)
     d = s.deferred()
@@ -870,7 +869,7 @@ fn passed(q: Queue[String]) -> String fails QueueClosed uses { Async } {
 }
 
 fn main() -> Int fails QueueClosed uses { Log, Async } {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     s = Fiber.semaphore(2)
     q = Fiber.queue(1)
     passed(q)

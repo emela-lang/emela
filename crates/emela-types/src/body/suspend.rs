@@ -54,6 +54,7 @@ impl BodyInfer<'_> {
             let callee = program.defs[def].name.clone();
             // An external function's invisible sets (`R(f)`) are callback Rs. Written type
             // parameters are reported as bounds.
+            let borrowed = external && self.borrowed_param(def, &p.name);
             let source = if external && p.name.contains('(') {
                 ImmediateSource::ExternalCallback { callee }
             } else {
@@ -67,8 +68,27 @@ impl BodyInfer<'_> {
                 span,
                 owner: self.current,
                 source,
+                borrowed,
             });
         }
+    }
+
+    /// Whether the parameter of the external function `def` that the invisible set `set` (`R(f)`)
+    /// belongs to is `@borrowed` (`[ext.boundary]`).
+    fn borrowed_param(&self, def: DefId, set: &str) -> bool {
+        let program = self.program;
+        let Some(Item::Fn(f)) = program.item(def) else {
+            return false;
+        };
+        let name = set
+            .split_once('(')
+            .map(|(_, rest)| rest.trim_end_matches(')'))
+            .and_then(|rest| rest.split(',').next())
+            .unwrap_or_default();
+        f.sig
+            .params
+            .iter()
+            .any(|p| p.borrowed.is_some() && program.locals[p.local].name == name)
     }
 
     /// Checks that the recorded sets are Immediate (E0416). Call after sets are solved.
@@ -79,8 +99,61 @@ impl BodyInfer<'_> {
             let params = ob.owner.map(|d| self.def_params(d)).unwrap_or_default();
             let mut effects: Vec<SmolStr> = Vec::new();
             let mut sets: Vec<SmolStr> = Vec::new();
+            // The R of a callback cannot contain an effect, since the host passes no handlers
+            // (`[ext.boundary]`). A capability is allowed: the callback reaches its handler
+            // through it. Host effects (Async) are left to the check of Immediate.
+            let mut callback: Vec<SmolStr> = Vec::new();
+            if let ImmediateSource::ExternalCallback { .. } = &ob.source {
+                for e in row.elems() {
+                    if let RowElem::Tag(effect) = e
+                        && !program.is_host_effect(effect.def)
+                    {
+                        let name = program.defs[effect.def].name.clone();
+                        if !callback.contains(&name) {
+                            callback.push(name);
+                        }
+                    }
+                }
+            }
+            // Nor a capability, since the host may keep the callback after the with of the
+            // capability has ended, unless the parameter is `@borrowed`.
+            if let ImmediateSource::ExternalCallback { callee } = &ob.source
+                && !ob.borrowed
+            {
+                let mut caps: Vec<SmolStr> = Vec::new();
+                for c in row.caps() {
+                    if matches!(c.id, crate::row::CapId::Named { .. }) {
+                        continue;
+                    }
+                    if !caps.contains(&c.name) {
+                        caps.push(c.name.clone());
+                    }
+                }
+                if !caps.is_empty() {
+                    self.diags.push(Diagnostic {
+                        span: Some(ob.span),
+                        kind: DiagnosticKind::CallbackCapabilities {
+                            caps,
+                            callee: callee.clone(),
+                        },
+                    });
+                }
+            }
+            if !callback.is_empty() {
+                let ImmediateSource::ExternalCallback { callee } = &ob.source else {
+                    unreachable!("only callbacks are collected");
+                };
+                self.diags.push(Diagnostic {
+                    span: Some(ob.span),
+                    kind: DiagnosticKind::CallbackEffects {
+                        effects: callback.clone(),
+                        callee: Some(callee.clone()),
+                    },
+                });
+            }
             for e in row.elems() {
                 match e {
+                    RowElem::Tag(effect) if callback.contains(&program.defs[effect.def].name) => {}
                     // A capability counts as its effect (`[effect.use]`).
                     RowElem::Tag(effect) | RowElem::Cap(CapElem { tag: effect, .. })
                         if !is_immediate_effect(program, effect.def) =>
@@ -328,6 +401,7 @@ pub(super) fn resume_escapes(infer: &BodyInfer<'_>, body: ExprId, resume: LocalI
         program: infer.program,
         sigs: infer.sigs,
         ty_table: infer.ty_table,
+        insts: infer.items_insts(),
         resume,
         escapes: false,
     }
@@ -338,6 +412,7 @@ struct Walker<'a> {
     program: &'a Program,
     sigs: &'a Signatures,
     ty_table: &'a TyTable,
+    insts: super::items::ItemsInsts<'a>,
     resume: LocalId,
     escapes: bool,
 }
@@ -467,8 +542,14 @@ impl Walker<'_> {
                 self.expr(*base, in_lambda);
             }
             ExprKind::With { handlers, body } => {
-                let args =
-                    crate::layer::evaluated_args(program, self.sigs, self.ty_table, handlers);
+                let insts = self.insts.of(expr, handlers);
+                let args = crate::layer::evaluated_args(
+                    program,
+                    self.sigs,
+                    self.ty_table,
+                    handlers,
+                    &insts,
+                );
                 for arg in args {
                     self.expr(arg, in_lambda);
                 }

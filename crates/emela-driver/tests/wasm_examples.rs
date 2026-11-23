@@ -12,7 +12,7 @@
 //! Needs node (`EMELA_JS_HOST` or `node`) and wasmtime 49 or later (`EMELA_WASMTIME` or `wasmtime`);
 //! without wasmtime the tests are skipped with a message.
 
-mod wasm_common;
+use crate::wasm_common;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
