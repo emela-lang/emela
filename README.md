@@ -168,8 +168,7 @@ $ emela test
 
 Each command takes a project directory or an entry file, and defaults to `.`.
 `run`, `build` and `test` take `--target js` (the default), `--target native`, which
-builds an executable for this machine with its C compiler (`--target c` is a
-deprecated name, removed in 0.29), or `--target wasm`, which
+builds an executable for this machine with its C compiler, or `--target wasm`, which
 writes a WASI 0.3 component `main.wasm` (`target/emela/wasm`) and runs it with `wasmtime`;
 `[build] target = "..."` in `Pome.toml` changes the default. JS and WASM run
 every construct of the language. The native target does not have `String.length`,

@@ -239,5 +239,4 @@ pub const CC_FAILED: &str = "E0908";
 pub const WASMTIME_UNAVAILABLE: &str = "E0909";
 /// `EMELA_NODE` was read to choose the JS host (`[cmd.build]`).
 pub const NODE_ENV_DEPRECATED: &str = "W0902";
-/// The build target `c`, a deprecated name of `native` (`[target.native]`).
-pub const DEPRECATED_TARGET: &str = "W0903";
+// W0903 is retired with the build target `c` in 0.29 (`[target.native]`).

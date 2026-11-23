@@ -143,25 +143,14 @@ enum TargetArg {
     Native,
     /// WebAssembly (WASI) run with `wasmtime` (`EMELA_WASMTIME`)
     Wasm,
-    /// The deprecated name of `native` (`[target.native]`): W0903, removed in 0.29
-    #[value(hide = true)]
-    C,
 }
 
 impl TargetArg {
-    /// The target, after printing W0903 for the deprecated `c` (`[target.native]`).
     fn select(self) -> Target {
         match self {
             TargetArg::Js => Target::Js,
             TargetArg::Native => Target::Native,
             TargetArg::Wasm => Target::Wasm,
-            TargetArg::C => {
-                print_diagnostics(
-                    &[emela_driver::deprecated_target_warning()],
-                    &SourceDb::new(),
-                );
-                Target::Native
-            }
         }
     }
 }
@@ -727,14 +716,10 @@ fn js_host(target: Target) -> PathBuf {
 /// the project that contains `path`; `Pome.toml` is not read when `--target` is given, so a broken
 /// manifest does not stop the report.
 fn doctor(path: &Path, target: Option<TargetArg>, format: DoctorFormatArg) -> ExitCode {
-    let mut sources = SourceDb::new();
     let required = match target {
         Some(target) => Some(target.select()),
-        None => match emela_driver::enclosing_project_target(&OsFs, path, &mut sources) {
-            Ok((target, warnings)) => {
-                print_diagnostics(&warnings, &sources);
-                target
-            }
+        None => match emela_driver::enclosing_project_target(&OsFs, path) {
+            Ok(target) => target,
             Err(diagnostic) => {
                 print_diagnostics(&[diagnostic], &SourceDb::new());
                 return ExitCode::from(DIAGNOSTIC_FAILURE);

@@ -23,7 +23,7 @@ Experimental features:
 
 Build target and output directory:
 
-- `build`, `run`, and `test` select the build target with `--target <js|native|wasm>`. `--target c` selects `native` and reports W0903. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `js` (`[module.pome]`). `check` takes no build target.
+- `build`, `run`, and `test` select the build target with `--target <js|native|wasm>`. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `js` (`[module.pome]`). `check` takes no build target.
 - The default output directory of `build` and `run` is `target/emela/<target>` (`target/emela/js`, `target/emela/native`, `target/emela/wasm`) in the project (in single-file mode, in the directory that contains the file). The default output directory of `test` is as in `[cmd.test.out-dir]`. `--out-dir` changes the output directory of `build` and `run` for every target.
 - Giving `build` or `run` a file inside the test root is a compile error (E0208, ``... is under the test root, which only check and test read``). `build` and `run` do not read the test root.
 
