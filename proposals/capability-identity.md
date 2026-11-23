@@ -235,6 +235,22 @@ with replica = ReplicaDb {
 }
 ```
 
+### `self`
+
+- 操作の本体と release の中の `self` は，その handler の capability として数える．`self` は，capability にフィールドを読む力を足したもの．
+- `self` のフィールドを読むことは，その capability を使うこととして R に入る．操作が返す closure がフィールドを読むと，closure の R にその capability が入り，with の外へ出すと E04xx になる．
+- `self` を `use E` の引数に渡せる．渡した先では，ほかの capability と同じく操作を呼べるが，フィールドには触れない．
+
+```emel
+handler SystemFiles: Files {
+  handler Open(handle: Handle): ReadFile {
+    init(path: String) { Self(handle: host_open(path)) }
+    release { host_close(self.handle) }
+    fn reader(resume) { resume(|| host_read(self.handle)) } # closure の R は，この handler の capability
+  }
+}
+```
+
 ### host の callback
 
 - 外部関数の引数と戻り値の callback は，既定では host が持ち続けるものとする．host は外部関数が返った後にも呼べるので，callback の R に capability を入れられない（E0454 を capability にも広げる）．
@@ -348,7 +364,6 @@ with replica = ReplicaDb {
 ## Open questions
 
 - LSP の hover で capability の集合をどう表示するか．
-- handler の操作の中の `self` を，その handler の capability と見るか．`self` はフィールドに触れるので，capability より多くのことができる．
 - 名前のない `use E` の値を，なくす代わりに「型引数が effect の名前に決まった capability の値」（呼んだ時点で解決する値）にする手もある．内側で同じ E を上書きした with で使う 18 箇所の意味が変わる．
 - deprecation の版．W0403 は 0.29 に入る．`use E` の式をエラーにするのを 0.30 にするか，この proposal の実装（広げることの警告）を待つか．#666 の 0.29（capture checking を既定にし，W0402 と実行時の検査を外す）を capability について取り下げるか．
 - 外部関数の引数に付ける「その場でしか呼ばない」印の書き方（属性の名前）．
