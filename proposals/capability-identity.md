@@ -237,6 +237,13 @@ with replica = ReplicaDb {
 }
 ```
 
+### `Capability` trait
+
+- `[C: Capability]`（`capability-trait`）はそのまま使える．C はトップレベル関数の型引数なので，呼ぶたびに渡した capability の型に，集合ごと決まる（`close[C: Capability](item: C)` に f を渡せば，C は f の capability）．
+- 関数型の中の `use E` を量化する規則は，`use E` と書いた場所にだけ効き，`[C: Capability]` には関係しない．
+- capability を持つ型（`uses E` で宣言した型）は `Capability` を満たさない．capability そのものではなく，操作も呼べない．
+- ふつうの型引数（`[A]`）も capability の型を受け取れる（`List[use ReadFile]`）．`Capability` はそれを capability に限る．
+
 ### `self`
 
 - 操作の本体と release の中の `self` は，その handler の capability として数える．`self` は，capability にフィールドを読む力を足したもの．
@@ -376,7 +383,6 @@ handler SystemFiles: Files {
 
 - LSP の hover で capability の集合をどう表示するか．
 - 外部関数の引数に付ける「その場でしか呼ばない」印の書き方（属性の名前）．
-- `[C: Capability]`（`capability-trait`）はそのまま使えるか．#651 の `close[C: Capability](item: C)` を確かめる．
 - capability を effect の名前に広げられないことで書けなくなるコードがどれだけあるか．
 - 日本語の訳．用語集は capability を「能力」と訳している．定義を変えるのに合わせて訳を見直すか．
 
