@@ -17,8 +17,8 @@ static int32_t e3_nap(int32_t v0, em_ref v1);
 static int32_t e3_nap_sm(em_ref em_fr, em_word em_in, int32_t v0, em_ref v1);
 static em_word e3_nap_resume(em_ref, em_word);
 static void e4_print(em_ref v0);
-static int32_t e5_main_closure0(em_ref v0, em_ref v1);
-static int32_t e5_main_closure0_sm(em_ref em_fr, em_word em_in, em_ref v0, em_ref v1);
+static int32_t e5_main_closure0(em_ref v0, em_ref v1, em_ref v2);
+static int32_t e5_main_closure0_sm(em_ref em_fr, em_word em_in, em_ref v0, em_ref v1, em_ref v2);
 static em_word e5_main_closure0_resume(em_ref, em_word);
 static int32_t e6_main_closure1(em_ref v0, em_ref v1);
 static int32_t e6_main_closure1_sm(em_ref em_fr, em_word em_in, em_ref v0, em_ref v1);
@@ -68,12 +68,14 @@ static const uint8_t em_r10[] = {0, 1};
 static const em_desc em_d10 = {EM_KIND_FIELDS, 2, 0, -1, "main", NULL, em_r10};
 static const uint8_t em_r11[] = {0, 1, 1, 1, 1};
 static const em_desc em_d11 = {EM_KIND_FIELDS, 5, 0, -1, "Scope", NULL, em_r11};
-static const uint8_t em_r12[] = {0, 0, 1};
-static const em_desc em_d12 = {EM_KIND_FIELDS, 3, 0, -1, "main", NULL, em_r12};
-static const uint8_t em_r13[] = {0, 0, 1, 1, 1};
-static const em_desc em_d13 = {EM_KIND_FIELDS, 5, 0, -1, "Std.Fiber.fork", NULL, em_r13};
-static const uint8_t em_r14[] = {0, 0, 1, 1};
-static const em_desc em_d14 = {EM_KIND_FIELDS, 4, 0, -1, "Std.Fiber.fork", NULL, em_r14};
+static const uint8_t em_r12[] = {0, 0, 1, 1, 1, 1};
+static const em_desc em_d12 = {EM_KIND_FIELDS, 6, 0, -1, "main", NULL, em_r12};
+static const uint8_t em_r13[] = {0, 0, 1};
+static const em_desc em_d13 = {EM_KIND_FIELDS, 3, 0, -1, "main", NULL, em_r13};
+static const uint8_t em_r14[] = {0, 0, 1, 1, 1};
+static const em_desc em_d14 = {EM_KIND_FIELDS, 5, 0, -1, "Std.Fiber.fork", NULL, em_r14};
+static const uint8_t em_r15[] = {0, 0, 1, 1};
+static const em_desc em_d15 = {EM_KIND_FIELDS, 4, 0, -1, "Std.Fiber.fork", NULL, em_r15};
 
 /* main */
 static void e0_main_sm(em_ref em_fr, em_word em_in) {
@@ -162,10 +164,8 @@ static em_ref e2_Std_Fiber_fork_suspend4_Int_______suspends__ev__(em_ref v0, em_
   v4 = em_alloc(&em_d6, 2);
   v4->slots[0] = (em_word){.fn = (em_fnptr)e15_Std_Fiber_fork_suspend4_Int_______suspends__ev__};
   v4->slots[1] = (em_word){.p = v3};
-  if (em_handler_ok(v2)) {
+  {
     v5 = ((em_ref (*)(em_ref, em_ref))em_closure_fn(v2->slots[1].p))(v2->slots[1].p, v4);
-  } else {
-    em_drop(v4);
   }
   if (em_defect != NULL) {
     em_drop(v2);
@@ -213,7 +213,7 @@ em_r0:;
     em_drop(v2);
     return 0;
   }
-  if (em_handler_ok(v2)) {
+  {
     em_ref rs = em_resume_new(v2, "sleep", EM_REPR_I32);
     ((void (*)(em_ref, int32_t, em_ref))em_closure_fn(v2->slots[1].p))(v2->slots[1].p, v0, rs);
     em_word pw = em_perform_end(rs);
@@ -254,91 +254,92 @@ static void e4_print(em_ref v0) {
 }
 
 /* main$closure0 */
-static int32_t e5_main_closure0_sm(em_ref em_fr, em_word em_in, em_ref v0, em_ref v1) {
-  em_ref v2 = 0;
+static int32_t e5_main_closure0_sm(em_ref em_fr, em_word em_in, em_ref v0, em_ref v1, em_ref v2) {
   em_ref v3 = 0;
-  int32_t v4 = 0;
+  em_ref v4 = 0;
   int32_t v5 = 0;
   int32_t v6 = 0;
+  int32_t v7 = 0;
   if (em_fr != NULL) {
     switch (em_fr->slots[1].i) {
     case 0:
-      v1 = em_fr->slots[3].p;
-      v3 = em_fr->slots[4].p;
+      v2 = em_fr->slots[3].p;
+      v4 = em_fr->slots[4].p;
       em_frame_free(em_fr);
       goto em_r0;
     case 1:
-      v3 = em_fr->slots[3].p;
-      em_frame_free(em_fr);
-      v4 = em_in.i;
-      goto em_r1;
-    case 2:
-      v3 = em_fr->slots[3].p;
-      v4 = em_fr->slots[4].i;
+      v4 = em_fr->slots[3].p;
       em_frame_free(em_fr);
       v5 = em_in.i;
+      goto em_r1;
+    case 2:
+      v4 = em_fr->slots[3].p;
+      v5 = em_fr->slots[4].i;
+      em_frame_free(em_fr);
+      v6 = em_in.i;
       goto em_r2;
     default:
       em_unreachable();
     }
   }
-  v2 = ((em_ref)&em_k2);
-  em_dup(v1);
-  v3 = e2_Std_Fiber_fork_suspend4_Int_______suspends__ev__(v2, v1);
+  em_drop(v1);
+  v3 = ((em_ref)&em_k2);
+  em_dup(v2);
+  v4 = e2_Std_Fiber_fork_suspend4_Int_______suspends__ev__(v3, v2);
   if (em_defect != NULL) {
-    em_drop(v1);
+    em_drop(v2);
     return 0;
   }
   em_yield(false);
   if (em_suspending) {
     em_ref fr = em_frame_new(&em_d8, e5_main_closure0_resume, 0, 2);
-    fr->slots[3] = (em_word){.p = v1};
-    fr->slots[4] = (em_word){.p = v3};
+    fr->slots[3] = (em_word){.p = v2};
+    fr->slots[4] = (em_word){.p = v4};
     em_frame_push(fr);
     return 0;
   }
 em_r0:;
   if (em_defect != NULL) {
-    em_drop(v1);
-    em_drop(v3);
+    em_drop(v2);
+    em_drop(v4);
     return 0;
   }
-  v4 = e3_nap(2, v1);
+  v5 = e3_nap(2, v2);
   if (em_suspending) {
     em_ref fr = em_frame_new(&em_d2, e5_main_closure0_resume, 1, 1);
-    fr->slots[3] = (em_word){.p = v3};
+    fr->slots[3] = (em_word){.p = v4};
     em_frame_push(fr);
     return 0;
   }
 em_r1:;
   if (em_defect != NULL) {
-    em_drop(v3);
+    em_drop(v4);
     return 0;
   }
-  v5 = em_fiber_join(v3, EM_REPR_I32).i;
+  v6 = em_fiber_join(v4, EM_REPR_I32).i;
   if (em_suspending) {
     em_ref fr = em_frame_new(&em_d9, e5_main_closure0_resume, 2, 2);
-    fr->slots[3] = (em_word){.p = v3};
-    fr->slots[4] = (em_word){.i = v4};
+    fr->slots[3] = (em_word){.p = v4};
+    fr->slots[4] = (em_word){.i = v5};
     em_frame_push(fr);
     return 0;
   }
 em_r2:;
   if (em_defect != NULL) {
-    em_drop(v3);
+    em_drop(v4);
     return 0;
   }
-  em_drop(v3);
-  v6 = em_iadd(v4, v5);
-  return v6;
+  em_drop(v4);
+  v7 = em_iadd(v5, v6);
+  return v7;
 }
-static int32_t e5_main_closure0(em_ref v0, em_ref v1) {
-  return e5_main_closure0_sm(NULL, (em_word){.l = 0}, v0, v1);
+static int32_t e5_main_closure0(em_ref v0, em_ref v1, em_ref v2) {
+  return e5_main_closure0_sm(NULL, (em_word){.l = 0}, v0, v1, v2);
 }
 static em_word e5_main_closure0_resume(em_ref fr, em_word in) {
   em_word out;
   out.l = 0;
-  out.i = e5_main_closure0_sm(fr, in, NULL, NULL);
+  out.i = e5_main_closure0_sm(fr, in, NULL, NULL, NULL);
   return out;
 }
 
@@ -357,7 +358,8 @@ static int32_t e6_main_closure1_sm(em_ref em_fr, em_word em_in, em_ref v0, em_re
     switch (em_fr->slots[1].i) {
     case 0:
       v3 = em_fr->slots[3].p;
-      v9 = em_fr->slots[4].p;
+      v8 = em_fr->slots[4].p;
+      v9 = em_fr->slots[5].p;
       em_frame_free(em_fr);
       goto em_r0;
     case 1:
@@ -396,23 +398,26 @@ static int32_t e6_main_closure1_sm(em_ref em_fr, em_word em_in, em_ref v0, em_re
   v8->slots[2] = (em_word){.p = v5};
   v8->slots[3] = (em_word){.p = v6};
   v8->slots[4] = (em_word){.p = v7};
+  em_dup(v8);
   v9 = em_ev_new(v2, 1);
   em_ev_set(v9, 1, 0, 1, v8);
   em_yield(false);
   if (em_suspending) {
-    em_ref fr = em_frame_new(&em_d8, e6_main_closure1_resume, 0, 2);
+    em_ref fr = em_frame_new(&em_d12, e6_main_closure1_resume, 0, 3);
     fr->slots[3] = (em_word){.p = v3};
-    fr->slots[4] = (em_word){.p = v9};
+    fr->slots[4] = (em_word){.p = v8};
+    fr->slots[5] = (em_word){.p = v9};
     em_frame_push(fr);
     return 0;
   }
 em_r0:;
   if (em_defect != NULL) {
     em_drop(v3);
+    em_drop(v8);
     em_drop(v9);
     return 0;
   }
-  v10 = ((int32_t (*)(em_ref, em_ref))em_closure_fn(v3))(v3, v9);
+  v10 = ((int32_t (*)(em_ref, em_ref, em_ref))em_closure_fn(v3))(v3, v8, v9);
   if (em_suspending) {
     em_ref fr = em_frame_new(&em_d2, e6_main_closure1_resume, 1, 1);
     fr->slots[3] = (em_word){.p = v3};
@@ -602,7 +607,7 @@ em_r0:;
   }
   v2 = e3_nap(1, v1);
   if (em_suspending) {
-    em_ref fr = em_frame_new(&em_d12, e12_main_closure0_closure0_resume, 1, 0);
+    em_ref fr = em_frame_new(&em_d13, e12_main_closure0_closure0_resume, 1, 0);
     em_frame_push(fr);
     return 0;
   }
@@ -665,7 +670,7 @@ static int32_t e14_Std_Fiber_fork_suspend4_Int_______suspends__ev___sm(em_ref em
   em_ev_set(v4, 1, 0, 1, v2);
   em_yield(false);
   if (em_suspending) {
-    em_ref fr = em_frame_new(&em_d13, e14_Std_Fiber_fork_suspend4_Int_______suspends__ev___resume, 0, 2);
+    em_ref fr = em_frame_new(&em_d14, e14_Std_Fiber_fork_suspend4_Int_______suspends__ev___resume, 0, 2);
     fr->slots[3] = (em_word){.p = v3};
     fr->slots[4] = (em_word){.p = v4};
     em_frame_push(fr);
@@ -679,7 +684,7 @@ em_r0:;
   }
   v5 = ((int32_t (*)(em_ref, em_ref))em_closure_fn(v3))(v3, v4);
   if (em_suspending) {
-    em_ref fr = em_frame_new(&em_d14, e14_Std_Fiber_fork_suspend4_Int_______suspends__ev___resume, 1, 1);
+    em_ref fr = em_frame_new(&em_d15, e14_Std_Fiber_fork_suspend4_Int_______suspends__ev___resume, 1, 1);
     fr->slots[3] = (em_word){.p = v3};
     em_frame_push(fr);
     return 0;
@@ -728,7 +733,7 @@ static em_ref e15_Std_Fiber_fork_suspend4_Int_______suspends__ev___sm(em_ref em_
   em_dup(v2);
   em_yield(false);
   if (em_suspending) {
-    em_ref fr = em_frame_new(&em_d13, e15_Std_Fiber_fork_suspend4_Int_______suspends__ev___resume, 0, 2);
+    em_ref fr = em_frame_new(&em_d14, e15_Std_Fiber_fork_suspend4_Int_______suspends__ev___resume, 0, 2);
     fr->slots[3] = (em_word){.p = v1};
     fr->slots[4] = (em_word){.p = v2};
     em_frame_push(fr);
@@ -742,7 +747,7 @@ em_r0:;
   }
   v4 = ((int32_t (*)(em_ref, em_ref))em_closure_fn(v2))(v2, v1);
   if (em_suspending) {
-    em_ref fr = em_frame_new(&em_d14, e15_Std_Fiber_fork_suspend4_Int_______suspends__ev___resume, 1, 1);
+    em_ref fr = em_frame_new(&em_d15, e15_Std_Fiber_fork_suspend4_Int_______suspends__ev___resume, 1, 1);
     fr->slots[3] = (em_word){.p = v2};
     em_frame_push(fr);
     return 0;

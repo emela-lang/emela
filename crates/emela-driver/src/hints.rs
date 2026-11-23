@@ -341,7 +341,7 @@ fn determined(ty: &Ty) -> bool {
 /// Capability values, inference variables and broken types are not shown.
 fn shows(ty: &Ty) -> bool {
     match ty {
-        Ty::Cap(_) | Ty::Var(_) | Ty::Error => false,
+        Ty::Cap(..) | Ty::Var(_) | Ty::Error => false,
         Ty::Fn(f) => f.params.iter().all(shows) && shows(&f.ret),
         Ty::Tuple(tys) | Ty::Named(_, tys) => tys.iter().all(shows),
         Ty::List(t) => shows(t),

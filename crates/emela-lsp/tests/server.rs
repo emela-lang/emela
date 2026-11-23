@@ -1150,7 +1150,7 @@ fn hover_shows_types_and_errors() {
     // of function arguments.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 8)),
-        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n  holds: xs\n```"
+        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n```"
     );
     // A position with nothing there.
     assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);
@@ -1232,7 +1232,7 @@ fn hover_shows_effects() {
     // A local variable holding a capability, provided by the caller (`[lsp.hover]`).
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 2)),
-        "```emela\nlog: use Logger\n  holds: Logger\n```"
+        "```emela\nlog: use Logger\ncapabilities: Logger\n```"
     );
     // An operation call expression shows its type and R.
     assert_eq!(
@@ -1255,8 +1255,9 @@ fn hover_shows_effects() {
     client.shutdown();
 }
 
-/// `[lsp.hover]`, `[type.fn]`: what a function or a value may hold, as a line `holds: ...`, each
-/// root with the `with` that provides it; and the capabilities in the R of a closure.
+/// `[lsp.hover]`, `[type.rules]`: the capabilities the type of a value records, as a line
+/// `capabilities: ...`: the variables of named items, the handler of an item without a name; and
+/// the capabilities in the R of a closure by the same names.
 #[test]
 fn hover_shows_what_values_hold() {
     let src = "\
@@ -1268,15 +1269,19 @@ handler PrimaryDb: Db {
   fn query(q) { 1 }
 }
 
-fn pick(primary: fn() -> Int, replica: fn() -> Int, write: Bool) -> fn() -> Int {
-  if write { primary } else { replica }
+handler ReplicaDb: Db {
+  fn query(q) { 2 }
 }
 
 fn main() {
+  with x = PrimaryDb, y = ReplicaDb {
+    dbs = [x, y]
+    f = || x.query(\"x\")
+    n = f()
+    ()
+  }
   with PrimaryDb {
     p = use Db
-    f = || p.query(\"x\")
-    n = f()
     ()
   }
 }
@@ -1287,16 +1292,22 @@ fn main() {
         Some(lsp::HoverContents::Markup(m)) => m.value,
         other => panic!("{other:?}"),
     };
-    let pick = text(client.hover("/app/src/main.emel", 8, 4));
-    assert!(pick.ends_with("\n  holds: primary, replica\n```"), "{pick}");
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 14, 4)),
+        "```emela\ndbs: List[use Db]\ncapabilities: x, y\n```"
+    );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 15, 4)),
-        "```emela\nf: fn() -> Int uses { p }\n  holds: p (with PrimaryDb, line 14)\n```"
+        "```emela\nf: fn() -> Int uses { x }\n```"
     );
-    // A value whose type cannot contain a capability holds nothing.
+    // A value whose type cannot contain a capability records none.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 16, 4)),
         "```emela\nn: Int\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 20, 4)),
+        "```emela\np: use Db\ncapabilities: PrimaryDb\n```"
     );
     client.shutdown();
 }
@@ -1333,7 +1344,7 @@ fn pick(dbs: List[use Db]) -> Option[use Db] {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 4, 15)),
-        "```emela\nfrom: use Db\n  holds: from\n```"
+        "```emela\nfrom: use Db\ncapabilities: from\n```"
     );
     let pick = text(client.hover("/app/src/main.emel", 8, 4));
     assert!(
@@ -1504,7 +1515,7 @@ fn hover_shows_effect_type_args() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 3)),
-        "```emela\ncell: use Cell[Int]\n  holds: Cell\n```"
+        "```emela\ncell: use Cell[Int]\ncapabilities: Cell\n```"
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 10, 8)),

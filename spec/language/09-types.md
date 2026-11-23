@@ -51,7 +51,7 @@ fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
 
 - Inside declarations, an omitted clause is empty so that no set variable is created that does not appear in the type's name. That `Handler` can have effects is visible in its type parameters, as `Handler[E, R]`.
 - Whether a type parameter is an ordinary type, an error set, or an effect set is inferred from the position where it is used (`fails E`, `uses { R }`). There is no syntax for writing kinds. A type parameter passed to a set type parameter position of a named type (E in `type Server[E](inner: Handler[E, Db])`, E and R in `fn serve[E, R](h: Handler[E, R])`) and a type parameter in a set type parameter position of a built-in effect written in a uses clause (`uses { Scope[E, R] }`) are also sets.
-- The `uses` of a function type can contain capabilities as well as effects (`fn() -> Rows uses { primary }`). They are inferred and shown by the language server, and are not written in source.
+- The `uses` of a function type can contain capabilities as well as effects (`fn() -> Rows uses { primary }`, 9.4). They are inferred and shown by the language server, and are not written in source.
 - A set can be passed to a set type parameter of a named type. The notation matches the fails clause (`A | B`) and the uses clause (`{ A, B }`): `Handler[NotFound | Timeout, { Db, Log }]`, `Handler[{}, {}]`, `Handler[E | Timeout, { R, Log }]`.
 - A single element can be written without enclosing it (`Handler[NotFound, Db]`). Syntactically, it is read as a type. An empty `{}` can also be written in an error set position (the same as `fails {}`).
 - Which type parameters accept sets is not decided by the grammar but checked by type checking. A set of the wrong kind or an element that is not a set is a compile error (E0323), and a set in a type parameter position that is not for sets (`List[{}]`) is a compile error (E0324).
@@ -62,7 +62,7 @@ fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
 |---|---|---|
 | Return type | T and E are inferred | T is checked, and E is enforced to match the fails clause (7.4) |
 | fails clause | "No errors" if there is a return type | Enforces exactly that set |
-| uses clause | R is always inferred (even when a return type is written) | Enforces exactly that set. The effects of calling parameter functions (hidden set variables) are added (as for E in 7.4) |
+| uses clause | R is always inferred (even when a return type is written) | Enforces exactly that set. The effects of calling parameter functions (hidden set variables) are added (as for E in 7.4), and so are the sets of the capabilities in the parameter types (9.4) |
 
 A local fn (6.9) follows the same table. Its E and R are inferred as part of the enclosing body, and its type is not generalized.
 
@@ -98,17 +98,17 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `C(fi: ei, ..r)` | The type of C (type arguments are determined from ei and the fields carried over from r) | Ei ∪ Er | Ri ∪ Rr |
 | `fail e` | Never | { the tag of e } | {} |
 | `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. When there is an arm `_`, the E is Eei alone. 7.3) | Re ∪ Rei |
-| `use X` | `use X` | {} | { X } |
-| `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H)) ∪ requires(H) ∪ (R of the arguments of init) |
+| `use X` | `use X`, a capability of the name X (0.29 only, 8.2) | {} | { X } |
+| `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H) ∖ the capabilities of the items) ∪ requires(H) ∪ (R of the arguments of init) |
 | `with x = E.M(a) { e }` | The type of e | Ee ∪ Ea ∪ (E of the init of M) | Re ∪ { E } ∪ Ra |
 | `with x = c.M(a) { e }` | The type of e | Ee ∪ Ea ∪ (E of the init of M) | Re ∪ { c } ∪ Ra |
 | `E.M(a)`, `c.M(a)` inside an init | `use F` (F is the effect of M) | Ea ∪ (E of the init of M) | { E } or { c }, ∪ Ra |
-| `\|x\| e` | `fn(..) -> T fails Ee uses { Re }`, where Re keeps the captured capabilities as elements | {} | {} |
+| `\|x\| e` | `fn(..) -> T fails Ee uses { Re }`, where Re also has the capabilities in the types of the captured values | {} | {} |
 | `fn f(x: A) -> T { e }` (local fn, a statement) | Binds f to `fn(A) -> T fails Ee uses { Re }` | {} | {} |
 | `if c { a } else { b }` | The common type of a and b | Ec ∪ Ea ∪ Eb | Rc ∪ Ra ∪ Rb |
 | `e match { pi -> ei }` | The common type of the arms | Ee ∪ Eei | Re ∪ Rei |
 
-- A call `f(a)` adds to R the elements of the R of f, with each capability element that is a parameter replaced by the elements of the corresponding argument.
+- A call `f(a)` adds to R the elements of the R of f, with the set type parameter of each capability parameter replaced by the set of the corresponding argument.
 - An anonymous function and a local fn enclose the E and R of their bodies in their function types. They surface when the function is called. The R of the function is provided where the function is called, not where it is made. A reference to a local fn inside its own body has the type being inferred, and is not generalized.
 - Never can form a common type with any type. Even if one branch of an if or a match is a fail, the type of the whole is the type of the other branch.
 - When there is no expected type and the types of the branches do not match, the type of the first branch is reported as the expected type and the type of a later branch as the actual type (E0301), and checking continues with the type of the first branch as the type of the whole.
@@ -123,6 +123,19 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 - The E and the R of a function value only need to be contained in the E and the R of the expected function type. A function with a smaller E or R can be used as a function with a larger E or R. When functions with different Es or Rs are put together at a branch join or as list elements, the E and the R are their unions. The direction of containment is reversed inside the parameters of function types, is kept inside the elements of lists and tuples, and goes both ways (equality) inside the type arguments of named types.
 - When a function is passed to a parameter whose function type has two or more set type parameters in its fails (`fails E1 | E2`), the errors of the passed function that are not among the written-out tags go into the first set type parameter. This is an approximation, and later checks can report a compile error. The same applies to the uses clause (`uses { Quiet, R1, R2 }`).
 - E is represented as a union of tags and set variables. `∖ {Ti}` acts only on the tag part and leaves set variables as they are. Even if a set variable is later determined to be a concrete set, tags are not removed from it retroactively (an approximation that errs on the safe side).
+
+Capabilities (8.2, 8.3) are told apart in types and in R.
+
+- The elements of R are effects, declared labels and capabilities. Calling an operation of a capability adds that capability to R, and the with that made the capability removes it. A capability is not widened to its effect: an effect set that contains a capability is not included in an effect set that contains only the effect of the capability.
+- A capability type `use E` records a set of capabilities of E. The set is not written in source. Unification takes the union of sets, as for R; there is no general subtyping. Calling an operation of a value whose type has a set adds every capability of the set to R.
+- A parameter of type `use E` gives the function a type parameter that ranges over sets of capabilities of E, decided at each call by the argument. Two parameters give two type parameters. The same holds for a capability-bound type of E written in a parameter type (`fiber: Fiber[A]`, `fs: List[Fiber[A]]`). The result of a function can be a capability type; its set comes from the parameters.
+- The set of a capability type `use E` or a capability-bound type of E written in the result type of a function is the union of the sets of every capability of E in the parameter types (including those inside other types, `acc: List[use Db]`, and the hidden sets of fields). When no parameter has one, it is the name E. The set is decided by the signature, not by the body.
+- A capability type or a capability-bound type written in a field of a type, enum or error declaration (`type Pair(read: use Db, write: use Db)`, `error Leak(f: Fiber[Int])`) gives the declaration a hidden set type parameter for each place it is written. It is decided when a value is constructed, as a type argument is. An error records it in its tag in E, so an error whose field records a capability cannot leave the with that made the capability (8.6). The language server shows such a set as `C(read)`, by the name of the field.
+- `use E` or a capability-bound type written as a parameter of a function type (`fn(use ReadFile) -> String`, `fn(Fiber[Int]) -> ()`) is quantified at that function type. A closure checked against such a type receives an unknown set, which cannot be in its result. The set may be in its R, and is removed on the side that calls the closure. A closure without an expected type is not quantified: the set of its parameter is an ordinary set variable decided by its uses. A quantified type is never inferred; it is only checked against a written type.
+- If the type of a value that a closure or a local fn captures contains capabilities, including through capability-bound types, those capabilities are in the R of the function.
+- A type declaration or an enum declaration may have `uses E` after its fields, before `derive` (a capability-bound type, `@external pub type Fiber[A] uses Scope`, `enum Handle uses Scope { ... }`): its values live only while a capability of E does. An error declaration cannot have it. When an operation of a capability c of E returns a value of such a type, the type of the value records c; an operation called through the name of E records the name E. A value of such a type is treated as containing the capability.
+- A value of a capability-bound type of E can be constructed only inside a handler that implements E: in its init, its release and its operation bodies, including the anonymous functions inside them (E0458). The value records `self`, the capability of the handler (8.4). A constructor pattern does not make a value, so it can be written anywhere. An `@external` type cannot be constructed in Emela.
+- In 0.29, `use E` written as an expression is a capability of the name E in types (W0403). A with that provides E by name counts the name E in types as its own capability (8.6).
 
 ## 9.5 Constraints on effects `[type.effect-bound]`
 

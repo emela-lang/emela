@@ -64,7 +64,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
 
 fn main() -> () uses { Async } {
   with Ticks {
-    r = Fiber.scope(|| {
+    r = Fiber.scope(|_| {
       Fiber.fork(|| with Res { spin(100000) })
       Fiber.fork(|| {
         spin(1000)
@@ -75,7 +75,7 @@ fn main() -> () uses { Async } {
       1
     }) escape { Boom -> -1 }
     print("scope #{r}")
-    v = Fiber.scope(|| {
+    v = Fiber.scope(|_| {
       Fiber.fork(|| with Res { spin(100000) })
       spin(1000)
       2
@@ -84,7 +84,7 @@ fn main() -> () uses { Async } {
     print(show(Exit.attempt(|| boom())))
     print(show(Exit.attempt(|| panic("bad"))))
     print(show(Exit.attempt(|| fetch(1, 1))))
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       h = Fiber.fork(|| with Res { spin(100000) })
       spin(1000)
       Fiber.interrupt(h)
@@ -93,7 +93,7 @@ fn main() -> () uses { Async } {
       ok = Fiber.fork(|| 7)
       print("await #{show(Fiber.await(ok))}")
     })
-    raised = Fiber.scope(|| {
+    raised = Fiber.scope(|_| {
       Exit.attempt(|| boom()) match {
         Success(v) -> v
         Failure(c) -> Cause.raise(c)
@@ -101,7 +101,7 @@ fn main() -> () uses { Async } {
     }) escape { Boom -> -2 }
     print("raise #{raised}")
     e = Exit.attempt(|| {
-      Fiber.scope(|| {
+      Fiber.scope(|_| {
         Fiber.fork(|| {
           spin(500)
           fail NotFound(id: 1)
@@ -120,7 +120,7 @@ fn main() -> () uses { Async } {
     })
     print(show(e))
     d = Exit.attempt(|| {
-      Fiber.scope(|| {
+      Fiber.scope(|_| {
         Fiber.fork(|| {
           spin(500)
           panic("first")
@@ -135,7 +135,7 @@ fn main() -> () uses { Async } {
       })
     })
     print(show(d))
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       dd = Fiber.deferred()
       waiting = Fiber.fork(|| Deferred.await(dd))
       spin(1000)

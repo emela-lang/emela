@@ -999,9 +999,9 @@ fn main() {  # 補
     ));
 }
 
-/// 8.2 To use a specific handler's capability, pass the capability value (`use Db`).
-/// 8.3 A capability value taken outside still refers to the outer handler even when an inner
-/// `with` overrides it.
+/// 8.2 To use a specific handler's capability, pass the capability of a named item.
+/// 8.3 The capability of a named item keeps referring to its handler even when an inner `with`
+/// overrides the same effect.
 #[test]
 fn spec_8_2_copy() {
     insta::assert_snapshot!(render_bodies(
@@ -1028,10 +1028,8 @@ fn copy(from: use Db, to: use Db) {
 }
 
 fn main() {  # 補
-  with PrimaryDb {
-    primary = use Db
-    with ReplicaDb {
-      replica = use Db
+  with primary = PrimaryDb {
+    with replica = ReplicaDb {
       copy(replica, primary)
     }
   }
@@ -1267,8 +1265,8 @@ fn catch_all_guarded(c: Bool) -> Int {
     ));
 }
 
-/// 8.6 A closure that captures a capability and is the value of the `with` providing it is
-/// W0402 (`[effect.escape]`). A closure used up inside the `with` is fine.
+/// 8.6 A closure whose R contains the capability of a named item, as the value of the `with`
+/// that made it, is E0455 (`[effect.escape]`). A closure used up inside the `with` is fine.
 #[test]
 fn spec_8_6_capabilities_must_not_leak() {
     insta::assert_snapshot!(render_bodies(
@@ -1282,15 +1280,13 @@ handler ConsoleLogger: Logger {  # 補
 }
 
 fn make_greeter() {
-  with ConsoleLogger {
-    log = use Logger
-    || log.info("hi") # W0402: leaves the with while holding log (E0444 with `capture-checking`)
+  with log = ConsoleLogger {
+    || log.info("hi") # E0455: the R of the closure contains log, which leaves the with
   }
 }
 
 fn used_up(names: List[String]) {  # 補
-  with ConsoleLogger {
-    log = use Logger
+  with log = ConsoleLogger {
     List.map(names, |n| log.info(n))
   }
 }

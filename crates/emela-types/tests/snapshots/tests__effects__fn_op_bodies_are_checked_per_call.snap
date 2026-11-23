@@ -34,17 +34,17 @@ clock.now() |> (|x| x): Clock
 clock.now(): Clock
 {     clock = use Clock     later = || clock.sleep(1)     1   }: Clock
 use Clock: Clock
-clock.sleep(1): clock
+clock.sleep(1): Clock
 { (use Clock).now() }: Clock
 (use Clock).now(): Clock
 (use Clock).now: Clock
 use Clock: Clock
 { stamp() }: Clock
 stamp(): Clock
-{     clock = use Clock     f = || clock.now()     f()   }: { Clock, clock }
+{     clock = use Clock     f = || clock.now()     f()   }: Clock
 use Clock: Clock
-clock.now(): clock
-f(): clock
+clock.now(): Clock
+f(): Clock
 {     clock = use Clock     g = clock.now     g()   }: Clock
 use Clock: Clock
 g(): Clock

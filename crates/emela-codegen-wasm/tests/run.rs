@@ -662,42 +662,6 @@ fn main() {
 }
 
 #[test]
-fn a_released_handler_is_a_defect_when_used() {
-    let Some(run) = run(
-        "released-handler",
-        r#"
-effect Pool {
-  fn get() -> Int
-}
-
-handler PoolH: Pool {
-  init { PoolH }
-  release { () }
-  fn get() { 1 }
-}
-
-handler Spare: Pool {
-  init { Spare }
-  release { () }
-  fn get() { 2 }
-}
-
-fn main() {
-  f = with PoolH {
-    p = use Pool
-    || p.get()
-  }
-  with Spare { dbg(f()) }
-}
-"#,
-    ) else {
-        return;
-    };
-    assert_eq!(run.code, 101);
-    assert_eq!(run.stderr, "defect: handler PoolH was used after release\n");
-}
-
-#[test]
 fn notes_keep_the_order_the_defects_happened() {
     let Some(run) = run(
         "release-notes",

@@ -288,8 +288,7 @@ import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 fn main() -> Int uses { Async } {
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     a = s.fork(|| [1])
     d = s.deferred()
     Deferred.complete(d, ())
@@ -322,8 +321,7 @@ handler Later: Wait {
 
 fn main() -> Int uses { Async, Wait } {
   with Later { () }
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     a = s.fork(|| 1)
     Fiber.join(a)
   })

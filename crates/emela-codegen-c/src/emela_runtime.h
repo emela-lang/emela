@@ -145,15 +145,9 @@ void em_raise_at(em_ref msg, em_ref at);
 /* RuntimeOp::DefectTake and DefectResume. */
 em_ref em_defect_take(void);
 void em_defect_resume(em_ref d);
-/* RuntimeOp::Retire. */
+/* RuntimeOp::Retire: remembers the name of the handler released last, for the note of a
+ * release that fails while another defect unwinds (14.4). */
 void em_retire(em_ref handler, em_ref name);
-void em_handler_used_after_release(em_ref h);
-/* Whether the handler may be used; raises `handler X was used after release` otherwise. */
-static inline bool em_handler_ok(em_ref h) {
-  if (h->slots[0].i == 0) return true;
-  em_handler_used_after_release(h);
-  return false;
-}
 
 _Noreturn void em_unreachable(void);
 

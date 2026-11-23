@@ -208,7 +208,13 @@ pub enum DiagnosticKind {
     },
     /// A function value's R not contained in the expected function type's R (E0403, spec 9.2).
     /// `expected` and `found` are displayed effect sets (`{ Logger, Clock }`, or `{}` if empty).
-    EffectSetMismatch { expected: SmolStr, found: SmolStr },
+    EffectSetMismatch {
+        expected: SmolStr,
+        found: SmolStr,
+        /// Whether a capability in `found` does not fit only because its effect is expected: a
+        /// capability is not widened to its effect (`[effect.use]`).
+        widened: bool,
+    },
     /// E0404, spec 8.4. `ops` lists the missing operations and `members` the missing handler
     /// members (`[effect.handler]`), each in declaration order.
     MissingHandlerOps {
@@ -351,19 +357,6 @@ pub enum DiagnosticKind {
         effect: SmolStr,
         provider: SmolStr,
     },
-    /// The value type of a scope function (`Fiber.scope`) contains a fiber handle or a Deferred
-    /// (E0425, spec 11.8). `ty` names the type (`Fiber`, `Deferred`); `scope` names the function.
-    EscapingFromScope { ty: SmolStr, scope: SmolStr },
-    /// W0402 (E0444 with the experimental feature `capture-checking`, decided by the driver). The
-    /// value of a `with` body or of a scope function holds a root that it provides
-    /// (`[effect.escape]`, `[fiber.escape]`). The span is the value of the body. `root` names the
-    /// root; `scope` is the scope function (`Fiber.scope`), `None` for a `with`; `provided_at` is
-    /// the `with` item or the callee of the scope function.
-    CaptureEscape {
-        root: SmolStr,
-        scope: Option<SmolStr>,
-        provided_at: Span,
-    },
     /// Type parameters on an operation of a user effect (E0426, spec 8.1). Only built-in effects
     /// may have them.
     OpTypeParams { op: SmolStr },
@@ -410,6 +403,32 @@ pub enum DiagnosticKind {
         effects: Vec<SmolStr>,
         callee: Option<SmolStr>,
     },
+    /// The R of a callback passed to an external function contains capabilities, and the
+    /// parameter is not `@borrowed` (E0454, `[ext.boundary]`): the host may call it after their
+    /// withs have ended.
+    CallbackCapabilities { caps: Vec<SmolStr>, callee: SmolStr },
+    /// `@borrowed` on something other than a parameter of function type of an external function
+    /// (E0457, `[ext.boundary]`).
+    BorrowedPosition,
+    /// A capability leaves what made it (E0455, `[effect.escape]`): the value or the error type
+    /// of a `with` body, or the R of the `with`, contains it, or it goes into a type fixed
+    /// outside. `cap` is how the language server names it; `made_at` is where it is made.
+    CapabilityLeak {
+        cap: SmolStr,
+        from: LeakFrom,
+        made_at: Option<Span>,
+    },
+    /// The capability set of a capability type does not fit the set expected there, for a
+    /// reason other than a leak (`[type.rules]`): a name of an effect or the set of a parameter
+    /// where the result type of a function records other parameters (E0301).
+    CapabilitySetMismatch { expected: SmolStr, found: SmolStr },
+    /// The result type of an operation contains a capability type, or a capability-bound type of
+    /// another effect than the operation's own (E0456, `[effect.handler]`). `ty` is what is
+    /// written there (`use Conn`).
+    CapabilityInOpResult { op: SmolStr, ty: SmolStr },
+    /// A value of a capability-bound type is constructed outside a handler of its effect (E0458,
+    /// `[type.rules]`).
+    BoundTypeOutsideHandler { ty: SmolStr, effect: SmolStr },
     /// `Immediate` on a type parameter that is not an effect set (E0322, spec 9.5).
     ImmediateOnNonEffect { param: SmolStr },
     /// `Capability` on an error set or effect set type parameter (E0340, `[trait.builtin]`).
@@ -595,4 +614,18 @@ impl DiagnosticKind {
                 | DiagnosticKind::UnusedTypeParam { .. }
         )
     }
+}
+
+/// What a leaking capability leaves (E0455, [`DiagnosticKind::CapabilityLeak`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LeakFrom {
+    /// The `with` that made it.
+    With,
+    /// A function that provides its effect, or the capability, to the function passed to it
+    /// (`Fiber.scope`).
+    Call(SmolStr),
+    /// An operation, the init or the release of the handler whose `self` it is.
+    Handler(SmolStr),
+    /// A function placed at a quantified function type, which receives the capability.
+    Quantified,
 }

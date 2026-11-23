@@ -46,7 +46,7 @@ fn show[A, E](e: Exit[A, E]) -> String {
 fn main() -> () uses { Async } {
   with Ticks {
     caught = Exit.attempt(|| {
-      Fiber.scope(|| {
+      Fiber.scope(|_| {
         Fiber.fork(|| {
           spin(1000)
           fail Boom
@@ -56,7 +56,7 @@ fn main() -> () uses { Async } {
       })
     })
     print(show(caught))
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       Fiber.fork(|| {
         spin(1000)
         panic("first")

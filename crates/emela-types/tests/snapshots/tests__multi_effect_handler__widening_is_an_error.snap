@@ -4,9 +4,9 @@ expression: "run(r#\"\nfn read_write(rw: use Query + Execute) -> () { rw.execute
 ---
 read_write: fn(use Query + Execute) -> () uses { rw }
   rw: use Query + Execute
-widen: fn(use Query) -> () uses { q }
+widen: fn(use Query) -> ()
   q: use Query
-other: fn(use Query + Audit) -> () uses { q }
+other: fn(use Query + Audit) -> ()
   q: use Query + Audit
 narrowed: fn(use Query) -> ()
   q: use Query
