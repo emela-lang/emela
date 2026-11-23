@@ -408,8 +408,9 @@ fn taken_out() uses { Async } {
 /// `[type.rules]`, `[effect.escape]`):
 ///
 /// 1. A handler with a capability field and a type parameter: each item decides the hidden set of
-///    the field together with the type arguments; the capabilities of the arguments and of the
-///    item are in R.
+///    the field together with the type arguments. The R of `b.read()` has `b` only: `x` is in the
+///    hidden set of `b`, and calling an operation of the field through `self` adds nothing to the
+///    R of the caller (`[effect.handler]`).
 /// 2. `self` (of type `Box[A]`) is passed as `use Cell[A]`.
 /// 3. A capability made by a `with` inside init cannot be put in a field of `Self(...)` (E0455).
 /// 4. A capability as a type argument (`A = use Counter`): used inside the `with` that made it,
