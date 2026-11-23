@@ -462,7 +462,7 @@ impl Context<'_> {
         let types = &self.program.types;
         match ty {
             // The operations of every effect of the capability (`[effect.use]`).
-            Ty::Cap(effects) => effects
+            Ty::Cap(effects, _) => effects
                 .iter()
                 .flat_map(|effect| hir.effect_ops(effect.def))
                 .filter_map(|&op| self.def_item(op))
@@ -512,7 +512,7 @@ impl Context<'_> {
             ExprKind::Path(Res::Local(local)) => types.locals.get(*local).cloned(),
             ExprKind::Path(Res::Def(def)) => types.sigs.get(*def).map(|sig| sig.scheme.ty.clone()),
             ExprKind::Field { base, name } => match self.expr_ty(*base)? {
-                Ty::Cap(effects) => {
+                Ty::Cap(effects, _) => {
                     let (effect, op) = effects.iter().find_map(|effect| {
                         hir.effect_ops(effect.def)
                             .iter()
@@ -800,7 +800,7 @@ fn slot(text: &str) -> Option<Slot> {
     }
 
     // `impl T:`, `impl T[A]:`, `trait T: A + `, `[A: B + ` in declared type parameters, and
-    // `handler H:`, `handler H(…):`.
+    // `handler H:`, `handler H(…):`, `handler H[…]:`, `handler H[…](…):`.
     let list = t.list_before(end, K::PLUS);
     if let Some(colon) = list.checked_sub(1).filter(|&i| t.kinds[i] == K::COLON) {
         let head = t.group_before(colon).unwrap_or(colon);
@@ -811,6 +811,11 @@ fn slot(text: &str) -> Option<Slot> {
         {
             return Some(Slot::Trait);
         }
+        // The type parameters of a handler come before its fields (`[grammar.decl]`).
+        let head = match t.kind(head.wrapping_sub(1)) {
+            Some(K::R_BRACK) => t.group_before(head).unwrap_or(head),
+            _ => head,
+        };
         if list == end
             && t.kind(head.wrapping_sub(1)) == Some(K::TYPE_NAME)
             && t.kind(head.wrapping_sub(2)) == Some(K::HANDLER_KW)
@@ -1034,13 +1039,20 @@ impl<'a> Tokens<'a> {
             && self.type_ref_before(open).is_some_and(|name| {
                 !matches!(
                     self.kind(name.wrapping_sub(1)),
-                    Some(K::TYPE_KW | K::ENUM_KW | K::EFFECT_KW | K::IMPL_KW | K::TRAIT_KW)
+                    Some(
+                        K::TYPE_KW
+                            | K::ENUM_KW
+                            | K::EFFECT_KW
+                            | K::IMPL_KW
+                            | K::TRAIT_KW
+                            | K::HANDLER_KW
+                    )
                 )
             })
     }
 
     /// Whether the bracket `open` (`[`) declares type parameters: `fn f[`, `type T[`,
-    /// `enum T[`, `effect T[` or `impl T[`.
+    /// `enum T[`, `effect T[`, `impl T[` or `handler H[`.
     fn declares_params(&self, open: usize) -> bool {
         use SyntaxKind as K;
         self.kinds[open] == K::L_BRACK
@@ -1048,7 +1060,7 @@ impl<'a> Tokens<'a> {
                 Some(K::LOWER_NAME) => self.kind(open.wrapping_sub(2)) == Some(K::FN_KW),
                 Some(K::TYPE_NAME) => matches!(
                     self.kind(open.wrapping_sub(2)),
-                    Some(K::TYPE_KW | K::ENUM_KW | K::EFFECT_KW | K::IMPL_KW)
+                    Some(K::TYPE_KW | K::ENUM_KW | K::EFFECT_KW | K::IMPL_KW | K::HANDLER_KW)
                 ),
                 _ => false,
             }

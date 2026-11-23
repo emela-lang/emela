@@ -102,13 +102,12 @@ fn prints_stdout() {
         "import { Defect } from \"./runtime/defect.mjs\";\nconsole.log(\"こんにちは\");\nconsole.error(\"to stderr\");\n",
         &[],
     );
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -273,13 +272,12 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
         |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -404,13 +402,12 @@ fn run_source_in(name: &str, main: &str, frontend: &mut Lower, js_host: PathBuf)
     };
     let (analysis, output) = run(&fs, &input, frontend, &mut CoreJs, &options, |_, _| {});
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -490,13 +487,12 @@ fn run_without_main_stops_before_node() {
         &mut CoreJs,
         &options.out_dir,
     );
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -595,13 +591,12 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-exports");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -692,13 +687,12 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-bytes");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -857,13 +851,12 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-array");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -1453,32 +1446,6 @@ fn release_defects_follow_the_body() {
 }
 
 #[test]
-fn released_handlers_are_defects_when_used() {
-    // Calling a capability taken outside the `with` after its release is a defect (spec 8.6).
-    let output = run_stateful(
-        "stateful-used-after-release",
-        r#"fn main() {
-  with SystemConsole, EnvConfig {
-    f = with Pool {
-      users = use Users
-      || users.find(1)
-    }
-    with Spare { (use Console).print_line(f()) }
-  }
-}
-"#,
-    );
-    assert_eq!(
-        (output.code, text(&output.stdout), text(&output.stderr)),
-        (
-            DEFECT_EXIT_CODE,
-            "open db://app\nclose db://app\nopen spare\nclose spare\n",
-            "defect: handler Pool was used after release\n"
-        )
-    );
-}
-
-#[test]
 fn interrupted_main_releases_first() {
     // A main unwound while suspended also runs the releases of open `with`s from the inside out,
     // then ends as `interrupted` (spec 14.5). The same holds for a non-suspending main ($sync) and
@@ -1604,7 +1571,7 @@ fn main() {
     insta::assert_snapshot!(text(&output.stdout));
 }
 
-mod suspend;
+use crate::suspend;
 
 #[test]
 fn suspended_main_waits_for_promises() {
@@ -1738,6 +1705,84 @@ fn defects_after_resuming_and_in_callbacks() {
         (output.code, text(&output.stderr)),
         (DEFECT_EXIT_CODE, "defect: late\n")
     );
+}
+
+/// Files whose handler member `Open` is a `suspend handler`, and whose init does suspend: it
+/// waits on the clock, which does not resume on the spot.
+const SLOW_FILES: &str = r##"import Std.Clock.{Clock, SystemClock}
+import Std.Console.{Console, SystemConsole}
+
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  suspend handler Open(path: String): ReadFile
+}
+
+handler SlowFiles: Files {
+  handler Open(path: String): ReadFile {
+    init(path: String) {
+      (use Clock).sleep(1)
+      Self(path:)
+    }
+
+    fn read(max) { max * 2 }
+  }
+}
+"##;
+
+#[test]
+fn effects_with_a_suspend_handler_member_may_suspend() {
+    // An effect with a `suspend handler` member is not Immediate (`[type.effect-bound]`), so code
+    // whose R has only that effect may suspend: a function with `uses { Files }`, and an init
+    // whose R is `{ Files }` (issue #699).
+    let cases = [
+        (
+            "suspend-member-function",
+            r##"fn count() -> Int uses { Files } {
+  with f = Files.Open("a") {
+    f.read(1)
+  }
+}
+
+fn main() {
+  with SystemConsole, SystemClock, SlowFiles {
+    (use Console).print_line("#{count()}")
+  }
+}
+"##,
+        ),
+        (
+            "suspend-member-init",
+            r##"effect Holder {
+  fn total() -> Int
+}
+
+handler Keeps(inner: use ReadFile): Holder {
+  init {
+    Self(inner: Files.Open("a"))
+  }
+
+  fn total() { self.inner.read(1) }
+}
+
+fn main() {
+  with SystemConsole, SystemClock, SlowFiles, Keeps {
+    (use Console).print_line("#{(use Holder).total()}")
+  }
+}
+"##,
+        ),
+    ];
+    for (name, main) in cases {
+        let output = run_source(name, &format!("{SLOW_FILES}\n{main}"));
+        assert_eq!(
+            (output.code, text(&output.stdout), text(&output.stderr)),
+            (0, "2\n", ""),
+            "{name}"
+        );
+    }
 }
 
 #[test]
@@ -2089,6 +2134,103 @@ fn main() {
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
         (0, "5\n", "")
+    );
+}
+
+#[test]
+fn effects_differing_only_in_a_capability_type_are_different_effects() {
+    // `State[use Name]` and `State[use Count]` are two effects (`[effect.use]`): the inner
+    // `State.run` does not take the place of the outer one, nested or one after the other
+    // (issue #705).
+    let output = run_source(
+        "state-of-capabilities",
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.State.{State}
+
+effect Name {
+  fn name() -> String
+}
+
+effect Count {
+  fn count() -> Int
+}
+
+handler Alice: Name {
+  fn name() { "alice" }
+}
+
+handler Three: Count {
+  fn count() { 3 }
+}
+
+fn main() {
+  with SystemConsole, Alice, Three {
+    State.run(use Name, || {
+      State.run(use Count, || {
+        n = (use State[use Name]).get()
+        c = (use State[use Count]).get()
+        (use Console).print_line("#{n.name()} #{c.count()}")
+      })
+    })
+    State.run(use Name, || (use Console).print_line((use State[use Name]).get().name()))
+    State.run(use Count, || {
+      c = (use State[use Count]).get()
+      (use Console).print_line("#{c.count()}")
+    })
+    ()
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "alice 3\nalice\n3\n", "")
+    );
+}
+
+#[test]
+fn effects_differing_in_the_type_arguments_of_a_capability_type_are_different_effects() {
+    // `State[use Box[Int]]` and `State[use Box[String]]` are two effects: the type arguments of
+    // the effect in a capability type are in the key (`[effect.use]`, issue #705), also when the
+    // key is looked up in another function.
+    let output = run_source(
+        "state-of-generic-capabilities",
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.State.{State}
+
+effect Box[T] {
+  fn get() -> T
+}
+
+handler Seven: Box[Int] {
+  fn get() { 7 }
+}
+
+handler Word: Box[String] {
+  fn get() { "word" }
+}
+
+fn word() -> String uses { State[use Box[String]], Box[String] } {
+  (use State[use Box[String]]).get().get()
+}
+
+fn main() {
+  with SystemConsole, Seven, Word {
+    State.run(use Box[Int], || {
+      State.run(use Box[String], || {
+        n = (use State[use Box[Int]]).get().get()
+        (use Console).print_line("#{n} #{word()}")
+      })
+    })
+    State.run(use Box[String], || (use Console).print_line(word()))
+    ()
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "7 word\nword\n", "")
     );
 }
 

@@ -2,7 +2,7 @@
 //! using fibers has no notes cell (`fiber::prepare` leaves it 0 when the fiber runtime is not
 //! used); the display must not read address 0 (the scratch area) as a notes list.
 
-mod common;
+use crate::common;
 
 use common::*;
 use wasmparser::{Operator, Parser, Payload};
@@ -181,7 +181,7 @@ fn spin(n: Int) -> () uses { Tick } {
 fn once() -> Exit[(), Boom] uses { Async } {
   with Ticks {
     Exit.attempt(|| {
-      Fiber.scope(|| {
+      Fiber.scope(|_| {
         Fiber.fork(|| {
           spin(1000)
           fail Boom(text: "boom")

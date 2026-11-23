@@ -1,6 +1,6 @@
 # The Console effect and its handlers (the platform and test layers of spec 15.2).
 #
-# Use it as `(use Console).print_line("hi")` and provide it with `with SystemConsole { ... }`, or
+# Use it as `console <- Console` and `console.print_line("hi")` and provide it with `with SystemConsole { ... }`, or
 # with `with Platform { ... }` from `Std.Platform`.
 
 import Std.State.{State}
@@ -40,7 +40,8 @@ pub handler SystemConsole: Console {
 ## `print_line` appends the line in the printed order. `print_error_line` drops the line.
 pub handler TestConsole: Console {
   fn print_line(text) {
-    (use State[List[String]]).update(|lines| lines.append([text]))
+    st <- State[List[String]]
+    st.update(|lines| lines.append([text]))
   }
   fn print_error_line(text) { () }
 }

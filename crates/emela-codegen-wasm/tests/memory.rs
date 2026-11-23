@@ -7,7 +7,7 @@
 //! not an out-of-bounds store past the memory. A reservation made from `cabi_realloc` traps
 //! without writing its line, because the host can forbid a blocking call inside the callback.
 
-mod common;
+use crate::common;
 
 use common::*;
 use wasmparser::{Operator, Parser, Payload};
@@ -650,7 +650,7 @@ fn short_lived_fibers_reuse_their_records() {
 import Std.Fiber.{Fiber, Scope}
 
 fn round(i: Int) -> Int uses { Async } {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     hs = List.map(List.range(0, 20), |j| Fiber.fork(|| i + j))
     List.fold(hs, 0, |acc, h| acc + Fiber.join(h))
   })
@@ -679,7 +679,7 @@ fn many_short_lived_fibers_keep_the_same_bound() {
 import Std.Fiber.{Fiber, Scope}
 
 fn round(i: Int) -> Int uses { Async } {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     hs = List.map(List.range(0, 20), |j| Fiber.fork(|| i + j))
     List.fold(hs, 0, |acc, h| acc + Fiber.join(h))
   })
@@ -711,7 +711,7 @@ import Std.Instant.{Instant}
 import Std.State.{State}
 
 fn round(i: Int) -> Int uses { Async, Clock } {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     hs = List.map(List.range(0, 20), |j| {
       Fiber.fork(|| {
         (use Clock).sleep(1)
@@ -767,7 +767,7 @@ error Big(
 )
 
 fn round(k: Int) -> () fails Big {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     h = Fiber.fork(|| 1)
     x = Fiber.await(h)
     fail Big(a: "a", b: "b", c: "c", d: "d", e: "e", f: "f", g: "g", h: "h", i: "i", j: "j")
@@ -857,7 +857,7 @@ import Std.Instant.{Instant}
 import Std.State.{State}
 
 fn round(i: Int) -> Int uses { Async, Clock } {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     h = Fiber.fork(|| {
       (use Clock).sleep(1)
       1
@@ -910,7 +910,7 @@ fn drain(q: Queue[String], n: Int) -> Int uses { Async } {
 }
 
 fn round(i: Int) -> Int uses { Async } {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     q = Fiber.queue(2)
     Fiber.fork(|| {
       List.range(0, 20).each(|j| q.offer("value #{i} #{j}"))

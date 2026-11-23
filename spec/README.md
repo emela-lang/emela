@@ -60,7 +60,7 @@ Besides its number, every section has a stable name: the `` `[effect.handler]` `
 
 ## Changing the specification
 
-- A change that alters meaning (syntax, typing rules, semantics, adding or removing diagnostics, the commitments of the standard library, observable behavior of targets and tools) is made through a proposal: a draft is refined locally and reviewed in a pull request that adds it to `proposals/`; merging the pull request adopts it, and the specification changes are applied to `spec/`. The process is in `proposals/README.md`.
+- A change that alters meaning (syntax, typing rules, semantics, adding or removing diagnostics, the commitments of the standard library, observable behavior of targets and tools) is made through a proposal: a draft is refined locally and reviewed in a pull request that adds it to `proposals/` together with its changes to `spec/`; merging the pull request adopts it. The process is in `proposals/README.md`.
 - A change that does not alter meaning (typos, wording, added examples, reordering sections, resolving an inconsistency whose answer is fixed by the rest of the specification) can be made directly without a proposal. It is not recorded in `history.md`.
 - A change made through a proposal is recorded in `history.md` with the proposal's id and the names of the sections it changed.
 - Run `scripts/spec.py check` after any change.

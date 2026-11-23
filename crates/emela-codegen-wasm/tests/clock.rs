@@ -1,7 +1,7 @@
 //! `Std.Clock.sleep` on the WASI 0.3 target: the real monotonic clock and the TestClock's virtual
 //! time (spec 8.7, 8.8). Skipped without `wasmtime`.
 
-mod common;
+use crate::common;
 
 use std::time::{Duration, Instant};
 
@@ -131,7 +131,7 @@ fn main() -> () uses { Async } {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
   (_, end) = State.run(start, || {
     with TestClock {
-      Fiber.scope(|| {
+      Fiber.scope(|_| {
         a = Fiber.fork(|| sleeper("a", 100))
         b = Fiber.fork(|| sleeper("b", 50))
         Fiber.join(a)

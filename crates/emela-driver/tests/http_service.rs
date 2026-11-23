@@ -36,8 +36,12 @@ fn build_service(name: &str, main: &str) -> PathBuf {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir(name);
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    // The programs still write `use E` as an expression (W0403, deprecated).
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -436,8 +440,12 @@ fn run_starts_serve_mjs() {
     let exists = serve.exists();
     let _ = std::fs::remove_dir_all(&options.out_dir);
     let _ = std::fs::remove_dir_all(&node_dir);
+    // The programs still write `use E` as an expression (W0403, deprecated).
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -645,8 +653,12 @@ fn wasm_serves_the_same_as_js() {
         &mut CoreWasm,
         &wasm,
     );
+    // The programs still write `use E` as an expression (W0403, deprecated).
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -755,8 +767,12 @@ await show(new Request("http://example.com/ok"));
         &mut CoreWasm,
         &wasm,
     );
+    // The programs still write `use E` as an expression (W0403, deprecated).
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
         "{:?}",
         analysis.diagnostics
     );

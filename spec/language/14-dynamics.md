@@ -22,7 +22,7 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 - If evaluating an argument fails, no init has run yet, so nothing is released, and the with ends with that error.
 - If an init fails, only the handlers already initialized are released, in reverse order, and the body is not evaluated. The release of the handler that failed is not run (because its init returned no value). The with ends with the error of that init.
 - The effects used in the operation bodies of a handler are provided by handlers outside the with, or by handlers initialized earlier in the same with.
-- Handlers opened inside an init (8.4) are released after the release of the handler that opened them, in reverse order.
+- Handlers opened inside an init (8.4) are released after the release of the handler that opened them, in reverse order. A handler opened through a handler that a with inside the init provides is released at the end of that with instead (8.4).
 
 ## 14.3 Error propagation `[dyn.error]`
 

@@ -1048,6 +1048,13 @@ impl<'m> Emitter<'m> {
                     self.internal(format!("evidence without a destination in {}", f.name));
                     return;
                 };
+                // The empty table is `NULL`, which `em_ev_new`, `em_ev_lookup`, `em_dup` and
+                // `em_drop` accept, so passing it (to a function value whose R needs no table)
+                // allocates nothing.
+                if base.is_none() && bindings.is_empty() {
+                    cx.w.assign(&var(d), "NULL");
+                    return;
+                }
                 let base = base.map_or_else(|| "NULL".to_owned(), var);
                 let n = bindings.len();
                 cx.w.assign(&var(d), &call("em_ev_new", [base, n.to_string()]));
@@ -1302,7 +1309,7 @@ impl<'m> Emitter<'m> {
                 let ret = self.repr(def.ret);
                 let h = var(*handler);
                 let closure = format!("{h}->slots[{}].p", op + 1);
-                cx.w.if_begin(&call("em_handler_ok", [&h]));
+                cx.w.block_begin();
                 if def.suspend {
                     // The implementation takes a resume function value last and returns
                     // nothing; the value to continue with comes from `em_perform_end`.
@@ -1324,20 +1331,6 @@ impl<'m> Emitter<'m> {
                 } else {
                     let e = closure_call(&closure, ret, f, args, &a);
                     Self::assign(cx, dst, &e);
-                }
-                // A released handler takes none of the arguments: they are given up here.
-                let given: Vec<String> = args
-                    .iter()
-                    .filter_map(|o| match o {
-                        Operand::Var(v) if f.vars[*v].repr == Repr::Ref => Some(var(*v)),
-                        _ => None,
-                    })
-                    .collect();
-                if !given.is_empty() {
-                    cx.w.else_begin();
-                    for v in given {
-                        cx.w.stmt(&call("em_drop", [v]));
-                    }
                 }
                 cx.w.end();
             }

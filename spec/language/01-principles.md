@@ -25,7 +25,7 @@ If writing code at the everyday level requires knowledge of the foundation level
 - Errors are not effects. They are handled in a separate channel.
 - Expected errors (which appear in types) are distinct from defects (which do not appear in types).
 - Variables are immutable. There is no loop syntax.
-- There are no higher-kinded types, subtyping, null, implicit type conversions, or operator overloading.
+- There are no higher-kinded types, null, implicit type conversions, or operator overloading. The only subtyping is the containment of E and R (`[type.rules]`).
 
 ## 1.4 How to read this document `[intro.reading]`
 
@@ -45,6 +45,5 @@ An experimental feature is a part of the specification that is not yet stable. A
 
 | Name | Since | What it changes |
 |---|---|---|
-| `capture-checking` | 0.28 | A value that holds a capability and leaves the with or `Fiber.scope` that provides it is a compile error (E0444) instead of a warning (W0402) (`[effect.escape]`) |
 
 Each proposal that adds an experimental feature adds a row.

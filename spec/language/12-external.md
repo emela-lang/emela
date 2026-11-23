@@ -21,6 +21,7 @@ suspend fn fetch_text(url: String) -> String
 ```
 
 - The parameter types and the return type are always written. The compiler cannot see inside the function, so it does not infer them.
+- A type parameter of an `@external` fn follows the rule of `[fn.decl]` for type parameters that do not appear in the type (W0305). Type parameters do not exist at run time, so one that does not appear in the type distinguishes nothing on the host side either.
 - One `@external` is written per language. A fn MAY have annotations for several languages. Two annotations for the same language on the same fn is a compile error (E0139).
 - The arguments of `@external` on a fn have the form `(language, "name")` or `(language, "file", "name")` only (E0138). The language names the language of the code that is linked with: `js`, `wasm` or `c` (E0140). The strings cannot contain interpolation.
 - Each build target uses one language. An annotation takes effect when its language is the language of the build target.
@@ -86,6 +87,7 @@ Only the following types can be used for the parameters and the return value of 
 
 List and user-defined types cannot be passed directly. They are converted inside a handler.
 
+- The R of a function type in a boundary type (a callback) MUST NOT contain an effect. A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E0454). The R MUST NOT contain a capability either, since the host may keep the callback and call it after the with of the capability has ended (E0454). A parameter of an external function marked `@borrowed` (the host holds the callback only during the call) may take a callback whose R contains capabilities. `@borrowed` can be written only on a parameter of function type of an external function (E0457).
 - The parameters and return value of a function passed as a callback are treated the same as the parameters and return value of an external function (a String received from the host is normalized as in 12.5).
 - An external function that returns `()` discards the host's return value and returns `()`.
 - A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.

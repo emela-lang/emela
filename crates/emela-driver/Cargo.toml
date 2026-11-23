@@ -4,6 +4,7 @@ description = "The pipeline, diagnostic collection and rendering, and build conf
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 emela-syntax.workspace = true
@@ -28,3 +29,20 @@ pulldown-cmark.workspace = true
 [dev-dependencies]
 insta.workspace = true
 tempfile.workspace = true
+libtest-mimic.workspace = true
+
+[[test]]
+name = "parity"
+harness = false
+
+[[test]]
+name = "wasm_corpus"
+harness = false
+
+[[test]]
+name = "wasm_parity"
+harness = false
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"

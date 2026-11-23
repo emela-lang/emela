@@ -1,0 +1,292 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: dump(&m)
+---
+enum Option[A] {
+  Some(A)
+  None
+}
+
+enum Prelude.Ordering {
+  Less
+  Equal
+  Greater
+}
+
+error enum Prelude.ParseError {
+  ParseError(input: String)
+}
+
+enum Std.Duration.Duration {
+  Duration(milliseconds: Int64)
+}
+
+enum Std.Instant.Instant {
+  Instant(milliseconds: Int64)
+}
+
+enum Std.Map.Map[A, B] {
+  Empty
+  Node(size: Int, key: A, value: B, left: Std.Map.Map[A, B], right: Std.Map.Map[A, B])
+}
+
+enum Std.Set.Set[A] {
+  Set(inner: Std.Map.Map[A, ()])
+}
+
+enum Std.Dynamic.Number.Number {
+  Number(negative: Bool, digits: String, exponent: Int)
+}
+
+error enum Std.Dynamic.Number.OutOfRange {
+  OutOfRange(number: Std.Dynamic.Number.Number)
+}
+
+enum Std.Dynamic.Dynamic {
+  Null
+  Bool(Bool)
+  Number(Std.Dynamic.Number.Number)
+  Text(String)
+  Items(List[Std.Dynamic.Dynamic])
+  Fields(Std.Map.Map[String, Std.Dynamic.Dynamic])
+  Binary(Bytes)
+}
+
+enum Std.Dynamic.Segment {
+  Key(String)
+  Index(Int)
+}
+
+error enum Std.Dynamic.DecodeError {
+  DecodeError(expected: String, actual: Std.Dynamic.Dynamic, path: List[Std.Dynamic.Segment])
+}
+
+error enum Std.Dynamic.DecodeErrors {
+  DecodeErrors(errors: List[Std.Dynamic.DecodeError])
+}
+
+enum Std.Dynamic.Attempt[A] {
+  Decoded(A)
+  Failed(List[Std.Dynamic.DecodeError])
+}
+
+enum Std.Shape.Shape {
+  Bool
+  Int
+  Int64
+  Float
+  String
+  Bytes
+  Any
+  List(Std.Shape.Shape)
+  Option(Std.Shape.Shape)
+  Map(key: Std.Shape.Shape, value: Std.Shape.Shape)
+  Record(name: String, fields: List[Std.Shape.Field])
+  Variants(name: String, variants: List[Std.Shape.Variant])
+  Ref(String)
+  Named(name: String, shape: Std.Shape.Shape)
+  Annotated(shape: Std.Shape.Shape, notes: List[(String, Std.Dynamic.Dynamic)])
+}
+
+enum Std.Shape.Field {
+  Field(name: String, shape: Std.Shape.Shape)
+}
+
+enum Std.Shape.Variant {
+  Variant(name: String, contents: Std.Shape.Contents)
+}
+
+enum Std.Shape.Contents {
+  NoFields
+  PositionalFields(List[Std.Shape.Shape])
+  NamedFields(List[Std.Shape.Field])
+}
+
+enum Std.Dynamic.Presence.Presence[A] {
+  Absent
+  Null
+  Present(A)
+}
+
+error enum Std.Json.SyntaxError {
+  SyntaxError(message: String, offset: Int)
+}
+
+enum Std.Json.Rest {
+  Rest(chars: List[String], offset: Int)
+}
+
+error enum Std.Process.InvalidInput {
+  InvalidInput
+}
+
+error enum Std.Process.StdinFailure {
+  StdinFailure(message: String)
+}
+
+enum Std.Process.StdinLines {
+  StdinLines(lines: List[String])
+}
+
+enum Std.Process.StdoutText {
+  StdoutText(text: String)
+}
+
+enum Std.Process.StderrText {
+  StderrText(text: String)
+}
+
+enum Std.Process.ExitCode {
+  ExitCode(Int)
+}
+
+enum Std.Http.Request.Method {
+  Get
+  Head
+  Post
+  Put
+  Patch
+  Delete
+  Options
+}
+
+enum Std.Http.Request.Request {
+  Request(method: Std.Http.Request.Method, url: String, headers: List[(String, String)], body: String)
+}
+
+enum Std.Http.Response.Response {
+  Response(status: Int, headers: List[(String, String)], body: String)
+}
+
+error enum Std.Http.Response.UnexpectedStatus {
+  UnexpectedStatus(status: Int, body: String)
+}
+
+error enum Std.Http.InvalidUrl {
+  InvalidUrl(url: String)
+}
+
+error enum Std.Http.ConnectionFailed {
+  ConnectionFailed(url: String, message: String)
+}
+
+error enum Std.Http.ResponseNotText {
+  ResponseNotText(url: String)
+}
+
+external enum Std.Http.HostRequest {
+}
+
+external enum Std.Http.HostResponse {
+}
+
+enum Std.Http.TestServer {
+  TestServer(respond: fn(Std.Http.Request.Request, Int) -> Option[Std.Http.Response.Response], sent: List[Std.Http.Request.Request])
+}
+
+external enum Std.Http.Incoming {
+}
+
+external enum Std.Http.Outgoing {
+}
+
+external enum Std.Http.Received {
+}
+
+external enum Std.Http.Draft {
+}
+
+error enum Std.FileSystem.FileNotFound {
+  FileNotFound(path: String)
+}
+
+error enum Std.FileSystem.FileAccessDenied {
+  FileAccessDenied(path: String)
+}
+
+error enum Std.FileSystem.NotADirectory {
+  NotADirectory(path: String)
+}
+
+error enum Std.FileSystem.IsADirectory {
+  IsADirectory(path: String)
+}
+
+error enum Std.FileSystem.DirectoryNotEmpty {
+  DirectoryNotEmpty(path: String)
+}
+
+error enum Std.FileSystem.InvalidText {
+  InvalidText(path: String)
+}
+
+error enum Std.FileSystem.FileSystemFailure {
+  FileSystemFailure(path: String, message: String)
+}
+
+external enum Std.FileSystem.Outcome {
+}
+
+enum Std.FileSystem.TestFiles {
+  TestFiles(files: List[(String, String)], directories: List[String])
+}
+
+enum Std.Cause.Cause[A] {
+  Cause(failure: fn() -> Never fails (E {A}, R {}))
+}
+
+enum Std.Cause.CauseKind {
+  Fail
+  Die
+  Interrupt
+}
+
+external enum Std.Deferred.Deferred[A] {
+}
+
+external enum Std.Semaphore.Semaphore {
+}
+
+external enum Std.Queue.Queue[A] {
+}
+
+error enum Std.Queue.QueueClosed {
+  QueueClosed
+}
+
+enum Std.Exit.Exit[A, B] {
+  Success(A)
+  Failure(Std.Cause.Cause[{B}])
+}
+
+external enum Std.Fiber.Fiber[A] {
+}
+
+export fn main() -> Int {
+  let _%0: Int = @dbg[Int](int((-[Int] 1)))
+  let _%1: Int = @dbg[Int](long((-[Int64] 5i64)))
+  @dbg[Int](float((-[Float] 0.0)))
+}
+
+fn int(n%0: Int) -> Int {
+  match n%0 {
+    -2147483648 -> 0
+    -16 -> 1
+    _ -> 2
+  }
+}
+
+fn long(n%0: Int64) -> Int {
+  match n%0 {
+    -9223372036854775808i64 -> 0
+    _ -> 1
+  }
+}
+
+fn float(x%0: Float) -> Int {
+  match x%0 {
+    -0.0 -> 0
+    -1.5 -> 1
+    _ -> 2
+  }
+}

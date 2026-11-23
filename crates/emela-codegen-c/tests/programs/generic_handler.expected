@@ -1,0 +1,20 @@
+exit: 0
+--- stdout
+open 1
+ints 2
+close 1
+open a
+names a
+close a
+open 2
+write 3
+close 2
+open 7
+open seven
+both 8 seven
+close seven
+close 7
+found two, saved 2
+hits 15
+touched
+--- stderr

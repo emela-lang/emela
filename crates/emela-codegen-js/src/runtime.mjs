@@ -1239,16 +1239,6 @@ function $isInterrupted(x) {
   return x instanceof Error && x.name === "Interrupted";
 }
 
-// Marks a released handler value: from now on each of its operations is a defect (8.6). Until capture sets are
-// checked (0.22), a capability that escaped its with is caught here at run time.
-export function $retire(handler, name) {
-  const used = () => {
-    throw new $Defect(`handler ${name} was used after release`);
-  };
-  // `defineProperty`, since an operation may be named `__proto__`.
-  for (const key of Object.keys(handler)) Object.defineProperty(handler, key, { value: used });
-}
-
 // A failed assert (spec 13.2). `text` is the source text of the expression and may be empty. `location` is where the
 // assert is, or undefined.
 export function $assertFail(text, location) {

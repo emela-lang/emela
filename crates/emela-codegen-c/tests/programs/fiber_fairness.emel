@@ -34,7 +34,7 @@ fn count(name: String, i: Int, n: Int, every: Int) -> Int uses { Tick } {
 
 fn main() -> () uses { Async } {
   with Ticks {
-    total = Fiber.scope(|| {
+    total = Fiber.scope(|_| {
       a = Fiber.fork(|| count("a", 0, 40000, 2500))
       b = Fiber.fork(|| count("b", 0, 30000, 2500))
       c = Fiber.fork(|| count("c", 0, 5000, 1000))

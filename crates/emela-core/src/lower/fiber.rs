@@ -106,7 +106,7 @@ impl FiberFn {
 ///     semaphore: fn(n) { fiber#semaphore(s, n) },
 ///     queue: fn(n) { fiber#queue(s, n) },
 ///   }
-///   b(ev + { Scope: h })
+///   b(h, ev + { Scope: h })
 /// })
 /// ```
 ///
@@ -124,6 +124,8 @@ pub(super) struct ScopeCall {
     fails: bool,
     /// The mark of the body call.
     body_call: Call,
+    /// Whether the body takes the scope's capability as its parameter (`[fiber.scope]`).
+    takes_cap: bool,
     /// The types of the lambdas built: the child run by fork, the implementations of fork,
     /// deferred, semaphore and queue, and the function `fiber#scope` runs.
     child_ty: TypeId,
@@ -194,12 +196,18 @@ impl ScopeCall {
         ops[self.ops[1]] = deferred;
         ops[self.ops[2]] = semaphore;
         ops[self.ops[3]] = queue;
+        // The body receives the scope's capability, the handler value (`[fiber.scope]`), and
+        // the table with Scope provided by it.
+        let cap = self.takes_cap.then_some(Expr::Var(self.handler));
         let run = Expr::Call {
             callee: Callee::Indirect(Box::new(Expr::Var(self.body))),
-            args: vec![Expr::Provide {
-                base: self.ev.map(|ev| Box::new(Expr::Var(ev))),
-                bindings: vec![(self.effect, Expr::Var(self.handler))],
-            }],
+            args: cap
+                .into_iter()
+                .chain([Expr::Provide {
+                    base: self.ev.map(|ev| Box::new(Expr::Var(ev))),
+                    bindings: vec![(self.effect, Expr::Var(self.handler))],
+                }])
+                .collect(),
             fails: self.body_call.fails,
             suspends: self.body_call.suspends,
         };
@@ -686,6 +694,7 @@ impl Lowerer<'_> {
             ev: self.ev,
             fails: call.fails,
             body_call,
+            takes_cap: body.params.len() == 1,
             child_ty,
             fork_ty,
             deferred_ty,

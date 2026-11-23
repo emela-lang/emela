@@ -6,20 +6,22 @@
 //! values.
 
 use emela_resolve::hir::{
-    DefId, DefKind, DefModule, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, LocalKind,
-    MemberItem, Param, Program, Res, Span, TypeId, TypeKind, TypeParam,
+    DefId, DefKind, DefModule, EffectItem, Fields, FnItem, FnSig, HandlerItem, Item, LabelOf,
+    LocalKind, MemberItem, Param, Program, Res, Span, TypeId, TypeKind, TypeParam,
 };
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, LabelBaseReason};
 use crate::lower::{
-    Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_fn_sets, classify_params, classify_sets,
-    effect_op_types, effect_params, has_omitted_fails, has_omitted_uses, immediate_bounds,
-    is_immediate_effect, is_intrinsic_effect, ty_params, type_param_defs,
+    FieldCaps, Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_fn_sets, classify_params,
+    classify_sets, effect_op_types, effect_params, has_omitted_fails, has_omitted_uses,
+    immediate_bounds, is_immediate_effect, is_intrinsic_effect, prelude_bounds, ty_params,
+    type_param_defs,
 };
 use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::scheme::Scheme;
+use crate::traits::CAPABILITY;
 use crate::ty::{ParamKind, Ty, TyParam};
 
 pub struct Signature {
@@ -34,6 +36,9 @@ pub struct Signature {
 pub struct InitParams {
     pub tys: Vec<Ty>,
     pub labels: Vec<Option<SmolStr>>,
+    /// The number of capability sets in `tys`, `Bound(0)` and on: each item of a with that runs
+    /// the init decides them (`[effect.handler]`).
+    pub caps: usize,
 }
 
 /// Also holds the effect tags that handlers implement and the parameters of their inits.
@@ -118,6 +123,7 @@ impl Signatures {
         let mut sigs = Signatures::new();
 
         for (def, _) in program.defs.iter() {
+            check_borrowed(program, def, diags);
             let sig = match program.item(def) {
                 Some(Item::Fn(item)) => {
                     check_bounds(program, ty_table, def, item, diags);
@@ -127,10 +133,10 @@ impl Signatures {
                     fn_signature(program, ty_table, item, diags)
                 }
                 Some(Item::Ctor(item)) => {
-                    ctor_signature(program, ty_table, item.owner, &item.fields, diags)
+                    ctor_signature(program, ty_table, item.owner, def, &item.fields, diags)
                 }
                 Some(Item::Error(item)) => {
-                    ctor_signature(program, ty_table, def, &item.fields, diags)
+                    ctor_signature(program, ty_table, def, def, &item.fields, diags)
                 }
                 Some(Item::TraitFn(item)) => program.defs[def]
                     .parent
@@ -144,7 +150,10 @@ impl Signatures {
                 }),
                 Some(Item::Op(item)) => {
                     let effect = program.defs[def].parent;
-                    Some(op_signature(program, ty_table, effect, &item.sig, diags))
+                    let name = &program.defs[def].name;
+                    Some(op_signature(
+                        program, ty_table, effect, name, &item.sig, diags,
+                    ))
                 }
                 Some(Item::Member(item)) => {
                     let effect = program.defs[def].parent;
@@ -183,8 +192,11 @@ impl Signatures {
                     None
                 }
                 Some(Item::Handler(item)) => {
+                    check_handler_params(program, ty_table, def, item, diags);
+                    let defs = type_param_defs(program, def);
                     if !item.init_params.is_empty() {
-                        let init = init_params(program, ty_table, def, &item.init_params, diags);
+                        let init =
+                            init_params(program, ty_table, def, &defs, &item.init_params, diags);
                         sigs.init_params.insert(def, init);
                     }
                     let mut tags: Vec<Tag> = Vec::new();
@@ -216,15 +228,18 @@ impl Signatures {
                         if program.is_host_effect(effect) || is_intrinsic_effect(program, effect) {
                             continue;
                         }
+                        let kinds = vec![ParamKind::Type; defs.len()];
                         let scope = Scope {
-                            params: &[],
-                            kinds: &[],
+                            params: &defs,
+                            kinds: &kinds,
                             omitted: Omitted::Empty,
                             sets: false,
                             self_ty: None,
+                            result_caps: None,
+                            quant: None,
                         };
-                        // Generic handlers with type parameters left over are not kept
-                        // (spec 8.1); omitting them is E0423.
+                        // The type arguments are written; they may name the handler's own type
+                        // parameters (`[effect.decl]`). Omitting them is E0423.
                         let span = program.defs[def].span;
                         let name = program.defs[def].name.clone();
                         let Some(tag) = ty_table.effect_tag(
@@ -263,6 +278,37 @@ impl Signatures {
 /// The uses clause of an external function contains only ProcessHost and PageHost (E0445,
 /// `[ext.call]`). Async is declared with `suspend fn` instead, and a set type parameter or an
 /// effect of the program would let the host function run outside a handler.
+/// `@borrowed` can be written only on a parameter of function type of an external function
+/// (E0457, `[ext.boundary]`).
+fn check_borrowed(program: &Program, def: DefId, diags: &mut Vec<Diagnostic>) {
+    let (params, external): (Vec<&Param>, bool) = match program.item(def) {
+        Some(Item::Fn(f) | Item::TraitFn(f)) => (f.sig.params.iter().collect(), f.is_external),
+        Some(Item::Op(o)) => (o.sig.params.iter().collect(), false),
+        Some(Item::Member(m)) => (m.sig.params.iter().collect(), false),
+        Some(Item::Handler(h)) => (
+            h.init_params
+                .iter()
+                .chain(h.ops.iter().flat_map(|o| &o.params))
+                .collect(),
+            false,
+        ),
+        _ => return,
+    };
+    for p in params {
+        let Some(span) = p.borrowed else {
+            continue;
+        };
+        let fn_typed =
+            p.ty.is_some_and(|t| matches!(program.types[t].kind, TypeKind::Fn { .. }));
+        if !(external && fn_typed) {
+            diags.push(Diagnostic {
+                span: Some(span),
+                kind: DiagnosticKind::BorrowedPosition,
+            });
+        }
+    }
+}
+
 fn check_external_uses(program: &Program, def: DefId, item: &FnItem, diags: &mut Vec<Diagnostic>) {
     let Some(uses) = &item.sig.uses else {
         return;
@@ -333,6 +379,8 @@ fn label_base(
         omitted: Omitted::Empty,
         sets: false,
         self_ty: None,
+        result_caps: None,
+        quant: None,
     };
     ty_table.effect_tag(
         program,
@@ -371,7 +419,7 @@ fn fn_signature(
     let mut params = FnParams::new(program, ty_table, item);
     let arg_tys = params.lower_params(program, ty_table, &item.sig.params, diags);
     let labels = param_labels(program, &item.sig.params);
-    let mut scope = params.scope(Omitted::Empty);
+    let mut scope = params.result_scope(Omitted::Empty);
     let ret_ty = ty_table.lower_in(program, &mut scope, ret, true, diags);
     let fails = params.declared_fails(program, ty_table, &item.sig, diags);
     let mut uses = params.declared_uses(program, ty_table, &item.sig, diags);
@@ -404,7 +452,7 @@ fn trait_fn_signature(
     let mut params = FnParams::with_self(program, ty_table, item, Some(trait_def));
     let arg_tys = params.lower_params(program, ty_table, &item.sig.params, diags);
     let labels = param_labels(program, &item.sig.params);
-    let mut scope = params.scope(Omitted::Empty);
+    let mut scope = params.result_scope(Omitted::Empty);
     let ret_ty = match item.sig.ret {
         Some(ret) => ty_table.lower_in(program, &mut scope, ret, true, diags),
         None => Ty::UNIT,
@@ -452,10 +500,12 @@ fn prelude_trait_fn_signature(
     })
 }
 
-/// Checks the bounds on a fn's type parameters (spec 9.5). Only Immediate is handled.
+/// Checks the bounds on a fn's type parameters (spec 9.5, `[trait.builtin]`).
 ///
 /// - Immediate can only be put on effect sets (type parameters written in a `uses` clause)
 ///   (E0322).
+/// - Capability can only be put on ordinary type parameters, not on error sets or effect sets
+///   (E0340).
 /// - Bounds other than Immediate (traits) on an effect set are "not supported yet". Trait bounds
 ///   on ordinary type parameters are checked where the fn is referenced (spec 10.3).
 /// - A `uses` clause written in a function-typed parameter of an external function must be
@@ -476,6 +526,7 @@ fn check_bounds(
         .chain(sig.ret)
         .collect();
     let immediate = program.prelude_def(IMMEDIATE);
+    let capability = program.prelude_def(CAPABILITY);
     let mut constrained = Vec::new();
     let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
     let sets = classify_fn_sets(
@@ -492,6 +543,22 @@ fn check_bounds(
                 .iter()
                 .flat_map(|u| &u.items)
                 .any(|item| item.res == Res::Def(tp.def));
+        // Capability constrains only ordinary type parameters (E0340, `[trait.builtin]`).
+        if let Some(set) = if in_uses {
+            Some(SetKind::Effects)
+        } else {
+            sets[i]
+        } {
+            for span in prelude_bounds(program, tp, CAPABILITY) {
+                diags.push(Diagnostic {
+                    span: Some(span),
+                    kind: DiagnosticKind::CapabilityOnSet {
+                        param: program.defs[tp.def].name.clone(),
+                        set,
+                    },
+                });
+            }
+        }
         let spans = immediate_bounds(program, tp);
         if !in_uses {
             for span in spans {
@@ -508,7 +575,7 @@ fn check_bounds(
             constrained.push(tp.def);
         }
         for &(res, span) in &tp.bounds {
-            if matches!(res, Res::Def(d) if Some(d) != immediate) {
+            if matches!(res, Res::Def(d) if Some(d) != immediate && Some(d) != capability) {
                 diags.push(Diagnostic {
                     span: Some(span),
                     kind: DiagnosticKind::Unsupported {
@@ -521,23 +588,24 @@ fn check_bounds(
     if !item.is_external {
         return;
     }
-    // The `uses` clauses of an external function's callbacks.
-    fn walk(
-        program: &Program,
-        ty: TypeId,
-        constrained: &[DefId],
-        effects: &mut Vec<SmolStr>,
-        sets: &mut Vec<SmolStr>,
-    ) {
+    // The `uses` clauses of an external function's callbacks. An effect other than a host
+    // effect cannot be there at all (`[ext.boundary]`); a host effect and a set must be
+    // Immediate.
+    struct Found {
+        callback: Vec<SmolStr>,
+        effects: Vec<SmolStr>,
+        sets: Vec<SmolStr>,
+    }
+    fn walk(program: &Program, ty: TypeId, constrained: &[DefId], found: &mut Found) {
         match &program.types[ty].kind {
             TypeKind::Path { args, .. } => {
                 for &a in args {
-                    walk(program, a, constrained, effects, sets);
+                    walk(program, a, constrained, found);
                 }
             }
             TypeKind::Tuple(elems) => {
                 for &e in elems {
-                    walk(program, e, constrained, effects, sets);
+                    walk(program, e, constrained, found);
                 }
             }
             TypeKind::Fn {
@@ -549,8 +617,9 @@ fn check_bounds(
                     };
                     let name = program.defs[d].name.clone();
                     let list = match program.defs[d].kind {
-                        DefKind::Effect if !is_immediate_effect(program, d) => &mut *effects,
-                        DefKind::TypeParam if !constrained.contains(&d) => &mut *sets,
+                        DefKind::Effect if !program.is_host_effect(d) => &mut found.callback,
+                        DefKind::Effect if !is_immediate_effect(program, d) => &mut found.effects,
+                        DefKind::TypeParam if !constrained.contains(&d) => &mut found.sets,
                         _ => continue,
                     };
                     if !list.contains(&name) {
@@ -558,10 +627,10 @@ fn check_bounds(
                     }
                 }
                 for &p in params {
-                    walk(program, p, constrained, effects, sets);
+                    walk(program, p, constrained, found);
                 }
                 if let Some(r) = ret {
-                    walk(program, *r, constrained, effects, sets);
+                    walk(program, *r, constrained, found);
                 }
             }
             TypeKind::SelfType
@@ -576,8 +645,26 @@ fn check_bounds(
         let Some(ty) = p.ty else {
             continue;
         };
-        let (mut effects, mut sets) = (Vec::new(), Vec::new());
-        walk(program, ty, &constrained, &mut effects, &mut sets);
+        let mut found = Found {
+            callback: Vec::new(),
+            effects: Vec::new(),
+            sets: Vec::new(),
+        };
+        walk(program, ty, &constrained, &mut found);
+        let Found {
+            callback,
+            effects,
+            sets,
+        } = found;
+        if !callback.is_empty() {
+            diags.push(Diagnostic {
+                span: program.types[ty].span,
+                kind: DiagnosticKind::CallbackEffects {
+                    effects: callback,
+                    callee: None,
+                },
+            });
+        }
         if effects.is_empty() && sets.is_empty() {
             continue;
         }
@@ -607,6 +694,7 @@ fn op_signature(
     program: &Program,
     ty_table: &TyTable,
     effect: Option<DefId>,
+    name: &SmolStr,
     sig: &FnSig,
     diags: &mut Vec<Diagnostic>,
 ) -> Signature {
@@ -636,15 +724,36 @@ fn op_signature(
         omitted: Omitted::Empty,
         sets: true,
         self_ty: None,
+        result_caps: None,
+        quant: None,
     };
+    // A capability set in a parameter type is decided at each call (`[effect.handler]`): a set
+    // type parameter after the others, in the R of the operation as for a function
+    // (`[type.inference]`).
+    let mut param_caps = FieldCaps::finding(None, defs.len() as u32);
     let params: Vec<Ty> = sig
         .params
         .iter()
         .map(|p| match p.ty {
-            Some(ty) => ty_table.lower_in(program, &mut scope, ty, true, diags),
+            Some(ty) => {
+                param_caps.start_field(program.locals[p.local].name.clone());
+                let mut scope = Scope {
+                    params: &defs,
+                    kinds: &kinds,
+                    omitted: Omitted::Fields(&mut param_caps),
+                    sets: true,
+                    self_ty: None,
+                    result_caps: None,
+                    quant: None,
+                };
+                ty_table.lower_in(program, &mut scope, ty, true, diags)
+            }
             None => param_ty(program, ty_table, &defs, p, diags),
         })
         .collect();
+    let param_caps = param_caps.found();
+    let caps_uses =
+        Row::from_elems((0..param_caps.len()).map(|i| RowElem::Bound((defs.len() + i) as u32)));
     // A child forked through a built-in effect may use the effect itself (to fork a sibling),
     // and that is provided by the same scope, not from outside (spec 11.2): a function-typed
     // parameter whose `use` names the effect's set type parameter also gets the effect with its
@@ -660,24 +769,127 @@ fn op_signature(
         }
         _ => params,
     };
+    // A capability-bound type of the operation's own effect in the result records the receiver
+    // (`[effect.handler]`): a set type parameter after the others, which a call fills with the
+    // set of the capability it is called on, and a handler with its `self`.
+    let receiver = (defs.len() + param_caps.len()) as u32;
+    let receiver_caps: Vec<(Vec<DefId>, Row)> = effect
+        .map(|e| (vec![e], Row::from_elems([RowElem::Bound(receiver)])))
+        .into_iter()
+        .collect();
+    scope.result_caps = Some(&receiver_caps);
     let ret = match sig.ret {
-        Some(ret) => ty_table.lower_in(program, &mut scope, ret, true, diags),
+        Some(ret) => {
+            let ty = ty_table.lower_in(program, &mut scope, ret, true, diags);
+            if let Some(found) = caps_in_op_result(program, ty_table, effect, ret, &ty) {
+                diags.push(Diagnostic {
+                    span: program.types[ret].span,
+                    kind: DiagnosticKind::CapabilityInOpResult {
+                        op: name.clone(),
+                        ty: found,
+                    },
+                });
+            }
+            ty
+        }
         None => Ty::UNIT,
     };
+    scope.result_caps = None;
     let fails = match &sig.fails {
         Some(set) => ty_table.lower_error_set(program, &scope, set, diags),
         None => Row::empty(),
     };
     // An operation's `uses` clause is E0137 in the syntax stage (spec 8.1); not read here.
-    let ty_params = ty_params(program, &defs)
+    let mut ty_params: Vec<TyParam> = ty_params(program, &defs)
         .into_iter()
         .zip(&kinds)
         .map(|(p, &kind)| TyParam { kind, ..p })
         .collect();
+    for (tags, name) in param_caps {
+        let mut p = TyParam::set(name);
+        p.caps = Some(tags);
+        ty_params.push(p);
+    }
+    if let Some(e) = effect
+        && mentions_bound(&ret, receiver)
+    {
+        let mut p = TyParam::set("C(self)");
+        p.caps = Some(vec![Tag::new(e)]);
+        ty_params.push(p);
+    }
     Signature {
-        scheme: Scheme::new(ty_params, Ty::func_fails(params, ret, fails)),
+        scheme: Scheme::new(ty_params, Ty::func_sets(params, ret, fails, caps_uses)),
         labels: param_labels(program, &sig.params),
     }
+}
+
+/// What makes the result type `ty` of an operation of `effect` E0456 (`[effect.handler]`), as
+/// written: a capability type, or a type with hidden capability sets of another effect.
+fn caps_in_op_result(
+    program: &Program,
+    ty_table: &TyTable,
+    effect: Option<DefId>,
+    written: TypeId,
+    ty: &Ty,
+) -> Option<SmolStr> {
+    if let Some(cap) = written_cap(program, written) {
+        return Some(cap);
+    }
+    let mut found = None;
+    ty.visit(&mut |t| {
+        if found.is_some() {
+            return;
+        }
+        if let Ty::Named(con, _) = t {
+            let def = ty_table.def(*con);
+            if let Some(caps) = ty_table.decl_caps(def)
+                && caps
+                    .effects
+                    .iter()
+                    .flatten()
+                    .any(|tag| Some(tag.def) != effect)
+            {
+                found = Some(program.defs[def].name.clone());
+            }
+        }
+    });
+    found
+}
+
+/// The first capability type `use E` written in the type expression `ty`, as written.
+fn written_cap(program: &Program, ty: TypeId) -> Option<SmolStr> {
+    match &program.types[ty].kind {
+        TypeKind::Cap(effects) => Some(SmolStr::new(format!(
+            "use {}",
+            effects
+                .iter()
+                .filter_map(|e| match e.res {
+                    Res::Def(d) => Some(program.defs[d].name.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" + ")
+        ))),
+        TypeKind::Path { args, .. } => args.iter().find_map(|&a| written_cap(program, a)),
+        TypeKind::Tuple(elems) => elems.iter().find_map(|&e| written_cap(program, e)),
+        TypeKind::Fn { params, ret, .. } => params
+            .iter()
+            .chain(ret)
+            .find_map(|&t| written_cap(program, t)),
+        _ => None,
+    }
+}
+
+/// Whether a capability set in `ty` has the set type parameter `i`.
+fn mentions_bound(ty: &Ty, i: u32) -> bool {
+    let mut found = false;
+    ty.visit(&mut |t| match t {
+        Ty::Set(SetKind::Caps, row) | Ty::Cap(_, row) => {
+            found |= row.elems().contains(&RowElem::Bound(i));
+        }
+        _ => {}
+    });
+    found
 }
 
 /// The checks on one more effect `tag` listed after the `:` of `handler`, after `earlier`
@@ -741,7 +953,14 @@ fn member_signature(
     item: &MemberItem,
     diags: &mut Vec<Diagnostic>,
 ) -> Signature {
-    let mut sig = op_signature(program, ty_table, effect, &item.sig, diags);
+    let mut sig = op_signature(
+        program,
+        ty_table,
+        effect,
+        &SmolStr::default(),
+        &item.sig,
+        diags,
+    );
     let defs: Vec<DefId> = effect
         .map(|e| effect_params(program, e).iter().map(|tp| tp.def).collect())
         .unwrap_or_default();
@@ -752,6 +971,8 @@ fn member_signature(
         omitted: Omitted::Empty,
         sets: false,
         self_ty: None,
+        result_caps: None,
+        quant: None,
     };
     // The capability opened has every effect after the `:` (`[grammar.decl]`).
     let mut provided = Some(Vec::with_capacity(item.effects.len()));
@@ -775,7 +996,8 @@ fn member_signature(
     }
     let provided = provided.filter(|tags| !tags.is_empty());
     if let Ty::Fn(f) = &mut sig.scheme.ty {
-        f.ret = provided.map_or(Ty::Error, Ty::cap);
+        // The capability of the item that opens it (`[effect.with]`); the item gives its set.
+        f.ret = provided.map_or(Ty::Error, |tags| Ty::cap(tags, Row::empty()));
         if let Some(e) = effect {
             let args = (0..defs.len()).map(|i| Ty::Bound(i as u32)).collect();
             f.uses = Row::of_tag(Tag::with_args(e, args));
@@ -869,6 +1091,67 @@ fn check_effect_params(
                 },
             });
         }
+    }
+}
+
+/// The type parameters of a handler (`[effect.handler]`). Each is an ordinary type: one that
+/// appears only in the `fails` or `uses` of a function type would be a set (E0424). Each appears
+/// in the effects after the colon, in the type of a field or in the type of a parameter of init
+/// (E0462): the type of a handler cannot be written, so one that appears nowhere else would tell
+/// nothing apart. An inner handler cannot have its own (E0460); it reads the declaration with
+/// those of its outer handler.
+fn check_handler_params(
+    program: &Program,
+    ty_table: &TyTable,
+    handler: DefId,
+    item: &HandlerItem,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let inner = program.defs[handler]
+        .parent
+        .is_some_and(|p| program.defs[p].kind == DefKind::Handler);
+    if inner {
+        if let Some(first) = item.type_params.first() {
+            diags.push(Diagnostic {
+                span: program.defs[first.def].span,
+                kind: DiagnosticKind::InnerHandlerTypeParams {
+                    handler: program.defs[handler].name.clone(),
+                },
+            });
+        }
+        return;
+    }
+    if item.type_params.is_empty() {
+        return;
+    }
+    let defs: Vec<DefId> = item.type_params.iter().map(|tp| tp.def).collect();
+    let types: Vec<TypeId> = item
+        .effects
+        .iter()
+        .flat_map(|e| e.args.iter().copied())
+        .chain(item.fields.iter().map(|f| f.ty))
+        .chain(item.init_params.iter().filter_map(|p| p.ty))
+        .collect();
+    let marks = crate::lower::mark_all(program, ty_table.decl_sets(), &defs, types);
+    for (tp, (in_type, in_set)) in item.type_params.iter().zip(marks) {
+        let param = program.defs[tp.def].name.clone();
+        let kind = if in_type {
+            continue;
+        } else if in_set.is_some() {
+            DiagnosticKind::HandlerParamNotType {
+                handler: program.defs[handler].name.clone(),
+                param,
+            }
+        } else {
+            DiagnosticKind::UnusedHandlerParam {
+                handler: program.defs[handler].name.clone(),
+                param,
+            }
+        };
+        diags.push(Diagnostic {
+            span: program.defs[tp.def].span,
+            kind,
+        });
     }
 }
 
@@ -971,6 +1254,17 @@ impl FnParams {
             omitted,
             sets: true,
             self_ty: self.self_ty.as_ref(),
+            result_caps: None,
+            quant: None,
+        }
+    }
+
+    /// The scope of the result type: a capability type there takes its set from the parameters
+    /// (`[type.rules]`).
+    pub(crate) fn result_scope<'a>(&'a self, omitted: Omitted<'a>) -> Scope<'a> {
+        Scope {
+            result_caps: Some(&self.hidden.caps),
+            ..self.scope(omitted)
         }
     }
 
@@ -1003,6 +1297,8 @@ impl FnParams {
                     omitted: Omitted::Hidden(&mut self.hidden),
                     sets: true,
                     self_ty: self.self_ty.as_ref(),
+                    result_caps: None,
+                    quant: None,
                 };
                 ty_table.lower_in(program, &mut scope, ty, true, diags)
             })
@@ -1036,9 +1332,11 @@ impl FnParams {
         sig: &FnSig,
         diags: &mut Vec<Diagnostic>,
     ) -> Row {
+        // A capability type in the type arguments of an effect takes its set from the
+        // parameters, as in the result type (`[type.rules]`).
         let written = match &sig.uses {
             Some(set) => {
-                ty_table.lower_effect_set(program, &self.scope(Omitted::Empty), set, diags)
+                ty_table.lower_effect_set(program, &self.result_scope(Omitted::Empty), set, diags)
             }
             None => Row::empty(),
         };
@@ -1065,6 +1363,7 @@ fn ctor_signature(
     program: &Program,
     ty_table: &TyTable,
     owner: DefId,
+    ctor: DefId,
     fields: &Fields,
     diags: &mut Vec<Diagnostic>,
 ) -> Option<Signature> {
@@ -1082,23 +1381,36 @@ fn ctor_signature(
         Some(id) => ty_table.cons[id].params.clone(),
         None => ty_params(program, &defs),
     };
-    let kinds: Vec<ParamKind> = params.iter().map(|p| p.kind).collect();
-    let mut scope = Scope {
-        params: &defs,
-        kinds: &kinds,
-        omitted: Omitted::Empty,
-        sets: true,
-        self_ty: None,
-    };
+    // The capability sets in the fields are the hidden set type parameters of the type
+    // (`[type.rules]`).
     let ty = match fields {
         Fields::None => ret_ty,
-        _ => Ty::func(
-            field_tys
-                .iter()
-                .map(|&t| ty_table.lower_in(program, &mut scope, t, true, diags))
-                .collect::<Vec<_>>(),
-            ret_ty,
-        ),
+        _ if ty_table.con(owner).is_some() => {
+            let mut caps = FieldCaps::new(ty_table, owner);
+            Ty::func(
+                ty_table.lower_fields(program, owner, ctor, &mut caps, diags),
+                ret_ty,
+            )
+        }
+        _ => {
+            let kinds: Vec<ParamKind> = params.iter().map(|p| p.kind).collect();
+            let mut scope = Scope {
+                params: &defs,
+                kinds: &kinds,
+                omitted: Omitted::Empty,
+                sets: true,
+                self_ty: None,
+                result_caps: None,
+                quant: None,
+            };
+            Ty::func(
+                field_tys
+                    .iter()
+                    .map(|&t| ty_table.lower_in(program, &mut scope, t, true, diags))
+                    .collect::<Vec<_>>(),
+                ret_ty,
+            )
+        }
     };
 
     Some(Signature {
@@ -1109,18 +1421,35 @@ fn ctor_signature(
 
 /// The parameters of a handler's init. Their types MUST be written (E0316, `[effect.handler]`);
 /// a missing one becomes `Ty::Error`. An omitted E or R in a function type is empty, as in the
-/// type of a const: the handler is not generic.
+/// type of a const. The handler's type parameters (`type_params`) are `Ty::Bound(i)`.
 fn init_params(
     program: &Program,
     ty_table: &TyTable,
     handler: DefId,
+    type_params: &[DefId],
     params: &[Param],
     diags: &mut Vec<Diagnostic>,
 ) -> InitParams {
+    // A capability set in a parameter type is decided by each item of a with that runs the init
+    // (`[effect.handler]`): `Bound(i)`, replaced at the item.
+    let mut caps = FieldCaps::finding(None, 0);
     let tys = params
         .iter()
         .map(|p| match p.ty {
-            Some(ty) => ty_table.lower(program, &[], ty, diags),
+            Some(ty) => {
+                caps.start_field(program.locals[p.local].name.clone());
+                let kinds = vec![ParamKind::Type; type_params.len()];
+                let mut scope = Scope {
+                    params: type_params,
+                    kinds: &kinds,
+                    omitted: Omitted::Fields(&mut caps),
+                    sets: false,
+                    self_ty: None,
+                    result_caps: None,
+                    quant: None,
+                };
+                ty_table.lower_in(program, &mut scope, ty, true, diags)
+            }
             None => {
                 let local = &program.locals[p.local];
                 diags.push(Diagnostic {
@@ -1137,6 +1466,7 @@ fn init_params(
     InitParams {
         tys,
         labels: param_labels(program, params),
+        caps: caps.found().len(),
     }
 }
 

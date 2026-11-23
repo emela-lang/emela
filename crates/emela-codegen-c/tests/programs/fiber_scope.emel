@@ -46,14 +46,13 @@ fn boom() -> Int fails Boom { fail Boom }
 
 fn main() -> () uses { Async } {
   with Ticks, Outer {
-    total = Fiber.scope(|| {
-      s = use Scope
+    total = Fiber.scope(|s| {
       a = s.fork(|| fetch(1, 60))
       b = Fiber.fork(|| fetch(2, 10))
       Fiber.join(a) + Fiber.join(b)
     })
     print("total #{total}")
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       outside = || print((use Name).name())
       with Inner {
         a = Fiber.fork(outside)
@@ -63,7 +62,7 @@ fn main() -> () uses { Async } {
         Fiber.join(b)
       }
     })
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       a = Fiber.fork(|| {
         b = Fiber.fork(|| fetch(2, 10))
         print("child")
@@ -71,10 +70,9 @@ fn main() -> () uses { Async } {
       })
       print("joined #{Fiber.join(a)}")
     })
-    r = Fiber.scope(|| {
-      outer = use Scope
+    r = Fiber.scope(|outer| {
       late = outer.fork(|| fetch(9, 50))
-      inner = Fiber.scope(|| {
+      inner = Fiber.scope(|_| {
         Fiber.fork(|| {
           h = Fiber.fork(|| boom())
           Fiber.join(h)
@@ -86,7 +84,7 @@ fn main() -> () uses { Async } {
       Fiber.join(late)
     })
     print("outer #{r}")
-    floats = Fiber.scope(|| {
+    floats = Fiber.scope(|_| {
       x = Fiber.fork(|| 1.5)
       y = Fiber.fork(|| Int64.from_int(7))
       u = Fiber.fork(|| print("unit child"))

@@ -1,6 +1,6 @@
 //! Tests for monomorphization (`emela_core::monomorphize`).
 
-mod support;
+use crate::support;
 
 use emela_core::{Module, Roots, Type, dump, monomorphize, monomorphize_from, verify_monomorphic};
 use support::{lower_files, try_lower};
@@ -310,8 +310,7 @@ import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 fn main() -> Int uses { Async } {
-  Fiber.scope(|| {
-    s = use Scope
+  Fiber.scope(|s| {
     a = s.fork(|| [1])
     b = Fiber.fork(|| 2)
     d = s.deferred()
@@ -368,7 +367,7 @@ fn generic_roots_are_instantiated() {
             "main.emel",
             "import Std.Fiber.{Fiber, Scope}\n\
              fn child_defect() {\n\
-               Fiber.scope(|| {\n\
+               Fiber.scope(|_| {\n\
                  h = Fiber.fork(|| panic(\"child\"))\n\
                  Fiber.join(h)\n\
                })\n\
@@ -420,7 +419,7 @@ fn every_core_function_monomorphizes() {
 
 /// Prints function counts and times for lowering and monomorphizing the program at
 /// `EMELA_MONO_BENCH` (a path to an `.emel` file). Not a timing test: run it by hand with
-/// `cargo test --release -p emela-core --test mono measure -- --ignored --nocapture`.
+/// `cargo test --release -p emela-core --test tests mono::measure -- --ignored --nocapture`.
 #[test]
 #[ignore = "a measurement, run by hand"]
 fn measure() {

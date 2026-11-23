@@ -10,14 +10,16 @@ import Std.Instant.{Instant}
 error NotFound(id: Int)
 
 fn fetch(id: Int, ms: Int) -> String fails NotFound uses { Clock, Console } {
-  (use Clock).sleep(ms)
-  (use Console).print_line("fetched #{id}")
+  clock <- Clock
+  console <- Console
+  clock.sleep(ms)
+  console.print_line("fetched #{id}")
   if id < 0 { fail NotFound(id:) } else { "user #{id}" }
 }
 
 fn main() {
   with SystemConsole, SystemClock {
-    console = use Console
+    console <- Console
     # The waits overlap: the second fetch ends first.
     (a, b) = Fiber.both(|| fetch(1, 200), || fetch(2, 100))
     console.print_line("both: #{a}, #{b}")
@@ -28,7 +30,7 @@ fn main() {
     late = Fiber.timeout(100, || fetch(8, 1000))
     console.print_line("timeout: #{late}")
     # A failing child interrupts its siblings, and the error reaches the scope.
-    failed = Fiber.scope(|| {
+    failed = Fiber.scope(|_| {
       ok = Fiber.fork(|| fetch(9, 1000))
       bad = Fiber.fork(|| fetch(-1, 100))
       "#{Fiber.join(ok)} #{Fiber.join(bad)}"

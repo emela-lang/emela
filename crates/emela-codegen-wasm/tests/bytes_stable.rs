@@ -16,7 +16,7 @@
 //! change comes from what you changed, then paste the values from the failure message, which
 //! lists every program whose output changed, in place of the old ones.
 
-mod common;
+use crate::common;
 
 use common::*;
 
@@ -46,8 +46,8 @@ fn main() {
   dbg("ab" == "ab")
 }
 "#,
-        13009,
-        0x0287_5623_c2a1_4bef,
+        13002,
+        0xae84_7a81_d788_99b4,
     ),
     (
         "lists_enums_strings",
@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        24156,
-        0xa77a_e2e4_b3de_7b2c,
+        24149,
+        0xfc27_2dc6_cfe6_9d8b,
     ),
     (
         "floats",
@@ -96,8 +96,8 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        22355,
-        0x0c02_fc33_95ed_ae2e,
+        22348,
+        0xf3eb_894a_3ec0_de3f,
     ),
     (
         "platform_console",
@@ -111,8 +111,8 @@ fn main() {
   }
 }
 "#,
-        36112,
-        0x7a69_3de7_2e9f_ac8b,
+        36088,
+        0xc12f_cb27_6f7a_5529,
     ),
     (
         "state_and_options",
@@ -131,8 +131,8 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        15542,
-        0x24d7_72a7_7287_8449,
+        15501,
+        0x9eec_4b41_23b7_e143,
     ),
     (
         "numeric",
@@ -158,8 +158,8 @@ fn main() {
   dbg(Float.from_int(7) % Float.from_int(2) > 0.5)
 }
 "#,
-        13296,
-        0x4258_b1c9_6020_36f1,
+        13289,
+        0x61b3_5060_8ba7_3288,
     ),
 ];
 
@@ -178,8 +178,8 @@ pub fn fails_with_an_error() -> Int fails Nope { half(3) }
 pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
-    13125,
-    0x5caa_11fa_f498_efe7,
+    13118,
+    0x5482_f5b9_e0b0_0238,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new

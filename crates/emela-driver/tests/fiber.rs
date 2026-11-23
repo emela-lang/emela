@@ -78,13 +78,12 @@ fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) 
         Target::Wasm => unreachable!("the fiber tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{target}: {:?}",
         analysis.diagnostics
     );
@@ -151,7 +150,15 @@ fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutc
         Target::Wasm => unreachable!("the fiber tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    assert_eq!(analysis.diagnostics, [], "{target}");
+    // The programs still write `use E` as an expression (W0403, deprecated).
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
+        "{target}: {:?}",
+        analysis.diagnostics
+    );
     report
         .unwrap()
         .results
@@ -234,8 +241,7 @@ fn children_run_concurrently_and_are_joined() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    total = Fiber.scope(|| {
-      s = use Scope
+    total = Fiber.scope(|s| {
       a = s.fork(|| fetch(1, 60))
       b = Fiber.fork(|| fetch(2, 10))
       Fiber.join(a) + Fiber.join(b)
@@ -295,15 +301,15 @@ fn main() {
 #[test]
 fn children_get_the_handlers_where_scope_is_called() {
     // spec 11.2: a child uses the handlers in effect when Fiber.scope was called. A `with` inside
-    // the scope body does not reach children, but a closure created inside a `with` uses that
-    // `with`'s handler.
+    // the scope body does not reach children, even through a closure created inside that `with`
+    // (`[effect.with]`: the side that calls a closure provides its R).
     let (code, out, err) = run_main(
         "handlers",
         &source(
             r##"
 fn main() {
   with SystemConsole, Outer {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       outside = || say((use Name).name())
       with Inner {
         a = Fiber.fork(outside)
@@ -320,7 +326,7 @@ fn main() {
     );
     assert_eq!(
         (code, out.as_str(), err.as_str()),
-        (0, "body inner\nouter\ninner\n", "")
+        (0, "body inner\nouter\nouter\n", "")
     );
 }
 
@@ -336,7 +342,7 @@ fn children_fork_siblings_into_their_own_scope() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       a = Fiber.fork(|| {
         b = Fiber.fork(|| fetch(2, 10))
         say("child")
@@ -344,10 +350,9 @@ fn main() {
       })
       say("joined #{Fiber.join(a)}")
     })
-    r = Fiber.scope(|| {
-      outer = use Scope
+    r = Fiber.scope(|outer| {
       late = outer.fork(|| fetch(9, 50))
-      inner = Fiber.scope(|| {
+      inner = Fiber.scope(|_| {
         Fiber.fork(|| {
           h = Fiber.fork(|| boom())
           Fiber.join(h)
@@ -385,7 +390,7 @@ fn a_failing_child_interrupts_its_siblings() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    r = Fiber.scope(|| {
+    r = Fiber.scope(|_| {
       Fiber.fork(|| with Res { (use Clock).sleep(1000) })
       Fiber.fork(|| {
         (use Clock).sleep(10)
@@ -396,7 +401,7 @@ fn main() {
       1
     }) escape { Boom -> -1 }
     say("scope #{r}")
-    v = Fiber.scope(|| {
+    v = Fiber.scope(|_| {
       Fiber.fork(|| with Res { (use Clock).sleep(1000) })
       (use Clock).sleep(10)
       2
@@ -427,7 +432,7 @@ fn later_failures_are_notes() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       Fiber.fork(|| {
         (use Clock).sleep(10)
         panic("first")
@@ -470,7 +475,7 @@ fn main() {
     say(show(Exit.attempt(|| boom())))
     say(show(Exit.attempt(|| panic("bad"))))
     say(show(Exit.attempt(|| fetch(1, 1))))
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       h = Fiber.fork(|| with Res { (use Clock).sleep(1000) })
       (use Clock).sleep(10)
       Fiber.interrupt(h)
@@ -479,7 +484,7 @@ fn main() {
       ok = Fiber.fork(|| 7)
       say("await #{show(Fiber.await(ok))}")
     })
-    r = Fiber.scope(|| {
+    r = Fiber.scope(|_| {
       Exit.attempt(|| boom()) match {
         Success(v) -> v
         Failure(c) -> Cause.raise(c)
@@ -512,7 +517,7 @@ fn deferred() {
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    Fiber.scope(|| {
+    Fiber.scope(|_| {
       d = Fiber.deferred()
       a = Fiber.fork(|| Deferred.await(d) + 1)
       b = Fiber.fork(|| Deferred.await(d) + 2)
@@ -537,25 +542,21 @@ fn main() {
 
 #[test]
 fn using_an_ended_scope_is_a_defect() {
-    // spec 11.8: an escape the types do not stop (captured in a closure and taken outside) is a
-    // defect at run time.
+    // A Deferred records no capability (`[fiber.scope]`), so the types do not stop it from
+    // leaving its scope; the implementation still makes using it afterwards a defect. A Fiber
+    // that leaves its scope is E0455.
     let (code, out, err) = run_main(
         "ended-scope",
         &source(
             r##"
 fn main() {
   with SystemConsole {
-    join_later = Fiber.scope(|| {
-      h = Fiber.fork(|| 1)
-      || Fiber.join(h)
-    })
-    say(show(Exit.attempt(|| join_later())))
-    complete_later = Fiber.scope(|| {
+    complete_later = Fiber.scope(|_| {
       d = Fiber.deferred()
       || Deferred.complete(d, 1)
     })
     say(show(Exit.attempt(|| complete_later())))
-    poll_later = Fiber.scope(|| {
+    poll_later = Fiber.scope(|_| {
       d = Fiber.deferred()
       || Deferred.poll(d)
     })
@@ -570,8 +571,7 @@ fn main() {
         (code, out.as_str()),
         (
             101,
-            "Die defect: fiber was joined after its scope ended\n\
-             Die defect: deferred was completed after its scope ended\n"
+            "Die defect: deferred was completed after its scope ended\n"
         )
     );
     assert!(
@@ -606,7 +606,7 @@ fn races() {
 
 @test
 fn child_error() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     h = Fiber.fork(|| boom())
     Fiber.join(h)
   })
@@ -614,7 +614,7 @@ fn child_error() {
 
 @test
 fn child_defect() {
-  Fiber.scope(|| {
+  Fiber.scope(|_| {
     h = Fiber.fork(|| panic("child"))
     Fiber.join(h)
   })
@@ -664,7 +664,7 @@ fn wakes_in_time_order() {
   ((_, lines), end) = State.run(zero(), || {
     State.run([], || {
       with TestConsole, TestClock {
-        Fiber.scope(|| {
+        Fiber.scope(|_| {
           Fiber.fork(|| {
             (use Clock).sleep(30)
             at("a")

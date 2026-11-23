@@ -4,6 +4,7 @@ use super::expressions::{block, expr, supply};
 use super::param_list;
 use super::types::{
     effect_type_args, effects_and_errors, old_uses_clause_on_next_line, path, ret_type, type_,
+    uses_clause,
 };
 use crate::SyntaxKind::*;
 use crate::diagnostic::DiagnosticCode;
@@ -354,7 +355,7 @@ fn type_param_list(p: &mut Parser<'_>) {
     m.complete(p, TYPE_PARAM_LIST);
 }
 
-/// `"type" type_name [ type_params ] [ "(" [ fields ] ")" ] [ derive ]`
+/// `"type" type_name [ type_params ] [ "(" [ fields ] ")" ] [ "uses" effect_ref ] [ derive ]`
 fn type_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(TYPE_KW);
     decl_name(p, TYPE_NAME);
@@ -364,6 +365,7 @@ fn type_decl(p: &mut Parser<'_>, m: Marker) {
     if p.at(L_PAREN) {
         field_list(p);
     }
+    bound_clause(p);
     derive_clause(p);
     m.complete(p, TYPE_DECL);
 }
@@ -379,13 +381,15 @@ fn error_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, ERROR_DECL);
 }
 
-/// `"enum" type_name [ type_params ] "{" variant { sep variant } "}" [ derive ]`．`sep = "," | NL`
+/// `"enum" type_name [ type_params ] [ "uses" effect_ref ] "{" variant { sep variant } "}"
+/// [ derive ]`．`sep = "," | NL`
 fn enum_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(ENUM_KW);
     decl_name(p, TYPE_NAME);
     if p.at(L_BRACK) {
         type_param_list(p);
     }
+    bound_clause(p);
     if p.at(L_BRACE) {
         variant_list(p);
     } else {
@@ -569,6 +573,13 @@ fn field(p: &mut Parser<'_>) {
     m.complete(p, FIELD);
 }
 
+/// `"uses" effect_ref` of a capability-bound type (`[type.rules]`), as a USES_CLAUSE.
+fn bound_clause(p: &mut Parser<'_>) {
+    if p.at_contextual_kw("uses") {
+        uses_clause(p);
+    }
+}
+
 /// `"derive" type_ref { "," type_ref }`. May be written on the next line.
 ///
 /// Comment-only lines and blank lines in between are skipped (spec 2.5). A doc comment in between
@@ -721,8 +732,10 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, OP_SIG);
 }
 
-/// `"handler" type_name [ "(" [ fields ] ")" ] ":" effect_ref { "+" effect_ref }
+/// `"handler" type_name [ type_params ] [ "(" [ fields ] ")" ] ":" effect_ref { "+" effect_ref }
 /// "{" { handler_item NL } "}"`
+///
+/// Type parameters are read on an inner handler too; the type checker reports them (E0460).
 ///
 /// `handler_item = "init" [ "(" [ params ] ")" ] block | "release" block
 ///               | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block
@@ -730,6 +743,9 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
 fn handler_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(HANDLER_KW);
     decl_name(p, TYPE_NAME);
+    if p.at(L_BRACK) {
+        type_param_list(p);
+    }
     if p.at(L_PAREN) {
         field_list(p);
     }

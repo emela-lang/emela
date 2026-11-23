@@ -31,6 +31,9 @@ literal    = int_lit | float_lit | string_lit
 - `letter` and `digit` are limited to ASCII.
 - `char` is any character except `"`, `\`, and newline. `hex_digit` is `0` to `9`, `a` to `f`, and `A` to `F`.
 - `1..2` reads as `dec_lit ".." dec_lit`, and `1.x` reads as `dec_lit "." lower_name`. If no digit follows the decimal point, the literal is not a floating-point number.
+- `<-` is one token. A comparison with a negated operand is written with a space between `<` and `-` (`a < -1`).
+- `<-` after an operand in an expression (`a<-1`, `a <- 1`) is a compile error (E0152). `<-` is written only in a statement `x <- E` (`[grammar.expr]`).
+- In a statement `x <- R`, R that is not an effect name (`x <- 1`, `x <- LIMIT`, `x <- Int.abs(3)`) is a compile error (E0152). The diagnostic shows the comparison written with a space, `x < -R`, as a help.
 
 ## 17.3 Modules and declarations `[grammar.decl]`
 
@@ -54,14 +57,14 @@ fn_decl      = [ "suspend" ] "fn" lower_name [ type_params ]
                "(" [ params ] ")" [ signature ] [ block ]
 signature    = [ "->" type [ "fails" error_set ] ] [ "uses" effect_set ]
 params       = param { "," param }
-param        = "self" | lower_name [ ":" type ]
+param        = "self" | { annotation } lower_name [ ":" type ]   (* `@borrowed`; 12.4 *)
 
 type_params  = "[" type_param { "," type_param } "]"
 type_param   = ( upper_name | type_name ) [ ":" bound { "+" bound } ]
 bound        = type_ref
 
-type_decl    = "type" type_name [ type_params ] [ "(" [ fields ] ")" ] [ derive ]
-enum_decl    = "enum" type_name [ type_params ] "{" variant { sep variant } "}" [ derive ]
+type_decl    = "type" type_name [ type_params ] [ "(" [ fields ] ")" ] [ "uses" effect_ref ] [ derive ]   (* a capability-bound type; 9.4 *)
+enum_decl    = "enum" type_name [ type_params ] [ "uses" effect_ref ] "{" variant { sep variant } "}" [ derive ]
 variant      = { annotation } type_name [ "(" ( fields | type { "," type } ) ")" ]
 error_decl   = "error" type_name [ "(" [ fields ] ")" ] [ derive ]
 fields       = field { "," field }
@@ -79,7 +82,7 @@ op_sig       = [ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")"
 member_sig   = [ "suspend" ] "handler" type_name "(" [ params ] ")" ":" effect_ref { "+" effect_ref }
                [ "fails" error_set ]                              (* a handler member; 8.1 *)
 
-handler_decl = "handler" type_name [ "(" [ fields ] ")" ]
+handler_decl = "handler" type_name [ type_params ] [ "(" [ fields ] ")" ]
                ":" effect_ref { "+" effect_ref } "{" { handler_item NL } "}"
 effect_ref   = type_ref [ "[" type { "," type } "]" ]
 handler_item = "init" [ "(" [ params ] ")" ] block
@@ -88,7 +91,7 @@ handler_item = "init" [ "(" [ params ] ")" ] block
              | handler_decl                                      (* inner handler; 8.4 *)
 
 layer_decl   = "layer" type_name "{" supply { sep supply } "}"
-supply       = type_ref [ "." type_name ] [ "(" [ args ] ")" ]
+supply       = type_ref [ "." type_name ] [ "[" type { "," type } "]" ] [ "(" [ args ] ")" ]
              | lower_name "." type_name "(" [ args ] ")"          (* a handler member of a capability; 8.3 *)
 
 trait_decl   = "trait" type_name [ ":" bound { "+" bound } ] "{" { trait_item NL } "}"
@@ -106,6 +109,8 @@ The following restrictions apply outside the grammar.
 - A `qualified` annot_arg is allowed only as the argument of `@entry`.
 - `opaque` can be applied only to type and enum.
 - Each parameter of init is a lower_name with a type (8.4).
+- The type_params of a handler_decl are not allowed on an inner handler (E0460).
+- The type arguments of a supply can be written only when it names a handler with type parameters.
 - A type_decl without fields is allowed only when it has `@external` (or `@intrinsic` in the bundled sources, 3.5).
 - An enum_decl has at least one variant. Never is the only type with no values.
 - When `derive` follows the newline right after a type_decl, enum_decl, or error_decl, that newline is not a terminator, and the derive continues the declaration (as written in the examples in 10.5). Blank lines and comment-only lines in between are skipped (as in the line continuation check in 2.5). Because `derive` is a contextual keyword, it is not part of the lexical line continuation rules in 2.5, and it is handled only at the position of a declaration.
@@ -139,8 +144,9 @@ effect_item = type_ref [ "[" type { "," type } "]" ] | upper_name   (* an effect
 
 ```ebnf
 block      = "{" { stmt NL } "}"
-stmt       = binding | local_fn | expr
+stmt       = binding | effect_alias | local_fn | expr
 binding    = pattern [ ":" type ] "=" expr
+effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 local_fn   = "fn" lower_name "(" [ params ] ")" [ signature ] block
 
 expr       = "fail" expr
@@ -174,7 +180,7 @@ if_expr    = "if" expr block [ "else" ( block | if_expr ) ]
 arm        = pattern [ "if" expr ] "->" expr
 with_expr  = "with" with_item { "," with_item } block
 with_item  = [ lower_name "=" ] supply [ "by" by_right ]                 (* by is in 8.9 *)
-by_right   = type_ref [ "[" type { "," type } "]" | "(" [ args ] ")" ]
+by_right   = type_ref [ "[" type { "," type } "]" ] [ "(" [ args ] ")" ]
 lambda     = ( "||" | "|" [ lambda_param { "," lambda_param } ] "|" ) expr
 lambda_param = pattern [ ":" type ]
 ```
@@ -188,9 +194,10 @@ lambda_param = pattern [ ":" type ]
 
 - When the last statement of a block is an expression, its value is the value of the block. When the last statement is a binding, the value of the block is `()`. The last statement cannot be a local_fn (E0151).
 - Whether a statement is a binding or an expression is decided by whether a sequence that reads as a pattern is immediately followed by `=` or `:`.
+- An effect_alias is a statement (8.2). Whether a statement is an effect_alias is decided by whether a lower_name is immediately followed by `<-`.
 - To call an operation of `use X` in place, wrap it in parentheses: `(use X).op(...)`. Writing `.` or `(` directly after `use X` is a compile error (E0121).
 - In an argument list, a positional argument cannot follow a named argument.
-- The type arguments on the right of `by` (`Hits by State[Int]`) can be written only when it names an effect, and arguments only when it names a handler.
+- The type arguments on the right of `by` can be written when it names an effect (`Hits by State[Int]`) or a handler with type parameters (`Hits by Memory[Int](initial: 0)`). Arguments can be written only when it names a handler.
 - `Self` as an expression is the value of a handler, and can be written only inside the init of a handler, called with its fields or alone (8.4).
 - A trailing `..expr` in an argument list is a record update of a constructor (5.3). Writing it in a function call is a compile error (E0222). Writing an argument after `..` is a compile error (E0114).
 - A `..expr` in a list literal can appear only once, at the end. `[x, y, ..rest]` is the list `rest` with `x` and `y` added in front. What follows `..` is not limited to a name and can be any expression (`[x, ..List.tail(xs)]`). `[..rest]` with no elements, and `..` in the middle or more than once (`[..a, ..b]`), cannot be written.

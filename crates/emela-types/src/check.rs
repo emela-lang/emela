@@ -90,6 +90,9 @@ pub struct ProgramTypes {
     /// of `Files.Open(p)` or `fs.Open(p)` inside an init, and the capability expression of an item
     /// `x = fs.Open(p)` of `with`.
     pub members: ArenaMap<ExprId, DefId>,
+    /// Handler members opened inside an init through a handler that a `with` inside the init
+    /// provides → that `with`, at whose end they are released (`[effect.handler]`).
+    pub member_open_withs: ArenaMap<ExprId, ExprId>,
     /// Method calls (the `Field` callee of `x.f(a)`, `[type.rules]`) → the fn of the module of the
     /// type of x, or the trait function, that it calls. The callee has that function's
     /// instantiated type and its `type_args` and `type_rows`, as a `Path` to it would, and the
@@ -114,13 +117,22 @@ pub struct ProgramTypes {
     /// Arguments whose capability is passed as fewer effects (`[effect.use]`) → the effects of
     /// the parameter, in the order of [`Ty::Cap`]. Lowering keeps only those operation tables.
     pub narrowings: ArenaMap<ExprId, Vec<Tag>>,
+    /// `self` passed as the capability of its handler (`[effect.handler]`): lowering makes the
+    /// handler's value from the state.
+    pub self_caps: rustc_hash::FxHashSet<ExprId>,
     /// Layers → per item, the arguments of init reordered by parameter. Only for layers with
     /// arguments.
     pub layer_args: ArenaMap<DefId, Vec<Vec<Option<ExprId>>>>,
+    /// `with` expressions → per item, the type arguments of the handler with type parameters
+    /// that supplies it (`[effect.with]`): of the right of `by` for `L by H`. Empty for other
+    /// items. A type variable generalized into the enclosing definition stays a type variable,
+    /// as in `exprs` (`generalized_tys`).
+    pub with_ty_args: ArenaMap<ExprId, Vec<Vec<Ty>>>,
+    /// Layers → per member, the type arguments of a handler with type parameters
+    /// (`[effect.layer]`). Empty for other members.
+    pub layer_ty_args: ArenaMap<DefId, Vec<Vec<Ty>>>,
     /// Supertraits and impls (spec 10.1–10.2).
     pub traits: Traits,
-    /// What values may hold (`[effect.escape]`), for the language server.
-    pub captures: crate::capture::Captures,
     pub diags: Vec<Diagnostic>,
 }
 
@@ -207,14 +219,16 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         layers: ArenaMap::default(),
         with_args: ArenaMap::default(),
         narrowings: ArenaMap::default(),
+        self_caps: Default::default(),
+        member_open_withs: ArenaMap::default(),
         layer_args: ArenaMap::default(),
+        with_ty_args: ArenaMap::default(),
+        layer_ty_args: ArenaMap::default(),
         traits,
-        captures: crate::capture::Captures::default(),
         diags,
     };
 
     let fibers = crate::fiber::Fibers::new(program);
-    let mut captures = crate::capture::State::default();
     for group in groups(program, &sigs) {
         let mut infer = BodyInfer::new(
             program,
@@ -223,6 +237,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             HandlerFacts {
                 uses: &types.handler_uses,
                 fails: &types.handler_fails,
+                layer_ty_args: &types.layer_ty_args,
             },
             &closed,
             &fibers,
@@ -280,6 +295,9 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             .members
             .extend(body.members.iter().map(|(id, &m)| (id, m)));
         types
+            .member_open_withs
+            .extend(body.member_open_withs.iter().map(|(id, &w)| (id, w)));
+        types
             .methods
             .extend(body.methods.iter().map(|(id, &def)| (id, def)));
         types.handler_uses.extend(body.handler_uses);
@@ -293,31 +311,27 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types
             .narrowings
             .extend(body.narrowings.iter().map(|(id, tags)| (id, tags.clone())));
+        types.self_caps.extend(body.self_caps.iter().copied());
         types.layer_args.extend(body.layer_args);
+        types.with_ty_args.extend(
+            body.with_ty_args
+                .iter()
+                .map(|(id, args)| (id, args.clone())),
+        );
+        types.layer_ty_args.extend(body.layer_ty_args);
         types.diags.extend(body.diags);
-        let input = crate::capture::Input {
-            program,
-            ty_table: &types.ty_table,
-            sigs: &sigs,
-            fibers: &fibers,
-            exprs: &types.exprs,
-            locals: &types.locals,
-            calls: &types.calls,
-            ops: &types.ops,
-            methods: &types.methods,
-        };
-        crate::capture::check_group(&input, &mut captures, &group, &mut types.diags);
     }
-    types.captures = captures.captures;
 
     crate::export::check(program, &types.ty_table, &sigs, options, &mut types.diags);
     crate::traits::unused_derives(program, &types.traits, &mut types.diags);
     crate::entry_main::check(program, &types.ty_table, &sigs, options, &mut types.diags);
+    crate::unused_type_params::check(program, &sigs, &mut types.diags);
     types.layers = layer::check_layers(
         program,
         &sigs,
-        &types.ty_table.cons,
+        &types.ty_table,
         &types.handler_uses,
+        &types.layer_ty_args,
         &mut types.diags,
     );
     types.sigs = sigs;

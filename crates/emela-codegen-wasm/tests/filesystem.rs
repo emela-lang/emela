@@ -3,7 +3,7 @@
 //! program runs with the temporary directory preopened as the guest's work directory, which is
 //! what `wasm_examples` does for every example.
 
-mod common;
+use crate::common;
 
 use std::path::{Path, PathBuf};
 
