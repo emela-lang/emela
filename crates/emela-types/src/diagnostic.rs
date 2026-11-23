@@ -204,7 +204,13 @@ pub enum DiagnosticKind {
     },
     /// A function value's R not contained in the expected function type's R (E0403, spec 9.2).
     /// `expected` and `found` are displayed effect sets (`{ Logger, Clock }`, or `{}` if empty).
-    EffectSetMismatch { expected: SmolStr, found: SmolStr },
+    EffectSetMismatch {
+        expected: SmolStr,
+        found: SmolStr,
+        /// Whether a capability in `found` does not fit only because its effect is expected: a
+        /// capability is not widened to its effect (`[effect.use]`).
+        widened: bool,
+    },
     /// E0404, spec 8.4. `ops` lists the missing operations and `members` the missing handler
     /// members (`[effect.handler]`), each in declaration order.
     MissingHandlerOps {
@@ -406,6 +412,18 @@ pub enum DiagnosticKind {
         effects: Vec<SmolStr>,
         callee: Option<SmolStr>,
     },
+    /// A capability leaves what made it (E0455, `[effect.escape]`): the value or the error type
+    /// of a `with` body, or the R of the `with`, contains it, or it goes into a type fixed
+    /// outside. `cap` is how the language server names it; `made_at` is where it is made.
+    CapabilityLeak {
+        cap: SmolStr,
+        from: LeakFrom,
+        made_at: Option<Span>,
+    },
+    /// The capability set of a capability type does not fit the set expected there, for a
+    /// reason other than a leak (`[type.rules]`): a name of an effect or the set of a parameter
+    /// where the result type of a function records other parameters (E0301).
+    CapabilitySetMismatch { expected: SmolStr, found: SmolStr },
     /// `Immediate` on a type parameter that is not an effect set (E0322, spec 9.5).
     ImmediateOnNonEffect { param: SmolStr },
     /// A set (`{ Db }`, `A | B`) in a non-set type argument position (E0324, spec 9.2).
@@ -548,4 +566,16 @@ impl DiagnosticKind {
                 | DiagnosticKind::MainValueDiscarded { .. }
         )
     }
+}
+
+/// What a leaking capability leaves (E0455, [`DiagnosticKind::CapabilityLeak`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LeakFrom {
+    /// The `with` that made it.
+    With,
+    /// A function that provides its effect, or the capability, to the function passed to it
+    /// (`Fiber.scope`).
+    Call(SmolStr),
+    /// An operation, the init or the release of the handler whose `self` it is.
+    Handler(SmolStr),
 }

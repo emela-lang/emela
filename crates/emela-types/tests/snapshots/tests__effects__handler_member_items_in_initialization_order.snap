@@ -11,8 +11,8 @@ handler Loud: use {}
 with a = Files.Open("a"), MemFiles, quiet = Quiet, b = Files.Open("b"), Loud: init [MemFiles, open Open, Quiet, open Open, Loud]
 with a = Files.Open("a"), Quiet: init [open Open, Quiet]
 --- R
-{     quiet.info("x")     (use Logger).info("y")     a.read(1) + b.read(2)   }: { Logger, a, b }
-quiet.info("x"): Logger
+{     quiet.info("x")     (use Logger).info("y")     a.read(1) + b.read(2)   }: { Logger, a, quiet, b }
+quiet.info("x"): quiet
 (use Logger).info("y"): Logger
 (use Logger).info: Logger
 use Logger: Logger

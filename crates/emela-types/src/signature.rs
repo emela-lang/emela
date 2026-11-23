@@ -222,6 +222,7 @@ impl Signatures {
                             omitted: Omitted::Empty,
                             sets: false,
                             self_ty: None,
+                            result_caps: None,
                         };
                         // Generic handlers with type parameters left over are not kept
                         // (spec 8.1); omitting them is E0423.
@@ -333,6 +334,7 @@ fn label_base(
         omitted: Omitted::Empty,
         sets: false,
         self_ty: None,
+        result_caps: None,
     };
     ty_table.effect_tag(
         program,
@@ -371,7 +373,7 @@ fn fn_signature(
     let mut params = FnParams::new(program, ty_table, item);
     let arg_tys = params.lower_params(program, ty_table, &item.sig.params, diags);
     let labels = param_labels(program, &item.sig.params);
-    let mut scope = params.scope(Omitted::Empty);
+    let mut scope = params.result_scope(Omitted::Empty);
     let ret_ty = ty_table.lower_in(program, &mut scope, ret, true, diags);
     let fails = params.declared_fails(program, ty_table, &item.sig, diags);
     let mut uses = params.declared_uses(program, ty_table, &item.sig, diags);
@@ -404,7 +406,7 @@ fn trait_fn_signature(
     let mut params = FnParams::with_self(program, ty_table, item, Some(trait_def));
     let arg_tys = params.lower_params(program, ty_table, &item.sig.params, diags);
     let labels = param_labels(program, &item.sig.params);
-    let mut scope = params.scope(Omitted::Empty);
+    let mut scope = params.result_scope(Omitted::Empty);
     let ret_ty = match item.sig.ret {
         Some(ret) => ty_table.lower_in(program, &mut scope, ret, true, diags),
         None => Ty::UNIT,
@@ -656,6 +658,7 @@ fn op_signature(
         omitted: Omitted::Empty,
         sets: true,
         self_ty: None,
+        result_caps: None,
     };
     let params: Vec<Ty> = sig
         .params
@@ -772,6 +775,7 @@ fn member_signature(
         omitted: Omitted::Empty,
         sets: false,
         self_ty: None,
+        result_caps: None,
     };
     // The capability opened has every effect after the `:` (`[grammar.decl]`).
     let mut provided = Some(Vec::with_capacity(item.effects.len()));
@@ -795,7 +799,8 @@ fn member_signature(
     }
     let provided = provided.filter(|tags| !tags.is_empty());
     if let Ty::Fn(f) = &mut sig.scheme.ty {
-        f.ret = provided.map_or(Ty::Error, Ty::cap);
+        // The capability of the item that opens it (`[effect.with]`); the item gives its set.
+        f.ret = provided.map_or(Ty::Error, |tags| Ty::cap(tags, Row::empty()));
         if let Some(e) = effect {
             let args = (0..defs.len()).map(|i| Ty::Bound(i as u32)).collect();
             f.uses = Row::of_tag(Tag::with_args(e, args));
@@ -991,6 +996,16 @@ impl FnParams {
             omitted,
             sets: true,
             self_ty: self.self_ty.as_ref(),
+            result_caps: None,
+        }
+    }
+
+    /// The scope of the result type: a capability type there takes its set from the parameters
+    /// (`[type.rules]`).
+    pub(crate) fn result_scope<'a>(&'a self, omitted: Omitted<'a>) -> Scope<'a> {
+        Scope {
+            result_caps: Some(&self.hidden.caps),
+            ..self.scope(omitted)
         }
     }
 
@@ -1023,6 +1038,7 @@ impl FnParams {
                     omitted: Omitted::Hidden(&mut self.hidden),
                     sets: true,
                     self_ty: self.self_ty.as_ref(),
+                    result_caps: None,
                 };
                 ty_table.lower_in(program, &mut scope, ty, true, diags)
             })
@@ -1056,9 +1072,11 @@ impl FnParams {
         sig: &FnSig,
         diags: &mut Vec<Diagnostic>,
     ) -> Row {
+        // A capability type in the type arguments of an effect takes its set from the
+        // parameters, as in the result type (`[type.rules]`).
         let written = match &sig.uses {
             Some(set) => {
-                ty_table.lower_effect_set(program, &self.scope(Omitted::Empty), set, diags)
+                ty_table.lower_effect_set(program, &self.result_scope(Omitted::Empty), set, diags)
             }
             None => Row::empty(),
         };
@@ -1109,6 +1127,7 @@ fn ctor_signature(
         omitted: Omitted::Empty,
         sets: true,
         self_ty: None,
+        result_caps: None,
     };
     let ty = match fields {
         Fields::None => ret_ty,

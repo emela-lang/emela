@@ -234,6 +234,12 @@ impl InferCtx {
                 self.resolve_row(&f.uses),
             ),
             Ty::Set(kind, row) => Ty::Set(kind, self.resolve_row(&row)),
+            Ty::Cap(tags, caps) => Ty::Cap(
+                tags.iter()
+                    .map(|t| t.map_args(|a| self.resolve(a)))
+                    .collect(),
+                self.resolve_row(&caps),
+            ),
             ty => ty.map_children(|child| self.resolve(child)),
         }
     }
@@ -397,6 +403,13 @@ impl InferCtx {
                         .cloned(),
                 ),
             ),
+            // The capability set is not shown in the type.
+            Ty::Cap(tags, _) => Ty::Cap(
+                tags.iter()
+                    .map(|t| t.map_args(|a| self.resolve_for_report(a)))
+                    .collect(),
+                Row::empty(),
+            ),
             ty => ty.map_children(|child| self.resolve_for_report(child)),
         }
     }
@@ -510,7 +523,8 @@ impl InferCtx {
             // Capability values match only with the same effects and type arguments (spec 8.1).
             // Passing one as fewer effects (`[effect.use]`) is decided before unifying, where an
             // argument is checked (`BodyInfer::narrow_capability`).
-            (Ty::Cap(x), Ty::Cap(y))
+            // The capability sets are included as for R (`[type.rules]`).
+            (Ty::Cap(x, xc), Ty::Cap(y, yc))
                 if x.len() == y.len()
                     && x.iter()
                         .zip(y)
@@ -519,6 +533,7 @@ impl InferCtx {
                 for (a, b) in x.iter().zip(y) {
                     self.unify_all(&a.args, &b.args, Variance::Inv)?;
                 }
+                self.buffer_rows(SetKind::Caps, xc, yc, variance);
                 Ok(())
             }
             // Set type arguments of a named type. Being inside type arguments, inclusion is
@@ -679,13 +694,14 @@ impl InferCtx {
         let ty = self.resolve(ty);
         let mut row_map = FxHashMap::default();
         let mut generalized = Vec::new();
-        let mut next_name = [0, 0];
+        let mut next_name = [0, 0, 0];
         for (v, kind) in free_row_vars(&ty) {
             row_map.insert(v, params.len() as u32);
             generalized.push((v, params.len() as u32));
             let (prefix, next_name) = match kind {
                 SetKind::Errors => ("E", &mut next_name[0]),
                 SetKind::Effects => ("R", &mut next_name[1]),
+                SetKind::Caps => ("C", &mut next_name[2]),
             };
             let name = loop {
                 let name = set_param_name(prefix, *next_name);
@@ -754,6 +770,7 @@ fn collect_row_vars(ty: &Ty, out: &mut Vec<(RowVar, SetKind)>) {
     let rows: Vec<(&Row, SetKind)> = match ty {
         Ty::Fn(f) => vec![(&f.fails, SetKind::Errors), (&f.uses, SetKind::Effects)],
         Ty::Set(kind, row) => vec![(row, *kind)],
+        Ty::Cap(_, caps) => vec![(caps, SetKind::Caps)],
         _ => Vec::new(),
     };
     for (row, kind) in rows {
@@ -785,6 +802,12 @@ fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u
     match ty {
         Ty::Var(v) => map.get(v).map_or_else(|| ty.clone(), |i| Ty::Bound(*i)),
         Ty::Set(kind, row) => Ty::Set(*kind, replace_row(row)),
+        Ty::Cap(tags, caps) => Ty::Cap(
+            tags.iter()
+                .map(|t| t.map_args(|a| replace_vars(a, map, rows)))
+                .collect(),
+            replace_row(caps),
+        ),
         Ty::Fn(f) => Ty::func_sets(
             f.params
                 .iter()
@@ -828,6 +851,12 @@ pub(crate) fn substitute(ty: &Ty, tys: &[Ty], rows: &[Row]) -> Ty {
             substitute_row(&f.uses, tys, rows),
         ),
         Ty::Set(kind, row) => Ty::Set(*kind, substitute_row(row, tys, rows)),
+        Ty::Cap(tags, caps) => Ty::Cap(
+            tags.iter()
+                .map(|t| t.map_args(|a| substitute(a, tys, rows)))
+                .collect(),
+            substitute_row(caps, tys, rows),
+        ),
         _ => ty.map_children(|child| substitute(child, tys, rows)),
     }
 }

@@ -34,7 +34,7 @@ pub use capture::{Captures, Held, Provider};
 pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
 pub use diagnostic::{
     Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, InnerHandlerMismatch,
-    LabelBaseReason, LayerArg, SuspendingCall,
+    LabelBaseReason, LayerArg, LeakFrom, SuspendingCall,
 };
 pub use display::{SchemeDisplay, TyDisplay};
 pub use entry_main::is_exit_code;
@@ -54,6 +54,6 @@ pub use scheme::Scheme;
 pub use signature::{InitParams, Signature, Signatures};
 pub use traits::{ImplHead, Traits, Unsatisfied, derivable, head_def};
 pub use ty::{
-    CapElem, FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData, TyConId,
-    TyConKind, TyCons, TyParam, TyVar,
+    CapElem, CapId, FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData,
+    TyConId, TyConKind, TyCons, TyParam, TyVar,
 };

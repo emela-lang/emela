@@ -15,7 +15,7 @@ use ena::unify::{NoError, UnifyKey, UnifyValue};
 use la_arena::{Arena, ArenaMap, Idx};
 use smol_str::SmolStr;
 
-pub use crate::row::{CapElem, Row, RowElem, RowVar, SetKind, Tag};
+pub use crate::row::{CapElem, CapId, Row, RowElem, RowVar, SetKind, Tag};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Prim {
@@ -124,6 +124,9 @@ pub struct TyParam {
     /// Supertraits are not added; they are followed when a constraint is looked up.
     pub traits: Vec<DefId>,
     pub kind: ParamKind,
+    /// For the set type parameter of a capability parameter (`C(db)`, `[type.rules]`): the
+    /// effects of its capability type, which decide whether its operations may suspend.
+    pub caps: Option<Vec<Tag>>,
 }
 
 impl TyParam {
@@ -133,6 +136,7 @@ impl TyParam {
             bounds: Vec::new(),
             traits: Vec::new(),
             kind: ParamKind::Type,
+            caps: None,
         }
     }
 
@@ -242,7 +246,10 @@ pub enum Ty {
     /// definitions, so that `use A + B` and `use B + A` are the same type; effects with the same
     /// definition keep the order written. That order is also the order of the operation tables of
     /// a capability of several effects at run time.
-    Cap(Vec<Tag>),
+    ///
+    /// The row is the set of capabilities the value may be (`[type.rules]`, [`SetKind::Caps`]). It
+    /// is not written in source and not shown in the type.
+    Cap(Vec<Tag>, Row),
     /// A broken type, made from a type that could not be read or a name that could not be
     /// resolved. Unification silently accepts it against any type so errors do not cascade, and
     /// type variables unified with it are bound to it. Lowering never sees it: it is not called
@@ -253,7 +260,7 @@ pub enum Ty {
 impl Ty {
     /// The type of a capability of `tags` (`use E1 + ... + En`), in the order of
     /// [`Ty::Cap`]. A tag that appears twice is kept once.
-    pub fn cap(tags: impl IntoIterator<Item = Tag>) -> Ty {
+    pub fn cap(tags: impl IntoIterator<Item = Tag>, caps: Row) -> Ty {
         let mut out: Vec<Tag> = Vec::new();
         for t in tags {
             if !out.contains(&t) {
@@ -261,7 +268,7 @@ impl Ty {
             }
         }
         out.sort_by_key(|t| t.def);
-        Ty::Cap(out)
+        Ty::Cap(out, caps)
     }
 
     pub const INT: Ty = Ty::Prim(Prim::Int);
@@ -302,48 +309,15 @@ impl Ty {
         Ty::Named(id, args.into_iter().collect())
     }
 
-    /// The type with every capability element of its sets replaced by its effect
-    /// (`[effect.use]`). A capability names a local variable, so it cannot appear in the type of
-    /// a top-level definition.
-    pub fn widened(&self) -> Ty {
-        match self {
-            Ty::Fn(f) => Ty::Fn(Box::new(FnTy {
-                params: f.params.iter().map(Ty::widened).collect(),
-                ret: f.ret.widened(),
-                fails: f.fails.widened().map_tys(Ty::widened),
-                uses: f.uses.widened().map_tys(Ty::widened),
-            })),
-            Ty::Set(kind, row) => Ty::Set(*kind, row.widened().map_tys(Ty::widened)),
-            ty => ty.map_children(Ty::widened),
-        }
-    }
-
-    /// [`Ty::widened`] for the type of a function definition whose parameters are `params`: the
-    /// capability elements of its own R that are its parameters stay (`[type.rules]`, a call
-    /// replaces them with the arguments).
-    pub fn widened_keeping_params(&self, params: &[emela_resolve::hir::LocalId]) -> Ty {
-        let Ty::Fn(f) = self else {
-            return self.widened();
-        };
-        let uses = Row::from_elems(f.uses.elems().iter().map(|e| match e {
-            RowElem::Cap(c) if params.contains(&c.local) => e.clone(),
-            RowElem::Cap(c) => RowElem::Tag(c.tag.clone()),
-            e => e.clone(),
-        }));
-        Ty::Fn(Box::new(FnTy {
-            params: f.params.iter().map(Ty::widened).collect(),
-            ret: f.ret.widened(),
-            fails: f.fails.widened().map_tys(Ty::widened),
-            uses: uses.map_tys(Ty::widened),
-        }))
-    }
-
     /// Visits the immediate child types, including types inside a function type's error set
     /// (`RowElem::Of`) and type arguments of effect-set tags (the `Int` of `State[Int]`).
     pub fn for_each_child(&self, mut f: impl FnMut(&Ty)) {
         match self {
             Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => {}
-            Ty::Cap(tags) => tags.iter().flat_map(|t| &t.args).for_each(f),
+            Ty::Cap(tags, caps) => {
+                tags.iter().flat_map(|t| &t.args).for_each(&mut f);
+                caps.for_each_ty(f);
+            }
             Ty::Fn(fun) => {
                 fun.params.iter().for_each(&mut f);
                 f(&fun.ret);
@@ -361,7 +335,10 @@ impl Ty {
     pub fn map_children(&self, mut f: impl FnMut(&Ty) -> Ty) -> Ty {
         match self {
             Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => self.clone(),
-            Ty::Cap(tags) => Ty::Cap(tags.iter().map(|t| t.map_args(&mut f)).collect()),
+            Ty::Cap(tags, caps) => Ty::Cap(
+                tags.iter().map(|t| t.map_args(&mut f)).collect(),
+                caps.map_tys(f),
+            ),
             Ty::Fn(fun) => Ty::Fn(Box::new(FnTy {
                 params: fun.params.iter().map(&mut f).collect(),
                 ret: f(&fun.ret),

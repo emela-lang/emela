@@ -325,6 +325,7 @@ fn by_tag(
         omitted: Omitted::Empty,
         sets: false,
         self_ty: None,
+        result_caps: None,
     };
     let tag = ty_table.effect_tag(program, &scope, by, args, None, None, diags)?;
     let provided = sigs.base_of(&tag).clone();

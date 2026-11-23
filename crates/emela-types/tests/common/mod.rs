@@ -179,7 +179,9 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
                 effects.join(", ")
             )
         }
-        DiagnosticKind::EffectSetMismatch { expected, found } => {
+        DiagnosticKind::EffectSetMismatch {
+            expected, found, ..
+        } => {
             format!(
                 "`{text}` effect set mismatch: expected `uses {expected}`, found `uses {found}`"
             )

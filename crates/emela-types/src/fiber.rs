@@ -113,7 +113,7 @@ fn names_effect(program: &Program, ty: TypeId, effects: &[DefId]) -> Option<DefI
 }
 
 /// `Fiber.scope`: the last segment of the module and the definition's name.
-fn qualified_name(program: &Program, def: DefId) -> SmolStr {
+pub(crate) fn qualified_name(program: &Program, def: DefId) -> SmolStr {
     let data = &program.defs[def];
     match data.module {
         DefModule::Source(m) => match program.modules.get(m) {

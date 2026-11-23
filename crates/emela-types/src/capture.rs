@@ -975,7 +975,7 @@ fn may_hold(input: &Input<'_>, ty: &Ty) -> bool {
     match ty {
         // A type variable left in the body of a definition without a declared type may be one
         // of its type parameters.
-        Ty::Fn(_) | Ty::Cap(_) | Ty::Bound(_) | Ty::Var(_) => true,
+        Ty::Fn(_) | Ty::Cap(..) | Ty::Bound(_) | Ty::Var(_) => true,
         Ty::Prim(_) | Ty::Never | Ty::Set(..) | Ty::Error => false,
         Ty::Tuple(elems) => elems.iter().any(|t| may_hold(input, t)),
         Ty::List(elem) => may_hold(input, elem),

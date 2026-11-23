@@ -381,7 +381,7 @@ impl Lowerer<'_> {
                 (value, tag.clone())
             }
             emela_types::MemberProvider::Cap(cap) => {
-                let Some(Ty::Cap(tags)) = self.types.exprs.get(*cap).cloned() else {
+                let Some(Ty::Cap(tags, _)) = self.types.exprs.get(*cap).cloned() else {
                     return None;
                 };
                 let value = self.expr(*cap);

@@ -48,8 +48,9 @@ pub(crate) struct Hidden {
     pub(crate) params: Vec<TyParam>,
     /// The current parameter's name, used to name invisible set type parameters (`E(f)`, `R(f)`).
     param: SmolStr,
-    /// How many error sets and effect sets were added for the current parameter.
-    in_param: [usize; 2],
+    /// How many error sets, effect sets and capability sets were added for the current
+    /// parameter.
+    in_param: [usize; 3],
     /// Invisible error sets in positive positions of parameter types (functions the body can
     /// call). Included in the declared E.
     pub(crate) positive: Row,
@@ -58,6 +59,9 @@ pub(crate) struct Hidden {
     /// Whether invisible effect sets get an `Immediate` bound. Callbacks of external functions
     /// must be Immediate (spec 9.5).
     pub(crate) immediate: bool,
+    /// The capability sets of the capability types in the parameter types, with the effects of
+    /// each (`[type.rules]`). The result type of the function takes its sets from them.
+    pub(crate) caps: Vec<(Vec<DefId>, Row)>,
 }
 
 impl Hidden {
@@ -66,16 +70,37 @@ impl Hidden {
             base,
             params: Vec::new(),
             param: SmolStr::default(),
-            in_param: [0, 0],
+            in_param: [0, 0, 0],
             positive: Row::empty(),
             positive_uses: Row::empty(),
             immediate: false,
+            caps: Vec::new(),
         }
     }
 
     pub(crate) fn start_param(&mut self, name: SmolStr) {
         self.param = name;
-        self.in_param = [0, 0];
+        self.in_param = [0, 0, 0];
+    }
+
+    /// Adds the invisible set type parameter of a capability type `use E1 + ... + En` written in
+    /// a parameter type (`C(db)`, `[type.rules]`). The function's R includes it, as it does the
+    /// sets of a written `uses` clause (`[type.inference]`).
+    fn fresh_caps(&mut self, effects: &[Tag]) -> Row {
+        self.in_param[2] += 1;
+        let name = match self.in_param[2] {
+            1 => format!("C({})", self.param),
+            n => format!("C({}, {n})", self.param),
+        };
+        let i = (self.base + self.params.len()) as u32;
+        let mut param = TyParam::set(name);
+        param.caps = Some(effects.to_vec());
+        self.params.push(param);
+        let row = Row::from_elems([RowElem::Bound(i)]);
+        self.positive_uses.extend(&row);
+        self.caps
+            .push((effects.iter().map(|t| t.def).collect(), row.clone()));
+        row
     }
 
     /// Adds an invisible set type parameter: an effect set (`R(f)`) if `effects`, otherwise an
@@ -122,9 +147,41 @@ pub(crate) struct Scope<'a> {
     /// What `Self` stands for: `Bound(0)` in a trait's functions, the impl's type in an impl.
     /// `None` elsewhere, where name resolution has reported `Self` (E0219).
     pub(crate) self_ty: Option<&'a Ty>,
+    /// In the result type of a function: the capability sets of its parameter types
+    /// ([`Hidden::caps`]). A capability type there records the union of the sets of the same
+    /// effects, or the name of the effect when there is none (`[type.rules]`).
+    pub(crate) result_caps: Option<&'a [(Vec<DefId>, Row)]>,
 }
 
 impl Scope<'_> {
+    /// The capability set of a capability type of `effects` written here (`[type.rules]`).
+    fn caps_row(&mut self, effects: &[Tag]) -> Row {
+        if let Some(params) = self.result_caps {
+            let mut row = Row::empty();
+            for (defs, set) in params {
+                if effects.iter().any(|t| defs.contains(&t.def)) {
+                    row.extend(set);
+                }
+            }
+            if row.is_empty() {
+                row = Row::from_elems(effects.iter().cloned().map(RowElem::Tag));
+            }
+            return row;
+        }
+        match &mut self.omitted {
+            Omitted::Empty => Row::empty(),
+            Omitted::Hidden(hidden) => hidden.fresh_caps(effects),
+            Omitted::Fresh(ctx) => Row::var(ctx.new_row_var()),
+            Omitted::Local {
+                ctx, positive_uses, ..
+            } => {
+                let row = Row::var(ctx.new_row_var());
+                positive_uses.extend(&row);
+                row
+            }
+        }
+    }
+
     /// The set for an omitted `fails` clause (`uses` clause if `effects`).
     fn omitted_row(&mut self, positive: bool, effects: bool) -> Row {
         match &mut self.omitted {
@@ -254,6 +311,7 @@ impl TyTable {
             omitted: Omitted::Empty,
             sets: false,
             self_ty: None,
+            result_caps: None,
         };
         self.lower_in(program, &mut scope, ty, true, diags)
     }
@@ -342,7 +400,8 @@ impl TyTable {
                         None => return Ty::Error,
                     }
                 }
-                Ty::cap(tags)
+                let caps = scope.caps_row(&tags);
+                Ty::cap(tags, caps)
             }
         }
     }
@@ -483,6 +542,7 @@ impl TyTable {
             omitted: Omitted::Empty,
             sets: scope.sets,
             self_ty: None,
+            result_caps: scope.result_caps,
         };
         // Set type parameters of built-in effects (the `E` and `R` of `Scope[E, R]`) take sets,
         // written like set type arguments of named types (spec 8.1, 9.2).

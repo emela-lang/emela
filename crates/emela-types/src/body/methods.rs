@@ -61,7 +61,7 @@ impl BodyInfer<'_> {
     ) -> Dot {
         let base_ty = self.ctx.shallow_resolve(base_ty);
         match &base_ty {
-            Ty::Cap(tags) => return Dot::Value(self.infer_op(expr, base, tags, name)),
+            Ty::Cap(tags, _) => return Dot::Value(self.infer_op(expr, base, tags, name)),
             Ty::Error | Ty::Never => return Dot::Value(Ty::Error),
             Ty::Var(_) => {
                 let kind = DiagnosticKind::FieldOnUnknownType {

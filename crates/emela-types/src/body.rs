@@ -27,7 +27,7 @@ use crate::infer::{InferCtx, Origin, SetKind, substitute, substitute_bound};
 use crate::lower::{
     Omitted, Scope, TyTable, effect_params, has_omitted_fails, is_intrinsic_effect,
 };
-use crate::row::{CapElem, Row, RowElem, RowVar, Tag};
+use crate::row::{CapElem, CapId, Row, RowElem, RowVar, Tag};
 use crate::signature::{FnParams, Signature, Signatures, param_labels};
 use crate::traits::Traits;
 use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
@@ -203,12 +203,6 @@ pub(crate) struct BodyInfer<'a> {
     /// While computing R: the `with` expressions enclosing the expression, innermost last, with
     /// the effects they provide (`body/effects.rs`).
     with_stack: Vec<(ExprId, Vec<Tag>)>,
-    /// Local variables bound to `use E` → the `with` that provides E there (its root,
-    /// `[effect.escape]`). Their capability elements are removed from R where that `with` ends.
-    cap_roots: SparseMap<LocalId, ExprId>,
-    /// Local variables bound to `use E` (`body/effects.rs`): at the end of their binding their
-    /// capability is removed from R, not replaced with its effect.
-    use_bound: rustc_hash::FxHashSet<LocalId>,
     /// While computing R: the callees of calls and pipes, so that an operation of an effect alias
     /// that is called is told from one taken as a function value (`body/effects.rs`).
     called: rustc_hash::FxHashSet<ExprId>,
@@ -236,10 +230,6 @@ pub(crate) struct BodyInfer<'a> {
     /// tags caught by `escape` or provided by `with`, and the capabilities whose root or binding
     /// ends (`[effect.use]`). A tag removes only the same tag, not a capability of that effect.
     row_diffs: Vec<(RowVar, RowVar, Vec<RowElem>)>,
-    /// Set variables whose solution is a set variable's solution with the listed capabilities
-    /// replaced by their effects (`δ ⊇ v[c ↦ effect of c]`): the capabilities of variables whose
-    /// binding ends (`[effect.use]`).
-    row_widens: Vec<(RowVar, RowVar, Vec<RowElem>)>,
     /// `escape` inner expressions, the errors their arms catch and their arm `_`, for the W0302
     /// check.
     escapes: Vec<errors::Escape>,
@@ -259,6 +249,10 @@ pub(crate) struct BodyInfer<'a> {
     /// Variables bound to the capability a handler member item of `with` opens. Its operations
     /// add the variable to R, which the `with` removes (`[effect.with]`).
     member_bound: FxHashSet<LocalId>,
+    /// While inferring types: the `with` expressions around the expression, innermost last, with
+    /// the effects they provide by name. `None` marks the body of an anonymous function or a local
+    /// fn, whose R the withs around it do not provide (`[effect.with]`).
+    name_providers: Vec<Option<(ExprId, Vec<Tag>)>>,
     /// `with` expressions → the items that open handler members, with the types of opening them.
     with_members: SparseMap<ExprId, Vec<(usize, crate::ty::FnTy)>>,
     /// Method calls (the `Field` callee) → the fn or trait function called (`[type.rules]`).
@@ -372,14 +366,11 @@ impl<'a> BodyInfer<'a> {
             coverage: Vec::new(),
             expr_rows: SparseMap::new(),
             row_diffs: Vec::new(),
-            row_widens: Vec::new(),
-            use_bound: Default::default(),
             called: Default::default(),
             piped_calls: SparseMap::default(),
             binder: None,
             local_binder: SparseMap::default(),
             with_stack: Vec::new(),
-            cap_roots: SparseMap::default(),
             escapes: Vec::new(),
             expr_effects: SparseMap::new(),
             ops: SparseMap::new(),
@@ -387,6 +378,7 @@ impl<'a> BodyInfer<'a> {
             narrowings: SparseMap::new(),
             member_callees: FxHashSet::default(),
             member_bound: FxHashSet::default(),
+            name_providers: Vec::new(),
             with_members: SparseMap::new(),
             methods: SparseMap::new(),
             withs: Vec::new(),
@@ -462,7 +454,7 @@ impl<'a> BodyInfer<'a> {
                 );
                 let (ret, fails) = match item.sig.ret {
                     Some(ret_ref) => {
-                        let mut scope = fn_params.scope(Omitted::Fresh(&mut self.ctx));
+                        let mut scope = fn_params.result_scope(Omitted::Fresh(&mut self.ctx));
                         let ret = self.ty_table.lower_in(
                             program,
                             &mut scope,
@@ -877,9 +869,9 @@ impl<'a> BodyInfer<'a> {
         };
         // The inner handler implements the same effects as the member, in any order.
         let own = self.sigs.handler_effects(def);
-        if let Ty::Cap(expected) = &f.ret
+        if let Ty::Cap(expected, _) = &f.ret
             && !own.is_empty()
-            && Ty::cap(own.iter().cloned()) != f.ret
+            && !matches!(Ty::cap(own.iter().cloned(), Row::empty()), Ty::Cap(own, _) if own == *expected)
         {
             let show = |ts: &[Tag]| {
                 let parts: Vec<String> = ts
@@ -1114,13 +1106,6 @@ impl<'a> BodyInfer<'a> {
             let (scheme, rows, tys) =
                 self.ctx
                     .generalize_bounded(&ty, params, &[], &self.immediate_vars);
-            // A capability of the body cannot be named outside it (`[effect.use]`), except the
-            // parameters in its R, which a call replaces with the arguments (`[type.rules]`).
-            let params: Vec<LocalId> = fn_parts(program, def)
-                .map(|p| p.params.iter().map(|p| p.local).collect())
-                .unwrap_or_default();
-            let scheme =
-                crate::Scheme::new(scheme.params, scheme.ty.widened_keeping_params(&params));
             inferred.push((def, Signature { scheme, labels }));
             generalized_rows.push((def, rows));
             generalized_tys.push((def, tys));
@@ -1218,7 +1203,8 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Path(Res::Local(local)) => match self.locals.get(*local) {
                 Some(ty) => {
                     let ty = ty.clone();
-                    self.open_fails(ty)
+                    let ty = self.open_fails(ty);
+                    self.fresh_caps(&ty)
                 }
                 None => Ty::Error,
             },
@@ -1309,7 +1295,9 @@ impl<'a> BodyInfer<'a> {
                         None => self.ctx.new_var(),
                     })
                     .collect();
-                Ty::cap([Tag::with_args(*effect, args)])
+                let tag = Tag::with_args(*effect, args);
+                let caps = self.use_caps(expr, &tag);
+                Ty::cap([tag], caps)
             }
             // Effects with type parameters need their type arguments (`use State[Int]`, spec 8.1);
             // omitting them is E0423.
@@ -1323,6 +1311,7 @@ impl<'a> BodyInfer<'a> {
                     omitted: Omitted::Empty,
                     sets: true,
                     self_ty: self.self_ty.as_ref(),
+                    result_caps: None,
                 };
                 match self.ty_table.effect_tag(
                     program,
@@ -1333,20 +1322,35 @@ impl<'a> BodyInfer<'a> {
                     None,
                     &mut self.diags,
                 ) {
-                    Some(tag) => Ty::cap([tag]),
+                    Some(tag) => {
+                        // The capability sets of capability types in the type arguments are
+                        // inferred (`use State[use Name]`, `[type.rules]`).
+                        let tag = tag.map_args(|a| self.infer_written_caps(a));
+                        let caps = self.use_caps(expr, &tag);
+                        Ty::cap([tag], caps)
+                    }
                     None => Ty::Error,
                 }
             }
             ExprKind::Use { .. } => Ty::Error,
             ExprKind::With { handlers, body } => {
                 self.infer_with_args(expr, handlers);
-                match expected {
+                let provides =
+                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers)
+                        .into_iter()
+                        .filter(|e| e.named)
+                        .map(|e| e.effect)
+                        .collect();
+                self.name_providers.push(Some((expr, provides)));
+                let ty = match expected {
                     Some(expected) => {
                         self.check_expr(*body, expected);
                         expected.clone()
                     }
                     None => self.infer_expr(*body),
-                }
+                };
+                self.name_providers.pop();
+                ty
             }
         }
     }
@@ -1403,8 +1407,21 @@ impl<'a> BodyInfer<'a> {
                             Vec::new()
                         }
                     };
+                    // The capability of the item itself (`[effect.with]`).
                     if let Some(local) = item.bind {
-                        self.set_local(local, ret);
+                        let ty = match self.ctx.resolve(&ret) {
+                            Ty::Cap(tags, _) if !tags.is_empty() => {
+                                let cap = self.item_cap(
+                                    expr,
+                                    i,
+                                    program.locals[local].name.clone(),
+                                    tags[0].clone(),
+                                );
+                                Ty::Cap(tags, Row::from_elems([cap]))
+                            }
+                            ty => ty,
+                        };
+                        self.set_local(local, ty);
                         self.member_bound.insert(local);
                     }
                     opened.push((i, f));
@@ -1432,7 +1449,13 @@ impl<'a> BodyInfer<'a> {
                     let ty = if tags.is_empty() {
                         Ty::Error
                     } else {
-                        Ty::cap(tags)
+                        let cap = self.item_cap(
+                            expr,
+                            i,
+                            program.locals[local].name.clone(),
+                            tags[0].clone(),
+                        );
+                        Ty::cap(tags, Row::from_elems([cap]))
                     };
                     self.set_local(local, ty);
                 }
@@ -1479,7 +1502,7 @@ impl<'a> BodyInfer<'a> {
             (_, Some((cap, name))) => {
                 let cap_ty = self.infer_expr(*cap);
                 let tags = match self.ctx.shallow_resolve(&cap_ty) {
-                    Ty::Cap(tags) => tags,
+                    Ty::Cap(tags, _) => tags,
                     Ty::Error => return None,
                     ty => {
                         let ty = self.ctx.resolve(&ty);
@@ -1693,6 +1716,7 @@ impl<'a> BodyInfer<'a> {
                         },
                         sets: true,
                         self_ty: self.self_ty.as_ref(),
+                        result_caps: None,
                     };
                     self.ty_table
                         .lower_in(program, &mut scope, ty, true, &mut self.diags)
@@ -1721,6 +1745,7 @@ impl<'a> BodyInfer<'a> {
             omitted: Omitted::Empty,
             sets: true,
             self_ty: self.self_ty.as_ref(),
+            result_caps: None,
         };
         let fails_declared = f.sig.ret.is_some();
         let fails = if fails_declared {
@@ -1758,7 +1783,9 @@ impl<'a> BodyInfer<'a> {
                 uses_written: f.sig.uses.is_some(),
             },
         );
+        self.name_providers.push(None);
         self.check_expr(f.body, &ret);
+        self.name_providers.pop();
         self.binder = outer;
     }
 
@@ -1805,7 +1832,8 @@ impl<'a> BodyInfer<'a> {
             self.require_immediate(def, &sig.scheme.params, &rows, span);
             self.require_traits(&sig.scheme.params, &tys, span);
             self.require_known_self(def, &sig.scheme, &tys, span);
-            return (substitute(&sig.scheme.ty, &tys, &rows), tys, rows);
+            let ty = substitute(&sig.scheme.ty, &tys, &rows);
+            return (self.anchor_names(&ty), tys, rows);
         }
         if let Some((ty, params)) = self.pending_ty(def) {
             if self.current == Some(def) || params.is_empty() {
@@ -2093,7 +2121,7 @@ impl<'a> BodyInfer<'a> {
         }
         for (slot, param_ty) in assigned.slots.iter().zip(params) {
             if let Some(arg) = slot {
-                if let Ty::Cap(wanted) = self.ctx.shallow_resolve(param_ty) {
+                if let Ty::Cap(wanted, _) = self.ctx.shallow_resolve(param_ty) {
                     self.check_cap_arg(*arg, &wanted, param_ty);
                 } else {
                     self.check_expr(*arg, param_ty);
@@ -2114,9 +2142,13 @@ impl<'a> BodyInfer<'a> {
     fn check_cap_arg(&mut self, arg: ExprId, wanted: &[Tag], param_ty: &Ty) {
         let actual = self.infer_expr(arg);
         let span = self.program.exprs[arg].span;
-        let Ty::Cap(have) = self.ctx.shallow_resolve(&actual) else {
+        let Ty::Cap(have, have_caps) = self.ctx.shallow_resolve(&actual) else {
             self.coerce_at(span, param_ty, &actual);
             return;
+        };
+        let wanted_caps = match self.ctx.shallow_resolve(param_ty) {
+            Ty::Cap(_, caps) => caps,
+            _ => Row::empty(),
         };
         let mut missing = Vec::new();
         let mut matched = Vec::with_capacity(wanted.len());
@@ -2143,9 +2175,14 @@ impl<'a> BodyInfer<'a> {
             });
             return;
         }
-        // The type arguments of each effect kept must match (spec 8.1).
+        // The type arguments of each effect kept must match (spec 8.1), and the capabilities
+        // the argument may be go into the set of the parameter (`[type.rules]`).
         for (w, h) in &matched {
-            self.coerce_at(span, &Ty::cap([w.clone()]), &Ty::cap([h.clone()]));
+            self.coerce_at(
+                span,
+                &Ty::cap([w.clone()], wanted_caps.clone()),
+                &Ty::cap([h.clone()], have_caps.clone()),
+            );
         }
         if have.len() > wanted.len() {
             self.narrowings.insert(arg, wanted.to_vec());
@@ -2270,6 +2307,7 @@ impl<'a> BodyInfer<'a> {
             _ => None,
         };
         let outer = self.binder.replace(expr);
+        self.name_providers.push(None);
 
         let mut param_tys = Vec::new();
         for (i, param) in params.iter().enumerate() {
@@ -2297,6 +2335,7 @@ impl<'a> BodyInfer<'a> {
             }
             None => self.infer_expr(body),
         };
+        self.name_providers.pop();
         self.binder = outer;
 
         let row = self.ctx.new_row_var();
@@ -2421,42 +2460,36 @@ impl<'a> BodyInfer<'a> {
             rows.extend(fresh_rows);
             substitute(&sig.scheme.ty, &tys, &rows)
         });
-        let uses = match self.named_capability(base) {
-            Some(local) => Row::from_elems([RowElem::Cap(CapElem {
-                local,
-                name: program.locals[local].name.clone(),
-                tag: tag.clone(),
-            })]),
-            // A capability held in a field of the handler outlives the handler: it belongs to
-            // a `with` around the handler's, or to a handler member its init opened
-            // (`[effect.use]`, `[effect.handler]`). It is not a requirement of the handler: its
-            // element is the handler's `self`, which the end of the body removes. It still counts
-            // as its effect for whether the body may suspend (E0417). In release, a suspend fn
-            // called that way makes Async a requirement, so that leaving the `with` shows that it
-            // may suspend.
-            None => match self.self_field(base) {
-                Some((self_local, field)) => {
-                    let in_release = self.current.and_then(|def| match program.item(def) {
-                        Some(Item::Handler(h)) => h.release.map(|(l, _)| l),
-                        _ => None,
-                    }) == Some(self_local);
-                    self.use_bound.insert(self_local);
-                    let mut row = Row::from_elems([RowElem::Cap(CapElem {
-                        local: self_local,
-                        name: SmolStr::new(format!("self.{field}")),
-                        tag: tag.clone(),
-                    })]);
-                    let suspend = matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend);
-                    if in_release
-                        && suspend
-                        && let Some(async_) = program.prelude_def("Async")
-                    {
-                        row.insert(RowElem::Tag(Tag::new(async_)));
-                    }
-                    row
+        // A capability held in a field of the handler outlives the handler: it belongs to a
+        // `with` around the handler's, or to a handler member its init opened (`[effect.use]`,
+        // `[effect.handler]`). It is not a requirement of the handler: its element is the
+        // handler's `self`, which the end of the body removes. It still counts as its effect for
+        // whether the body may suspend (E0417). In release, a suspend fn called that way makes
+        // Async a requirement, so that leaving the `with` shows that it may suspend.
+        let uses = match (self.self_field(base), self.current) {
+            (Some((self_local, field)), Some(handler)) => {
+                let in_release = match program.item(handler) {
+                    Some(Item::Handler(h)) => h.release.map(|(l, _)| l),
+                    _ => None,
+                } == Some(self_local);
+                let mut row = Row::from_elems([RowElem::Cap(CapElem {
+                    id: CapId::SelfOf(handler),
+                    name: SmolStr::new(format!("self.{field}")),
+                    tag: tag.clone(),
+                })]);
+                let suspend = matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend);
+                if in_release
+                    && suspend
+                    && let Some(async_) = program.prelude_def("Async")
+                {
+                    row.insert(RowElem::Tag(Tag::new(async_)));
                 }
-                None => Row::of_tag(tag.clone()),
-            },
+                row
+            }
+            // The capabilities the receiver may be (`[effect.use]`): each counts as the effect
+            // of the operation for whether the call may suspend. The name of an effect is the
+            // effect.
+            _ => self.receiver_uses(base, tag),
         };
         match ty {
             Some(Ty::Fn(f)) => Ty::func_sets(f.params, f.ret, f.fails, uses),
@@ -2526,7 +2559,6 @@ impl<'a> BodyInfer<'a> {
 
     /// The type of opening `member` through the capability `cap` of `tag`.
     fn cap_member_ty(&mut self, cap: ExprId, tag: &Tag, member: DefId) -> Ty {
-        let program = self.program;
         let args = self.sigs.base_of(tag).args.clone();
         let Some(Ty::Fn(f)) = self
             .sigs
@@ -2535,45 +2567,27 @@ impl<'a> BodyInfer<'a> {
         else {
             return Ty::Error;
         };
-        let uses = match self.named_capability(cap) {
-            Some(local) => Row::from_elems([RowElem::Cap(CapElem {
-                local,
-                name: program.locals[local].name.clone(),
-                tag: tag.clone(),
-            })]),
-            None => Row::of_tag(tag.clone()),
-        };
+        let uses = self.receiver_uses(cap, tag);
         Ty::func_sets(f.params, f.ret, f.fails, uses)
     }
 
-    /// The local variable `expr` refers to, if its capability is an element of R by itself
-    /// (`[effect.use]`, `[type.rules]`): a variable bound outside the closure or local fn being
-    /// inferred, or a parameter of the function being inferred. A parameter stays in the R of
-    /// its function, and a call replaces it with what the argument is.
-    ///
-    /// Other variables (bound in the same body by `use E` or otherwise, or parameters of a
-    /// closure, a local fn or a handler's operation) add their effect instead.
-    pub(super) fn named_capability(&self, expr: ExprId) -> Option<LocalId> {
-        let ExprKind::Path(Res::Local(local)) = self.program.exprs[expr].kind else {
-            return None;
-        };
-        if self.member_bound.contains(&local) {
-            return Some(local);
+    /// What calling an operation of `tag` on the capability `base` adds to R: the capabilities
+    /// it may be (`[effect.use]`). Each counts as `tag` for whether the call may suspend. The
+    /// name of an effect is the effect itself in R.
+    pub(super) fn receiver_uses(&mut self, base: ExprId, tag: &Tag) -> Row {
+        match self.exprs.get(base).map(|t| self.ctx.shallow_resolve(t)) {
+            Some(Ty::Cap(_, caps)) => Row::from_elems(caps.elems().iter().map(|e| match e {
+                RowElem::Cap(c) if matches!(c.id, CapId::Named { .. }) => {
+                    RowElem::Tag(c.tag.clone())
+                }
+                RowElem::Cap(c) => RowElem::Cap(CapElem {
+                    tag: tag.clone(),
+                    ..c.clone()
+                }),
+                e => e.clone(),
+            })),
+            _ => Row::of_tag(tag.clone()),
         }
-        let bound = self.local_binder.get(local)?;
-        (*bound != self.binder || self.is_fn_param(local)).then_some(local)
-    }
-
-    /// Whether `local` is a parameter of the function definition being inferred (a top-level fn,
-    /// a trait's function or an impl's function), whose capability stays in its R.
-    pub(super) fn is_fn_param(&self, local: LocalId) -> bool {
-        let Some(def) = self.current else {
-            return false;
-        };
-        self.local_owner.get(local) == Some(&def)
-            && self.local_binder.get(local) == Some(&None)
-            && fn_parts(self.program, def)
-                .is_some_and(|p| p.params.iter().any(|p| p.local == local))
     }
 
     /// The type of field `field` of type definition `type_def` applied to `args`. Fields come from
@@ -2863,6 +2877,7 @@ impl<'a> BodyInfer<'a> {
             omitted: Omitted::Fresh(&mut self.ctx),
             sets: true,
             self_ty: self.self_ty.as_ref(),
+            result_caps: None,
         };
         self.ty_table
             .lower_in(self.program, &mut scope, ty, true, &mut self.diags)

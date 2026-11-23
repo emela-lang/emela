@@ -48,7 +48,7 @@ pub(crate) fn semantic_tokens(
         .types
         .locals
         .iter()
-        .filter(|(_, ty)| matches!(ty, Ty::Cap(_)))
+        .filter(|(_, ty)| matches!(ty, Ty::Cap(..)))
         .map(|(local, _)| local)
         .collect();
     for (_, expr) in hir.exprs.iter() {

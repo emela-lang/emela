@@ -217,7 +217,7 @@ impl Traits {
                 return fail();
             }
             // No trait is implemented for a capability (`[effect.use]`).
-            Ty::Fn(_) | Ty::Cap(_) => return fail(),
+            Ty::Fn(_) | Ty::Cap(..) => return fail(),
             _ => {}
         }
         let args: Vec<Ty> = match ty {

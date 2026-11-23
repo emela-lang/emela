@@ -760,7 +760,7 @@ impl<'a> Lowerer<'a> {
             Ty::Set(_, row) => return self.set_ty(row),
             // A label's capability is a handler of its base (`EffectDef::label_of`). A capability
             // of several effects is the tuple of their handlers, in the order of `Ty::Cap`.
-            Ty::Cap(tags) => {
+            Ty::Cap(tags, _) => {
                 let mut elems: Vec<TypeId> = tags
                     .iter()
                     .map(|tag| {
@@ -823,8 +823,7 @@ impl<'a> Lowerer<'a> {
     fn set_ty(&mut self, row: &Row) -> TypeId {
         let hir = self.hir;
         let mut set = SetSummary::default();
-        // A capability is summarized as its effect (`[effect.use]`).
-        for e in row.widened().elems() {
+        for e in row.elems() {
             match e {
                 RowElem::Bound(i) => set.params.push(self.module.type_param(*i as usize)),
                 RowElem::Var(v) => match self.generalized_row_param(*v) {
@@ -840,7 +839,15 @@ impl<'a> Lowerer<'a> {
                     set.suspends |= !self.is_immediate_effect(t.def);
                 }
                 RowElem::Tag(_) | RowElem::Of(_) => set.fails = true,
-                RowElem::Cap(_) => unreachable!("widened above"),
+                // A capability is reached through its value, not the evidence table; whether a
+                // call may suspend is decided by its effect (`[effect.use]`). Its effect is kept
+                // as needing the evidence table, as before capabilities were told apart.
+                RowElem::Cap(c) => {
+                    if matches!(hir.item(c.tag.def), Some(Item::Effect(_))) {
+                        set.ev |= !hir.is_host_effect(c.tag.def);
+                        set.suspends |= !self.is_immediate_effect(c.tag.def);
+                    }
+                }
             }
         }
         set.params.sort();
@@ -1563,7 +1570,7 @@ impl<'a> Lowerer<'a> {
                 .map_or_else(|| "_".to_owned(), |&(_, i)| self.key_ty(&Ty::Bound(i), ctx)),
             // The effects of a capability type are in the key, so that `State[use Name]` and
             // `State[use Count]` are different effects (issue #705).
-            Ty::Cap(tags) => {
+            Ty::Cap(tags, _) => {
                 let effects: Vec<String> = tags
                     .iter()
                     .map(|t| {
@@ -1686,8 +1693,11 @@ impl<'a> Lowerer<'a> {
         let span = hir.defs[def].span;
         // The effects in the order of `Ty::Cap`, which is the order of the operation tables of a
         // handler of several effects (`[effect.handler]`).
-        let tags = match Ty::cap(self.types.sigs.handler_effects(def).iter().cloned()) {
-            Ty::Cap(tags) if !tags.is_empty() => tags,
+        let tags = match Ty::cap(
+            self.types.sigs.handler_effects(def).iter().cloned(),
+            Row::empty(),
+        ) {
+            Ty::Cap(tags, _) if !tags.is_empty() => tags,
             _ => {
                 return (
                     Vec::new(),
@@ -2190,7 +2200,10 @@ impl<'a> Lowerer<'a> {
             // own handler from it after.
             let several = self.types.sigs.handler_effects(h).len() > 1;
             let target = if several {
-                let ty = Ty::cap(self.types.sigs.handler_effects(h).iter().cloned());
+                let ty = Ty::cap(
+                    self.types.sigs.handler_effects(h).iter().cloned(),
+                    Row::empty(),
+                );
                 let ty = self.ty(&ty);
                 self.module.local("hs", ty)
             } else {
@@ -2334,8 +2347,11 @@ impl<'a> Lowerer<'a> {
     /// The effects of `handler`, a handler of several effects, in the order of its tuple of
     /// handlers (`Ty::Cap`).
     fn tuple_tags(&self, handler: DefId) -> Vec<Tag> {
-        match Ty::cap(self.types.sigs.handler_effects(handler).iter().cloned()) {
-            Ty::Cap(tags) => tags,
+        match Ty::cap(
+            self.types.sigs.handler_effects(handler).iter().cloned(),
+            Row::empty(),
+        ) {
+            Ty::Cap(tags, _) => tags,
             _ => unreachable!("a capability type"),
         }
     }
@@ -2478,7 +2494,7 @@ impl<'a> Lowerer<'a> {
     /// function, or else from the evidence table passed by the caller. For effects with type
     /// arguments, the type arguments must match too (spec 8.1).
     fn use_(&mut self, id: ExprId, span: Span) -> Expr {
-        let Some(Ty::Cap(tags)) = self.types.exprs.get(id) else {
+        let Some(Ty::Cap(tags, _)) = self.types.exprs.get(id) else {
             return self.unsupported("unresolved effect", span);
         };
         let [tag] = tags.as_slice() else {
@@ -2534,7 +2550,7 @@ impl<'a> Lowerer<'a> {
     /// the function value is called, in the table its caller passes (`[effect.use]`): the lambda
     /// is `|a| x.op(a)`.
     fn op_value(&mut self, id: ExprId, base: ExprId, op: DefId, span: Span) -> Expr {
-        let Some(Ty::Cap(tags)) = self.types.exprs.get(base).cloned() else {
+        let Some(Ty::Cap(tags, _)) = self.types.exprs.get(base).cloned() else {
             return self.unsupported("effect operation", span);
         };
         let Some(tag) = self.op_tag(&tags, op) else {
@@ -2713,7 +2729,7 @@ impl<'a> Lowerer<'a> {
     /// from the tuple `value` holds. The other handlers are dropped, so the operations of the
     /// other effects cannot be reached through the result.
     fn narrow(&mut self, id: ExprId, value: Expr, wanted: &[Tag]) -> Expr {
-        let Some(Ty::Cap(have)) = self.types.exprs.get(id).cloned() else {
+        let Some(Ty::Cap(have, _)) = self.types.exprs.get(id).cloned() else {
             return value;
         };
         let n = have.len();
@@ -2729,7 +2745,7 @@ impl<'a> Lowerer<'a> {
         if let [(k, ty)] = picks.as_slice() {
             return member::tuple_project(value, *k, n, *ty, &mut self.module);
         }
-        let all_ty = self.ty(&Ty::Cap(have));
+        let all_ty = self.ty(&Ty::Cap(have, Row::empty()));
         let all = self.module.local("cap", all_ty);
         let elems = picks
             .into_iter()
@@ -3121,7 +3137,7 @@ impl<'a> Lowerer<'a> {
         // An operation on a capability value (`log.info(...)`).
         if let ExprKind::Field { base, .. } = &hir.exprs[callee].kind
             && let Some(&op) = self.types.ops.get(callee)
-            && let Some(Ty::Cap(tags)) = self.types.exprs.get(*base).cloned()
+            && let Some(Ty::Cap(tags, _)) = self.types.exprs.get(*base).cloned()
             && let Some(tag) = self.op_tag(&tags, op)
             && let Some(index) = self.op_index(tag.def, op)
         {

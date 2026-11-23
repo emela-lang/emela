@@ -15,10 +15,17 @@
 //!   Appears only in E.
 //!
 //! An effect set has one more kind of element: a capability ([`RowElem::Cap`], `[effect.use]`).
-//! It stands for the handler a captured capability value refers to, and is contained in a set
-//! that has its effect (widening, `[effect.use]`).
+//! It stands for one handler after its init has run and before its release. It is not widened to
+//! its effect: a set that has only the effect does not contain it (`[type.rules]`).
+//!
+//! A capability set ([`SetKind::Caps`], `[type.rules]`) is the set that a capability type
+//! `use E` or a capability-bound type records. It shares the representation: its elements are
+//! capabilities, the name of an effect (a [`RowElem::Tag`], for `use E` written as an expression
+//! and for a value returned by an operation called through the name of its effect), set
+//! variables, and set type parameters (the set of a capability parameter). Calling an operation
+//! of a value adds its capability set to R.
 
-use emela_resolve::hir::{DefId, LocalId};
+use emela_resolve::hir::{DefId, ExprId};
 use smol_str::SmolStr;
 
 use crate::ty::Ty;
@@ -27,6 +34,9 @@ use crate::ty::Ty;
 pub enum SetKind {
     Errors,
     Effects,
+    /// The capabilities that a capability type or a capability-bound type records
+    /// (`[type.rules]`).
+    Caps,
 }
 
 /// Displayed as `?e0`.
@@ -71,16 +81,42 @@ impl Tag {
     }
 }
 
-/// A capability as an element of an effect set (`uses { primary }`, `[effect.use]`): the local
-/// variable holding a capability value, captured by a closure or a local fn whose body calls one
-/// of its operations.
+/// Which capability an element is (`[effect.with]`, `[type.rules]`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CapId {
+    /// The capability that the `item`-th item of the `with` expression makes. For an item
+    /// without a name, it is reached only through the name of its effect.
+    Item { with: ExprId, item: u32 },
+    /// The name of an effect inside something that provides it by name: a `with` (`provider` is
+    /// the `with` expression), or a function passed to a parameter whose function type writes
+    /// the effect out while the callee does not have it (`provider` is the lambda, `[effect.escape]`).
+    /// It is the effect itself in R. Outside its provider it would leave the provider, so it is
+    /// told apart from the plain name of the effect ([`RowElem::Tag`]) in capability sets.
+    Named { provider: ExprId, effect: DefId },
+    /// `self` in an operation body or the release of the handler `handler` (`[effect.handler]`).
+    SelfOf(DefId),
+    /// The unknown set that a closure receives for the `index`-th quantified capability set of
+    /// the function type it is checked against (`[type.rules]`). `binder` is the lambda.
+    Rigid { binder: ExprId, index: u32 },
+}
+
+/// A capability as an element of a set (`uses { primary }`, `[effect.use]`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CapElem {
-    pub local: LocalId,
-    /// The name of the variable, for display.
+    pub id: CapId,
+    /// How it is shown (`[lsp.hover]`): the variable of a named item, the handler of an item
+    /// without a name, `self`, or `any`.
     pub name: SmolStr,
-    /// The effect of the capability. The element can be widened to it.
+    /// The effect of the capability. In R it is the effect of the operation called, which
+    /// decides whether the call may suspend (E0417); it is not widened to it.
     pub tag: Tag,
+}
+
+impl CapElem {
+    /// The same capability: the tag and the name do not take part.
+    pub fn same(&self, other: &CapElem) -> bool {
+        self.id == other.id
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -93,13 +129,13 @@ pub enum RowElem {
     /// The tag of the error type `ty`, once `ty` resolves to a named error type.
     Of(Ty),
     Var(RowVar),
-    /// A capability (effect sets only). Contained in a set that has the capability or its
-    /// effect.
+    /// A capability (effect sets and capability sets). Contained only in a set that has the same
+    /// capability ([`CapElem::same`]).
     Cap(CapElem),
 }
 
 impl RowElem {
-    /// The effect of a tag or of a capability: what the element is widened to.
+    /// The effect of a tag or of a capability, which decides whether it may suspend.
     pub fn effect_tag(&self) -> Option<&Tag> {
         match self {
             RowElem::Tag(t) => Some(t),
@@ -109,7 +145,8 @@ impl RowElem {
     }
 }
 
-/// Elements are not duplicated. Order has no meaning, but for stable display the elements are
+/// Elements are not duplicated: two capabilities with the same [`CapId`] are one element (the
+/// first one inserted is kept). Order has no meaning, but for stable display the elements are
 /// sorted as tags, capabilities, type parameters, types, then set variables (tags, type parameters and set
 /// variables by number within their group).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -151,12 +188,15 @@ impl Row {
     }
 
     pub fn contains(&self, elem: &RowElem) -> bool {
-        self.elems.contains(elem)
+        match elem {
+            RowElem::Cap(c) => self.has_cap(c),
+            e => self.elems.contains(e),
+        }
     }
 
     /// Does nothing if the element is already present.
     pub fn insert(&mut self, elem: RowElem) {
-        if self.elems.contains(&elem) {
+        if self.contains(&elem) {
             return;
         }
         let at = self
@@ -186,15 +226,29 @@ impl Row {
         })
     }
 
-    /// The tags, and the effects of capability elements (each element widened to its effect).
+    /// The tags, and the effects of capability elements.
     pub fn effect_tags(&self) -> impl Iterator<Item = &Tag> + '_ {
         self.elems.iter().filter_map(RowElem::effect_tag)
     }
 
-    /// The set with each capability element replaced by its effect (`[effect.use]`).
-    pub fn widened(&self) -> Row {
+    /// The capabilities.
+    pub fn caps(&self) -> impl Iterator<Item = &CapElem> + '_ {
+        self.elems.iter().filter_map(|e| match e {
+            RowElem::Cap(c) => Some(c),
+            _ => None,
+        })
+    }
+
+    /// Whether the set has the capability `cap` ([`CapElem::same`]).
+    pub fn has_cap(&self, cap: &CapElem) -> bool {
+        self.caps().any(|c| c.same(cap))
+    }
+
+    /// The set with each named effect of a provider ([`CapId::Named`]) replaced by the effect:
+    /// in R, the name of an effect is the effect.
+    pub fn names_as_effects(&self) -> Row {
         Row::from_elems(self.elems.iter().map(|e| match e {
-            RowElem::Cap(c) => RowElem::Tag(c.tag.clone()),
+            RowElem::Cap(c) if matches!(c.id, CapId::Named { .. }) => RowElem::Tag(c.tag.clone()),
             e => e.clone(),
         }))
     }
@@ -247,9 +301,22 @@ impl Row {
 fn order(e: &RowElem) -> (u8, u32) {
     match e {
         RowElem::Tag(t) => (0, t.def.into_raw().into_u32()),
-        RowElem::Cap(c) => (0, u32::MAX / 2 + c.local.into_raw().into_u32()),
-        RowElem::Bound(i) => (1, *i),
-        RowElem::Of(_) => (2, 0),
-        RowElem::Var(v) => (3, v.0),
+        RowElem::Cap(c) => (1, cap_order(c.id)),
+        RowElem::Bound(i) => (2, *i),
+        RowElem::Of(_) => (3, 0),
+        RowElem::Var(v) => (4, v.0),
+    }
+}
+
+fn cap_order(id: CapId) -> u32 {
+    match id {
+        CapId::Item { with, item } => with
+            .into_raw()
+            .into_u32()
+            .wrapping_mul(8)
+            .wrapping_add(item),
+        CapId::Named { provider, .. } => provider.into_raw().into_u32(),
+        CapId::SelfOf(def) => def.into_raw().into_u32(),
+        CapId::Rigid { binder, index } => binder.into_raw().into_u32().wrapping_add(index),
     }
 }

@@ -508,6 +508,42 @@ impl Diagnostic {
         out
     }
 
+    /// E0455: a capability leaves what made it (`[effect.escape]`, `[diag.list]`).
+    pub fn from_capability_leak(
+        diagnostic: &emela_types::Diagnostic,
+        files: &ArenaMap<ModuleId, FileId>,
+    ) -> Self {
+        let TypeDiagnosticKind::CapabilityLeak { cap, from, made_at } = &diagnostic.kind else {
+            unreachable!("only for CapabilityLeak");
+        };
+        let span_of =
+            |s: emela_resolve::hir::Span| files.get(s.module).map(|&file| Span::new(file, s.range));
+        let (message, made) = match from {
+            emela_types::LeakFrom::With => (
+                format!("capability `{cap}` leaves the `with` that made it"),
+                "made here; it ends with this `with`".to_owned(),
+            ),
+            emela_types::LeakFrom::Call(callee) => (
+                format!("capability `{cap}` leaves the `{callee}` that made it"),
+                format!("made for this function by `{callee}`"),
+            ),
+            emela_types::LeakFrom::Handler(handler) => (
+                format!("capability `{cap}` leaves the handler `{handler}`"),
+                String::new(),
+            ),
+        };
+        let mut out = Diagnostic::error(message).with_code(code::CAPABILITY_LEAK);
+        if let Some(span) = diagnostic.span.and_then(span_of) {
+            out = out.with_span(span);
+        }
+        if let Some(at) = made_at.and_then(span_of)
+            && !made.is_empty()
+        {
+            out = out.with_label(at, made);
+        }
+        out
+    }
+
     /// `TypeError` has no location, so the caller passes `span`.
     pub fn from_type_error(error: &TypeError, cons: &TyCons, span: Span) -> Self {
         Diagnostic::type_error(error, cons).with_span(span)
@@ -626,6 +662,9 @@ impl Diagnostic {
         let (severity, code, message) = match &diagnostic.kind {
             TypeDiagnosticKind::CaptureEscape { .. } => {
                 return Diagnostic::from_capture_escape(diagnostic, files, false);
+            }
+            TypeDiagnosticKind::CapabilityLeak { .. } => {
+                return Diagnostic::from_capability_leak(diagnostic, files);
             }
             TypeDiagnosticKind::Mismatch(error) => {
                 let out = Diagnostic::type_error(error, cons);
@@ -1053,10 +1092,29 @@ impl Diagnostic {
                 }
                 (Severity::Error, Some(code::UNHANDLED_EFFECTS), message)
             }
-            TypeDiagnosticKind::EffectSetMismatch { expected, found } => (
+            TypeDiagnosticKind::EffectSetMismatch {
+                expected,
+                found,
+                widened,
+            } => {
+                if *widened {
+                    help = Some(
+                        "take the capability as a parameter `use E`, or capture it in a closure"
+                            .to_owned(),
+                    );
+                }
+                (
+                    Severity::Error,
+                    Some(code::EFFECT_SET_MISMATCH),
+                    format!(
+                        "effect set mismatch: expected `uses {expected}`, found `uses {found}`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::CapabilitySetMismatch { expected, found } => (
                 Severity::Error,
-                Some(code::EFFECT_SET_MISMATCH),
-                format!("effect set mismatch: expected `uses {expected}`, found `uses {found}`"),
+                Some(code::TYPE_MISMATCH),
+                format!("capability set mismatch: expected `{expected}`, found `{found}`"),
             ),
             TypeDiagnosticKind::MissingHandlerOps {
                 handler,

@@ -35,10 +35,11 @@ use smol_str::SmolStr;
 
 use super::{BodyInfer, FnParts, fn_parts};
 use crate::coverage::Shapes;
+use crate::diagnostic::LeakFrom;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::diagnostic::{EffectContext, LayerArg};
 use crate::infer::{Origin, SetKind, Subset, substitute_row};
-use crate::row::{CapElem, Row, RowElem, RowVar, Tag};
+use crate::row::{CapElem, CapId, Row, RowElem, RowVar, Tag};
 use crate::ty::{Ty, TyParam};
 
 /// One lower bound of a set variable: the elements of `elem` minus the elements in `minus`.
@@ -46,13 +47,6 @@ struct Lower {
     elem: RowElem,
     /// Tags and capabilities.
     minus: Vec<RowElem>,
-    /// Whether a tag in `minus` also removes the capabilities of its effect. True when `minus` is
-    /// the containing side of a constraint, where a capability widens to its effect
-    /// (`[effect.use]`); false when it is what a `with` provides.
-    widen: bool,
-    /// Whether a capability that `minus` removes is replaced with its effect instead: the
-    /// binding of the variable ended, but its effect is still required (`[effect.use]`).
-    to_effect: bool,
 }
 
 /// An `escape`, kept for the W0302 check after the error sets are solved.
@@ -490,25 +484,40 @@ impl BodyInfer<'_> {
     }
 
     /// Tags are matched including type arguments; if those are not determined yet, unification is
-    /// tried (spec 8.1, `InferCtx::same_tag`). A capability is contained in a set that has it or
-    /// its effect (`[effect.use]`).
+    /// tried (spec 8.1, `InferCtx::same_tag`). A capability is contained only in a set that has
+    /// the same capability: it is not widened to its effect (`[effect.use]`). The name of an
+    /// effect inside its provider ([`CapId::Named`]) is contained in a set that has the name of
+    /// the effect: it is the same name, seen from inside the provider. Whether it leaves its
+    /// provider is checked separately (`[effect.escape]`).
     fn contains_elem(&mut self, row: &Row, e: &RowElem) -> bool {
         match e {
-            RowElem::Tag(t) => self.ctx.row_has_tag(row, t),
-            RowElem::Cap(c) => row.contains(e) || self.ctx.row_has_tag(row, &c.tag),
+            RowElem::Tag(t) => {
+                self.ctx.row_has_tag(row, t)
+                    || row.caps().any(|c| {
+                        matches!(c.id, CapId::Named { .. }) && c.tag.def == t.def && {
+                            let c = c.tag.clone();
+                            self.ctx.same_tag(&c, t)
+                        }
+                    })
+            }
+            RowElem::Cap(c) if matches!(c.id, CapId::Named { .. }) => {
+                row.contains(e) || self.ctx.row_has_tag(row, &c.tag)
+            }
             e => row.contains(e),
         }
     }
 
     /// Whether `minus` removes the element `a` of a lower bound ([`Lower`]).
-    fn removed(&mut self, a: &RowElem, minus: &[RowElem], widen: bool) -> bool {
+    fn removed(&mut self, a: &RowElem, minus: &[RowElem]) -> bool {
         match a {
             RowElem::Tag(t) => minus
                 .iter()
                 .any(|m| matches!(m, RowElem::Tag(m) if self.ctx.same_tag(m, t))),
             RowElem::Cap(c) => minus.iter().any(|m| match m {
-                RowElem::Cap(m) => m.local == c.local,
-                RowElem::Tag(m) => widen && self.ctx.same_tag(m, &c.tag),
+                RowElem::Cap(m) => m.same(c),
+                RowElem::Tag(m) => {
+                    matches!(c.id, CapId::Named { .. }) && self.ctx.same_tag(m, &c.tag)
+                }
                 _ => false,
             }),
             _ => false,
@@ -528,10 +537,9 @@ impl BodyInfer<'_> {
         // new constraint appears.
         self.ctx.set_solving(true);
         let row_diffs = std::mem::take(&mut self.row_diffs);
-        let row_widens = std::mem::take(&mut self.row_widens);
         loop {
             let count = self.ctx.subsets().len();
-            self.solve_round(&row_diffs, &row_widens);
+            self.solve_round(&row_diffs);
             self.place_instance_sets();
             if self.ctx.subsets().len() == count {
                 break;
@@ -559,11 +567,7 @@ impl BodyInfer<'_> {
     }
 
     /// Computes the least solution of the constraints collected so far.
-    fn solve_round(
-        &mut self,
-        row_diffs: &[(RowVar, RowVar, Vec<RowElem>)],
-        row_widens: &[(RowVar, RowVar, Vec<RowElem>)],
-    ) {
+    fn solve_round(&mut self, row_diffs: &[(RowVar, RowVar, Vec<RowElem>)]) {
         // Start from the set variables, not from the previous round's solution.
         self.ctx.clear_row_solution();
         let subsets = self.ctx.subsets().to_vec();
@@ -574,16 +578,6 @@ impl BodyInfer<'_> {
             lowers.entry(d).or_default().push(Lower {
                 elem: RowElem::Var(v),
                 minus,
-                widen: false,
-                to_effect: false,
-            });
-        }
-        for (d, v, minus) in row_widens.iter().cloned() {
-            lowers.entry(d).or_default().push(Lower {
-                elem: RowElem::Var(v),
-                minus,
-                widen: false,
-                to_effect: true,
             });
         }
         // Set variables with an upper bound (contained in a set without set variables). Not
@@ -605,8 +599,6 @@ impl BodyInfer<'_> {
                             lowers.entry(v).or_default().push(Lower {
                                 elem: e.clone(),
                                 minus: minus.clone(),
-                                widen: true,
-                                to_effect: false,
                             });
                         }
                     }
@@ -638,14 +630,10 @@ impl BodyInfer<'_> {
                     };
                     let target = solution.entry(v).or_default();
                     for a in atoms.elems() {
-                        let a = if self.removed(a, &lower.minus, lower.widen) {
-                            match a {
-                                RowElem::Cap(c) if lower.to_effect => RowElem::Tag(c.tag.clone()),
-                                _ => continue,
-                            }
-                        } else {
-                            a.clone()
-                        };
+                        if self.removed(a, &lower.minus) {
+                            continue;
+                        }
+                        let a = a.clone();
                         if !target.contains(&a) {
                             target.insert(a);
                             changed = true;
@@ -674,12 +662,53 @@ impl BodyInfer<'_> {
             if missing.is_empty() {
                 continue;
             }
-            // A capability cannot be written in `uses`, so a missing one is reported as its
-            // effect (`[effect.use]`).
+            if c.kind == SetKind::Caps {
+                self.report_caps(c, &sup, &missing);
+                continue;
+            }
+            // In R, the name of an effect is the effect (`[type.rules]`).
             let missing: Vec<RowElem> = match c.kind {
-                SetKind::Effects => Row::from_elems(missing).widened().elems().to_vec(),
-                SetKind::Errors => missing,
+                SetKind::Effects => Row::from_elems(missing).names_as_effects().elems().to_vec(),
+                _ => missing,
             };
+            // A capability that leaves the body of a definition, or that is in the R of a
+            // function value where only its effect is expected, does not fit by itself
+            // (`[effect.use]`).
+            let (caps, missing): (Vec<RowElem>, Vec<RowElem>) = missing
+                .into_iter()
+                .partition(|e| matches!(e, RowElem::Cap(_)));
+            if !caps.is_empty() {
+                match &c.origin {
+                    Origin::Coerce { span, def } => {
+                        let params = def.map(|d| self.def_params(d)).unwrap_or_default();
+                        let cons = &self.ty_table.cons;
+                        let widened = caps.iter().any(|e| match e {
+                            RowElem::Cap(cap) => sup.tags().any(|t| t.def == cap.tag.def),
+                            _ => false,
+                        });
+                        self.diags.push(Diagnostic {
+                            span: *span,
+                            kind: DiagnosticKind::EffectSetMismatch {
+                                expected: SmolStr::new(sup.display_uses(cons, &params).to_string()),
+                                found: SmolStr::new(sub.display_uses(cons, &params).to_string()),
+                                widened,
+                            },
+                        });
+                        continue;
+                    }
+                    origin => {
+                        let span = self.origin_span(origin);
+                        for e in &caps {
+                            if let RowElem::Cap(cap) = e {
+                                self.push_leak(cap, span);
+                            }
+                        }
+                    }
+                }
+                if missing.is_empty() {
+                    continue;
+                }
+            }
             match (&c.origin, c.kind) {
                 (Origin::Body(def), SetKind::Errors) => self.report_unhandled(*def, &missing),
                 (Origin::HandlerOp { handler, index }, SetKind::Errors) => {
@@ -700,7 +729,7 @@ impl BodyInfer<'_> {
                     let context = self.layer_arg(layer, member);
                     match kind {
                         SetKind::Errors => self.push_unhandled(arg, false, Some(context), &missing),
-                        SetKind::Effects => self.push_unhandled_effects(
+                        SetKind::Effects | SetKind::Caps => self.push_unhandled_effects(
                             arg,
                             &[],
                             &missing,
@@ -721,9 +750,10 @@ impl BodyInfer<'_> {
                             expected: SmolStr::new(sup.display_with(cons, &params).to_string()),
                             found: SmolStr::new(sub.display_with(cons, &params).to_string()),
                         },
-                        SetKind::Effects => DiagnosticKind::EffectSetMismatch {
+                        SetKind::Effects | SetKind::Caps => DiagnosticKind::EffectSetMismatch {
                             expected: SmolStr::new(sup.display_uses(cons, &params).to_string()),
                             found: SmolStr::new(sub.display_uses(cons, &params).to_string()),
+                            widened: false,
                         },
                     };
                     self.diags.push(Diagnostic { span: *span, kind });
@@ -737,7 +767,8 @@ impl BodyInfer<'_> {
                 // Lambda types' E and R, handler dependencies and the E and R of references
                 // within the group are set variables, so these always hold.
                 (Origin::Lambda | Origin::HandlerPart | Origin::Instance, _)
-                | (Origin::HandlerOp { .. }, SetKind::Effects) => {}
+                | (Origin::HandlerOp { .. }, SetKind::Effects)
+                | (_, SetKind::Caps) => {}
             }
         }
 
@@ -1023,7 +1054,7 @@ impl BodyInfer<'_> {
     fn resolved_rows(&mut self, kind: SetKind) -> SparseMap<ExprId, Row> {
         let table = match kind {
             SetKind::Errors => self.expr_rows.clone(),
-            SetKind::Effects => self.expr_effects.clone(),
+            SetKind::Effects | SetKind::Caps => self.expr_effects.clone(),
         };
         let mut rows: SparseMap<ExprId, Row> = SparseMap::default();
         for (expr, row) in table.iter() {
@@ -1273,4 +1304,121 @@ fn is_process_effect(program: &Program, effect: DefId) -> bool {
         .any(|name| is_std_def(program, effect, "Process", name))
         || is_std_def(program, effect, "Env", "Env")
         || is_std_def(program, effect, "FileSystem", "FileSystem")
+}
+
+/// Capabilities that do not fit (E0455, `[effect.escape]`).
+impl BodyInfer<'_> {
+    /// Reports a capability set `missing` that is not contained in `sup` (`[type.rules]`): a
+    /// capability that goes into a set fixed outside what made it leaks (E0455); a name or the set
+    /// of a parameter is a mismatch of sets.
+    fn report_caps(&mut self, c: &Subset, sup: &Row, missing: &[RowElem]) {
+        let span = self.origin_span(&c.origin);
+        let mut others = Vec::new();
+        for e in missing {
+            match e {
+                RowElem::Cap(cap) => self.push_leak(cap, span),
+                e => others.push(e.clone()),
+            }
+        }
+        if others.is_empty() {
+            return;
+        }
+        let params = match &c.origin {
+            Origin::Coerce { def: Some(d), .. } => self.def_params(*d),
+            _ => Vec::new(),
+        };
+        let cons = &self.ty_table.cons;
+        self.diags.push(Diagnostic {
+            span,
+            kind: DiagnosticKind::CapabilitySetMismatch {
+                expected: SmolStr::new(sup.display_uses(cons, &params).to_string()),
+                found: SmolStr::new(
+                    Row::from_elems(others)
+                        .display_uses(cons, &params)
+                        .to_string(),
+                ),
+            },
+        });
+    }
+
+    /// The span a constraint is reported at.
+    fn origin_span(&self, origin: &Origin) -> Option<Span> {
+        let program = self.program;
+        match origin {
+            Origin::Coerce { span, .. } => *span,
+            Origin::Body(def) | Origin::Closed(def) => fn_parts(program, *def)
+                .and_then(|p| p.body)
+                .map(|b| program.exprs[b].span)
+                .or(program.defs[*def].span),
+            Origin::LocalFn(local) => Some(program.locals[*local].span),
+            Origin::LayerArg { arg, .. } => Some(program.exprs[*arg].span),
+            Origin::HandlerOp { handler, .. }
+            | Origin::Release(handler)
+            | Origin::MemberInit(handler) => program.defs[*handler].span,
+            Origin::HandlerPart | Origin::Lambda | Origin::Instance => None,
+        }
+    }
+
+    /// E0455 for the capability `cap` at `span`, once per capability and place.
+    pub(super) fn push_leak(&mut self, cap: &CapElem, span: Option<Span>) {
+        let program = self.program;
+        let (from, made_at) = match cap.id {
+            CapId::Item { with, item } => {
+                let made_at = match &program.exprs[with].kind {
+                    ExprKind::With { handlers, .. } => handlers.get(item as usize).map(|i| i.span),
+                    _ => None,
+                };
+                (LeakFrom::With, made_at)
+            }
+            CapId::Named { provider, .. } => match &program.exprs[provider].kind {
+                ExprKind::With { handlers, .. } => (
+                    LeakFrom::With,
+                    handlers
+                        .first()
+                        .map(|i| i.span)
+                        .or(Some(program.exprs[provider].span)),
+                ),
+                _ => (
+                    LeakFrom::Call(self.receiving_callee(provider)),
+                    Some(program.exprs[provider].span),
+                ),
+            },
+            CapId::SelfOf(handler) => (LeakFrom::Handler(program.defs[handler].name.clone()), None),
+            CapId::Rigid { binder, .. } => (
+                LeakFrom::Call(self.receiving_callee(binder)),
+                Some(program.exprs[binder].span),
+            ),
+        };
+        let kind = DiagnosticKind::CapabilityLeak {
+            cap: cap.name.clone(),
+            from,
+            made_at,
+        };
+        if self.diags.iter().any(|d| d.span == span && d.kind == kind) {
+            return;
+        }
+        self.diags.push(Diagnostic { span, kind });
+    }
+
+    /// The function that the closure `lambda` is passed to (`Fiber.scope`), for messages.
+    fn receiving_callee(&self, lambda: ExprId) -> SmolStr {
+        let program = self.program;
+        for (call, args) in self.calls.iter() {
+            if !args.contains(&Some(lambda)) {
+                continue;
+            }
+            let callee = match &program.exprs[call].kind {
+                ExprKind::Call { callee, .. } => *callee,
+                ExprKind::Binary { rhs, .. } => match &program.exprs[*rhs].kind {
+                    ExprKind::Call { callee, .. } => *callee,
+                    _ => *rhs,
+                },
+                _ => continue,
+            };
+            if let ExprKind::Path(Res::Def(def)) = program.exprs[callee].kind {
+                return crate::fiber::qualified_name(program, def);
+            }
+        }
+        SmolStr::new("the function")
+    }
 }

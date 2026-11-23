@@ -462,7 +462,7 @@ impl Context<'_> {
         let types = &self.program.types;
         match ty {
             // The operations of every effect of the capability (`[effect.use]`).
-            Ty::Cap(effects) => effects
+            Ty::Cap(effects, _) => effects
                 .iter()
                 .flat_map(|effect| hir.effect_ops(effect.def))
                 .filter_map(|&op| self.def_item(op))
@@ -512,7 +512,7 @@ impl Context<'_> {
             ExprKind::Path(Res::Local(local)) => types.locals.get(*local).cloned(),
             ExprKind::Path(Res::Def(def)) => types.sigs.get(*def).map(|sig| sig.scheme.ty.clone()),
             ExprKind::Field { base, name } => match self.expr_ty(*base)? {
-                Ty::Cap(effects) => {
+                Ty::Cap(effects, _) => {
                     let (effect, op) = effects.iter().find_map(|effect| {
                         hir.effect_ops(effect.def)
                             .iter()

@@ -10,4 +10,4 @@ leaks: fn() -> () uses { Async }
 returned: fn() -> use Scope[{}, {}] uses { Scope[{}, {}] }
 closure_is_fine: fn() -> Int uses { Async }
   s: use Scope[{}, {}]
-  run: fn() -> Fiber[Int] uses { s }
+  run: fn() -> Fiber[Int] uses { Scope[{}, {}] }

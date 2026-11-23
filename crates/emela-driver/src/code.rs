@@ -209,6 +209,12 @@ pub const MISSING_CAPABILITY_EFFECTS: &str = "E0452";
 // Effect aliases (`[effect.use]`) and callbacks to the host (`[ext.boundary]`)
 pub const EFFECT_ALIAS_MISUSE: &str = "E0453";
 pub const CALLBACK_EFFECT: &str = "E0454";
+// Capabilities told apart in types and in R (`[effect.escape]`, `[effect.handler]`,
+// `[ext.boundary]`, `[type.rules]`)
+pub const CAPABILITY_LEAK: &str = "E0455";
+pub const CAPABILITY_IN_OP_RESULT: &str = "E0456";
+pub const BORROWED_POSITION: &str = "E0457";
+pub const BOUND_TYPE_OUTSIDE_HANDLER: &str = "E0458";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";
