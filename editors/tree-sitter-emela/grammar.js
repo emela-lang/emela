@@ -281,6 +281,7 @@ module.exports = grammar({
       optional($._modifiers),
       'handler',
       field('name', $.type_identifier),
+      optional(field('type_parameters', $.type_parameters)),
       optional(field('fields', $.field_list)),
       ':',
       // The effects it implements, joined by `+` (`[grammar.decl]`).
@@ -326,6 +327,7 @@ module.exports = grammar({
 
     supply: $ => seq(
       field('handler', $.type_reference),
+      optional(field('type_arguments', $.type_arguments)),
       optional(field('arguments', $.arguments)),
     ),
 
@@ -623,10 +625,8 @@ module.exports = grammar({
       optional(seq(
         'by',
         field('provider', $.type_reference),
-        optional(choice(
-          field('type_arguments', $.type_arguments),
-          field('arguments', $.arguments),
-        )),
+        optional(field('type_arguments', $.type_arguments)),
+        optional(field('arguments', $.arguments)),
       )),
     ),
 
