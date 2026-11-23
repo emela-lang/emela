@@ -578,4 +578,6 @@ pub enum LeakFrom {
     Call(SmolStr),
     /// An operation, the init or the release of the handler whose `self` it is.
     Handler(SmolStr),
+    /// A function placed at a quantified function type, which receives the capability.
+    Quantified,
 }

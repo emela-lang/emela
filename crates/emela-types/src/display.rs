@@ -244,8 +244,13 @@ impl fmt::Display for TyDisplay<'_> {
             Ty::Fn(fun) => {
                 f.write_str("fn(")?;
                 self.params(f, &fun.params)?;
+                // The quantified sets are in the R of their function type without being written
+                // (`[type.rules]`).
+                let uses = Row::from_elems(fun.uses.elems().iter().filter(|e| {
+                    !matches!(e, RowElem::Cap(c) if matches!(c.id, crate::row::CapId::Quant(_)))
+                }).cloned());
                 let show_fails = !fun.fails.is_empty() || self.in_param;
-                let show_uses = !fun.uses.is_empty() || self.in_param;
+                let show_uses = !uses.is_empty() || self.in_param;
                 match &fun.ret {
                     Ty::Fn(_) if show_fails || show_uses => {
                         write!(f, ") -> ({})", self.child(&fun.ret))?
@@ -263,7 +268,7 @@ impl fmt::Display for TyDisplay<'_> {
                 }
                 if show_uses {
                     let row = RowDisplay {
-                        row: &fun.uses,
+                        row: &uses,
                         effects: true,
                         clause: true,
                         ty: self.child(&fun.ret),

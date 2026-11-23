@@ -549,6 +549,7 @@ impl BodyInfer<'_> {
         }
         self.ctx.set_solving(false);
         let subsets = self.ctx.subsets().to_vec();
+
         self.check_subsets(&subsets);
     }
 
@@ -1403,6 +1404,7 @@ impl BodyInfer<'_> {
                 LeakFrom::Call(self.receiving_callee(binder)),
                 Some(program.exprs[binder].span),
             ),
+            CapId::Quant(_) | CapId::Skolem(_) => (LeakFrom::Quantified, None),
         };
         let kind = DiagnosticKind::CapabilityLeak {
             cap: cap.name.clone(),

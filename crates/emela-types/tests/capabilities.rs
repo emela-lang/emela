@@ -145,3 +145,47 @@ fn main() {
 }
 "#));
 }
+
+/// `use E` written as a parameter of a function type is quantified at it (`[type.rules]`): a
+/// closure checked against it receives an unknown set, which can be in its R but not in its
+/// result (E0455). A call puts the argument's set in place of the quantified one. A function of
+/// a capability parameter fits too. A closure without an expected type is not quantified.
+#[test]
+fn quantified_function_types() {
+    insta::assert_snapshot!(run(r#"
+fn with_all[T](n: Int, acc: List[use Counter], k: fn(List[use Counter]) -> T) -> T uses { Counters } {
+  if n == 0 {
+    k(acc)
+  } else {
+    with c = Counters.Open(n) { with_all(n - 1, [c, ..acc], k) }
+  }
+}
+
+fn sum(cs: List[use Counter]) -> Int {
+  cs.fold(from: 0, f: |n, c| n + c.next())
+}
+
+fn uses_them() -> Int {
+  with Plain {
+    with_all(3, [], |cs| cs.map(|c| c.next()).fold(from: 0, f: |a, b| a + b))
+  }
+}
+
+fn named() -> Int {
+  with Plain { with_all(2, [], sum) }
+}
+
+fn returns_them() {
+  with Plain {
+    with_all(1, [], |cs| cs)
+  }
+}
+
+fn not_quantified() -> Int {
+  with Plain, c = Counters.Open(1) {
+    k = |cs| sum(cs)
+    k([c])
+  }
+}
+"#));
+}

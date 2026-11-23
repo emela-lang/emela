@@ -36,6 +36,8 @@ pub(crate) struct Scopes {
     row_spans: Vec<Option<Span>>,
     /// Capabilities that a binding put into a variable made outside their scope, with where.
     pub(crate) escapes: Vec<(CapElem, Option<Span>)>,
+    /// The scope each skolem ([`CapId::Skolem`]) was made in.
+    skolems: Vec<ScopeId>,
 }
 
 impl Default for Scopes {
@@ -48,6 +50,7 @@ impl Default for Scopes {
             row_vars: Vec::new(),
             row_spans: Vec::new(),
             escapes: Vec::new(),
+            skolems: Vec::new(),
         }
     }
 }
@@ -80,6 +83,12 @@ impl Scopes {
     /// Back to the body of a definition, for the next one.
     pub(crate) fn reset(&mut self) {
         self.current = 0;
+    }
+
+    /// A new skolem in the current scope.
+    pub(crate) fn new_skolem(&mut self) -> u32 {
+        self.skolems.push(self.current);
+        (self.skolems.len() - 1) as u32
     }
 
     pub(crate) fn new_ty_var(&mut self, v: TyVar) {
@@ -160,7 +169,8 @@ impl Scopes {
             CapId::Item { with, .. } => with,
             CapId::Named { provider, .. } => provider,
             CapId::Rigid { binder, .. } => binder,
-            CapId::SelfOf(_) => return None,
+            CapId::Skolem(i) => return self.skolems.get(i as usize).copied(),
+            CapId::SelfOf(_) | CapId::Quant(_) => return None,
         };
         self.by_owner.get(&owner).copied()
     }

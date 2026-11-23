@@ -98,6 +98,13 @@ pub enum CapId {
     /// The unknown set that a closure receives for the `index`-th quantified capability set of
     /// the function type it is checked against (`[type.rules]`). `binder` is the lambda.
     Rigid { binder: ExprId, index: u32 },
+    /// The `i`-th capability set quantified at a function type (`fn(use ReadFile) -> String`,
+    /// `[type.rules]`). The function type that has it in its R binds it: the R of a quantified
+    /// function type always has its quantified sets. Shown as `any`.
+    Quant(u32),
+    /// The unknown set put for a quantified set where a function value other than a closure
+    /// is placed at a quantified function type. Lives in the scope where it is made.
+    Skolem(u32),
 }
 
 /// A capability as an element of a set (`uses { primary }`, `[effect.use]`).
@@ -318,5 +325,6 @@ fn cap_order(id: CapId) -> u32 {
         CapId::Named { provider, .. } => provider.into_raw().into_u32(),
         CapId::SelfOf(def) => def.into_raw().into_u32(),
         CapId::Rigid { binder, index } => binder.into_raw().into_u32().wrapping_add(index),
+        CapId::Quant(i) | CapId::Skolem(i) => i,
     }
 }

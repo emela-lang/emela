@@ -151,11 +151,19 @@ pub(crate) struct Scope<'a> {
     /// ([`Hidden::caps`]). A capability type there records the union of the sets of the same
     /// effects, or the name of the effect when there is none (`[type.rules]`).
     pub(crate) result_caps: Option<&'a [(Vec<DefId>, Row)]>,
+    /// Inside the parameter types of a function type: how many capability sets that function
+    /// type has quantified so far (`[type.rules]`). A capability type there is quantified at it.
+    pub(crate) quant: Option<u32>,
 }
 
 impl Scope<'_> {
     /// The capability set of a capability type of `effects` written here (`[type.rules]`).
     fn caps_row(&mut self, effects: &[Tag]) -> Row {
+        if let Some(n) = &mut self.quant {
+            let i = *n;
+            *n += 1;
+            return Row::from_elems([quant_elem(i, effects)]);
+        }
         if let Some(params) = self.result_caps {
             let mut row = Row::empty();
             for (defs, set) in params {
@@ -312,6 +320,7 @@ impl TyTable {
             sets: false,
             self_ty: None,
             result_caps: None,
+            quant: None,
         };
         self.lower_in(program, &mut scope, ty, true, diags)
     }
@@ -362,14 +371,28 @@ impl TyTable {
                     Some(set) => self.lower_effect_set(program, scope, set, diags),
                     None => scope.omitted_row(positive, true),
                 };
+                let outer = scope.quant.take();
                 let ret_ty = match ret {
                     Some(ret) => self.lower_in(program, scope, *ret, positive, diags),
                     None => Ty::Error,
                 };
+                // A capability type in the parameter types is quantified at this function type;
+                // its R has the quantified sets (`[type.rules]`).
+                scope.quant = Some(0);
+                let mut quantified = Vec::new();
                 let param_tys: Vec<Ty> = fn_params
                     .iter()
-                    .map(|&p| self.lower_in(program, scope, p, !positive, diags))
+                    .map(|&p| {
+                        let ty = self.lower_in(program, scope, p, !positive, diags);
+                        collect_quant(&ty, &mut quantified);
+                        ty
+                    })
                     .collect();
+                scope.quant = outer;
+                let mut uses = uses;
+                for q in quantified {
+                    uses.insert(q);
+                }
                 Ty::func_sets(param_tys, ret_ty, fails, uses)
             }
             TypeKind::Path { res, args } => {
@@ -543,6 +566,7 @@ impl TyTable {
             sets: scope.sets,
             self_ty: None,
             result_caps: scope.result_caps,
+            quant: None,
         };
         // Set type parameters of built-in effects (the `E` and `R` of `Scope[E, R]`) take sets,
         // written like set type arguments of named types (spec 8.1, 9.2).
@@ -1337,5 +1361,33 @@ pub(crate) fn has_omitted_uses(program: &Program, ty: TypeId) -> bool {
         | TypeKind::Missing
         | TypeKind::ErrorSet(_)
         | TypeKind::EffectSet(_) => false,
+    }
+}
+
+/// The element of the `i`-th capability set quantified at a function type, for a capability
+/// type of `effects` (`[type.rules]`).
+pub(crate) fn quant_elem(i: u32, effects: &[Tag]) -> RowElem {
+    RowElem::Cap(crate::row::CapElem {
+        id: crate::row::CapId::Quant(i),
+        name: SmolStr::new("any"),
+        tag: effects[0].clone(),
+    })
+}
+
+/// The quantified sets in `ty`, outside the function types inside it, which bind their own.
+fn collect_quant(ty: &Ty, out: &mut Vec<RowElem>) {
+    match ty {
+        Ty::Fn(_) => {}
+        Ty::Cap(_, caps) | Ty::Set(SetKind::Caps, caps) => {
+            for e in caps.elems() {
+                if matches!(e, RowElem::Cap(c) if matches!(c.id, crate::row::CapId::Quant(_)))
+                    && !out.contains(e)
+                {
+                    out.push(e.clone());
+                }
+            }
+            ty.for_each_child(|child| collect_quant(child, out));
+        }
+        _ => ty.for_each_child(|child| collect_quant(child, out)),
     }
 }

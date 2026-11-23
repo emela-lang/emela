@@ -223,6 +223,7 @@ impl Signatures {
                             sets: false,
                             self_ty: None,
                             result_caps: None,
+                            quant: None,
                         };
                         // Generic handlers with type parameters left over are not kept
                         // (spec 8.1); omitting them is E0423.
@@ -335,6 +336,7 @@ fn label_base(
         sets: false,
         self_ty: None,
         result_caps: None,
+        quant: None,
     };
     ty_table.effect_tag(
         program,
@@ -659,6 +661,7 @@ fn op_signature(
         sets: true,
         self_ty: None,
         result_caps: None,
+        quant: None,
     };
     let params: Vec<Ty> = sig
         .params
@@ -776,6 +779,7 @@ fn member_signature(
         sets: false,
         self_ty: None,
         result_caps: None,
+        quant: None,
     };
     // The capability opened has every effect after the `:` (`[grammar.decl]`).
     let mut provided = Some(Vec::with_capacity(item.effects.len()));
@@ -997,6 +1001,7 @@ impl FnParams {
             sets: true,
             self_ty: self.self_ty.as_ref(),
             result_caps: None,
+            quant: None,
         }
     }
 
@@ -1039,6 +1044,7 @@ impl FnParams {
                     sets: true,
                     self_ty: self.self_ty.as_ref(),
                     result_caps: None,
+                    quant: None,
                 };
                 ty_table.lower_in(program, &mut scope, ty, true, diags)
             })
@@ -1128,6 +1134,7 @@ fn ctor_signature(
         sets: true,
         self_ty: None,
         result_caps: None,
+        quant: None,
     };
     let ty = match fields {
         Fields::None => ret_ty,

@@ -198,6 +198,12 @@ impl BodyInfer<'_> {
                 self.with_stack = withs;
                 self.binder = outer;
                 body_row.extend(&self.captured_caps(expr));
+                // The unknown sets of a closure checked against a quantified function type are
+                // in the R of that type; the side that calls it provides them (`[type.rules]`).
+                if let Some(rigid) = self.quantified_lambdas.get(&expr).cloned() {
+                    let rigid: Vec<RowElem> = rigid.into_iter().map(RowElem::Cap).collect();
+                    body_row = self.subtract_elems(&body_row, &rigid);
+                }
                 if let Some(&(_, v)) = self.lambda_rows.get(expr) {
                     self.ctx
                         .add_subset_of(SetKind::Effects, body_row, Row::var(v), Origin::Lambda);

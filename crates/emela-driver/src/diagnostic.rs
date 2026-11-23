@@ -531,6 +531,12 @@ impl Diagnostic {
                 format!("capability `{cap}` leaves the handler `{handler}`"),
                 String::new(),
             ),
+            emela_types::LeakFrom::Quantified => (
+                format!(
+                    "capability `{cap}` leaves the function that received it: a function of a quantified type cannot return what it receives"
+                ),
+                String::new(),
+            ),
         };
         let mut out = Diagnostic::error(message).with_code(code::CAPABILITY_LEAK);
         if let Some(span) = diagnostic.span.and_then(span_of) {

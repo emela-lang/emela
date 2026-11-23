@@ -216,6 +216,13 @@ pub struct FnTy {
     pub uses: Row,
 }
 
+impl FnTy {
+    /// Whether the function type quantifies capability sets (`[type.rules]`): its R has them.
+    pub fn quantifies(&self) -> bool {
+        self.uses.caps().any(|c| matches!(c.id, CapId::Quant(_)))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     Prim(Prim),
@@ -307,6 +314,66 @@ impl Ty {
 
     pub fn named(id: TyConId, args: impl IntoIterator<Item = Ty>) -> Ty {
         Ty::Named(id, args.into_iter().collect())
+    }
+
+    /// For a function type that quantifies capability sets (`[type.rules]`): the type with each
+    /// of them replaced by `with(i, element)`. Function types inside that quantify their own are
+    /// left as they are.
+    pub fn open_quant(&self, with: &mut dyn FnMut(u32, &CapElem) -> Row) -> Ty {
+        let Ty::Fn(f) = self else {
+            return self.clone();
+        };
+        if !f.quantifies() {
+            return self.clone();
+        }
+        // One replacement per quantified set, wherever it occurs.
+        let mut made: Vec<(u32, Row)> = Vec::new();
+        let with = &mut |i: u32, c: &CapElem| -> Row {
+            if let Some((_, r)) = made.iter().find(|(j, _)| *j == i) {
+                return r.clone();
+            }
+            let r = with(i, c);
+            made.push((i, r.clone()));
+            r
+        };
+        let row = |r: &Row, with: &mut dyn FnMut(u32, &CapElem) -> Row| {
+            r.flat_map(|e| match e {
+                RowElem::Cap(c) => match c.id {
+                    CapId::Quant(i) => with(i, c),
+                    _ => Row::from_elems([e.clone()]),
+                },
+                e => Row::from_elems([e.clone()]),
+            })
+        };
+        fn inner(ty: &Ty, with: &mut dyn FnMut(u32, &CapElem) -> Row) -> Ty {
+            let row = |r: &Row, with: &mut dyn FnMut(u32, &CapElem) -> Row| {
+                r.flat_map(|e| match e {
+                    RowElem::Cap(c) => match c.id {
+                        CapId::Quant(i) => with(i, c),
+                        _ => Row::from_elems([e.clone()]),
+                    },
+                    e => Row::from_elems([e.clone()]),
+                })
+            };
+            match ty {
+                Ty::Fn(f) if f.quantifies() => ty.clone(),
+                Ty::Fn(f) => Ty::func_sets(
+                    f.params.iter().map(|p| inner(p, with)).collect::<Vec<_>>(),
+                    inner(&f.ret, with),
+                    f.fails.clone(),
+                    row(&f.uses, with),
+                ),
+                Ty::Cap(tags, caps) => Ty::Cap(tags.clone(), row(caps, with)),
+                Ty::Set(kind, caps) => Ty::Set(*kind, row(caps, with)),
+                ty => ty.map_children(|c| inner(c, with)),
+            }
+        }
+        Ty::func_sets(
+            f.params.iter().map(|p| inner(p, with)).collect::<Vec<_>>(),
+            inner(&f.ret, with),
+            f.fails.clone(),
+            row(&f.uses, with),
+        )
     }
 
     /// Visits the immediate child types, including types inside a function type's error set

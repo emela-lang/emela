@@ -637,6 +637,24 @@ impl InferCtx {
                 self.buffer_rows(*k, x, y, variance);
                 Ok(())
             }
+            // A function placed at a quantified function type must work for any set: its sets
+            // meet unknown ones (skolems). A function of a quantified type placed where one is
+            // not quantified is instantiated (`[type.rules]`).
+            (Ty::Fn(f), Ty::Fn(g))
+                if f.params.len() == g.params.len() && f.quantifies() != g.quantifies() =>
+            {
+                let (expected, actual) = if f.quantifies() {
+                    let skolem = &mut |_: u32, c: &crate::row::CapElem| {
+                        let id = crate::row::CapId::Skolem(self.scopes.new_skolem());
+                        Row::from_elems([RowElem::Cap(crate::row::CapElem { id, ..c.clone() })])
+                    };
+                    (e.open_quant(skolem), a.clone())
+                } else {
+                    let fresh = &mut |_: u32, _: &crate::row::CapElem| Row::var(self.new_row_var());
+                    (e.clone(), a.open_quant(fresh))
+                };
+                self.unify_inner(&expected, &actual, variance)
+            }
             (Ty::Fn(f), Ty::Fn(g)) if f.params.len() == g.params.len() => {
                 for (p, q) in f.params.iter().zip(&g.params) {
                     self.unify_inner(p, q, variance.flip())?;

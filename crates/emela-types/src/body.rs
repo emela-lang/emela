@@ -168,6 +168,10 @@ pub(crate) struct BodyInfer<'a> {
     pending: Vec<(DefId, Ty, Vec<TyParam>)>,
     /// Inferred definitions (fns with bodies and consts), in inference order.
     defs: Vec<DefId>,
+    /// Lambdas checked against a function type that quantifies capability sets (`[type.rules]`):
+    /// their unknown sets ([`CapId::Rigid`]) are removed from the R of the body, since the R of
+    /// such a type has them.
+    quantified_lambdas: FxHashMap<ExprId, Vec<CapElem>>,
     /// Lambda expressions → the set variables of their type's error and effect sets, which
     /// include the body's E and R (`body/errors.rs`, `body/effects.rs`).
     lambda_rows: SparseMap<ExprId, (RowVar, RowVar)>,
@@ -347,6 +351,7 @@ impl<'a> BodyInfer<'a> {
             pending: Vec::new(),
             defs: Vec::new(),
             lambda_rows: SparseMap::new(),
+            quantified_lambdas: FxHashMap::default(),
             local_fns: SparseMap::new(),
             pending_handlers: Vec::new(),
             handler_bodies: Vec::new(),
@@ -1320,6 +1325,7 @@ impl<'a> BodyInfer<'a> {
                     sets: true,
                     self_ty: self.self_ty.as_ref(),
                     result_caps: None,
+                    quant: None,
                 };
                 match self.ty_table.effect_tag(
                     program,
@@ -1727,6 +1733,7 @@ impl<'a> BodyInfer<'a> {
                         sets: true,
                         self_ty: self.self_ty.as_ref(),
                         result_caps: None,
+                        quant: None,
                     };
                     self.ty_table
                         .lower_in(program, &mut scope, ty, true, &mut self.diags)
@@ -1756,6 +1763,7 @@ impl<'a> BodyInfer<'a> {
             sets: true,
             self_ty: self.self_ty.as_ref(),
             result_caps: None,
+            quant: None,
         };
         let fails_declared = f.sig.ret.is_some();
         let fails = if fails_declared {
@@ -2072,6 +2080,17 @@ impl<'a> BodyInfer<'a> {
         };
 
         let f: FnTy = match self.ctx.shallow_resolve(&callee_ty) {
+            // A function of a quantified type takes the sets of its arguments, as a capability
+            // parameter does (`[type.rules]`): each call puts a fresh set variable in their place.
+            // The callee's type is recorded opened, so that its R names them.
+            Ty::Fn(f) if f.quantifies() => {
+                let opened = Ty::Fn(f).open_quant(&mut |_, _| Row::var(self.ctx.new_row_var()));
+                self.exprs.insert(callee, opened.clone());
+                match opened {
+                    Ty::Fn(f) => *f,
+                    _ => unreachable!("a function type stays one"),
+                }
+            }
             Ty::Fn(f) => *f,
             Ty::Error => {
                 for arg in args {
@@ -2318,6 +2337,34 @@ impl<'a> BodyInfer<'a> {
             Some(Ty::Fn(f)) if f.params.len() == params.len() => Some(*f),
             _ => None,
         };
+        // Checked against a function type that quantifies capability sets, the closure receives
+        // an unknown set for each (`[type.rules]`): a capability of its own scope.
+        let quantified = expected_fn.as_ref().is_some_and(|f| f.quantifies());
+        let mut rigid = Vec::new();
+        let expected_fn = match expected_fn {
+            Some(f) if quantified => {
+                let opened = Ty::Fn(Box::new(f)).open_quant(&mut |i, c| {
+                    let cap = CapElem {
+                        id: CapId::Rigid {
+                            binder: expr,
+                            index: i,
+                        },
+                        name: c.name.clone(),
+                        tag: c.tag.clone(),
+                    };
+                    rigid.push(cap.clone());
+                    Row::from_elems([RowElem::Cap(cap)])
+                });
+                match opened {
+                    Ty::Fn(f) => Some(*f),
+                    _ => None,
+                }
+            }
+            f => f,
+        };
+        if quantified {
+            self.quantified_lambdas.insert(expr, rigid);
+        }
         let outer = self.binder.replace(expr);
         self.name_providers.push(None);
         self.ctx.scopes.enter(expr);
@@ -2356,6 +2403,11 @@ impl<'a> BodyInfer<'a> {
         let uses = self.ctx.new_row_var();
         self.lambda_rows.insert(expr, (row, uses));
         let ty = Ty::func_sets(param_tys, ret_ty, Row::var(row), Row::var(uses));
+        let ty = if quantified {
+            self.requantify(&ty, expr)
+        } else {
+            ty
+        };
         let origin = Origin::Coerce {
             span: Some(span),
             def: self.current,
@@ -2892,6 +2944,7 @@ impl<'a> BodyInfer<'a> {
             sets: true,
             self_ty: self.self_ty.as_ref(),
             result_caps: None,
+            quant: None,
         };
         self.ty_table
             .lower_in(self.program, &mut scope, ty, true, &mut self.diags)

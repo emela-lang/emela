@@ -1,0 +1,27 @@
+---
+source: crates/emela-types/tests/capabilities.rs
+expression: "run(r#\"\nfn with_all[T](n: Int, acc: List[use Counter], k: fn(List[use Counter]) -> T) -> T uses { Counters } {\n  if n == 0 {\n    k(acc)\n  } else {\n    with c = Counters.Open(n) { with_all(n - 1, [c, ..acc], k) }\n  }\n}\n\nfn sum(cs: List[use Counter]) -> Int {\n  cs.fold(from: 0, f: |n, c| n + c.next())\n}\n\nfn uses_them() -> Int {\n  with Plain {\n    with_all(3, [], |cs| cs.map(|c| c.next()).fold(from: 0, f: |a, b| a + b))\n  }\n}\n\nfn named() -> Int {\n  with Plain { with_all(2, [], sum) }\n}\n\nfn returns_them() {\n  with Plain {\n    with_all(1, [], |cs| cs)\n  }\n}\n\nfn not_quantified() -> Int {\n  with Plain, c = Counters.Open(1) {\n    k = |cs| sum(cs)\n    k([c])\n  }\n}\n\"#)"
+---
+with_all: ∀ T, C(acc), E(k), R(k). fn(Int, List[use Counter], fn(List[use Counter]) -> T fails E(k) uses { R(k) }) -> T fails E(k) uses { Counters, acc, R(k) }
+  n: Int
+  acc: List[use Counter]
+  k: fn(List[use Counter]) -> '0 fails '2 uses { '3 }
+  c: use Counter
+sum: ∀ C(cs). fn(List[use Counter]) -> Int uses { cs }
+  cs: List[use Counter]
+  n: Int
+  c: use Counter
+uses_them: fn() -> Int
+  cs: List[use Counter]
+  c: use Counter
+  a: Int
+  b: Int
+named: fn() -> Int
+returns_them: fn() -> List[use Counter]
+  cs: List[use Counter]
+not_quantified: fn() -> Int
+  c: use Counter
+  cs: List[use Counter]
+  k: fn(List[use Counter]) -> Int uses { c }
+`with_all(n - 1, [c, ..acc], k)` warning: holds `c` and leaves the `with` that provides it
+`cs` CapabilityLeak { cap: "any", from: Call("Main.with_all"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 946..953 }) }

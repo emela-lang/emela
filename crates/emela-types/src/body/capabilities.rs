@@ -176,4 +176,47 @@ impl BodyInfer<'_> {
                 .collect::<Vec<_>>(),
         )
     }
+
+    /// `ty`, the type of the lambda `binder`, with its unknown sets ([`CapId::Rigid`]) quantified
+    /// again, and in its R (`[type.rules]`).
+    pub(super) fn requantify(&mut self, ty: &Ty, binder: ExprId) -> Ty {
+        let Ty::Fn(f) = ty else {
+            return ty.clone();
+        };
+        let mut quantified = Row::empty();
+        let params: Vec<Ty> = f
+            .params
+            .iter()
+            .map(|p| requantify_ty(&self.ctx.resolve(p), binder, &mut quantified))
+            .collect();
+        let mut uses = f.uses.clone();
+        uses.extend(&quantified);
+        Ty::func_sets(params, f.ret.clone(), f.fails.clone(), uses)
+    }
+}
+
+fn requantify_row(row: &Row, binder: ExprId, quantified: &mut Row) -> Row {
+    Row::from_elems(row.elems().iter().map(|e| match e {
+        RowElem::Cap(c) => match c.id {
+            CapId::Rigid { binder: b, index } if b == binder => {
+                let q = RowElem::Cap(CapElem {
+                    id: CapId::Quant(index),
+                    ..c.clone()
+                });
+                quantified.insert(q.clone());
+                q
+            }
+            _ => e.clone(),
+        },
+        e => e.clone(),
+    }))
+}
+
+fn requantify_ty(ty: &Ty, binder: ExprId, quantified: &mut Row) -> Ty {
+    match ty {
+        Ty::Cap(tags, caps) => Ty::Cap(tags.clone(), requantify_row(caps, binder, quantified)),
+        Ty::Set(kind, caps) => Ty::Set(*kind, requantify_row(caps, binder, quantified)),
+        Ty::Fn(_) => ty.clone(),
+        ty => ty.map_children(|c| requantify_ty(c, binder, quantified)),
+    }
 }
