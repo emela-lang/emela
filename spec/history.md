@@ -2,6 +2,14 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-23 (Telling the entry module of the JS host with import.meta.main)
+
+- `[target.js.module]`: `main.mjs` decides whether it is the entry module of the JS host with `import.meta.main`. Only a JS host that does not define `import.meta.main` compares the real path of `process.argv[1]` with the path of `main.mjs`, as `js-direct-entry` (#677) specified for every host. With this, importing `main.mjs` from code that the JS host evaluates (`node -e`) does not launch `main`, on every host that defines `import.meta.main`. Adopted in the proposal `js-entry-import-meta-main` (#829).
+
+## 2026-11-23 (Running main.mjs directly)
+
+- `[target.js.module]`, `[cmd.build]`: `main.mjs` written by `emela build` for the `js` target launches `main` when the JS host is started with it (`node target/emela/js/main.mjs`), with the same outcomes and exit codes as `emela run`. Importing `main.mjs` from another module does not launch `main`. An HTTP service is unchanged: it is started through `serve.mjs`, and its `main.mjs` does not launch anything. For a program that is not an HTTP service, `emela run` starts the JS host with `main.mjs` itself instead of a launcher passed with `-e`. Adopted in the proposal `js-direct-entry` (#677).
+
 ## 2026-11-23 (Handlers with type parameters)
 
 - `[effect.decl]`, `[effect.with]`, `[effect.handler]`, `[effect.layer]`, `[effect.label]`, `[type.rules]`, `[grammar.decl]`, `[grammar.expr]`, `[diag.list]`, `[lsp.hover]`, `[lsp.completion]`, `[lsp.inlay-hint]`: - A handler can declare type parameters of ordinary types (`handler Memory[S](value: S): State[S]`). Set type parameters (E, R) stay out, as for effects (E0424). - Each item of a with determines the type arguments. They are inferred from the arguments of init and from what uses the effects the item provides; when they are not determined, they are written (`with InMemoryRepo[UserId, User] { ... }`). - Type parameters can have trait bounds, checked at the item. - An item of a layer writes its type arguments unless the arguments of init determine them. - Type parameters on handler members (`handler Open[T](...)` declared in an effect) are out of scope. Adopted in the proposal `generic-handler` (#817).
