@@ -544,7 +544,7 @@ The platform layer and the test layer (`[lib.layers]`). What the process has exa
 | `exit_code_to_int` | `exit_code_to_int(code: ExitCode) -> Int` | The number of the exit code. Implemented in Emela |
 | `EXIT_SUCCESS` | `const EXIT_SUCCESS: ExitCode` | `exit_code(0)` |
 | `EXIT_FAILURE` | `const EXIT_FAILURE: ExitCode` | `exit_code(1)` |
-| `Process` | `layer Process { Platform, SystemArgs, SystemStdin, SystemStdout, SystemStderr, SystemEnv, SystemFileSystem }` | Platform and the System handlers that need a process. Requires Async and ProcessHost (`[effect.host]`) |
+| `Process` | `layer Process { Platform, SystemArgs, SystemStdin, SystemStdout, SystemStderr, SystemEnv, SystemFileSystem, SystemTcp }` | Platform and the System handlers that need a process. Requires Async and ProcessHost (`[effect.host]`) |
 
 - The System handlers of this section require `ProcessHost` (`[effect.host]`).
 
@@ -797,6 +797,56 @@ impl (`[trait.derive]`): Method and Request have `derive Eq, Show`.
 | `require_ok` | `require_ok(res: Response) -> Response fails UnexpectedStatus` | Fails on anything other than 2xx. Moved from `Std.Http` |
 
 impl (`[trait.derive]`): Response has `derive Eq, Show`, and UnexpectedStatus has `derive Show`.
+
+### Std.Tcp (`std/tcp.emel`, `std/tcp.mjs`, `std/tcp.c`) `[api.std.tcp]`
+
+The platform layer (`[lib.layers]`). A TCP client: it opens connections, reads and writes bytes on them, and upgrades them to TLS.
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Connection` | `opaque type Connection` | An open connection, or one that was closed |
+| `HostNotFound` | `error HostNotFound(host: String)` | The name could not be resolved |
+| `ConnectionRefused` | `error ConnectionRefused(host: String, port: Int)` | Nothing accepted the connection |
+| `ConnectionClosed` | `error ConnectionClosed` | The connection was closed by `close`, by the release of the handler, or by the peer resetting it, or the peer finished sending before `read_exact` got its bytes |
+| `TlsFailure` | `error TlsFailure(message: String)` | The TLS handshake failed, including a certificate that could not be verified. The reason is in `message` |
+| `TcpFailure` | `error TcpFailure(message: String)` | Any other failure of the host. The reason is in `message` |
+| `Roots` | `enum Roots { SystemRoots, Pem(text: String) }` | The certificates trusted as roots |
+| `Verify` | `enum Verify { Full(roots: Roots), ChainOnly(roots: Roots), NoVerification }` | How much of the peer's certificate `upgrade_tls` checks |
+| `VERIFY_FULL` | `const VERIFY_FULL = Full(roots: SystemRoots)` | The usual check |
+| `Tcp` | `effect Tcp` | `connect`, `read`, `write`, `upgrade_tls` and `close`, below |
+| `read_exact` | `fn read_exact(conn: Connection, n: Int) -> Bytes fails ConnectionClosed \| TcpFailure uses { Tcp }` | Exactly `n` bytes, below |
+| `SystemTcp` | `handler SystemTcp: Tcp` | `node:net` and `node:tls` on JS, POSIX sockets on native, `wasi:sockets@0.3.0` on WASM. Requires Async and ProcessHost. Bundled in `Process` (`[api.std.process]`) |
+
+```emel
+pub effect Tcp {
+  suspend fn connect(host: String, port: Int) -> Connection
+    fails HostNotFound | ConnectionRefused | TcpFailure
+  suspend fn read(conn: Connection, max: Int) -> Option[Bytes] fails ConnectionClosed | TcpFailure
+  suspend fn write(conn: Connection, data: Bytes) -> () fails ConnectionClosed | TcpFailure
+  suspend fn upgrade_tls(conn: Connection, server_name: String, verify: Verify) -> ()
+    fails ConnectionClosed | TlsFailure | TcpFailure
+  suspend fn close(conn: Connection) -> ()
+}
+
+pub fn read_exact(conn: Connection, n: Int) -> Bytes fails ConnectionClosed | TcpFailure uses { Tcp }
+```
+
+- `connect` resolves `host`, which is a name or an IP address written as a string, and connects to `port`. A `port` outside 1 to 65535 fails with TcpFailure.
+- `read` returns `Some` of at least 1 and at most `max` bytes, as many as have arrived. After the peer has finished sending and closed its side, it returns `None`. A `max` less than 1 is a defect (``Tcp.read was given max <max>, which is less than 1``).
+- `read_exact` calls `read` until it has exactly `n` bytes, and returns them. When `read` returns `None` before that, it fails with ConnectionClosed. An `n` of 0 returns the empty Bytes without reading, and a negative `n` is a defect (``Tcp.read_exact was given n <n>, which is negative``). It is a function on top of `read`, not an operation, so a handler does not implement it.
+- `write` returns after all of `data` has been handed to the host.
+- `upgrade_tls` performs a TLS handshake on the connection, as the client, and turns the same `Connection` into a TLS connection: `read` and `write` after it go through TLS. `server_name` is sent as the server name indication. `verify` chooses how the certificate of the peer is checked: `Full(roots:)` verifies its chain up to `roots` and checks that it is for `server_name`; `ChainOnly(roots:)` verifies the chain only; `NoVerification` checks nothing, so the connection is encrypted but the peer is not authenticated. `roots` is `SystemRoots`, the roots that the host trusts (on WASM, the roots bundled with emela, `[target.wasm.external]`), or `Pem(text:)`, one or more CA certificates in PEM, which are then the only roots trusted. `VERIFY_FULL` is `Full(roots: SystemRoots)`.
+- When the handshake or the verification fails, or `text` of `Pem` is not one or more certificates in PEM, `upgrade_tls` fails with TlsFailure and the connection is closed.
+- If, when `upgrade_tls` is called, the handler holds bytes that have arrived on the connection and that `read` has not returned, it does not start the handshake: it fails with TlsFailure and the connection is closed. A server sends no TLS bytes before the client's first handshake message, so such bytes cannot be part of the handshake.
+- Upgrading a TLS connection is a defect (``Tcp.upgrade_tls was given a connection that is already TLS``), and so is upgrading a connection while a `read` or a `write` on it is waiting (``Tcp.upgrade_tls was given a connection that is being read or written``).
+- `close` closes the connection. Closing a closed connection does nothing. `read` and `write` on a closed connection fail with ConnectionClosed, as they do after the peer has reset the connection.
+- There is no timeout. Write it with `Task.timeout` (`[task.combinators]`). When a fiber waiting in `connect`, `read`, `write` or `upgrade_tls` is interrupted, the wait is abandoned (`[ext.call]`, `[ext.c-host]`). The connection stays open.
+- The release of `SystemTcp` closes the connections it opened that are still open. A connection can be used only inside the with of the handler that opened it. Passing a connection to an operation, `close` included, after that with has ended, or passing it to another handler than the one that opened it, is a defect (``a connection was used outside the with of the handler that opened it``).
+- Two concurrent `read`s on the same connection, or two concurrent `write`s, are a defect (``a connection was read by two fibers at once``, ``a connection was written by two fibers at once``). A `read` and a `write` on the same connection MAY run concurrently.
+- Tcp is not Immediate (`[type.effect-bound]`), so it cannot be used inside the callback of an external function.
+- `SystemTcp` requires ProcessHost (`[effect.host]`): a page of a web browser has no TCP. It uses `node:net` and `node:tls` on JS. On native it resolves names with `getaddrinfo` on another thread and waits on non-blocking sockets with `em_on_readable` and `em_on_writable` (`[ext.c-host]`). On WASM it uses `wasi:sockets@0.3.0`, and performs TLS inside the component (`[target.wasm.external]`). `upgrade_tls` has no native implementation yet, and calling it on native is a compile error (E0412).
+
+impl (`[trait.derive]`): Every error has `derive Show` (their contents are shown when they reach main or a test; `[dyn.error]`).
 
 ### Std.FileSystem (`std/file_system.emel`, `std/file_system.mjs`, `std/file_system.c`) `[api.std.file-system]`
 
