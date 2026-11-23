@@ -312,6 +312,22 @@ impl InferCtx {
 
     /// Whether `row` has a tag that is the same as `tag` ([`Self::same_tag`]). If `row` has
     /// several tags of the same effect, the first one that unifies is taken (an approximation).
+    /// Whether [`Self::same_tag`] would hold, without unifying anything.
+    pub(crate) fn could_be_same_tag(&mut self, a: &Tag, b: &Tag) -> bool {
+        if a.def != b.def || a.args.len() != b.args.len() {
+            return false;
+        }
+        let snapshot = self.table.snapshot();
+        let ok = a
+            .args
+            .iter()
+            .zip(&b.args)
+            .all(|(x, y)| self.unify_inner(x, y, Variance::Inv).is_ok());
+        self.row_buffer.clear();
+        self.table.rollback_to(snapshot);
+        ok
+    }
+
     pub(crate) fn row_has_tag(&mut self, row: &Row, tag: &Tag) -> bool {
         let tags: Vec<Tag> = row.tags().cloned().collect();
         tags.iter().any(|t| t == tag) || tags.iter().any(|t| self.same_tag(t, tag))
@@ -663,7 +679,11 @@ impl InferCtx {
         let mut map = FxHashMap::default();
         let mut params = existing;
         let mut next_name = 0;
-        for v in self.free_vars(ty) {
+        // Resolved first, so that a type variable reached only through a solved set variable
+        // (`State[?1]` in the R of `fn nothing() { with Pass { () } }`) is quantified too
+        // (`[effect.decl]`: type variables left in R are generalized).
+        let ty = self.resolve(ty);
+        for v in self.free_vars(&ty) {
             if !env.contains(&v) {
                 map.insert(v, params.len() as u32);
                 let name = loop {
@@ -676,7 +696,6 @@ impl InferCtx {
                 params.push(TyParam::new(SmolStr::new(name)));
             }
         }
-        let ty = self.resolve(ty);
         let mut row_map = FxHashMap::default();
         let mut generalized = Vec::new();
         let mut next_name = [0, 0];

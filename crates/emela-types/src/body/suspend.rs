@@ -357,6 +357,7 @@ pub(super) fn resume_escapes(infer: &BodyInfer<'_>, body: ExprId, resume: LocalI
         program: infer.program,
         sigs: infer.sigs,
         ty_table: infer.ty_table,
+        insts: infer.items_insts(),
         resume,
         escapes: false,
     }
@@ -367,6 +368,7 @@ struct Walker<'a> {
     program: &'a Program,
     sigs: &'a Signatures,
     ty_table: &'a TyTable,
+    insts: super::items::ItemsInsts<'a>,
     resume: LocalId,
     escapes: bool,
 }
@@ -496,8 +498,14 @@ impl Walker<'_> {
                 self.expr(*base, in_lambda);
             }
             ExprKind::With { handlers, body } => {
-                let args =
-                    crate::layer::evaluated_args(program, self.sigs, self.ty_table, handlers);
+                let insts = self.insts.of(expr, handlers);
+                let args = crate::layer::evaluated_args(
+                    program,
+                    self.sigs,
+                    self.ty_table,
+                    handlers,
+                    &insts,
+                );
                 for arg in args {
                     self.expr(arg, in_lambda);
                 }

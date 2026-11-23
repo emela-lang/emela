@@ -372,7 +372,8 @@ impl BodyInfer<'_> {
                     .collect()
             })
             .collect();
-        let entries = layer::with_entries(program, self.sigs, self.ty_table, items);
+        let insts = self.item_insts(expr, items);
+        let entries = layer::with_entries(program, self.sigs, self.ty_table, items, &insts);
         let provides: Vec<Tag> = entries
             .iter()
             .filter(|e| e.named)
@@ -392,15 +393,24 @@ impl BodyInfer<'_> {
         self.with_stack.push((expr, provides.clone()));
         let body_row = self.expr_effects(body);
         self.with_stack.pop();
-        layer::check_with_items(program, self.sigs, self.ty_table, items, &mut self.diags);
+        layer::check_with_items(
+            program,
+            self.sigs,
+            self.ty_table,
+            items,
+            &insts,
+            &mut self.diags,
+        );
+        // requires(H) instantiated with the type arguments of the item (`[type.rules]`).
         let deps: Vec<Row> = entries
             .iter()
             .map(|e| match &e.supplier {
-                Supplier::Handler(h) => self.handler_deps(*h),
+                Supplier::Handler(h) => layer::instantiate_row(&self.handler_deps(*h), &e.ty_args),
                 Supplier::Effect(t) => Row::of_tag(t.clone()),
                 Supplier::Member { .. } => Row::empty(),
             })
             .collect();
+        self.check_several_fits(expr, &entries, &body_row, &deps);
         let provided = provides;
         let mut defaults: Vec<(Tag, usize)> = Vec::new();
         for (i, entry) in entries.iter().enumerate() {
@@ -690,8 +700,9 @@ impl BodyInfer<'_> {
             let mut binds: Vec<WithBind> = order
                 .iter()
                 .map(|&i| WithBind {
-                    effect: entries[i].effect.clone(),
+                    effect: entries[i].effect.map_args(|a| self.ctx.resolve(a)),
                     supplier: entries[i].supplier.clone(),
+                    ty_args: entries[i].ty_args.iter().map(|t| self.ctx.resolve(t)).collect(),
                     args: entries[i].args,
                     named: entries[i].named,
                 })
@@ -763,6 +774,7 @@ impl BodyInfer<'_> {
                         provider,
                         item,
                     },
+                    ty_args: Vec::new(),
                     args: layer::ArgsSource::Item(item),
                     named: false,
                 },

@@ -212,6 +212,10 @@ pub const MISSING_CAPABILITY_EFFECTS: &str = "E0452";
 // Effect aliases (`[effect.use]`) and callbacks to the host (`[ext.boundary]`)
 pub const EFFECT_ALIAS_MISUSE: &str = "E0453";
 pub const CALLBACK_EFFECT: &str = "E0454";
+// Handlers with type parameters (`[effect.handler]`, `[effect.with]`)
+pub const HANDLER_ARGS_UNKNOWN: &str = "E0459";
+pub const INNER_HANDLER_TYPE_PARAMS: &str = "E0460";
+pub const UNUSED_HANDLER_PARAM: &str = "E0462";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

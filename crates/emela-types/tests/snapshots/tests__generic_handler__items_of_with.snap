@@ -1,0 +1,99 @@
+---
+source: crates/emela-types/tests/generic_handler.rs
+expression: "repo(r#\"\nfn count() -> Int uses { State[Int] } { (use State[Int]).get() }\n\nfn names() -> List[String] uses { State[List[String]] } { (use State[List[String]]).get() }\n\nfn repo_test() -> Option[User] uses { Repo[UserId, User] } {\n  (use Repo[UserId, User]).find(UserId(n: 1))\n}\n\nhandler UserService: Logger {\n  fn info(msg) {\n    _ = (use Repo[UserId, User]).find(UserId(n: 1))\n    ()\n  }\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nfn log() -> () uses { Logger } { (use Logger).info(\"a\") }\n\nfn from_init() { with Constant(value: 0) { count() } }\n\nfn from_body() { State.run([], || with InMemoryRepo { repo_test() }) }\n\nfn written() { State.run([], || with repo = InMemoryRepo[UserId, User] { repo.find(UserId(n: 1)) }) }\n\nfn from_other_item() { State.run([], || with InMemoryRepo, UserService { log() }) }\n\nfn from_binding() -> String { with x = Constant(value: \"a\") { x.get() } }\n\nfn from_use() -> Int { with x = Pass { x.get() + 1 } }\n\nfn from_outside() -> (Int, List[String]) { State.run([\"a\"], || with Pass { names() }) |> |(_, s)| (0, s) }\n\nfn written_with_args() { with Constant[Int](value: 0) { count() } }\n\"#)"
+---
+count: fn() -> Int uses { State[Int] }
+names: fn() -> List[String] uses { State[List[String]] }
+repo_test: fn() -> Option[User] uses { Repo[UserId, User] }
+log: fn() -> () uses { Logger }
+from_init: fn() -> Int
+from_body: fn() -> (Option[User], List[(UserId, User)])
+written: fn() -> (Option[User], List[(UserId, User)])
+  repo: use Repo[UserId, User]
+from_other_item: fn() -> ((), List[(UserId, User)])
+from_binding: fn() -> String
+  x: use State[String]
+from_use: fn() -> Int uses { State[Int] }
+  x: use State[Int]
+from_outside: fn() -> (Int, List[String])
+  s: List[String]
+  (_, s): (List[String], List[String])
+written_with_args: fn() -> Int
+handler InMemoryRepo: use State[List[('0, '1)]]
+handler Constant: use {}
+handler Pass: use State['0]
+handler UserService: use Repo[UserId, User]
+item Constant: [Int]
+item InMemoryRepo: [UserId, User]
+item InMemoryRepo: [UserId, User]
+item InMemoryRepo: [UserId, User]
+item Constant: [String]
+item Pass: [Int]
+item Pass: [List[String]]
+item Constant: [Int]
+--- R
+{     st <- State[List[(K, V)]]     List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v)   }: State[List[('0, '1)]]
+List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v): State[List[('0, '1)]]
+List.find(st.get(), |(k, _)| k == key): State[List[('0, '1)]]
+st.get(): State[List[('0, '1)]]
+st.get: State[List[('0, '1)]]
+st: State[List[('0, '1)]]
+{     st <- State[List[(K, V)]]     st.update(|xs| [(key, value), ..xs])   }: State[List[('0, '1)]]
+st.update(|xs| [(key, value), ..xs]): State[List[('0, '1)]]
+st.update: State[List[('0, '1)]]
+st: State[List[('0, '1)]]
+{ (use State[S]).get() }: State['0]
+(use State[S]).get(): State['0]
+(use State[S]).get: State['0]
+use State[S]: State['0]
+{ (use State[S]).set(value) }: State['0]
+(use State[S]).set(value): State['0]
+(use State[S]).set: State['0]
+use State[S]: State['0]
+{ (use State[S]).update(f) }: State['0]
+(use State[S]).update(f): State['0]
+(use State[S]).update: State['0]
+use State[S]: State['0]
+{ (use State[Int]).get() }: State[Int]
+(use State[Int]).get(): State[Int]
+(use State[Int]).get: State[Int]
+use State[Int]: State[Int]
+{ (use State[List[String]]).get() }: State[List[String]]
+(use State[List[String]]).get(): State[List[String]]
+(use State[List[String]]).get: State[List[String]]
+use State[List[String]]: State[List[String]]
+{   (use Repo[UserId, User]).find(UserId(n: 1)) }: Repo[UserId, User]
+(use Repo[UserId, User]).find(UserId(n: 1)): Repo[UserId, User]
+(use Repo[UserId, User]).find: Repo[UserId, User]
+use Repo[UserId, User]: Repo[UserId, User]
+{     _ = (use Repo[UserId, User]).find(UserId(n: 1))     ()   }: Repo[UserId, User]
+(use Repo[UserId, User]).find(UserId(n: 1)): Repo[UserId, User]
+(use Repo[UserId, User]).find: Repo[UserId, User]
+use Repo[UserId, User]: Repo[UserId, User]
+{ (use Logger).info("a") }: Logger
+(use Logger).info("a"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+{ count() }: State[Int]
+count(): State[Int]
+with InMemoryRepo { repo_test() }: State[List[(UserId, User)]]
+{ repo_test() }: Repo[UserId, User]
+repo_test(): Repo[UserId, User]
+with repo = InMemoryRepo[UserId, User] { repo.find(UserId(n: 1)) }: State[List[(UserId, User)]]
+{ repo.find(UserId(n: 1)) }: Repo[UserId, User]
+repo.find(UserId(n: 1)): Repo[UserId, User]
+with InMemoryRepo, UserService { log() }: State[List[(UserId, User)]]
+{ log() }: Logger
+log(): Logger
+{ x.get() }: State[String]
+x.get(): State[String]
+{ with x = Pass { x.get() + 1 } }: State[Int]
+with x = Pass { x.get() + 1 }: State[Int]
+{ x.get() + 1 }: State[Int]
+x.get() + 1: State[Int]
+x.get(): State[Int]
+with Pass { names() }: State[List[String]]
+{ names() }: State[List[String]]
+names(): State[List[String]]
+{ count() }: State[Int]
+count(): State[Int]

@@ -623,6 +623,7 @@ impl Diagnostic {
         let show = |ty: &Ty| format!("`{}`", ty.display(cons));
         let mut help = None;
         let mut note = None;
+        let mut label: Option<(Span, String)> = None;
         let (severity, code, message) = match &diagnostic.kind {
             TypeDiagnosticKind::CaptureEscape { .. } => {
                 return Diagnostic::from_capture_escape(diagnostic, files, false);
@@ -1338,7 +1339,8 @@ impl Diagnostic {
                 let message = match handler {
                     Some(handler) => {
                         help = Some(format!(
-                            "write the types, like `handler {handler}: {effect}[{holes}]`; a handler cannot be generic"
+                            "write the types, like `handler {handler}: {effect}[{holes}]`, or give the handler type parameters, like `handler {handler}[{params}]: {effect}[{params}]`",
+                            params = params.join(", ")
                         ));
                         format!(
                             "handler `{handler}` must implement `{effect}[{}]` with concrete types",
@@ -1358,6 +1360,61 @@ impl Diagnostic {
                     Some(code::MISSING_EFFECT_TYPE_ARGS),
                     message,
                 )
+            }
+            TypeDiagnosticKind::HandlerParamNotType { handler, param } => (
+                Severity::Error,
+                Some(code::EFFECT_PARAM_NOT_TYPE),
+                format!(
+                    "type parameter `{param}` of handler `{handler}` is used as a set, but handler type parameters must be ordinary types"
+                ),
+            ),
+            TypeDiagnosticKind::UnusedHandlerParam { handler, param } => (
+                Severity::Error,
+                Some(code::UNUSED_HANDLER_PARAM),
+                format!(
+                    "type parameter `{param}` of handler `{handler}` does not appear in its effects, fields or init parameters"
+                ),
+            ),
+            TypeDiagnosticKind::InnerHandlerTypeParams { handler } => {
+                help = Some(
+                    "an inner handler implements a handler member declared by the effect; use the type parameters of the outer handler"
+                        .into(),
+                );
+                (
+                    Severity::Error,
+                    Some(code::INNER_HANDLER_TYPE_PARAMS),
+                    format!("inner handler `{handler}` cannot have type parameters"),
+                )
+            }
+            TypeDiagnosticKind::HandlerArgsUnknown { handler, reason } => {
+                let name = handler.split('[').next().unwrap_or(handler);
+                help = Some(format!("write them, like `{name}[...]`"));
+                let message = match reason {
+                    emela_types::HandlerArgsReason::Unknown => {
+                        format!("cannot infer the type arguments of handler `{handler}`")
+                    }
+                    emela_types::HandlerArgsReason::Layer => {
+                        note = Some(
+                            "a layer infers type arguments only from the arguments of init".into(),
+                        );
+                        format!("cannot infer the type arguments of handler `{handler}`")
+                    }
+                    emela_types::HandlerArgsReason::Several { first, second } => format!(
+                        "cannot infer the type arguments of handler `{handler}`: both `{first}` and `{second}` fit"
+                    ),
+                    emela_types::HandlerArgsReason::Overrides { effect, other, at } => {
+                        if let Some(&file) = files.get(at.module) {
+                            label = Some((
+                                Span::new(file, at.range),
+                                format!("`{other}` provides `{effect}` here"),
+                            ));
+                        }
+                        format!(
+                            "cannot infer the type arguments of handler `{handler}`: it may override `{effect}` of `{other}`"
+                        )
+                    }
+                };
+                (Severity::Error, Some(code::HANDLER_ARGS_UNKNOWN), message)
             }
             TypeDiagnosticKind::EffectParamNotType { effect, param } => (
                 Severity::Error,
@@ -1755,6 +1812,9 @@ impl Diagnostic {
         }
         if let Some(span) = span {
             out = out.with_span(span);
+        }
+        if let Some((at, message)) = label {
+            out = out.with_label(at, message);
         }
         if let Some(note) = note {
             out = out.with_note(note);

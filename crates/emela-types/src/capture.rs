@@ -128,6 +128,19 @@ pub(crate) struct Input<'a> {
     pub(crate) calls: &'a ArenaMap<ExprId, Vec<Option<ExprId>>>,
     pub(crate) ops: &'a ArenaMap<ExprId, DefId>,
     pub(crate) methods: &'a ArenaMap<ExprId, DefId>,
+    /// The type arguments of the items of `with`s and of layers (`[effect.with]`).
+    pub(crate) with_ty_args: &'a ArenaMap<ExprId, Vec<Vec<Ty>>>,
+    pub(crate) layer_ty_args: &'a ArenaMap<DefId, Vec<Vec<Ty>>>,
+}
+
+impl Input<'_> {
+    /// The type arguments of the items of the `with` `expr`.
+    pub(crate) fn insts(&self, expr: ExprId, items: &[WithItem]) -> layer::Insts {
+        let args = self.with_ty_args.get(expr).cloned().unwrap_or_default();
+        layer::Insts::new(self.program, items, args, |l| {
+            self.layer_ty_args.get(l).cloned()
+        })
+    }
 }
 
 /// The summaries of the definitions analyzed so far, and their display.
@@ -851,7 +864,8 @@ impl<'a, 'b> Cx<'a, 'b> {
                 self.eval(arg);
             }
         }
-        let entries = layer::with_entries(program, input.sigs, input.ty_table, items);
+        let insts = input.insts(expr, items);
+        let entries = layer::with_entries(program, input.sigs, input.ty_table, items, &insts);
         // Only providers by name are found by `use E`; the indices stay those of `entries`.
         let provides: Vec<Option<DefId>> = entries
             .iter()
@@ -1191,7 +1205,9 @@ impl Shown<'_, '_> {
                 let ExprKind::With { handlers, .. } = &program.exprs[with].kind else {
                     unreachable!("a root of a with");
                 };
-                let entries = layer::with_entries(program, input.sigs, input.ty_table, handlers);
+                let insts = input.insts(with, handlers);
+                let entries =
+                    layer::with_entries(program, input.sigs, input.ty_table, handlers, &insts);
                 let e = &entries[entry];
                 let handler = match &e.supplier {
                     Supplier::Handler(h) => program.defs[*h].name.clone(),

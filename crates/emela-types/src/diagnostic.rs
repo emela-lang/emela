@@ -431,6 +431,22 @@ pub enum DiagnosticKind {
     /// An effect type parameter used as a set (E0424, spec 8.1). Effect type parameters are
     /// ordinary types only.
     EffectParamNotType { effect: SmolStr, param: SmolStr },
+    /// A handler type parameter used as a set (E0424, `[effect.handler]`). At the type
+    /// parameter.
+    HandlerParamNotType { handler: SmolStr, param: SmolStr },
+    /// A handler type parameter that appears neither in the effects after its colon, nor in the
+    /// type of a field, nor in the type of a parameter of its init (E0462, `[effect.handler]`).
+    /// At the type parameter.
+    UnusedHandlerParam { handler: SmolStr, param: SmolStr },
+    /// Type parameters on an inner handler (E0460, `[effect.handler]`). At the first one.
+    InnerHandlerTypeParams { handler: SmolStr },
+    /// The type arguments of a handler with type parameters at an item of a `with`, of a layer
+    /// or on the right of `by` are not determined (E0459, `[effect.with]`, `[effect.layer]`,
+    /// `[effect.label]`). `handler` is shown with its type parameters (`Memory[S]`).
+    HandlerArgsUnknown {
+        handler: SmolStr,
+        reason: HandlerArgsReason,
+    },
     /// Something other than a tag of the right kind or a set type parameter in a set type
     /// argument of a named type (the `E` of `Handler[E, R]`) (E0323, spec 9.2). `effects` is
     /// whether it is an effect-set position; `found` describes what was written.
@@ -439,6 +455,26 @@ pub enum DiagnosticKind {
         ty: SmolStr,
         effects: bool,
         found: SmolStr,
+    },
+}
+
+/// Why the type arguments of an item are not determined (E0459).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HandlerArgsReason {
+    /// Nothing determines them, at an item of a `with` or on the right of `by`.
+    Unknown,
+    /// Nothing determines them at an item of a layer, which infers them only from the arguments
+    /// of init (`[effect.layer]`).
+    Layer,
+    /// Two or more effects of the body, or of the requirements of the other items, fit. The
+    /// first two, displayed.
+    Several { first: SmolStr, second: SmolStr },
+    /// The item may override an effect of another item of the same `with`: the effect, that
+    /// item's handler, and where that item is written.
+    Overrides {
+        effect: SmolStr,
+        other: SmolStr,
+        at: Span,
     },
 }
 

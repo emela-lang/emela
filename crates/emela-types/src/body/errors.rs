@@ -161,6 +161,14 @@ impl BodyInfer<'_> {
 
     /// The definition's type parameters (the names of `Bound(i)`).
     pub(super) fn def_params(&self, def: DefId) -> Vec<TyParam> {
+        // The type parameters of a handler, with their bounds (`[effect.handler]`); those of its
+        // outer handler for an inner handler.
+        if self.program.defs[def].kind == emela_resolve::hir::DefKind::Handler {
+            return match self.ty_table.con(def) {
+                Some(id) => self.ty_table.cons[id].params.clone(),
+                None => Vec::new(),
+            };
+        }
         match self.sigs.get(def) {
             Some(sig) => sig.scheme.params.clone(),
             None => self
@@ -352,8 +360,9 @@ impl BodyInfer<'_> {
             // the arguments of their inits (spec 9.4). The arguments of a handler a later item
             // overrides are not evaluated (`[effect.with]`).
             ExprKind::With { handlers, body } => {
+                let insts = self.item_insts(expr, handlers);
                 let entries =
-                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers);
+                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts);
                 let mut row = Row::empty();
                 for (i, item) in handlers.iter().enumerate() {
                     let initialized = crate::layer::item_evaluated(program, &entries, handlers, i);
@@ -367,7 +376,8 @@ impl BodyInfer<'_> {
                 row.extend(&self.expr_row(*body));
                 for entry in entries {
                     if let Some(h) = entry.handler() {
-                        row.extend(&self.handler_init_fails(h));
+                        let fails = self.handler_init_fails(h);
+                        row.extend(&crate::layer::instantiate_row(&fails, &entry.ty_args));
                     }
                 }
                 // Opening a handler member fails as its init may (`[type.rules]`).
@@ -1180,6 +1190,7 @@ impl BodyInfer<'_> {
                     self.sigs,
                     self.ty_table,
                     handlers,
+                    &self.item_insts(expr, handlers),
                 ));
                 out.push(*body);
             }
