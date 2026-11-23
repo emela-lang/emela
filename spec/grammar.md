@@ -63,8 +63,8 @@ type_params  = "[" type_param { "," type_param } "]"
 type_param   = ( upper_name | type_name ) [ ":" bound { "+" bound } ]
 bound        = type_ref
 
-type_decl    = "type" type_name [ type_params ] [ "(" [ fields ] ")" ] [ derive ]
-enum_decl    = "enum" type_name [ type_params ] "{" variant { sep variant } "}" [ derive ]
+type_decl    = "type" type_name [ type_params ] [ "(" [ fields ] ")" ] [ "uses" effect_ref ] [ derive ]   (* a capability-bound type; 9.4 *)
+enum_decl    = "enum" type_name [ type_params ] [ "uses" effect_ref ] "{" variant { sep variant } "}" [ derive ]
 variant      = { annotation } type_name [ "(" ( fields | type { "," type } ) ")" ]
 error_decl   = "error" type_name [ "(" [ fields ] ")" ] [ derive ]
 fields       = field { "," field }
