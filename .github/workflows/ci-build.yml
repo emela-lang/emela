@@ -23,9 +23,14 @@ jobs:
     # compiler, so even line tables made the archive about 900 MB, which every test job downloads.
     # A panic still names its file and line; a backtrace names the functions. Set on the job, not
     # the step, so that rust-cache keys the cache on it.
+    #
+    # The tests are built at opt-level 1. Most of them compile core and std with the compiler
+    # under test, and unoptimized that took about half the CPU time of the tests; at opt-level 1 it
+    # takes a third of that. The build takes longer, but it is done once for every test job.
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_DEV_STRIP: debuginfo
+      CARGO_PROFILE_DEV_OPT_LEVEL: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
