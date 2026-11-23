@@ -230,6 +230,8 @@ pub(crate) struct BodyInfer<'a> {
     /// tags caught by `escape` or provided by `with`, and the capabilities whose root or binding
     /// ends (`[effect.use]`). A tag removes only the same tag, not a capability of that effect.
     row_diffs: Vec<(RowVar, RowVar, Vec<RowElem>)>,
+    /// Where each capability first entered each set variable, for E0455 (`[effect.escape]`).
+    cap_provenance: FxHashMap<(RowVar, crate::row::CapId), Option<Span>>,
     /// `escape` inner expressions, the errors their arms catch and their arm `_`, for the W0302
     /// check.
     escapes: Vec<errors::Escape>,
@@ -372,6 +374,7 @@ impl<'a> BodyInfer<'a> {
             local_binder: SparseMap::default(),
             with_stack: Vec::new(),
             escapes: Vec::new(),
+            cap_provenance: FxHashMap::default(),
             expr_effects: SparseMap::new(),
             ops: SparseMap::new(),
             member_opens: SparseMap::new(),
@@ -395,6 +398,7 @@ impl<'a> BodyInfer<'a> {
     /// Switches to the definition about to be inferred, taking its module and type parameters.
     fn enter(&mut self, def: DefId) {
         self.current = Some(def);
+        self.ctx.scopes.reset();
         self.binder = None;
         self.module = self.program.defs[def].module.clone();
         self.self_ty = None;
@@ -1087,6 +1091,7 @@ impl<'a> BodyInfer<'a> {
         self.infer_errors();
         self.infer_effects();
         self.solve_errors();
+        self.check_leaks();
         self.check_immediates();
         self.check_fn_op_bodies();
         self.check_handler_cycles();
@@ -1184,7 +1189,10 @@ impl<'a> BodyInfer<'a> {
 
     /// Infers, records and returns the expression's type.
     fn infer_expr(&mut self, expr: ExprId) -> Ty {
+        let hint = self.ctx.hint();
+        self.ctx.set_hint(Some(self.program.exprs[expr].span));
         let ty = self.infer_expr_kind(expr, None);
+        self.ctx.set_hint(hint);
         self.exprs.insert(expr, ty.clone());
         ty
     }
@@ -1342,6 +1350,7 @@ impl<'a> BodyInfer<'a> {
                         .map(|e| e.effect)
                         .collect();
                 self.name_providers.push(Some((expr, provides)));
+                self.ctx.scopes.enter(expr);
                 let ty = match expected {
                     Some(expected) => {
                         self.check_expr(*body, expected);
@@ -1349,6 +1358,7 @@ impl<'a> BodyInfer<'a> {
                     }
                     None => self.infer_expr(*body),
                 };
+                self.ctx.scopes.exit();
                 self.name_providers.pop();
                 ty
             }
@@ -1784,7 +1794,9 @@ impl<'a> BodyInfer<'a> {
             },
         );
         self.name_providers.push(None);
+        self.ctx.scopes.enter(f.body);
         self.check_expr(f.body, &ret);
+        self.ctx.scopes.exit();
         self.name_providers.pop();
         self.binder = outer;
     }
@@ -2308,6 +2320,7 @@ impl<'a> BodyInfer<'a> {
         };
         let outer = self.binder.replace(expr);
         self.name_providers.push(None);
+        self.ctx.scopes.enter(expr);
 
         let mut param_tys = Vec::new();
         for (i, param) in params.iter().enumerate() {
@@ -2335,6 +2348,7 @@ impl<'a> BodyInfer<'a> {
             }
             None => self.infer_expr(body),
         };
+        self.ctx.scopes.exit();
         self.name_providers.pop();
         self.binder = outer;
 

@@ -47,6 +47,7 @@ impl BodyInfer<'_> {
         let program = self.program;
         for def in self.defs.clone() {
             self.current = Some(def);
+            self.ctx.scopes.reset();
             match program.item(def) {
                 Some(Item::Fn(_) | Item::TraitFn(_)) | None => {
                     let Some(parts) = fn_parts(program, def) else {
@@ -191,7 +192,9 @@ impl BodyInfer<'_> {
             ExprKind::Lambda { body, .. } => {
                 let outer = self.binder.replace(expr);
                 let withs = std::mem::take(&mut self.with_stack);
+                self.ctx.scopes.enter(expr);
                 let mut body_row = self.expr_effects(*body);
+                self.ctx.scopes.exit();
                 self.with_stack = withs;
                 self.binder = outer;
                 body_row.extend(&self.captured_caps(expr));
@@ -211,7 +214,9 @@ impl BodyInfer<'_> {
                         let (body, uses) = (info.body, info.uses.clone());
                         let outer = self.binder.replace(body);
                         let withs = std::mem::take(&mut self.with_stack);
+                        self.ctx.scopes.enter(body);
                         let mut body_row = self.expr_effects(body);
+                        self.ctx.scopes.exit();
                         self.with_stack = withs;
                         self.binder = outer;
                         body_row.extend(&self.captured_caps(body));
@@ -313,7 +318,9 @@ impl BodyInfer<'_> {
             .map(|e| e.effect.clone())
             .collect();
         self.with_stack.push((expr, provides.clone()));
+        self.ctx.scopes.enter(expr);
         let body_row = self.expr_effects(body);
+        self.ctx.scopes.exit();
         self.with_stack.pop();
         layer::check_with_items(program, self.sigs, self.ty_table, items, &mut self.diags);
         let deps: Vec<Row> = entries
@@ -339,23 +346,21 @@ impl BodyInfer<'_> {
         }
         let mut for_body = provided.clone();
         for_body.extend(defaults.iter().map(|(t, _)| t.clone()));
-        let mut row = self.subtract(&body_row, &for_body);
-        // The capabilities this `with` made (`[effect.with]`).
-        let made: Vec<RowElem> = (0..items.len())
-            .map(|i| {
-                RowElem::Cap(CapElem {
-                    id: CapId::Item {
-                        with: expr,
-                        item: i as u32,
-                    },
-                    name: Default::default(),
-                    tag: Tag::new(self.current.expect("a `with` is inside a definition")),
-                })
+        // The effects it provides, and the capabilities it made (`[effect.with]`), are removed
+        // at once: a set variable made outside the `with` cannot have its capabilities, even on
+        // the way (`[effect.escape]`).
+        let mut minus: Vec<RowElem> = for_body.iter().cloned().map(RowElem::Tag).collect();
+        minus.extend((0..items.len()).map(|i| {
+            RowElem::Cap(CapElem {
+                id: CapId::Item {
+                    with: expr,
+                    item: i as u32,
+                },
+                name: Default::default(),
+                tag: Tag::new(self.current.expect("a `with` is inside a definition")),
             })
-            .collect();
-        if !made.is_empty() {
-            row = self.subtract_elems(&row, &made);
-        }
+        }));
+        let mut row = self.subtract_elems(&body_row, &minus);
         // Handler dependencies may be met by handlers in the same `with` providing other effects
         // (spec 14.2). The handler's own effects, all those of a handler of several effects, are
         // met from outside (`[effect.handler]`). Dependencies a layer leaves unmet also remain

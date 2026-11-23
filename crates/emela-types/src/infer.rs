@@ -110,15 +110,94 @@ pub struct InferCtx {
     row_solution: Option<FxHashMap<RowVar, Row>>,
     /// Whether the inclusion constraints are being solved ([`Self::set_solving`]).
     solving: bool,
+    /// Where each variable was made (`[effect.escape]`).
+    pub(crate) scopes: crate::scopes::Scopes,
+    /// Bindings and unions of type variables made by a unification not yet committed; their
+    /// scopes are adjusted once it succeeds.
+    pending_binds: Vec<(TyVar, Ty)>,
+    pending_unions: Vec<(TyVar, TyVar)>,
+    /// The span of the expression being inferred, recorded on new set variables.
+    hint: Option<Span>,
 }
 
 impl InferCtx {
     pub fn new() -> Self {
-        Self::default()
+        InferCtx {
+            scopes: crate::scopes::Scopes::new(),
+            ..Self::default()
+        }
     }
 
     pub fn fresh_var(&mut self) -> TyVar {
-        self.table.new_key(TyVarValue(None))
+        let v = self.table.new_key(TyVarValue(None));
+        self.scopes.new_ty_var(v);
+        v
+    }
+
+    /// The span of the expression being inferred, for set variables made from now on.
+    pub(crate) fn set_hint(&mut self, span: Option<Span>) {
+        self.hint = span;
+    }
+
+    pub(crate) fn hint(&self) -> Option<Span> {
+        self.hint
+    }
+
+    /// Applies the scopes of the bindings and unions of a unification that succeeded
+    /// ([`crate::scopes`]).
+    fn commit_scopes(&mut self) {
+        for (x, y) in std::mem::take(&mut self.pending_unions) {
+            let s = self
+                .scopes
+                .common(self.scopes.ty_var(x), self.scopes.ty_var(y));
+            self.scopes.lower_ty_var(x, s);
+            self.scopes.lower_ty_var(y, s);
+            let root = self.table.find(x);
+            self.scopes.lower_ty_var(root, s);
+        }
+        for (v, ty) in std::mem::take(&mut self.pending_binds) {
+            let root = self.table.find(v);
+            let scope = self
+                .scopes
+                .common(self.scopes.ty_var(v), self.scopes.ty_var(root));
+            self.lower_into(&ty, scope);
+        }
+    }
+
+    /// Moves the variables of `ty` out to `scope`, and records the capabilities in it that
+    /// cannot be there.
+    fn lower_into(&mut self, ty: &Ty, scope: crate::scopes::ScopeId) {
+        let lower_row = |this: &mut Self, row: &Row| {
+            for e in row.elems() {
+                match e {
+                    RowElem::Var(v) => this.scopes.lower_row_var(*v, scope),
+                    RowElem::Cap(c) if !this.scopes.fits(c, scope) => {
+                        let span = this.origin.0.or(this.hint);
+                        this.scopes.escapes.push((c.clone(), span));
+                    }
+                    _ => {}
+                }
+            }
+        };
+        match self.shallow_resolve(ty) {
+            Ty::Var(w) => self.scopes.lower_ty_var(w, scope),
+            Ty::Fn(f) => {
+                lower_row(self, &f.fails);
+                lower_row(self, &f.uses);
+                for p in &f.params {
+                    self.lower_into(p, scope);
+                }
+                self.lower_into(&f.ret, scope);
+            }
+            Ty::Set(_, row) => lower_row(self, &row),
+            Ty::Cap(tags, caps) => {
+                lower_row(self, &caps);
+                for a in tags.iter().flat_map(|t| &t.args) {
+                    self.lower_into(a, scope);
+                }
+            }
+            ty => ty.for_each_child(|child| self.lower_into(child, scope)),
+        }
     }
 
     pub fn new_var(&mut self) -> Ty {
@@ -128,6 +207,7 @@ impl InferCtx {
     pub fn new_row_var(&mut self) -> RowVar {
         let v = RowVar(self.next_row_var);
         self.next_row_var += 1;
+        self.scopes.new_row_var(v, self.origin.0.or(self.hint));
         v
     }
 
@@ -169,6 +249,14 @@ impl InferCtx {
             origin,
             kind,
         });
+    }
+
+    /// The set variables with a solution, and their solutions.
+    pub(crate) fn solution_entries(&self) -> Vec<(RowVar, Row)> {
+        self.row_solution
+            .as_ref()
+            .map(|s| s.iter().map(|(v, r)| (*v, r.clone())).collect())
+            .unwrap_or_default()
     }
 
     /// Forgets the solution of a previous round of solving.
@@ -302,6 +390,7 @@ impl InferCtx {
         });
         if ok {
             self.table.commit(snapshot);
+            self.commit_scopes();
             let origin = Origin::Coerce {
                 span: self.origin.0,
                 def: self.origin.1,
@@ -311,6 +400,8 @@ impl InferCtx {
             }
         } else {
             self.row_buffer.clear();
+            self.pending_binds.clear();
+            self.pending_unions.clear();
             self.table.rollback_to(snapshot);
         }
         ok
@@ -334,6 +425,7 @@ impl InferCtx {
         match self.unify_inner(expected, actual, Variance::Co) {
             Ok(()) => {
                 self.table.commit(snapshot);
+                self.commit_scopes();
                 let origin = Origin::Coerce {
                     span: self.origin.0,
                     def: self.origin.1,
@@ -345,6 +437,8 @@ impl InferCtx {
             }
             Err(kind) => {
                 self.row_buffer.clear();
+                self.pending_binds.clear();
+                self.pending_unions.clear();
                 // Roll back before resolving so partially bound type variables do not garble the
                 // display.
                 self.table.rollback_to(snapshot);
@@ -502,6 +596,7 @@ impl InferCtx {
             (Ty::Var(x), Ty::Var(y)) => {
                 let int = self.is_int_var(*x) || self.is_int_var(*y);
                 self.table.union(*x, *y);
+                self.pending_unions.push((*x, *y));
                 if int {
                     let root = self.table.find(*x);
                     self.int_vars.push(root);
@@ -597,6 +692,7 @@ impl InferCtx {
             });
         }
         self.table.union_value(v, TyVarValue(Some(ty.clone())));
+        self.pending_binds.push((v, ty.clone()));
         Ok(())
     }
 

@@ -47,6 +47,8 @@ struct Lower {
     elem: RowElem,
     /// Tags and capabilities.
     minus: Vec<RowElem>,
+    /// Where the constraint comes from, for a capability that leaves (`[effect.escape]`).
+    span: Option<Span>,
 }
 
 /// An `escape`, kept for the W0302 check after the error sets are solved.
@@ -566,7 +568,8 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// Computes the least solution of the constraints collected so far.
+    /// Computes the least solution of the constraints collected so far. Also records where each
+    /// capability first entered each set variable ([`BodyInfer::cap_provenance`]).
     fn solve_round(&mut self, row_diffs: &[(RowVar, RowVar, Vec<RowElem>)]) {
         // Start from the set variables, not from the previous round's solution.
         self.ctx.clear_row_solution();
@@ -578,6 +581,7 @@ impl BodyInfer<'_> {
             lowers.entry(d).or_default().push(Lower {
                 elem: RowElem::Var(v),
                 minus,
+                span: None,
             });
         }
         // Set variables with an upper bound (contained in a set without set variables). Not
@@ -599,6 +603,10 @@ impl BodyInfer<'_> {
                             lowers.entry(v).or_default().push(Lower {
                                 elem: e.clone(),
                                 minus: minus.clone(),
+                                span: match &c.origin {
+                                    Origin::Coerce { span, .. } => *span,
+                                    _ => None,
+                                },
                             });
                         }
                     }
@@ -624,19 +632,25 @@ impl BodyInfer<'_> {
             let mut changed = false;
             for (&v, entries) in &lowers {
                 for lower in entries {
-                    let atoms = match &lower.elem {
-                        RowElem::Var(w) => solution.get(w).cloned().unwrap_or_default(),
-                        e => self.ctx.resolve_row(&Row::from_elems([e.clone()])),
+                    let (atoms, from) = match &lower.elem {
+                        RowElem::Var(w) => (solution.get(w).cloned().unwrap_or_default(), Some(*w)),
+                        e => (self.ctx.resolve_row(&Row::from_elems([e.clone()])), None),
                     };
-                    let target = solution.entry(v).or_default();
                     for a in atoms.elems() {
                         if self.removed(a, &lower.minus) {
                             continue;
                         }
-                        let a = a.clone();
-                        if !target.contains(&a) {
-                            target.insert(a);
+                        let target = solution.entry(v).or_default();
+                        if !target.contains(a) {
+                            target.insert(a.clone());
                             changed = true;
+                            if let RowElem::Cap(c) = a {
+                                let span = lower.span.or_else(|| {
+                                    from.and_then(|w| self.cap_provenance.get(&(w, c.id)).copied())
+                                        .flatten()
+                                });
+                                self.cap_provenance.entry((v, c.id)).or_insert(span);
+                            }
                         }
                     }
                 }
@@ -1359,7 +1373,8 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// E0455 for the capability `cap` at `span`, once per capability and place.
+    /// E0455 for the capability `cap` at `span`, once per capability: the first place found is
+    /// where it leaves.
     pub(super) fn push_leak(&mut self, cap: &CapElem, span: Option<Span>) {
         let program = self.program;
         let (from, made_at) = match cap.id {
@@ -1394,7 +1409,18 @@ impl BodyInfer<'_> {
             from,
             made_at,
         };
-        if self.diags.iter().any(|d| d.span == span && d.kind == kind) {
+        let seen = |d: &Diagnostic| match (&d.kind, &kind) {
+            (
+                DiagnosticKind::CapabilityLeak {
+                    cap: a, made_at: x, ..
+                },
+                DiagnosticKind::CapabilityLeak {
+                    cap: b, made_at: y, ..
+                },
+            ) => a == b && x == y,
+            _ => false,
+        };
+        if self.diags.iter().any(seen) {
             return;
         }
         self.diags.push(Diagnostic { span, kind });
@@ -1420,5 +1446,118 @@ impl BodyInfer<'_> {
             }
         }
         SmolStr::new("the function")
+    }
+}
+
+/// Capabilities that leave what made them (E0455, `[effect.escape]`).
+impl BodyInfer<'_> {
+    /// Once the sets are solved: a set variable made outside the scope of a capability that its
+    /// solution has, a capability that a binding put into a type variable made outside its scope
+    /// ([`crate::scopes`]), and the value of a `with` body that has a capability of that `with`.
+    pub(super) fn check_leaks(&mut self) {
+        self.check_with_values();
+        for (cap, span) in std::mem::take(&mut self.ctx.scopes.escapes) {
+            self.push_leak(&cap, span);
+        }
+        for (v, row) in self.ctx.solution_entries() {
+            let scope = self.ctx.scopes.row_var(v);
+            for c in row.caps() {
+                if !self.ctx.scopes.fits(c, scope) {
+                    let span = self
+                        .cap_provenance
+                        .get(&(v, c.id))
+                        .copied()
+                        .flatten()
+                        .or(self.ctx.scopes.row_span(v));
+                    self.push_leak(c, span);
+                }
+            }
+        }
+    }
+
+    /// The value of a `with` body cannot have a capability that the `with` made, nor the name of
+    /// an effect that it provides by name, in its type; neither can the R of the `with`
+    /// (`[effect.escape]`).
+    fn check_with_values(&mut self) {
+        let program = self.program;
+        let withs: Vec<ExprId> = self.withs.iter().map(|w| w.expr).collect();
+        for with in withs {
+            let ExprKind::With { handlers, body } = &program.exprs[with].kind else {
+                continue;
+            };
+            let Some(ty) = self.exprs.get(*body).cloned() else {
+                continue;
+            };
+            let ty = self.ctx.resolve(&ty);
+            let provides: Vec<Tag> =
+                crate::layer::with_entries(program, self.sigs, self.ty_table, handlers)
+                    .into_iter()
+                    .filter(|e| e.named)
+                    .map(|e| e.effect)
+                    .collect();
+            let mut found = Vec::new();
+            caps_of(&ty, &mut found);
+            // The R of the `with`: the type arguments of its effects (`State[use Logger]`).
+            if let Some(row) = self.expr_effects.get(with).cloned() {
+                let row = self.ctx.resolve_row(&row);
+                for t in row.tags() {
+                    for a in &t.args {
+                        caps_of(a, &mut found);
+                    }
+                }
+                found.extend(row.caps().cloned().map(RowElem::Cap));
+            }
+            let span = Some(tail_span(program, *body));
+            for e in found {
+                match e {
+                    RowElem::Cap(c) => {
+                        let own = match c.id {
+                            CapId::Item { with: w, .. } => w == with,
+                            CapId::Named { provider, .. } => provider == with,
+                            _ => false,
+                        };
+                        if own {
+                            self.push_leak(&c, span);
+                        }
+                    }
+                    RowElem::Tag(t) => {
+                        if provides.iter().any(|p| p.def == t.def) {
+                            let cap = CapElem {
+                                id: CapId::Named {
+                                    provider: with,
+                                    effect: t.def,
+                                },
+                                name: program.defs[t.def].name.clone(),
+                                tag: t,
+                            };
+                            self.push_leak(&cap, span);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+/// The elements of the capability sets in `ty`, and the capabilities in the R of its function
+/// types.
+fn caps_of(ty: &Ty, out: &mut Vec<RowElem>) {
+    match ty {
+        Ty::Cap(_, caps) | Ty::Set(SetKind::Caps, caps) => out.extend(caps.elems().iter().cloned()),
+        Ty::Fn(f) => out.extend(f.uses.caps().cloned().map(RowElem::Cap)),
+        _ => {}
+    }
+    ty.for_each_child(|child| caps_of(child, out));
+}
+
+/// The last expression of a body: where its value comes from.
+fn tail_span(program: &Program, body: ExprId) -> Span {
+    match &program.exprs[body].kind {
+        ExprKind::Block(block) => match block.tail {
+            Some(tail) => tail_span(program, tail),
+            None => program.exprs[body].span,
+        },
+        _ => program.exprs[body].span,
     }
 }

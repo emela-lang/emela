@@ -22,6 +22,7 @@ mod lower;
 mod methods;
 mod row;
 mod scheme;
+mod scopes;
 mod signature;
 mod sparse;
 mod traits;
