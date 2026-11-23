@@ -2,15 +2,15 @@
 source: crates/emela-types/tests/multi_effect_handler.rs
 expression: "run(r#\"\nfn read_write(rw: use Query + Execute) -> () { rw.execute(\"a\") }\n\nfn widen(q: use Query) -> () { read_write(q) }\n\nfn other(q: use Query + Audit) -> () { read_write(q) }\n\nfn narrowed(q: use Query) -> () { q.execute(\"a\") }\n\nfn back(rw: use Query + Execute) -> use Query + Execute + Audit { rw }\n\"#)"
 ---
-read_write: ∀ C(rw). fn(use Query + Execute) -> () uses { rw }
+read_write: fn(use Query + Execute) -> () uses { rw }
   rw: use Query + Execute
-widen: ∀ C(q). fn(use Query) -> ()
+widen: fn(use Query) -> ()
   q: use Query
-other: ∀ C(q). fn(use Query + Audit) -> ()
+other: fn(use Query + Audit) -> ()
   q: use Query + Audit
-narrowed: ∀ C(q). fn(use Query) -> ()
+narrowed: fn(use Query) -> ()
   q: use Query
-back: ∀ C(rw). fn(use Query + Execute) -> use Query + Execute + Audit
+back: fn(use Query + Execute) -> use Query + Execute + Audit
   rw: use Query + Execute
 `q` MissingCapabilityEffects { expected: "use Query + Execute", found: "use Query", missing: ["Execute"] }
 `q` MissingCapabilityEffects { expected: "use Query + Execute", found: "use Query + Audit", missing: ["Execute"] }

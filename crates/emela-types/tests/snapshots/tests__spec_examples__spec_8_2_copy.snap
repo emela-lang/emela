@@ -1,8 +1,8 @@
 ---
 source: crates/emela-types/tests/spec_examples.rs
-expression: "render_bodies(r#\"\ntype Rows(n: Int)  # 補\n\neffect Db {  # 補\n  fn query(q: String) -> Rows\n  fn execute(rows: Rows) -> ()\n}\n\nhandler PrimaryDb: Db {  # 補\n  fn query(q) { Rows(n: 0) }\n  fn execute(rows) { () }\n}\n\nhandler ReplicaDb: Db {  # 補\n  fn query(q) { Rows(n: 1) }\n  fn execute(rows) { () }\n}\n\nfn copy(from: use Db, to: use Db) {\n  to.execute(from.query(\"...\"))\n}\n\nfn main() {  # 補\n  with PrimaryDb {\n    primary = use Db\n    with ReplicaDb {\n      replica = use Db\n      copy(replica, primary)\n    }\n  }\n}\n\"#)"
+expression: "render_bodies(r#\"\ntype Rows(n: Int)  # 補\n\neffect Db {  # 補\n  fn query(q: String) -> Rows\n  fn execute(rows: Rows) -> ()\n}\n\nhandler PrimaryDb: Db {  # 補\n  fn query(q) { Rows(n: 0) }\n  fn execute(rows) { () }\n}\n\nhandler ReplicaDb: Db {  # 補\n  fn query(q) { Rows(n: 1) }\n  fn execute(rows) { () }\n}\n\nfn copy(from: use Db, to: use Db) {\n  to.execute(from.query(\"...\"))\n}\n\nfn main() {  # 補\n  with primary = PrimaryDb {\n    with replica = ReplicaDb {\n      copy(replica, primary)\n    }\n  }\n}\n\"#)"
 ---
-copy: ∀ C(from), C(to). fn(use Db, use Db) -> () uses { from, to }
+copy: fn(use Db, use Db) -> () uses { from, to }
   from: use Db
   to: use Db
 main: fn() -> ()

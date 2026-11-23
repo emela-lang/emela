@@ -322,7 +322,14 @@ pub struct SchemeDisplay<'a> {
 
 impl fmt::Display for SchemeDisplay<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let params = &self.scheme.params;
+        // The sets of capability parameters are named after the parameters in R, not
+        // quantified in the display (`[lsp.hover]`).
+        let params: Vec<&TyParam> = self
+            .scheme
+            .params
+            .iter()
+            .filter(|p| p.caps.is_none())
+            .collect();
         if !params.is_empty() {
             f.write_str("∀ ")?;
             for (i, p) in params.iter().enumerate() {
@@ -340,7 +347,7 @@ impl fmt::Display for SchemeDisplay<'_> {
         let ty = TyDisplay {
             ty: &self.scheme.ty,
             cons: self.cons,
-            bound: params,
+            bound: &self.scheme.params,
             in_param: false,
         };
         write!(f, "{ty}")

@@ -2,7 +2,7 @@
 source: crates/emela-types/tests/capabilities.rs
 expression: "run(r#\"\ntype Pair(first: use Logger, second: use Logger)\n\nfn both(p: Pair) {\n  p.first.info(\"a\")\n  p.second.info(\"b\")\n}\n\nfn main() {\n  with a = Quiet {\n    with b = Loud {\n      p = Pair(first: a, second: b)\n      both(p)\n    }\n  }\n}\n\nfn leaks() {\n  with a = Quiet {\n    Pair(first: a, second: a)\n  }\n}\n\"#)"
 ---
-both: ∀ C(p), C(p, 2). fn(Pair) -> () uses { p, p }
+both: fn(Pair) -> () uses { p, p }
   p: Pair
 main: fn() -> ()
   a: use Logger

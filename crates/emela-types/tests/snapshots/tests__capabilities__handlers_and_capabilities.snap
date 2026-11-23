@@ -2,7 +2,7 @@
 source: crates/emela-types/tests/capabilities.rs
 expression: "run(r#\"\neffect Store {\n  fn keep(l: use Logger) -> ()\n}\n\nhandler Keeper: Store {\n  fn keep(l) { l.info(\"kept\") }\n}\n\nhandler Holder(c: use Counter): Logger {\n  init(c: use Counter) { Self(c:) }\n  fn info(msg) {\n    self.c.next()\n    ()\n  }\n}\n\nhandler Inner(c: use Counter): Logger {\n  init() {\n    with x = Counters.Open(1) { Self(c: x) }\n  }\n  fn info(msg) { () }\n}\n\nfn again(l: use Logger) { l.info(\"\") }\n\nhandler Echo: Logger {\n  fn info(msg) {\n    if msg == \"\" { () } else { again(self) }\n  }\n}\n\nfn main() {\n  with Plain, x = Counters.Open(1) {\n    with h = Holder(c: x), s = Keeper {\n      s.keep(h)\n    }\n  }\n}\n\"#)"
 ---
-again: ∀ C(l). fn(use Logger) -> () uses { l }
+again: fn(use Logger) -> () uses { l }
   l: use Logger
 main: fn() -> ()
   x: use Counter
