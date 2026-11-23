@@ -1,10 +1,10 @@
 ---
 title: "Capabilities are told apart in types and in R"
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 732
 issue: 719
-decided:
+decided: 2026-11-23
 touches: [intro.experimental, lsp.hover, ext.boundary, glossary.terms, effect.use, effect.with, effect.handler, effect.escape, fiber.scope, fiber.escape, fiber.deferred, fiber.semaphore, fiber.queue, api.std.fiber, type.rules, trait.builtin, open.next, diag.list]
 requires: [effect-alias]
 related: [closure-r-by-caller, capability-type, capability-trait, handler-member, handler-init-arguments, capture-checking, scope-handle-values]
@@ -470,3 +470,5 @@ Counts in main after #791, excluding `.snap` files. std, examples and tests/laws
 ## Open questions
 
 ## Decision
+
+Tell capabilities apart in types and in R, so that the one principle "a capability cannot leave the with that made it" is kept by type checking instead of capture sets. Every path out (operation arguments, errors, host callbacks, Deferred and Queue, fiber handles) then becomes a type error without enumerating paths, and #701 is fixed because the with can remove its capability from R. Capabilities stay ordinary values written `use E`, with sets so that they fit in one list without widening. Fiber handles become capability-bound types, which removes the special typing of `Fiber.scope`. Capture checking is no longer needed and is removed as an experimental feature. This lands in 0.29 together with #791, and `use E` written as an expression becomes an error in 0.30.
