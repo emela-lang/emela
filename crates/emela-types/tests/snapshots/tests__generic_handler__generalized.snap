@@ -10,7 +10,6 @@ handler Constant: use {}
 handler Pass: use State['0]
 item Pass: [?1]
 `Eq` UnusedDerive { trait_name: "Eq", ty: "UserId" }
-`x.get()` warning: holds `x` and leaves the `with` that provides it
 --- R
 {     st <- State[List[(K, V)]]     List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v)   }: State[List[('0, '1)]]
 List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v): State[List[('0, '1)]]
@@ -36,7 +35,7 @@ use State[S]: State['0]
 use State[S]: State['0]
 { with x = Pass { x.get() } }: State[?1]
 with x = Pass { x.get() }: State[?1]
-{ x.get() }: State[?1]
-x.get(): State[?1]
+{ x.get() }: x
+x.get(): x
 { peek() }: State[Int]
 peek(): State[Int]

@@ -1978,9 +1978,15 @@ impl<'a> Lowerer<'a> {
     /// The number of type parameters of the IR functions of a handler, and of the enum of its
     /// state: its own (`[effect.handler]`), or for an inner handler those of its outer handler,
     /// which it is read with. Monomorphization copies them per item (`[effect.with]`).
+    ///
+    /// The hidden capability sets of its fields (`[type.rules]`) come after them in its type and
+    /// have no IR type, so they are not counted.
     fn handler_type_params(&self, def: DefId) -> usize {
         let table = &self.types.ty_table;
-        table.con(def).map_or(0, |c| table.cons[c].params.len())
+        match table.decl_caps(def) {
+            Some(caps) => caps.visible,
+            None => table.con(def).map_or(0, |c| table.cons[c].params.len()),
+        }
     }
 
     /// `Type::Param(0..n)` for the type parameters of a handler's functions: the type arguments

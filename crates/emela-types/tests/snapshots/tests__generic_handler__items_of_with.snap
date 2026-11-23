@@ -80,18 +80,18 @@ with InMemoryRepo { repo_test() }: State[List[(UserId, User)]]
 { repo_test() }: Repo[UserId, User]
 repo_test(): Repo[UserId, User]
 with repo = InMemoryRepo[UserId, User] { repo.find(UserId(n: 1)) }: State[List[(UserId, User)]]
-{ repo.find(UserId(n: 1)) }: Repo[UserId, User]
-repo.find(UserId(n: 1)): Repo[UserId, User]
+{ repo.find(UserId(n: 1)) }: repo
+repo.find(UserId(n: 1)): repo
 with InMemoryRepo, UserService { log() }: State[List[(UserId, User)]]
 { log() }: Logger
 log(): Logger
-{ x.get() }: State[String]
-x.get(): State[String]
+{ x.get() }: x
+x.get(): x
 { with x = Pass { x.get() + 1 } }: State[Int]
 with x = Pass { x.get() + 1 }: State[Int]
-{ x.get() + 1 }: State[Int]
-x.get() + 1: State[Int]
-x.get(): State[Int]
+{ x.get() + 1 }: x
+x.get() + 1: x
+x.get(): x
 with Pass { names() }: State[List[String]]
 { names() }: State[List[String]]
 names(): State[List[String]]
