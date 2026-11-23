@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-24 (Diagnostic codes in bands of 1000, and one code per kind of mistake)
+
+- `[diag]`, `[diag.bands]`: The bands of diagnostic codes change from 100 codes per stage (E01xx to E09xx) to 1000 codes per stage (E1xxx to E9xxx), divided into subject bands of 100. A code names one kind of mistake: mistakes fixed in the same way share a code, and the message tells their forms apart. At the end of 0.29 the codes in `[diag.list]` are renumbered once into the new bands; codes of the same kind of mistake are merged, and retired codes are dropped. Adopted in the proposal `diagnostic-code-bands` (#837).
+
 ## 2026-11-24 (Std.Tcp, a TCP client as a platform effect)
 
 - `[lib.layers]`, `[api.std.process]`, `[api.std.tcp]`, `[target.wasm.output]`, `[target.wasm.run]`, `[target.wasm.external]`: Adds a TCP client to the platform layer of std. The effect `Tcp` opens connections, reads and writes `Bytes` on them, and closes them. An open connection can be upgraded to TLS in place with `upgrade_tls`. The system handler `SystemTcp` uses `node:net` and `node:tls` on JS, POSIX sockets on native, and `wasi:sockets@0.3.0` on WASM, where TLS runs in a TLS component bundled with the compiler and composed into `main.wasm`. TLS on native and listening for connections are not included. ```emel import Std.Bytes import Std.Tcp.{Tcp, HostNotFound, ConnectionRefused, ConnectionClosed, TcpFailure} fn ping(host: String) -> Option[Bytes] fails HostNotFound | ConnectionRefused | ConnectionClosed | TcpFailure uses { Tcp } { tcp = use Tcp conn = tcp.connect(host, 6379) tcp.write(conn, Bytes.encode_utf8("PING\r\n")) reply = tcp.read(conn, 512) tcp.close(conn) reply } ``` Adopted in the proposal `tcp` (#563).
