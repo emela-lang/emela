@@ -7,6 +7,17 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.29.0](https://github.com/emela-lang/emela/compare/v0.28.2...v0.29.0) - 2026-11-23
+
+### Added
+
+- 効果の別名 x <- Effect を書ける．closure の R は呼ぶ側だけが満たす ([#791](https://github.com/emela-lang/emela/pull/791)) (by @Allianaab2m)
+
+### Other
+
+- 各クレートの統合テストを 1 つのテストバイナリにまとめる ([#796](https://github.com/emela-lang/emela/pull/796)) (by @Allianaab2m)
+- insta の一時ファイル .doctor.rs.pending-snap を追跡から外し，.gitignore に足す ([#793](https://github.com/emela-lang/emela/pull/793)) (by @Allianaab2m)
+
 ## [0.28.2](https://github.com/emela-lang/emela/compare/v0.28.1...v0.28.2) - 2026-11-22
 
 ### Fixed
