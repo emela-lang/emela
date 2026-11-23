@@ -11,7 +11,21 @@ use emela_resolve::{Import, ModuleId, ModuleName};
 use emela_types::{InferCtx, Prim, Ty, TyCons};
 use line_index::{TextRange, TextSize};
 
+/// The diagnostics of checking `path`, but W0403: most programs here still write `use E` as an
+/// expression (deprecated, `[effect.use]`). [`check_files_with_deprecated`] keeps them.
 fn check_files(files: &[(&str, &str)], path: &str, frontend: &mut impl Frontend) -> Analysis {
+    let mut analysis = check_files_with_deprecated(files, path, frontend);
+    analysis
+        .diagnostics
+        .retain(|d| d.code != Some(emela_driver::code::DEPRECATED_USE));
+    analysis
+}
+
+fn check_files_with_deprecated(
+    files: &[(&str, &str)],
+    path: &str,
+    frontend: &mut impl Frontend,
+) -> Analysis {
     let fs = MemoryFiles::new(files.iter().copied());
     let input = Input::resolve(&fs, Path::new(path)).unwrap();
     check(&fs, &input, frontend).0
@@ -2223,7 +2237,11 @@ fn make_greeter() -> fn() -> () {
         let fs = MemoryFiles::new([("app/Pome.toml", manifest), ("app/src/main.emel", main)]);
         let mut input = Input::resolve(&fs, Path::new("app")).unwrap();
         input.experimental = flags.iter().map(|f| f.to_string()).collect();
-        let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
+        let (mut analysis, _) = check(&fs, &input, &mut Typecheck::default());
+        // The example writes `log = use Logger` (W0403, deprecated); only W0402 is checked.
+        analysis
+            .diagnostics
+            .retain(|d| d.code != Some(emela_driver::code::DEPRECATED_USE));
         render(&analysis.diagnostics, &analysis.sources, false)
     };
     insta::assert_snapshot!("capture_escape_warning", run(&manifest(""), &[]));
@@ -2810,4 +2828,155 @@ fn main() {}
         out.push_str(&render(&analysis.diagnostics, &analysis.sources, false));
     }
     insta::assert_snapshot!(out);
+}
+
+/// E0152 (`[grammar.lex]`): `<-` is one token. In an expression it is an error that shows the
+/// comparison; at the head of a statement, a right side that is not an effect gets the comparison
+/// built from what was written as a help.
+#[test]
+fn left_arrow_diagnostics() {
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"const LIMIT: Int = 3
+
+fn compare(a: Int, b: Int) -> Bool {
+  x = a<-1
+  a < -b
+}
+
+fn head(x: Int) {
+  x <- 1
+  x <- LIMIT
+  x <- Int.abs(3)
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// E0453 (`[effect.use]`): an effect alias is not a value, and a handler member cannot be opened
+/// through one. `x <- E` where E is not an effect is the usual error of a name of the wrong kind.
+#[test]
+fn effect_alias_diagnostics() {
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect ReadFile {
+  fn read(max: Int) -> Int
+}
+
+effect Files {
+  handler Open(path: String): ReadFile
+}
+
+handler Plain: Logger {
+  fn info(msg) { () }
+}
+
+fn keep(log: use Logger) -> () { log.info("kept") }
+
+fn values() {
+  log <- Logger
+  keep(log)
+  log
+}
+
+fn members() -> Int {
+  fs <- Files
+  with t = fs.Open("a") { t.read(1) }
+}
+
+fn not_an_effect() {
+  h <- Plain
+  ()
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// E0454 (`[ext.boundary]`): the R of a callback cannot contain an effect, since the host calls it
+/// without handlers; a callback that captures the capability of a named item can be passed.
+#[test]
+fn callback_effect_diagnostics() {
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Greeter {
+  fn greet(s: String) -> String
+}
+
+handler Plain: Greeter {
+  fn greet(s) { "plain #{s}" }
+}
+
+@external(js, "./host.mjs", "later")
+fn later(f: fn() -> ()) -> () uses {}
+
+@external(js, "./host.mjs", "declared")
+fn declared(f: fn() -> () uses { Greeter }) -> () uses {}
+
+fn main() {
+  with Plain {
+    later(|| {
+      g <- Greeter
+      _ = g.greet("alias")
+    })
+  }
+  with g = Plain {
+    later(|| {
+      _ = g.greet("named")
+    })
+  }
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// W0403 (`[effect.use]`): `use E` written as an expression is deprecated, in either form. The
+/// help names the effect alias that means the same where there is one.
+#[test]
+fn deprecated_use_diagnostics() {
+    let analysis = check_files_with_deprecated(
+        &[(
+            "home/main.emel",
+            r#"effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet: Logger {
+  fn info(msg) { () }
+}
+
+fn keep(log: use Logger) -> () { log.info("kept") }
+
+fn forms() {
+  (use Logger).info("in place")
+  log = use Logger
+  log.info("receiver")
+  outer = use Logger
+  with Quiet { outer.info("inner with") }
+  keep(use Logger)
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }

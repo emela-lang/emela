@@ -102,12 +102,13 @@ fn prints_stdout() {
         &[],
     );
     // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // leaves a capability on purpose, and gets W0402 for it. The programs still write `use E` as
+    // an expression (W0403, deprecated).
     assert!(
-        analysis
-            .diagnostics
-            .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+        analysis.diagnostics.iter().all(|d| matches!(
+            d.code,
+            Some(emela_driver::code::CAPTURE_ESCAPE | emela_driver::code::DEPRECATED_USE)
+        )),
         "{:?}",
         analysis.diagnostics
     );
@@ -265,12 +266,13 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
     // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // leaves a capability on purpose, and gets W0402 for it. The programs still write `use E` as
+    // an expression (W0403, deprecated).
     assert!(
-        analysis
-            .diagnostics
-            .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+        analysis.diagnostics.iter().all(|d| matches!(
+            d.code,
+            Some(emela_driver::code::CAPTURE_ESCAPE | emela_driver::code::DEPRECATED_USE)
+        )),
         "{:?}",
         analysis.diagnostics
     );
@@ -396,12 +398,13 @@ fn run_source_in(name: &str, main: &str, frontend: &mut Lower, js_host: PathBuf)
     let (analysis, output) = run(&fs, &input, frontend, &mut CoreJs, &options, |_, _| {});
     let _ = std::fs::remove_dir_all(&options.out_dir);
     // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // leaves a capability on purpose, and gets W0402 for it. The programs still write `use E` as
+    // an expression (W0403, deprecated).
     assert!(
-        analysis
-            .diagnostics
-            .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+        analysis.diagnostics.iter().all(|d| matches!(
+            d.code,
+            Some(emela_driver::code::CAPTURE_ESCAPE | emela_driver::code::DEPRECATED_USE)
+        )),
         "{:?}",
         analysis.diagnostics
     );
@@ -482,12 +485,13 @@ fn run_without_main_stops_before_node() {
         &options.out_dir,
     );
     // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // leaves a capability on purpose, and gets W0402 for it. The programs still write `use E` as
+    // an expression (W0403, deprecated).
     assert!(
-        analysis
-            .diagnostics
-            .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+        analysis.diagnostics.iter().all(|d| matches!(
+            d.code,
+            Some(emela_driver::code::CAPTURE_ESCAPE | emela_driver::code::DEPRECATED_USE)
+        )),
         "{:?}",
         analysis.diagnostics
     );
@@ -587,12 +591,13 @@ fn main() {
     let dir = out_dir("js-exports");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
     // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // leaves a capability on purpose, and gets W0402 for it. The programs still write `use E` as
+    // an expression (W0403, deprecated).
     assert!(
-        analysis
-            .diagnostics
-            .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+        analysis.diagnostics.iter().all(|d| matches!(
+            d.code,
+            Some(emela_driver::code::CAPTURE_ESCAPE | emela_driver::code::DEPRECATED_USE)
+        )),
         "{:?}",
         analysis.diagnostics
     );
@@ -684,12 +689,13 @@ fn main() {
     let dir = out_dir("js-bytes");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
     // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // leaves a capability on purpose, and gets W0402 for it. The programs still write `use E` as
+    // an expression (W0403, deprecated).
     assert!(
-        analysis
-            .diagnostics
-            .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+        analysis.diagnostics.iter().all(|d| matches!(
+            d.code,
+            Some(emela_driver::code::CAPTURE_ESCAPE | emela_driver::code::DEPRECATED_USE)
+        )),
         "{:?}",
         analysis.diagnostics
     );
@@ -849,12 +855,13 @@ fn main() {
     let dir = out_dir("js-array");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
     // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // leaves a capability on purpose, and gets W0402 for it. The programs still write `use E` as
+    // an expression (W0403, deprecated).
     assert!(
-        analysis
-            .diagnostics
-            .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+        analysis.diagnostics.iter().all(|d| matches!(
+            d.code,
+            Some(emela_driver::code::CAPTURE_ESCAPE | emela_driver::code::DEPRECATED_USE)
+        )),
         "{:?}",
         analysis.diagnostics
     );

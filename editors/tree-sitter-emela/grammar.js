@@ -442,7 +442,15 @@ module.exports = grammar({
       '}',
     ),
 
-    _statement: $ => choice($.binding, $.local_function, $._expression),
+    _statement: $ => choice($.binding, $.effect_alias, $.local_function, $._expression),
+
+    // `log <- Logger` ([effect.use]). `<-` is one token ([grammar.lex]).
+    effect_alias: $ => seq(
+      field('name', $.identifier),
+      '<-',
+      field('effect', $.type_reference),
+      optional(field('type_arguments', $.type_arguments)),
+    ),
 
     // `fn name(x: Int) -> T { ... }` as a statement of a block ([fn.local]). Type parameters,
     // attributes, `pub` and `suspend` are E0150 in the compiler; the head of a top-level fn is

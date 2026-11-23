@@ -57,7 +57,10 @@ pub fn resolve_main_with(
     }
     let (_, graph_diagnostics) = build_import_graph(&modules, &import_lists);
     assert_eq!(graph_diagnostics, []);
-    let (program, diagnostics) = resolve(&modules, &trees, &NoBuiltins);
+    let (program, mut diagnostics) = resolve(&modules, &trees, &NoBuiltins);
+    // W0403 (`use E` written as an expression is deprecated, `[effect.use]`) is checked by the
+    // tests of diagnostics; the programs here still use the deprecated forms.
+    diagnostics.retain(|d| !matches!(d.kind, emela_resolve::DiagnosticKind::DeprecatedUse { .. }));
     (program, main, diagnostics)
 }
 

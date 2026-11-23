@@ -1,0 +1,49 @@
+## `[fiber.scope]`, `[effect.with]`: a child uses the handlers at the time `Fiber.scope` is called,
+## even a closure made inside a `with` in the scope body. `s <- Scope` forks into the innermost
+## scope at each call.
+
+import Std.Fiber.{Fiber, Scope}
+
+effect Greeter {
+  fn greet(s: String) -> String
+}
+
+handler Plain: Greeter {
+  fn greet(s) { "plain #{s}" }
+}
+
+handler Shout: Greeter {
+  fn greet(s) { "SHOUT #{s}" }
+}
+
+fn main() -> () uses { Async } {
+  with Shout {
+    Fiber.scope(|| {
+      with Plain {
+        g <- Greeter
+        h = || g.greet("alias")
+        a = Fiber.fork(|| dbg(h()))
+        b = Fiber.fork(|| dbg((use Greeter).greet("in place")))
+        _ = dbg((use Greeter).greet("body"))
+        _ = Fiber.join(a)
+        _ = Fiber.join(b)
+        ()
+      }
+    })
+    # A child of an outer scope, given a closure made in a `with` inside an inner scope.
+    Fiber.scope(|| {
+      outer = use Scope
+      Fiber.scope(|| {
+        with Plain {
+          g <- Greeter
+          h = || g.greet("outer child")
+          _ = Fiber.join(outer.fork(|| dbg(h())))
+          ()
+        }
+      })
+      s <- Scope
+      _ = Fiber.join(s.fork(|| dbg((use Greeter).greet("alias fork"))))
+      ()
+    })
+  }
+}

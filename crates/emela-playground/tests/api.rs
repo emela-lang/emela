@@ -7,7 +7,8 @@ const HELLO: &str = r#"import Std.Console.{Console, SystemConsole}
 
 fn main() {
   with SystemConsole {
-    (use Console).print_line("hi")
+    console <- Console
+    console.print_line("hi")
   }
 }
 "#;

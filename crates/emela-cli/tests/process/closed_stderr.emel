@@ -6,8 +6,10 @@ import Std.Process.{Process, Stderr, Stdout}
 
 fn errors(i: Int) -> () uses { Console, Stderr } {
   if i < 20000 {
-    (use Stderr).print_line("error #{i}")
-    (use Console).print_error_line("console error #{i}")
+    stderr <- Stderr
+    stderr.print_line("error #{i}")
+    console <- Console
+    console.print_error_line("console error #{i}")
     dbg(i)
     errors(i + 1)
   }
@@ -16,6 +18,7 @@ fn errors(i: Int) -> () uses { Console, Stderr } {
 fn main() {
   with Process {
     errors(0)
-    (use Stdout).print_line("done")
+    stdout <- Stdout
+    stdout.print_line("done")
   }
 }

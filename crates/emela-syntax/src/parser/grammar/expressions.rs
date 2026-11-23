@@ -41,11 +41,16 @@ pub(crate) fn expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     Some(m.complete(p, kind))
 }
 
-/// `binding | expr`．`binding = pattern [ ":" type ] "=" expr`
+/// `binding | effect_alias | expr`．`binding = pattern [ ":" type ] "=" expr`
 ///
 /// The left side is parsed as an expression first, and rewrapped in BINDING if `:` or `=`
-/// follows.
+/// follows. A lower_name immediately followed by `<-` starts an effect alias
+/// (`[grammar.expr]`).
 pub(crate) fn stmt(p: &mut Parser<'_>) {
+    if p.at(LOWER_NAME) && p.nth(1) == LEFT_ARROW {
+        effect_alias(p);
+        return;
+    }
     let Some(lhs) = expr(p) else { return };
     if !p.at(COLON) && !p.at(EQ) {
         return;
@@ -57,6 +62,33 @@ pub(crate) fn stmt(p: &mut Parser<'_>) {
     p.expect(EQ);
     expr(p);
     m.complete(p, BINDING);
+}
+
+/// `effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]`.
+///
+/// The right side is read up to the end of the statement even when it is not an effect name, so
+/// that `x <- 1` or `x <- Int.abs(3)`, likely meant as a comparison `x < -1`, gets one diagnostic
+/// with a help (E0152, `validation.rs`). What follows the effect is kept in an ERROR node.
+fn effect_alias(p: &mut Parser<'_>) {
+    let m = p.start();
+    p.bump_kind(LOWER_NAME);
+    p.bump_kind(LEFT_ARROW);
+    if p.at(TYPE_NAME) {
+        path(p);
+        effect_type_args(p);
+        if !at_stmt_end(p) {
+            let rest = p.start();
+            while !at_stmt_end(p) {
+                p.bump();
+            }
+            rest.complete(p, ERROR);
+        }
+    } else if !at_stmt_end(p) {
+        expr(p);
+    } else {
+        p.expect(TYPE_NAME);
+    }
+    m.complete(p, EFFECT_ALIAS);
 }
 
 /// `"{" { stmt NL } "}"`. `stmt = binding | local_fn | expr`.
@@ -303,7 +335,24 @@ fn infix_power(kind: SyntaxKind) -> Option<u8> {
 fn expr_bp(p: &mut Parser<'_>, min: u8) -> Option<CompletedMarker> {
     let mut lhs = unary(p)?;
     let mut after_comparison = false;
-    while let Some(power) = infix_power(p.current()) {
+    loop {
+        // `<-` is one token (`[grammar.lex]`), so `a<-1` is not `a < -1`. It is reported once,
+        // and the rest is read as the right operand of a comparison.
+        if p.at(LEFT_ARROW) && min <= 4 {
+            p.error(
+                DiagnosticCode::LeftArrow,
+                "`<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b`",
+            );
+            let m = lhs.precede(p);
+            p.bump();
+            expr_bp(p, 5);
+            lhs = m.complete(p, ERROR);
+            after_comparison = true;
+            continue;
+        }
+        let Some(power) = infix_power(p.current()) else {
+            break;
+        };
         if power < min {
             break;
         }

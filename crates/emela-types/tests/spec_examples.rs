@@ -935,6 +935,70 @@ fn greet(id: Int) {
     ));
 }
 
+/// 8.2 An effect alias `x <- E` names E for the rest of the block. `x.op(...)` adds E to R; the
+/// alias is not a value.
+#[test]
+fn spec_8_2_effect_alias() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+error NotFound(id: Int)  # 補
+type User(name: String)  # 補
+
+effect Logger {  # 補
+  fn info(msg: String) -> ()
+}
+
+effect Users {  # 補
+  fn find(id: Int) -> Option[User]
+}
+
+fn greet(id: Int) {
+  log <- Logger
+  users <- Users
+
+  user = users.find(id) |> Option.or_fail(NotFound(id:))
+  log.info("hello #{user.name}")
+  user
+}
+"#
+    ));
+}
+
+/// 8.2 A capability value stays on its handler; an effect alias reaches the innermost handler at
+/// the call.
+#[test]
+fn spec_8_2_effect_alias_and_capability_value() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+effect Db {  # 補
+  fn query(q: String) -> Int
+  fn execute(q: String) -> ()
+}
+
+handler PrimaryDb: Db {  # 補
+  fn query(q) { 1 }
+  fn execute(q) { () }
+}
+
+handler ReplicaDb: Db {  # 補
+  fn query(q) { 2 }
+  fn execute(q) { () }
+}
+
+fn main() {  # 補
+  with PrimaryDb {
+    primary = use Db # a fixed value (deprecated)
+    with ReplicaDb {
+      db <- Db
+      db.query("...") # ReplicaDb
+      primary.execute("...") # PrimaryDb
+    }
+  }
+}
+"#
+    ));
+}
+
 /// 8.2 To use a specific handler's capability, pass the capability value (`use Db`).
 /// 8.3 A capability value taken outside still refers to the outer handler even when an inner
 /// `with` overrides it.

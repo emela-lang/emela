@@ -8,8 +8,9 @@ import Std.Duration
 fn state_keeps_the_last_set() {
   Property.check(Gen.int_between(-1000, 1000), |n| {
     (value, last) = State.run(0, || {
-      (use State[Int]).set(n)
-      (use State[Int]).get()
+      st <- State[Int]
+      st.set(n)
+      st.get()
     })
     assert value == n
     assert last == n

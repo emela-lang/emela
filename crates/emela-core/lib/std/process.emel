@@ -2,7 +2,8 @@
 # standard output and standard error (Stdout, Stderr), and its exit code (ExitCode)
 # (`[api.std.process]`; the platform and test layers of `[lib.layers]`).
 #
-# Use them as `(use Args).get(0)`, `(use Stdin).read_line()` and `(use Stdout).print("? ")`, and
+# Use them through effect aliases (`args <- Args`, then `args.get(0)`, `stdin.read_line()` and
+# `stdout.print("? ")`), and
 # provide them with `with SystemArgs, SystemStdin, SystemStdout { ... }`, or with
 # `with Process { ... }`. The external functions of the System handlers need a process, so they
 # are declared with `uses { ProcessHost }` and the handlers require ProcessHost (`[effect.host]`).
@@ -179,7 +180,10 @@ pub type StdinLines(lines: List[String])
 ##
 ## ```emela
 ## (line, rest) = State.run(StdinLines(lines: ["a", "b"]), || {
-##   with TestStdin { (use Stdin).read_line() }
+##   with TestStdin {
+##     stdin <- Stdin
+##     stdin.read_line()
+##   }
 ## })
 ## ```
 ##
@@ -187,7 +191,7 @@ pub type StdinLines(lines: List[String])
 ## returns the lines left joined with `\n` and leaves none. It never fails.
 pub handler TestStdin: Stdin {
   suspend fn read_line(resume) {
-    st = use State[StdinLines]
+    st <- State[StdinLines]
     StdinLines(lines:) = st.get()
     lines match {
       [] -> resume(None)
@@ -198,7 +202,7 @@ pub handler TestStdin: Stdin {
     }
   }
   suspend fn read_text(resume) {
-    st = use State[StdinLines]
+    st <- State[StdinLines]
     StdinLines(lines:) = st.get()
     st.set(StdinLines(lines: []))
     resume(String.join(lines, "\n"))
@@ -262,7 +266,10 @@ pub type StderrText(text: String)
 ## it inside `State.run`:
 ##
 ## ```emela
-## (_, out) = State.run(StdoutText(text: ""), || with TestStdout { (use Stdout).print("a") })
+## (_, out) = State.run(StdoutText(text: ""), || with TestStdout {
+##   stdout <- Stdout
+##   stdout.print("a")
+## })
 ## assert out.text == "a"
 ## ```
 ##
@@ -279,11 +286,13 @@ pub handler TestStderr: Stderr {
 }
 
 fn append_stdout(text: String) -> () uses { State[StdoutText] } {
-  (use State[StdoutText]).update(|out| StdoutText(text: "#{out.text}#{text}"))
+  st <- State[StdoutText]
+  st.update(|out| StdoutText(text: "#{out.text}#{text}"))
 }
 
 fn append_stderr(text: String) -> () uses { State[StderrText] } {
-  (use State[StderrText]).update(|err| StderrText(text: "#{err.text}#{text}"))
+  st <- State[StderrText]
+  st.update(|err| StderrText(text: "#{err.text}#{text}"))
 }
 
 # ---- Process ----

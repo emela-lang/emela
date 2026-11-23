@@ -1,7 +1,7 @@
 ---
 title: "Effect aliases: `x <- Effect` resolves at the call"
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 731
 issue: 719
 decided: 2026-11-23
@@ -191,8 +191,8 @@ effect_alias = lower_name "<-" type_ref [ "[" type { "," type } "]" ]
 
 ## Diagnostics
 
-- [ ] E04xx: an effect alias written as a value, or a handler member opened through it (help: for a fixed value, use a named item `with x = H`)
-- [ ] W04xx: `use E` written as an expression (deprecated), with a machine-applicable rewrite where it can be done mechanically
+- [x] E0453: an effect alias written as a value, or a handler member opened through it (help: for a fixed value, use a named item `with x = H`)
+- [x] W0403: `use E` written as an expression (deprecated), with a machine-applicable rewrite where it can be done mechanically
 
 ## Compatibility
 

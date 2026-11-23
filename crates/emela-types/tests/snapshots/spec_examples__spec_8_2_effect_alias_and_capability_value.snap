@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\neffect Db {  # 補\n  fn query(q: String) -> Int\n  fn execute(q: String) -> ()\n}\n\nhandler PrimaryDb: Db {  # 補\n  fn query(q) { 1 }\n  fn execute(q) { () }\n}\n\nhandler ReplicaDb: Db {  # 補\n  fn query(q) { 2 }\n  fn execute(q) { () }\n}\n\nfn main() {  # 補\n  with PrimaryDb {\n    primary = use Db # a fixed value (deprecated)\n    with ReplicaDb {\n      db <- Db\n      db.query(\"...\") # ReplicaDb\n      primary.execute(\"...\") # PrimaryDb\n    }\n  }\n}\n\"#)"
+---
+main: fn() -> ()
+  primary: use Db

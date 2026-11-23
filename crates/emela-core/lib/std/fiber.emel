@@ -54,30 +54,34 @@ pub fn scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) ->
   fails E
   uses { Async, R }
 
-## Starts `f` as a child fiber of the innermost scope. Same as `(use Scope).fork(f)`.
+## Starts `f` as a child fiber of the innermost scope. Same as `fork(f)` of the innermost `Scope`.
 ##
 ## `f` may fork siblings: its `Scope` is the scope it is forked into, so the `Scope[E, R]` in its
 ## `use` is provided by that scope and not from outside (spec 11.2).
 pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
   uses { Scope[E, R] } {
-  (use Scope).fork(f)
+  s <- Scope
+  s.fork(f)
 }
 
-## Makes a `Deferred` that belongs to the innermost scope. Same as `(use Scope).deferred()`.
+## Makes a `Deferred` that belongs to the innermost scope. Same as `deferred()` of the innermost `Scope`.
 pub fn deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] } {
-  (use Scope).deferred()
+  s <- Scope
+  s.deferred()
 }
 
 ## Makes a `Semaphore` with `permits` permits that belongs to the innermost scope. Same as
-## `(use Scope).semaphore(permits)`.
+## `semaphore(permits)` of the innermost `Scope`.
 pub fn semaphore[E, R](permits: Int) -> Semaphore uses { Scope[E, R] } {
-  (use Scope).semaphore(permits)
+  s <- Scope
+  s.semaphore(permits)
 }
 
 ## Makes an empty `Queue` of capacity `capacity` that belongs to the innermost scope. Same as
-## `(use Scope).queue(capacity)`.
+## `queue(capacity)` of the innermost `Scope`.
 pub fn queue[A, E, R](capacity: Int) -> Queue[A] uses { Scope[E, R] } {
-  (use Scope).queue(capacity)
+  s <- Scope
+  s.queue(capacity)
 }
 
 ## Waits for the fiber to end and returns its value. Joining a fiber interrupted with `interrupt`
@@ -108,7 +112,7 @@ pub fn all[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[A] fails E u
 ## first to end fails, `race` fails with that error.
 pub fn race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R } {
   scope(|| {
-    s = use Scope
+    s <- Scope
     d = s.deferred()
     fs.map(|f| s.fork(|| d.complete(f())))
     d.await()
@@ -145,11 +149,12 @@ pub fn timeout[A, E, R](ms: Int, f: fn() -> A fails E uses { R }) -> Option[A]
   fails E
   uses { Clock, Async, R } {
   scope(|| {
-    s = use Scope
+    s <- Scope
     d = s.deferred()
     s.fork(|| d.complete(Some(f())))
     s.fork(|| {
-      (use Clock).sleep(ms)
+      clock <- Clock
+      clock.sleep(ms)
       d.complete(None)
     })
     d.await()

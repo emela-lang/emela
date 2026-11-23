@@ -86,7 +86,9 @@ Fiber.scope(|| {
 # Fix: with PostgresUsers { Fiber.scope(|| { ... }) }
 ```
 
-- With this rule, the types prevent a child from using the handler of a with that ends before the child. The exception is when the same effect is also provided outside the scope, and a closure created inside a with in the scope body (or a capability value taken out there) is passed to a child. The child then uses the inner handler, and if that with ends first, it is a defect by the run-time check of 8.6 (capture sets in 0.22 stop it statically).
+- With this rule, the types prevent a child from using the handler of a with that ends before the child. The handlers that a child uses are the ones at the time `Fiber.scope` is called, even for a closure created inside a with in the scope body (8.3). The exception is a capability value taken out in a with inside the scope body that the child captures: the child then uses that handler, and if that with ends first, it is a defect by the run-time check of 8.6 (capture sets stop it statically, 8.6).
+- To let a child use a handler of a with inside the scope body, the child captures the capability of a named item.
+- `s <- Scope` declares an effect alias of the innermost scope at each call (8.2). `s.fork(f)` is the same as `Fiber.fork(f)`. Forking into an outer scope uses a capability value taken out in the outer scope.
 - fork is not a suspension point (the operations of Scope are fn). The child goes into the queue and starts running the next time the parent suspends. A child interrupted before it starts running ends with Interrupt without calling f.
 - The result of the scope is the first Fail or Die among the body and the children, or otherwise the way the body ended. If a child ends with a defect while the body is unwinding because of an interruption from outside, that defect becomes the result (the same direction as a defect in a release in 14.4).
 - The scope closes when a child fails (11.8). A fork, deferred, semaphore or queue during the unwinding caused by a sibling's failure is a defect and goes into the notes.
