@@ -22,7 +22,7 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 - If evaluating an argument fails, no init has run yet, so nothing is released, and the with ends with that error.
 - If an init fails, only the handlers already initialized are released, in reverse order, and the body is not evaluated. The release of the handler that failed is not run (because its init returned no value). The with ends with the error of that init.
 - The effects used in the operation bodies of a handler are provided by handlers outside the with, or by handlers initialized earlier in the same with.
-- Handlers opened inside an init (8.4) are released after the release of the handler that opened them, in reverse order.
+- Handlers opened inside an init (8.4) are released after the release of the handler that opened them, in reverse order. A handler opened through a handler that a with inside the init provides is released at the end of that with instead (8.4).
 
 ## 14.3 Error propagation `[dyn.error]`
 
@@ -47,25 +47,23 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 
 1. Calling a suspending operation captures the rest of the caller's computation as a continuation, and runs the operation body of the handler.
 2. When the handler calls `resume(v)`, the continuation resumes, and the value of the operation call expression is v.
-3. When the operation body resumes on the spot, the caller continues without suspending. If the operation body has more to run after the resume, that part runs to the end first, and then the caller continues.
-4. When the operation body resumes later, the caller resumes inside that call of resume, and resume returns (with the value `()`) when the caller next suspends or ends.
+3. When the operation body resumes on the spot, the caller continues without suspending. If the operation body has more to run after the resume, that part does not suspend (E0461, 8.4); it runs to the end first, and then the caller continues.
+4. When the operation body resumes later, the caller resumes inside that call of resume, and resume returns (with the value `()`) when the caller next suspends or ends. The rest of the operation body then runs to the end without suspending.
 
 - A continuation can be resumed at most once. A second resume is a defect. The message says which operation of which handler it happened in. Mistakes visible by reading the code, such as calling resume twice on the same path or calling it inside a loop or recursion, get a warning from the linter. The types give no guarantee (adding one later would still accept every correct program).
 - When an operation body fails without resuming, that error is the result of the operation call (it is in the caller's E as the operation's fails). When the body fails or becomes a defect after resuming, the caller has already moved on, so it is a defect at the top level of the program (or of the test) (`... failed after resume: <error>`).
 - A resume called after main or the test function has ended does nothing (even a second one is not a defect).
 - In a non-suspending context (R is Immediate: inside a with of a handler that resumes on the spot), when a suspending operation is not resumed on the spot, that continuation is never resumed (a handler that can resume later has Async in its requirements, so R is no longer Immediate). In this case, the continuation unwinds as interrupted at that point, without waiting for the top level of the program to end (main gives `interrupted` and exit code 130, and a test gives an `interrupted` failure).
-- When a continuation is discarded without resume ever being called, it unwinds as interrupted. It unwinds when the scope waiting for that fiber (Fiber.scope, or the top level of the program) ends. An implementation need not detect the moment the continuation is discarded.
+- When a continuation is discarded without resume ever being called, it unwinds as interrupted. It unwinds when the group waiting for that task (`Task.Group`, `Task.Background`, or the top level of the program) ends. An implementation need not detect the moment the continuation is discarded.
 - When the continuation of main unwinds as interrupted, one line `interrupted` is printed to standard error and the program exits with exit code 130. The exit code tells it apart from an error (1, 14.3) and a defect (101, 7.5). When the continuation of a test function is interrupted, it is reported as a failure of that test.
 - Unwinding as interrupted also runs the releases of the withs on the way, from the inside out.
-- After main or the test function has ended with a value, an error or a defect, the withs inside the continuations left over (an operation implementation that keeps running after resume, for example) are not released.
 - Switching to another fiber and interruptions taking effect happen only at suspension points (11.1).
 - A resume called from another fiber (when resume is passed around as a value) is queued, and does not cut into the atomic section of the caller. A resume from a host callback or from the same fiber continues on the spot, as in 3 and 4.
-- An operation implementation that keeps running after resume (3, 4) proceeds as a separate continuation of the same fiber. An interruption of a fiber reaches only the main continuation, and does not stop the continuation of the operation implementation. A scope does not wait for the continuations of operation implementations. When the launch (main or a test) is interrupted, these continuations of operation implementations are also closed (unwound, running their releases), and a defect in those releases becomes the result of the launch.
-- When the event loop becomes empty, all fibers are interrupted and all waiting continuations are unwound. This cuts off releases that are running. Only a scope waiting for its children waits for the children to unwind.
+- When the event loop becomes empty, all fibers are interrupted and all waiting continuations are unwound. This cuts off releases that are running. Only the release of a group or a background waits for its tasks to unwind.
 
 ## 14.6 Values and memory `[dyn.memory]`
 
-- All values are immutable. Mutable state is limited to the State effect (8.8), host objects held by handlers, Deferred (11.7, written only once), Semaphore (11.9) and Queue (11.10).
+- All values are immutable. Mutable state is limited to the State effect (8.8), host objects held by handlers, Deferred (11.8, written only once), Semaphore (11.9) and Queue (11.10).
 - When memory is freed cannot be observed, and is unspecified.
-- If a program cannot obtain the memory it needs, the result is implementation-defined (`[target.unspecified]`), including whether it is a defect and therefore whether the releases of handlers run and whether the failure can be observed at `Exit.attempt` as a `Die` cause (`[fiber.cause]`). What, if anything, is written and the exit status are implementation-defined as well. A program MUST NOT depend on any of these.
+- If a program cannot obtain the memory it needs, the result is implementation-defined (`[target.unspecified]`), including whether it is a defect and therefore whether the releases of handlers run and whether the failure can be observed at `Exit.attempt` as a `Die` cause (`[task.cause]`). What, if anything, is written and the exit status are implementation-defined as well. A program MUST NOT depend on any of these.
 - Resources are cleaned up in the release of a handler. There are no destructors tied to freeing a value.

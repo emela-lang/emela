@@ -1,0 +1,61 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"main\"])"
+---
+export suspend fn main() -> i32 (Int) {
+  t%0: ref (any) = fiber deferred()
+  deferred%1: ref (Std.Deferred.Deferred[()]) = coerce t%0
+  f%3: ref (fn(()) -> Bool) = closure() [deferred%1] {
+    t%2: i32 (Bool) = fiber complete(deferred%1, ())
+    return t%2
+  }
+  f%5: ref (fn(fn(()) -> ()) -> () suspends) = suspend closure(resume%4: ref (fn(()) -> ())) [deferred%1] {
+    fiber deferred_await(deferred%1)!
+    call_indirect resume%4()
+    return
+  }
+  f%7: ref (fn() -> Option[()]) = closure() [deferred%1] {
+    t%6: ref (Option[()]) = fiber poll(deferred%1)
+    return t%6
+  }
+  f%8: ref (fn() -> Std.Deferred.Deferred[()]) = closure() [deferred%1] {
+    return deferred%1
+  }
+  h%9: ref (handler Std.Deferred.Deferred[()]) = handler Deferred: Std.Deferred.Deferred[()] { complete: f%3, await: f%5, poll: f%7, $cell: f%8 }
+  ev%10: ref (evidence) = ev_extend([Std.Deferred.Deferred[()]: h%9])
+  f%33: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%11: ref (fiber_scope)) [ev%10, h%9] {
+    f%16: ref (fn(fn(evidence) -> any suspends) -> any) = closure(g%12: ref (fn(evidence) -> any suspends)) [ev%10, s%11] {
+      f%14: ref (fn() -> any suspends) = suspend closure() [g%12, ev%10] {
+        t%13: ref (any) = call_indirect g%12(ev%10)!
+        return t%13
+      }
+      t%15: ref (any) = fiber fork(s%11, f%14)
+      return t%15
+    }
+    h%17: ref (handler Std.Task.TaskGroup[_, _]) = handler Group: Std.Task.TaskGroup[_, _] { start: f%16 }
+    f%19: ref (fn() -> List[Int]) = closure() [] {
+      t%18: ref (List[Int]) = list[1]
+      return t%18
+    }
+    f%22: ref (fn() -> List[Int] ev) = closure(ev%20: ref (evidence)) [f%19] {
+      t%21: ref (List[Int]) = call_indirect f%19()
+      return t%21
+    }
+    f%26: ref (fn(evidence) -> List[Int]) = closure(ev%23: ref (evidence)) [h%17, f%22] {
+      t%24: ref (evidence) = ev_extend(ev%23, [Std.Task.TaskGroup[_, _]: h%17])
+      t%25: ref (List[Int]) = call_indirect f%22(t%24)
+      return t%25
+    }
+    a%27: ref (Std.Task.Task[List[Int]]) = call_op h%17.Std.Task.TaskGroup[_, _]#start(f%26)
+    _%28: i32 (Bool) = call_op h%9.Std.Deferred.Deferred[()]#complete()
+    f%29: ref (fn() -> Int) = closure() [] {
+      return 3
+    }
+    e%30: ref (Std.Exit.Exit[Int, ()]) = fiber attempt(f%29)
+    t%31: ref (List[Int]) = fiber join(a%27)!
+    t%32: i32 (Int) = call List.length[Int](t%31)
+    return t%32
+  }
+  t%34: i32 (Int) = fiber scope(f%33)!
+  return t%34
+}

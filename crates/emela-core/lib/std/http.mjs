@@ -20,7 +20,7 @@ export const withHeader = (req, name, value) => ({ ...req, headers: [...req.head
 
 /**
  * Sends `req` and reads the whole body as UTF-8. `signal` is the AbortSignal the runtime appends
- * to the arguments of a suspending external function (spec 12.2); it may be undefined. Aborting
+ * to the arguments of a suspending external function (`[ext.call]`); it may be undefined. Aborting
  * gives a ConnectionFailed outcome ("This operation was aborted"), which the interrupted fiber
  * drops.
  */
@@ -125,4 +125,16 @@ export function finishDraft(draft) {
   const headers = new Headers();
   for (const [name, value] of draft.headers) headers.append(name, value);
   return new Response(draft.body === "" ? null : draft.body, { status: draft.status, headers });
+}
+
+/**
+ * Hands `outgoing` to the host as the response to `request` before the launch ends: `$serve` of the runtime put the
+ * function that resolves the Promise of `fetch` on the request. Only the first call has an effect. A request that did
+ * not come through `$serve` (an export written by hand) has none, and gets the value `serve` returns.
+ */
+export function respond(request, outgoing) {
+  const answer = request[Symbol.for("emela.respond")];
+  if (answer === undefined) return;
+  delete request[Symbol.for("emela.respond")];
+  answer(outgoing);
 }

@@ -1,8 +1,11 @@
 # Numbers of `Dynamic` (`[api.std.dynamic.number]`): a sign, decimal digits and an exponent, of any
 # size and precision, so that a number read from text keeps every digit.
 
+## A decimal number of any size and precision: a sign, digits and an exponent. Two numbers that
+## denote the same value are equal (`1.0` and `1e0`).
 pub opaque type Number(negative: Bool, digits: String, exponent: Int) derive Eq, Show
 
+## A number that the target type cannot hold.
 pub error OutOfRange(number: Number) derive Show
 
 ## Reads a number in the JSON grammar: an optional `-`, an integer part without leading zeros,
@@ -56,10 +59,12 @@ fn exponent_part(s: String, chars: List[String]) -> Int fails ParseError {
   Int.parse("#{sign}#{String.concat(digits)}")
 }
 
+## The number `n`, exactly.
 pub fn from_int(n: Int) -> Number {
   read(n.to_string())
 }
 
+## The number `n`, exactly.
 pub fn from_int64(n: Int64) -> Number {
   read(n.to_string())
 }
@@ -74,6 +79,7 @@ pub fn from_float(f: Float) -> Option[Number] {
   }
 }
 
+## `n` as an Int. Fails if `n` is not an integer or is outside the range of Int.
 pub fn to_int(n: Number) -> Int fails OutOfRange {
   if n.exponent < 0 || n.exponent > 10 {
     fail OutOfRange(n)
@@ -86,6 +92,7 @@ pub fn to_int(n: Number) -> Int fails OutOfRange {
   }
 }
 
+## `n` as an Int64. Fails if `n` is not an integer or is outside the range of Int64.
 pub fn to_int64(n: Number) -> Int64 fails OutOfRange {
   if n.exponent < 0 || n.exponent > 19 {
     fail OutOfRange(n)
@@ -105,6 +112,7 @@ pub fn to_int64(n: Number) -> Int64 fails OutOfRange {
   if n.negative { below } else { -below }
 }
 
+## The Float nearest to `n`.
 pub fn to_float(n: Number) -> Float {
   Float.parse(n.to_string()) escape {
     ParseError(..) -> panic("to_string wrote a number that Float.parse cannot read")

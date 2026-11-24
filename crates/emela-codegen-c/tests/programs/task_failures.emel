@@ -1,0 +1,147 @@
+import Std.Task.{Task}
+import Std.Exit.{Exit, Success, Failure}
+import Std.Cause.{Cause, CauseKind, Fail, Die}
+import Std.Deferred.{Deferred}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+error Boom
+
+error NotFound(id: Int) derive Show
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res: Name {
+  init {
+    print("init res")
+    Res
+  }
+  fn name() { "res" }
+  release { print("release res") }
+}
+
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn fetch(n: Int, ticks: Int) -> Int uses { Tick } {
+  spin(ticks * 100)
+  print("fetched #{n}")
+  n * 10
+}
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn kind_name(k: CauseKind) -> String {
+  k match {
+    Fail -> "Fail"
+    Die -> "Die"
+  }
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> "#{kind_name(Cause.kind(c))} #{Cause.to_string(c)}"
+  }
+}
+
+fn main() -> () uses { Async } {
+  with Ticks {
+    r = with tasks = Task.Group {
+      tasks.start(|| with Res { spin(100000) })
+      tasks.start(|| {
+        spin(1000)
+        boom()
+      })
+      spin(100000)
+      print("not reached")
+      1
+    } escape { Boom -> -1 }
+    print("group #{r}")
+    v = with tasks = Task.Group {
+      tasks.start(|| with Res { spin(100000) })
+      spin(1000)
+      2
+    }
+    print("value #{v}")
+    print(show(Exit.attempt(|| boom())))
+    print(show(Exit.attempt(|| panic("bad"))))
+    print(show(Exit.attempt(|| fetch(1, 1))))
+    # To stop one task, start it in a group of its own and end the with of that group.
+    with tasks = Task.Group {
+      with stoppable = Task.Group {
+        stoppable.start(|| with Res { spin(100000) })
+        spin(1000)
+        print("stopping")
+      }
+      ok = tasks.start(|| 7)
+      print("join #{show(Exit.attempt(|| ok.join()))}")
+    }
+    raised = with tasks = Task.Group {
+      Exit.attempt(|| boom()) match {
+        Success(v) -> v
+        Failure(c) -> Cause.raise(c)
+      }
+    } escape { Boom -> -2 }
+    print("raise #{raised}")
+    e = Exit.attempt(|| {
+      with tasks = Task.Group {
+        tasks.start(|| {
+          spin(500)
+          fail NotFound(id: 1)
+        })
+        tasks.start(|| {
+          spin(1000)
+          panic("second")
+        })
+        tasks.start(|| {
+          spin(1500)
+          boom()
+        })
+        spin(100000)
+        0
+      }
+    })
+    print(show(e))
+    d = Exit.attempt(|| {
+      with tasks = Task.Group {
+        tasks.start(|| {
+          spin(500)
+          panic("first")
+        })
+        tasks.start(|| with Res { spin(100000) })
+        tasks.start(|| {
+          spin(1000)
+          fail NotFound(id: 2)
+        })
+        spin(100000)
+        0
+      }
+    })
+    print(show(d))
+    # A task waiting on a Deferred that no one fills is interrupted when its group ends.
+    with dd = Deferred[Int], tasks = Task.Group {
+      tasks.start(|| {
+        with Res { dd.await() }
+      })
+      spin(1000)
+      print("leaving the waiter")
+    }
+  }
+}

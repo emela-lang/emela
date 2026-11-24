@@ -1,0 +1,32 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"effect Logger {\n  fn info(msg: String) -> ()\n}\n\nfn greet() {\n  log <- Logger\n  log.info(\"a\")\n  f = log.info\n  (use Logger).info(\"b\")\n  g = |s| log.info(s)\n  g(\"c\")\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+effect Main.Logger
+  op Main.Logger.info
+    param msg#0: String
+    ret ()
+fn Main.greet
+  body
+    block
+      call
+        field .info
+          use Main.Logger
+        "a"
+      let f#1 =
+        field .info
+          use Main.Logger
+      call
+        field .info
+          use Main.Logger
+        "b"
+      let g#2 =
+        lambda(s#3)
+          call
+            field .info
+              use Main.Logger
+            s#3
+      call
+        g#2
+        "c"
