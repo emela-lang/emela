@@ -1,0 +1,31 @@
+---
+source: crates/emela-types/tests/generic_handler.rs
+expression: "repo(\"\")"
+---
+handler InMemoryRepo: use State[List[('0, '1)]]
+handler Constant: use {}
+handler Pass: use State['0]
+`Eq` UnusedDerive { trait_name: "Eq", ty: "UserId" }
+--- R
+{     st <- State[List[(K, V)]]     List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v)   }: State[List[('0, '1)]]
+List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v): State[List[('0, '1)]]
+List.find(st.get(), |(k, _)| k == key): State[List[('0, '1)]]
+st.get(): State[List[('0, '1)]]
+st.get: State[List[('0, '1)]]
+st: State[List[('0, '1)]]
+{     st <- State[List[(K, V)]]     st.update(|xs| [(key, value), ..xs])   }: State[List[('0, '1)]]
+st.update(|xs| [(key, value), ..xs]): State[List[('0, '1)]]
+st.update: State[List[('0, '1)]]
+st: State[List[('0, '1)]]
+{ (use State[S]).get() }: State['0]
+(use State[S]).get(): State['0]
+(use State[S]).get: State['0]
+use State[S]: State['0]
+{ (use State[S]).set(value) }: State['0]
+(use State[S]).set(value): State['0]
+(use State[S]).set: State['0]
+use State[S]: State['0]
+{ (use State[S]).update(f) }: State['0]
+(use State[S]).update(f): State['0]
+(use State[S]).update: State['0]
+use State[S]: State['0]

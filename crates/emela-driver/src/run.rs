@@ -179,7 +179,7 @@ pub const ERROR_EXIT_CODE: i32 = 1;
 pub const INTERRUPTED_EXIT_CODE: i32 = 130;
 /// The exit code when a write to a standard output whose reader has closed it ended the program
 /// (`[api.std.process]`, `[cmd.build]`): 128 + SIGPIPE, which the native target exits with too.
-/// Written out in [`LAUNCHER`]; a test checks that the two agree.
+/// Written out in the runtime's `$launchMain`; a test checks that the two agree.
 #[cfg(test)]
 const CLOSED_STDOUT_EXIT_CODE: i32 = 141;
 /// The `Symbol.for` key under which the runtime registers its output (`$output` in
@@ -190,116 +190,9 @@ const OUTPUT_KEY: &str = "emela.output";
 /// key's function returns the error value shown.
 pub const FAIL_KEY: &str = "emela.fail";
 /// The `Symbol.for` key under which the launcher passes the arguments of the program to
-/// `std/process.mjs`. Written out in [`LAUNCHER`]; a test checks that the two agree.
+/// `std/process.mjs`. Written out in the runtime's `$launchMain`; a test checks that the two agree.
 #[cfg(test)]
 const ARGS_KEY: &str = "emela.args";
-
-/// A small launcher module that imports the entry, calls `main`, and maps errors reaching main
-/// and defects to exit codes. Passed to node's `-e`, so it is never written to a file.
-///
-/// If the entry does not export `main`, it is only imported (for JS that runs on import). If
-/// `main` returns a failure (`$Fail`), it prints `error: <the error shown>` and exits with 1;
-/// any other return value is discarded (spec 14.3).
-///
-/// A suspending main (one returning a generator) is driven by the runtime's `$start`, which the
-/// entry exports, and waits on the event loop. If the loop empties without a resume, the function
-/// `$start` returned runs the releases of open `with`s from the inside out, then it prints
-/// `interrupted` and exits with 130 (spec 14.5). If a release stays suspended, it is called again
-/// the next time the loop empties. A continuation dropped without a resume inside a
-/// non-suspending main (the runtime's `$Interrupted`) is handled the same way. main is the root
-/// fiber of the run, and only the root fiber's outcome reaches `$start`'s `done`. A child fiber's
-/// interruption (spec 11.4, including dropped continuations) is received by its scope as that
-/// child's Interrupt and never gets here (spec 11.5). Unwinding when the loop empties includes
-/// child fibers. A defect, including one inside a host callback, prints `defect: <message>` and
-/// exits with 101 (spec 7.5).
-///
-/// The arguments after the entry module are put in `globalThis[Symbol.for(ARGS_KEY)]` before the
-/// entry is imported, where `Args` of `Std.Process` reads them (`[api.std.process]`): the launcher
-/// knows that `process.argv` is the host, the entry module and then the arguments.
-///
-/// The launcher does not import the runtime. So it tells a defect by its `name` ([`DEFECT_NAME`])
-/// rather than `instanceof`, a failure by the [`FAIL_KEY`] symbol, and takes `$start` from the
-/// entry, which exports it. Exceptions in host callbacks are caught with `uncaughtException`, and
-/// an unresumed end with `beforeExit`. The exit code is set through `process.exitCode`, or
-/// `process.exit` only in the callback of a write to `process.stderr` after the last line, so that
-/// writes to a pipe are not cut off.
-///
-/// The lines it writes go through the runtime's output ([`OUTPUT_KEY`]), the same synchronous
-/// path as `dbg` and the platform handlers, so that they come after everything the program wrote
-/// (`[api.std.process]`). When a write found standard output closed, the program ends however
-/// main ended: the launcher exits with [`CLOSED_STDOUT_EXIT_CODE`] and writes nothing. That
-/// includes a defect raised by a release while it unwinds, which the specification does not
-/// separate from the interruption it replaces.
-const LAUNCHER: &str = r#"
-import { pathToFileURL } from "node:url";
-let over = false;
-const output = () => globalThis[Symbol.for("emela.output")];
-function closed() {
-  if (output()?.stdoutClosed() !== true) return false;
-  process.exit(141);
-  return true;
-}
-function line(text) {
-  const out = output();
-  if (out === undefined) process.stderr.write(text);
-  else out.write(2, text);
-}
-function stop(code, text) {
-  if (closed()) return;
-  process.exitCode = code;
-  line(text);
-  process.stderr.write("", () => process.exit(code));
-}
-function finish(value) {
-  over = true;
-  if (closed()) return;
-  const show = value?.[Symbol.for("emela.fail")];
-  if (typeof show === "function") {
-    line(`error: ${show.call(value)}\n`);
-    process.exitCode = 1;
-  }
-}
-function crash(error) {
-  if (over) return;
-  over = true;
-  if (error instanceof Error && error.name === "Interrupted") {
-    stop(130, "interrupted\n");
-  } else if (error instanceof Error && error.name === "Defect") {
-    stop(101, `defect: ${error.message}\n`);
-  } else {
-    stop(1, `${error?.stack ?? String(error)}\n`);
-  }
-}
-let cancel;
-process.on("uncaughtException", crash);
-process.on("beforeExit", () => {
-  if (over) return;
-  if (cancel !== undefined) {
-    cancel();
-    return;
-  }
-  over = true;
-  if (closed()) return;
-  line("interrupted\n");
-  process.exitCode = 130;
-});
-globalThis[Symbol.for("emela.args")] = process.argv.slice(2);
-try {
-  const entry = await import(pathToFileURL(process.argv[1]).href);
-  if (typeof entry.main === "function") {
-    const value = entry.main();
-    if (typeof entry.$start === "function" && Object.prototype.toString.call(value) === "[object Generator]") {
-      cancel = entry.$start(value, (ok, result) => (ok ? finish(result) : crash(result)));
-    } else {
-      finish(value);
-    }
-  } else {
-    over = true;
-  }
-} catch (error) {
-  crash(error);
-}
-"#;
 
 /// How the child process's stdio is handled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -490,18 +383,11 @@ impl ProgramCommand {
     }
 
     /// The command as one line, quoted for a POSIX shell, that `emela run` shows before starting
-    /// the program (spec `[cmd.build]`). node's `-e` launcher is shown as `<launcher>`: it is a
-    /// whole module, and the run passes it inline rather than from a file.
+    /// the program (spec `[cmd.build]`).
     pub fn command_line(&self) -> String {
         std::iter::once(self.command.get_program())
             .chain(self.command.get_args())
-            .map(|arg| {
-                if arg == LAUNCHER {
-                    "<launcher>".to_string()
-                } else {
-                    shell_word(&arg.to_string_lossy())
-                }
-            })
+            .map(|arg| shell_word(&arg.to_string_lossy()))
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -578,28 +464,11 @@ fn wasmtime_spawn_error(wasmtime: &Path, err: &io::Error) -> Diagnostic {
     WASMTIME.spawn_error(wasmtime, err)
 }
 
-/// The command that runs the `.mjs` `entry` on node. `args` are passed to the program.
+/// `node <entry> <args...>`: `main.mjs` launches its `main`, and `serve.mjs` serves an HTTP service.
 pub(crate) fn node_command(node: &Path, entry: &Path, args: &[OsString]) -> ProgramCommand {
     let mut command = Command::new(node);
     command
-        .arg("--input-type=module")
-        .arg("-e")
-        .arg(LAUNCHER)
-        .arg("--")
         .arg(entry_for_child(entry))
-        .args(args)
-        .stdin(Stdio::inherit());
-    apply_program_cwd(&mut command);
-    let node = node.to_path_buf();
-    ProgramCommand::new(command, move |err| spawn_error(&node, err))
-}
-
-/// The command that runs the script `script` on node as it is (`node serve.mjs <args...>`), for
-/// the server of an HTTP service (`[cmd.build]`).
-pub(crate) fn node_script_command(node: &Path, script: &Path, args: &[OsString]) -> ProgramCommand {
-    let mut command = Command::new(node);
-    command
-        .arg(entry_for_child(script))
         .args(args)
         .stdin(Stdio::inherit());
     apply_program_cwd(&mut command);
@@ -642,27 +511,28 @@ mod tests {
 
     #[test]
     fn launcher_uses_constants() {
-        assert!(LAUNCHER.contains(&format!("\"{DEFECT_NAME}\"")));
-        assert!(LAUNCHER.contains(&format!("stop({DEFECT_EXIT_CODE}, `defect: ")));
-        assert!(LAUNCHER.contains(&format!("process.exitCode = {ERROR_EXIT_CODE};")));
-        assert!(LAUNCHER.contains(&format!("stop({INTERRUPTED_EXIT_CODE}, \"interrupted")));
-        assert!(LAUNCHER.contains(&format!("process.exitCode = {INTERRUPTED_EXIT_CODE};")));
-        assert!(LAUNCHER.contains(&format!("process.exit({CLOSED_STDOUT_EXIT_CODE});")));
-        // The runtime registers the output under the key the launcher and the test runner read.
+        let runtime = emela_codegen_js::RUNTIME;
+        let launcher = &runtime[runtime.find("function $launchMain").unwrap()..];
+        assert!(launcher.contains(&format!("\"{DEFECT_NAME}\"")));
+        assert!(launcher.contains(&format!("stop({DEFECT_EXIT_CODE}, `defect: ")));
+        assert!(launcher.contains(&format!("proc.exitCode = {ERROR_EXIT_CODE};")));
+        assert!(launcher.contains(&format!("stop({INTERRUPTED_EXIT_CODE}, \"interrupted")));
+        assert!(launcher.contains(&format!("proc.exitCode = {INTERRUPTED_EXIT_CODE};")));
+        assert!(launcher.contains(&format!("proc.exit({CLOSED_STDOUT_EXIT_CODE});")));
+        // The runtime registers the output under the key the test runner reads.
         let key = format!("Symbol.for(\"{OUTPUT_KEY}\")");
-        assert!(LAUNCHER.contains(&key));
-        assert!(emela_codegen_js::RUNTIME.contains(&key));
+        assert!(runtime.contains(&key));
         assert!(emela_codegen_js::TEST_RUNNER.contains(&key));
-        assert!(LAUNCHER.contains(&format!("Symbol.for(\"{FAIL_KEY}\")")));
-        assert!(LAUNCHER.contains(&format!("Symbol.for(\"{ARGS_KEY}\")")));
+        assert!(launcher.contains(&format!("Symbol.for(\"{FAIL_KEY}\")")));
+        assert!(launcher.contains(&format!("Symbol.for(\"{ARGS_KEY}\")")));
         // The runtime's `$Fail` and the test runner use the same key.
         let key = format!("Symbol.for(\"{FAIL_KEY}\")");
-        assert!(emela_codegen_js::RUNTIME.contains(&key));
+        assert!(runtime.contains(&key));
         assert!(emela_codegen_js::TEST_RUNNER.contains(&key));
     }
 
     #[test]
-    fn command_line_shows_the_launcher_by_name() {
+    fn command_line_is_the_host_and_the_entry() {
         let command = node_command(
             Path::new("node"),
             Path::new("target/emela/js/main.mjs"),
@@ -670,7 +540,7 @@ mod tests {
         );
         assert_eq!(
             command.command_line(),
-            r#"node --input-type=module -e <launcher> -- target/emela/js/main.mjs 'a b' 'it'\''s' --x=1"#
+            r#"node target/emela/js/main.mjs 'a b' 'it'\''s' --x=1"#
         );
     }
 

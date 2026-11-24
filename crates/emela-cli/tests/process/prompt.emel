@@ -5,9 +5,11 @@ import Std.Process.{InvalidInput, Process, Stdin, StdinFailure, Stdout}
 
 fn main() -> () fails InvalidInput | StdinFailure uses { Async } {
   with Process {
-    (use Stdout).print("name? ")
-    (use Stdin).read_line() match {
-      Some(name) -> (use Stdout).print_line("Hello, #{name}!")
+    stdout <- Stdout
+    stdout.print("name? ")
+    stdin <- Stdin
+    stdin.read_line() match {
+      Some(name) -> stdout.print_line("Hello, #{name}!")
       None       -> ()
     }
   }

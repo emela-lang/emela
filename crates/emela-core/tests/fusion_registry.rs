@@ -7,7 +7,7 @@
 //! `Laws::default` because they are new: the string law (D5/PR-032), so `Laws::all` is what runs it
 //! here, the three pipeline laws of D3/PR-030 and the two array pipeline laws of D4/PR-031.
 
-mod support;
+use crate::support;
 
 use std::collections::HashSet;
 

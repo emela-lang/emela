@@ -4,6 +4,7 @@ description = "Type inference, fails and use inference, trait resolution, match 
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 emela-resolve.workspace = true
@@ -19,3 +20,7 @@ smol_str.workspace = true
 emela-core = { path = "../emela-core" }
 emela-syntax.workspace = true
 insta.workspace = true
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"

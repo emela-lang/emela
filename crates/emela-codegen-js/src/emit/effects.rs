@@ -182,28 +182,24 @@ impl Emitter<'_> {
     ///   } catch ($e) {
     ///     throw $releaseDefect($t0, $e, "Pool");
     ///   } finally {
-    ///     $retire(h$1, "Pool");
     ///     $unhold($t1);
     ///   }
     /// }
     /// ```
     pub(super) fn with_(&mut self, binds: &[WithBind], body: &Expr, dest: &Dest) {
-        let mut open: Vec<(Option<String>, String, &Release)> = Vec::new();
+        let mut open: Vec<(String, &Release)> = Vec::new();
         for b in binds {
-            let name = self.bind(b);
+            self.bind(b);
             if let Some(r) = &b.release {
-                // A binding of `()` holds no handler value, so nothing is marked released (the
-                // permits of `Semaphore.with_permits`; the LIR has no operand for it either).
-                let name = (self.m.locals[b.var].ty != TypeId::UNIT).then_some(name);
                 let thrown = self.tmp();
                 self.line(&format!("let {thrown};"));
                 self.line("try {");
                 self.indent += 1;
-                open.push((name, thrown, r));
+                open.push((thrown, r));
             }
         }
         self.stmt(body, dest);
-        for (name, thrown, r) in open.into_iter().rev() {
+        for (thrown, r) in open.into_iter().rev() {
             self.indent -= 1;
             self.line("} catch ($e) {");
             self.line(&format!("  {thrown} = $e;"));
@@ -231,12 +227,6 @@ impl Emitter<'_> {
             self.line("} catch ($e) {");
             self.line(&format!("  throw {merge}({thrown}, $e, {handler});"));
             self.line("} finally {");
-            if r.mark
-                && let Some(name) = name
-            {
-                let retire = self.rt("$retire");
-                self.line(&format!("  {retire}({name}, {handler});"));
-            }
             if let Some(h) = hold {
                 let f = self.rt("$unhold");
                 self.line(&format!("  {f}({h});"));
@@ -325,8 +315,16 @@ impl Emitter<'_> {
     /// back. A fn that may suspend returns a Promise of the value, which rejects with the defect or
     /// the interruption the launch ends with; one that does not suspend returns the value and
     /// throws a defect.
-    pub(super) fn host_export_fn(&mut self, id: FnId, f: &Function, name: &str) {
-        let params: Vec<String> = (0..f.params.len()).map(|i| format!("$p{i}")).collect();
+    ///
+    /// With `serve`, it is the `fetch` of an HTTP service (`[lib.http-service]`): it also takes the
+    /// arguments the host passes after the request, and `$serve` resolves its Promise when the
+    /// launch hands over the response, before the launch ends.
+    pub(super) fn host_export_fn(&mut self, id: FnId, f: &Function, name: &str, serve: bool) {
+        let mut params: Vec<String> = (0..f.params.len()).map(|i| format!("$p{i}")).collect();
+        let serve = serve && f.suspends && params.len() == 1;
+        if serve {
+            params.extend(["$env".to_owned(), "$ctx".to_owned()]);
+        }
         self.line(&format!("function {name}({}) {{", params.join(", ")));
         self.indent += 1;
         let fn_name = source_name(&f.name);
@@ -341,7 +339,13 @@ impl Emitter<'_> {
             .collect();
         let call = format!("{}({})", self.fn_js(id), args.join(", "));
         let site = Site::Return(fn_name);
-        if f.suspends {
+        if serve {
+            let launch = self.rt("$export");
+            let serve = self.rt("$serve");
+            self.line(&format!(
+                "return {serve}($p0, $ctx, () => {launch}({call}));"
+            ));
+        } else if f.suspends {
             let launch = self.rt("$export");
             let value = self.convert(f.ret, "$v", Dir::ToHost, 0, &site);
             if value == "$v" {
