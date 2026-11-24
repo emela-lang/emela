@@ -944,7 +944,7 @@ fn option_and_array_get_fusions() {
         "option-array",
         r#"
 import Std.Array.{Array}
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 import Std.State.{State}
 
 fn via_match(a: Array[Int], i: Int, d: Int) -> Int {
@@ -965,7 +965,9 @@ fn traced_default(d: Int) -> Int {
 }
 
 fn or_suspending(a: Array[Int], i: Int) -> Int {
-  Fiber.scope(|| Array.get(a, i) |> Option.or(Fiber.join(Fiber.fork(|| 7))))
+  with tasks = Task.Group {
+    Array.get(a, i) |> Option.or(tasks.start(|| 7).join())
+  }
 }
 
 fn or_effectful(a: Array[Int], i: Int) -> Int {
