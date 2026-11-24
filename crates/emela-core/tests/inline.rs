@@ -9,7 +9,7 @@
 //! `inline_fused.emel` / `inline_expanded.emel` in `emela-driver/tests/opt_diff.rs`; the tests
 //! here fix the shape the pass leaves behind.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::CoreFns;
 use emela_core::{Callee, Expr, FnId, Module, dump, opt, verify};

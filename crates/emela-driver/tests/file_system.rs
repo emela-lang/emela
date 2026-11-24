@@ -79,7 +79,15 @@ fn failures_on(name: &str, main: &str, target: Target) -> Vec<(Target, String, T
         Target::Wasm => unreachable!("the file system tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    assert_eq!(analysis.diagnostics, []);
+    // The programs still write `use E` as an expression (W0403, deprecated).
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
+        "{:?}",
+        analysis.diagnostics
+    );
     let report = report.unwrap();
     assert!(!report.results.is_empty());
     report

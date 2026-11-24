@@ -14,7 +14,7 @@ use emela_driver::{
 };
 use emela_resolve::ModuleId;
 
-mod suspend;
+use crate::suspend;
 
 /// A frontend that returns hand-built test IR in place of the type checking results.
 struct HandBuiltTests(TestModule);
@@ -660,7 +660,7 @@ fn fails() {
         &mut CoreJs,
         None,
     );
-    assert_eq!(analysis.diagnostics, []);
+    assert_eq!(errors(&analysis), Vec::<&emela_driver::Diagnostic>::new());
     let report = report.unwrap();
     let results: Vec<_> = report
         .results
@@ -730,7 +730,7 @@ fn escapes() {
         &mut CoreJs,
         None,
     );
-    assert_eq!(analysis.diagnostics, []);
+    assert_eq!(errors(&analysis), Vec::<&emela_driver::Diagnostic>::new());
     let report = report.unwrap();
     let results: Vec<_> = report
         .results
@@ -835,7 +835,7 @@ fn printed() {
         &mut CoreJs,
         None,
     );
-    assert_eq!(analysis.diagnostics, []);
+    assert_eq!(errors(&analysis), Vec::<&emela_driver::Diagnostic>::new());
     let report = report.unwrap();
     let results: Vec<_> = report
         .results
@@ -963,7 +963,7 @@ fn tests_can_use_js_clock() {
         &mut CoreJs,
         None,
     );
-    assert_eq!(analysis.diagnostics, []);
+    assert_eq!(errors(&analysis), Vec::<&emela_driver::Diagnostic>::new());
     let report = report.unwrap();
     assert!(
         matches!(report.results[0].outcome, TestOutcome::Passed),
@@ -1036,7 +1036,7 @@ fn stuck() {
         &mut CoreJs,
         None,
     );
-    assert_eq!(analysis.diagnostics, []);
+    assert_eq!(errors(&analysis), Vec::<&emela_driver::Diagnostic>::new());
     let outcomes: Vec<_> = report
         .unwrap()
         .results
@@ -1136,7 +1136,7 @@ fn failure_drops_the_state() {
         &mut CoreJs,
         None,
     );
-    assert_eq!(analysis.diagnostics, []);
+    assert_eq!(errors(&analysis), Vec::<&emela_driver::Diagnostic>::new());
     let outcomes: Vec<_> = report
         .unwrap()
         .results
@@ -1451,7 +1451,7 @@ fn agent_failures_show_where_the_assert_is() {
 }
 
 /// Each test is a run of its own: after a test that stalls and unwinds as interrupted, the next
-/// test's `Exit.attempt` catches a defect again (`[fiber.cause]`). The same on every target.
+/// test's `Exit.attempt` catches a defect again (`[task.cause]`). The same on every target.
 #[test]
 fn an_attempt_after_a_stalled_test_catches_a_defect() {
     let fs = MemoryFiles::new([
@@ -1588,4 +1588,13 @@ fn runs_after() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let (out, _) = run_everywhere("exit-code-test", &fs, &input);
     assert!(out.contains("test result: ok. 2 passed; 0 failed"), "{out}");
+}
+
+/// The diagnostics but W0403: the programs still write `use E` as an expression (deprecated).
+fn errors(analysis: &emela_driver::Analysis) -> Vec<&emela_driver::Diagnostic> {
+    analysis
+        .diagnostics
+        .iter()
+        .filter(|d| d.code != Some(emela_driver::code::DEPRECATED_USE))
+        .collect()
 }

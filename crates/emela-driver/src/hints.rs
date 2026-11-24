@@ -56,6 +56,7 @@ pub(crate) fn inlay_hints(
     };
     cx.signatures(analysis.sources[file].text());
     cx.bodies();
+    cx.item_type_args();
     let mut hints = cx.hints;
     hints.retain(|h| range.contains_inclusive(h.offset));
     hints.sort_by_key(|h| h.offset);
@@ -280,6 +281,33 @@ impl Hints<'_> {
         self.push(e.span.range.end(), parts.join(" "), HintKind::Effect);
     }
 
+    /// The type arguments of a handler with type parameters at an item of a `with`, of a layer or
+    /// on the right of `by`, when they are not written (`[UserId, User]` after `InMemoryRepo`,
+    /// `[lsp.inlay-hint]`). Not shown when they contain undetermined or broken types; those
+    /// generalized into the enclosing definition are its type parameters.
+    fn item_type_args(&mut self) {
+        let types = &self.program.types;
+        for item in crate::hover::item_args_in(self.program, self.module) {
+            if item.written {
+                continue;
+            }
+            let args = crate::hover::generalized_args(self.program, item.owner, &item.args);
+            if !args.iter().all(determined) {
+                continue;
+            }
+            let params = self.params(item.range.start());
+            let shown: Vec<String> = args
+                .iter()
+                .map(|t| t.display_with(&types.ty_table.cons, &params).to_string())
+                .collect();
+            self.push(
+                item.range.end(),
+                format!("[{}]", shown.join(", ")),
+                HintKind::Type,
+            );
+        }
+    }
+
     /// Type parameters of the definition whose body contains the position (names of
     /// `Bound(i)`).
     fn params(&self, offset: TextSize) -> Vec<TyParam> {
@@ -298,10 +326,22 @@ impl Hints<'_> {
     }
 }
 
+/// No inference variable or broken type in `ty`.
+fn determined(ty: &Ty) -> bool {
+    match ty {
+        Ty::Var(_) | Ty::Error => false,
+        ty => {
+            let mut ok = true;
+            ty.for_each_child(|c| ok = ok && determined(c));
+            ok
+        }
+    }
+}
+
 /// Capability values, inference variables and broken types are not shown.
 fn shows(ty: &Ty) -> bool {
     match ty {
-        Ty::Cap(_) | Ty::Var(_) | Ty::Error => false,
+        Ty::Cap(..) | Ty::Var(_) | Ty::Error => false,
         Ty::Fn(f) => f.params.iter().all(shows) && shows(&f.ret),
         Ty::Tuple(tys) | Ty::Named(_, tys) => tys.iter().all(shows),
         Ty::List(t) => shows(t),

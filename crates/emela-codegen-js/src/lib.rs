@@ -86,13 +86,18 @@ impl Default for Options {
 /// Self tail call loopification (`emela_core::tail::loopify`) must already be done; `emela_core::lower`
 /// does it. Panics on invalid IR (operator and type mismatches, wrong argument counts, ...).
 pub fn emit_module(module: &Module, options: &Options) -> String {
-    emit::emit_module(module, options, &[])
+    emit::emit_module(module, options, &[], false)
+}
+
+/// [`emit_module`] for `main.mjs`, which launches `main` when the JS host is started with it.
+pub fn emit_program(module: &Module, options: &Options) -> String {
+    emit::emit_module(module, options, &[], true)
 }
 
 /// Like [`emit_module`], but also exports `extra` as if they were `exported` (the selected test
 /// functions of `emela test`), without copying the module to flip the flag.
 pub fn emit_module_exporting(module: &Module, options: &Options, extra: &[FnId]) -> String {
-    emit::emit_module(module, options, extra)
+    emit::emit_module(module, options, extra, false)
 }
 
 /// The runtime with `export`s removed, so it can be embedded in other code.
