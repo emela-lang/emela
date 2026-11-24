@@ -22,7 +22,7 @@ suspend fn fetch_text(url: String) -> String
 
 - The parameter types and the return type are always written. The compiler cannot see inside the function, so it does not infer them.
 - A type parameter of an `@external` fn follows the rule of `[fn.decl]` for type parameters that do not appear in the type (W0305). Type parameters do not exist at run time, so one that does not appear in the type distinguishes nothing on the host side either.
-- An `@external` fn MUST NOT be pub (E0237). Other modules reach the host through the handlers of its module, an effect and a handler that the module declares for them, or, for a function declared with `uses {}`, a fn that calls it (`[effect.external]`).
+- An `@external` fn MAY be pub. Where another module refers to it, it has the External of the module that declares it, not of the referring module (`[effect.external]`), so one that adds External is called only inside the handlers of its module. Other modules reach the host through those handlers, or through an effect and a handler that the module declares for them. An external function declared with `uses {}` that is not a `suspend fn` can be called directly by other modules when it is pub.
 - One `@external` is written per language. A fn MAY have annotations for several languages. Two annotations for the same language on the same fn is a compile error (E0139).
 - The arguments of `@external` on a fn have the form `(language, "name")` or `(language, "file", "name")` only (E0138). The language names the language of the code that is linked with: `js`, `wasm` or `c` (E0140). The strings cannot contain interpolation.
 - Each build target uses one language. An annotation takes effect when its language is the language of the build target.
