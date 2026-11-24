@@ -1,0 +1,19 @@
+exit: 0
+--- stdout
+--- stderr
+"plain 1"
+"SHOUT 2"
+"SHOUT 3"
+"plain 4"
+"SHOUT 5"
+"plain 6"
+["plain 7", "plain 8"]
+"SHOUT a"
+"SHOUT b"
+"SHOUT c"
+"SHOUT nested"
+"SHOUT d"
+"SHOUT e"
+"SHOUT f"
+"plain g"
+"fixed h"

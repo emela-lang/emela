@@ -2,6 +2,106 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-24 (Diagnostic codes in bands of 1000, and one code per kind of mistake)
+
+- `[diag]`, `[diag.bands]`: The bands of diagnostic codes change from 100 codes per stage (E01xx to E09xx) to 1000 codes per stage (E1xxx to E9xxx), divided into subject bands of 100. A code names one kind of mistake: mistakes fixed in the same way share a code, and the message tells their forms apart. At the end of 0.29 the codes in `[diag.list]` are renumbered once into the new bands; codes of the same kind of mistake are merged, and retired codes are dropped. Adopted in the proposal `diagnostic-code-bands` (#837).
+
+## 2026-11-24 (Std.Tcp, a TCP client as a platform effect)
+
+- `[lib.layers]`, `[api.std.process]`, `[api.std.tcp]`, `[target.wasm.output]`, `[target.wasm.run]`, `[target.wasm.external]`: Adds a TCP client to the platform layer of std. The effect `Tcp` opens connections, reads and writes `Bytes` on them, and closes them. An open connection can be upgraded to TLS in place with `upgrade_tls`. The system handler `SystemTcp` uses `node:net` and `node:tls` on JS, POSIX sockets on native, and `wasi:sockets@0.3.0` on WASM, where TLS runs in a TLS component bundled with the compiler and composed into `main.wasm`. TLS on native and listening for connections are not included. ```emel import Std.Bytes import Std.Tcp.{Tcp, HostNotFound, ConnectionRefused, ConnectionClosed, TcpFailure} fn ping(host: String) -> Option[Bytes] fails HostNotFound | ConnectionRefused | ConnectionClosed | TcpFailure uses { Tcp } { tcp = use Tcp conn = tcp.connect(host, 6379) tcp.write(conn, Bytes.encode_utf8("PING\r\n")) reply = tcp.read(conn, 512) tcp.close(conn) reply } ``` Adopted in the proposal `tcp` (#563).
+
+## 2026-11-24 (Task replaces Fiber, and the range of concurrent work is a with item)
+
+- `[task]`, `[task.basic]`, `[task.group]`, `[task.background]`, `[task.combinators]`, `[task.interrupt]`, `[task.cause]`, `[task.parallel]`, `[task.deferred]`, `[task.semaphore]`, `[task.queue]`, `[api.std.task]`, `[api.std.exit]`, `[api.std.cause]`, `[api.std.deferred]`, `[api.std.semaphore]`, `[api.std.queue]`, `[api.std.http]`, `[api.std.process]`, `[module.resolution]`, `[kw.annotation]`, `[effect.decl]`, `[effect.handler]`, `[effect.escape]`, `[effect.async]`, `[effect.label]`, `[type.fn]`, `[type.rules]`, `[ext.call]`, `[dyn.suspend]`, `[dyn.memory]`, `[lib.layers]`, `[lib.http-service]`, `[lib.api-rules]`, `[target.js.outcome]`, `[target.js.abort]`, `[target.js.event-loop]`, `[target.wasm.output]`, `[lsp.hover]`, `[lsp.completion]`, `[lsp.code-action]`, `[glossary.context]`, `[glossary.terms]`, `[open.next]`, `[diag.list]`: - The range of concurrent work is no longer the special function `Fiber.scope`. It is an item of a with, provided by a built-in handler. - Fiber is renamed Task: `Std.Fiber` becomes `Std.Task`, `Fiber[A]` becomes `Task[A]`, and `fork` becomes `start`. - Work whose results are awaited is started in a `Task.Group`. Work whose results are not looked at is started in a `Task.Background`. - Deferred, Queue and Semaphore are no longer made by operations of Scope. Each is an item of a with of its own: the capability of a built-in effect, provided by a built-in handler of the same name. - A task gives its result only through `join`. `await` and `interrupt` are removed, and so is `Interrupt` of `CauseKind`. - In the implementation of a suspend fn, a call that may suspend cannot follow a direct call of resume (E0461). - Fiber is removed in the same version, without a period in which both exist. Adopted in the proposal `task` (#834).
+
+## Section names of chapter 11 before Task
+
+- The section names below were renamed or retired when Task replaced Fiber (the proposal `task`). They are kept for references from earlier history and proposals, and MUST NOT be reused.
+
+### Concurrency (renamed) `[fiber]`
+
+Renamed to `[task]`.
+
+### fiber (renamed) `[fiber.basic]`
+
+Renamed to `[task.basic]`.
+
+### Fiber.scope (renamed) `[fiber.scope]`
+
+Renamed to `[task.group]`.
+
+### Combinators (renamed) `[fiber.combinators]`
+
+Renamed to `[task.combinators]`.
+
+### Interruption (renamed) `[fiber.interrupt]`
+
+Renamed to `[task.interrupt]`.
+
+### Causes of failure (renamed) `[fiber.cause]`
+
+Renamed to `[task.cause]`.
+
+### Parallelism (renamed) `[fiber.parallel]`
+
+Renamed to `[task.parallel]`.
+
+### Deferred (renamed) `[fiber.deferred]`
+
+Renamed to `[task.deferred]`.
+
+### Semaphore (renamed) `[fiber.semaphore]`
+
+Renamed to `[task.semaphore]`.
+
+### Queue (renamed) `[fiber.queue]`
+
+Renamed to `[task.queue]`.
+
+### Std.Fiber (renamed) `[api.std.fiber]`
+
+Renamed to `[api.std.task]`.
+
+### No leaking (retired) `[fiber.escape]`
+
+Informative. Retired when Task replaced Fiber. The capabilities of chapter 11 cannot leak by the rules of `[effect.escape]`, and `Task[A]` is a capability-bound type (`[task.group]`).
+
+## 2026-11-24 (Reading a Duration from text, and Encode, Decode and Shaped for Duration)
+
+- `[api.prelude]`, `[lib.layers]`, `[api.std.duration]`, `[api.std.dynamic]`, `[api.std.shape]`, `[open.list]`: Add `Duration.parse(s: String) -> Duration fails ParseError`. It reads a length of time in two forms: numbers with units (`1h30m`, `1.5s`, `2h 30min`, `30 seconds`), and the time part of an ISO 8601 duration (`PT1H30M`, `-PT1.5S`). The units are the hour and shorter ones; days and weeks are not read. Add `Duration.to_iso8601`, which writes the ISO 8601 form. `to_string` keeps its form (`1500ms`), which answers `[open.list]` 48. Duration also gets Encode, Decode and Shaped: Encode writes the text of `to_string`, Decode reads text with `parse`, and the shape is a String with no note. The range (an Int64 of milliseconds) and the unit of Duration do not change. Adopted in the proposal `duration-parse` (#737).
+
+## 2026-11-23 (Telling the entry module of the JS host with import.meta.main)
+
+- `[target.js.module]`: `main.mjs` decides whether it is the entry module of the JS host with `import.meta.main`. Only a JS host that does not define `import.meta.main` compares the real path of `process.argv[1]` with the path of `main.mjs`, as `js-direct-entry` (#677) specified for every host. With this, importing `main.mjs` from code that the JS host evaluates (`node -e`) does not launch `main`, on every host that defines `import.meta.main`. Adopted in the proposal `js-entry-import-meta-main` (#829).
+
+## 2026-11-23 (Running main.mjs directly)
+
+- `[target.js.module]`, `[cmd.build]`: `main.mjs` written by `emela build` for the `js` target launches `main` when the JS host is started with it (`node target/emela/js/main.mjs`), with the same outcomes and exit codes as `emela run`. Importing `main.mjs` from another module does not launch `main`. An HTTP service is unchanged: it is started through `serve.mjs`, and its `main.mjs` does not launch anything. For a program that is not an HTTP service, `emela run` starts the JS host with `main.mjs` itself instead of a launcher passed with `-e`. Adopted in the proposal `js-direct-entry` (#677).
+
+## 2026-11-23 (Handlers with type parameters)
+
+- `[effect.decl]`, `[effect.with]`, `[effect.handler]`, `[effect.layer]`, `[effect.label]`, `[type.rules]`, `[grammar.decl]`, `[grammar.expr]`, `[diag.list]`, `[lsp.hover]`, `[lsp.completion]`, `[lsp.inlay-hint]`: - A handler can declare type parameters of ordinary types (`handler Memory[S](value: S): State[S]`). Set type parameters (E, R) stay out, as for effects (E0424). - Each item of a with determines the type arguments. They are inferred from the arguments of init and from what uses the effects the item provides; when they are not determined, they are written (`with InMemoryRepo[UserId, User] { ... }`). - Type parameters can have trait bounds, checked at the item. - An item of a layer writes its type arguments unless the arguments of init determine them. - Type parameters on handler members (`handler Open[T](...)` declared in an effect) are out of scope. Adopted in the proposal `generic-handler` (#817).
+
+## 2026-11-23 (Warn about type parameters of a fn that its signature does not use)
+
+- `[fn.decl]`, `[trait.decl]`, `[ext.decl]`, `[diag.list]`, `[lsp.code-action]`: When a type parameter of a top-level fn, a trait function or an `@external` fn does not appear in the type of the fn (its parameters, return type, fails and uses), the compiler warns (W0305), and the language server offers a quick fix that removes it. A type parameter that appears only in type annotations inside the body is warned about too, because no call can determine it. Type parameters of types, enums and handlers are out of scope. Adopted in the proposal `unused-type-parameter` (#806).
+
+## 2026-11-23 (Capabilities are told apart in types and in R)
+
+- `[intro.experimental]`, `[lsp.hover]`, `[ext.boundary]`, `[glossary.terms]`, `[effect.use]`, `[effect.with]`, `[effect.handler]`, `[effect.escape]`, `[fiber.scope]`, `[fiber.escape]`, `[fiber.deferred]`, `[fiber.semaphore]`, `[fiber.queue]`, `[api.std.fiber]`, `[type.rules]`, `[trait.builtin]`, `[open.next]`, `[diag.list]`: This proposal follows `effect-alias` (#731) and `closure-r-by-caller` (#736), which #791 implemented for 0.29. - A capability is a handler after its init has run and before its release: an instance of a handler. Each item of a with makes one. - The x of `with x = Item` is the capability itself. Type checking tells capabilities apart, in types and in R. - Calling an operation of a capability adds that capability to R (x for `x.read()`). A capability type records a set of capabilities, so capabilities of different withs can be put in the same list. The elements of R are effects, declared labels and capabilities. - One principle: a capability cannot leave the with that made it. A value whose type or R contains the capability cannot leave the with, and type checking sees it. Whatever path a value takes, the capability stays in its type, so there are no paths to enumerate. - A capability type is still written `use E` in source. A parameter `x: use E` receives a capability that the caller passes. - A capability is not widened to its effect. - A capability is still an ordinary value. Inside the same with, it can be passed, stored, returned, put in a data structure and captured by a closure, as any other value. - Capture checking (capture sets and roots) is no longer needed. The experimental feature `capture-checking` is removed without being made stable. - Everything lands in 0.29, with #791. `use E` written as an expression (W0403 since #791) becomes a compile error in 0.30. Adopted in the proposal `capability-identity` (#732).
+
+## 2026-11-23 (The R of a closure is provided only by its caller)
+
+- `[effect.use]`, `[effect.with]`, `[type.rules]`, `[fiber.scope]`, `[grammar.lex]`, `[ext.boundary]`, `[diag.list]`: The R of an anonymous function or a local fn is provided only by the side that calls it; the withs that enclose the place where it is made no longer provide handlers, matching the types. Forked children use the handlers at the time `Fiber.scope` is called, without exception. The R of a callback to the host MUST NOT contain an effect. A function value `x.op` of an effect alias resolves when it is called, `(use E).M(...)` is not expanded, and `<-` is one token. Adopted in the proposal `closure-r-by-caller` (#736).
+
+## 2026-11-23 (Reading an Instant from text, and Encode, Decode and Shaped for Instant)
+
+- `[lib.layers]`, `[api.std.instant]`, `[api.std.dynamic]`, `[api.std.shape]`: Add `Instant.parse(s: String) -> Instant fails ParseError`. It reads a date and time with an offset from UTC, in the form that `Instant.to_string` writes and the `date-time` of RFC 3339, extended with a space between the date and the time, the offsets `±HHMM` and `±HH`, and a space before a numeric offset, so that the timestamps written by PostgreSQL and SQL Server can be read too. The offset is required. Instant also gets Encode, Decode and Shaped, written and read as the text of `Instant.to_string` and `Instant.parse`. The range (an Int64 of milliseconds) and the unit of Instant do not change. Adopted in the proposal `instant-parse` (#730).
+
+## 2026-11-23 (Effect aliases: `x <- Effect` resolves at the call)
+
+- `[grammar.expr]`, `[effect.use]`, `[effect.with]`, `[effect.handler]`, `[effect.escape]`, `[fiber.scope]`, `[diag.list]`: - A statement `x <- Effect` is added. x is called an effect alias. x is not a value; its name is scoped lexically, and `x.op(...)` reaches the innermost handler of Effect at the time of the call and adds Effect to R. - Inside a closure or a local fn, the withs that enclose the function do not resolve it. Effect stays in the R of the closure, and the side that calls the closure provides it. - `(use E).op(...)` becomes shorthand for `{ h <- E; h.op(...) }`. A call written in place makes no root, and is checked only through R. - `use E` written as a value (`x = use E`, an argument, an element of a data structure) still works as a fixed value, and capture checking still checks it. - `use E` written as an expression is deprecated in both forms (W04xx). Making a value with `use E` and binding it to a name is replaced by `x <- E` or by a named item (`with x = H`). This proposal is the first step. The second step, `capability-identity` (#732), defines a capability as an instance of a handler, tells capabilities apart in types and in R, and makes `use E` written as an expression a compile error. Each construct is checked by exactly one mechanism. | Construct | What it is | Checked by | |---|---|---| | `x <- E`, `(use E).op(...)` | The effect, resolved at the call | R (types) | | `x = use E`, `with x = H`, `use E` written as a value | A fixed value | Capture sets | Adopted in the proposal `effect-alias` (#731).
+
 ## 2026-11-19 (Effects on the left of `.`, E0417 for handler members, and capability fields in suspension)
 
 - `[module.resolution]`, `[effect.use]`, `[effect.handler]`, `[diag.list]`: Three more gaps in `handler-member` and `handler-member-gaps`, found while implementing them (#656). 1. An effect can be written on the left of `.`, only to name its handler members (`Files.Open`). When a module and an effect of the same name are both found, `X.M` names the handler member M of the effect if it has one, and otherwise the definition M of the module. 2. E0417 on the init and the release of an inner handler is reported once for each call that may suspend, as for an fn operation, with a fixed message and help. Opening a `suspend handler` member is a new reason for a call that may suspend. 3. Rule 4 of `handler-member-gaps` is refined. Calling an operation of a capability held in a field of a handler through `self` (`self.inner.read(max)`) in an operation body does not require its effect by name. It still counts as a call of its effect for whether the body may suspend. In release, it does not require its effect by name either; when it may suspend, Async becomes a requirement of the handler. Adopted in the proposal `handler-member-gaps-2` (#670).

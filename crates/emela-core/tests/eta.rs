@@ -10,7 +10,7 @@
 //! the shape the pass leaves behind. Each test turns on only η, so a reduction another rule could
 //! make cannot hide η's decision.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::{CoreFn, CoreFns, Options, Rules, run_with};
 use emela_core::{Callee, Expr, FnId, Module, dump, verify};

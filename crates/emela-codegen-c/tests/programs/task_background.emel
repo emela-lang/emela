@@ -1,0 +1,152 @@
+import Std.Task.{Task}
+import Std.Cause.{Cause}
+import Std.Exit.{Exit, Success, Failure}
+
+## Shown with dbg, so that the program runs on WASM too (`wasm_parity.rs`).
+fn say(s: String) -> () {
+  _ = dbg(s)
+  ()
+}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+## Resumes in place: a suspending call that yields to other tasks only every so many calls (the
+## fairness budget, `[task.basic]`), the same on every target.
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+## Takes `ticks` hundred suspending calls, then prints.
+fn work(name: String, ticks: Int) -> () uses { Tick } {
+  spin(ticks * 100)
+  say("done #{name}")
+}
+
+fn boom(name: String, ticks: Int) -> () fails Boom uses { Tick } {
+  spin(ticks * 100)
+  say("failing #{name}")
+  fail Boom
+}
+
+fn die(name: String, ticks: Int) -> () uses { Tick } {
+  spin(ticks * 100)
+  say("dying #{name}")
+  panic("bad")
+}
+
+## Prints when its with ends.
+effect Mark {
+  fn mark() -> ()
+}
+
+handler Released(name: String): Mark {
+  init(name: String) { Released(name:) }
+  fn mark() { () }
+  release { say("released #{self.name}") }
+}
+
+fn report(cause: Cause[Boom]) -> () {
+  say("on_failure: #{Cause.to_string(cause)}")
+}
+
+fn show[A](exit: Exit[A, Boom]) -> () {
+  exit match {
+    Success(_) -> say("ended with a value")
+    Failure(cause) -> say("ended with #{Cause.to_string(cause)}")
+  }
+}
+
+fn main() -> () uses { Async } {
+  with Ticks {
+    # The release waits for the tasks without interrupting them; the value is the body's.
+    v = with bg = Task.Background(on_failure: report) {
+      bg.start(|| work("a", 30))
+      bg.start(|| work("b", 10))
+      say("body ends")
+      7
+    }
+    say("value #{v}")
+    # A failure of a task goes to on_failure, in that task, and stops neither its siblings nor
+    # the body.
+    with bg = Task.Background(on_failure: report) {
+      bg.start(|| boom("c", 10))
+      bg.start(|| die("d", 20))
+      bg.start(|| work("e", 30))
+      spin(4000)
+      say("body still runs")
+    }
+    # The body fails: the tasks are still waited for, and the with fails with the body's error.
+    show(Exit.attempt(|| {
+      with bg = Task.Background(on_failure: report) {
+        bg.start(|| work("f", 20))
+        say("body fails")
+        fail Boom
+      }
+    }))
+    # A defect in on_failure is a defect of the release: the result of the with when the body
+    # ended with a value.
+    show(Exit.attempt(|| {
+      with bg = Task.Background(on_failure: |_| panic("bad")) {
+        bg.start(|| boom("g", 10))
+        bg.start(|| work("h", 20))
+        ()
+      }
+    }))
+    # When the body ended with a defect, a defect in on_failure is added to it as a note.
+    show(Exit.attempt(|| {
+      with bg = Task.Background(on_failure: |_| panic("on_failure")) {
+        bg.start(|| boom("m", 10))
+        spin(2000)
+        panic("body")
+      }
+    }))
+    # The with is interrupted from outside while its release waits: the interruption is passed on
+    # to the tasks, which unwind (on_failure is not called for them), and the release ends after.
+    show(Exit.attempt(|| {
+      with tasks = Task.Group {
+        tasks.start(|| {
+          with bg = Task.Background(on_failure: report) {
+            bg.start(|| {
+              with Released(name: "i") {
+                work("i", 300)
+              }
+            })
+            say("background body ends")
+          }
+          spin(1)
+          say("not reached")
+        })
+        tasks.start(|| boom("j", 20))
+        spin(40000)
+      }
+    }))
+    # Interrupted while the body runs: the tasks are interrupted too.
+    show(Exit.attempt(|| {
+      with tasks = Task.Group {
+        tasks.start(|| {
+          with bg = Task.Background(on_failure: report) {
+            bg.start(|| {
+              with Released(name: "k") {
+                work("k", 300)
+              }
+            })
+            work("background body", 300)
+          }
+        })
+        tasks.start(|| boom("l", 20))
+        spin(40000)
+      }
+    }))
+  }
+}

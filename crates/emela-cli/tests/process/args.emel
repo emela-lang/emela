@@ -5,8 +5,8 @@ import Std.Process.{Args, Process}
 
 fn main() {
   with Process {
-    a = use Args
-    c = use Console
+    a <- Args
+    c <- Console
     c.print_line("#{a.list()}")
     c.print_line("#{a.list() == a.list()}")
     c.print_line("#{[a.get(0), a.get(2), a.get(3), a.get(-1)]}")

@@ -6,8 +6,8 @@ export function nowMilliseconds() {
 }
 
 /**
- * Resolves after `ms` milliseconds. A negative `ms` is 0 (spec 8.8); it is clamped here since Node 24 warns about a
- * negative timeout. Aborting `signal` clears the timer (spec 12.2).
+ * Resolves after `ms` milliseconds. A negative `ms` is 0 (`[effect.state]`); it is clamped here since Node 24 warns about a
+ * negative timeout. Aborting `signal` clears the timer (`[ext.call]`).
  */
 export function sleep(ms, signal) {
   return new Promise((resolve) => {
@@ -17,7 +17,7 @@ export function sleep(ms, signal) {
 }
 
 /**
- * Resolves when the run stalls and `at` (milliseconds) is the earliest time waited for (spec 8.8). The runtime
+ * Resolves when the run stalls and `at` (milliseconds) is the earliest time waited for (`[effect.state]`). The runtime
  * implements it; it is reached by a global key since the runtime may be inlined into the output.
  */
 export function whenStalled(at, signal) {
