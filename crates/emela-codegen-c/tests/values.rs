@@ -220,3 +220,62 @@ fn main() {
         "the boxed form boxes the 100 `$Array.map_range` elements and every read"
     );
 }
+
+/// A read of a fixed position of an array of records is the same in every iteration, so the Core
+/// hoist moves its bounds test and its load out of the loop; the by-value form copies the record
+/// out of the array once (`em_array_load_unchecked_agg`) instead of once per iteration, and
+/// prints the same as the boxed form.
+#[test]
+fn a_fixed_record_read_leaves_the_loop() {
+    if cc().is_none() {
+        return;
+    }
+    let src = r##"
+type Point(x: Int, y: Int)
+
+fn sum(points: Array[Point], n: Int) -> Int {
+  List.fold(List.range(0, n), from: 0, f: |acc, k| {
+    p = Array.get(points, 0) match {
+      Some(p) -> p
+      None -> Point(x: 0, y: 0)
+    }
+    acc + p.x + p.y + k
+  })
+}
+
+fn main() {
+  points = Array.from_list(List.map(List.range(0, 4), |i| Point(x: i, y: i + 1)))
+  print("#{sum(points, 4)}")
+}
+"##;
+    let src = format!("import Std.Array.{{Array}}\n{PRELUDE}{src}");
+    let values = run("values-hoist", &src, true, true);
+    let boxed = run("values-hoist-boxed", &src, true, false);
+    assert_eq!(values.code, 0, "{}", values.stderr);
+    assert_eq!(
+        (values.stdout.as_str(), values.stderr.as_str()),
+        (boxed.stdout.as_str(), boxed.stderr.as_str()),
+        "the by-value form differs from the boxed form"
+    );
+    assert!(!values.stdout.trim().is_empty(), "the program prints");
+    // The fixed read is out of the loop: nothing outside it but the read, nothing inside.
+    let out = to_c("values-hoist-c", &src, true, true);
+    let sum = out
+        .main
+        .split("/* sum */")
+        .nth(1)
+        .expect("sum is in the output");
+    let sum = &sum[..sum.find("\n}").expect("sum ends")];
+    let label = sum.find("_head:").expect("sum has a loop");
+    let (before, after) = sum.split_at(label);
+    assert_eq!(
+        before.matches("em_array_load_unchecked_agg").count(),
+        1,
+        "{sum}"
+    );
+    assert_eq!(
+        after.matches("em_array_load_unchecked_agg").count(),
+        0,
+        "{sum}"
+    );
+}

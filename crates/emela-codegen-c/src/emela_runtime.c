@@ -699,15 +699,14 @@ em_ref em_bytes_same(em_ref b) {
  * by value (`em_a3` in `main.c`), the bytes of the value: `value_size` in the array's descriptor
  * says which. A value has no references, so `refs[0]` is 0 for such an array.
  *
- * The program never sees an array change: `em_array_set` writes in place only into an array whose
- * count is 1, which its caller has given up (the Heap IR moves the last reference into the
- * call). */
+ * The length macros and the word element reads a program's inner loops call once per element are
+ * in `emela_runtime.h`, so that they are inline. The program never sees an array change:
+ * `em_array_set` writes in place only into an array whose count is 1, which its caller has given
+ * up (the Heap IR moves the last reference into the call). */
 
 const em_desc em_desc_array_val = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_none};
 const em_desc em_desc_array_ref = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_one};
 
-#define EM_ARRAY_LEN(a) ((a)->slots[0].l)
-#define EM_ARRAY_REFS(a) ((a)->hdr.desc->refs[0] != 0)
 #define EM_ARRAY_SIZE(a) ((size_t)(a)->hdr.desc->value_size)
 #define EM_ARRAY_STRIDE(a) (EM_ARRAY_SIZE(a) != 0 ? EM_ARRAY_SIZE(a) : sizeof(em_word))
 
@@ -779,33 +778,11 @@ em_ref em_array_to_list(em_ref a) {
   return list;
 }
 
-int32_t em_array_size(em_ref a) { return (int32_t)EM_ARRAY_LEN(a); }
-
 em_ref em_array_get(em_ref a, int32_t index) {
   if (index < 0 || index >= EM_ARRAY_LEN(a)) return EM_NONE;
   bool ref = EM_ARRAY_REFS(a);
   if (ref) em_dup(a->slots[1 + index].p);
   return em_some(a->slots[1 + index], ref);
-}
-
-/* `Option.or(Array.get(a, index), d)`: the element at `index`, or `d` (d is borrowed). The
- * element or `d` is owned once more, as for every builtin. */
-em_word em_array_get_or(em_ref a, int32_t index, em_word d) {
-  bool ref = EM_ARRAY_REFS(a);
-  if (index < 0 || index >= EM_ARRAY_LEN(a)) {
-    if (ref) em_dup(d.p);
-    return d;
-  }
-  if (ref) em_dup(a->slots[1 + index].p);
-  return a->slots[1 + index];
-}
-
-/* `match Array.get(a, index)`, in the arm that the caller's bounds test picked. The element is
- * owned once more. */
-em_word em_array_load_unchecked(em_ref a, int32_t index) {
-  bool ref = EM_ARRAY_REFS(a);
-  if (ref) em_dup(a->slots[1 + index].p);
-  return a->slots[1 + index];
 }
 
 em_ref em_array_set(em_ref a, int32_t index, em_word value) {

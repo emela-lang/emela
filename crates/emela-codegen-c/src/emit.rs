@@ -1426,6 +1426,23 @@ impl<'m> Emitter<'m> {
         self.values.index(*elem)
     }
 
+    /// The `ref` argument of a word array read, which is told whether its elements are references
+    /// instead of reading that from the array's descriptor (`emela_runtime.h`). Arrays are typed,
+    /// so the element type of the variable settles it; `arr` is the rendered array operand, which
+    /// is used only when it is not a variable. A read of an array whose elements are held by value
+    /// does not come here: it takes the `_agg` path, which copies the element out.
+    fn elem_refs(&self, f: &Function, args: &[Operand], arr: &str) -> String {
+        match args.first() {
+            Some(Operand::Var(v)) if self.inner_repr(f.vars[*v].ty) == Repr::Ref => {
+                "true".to_owned()
+            }
+            Some(Operand::Var(_)) => "false".to_owned(),
+            // There is no array constant, so this is not reached today; reading the descriptor in
+            // the argument is what the runtime did before the flag existed.
+            _ => format!("EM_ARRAY_REFS({arr})"),
+        }
+    }
+
     /// The descriptor of an array of `ty` (values are held inline; other elements are words,
     /// references or not).
     fn array_of(&mut self, ty: Option<TypeId>) -> String {
@@ -1756,8 +1773,11 @@ impl<'m> Emitter<'m> {
                     return;
                 }
                 None => {
+                    // A word array: `ref` is the static answer the inline read would otherwise
+                    // read from the descriptor (see `elem_refs`).
+                    let refs = self.elem_refs(f, args, &a[0]);
                     let d = self.word(f, &args[2]);
-                    let value = call("em_array_get_or", [a[0].clone(), a[1].clone(), d]);
+                    let value = call("em_array_get_or", [a[0].clone(), a[1].clone(), refs, d]);
                     match dst {
                         Some(d) => format!("{value}.{}", acc(f.vars[d].repr)),
                         None => value,
@@ -1777,7 +1797,11 @@ impl<'m> Emitter<'m> {
                     return;
                 }
                 None => {
-                    let value = call("em_array_load_unchecked", [a[0].clone(), a[1].clone()]);
+                    let refs = self.elem_refs(f, args, &a[0]);
+                    let value = call(
+                        "em_array_load_unchecked",
+                        [a[0].clone(), a[1].clone(), refs],
+                    );
                     match dst {
                         Some(d) => format!("{value}.{}", acc(f.vars[d].repr)),
                         None => value,

@@ -429,3 +429,160 @@ fn main() {
     assert!(!ir.contains("@$Array.get_or"), "{ir}");
     assert!(!ir.contains("@$Array.load_unchecked"), "{ir}");
 }
+
+/// A lambda handed to a fused `List.fold`/`List.map` over a range is copied into the loop rather
+/// than called through the closure it would be. The step is then straight-line code of the
+/// enclosing function, which is what lets the backends inline and hoist the array reads in it, and
+/// the closure (an allocation, plus a reference for each capture) is not made at all.
+#[test]
+fn a_range_loop_copies_in_its_lambda() {
+    let files = [(
+        "main.emel",
+        "\
+fn main() {
+  dbg(List.fold(List.range(0, 3), 0, |acc, x| acc + x))
+  dbg(List.map(List.range(0, 3), |x| x * 2))
+}
+",
+    )];
+    let (m, stats) = lower_files_with_stats(&files, true);
+    assert_eq!(stats.range_fold, 1, "{stats:?}");
+    assert_eq!(stats.range_map, 1, "{stats:?}");
+    let ir = dump(&m);
+    let main = ir
+        .split("export fn main")
+        .nth(1)
+        .expect("main is in the dump");
+    let main = main.split("\nfn ").next().unwrap();
+    assert!(main.contains("loop("), "{main}");
+    // The dump writes a lambda as `fn(x%0: Int) -> Int {` and an indirect call as `(f%1)(...)`.
+    assert!(
+        !main.contains("fn("),
+        "the lambda was not copied in: {main}"
+    );
+    assert!(!main.contains("(f%"), "the call is still indirect: {main}");
+}
+
+/// The bounds test and the load of a fused `Array.get` whose array and index do not change in the
+/// loop leave the loop: the test becomes one `if` around two copies of the loop, and the row is
+/// loaded once instead of once per element. Nothing else about the loop's result changes.
+#[test]
+fn a_bounds_test_of_a_loop_leaves_it() {
+    let files = [(
+        "main.emel",
+        "\
+import Std.Array.{Array}
+
+fn get(m: Array[Array[Int]], i: Int, j: Int) -> Int {
+  Array.get(m, i) match {
+    Some(row) -> Array.get(row, j) |> Option.or(0)
+    None -> 0
+  }
+}
+
+fn dot(a: Array[Array[Int]], b: Array[Array[Int]], i: Int, j: Int, n: Int) -> Int {
+  List.fold(List.range(0, n), from: 0, f: |acc, k| acc + get(a, i, k) * get(b, k, j))
+}
+
+fn main() {
+  a = Array.from_list([Array.from_list([1, 2]), Array.from_list([3, 4])])
+  dbg(dot(a, a, 0, 1, 2))
+}
+",
+    )];
+    let (m, stats) = lower_files_with_stats(&files, true);
+    assert!(stats.hoist > 0, "{stats:?}");
+    let ir = dump(&m);
+    let dot = ir.split("fn dot").nth(1).expect("dot is in the dump");
+    let dot = dot.split("\nfn ").next().unwrap();
+    // `k` is the loop's variable and `i` is fixed, so the test of the row of `a` runs once and
+    // the loop is copied into its two arms. The row is loaded before the first loop; the second
+    // get depends on `k` and keeps its test in the loop.
+    let loop_at = dot.find("loop(").expect("dot has a loop");
+    let head = &dot[..loop_at];
+    assert!(
+        head.contains("Array.size") && head.contains("load_unchecked"),
+        "{dot}"
+    );
+    assert_eq!(dot.matches("loop(").count(), 2, "{dot}");
+}
+
+/// A name that a pattern binds is bound inside the loop, not outside it: a `let` that reads it
+/// must stay where it is, or the name would be used before it is bound. A recursive function is
+/// loopified, so its `match` arms are inside a loop.
+#[test]
+fn a_let_of_a_pattern_binding_stays_in_the_loop() {
+    let files = [(
+        "main.emel",
+        "\
+fn sum(xs: List[Int], acc: Int) -> Int {
+  xs match {
+    [] -> acc
+    [x, ..rest] -> {
+      y = x
+      sum(rest, acc + y)
+    }
+  }
+}
+
+fn main() {
+  dbg(sum([1, 2, 3], 0))
+}
+",
+    )];
+    let (m, stats) = lower_files_with_stats(&files, true);
+    assert_eq!(stats.hoist, 0, "{stats:?}");
+    let ir = dump(&m);
+    let sum = ir.split("fn sum").nth(1).expect("sum is in the dump");
+    let loop_at = sum.find("loop(").expect("sum is loopified");
+    // `let y = x` reads the name the pattern binds, so it is still inside the loop.
+    assert!(sum[loop_at..].contains("let y"), "{sum}");
+}
+
+/// The same hoist for an array whose elements are records: a fixed position (`Array.get(a, 0)`
+/// or a variable bound outside the loop) is tested and loaded once, and the loop's body reads
+/// the name it bound. The element representation is the backend's business, so the pass is the
+/// same word arrays and by-value arrays.
+#[test]
+fn a_fixed_record_read_leaves_the_loop() {
+    let files = [(
+        "main.emel",
+        "\
+import Std.Array.{Array}
+
+type Point(x: Int, y: Int)
+
+fn sum(points: Array[Point], n: Int) -> Int {
+  List.fold(List.range(0, n), from: 0, f: |acc, k| {
+    p = Array.get(points, 0) match {
+      Some(p) -> p
+      None -> Point(x: 0, y: 0)
+    }
+    q = Array.get(points, k) match {
+      Some(q) -> q
+      None -> Point(x: 0, y: 0)
+    }
+    acc + p.x + p.y + q.x + q.y
+  })
+}
+
+fn main() {
+  dbg(sum(Array.from_list([Point(x: 1, y: 2), Point(x: 3, y: 4)]), 2))
+}
+",
+    )];
+    let (m, stats) = lower_files_with_stats(&files, true);
+    assert!(stats.hoist > 0, "{stats:?}");
+    let ir = dump(&m);
+    let sum = ir.split("fn sum").nth(1).expect("sum is in the dump");
+    let sum = sum.split("\nfn ").next().unwrap();
+    // The index is the literal 0, so the test is `(0 >= 0)`; it and its load are before the first
+    // loop, and the loop keeps the test of the position that changes with `k`.
+    let loop_at = sum.find("loop(").expect("sum has a loop");
+    let head = &sum[..loop_at];
+    assert!(
+        head.contains("Array.size[Point]") && head.contains("load_unchecked[Point]"),
+        "{sum}"
+    );
+    assert_eq!(sum.matches("loop(").count(), 2, "{sum}");
+}
