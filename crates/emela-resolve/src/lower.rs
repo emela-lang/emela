@@ -8,7 +8,7 @@ use rowan::TextRange;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 
-use crate::diagnostic::{DiagnosticKind, Expected};
+use crate::diagnostic::{DeprecatedRewrite, DiagnosticKind, Expected};
 use crate::hir::*;
 use crate::resolve::{DotLeft, ModRef, Ns, Pending, Resolver, child_token, token_name};
 use crate::source::ModuleId;
@@ -79,6 +79,12 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         type_arg: false,
         ignored_type_params: Vec::new(),
         member_label: None,
+        effect_aliases: FxHashMap::default(),
+        alias_receiver: false,
+        uses: Vec::new(),
+        use_binds: FxHashMap::default(),
+        region: 0,
+        regions: 0,
     };
     let item = match &pending.item {
         ast::Item::Import(_) => return,
@@ -116,10 +122,12 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
                     let p = s.path()?;
                     let res = lower.resolve_type_ns(&p, Expected::HandlerOrLayer);
                     let args = lower.supply_args(&s, res);
+                    let ty_args = lower.type_arg_list(s.type_args());
                     Some(LayerMember {
                         res,
                         span: lower.span(p.syntax().text_range()),
                         args,
+                        ty_args,
                     })
                 })
                 .collect();
@@ -129,6 +137,52 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         ast::Item::Impl(i) => lower.impl_item(pending.def, i),
     };
     lower.r.program.items.insert(pending.def, item);
+    lower.report_deprecated_uses();
+}
+
+/// The name of an effect alias made for `use E` called in place: the effect's name in
+/// lower snake case (`log_store` for `LogStore`, `state` for `State[Int]`).
+pub(crate) fn alias_name(effect: &str) -> SmolStr {
+    let name = effect.split('[').next().unwrap_or(effect);
+    let name = name.rsplit('.').next().unwrap_or(name).trim();
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out.into()
+}
+
+/// A `use E` written as an expression (W0403, `[effect.use]`), reported when the item is done.
+struct DeprecatedUse {
+    expr: ExprId,
+    range: TextRange,
+    /// The effect as written after `use` (`State[Int]`).
+    effect: SmolStr,
+    form: UseForm,
+}
+
+enum UseForm {
+    /// `(use E).op(...)` or `(use E).op`.
+    InPlace { op: SmolStr },
+    /// `x = use E`.
+    Binding(LocalId),
+    /// Anywhere else: an argument, an element, a return value.
+    Value,
+}
+
+/// A variable bound to `use E` (`x = use E`), and whether `x <- E` means the same: x is used only
+/// as the receiver of operations, in the same function and not inside a `with` that starts after
+/// the binding, where an effect alias could reach another handler.
+struct UseBind {
+    region: u32,
+    receiver_only: bool,
 }
 
 struct Lower<'r, 'a> {
@@ -153,6 +207,20 @@ struct Lower<'r, 'a> {
     /// The label through which the last handler member was named (`Audit.Open`,
     /// `[effect.label]`); taken by the expression or the item of `with` that names it.
     member_label: Option<DefId>,
+    /// The effect aliases declared in the item (`x <- E`), with the effect and its type
+    /// arguments (`[effect.use]`).
+    effect_aliases: FxHashMap<LocalId, (Res, Vec<TypeId>)>,
+    /// Set while the base of `x.op` is lowered: a reference to an effect alias is allowed there.
+    alias_receiver: bool,
+    /// The `use E` expressions of the item, reported at its end (W0403).
+    uses: Vec<DeprecatedUse>,
+    /// The variables bound to `use E` in the item ([`UseBind`]).
+    use_binds: FxHashMap<LocalId, UseBind>,
+    /// The current region: a function body, a lambda, a local fn or a `with` body. A variable
+    /// bound to `use E` and used in another region may not be rewritten to an effect alias.
+    region: u32,
+    /// The number of regions made so far.
+    regions: u32,
 }
 
 /// Names bound by one pattern (or parameter list). Binding the same name twice is reported.
@@ -482,7 +550,21 @@ impl Lower<'_, '_> {
             };
             let ty = param.ty().map(|t| self.lower_type(&t));
             let local = self.bind(&mut binder, name, local_kind, range);
-            params.push(Param { local, ty });
+            let borrowed = param
+                .syntax()
+                .children()
+                .filter(|n| n.kind() == ANNOTATION)
+                .find(|n| {
+                    n.children_with_tokens()
+                        .filter_map(|t| t.into_token())
+                        .any(|t| t.kind() == LOWER_NAME && t.text() == "borrowed")
+                })
+                .map(|n| self.span(n.text_range()));
+            params.push(Param {
+                local,
+                ty,
+                borrowed,
+            });
         }
         self.bind_all(binder);
         params
@@ -504,7 +586,11 @@ impl Lower<'_, '_> {
             if let Some(token) = param.name() {
                 let (name, range) = token_name(&token);
                 let local = self.bind(&mut binder, name, LocalKind::LambdaParam, range);
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
             } else if let Some(token) = child_token(param.syntax(), SELF_KW) {
                 // As in [`Self::params`].
                 if !self.self_type {
@@ -519,14 +605,22 @@ impl Lower<'_, '_> {
                     LocalKind::SelfParam,
                     token.text_range(),
                 );
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
             } else if let Some(node) = param.pattern() {
                 let range = node.text_range();
                 let pat = self.pat(&node, &mut binder);
                 let local =
                     self.alloc_local(node.text().to_string().into(), LocalKind::PatParam, range);
                 let value = self.alloc_expr(ExprKind::Path(Res::Local(local)), range);
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
                 lets.push(Stmt::Let {
                     pat,
                     ty: None,
@@ -591,6 +685,7 @@ impl Lower<'_, '_> {
             Some(fields) => Fields::Named(fields),
             None => Fields::None,
         };
+        let bound = self.bound(t.syntax());
         let derives = self.derives(t.derive());
         self.pop_type_params();
         if let Some(ctor) = ctor {
@@ -607,6 +702,7 @@ impl Lower<'_, '_> {
             ctor,
             fields,
             derives,
+            bound,
             // Outside the bundled sources, `@intrinsic` is E0224 and the type stays a user type.
             is_intrinsic: t.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
         })
@@ -617,6 +713,7 @@ impl Lower<'_, '_> {
             def,
             e.syntax().children().find(|n| n.kind() == TYPE_PARAM_LIST),
         );
+        let bound = self.bound(e.syntax());
         // Variants with unreadable names were skipped during collection, so match up only the
         // named ones, in order.
         let syntax_variants: Vec<_> = e.variants().filter(|v| v.name().is_some()).collect();
@@ -646,8 +743,16 @@ impl Lower<'_, '_> {
             type_params,
             variants: variants.to_vec(),
             derives,
+            bound,
             tags,
         })
+    }
+
+    /// The effect of `uses E` on a type or enum declaration (`[type.rules]`). The clause names
+    /// one effect; further ones are ignored.
+    fn bound(&mut self, decl: &SyntaxNode) -> Option<EffectRef> {
+        let clause = decl.children().find(|n| n.kind() == USES_CLAUSE)?;
+        self.effect_set(&clause).items.into_iter().next()
     }
 
     fn effect_item(&mut self, def: DefId, children: &[DefId], e: &ast::EffectDecl) -> Item {
@@ -752,7 +857,23 @@ impl Lower<'_, '_> {
         defs
     }
 
+    /// The type parameters of a handler (`[effect.handler]`) are in scope in its fields, the
+    /// effects after `:`, init, release, the operation bodies and the inner handlers. Those of an
+    /// inner handler are kept so that their names resolve; type inference reports them (E0460).
     fn handler_body(&mut self, def: DefId, ctor: Option<DefId>, h: &ast::HandlerDecl) -> Item {
+        let type_params = self.type_params(def, h.type_param_list());
+        let item = self.handler_body_in(def, ctor, h, type_params);
+        self.pop_type_params();
+        item
+    }
+
+    fn handler_body_in(
+        &mut self,
+        def: DefId,
+        ctor: Option<DefId>,
+        h: &ast::HandlerDecl,
+        type_params: Vec<TypeParam>,
+    ) -> Item {
         let fields = self.named_fields(h.field_list());
         if let Some(ctor) = ctor {
             // The constructor of a handler without fields is a value (`ConsoleLogger`).
@@ -768,19 +889,46 @@ impl Lower<'_, '_> {
                 }),
             );
         }
-        let fields = fields.unwrap_or_default();
+        let mut fields = fields.unwrap_or_default();
         let effects = self.handler_effects(h.effects());
+        let is_intrinsic = h.declares_only()
+            && h.syntax()
+                .children()
+                .filter_map(ast::Annotation::cast)
+                .any(|a| a.name().is_some_and(|n| n.text() == "intrinsic"))
+            && self.r.modules.is_core(self.module);
         // `init` runs on entering `with` and builds the handler value; there is no `self` yet. Its
         // parameters are in scope in its body only.
-        let (init_params, init) = match h.init() {
-            Some(b) => {
+        // The init of a built-in handler declares only its parameters (`[task.background]`).
+        let (init_params, init) = match (h.init(), h.init_params()) {
+            (Some(b), params) => {
                 self.push_scope();
-                let params = self.params(h.init_params(), LocalKind::Param);
+                let params = self.params(params, LocalKind::Param);
                 let body = self.block(&b);
                 self.pop_scope();
                 (params, Some(body))
             }
-            None => (Vec::new(), None),
+            (None, Some(params)) => {
+                self.push_scope();
+                let params = self.params(Some(params), LocalKind::Param);
+                self.pop_scope();
+                (params, None)
+            }
+            // The fields of a built-in handler are the parameters of its init, which the
+            // runtime implements (`Queue(capacity: 100)`, `[task.queue]`); it has no value to
+            // hold them in.
+            (None, None) if is_intrinsic => {
+                let params = std::mem::take(&mut fields)
+                    .into_iter()
+                    .map(|f| Param {
+                        local: self.alloc_local(f.name, LocalKind::Param, f.span.range),
+                        ty: Some(f.ty),
+                        borrowed: None,
+                    })
+                    .collect();
+                (params, None)
+            }
+            (None, None) => (Vec::new(), None),
         };
         let release = h.release().map(|b| {
             self.push_scope();
@@ -820,6 +968,7 @@ impl Lower<'_, '_> {
             .collect();
         let inner = self.inner_handlers(def, &effects, h);
         Item::Handler(HandlerItem {
+            type_params,
             effects,
             fields,
             ctor,
@@ -829,6 +978,7 @@ impl Lower<'_, '_> {
             ops,
             inner,
             member: None,
+            is_intrinsic,
         })
     }
 
@@ -1336,6 +1486,14 @@ impl Lower<'_, '_> {
                 None => return Res::Err,
             }
         };
+        // A built-in handler with the name of its effect is named where a handler is expected
+        // (`[module.resolution]`).
+        let def = match expected {
+            Expected::WithItem | Expected::HandlerOrLayer | Expected::HandlerOrEffect => {
+                self.r.program.twin_handler(def).unwrap_or(def)
+            }
+            _ => def,
+        };
         let kind = self.r.program.defs[def].kind;
         let fits = match expected {
             Expected::Type => {
@@ -1583,7 +1741,17 @@ impl Lower<'_, '_> {
                 _ => ExprKind::Missing,
             },
             STRING => self.string(node),
-            NAME_REF => ExprKind::Path(self.name_ref(node)),
+            NAME_REF => {
+                let receiver = std::mem::take(&mut self.alias_receiver);
+                let res = self.name_ref(node);
+                if let Res::Local(local) = res {
+                    if let Some(id) = self.alias_use(local, range, receiver) {
+                        return id;
+                    }
+                    self.note_use_bound(local, receiver);
+                }
+                ExprKind::Path(res)
+            }
             PATH_EXPR => match node.children().find_map(ast::Path::cast) {
                 Some(path) => {
                     self.member_label = None;
@@ -1641,7 +1809,20 @@ impl Lower<'_, '_> {
                     None => Res::Err,
                 };
                 let args = self.type_arg_list(node.children().find(|n| n.kind() == TYPE_ARG_LIST));
-                ExprKind::Use { effect, args }
+                let id = self.alloc_expr(ExprKind::Use { effect, args }, range);
+                let effect = node
+                    .text()
+                    .to_string()
+                    .trim_start_matches("use")
+                    .trim()
+                    .into();
+                self.uses.push(DeprecatedUse {
+                    expr: id,
+                    range,
+                    effect,
+                    form: UseForm::Value,
+                });
+                return id;
             }
             FAIL_EXPR => {
                 // The `e` of `fail e` is an ordinary expression (a value of the error type); type
@@ -1703,7 +1884,9 @@ impl Lower<'_, '_> {
                     })
                     .collect();
                 self.bind_all(binder);
+                let region = self.enter_region();
                 let body = self.child_expr(node, 0);
+                self.region = region;
                 self.pop_scope();
                 ExprKind::With { handlers, body }
             }
@@ -1711,7 +1894,9 @@ impl Lower<'_, '_> {
                 self.push_scope();
                 let (params, lets) =
                     self.lambda_params(node.children().find_map(ast::ParamList::cast));
+                let region = self.enter_region();
                 let mut body = self.child_expr(node, 0);
+                self.region = region;
                 self.pop_scope();
                 // `|p| body` is `|t| { p = t; body }` (`[fn.decl]`). A body that is not a block
                 // (`|(a, b)| a + b`) is put in one, spanning the body.
@@ -1738,13 +1923,15 @@ impl Lower<'_, '_> {
         let mut stmts = Vec::new();
         let children: Vec<SyntaxNode> = node
             .children()
-            .filter(|c| matches!(c.kind(), BINDING | LOCAL_FN) || is_expr(c.kind()))
+            .filter(|c| matches!(c.kind(), BINDING | LOCAL_FN | EFFECT_ALIAS) || is_expr(c.kind()))
             .collect();
         let mut tail = None;
         for (i, child) in children.iter().enumerate() {
             let last = i + 1 == children.len();
             if child.kind() == BINDING {
                 stmts.push(self.binding(child));
+            } else if let Some(alias) = ast::EffectAlias::cast(child.clone()) {
+                self.effect_alias(&alias);
             } else if let Some(f) = ast::LocalFn::cast(child.clone()) {
                 stmts.push(self.local_fn(&f));
             } else {
@@ -1759,6 +1946,112 @@ impl Lower<'_, '_> {
         Block { stmts, tail }
     }
 
+    /// `x <- E[args]` (`[effect.use]`). Binds x for the rest of the block. It adds no statement:
+    /// each reference to x becomes its own `use E` ([`Program::alias_uses`]).
+    fn effect_alias(&mut self, alias: &ast::EffectAlias) {
+        let node = alias.syntax();
+        // A right side that is not an effect name is reported by syntax validation (E0152);
+        // name resolution does not report it again.
+        let effect = match alias.path() {
+            Some(path) if !alias.is_malformed() => self.resolve_type_ns(&path, Expected::Effect),
+            _ => Res::Err,
+        };
+        let args = self.type_arg_list(node.children().find(|n| n.kind() == TYPE_ARG_LIST));
+        let Some(token) = alias.name() else {
+            return;
+        };
+        let (name, range) = token_name(&token);
+        let mut binder = Binder::default();
+        let local = self.bind(&mut binder, name, LocalKind::EffectAlias, range);
+        self.bind_all(binder);
+        self.effect_aliases.insert(local, (effect, args));
+    }
+
+    /// A reference to `local`, if it is an effect alias: its own `use E`, recorded in
+    /// [`Program::alias_uses`]. Anywhere but the receiver of `x.op(...)` or `x.op` it is E0453;
+    /// it is still lowered to `use E`, so that type checking goes on.
+    fn alias_use(&mut self, local: LocalId, range: TextRange, receiver: bool) -> Option<ExprId> {
+        let (effect, args) = self.effect_aliases.get(&local)?.clone();
+        if !receiver {
+            let name = self.r.program.locals[local].name.clone();
+            self.error(range, DiagnosticKind::EffectAliasAsValue { name });
+        }
+        let id = self.alloc_expr(ExprKind::Use { effect, args }, range);
+        self.r.program.alias_uses.insert(id, Some(local));
+        Some(id)
+    }
+
+    /// Starts a new region ([`Lower::region`]) and returns the one to go back to.
+    fn enter_region(&mut self) -> u32 {
+        self.regions += 1;
+        std::mem::replace(&mut self.region, self.regions)
+    }
+
+    /// A reference to `local`: if it is bound to `use E`, whether it is still only a receiver in
+    /// the region of its binding ([`UseBind`]).
+    fn note_use_bound(&mut self, local: LocalId, receiver: bool) {
+        let region = self.region;
+        if let Some(bind) = self.use_binds.get_mut(&local)
+            && (!receiver || bind.region != region)
+        {
+            bind.receiver_only = false;
+        }
+    }
+
+    fn set_use_form(&mut self, expr: ExprId, form: UseForm) {
+        if let Some(u) = self.uses.iter_mut().rev().find(|u| u.expr == expr) {
+            u.form = form;
+        }
+    }
+
+    /// W0403 for each `use E` written as an expression in the item (`[effect.use]`), with the
+    /// replacement in the help: an effect alias where it means the same, and otherwise an effect
+    /// alias or a named item.
+    fn report_deprecated_uses(&mut self) {
+        for u in std::mem::take(&mut self.uses) {
+            let rewrite = match &u.form {
+                UseForm::InPlace { op } => Some(DeprecatedRewrite::InPlace {
+                    alias: alias_name(&u.effect),
+                    op: op.clone(),
+                }),
+                UseForm::Binding(local) if self.use_binds[local].receiver_only => {
+                    Some(DeprecatedRewrite::Binding {
+                        alias: self.r.program.locals[*local].name.clone(),
+                    })
+                }
+                _ => None,
+            };
+            self.error(
+                u.range,
+                DiagnosticKind::DeprecatedUse {
+                    effect: u.effect,
+                    rewrite,
+                },
+            );
+        }
+    }
+
+    /// The handler member `member` opened through `local`, if it is an effect alias (E0453).
+    fn member_through_alias(&mut self, local: LocalId, range: TextRange, member: &SmolStr) -> bool {
+        let Some((effect, _)) = self.effect_aliases.get(&local) else {
+            return false;
+        };
+        let effect = match effect {
+            Res::Def(d) => self.r.program.defs[*d].name.clone(),
+            _ => SmolStr::new_static("E"),
+        };
+        let alias = self.r.program.locals[local].name.clone();
+        self.error(
+            range,
+            DiagnosticKind::MemberThroughEffectAlias {
+                alias,
+                effect,
+                member: member.clone(),
+            },
+        );
+        true
+    }
+
     /// `pat: ty = value`. The right side is resolved first and the pattern's names are bound
     /// after, so `count = count + 1` works.
     fn binding(&mut self, node: &SyntaxNode) -> Stmt {
@@ -1771,6 +2064,21 @@ impl Lower<'_, '_> {
             None => self.alloc_pat(PatKind::Missing, node.text_range()),
         };
         self.bind_all(binder);
+        if ty.is_none()
+            && let PatKind::Bind(local) = self.r.program.pats[pat].kind
+            && binding
+                .value()
+                .is_some_and(|v| v.syntax().kind() == USE_EXPR)
+        {
+            self.set_use_form(value, UseForm::Binding(local));
+            self.use_binds.insert(
+                local,
+                UseBind {
+                    region: self.region,
+                    receiver_only: true,
+                },
+            );
+        }
         Stmt::Let { pat, ty, value }
     }
 
@@ -1802,10 +2110,12 @@ impl Lower<'_, '_> {
         self.push_scope();
         let params = self.params(f.param_list(), LocalKind::Param);
         let sig = self.signature(node, Vec::new(), params, false);
+        let region = self.enter_region();
         let body = match f.body() {
             Some(b) => self.block(&b),
             None => self.alloc_expr(ExprKind::Missing, node.text_range()),
         };
+        self.region = region;
         self.pop_scope();
         self.ignored_type_params.truncate(ignored);
         Stmt::LocalFn(Box::new(LocalFn {
@@ -2078,7 +2388,16 @@ impl Lower<'_, '_> {
                     Some(e) => (self.expr(&e), false),
                     None => {
                         let res = self.value(&name, range, LOWER_NAME);
-                        (self.alloc_expr(ExprKind::Path(res), range), true)
+                        let value = match res {
+                            Res::Local(local) => {
+                                self.note_use_bound(local, false);
+                                self.alias_use(local, range, false)
+                            }
+                            _ => None,
+                        };
+                        let value =
+                            value.unwrap_or_else(|| self.alloc_expr(ExprKind::Path(res), range));
+                        (value, true)
                     }
                 };
                 args.push(Arg {
@@ -2120,14 +2439,16 @@ impl Lower<'_, '_> {
                 None => Res::Err,
             };
             let args = self.supply_args(&label, res);
+            let ty_args = self.type_arg_list(label.type_args());
             let mut by_init_args = None;
+            let mut by_args = Vec::new();
             let by = supplies.next().and_then(|s| {
                 let p = s.path()?;
                 let res = self.resolve_type_ns(&p, Expected::HandlerOrEffect);
                 by_init_args = self.supply_args(&s, res);
+                by_args = self.type_arg_list(s.type_args());
                 Some((res, self.span(p.syntax().text_range())))
             });
-            let by_args = self.type_arg_list(c.children().find(|n| n.kind() == TYPE_ARG_LIST));
             return Some((
                 WithItem {
                     res,
@@ -2136,6 +2457,7 @@ impl Lower<'_, '_> {
                     label: None,
                     cap: None,
                     args,
+                    ty_args,
                     by: Some(by.unwrap_or((Res::Err, self.span(c.text_range())))),
                     by_args,
                     by_init_args,
@@ -2148,7 +2470,18 @@ impl Lower<'_, '_> {
         // inference.
         if let Some((cap, member)) = s.cap_member() {
             let (name, range) = token_name(&cap);
-            let res = self.value(&name, range, LOWER_NAME);
+            let mut res = self.value(&name, range, LOWER_NAME);
+            if let Res::Local(local) = res {
+                self.note_use_bound(local, false);
+            }
+            // A handler member cannot be opened through an effect alias (`[effect.use]`). The
+            // item is kept, so that its name is still bound.
+            if let Res::Local(local) = res
+                && let Some(m) = &member
+                && self.member_through_alias(local, range, &token_name(m).0)
+            {
+                res = Res::Err;
+            }
             let cap_expr = self.alloc_expr(ExprKind::Path(res), range);
             let label = member.map(|m| {
                 let (name, range) = token_name(&m);
@@ -2166,6 +2499,7 @@ impl Lower<'_, '_> {
                     label: None,
                     cap: Some((cap_expr, label)),
                     args,
+                    ty_args: Vec::new(),
                     by: None,
                     by_args: Vec::new(),
                     by_init_args: None,
@@ -2178,6 +2512,7 @@ impl Lower<'_, '_> {
         let res = self.resolve_type_ns(&p, Expected::WithItem);
         let label = self.member_label.take();
         let args = self.supply_args(&s, res);
+        let ty_args = self.type_arg_list(s.type_args());
         Some((
             WithItem {
                 res,
@@ -2186,6 +2521,7 @@ impl Lower<'_, '_> {
                 label,
                 cap: None,
                 args,
+                ty_args,
                 by: None,
                 by_args: Vec::new(),
                 by_init_args: None,
@@ -2314,8 +2650,30 @@ impl Lower<'_, '_> {
             };
             return ExprKind::Path(res);
         }
+        let op = token.kind() == LOWER_NAME;
         let base = match base {
-            Some(b) => self.expr(&b),
+            Some(b) => {
+                // `x.op` with an effect alias x; `x.M` that opens a handler member is E0453.
+                self.alias_receiver = b.kind() == NAME_REF;
+                let e = self.expr(&b);
+                self.alias_receiver = false;
+                if let ExprKind::Use { .. } = self.r.program.exprs[e].kind {
+                    match self.r.program.alias_uses.get(e).copied() {
+                        Some(Some(local)) if !op => {
+                            let span = self.r.program.exprs[e].span.range;
+                            self.member_through_alias(local, span, &name);
+                        }
+                        // `(use E).op` is `{ h <- E; h.op }`. `(use E).M(...)`, which opens a
+                        // handler member, is not expanded (`[effect.use]`).
+                        None if op => {
+                            self.r.program.alias_uses.insert(e, None);
+                            self.set_use_form(e, UseForm::InPlace { op: name.clone() });
+                        }
+                        _ => {}
+                    }
+                }
+                e
+            }
             None => self.alloc_expr(ExprKind::Missing, node.text_range()),
         };
         ExprKind::Field {

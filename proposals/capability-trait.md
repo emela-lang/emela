@@ -1,7 +1,7 @@
 ---
 title: A built-in trait for capability types, Capability
 authors: [somnicattus]
-status: accepted
+status: implemented
 pr: 650
 issue: 616
 decided: 2026-11-18
@@ -88,9 +88,9 @@ Add rows:
 
 ## Diagnostics
 
-- [ ] A type that does not satisfy Capability: E0326
-- [ ] Capability on an error set or effect set type parameter: code to be assigned
-- [ ] An impl of Capability or Immediate: code to be assigned
+- [x] A type that does not satisfy Capability: E0326
+- [x] Capability on an error set or effect set type parameter: E0340
+- [x] An impl of Capability or Immediate: E0341
 
 ## Compatibility
 

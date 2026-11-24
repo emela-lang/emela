@@ -1,7 +1,7 @@
-# The State effect (spec 8.8). Represents mutable state. The state lives in the frame of
+# The State effect (`[effect.state]`). Represents mutable state. The state lives in the frame of
 # `State.run`; the values themselves stay immutable.
 #
-# Import it with `import Std.State.{State}`. Use it as `(use State[Int]).get()` and provide the
+# Import it with `import Std.State.{State}`. Use it as `st <- State[Int]` and `st.get()` and provide the
 # state with `State.run(0, || ...)`.
 # To hold two states of the same type, wrap them in distinct types (`State[Hits]` and `State[Misses]`).
 #
@@ -15,7 +15,7 @@ pub effect State[S] {
   fn get() -> S
   ## Sets the state to `value`.
   fn set(value: S) -> ()
-  ## Applies `f` to the state. `f` is pure, so the update runs at once (spec 11.1).
+  ## Applies `f` to the state. `f` is pure, so the update runs at once (`[task.basic]`).
   fn update(f: fn(S) -> S) -> ()
 }
 

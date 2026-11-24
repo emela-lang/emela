@@ -1,0 +1,13 @@
+fn greet(id: Int) {
+  log <- Logger
+  st <- State[Int]
+  db <- App.Db
+  log.info("hello")
+  st.set(st.get() + 1)
+  f = log.info
+  xs = List.map([1], |n| {
+    c <- Console
+    c.print_line("#{n}")
+  })
+  a < -1
+}

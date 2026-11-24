@@ -40,17 +40,6 @@ pub(crate) fn add(
         if let Some(emela) = &pome.emela {
             diagnostics.extend(check_compiler_version(pome, emela, &manifest));
         }
-        // `[target.native]`: the deprecated build target `c` in the Pome's `[pome].targets`.
-        if pome
-            .targets
-            .iter()
-            .flatten()
-            .any(|t| t == Target::DEPRECATED_NATIVE)
-        {
-            diagnostics.push(
-                crate::target::deprecated_target_warning().at(Location::Path(manifest.clone())),
-            );
-        }
     }
 
     for allowed in &dependencies.allow_external {

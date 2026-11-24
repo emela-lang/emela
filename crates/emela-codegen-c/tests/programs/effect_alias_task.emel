@@ -1,0 +1,48 @@
+## `[task.group]`, `[effect.with]`: a task uses the handlers outside the with of its group, even a
+## closure made inside a `with` in the body of the group. `s <- TaskGroup` starts into the
+## innermost group at each call.
+
+import Std.Task.{Task, TaskGroup}
+
+effect Greeter {
+  fn greet(s: String) -> String
+}
+
+handler Plain: Greeter {
+  fn greet(s) { "plain #{s}" }
+}
+
+handler Shout: Greeter {
+  fn greet(s) { "SHOUT #{s}" }
+}
+
+fn main() -> () uses { Async } {
+  with Shout {
+    with tasks = Task.Group {
+      with Plain {
+        g <- Greeter
+        h = || g.greet("alias")
+        a = tasks.start(|| dbg(h()))
+        b = tasks.start(|| dbg((use Greeter).greet("in place")))
+        _ = dbg((use Greeter).greet("body"))
+        _ = a.join()
+        _ = b.join()
+        ()
+      }
+    }
+    # A task of an outer group, given a closure made in a `with` inside an inner group.
+    with outer = Task.Group {
+      with tasks = Task.Group {
+        with Plain {
+          g <- Greeter
+          h = || g.greet("outer child")
+          _ = outer.start(|| dbg(h())).join()
+          ()
+        }
+      }
+      s <- TaskGroup
+      _ = s.start(|| dbg((use Greeter).greet("alias start"))).join()
+      ()
+    }
+  }
+}
