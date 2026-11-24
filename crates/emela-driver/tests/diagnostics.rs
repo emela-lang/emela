@@ -3081,3 +3081,44 @@ layer Missing {
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
+
+/// A call that may suspend after resume in a suspend fn implementation (E0461,
+/// `[effect.handler]`): at the call, with a label at the resume it follows, which is a direct call
+/// or another use of resume (`[effect.async]`).
+#[test]
+fn suspend_after_resume() {
+    let main = "\
+effect Logger {
+  suspend fn info(msg: String) -> ()
+}
+
+effect Net {
+  suspend fn send(msg: String) -> ()
+}
+
+@external(js, \"setTimeout\")
+fn set_timeout(f: fn() -> () uses {}, ms: Int) -> () uses {}
+
+handler RemoteLog: Logger {
+  suspend fn info(msg, resume) {
+    net <- Net
+    resume(())
+    net.send(msg)
+  }
+}
+
+handler LaterLog: Logger {
+  suspend fn info(msg, resume) {
+    net <- Net
+    set_timeout(|| resume(()), 0)
+    net.send(msg)
+  }
+}
+";
+    let analysis = check_files(
+        &[("app/Pome.toml", ""), ("app/src/main.emel", main)],
+        "app",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}

@@ -1625,10 +1625,10 @@ typedef struct em_perform em_perform;
 /* A task's record (the host sees a handle, `em_task *`; see the event loop's section). */
 typedef struct em_htask em_htask;
 
-/* Who receives a continuation's result: the fiber (its main continuation), the operation call
- * whose implementation it runs, or nobody (an implementation unwound when the run stalls; its
- * defect may become the run's result). */
-enum { EM_END_MAIN, EM_END_IMPL, EM_END_ORPHAN };
+/* Who receives a continuation's result: the fiber (its main continuation), or the operation call
+ * whose implementation it runs. An implementation waits only before it resumes: after resume it
+ * does not suspend (E0461). */
+enum { EM_END_MAIN, EM_END_IMPL };
 
 /* What a wait waits for. */
 enum { EM_WAIT_PAUSE, EM_WAIT_PERFORM, EM_WAIT_FIBER, EM_WAIT_HOST };
@@ -1760,7 +1760,6 @@ typedef struct em_job {
   em_fiber *fiber;
   em_ref fn;
   em_input in;
-  int end;
   /* EM_JOB_RESUME of a fiber that was given what it waited for (permits, a value of a queue):
    * an interruption that arrived after the wake takes effect at its next suspension point
    * instead (`wake("served", …)` of the JS runtime). */
@@ -1787,8 +1786,6 @@ struct em_root {
   em_wait *first_wait, *last_wait;
   /* Fibers that have not ended (counted). */
   em_vec fibers;
-  /* The first defect of a continuation unwound when the run stalled that was not a fiber's. */
-  em_ref orphan;
   int64_t pauses;
 };
 
@@ -1980,7 +1977,7 @@ static void em_drop_wait(em_root *r, em_wait *w) {
   if (p != NULL) {
     /* `wait.onDrop`: the implementation that has not resumed is unwound too. */
     em_wait *iw = p->impl_wait;
-    if (!p->used && iw != NULL && iw->live) {
+    if (iw != NULL && iw->live) {
       em_drop_wait(r, iw);
       em_queue_push(&r->queue, em_job_of(EM_JOB_DROP_IMPL, iw));
     }
@@ -2187,16 +2184,9 @@ static void em_strand_end(em_root *r, em_fiber *f, int end, em_perform *impl, em
       }
       em_fiber_finish(f, in);
       break;
-    case EM_END_IMPL:
+    default:
       em_settled(impl, in);
       em_perform_unref(impl);
-      break;
-    default:
-      if (in.mode == EM_THROW && !em_is_interrupted(in.value.p) && r->orphan == NULL) {
-        r->orphan = in.value.p;
-      } else {
-        em_input_drop(in);
-      }
       break;
   }
 }
@@ -2362,13 +2352,7 @@ static void em_run_job(em_root *r, em_job job) {
           em_step(r, f, chain, end, impl, em_in_ref(EM_THROW, em_deliver(f)));
           break;
         case EM_JOB_ROOT_THROW:
-          if (job.end == EM_END_MAIN) {
-            em_step(r, f, chain, end, impl, em_in_ref(EM_THROW, em_deliver(f)));
-          } else {
-            if (impl != NULL) em_perform_unref(impl);
-            em_step(r, f, chain, EM_END_ORPHAN, NULL,
-                    em_in_ref(EM_THROW, em_interrupted_new(NULL)));
-          }
+          em_step(r, f, chain, end, impl, em_in_ref(EM_THROW, em_deliver(f)));
           break;
         default:
           em_step(r, f, chain, end, impl, em_in_ref(EM_THROW, em_interrupted_new(NULL)));
@@ -3248,8 +3232,7 @@ static void em_root_finish(em_root *r, em_input in) {
   r->over = true;
   while (r->queue.len > 0) em_job_drop(em_queue_pop(&r->queue));
   while (r->later.len > 0) em_job_drop(em_queue_pop(&r->later));
-  /* What the continuations left behind is not resumed: the withs in them are not released
-   * (spec 14.5). */
+  /* The continuations still waiting will not be resumed: what they wait for is stopped. */
   while (r->first_wait != NULL) {
     em_wait *w = r->first_wait;
     w->live = false;
@@ -3275,11 +3258,6 @@ static void em_root_finish(em_root *r, em_input in) {
 
 /* The root fiber ended. */
 static void em_root_ended(em_root *r, em_input in) {
-  if (in.mode == EM_THROW && em_is_interrupted(in.value.p) && r->orphan != NULL) {
-    em_input_drop(in);
-    in = em_in_ref(EM_THROW, r->orphan);
-    r->orphan = NULL;
-  }
   em_root_finish(r, in);
 }
 
@@ -3302,12 +3280,11 @@ static void em_root_interrupt(em_root *r) {
   }
   for (size_t i = 0; i < waits.len; i++) {
     em_wait *w = waits.items[i];
-    if (w->live) {
-      /* Dropping a caller also unwinds the implementation it waits for (`onDrop`). */
+    /* An implementation waits only before it resumes (E0461), and is unwound by dropping its
+     * caller (`onDrop`). */
+    if (w->live && w->end == EM_END_MAIN) {
       em_drop_wait(r, w);
-      em_job job = em_job_of(EM_JOB_ROOT_THROW, w);
-      job.end = w->end == EM_END_MAIN ? EM_END_MAIN : EM_END_ORPHAN;
-      em_queue_push(&r->queue, job);
+      em_queue_push(&r->queue, em_job_of(EM_JOB_ROOT_THROW, w));
     }
     em_wait_unref(w);
   }
@@ -3364,7 +3341,6 @@ void em_run(em_word (*entry)(void), int32_t repr) {
     em_drop(f->self);
   }
   em_vec_free(&r->fibers);
-  em_drop(r->orphan);
   free(r->queue.items);
   free(r->later.items);
   em_root_cur = prev;
@@ -3552,7 +3528,8 @@ em_word em_perform_end(em_ref rs) {
   p->refs++;
   em_cur_main = p->prev_main;
   if (em_suspending) {
-    /* The implementation suspended: it goes on as another continuation of the same fiber. */
+    /* The implementation suspended before it resumed: it goes on as another continuation of the
+     * same fiber, and runs to its end without suspending once it resumes (E0461). */
     em_ref chain;
     em_wait *w = em_take_suspension(NULL, &chain);
     if (w == NULL) {

@@ -5260,7 +5260,9 @@ fn root_interrupt(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.br(0);
     ins.end();
     ins.end();
-    // The live waits, newest first: their continuations unwind with their releases.
+    // The live waits of fibers' main continuations, newest first: their continuations unwind
+    // with their releases. An implementation waits only before it resumes (E0461), and is
+    // unwound by dropping its caller (`fb_drop_wait`).
     i32_const_cell(b, ins, |p| p.wtail);
     ins.i32_load(mem(0, 4));
     ins.local_set(W);
@@ -5277,6 +5279,10 @@ fn root_interrupt(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_eqz();
     ldl(ins, W, W_LIVE);
     ins.i32_and();
+    ldl(ins, W, W_END);
+    c(ins, WE_MAIN);
+    ins.i32_eq();
+    ins.i32_and();
     ins.if_(BlockType::Empty);
     ldl(ins, W, W_FIBER);
     ins.local_set(F);
@@ -5285,16 +5291,8 @@ fn root_interrupt(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ldl(ins, W, W_CHAIN);
     ins.local_set(CHAIN);
     st_const(ins, W, W_CHAIN, 0);
-    ldl(ins, W, W_END);
-    c(ins, WE_MAIN);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
     c(ins, WE_MAIN);
     ins.local_set(END);
-    ins.else_();
-    c(ins, WE_ORPHAN);
-    ins.local_set(END);
-    ins.end();
     // Drop the wait first: a caller's implementation is unwound before the caller, and its
     // continuation is queued ahead of this one (the C runtime's `em_drop_wait`).
     g(ins, W);

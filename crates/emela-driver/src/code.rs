@@ -221,6 +221,8 @@ pub const BOUND_TYPE_OUTSIDE_HANDLER: &str = "E0458";
 // Handlers with type parameters (`[effect.handler]`, `[effect.with]`)
 pub const HANDLER_ARGS_UNKNOWN: &str = "E0459";
 pub const INNER_HANDLER_TYPE_PARAMS: &str = "E0460";
+// No suspension after resume (`[effect.handler]`, `[dyn.suspend]`)
+pub const SUSPEND_AFTER_RESUME: &str = "E0461";
 pub const UNUSED_HANDLER_PARAM: &str = "E0462";
 
 // E09xx: tooling

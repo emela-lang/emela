@@ -1651,6 +1651,43 @@ impl Diagnostic {
                     format!("{cause}, but operation `{op}` is not a `suspend fn`"),
                 )
             }
+            TypeDiagnosticKind::SuspendAfterResume {
+                call,
+                resume,
+                passed,
+            } => {
+                help = Some("start the rest with `Spawn` before calling `resume`".to_owned());
+                if let Some(&file) = files.get(resume.module) {
+                    let text = if *passed {
+                        "the caller may resume from here"
+                    } else {
+                        "the caller resumes here"
+                    };
+                    label = Some((Span::new(file, resume.range), text.to_owned()));
+                }
+                let what = match call {
+                    SuspendingCall::Op { op, .. } => format!("call to `{op}`"),
+                    SuspendingCall::External { callee } => format!("call to `{callee}`"),
+                    SuspendingCall::Fn {
+                        callee: Some(callee),
+                        ..
+                    } => format!("call to `{callee}`"),
+                    SuspendingCall::Fn { callee: None, .. } => "this call".to_owned(),
+                    SuspendingCall::Member { effect, member } => {
+                        format!("opening handler member `{member}` of `{effect}`")
+                    }
+                };
+                let after = if *passed {
+                    "after `resume` has been passed on"
+                } else {
+                    "after `resume` has been called"
+                };
+                (
+                    Severity::Error,
+                    Some(code::SUSPEND_AFTER_RESUME),
+                    format!("{what} may suspend {after}"),
+                )
+            }
             TypeDiagnosticKind::NotImmediate {
                 effects,
                 sets,

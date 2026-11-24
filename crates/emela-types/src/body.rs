@@ -114,6 +114,8 @@ struct HandlerBody {
     resume_later: bool,
     /// Whether it implements a suspend fn. fn operation bodies cannot suspend (E0417).
     suspend: bool,
+    /// The `resume` parameter of a suspend fn implementation, for E0461.
+    resume: Option<LocalId>,
 }
 
 /// A handler's init or release body, used when computing E and R.
@@ -955,6 +957,9 @@ impl<'a> BodyInfer<'a> {
                 fails: f.fails.clone(),
                 resume_later,
                 suspend,
+                resume: (suspend && hop.params.len() == params.len())
+                    .then(|| hop.params.last().map(|r| r.local))
+                    .flatten(),
             });
         }
     }
@@ -1226,6 +1231,7 @@ impl<'a> BodyInfer<'a> {
         self.check_leaks();
         self.check_immediates();
         self.check_fn_op_bodies();
+        self.check_suspend_after_resume();
         self.check_handler_cycles();
         self.check_coverage();
 

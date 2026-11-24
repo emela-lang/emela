@@ -18,6 +18,7 @@ mod handler_member;
 mod lower;
 mod methods;
 mod multi_effect_handler;
+mod resume;
 mod signature;
 mod spec_examples;
 mod tables;

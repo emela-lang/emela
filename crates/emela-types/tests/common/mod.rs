@@ -186,6 +186,16 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
                 "`{text}` effect set mismatch: expected `uses {expected}`, found `uses {found}`"
             )
         }
+        DiagnosticKind::SuspendAfterResume {
+            call,
+            resume,
+            passed,
+        } => {
+            let range = resume.range;
+            let at = &src[usize::from(range.start())..usize::from(range.end())];
+            let how = if *passed { "passed on at" } else { "called at" };
+            format!("`{text}` {call:?} after resume {how} `{at}`")
+        }
         kind => format!("`{text}` {kind:?}"),
     }
 }

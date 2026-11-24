@@ -152,7 +152,7 @@ fn crawl[E, R](tasks: use TaskGroup[E, { Http, Async, R }], url: String) -> () {
 
 ### No suspension after resume
 
-- In the body of the implementation of a suspend fn, a call that may suspend and can be evaluated after a direct call of `resume(...)` is a compile error (E0461).
+- In the body of the implementation of a suspend fn, a call that may suspend and can be evaluated after a direct call of `resume(...)`, or after another use of resume (stored, captured in a closure, passed as an argument, `[effect.async]`), is a compile error (E0461). With another use, resume can come from a callback or another fiber while the implementation is still running.
 - The check is syntactic and errs on the safe side, like the check for Async (`[effect.async]`). If one branch resumes, what follows the branch is after resume.
 - This is the only place where a continuation is left behind. The R of a host callback is Immediate (`[type.effect-bound]`), so it cannot suspend after resume, and a resume from another fiber is run by that fiber itself.
 - What remains after resume does not suspend, and runs to its end on the spot.
@@ -233,7 +233,7 @@ The changes are applied to `spec/` in this pull request.
 
 ## Diagnostics
 
-- [ ] E0461 (new): a call that may suspend after resume
+- [x] E0461 (new): a call that may suspend after resume
 - [ ] E0413 covers TaskGroup, Spawn, Deferred, Semaphore, Permit and Queue
 - [x] E0213: the exception for built-in handlers
 - [ ] E0402: the note moves from `Fiber.scope` to the tasks of a group
