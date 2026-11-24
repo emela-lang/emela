@@ -10,6 +10,7 @@ mod support;
 mod dump;
 mod from_core;
 mod heap;
+mod sra;
 mod verify;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared
