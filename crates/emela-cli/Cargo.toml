@@ -4,6 +4,7 @@ description = "The emela binary: argument parsing, running run and test, and eme
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 emela-driver.workspace = true
@@ -19,3 +20,7 @@ path = "src/main.rs"
 tempfile.workspace = true
 insta.workspace = true
 serde_json.workspace = true
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"

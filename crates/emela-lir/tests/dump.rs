@@ -1,7 +1,7 @@
 //! Tests for how the LIR dump looks, on hand-built functions that use every construct. Each module
 //! also passes the verifier.
 
-mod common;
+use crate::common;
 
 use common::{Fixture, int, string};
 use emela_core::{Builtin, External, ExternalBinding, FiberOp, HostModule, HostRef, Type, TypeId};

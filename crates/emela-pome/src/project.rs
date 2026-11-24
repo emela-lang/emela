@@ -10,6 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::edit;
+use crate::fetch::progress::Phase;
 use crate::fetch::transport::Transport;
 use crate::fetch::{FetchError, Fetcher};
 use crate::hash::MANIFEST_FILE;
@@ -166,7 +167,12 @@ impl Project {
         }
         let version = match version {
             Some(v) => v,
-            None => fetcher.latest(&path)?,
+            None => {
+                fetcher.progress().start(Phase::Latest, Some(1));
+                let latest = fetcher.latest(&path)?;
+                fetcher.progress().finish(Phase::Latest, 1);
+                latest
+            }
         };
         if dev && self.manifest.dependencies.contains_key(&path) {
             return Err(PomeError::Usage(format!(
@@ -288,8 +294,15 @@ impl Project {
         };
         let mut text = self.text.clone();
         let mut changes = Vec::new();
-        for (path, current, dev) in targets {
-            let latest = fetcher.latest(path)?;
+        let asked = targets.len();
+        fetcher.progress().start(Phase::Latest, Some(asked));
+        let mut latests = Vec::with_capacity(asked);
+        for target in targets {
+            let latest = fetcher.latest(target.0)?;
+            latests.push((target, latest));
+        }
+        fetcher.progress().finish(Phase::Latest, asked);
+        for ((path, current, dev), latest) in latests {
             if latest > *current {
                 let table = if dev {
                     edit::DEV_DEPENDENCIES
@@ -446,13 +459,18 @@ pub fn resolve<T: Transport>(
         .cloned()
         .chain(pairs(&manifest.dev_dependencies))
         .collect();
+    let progress = fetcher.progress();
+    progress.start(Phase::Resolve, None);
     let list = mvs::build_list(&all, &mut graph)?;
     let built = mvs::reached(&requirements, &list, &mut graph)?;
+    let list: Vec<(SourcePath, Version)> = list
+        .into_iter()
+        .filter(|(path, _)| *path != manifest.name && !manifest.replace.contains_key(path))
+        .collect();
+    progress.finish(Phase::Resolve, list.len());
+    progress.start(Phase::Fetch, Some(list.len()));
     let mut pomes = Vec::new();
     for (path, version) in list {
-        if path == manifest.name || manifest.replace.contains_key(&path) {
-            continue;
-        }
         let locked = match old
             .and_then(|l| l.get(&path))
             .filter(|l| l.version == version)
@@ -477,6 +495,7 @@ pub fn resolve<T: Transport>(
             ..locked
         });
     }
+    progress.finish(Phase::Fetch, pomes.len());
     Ok(Lock::new(pomes))
 }
 
@@ -680,19 +699,21 @@ fn write(file: &Path, text: &str) -> Result<(), PomeError> {
     let io = |e: std::io::Error| PomeError::Io(format!("{}: {e}", file.display()));
     let mut tmp = tempfile::NamedTempFile::new_in(dir).map_err(io)?;
     std::io::Write::write_all(&mut tmp, text.as_bytes()).map_err(io)?;
-    // A temporary file is private (0600); keep the permissions of the file it replaces.
-    let perms = match fs::metadata(file) {
-        Ok(m) => m.permissions(),
-        Err(_) => fs::metadata(dir).map_err(io)?.permissions(),
-    };
-    #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut perms = perms;
-    #[cfg(unix)]
-    if !file.exists() {
-        use std::os::unix::fs::PermissionsExt;
-        perms.set_mode(0o644);
+    // A temporary file is private (0600); keep the permissions of the file it replaces, and give
+    // a new file 0644 on Unix. A new file elsewhere keeps the permissions it was created with: the
+    // permissions of the directory are not copied, because on Windows they carry the directory
+    // attribute, which a file cannot have (os error 87).
+    match fs::metadata(file) {
+        Ok(m) => tmp.as_file().set_permissions(m.permissions()).map_err(io)?,
+        #[cfg(unix)]
+        Err(_) => {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = fs::Permissions::from_mode(0o644);
+            tmp.as_file().set_permissions(perms).map_err(io)?;
+        }
+        #[cfg(not(unix))]
+        Err(_) => {}
     }
-    tmp.as_file().set_permissions(perms).map_err(io)?;
     tmp.persist(file).map_err(|e| io(e.error))?;
     Ok(())
 }

@@ -1,5 +1,5 @@
 import Std.Exit.{Exit, Success, Failure}
-import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
+import Std.Cause.{Cause, CauseKind, Fail, Die}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
 import Std.State.{State}
@@ -50,7 +50,6 @@ fn kind_name(k: CauseKind) -> String {
   k match {
     Fail      -> "Fail"
     Die       -> "Die"
-    Interrupt -> "Interrupt"
   }
 }
 

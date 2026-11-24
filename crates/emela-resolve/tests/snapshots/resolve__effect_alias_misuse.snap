@@ -1,0 +1,12 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"effect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect ReadFile {\n  fn read(max: Int) -> Int\n}\n\neffect Files {\n  handler Open(path: String): ReadFile\n}\n\ntype Box(log: Int)\n\nfn pass(x: Int) -> Int { x }\n\nfn values() {\n  log <- Logger\n  a = log\n  pass(log)\n  b = [log]\n  c = Box(log:)\n  d = \"#{log}\"\n  log\n}\n\nfn members() -> Int {\n  fs <- Files\n  with t = fs.Open(\"a\") { t.read(1) }\n}\n\nhandler Quiet: Logger {\n  init {\n    fs <- Files\n    r = fs.Open(\"a\")\n    Quiet\n  }\n\n  fn info(msg) { () }\n}\n\"##,)])"
+---
+error src/main.emel@239..242 `log`: `log` is an effect alias, not a value: only `log.op(...)` and `log.op` can be written
+error src/main.emel@250..253 `log`: `log` is an effect alias, not a value: only `log.op(...)` and `log.op` can be written
+error src/main.emel@262..265 `log`: `log` is an effect alias, not a value: only `log.op(...)` and `log.op` can be written
+error src/main.emel@277..280 `log`: `log` is an effect alias, not a value: only `log.op(...)` and `log.op` can be written
+error src/main.emel@292..295 `log`: `log` is an effect alias, not a value: only `log.op(...)` and `log.op` can be written
+error src/main.emel@300..303 `log`: `log` is an effect alias, not a value: only `log.op(...)` and `log.op` can be written
+error src/main.emel@354..356 `fs`: handler member `Open` cannot be opened through effect alias `fs`
+error src/main.emel@441..443 `fs`: handler member `Open` cannot be opened through effect alias `fs`

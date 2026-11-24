@@ -1,0 +1,50 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"main\"])"
+---
+export suspend fn main(ev%0: ref (evidence)) -> i32 (Int) {
+  self%1: i32 (Later) = call Later$init(ev%0)
+  h%2: ref (handler Wait) = call Later(self%1, ev%0)
+  protect {} cleanup {
+    runtime hold()
+    protect {
+      call Later$release(self%1, ev%0)!
+    } cleanup {
+      runtime retire(h%2, "Later")
+      runtime unhold()
+    }
+  }
+  f%24: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%3: ref (fiber_scope)) [ev%0] {
+    f%8: ref (fn(fn(evidence) -> any suspends) -> any) = closure(g%4: ref (fn(evidence) -> any suspends)) [ev%0, s%3] {
+      f%6: ref (fn() -> any suspends) = suspend closure() [g%4, ev%0] {
+        t%5: ref (any) = call_indirect g%4(ev%0)!
+        return t%5
+      }
+      t%7: ref (any) = fiber fork(s%3, f%6)
+      return t%7
+    }
+    h%9: ref (handler Std.Task.TaskGroup[_, _]) = handler Group: Std.Task.TaskGroup[_, _] { start: f%8 }
+    f%10: ref (fn() -> Int) = closure() [] {
+      return 1
+    }
+    f%13: ref (fn() -> Int ev) = closure(ev%11: ref (evidence)) [f%10] {
+      t%12: i32 (Int) = call_indirect f%10()
+      return t%12
+    }
+    f%17: ref (fn(evidence) -> Int) = closure(ev%14: ref (evidence)) [h%9, f%13] {
+      t%15: ref (evidence) = ev_extend(ev%14, [Std.Task.TaskGroup[_, _]: h%9])
+      t%16: i32 (Int) = call_indirect f%13(t%15)
+      return t%16
+    }
+    f%21: ref (fn(evidence) -> any) = closure(x%18: ref (evidence)) [f%17] {
+      r%19: i32 (Int) = call_indirect f%17(x%18)
+      a%20: ref (any) = coerce r%19
+      return a%20
+    }
+    a%22: ref (Std.Task.Task[Int]) = call_op h%9.Std.Task.TaskGroup[_, _]#start(f%21)
+    t%23: i32 (Int) = fiber join(a%22)!
+    return t%23
+  }
+  t%25: i32 (Int) = fiber scope(f%24)!
+  return t%25
+}

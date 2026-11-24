@@ -1,0 +1,40 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0152]: `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b`
+   ╭─[ main.emel:4:8 ]
+   │
+ 4 │   x = a<-1
+   │        ─┬  
+   │         ╰── 
+───╯
+
+error[E0152]: the right side of `<-` must be an effect
+   ╭─[ main.emel:9:8 ]
+   │
+ 9 │   x <- 1
+   │        ┬  
+   │        ╰── 
+───╯
+   = help: `x <- E` binds an effect; to compare with a negative value, write `x < -1`
+
+error[E0152]: the right side of `<-` must be an effect
+    ╭─[ main.emel:10:8 ]
+    │
+ 10 │   x <- LIMIT
+    │        ──┬──  
+    │          ╰──── 
+────╯
+   = help: `x <- E` binds an effect; to compare with a negative value, write `x < -LIMIT`
+
+error[E0152]: the right side of `<-` must be an effect
+    ╭─[ main.emel:11:8 ]
+    │
+ 11 │   x <- Int.abs(3)
+    │        ─────┬────  
+    │             ╰────── 
+────╯
+   = help: `x <- E` binds an effect; to compare with a negative value, write `x < -Int.abs(3)`
+
+4 errors

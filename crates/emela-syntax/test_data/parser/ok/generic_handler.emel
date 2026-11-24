@@ -1,0 +1,26 @@
+handler InMemoryRepo[K: Eq, V]: Repo[K, V] {
+  fn find(key) { None }
+}
+
+handler Constant[S](value: S): State[S] {
+  init(value: S) { Constant(value:) }
+  fn get() { self.value }
+}
+
+handler Cache[K: Eq + Hash, V](entries: List[(K, V)]): Repo[K, V] {
+  init() { Cache(entries: []) }
+}
+
+layer AppTest {
+  InMemoryRepo[UserId, User]
+  Constant(value: 0)
+  Memory[Int](initial: 0)
+}
+
+fn main() {
+  with Constant(value: 0) { count() }
+  with InMemoryRepo { repo_test() }
+  with repo = InMemoryRepo[UserId, User] { seed(repo) }
+  with Memory[Int](initial: 0), Std.Cache[Map[K, V], Int] { run() }
+  with Hits by Memory[Int](initial: 0), Counter by State[Int], Seen by Blank { c() }
+}
