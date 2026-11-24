@@ -687,8 +687,6 @@ fn fiber_waits(op: FiberOp) -> bool {
         op,
         FiberOp::Scope { .. }
             | FiberOp::Join
-            | FiberOp::Await { .. }
-            | FiberOp::Interrupt
             | FiberOp::DeferredAwait
             | FiberOp::Attempt { .. }
     )
