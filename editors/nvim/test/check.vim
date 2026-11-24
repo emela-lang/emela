@@ -183,7 +183,7 @@ call s:Expect('r = x escape', 'fail', 'emelaException')
 call s:Expect('assert self', 'assert', 'emelaStatement')
 call s:Expect('assert self', 'Self', 'emelaSelf')
 
-" `await` is not reserved (spec 3.3): `Fiber.await` and `Deferred.await` are functions.
+" `await` is not reserved (spec 3.3): it is the name of an operation of Deferred.
 call s:Expect('waited = ', 'await', 'emelaFunctionCall')
 call s:Expect('waited = ', 'await', 'emelaFunctionCall', 2)
 call s:Expect('awaiting = ', 'await', '')

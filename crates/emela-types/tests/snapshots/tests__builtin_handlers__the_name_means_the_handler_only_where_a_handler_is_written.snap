@@ -1,0 +1,31 @@
+---
+source: crates/emela-types/tests/builtin_handlers.rs
+expression: "render(r#\"\nimport Std.Queue.{Queue}\n\nlayer Fresh {\n  Queue[String](capacity: 1)\n}\n\nfn named() -> Int uses { Queue[Int] } {\n  q <- Queue\n  (use Queue[Int]).size() + q.size()\n}\n\nfn given(q: use Queue[Int]) -> Int { q.size() }\n\nfn provided() -> Int {\n  with Queue[Int](capacity: 2) {\n    named() + given(use Queue[Int])\n  }\n}\n\nfn layered() -> Int {\n  with Fresh {\n    q <- Queue[String]\n    q.size()\n  }\n}\n\"#)"
+---
+named: fn() -> Int uses { Queue[Int] }
+given: fn(use Queue[Int]) -> Int uses { q }
+  q: use Queue[Int]
+provided: fn() -> Int
+layered: fn() -> Int
+item Queue: [Int]
+layer Fresh #0: [String]
+--- R
+{   q <- Queue   (use Queue[Int]).size() + q.size() }: Queue[Int]
+(use Queue[Int]).size() + q.size(): Queue[Int]
+(use Queue[Int]).size(): Queue[Int]
+(use Queue[Int]).size: Queue[Int]
+use Queue[Int]: Queue[Int]
+q.size(): Queue[Int]
+q.size: Queue[Int]
+q: Queue[Int]
+{ q.size() }: '0
+q.size(): '0
+{     named() + given(use Queue[Int])   }: { Queue[Int] }
+named() + given(use Queue[Int]): { Queue[Int] }
+named(): Queue[Int]
+given(use Queue[Int]): { Queue[Int] }
+use Queue[Int]: Queue[Int]
+{     q <- Queue[String]     q.size()   }: Queue[String]
+q.size(): Queue[String]
+q.size: Queue[String]
+q: Queue[String]

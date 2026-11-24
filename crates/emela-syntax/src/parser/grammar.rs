@@ -37,11 +37,15 @@ fn delimited(
     p.expect(close);
 }
 
-/// `"(" [ param { "," param } ] ")"`．`param = "self" | lower_name [ ":" type ]`
+/// `"(" [ param { "," param } ] ")"`．`param = "self" | { annotation } lower_name [ ":" type ]`
 fn param_list(p: &mut Parser<'_>) {
     let m = p.start();
     delimited(p, L_PAREN, R_PAREN, |p| {
         let param = p.start();
+        // `@borrowed f: fn() -> ()` (`[ext.boundary]`).
+        while p.at(AT) {
+            items::annotation(p);
+        }
         if p.eat(LOWER_NAME) {
             if p.eat(COLON) {
                 types::type_(p);

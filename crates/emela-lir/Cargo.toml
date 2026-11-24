@@ -4,6 +4,7 @@ description = "The low IR below the Core IR: the Flow IR (structured ANF with re
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 emela-core.workspace = true
@@ -15,3 +16,7 @@ emela-resolve.workspace = true
 emela-syntax.workspace = true
 emela-types.workspace = true
 insta.workspace = true
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"

@@ -5,21 +5,21 @@ JavaScript, WebAssembly and C.
 
 ## Status
 
-The current release is **0.27.1**. Each release is listed in
+The current release is **0.28.2**. Each release is listed in
 [`CHANGELOG.md`](CHANGELOG.md). The 0.11 compiler lives on the
 [`legacy`](https://github.com/emela-lang/emela/tree/legacy) branch.
 
-| Release | Adds                                                                                                                                                                                       |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0.20    | The language: data, pattern matching, modules, typed errors and effects, `suspend fn`, handlers with state, fibers, files, an `Http` client, `@test`                                       |
-| 0.21    | The WebAssembly and C targets, `emela doc`, effect labels                                                                                                                                  |
-| 0.22    | Dependencies (`emela pome`), `@external` files copied to the output                                                                                                                        |
-| 0.23    | The test root `test/` and `[dev-dependencies]`, more of the language server                                                                                                                |
-| 0.24    | `trait`, `impl`, `derive` (`Eq`, `Ord`, `Show`), `Std.Map`, `Std.Set`; test helpers move to the Pome [`brix`](https://github.com/emela-lang/brix)                                          |
-| 0.25    | HTTP services (`@entry(Http.serve)`), `@export`, handler `init` arguments, every construct on WASM, `emela test --reporter`, `emela new`                                                   |
-| 0.26    | Method calls `x.f(a)`, `Std.Bytes`                                                                                                                                                         |
-| 0.27    | Closures `\|x\| e`, `uses { R }`, `_` in `escape`, `Std.Array`, `Std.Exit`                                                                                                                 |
-| next    | `--target native`, `Std.Process` (arguments, standard input and output, the exit code of `main`), local `fn`, `each`, `Std.Json` and `derive Encode, Decode`, Bun, `emela doctor`, Windows |
+| Release | Adds                                                                                                                                                                                                                                                                                                                         |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.20    | The language: data, pattern matching, modules, typed errors and effects, `suspend fn`, handlers with state, fibers, files, an `Http` client, `@test`                                                                                                                                                                         |
+| 0.21    | The WebAssembly and C targets, `emela doc`, effect labels                                                                                                                                                                                                                                                                    |
+| 0.22    | Dependencies (`emela pome`), `@external` files copied to the output                                                                                                                                                                                                                                                          |
+| 0.23    | The test root `test/` and `[dev-dependencies]`, more of the language server                                                                                                                                                                                                                                                  |
+| 0.24    | `trait`, `impl`, `derive` (`Eq`, `Ord`, `Show`), `Std.Map`, `Std.Set`; test helpers move to the Pome [`brix`](https://github.com/emela-lang/brix)                                                                                                                                                                            |
+| 0.25    | HTTP services (`@entry(Http.serve)`), `@export`, handler `init` arguments, every construct on WASM, `emela test --reporter`, `emela new`                                                                                                                                                                                     |
+| 0.26    | Method calls `x.f(a)`, `Std.Bytes`                                                                                                                                                                                                                                                                                           |
+| 0.27    | Closures `\|x\| e`, `uses { R }`, `_` in `escape`, `Std.Array`, `Std.Exit`                                                                                                                                                                                                                                                   |
+| 0.28    | `--target native`, `Std.Process` (arguments, standard input and output, the exit code of `main`), local `fn`, `each`, `Std.Json` and `derive Encode, Decode`, capability types `use E`, handler members, one handler for several effects, `Semaphore` and `Queue`, Bun, `emela doctor`, Windows, the compiler in the browser |
 
 The language specification is in [`spec/`](spec/README.md). Changes to it are
 proposed in [`proposals/`](proposals/README.md). The
@@ -168,8 +168,7 @@ $ emela test
 
 Each command takes a project directory or an entry file, and defaults to `.`.
 `run`, `build` and `test` take `--target js` (the default), `--target native`, which
-builds an executable for this machine with its C compiler (`--target c` is a
-deprecated name, removed in 0.29), or `--target wasm`, which
+builds an executable for this machine with its C compiler, or `--target wasm`, which
 writes a WASI 0.3 component `main.wasm` (`target/emela/wasm`) and runs it with `wasmtime`;
 `[build] target = "..."` in `Pome.toml` changes the default. JS and WASM run
 every construct of the language. The native target does not have `String.length`,
@@ -366,13 +365,13 @@ liftoff
 
 The bundled std lives under `Std` and is imported: the platform effects
 `Std.Console`, `Std.Clock`, `Std.Random`, `Std.Env`, `Std.FileSystem`,
-`Std.Http` and `Std.Process` (`Args`, `Stdin`, `Stdout`, `Stderr`), each with
-its host handler (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemEnv`,
-`SystemFileSystem`, `SystemHttp`, `SystemArgs`, `SystemStdin`, `SystemStdout`,
-`SystemStderr`), the layer `Std.Platform.Platform` that bundles the ones every
+`Std.Http`, `Std.Tcp` and `Std.Process` (`Args`, `Stdin`, `Stdout`, `Stderr`),
+each with its host handler (`SystemConsole`, `SystemClock`, `SystemRandom`,
+`SystemEnv`, `SystemFileSystem`, `SystemHttp`, `SystemTcp`, `SystemArgs`,
+`SystemStdin`, `SystemStdout`, `SystemStderr`), the layer `Std.Platform.Platform` that bundles the ones every
 host has (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemHttp`), the
 layer `Std.Process.Process` that adds the ones that need a process,
-`Std.State`, `Std.Fiber`, `Std.Exit`, `Std.Cause`, `Std.Deferred`, the values
+`Std.State`, `Std.Task`, `Std.Exit`, `Std.Cause`, `Std.Deferred`, the values
 `Std.Map`, `Std.Set`, `Std.Array`, `Std.Bytes`, `Std.Dynamic`, `Std.Shape`,
 `Std.Json`, `Std.Path`, `Std.Instant` and `Std.Duration`, and
 `Std.Http.Request` and `Std.Http.Response`. The test handlers `TestConsole`,
@@ -410,36 +409,48 @@ recorded.
 # lines == ["hello, a", "hello, b"]
 ```
 
-Fibers run concurrently on one thread and switch only where a call may
-suspend. They start only inside `Fiber.scope`, and every fiber ends before its
-scope does; a failing fiber interrupts its siblings, and the error reaches the
-scope. `Fiber.both`, `Fiber.map`, `Fiber.all`, `Fiber.race` and `Fiber.timeout`
-are built on the scope, so `Fiber.scope` and `Fiber.fork` are needed only for
-the shapes they do not cover. This is [`examples/fibers`](examples/fibers),
-where `fetch(id, ms)` sleeps for `ms` and prints `fetched <id>`:
+Tasks run concurrently on one thread and switch only where a call may
+suspend. A task starts only through the capability of a with item that bounds
+its lifetime: `Task.Group` for tasks whose results are awaited, and
+`Task.Background` for tasks whose results are not. A failing task of a group
+interrupts its siblings, and the error reaches the with; a background waits
+for its tasks and passes their failures to `on_failure`. `Task.both`,
+`Task.map`, `Task.all`, `Task.race` and `Task.timeout` are built on
+`Task.Group`, so a group is needed only for the shapes they do not cover. This
+is [`examples/tasks`](examples/tasks), where `fetch(id, ms)` sleeps for `ms`
+and prints `fetched <id>`:
 
 ```emela
 fn main() {
   with SystemConsole, SystemClock {
-    console = use Console
+    console <- Console
     # The waits overlap: the second fetch ends first.
-    (a, b) = Fiber.both(|| fetch(1, 200), || fetch(2, 100))
+    (a, b) = Task.both(|| fetch(1, 200), || fetch(2, 100))
     console.print_line("both: #{a}, #{b}")
-    names = Fiber.map([3, 4, 5], |id| fetch(id, 100 * (6 - id)))
+    names = Task.map([3, 4, 5], |id| fetch(id, 100 * (6 - id)))
     console.print_line("map: #{names}")
-    first = Fiber.race([|| fetch(6, 300), || fetch(7, 100)])
+    first = Task.race([|| fetch(6, 300), || fetch(7, 100)])
     console.print_line("race: #{first}")
-    late = Fiber.timeout(100, || fetch(8, 1000))
+    late = Task.timeout(100, || fetch(8, 1000))
     console.print_line("timeout: #{late}")
-    # A failing child interrupts its siblings, and the error reaches the scope.
-    failed = Fiber.scope(|| {
-      ok = Fiber.fork(|| fetch(9, 1000))
-      bad = Fiber.fork(|| fetch(-1, 100))
-      "#{Fiber.join(ok)} #{Fiber.join(bad)}"
-    }) escape {
+    # A failing task interrupts its siblings, and the error reaches the with.
+    failed = with tasks = Task.Group {
+      ok = tasks.start(|| fetch(9, 1000))
+      bad = tasks.start(|| fetch(-1, 100))
+      "#{ok.join()} #{bad.join()}"
+    } escape {
       NotFound(id:) -> "not found: #{id}"
     }
     console.print_line(failed)
+    # Tasks of a background are waited for, not interrupted, and their failures go to
+    # `on_failure`.
+    with bg = Task.Background(on_failure: |cause| console.print_line(Cause.to_string(cause))) {
+      bg.start(|| {
+        _ = fetch(-2, 100)
+        ()
+      })
+      console.print_line("background started")
+    }
   }
 }
 ```
@@ -458,6 +469,9 @@ race: user 7
 timeout: None
 fetched -1
 not found: -1
+background started
+fetched -2
+error: NotFound
 ```
 
 `FileSystem` reads and writes text, and each operation fails only with the
@@ -510,7 +524,7 @@ fn a_404_is_not_a_failure() {
 ```
 
 With `with Platform { ... }`, the same code sends real requests through
-`fetch`. For a deadline, wrap the call in `Fiber.timeout`; interrupting a fiber
+`fetch`. For a deadline, wrap the call in `Task.timeout`; interrupting a task
 that waits on `send` aborts the request.
 
 ## HTTP services
@@ -650,6 +664,8 @@ Set.from_list(["a", "b"])
 
 ## Known limitations
 
+- `Std.Tcp` runs on JS only so far: on native and WASM, calling its
+  operations is E0412 ([`tcp`](proposals/tcp.md) is implemented in steps).
 - `FileSystem` and `Http` handle UTF-8 text only; `Std.Bytes` exists, but they
   do not read or write it yet.
 - No limit on how many fibers run at once (`Semaphore`) or `Queue` yet. Both
@@ -661,8 +677,6 @@ Set.from_list(["a", "b"])
   1.4.3 or later. `EMELA_JS_HOST` chooses the one that `emela run` and `emela test`
   start (`node` by default). Browsers are not a target; `emela-playground`
   compiles in the browser, but the platform handlers are not specified there.
-- Some checks that scopes, fiber handles and `Deferred` values do not escape
-  run at run time (a defect such as `fiber scope was used after it ended`).
 - The native target runs on macOS (arm64) and Linux (x86_64 with glibc) only, not
   on Windows, and lacks the constructs listed under [Commands](#commands).
 - The questions still open are in [`spec/open-questions.md`](spec/open-questions.md).
