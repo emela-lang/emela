@@ -1,6 +1,6 @@
 # 12. External functions `[ext]`
 
-A host function is declared as a fn with `@external` and no body. One with side effects can be called only inside a handler. This way, every side effect goes through a named effect.
+A host function is declared as a fn with `@external` and no body. One with side effects adds the External of its module to R, which only the handlers of that module remove (`[effect.external]`). This way, every side effect goes through a named effect.
 
 `@external` is a last resort. The way out to the host is the job of the effects in the platform layer of std (15.2). Libraries and applications are written on top of them in pure Emela, so that they run with the same meaning on both JS and WASM. The `@external` functions of a Pome used as a dependency can be used only when the Pome being built allows them in `[external]`, and the dependency shows them to the outside as effects ("Pomes that touch the host" in 4.7). Host features that most programs use are added to std as platform effects or as value types (Socket, Bytes, and so on). A feature that only a particular host has (Cloudflare Workers, for example) goes in a target-specific Pome.
 

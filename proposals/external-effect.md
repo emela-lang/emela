@@ -3,7 +3,7 @@ title: External functions as an effect of their module
 authors: [somnicattus]
 status: draft
 issue:
-touches: [effect.external (new), effect.decl, effect.handler, ext.decl, ext.call, ext.boundary, module.pome, diag.list]
+touches: [effect.external (new), effect.decl, effect.handler, ext, ext.decl, ext.call, ext.boundary, module.pome, diag.list]
 requires: []
 related: [host-effects, capture-checking, capability-identity, closure-r-by-caller]
 ---
@@ -153,7 +153,9 @@ fn read_all(step: fn() -> Int uses { Async, External, ProcessHost }) -> String
 }
 ```
 
-In another module, the External of M is written with the module, `M.External`, as for the other names of M (`[module.resolution]`). `External` alone always names the External of the module where it is written.
+In another module, the External of M is written with the module, `M.External`, as for the other names of M (`[module.resolution]`). `External` alone names the External of the module where it is written.
+
+The name `External` is treated as a name of the Prelude (`[module.resolution]`): a definition or an import named `External` in a module shadows it, and the compiler warns (W0202). In that module, the External of the module cannot be written, and is only inferred. In another module, `M.External` names that definition of M, and the External of M has no name.
 
 The declarations of external functions do not change. External is never written in them; it is added to their type:
 
@@ -224,7 +226,7 @@ The ways out of the Motivation are then closed:
 | Another handler of the module, or another instance of the same handler | Allowed: the value runs inside a handler body of the module |
 | A callback passed to an external function, called by the host later | Allowed for an external function of the module: a handler of the module gave it to the host. A value of M passed to the host by code of another module (received from a factory): E0454 |
 
-A value that calls an external function is therefore never called by code outside the handlers of its module, in particular by code of another module or of another Pome (`[module.pome]`).
+A value that calls an external function is therefore never called by Emela code outside the handlers of its module, in particular by code of another module or of another Pome (`[module.pome]`), as long as the declarations of external functions keep to `[ext.boundary]` (#815). Outside those handlers, only the host calls such a value, as a callback that a handler of the module gave it.
 
 ### Typing rules
 
@@ -238,6 +240,7 @@ A value that calls an external function is therefore never called by code outsid
 - [ ] E0407: retired
 - [ ] E0402, E0403: the help for External
 - [ ] E0413, E0414: External
+- [ ] W0202: a definition or an import named `External`
 - [ ] E0454: the External of the module of the call is not counted; that of another module is
 
 ## Compatibility
@@ -253,19 +256,19 @@ Programs that compile now and stop compiling:
 
 No declaration of an external function changes, and none can be called in more places than today.
 
-Programs that compile now because they call external functions only inside handlers keep compiling: the External of the module is removed in the same bodies where E0407 allowed the references. Retiring E0407 makes more programs compile (private fns that call external functions). `External` becomes a built-in name. External has no run-time representation.
+Programs that compile now because they call external functions only inside handlers keep compiling: the External of the module is removed in the same bodies where E0407 allowed the references. Retiring E0407 makes more programs compile (private fns that call external functions). `External` becomes a name treated as a name of the Prelude, so a module that declares or imports something named `External` keeps compiling, with W0202. No module of std, the examples or the tests does (surveyed at `ea45cbfb`). External has no run-time representation.
 
 The meaning of rule 2 of `[ext.call]` changes: a value that calls an external function may be carried out of a handler, to another handler of the module or through the body of a with, as long as it is called only inside the handlers of the module. No program changes behavior because of this; rule 2 was not checked.
 
 ## Implementation
 
-- `emela-resolve`: `External` and `M.External` as names of effects; E0237 for every Pome.
+- `emela-resolve`: `External` and `M.External` as names of effects, shadowed by a definition or an import as a name of the Prelude is (W0202); E0237 for every Pome.
 - `emela-types`: the External of each module as an effect in R, added by calls of and references to external functions according to their uses clauses, and to the functions they return (return types of function type, recursively through their return types); its removal at the bodies of the handlers of the module, before requires(H); the retirement of E0407 (`check_external` in `body.rs`); E0454 without External; the diagnostics.
 - `emela-core`: `args_onto`, `next_line` and `rest_text`.
 - `emela-driver`: tests for the four programs of the Motivation (E0403, or E0402 where `main` calls the value), a generic helper that stores the closure in a State, a task started in a group whose with is outside the handler, a pub fn with External in its R called from another module, a pub `@external` fn in the Pome being built (E0237), a closure of M received from a factory and passed by another module to its own external function as a callback (E0454), and the forms that stay silent (a private fn that calls an external function, called from a handler; a pub fn of M that returns such a closure, whose result another module passes to an init of a handler of M; an effect and a handler of M that call external functions, used by the handlers of another module; a closure passed to `List.map` inside a handler; a closure kept in a field of the handler; a closure passed to another handler of the same module through a private effect and called in its body; a task started in a group whose with is inside the body; a callback passed to an external function inside a handler).
 - `emela-lsp`: External in hovers, with its module.
 
-Following the functions an external function returns relies on `[ext.boundary]`, which allows functions in a return type only as the return type itself and the return types of function types. At `c4a7768`, the parameters and the return type of an external function are not checked against `[ext.boundary]` (issue #815); that is a defect to be fixed on its own, not a limit of this proposal. Type parameters of external functions are part of the same defect: a function put in a type argument passes the boundary without a function type in the declaration, out of reach of both the rule on returned functions and E0454 (#815, comment of 2026-11-23).
+Following the functions an external function returns relies on `[ext.boundary]`, which allows functions in a return type only as the return type itself and the return types of function types. At `c4a7768`, the parameters and the return type of an external function are not checked against `[ext.boundary]` (issue #815); that is a defect to be fixed on its own, not a limit of this proposal. Type parameters of external functions are part of the same defect: a function put in a type argument passes the boundary without a function type in the declaration, out of reach of both the rule on returned functions and E0454 (#815, comment of 2026-11-23). The fix discussed on #815 requires a trait that the compiler decides, which a function type does not satisfy, on the type parameters of external functions. With it, a function passes between Emela and the host only where the declaration writes a function type, and the rule on returned functions and E0454 have no exception.
 
 No prototype has been written. The four programs in the Motivation, and a task started in the background of `main` by a handler through `Spawn` (Compatibility), were checked at `ea45cbfb` on Windows (`emela check`, and `emela run` on the JS target). The first three were checked before at `c4a7768`, with and without `--experimental-capture-checking`, and with 0.28.1 in the form with `use`. The fourth is checked with `fails {} uses {}` written on the returned function type; with them omitted, the call of `take_back` is rejected with "not supported yet: reference to this kind of definition" (issue #815).
 
@@ -289,6 +292,7 @@ No prototype has been written. The four programs in the Motivation, and a task s
   With External, `self` keeps only its role for the state of an instance. Issue #728 describes an earlier form of this alternative, a `host` value per instance tracked by capture checking, which `capability-identity` removes.
 - **One effect removed at the bodies of every handler.** A value that calls the external functions of a module could then be called in the handlers of any module, and the host of a dependency would be reachable from the handlers of the depending side without an effect of the dependency (`[module.pome]`). A per-module External also names the module in diagnostics.
 - **A declaration for externals** (`external Raw { @js(...) fn write(s: String) -> () }`): an effect whose handler is the host, neither an effect nor a handler written by the user. External already keeps host side effects inside the handlers of the module, so it is not needed for that. A module that shares its host functions with other modules now writes each of them three times (the `@external` fn, the operation of the effect, the body of the handler, as in the Meaning); such a declaration could write them once, as a shorthand, and can be added later.
+- **Reserve the name `External`**, so that a definition or an import named `External` is an error and `External` always names the External of the module. Not chosen: a name added to the Prelude does not break existing code, because a definition or an import shadows it with a warning (W0202), and `External` follows the same rule. What a module that shadows it gives up is writing its own External, which is then only inferred.
 - **Keep E0407.** It adds nothing once the requirement is in R, and it is what keeps helpers from calling external functions.
 - **Removal anywhere in the module.** `pub fn f() { host_write("x") }` would have an empty R and perform a host side effect. The bodies of handlers are where `[ext.call]` keeps host side effects, so that the callers see the effect of the handler.
 - **Check at run time.** Every call would pay for it, and the hole would be found only when the code runs.
@@ -302,6 +306,5 @@ No prototype has been written. The four programs in the Motivation, and a task s
 
 - A pub fn with the External of M in its R can be called only inside the handlers of M. Whether the compiler reports it (a warning), or leaves it to a linter, is left open.
 - Whether a `suspend fn` declared with `uses {}` needs to stay inside handlers. This proposal keeps the rule of today by adding External to it. Relaxing it would let pure host functions that wait be called wherever Async is provided (Alternatives).
-- The name `External`, and what happens when a module declares something with that name, or imports one: the declaration takes precedence in that module (and the External of the module is then written another way), or `External` is reserved and the declaration is an error.
 
 ## Decision
