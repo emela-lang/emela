@@ -1161,7 +1161,7 @@ impl<'m> Emitter<'m> {
                 word(cx, op_call("em_fiber_scope", repr));
             }
             FiberOp::Fork => Self::assign(cx, dst, &call("em_fiber_fork", &a[..2])),
-            FiberOp::Deferred => Self::assign(cx, dst, &call("em_fiber_deferred", &a[..1])),
+            FiberOp::Deferred => Self::assign(cx, dst, &call("em_fiber_deferred", &a[..0])),
             FiberOp::Join => word(cx, op_call("em_fiber_join", dst_repr)),
             FiberOp::Await { .. } => {
                 let repr = dst_ty.map_or(Repr::Void, |t| self.inner_repr(t));
@@ -1196,8 +1196,8 @@ impl<'m> Emitter<'m> {
                 Self::assign(cx, dst, &call("em_cause_to_string", &a[..1]));
             }
             FiberOp::CauseRaise { .. } => cx.w.stmt(&call("em_cause_raise", &a[..1])),
-            FiberOp::Semaphore => Self::assign(cx, dst, &call("em_fiber_semaphore", &a[..2])),
-            FiberOp::Queue => Self::assign(cx, dst, &call("em_fiber_queue", &a[..2])),
+            FiberOp::Semaphore => Self::assign(cx, dst, &call("em_fiber_semaphore", &a[..1])),
+            FiberOp::Queue => Self::assign(cx, dst, &call("em_fiber_queue", &a[..1])),
             FiberOp::Acquire => cx.w.stmt(&call("em_semaphore_acquire", &a[..2])),
             FiberOp::TryAcquire => {
                 Self::assign(cx, dst, &call("em_semaphore_try_acquire", &a[..2]));

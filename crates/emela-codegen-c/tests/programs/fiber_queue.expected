@@ -1,8 +1,6 @@
 exit: 0
 --- stdout
 --- stderr
-<queue>
-[<queue>]
 "producer a done"
 "producer b done"
 "producer c done"
@@ -30,7 +28,3 @@ None
 "taker: interrupted"
 "second taker got 3"
 "defect: queue needs a capacity of at least 1, but got 0"
-"defect: queue was used after its scope ended"
-"defect: queue was used after its scope ended"
-"inner scope ends"
-"waiter: defect: queue was used after its scope ended"

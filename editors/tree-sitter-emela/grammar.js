@@ -302,7 +302,8 @@ module.exports = grammar({
         field('effect', $.type_reference),
         optional(field('type_arguments', $.type_arguments)),
       )),
-      field('body', alias($._handler_item_list, $.declaration_list)),
+      // A built-in (`@intrinsic`) handler has no body ([grammar.decl]).
+      optional(field('body', alias($._handler_item_list, $.declaration_list))),
     ),
 
     _handler_item_list: $ => itemList($, choice(
@@ -316,7 +317,8 @@ module.exports = grammar({
     handler_init: $ => seq(
       'init',
       optional(field('parameters', $.parameters)),
-      field('body', $.block),
+      // An init without a block only declares the parameters of a built-in handler.
+      optional(field('body', $.block)),
     ),
 
     handler_release: $ => seq('release', field('body', $.block)),

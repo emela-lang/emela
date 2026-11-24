@@ -1,0 +1,106 @@
+# The built-in handlers Deferred, Queue and Semaphore as items of a with (`[task.deferred]`,
+# `[task.queue]`, `[task.semaphore]`): the handler members Permits and TryPermits, the defects of
+# their arguments, a fiber interrupted while it waits in Permits, and dbg of the capabilities.
+import Std.Fiber.{Fiber}
+import Std.Exit.{Exit, Success, Failure}
+import Std.Cause.{Cause}
+import Std.Deferred.{Deferred}
+import Std.Queue.{Queue}
+import Std.Semaphore.{Semaphore, NoPermits}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+fn permits() -> () uses { Async } {
+  with s = Semaphore(permits: 3) {
+    with p = s.Permits(n: 2) {
+      dbg("held #{p.count()}, #{s.available()} free")
+      with q = s.Permits(n: 1) {
+        dbg("held #{p.count() + q.count()}, #{s.available()} free")
+      }
+    }
+    dbg("given back, #{s.available()} free")
+    tried = with t = s.TryPermits(n: 3) { t.count() } escape {
+      NoPermits -> 0
+    }
+    dbg("tried #{tried}")
+    with _held = s.Permits(n: 2) {
+      none = with t = s.TryPermits(n: 2) { t.count() } escape {
+        NoPermits -> 0
+      }
+      dbg("tried while held #{none}")
+      dbg(Semaphore.try_with_permit(s, || "ran"))
+    }
+    dbg(Semaphore.try_with_permits(s, 3, || "ran"))
+    dbg(Semaphore.with_permits(s, 3, || s.available()))
+    dbg(show(Exit.attempt(|| with t = s.Permits(n: 4) { () })))
+    ()
+  }
+}
+
+fn defects() -> () {
+  dbg(show(Exit.attempt(|| with s = Semaphore(permits: 0) { () })))
+  dbg(show(Exit.attempt(|| with q = Queue[Int](capacity: 0) { () })))
+  with s = Semaphore(permits: 3) {
+    dbg(
+      show(
+        Exit.attempt(
+          || with t = s.TryPermits(n: 0) { () } escape {
+            NoPermits -> ()
+          },
+        ),
+      ),
+    )
+    dbg(
+      show(
+        Exit.attempt(
+          || with t = s.TryPermits(n: 4) { () } escape {
+            NoPermits -> ()
+          },
+        ),
+      ),
+    )
+    ()
+  }
+}
+
+fn interrupted() -> () uses { Async } {
+  with s = Semaphore(permits: 1), held = Deferred[()], never = Deferred[()] {
+    Fiber.scope(|f| {
+      f.fork(|| {
+        with _held = s.Permits(n: 1) {
+          held.complete(())
+          never.await()
+        }
+      })
+      f.fork(|| {
+        held.await()
+        with _held = s.Permits(n: 1) { dbg("waiter: never runs") }
+      })
+      held.await()
+      dbg("body: the holder holds, the waiter waits, #{s.available()} free")
+    })
+    dbg("after the scope, #{s.available()} free")
+    ()
+  }
+}
+
+fn shown() -> () {
+  with d = Deferred[Int], q = Queue[Int](capacity: 1), s = Semaphore(permits: 1) {
+    dbg(d)
+    dbg(q)
+    dbg(s)
+    ()
+  }
+}
+
+fn main() -> () uses { Async } {
+  permits()
+  defects()
+  interrupted()
+  shown()
+}

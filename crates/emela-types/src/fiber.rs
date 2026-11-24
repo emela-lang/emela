@@ -26,6 +26,8 @@ pub(crate) struct ScopeFn {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Fibers {
     pub(crate) scope_fns: Vec<ScopeFn>,
+    /// The built-in handlers of built-in effects: (effect, display name).
+    pub(crate) handlers: Vec<(DefId, SmolStr)>,
 }
 
 impl Fibers {
@@ -41,6 +43,22 @@ impl Fibers {
             return fibers;
         }
         for (def, data) in program.defs.iter() {
+            // A built-in handler provides the one built-in effect it implements (`Deferred`,
+            // `[task.deferred]`). One with the name of its effect is shown by that name alone.
+            if let Some(Item::Handler(h)) = program.item(def)
+                && h.is_intrinsic
+                && let [effect] = h.effects.as_slice()
+                && let Res::Def(effect) = effect.res
+                && effects.contains(&effect)
+            {
+                let display = if program.twin_handler(effect) == Some(def) {
+                    data.name.clone()
+                } else {
+                    qualified_name(program, def)
+                };
+                fibers.handlers.push((effect, display));
+                continue;
+            }
             let Some(Item::Fn(f)) = program.item(def) else {
                 continue;
             };
@@ -65,15 +83,42 @@ impl Fibers {
                 });
             }
         }
+        // A built-in effect opened by a handler member of another (`Permit`, opened by `Permits`
+        // of `Semaphore`) is provided by the handler that provides that one.
+        for &effect in &effects {
+            for &member in program.effect_members(effect) {
+                let Some(Item::Member(m)) = program.item(member) else {
+                    continue;
+                };
+                let Some(display) = fibers.provider(effect).cloned() else {
+                    continue;
+                };
+                for r in &m.effects {
+                    if let Res::Def(opened) = r.res
+                        && effects.contains(&opened)
+                        && fibers.provider(opened).is_none()
+                    {
+                        fibers.handlers.push((opened, display.clone()));
+                    }
+                }
+            }
+        }
         fibers
     }
 
-    /// The display name of the function that provides `effect` (`Fiber.scope`).
+    /// The display name of the function or the built-in handler that provides `effect`
+    /// (`Fiber.scope`, `Deferred`).
     pub(crate) fn provider(&self, effect: DefId) -> Option<&SmolStr> {
         self.scope_fns
             .iter()
             .find(|s| s.effect == effect)
             .map(|s| &s.display)
+            .or_else(|| {
+                self.handlers
+                    .iter()
+                    .find(|(e, _)| *e == effect)
+                    .map(|(_, d)| d)
+            })
     }
 }
 

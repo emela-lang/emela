@@ -994,7 +994,7 @@ impl<'a> Verifier<'a> {
                 }
             }
             // `scope`, then for fork the parameterless child.
-            FiberOp::Fork | FiberOp::Deferred => {
+            FiberOp::Fork => {
                 if let Some(t) = first {
                     self.expect(t, TypeId::FIBER_SCOPE, "scope");
                 }
@@ -1009,12 +1009,9 @@ impl<'a> Verifier<'a> {
                     }
                 }
             }
-            // `scope`, `permits` or `capacity`.
+            // `permits` or `capacity`.
             FiberOp::Semaphore | FiberOp::Queue => {
-                if let Some(t) = first {
-                    self.expect(t, TypeId::FIBER_SCOPE, "scope");
-                }
-                if let Some(&n) = tys.get(1) {
+                if let Some(n) = first {
                     self.expect(n, TypeId::INT, "size");
                 }
             }

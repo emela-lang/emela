@@ -439,6 +439,10 @@ pub struct EffectDef {
     /// has type `Type::Handler(base)`, and a table binding of the label holds a handler of the
     /// base. `ops` are the base's.
     pub label_of: Option<EffectId>,
+    /// How the debug display (`dbg`) shows a capability of the effect: `<deferred>`, `<queue>`
+    /// and `<semaphore>` for those of the built-in handlers (`[task.deferred]`, `[task.queue]`,
+    /// `[task.semaphore]`). `None` for every other effect, whose capabilities cannot be shown.
+    pub display: Option<&'static str>,
 }
 
 impl EffectDef {
@@ -450,6 +454,7 @@ impl EffectDef {
             args: Vec::new(),
             ops,
             label_of: None,
+            display: None,
         }
     }
 }
@@ -686,8 +691,8 @@ pub enum Type {
     Evidence,
     /// A mutable cell holding a value of the type (the state of `State.run`, `Builtin::CellNew`).
     Cell(TypeId),
-    /// The run-time scope that `FiberOp::Scope` passes to its body and `FiberOp::Fork` and
-    /// `FiberOp::Deferred` take (spec 11.2). Not Scope's capability value, which is a `Handler`.
+    /// The run-time scope that `FiberOp::Scope` passes to its body and `FiberOp::Fork` takes
+    /// (spec 11.2). Not Scope's capability value, which is a `Handler`.
     FiberScope,
     /// A value whose type differs per use and is not tracked: inside Scope's handler, the child
     /// function that fork receives (the `A` of `fork[A]`, spec 11.2) and the handles that
@@ -1444,7 +1449,8 @@ pub enum FiberOp {
     /// a child fiber. The value is the fiber handle. Not a suspension point (the child starts when
     /// the parent next suspends).
     Fork,
-    /// `s.deferred()` (spec 11.7). `[scope]`. The value is an empty Deferred.
+    /// The init of the built-in handler `Deferred` (`[task.deferred]`). `[]`. The value is an
+    /// empty Deferred.
     Deferred,
     /// `Fiber.join(h)` (spec 11.5). `[fiber]`. The child's value; a defect if the child was
     /// interrupted.
@@ -1458,47 +1464,48 @@ pub enum FiberOp {
     /// `Failure` of the `exit` enum. Interrupt is not caught. `suspends` tells whether `f` may
     /// suspend (the same rule as `Callee::Indirect` of `Expr::Call::suspends`).
     Attempt { exit: EnumId, suspends: bool },
-    /// `Deferred.complete(d, value)` (spec 11.7). `[deferred, value]`. The value is a Bool. Not a
+    /// `complete(value)` of a Deferred (`[task.deferred]`). `[deferred, value]`. The value is a Bool. Not a
     /// suspension point.
     Complete,
-    /// `Deferred.await(d)` (spec 11.7). `[deferred]`. Waits until a value is set.
+    /// `await()` of a Deferred (`[task.deferred]`). `[deferred]`. Waits until a value is set.
     DeferredAwait,
-    /// `Deferred.poll(d)` (spec 11.7). `[deferred]`. The value is Prelude's Option
+    /// `poll()` of a Deferred (`[task.deferred]`). `[deferred]`. The value is Prelude's Option
     /// (`Module::option_enum`).
     Poll,
-    /// `s.semaphore(permits)` (spec 11.9). `[scope, permits]`. The value is a new Semaphore with
-    /// `permits` permits; a defect if `permits` is less than 1.
+    /// The init of the built-in handler `Semaphore` (`[task.semaphore]`). `[permits]`. The value
+    /// is a new Semaphore with `permits` permits; a defect if `permits` is less than 1.
     Semaphore,
-    /// `s.queue(capacity)` (spec 11.10). `[scope, capacity]`. The value is a new empty Queue; a
-    /// defect if `capacity` is less than 1.
+    /// The init of the built-in handler `Queue` (`[task.queue]`). `[capacity]`. The value is a new
+    /// empty Queue; a defect if `capacity` is less than 1.
     Queue,
-    /// Waits until `n` permits of the semaphore are free and takes them (spec 11.9).
-    /// `[semaphore, n]`. The value is `()`. It is the init of the `with` that
-    /// `Semaphore.with_permits` lowers to, whose release is `Release`: a fiber interrupted while it
-    /// waits takes no permit. Defects name `with_permits`.
+    /// Waits until `n` permits of the semaphore are free and takes them (`[task.semaphore]`).
+    /// `[semaphore, n]`. The value is `()`. It is the init of the handler member `Permits`, whose
+    /// release is `Release`: a fiber interrupted while it waits takes no permit. Defects name
+    /// `Permits`.
     Acquire,
-    /// Takes `n` permits if they are free and no fiber waits (spec 11.9). `[semaphore, n]`. The
-    /// value is a Bool. Not a suspension point. Defects name `try_with_permits`.
+    /// Takes `n` permits if they are free and no fiber waits (`[task.semaphore]`).
+    /// `[semaphore, n]`. The value is a Bool. Not a suspension point. It is the init of the
+    /// handler member `TryPermits`, and defects name it.
     TryAcquire,
-    /// Gives `n` permits back (spec 11.9). `[semaphore, n]`. The value is `()`. Not a suspension
-    /// point.
+    /// Gives `n` permits back (`[task.semaphore]`). `[semaphore, n]`. The value is `()`. Not a
+    /// suspension point.
     Release,
-    /// `Semaphore.available(s)` (spec 11.9). `[semaphore]`. The value is an Int.
+    /// `available()` of a Semaphore (`[task.semaphore]`). `[semaphore]`. The value is an Int.
     Available,
-    /// `Queue.offer(q, value)` without the failure (spec 11.10). `[queue, value]`. Waits while the
-    /// queue is full. The value is a Bool: False when the queue is closed (lowering turns it into
-    /// the failure `QueueClosed`).
+    /// `offer(value)` of a Queue without the failure (`[task.queue]`). `[queue, value]`. Waits
+    /// while the queue is full. The value is a Bool: False when the queue is closed (lowering
+    /// turns it into the failure `QueueClosed`).
     Offer,
-    /// `Queue.take(q)` without the failure (spec 11.10). `[queue]`. Waits while the queue is empty.
-    /// The value is Prelude's Option: `None` when the queue is closed and empty.
+    /// `take()` of a Queue without the failure (`[task.queue]`). `[queue]`. Waits while the queue
+    /// is empty. The value is Prelude's Option: `None` when the queue is closed and empty.
     Take,
-    /// `Queue.try_offer(q, value)` (spec 11.10). `[queue, value]`. The value is a Bool.
+    /// `try_offer(value)` of a Queue (`[task.queue]`). `[queue, value]`. The value is a Bool.
     TryOffer,
-    /// `Queue.poll(q)` (spec 11.10). `[queue]`. The value is Prelude's Option.
+    /// `poll()` of a Queue (`[task.queue]`). `[queue]`. The value is Prelude's Option.
     QueuePoll,
-    /// `Queue.size(q)` (spec 11.10). `[queue]`. The value is an Int.
+    /// `size()` of a Queue (`[task.queue]`). `[queue]`. The value is an Int.
     Size,
-    /// `Queue.close(q)` (spec 11.10). `[queue]`. The value is `()`.
+    /// `close()` of a Queue (`[task.queue]`). `[queue]`. The value is `()`.
     Close,
     /// `Cause.kind(c)` (spec 11.5). `[cause]`. The value is of the `kind` enum (CauseKind).
     CauseKind { kind: EnumId },
@@ -1524,10 +1531,9 @@ pub const CAUSE_INTERRUPT: usize = 2;
 impl FiberOp {
     pub fn arity(self) -> usize {
         match self {
+            FiberOp::Deferred => 0,
             FiberOp::Fork
             | FiberOp::Complete
-            | FiberOp::Semaphore
-            | FiberOp::Queue
             | FiberOp::Acquire
             | FiberOp::TryAcquire
             | FiberOp::Release

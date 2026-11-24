@@ -447,6 +447,11 @@ impl HandlerDecl {
     pub fn effects(&self) -> impl Iterator<Item = HandlerEffect> {
         self.0.children().filter_map(HandlerEffect::cast)
     }
+    /// Whether it has a body. Only a built-in handler (`@intrinsic`) has none
+    /// (`[kw.annotation]`).
+    pub fn has_body(&self) -> bool {
+        self.0.children().any(|n| n.kind() == ITEM_LIST)
+    }
     pub fn init(&self) -> Option<BlockExpr> {
         item_block(&self.0, HANDLER_INIT)
     }

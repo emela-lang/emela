@@ -2733,7 +2733,6 @@ impl<'m> Builder<'m> {
                 self.assign(cx, ins, dst, Repr::Ref);
             }
             FiberOp::Deferred => {
-                self.operand(cx, ins, &args[0]);
                 let f = self.rt("fb_deferred");
                 ins.call(f);
                 self.assign(cx, ins, dst, Repr::Ref);

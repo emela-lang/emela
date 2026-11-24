@@ -198,18 +198,6 @@ mod tests {
         ("Std.Cause", "kind"),
         ("Std.Cause", "to_string"),
         ("Std.Cause", "raise"),
-        ("Std.Deferred", "complete"),
-        ("Std.Deferred", "await"),
-        ("Std.Deferred", "poll"),
-        ("Std.Semaphore", "with_permits"),
-        ("Std.Semaphore", "try_with_permits"),
-        ("Std.Semaphore", "available"),
-        ("Std.Queue", "offer"),
-        ("Std.Queue", "take"),
-        ("Std.Queue", "try_offer"),
-        ("Std.Queue", "poll"),
-        ("Std.Queue", "size"),
-        ("Std.Queue", "close"),
     ];
 
     /// Every row is declared exactly once, with the table's parameter and return types and number

@@ -638,6 +638,11 @@ impl<'a> BodyInfer<'a> {
     /// - Handlers for a host effect cannot be written (`[effect.host]`).
     fn infer_handler(&mut self, def: DefId, item: &HandlerItem) {
         let program = self.program;
+        // The runtime implements a built-in handler (`Deferred`, `[kw.annotation]`): it has no
+        // init, release or operations to check.
+        if item.is_intrinsic {
+            return;
+        }
         let span = program.defs[def].span;
         // The effects listed after `:` (`[effect.handler]`); one that did not resolve leaves the
         // handler unchecked, as name resolution has reported it.
@@ -656,7 +661,8 @@ impl<'a> BodyInfer<'a> {
                 });
                 return;
             }
-            // Only the scope function provides a built-in effect (`Scope`, spec 11.2).
+            // Only a built-in handler, or the scope function, provides a built-in effect
+            // (`Deferred`, `[task.deferred]`; `Scope`, spec 11.2).
             if is_intrinsic_effect(program, effect) {
                 let name = program.defs[effect].name.clone();
                 self.diags.push(Diagnostic {

@@ -1,6 +1,4 @@
 import Std.Fiber.{Fiber, Scope}
-import Std.Exit.{Exit, Success, Failure}
-import Std.Cause.{Cause}
 import Std.Deferred.{Deferred}
 
 @external(js, "console.log")
@@ -32,34 +30,26 @@ fn fetch(n: Int, ticks: Int) -> Int uses { Tick } {
 
 fn boom() -> Int fails Boom { fail Boom }
 
-fn show[A, E](e: Exit[A, E]) -> String {
-  e match {
-    Success(_) -> "Success"
-    Failure(c) -> Cause.to_string(c)
-  }
-}
-
 fn main() -> () uses { Async } {
   with Ticks {
-    Fiber.scope(|_| {
-      d = Fiber.deferred()
-      a = Fiber.fork(|| Deferred.await(d) + 1)
-      b = Fiber.fork(|| Deferred.await(d) + 2)
-      Fiber.fork(|| {
-        spin(1000)
-        Deferred.complete(d, 40)
+    with d = Deferred[Int], names = Deferred[List[String]], done = Deferred[()] {
+      Fiber.scope(|_| {
+        a = Fiber.fork(|| d.await() + 1)
+        b = Fiber.fork(|| d.await() + 2)
+        Fiber.fork(|| {
+          spin(1000)
+          d.complete(40)
+        })
+        print("poll #{d.poll()}")
+        print("joined #{Fiber.join(a)} #{Fiber.join(b)}")
+        print("again #{d.complete(1)} #{d.poll()}")
+        Fiber.fork(|| names.complete(["x", "y"]))
+        print("list #{names.await()}")
+        Fiber.fork(|| done.complete(()))
+        done.await()
+        print("unit #{done.poll()}")
       })
-      print("poll #{Deferred.poll(d)}")
-      print("joined #{Fiber.join(a)} #{Fiber.join(b)}")
-      print("again #{Deferred.complete(d, 1)} #{Deferred.poll(d)}")
-      names = Fiber.deferred()
-      Fiber.fork(|| Deferred.complete(names, ["x", "y"]))
-      print("list #{Deferred.await(names)}")
-      done = Fiber.deferred()
-      Fiber.fork(|| Deferred.complete(done, ()))
-      Deferred.await(done)
-      print("unit #{Deferred.poll(done)}")
-    })
+    }
     xs = Fiber.all([|| fetch(1, 60), || fetch(2, 10)])
     print("all #{xs}")
     w = Fiber.race([|| fetch(3, 200), || fetch(4, 10)])
@@ -70,16 +60,6 @@ fn main() -> () uses { Async } {
     print("map #{ys}")
     r = Fiber.race([|| boom(), || fetch(8, 1000)]) escape { Boom -> -1 }
     print("race failed #{r}")
-    complete_later = Fiber.scope(|_| {
-      d = Fiber.deferred()
-      || Deferred.complete(d, 1)
-    })
-    print(show(Exit.attempt(|| complete_later())))
-    poll_later = Fiber.scope(|_| {
-      d = Fiber.deferred()
-      || Deferred.poll(d)
-    })
-    poll_later()
     ()
   }
 }

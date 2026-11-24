@@ -429,10 +429,9 @@ fn child_defect() {
 
 @test
 fn waits_forever() {
-  Fiber.scope(|_| {
-    d = Fiber.deferred()
-    Deferred.await(d) + 1
-  })
+  with d = Deferred {
+    Fiber.scope(|_| d.await() + 1)
+  }
 }
 
 @test

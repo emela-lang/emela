@@ -20,8 +20,6 @@
 import Std.Clock.{Clock}
 import Std.Deferred.{Deferred}
 import Std.Exit.{Exit}
-import Std.Queue.{Queue}
-import Std.Semaphore.{Semaphore}
 
 ## The handle of a fiber that produces a value of type `A`. Held by the runtime. It records the
 ## scope that started it and cannot leave it (`[fiber.escape]`).
@@ -35,12 +33,6 @@ pub effect Scope[E, R] {
   ## Starts `f` as a child fiber of the scope. `f` may use `Scope` itself to fork siblings; the
   ## type checker adds `Scope[E, R]` to the `use` of `f`, provided by this scope (`[fiber.scope]`).
   fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]
-  ## Makes a `Deferred` that belongs to the scope (`[fiber.deferred]`).
-  fn deferred[A]() -> Deferred[A]
-  ## Makes a `Semaphore` with `permits` permits that belongs to the scope (`[fiber.semaphore]`).
-  fn semaphore(permits: Int) -> Semaphore
-  ## Makes an empty `Queue` of capacity `capacity` that belongs to the scope (`[fiber.queue]`).
-  fn queue[A](capacity: Int) -> Queue[A]
 }
 
 ## Runs `body` with a scope to start fibers in, given as its parameter, and returns its value
@@ -63,26 +55,6 @@ pub fn fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A]
   uses { Scope[E, R] } {
   s <- Scope
   s.fork(f)
-}
-
-## Makes a `Deferred` that belongs to the innermost scope. Same as `deferred()` of the innermost `Scope`.
-pub fn deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] } {
-  s <- Scope
-  s.deferred()
-}
-
-## Makes a `Semaphore` with `permits` permits that belongs to the innermost scope. Same as
-## `semaphore(permits)` of the innermost `Scope`.
-pub fn semaphore[E, R](permits: Int) -> Semaphore uses { Scope[E, R] } {
-  s <- Scope
-  s.semaphore(permits)
-}
-
-## Makes an empty `Queue` of capacity `capacity` that belongs to the innermost scope. Same as
-## `queue(capacity)` of the innermost `Scope`.
-pub fn queue[A, E, R](capacity: Int) -> Queue[A] uses { Scope[E, R] } {
-  s <- Scope
-  s.queue(capacity)
 }
 
 ## Waits for the fiber to end and returns its value. Joining a fiber interrupted with `interrupt`
@@ -112,11 +84,12 @@ pub fn all[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[A] fails E u
 ## Runs all of `fs` concurrently and takes the first to end; the others are interrupted. If the
 ## first to end fails, `race` fails with that error.
 pub fn race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R } {
-  scope(|s| {
-    d = s.deferred()
-    fs.map(|f| s.fork(|| d.complete(f())))
-    d.await()
-  })
+  with d = Deferred {
+    scope(|s| {
+      fs.map(|f| s.fork(|| d.complete(f())))
+      d.await()
+    })
+  }
 }
 
 ## Runs `f` and `g` concurrently and returns both values. If one fails, the other is interrupted
@@ -148,14 +121,15 @@ pub fn map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E uses { R }) -> List[B]
 pub fn timeout[A, E, R](ms: Int, f: fn() -> A fails E uses { R }) -> Option[A]
   fails E
   uses { Clock, Async, R } {
-  scope(|s| {
-    d = s.deferred()
-    s.fork(|| d.complete(Some(f())))
-    s.fork(|| {
-      clock <- Clock
-      clock.sleep(ms)
-      d.complete(None)
+  with d = Deferred {
+    scope(|s| {
+      s.fork(|| d.complete(Some(f())))
+      s.fork(|| {
+        clock <- Clock
+        clock.sleep(ms)
+        d.complete(None)
+      })
+      d.await()
     })
-    d.await()
-  })
+  }
 }

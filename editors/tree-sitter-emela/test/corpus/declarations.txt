@@ -927,3 +927,50 @@ fn main() {
               (integer))))
         (block
           (unit))))))
+
+==================
+Built-in handlers without a body
+==================
+@intrinsic
+pub handler Queue[A](capacity: Int): Queue[A]
+
+@intrinsic
+pub handler Background: Spawn {
+  init(on_failure: Int)
+}
+
+---
+
+(source_file
+  (handler_declaration
+    (annotation
+      (identifier))
+    (visibility)
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (constant_identifier)))
+    (field_list
+      (field
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (type_reference
+      (type_identifier))
+    (type_arguments
+      (type_variable
+        (constant_identifier))))
+  (handler_declaration
+    (annotation
+      (identifier))
+    (visibility)
+    (type_identifier)
+    (type_reference
+      (type_identifier))
+    (declaration_list
+      (handler_init
+        (parameters
+          (parameter
+            (identifier)
+            (type_reference
+              (type_identifier))))))))

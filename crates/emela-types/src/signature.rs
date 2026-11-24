@@ -225,7 +225,10 @@ impl Signatures {
                             });
                             continue;
                         }
-                        if program.is_host_effect(effect) || is_intrinsic_effect(program, effect) {
+                        // A built-in effect is provided only by its built-in handler.
+                        if program.is_host_effect(effect)
+                            || (is_intrinsic_effect(program, effect) && !item.is_intrinsic)
+                        {
                             continue;
                         }
                         let kinds = vec![ParamKind::Type; defs.len()];

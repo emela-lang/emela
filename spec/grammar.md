@@ -83,9 +83,9 @@ member_sig   = [ "suspend" ] "handler" type_name "(" [ params ] ")" ":" effect_r
                [ "fails" error_set ]                              (* a handler member; 8.1 *)
 
 handler_decl = "handler" type_name [ type_params ] [ "(" [ fields ] ")" ]
-               ":" effect_ref { "+" effect_ref } "{" { handler_item NL } "}"
+               ":" effect_ref { "+" effect_ref } [ "{" { handler_item NL } "}" ]
 effect_ref   = type_ref [ "[" type { "," type } "]" ]
-handler_item = "init" [ "(" [ params ] ")" ] block
+handler_item = "init" [ "(" [ params ] ")" ] [ block ]
              | "release" block
              | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block
              | handler_decl                                      (* inner handler; 8.4 *)
@@ -112,6 +112,7 @@ The following restrictions apply outside the grammar.
 - The type_params of a handler_decl are not allowed on an inner handler (E0460).
 - The type arguments of a supply can be written only when it names a handler with type parameters.
 - A type_decl without fields is allowed only when it has `@external` (or `@intrinsic` in the bundled sources, 3.5).
+- A handler_decl without a body, and an init without a block, are allowed only in a top-level handler_decl with `@intrinsic` in the bundled sources (a built-in handler, 3.5). Elsewhere the missing `{` is a syntax error (E0110).
 - An enum_decl has at least one variant. Never is the only type with no values.
 - When `derive` follows the newline right after a type_decl, enum_decl, or error_decl, that newline is not a terminator, and the derive continues the declaration (as written in the examples in 10.5). Blank lines and comment-only lines in between are skipped (as in the line continuation check in 2.5). Because `derive` is a contextual keyword, it is not part of the lexical line continuation rules in 2.5, and it is handled only at the position of a declaration.
 

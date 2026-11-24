@@ -1,22 +1,24 @@
 ---
 source: crates/emela-types/tests/fiber.rs
-expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\nimport Std.Queue.{Queue}\n\nfn handle() {\n  Fiber.scope(|_| Fiber.fork(|| 1))\n}\n\nfn optional() {\n  Fiber.scope(|_| Some(Fiber.fork(|| 1)))\n}\n\nfn deferred() {\n  Fiber.scope(|_| (Fiber.deferred(), 1))\n}\n\nfn joined() {\n  Fiber.scope(|_| Fiber.join(Fiber.fork(|| 1)))\n}\n\nfn piped() {\n  (|_| Fiber.fork(|| 1)) |> Fiber.scope()\n}\n\nfn semaphore() {\n  Fiber.scope(|_| Fiber.semaphore(2))\n}\n\nfn queue() {\n  Fiber.scope(|_| {\n    q: Queue[Int] = Fiber.queue(1)\n    [q]\n  })\n}\n\"#)"
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\nimport Std.Deferred.{Deferred}\nimport Std.Queue.{Queue}\nimport Std.Semaphore.{Semaphore}\n\nfn handle() {\n  Fiber.scope(|_| Fiber.fork(|| 1))\n}\n\nfn optional() {\n  Fiber.scope(|_| Some(Fiber.fork(|| 1)))\n}\n\nfn deferred() {\n  with d = Deferred[Int] { (d, 1) }\n}\n\nfn joined() {\n  Fiber.scope(|_| Fiber.join(Fiber.fork(|| 1)))\n}\n\nfn piped() {\n  (|_| Fiber.fork(|| 1)) |> Fiber.scope()\n}\n\nfn semaphore() {\n  with s = Semaphore(permits: 2) { s }\n}\n\nfn queue() {\n  with q = Queue[Int](capacity: 1) { [q] }\n}\n\"#)"
 ---
 handle: fn() -> Fiber[Int] uses { Async }
   _: use Scope[{}, {}]
 optional: fn() -> Option[Fiber[Int]] uses { Async }
   _: use Scope[{}, {}]
-deferred: ∀ A. fn() -> (Deferred[A], Int) uses { Async }
-  _: use Scope[{}, {}]
+deferred: fn() -> (use Deferred[Int], Int)
+  d: use Deferred[Int]
 joined: fn() -> Int uses { Async }
   _: use Scope[{}, {}]
 piped: fn() -> Fiber[Int] uses { Async }
   _: use Scope[{}, {}]
-semaphore: fn() -> Semaphore uses { Async }
-  _: use Scope[{}, {}]
-queue: fn() -> List[Queue[Int]] uses { Async }
-  _: use Scope[{}, {}]
-  q: Queue[Int]
-`Fiber.fork(|| 1)` CapabilityLeak { cap: "Scope", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 87..107 }) }
-`Some(Fiber.fork(|| 1))` CapabilityLeak { cap: "Scope", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 142..168 }) }
-`Fiber.fork(|| 1)` CapabilityLeak { cap: "Scope", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 314..334 }) }
+semaphore: fn() -> use Semaphore
+  s: use Semaphore
+queue: fn() -> List[use Queue[Int]]
+  q: use Queue[Int]
+`Fiber.fork(|| 1)` CapabilityLeak { cap: "Scope", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 151..171 }) }
+`Some(Fiber.fork(|| 1))` CapabilityLeak { cap: "Scope", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 206..232 }) }
+`(d, 1)` CapabilityLeak { cap: "d", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 264..272 }) }
+`Fiber.fork(|| 1)` CapabilityLeak { cap: "Scope", from: Call("Fiber.scope"), made_at: Some(Span { module: Idx::<ModuleData>(0), range: 373..393 }) }
+`s` CapabilityLeak { cap: "s", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 443..452 }) }
+`[q]` CapabilityLeak { cap: "q", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 498..503 }) }
