@@ -12,18 +12,24 @@ effect Guard {
 handler Released: Guard {
   init { Released }
   fn check() { () }
-  release { (use Stderr).print_line("released") }
+  release {
+    stderr <- Stderr
+    stderr.print_line("released")
+  }
 }
 
 fn forever(i: Int) -> () uses { Stdout } {
-  (use Stdout).print_line("line #{i}")
+  stdout <- Stdout
+  stdout.print_line("line #{i}")
   forever(i + 1)
 }
 
 fn main() -> () uses { Async } {
   with Process {
-    (use Clock).sleep(1)
+    clock <- Clock
+    clock.sleep(1)
     _ = Exit.attempt(|| with Released { forever(0) })
-    (use Stderr).print_line("caught")
+    stderr <- Stderr
+    stderr.print_line("caught")
   }
 }

@@ -4,6 +4,7 @@ description = "The pipeline, diagnostic collection and rendering, and build conf
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 emela-syntax.workspace = true
@@ -44,3 +45,7 @@ harness = false
 [[test]]
 name = "wasm_parity"
 harness = false
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"

@@ -1,6 +1,6 @@
 //! Tests for the verifier: one hand-built function per kind of error.
 
-mod common;
+use crate::common;
 
 use common::{Fixture, int, string};
 use emela_core::{TypeId, VariantDef};
