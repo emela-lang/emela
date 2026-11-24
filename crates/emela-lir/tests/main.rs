@@ -7,6 +7,7 @@ mod common;
 #[path = "../../emela-core/tests/support/mod.rs"]
 mod support;
 
+mod analysis_escape;
 mod dump;
 mod from_core;
 mod heap;
