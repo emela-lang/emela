@@ -1,0 +1,6 @@
+handler Plain: Logger
+
+handler WithInit: Logger {
+  init(x: Int)
+  fn info(msg) { () }
+}

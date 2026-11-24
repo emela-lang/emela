@@ -4,7 +4,7 @@
 //! is written) and the types of parameters and bound variables, followed by the type diagnostics
 //! of `main.emel` in source order.
 
-mod common;
+use crate::common;
 
 use std::fmt::Write;
 

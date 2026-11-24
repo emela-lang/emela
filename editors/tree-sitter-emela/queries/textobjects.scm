@@ -86,6 +86,12 @@
 
 (binding) @assignment.outer
 
+(effect_alias) @assignment.outer
+
+(effect_alias
+  name: (_) @assignment.lhs @assignment.inner
+  effect: (_) @assignment.rhs)
+
 (binding
   pattern: (_) @assignment.lhs @assignment.inner
   value: (_) @assignment.rhs)

@@ -1,0 +1,30 @@
+---
+source: crates/emela-types/tests/capabilities.rs
+expression: "run(r#\"\neffect Cell[A] {\n  fn read() -> A\n}\n\nhandler Box[A](c: use Counter, v: A): Cell[A] {\n  init(c: use Counter, v: A) { Self(c:, v:) }\n  fn read() {\n    _ = self.c.next()\n    _ = peek(self)\n    self.v\n  }\n}\n\nfn peek[A](cell: use Cell[A]) -> () { () }\n\nhandler Made[A](c: use Counter, v: A): Cell[A] {\n  init(v: A) {\n    with x = Counters.Open(1) { Self(c: x, v:) }\n  }\n  fn read() { self.v }\n}\n\nhandler Keep[A](v: A): Cell[A] {\n  init(v: A) { Self(v:) }\n  fn read() { self.v }\n}\n\neffect Slot[A] {\n  fn put(value: A) -> ()\n}\n\nhandler Drop[A]: Slot[A] {\n  fn put(value) { () }\n}\n\nfn boxed() -> Int {\n  with Plain, x = Counters.Open(1) {\n    with b = Box(c: x, v: 2) { b.read() }\n  }\n}\n\nfn kept_inside() -> Int {\n  with Plain, x = Counters.Open(1) {\n    with k = Keep(v: x) { k.read().next() }\n  }\n}\n\nfn kept_outside() {\n  with Plain {\n    with x = Counters.Open(1) {\n      with k = Keep(v: x) { () }\n    }\n  }\n}\n\nfn taken() {\n  with Plain {\n    c = with x = Counters.Open(1) {\n      with k = Keep(v: x) { k.read() }\n    }\n    ()\n  }\n}\n\nfn not_ambiguous() -> Int {\n  with Plain, x = Counters.Open(1), y = Counters.Open(2) {\n    with b = Box(c: x, v: 1), d = Box(c: y, v: \"a\") { b.read() }\n  }\n}\n\nfn into_outer() {\n  with s = Drop {\n    with l = Quiet {\n      s.put(|| l.info(\"x\"))\n    }\n  }\n}\n\"#)"
+---
+peek: ∀ A. fn(use Cell[A]) -> ()
+  cell: use Cell['0]
+boxed: fn() -> Int
+  x: use Counter
+  b: use Cell[Int]
+kept_inside: fn() -> Int
+  x: use Counter
+  k: use Cell[use Counter]
+kept_outside: fn() -> ()
+  x: use Counter
+  k: use Cell[use Counter]
+taken: fn() -> ()
+  x: use Counter
+  k: use Cell[use Counter]
+  c: use Counter
+not_ambiguous: fn() -> Int
+  x: use Counter
+  y: use Counter
+  b: use Cell[Int]
+  d: use Cell[String]
+into_outer: fn() -> ()
+  s: use Slot[fn() -> () uses { l }]
+  l: use Logger
+`Self(c: x, v:)` CapabilityLeak { cap: "x", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 735..748 }) }
+`with k = Keep(v: x) { k.read() }` CapabilityLeak { cap: "x", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 1362..1375 }) }
+`s.put(|| l.info("x"))` CapabilityLeak { cap: "l", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 1648..1653 }) }

@@ -1,0 +1,41 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Task.{Task}\nimport Std.Deferred.{Deferred}\nimport Std.Queue.{Queue}\nimport Std.Semaphore.{Semaphore}\n\nfn before() -> () uses { Async } {\n  with d = Deferred[Int], tasks = Task.Group {\n    tasks.start(|| d.complete(1))\n    ()\n  }\n}\n\nfn after() -> () uses { Async } {\n  with tasks = Task.Group, d = Deferred[Int] {\n    tasks.start(|| d.complete(1))\n    ()\n  }\n}\n\nfn inside() -> () uses { Async } {\n  with tasks = Task.Group {\n    with d = Deferred[Int] {\n      tasks.start(|| d.complete(1))\n      ()\n    }\n  }\n}\n\nfn handle() -> () uses { Async } {\n  t = with tasks = Task.Group {\n    tasks.start(|| 1)\n  }\n  ()\n}\n\nfn optional() -> () uses { Async } {\n  t = with tasks = Task.Group {\n    Some(tasks.start(|| 1))\n  }\n  ()\n}\n\nfn joined() -> Int uses { Async } {\n  with tasks = Task.Group {\n    tasks.start(|| 1).join()\n  }\n}\n\nfn deferred() {\n  with d = Deferred[Int] { (d, 1) }\n}\n\nfn semaphore() {\n  with s = Semaphore(permits: 2) { s }\n}\n\nfn queue() {\n  with q = Queue[Int](capacity: 1) { [q] }\n}\n\"#)"
+---
+before: fn() -> () uses { Async }
+  d: use Deferred[Int]
+  tasks: use TaskGroup[{}, d]
+after: fn() -> () uses { Async }
+  tasks: use TaskGroup[{}, d]
+  d: use Deferred[Int]
+inside: fn() -> () uses { Async }
+  tasks: use TaskGroup[{}, d]
+  d: use Deferred[Int]
+handle: fn() -> () uses { Async }
+  tasks: use TaskGroup[{}, {}]
+  t: Task[Int]
+optional: fn() -> () uses { Async }
+  tasks: use TaskGroup[{}, {}]
+  t: Option[Task[Int]]
+joined: fn() -> Int uses { Async }
+  tasks: use TaskGroup[{}, {}]
+deferred: fn() -> (use Deferred[Int], Int)
+  d: use Deferred[Int]
+semaphore: fn() -> use Semaphore
+  s: use Semaphore
+queue: fn() -> List[use Queue[Int]]
+  q: use Queue[Int]
+`Task.Group` CapabilityLeak { cap: "d", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 309..317 }) }
+`{
+  with tasks = Task.Group {
+    with d = Deferred[Int] {
+      tasks.start(|| d.complete(1))
+      ()
+    }
+  }
+}` CapabilityLeak { cap: "d", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 449..457 }) }
+`tasks.start(|| 1)` CapabilityLeak { cap: "tasks", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 577..587 }) }
+`Some(tasks.start(|| 1))` CapabilityLeak { cap: "tasks", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 680..690 }) }
+`(d, 1)` CapabilityLeak { cap: "d", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 860..868 }) }
+`s` CapabilityLeak { cap: "s", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 916..925 }) }
+`[q]` CapabilityLeak { cap: "q", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 971..976 }) }

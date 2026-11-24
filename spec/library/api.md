@@ -21,7 +21,7 @@ This document defines the API of the `.emel` sources bundled with the compiler. 
 | `todo` | `todo() -> Never` | intrinsic | A defect with `not yet implemented` |
 | `dbg` | `dbg[A](value: A) -> A` | intrinsic | Writes the debug representation to standard error and returns the value. Does not require Show. For a type that satisfies Show, the same as `inspect`; for a type that does not, the constructed form (values inside that satisfy Show use Show, functions are `<fn>`) |
 | `inspect` | `inspect[A: Show](value: A) -> String` | intrinsic | The debug representation. The result of the Show implementation; a String is enclosed in `"` even at the top level |
-| `ParseError` | `error ParseError(input: String)` | Emela | A malformed input to `Int.parse`, `Float.parse`, or `Bool.parse`. `input` is the whole input |
+| `ParseError` | `error ParseError(input: String)` | Emela | A malformed input to `Int.parse`, `Float.parse`, `Bool.parse`, `Instant.parse` (`[api.std.instant]`), `Duration.parse` (`[api.std.duration]`), `Number.parse` (`[api.std.dynamic.number]`), or `decode_query` (`[api.std.http.request]`). `input` is the whole input |
 
 impl (`[trait.derive]`): ParseError has `derive Show` (its contents are shown when it reaches main or a test; `[dyn.error]`).
 
@@ -171,7 +171,7 @@ A conversion to Int is a defect if the result is outside the range of Int or the
 
 ### Std.Duration (`std/duration.emel`) `[api.std.duration]`
 
-A length of time. An opaque type whose contents are an Int64 of milliseconds (`[lib.layers]`). Overflow wraps around by the Int64 rules.
+A length of time. An opaque type whose contents are an Int64 of milliseconds (`[lib.layers]`). The constructors, `add` and `subtract` wrap around on overflow by the Int64 rules; `parse` fails instead (below).
 
 | Function | Signature | Implementation | Description |
 |---|---|---|---|
@@ -183,9 +183,55 @@ A length of time. An opaque type whose contents are an Int64 of milliseconds (`[
 | `to_seconds` | `to_seconds(d: Duration) -> Int64` | Emela | The number of seconds. The fraction is truncated toward 0 |
 | `add` | `add(d: Duration, other: Duration) -> Duration` | Emela | The sum |
 | `subtract` | `subtract(d: Duration, other: Duration) -> Duration` | Emela | The difference. Can be negative |
-| `to_string` | `to_string(d: Duration) -> String` | Emela | `1500ms` |
+| `to_string` | `to_string(d: Duration) -> String` | Emela | The number of milliseconds in decimal, with `-` before a negative one, followed by `ms` (`0ms`, `1500ms`, `-1500ms`, `5400000ms`) |
+| `to_iso8601` | `to_iso8601(d: Duration) -> String` | Emela | The time part of an ISO 8601 duration (`PT1H30M`, `PT1.5S`, `-PT0.5S`), in the form below |
+| `parse` | `parse(s: String) -> Duration fails ParseError` | Emela | The length of time written in `s`, in the forms below. Fails with `ParseError(input: s)` otherwise |
 
-impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl gives `1500ms`, the same as `to_string`.
+- `parse` reads a length of time in one of two forms: numbers with units (`unit_form`: `1h30m`, `1.5s`, `2h 30min`, `30 seconds`), and the time part of an ISO 8601 duration (`iso_form`: `PT1H30M`, `-PT1.5S`). The whole of `s` MUST match this grammar; no whitespace is allowed around it.
+
+  ```ebnf
+  duration       = unit_form | iso_form ;
+
+  unit_form      = [ sign ] , ( "0" | { component , [ " " ] } , last_component ) ;
+  component      = digits , [ " " ] , unit ;
+  last_component = number , [ " " ] , unit ;
+  unit           = hour | minute | second | millisecond | microsecond | nanosecond ;
+  hour           = "h" | "hr" | "hour" | "hours" ;
+  minute         = "m" | "min" | "minute" | "minutes" ;
+  second         = "s" | "sec" | "second" | "seconds" ;
+  millisecond    = "ms" | "msec" | "millisecond" | "milliseconds" ;
+  microsecond    = "us" | "µs" | "μs" | "usec" | "microsecond" | "microseconds" ;
+  nanosecond     = "ns" | "nsec" | "nanosecond" | "nanoseconds" ;
+
+  iso_form       = [ sign ] , ( "P" | "p" ) , ( "T" | "t" ) , ( iso_hours | iso_minutes | iso_seconds ) ;
+  iso_hours      = digits , ( "H" | "h" ) , ( iso_minutes | iso_seconds )
+                 | number , ( "H" | "h" ) ;
+  iso_minutes    = digits , ( "M" | "m" ) , iso_seconds
+                 | number , ( "M" | "m" ) ;
+  iso_seconds    = number , ( "S" | "s" ) ;
+
+  number         = digits , [ "." , digits ] ;
+  sign           = "+" | "-" ;
+  digits         = digit , { digit } ;
+  digit          = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+  ```
+
+- An hour (`hour`, `iso_hours`) is 60 minutes, a minute (`minute`, `iso_minutes`) is 60 seconds, a second (`second`, `iso_seconds`) is 1000 milliseconds, a microsecond is 10⁻³ milliseconds and a nanosecond is 10⁻⁶ milliseconds. The `µ` of `µs` is U+00B5 MICRO SIGN and the `μ` of `μs` is U+03BC GREEK SMALL LETTER MU. A unit name is read whatever the number before it: `1 seconds`, `2 second` and `1.5 hour` are read.
+- Duration has no unit longer than an hour. A day of the calendar is not a fixed length: a day on which daylight saving time starts or ends has 23 or 25 hours, and a leap hour, which may be inserted into UTC in place of leap seconds, would make a day of 25 hours, possibly also in the time that Instant counts (`[lib.layers]`). A week, a month and a year are made of days. Reading them as fixed lengths would let a length be mistaken for a span of the calendar, which Emela does not have. A day, a week, a month and a year are not read in either form (`1d`, `2w`, `P1D`, `P1W`, `P1M`, `P1Y`, `P1DT2H`).
+- If `s` has more than 256 code points, `parse` fails without reading it.
+- The only whitespace is one space (U+0020) between a number and its unit, and one space between two components of `unit_form` (`2 h 30 min` is read; `2h  30min` is not). No whitespace is allowed after the sign or anywhere in `iso_form`.
+- In `unit_form` the units are lowercase only (`1H`, `30S` and `1M` are not read). In `iso_form` the letters `P`, `T`, `H`, `M` and `S` are read in either case.
+- In `unit_form` the components are written from the longest unit to the shortest (hour, minute, second, millisecond, microsecond, nanosecond), and each unit is written at most once; the names of one unit are the same unit (`30s1h`, `1s2s` and `1m1min` are not read). The length is the sum of the components. `0` alone is the length 0.
+- A sign applies to the whole length (`-1h30m` and `-PT1H30M` are −90 minutes). A component has no sign of its own (`PT-1.3S` and `PT1H-30M` are not read).
+- Only the last component may have a fraction, as the grammar says: in `unit_form` only `last_component` has a fraction, and in `iso_form` a component followed by another is written with `digits` (`1h30.5m` and `PT1H30.5M` are read; `1.5h30m` and `PT1.5H30M` are not). The fraction of an hour or a minute has at most two digits (`1.25h`, `2.5min` and `PT1.25H` are read; `1.125h` is not). The fraction of a second, a millisecond, a microsecond or a nanosecond may have any number of digits.
+- A comma is reserved for the decimal sign of a fraction (`PT1,5S`). `parse` does not read it yet, and a comma is not given any other meaning in either form. The plurals of the abbreviations (`hrs`, `mins`, `secs`, `msecs`, `usecs`, `nsecs`) are reserved as names of their units; `parse` does not read them yet.
+- The length is the exact sum of the components, with the sign applied, truncated toward 0 to a whole number of milliseconds: the digits below the millisecond are dropped (`1.0009s` is 1000 milliseconds; `1.5us` and `-0.0005s` are 0).
+- If the length is outside the range of Duration (an Int64 of milliseconds), `parse` fails. The numbers are read as exact numbers: a length outside the range fails, however many digits its numbers have, and does not wrap around by the rules of Int64.
+- `to_iso8601` writes `-` for a negative length, then `PT`, then the hours with `H`, the minutes with `M` and the seconds with `S`, leaving out each of them whose value is 0. The minutes are 0 to 59, and the seconds are less than 60; the hours are not carried into days (`PT48H`). The seconds are written with the milliseconds as a fraction, without trailing zeros (`PT1.5S`, `PT1M0.001S`, `PT1H0.5S`). The length 0 is `PT0S`. A sign is never written on a component.
+- For every Duration `d`, `parse(to_string(d)) == d` and `parse(to_iso8601(d)) == d`.
+- `parse` is O(n) in the length of `s`.
+
+impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl is the same as `to_string`. Encode, Decode and Shaped are in `[api.std.dynamic]` and `[api.std.shape]`.
 
 ### Std.Instant (`std/instant.emel`) `[api.std.instant]`
 
@@ -199,12 +245,37 @@ A point in time. An opaque type whose contents are an Int64 of milliseconds sinc
 | `subtract` | `subtract(t: Instant, d: Duration) -> Instant` | Emela | `d` earlier |
 | `since` | `since(t: Instant, earlier: Instant) -> Duration` | Emela | The length from `earlier` to `t` |
 | `to_string` | `to_string(t: Instant) -> String` | Emela | The date and time in UTC (`2025-10-12T03:04:05.678Z`). The format is below |
+| `parse` | `parse(s: String) -> Instant fails ParseError` | Emela | The point in time written in `s`, in the form below. Fails with `ParseError(input: s)` otherwise |
 
 - `to_string` writes `YYYY-MM-DDTHH:MM:SS.sssZ`: the year, the month (2 digits), the day (2 digits), the hour (2 digits, 00 to 23), the minute (2 digits), the second (2 digits, 00 to 59) and the milliseconds (always 3 digits), with the separators `-`, `T`, `:`, `.` and the suffix `Z` as written. Dates are counted in the proleptic Gregorian calendar.
 - If the year is 0 to 9999, it is written as 4 digits (`0000` to `9999`). The result is then a `date-time` of RFC 3339 whose offset is `Z`.
 - If the year is outside 0 to 9999, it is written as a sign (`+` or `-`) followed by the absolute value zero-padded to at least 6 digits (`+010000-01-01T00:00:00.000Z`, `-000001-12-31T00:00:00.000Z`). This is the expanded representation of the year of ISO 8601, and the result is not a `date-time` of RFC 3339. A year whose absolute value has more than 6 digits is written with all its digits, without padding. Every value of Instant is written by these rules, without a range limit.
+- `parse` reads a date and time with an offset from UTC, by this grammar. The whole of `s` MUST match it; no whitespace is allowed around it.
 
-impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl is the same as `to_string`.
+  ```ebnf
+  date_time = date , ( "T" | "t" | " " ) , time , offset ;
+  date      = year , "-" , digit2 , "-" , digit2 ;
+  year      = digit4 | sign , digit6 , { digit } ;
+  time      = digit2 , ":" , digit2 , [ ":" , digit2 , [ "." , digit , { digit } ] ] ;
+  offset    = "Z" | "z" | [ " " ] , sign , digit2 , [ [ ":" ] , digit2 ] ;
+  sign      = "+" | "-" ;
+  digit6    = digit2 , digit2 , digit2 ;
+  digit4    = digit2 , digit2 ;
+  digit2    = digit , digit ;
+  digit     = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+  ```
+
+- The fields are read as the date and the time of day at the given offset, in the proleptic Gregorian calendar. The month is 01 to 12, the day is 01 to the number of days of that month in that year, the hour is 00 to 23, the minute is 00 to 59, and the second is 00 to 59; an omitted second is 00. The hour of the offset is 00 to 23 and its minute is 00 to 59; an offset written with the hour only (`+09`) has the minute 00. `Z`, `z`, and an offset whose hour and minute are both 00 (`+00:00`, `-0000`, `+00`) are the offset 0. `-00:00`, which RFC 3339 uses for an unknown local offset, is also the offset 0.
+- If `s` has more than 256 code points, `parse` fails without reading it.
+- The separator between the date and the time, and the space before the offset, are one space (U+0020). No other whitespace is allowed.
+- A year written with a sign is that many years after (`+`) or before (`-`) the year 0. The sign `-` with the value 0 (`-000000`) is not read. A year of 4 digits is 0000 to 9999.
+- A comma is reserved for the decimal sign of the fraction (`03:04:05,678`). `parse` does not read it yet, and a comma is not given any other meaning in this form.
+- The fraction of a second is read to the millisecond: the first three digits are the milliseconds (fewer digits are padded with zeros on the right), and the digits after the third are dropped. The result is the latest millisecond that is not later than the time written.
+- The point in time is the date and time minus the offset. If it is outside the range of Instant (an Int64 of milliseconds), `parse` fails. The fields are read as exact integers: a year of any number of digits (with any number of leading zeros) that is outside the range fails, and does not wrap around by the rules of Int64. The milliseconds depend only on the first three digits of the fraction, however many digits follow.
+- For every Instant `t`, `parse(to_string(t)) == t`.
+- `parse` is O(n) in the length of `s`.
+
+impl (`[trait.derive]`, `[trait.builtin]`): `derive Eq, Ord`. The Show impl is the same as `to_string`. Encode, Decode and Shaped are in `[api.std.dynamic]` and `[api.std.shape]`.
 
 ### Std.Bytes (`std/bytes.emel`) `[api.std.bytes]`
 
@@ -341,7 +412,7 @@ impl (`[trait.builtin]`): `impl Set[A: Eq]: Eq`, `impl Set[A: Show]: Show` (`Set
 | `object`, `variant` | `object(fields: List[(String, Dynamic)]) -> Dynamic`, `variant(tag: String, value: Option[Dynamic]) -> Dynamic` | Build Fields, and the form of an enum |
 | `kind` | `kind(value: Dynamic) -> String` | `"null"`, `"bool"`, `"number"`, `"text"`, `"items"`, `"fields"` or `"binary"` |
 
-impl: Bool, Int, Int64, Float, String, Bytes, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. Bytes is encoded as Binary, and its Decode reads only Binary. `Array[A]` and `Set[A]` are encoded as Items in their order, and decoded from Items; the Decode of `Set[A]` drops repeated elements. The Decode of `List[A]`, `Array[A]`, `Set[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None. As a field of an object, None leaves the key out (`to_field`), and a missing key decodes as None (`from_absent`, by its default).
+impl: Bool, Int, Int64, Float, String, Bytes, Instant, Duration, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K: ObjectKey, V]` have Encode and Decode; String has ObjectKey. Bytes is encoded as Binary, and its Decode reads only Binary. An Instant is encoded as Text of `Instant.to_string`, and decoded from Text with `Instant.parse`. A value that is not Text fails with `DecodeError(expected: "text", ...)`, and Text that `Instant.parse` does not read fails with `DecodeError(expected: "date-time", actual: the value, path: [])`. A Duration is encoded as Text of `Duration.to_string`, and decoded from Text with `Duration.parse`, which also reads the ISO 8601 form. A value that is not Text, including a Number, fails with `DecodeError(expected: "text", ...)`, and Text that `Duration.parse` does not read fails with `DecodeError(expected: "duration", actual: the value, path: [])`. `Array[A]` and `Set[A]` are encoded as Items in their order, and decoded from Items; the Decode of `Set[A]` drops repeated elements. The Decode of `List[A]`, `Array[A]`, `Set[A]` and `Map[K, V]` defines `from_dynamic_all` to read every element or value and collect their failures, and that of `Option[A]` to read its value with `from_dynamic_all`. A Float that is NaN or ±Infinity is encoded as Null. None is encoded as Null, and Null decodes as None. As a field of an object, None leaves the key out (`to_field`), and a missing key decodes as None (`from_absent`, by its default).
 
 ### Std.Dynamic.Presence (`std/dynamic/presence.emel`) `[api.std.dynamic.presence]`
 
@@ -386,7 +457,7 @@ impl: Eq, Ord and Show are derived. Encode: `to_dynamic` writes Absent and Null 
 | `name_of` | `name_of(shape: Shape) -> String` | The name of the type as it is written (`Int`, `List[String]`, `Page[Member]`) |
 | `generic_name` | `generic_name(name: String, arguments: List[Shape]) -> String` | `name` followed by the names of `arguments` in brackets, or `name` alone without arguments |
 
-impl: Bool, Int, Int64, Float, String, Bytes, Dynamic, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K, V]` have Shaped. The shape of Bytes is `Bytes`, and the shapes of `Array[A]` and `Set[A]` are `List` of the shape of `A`. The impls of `List`, `Array`, `Set`, `Option` and `Map` pass `visiting` on to their type arguments.
+impl: Bool, Int, Int64, Float, String, Bytes, Instant, Duration, Dynamic, `List[A]`, `Array[A]`, `Set[A]`, `Option[A]` and `Map[K, V]` have Shaped. The shape of Instant is `Named("Instant", Shape.format(Shape.String, "date-time"))`. The shape of Duration is `Named("Duration", Shape.String)`. It has no `format` note, because the text that Encode writes (`1500ms`) is not an ISO 8601 duration. The shape of Bytes is `Bytes`, and the shapes of `Array[A]` and `Set[A]` are `List` of the shape of `A`. The impls of `List`, `Array`, `Set`, `Option` and `Map` pass `visiting` on to their type arguments.
 
 The notes defined by `Std.Shape` are `"description"`, `"pattern"`, `"format"`, `"minimum"`, `"maximum"`, `"min_length"`, `"max_length"`, `"min_items"` and `"max_items"`, each with the value its function above writes. Notes are only described: the notes do not change which values a shape describes, and nothing in `Std.Shape` checks them. Other notes may be added with `annotate`.
 
@@ -473,7 +544,7 @@ The platform layer and the test layer (`[lib.layers]`). What the process has exa
 | `exit_code_to_int` | `exit_code_to_int(code: ExitCode) -> Int` | The number of the exit code. Implemented in Emela |
 | `EXIT_SUCCESS` | `const EXIT_SUCCESS: ExitCode` | `exit_code(0)` |
 | `EXIT_FAILURE` | `const EXIT_FAILURE: ExitCode` | `exit_code(1)` |
-| `Process` | `layer Process { Platform, SystemArgs, SystemStdin, SystemStdout, SystemStderr, SystemEnv, SystemFileSystem }` | Platform and the System handlers that need a process. Requires Async and ProcessHost (`[effect.host]`) |
+| `Process` | `layer Process { Platform, SystemArgs, SystemStdin, SystemStdout, SystemStderr, SystemEnv, SystemFileSystem, SystemTcp }` | Platform and the System handlers that need a process. Requires Async and ProcessHost (`[effect.host]`) |
 
 - The System handlers of this section require `ProcessHost` (`[effect.host]`).
 
@@ -492,8 +563,8 @@ Stdin:
 - A line ends at `\n`. The `\n`, and a `\r` immediately before it, are not part of the line. The text after the last `\n`, if not empty, is the last line. Once `read_line` has returned `None`, every later call returns `None` and every later `read_text` returns `""`.
 - `read_line` and `read_text` read from the same position. `read_text` after `read_line` returns the input that follows the line.
 - When a line (for `read_text`, the rest of the input) is not valid UTF-8, it is consumed and the operation fails with InvalidInput. Invalid UTF-8 is not replaced with the replacement character, as in `[api.std.bytes]`. The next `read_line` starts at the following line. U+0000 is read as is on every target.
-- When the fiber waiting in an operation of SystemStdin is interrupted (11.4), the operation is canceled. Input that the host has already delivered is kept and returned by the next operation; no input is lost.
-- Waiting for input does not stop other fibers on any target.
+- When the task waiting in an operation of SystemStdin is interrupted (11.5), the operation is canceled. Input that the host has already delivered is kept and returned by the next operation; no input is lost.
+- Waiting for input does not stop other tasks on any target.
 - SystemStdin does not hold the host open: a program that has no operation of Stdin waiting ends when its main ends, even if standard input is still open (a terminal, for example).
 - Under `emela test`, standard input is not passed to the program (`[cmd.test.output]`). SystemStdin reads it as an empty input.
 - `read_line` of TestStdin removes the first element of `lines` and returns it, or returns `None` when `lines` is empty. `read_text` returns the elements of `lines` joined with `\n` and sets `lines` to `[]`.
@@ -507,7 +578,7 @@ Stdout and Stderr:
 - When the program ends, in any of the ways of `[cmd.build]`, everything written so far is written out before the exit code is set.
 - `\n` inside `text` is written as is; it is not converted to another line ending.
 - SystemStdout and SystemStderr need a host that gives the process a standard output and a standard error. The hosts of the JS target (`[target]`) do. Their behavior on other hosts is not specified.
-- When a write to standard output fails because the reader has closed it (a pipe whose reading end is closed), the operation does not return. The fiber that wrote unwinds as interrupted from that point, running the releases of its handlers from the inside out, and every other fiber of the program is interrupted (`[fiber.interrupt]`). After that, writes to standard output are discarded. When the unwinding of main finishes, the program exits with exit code 141 and writes nothing to standard error (no `interrupted` line). The same holds for writes of `print_line` of SystemConsole to standard output.
+- When a write to standard output fails because the reader has closed it (a pipe whose reading end is closed), the operation does not return. The fiber that wrote unwinds as interrupted from that point, running the releases of its handlers from the inside out, and every other fiber of the program is interrupted (`[task.interrupt]`). After that, writes to standard output are discarded. When the unwinding of main finishes, the program exits with exit code 141 and writes nothing to standard error (no `interrupted` line). The same holds for writes of `print_line` of SystemConsole to standard output.
 - When a write to standard error fails because the reader has closed it, the program continues. That write and every later write to standard error (SystemStderr, `print_error_line` of SystemConsole, `dbg`, and the lines that the runtime writes when execution stops) are discarded.
 
 ExitCode:
@@ -576,84 +647,81 @@ fn main() {
 - The System handler requires `ProcessHost` (`[effect.host]`).
 - `get` of SystemEnv sees only names set as environment variables of the process. Even on the JS host, it does not pick up names from the object prototype (such as `toString`) as values.
 
-### Std.Fiber (`std/fiber.emel`) `[api.std.fiber]`
+### Std.Task (`std/task.emel`) `[api.std.task]`
 
-Concurrency (`[fiber]`). Used with `import Std.Fiber.{Fiber, Scope}`.
+Concurrency (`[task]`). Used with `import Std.Task.{Task}`.
 
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
-| `Fiber` | `@external type Fiber[A]` | runtime | A handle to a fiber. Cannot be leaked out of the scope (`[fiber.escape]`) |
-| `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]; fn deferred[A]() -> Deferred[A]; fn semaphore(permits: Int) -> Semaphore; fn queue[A](capacity: Int) -> Queue[A] }` | built-in | The capability to launch fibers in a scope. Only `scope` can provide it |
-| `scope` | `scope[A, E, R](body: fn() -> A fails E uses { Scope[E, R], Async, R }) -> A fails E uses { Async, R }` | intrinsic | Runs the body and returns the value after all children have finished. Children use the handlers in effect where `scope` was called |
-| `fork` | `fork[A, E, R](f: fn() -> A fails E uses { Scope[E, R], R }) -> Fiber[A] uses { Scope[E, R] }` | Emela | `(use Scope).fork(f)` |
-| `deferred` | `deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] }` | Emela | `(use Scope).deferred()` |
-| `semaphore` | `semaphore[E, R](permits: Int) -> Semaphore uses { Scope[E, R] }` | Emela | `(use Scope).semaphore(permits)` |
-| `queue` | `queue[A, E, R](capacity: Int) -> Queue[A] uses { Scope[E, R] }` | Emela | `(use Scope).queue(capacity)` |
-| `join` | `join[A](fiber: Fiber[A]) -> A uses { Async }` | intrinsic | Waits for the child to finish and returns its value. A defect if the child was interrupted |
-| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] uses { Async }` | intrinsic | Waits for the child to finish and returns how it ended (`Exit` of `Std.Exit`) |
-| `interrupt` | `interrupt[A](fiber: Fiber[A]) -> () uses { Async }` | intrinsic | Interrupts the child and waits until its unwinding finishes |
+| `Task` | `@external type Task[A] uses TaskGroup` | runtime | A task started in a group. A capability-bound type of TaskGroup: cannot leave the with of the group (`[task.group]`) |
+| `TaskGroup` | `@intrinsic effect TaskGroup[E, R] { fn start[A](f: fn() -> A fails E uses { R }) -> Task[A] }` | built-in | The capability to start tasks whose results are awaited. Only `Group` provides it |
+| `Spawn` | `@intrinsic effect Spawn[E, R] { fn start(f: fn() -> () fails E uses { R }) -> () }` | built-in | The capability to start tasks whose results are not awaited. Only `Background` provides it |
+| `Group` | `@intrinsic handler Group[E, R]: TaskGroup[E, R]` | intrinsic | When the body ends, interrupts the tasks left and waits until they have unwound. A failure of a task interrupts its siblings and fails the with |
+| `Background` | `@intrinsic handler Background[E, R]: Spawn[E, R]`, `init(on_failure: fn(Cause[E]) -> () uses { R })` | intrinsic | When the body ends, waits until the tasks have ended. A failure of a task goes to `on_failure` (`[task.background]`) |
+| `join` | `join[A](task: Task[A]) -> A uses { Async }` | intrinsic | Waits for the task to finish and returns its value |
 | `all` | `all[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[A] fails E uses { Async, R }` | Emela | Runs all of them concurrently and collects the results in the original order |
 | `race` | `race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }` | Emela | Takes the first one to finish and interrupts the rest |
 | `both` | `both[A, B, E, R](f: fn() -> A fails E uses { R }, g: fn() -> B fails E uses { R }) -> (A, B) fails E uses { Async, R }` | Emela | Runs the two concurrently and returns a pair |
 | `map` | `map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E uses { R }) -> List[B] fails E uses { Async, R }` | Emela | Applies `f` to each element concurrently |
 | `timeout` | `timeout[A, E, R](ms: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { Clock, Async, R }` | Emela | Waits up to `ms` milliseconds. If `f` does not finish in time, interrupts it and returns `None` |
 
-- `all` and `map` launch all children first, then join them in the original order.
-- `timeout` launches a child that puts `Some(f())` into a Deferred and a child that waits ms with Clock and then puts None, and returns whichever was put first. Time is measured with the Clock handler at the call site, so inside TestClock it is measured in virtual time.
+- `all` and `map` start all tasks first, then join them in the original order.
+- `timeout` starts a task that puts `Some(f())` into a Deferred and a task that waits ms with Clock and then puts None, and returns whichever was put first. Time is measured with the Clock handler at the call site, so inside TestClock it is measured in virtual time.
 
 ### Std.Exit (`std/exit.emel`) `[api.std.exit]`
 
-How a computation ended, and `attempt`, which turns errors and defects into that value (`[fiber.cause]`). Used with `import Std.Exit.{Success, Failure}`.
+How a computation ended, and `attempt`, which turns errors and defects into that value (`[task.cause]`). Used with `import Std.Exit.{Success, Failure}`.
 
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
 | `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | How a computation ended |
-| `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | intrinsic | Runs `f` in place and turns Fail and Die into values. Starts no fiber. Does not catch an interruption of the calling fiber itself |
+| `attempt` | `attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }` | intrinsic | Runs `f` in place and turns Fail and Die into values. Starts no task. Does not catch an interruption of the calling task itself |
 
 ### Std.Cause (`std/cause.emel`) `[api.std.cause]`
 
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
-| `Cause` | `opaque type Cause[E]` | runtime | The reason a fiber did not end normally. The error inside cannot be taken out |
-| `CauseKind` | `enum CauseKind { Fail, Die, Interrupt }` | Emela | The kind of cause |
+| `Cause` | `opaque type Cause[E]` | runtime | The reason a computation failed. The error inside cannot be taken out |
+| `CauseKind` | `enum CauseKind { Fail, Die }` | Emela | The kind of cause |
 | `kind` | `kind[E](c: Cause[E]) -> CauseKind` | intrinsic | The kind of cause |
-| `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`, `defect: …`, `interrupted` |
-| `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | Raises it again. Fail fails, Die is a defect, and Interrupt unwinds as an interruption |
+| `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`, `defect: …` |
+| `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | Raises it again. Fail fails, and Die is a defect |
 
 impl (`[trait.derive]`): CauseKind has `derive Eq, Show`. Cause holds functions, so it does not satisfy Eq, Ord, or Show (display it with `to_string` or dbg). For the same reason, Exit of Std.Exit does not satisfy them either.
 
 ### Std.Deferred (`std/deferred.emel`) `[api.std.deferred]`
 
+Used with `import Std.Deferred.{Deferred}` (`[task.deferred]`).
+
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
-| `Deferred` | `@external type Deferred[A]` | runtime | A container that can be filled with a value only once. Only `deferred` of Scope can create one |
-| `complete` | `complete[A](d: Deferred[A], value: A) -> Bool` | intrinsic | Puts in the value and returns True only the first time. False from the second time on |
-| `await` | `await[A](d: Deferred[A]) -> A uses { Async }` | intrinsic | Waits until a value is put in |
-| `poll` | `poll[A](d: Deferred[A]) -> Option[A]` | intrinsic | `Some` if a value is in. Does not wait |
+| `Deferred` (effect) | `@intrinsic effect Deferred[A] { fn complete(value: A) -> Bool; suspend fn await() -> A; fn poll() -> Option[A] }` | built-in | A container that can be filled with a value only once |
+| `Deferred` (handler) | `@intrinsic handler Deferred[A]: Deferred[A]` | intrinsic | Makes an empty Deferred. Its release does nothing |
 
 ### Std.Semaphore (`std/semaphore.emel`) `[api.std.semaphore]`
 
+Used with `import Std.Semaphore.{Semaphore}` (`[task.semaphore]`).
+
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
-| `Semaphore` | `@external type Semaphore` | runtime | A fixed number of permits. Only `semaphore` of Scope can create one |
-| `with_permit` | `with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | Emela | `with_permits(s, 1, f)` |
-| `with_permits` | `with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | intrinsic | Waits for n permits, runs `f`, and gives them back however `f` ends |
-| `try_with_permit` | `try_with_permit[A, E, R](s: Semaphore, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | Emela | `try_with_permits(s, 1, f)` |
-| `try_with_permits` | `try_with_permits[A, E, R](s: Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | intrinsic | Runs `f` only if n permits can be taken without waiting |
-| `available` | `available(s: Semaphore) -> Int` | intrinsic | The number of free permits |
+| `Semaphore` (effect) | `@intrinsic effect Semaphore { suspend handler Permits(n: Int): Permit; handler TryPermits(n: Int): Permit fails NoPermits; fn available() -> Int }` | built-in | A fixed number of permits. `available` is the number of free permits |
+| `Permit` | `@intrinsic effect Permit { fn count() -> Int }` | built-in | Permits held. `count` is how many |
+| `Semaphore` (handler) | `@intrinsic handler Semaphore(permits: Int): Semaphore` | intrinsic | Makes a semaphore with that many permits |
+| `NoPermits` | `error NoPermits` | Emela | TryPermits could not take the permits without waiting |
+| `with_permit` | `with_permit[A, E, R](s: use Semaphore, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | Emela | `with_permits(s, 1, f)` |
+| `with_permits` | `with_permits[A, E, R](s: use Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> A fails E uses { Async, R }` | Emela | Opens Permits of n, runs `f` in it, and gives them back however `f` ends |
+| `try_with_permit` | `try_with_permit[A, E, R](s: use Semaphore, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | Emela | `try_with_permits(s, 1, f)` |
+| `try_with_permits` | `try_with_permits[A, E, R](s: use Semaphore, n: Int, f: fn() -> A fails E uses { R }) -> Option[A] fails E uses { R }` | Emela | Runs `f` only if n permits can be taken without waiting |
 
 ### Std.Queue (`std/queue.emel`) `[api.std.queue]`
 
+Used with `import Std.Queue.{Queue}` (`[task.queue]`).
+
 | Declaration | Signature | Implementation | Description |
 |---|---|---|---|
-| `Queue` | `@external type Queue[A]` | runtime | Values in order, up to a capacity. Only `queue` of Scope can create one |
+| `Queue` (effect) | `@intrinsic effect Queue[A] { suspend fn offer(value: A) -> () fails QueueClosed; suspend fn take() -> A fails QueueClosed; fn try_offer(value: A) -> Bool; fn poll() -> Option[A]; fn size() -> Int; fn close() -> () }` | built-in | Values in order, up to a capacity |
+| `Queue` (handler) | `@intrinsic handler Queue[A](capacity: Int): Queue[A]` | intrinsic | Makes an empty queue. Its release does nothing |
 | `QueueClosed` | `error QueueClosed` | Emela | The queue is closed (and, for `take`, empty) |
-| `offer` | `offer[A](q: Queue[A], value: A) -> () fails QueueClosed uses { Async }` | intrinsic | Adds value at the end. Waits while full |
-| `take` | `take[A](q: Queue[A]) -> A fails QueueClosed uses { Async }` | intrinsic | Removes the value at the front. Waits while empty |
-| `try_offer` | `try_offer[A](q: Queue[A], value: A) -> Bool` | intrinsic | Adds value if neither full nor closed |
-| `poll` | `poll[A](q: Queue[A]) -> Option[A]` | intrinsic | Removes the value at the front if there is one |
-| `size` | `size[A](q: Queue[A]) -> Int` | intrinsic | The number of values |
-| `close` | `close[A](q: Queue[A]) -> ()` | intrinsic | Closes the queue. The values in it can still be taken |
 
 ### Std.Http (`std/http.emel`, `std/http.mjs`) `[api.std.http]`
 
@@ -672,7 +740,7 @@ The client effect, its errors, and the entry adapter for HTTP services. Requests
 | `TestHttp` | `handler TestHttp: Http` | The state is `State[TestServer]`. Appends the request to `sent` and resumes immediately with the response from `respond`. `None` means ConnectionFailed |
 | `Incoming` | `@external type Incoming` | The request as the host handed it over. Used only when writing an export by hand |
 | `Outgoing` | `@external type Outgoing` | The response for the host to send |
-| `serve` | `serve[E](app: fn(Request) -> Response fails E uses { Async }, incoming: Incoming) -> Outgoing uses { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
+| `serve` | `serve[E, F](app: fn(Request) -> Response fails E uses { Spawn[F, { Async }], Async }, incoming: Incoming) -> Outgoing uses { Async }` | An entry adapter (`[ext.entry]`). `@entry(Http.serve)` makes the fn the entry of an HTTP service (`[lib.http-service]`) |
 
 - `request`, `add_header`, `header`, `headers`, `encode_query`, `require_ok`, and `response` remain for one minor version with `@deprecated`, pointing to their new places (`Request.new`, `Request.add_header`, `Response.header`, `Response.header_values`, `Request.encode_query`, `Response.require_ok`, `Response.new`).
 - The message of ConnectionFailed is the text of the host's exception. If cause information is available, the cause's code and text, joined by a space, are appended after `: ` (`fetch failed: ECONNREFUSED connect ECONNREFUSED 127.0.0.1:1234`). The text depends on the host.
@@ -729,6 +797,56 @@ impl (`[trait.derive]`): Method and Request have `derive Eq, Show`.
 | `require_ok` | `require_ok(res: Response) -> Response fails UnexpectedStatus` | Fails on anything other than 2xx. Moved from `Std.Http` |
 
 impl (`[trait.derive]`): Response has `derive Eq, Show`, and UnexpectedStatus has `derive Show`.
+
+### Std.Tcp (`std/tcp.emel`, `std/tcp.mjs`, `std/tcp.c`) `[api.std.tcp]`
+
+The platform layer (`[lib.layers]`). A TCP client: it opens connections, reads and writes bytes on them, and upgrades them to TLS.
+
+| Declaration | Contents | Description |
+|---|---|---|
+| `Connection` | `opaque type Connection` | An open connection, or one that was closed |
+| `HostNotFound` | `error HostNotFound(host: String)` | The name could not be resolved |
+| `ConnectionRefused` | `error ConnectionRefused(host: String, port: Int)` | Nothing accepted the connection |
+| `ConnectionClosed` | `error ConnectionClosed` | The connection was closed by `close`, by the release of the handler, or by the peer resetting it, or the peer finished sending before `read_exact` got its bytes |
+| `TlsFailure` | `error TlsFailure(message: String)` | The TLS handshake failed, including a certificate that could not be verified. The reason is in `message` |
+| `TcpFailure` | `error TcpFailure(message: String)` | Any other failure of the host. The reason is in `message` |
+| `Roots` | `enum Roots { SystemRoots, Pem(text: String) }` | The certificates trusted as roots |
+| `Verify` | `enum Verify { Full(roots: Roots), ChainOnly(roots: Roots), NoVerification }` | How much of the peer's certificate `upgrade_tls` checks |
+| `VERIFY_FULL` | `const VERIFY_FULL = Full(roots: SystemRoots)` | The usual check |
+| `Tcp` | `effect Tcp` | `connect`, `read`, `write`, `upgrade_tls` and `close`, below |
+| `read_exact` | `fn read_exact(conn: Connection, n: Int) -> Bytes fails ConnectionClosed \| TcpFailure uses { Tcp }` | Exactly `n` bytes, below |
+| `SystemTcp` | `handler SystemTcp: Tcp` | `node:net` and `node:tls` on JS, POSIX sockets on native, `wasi:sockets@0.3.0` on WASM. Requires Async and ProcessHost. Bundled in `Process` (`[api.std.process]`) |
+
+```emel
+pub effect Tcp {
+  suspend fn connect(host: String, port: Int) -> Connection
+    fails HostNotFound | ConnectionRefused | TcpFailure
+  suspend fn read(conn: Connection, max: Int) -> Option[Bytes] fails ConnectionClosed | TcpFailure
+  suspend fn write(conn: Connection, data: Bytes) -> () fails ConnectionClosed | TcpFailure
+  suspend fn upgrade_tls(conn: Connection, server_name: String, verify: Verify) -> ()
+    fails ConnectionClosed | TlsFailure | TcpFailure
+  suspend fn close(conn: Connection) -> ()
+}
+
+pub fn read_exact(conn: Connection, n: Int) -> Bytes fails ConnectionClosed | TcpFailure uses { Tcp }
+```
+
+- `connect` resolves `host`, which is a name or an IP address written as a string, and connects to `port`. A `port` outside 1 to 65535 fails with TcpFailure.
+- `read` returns `Some` of at least 1 and at most `max` bytes, as many as have arrived. After the peer has finished sending and closed its side, it returns `None`. A `max` less than 1 is a defect (``Tcp.read was given max <max>, which is less than 1``).
+- `read_exact` calls `read` until it has exactly `n` bytes, and returns them. When `read` returns `None` before that, it fails with ConnectionClosed. An `n` of 0 returns the empty Bytes without reading, and a negative `n` is a defect (``Tcp.read_exact was given n <n>, which is negative``). It is a function on top of `read`, not an operation, so a handler does not implement it.
+- `write` returns after all of `data` has been handed to the host.
+- `upgrade_tls` performs a TLS handshake on the connection, as the client, and turns the same `Connection` into a TLS connection: `read` and `write` after it go through TLS. `server_name` is sent as the server name indication. `verify` chooses how the certificate of the peer is checked: `Full(roots:)` verifies its chain up to `roots` and checks that it is for `server_name`; `ChainOnly(roots:)` verifies the chain only; `NoVerification` checks nothing, so the connection is encrypted but the peer is not authenticated. `roots` is `SystemRoots`, the roots that the host trusts (on WASM, the roots bundled with emela, `[target.wasm.external]`), or `Pem(text:)`, one or more CA certificates in PEM, which are then the only roots trusted. `VERIFY_FULL` is `Full(roots: SystemRoots)`.
+- When the handshake or the verification fails, or `text` of `Pem` is not one or more certificates in PEM, `upgrade_tls` fails with TlsFailure and the connection is closed.
+- If, when `upgrade_tls` is called, the handler holds bytes that have arrived on the connection and that `read` has not returned, it does not start the handshake: it fails with TlsFailure and the connection is closed. A server sends no TLS bytes before the client's first handshake message, so such bytes cannot be part of the handshake.
+- Upgrading a TLS connection is a defect (``Tcp.upgrade_tls was given a connection that is already TLS``), and so is upgrading a connection while a `read` or a `write` on it is waiting (``Tcp.upgrade_tls was given a connection that is being read or written``).
+- `close` closes the connection. Closing a closed connection does nothing. `read` and `write` on a closed connection fail with ConnectionClosed, as they do after the peer has reset the connection.
+- There is no timeout. Write it with `Task.timeout` (`[task.combinators]`). When a fiber waiting in `connect`, `read`, `write` or `upgrade_tls` is interrupted, the wait is abandoned (`[ext.call]`, `[ext.c-host]`). The connection stays open.
+- The release of `SystemTcp` closes the connections it opened that are still open. A connection can be used only inside the with of the handler that opened it. Passing a connection to an operation, `close` included, after that with has ended, or passing it to another handler than the one that opened it, is a defect (``a connection was used outside the with of the handler that opened it``).
+- Two concurrent `read`s on the same connection, or two concurrent `write`s, are a defect (``two reads of a connection ran at once``, ``two writes of a connection ran at once``). A `read` and a `write` on the same connection MAY run concurrently.
+- Tcp is not Immediate (`[type.effect-bound]`), so it cannot be used inside the callback of an external function.
+- `SystemTcp` requires ProcessHost (`[effect.host]`): a page of a web browser has no TCP. It uses `node:net` and `node:tls` on JS. On native it resolves names with `getaddrinfo` on another thread and waits on non-blocking sockets with `em_on_readable` and `em_on_writable` (`[ext.c-host]`). On WASM it uses `wasi:sockets@0.3.0`, and performs TLS inside the component (`[target.wasm.external]`). `upgrade_tls` has no native implementation yet, and calling it on native is a compile error (E0412).
+
+impl (`[trait.derive]`): Every error has `derive Show` (their contents are shown when they reach main or a test; `[dyn.error]`).
 
 ### Std.FileSystem (`std/file_system.emel`, `std/file_system.mjs`, `std/file_system.c`) `[api.std.file-system]`
 
