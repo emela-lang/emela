@@ -43,6 +43,12 @@ pub enum Builtin {
     StringCodePoints,
     /// `String.from_code_point`. `None` if not a Unicode scalar value.
     StringFromCodePoint,
+    /// `String.ascii_lower` (private): `to_ascii_lowercase` without the wrapper. Only ASCII A to
+    /// Z become a to z.
+    StringAsciiLower,
+    /// `String.ascii_upper` (private): `to_ascii_uppercase` without the wrapper. Only ASCII a to
+    /// z become A to Z.
+    StringAsciiUpper,
     /// `String.show_nested` (`@internal`): the Show of a value inside another value (spec 10.6),
     /// for the Show impls in core. Monomorphization replaces it with [`Builtin::ShowString`] for a
     /// String and with a call of `Show.show` for any other type, so backends never see it.
@@ -300,6 +306,8 @@ impl Builtin {
         Builtin::StringTrim,
         Builtin::StringCodePoints,
         Builtin::StringFromCodePoint,
+        Builtin::StringAsciiLower,
+        Builtin::StringAsciiUpper,
         Builtin::ShowNested,
         Builtin::IntToString,
         Builtin::IntParse,
@@ -366,6 +374,8 @@ impl Builtin {
             Builtin::StringTrim => info(S, "trim", &[String], String),
             Builtin::StringCodePoints => info(S, "code_points", &[String], List(&Int)),
             Builtin::StringFromCodePoint => info(S, "from_code_point", &[Int], Option(&String)),
+            Builtin::StringAsciiLower => info(S, "ascii_lower", &[String], String),
+            Builtin::StringAsciiUpper => info(S, "ascii_upper", &[String], String),
             Builtin::ShowNested => BuiltinInfo {
                 ty_params: 1,
                 ..info(S, "show_nested", &[Param(0)], String)

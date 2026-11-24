@@ -1581,6 +1581,16 @@ export function $strfromcodepoint(n) {
   return { $tag: 0, $0: String.fromCodePoint(n) };
 }
 
+// String.to_ascii_lowercase changes only ASCII A to Z, and to_ascii_uppercase only a to z: every
+// other character, including non-ASCII letters, is copied unchanged.
+export function $strAsciiLower(s) {
+  return s.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
+}
+
+export function $strAsciiUpper(s) {
+  return s.replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 32));
+}
+
 // ---- Bytes (`[api.std.bytes]`) ----
 //
 // A Bytes is a `Uint8Array` that nothing changes after it is made (`[target.js.value]`). The

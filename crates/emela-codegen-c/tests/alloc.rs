@@ -203,6 +203,42 @@ fn check_stats(stderr: &str) -> Vec<(String, u64)> {
 }
 
 #[test]
+fn ascii_case_conversion_allocates_only_its_result() {
+    // `String.to_ascii_lowercase` and `to_ascii_uppercase` copy the bytes once: one String and
+    // nothing else, not the list of code points, the list of one-character strings and the Some
+    // of `from_code_point` that a conversion written with those builtins allocates.
+    if cc().is_none() {
+        return;
+    }
+    let src = format!(
+        r#"{PRELUDE}
+fn main() {{
+  print(String.to_ascii_lowercase("aAzZ éÄß 日本語 🙂aZ🙂"))
+  print(String.to_ascii_uppercase("aAzZ éÄß 日本語 🙂aZ🙂"))
+}}
+"#
+    );
+    let out = to_c(&src).expect("the program compiles");
+    let got = build_and_run(
+        &out_dir("ascii-case-alloc"),
+        &out,
+        &["-O1", "-DEMELA_ALLOC_STATS"],
+    );
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    let report: Vec<&str> = got
+        .stderr
+        .lines()
+        .skip_while(|line| !line.starts_with("emela-alloc "))
+        .collect();
+    assert!(!report.is_empty(), "a report");
+    let counts = check_stats(&report.join("\n"));
+    let count = |n: &str| counts.iter().find(|(name, _)| name == n).map(|(_, c)| *c);
+    assert_eq!(count("String"), Some(2), "one String per conversion");
+    assert_eq!(count("cons"), None, "no list is built");
+    assert_eq!(count("Some"), None, "no Option is built");
+}
+
+#[test]
 fn alloc_stats_are_reported_in_a_measurement_build() {
     if cc().is_none() {
         return;

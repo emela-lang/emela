@@ -252,6 +252,12 @@ em_ref em_string_join(em_ref parts, em_ref sep);
 em_ref em_string_trim(em_ref s);
 em_ref em_string_code_points(em_ref s);
 em_ref em_string_from_code_point(int32_t n);
+/* `String.ascii_lower` and `String.ascii_upper`, the builtins under `to_ascii_lowercase` and
+ * `to_ascii_uppercase`: only the ASCII letters change case, and every other byte, including each
+ * byte of a multi-byte UTF-8 sequence, is copied as it is, so the result has the byte length of
+ * the argument. */
+em_ref em_string_ascii_lower(em_ref s);
+em_ref em_string_ascii_upper(em_ref s);
 /* A Bytes (`[api.std.bytes]`) is an EM_KIND_STRING object whose bytes need not be UTF-8. */
 em_ref em_bytes_from_list(em_ref xs);
 em_ref em_bytes_to_list(em_ref b);
