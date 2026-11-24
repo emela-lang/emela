@@ -7,7 +7,7 @@
 # The intrinsics are the operations that need the representation: building from and reading out
 # the elements, the size, reading and replacing one element, slicing and joining. The rest is
 # written in Emela over them, so it behaves the same on every target. Loops are self tail calls
-# over positions (spec 6.8), so long arrays do not use the stack.
+# over positions (`[fn.loop]`), so long arrays do not use the stack.
 
 ## An immutable sequence of values of type `A`, of fixed length, read by position.
 @intrinsic

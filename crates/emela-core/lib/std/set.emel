@@ -1,4 +1,4 @@
-# Sets of values, in order (spec 15.2, 18.1 #36). Immutable. A Map with `()` values.
+# Sets of values, in order (`[lib.layers]`, `[open.list]` #36). Immutable. A Map with `()` values.
 
 import Std.Map.{Map}
 
@@ -35,6 +35,7 @@ pub fn size[A](s: Set[A]) -> Int {
   s.inner.size()
 }
 
+## Whether the set is empty.
 pub fn is_empty[A](s: Set[A]) -> Bool {
   s.inner.is_empty()
 }

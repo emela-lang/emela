@@ -124,6 +124,10 @@ impl Lower<'_> {
             // Debug display (`inspect`, spec 10.6). Interpolation of a function is rejected in
             // lowering.
             Type::Fn(_) => string("<fn>"),
+            // Only the capabilities of Deferred, Queue and Semaphore are shown (`[task.deferred]`).
+            Type::Handler(e) if self.sh.core.effects[e].display.is_some() => {
+                string(self.sh.core.effects[e].display.unwrap_or_default())
+            }
             _ => {
                 let name = crate::core_ty(&self.sh.core, ty);
                 self.error(format!("a value of type {name} cannot be shown"));

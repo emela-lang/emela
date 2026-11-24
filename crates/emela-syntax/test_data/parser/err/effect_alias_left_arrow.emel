@@ -1,0 +1,14 @@
+fn f(a: Int, b: Int) {
+  x = a<-1
+  y = a <- b
+  z = f(a) <- 2
+  a + b <- 3
+}
+
+fn g(x: Int) {
+  x <- 1
+  x <- LIMIT
+  x <- Int.abs(3)
+  x <- Money(cents: 1).cents
+  x <-
+}

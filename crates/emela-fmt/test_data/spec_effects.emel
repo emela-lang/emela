@@ -32,9 +32,9 @@ fn update[A, R: Immediate](
 ) -> () uses { R }
 
 fn profile() {
-  profile = Fiber.scope(|s| {
-    a = s.fork(|| fetch_user(1))
-    b = s.fork(|| fetch_orders(1))
+  profile = Exit.attempt(|s| {
+    a = s.start(|| fetch_user(1))
+    b = s.start(|| fetch_orders(1))
     Profile(user: a.join(), orders: b.join())
   })
 }

@@ -65,7 +65,7 @@ fn literals() {
   fails = for
   r = x escape { NotFound(_) -> fail Other }
   assert self == Self
-  waited = Fiber.await(fiber) + d.await()
+  waited = ready.await() + d.await()
   awaiting = Deferred.await
   greeting = load(id) match {
     Some(user) -> user.name

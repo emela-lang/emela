@@ -1,0 +1,207 @@
+# Encode, Decode and Shaped for Instant (`[api.std.dynamic]`, `[api.std.shape]`): the text of
+# `Instant.to_string` and `Instant.parse`, and a record with an Instant field that derives them.
+
+import Std.Bytes.{Bytes}
+import Std.Instant.{Instant}
+import Std.Dynamic.{
+  Dynamic,
+  Decode,
+  Encode,
+  DecodeError,
+  Segment,
+  Key,
+  Index,
+  Text,
+  Binary,
+  Number,
+  Items,
+  Null,
+}
+import Std.Dynamic.Number
+import Std.Json
+import Std.Shape.{Shape, Shaped, Named, Annotated, Record, Field}
+import Std.Shape
+
+fn at(ms: Int64) -> Instant {
+  Instant.from_unix_milliseconds(ms)
+}
+
+# 2025-10-12T03:04:05.678Z
+fn t() -> Instant {
+  at(1760238245678)
+}
+
+# A literal is checked as a positive number, so the least Int64 is written as a difference.
+fn int64_min() -> Int64 {
+  0 - 9223372036854775807 - 1
+}
+
+fn failure(value: Dynamic) -> (String, Dynamic, List[Segment]) {
+  {
+    decoded: Instant = Decode.from_dynamic(value)
+    ("", Null, [])
+  } escape {
+    DecodeError(expected:, actual:, path:) -> (expected, actual, path)
+  }
+}
+
+@test
+fn encodes_as_the_text_of_to_string() {
+  assert t().to_dynamic() == Text("2025-10-12T03:04:05.678Z")
+  assert at(0).to_dynamic() == Text("1970-01-01T00:00:00.000Z")
+  assert at(-1).to_dynamic() == Text("1969-12-31T23:59:59.999Z")
+  assert at(253402300800000).to_dynamic() == Text("+010000-01-01T00:00:00.000Z")
+  assert at(int64_min()).to_dynamic() == Text("-292275055-05-16T16:47:04.192Z")
+}
+
+@test
+fn decodes_text_with_parse() {
+  forms = [
+    "2025-10-12T03:04:05.678Z",
+    "2025-10-12t03:04:05.678z",
+    "2025-10-12T12:04:05.678+09:00",
+    "2025-10-12 12:04:05.678+09",
+    "2025-10-12 12:04:05.6780000 +09:00",
+    "2025-10-11T22:04:05.678-0500",
+  ]
+  forms.each(|s| {
+    decoded: Instant = Decode.from_dynamic(Text(s))
+    assert decoded == t()
+  })
+  min: Instant = Decode.from_dynamic(Text("-292275055-05-16T16:47:04.192Z"))
+  assert min == at(int64_min())
+}
+
+@test
+fn decode_reads_back_what_encode_writes() {
+  points: List[Int64] = [
+    0,
+    -1,
+    1760238245678,
+    253402300800000,
+    -62198755200000,
+    9223372036854775807,
+    int64_min(),
+  ]
+  points.each(|ms| {
+    decoded: Instant = Decode.from_dynamic(at(ms).to_dynamic())
+    assert decoded == at(ms)
+  })
+}
+
+@test
+fn a_value_that_is_not_text_fails_as_text() {
+  number = Number(Number.from_int64(1760238245678))
+  assert failure(number) == ("text", number, [])
+  assert failure(Null) == ("text", Null, [])
+  items = Items([Text("2025-10-12T03:04:05.678Z")])
+  assert failure(items) == ("text", items, [])
+  object = Dynamic.object([("at", Text("2025-10-12T03:04:05.678Z"))])
+  assert failure(object) == ("text", object, [])
+  binary = Binary(Bytes.encode_utf8("2025-10-12T03:04:05.678Z"))
+  assert failure(binary) == ("text", binary, [])
+}
+
+@test
+fn text_that_parse_does_not_read_fails_as_date_time() {
+  texts = [
+    "",
+    "2025-10-12",
+    "2025-10-12T03:04:05.678",
+    "2025-02-29T00:00Z",
+    "2016-12-31T23:59:60Z",
+    "2025-10-12T03:04:05,678Z",
+    " 2025-10-12T03:04:05.678Z",
+    "+292278994-08-17T07:12:55.808Z",
+    "1760238245678",
+  ]
+  texts.each(|s| assert failure(Text(s)) == ("date-time", Text(s), []))
+}
+
+type Event(name: String, at: Instant)
+  derive Eq, Encode, Decode, Shaped
+
+@test
+fn a_record_with_an_instant_field_derives_encode_and_decode() {
+  event = Event(name: "release", at: t())
+  expected = Dynamic.object([("name", Text("release")), ("at", Text("2025-10-12T03:04:05.678Z"))])
+  assert event.to_dynamic() == expected
+  decoded: Event = Decode.from_dynamic(event.to_dynamic())
+  assert decoded == event
+}
+
+@test
+fn a_record_with_an_instant_field_goes_through_json() {
+  event = Event(name: "release", at: t())
+  text = Json.encode(event)
+  assert text == "{\"at\":\"2025-10-12T03:04:05.678Z\",\"name\":\"release\"}"
+  decoded: Event = Json.decode(text)
+  assert decoded == event
+  offset: Event = Json.decode("{\"name\":\"release\",\"at\":\"2025-10-12 12:04:05.678+09\"}")
+  assert offset == event
+}
+
+@test
+fn the_failure_of_a_field_has_its_path() {
+  result = {
+    decoded: Event = Json.decode("{\"name\":\"release\",\"at\":\"2025-10-12\"}")
+    ("", [])
+  } escape {
+    DecodeError(expected:, path:, ..) -> (expected, path)
+  }
+  assert result == ("date-time", [Key("at")])
+  number = {
+    decoded: Event = Json.decode("{\"name\":\"release\",\"at\":1760238245678}")
+    ("", [])
+  } escape {
+    DecodeError(expected:, path:, ..) -> (expected, path)
+  }
+  assert number == ("text", [Key("at")])
+  # A missing key is read as Null (the default of `from_absent`).
+  missing = {
+    decoded: Event = Json.decode("{\"name\":\"release\"}")
+    ("", [])
+  } escape {
+    DecodeError(expected:, path:, ..) -> (expected, path)
+  }
+  assert missing == ("text", [Key("at")])
+}
+
+@test
+fn lists_and_options_of_instant_encode_and_decode() {
+  list: List[Instant] = Decode.from_dynamic(
+    Items([Text("2025-10-12T03:04:05.678Z"), Text("1970-01-01T00:00Z")]),
+  )
+  assert list == [t(), at(0)]
+  encoded = Items([Text("2025-10-12T03:04:05.678Z"), Text("1970-01-01T00:00:00.000Z")])
+  assert [t(), at(0)].to_dynamic() == encoded
+  some: Option[Instant] = Decode.from_dynamic(Text("2025-10-12T03:04:05.678Z"))
+  assert some == Some(t())
+  none: Option[Instant] = Decode.from_dynamic(Null)
+  assert none == None
+  failed = {
+    decoded: List[Instant] = Decode.from_dynamic(
+      Items([Text("2025-10-12T03:04:05.678Z"), Text("x")]),
+    )
+    ("", [])
+  } escape {
+    DecodeError(expected:, path:, ..) -> (expected, path)
+  }
+  assert failed == ("date-time", [Index(1)])
+}
+
+@test
+fn the_shape_is_a_named_string_with_the_format_date_time() {
+  formatted = Named(name: "Instant", shape: Shape.format(Shape.String, "date-time"))
+  assert Shape.of_value(t()) == formatted
+  notes = [("format", Text("date-time"))]
+  annotated = Named(name: "Instant", shape: Annotated(shape: Shape.String, notes:))
+  assert Shape.of_value(t()) == annotated
+}
+
+@test
+fn the_shape_of_a_record_with_an_instant_field() {
+  instant = Named(name: "Instant", shape: Shape.format(Shape.String, "date-time"))
+  fields = [Field(name: "name", shape: Shape.String), Field(name: "at", shape: instant)]
+  assert Shape.of_value(Event(name: "release", at: t())) == Record(name: "Event", fields:)
+}
