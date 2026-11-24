@@ -209,7 +209,7 @@ fn system_tcp_on_js() {
         ),
         (
             "defect_two_reads",
-            "a connection was read by two fibers at once",
+            "two reads of a connection ran at once",
         ),
         (
             "defect_upgrade_twice",

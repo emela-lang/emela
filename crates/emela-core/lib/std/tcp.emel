@@ -163,8 +163,8 @@ fn outcome_bytes(o: Outcome) -> Bytes uses {}
 fn check_defect(code: String) -> () {
   code match {
     "Foreign"    -> panic("a connection was used outside the with of the handler that opened it")
-    "ReadBusy"   -> panic("a connection was read by two fibers at once")
-    "WriteBusy"  -> panic("a connection was written by two fibers at once")
+    "ReadBusy"   -> panic("two reads of a connection ran at once")
+    "WriteBusy"  -> panic("two writes of a connection ran at once")
     "AlreadyTls" -> panic("Tcp.upgrade_tls was given a connection that is already TLS")
     "Busy"       -> panic("Tcp.upgrade_tls was given a connection that is being read or written")
     _            -> ()
