@@ -30,7 +30,12 @@
 //!   `Expr::Call::fails` / `suspends` against the callee, and a lambda's parameters against its
 //!   type's `ev`;
 //! - both are lists, tuples or applications of the same enum with compatible components; set type
-//!   arguments ([`Type::Set`], or the `()` placeholder) match each other.
+//!   arguments ([`Type::Set`], or the `()` placeholder) match each other;
+//! - before monomorphization, both are capabilities of instances of the same effect declaration,
+//!   and one of them has type arguments with a type parameter (`Cell[$0]`). A generic function
+//!   that returns or takes one (the functions of a handler with type parameters,
+//!   `[effect.handler]`) is called with type arguments, but substituting them does not map
+//!   effect instances: only monomorphization builds the instance for them (`Cell[Int]`).
 //!
 //! What is not checked: that locals are bound before use and bound once, and `Expr::Call::fails`
 //! of direct calls (a generic function's `Function::fails` over-approximates its instantiations).
@@ -227,6 +232,12 @@ impl<'a> Verifier<'a> {
             }
             (Type::Tuple(xs), Type::Tuple(ys)) => all(xs, ys),
             (Type::Enum(i, xs), Type::Enum(j, ys)) => i == j && all(xs, ys),
+            (Type::Handler(x), Type::Handler(y)) if !self.strict => {
+                let effects = &self.m().effects;
+                let generic =
+                    |e: EffectId| effects[e].args.iter().any(|&t| self.t.types().has_param(t));
+                effects[*x].decl == effects[*y].decl && (generic(*x) || generic(*y))
+            }
             // Set type arguments of enums carry no values. Some are still the `()` placeholder
             // (`Exit[A, E]` from the concurrency operations).
             (Type::Set(_), Type::Set(_) | Type::Unit) | (Type::Unit, Type::Set(_)) => true,
@@ -983,7 +994,7 @@ impl<'a> Verifier<'a> {
                 }
             }
             // `scope`, then for fork the parameterless child.
-            FiberOp::Fork | FiberOp::Deferred => {
+            FiberOp::Fork => {
                 if let Some(t) = first {
                     self.expect(t, TypeId::FIBER_SCOPE, "scope");
                 }
@@ -998,12 +1009,9 @@ impl<'a> Verifier<'a> {
                     }
                 }
             }
-            // `scope`, `permits` or `capacity`.
+            // `permits` or `capacity`.
             FiberOp::Semaphore | FiberOp::Queue => {
-                if let Some(t) = first {
-                    self.expect(t, TypeId::FIBER_SCOPE, "scope");
-                }
-                if let Some(&n) = tys.get(1) {
+                if let Some(n) = first {
                     self.expect(n, TypeId::INT, "size");
                 }
             }

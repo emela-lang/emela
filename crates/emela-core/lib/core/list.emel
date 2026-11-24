@@ -1,10 +1,11 @@
-# Functions on List. Collections are immutable (spec 15.2).
+# Functions on List. Collections are immutable (`[lib.layers]`).
 #
 # - The list comes first as `xs`, so calls read as `xs.map(f)`.
-# - The initial value of a fold is `from` (spec 15.3): `xs.fold(from: 0, f: add)`.
-# - Loops are self tail calls (spec 6.8), so long lists do not use the stack. Functions that build
-#   a result from the front accumulate it in reverse and then `reverse` it.
+# - The initial value of a fold is `from` (`[lib.api-rules]`): `xs.fold(from: 0, f: add)`.
+# - Loops are self tail calls (`[fn.loop]`), so long lists do not use the stack. Functions that
+#   build a result from the front accumulate it in reverse and then `reverse` it.
 
+## Applies `f` to each element.
 pub fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {
   xs.fold(from: [], f: |acc, x| [f(x), ..acc]).reverse()
 }
@@ -33,6 +34,7 @@ pub fn fold[A, B](xs: List[A], from: B, f: fn(B, A) -> B) -> B {
   }
 }
 
+## The number of elements.
 pub fn length[A](xs: List[A]) -> Int {
   count_onto(xs, 0)
 }
@@ -44,6 +46,7 @@ fn count_onto[A](xs: List[A], n: Int) -> Int {
   }
 }
 
+## Whether the list is empty.
 pub fn is_empty[A](xs: List[A]) -> Bool {
   xs match {
     [] -> True
@@ -76,6 +79,7 @@ pub fn tail[A](xs: List[A]) -> List[A] {
   }
 }
 
+## The elements in reverse order.
 pub fn reverse[A](xs: List[A]) -> List[A] {
   reverse_onto(xs, [])
 }
@@ -88,6 +92,7 @@ fn reverse_onto[A](xs: List[A], acc: List[A]) -> List[A] {
   }
 }
 
+## Joins two lists: the elements of `xs`, then those of `ys`.
 pub fn append[A](xs: List[A], ys: List[A]) -> List[A] {
   reverse_onto(reverse(xs), ys)
 }
@@ -276,13 +281,13 @@ fn merge_onto[A](xs: List[A], ys: List[A], f: fn(A, A) -> Ordering, acc: List[A]
   }
 }
 
-## Sorted in the order of Ord (spec 10.6). Stable.
+## Sorted in the order of Ord (`[trait.builtin]`). Stable.
 pub fn sort[A: Ord](xs: List[A]) -> List[A] {
   sort_by(xs, Ord.compare)
 }
 
-# The built-in impls (spec 10.6). Elements are compared and shown through their own impls. Ord
-# compares lexicographically: a list is less than any longer list that starts with it.
+# The built-in impls (`[trait.builtin]`). Elements are compared and shown through their own impls.
+# Ord compares lexicographically: a list is less than any longer list that starts with it.
 # Eq and Ord recurse through `eq_lists` and `compare_lists`, not through `Eq.eq` and `Ord.compare`
 # on the rest: a call through a trait function is not a self tail call (loops are made before
 # monomorphization picks the impl), and long lists would use the stack.

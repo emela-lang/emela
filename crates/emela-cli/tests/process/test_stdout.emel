@@ -4,9 +4,12 @@ import Std.Process.{Stderr, StderrText, Stdout, StdoutText, TestStderr, TestStdo
 import Std.State.{State}
 
 fn greet(name: String) -> () uses { Stdout, Stderr } {
-  (use Stdout).print("Hello, ")
-  (use Stdout).print_line("#{name}!")
-  (use Stderr).print_line("greeted #{name}")
+  stdout <- Stdout
+  stdout.print("Hello, ")
+  stdout <- Stdout
+  stdout.print_line("#{name}!")
+  stderr <- Stderr
+  stderr.print_line("greeted #{name}")
 }
 
 @test
@@ -22,7 +25,7 @@ fn greets() {
 fn print_appends_as_is_and_print_line_appends_a_newline() {
   (_, out) = State.run(StdoutText(text: "x"), || {
     with TestStdout {
-      s = use Stdout
+      s <- Stdout
       s.print("a")
       s.print_line("b")
       s.print("")
@@ -37,8 +40,10 @@ fn print_appends_as_is_and_print_line_appends_a_newline() {
 fn stderr_has_its_own_state() {
   (_, err) = State.run(StderrText(text: ""), || {
     with TestStderr {
-      (use Stderr).print("e")
-      (use Stderr).print_line("f")
+      stderr <- Stderr
+      stderr.print("e")
+      stderr <- Stderr
+      stderr.print_line("f")
     }
   })
   assert err.text == "ef\n"

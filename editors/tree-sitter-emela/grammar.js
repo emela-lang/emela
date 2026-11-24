@@ -158,7 +158,12 @@ module.exports = grammar({
 
     parameter: $ => choice(
       $.self,
-      seq(field('name', $.identifier), optional(seq(':', field('type', $._type)))),
+      // `@borrowed` (12.4).
+      seq(
+        repeat($.annotation),
+        field('name', $.identifier),
+        optional(seq(':', field('type', $._type))),
+      ),
     ),
 
     type_parameters: $ => seq('[', commaSep1($.type_parameter), ']'),
@@ -176,6 +181,7 @@ module.exports = grammar({
       field('name', $.type_identifier),
       optional(field('type_parameters', $.type_parameters)),
       optional(field('fields', $.field_list)),
+      optional($.bound_clause),
       optional($._derive),
     ),
 
@@ -184,6 +190,7 @@ module.exports = grammar({
       'enum',
       field('name', $.type_identifier),
       optional(field('type_parameters', $.type_parameters)),
+      optional($.bound_clause),
       field('body', $.variant_list),
       optional($._derive),
     ),
@@ -221,6 +228,12 @@ module.exports = grammar({
       field('name', $.identifier),
       ':',
       field('type', $._type),
+    ),
+
+    // A capability-bound type (9.4).
+    bound_clause: $ => seq(
+      'uses',
+      field('effect', choice($.type_reference, $.generic_type)),
     ),
 
     _derive: $ => seq(optional($._derive_continues), $.derive_clause),
@@ -281,6 +294,7 @@ module.exports = grammar({
       optional($._modifiers),
       'handler',
       field('name', $.type_identifier),
+      optional(field('type_parameters', $.type_parameters)),
       optional(field('fields', $.field_list)),
       ':',
       // The effects it implements, joined by `+` (`[grammar.decl]`).
@@ -288,7 +302,8 @@ module.exports = grammar({
         field('effect', $.type_reference),
         optional(field('type_arguments', $.type_arguments)),
       )),
-      field('body', alias($._handler_item_list, $.declaration_list)),
+      // A built-in (`@intrinsic`) handler has no body ([grammar.decl]).
+      optional(field('body', alias($._handler_item_list, $.declaration_list))),
     ),
 
     _handler_item_list: $ => itemList($, choice(
@@ -302,7 +317,8 @@ module.exports = grammar({
     handler_init: $ => seq(
       'init',
       optional(field('parameters', $.parameters)),
-      field('body', $.block),
+      // An init without a block only declares the parameters of a built-in handler.
+      optional(field('body', $.block)),
     ),
 
     handler_release: $ => seq('release', field('body', $.block)),
@@ -326,6 +342,7 @@ module.exports = grammar({
 
     supply: $ => seq(
       field('handler', $.type_reference),
+      optional(field('type_arguments', $.type_arguments)),
       optional(field('arguments', $.arguments)),
     ),
 
@@ -442,7 +459,15 @@ module.exports = grammar({
       '}',
     ),
 
-    _statement: $ => choice($.binding, $.local_function, $._expression),
+    _statement: $ => choice($.binding, $.effect_alias, $.local_function, $._expression),
+
+    // `log <- Logger` ([effect.use]). `<-` is one token ([grammar.lex]).
+    effect_alias: $ => seq(
+      field('name', $.identifier),
+      '<-',
+      field('effect', $.type_reference),
+      optional(field('type_arguments', $.type_arguments)),
+    ),
 
     // `fn name(x: Int) -> T { ... }` as a statement of a block ([fn.local]). Type parameters,
     // attributes, `pub` and `suspend` are E0150 in the compiler; the head of a top-level fn is
@@ -615,10 +640,8 @@ module.exports = grammar({
       optional(seq(
         'by',
         field('provider', $.type_reference),
-        optional(choice(
-          field('type_arguments', $.type_arguments),
-          field('arguments', $.arguments),
-        )),
+        optional(field('type_arguments', $.type_arguments)),
+        optional(field('arguments', $.arguments)),
       )),
     ),
 
