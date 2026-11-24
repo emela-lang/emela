@@ -1,0 +1,20 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Task.{Task}\n\ntype User(name: String)\n\neffect Users {\n  fn find(id: Int) -> User\n}\n\nhandler PostgresUsers: Users {\n  fn find(id) { User(name: \"alice\") }\n}\n\nfn main() {\n  with tasks = Task.Group {\n    with PostgresUsers {\n      tasks.start(|| (use Users).find(1))\n    }\n    ()\n  }\n}\n\nfn fixed() -> () uses { Async } {\n  with PostgresUsers {\n    with tasks = Task.Group {\n      tasks.start(|| (use Users).find(1))\n      ()\n    }\n  }\n}\n\nfn same_with() -> () uses { Async } {\n  with PostgresUsers, tasks = Task.Group {\n    tasks.start(|| (use Users).find(1))\n    ()\n  }\n}\n\nfn declared() -> () uses { Async } {\n  with tasks = Task.Group {\n    with PostgresUsers {\n      tasks.start(|| (use Users).find(1))\n    }\n    ()\n  }\n}\n\nfn body_itself() -> () uses { Async } {\n  with tasks = Task.Group {\n    (use Users).find(1)\n    ()\n  }\n}\n\nfn test_started() {\n  with tasks = Task.Group {\n    tasks.start(|| (use Users).find(1))\n    ()\n  }\n}\n\"#)"
+---
+main: fn() -> () uses { Async, Users }
+  tasks: use TaskGroup[{}, Users]
+fixed: fn() -> () uses { Async }
+  tasks: use TaskGroup[{}, Users]
+same_with: fn() -> () uses { Async }
+  tasks: use TaskGroup[{}, Users]
+declared: fn() -> () uses { Async }
+  tasks: use TaskGroup[{}, Users]
+body_itself: fn() -> () uses { Async }
+  tasks: use TaskGroup[{}, {}]
+test_started: fn() -> () uses { Async, Users }
+  tasks: use TaskGroup[{}, Users]
+`tasks.start(|| (use Users).find(1))` unhandled effects Users (Main) [provide outside the group]
+`tasks.start(|| (use Users).find(1))` unhandled effects Users (Declared) [provide outside the group]
+`use Users` unhandled effects Users (Declared)
+`tasks.start(|| (use Users).find(1))` unhandled effects Users (Test { name: "test_started" }) [provide outside the group]

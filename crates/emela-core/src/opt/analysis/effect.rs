@@ -685,11 +685,6 @@ fn fiber_may_defect(op: FiberOp) -> bool {
 fn fiber_waits(op: FiberOp) -> bool {
     matches!(
         op,
-        FiberOp::Scope { .. }
-            | FiberOp::Join
-            | FiberOp::Await { .. }
-            | FiberOp::Interrupt
-            | FiberOp::DeferredAwait
-            | FiberOp::Attempt { .. }
+        FiberOp::Scope { .. } | FiberOp::Join | FiberOp::DeferredAwait | FiberOp::Attempt { .. }
     )
 }

@@ -1,4 +1,4 @@
-# Functions on String (spec 16.2). There is no API that takes a numeric position.
+# Functions on String (`[target.string]`). There is no API that takes a numeric position.
 # The string comes first, so calls read as `s.contains("@")`.
 
 ## The number of user-perceived characters (grapheme clusters). `"👍".length()` is 1.
@@ -22,9 +22,11 @@ pub fn concat(parts: List[String]) -> String {
 @intrinsic
 pub fn contains(s: String, sub: String) -> Bool
 
+## Whether `s` starts with `prefix`.
 @intrinsic
 pub fn starts_with(s: String, prefix: String) -> Bool
 
+## Whether `s` ends with `suffix`.
 @intrinsic
 pub fn ends_with(s: String, suffix: String) -> Bool
 
@@ -47,6 +49,7 @@ pub fn join(parts: List[String], sep: String) -> String {
 @intrinsic
 pub fn trim(s: String) -> String
 
+## The code point values of `s`, in order.
 @intrinsic
 pub fn code_points(s: String) -> List[Int]
 
@@ -54,8 +57,9 @@ pub fn code_points(s: String) -> List[Int]
 @intrinsic
 pub fn from_code_point(n: Int) -> Option[String]
 
-## The Show of a value shown inside another value (spec 10.6): a String is quoted and escaped
-## (`"a\"b"`), any other type is its `Show.show`. For the Show impls in core (`[1, 2]`, `["a"]`).
+## The Show of a value shown inside another value (`[trait.builtin]`): a String is quoted and
+## escaped (`"a\"b"`), any other type is its `Show.show`. For the Show impls in core (`[1, 2]`,
+## `["a"]`).
 @internal
 @intrinsic
 pub fn show_nested[A: Show](value: A) -> String

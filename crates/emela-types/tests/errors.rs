@@ -3,7 +3,7 @@
 //! Besides the `render_bodies` output (declared types and diagnostics), `render_errors` prints the
 //! expressions of `main.emel` with a non-empty E, in source order, as `expr: E`.
 
-mod common;
+use crate::common;
 
 use std::fmt::Write;
 
