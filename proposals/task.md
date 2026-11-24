@@ -1,7 +1,7 @@
 ---
 title: Task replaces Fiber, and the range of concurrent work is a with item
 authors: [Alliana]
-status: accepted
+status: implemented
 issue:
 touches: [task, task.basic, task.group, task.background (new), task.combinators, task.interrupt, task.cause, task.parallel, task.deferred, task.semaphore, task.queue, api.std.task, api.std.exit, api.std.cause, api.std.deferred, api.std.semaphore, api.std.queue, api.std.http, api.std.process, module.resolution, kw.annotation, effect.decl, effect.handler, effect.escape, effect.async, effect.label, type.fn, type.rules, ext.call, dyn.suspend, dyn.memory, lib.layers, lib.http-service, lib.api-rules, target.js.outcome, target.js.abort, target.js.event-loop, target.wasm.output, lsp.hover, lsp.completion, lsp.code-action, glossary.context, glossary.terms, open.next, diag.list]
 requires: [capability-identity, generic-handler]
