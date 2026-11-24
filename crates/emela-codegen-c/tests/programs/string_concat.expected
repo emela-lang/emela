@@ -1,0 +1,11 @@
+exit: 0
+--- stdout
+True 11
+0 True
+3 True True
+True
+True
+True True
+--- stderr
+"Aé日🙂\u{0}"
+["", "A", ""]
