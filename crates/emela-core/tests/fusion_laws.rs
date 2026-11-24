@@ -20,7 +20,7 @@
 //! here is named in its case; a form added here without a pair is still checked for its output by
 //! the general `--no-opt` corpus, but the pair is what compares the two forms' output directly.
 
-mod support;
+use crate::support;
 
 use std::collections::HashSet;
 

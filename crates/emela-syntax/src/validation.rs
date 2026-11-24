@@ -14,7 +14,7 @@
 //! - Report what a local fn cannot have (E0150) and a local fn as the last statement of its
 //!   block (E0151).
 
-use rowan::TextRange;
+use rowan::{TextRange, TextSize};
 
 use crate::SyntaxKind::*;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
@@ -38,6 +38,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         return;
     }
     match node.kind() {
+        EFFECT_ALIAS => effect_alias(node, out),
         FN_DECL => {
             fn_decl(node, out);
             fn_externals(node, out);
@@ -130,6 +131,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                     &format!("write `{head}` instead of `implements`"),
                 );
             }
+            missing_handler_bodies(node, out);
         }
         LAMBDA_EXPR => {
             if let Some((_, rewritten, head)) = crate::rewrite::old_lambda(node) {
@@ -228,6 +230,40 @@ fn local_fn_modifiers(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             help: Some("remove it".to_owned()),
         });
     }
+}
+
+/// E0152: the right side of `x <- R` is not an effect name (`[grammar.lex]`). It is likely a
+/// comparison with a negative value written without the space (`x <- 1` for `x < -1`), so the
+/// help shows that comparison built from what was written.
+fn effect_alias(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let path = child_kind(node, PATH);
+    let rest = child_kind(node, ERROR);
+    let operand = node
+        .children()
+        .find(|c| !matches!(c.kind(), PATH | TYPE_ARG_LIST | ERROR));
+    let range = match (path, rest, operand) {
+        (Some(path), Some(rest), _) => path.text_range().cover(rest.text_range()),
+        (None, _, Some(operand)) => operand.text_range(),
+        // A missing right side is reported by the parser.
+        _ => return,
+    };
+    let name = node
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == LOWER_NAME)
+        .map(|t| t.text().to_owned())
+        .unwrap_or_default();
+    let start = node.text_range().start();
+    let text = node.text().to_string();
+    let right = &text[usize::from(range.start() - start)..usize::from(range.end() - start)];
+    out.push(Diagnostic {
+        range,
+        code: DiagnosticCode::LeftArrow,
+        message: "the right side of `<-` must be an effect".to_owned(),
+        help: Some(format!(
+            "`x <- E` binds an effect; to compare with a negative value, write `{name} < -{right}`"
+        )),
+    });
 }
 
 /// E0151: a local fn as the last statement of its block is visible to nothing after it, so it
@@ -625,6 +661,33 @@ fn missing_body(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
 
 fn is_external(node: &SyntaxNode) -> bool {
     has_annotation(node, "external")
+}
+
+/// Only a built-in handler (`@intrinsic`, `[kw.annotation]`) leaves out its body and the block of
+/// its init. Elsewhere the missing `{` is reported as the parser reported it before it read
+/// handlers without a body.
+fn missing_handler_bodies(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let top = node.parent().is_none_or(|p| p.kind() != ITEM_LIST);
+    if top && has_annotation(node, "intrinsic") {
+        return;
+    }
+    let expected = |out: &mut Vec<Diagnostic>, end: TextSize| {
+        error(
+            out,
+            TextRange::empty(end),
+            DiagnosticCode::ExpectedToken,
+            "expected `{`",
+        );
+    };
+    let Some(list) = child_kind(node, ITEM_LIST) else {
+        expected(out, node.text_range().end());
+        return;
+    };
+    for init in list.children().filter(|c| c.kind() == HANDLER_INIT) {
+        if child_kind(&init, BLOCK_EXPR).is_none() {
+            expected(out, init.text_range().end());
+        }
+    }
 }
 
 fn has_annotation(node: &SyntaxNode, name: &str) -> bool {

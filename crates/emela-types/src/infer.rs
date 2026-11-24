@@ -106,19 +106,101 @@ pub struct InferCtx {
     origin: (Option<Span>, Option<DefId>),
     /// Named error type → tag. Used to turn `RowElem::Of` into tags.
     error_tags: FxHashMap<TyConId, DefId>,
+    /// The set variables that receive effect sets (R). The name of an effect in R is the effect,
+    /// so a capability of a name there does not leave anything (`[effect.escape]`).
+    pub(crate) effect_vars: rustc_hash::FxHashSet<RowVar>,
     /// Solutions of set variables. Present only after solving ([`Self::set_row_solution`]).
     row_solution: Option<FxHashMap<RowVar, Row>>,
     /// Whether the inclusion constraints are being solved ([`Self::set_solving`]).
     solving: bool,
+    /// Where each variable was made (`[effect.escape]`).
+    pub(crate) scopes: crate::scopes::Scopes,
+    /// Bindings and unions of type variables made by a unification not yet committed; their
+    /// scopes are adjusted once it succeeds.
+    pending_binds: Vec<(TyVar, Ty)>,
+    pending_unions: Vec<(TyVar, TyVar)>,
+    /// The span of the expression being inferred, recorded on new set variables.
+    hint: Option<Span>,
 }
 
 impl InferCtx {
     pub fn new() -> Self {
-        Self::default()
+        InferCtx {
+            scopes: crate::scopes::Scopes::new(),
+            ..Self::default()
+        }
     }
 
     pub fn fresh_var(&mut self) -> TyVar {
-        self.table.new_key(TyVarValue(None))
+        let v = self.table.new_key(TyVarValue(None));
+        self.scopes.new_ty_var(v);
+        v
+    }
+
+    /// The span of the expression being inferred, for set variables made from now on.
+    pub(crate) fn set_hint(&mut self, span: Option<Span>) {
+        self.hint = span;
+    }
+
+    pub(crate) fn hint(&self) -> Option<Span> {
+        self.hint
+    }
+
+    /// Applies the scopes of the bindings and unions of a unification that succeeded
+    /// ([`crate::scopes`]).
+    fn commit_scopes(&mut self) {
+        for (x, y) in std::mem::take(&mut self.pending_unions) {
+            let s = self
+                .scopes
+                .common(self.scopes.ty_var(x), self.scopes.ty_var(y));
+            self.scopes.lower_ty_var(x, s);
+            self.scopes.lower_ty_var(y, s);
+            let root = self.table.find(x);
+            self.scopes.lower_ty_var(root, s);
+        }
+        for (v, ty) in std::mem::take(&mut self.pending_binds) {
+            let root = self.table.find(v);
+            let scope = self
+                .scopes
+                .common(self.scopes.ty_var(v), self.scopes.ty_var(root));
+            self.lower_into(&ty, scope);
+        }
+    }
+
+    /// Moves the variables of `ty` out to `scope`, and records the capabilities in it that
+    /// cannot be there.
+    fn lower_into(&mut self, ty: &Ty, scope: crate::scopes::ScopeId) {
+        let lower_row = |this: &mut Self, row: &Row| {
+            for e in row.elems() {
+                match e {
+                    RowElem::Var(v) => this.scopes.lower_row_var(*v, scope),
+                    RowElem::Cap(c) if !this.scopes.fits(c, scope) => {
+                        let span = this.origin.0.or(this.hint);
+                        this.scopes.escapes.push((c.clone(), span));
+                    }
+                    _ => {}
+                }
+            }
+        };
+        match self.shallow_resolve(ty) {
+            Ty::Var(w) => self.scopes.lower_ty_var(w, scope),
+            Ty::Fn(f) => {
+                lower_row(self, &f.fails);
+                lower_row(self, &f.uses);
+                for p in &f.params {
+                    self.lower_into(p, scope);
+                }
+                self.lower_into(&f.ret, scope);
+            }
+            Ty::Set(_, row) => lower_row(self, &row),
+            Ty::Cap(tags, caps) => {
+                lower_row(self, &caps);
+                for a in tags.iter().flat_map(|t| &t.args) {
+                    self.lower_into(a, scope);
+                }
+            }
+            ty => ty.for_each_child(|child| self.lower_into(child, scope)),
+        }
     }
 
     pub fn new_var(&mut self) -> Ty {
@@ -128,6 +210,7 @@ impl InferCtx {
     pub fn new_row_var(&mut self) -> RowVar {
         let v = RowVar(self.next_row_var);
         self.next_row_var += 1;
+        self.scopes.new_row_var(v, self.origin.0.or(self.hint));
         v
     }
 
@@ -137,6 +220,11 @@ impl InferCtx {
 
     pub(crate) fn error_tag(&self, con: TyConId) -> Option<DefId> {
         self.error_tags.get(&con).copied()
+    }
+
+    /// The span and definition that [`Self::set_origin`] set last.
+    pub(crate) fn origin(&self) -> (Option<Span>, Option<DefId>) {
+        self.origin
     }
 
     /// The span for inclusion constraints that unification collects from now on.
@@ -152,6 +240,9 @@ impl InferCtx {
     pub(crate) fn add_subset_of(&mut self, kind: SetKind, sub: Row, sup: Row, origin: Origin) {
         if sub.is_empty() || sub == sup {
             return;
+        }
+        if kind == SetKind::Effects {
+            self.effect_vars.extend(sup.vars());
         }
         // While solving, comparing tags with set type arguments adds the same constraints again
         // on every round (`body/errors.rs`); keep one of each so the rounds end.
@@ -169,6 +260,14 @@ impl InferCtx {
             origin,
             kind,
         });
+    }
+
+    /// The set variables with a solution, and their solutions.
+    pub(crate) fn solution_entries(&self) -> Vec<(RowVar, Row)> {
+        self.row_solution
+            .as_ref()
+            .map(|s| s.iter().map(|(v, r)| (*v, r.clone())).collect())
+            .unwrap_or_default()
     }
 
     /// Forgets the solution of a previous round of solving.
@@ -234,6 +333,12 @@ impl InferCtx {
                 self.resolve_row(&f.uses),
             ),
             Ty::Set(kind, row) => Ty::Set(kind, self.resolve_row(&row)),
+            Ty::Cap(tags, caps) => Ty::Cap(
+                tags.iter()
+                    .map(|t| t.map_args(|a| self.resolve(a)))
+                    .collect(),
+                self.resolve_row(&caps),
+            ),
             ty => ty.map_children(|child| self.resolve(child)),
         }
     }
@@ -242,8 +347,11 @@ impl InferCtx {
     pub fn resolve_row(&mut self, row: &Row) -> Row {
         row.flat_map(|e| match e {
             RowElem::Of(ty) => match self.resolve(ty) {
-                Ty::Named(con, _) => match self.error_tag(con) {
-                    Some(def) => Row::tag(def),
+                // An error whose fields record capabilities keeps their sets in its tag
+                // (`[type.rules]`), so that it cannot leave the with that made them.
+                Ty::Named(con, args) => match self.error_tag(con) {
+                    Some(def) if args.is_empty() => Row::tag(def),
+                    Some(def) => Row::of_tag(Tag::with_args(def, args)),
                     None => Row::empty(),
                 },
                 ty @ (Ty::Bound(_) | Ty::Var(_)) => Row::from_elems([RowElem::Of(ty)]),
@@ -254,13 +362,32 @@ impl InferCtx {
             RowElem::Var(v) => match &self.row_solution {
                 Some(solution) => {
                     let row = solution.get(v).cloned().unwrap_or_default();
-                    row.map_tys(|t| self.resolve(t))
+                    // As below, the set arguments of the effect of a capability are not
+                    // followed.
+                    Row::from_elems(row.elems().iter().map(|e| match e {
+                        RowElem::Cap(c) => RowElem::Cap(crate::row::CapElem {
+                            tag: c.tag.map_args(|a| match a {
+                                Ty::Set(..) => a.clone(),
+                                a => self.resolve(a),
+                            }),
+                            ..c.clone()
+                        }),
+                        RowElem::Of(ty) => RowElem::Of(self.resolve(ty)),
+                        RowElem::Tag(t) => RowElem::Tag(t.map_args(|a| self.resolve(a))),
+                        e => e.clone(),
+                    }))
                 }
                 None => Row::var(*v),
             },
             RowElem::Tag(t) => Row::of_tag(t.map_args(|a| self.resolve(a))),
+            // The set arguments of the effect of a capability are not followed: the R of a task
+            // that starts siblings holds the capability of its group, whose effect has that R as
+            // an argument (`[task.group]`).
             RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
-                tag: c.tag.map_args(|a| self.resolve(a)),
+                tag: c.tag.map_args(|a| match a {
+                    Ty::Set(..) => a.clone(),
+                    a => self.resolve(a),
+                }),
                 ..c.clone()
             })]),
             e => Row::from_elems([e.clone()]),
@@ -274,16 +401,21 @@ impl InferCtx {
     /// `State.run(initial, body)` from the body's R). Otherwise changes nothing and returns false.
     ///
     /// `a` is on the containing side (the declared or provided set) and `b` on the contained side
-    /// (the required one). Set type arguments (the `E` and `R` of `Scope[E, R]`, spec 11.2) only
+    /// (the required one). Set type arguments (the `E` and `R` of `TaskGroup[E, R]`, spec 11.2) only
     /// need `b`'s sets to be contained in `a`'s: a scope whose children may fail with more errors
     /// or use more effects serves code that forks fewer. The constraints are recorded and solved
     /// with the others.
     pub(crate) fn same_tag(&mut self, a: &Tag, b: &Tag) -> bool {
-        if a.def != b.def || a.args.len() != b.args.len() {
+        if a.def != b.def {
             return false;
         }
-        if a.args.is_empty() {
+        // The name of an effect recorded by a capability-bound type has no type arguments
+        // (`Task[A]` records the name TaskGroup, `[type.rules]`): it is that effect with any.
+        if a.args.is_empty() || b.args.is_empty() {
             return true;
+        }
+        if a.args.len() != b.args.len() {
+            return false;
         }
         let snapshot = self.table.snapshot();
         self.row_buffer.clear();
@@ -296,6 +428,7 @@ impl InferCtx {
         });
         if ok {
             self.table.commit(snapshot);
+            self.commit_scopes();
             let origin = Origin::Coerce {
                 span: self.origin.0,
                 def: self.origin.1,
@@ -305,6 +438,8 @@ impl InferCtx {
             }
         } else {
             self.row_buffer.clear();
+            self.pending_binds.clear();
+            self.pending_unions.clear();
             self.table.rollback_to(snapshot);
         }
         ok
@@ -312,6 +447,22 @@ impl InferCtx {
 
     /// Whether `row` has a tag that is the same as `tag` ([`Self::same_tag`]). If `row` has
     /// several tags of the same effect, the first one that unifies is taken (an approximation).
+    /// Whether [`Self::same_tag`] would hold, without unifying anything.
+    pub(crate) fn could_be_same_tag(&mut self, a: &Tag, b: &Tag) -> bool {
+        if a.def != b.def || a.args.len() != b.args.len() {
+            return false;
+        }
+        let snapshot = self.table.snapshot();
+        let ok = a
+            .args
+            .iter()
+            .zip(&b.args)
+            .all(|(x, y)| self.unify_inner(x, y, Variance::Inv).is_ok());
+        self.row_buffer.clear();
+        self.table.rollback_to(snapshot);
+        ok
+    }
+
     pub(crate) fn row_has_tag(&mut self, row: &Row, tag: &Tag) -> bool {
         let tags: Vec<Tag> = row.tags().cloned().collect();
         tags.iter().any(|t| t == tag) || tags.iter().any(|t| self.same_tag(t, tag))
@@ -328,6 +479,7 @@ impl InferCtx {
         match self.unify_inner(expected, actual, Variance::Co) {
             Ok(()) => {
                 self.table.commit(snapshot);
+                self.commit_scopes();
                 let origin = Origin::Coerce {
                     span: self.origin.0,
                     def: self.origin.1,
@@ -339,6 +491,8 @@ impl InferCtx {
             }
             Err(kind) => {
                 self.row_buffer.clear();
+                self.pending_binds.clear();
+                self.pending_unions.clear();
                 // Roll back before resolving so partially bound type variables do not garble the
                 // display.
                 self.table.rollback_to(snapshot);
@@ -396,6 +550,13 @@ impl InferCtx {
                         .filter(|e| !matches!(e, RowElem::Var(_)))
                         .cloned(),
                 ),
+            ),
+            // The capability set is not shown in the type.
+            Ty::Cap(tags, _) => Ty::Cap(
+                tags.iter()
+                    .map(|t| t.map_args(|a| self.resolve_for_report(a)))
+                    .collect(),
+                Row::empty(),
             ),
             ty => ty.map_children(|child| self.resolve_for_report(child)),
         }
@@ -489,6 +650,7 @@ impl InferCtx {
             (Ty::Var(x), Ty::Var(y)) => {
                 let int = self.is_int_var(*x) || self.is_int_var(*y);
                 self.table.union(*x, *y);
+                self.pending_unions.push((*x, *y));
                 if int {
                     let root = self.table.find(*x);
                     self.int_vars.push(root);
@@ -510,7 +672,8 @@ impl InferCtx {
             // Capability values match only with the same effects and type arguments (spec 8.1).
             // Passing one as fewer effects (`[effect.use]`) is decided before unifying, where an
             // argument is checked (`BodyInfer::narrow_capability`).
-            (Ty::Cap(x), Ty::Cap(y))
+            // The capability sets are included as for R (`[type.rules]`).
+            (Ty::Cap(x, xc), Ty::Cap(y, yc))
                 if x.len() == y.len()
                     && x.iter()
                         .zip(y)
@@ -519,6 +682,7 @@ impl InferCtx {
                 for (a, b) in x.iter().zip(y) {
                     self.unify_all(&a.args, &b.args, Variance::Inv)?;
                 }
+                self.buffer_rows(SetKind::Caps, xc, yc, variance);
                 Ok(())
             }
             // Set type arguments of a named type. Being inside type arguments, inclusion is
@@ -526,6 +690,24 @@ impl InferCtx {
             (Ty::Set(k, x), Ty::Set(l, y)) if k == l => {
                 self.buffer_rows(*k, x, y, variance);
                 Ok(())
+            }
+            // A function placed at a quantified function type must work for any set: its sets
+            // meet unknown ones (skolems). A function of a quantified type placed where one is
+            // not quantified is instantiated (`[type.rules]`).
+            (Ty::Fn(f), Ty::Fn(g))
+                if f.params.len() == g.params.len() && f.quantifies() != g.quantifies() =>
+            {
+                let (expected, actual) = if f.quantifies() {
+                    let skolem = &mut |_: u32, c: &crate::row::CapElem| {
+                        let id = crate::row::CapId::Skolem(self.scopes.new_skolem());
+                        Row::from_elems([RowElem::Cap(crate::row::CapElem { id, ..c.clone() })])
+                    };
+                    (e.open_quant(skolem), a.clone())
+                } else {
+                    let fresh = &mut |_: u32, _: &crate::row::CapElem| Row::var(self.new_row_var());
+                    (e.clone(), a.open_quant(fresh))
+                };
+                self.unify_inner(&expected, &actual, variance)
             }
             (Ty::Fn(f), Ty::Fn(g)) if f.params.len() == g.params.len() => {
                 for (p, q) in f.params.iter().zip(&g.params) {
@@ -582,6 +764,7 @@ impl InferCtx {
             });
         }
         self.table.union_value(v, TyVarValue(Some(ty.clone())));
+        self.pending_binds.push((v, ty.clone()));
         Ok(())
     }
 
@@ -663,7 +846,11 @@ impl InferCtx {
         let mut map = FxHashMap::default();
         let mut params = existing;
         let mut next_name = 0;
-        for v in self.free_vars(ty) {
+        // Resolved first, so that a type variable reached only through a solved set variable
+        // (`State[?1]` in the R of `fn nothing() { with Pass { () } }`) is quantified too
+        // (`[effect.decl]`: type variables left in R are generalized).
+        let ty = self.resolve(ty);
+        for v in self.free_vars(&ty) {
             if !env.contains(&v) {
                 map.insert(v, params.len() as u32);
                 let name = loop {
@@ -676,16 +863,16 @@ impl InferCtx {
                 params.push(TyParam::new(SmolStr::new(name)));
             }
         }
-        let ty = self.resolve(ty);
         let mut row_map = FxHashMap::default();
         let mut generalized = Vec::new();
-        let mut next_name = [0, 0];
+        let mut next_name = [0, 0, 0];
         for (v, kind) in free_row_vars(&ty) {
             row_map.insert(v, params.len() as u32);
             generalized.push((v, params.len() as u32));
             let (prefix, next_name) = match kind {
                 SetKind::Errors => ("E", &mut next_name[0]),
                 SetKind::Effects => ("R", &mut next_name[1]),
+                SetKind::Caps => ("C", &mut next_name[2]),
             };
             let name = loop {
                 let name = set_param_name(prefix, *next_name);
@@ -754,6 +941,7 @@ fn collect_row_vars(ty: &Ty, out: &mut Vec<(RowVar, SetKind)>) {
     let rows: Vec<(&Row, SetKind)> = match ty {
         Ty::Fn(f) => vec![(&f.fails, SetKind::Errors), (&f.uses, SetKind::Effects)],
         Ty::Set(kind, row) => vec![(row, *kind)],
+        Ty::Cap(_, caps) => vec![(caps, SetKind::Caps)],
         _ => Vec::new(),
     };
     for (row, kind) in rows {
@@ -785,6 +973,12 @@ fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u
     match ty {
         Ty::Var(v) => map.get(v).map_or_else(|| ty.clone(), |i| Ty::Bound(*i)),
         Ty::Set(kind, row) => Ty::Set(*kind, replace_row(row)),
+        Ty::Cap(tags, caps) => Ty::Cap(
+            tags.iter()
+                .map(|t| t.map_args(|a| replace_vars(a, map, rows)))
+                .collect(),
+            replace_row(caps),
+        ),
         Ty::Fn(f) => Ty::func_sets(
             f.params
                 .iter()
@@ -828,6 +1022,12 @@ pub(crate) fn substitute(ty: &Ty, tys: &[Ty], rows: &[Row]) -> Ty {
             substitute_row(&f.uses, tys, rows),
         ),
         Ty::Set(kind, row) => Ty::Set(*kind, substitute_row(row, tys, rows)),
+        Ty::Cap(tags, caps) => Ty::Cap(
+            tags.iter()
+                .map(|t| t.map_args(|a| substitute(a, tys, rows)))
+                .collect(),
+            substitute_row(caps, tys, rows),
+        ),
         _ => ty.map_children(|child| substitute(child, tys, rows)),
     }
 }

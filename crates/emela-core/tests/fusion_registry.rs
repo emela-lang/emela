@@ -5,7 +5,7 @@
 //! pipeline always ran, a disabled law contributes nothing, a reserved law never runs, and the
 //! per-sweep budget stops a sweep and counts what it stopped as a deopt.
 
-mod support;
+use crate::support;
 
 use std::collections::HashSet;
 

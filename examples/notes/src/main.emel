@@ -11,7 +11,7 @@ const DIR: String = "notes"
 
 ## Appends `text` as a line to `notes/<day>.txt` and returns the number of lines in it.
 fn note(day: String, text: String) {
-  fs = use FileSystem
+  fs <- FileSystem
   fs.create_directory(DIR)
   path = Path.join(DIR, "#{day}.txt")
   fs.append_text(path, "#{text}\n")
@@ -20,18 +20,20 @@ fn note(day: String, text: String) {
 
 ## The text of `notes/<day>.txt`, or a message if there is none.
 fn show(day: String) {
-  (use FileSystem).read_text(Path.join(DIR, "#{day}.txt")) escape {
+  fs <- FileSystem
+  fs.read_text(Path.join(DIR, "#{day}.txt")) escape {
     FileNotFound(path:) -> "no notes in #{path}"
   }
 }
 
 fn main() {
   with Process {
-    console = use Console
+    console <- Console
+    fs <- FileSystem
     console.print_line(String.trim(show("monday")))
     n = note("monday", "buy milk")
     console.print_line("#{n} note(s)")
-    console.print_line("#{(use FileSystem).list_directory(DIR)}")
+    console.print_line("#{fs.list_directory(DIR)}")
   }
 }
 

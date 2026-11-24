@@ -1,0 +1,21 @@
+---
+source: crates/emela-types/tests/capabilities.rs
+expression: "render_bodies(r#\"\nimport Std.Task.{Task, TaskGroup}\n\nerror Leak(f: Task[Int])\n\nfn raise(s: use TaskGroup[{}, {}]) {\n  f = s.start(|| 1)\n  fail Leak(f:)\n}\n\nfn caught() uses { Async } {\n  with s = Task.Group {\n    raise(s) escape {\n      Leak(f:) -> ()\n    }\n  }\n}\n\nfn leaves() -> Int fails Leak uses { Async } {\n  with s = Task.Group {\n    f = s.start(|| 1)\n    if True { fail Leak(f:) } else { f.join() }\n  }\n}\n\nfn taken_out() uses { Async } {\n  with s = Task.Group {\n    f = s.start(|| 1)\n    (if True { fail Leak(f:) } else { f }) escape {\n      Leak(f:) -> f\n    }\n  }\n}\n\"#)"
+---
+raise: ∀ A. fn(use TaskGroup[{}, {}]) -> A fails Leak uses { s }
+  s: use TaskGroup[{}, {}]
+  f: Task[Int]
+caught: fn() -> () uses { Async }
+  s: use TaskGroup[{}, {}]
+  f: Task[Int]
+leaves: fn() -> Int fails Leak uses { Async }
+  s: use TaskGroup[{}, {}]
+  f: Task[Int]
+taken_out: ∀ E, R. fn() -> Task[Int] uses { Async }
+  s: use TaskGroup[{}, {}]
+  f: Task[Int]
+  f: Task[Int]
+`if True { fail Leak(f:) } else { f.join() }` CapabilityLeak { cap: "s", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 305..315 }) }
+`(if True { fail Leak(f:) } else { f }) escape {
+      Leak(f:) -> f
+    }` CapabilityLeak { cap: "s", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 438..448 }) }
