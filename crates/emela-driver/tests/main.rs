@@ -18,6 +18,7 @@ mod ide_docs;
 mod incomplete_impl;
 mod library_project;
 mod navigation;
+mod opt_diff;
 mod run;
 mod suspend_parity;
 mod task;
