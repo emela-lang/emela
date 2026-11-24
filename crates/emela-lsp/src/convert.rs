@@ -276,7 +276,7 @@ pub fn offset(index: &LineIndex, position: lsp::Position) -> Option<TextSize> {
     index.offset(line_col)
 }
 
-/// `None` for schemes other than `file:`.
+/// `None` for schemes other than `file:`. On Windows, the URI path `/c:/a/b` becomes `c:\a\b`.
 pub fn uri_to_path(uri: &lsp::Uri) -> Option<PathBuf> {
     let rest = uri.as_str().strip_prefix("file://")?;
     // Accept both `file://localhost/…` and `file:///…`.
@@ -286,12 +286,26 @@ pub fn uri_to_path(uri: &lsp::Uri) -> Option<PathBuf> {
     }
     let path = path.split(['?', '#']).next().unwrap_or(path);
     let bytes = percent_decode(path)?;
-    Some(PathBuf::from(String::from_utf8(bytes).ok()?))
+    let path = String::from_utf8(bytes).ok()?;
+    Some(PathBuf::from(if cfg!(windows) {
+        windows_path(&path)
+    } else {
+        path
+    }))
 }
 
-/// Percent-encodes everything except alphanumerics and `-._~/`, as VS Code does.
+/// Percent-encodes everything except alphanumerics and `-._~/`, as VS Code does. On Windows, the
+/// path `C:\a\b` (or `\\?\C:\a\b`) becomes the URI path `/C:/a/b`, keeping the drive letter's
+/// case; `None` for UNC, device and relative paths.
 pub fn path_to_uri(path: &Path) -> Option<lsp::Uri> {
     let path = path.to_str()?;
+    let windows;
+    let path = if cfg!(windows) {
+        windows = windows_uri_path(path)?;
+        windows.as_str()
+    } else {
+        path
+    };
     let mut uri = String::from("file://");
     for byte in path.bytes() {
         if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
@@ -301,6 +315,42 @@ pub fn path_to_uri(path: &Path) -> Option<lsp::Uri> {
         }
     }
     lsp::Uri::from_str(&uri).ok()
+}
+
+/// The URI path (before percent-encoding) of a Windows path: `/C:/a/b` for a drive path, and
+/// `/a/b` for a path rooted without a drive. Both `\` and `/` separate. Plain string handling, so
+/// that it is tested on every platform.
+fn windows_uri_path(path: &str) -> Option<String> {
+    // `std::fs::canonicalize` returns verbatim paths (`\\?\C:\…`). `\\?\UNC\…` is left with
+    // `UNC\…`, which is relative below.
+    let path = path
+        .strip_prefix(r"\\?\")
+        .unwrap_or(path)
+        .replace('\\', "/");
+    if let Some((drive, rest)) = split_drive(&path) {
+        // `C:` and `C:a` are relative to the drive's current directory.
+        return rest.starts_with('/').then(|| format!("/{drive}:{rest}"));
+    }
+    // `//…` is UNC or a device path (`\\.\…`).
+    (path.starts_with('/') && !path.starts_with("//")).then_some(path)
+}
+
+/// The Windows path of a URI path (after percent-decoding), the inverse of [`windows_uri_path`].
+fn windows_path(uri_path: &str) -> String {
+    let path = match uri_path.strip_prefix('/').and_then(split_drive) {
+        Some((drive, "")) => format!("{drive}:/"),
+        Some((drive, rest)) if rest.starts_with('/') => format!("{drive}:{rest}"),
+        _ => uri_path.to_owned(),
+    };
+    path.replace('/', "\\")
+}
+
+/// Splits `C:rest` into the drive letter and `rest`.
+fn split_drive(path: &str) -> Option<(char, &str)> {
+    let mut chars = path.chars();
+    let drive = chars.next().filter(char::is_ascii_alphabetic)?;
+    let rest = chars.as_str().strip_prefix(':')?;
+    Some((drive, rest))
 }
 
 fn percent_decode(s: &str) -> Option<Vec<u8>> {
@@ -412,5 +462,79 @@ mod tests {
         assert_eq!(uri_to_path(&localhost).unwrap(), Path::new("/a/b.emel"));
         let untitled = lsp::Uri::from_str("untitled:Untitled-1").unwrap();
         assert_eq!(uri_to_path(&untitled), None);
+    }
+
+    /// Tested on every platform, since the Windows conversion is plain string handling.
+    #[test]
+    fn windows_paths_become_uri_paths() {
+        let cases = [
+            (
+                r"C:\Users\x\src\main.emel",
+                Some("/C:/Users/x/src/main.emel"),
+            ),
+            // `canonicalize` returns verbatim paths.
+            (
+                r"\\?\C:\Users\x\src\main.emel",
+                Some("/C:/Users/x/src/main.emel"),
+            ),
+            (r"d:\", Some("/d:/")),
+            // A rooted path without a drive, as the tests' in-memory files join them.
+            (r"/app\src\main.emel", Some("/app/src/main.emel")),
+            (r"\app\src\main.emel", Some("/app/src/main.emel")),
+            // UNC, device and relative paths are not converted.
+            (r"\\server\share\a.emel", None),
+            (r"\\?\UNC\server\share\a.emel", None),
+            (r"\\.\COM1", None),
+            (r"src\main.emel", None),
+            (r"C:src\main.emel", None),
+            (r"C:", None),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(windows_uri_path(path).as_deref(), expected, "{path}");
+        }
+    }
+
+    #[test]
+    fn windows_uri_paths_become_paths() {
+        let cases = [
+            ("/c:/Users/x/src/main.emel", r"c:\Users\x\src\main.emel"),
+            ("/C:/Users/x", r"C:\Users\x"),
+            ("/c:/", r"c:\"),
+            ("/c:", r"c:\"),
+            ("/app/src/main.emel", r"\app\src\main.emel"),
+            // A drive letter is a single ASCII letter.
+            ("/cd:/a", r"\cd:\a"),
+            ("/1:/a", r"\1:\a"),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(windows_path(path), expected, "{path}");
+        }
+    }
+
+    /// The URIs VS Code and other editors send on Windows (the drive letter's case and whether `:`
+    /// is encoded vary).
+    #[cfg(windows)]
+    #[test]
+    fn windows_uri_round_trip() {
+        let uri = |s: &str| lsp::Uri::from_str(s).unwrap();
+        for (sent, path) in [
+            (
+                "file:///c%3A/Users/my%20x/main.emel",
+                r"c:\Users\my x\main.emel",
+            ),
+            ("file:///C:/Users/x/main.emel", r"C:\Users\x\main.emel"),
+            ("file://localhost/c%3A/a.emel", r"c:\a.emel"),
+        ] {
+            assert_eq!(uri_to_path(&uri(sent)).unwrap().as_os_str(), path);
+        }
+        assert_eq!(
+            path_to_uri(Path::new(r"\\?\C:\Users\my x\日本.emel")).unwrap(),
+            uri("file:///C%3A/Users/my%20x/%E6%97%A5%E6%9C%AC.emel")
+        );
+        assert_eq!(
+            path_to_uri(Path::new(r"c:\Users\x\main.emel")).unwrap(),
+            uri("file:///c%3A/Users/x/main.emel")
+        );
+        assert_eq!(path_to_uri(Path::new(r"\\server\share\a.emel")), None);
     }
 }

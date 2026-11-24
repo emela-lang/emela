@@ -41,6 +41,10 @@ impl<T, V> SparseMap<Idx<T>, V> {
         self.map.get(&raw(id))
     }
 
+    pub(crate) fn get_mut(&mut self, id: Idx<T>) -> Option<&mut V> {
+        self.map.get_mut(&raw(id))
+    }
+
     /// Entries in index order.
     pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = (Idx<T>, &V)> {
         self.map.iter().map(|(&k, v)| (idx(k), v))

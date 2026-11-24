@@ -1,0 +1,10 @@
+exit: 0
+--- stdout
+--- stderr
+"primary forwarded"
+1
+"replica kept"
+2
+"log kept"
+"replica second"
+2

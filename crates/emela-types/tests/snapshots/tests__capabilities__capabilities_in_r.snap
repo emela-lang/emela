@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/capabilities.rs
+expression: "run(r#\"\nfn direct() {\n  with log = Quiet {\n    log.info(\"a\")\n  }\n}\n\nfn listed() -> List[Int] {\n  with Plain, x = Counters.Open(1), y = Counters.Open(10) {\n    [x, y].map(|c| c.next())\n  }\n}\n\nfn two() {\n  with a = Quiet {\n    with b = Loud {\n      [a, b].map(|l| l.info(\"x\"))\n      ()\n    }\n  }\n}\n\"#)"
+---
+direct: fn() -> ()
+  log: use Logger
+listed: fn() -> List[Int]
+  x: use Counter
+  y: use Counter
+  c: use Counter
+two: fn() -> ()
+  a: use Logger
+  b: use Logger
+  l: use Logger

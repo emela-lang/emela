@@ -2,11 +2,12 @@
 # `waiting` on standard error, so the first read is interrupted while it waits.
 
 import Std.Console.{Console}
-import Std.Fiber
+import Std.Task
 import Std.Process.{InvalidInput, Process, Stdin, StdinFailure}
 
 fn line() -> String uses { Stdin } {
-  (use Stdin).read_line() match {
+  stdin <- Stdin
+  stdin.read_line() match {
     Some(text) -> "#{String.code_points(text)}"
     None       -> "None"
   } escape {
@@ -17,18 +18,21 @@ fn line() -> String uses { Stdin } {
 
 fn main() {
   with Process {
-    c = use Console
+    c <- Console
     # Interrupted while waiting: what arrives later is not lost.
-    first = Fiber.timeout(50, || (use Stdin).read_line())
+    stdin <- Stdin
+    first = Task.timeout(50, || stdin.read_line())
     c.print_line("#{first}")
     c.print_error_line("waiting")
     c.print_line(line())
     c.print_line(line())
     c.print_line(line())
     c.print_line(line())
-    text = (use Stdin).read_text()
+    stdin <- Stdin
+    text = stdin.read_text()
     c.print_line("#{String.code_points(text)}")
     c.print_line(line())
-    c.print_line("#{(use Stdin).read_text() == ""}")
+    stdin <- Stdin
+    c.print_line("#{stdin.read_text() == ""}")
   }
 }

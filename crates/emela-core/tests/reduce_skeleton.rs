@@ -5,7 +5,7 @@
 //! reduction kernel, and a run with every new rule on has the same output while the rules are
 //! empty.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::{CoreFn, CoreFns, Options, Rules};
 use emela_core::{Module, dump, opt};

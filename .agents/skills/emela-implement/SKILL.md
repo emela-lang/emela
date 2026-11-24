@@ -17,9 +17,9 @@ Talk with the person who asked in the language they use. Code, comments, rustdoc
 ## 0. Check that the proposal can be implemented
 
 1. Find the proposal: by slug (`proposals/<slug>.md`) or by its pull request number (`rg -l '^pr: <N>$' proposals`).
-2. It MUST be `status: accepted` and its "Specification changes" MUST already be in `spec/` on main. If it is `draft`, stop: an agent does not implement an undecided proposal. If the specification changes are not applied yet, stop and say so (the `emela-proposal` skill applies them).
+2. It MUST be `status: accepted` (its pull request changed `spec/` when it was merged). If it is `draft`, the record of its adoption is not merged yet, or it is still under review: stop, an agent does not implement an undecided proposal.
 3. Read `requires`. Every proposal listed there MUST be `implemented` first. Otherwise stop and name it.
-4. Find its implementation issue (`gh issue list --label implementation --state all --search "proposals/<slug>.md in:body"`, opened when the proposal was merged). If someone else is assigned, or `gh pr list --search "Implements: proposals/<slug>.md"` finds a pull request, stop: someone else is implementing it. Otherwise ask the person you work for to assign themselves to the issue.
+4. Find its implementation issue (`gh issue list --label implementation --state all --search "proposals/<slug>.md in:body"`, opened when the record of its adoption was merged). If someone else is assigned, or `gh pr list --search "Implements: proposals/<slug>.md"` finds a pull request, stop: someone else is implementing it. Otherwise ask the person you work for to assign themselves to the issue.
 5. Start a branch from main: `feat/<slug>`.
 
 ## 1. Read the specification, not only the proposal
@@ -50,6 +50,7 @@ Write tests from the list of rules, and see them fail before implementing. Put e
 | Formatting of the new syntax | `crates/emela-fmt/tests/format.rs` |
 | The language server | `crates/emela-lsp/tests/server.rs` |
 
+- The files in a crate's `tests/` are modules of one test binary, `tests/main.rs`. A new file there is declared in `tests/main.rs` with `mod <name>;`; until it is, its tests are not built and `every_file_is_a_module` fails.
 - For every compile error in the rules, write the smallest program that MUST be rejected, and assert the code.
 - For every construct that MUST be accepted, write a program that uses it in each place the grammar allows it.
 - A result at run time MUST be the same on every target (spec chapter 16). A program under `emela-codegen-c/tests/programs/` runs on JS and C through `crates/emela-driver/tests/parity.rs`. Add a program that uses only the pure language and `dbg` to `PROGRAMS` in `crates/emela-driver/tests/wasm_parity.rs` as well, so that WASM is checked against JS. Do not leave a target out: a target that cannot run the new construct yet is a defect to report, not a reason to skip it.
@@ -100,7 +101,7 @@ The parity tests need node, a C compiler and wasmtime; without them they are ski
 
 Stop and report, instead of guessing, when:
 
-- the proposal is not `accepted`, or its specification changes are not in `spec/`
+- the proposal is not `accepted`
 - a proposal in `requires` is not `implemented`
 - the specification is ambiguous, contradicts itself, or cannot be implemented as written
 - a target cannot support the construct
