@@ -1,7 +1,7 @@
 //! The output stage that turns the Core IR into JS with emela-codegen-js.
 
 use emela_codegen_js::{
-    BUNDLED_DIR, Options, RUNTIME, RUNTIME_FILE, RuntimeMode, SERVE, SERVE_FILE, emit_module,
+    BUNDLED_DIR, Options, RUNTIME, RUNTIME_FILE, RuntimeMode, SERVE, SERVE_FILE, emit_program,
 };
 
 use crate::diagnostic::Diagnostic;
@@ -29,7 +29,7 @@ impl Backend<emela_core::Module> for CoreJs {
         // Files `@external` points to are copied into the output and imported relatively.
         let (module, host_files) = crate::host_files::place(module, analysis, "js")?;
         let mut files = vec![
-            OutputFile::new(JS_ENTRY_FILE, emit_module(&module, &options)),
+            OutputFile::new(JS_ENTRY_FILE, emit_program(&module, &options)),
             OutputFile::new(RUNTIME_FILE, RUNTIME),
         ];
         if module.http_service {

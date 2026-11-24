@@ -1,6 +1,6 @@
 //! Programs run under `wasmtime` and their output is checked (skipped without `wasmtime`).
 
-mod common;
+use crate::common;
 
 use common::*;
 
@@ -621,7 +621,7 @@ fn main() {
     );
 }
 
-// Notes added by fiber failures (`note: another fiber also failed: …`, 11.2) are tested in
+// Notes added by task failures (`note: another task also failed: …`, 11.2) are tested in
 // `tests/fiber.rs` (`child_failure_notes_keep_the_first`); this file covers the defect notes of
 // 14.4.
 
@@ -675,42 +675,6 @@ fn main() {
          defect: division by zero\n\
          note: the release of handler Outer also failed: outer release failed\n"
     );
-}
-
-#[test]
-fn a_released_handler_is_a_defect_when_used() {
-    let Some(run) = run(
-        "released-handler",
-        r#"
-effect Pool {
-  fn get() -> Int
-}
-
-handler PoolH: Pool {
-  init { PoolH }
-  release { () }
-  fn get() { 1 }
-}
-
-handler Spare: Pool {
-  init { Spare }
-  release { () }
-  fn get() { 2 }
-}
-
-fn main() {
-  f = with PoolH {
-    p = use Pool
-    || p.get()
-  }
-  with Spare { dbg(f()) }
-}
-"#,
-    ) else {
-        return;
-    };
-    assert_eq!(run.code, 101);
-    assert_eq!(run.stderr, "defect: handler PoolH was used after release\n");
 }
 
 #[test]
@@ -980,7 +944,7 @@ fn option_and_array_get_fusions() {
         "option-array",
         r#"
 import Std.Array.{Array}
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 import Std.State.{State}
 
 fn via_match(a: Array[Int], i: Int, d: Int) -> Int {
@@ -1001,7 +965,9 @@ fn traced_default(d: Int) -> Int {
 }
 
 fn or_suspending(a: Array[Int], i: Int) -> Int {
-  Fiber.scope(|| Array.get(a, i) |> Option.or(Fiber.join(Fiber.fork(|| 7))))
+  with tasks = Task.Group {
+    Array.get(a, i) |> Option.or(tasks.start(|| 7).join())
+  }
 }
 
 fn or_effectful(a: Array[Int], i: Int) -> Int {

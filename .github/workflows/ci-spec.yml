@@ -13,9 +13,10 @@ jobs:
       - name: Check section names and proposals
         run: python3 scripts/spec.py check
 
-  # A pull request that adopts a proposal waits for the author's `/accept`
-  # (scripts/ci/proposal-adopted.sh). The merge queue skips the job: a pull request enters the
-  # queue only after it passed here.
+  # A pull request that adds a proposal changes spec/ and waits for the author's `/accept`
+  # (scripts/ci/proposal-adopted.sh). The `Proposal decision` workflow runs the job again after
+  # `/accept`. The merge queue skips it: a pull request enters the queue only after it passed here,
+  # and leaves the queue when a commit is pushed.
   proposal-adopted:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -26,10 +27,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2
-      - name: Require the author's /accept for a proposal being adopted
+      - name: Require the author's /accept for a proposal being added
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          AUTHOR: Allianaab2m
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BOT: emela-bot[bot]
         run: scripts/ci/proposal-adopted.sh

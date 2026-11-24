@@ -50,6 +50,9 @@ pub enum DiagnosticCode {
     PositionalAfterNamed,
     /// Calling an operation of `use X` without parentheses. `use Clock.sleep(1)`
     UnparenthesizedUse,
+    /// `<-` after an operand (`a<-1`), or the right side of `x <- R` that is not an effect name
+    /// (`x <- 1`, `[grammar.lex]`).
+    LeftArrow,
     /// A statement not followed by a newline or `}`. `a b`
     ExpectedStatementEnd,
     UnderscoreOutsidePattern,
@@ -165,6 +168,7 @@ impl DiagnosticCode {
             Self::OldUseClause => "E0147",
             Self::LocalFnModifier => "E0150",
             Self::UnusedLocalFn => "E0151",
+            Self::LeftArrow => "E0152",
         }
     }
 }

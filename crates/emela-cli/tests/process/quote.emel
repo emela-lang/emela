@@ -5,10 +5,12 @@ import Std.Console.{Console}
 import Std.Process.{Args, InvalidInput, Process, Stdin, StdinFailure}
 
 fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {
-  (use Stdin).read_line() match {
+  stdin <- Stdin
+  stdin.read_line() match {
     None -> ()
     Some(line) -> {
-      (use Console).print_line("#{prefix}#{line}")
+      console <- Console
+      console.print_line("#{prefix}#{line}")
       quote(prefix)
     }
   }
@@ -16,7 +18,8 @@ fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console,
 
 fn main() {
   with Process {
-    prefix = (use Args).get(0) match {
+    args <- Args
+    prefix = args.get(0) match {
       Some(p) -> p
       None    -> "> "
     }
