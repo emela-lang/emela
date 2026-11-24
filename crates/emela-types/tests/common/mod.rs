@@ -57,7 +57,10 @@ pub fn resolve_main_with(
     }
     let (_, graph_diagnostics) = build_import_graph(&modules, &import_lists);
     assert_eq!(graph_diagnostics, []);
-    let (program, diagnostics) = resolve(&modules, &trees, &NoBuiltins);
+    let (program, mut diagnostics) = resolve(&modules, &trees, &NoBuiltins);
+    // W0403 (`use E` written as an expression is deprecated, `[effect.use]`) is checked by the
+    // tests of diagnostics; the programs here still use the deprecated forms.
+    diagnostics.retain(|d| !matches!(d.kind, emela_resolve::DiagnosticKind::DeprecatedUse { .. }));
     (program, main, diagnostics)
 }
 
@@ -157,13 +160,14 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
         DiagnosticKind::UnhandledEffects {
             effects,
             context,
-            scope,
+            in_task,
             hosts,
             process,
         } => {
-            let mut note = match scope {
-                Some(scope) => format!(" [provide outside `{scope}`]"),
-                None => String::new(),
+            let mut note = if *in_task {
+                " [provide outside the group]".to_owned()
+            } else {
+                String::new()
             };
             if !hosts.is_empty() {
                 note.push_str(&format!(" [host {}]", hosts.join(", ")));
@@ -176,15 +180,23 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
                 effects.join(", ")
             )
         }
-        DiagnosticKind::EffectSetMismatch { expected, found } => {
+        DiagnosticKind::EffectSetMismatch {
+            expected, found, ..
+        } => {
             format!(
                 "`{text}` effect set mismatch: expected `uses {expected}`, found `uses {found}`"
             )
         }
-        DiagnosticKind::CaptureEscape { root, scope, .. } => format!(
-            "`{text}` warning: holds `{root}` and leaves the `{}` that provides it",
-            scope.as_deref().unwrap_or("with")
-        ),
+        DiagnosticKind::SuspendAfterResume {
+            call,
+            resume,
+            passed,
+        } => {
+            let range = resume.range;
+            let at = &src[usize::from(range.start())..usize::from(range.end())];
+            let how = if *passed { "passed on at" } else { "called at" };
+            format!("`{text}` {call:?} after resume {how} `{at}`")
+        }
         kind => format!("`{text}` {kind:?}"),
     }
 }

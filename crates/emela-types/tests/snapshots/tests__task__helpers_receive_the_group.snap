@@ -1,0 +1,20 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Task.{Task, TaskGroup}\n\nerror Boom\nerror Bust\n\neffect Log {\n  fn info(msg: String) -> ()\n}\n\nfn boom() -> Int fails Boom { fail Boom }\n\nfn bust() -> Int fails Bust { fail Bust }\n\nfn crawl[E, R](tasks: use TaskGroup[E, { Log, R }], url: String) -> () {\n  tasks.start(|| (use Log).info(url))\n  ()\n}\n\nfn spawn_boom[E, R](tasks: use TaskGroup[E | Boom, R]) -> Task[Int] {\n  tasks.start(|| boom())\n}\n\nfn declared() -> Task[Int] uses { TaskGroup[Bust, {}] } {\n  tasks <- TaskGroup\n  tasks.start(|| bust())\n}\n\nfn both_helpers() -> Int uses { Log, Async } {\n  with tasks = Task.Group {\n    a = spawn_boom(tasks)\n    crawl(tasks, \"a\")\n    a.join()\n  } escape {\n    Boom -> 0\n  }\n}\n\nfn omitted(tasks: use TaskGroup) -> () {\n  ()\n}\n\nfn omitted_uses() -> () uses { TaskGroup } {\n  ()\n}\n\"#)"
+---
+boom: fn() -> Int fails Boom
+bust: fn() -> Int fails Bust
+crawl: ∀ E, R. fn(use TaskGroup[E, { Log, R }], String) -> () uses { tasks }
+  tasks: use TaskGroup['0, { Log, '1 }]
+  url: String
+spawn_boom: ∀ E, R. fn(use TaskGroup[Boom | E, R]) -> Task[Int] uses { tasks }
+  tasks: use TaskGroup[Boom | '0, '1]
+declared: fn() -> Task[Int] uses { TaskGroup[Bust, {}] }
+both_helpers: fn() -> Int uses { Async, Log }
+  tasks: use TaskGroup[Boom, Log]
+  a: Task[Int]
+omitted: fn(use TaskGroup[{unknown}, {unknown}]) -> ()
+  tasks: use TaskGroup[{unknown}, {unknown}]
+omitted_uses: fn() -> () uses { TaskGroup[{unknown}, {unknown}] }
+`TaskGroup` MissingEffectTypeArgs { effect: "TaskGroup", params: ["E", "R"], handler: None }
+`TaskGroup` MissingEffectTypeArgs { effect: "TaskGroup", params: ["E", "R"], handler: None }

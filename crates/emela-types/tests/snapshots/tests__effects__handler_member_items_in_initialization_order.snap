@@ -1,0 +1,25 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_handlers(r#\"\neffect ReadFile {\n  fn read(max: Int) -> Int\n}\n\neffect Files {\n  handler Open(path: String): ReadFile\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler MemFiles: Files {\n  handler Open(path: String): ReadFile {\n    init(path: String) { Self(path:) }\n    fn read(max) { max }\n  }\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\nhandler Loud: Logger {\n  fn info(msg) { () }\n}\n\nfn order() {\n  with a = Files.Open(\"a\"), MemFiles, quiet = Quiet, b = Files.Open(\"b\"), Loud {\n    quiet.info(\"x\")\n    (use Logger).info(\"y\")\n    a.read(1) + b.read(2)\n  }\n}\n\nfn outside() {\n  with a = Files.Open(\"a\"), Quiet {\n    a.read(1)\n  }\n}\n\"#)"
+---
+order: fn() -> Int
+outside: fn() -> Int uses { Files }
+handler MemFiles: use {}
+handler Open: use {}
+handler Quiet: use {}
+handler Loud: use {}
+with a = Files.Open("a"), MemFiles, quiet = Quiet, b = Files.Open("b"), Loud: init [MemFiles, open Open, Quiet, open Open, Loud]
+with a = Files.Open("a"), Quiet: init [open Open, Quiet]
+--- R
+{     quiet.info("x")     (use Logger).info("y")     a.read(1) + b.read(2)   }: { Logger, a, quiet, b }
+quiet.info("x"): quiet
+(use Logger).info("y"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+a.read(1) + b.read(2): { a, b }
+a.read(1): a
+b.read(2): b
+{   with a = Files.Open("a"), Quiet {     a.read(1)   } }: Files
+with a = Files.Open("a"), Quiet {     a.read(1)   }: Files
+{     a.read(1)   }: a
+a.read(1): a

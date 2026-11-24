@@ -4,7 +4,8 @@ use std::fmt::Write;
 use std::path::Path;
 
 use emela_driver::{
-    DocModule, Input, MemoryFiles, Typecheck, check, collect_docs, render_html, render_markdown,
+    DocKind, DocModule, Input, MemoryFiles, Typecheck, check, collect_docs, render_html,
+    render_markdown,
 };
 
 /// Type checks a project with these files under `app/src` and collects its docs.
@@ -144,8 +145,8 @@ fn core_docs_cover_core_and_std() {
         "Prelude",
         "String",
         "Std.Clock",
-        "Std.Fiber",
         "Std.Http",
+        "Std.Task",
     ] {
         assert!(names.contains(&name), "{name} missing from {names:?}");
     }
@@ -177,16 +178,16 @@ fn core_docs_cover_core_and_std() {
     );
 
     // An operation lists only its own type parameters, not the effect's.
-    let scope = modules
+    let group = modules
         .iter()
-        .find(|m| m.name == "Std.Fiber")
-        .and_then(|m| m.items.iter().find(|i| i.name == "Scope"))
+        .find(|m| m.name == "Std.Task")
+        .and_then(|m| m.items.iter().find(|i| i.name == "TaskGroup"))
         .unwrap();
-    assert_eq!(scope.signature, "effect Scope[E, R]");
+    assert_eq!(group.signature, "effect TaskGroup[E, R]");
     assert!(
-        scope.children[0].signature.starts_with("fn fork[A]("),
+        group.children[0].signature.starts_with("fn start[A]("),
         "{}",
-        scope.children[0].signature
+        group.children[0].signature
     );
 }
 
@@ -273,4 +274,75 @@ fn html_links_across_modules_and_escapes_raw_html() {
         "{page}"
     );
     assert!(!page.contains("<script>"), "{page}");
+}
+
+/// The bundled modules cite the specification by section name (`[effect.host]`), not by number
+/// (#686). Numbers change when sections move. Covers `##` and `#` comments and the host files.
+#[test]
+fn core_sources_cite_sections_by_name() {
+    fn visit(dir: &Path, found: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                visit(&path, found);
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            for (n, line) in text.lines().enumerate() {
+                let numbered = line.match_indices("spec ").any(|(at, _)| {
+                    let rest = &line[at + "spec ".len()..];
+                    rest.starts_with(|c: char| c.is_ascii_digit()) || rest.starts_with("chapter")
+                });
+                if numbered {
+                    found.push(format!("{}:{}: {line}", path.display(), n + 1));
+                }
+            }
+        }
+    }
+    let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../emela-core/lib");
+    let mut found = Vec::new();
+    visit(&lib, &mut found);
+    assert!(found.is_empty(), "{}", found.join("\n"));
+}
+
+/// Every `pub` declaration of core and std, and every operation of an effect and function of a
+/// trait, has a `##` doc comment, so that its page in `emela doc --std` says what it is (#686).
+#[test]
+fn core_docs_describe_every_public_item() {
+    let modules = docs(&[("main.emel", "fn main() -> Int { 0 }\n")], true);
+    let mut missing = Vec::new();
+    for module in &modules {
+        for item in &module.items {
+            if item.doc.trim().is_empty() {
+                missing.push(format!("{}.{}", module.name, item.name));
+            }
+            if matches!(item.kind, DocKind::Effect | DocKind::Trait) {
+                for child in &item.children {
+                    if child.doc.trim().is_empty() {
+                        missing.push(format!("{}.{}.{}", module.name, item.name, child.name));
+                    }
+                }
+            }
+        }
+    }
+    assert!(missing.is_empty(), "no doc comment: {missing:?}");
+}
+
+/// Notes on how core and std are implemented are `#` comments, not `##` doc comments, so they do
+/// not show in `emela doc --std` or in hover (#686).
+#[test]
+fn core_docs_leave_out_implementation_notes() {
+    let modules = docs(&[("main.emel", "fn main() -> Int { 0 }\n")], true);
+    let mut found = Vec::new();
+    for module in &modules {
+        for item in &module.items {
+            let docs = std::iter::once(&item.doc).chain(item.children.iter().map(|c| &c.doc));
+            for doc in docs {
+                if doc.contains(".emel") || doc.contains("external function boundary") {
+                    found.push(format!("{}.{}: {doc}", module.name, item.name));
+                }
+            }
+        }
+    }
+    assert!(found.is_empty(), "{}", found.join("\n"));
 }

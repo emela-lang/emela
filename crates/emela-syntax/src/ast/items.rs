@@ -435,12 +435,32 @@ impl HandlerDecl {
     pub fn name(&self) -> Option<SyntaxToken> {
         name(&self.0)
     }
+    /// The type parameters (`[K: Eq, V]` of `handler InMemoryRepo[K: Eq, V]`,
+    /// `[effect.handler]`).
+    pub fn type_param_list(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| n.kind() == TYPE_PARAM_LIST)
+    }
     pub fn field_list(&self) -> Option<FieldList> {
         child(&self.0)
     }
     /// The effects after `:`, joined by `+` (`Query + Execute`, `[effect.handler]`).
     pub fn effects(&self) -> impl Iterator<Item = HandlerEffect> {
         self.0.children().filter_map(HandlerEffect::cast)
+    }
+    /// Whether it has a body. Only a built-in handler (`@intrinsic`) has none
+    /// (`[kw.annotation]`).
+    pub fn has_body(&self) -> bool {
+        self.0.children().any(|n| n.kind() == ITEM_LIST)
+    }
+    /// Whether it implements nothing: it has no body, or its body is only an init without a
+    /// block, which declares the parameters of the init. Only a built-in handler is written so
+    /// (`Task.Background`, `[kw.annotation]`).
+    pub fn declares_only(&self) -> bool {
+        let Some(list) = self.0.children().find(|n| n.kind() == ITEM_LIST) else {
+            return true;
+        };
+        list.children()
+            .all(|n| n.kind() == HANDLER_INIT && item_block(&self.0, HANDLER_INIT).is_none())
     }
     pub fn init(&self) -> Option<BlockExpr> {
         item_block(&self.0, HANDLER_INIT)
@@ -512,6 +532,11 @@ impl Supply {
     /// The ARG_LIST of the arguments of init. `None` without parentheses.
     pub fn arg_list(&self) -> Option<SyntaxNode> {
         self.0.children().find(|n| n.kind() == ARG_LIST)
+    }
+    /// The TYPE_ARG_LIST of the type arguments (`Memory[Int]`, `State[Int]` right of `by`).
+    /// `None` without brackets.
+    pub fn type_args(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| n.kind() == TYPE_ARG_LIST)
     }
 }
 
