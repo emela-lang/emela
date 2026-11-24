@@ -1,5 +1,6 @@
-# The Random effect and its handler (the platform layer of spec 15.2).
+# The Random effect and its handler (the platform layer of `[lib.layers]`).
 
+## Random values.
 pub effect Random {
   ## Uniform over the whole range of Int.
   fn int() -> Int

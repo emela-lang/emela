@@ -1,6 +1,6 @@
 //! The first smoke tests: the module is valid, and simple programs run under `wasmtime`.
 
-mod common;
+use crate::common;
 
 use common::*;
 

@@ -1,0 +1,30 @@
+---
+source: crates/emela-types/tests/builtin_handlers.rs
+expression: "render(r#\"\nimport Std.Semaphore.{Semaphore, NoPermits}\n\nerror Boom\n\nfn boom() -> Int fails Boom { fail Boom }\n\nfn held() -> Int uses { Async } {\n  with s = Semaphore(permits: 3) {\n    with p = s.Permits(n: 2) { p.count() + s.available() }\n  }\n}\n\nfn tried() -> Int fails NoPermits {\n  with s = Semaphore(permits: 1) {\n    with p = s.TryPermits(n: 1) { p.count() }\n  }\n}\n\nfn wrapped() -> (Int, Option[Int]) fails Boom uses { Async } {\n  with s = Semaphore(permits: 1) {\n    (Semaphore.with_permit(s, || boom()), Semaphore.try_with_permits(s, 1, || 1))\n  }\n}\n\"#)"
+---
+boom: fn() -> Int fails Boom
+held: fn() -> Int uses { Async }
+  s: use Semaphore
+  p: use Permit
+tried: fn() -> Int fails NoPermits
+  s: use Semaphore
+  p: use Permit
+wrapped: fn() -> (Int, Option[Int]) fails Boom uses { Async }
+  s: use Semaphore
+--- R
+{     with p = s.Permits(n: 2) { p.count() + s.available() }   }: s
+with p = s.Permits(n: 2) { p.count() + s.available() }: s
+{ p.count() + s.available() }: { p, s }
+p.count() + s.available(): { p, s }
+p.count(): p
+s.available(): s
+{     with p = s.TryPermits(n: 1) { p.count() }   }: s
+with p = s.TryPermits(n: 1) { p.count() }: s
+{ p.count() }: p
+p.count(): p
+{   with s = Semaphore(permits: 1) {     (Semaphore.with_permit(s, || boom()), Semaphore.try_with_permits(s, 1, || 1))   } }: Async
+with s = Semaphore(permits: 1) {     (Semaphore.with_permit(s, || boom()), Semaphore.try_with_permits(s, 1, || 1))   }: Async
+{     (Semaphore.with_permit(s, || boom()), Semaphore.try_with_permits(s, 1, || 1))   }: { Async, s }
+(Semaphore.with_permit(s, || boom()), Semaphore.try_with_permits(s, 1, || 1)): { Async, s }
+Semaphore.with_permit(s, || boom()): { Async, s }
+Semaphore.try_with_permits(s, 1, || 1): s
