@@ -12,8 +12,9 @@ related: [handler-member, capability-identity, effect-alias, task]
 
 ## Summary
 
-- An item of a with bound to a name (`with x = H`, `with x = L by P`) makes the capability x and nothing else. A named item no longer provides its effect by name. Only an item without a name provides its effect by name.
+- An item of a with bound to a name (`with x = H`, `with x = L by H`) makes the capability x and nothing else. A named item no longer provides its effect by name. Only an item without a name provides its effect by name.
 - An item that opens a handler member already provides nothing by name (`[effect.with]`). With this proposal, the same rule holds for every item: a named item makes a capability and provides nothing by name, and an item without a name provides its effect by name.
+- A label item that makes no handler (`x = L`, and `x = L by P` where P is an effect) can no longer be bound (E0447). Under this proposal it would provide nothing and only fix x to a handler that it does not make. Two named items of the same label in one with are no longer E0432.
 - A with that binds a capability and leaves the uses of the effect by name to the outer withs can then be written as one item (`with replica = ReplicaDb`). Under the current rule, the same program needs a label declared for that purpose and two withs.
 - No form is added for a named item that also provides its effect by name. In std, examples and the tests, only tests of the current rule use a named item that way. Whether to add such a form in this proposal, and whether to warn where a program changes meaning without a diagnostic, are left to the language's author (Open questions).
 
@@ -68,6 +69,32 @@ fn now_kept() -> String {
 - In `with a = Num(n: 1), b = Num(n: 2)`, the operations of Tag called by name go to b, because the later item takes precedence. Swapping the two items changes which handler the uses by name go to, while a and b still refer to their own handlers.
 - An overridden named item is still initialized, so that x can refer to its handler: its arguments are evaluated, the R of the arguments and the E of its init are in the E and R of the with, and the handler is released. `[effect.with]` used to say that an overridden handler is not initialized and that its arguments are not evaluated, with no exception for named items. The exception was added to `[effect.with]` without a proposal (#862), because the rule that a named item refers to its own handler determines it. Under this proposal a named item is never overridden, and `[effect.with]` no longer needs the exception.
 
+### A named label item that makes no handler
+
+```emel
+effect Side of Db
+
+fn show(side: use Side) -> String { side.name() }
+
+fn fixed() -> String {
+  with PrimaryDb {
+    with side = Side by Db {
+      with ReplicaDb {
+        show(side)
+      }
+    }
+  }
+}
+```
+
+- `fixed()` is `"primary"` (checked at `ea45cbfb`). The item `side = Side by Db` runs no init and makes no handler: side refers to the handler of PrimaryDb, which the outer with provides, and keeps referring to it inside the with of ReplicaDb. `x = Side by Other`, where `Other` is another label of Db, and `x = Side`, which gives a capability of Db served by the provider of Side, behave the same way (checked at `ea45cbfb`).
+- Under the current rule, these items also provide their effect by name. Under this proposal they would provide nothing by name, and would do nothing but fix x to a handler that an outer with provides. That is what `x = use E` did, and `effect-alias` (#731) replaced it with an effect alias, which finds the handler at each call (`[effect.use]`).
+- `[effect.with]` says that each item of a with runs its init and makes a capability. A label item whose right side is an effect has no init to run.
+
+### Two named items of one label
+
+- `with a = Side by PrimaryDb, b = Side by ReplicaDb` is E0432 (checked at `ea45cbfb`), because the two items would provide Side by name. Two named items of one effect (`with a = Num(n: 1), b = Num(n: 2)`) are not an error. Under this proposal neither pair provides anything by name.
+
 ### Where the current rule came from
 
 - `handler-member` (#624) allowed an item that is not a handler member to be bound, in addition to providing its effect by name: `with log = ConsoleLogger { ... }` "provides Logger by name as usual, and binds its capability to log as well". The same proposal made an item that opens a handler member provide nothing by name, on the principle that resources are bound and passed and only services are looked up by name.
@@ -93,12 +120,15 @@ No change.
 ### Meaning
 
 - An item `x = Item` binds x to the capability of the item and provides nothing by name. The effects that the body uses by name (through the R of a function the body calls, or through an effect alias `e <- E`) are provided by the withs that enclose this with, or by the caller.
-- The rule holds for every item that can be bound: an item of a handler (`x = H`, `x = H(arguments)`), an item that opens a handler member (`x = E.M(...)`, `x = c.M(...)`, as now) and a label item (`x = L by P`). A named handler that implements several effects provides none of them by name.
+- The rule holds for every item that can be bound: an item of a handler (`x = H`, `x = H(arguments)`), an item that opens a handler member (`x = E.M(...)`, `x = c.M(...)`, as now) and a label item plugged into a handler (`x = L by H`, `x = L by H(arguments)`). A named handler that implements several effects provides none of them by name.
 - A named item does not meet the requirements of the other items of the same with. A requirement on its effect is met by an item without a name of the same with, or from outside the with. A handler that has to use the handler of a named item is listed in a with inside the with of the named item, and takes the capability as an argument of its init.
 - A named item does not provide the labels of its effect declared `default` (`[effect.label]`). Those labels are provided together only by an item that provides the effect by name.
 - Precedence applies only among the items without a name: a later item without a name takes precedence for the same effect, and the earlier item is not initialized. A named item is never overridden: it is always initialized, its arguments are always evaluated, and the E and R of its arguments and the E of its init are always in the E and R of the with.
 - The type arguments of a named item are inferred from the arguments of its init and from how x is used, not from the R of the body (`[effect.with]`). E0459 for two or more effects of the body that unify with the effect of an item applies only to items without a name.
 - A task of a group starts siblings through the capability of the group, which the R of the task MAY contain (`[task.group]`). A group without a name also provides TaskGroup by name, as now.
+- A label item that makes no handler cannot be bound (E0447): `x = L`, and `x = L by P` where P is the underlying effect of L or another label of it. Written without a name, these items are unchanged. To use the label in the body, the body declares an effect alias (`with Side by Db { side <- Side; side.name() }`).
+- W0401 (a label item that is never used) is not given for a named label item. It provides nothing by name, so the label never appears in the R of the body; it is used through x.
+- E0432 (`by` written twice for the same label in one with) counts only the items without a name. `with a = Side by PrimaryDb, b = Side by ReplicaDb` makes two capabilities of Side, as two named items of one effect do.
 
 ```emel
 fn taken_no_more() -> String {
@@ -122,15 +152,18 @@ fn recursive() {
 
 The changes are applied to `spec/` in this pull request.
 
-- `[effect.with]`: a named item provides nothing by name, whether it is an item of a handler, of a handler member or of a label. Precedence, the exception for an overridden named item, the requirements met in the same with, the inference of type arguments from the R of the body, and E0459 for effects that unify are stated for the items without a name.
-- `[effect.label]`: the labels declared `default` are provided together only by an item without a name.
+- `[effect.with]`: a named item provides nothing by name, whether it is an item of a handler, of a handler member or of a label plugged into a handler. A label item that makes no handler cannot be bound (E0447). Precedence, the exception for an overridden named item, the requirements met in the same with, the inference of type arguments from the R of the body, and E0459 for effects that unify are stated for the items without a name.
+- `[effect.label]`: the labels declared `default` are provided together only by an item without a name. E0432 counts only the items without a name, and W0401 is not given for a named label item.
 - `[type.rules]`: `provides(H)` in the row of `with H { e }` is the effects of the items without a name.
 - `[task.group]`: TaskGroup by name comes from a group without a name; a task of a named group starts siblings through the capability of the group.
-- `[diag.list]`: the note and the help of E0402, and the third help of W0403.
+- `[diag.list]`: the note and the help of E0402, the third help of W0403, the cases of E0432 and W0401, and the new case, message and help of E0447.
 
 ## Diagnostics
 
 - [ ] E0402: when a with between the place where E0402 is reported and the origin of the effect (searched for as for the help about `Platform`) has a named item of that effect, a note at the named item says ``= note: `tasks` is a named item, so it does not provide `TaskGroup` by name``, and the help is ``= help: remove `tasks =` to provide it by name, or call through `tasks` ``. No new code. The search stays inside the function where E0402 is reported, so a named item inside a function whose R is inferred (a function without a uses clause) gets no note when E0402 is reported at a caller of that function.
+- [ ] E0447: a label item that makes no handler bound to a name (`x = L`, `x = L by P` where P is an effect). The message is ``label item `Side by Db` cannot be bound to a name: it makes no handler``, and the help is ``= help: list it without a name, and write `side <- Side` in the body``, with the name of the item and the effect that the item provides when it has no name (L for `L by P`, the underlying effect for `L`). No new code: E0447 already covers the items that cannot be bound (a layer).
+- [ ] E0432: not given when one of the two items is named.
+- [ ] W0401: not given for a named label item.
 - [ ] W0403 (0.29): the third help (``= help: write `x <- Logger`, or a named item `with x = H` ``, given for `x = use E` when the second help does not apply: x is used other than as the receiver of operations, or inside a later with) is left out when the body of the with that provides E also uses E by name. For such a body, rewriting into a named item keeps the meaning only under the current rule, and no form yet both binds a capability and provides its effect by name. The other two helps are unchanged.
 
 ## Compatibility
@@ -139,6 +172,8 @@ The changes are applied to `spec/` in this pull request.
 - A program whose body uses by name an effect that only a named item of an enclosing with provides stops compiling (E0402, with the note above). The program is rewritten by removing the name when the capability is not used (`with Task.Group { spawn_tree(3) }`), or by calling the operations through the capability.
 - A program whose body uses by name an effect that a named item provides, and that an outer with or an item without a name of the same with also provides, changes meaning without a diagnostic: the uses by name go to the handler of that outer with or of that item without a name. The typical case is a test that overrides a handler of a layer with a named item and calls the named item to control the fake handler: in `with AppLive, clock = FixedClock { run_jobs() }`, `run_jobs` now calls the Clock of `AppLive`. To keep its meaning, the test declares an effect for the operations that control the fake handler, implements that effect in the same handler, and lists the handler without a name: with `handler FixedClock(t: Int): Clock + ClockControl`, the test is `with AppLive, FixedClock { ctl <- ClockControl; ctl.advance(60); run_jobs() }` (checked at `ea45cbfb`). The measurement found no such program. Whether to warn about this case is an open question.
 - A requirement of a handler on the effect of a named item of the same with is no longer met by the named item. The measurement found no such requirement.
+- A named label item that makes no handler (`x = L`, `x = L by P` where P is an effect) stops compiling (E0447). It is rewritten by removing the name and declaring an effect alias in the body. The alias finds the handler at each call, so it differs from the bound x only when a with inside the body provides the effect of the alias again: L for `L by P`, and the underlying effect for `L` (in `with Side { db <- Db; with ReplicaDb { db.name() } }`, db calls ReplicaDb). An effect alias cannot be an argument (E0453), so a function that took x as a parameter `use L` declares `uses { L }` instead. No program in std, examples and the tests binds such an item: the only named label item is `s = Source by Plug(n: 1)` in a test of the parser (`crates/emela-syntax/test_data/parser/ok/handler_member.emel`), whose right side is a handler.
+- Two named items of the same label in one with are no longer E0432. This only accepts programs that were errors.
 - E0459 for several effects that fit, and for an item whose type arguments decide whether it overrides another item, is no longer given for a named item. The type arguments of a named item are determined by the arguments of its init and by how x is used, or are reported as not determined (E0459).
 - A program that followed the help of W0403 in 0.29 and rewrote `x = use E` into a named item, in a with whose body also uses E by name, stops compiling in 0.30 (E0402), or calls an outer handler if an outer with provides E. The help is changed in 0.29 so that it no longer suggests that rewrite (Diagnostics).
 - The tests to update are `binding_handlers`, `tasks_start_siblings` and `effect_alias_task.emel`, and four snapshots of `emela-core` whose evidence no longer provides the effect of a named item (`lower::handlers_of_several_effects`, `lower::semaphore_and_queue`, `lower::task_group_start_and_attempt`, `mono::tasks`).
@@ -149,6 +184,8 @@ The changes are applied to `spec/` in this pull request.
 - E0402: the note and the help. The with is searched for between the place of E0402 and the origin of the effect, as `under_platform` in `crates/emela-types/src/body/errors.rs` does for `Platform`.
 - E0459: `check_several_fits` and `check_item_overrides` in `crates/emela-types/src/body/items.rs` do not look at `named` now. Both skip named items, and `check_item_overrides` compares an item only with the items without a name.
 - W0403 (0.29): leave out the third help when the body of the with that provides E also uses E by name.
+- E0447 and E0432: `check_with_items` in `crates/emela-types/src/layer.rs` reports E0447 for a bound label item that has no `by` or whose `by` resolves to an effect (`Supplier::Effect` of `by_tag`), and leaves out the items with `bind` when it looks for a label given a provider twice.
+- W0401: `unused_label_providers` in `crates/emela-types/src/body/effects.rs` skips the named items. Today it gives no W0401 for a named label item whose x is used, but only because the capability x in the R of the body makes it return early.
 - The comment of `Entry::named`, and the tests and snapshots listed in Compatibility.
 
 ## Alternatives
@@ -156,6 +193,7 @@ The changes are applied to `spec/` in this pull request.
 - **Keep the current rule and add `E by E`, so that the uses by name go to the outer handler.** `L by P` with an effect P provides "the outer handler (or that of an item initialized earlier in the same with)" (`[effect.label]`), so `Db by Db` written after `replica = ReplicaDb` would provide ReplicaDb, and another rule would be needed to skip the items of the same with. The item `Db by Db` would also be written to stop another item from providing Db by name, while every other item of a with provides an effect. A program that omits `Db by Db` still has its uses by name go to the named item without a diagnostic.
 - **Keep the current rule and reject an overridden named item whose effect the body uses by name.** The order of the items in one with then no longer decides where the uses by name go, but the program of the motivation, where the named item is in an inner with, is not affected.
 - **Add, in this proposal, a form for a named item that also provides its effect by name.** One candidate is an item that provides a capability by name (`with clock = FixedClock, Clock by clock`). Under the current rule `Clock by clock` is E0430, and `Clock by clock` would put a capability, not a handler, in an item of a with. Another candidate is a mark on the item (`with FixedClock as clock`), used only for this case, so that the other `with x = ...` are not rewritten; #732 rejected `as` for every named item because every `with x = ...` would be rewritten. The measurement found no program that needs such a form outside the tests of the current rule. Adding a form later does not change the meaning of programs written under this proposal. Whether to add a form in this proposal is an open question.
+- **Keep `x = L` and `x = L by P` with an effect P, as a capability fixed to the handler that an outer with provides.** It would be the only fixed capability of a handler that the with does not make. `effect-alias` (#731) removed the same thing for effects (`x = use E`), and an effect alias covers the uses inside the body. Keeping it for labels only would also make the uses differ by whether the effect is a label.
 - **Two items of the same handler, one with a name and one without** (`with FixedClock, clock = FixedClock`). The program compiles, but the two items make two handlers with separate state, so an operation called through clock does not change the handler that the body uses by name.
 
 ## Prior art
