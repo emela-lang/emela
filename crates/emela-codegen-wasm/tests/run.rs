@@ -1003,3 +1003,66 @@ fn main() {
         "10\n99\n10\n99\n\"i=5\"\n\"d=5\"\n10\n10\n7\n110\n101\n\"d\"\n0\n1.5\n"
     );
 }
+
+#[test]
+fn list_fold_and_map_over_a_range() {
+    // The range fusion turns `List.fold(List.range(lo, hi), …)` and `List.map(List.range(lo,
+    // hi), …)` into loops. The values, the evaluation order and a failing or suspending `f` must
+    // be those of the list-building form.
+    let Some(out) = stderr(
+        "range-fold-map",
+        r#"
+import Std.Task.{Task}
+import Std.State.{State}
+
+error Missing
+
+fn add(acc: Int, x: Int) -> Int {
+  acc + x
+}
+
+fn traced(label: String, value: Int) -> Int {
+  dbg(label)
+  value
+}
+
+fn main() {
+  dbg(List.fold(List.range(0, 0), 7, add))
+  dbg(List.fold(List.range(1, 0), 7, add))
+  dbg(List.fold(List.range(-3, 3), 0, add))
+  dbg(List.map(List.range(0, 4), |x| x * 2))
+  dbg(List.map(List.range(3, 3), |x| x * 2))
+  dbg(List.fold(List.range(traced("lo", 0), traced("hi", 2)), traced("init", 10), add))
+  dbg(List.fold(List.range(0, 4), 0, |acc, x| {
+    if x == 2 { fail Missing } else { acc + x }
+  }) escape { Missing -> -1 })
+  dbg(with tasks = Task.Group {
+    List.fold(List.range(0, 3), 0, |acc, x| tasks.start(|| acc + x).join())
+  })
+  (value, updates) = State.run(0, || {
+    st = use State[Int]
+    List.fold(List.range(0, 3), 0, |acc, x| {
+      st.update(|n| n + 1)
+      acc + x
+    })
+  })
+  dbg((value, updates))
+  (mapped, map_updates) = State.run(0, || {
+    st = use State[Int]
+    List.map(List.range(0, 3), |x| {
+      st.update(|n| n + 1)
+      x * 2
+    })
+  })
+  dbg((mapped, map_updates))
+  dbg(List.map(List.range(0, 3), |x| Int.to_string(x)))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "7\n7\n-3\n[0, 2, 4, 6]\n[]\n\"lo\"\n\"hi\"\n\"init\"\n11\n-1\n3\n(3, 3)\n([0, 2, 4], 3)\n[\"0\", \"1\", \"2\"]\n"
+    );
+}
