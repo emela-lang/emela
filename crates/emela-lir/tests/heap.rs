@@ -2,8 +2,7 @@
 //! converted to the Flow IR and taken to the Heap IR, and the result must pass the verifier at
 //! the Heap IR's stage.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::{

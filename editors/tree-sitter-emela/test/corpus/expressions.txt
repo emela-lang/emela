@@ -447,3 +447,42 @@ fn range(from: Int, to: Int) -> List[Int] {
         (arguments
           (identifier)
           (list_expression))))))
+
+==================
+Effect aliases
+==================
+fn f() {
+  log <- Logger
+  st <- State[Int]
+  log.info("a")
+  a < -1
+}
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (effect_alias
+        (identifier)
+        (type_reference
+          (type_identifier)))
+      (effect_alias
+        (identifier)
+        (type_reference
+          (type_identifier))
+        (type_arguments
+          (type_reference
+            (type_identifier))))
+      (call_expression
+        (field_expression
+          (identifier)
+          (identifier))
+        (arguments
+          (string
+            (string_content))))
+      (binary_expression
+        (identifier)
+        (unary_expression
+          (integer))))))
