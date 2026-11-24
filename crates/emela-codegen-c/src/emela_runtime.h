@@ -274,6 +274,12 @@ em_ref em_array_from_list(em_ref xs, bool ref);
 em_ref em_array_to_list(em_ref a);
 int32_t em_array_size(em_ref a);
 em_ref em_array_get(em_ref a, int32_t index);
+/* The Core IR fusion of `Option.or(Array.get(a, index), d)`. `d` is borrowed; a reference
+ * result (the element or `d`) is owned once more. */
+em_word em_array_get_or(em_ref a, int32_t index, em_word d);
+/* The Core IR fusion of `match Array.get(a, index)`: the caller has checked that `index` is in
+ * range. A reference result is owned once more. */
+em_word em_array_load_unchecked(em_ref a, int32_t index);
 em_ref em_array_set(em_ref a, int32_t index, em_word value);
 em_ref em_array_slice(em_ref a, int32_t from, int32_t to);
 em_ref em_array_concat(em_ref parts, bool ref);

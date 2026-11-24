@@ -34,6 +34,7 @@ use crate::ir::{
 };
 use crate::mono::Monomorphized;
 use crate::named;
+use crate::opt::CoreFn;
 
 mod builtin_handler;
 mod builtin_impls;
@@ -196,6 +197,7 @@ pub fn lower_with(
         local_fns: ArenaMap::default(),
         fn_name: String::new(),
         derive_std: derive_std::Lookups::default(),
+        core_fns: FxHashMap::default(),
     };
     if roots == Roots::Exported {
         cx.collect_host_exports(input.language);
@@ -263,7 +265,7 @@ pub fn lower_with(
     // The Core IR optimisations also run for every target, before the IR is verified and
     // monomorphized. They preserve evaluation order, effects, failures, `with` releases and drop
     // points.
-    let stats = crate::opt::run(&mut cx.module, optimize);
+    let stats = crate::opt::run(&mut cx.module, &cx.core_fns, optimize);
     let (Some(target), Roots::Exported | Roots::Public | Roots::Tests) = (input.language, roots)
     else {
         return Ok(Lowered {
@@ -392,6 +394,10 @@ struct Lowerer<'a> {
     fn_name: String,
     /// What the derived impls of std traits look up, once (`derive_std.rs`).
     derive_std: derive_std::Lookups,
+    /// The bundled core functions a Core IR pass recognises by identity (`opt::CoreFn`), by IR
+    /// function. [`Lowerer::fn_id`] records every copy, `$suspend` ones too. Passed to
+    /// [`crate::opt::run`]; not stored in the module, which monomorphization rebuilds.
+    core_fns: FxHashMap<FnId, CoreFn>,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without
@@ -923,6 +929,9 @@ impl<'a> Lowerer<'a> {
         let id = self
             .module
             .declare(&name, spec == 0 && self.is_exported(def));
+        if let Some(kind) = self.core_fn(def) {
+            self.core_fns.insert(id, kind);
+        }
         self.module.functions[id].suspends = self.fn_suspends(def, spec);
         if spec == 0
             && let Some(exposed) = self.host_exports.iter().find(|e| e.def == def)
@@ -4151,6 +4160,28 @@ impl<'a> Lowerer<'a> {
             error: false,
             external: false,
         })
+    }
+
+    /// The bundled core function `def` is, if a Core IR pass matches it by identity
+    /// ([`CoreFn`]).
+    ///
+    /// Only a definition in a core module counts, so a user's `Option.or` never matches. Every IR
+    /// copy (the `$suspend` ones) gets the same answer; [`Lowerer::fn_id`] records each.
+    fn core_fn(&self, def: DefId) -> Option<CoreFn> {
+        let DefModule::Source(module) = self.hir.defs[def].module else {
+            return None;
+        };
+        if !self.modules.is_core(module) {
+            return None;
+        }
+        let module = self.modules[module].name.to_string();
+        let name = self.hir.defs[def].name.as_str();
+        match (module.as_str(), name) {
+            ("Option", "or") => Some(CoreFn::OptionOr),
+            ("List", "fold") => Some(CoreFn::ListFold),
+            ("List", "range") => Some(CoreFn::ListRange),
+            _ => None,
+        }
     }
 
     /// The name in the IR: definitions of the entry module keep their names; others get the

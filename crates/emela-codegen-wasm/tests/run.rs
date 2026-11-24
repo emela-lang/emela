@@ -933,3 +933,73 @@ fn a_failed_assert_shows_floats() {
         "defect: assertion failed: 1.5 == 2.5\n  left: 1.5\n right: 2.5\n"
     );
 }
+
+#[test]
+fn option_and_array_get_fusions() {
+    // The Core IR passes turn `Option.or(Array.get(a, i), d)` into `ArrayGetOr` and
+    // `match Array.get(a, i)` into a bounds test and `ArrayLoadUnchecked`. Both must agree with
+    // their source shape, evaluate `a`, `i`, `d` in order (`d` even when `i` is in range), and
+    // keep a failing, suspending or effectful `d`.
+    let Some(out) = stderr(
+        "option-array",
+        r#"
+import Std.Array.{Array}
+import Std.Task.{Task}
+import Std.State.{State}
+
+fn via_match(a: Array[Int], i: Int, d: Int) -> Int {
+  Array.get(a, i) match {
+    None -> d
+    Some(x) -> x
+  }
+}
+
+fn traced_index(i: Int) -> Int {
+  dbg("i=#{i}")
+  i
+}
+
+fn traced_default(d: Int) -> Int {
+  dbg("d=#{d}")
+  d
+}
+
+fn or_suspending(a: Array[Int], i: Int) -> Int {
+  with tasks = Task.Group {
+    Array.get(a, i) |> Option.or(tasks.start(|| 7).join())
+  }
+}
+
+fn or_effectful(a: Array[Int], i: Int) -> Int {
+  (value, updates) = State.run(0, || {
+    st = use State[Int]
+    st.update(|n| n + 1)
+    Array.get(a, i) |> Option.or(st.get())
+  })
+  value + updates * 100
+}
+
+fn main() {
+  a = Array.from_list([10, 20])
+  dbg(Array.get(a, 0) |> Option.or(99))
+  dbg(Array.get(a, 9) |> Option.or(99))
+  dbg(via_match(a, 0, 99))
+  dbg(via_match(a, 9, 99))
+  dbg(Array.get(a, 0) |> Option.or(traced_default(traced_index(5))))
+  dbg(or_suspending(a, 0))
+  dbg(or_suspending(a, 9))
+  dbg(or_effectful(a, 0))
+  dbg(or_effectful(a, 9))
+  dbg(Array.get(Array.from_list(["x"]), 1) |> Option.or("d"))
+  dbg(Array.get(Array.from_list([Int64.from_int(7)]), 5) |> Option.or(Int64.from_int(0)))
+  dbg(Array.get(Array.from_list([1.5]), 0) |> Option.or(0.0))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "10\n99\n10\n99\n\"i=5\"\n\"d=5\"\n10\n10\n7\n110\n101\n\"d\"\n0\n1.5\n"
+    );
+}
