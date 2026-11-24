@@ -207,10 +207,7 @@ fn system_tcp_on_js() {
             "defect_another_handler",
             "a connection was used outside the with of the handler that opened it",
         ),
-        (
-            "defect_two_reads",
-            "two reads of a connection ran at once",
-        ),
+        ("defect_two_reads", "two reads of a connection ran at once"),
         (
             "defect_upgrade_twice",
             "Tcp.upgrade_tls was given a connection that is already TLS",
