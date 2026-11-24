@@ -1,6 +1,6 @@
 //! `@export` and `@entry` (spec 12.7, 12.8): boundary types and the effects of an exported fn.
 
-mod common;
+use crate::common;
 
 use common::resolve_main;
 use emela_resolve::hir::DefKind;

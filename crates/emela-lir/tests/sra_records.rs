@@ -7,8 +7,7 @@
 //! edge and an escape analysis that answers `Unknown` cannot be produced by lowering: they are
 //! tested on hand-built IR in the unit tests of `opt::sra`.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::opt::{self, LirRules, Options};

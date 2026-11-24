@@ -1,0 +1,139 @@
+import Std.Task.{Task}
+import Std.Exit.{Exit, Success, Failure}
+import Std.Cause.{Cause}
+import Std.Deferred.{Deferred}
+import Std.Semaphore.{Semaphore}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 {
+    ()
+  } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+fn main() -> () uses { Async } {
+  with Ticks {
+    # At most 2 of the 5 tasks hold a permit at once.
+    ns = with s = Semaphore(permits: 2) {
+      Task.map(
+        [1, 2, 3, 4, 5],
+        |i| Semaphore.with_permit(s, || {
+          dbg("start #{i}, #{s.available()} free")
+          spin(1500)
+          dbg("end #{i}")
+          i * 10
+        }),
+      )
+    }
+    dbg(ns)
+
+    # First in, first out: a task that asks for more permits than are free makes the tasks
+    # behind it wait, and try_with_permit does not go ahead of it.
+    with s = Semaphore(permits: 3), gate = Deferred {
+      with tasks = Task.Group {
+        a = tasks.start(
+          || Semaphore.with_permits(s, 2, || {
+            dbg("a holds 2")
+            gate.await()
+            dbg("a gives 2 back")
+          }),
+        )
+        b = tasks.start(|| Semaphore.with_permits(s, 3, || dbg("b holds 3")))
+        c = tasks.start(|| Semaphore.with_permit(s, || dbg("c holds 1")))
+        d = tasks.start(|| {
+          dbg("try while b waits: #{Semaphore.try_with_permit(s, || 1)}, #{s.available()} free")
+          gate.complete(())
+        })
+        a.join()
+        b.join()
+        c.join()
+        d.join()
+      }
+    }
+
+    # try_with_permit while full, and permits counted per call.
+    with s = Semaphore(permits: 1), t = Semaphore(permits: 2) {
+      dbg(Semaphore.try_with_permit(s, || Semaphore.try_with_permit(s, || 1)))
+      dbg(Semaphore.with_permit(t, || Semaphore.with_permit(t, || t.available())))
+      dbg(Semaphore.try_with_permits(t, 2, || t.available()))
+      dbg(t.available())
+    }
+
+    # The permits come back however f ends.
+    with s = Semaphore(permits: 1), started = Deferred {
+      r = Semaphore.with_permit(s, || boom()) escape { Boom -> -1 }
+      dbg("after an error: #{r}, #{s.available()} free")
+      t = Semaphore.try_with_permit(s, || boom()) escape { Boom -> None }
+      dbg("after an error in try: #{t}, #{s.available()} free")
+      dbg(show(Exit.attempt(|| Semaphore.with_permit(s, || panic("broken")))))
+      dbg("after a defect: #{s.available()} free")
+      with tasks = Task.Group {
+        tasks.start(
+          || Semaphore.with_permit(s, || {
+            started.complete(())
+            spin(100000)
+          }),
+        )
+        started.await()
+        dbg("held: #{s.available()} free")
+      }
+      dbg("after an interruption: #{s.available()} free")
+    }
+
+    # A task interrupted while it waits leaves the line and takes no permit.
+    with s = Semaphore(permits: 2), gate = Deferred[()], ready = Deferred[()] {
+      with tasks = Task.Group {
+        tasks.start(|| Semaphore.with_permit(s, || gate.await()))
+        # Ending the with of a group interrupts its tasks.
+        with stop = Task.Group {
+          stop.start(|| Semaphore.with_permits(s, 2, || dbg("big runs")))
+          tasks.start(|| Semaphore.with_permit(s, || dbg("small runs")))
+          stop.start(|| ready.complete(()))
+          ready.await()
+          dbg("try while big waits: #{Semaphore.try_with_permit(s, || 0)}")
+        }
+        dbg("big interrupted, #{s.available()} free")
+        gate.complete(())
+      }
+    }
+
+    # Defects.
+    dbg(show(Exit.attempt(|| {
+      with _s = Semaphore(permits: 0) { () }
+    })))
+    dbg(show(Exit.attempt(|| {
+      with s = Semaphore(permits: 3) { Semaphore.with_permits(s, 0, || ()) }
+    })))
+    dbg(show(Exit.attempt(|| {
+      with s = Semaphore(permits: 3) { Semaphore.with_permits(s, 4, || ()) }
+    })))
+    dbg(show(Exit.attempt(|| {
+      with s = Semaphore(permits: 3) { Semaphore.try_with_permits(s, -1, || ()) }
+    })))
+    dbg(show(Exit.attempt(|| {
+      with s = Semaphore(permits: 3) { Semaphore.try_with_permits(s, 5, || ()) }
+    })))
+    ()
+  }
+}

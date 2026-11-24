@@ -36,6 +36,7 @@ use crate::mono::Monomorphized;
 use crate::named;
 use crate::opt::{CoreFn, CoreFns};
 
+mod builtin_handler;
 mod builtin_impls;
 mod derive_std;
 mod fiber;
@@ -43,7 +44,7 @@ mod local_fn;
 mod member;
 mod suspend;
 
-use fiber::{AttemptCall, ForkCall, PermitsCall, QueueCall, ScopeCall};
+use fiber::{AttemptCall, OnFailure, StartCall, TaskItem};
 use local_fn::Lifted;
 use suspend::Specialization;
 
@@ -189,6 +190,8 @@ pub fn lower_with(
         handler_parts: FxHashMap::default(),
         ev: None,
         opened_cell: None,
+        self_cap: None,
+        with_cells: Vec::new(),
         bound: Vec::new(),
         paths: &input.paths,
         shown_paths: &input.shown_paths,
@@ -215,7 +218,9 @@ pub fn lower_with(
                 (Roots::Exported, Some(Item::Fn(_))) => cx.is_main(def),
                 (Roots::Public, Some(Item::Fn(_))) => cx.is_public_root(def),
                 (Roots::All, Some(Item::Fn(f))) => f.body.is_some() || f.is_external,
-                (Roots::All, Some(Item::Const(_) | Item::Handler(_))) => true,
+                (Roots::All, Some(Item::Const(_))) => true,
+                // A built-in handler has no functions (`lower/builtin_handler.rs`).
+                (Roots::All, Some(Item::Handler(h))) => !h.is_intrinsic,
                 _ => false,
             };
             if is_root {
@@ -389,9 +394,17 @@ struct Lowerer<'a> {
     /// Inside the init of a handler that opens handler members, the cell that keeps the release of
     /// what it opened, and whether that may suspend (`lower/member.rs`).
     opened_cell: Option<(Local, bool)>,
+    /// Inside the operation bodies and the release of a handler: the handler, and the state and
+    /// evidence table that the function making its value takes. `self` passed as the capability
+    /// of the handler calls that function (`[effect.handler]`).
+    self_cap: Option<(DefId, Option<Local>, Option<Local>)>,
+    /// The cells of the `with`s inside an init that release the handler members opened through
+    /// their handlers ([`emela_types::ProgramTypes::member_open_withs`]).
+    with_cells: Vec<(ExprId, (Local, bool))>,
     /// Effects and handler values provided by enclosing `with`s, outermost first. Only `with`s in
-    /// the same function (a top-level fn or a handler operation), carried into lambdas. `use X`
-    /// searches from the back (spec 8.3).
+    /// the same function: a top-level fn, a handler operation, or the body of a lambda or a local
+    /// fn, which starts empty, since the side that calls it provides its R (`[effect.with]`).
+    /// `use X` searches from the back (spec 8.3).
     bound: Vec<(EffectKey, Local)>,
     paths: &'a ArenaMap<ModuleId, &'a Path>,
     shown_paths: &'a ArenaMap<ModuleId, String>,
@@ -496,16 +509,10 @@ enum Target {
     StateRun(Box<StateRun>),
     /// A concurrency operation that passes its arguments through (spec chapter 11, `fiber.rs`).
     Fiber(FiberOp),
-    /// `Fiber.scope(body)` (spec 11.2).
-    Scope(Box<ScopeCall>),
-    /// `s.fork(f)`（11.2）．
-    Fork(Box<ForkCall>),
+    /// `tasks.start(f)` (`[task.group]`, `[task.background]`).
+    Start(Box<StartCall>),
     /// `Exit.attempt(f)`（11.5）．
     Attempt(Box<AttemptCall>),
-    /// `Semaphore.with_permits` and `try_with_permits` (spec 11.9).
-    Permits(Box<PermitsCall>),
-    /// `Queue.offer` and `Queue.take` (spec 11.10).
-    Queue(Box<QueueCall>),
 }
 
 /// What is needed to lower `State.run(initial, body)`. Locals are allocated up front.
@@ -669,11 +676,8 @@ impl Target {
             },
             Target::StateRun(run) => run.apply(args),
             Target::Fiber(op) => Expr::Fiber { op, args },
-            Target::Scope(scope) => scope.apply(args),
-            Target::Fork(fork) => fork.apply(args),
+            Target::Start(start) => start.apply(args),
             Target::Attempt(attempt) => attempt.apply(args),
-            Target::Permits(permits) => permits.apply(args),
-            Target::Queue(queue) => queue.apply(args),
         }
     }
 }
@@ -724,8 +728,9 @@ impl<'a> Lowerer<'a> {
                     }
                     // A stateful handler's value (self) is an enum with the handler's one
                     // constructor (spec 8.4).
+                    // It takes the handler's type parameters (`[effect.handler]`).
                     Some(Item::Handler(h)) if is_stateful(h) => {
-                        let id = self.declare_enum(def, 0);
+                        let id = self.declare_enum(def, self.handler_type_params(def));
                         self.enums.insert(def, id);
                     }
                     _ => {}
@@ -819,7 +824,7 @@ impl<'a> Lowerer<'a> {
             Ty::Set(_, row) => return self.set_ty(row),
             // A label's capability is a handler of its base (`EffectDef::label_of`). A capability
             // of several effects is the tuple of their handlers, in the order of `Ty::Cap`.
-            Ty::Cap(tags) => {
+            Ty::Cap(tags, _) => {
                 let mut elems: Vec<TypeId> = tags
                     .iter()
                     .map(|tag| {
@@ -863,8 +868,17 @@ impl<'a> Lowerer<'a> {
                         }
                     };
                 }
+                // The hidden capability sets of a declaration (`[type.rules]`) have no run-time
+                // representation and decide nothing about calls.
+                let visible = self
+                    .types
+                    .ty_table
+                    .decl_caps(def)
+                    .map_or(args.len(), |c| c.visible);
                 match self.enums.get(def) {
-                    Some(&id) => Type::Enum(id, args.iter().map(|t| self.ty(t)).collect()),
+                    Some(&id) => {
+                        Type::Enum(id, args[..visible].iter().map(|t| self.ty(t)).collect())
+                    }
                     // `self` of a stateless handler. The value is `()` (`Lowerer::path`).
                     None => return TypeId::UNIT,
                 }
@@ -882,8 +896,7 @@ impl<'a> Lowerer<'a> {
     fn set_ty(&mut self, row: &Row) -> TypeId {
         let hir = self.hir;
         let mut set = SetSummary::default();
-        // A capability is summarized as its effect (`[effect.use]`).
-        for e in row.widened().elems() {
+        for e in row.elems() {
             match e {
                 RowElem::Bound(i) => set.params.push(self.module.type_param(*i as usize)),
                 RowElem::Var(v) => match self.generalized_row_param(*v) {
@@ -899,7 +912,15 @@ impl<'a> Lowerer<'a> {
                     set.suspends |= !self.is_immediate_effect(t.def);
                 }
                 RowElem::Tag(_) | RowElem::Of(_) => set.fails = true,
-                RowElem::Cap(_) => unreachable!("widened above"),
+                // A capability is reached through its value, not the evidence table; whether a
+                // call may suspend is decided by its effect (`[effect.use]`). Its effect is kept
+                // as needing the evidence table, as before capabilities were told apart.
+                RowElem::Cap(c) => {
+                    if matches!(hir.item(c.tag.def), Some(Item::Effect(_))) {
+                        set.ev |= !hir.is_host_effect(c.tag.def);
+                        set.suspends |= !self.is_immediate_effect(c.tag.def);
+                    }
+                }
             }
         }
         set.params.sort();
@@ -1044,6 +1065,7 @@ impl<'a> Lowerer<'a> {
             Some(Item::Handler(_)) => {
                 let (params, ret, body) = self.handler(def);
                 self.module.define(id, params, ret, body);
+                self.module.functions[id].type_params = self.handler_type_params(def);
                 return;
             }
             // A trait function is generic in `Self`; monomorphization replaces calls of it with
@@ -1341,6 +1363,19 @@ impl<'a> Lowerer<'a> {
     /// the type variables that become type parameters, so each parameter of `def` is its generalized
     /// variable seen from the definition being lowered, and a self reference passes on its own
     /// parameters.
+    /// The number of type arguments a constructor `def` gives its type at run time: the hidden
+    /// capability sets of the type (`[type.rules]`) are left out.
+    fn visible_params(&self, def: DefId) -> usize {
+        let owner = match self.hir.item(def) {
+            Some(Item::Ctor(c)) => c.owner,
+            _ => def,
+        };
+        match self.types.ty_table.decl_caps(owner) {
+            Some(caps) => caps.visible,
+            None => usize::MAX,
+        }
+    }
+
     fn ty_args(&mut self, def: DefId, expr: ExprId) -> Vec<TypeId> {
         let types = self.types;
         let n = types.sigs.get(def).map_or(0, |s| s.scheme.params.len());
@@ -1477,6 +1512,7 @@ impl<'a> Lowerer<'a> {
             args: args.clone(),
             ops: Vec::new(),
             label_of: None,
+            display: self.capability_display(def),
         });
         self.effects.insert(key.clone(), id);
         // A label has its base's operations, typed with the base's type arguments
@@ -1508,6 +1544,10 @@ impl<'a> Lowerer<'a> {
                 ops.push(op);
             }
         }
+        // The effect of a built-in handler gets `$cell` last (`lower/builtin_handler.rs`).
+        let display = self.module.effects[id].display;
+        let args = self.module.effects[id].args.clone();
+        ops.extend(self.cell_op(display, &args));
         self.module.effects[id].ops = ops;
         id
     }
@@ -1544,7 +1584,7 @@ impl<'a> Lowerer<'a> {
             *p = self.module.types.subst(*p, &subst);
         }
         let ret = self.module.types.subst(ret, &subst);
-        if self.is_fork_op(effect, op) {
+        if self.is_start_op(effect, op) {
             params = params.into_iter().map(|p| self.wrapped_child(p)).collect();
         }
         OpDef {
@@ -1605,7 +1645,14 @@ impl<'a> Lowerer<'a> {
             Ty::List(e) => format!("List[{}]", self.key_ty(e, ctx)),
             Ty::Tuple(es) => format!("({})", list(es)),
             Ty::Named(id, args) => {
-                let name = self.ir_name(self.types.ty_table.def(*id));
+                let def = self.types.ty_table.def(*id);
+                let name = self.ir_name(def);
+                let visible = self
+                    .types
+                    .ty_table
+                    .decl_caps(def)
+                    .map_or(args.len(), |c| c.visible);
+                let args = &args[..visible];
                 if args.is_empty() {
                     name
                 } else {
@@ -1625,7 +1672,7 @@ impl<'a> Lowerer<'a> {
                 .map_or_else(|| "_".to_owned(), |&(_, i)| self.key_ty(&Ty::Bound(i), ctx)),
             // The effects of a capability type are in the key, so that `State[use Name]` and
             // `State[use Count]` are different effects (issue #705).
-            Ty::Cap(tags) => {
+            Ty::Cap(tags, _) => {
                 let effects: Vec<String> = tags
                     .iter()
                     .map(|t| {
@@ -1748,8 +1795,11 @@ impl<'a> Lowerer<'a> {
         let span = hir.defs[def].span;
         // The effects in the order of `Ty::Cap`, which is the order of the operation tables of a
         // handler of several effects (`[effect.handler]`).
-        let tags = match Ty::cap(self.types.sigs.handler_effects(def).iter().cloned()) {
-            Ty::Cap(tags) if !tags.is_empty() => tags,
+        let tags = match Ty::cap(
+            self.types.sigs.handler_effects(def).iter().cloned(),
+            Row::empty(),
+        ) {
+            Ty::Cap(tags, _) if !tags.is_empty() => tags,
             _ => {
                 return (
                     Vec::new(),
@@ -1760,7 +1810,7 @@ impl<'a> Lowerer<'a> {
         };
         let effect_ids: Vec<EffectId> = tags
             .iter()
-            .map(|t| self.effect_id(&self.tag_key(t, None)))
+            .map(|t| self.effect_id(&self.key_here(t)))
             .collect();
         let ret = match effect_ids.as_slice() {
             [one] => self.module.handler(*one),
@@ -1795,6 +1845,11 @@ impl<'a> Lowerer<'a> {
             params.push(ev);
             self.ev = Some(ev);
         }
+        self.self_cap = Some((
+            def,
+            stateful.then(|| params[0]),
+            self.ev.filter(|_| takes_ev),
+        ));
         // One table per effect; an operation goes into the table of the effect that declares it.
         let mut tables: Vec<Vec<Option<Expr>>> = effect_ids
             .iter()
@@ -1877,6 +1932,7 @@ impl<'a> Lowerer<'a> {
                 self.unsupported_at("handler with missing operations", span),
             );
         }
+        self.self_cap = None;
         let name = hir.defs[def].name.to_string();
         let mut values: Vec<Expr> = tables
             .into_iter()
@@ -1943,6 +1999,7 @@ impl<'a> Lowerer<'a> {
         };
         self.opened_cell = None;
         self.module.define(init, params, state_ty, body);
+        self.module.functions[init].type_params = self.handler_type_params(def);
 
         if let (Some(f), Some((self_local, body))) = (release, h.release) {
             // The state's type, which the type checker gives as the handler's type even when the
@@ -1951,24 +2008,72 @@ impl<'a> Lowerer<'a> {
             self.module.locals[state].ty = state_ty;
             let mut params = vec![state];
             params.extend(ev_param(self));
+            self.self_cap = Some((def, Some(state), self.ev));
             // The release block's value is discarded (spec 8.4), but the function returns it as is.
             let ret = self.ty(self.expr_ty(body));
             let body = self.expr(body);
+            self.self_cap = None;
             self.module.define(f, params, ret, body);
+            self.module.functions[f].type_params = self.handler_type_params(def);
         }
     }
 
     /// The type of a stateful handler's state (self, spec 8.4): init's value, else the handler's
     /// constructor value, else `()` (as built by `handler_parts`).
+    ///
+    /// The type parameters of a handler with them are `Type::Param(i)`, as in its functions
+    /// ([`Self::handler_type_params`]).
     fn handler_state_ty(&mut self, def: DefId, h: &emela_resolve::hir::HandlerItem) -> TypeId {
-        match (h.init, self.enums.get(def)) {
+        match (h.init, self.enums.get(def).copied()) {
             (Some(body), _) => {
                 let ty = self.expr_ty(body);
                 self.ty(ty)
             }
-            (None, Some(&id)) if h.ctor.is_some() => self.module.enum_type(id, Vec::new()),
+            (None, Some(id)) if h.ctor.is_some() => {
+                let args = self.own_ty_args(def);
+                self.module.enum_type(id, args)
+            }
             _ => TypeId::UNIT,
         }
+    }
+
+    /// The number of type parameters of the IR functions of a handler, and of the enum of its
+    /// state: its own (`[effect.handler]`), or for an inner handler those of its outer handler,
+    /// which it is read with. Monomorphization copies them per item (`[effect.with]`).
+    ///
+    /// The hidden capability sets of its fields (`[type.rules]`) come after them in its type and
+    /// have no IR type, so they are not counted.
+    fn handler_type_params(&self, def: DefId) -> usize {
+        let table = &self.types.ty_table;
+        match table.decl_caps(def) {
+            Some(caps) => caps.visible,
+            None => table.con(def).map_or(0, |c| table.cons[c].params.len()),
+        }
+    }
+
+    /// `Type::Param(0..n)` for the type parameters of a handler's functions: the type arguments
+    /// with which the outer handler's functions call those of an inner handler.
+    pub(super) fn own_ty_args(&mut self, def: DefId) -> Vec<TypeId> {
+        (0..self.handler_type_params(def))
+            .map(|i| self.module.intern(Type::Param(i)))
+            .collect()
+    }
+
+    /// The type arguments of a provider of a `with` (`[effect.with]`), as IR types.
+    fn bind_ty_args(&mut self, bind: &emela_types::WithBind) -> Vec<TypeId> {
+        bind.ty_args.iter().map(|t| self.ty(t)).collect()
+    }
+
+    /// The effects of `handler` instantiated with the type arguments of an item, in the order
+    /// written (provides(H), `[type.rules]`).
+    fn handler_tags(&self, handler: DefId, ty_args: &[Ty]) -> Vec<Tag> {
+        let own = self.types.sigs.handler_effects(handler);
+        if ty_args.is_empty() {
+            return own.to_vec();
+        }
+        own.iter()
+            .map(|t| t.map_args(|a| emela_types::substitute_bound(a, ty_args)))
+            .collect()
     }
 
     /// The IR functions of a stateful handler's init and release (if any), declared if they do not
@@ -2038,7 +2143,7 @@ impl<'a> Lowerer<'a> {
         // (supplier, key of the provided effect).
         let mut hs: Vec<(Supplier, EffectKey)> = Vec::new();
         for bind in &info.binds {
-            let own = self.tag_key(&bind.effect, None);
+            let own = self.key_here(&bind.effect);
             match &bind.supplier {
                 Supplier::Handler(def) => {
                     // Errors go at the handler as written; for handlers expanded from a layer, at
@@ -2067,7 +2172,7 @@ impl<'a> Lowerer<'a> {
         let defaults: Vec<(EffectKey, usize)> = info
             .defaults
             .iter()
-            .map(|(tag, i)| (self.tag_key(tag, None), *i))
+            .map(|(tag, i)| (self.key_here(tag), *i))
             .collect();
         let outer = self.ev;
         let mut locals: Vec<Local> = Vec::with_capacity(hs.len());
@@ -2092,6 +2197,8 @@ impl<'a> Lowerer<'a> {
         // is marked released when the `with` ends. Each bind of the handler refers to its own.
         // (handler, where its arguments are) → the tuple and its handlers.
         let mut tuples: Vec<((DefId, ArgsSource), Local, Vec<Local>)> = Vec::new();
+        // The items of groups and backgrounds (`lower/fiber.rs`).
+        let mut tasks: Vec<TaskItem> = Vec::new();
         for (i, (supplier, own)) in hs.iter().enumerate() {
             let own_id = self.effect_id(own);
             let handler_ty = self.module.handler_effect(own_id);
@@ -2101,7 +2208,8 @@ impl<'a> Lowerer<'a> {
                     .iter()
                     .find(|(k, _, _)| *k == (*h, info.binds[i].args))
             {
-                let part = parts[self.tuple_index(*h, &info.binds[i].effect)];
+                let bind = &info.binds[i];
+                let part = parts[self.tuple_index(*h, &bind.ty_args, &bind.effect)];
                 let l = self.module.local("h", handler_ty);
                 locals.push(l);
                 binds.push(WithBind::new(l, Expr::Var(part)));
@@ -2129,20 +2237,19 @@ impl<'a> Lowerer<'a> {
                     let op = self.module.effects[effect].ops[index].clone();
                     let args = self.init_args(id, info.binds[i].args, &written_args);
                     let pair = self.module.local("opened", op.ret);
-                    binds.push(WithBind::new(
-                        pair,
-                        Expr::Call {
-                            callee: Callee::Op {
-                                handler: Box::new(value),
-                                effect,
-                                op: index,
-                                ty_args: Vec::new(),
-                            },
-                            args,
-                            fails: op.fails,
-                            suspends: op.suspend,
+                    let open = Expr::Call {
+                        callee: Callee::Op {
+                            handler: Box::new(value),
+                            effect,
+                            op: index,
+                            ty_args: Vec::new(),
                         },
-                    ));
+                        args,
+                        fails: op.fails,
+                        suspends: op.suspend,
+                    };
+                    let open = self.builtin_direct(open);
+                    binds.push(WithBind::new(pair, open));
                     let (h_ty, release_ty) = match self.module.ty(op.ret) {
                         Type::Tuple(elems) => (elems[0], elems[1]),
                         _ => unreachable!("a member's operation returns a pair"),
@@ -2186,7 +2293,7 @@ impl<'a> Lowerer<'a> {
                 // The provider of an effect already in scope: a handler in the same `with`
                 // initialized earlier, or the one the outer table holds (issue #255).
                 Supplier::Effect(tag) => {
-                    let key = self.tag_key(tag, None);
+                    let key = self.key_here(tag);
                     let found = (0..i).find(|&j| named[j] && hs[j].1 == key);
                     let value = match found {
                         Some(j) => Expr::Var(locals[j]),
@@ -2201,7 +2308,71 @@ impl<'a> Lowerer<'a> {
                     continue;
                 }
             };
+            // A built-in handler: its value binds the runtime object it makes, and its release
+            // does nothing (`lower/builtin_handler.rs`).
+            if self.is_builtin_handler(h) {
+                let args = self.init_args(id, info.binds[i].args, &written_args);
+                // A group or a background: the rest of the with runs in its run-time scope
+                // (`lower/fiber.rs`).
+                if let Some(background) = self.task_handler(own_id) {
+                    let l = self.module.local("h", handler_ty);
+                    let earlier: Vec<(EffectId, Expr)> = hs[..i]
+                        .iter()
+                        .zip(&locals)
+                        .zip(&named)
+                        .filter(|(_, n)| **n)
+                        .map(|(((_, k), &l), _)| (self.effect_id(k), Expr::Var(l)))
+                        .collect();
+                    let ev = if earlier.is_empty() {
+                        self.ev_arg()
+                    } else {
+                        Expr::Provide {
+                            base: outer.map(|l| Box::new(Expr::Var(l))),
+                            bindings: earlier,
+                        }
+                    };
+                    locals.push(l);
+                    let fails = self.tasks_fail(id, &info.binds[i].ty_args, background);
+                    let background = match (background, args.into_iter().next()) {
+                        (true, Some(value)) => {
+                            let Some(f_ty) = self.on_failure_ty(id, info.binds[i].args) else {
+                                return self.unsupported("Task.Background", span);
+                            };
+                            let ty = self.ty(&f_ty);
+                            Some(OnFailure {
+                                value,
+                                ty,
+                                takes_ev: self.ty_takes_ev(&f_ty),
+                                suspends: self.ty_suspends(&f_ty),
+                            })
+                        }
+                        (false, _) => None,
+                        (true, None) => return self.unsupported("Task.Background", span),
+                    };
+                    tasks.push(TaskItem {
+                        at: binds.len(),
+                        local: l,
+                        effect: own_id,
+                        background,
+                        ev,
+                        fails,
+                    });
+                    binds.push(WithBind::new(l, Expr::Lit(Lit::Unit)));
+                    continue;
+                }
+                let Some(value) = self.builtin_handler(h, own_id, args) else {
+                    return self.unsupported("this built-in handler", span);
+                };
+                let l = self.module.local("h", handler_ty);
+                locals.push(l);
+                binds.push(WithBind::new(l, value));
+                continue;
+            }
             let f = self.fn_id(h, 0);
+            // The type arguments of a handler with type parameters (`[effect.with]`): its
+            // functions are generic, and its effects and requirements are instantiated.
+            let bind = &info.binds[i];
+            let ty_args = self.bind_ty_args(bind);
             let ctx = if self
                 .types
                 .handler_uses
@@ -2214,15 +2385,16 @@ impl<'a> Lowerer<'a> {
                 // L, so its dependency on the underlying effect is met in the same `with` too
                 // (`[effect.label]`, issue #679), as `layer::with_entries` orders it.
                 let row = self.types.handler_uses.get(h).cloned().unwrap_or_default();
-                let effects = self.types.sigs.handler_effects(h);
+                let row = row.map_tys(|t| emela_types::substitute_bound(t, &bind.ty_args));
+                let effects = self.handler_tags(h, &bind.ty_args);
                 let owns: Vec<EffectKey> = if effects.contains(&info.binds[i].effect) {
-                    effects.iter().map(|t| self.tag_key(t, None)).collect()
+                    effects.iter().map(|t| self.key_here(t)).collect()
                 } else {
                     Vec::new()
                 };
                 let keys: Vec<EffectKey> = row
                     .tags()
-                    .map(|t| self.tag_key(t, None))
+                    .map(|t| self.key_here(t))
                     .filter(|y| y != own && !owns.contains(y))
                     .collect();
                 let bindings: Vec<(EffectId, Expr)> = keys
@@ -2252,7 +2424,7 @@ impl<'a> Lowerer<'a> {
             // own handler from it after.
             let several = self.types.sigs.handler_effects(h).len() > 1;
             let target = if several {
-                let ty = Ty::cap(self.types.sigs.handler_effects(h).iter().cloned());
+                let ty = Ty::cap(self.handler_tags(h, &bind.ty_args), Row::empty());
                 let ty = self.ty(&ty);
                 self.module.local("hs", ty)
             } else {
@@ -2261,11 +2433,11 @@ impl<'a> Lowerer<'a> {
             if !is_stateful(item) {
                 binds.push(WithBind::new(
                     target,
-                    direct(f, ctx.into_iter().collect(), false),
+                    generic_call(direct(f, ctx.into_iter().collect(), false), &ty_args),
                 ));
                 if several {
-                    let parts = self.bind_tuple_parts(h, target, None, &mut binds);
-                    let part = parts[self.tuple_index(h, &info.binds[i].effect)];
+                    let parts = self.bind_tuple_parts(h, &bind.ty_args, target, None, &mut binds);
+                    let part = parts[self.tuple_index(h, &bind.ty_args, &bind.effect)];
                     binds.push(WithBind::new(l, Expr::Var(part)));
                     tuples.push(((h, info.binds[i].args), target, parts));
                 }
@@ -2282,6 +2454,7 @@ impl<'a> Lowerer<'a> {
             });
             let (init, release) = self.handler_fns(h);
             let state_ty = self.handler_state_ty(h, item);
+            let state_ty = self.module.types.subst(state_ty, &ty_args);
             let state = self.module.local("self", state_ty);
             let init_fails = self
                 .types
@@ -2303,7 +2476,10 @@ impl<'a> Lowerer<'a> {
             init_args.extend(ctx.clone());
             binds.push(WithBind::new(
                 state,
-                direct_marked(&self.module, init, init_args, init_fails),
+                generic_call(
+                    direct_marked(&self.module, init, init_args, init_fails),
+                    &ty_args,
+                ),
             ));
             let with_state = |ctx: &Option<Expr>| {
                 std::iter::once(Expr::Var(state))
@@ -2311,7 +2487,10 @@ impl<'a> Lowerer<'a> {
                     .collect::<Vec<_>>()
             };
             let mut release = match release {
-                Some(r) => direct_marked(&self.module, r, with_state(&ctx), false),
+                Some(r) => generic_call(
+                    direct_marked(&self.module, r, with_state(&ctx), false),
+                    &ty_args,
+                ),
                 None => Expr::Lit(Lit::Unit),
             };
             if let Some((c, s)) = cell {
@@ -2322,19 +2501,19 @@ impl<'a> Lowerer<'a> {
                 let name = hir.defs[h].name.as_str();
                 binds.push(WithBind::cleanup(
                     target,
-                    direct(f, with_state(&ctx), false),
+                    generic_call(direct(f, with_state(&ctx), false), &ty_args),
                     name,
                     release,
                 ));
-                let parts = self.bind_tuple_parts(h, target, Some(name), &mut binds);
-                let part = parts[self.tuple_index(h, &info.binds[i].effect)];
+                let parts = self.bind_tuple_parts(h, &bind.ty_args, target, Some(name), &mut binds);
+                let part = parts[self.tuple_index(h, &bind.ty_args, &bind.effect)];
                 binds.push(WithBind::new(l, Expr::Var(part)));
                 tuples.push(((h, info.binds[i].args), target, parts));
                 continue;
             }
             binds.push(WithBind::managed(
                 target,
-                direct(f, with_state(&ctx), false),
+                generic_call(direct(f, with_state(&ctx), false), &ty_args),
                 &hir.defs[h].name,
                 release,
             ));
@@ -2355,6 +2534,27 @@ impl<'a> Lowerer<'a> {
                 self.locals.insert(local, value);
             }
         }
+        // Handler members that the init around opens through this `with`'s handlers are released
+        // at its end, before its handlers (`[effect.handler]`, `lower/member.rs`).
+        let opens: Vec<DefId> = self
+            .types
+            .member_open_withs
+            .iter()
+            .filter(|(_, w)| **w == id)
+            .filter_map(|(callee, _)| self.types.members.get(callee).copied())
+            .collect();
+        let with_cell = (!opens.is_empty()).then(|| {
+            let s = opens.iter().any(|&m| member::member_suspends(hir, m));
+            let ty = self.opened_cell_ty(s);
+            let c = self.module.local("opened", ty);
+            let value = self.new_opened_cell(s);
+            let release = self.release_opened(c, s);
+            binds.push(WithBind::cleanup(c, value, "opened", release));
+            (c, s)
+        });
+        if let Some(cell) = with_cell {
+            self.with_cells.push((id, cell));
+        }
         let ctx = self.ev_local();
         let depth = self.bound.len();
         for (((_, effect), &l), _) in hs.iter().zip(&locals).zip(&named).filter(|(_, n)| **n) {
@@ -2367,6 +2567,9 @@ impl<'a> Lowerer<'a> {
         let body = self.expr(body);
         self.ev = outer;
         self.bound.truncate(depth);
+        if with_cell.is_some() {
+            self.with_cells.pop();
+        }
         // Not built if the body does not use the table (when `use` only refers to this `with`'s
         // handlers directly).
         if mentions(&body, ctx) {
@@ -2387,26 +2590,52 @@ impl<'a> Lowerer<'a> {
                 },
             ));
         }
-        Expr::With {
-            binds,
-            body: Box::new(body),
+        let ret = self.ty(self.expr_ty(id));
+        self.wrap_task_items(binds, body, ret, tasks)
+    }
+
+    /// Whether the tasks of a group or a background at an item of the with `id` may fail, and with
+    /// them the run-time scope. For a group, the E of the with, which includes that of its tasks
+    /// (`[task.group]`); for a background, the E of its tasks, its first type argument
+    /// (`[task.background]`).
+    fn tasks_fail(&self, id: ExprId, ty_args: &[Ty], background: bool) -> bool {
+        let with = self.types.errors.get(id).is_some_and(|r| !r.is_empty());
+        match ty_args.first() {
+            Some(Ty::Set(_, row)) if background => with || !row.is_empty(),
+            _ => with,
         }
     }
 
+    /// The type of the argument `on_failure` of `Task.Background` at an item of the with `id`.
+    fn on_failure_ty(&self, id: ExprId, source: ArgsSource) -> Option<Ty> {
+        let ArgsSource::Item(i) = source else {
+            return None;
+        };
+        let arg = self
+            .types
+            .with_args
+            .get(id)?
+            .get(i)?
+            .first()?
+            .as_ref()
+            .copied()?;
+        Some(self.expr_ty(arg).clone())
+    }
+
     /// The effects of `handler`, a handler of several effects, in the order of its tuple of
-    /// handlers (`Ty::Cap`).
-    fn tuple_tags(&self, handler: DefId) -> Vec<Tag> {
-        match Ty::cap(self.types.sigs.handler_effects(handler).iter().cloned()) {
-            Ty::Cap(tags) => tags,
+    /// handlers (`Ty::Cap`), instantiated with `ty_args` (`[effect.with]`).
+    fn tuple_tags(&self, handler: DefId, ty_args: &[Ty]) -> Vec<Tag> {
+        match Ty::cap(self.handler_tags(handler, ty_args), Row::empty()) {
+            Ty::Cap(tags, _) => tags,
             _ => unreachable!("a capability type"),
         }
     }
 
     /// The position of the handler of `effect` in the tuple of the handlers of `handler`. For a
     /// label (`L by H`), that of its underlying effect (`[effect.label]`).
-    fn tuple_index(&self, handler: DefId, effect: &Tag) -> usize {
+    fn tuple_index(&self, handler: DefId, ty_args: &[Ty], effect: &Tag) -> usize {
         let base = self.types.sigs.base_of(effect);
-        self.tuple_tags(handler)
+        self.tuple_tags(handler, ty_args)
             .iter()
             .position(|t| t == effect || t == base)
             .expect("the bind's effect is one of the handler's")
@@ -2418,16 +2647,17 @@ impl<'a> Lowerer<'a> {
     fn bind_tuple_parts(
         &mut self,
         handler: DefId,
+        ty_args: &[Ty],
         all: Local,
         release: Option<&str>,
         binds: &mut Vec<WithBind>,
     ) -> Vec<Local> {
-        let tags = self.tuple_tags(handler);
+        let tags = self.tuple_tags(handler, ty_args);
         let n = tags.len();
         tags.iter()
             .enumerate()
             .map(|(k, tag)| {
-                let id = self.effect_id(&self.tag_key(tag, None));
+                let id = self.effect_id(&self.key_here(tag));
                 let id = self.module.handler_effect(id);
                 let ty = self.module.handler(id);
                 let part = self.module.local("h", ty);
@@ -2540,7 +2770,7 @@ impl<'a> Lowerer<'a> {
     /// function, or else from the evidence table passed by the caller. For effects with type
     /// arguments, the type arguments must match too (spec 8.1).
     fn use_(&mut self, id: ExprId, span: Span) -> Expr {
-        let Some(Ty::Cap(tags)) = self.types.exprs.get(id) else {
+        let Some(Ty::Cap(tags, _)) = self.types.exprs.get(id) else {
             return self.unsupported("unresolved effect", span);
         };
         let [tag] = tags.as_slice() else {
@@ -2555,29 +2785,31 @@ impl<'a> Lowerer<'a> {
     }
 
     /// A lambda. If its type's R is not empty, it takes the evidence table as its last argument.
-    /// Bindings of enclosing `with`s are added to the received table for the body (`use X` looks
-    /// at enclosing `with`s first, spec 8.3).
     ///
-    /// `[effect.with]` says `use X` takes X from the caller when no `with` in the same function
-    /// provides it. For the enclosing `with`s, "the same function" is the top-level fn the lambda
-    /// is in; for the table, it is the lambda itself. The type checker keeps the R of a lambda's
-    /// body in the lambda's type instead of adding it to the enclosing function's R, so the
-    /// enclosing function's table need not hold X, and only the lambda's caller can supply it.
+    /// The handlers that the calls in the body need are passed by the side that calls the
+    /// lambda; the enclosing `with`s do not provide them (`[effect.with]`, `[type.rules]`). The
+    /// type checker keeps the R of a lambda's body in the lambda's type, so the table its caller
+    /// passes holds them. A capability value the lambda captures is a local, and keeps referring
+    /// to its handler.
     fn lambda(&mut self, id: ExprId, params: &[emela_resolve::hir::Param], body: ExprId) -> Expr {
         let mut ps: Vec<Local> = params.iter().map(|p| self.local(p.local)).collect();
         let suspends = self.ty_suspends(self.expr_ty(id));
         let ty = self.ty(self.expr_ty(id));
+        let bound = std::mem::take(&mut self.bound);
         if !self.ty_takes_ev(self.expr_ty(id)) {
+            let body = self.expr(body);
+            self.bound = bound;
             return Expr::Lambda {
                 params: ps,
                 ty,
-                body: Box::new(self.expr(body)),
+                body: Box::new(body),
                 suspends,
             };
         }
         let p = self.ev_local();
         ps.push(p);
         let body = self.body_with_ev(p, body);
+        self.bound = bound;
         Expr::Lambda {
             params: ps,
             ty,
@@ -2589,8 +2821,12 @@ impl<'a> Lowerer<'a> {
     /// An operation on a capability value used as a value without calling it
     /// (`List.each(xs, log.info)`). Becomes a lambda that just calls it. The capability value is
     /// evaluated at the reference.
+    ///
+    /// Through an effect alias or `(use E)` (`x.op`, `(use E).op`), the handler is looked up when
+    /// the function value is called, in the table its caller passes (`[effect.use]`): the lambda
+    /// is `|a| x.op(a)`.
     fn op_value(&mut self, id: ExprId, base: ExprId, op: DefId, span: Span) -> Expr {
-        let Some(Ty::Cap(tags)) = self.types.exprs.get(base).cloned() else {
+        let Some(Ty::Cap(tags, _)) = self.types.exprs.get(base).cloned() else {
             return self.unsupported("effect operation", span);
         };
         let Some(tag) = self.op_tag(&tags, op) else {
@@ -2609,65 +2845,93 @@ impl<'a> Lowerer<'a> {
         };
         let param_tys: Vec<TypeId> = param_tys.iter().map(|t| self.ty(t)).collect();
         let ty = self.ty(self.expr_ty(id));
-        let value = self.expr(base);
+        let ev = ev.then(|| self.ev_local());
+        let at_call = ev.is_some() && self.hir.alias_uses.get(base).is_some();
+        let value = if at_call {
+            let (outer, bound) = (self.ev, std::mem::take(&mut self.bound));
+            self.ev = ev;
+            let value = self.expr(base);
+            self.ev = outer;
+            self.bound = bound;
+            value
+        } else {
+            self.expr(base)
+        };
         let (handler, _) = self
             .cap_table(value, &tags, op)
             .expect("the operation's effect is one of the capability's");
         let h_ty = self.module.handler(effect_id);
         let h = self.module.local("h", h_ty);
-        // Scope's fork wraps the child function, as at a call (`fiber.rs`).
-        if self.is_fork_op(tag.def, op) {
+        // The handler is bound inside the lambda when it is looked up at the call, and outside
+        // it otherwise.
+        let bind = |lambda: Expr, handler: Expr| -> Expr {
+            match lambda {
+                Expr::Lambda {
+                    params,
+                    ty,
+                    body,
+                    suspends,
+                } if at_call => Expr::Lambda {
+                    params,
+                    ty,
+                    body: Box::new(Expr::Let {
+                        var: h,
+                        value: Box::new(handler),
+                        body,
+                    }),
+                    suspends,
+                },
+                lambda => Expr::Let {
+                    var: h,
+                    value: Box::new(handler),
+                    body: Box::new(lambda),
+                },
+            }
+        };
+        // start of TaskGroup and Spawn wraps the task function, as at a call (`fiber.rs`).
+        if self.is_start_op(tag.def, op) {
             let op_ty = self.expr_ty(id).clone();
-            let Some(fork) = self.fork_call(Expr::Var(h), &tag, &op_ty, id) else {
-                return self.unsupported("fork", span);
+            let Some(fork) = self.start_call(Expr::Var(h), &tag, &op_ty, id) else {
+                return self.unsupported("start", span);
             };
             let x_ty = param_tys.first().copied().unwrap_or(TypeId::UNIT);
             let x = self.module.local("x", x_ty);
-            // The evidence table, if the type takes one, is unused: operation calls take no table
-            // (`Callee::Op`).
+            // The evidence table, if the type takes one, is used only to look up the handler:
+            // operation calls take no table (`Callee::Op`).
             let mut params = vec![x];
-            if ev {
-                params.push(self.ev_local());
-            }
-            return Expr::Let {
-                var: h,
-                value: Box::new(handler),
-                body: Box::new(Expr::Lambda {
-                    params,
-                    ty,
-                    body: Box::new(fork.apply(vec![Expr::Var(x)])),
-                    suspends: false,
-                }),
+            params.extend(ev);
+            let lambda = Expr::Lambda {
+                params,
+                ty,
+                body: Box::new(fork.apply(vec![Expr::Var(x)])),
+                suspends: false,
             };
+            return bind(lambda, handler);
         }
         let mut params: Vec<Local> = param_tys
             .into_iter()
             .map(|t| self.module.local("x", t))
             .collect();
         let args = params.iter().map(|&l| Expr::Var(l)).collect();
-        if ev {
-            params.push(self.ev_local());
-        }
-        Expr::Let {
-            var: h,
-            value: Box::new(handler),
-            body: Box::new(Expr::Lambda {
-                params,
-                ty,
-                body: Box::new(Expr::Call {
-                    callee: Callee::Op {
-                        handler: Box::new(Expr::Var(h)),
-                        effect: effect_id,
-                        op: index,
-                        ty_args: self.op_ty_args(effect_id, index, id),
-                    },
-                    args,
-                    fails,
-                    suspends,
-                }),
-                suspends,
-            }),
-        }
+        params.extend(ev);
+        let call = Expr::Call {
+            callee: Callee::Op {
+                handler: Box::new(Expr::Var(h)),
+                effect: effect_id,
+                op: index,
+                ty_args: self.op_ty_args(effect_id, index, id),
+            },
+            args,
+            fails,
+            suspends,
+        };
+        let lambda = Expr::Lambda {
+            params,
+            ty,
+            body: Box::new(self.builtin_direct(call)),
+            suspends,
+        };
+        bind(lambda, handler)
     }
 
     /// Reports external functions reachable from `entries` (functions of the monomorphized
@@ -2725,6 +2989,22 @@ impl<'a> Lowerer<'a> {
         });
     }
 
+    /// The capability of the handler whose operation body or release is being lowered: the value
+    /// that the function of the handler makes from the state.
+    fn self_capability(&mut self) -> Option<Expr> {
+        let (def, state, ev) = self.self_cap?;
+        let args = state.into_iter().chain(ev).map(Expr::Var).collect();
+        Some(Expr::Call {
+            callee: Callee::Direct {
+                f: self.fn_id(def, 0),
+                ty_args: Vec::new(),
+            },
+            args,
+            fails: false,
+            suspends: false,
+        })
+    }
+
     /// The type checker has typed every expression.
     fn expr_ty(&self, id: ExprId) -> &'a Ty {
         &self.types.exprs[id]
@@ -2742,7 +3022,7 @@ impl<'a> Lowerer<'a> {
     /// from the tuple `value` holds. The other handlers are dropped, so the operations of the
     /// other effects cannot be reached through the result.
     fn narrow(&mut self, id: ExprId, value: Expr, wanted: &[Tag]) -> Expr {
-        let Some(Ty::Cap(have)) = self.types.exprs.get(id).cloned() else {
+        let Some(Ty::Cap(have, _)) = self.types.exprs.get(id).cloned() else {
             return value;
         };
         let n = have.len();
@@ -2758,7 +3038,7 @@ impl<'a> Lowerer<'a> {
         if let [(k, ty)] = picks.as_slice() {
             return member::tuple_project(value, *k, n, *ty, &mut self.module);
         }
-        let all_ty = self.ty(&Ty::Cap(have));
+        let all_ty = self.ty(&Ty::Cap(have, Row::empty()));
         let all = self.module.local("cap", all_ty);
         let elems = picks
             .into_iter()
@@ -2908,6 +3188,11 @@ impl<'a> Lowerer<'a> {
 
     /// A name reference outside a call (a reference as a value).
     fn path(&mut self, id: ExprId, res: Res, span: Span) -> Expr {
+        if self.types.self_caps.contains(&id)
+            && let Some(value) = self.self_capability()
+        {
+            return value;
+        }
         let def = match res {
             // `self` of a stateless handler has no value (the function building the handler value
             // does not take one).
@@ -3045,9 +3330,10 @@ impl<'a> Lowerer<'a> {
             (Target::Op { effect, op, .. }, Some(_)) => Some((*effect, *op)),
             _ => None,
         };
-        let mut call = named::in_written_order(&mut self.module, args, |args| target.apply(args));
+        let call = named::in_written_order(&mut self.module, args, |args| target.apply(args));
+        let mut call = self.builtin_direct(call);
         if let Some((effect, index)) = opened {
-            call = self.open_in_init(call, effect, index);
+            call = self.open_in_init(call, callee, effect, index);
         }
         match binding {
             Some((var, value)) => Expr::Let {
@@ -3095,7 +3381,10 @@ impl<'a> Lowerer<'a> {
         Expr::Lambda {
             params,
             ty: self.ty(self.expr_ty(id)),
-            body: Box::new(target.apply(args)),
+            body: Box::new({
+                let call = target.apply(args);
+                self.builtin_direct(call)
+            }),
             suspends: self.ty_suspends(self.expr_ty(id)),
         }
     }
@@ -3150,7 +3439,7 @@ impl<'a> Lowerer<'a> {
         // An operation on a capability value (`log.info(...)`).
         if let ExprKind::Field { base, .. } = &hir.exprs[callee].kind
             && let Some(&op) = self.types.ops.get(callee)
-            && let Some(Ty::Cap(tags)) = self.types.exprs.get(*base).cloned()
+            && let Some(Ty::Cap(tags, _)) = self.types.exprs.get(*base).cloned()
             && let Some(tag) = self.op_tag(&tags, op)
             && let Some(index) = self.op_index(tag.def, op)
         {
@@ -3161,12 +3450,12 @@ impl<'a> Lowerer<'a> {
             let (handler, _) = self
                 .cap_table(value, &tags, op)
                 .expect("the operation's effect is one of the capability's");
-            // Scope's fork wraps the child function (`fiber.rs`).
-            if self.is_fork_op(tag.def, op) {
+            // start of TaskGroup and Spawn wraps the task function (`fiber.rs`).
+            if self.is_start_op(tag.def, op) {
                 let op_ty = self.expr_ty(callee).clone();
-                return match self.fork_call(handler, &tag, &op_ty, callee) {
-                    Some(fork) => Ok(Target::Fork(Box::new(fork))),
-                    None => Err(self.unsupported("fork", span)),
+                return match self.start_call(handler, &tag, &op_ty, callee) {
+                    Some(start) => Ok(Target::Start(Box::new(start))),
+                    None => Err(self.unsupported("start", span)),
                 };
             }
             // Calls to suspend fn operations may suspend (spec 8.1); fn operation bodies do not
@@ -3252,7 +3541,11 @@ impl<'a> Lowerer<'a> {
                 Ok(Target::Direct(f, ty_args, self.direct_call(f, call), None))
             }
             Some(Item::Ctor(_) | Item::Error(_)) => match self.ctors.get(def) {
-                Some(&ctor) => Ok(Target::Ctor(ctor, self.ty_args(def, callee))),
+                Some(&ctor) => {
+                    let mut ty_args = self.ty_args(def, callee);
+                    ty_args.truncate(self.visible_params(def));
+                    Ok(Target::Ctor(ctor, ty_args))
+                }
                 None => Err(self.unsupported("this constructor", span)),
             },
             // A trait function, called directly; monomorphization picks the impl (spec 10.3).
@@ -4233,6 +4526,20 @@ fn direct(f: FnId, args: Vec<Expr>, fails: bool) -> Expr {
         fails,
         suspends: false,
     }
+}
+
+/// `call`, a direct call made by [`direct`] or [`direct_marked`], with the type arguments
+/// `ty_args` of a generic function (the functions of a handler with type parameters,
+/// `[effect.with]`).
+pub(super) fn generic_call(mut call: Expr, ty_args: &[TypeId]) -> Expr {
+    if let Expr::Call {
+        callee: Callee::Direct { ty_args: args, .. },
+        ..
+    } = &mut call
+    {
+        *args = ty_args.to_vec();
+    }
+    call
 }
 
 /// A direct call to the non-generic function `f`, marked as suspending if the function is.
