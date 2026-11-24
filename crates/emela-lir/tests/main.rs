@@ -8,13 +8,16 @@ mod common;
 mod support;
 
 mod analysis_borrow;
+mod analysis_consistency;
 mod analysis_escape;
 mod analysis_liveness;
 mod analysis_ownership;
 mod borrow_call;
+mod dce;
 mod devirt;
 mod drop_spec;
 mod dump;
+mod frame_prune;
 mod from_core;
 mod heap;
 mod rc_borrow;
