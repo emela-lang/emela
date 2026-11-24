@@ -1,6 +1,6 @@
 import Std.Bytes.{Bytes}
 import Std.Clock.{SystemClock}
-import Std.Fiber
+import Std.Task
 import Std.Process.{Process}
 import Std.Tcp.{
   Tcp,
@@ -196,7 +196,7 @@ fn a_read_and_a_write_run_at_once() {
   with SystemTcp {
     tcp <- Tcp
     conn = tcp.connect("127.0.0.1", ECHO)
-    (got, _) = Fiber.both(|| text(Tcp.read_exact(conn, 3)), || send(conn, "abc"))
+    (got, _) = Task.both(|| text(Tcp.read_exact(conn, 3)), || send(conn, "abc"))
     assert got == "abc"
   }
 }
@@ -206,7 +206,7 @@ fn an_interrupted_read_leaves_the_connection_open() {
   with SystemTcp, SystemClock {
     tcp <- Tcp
     conn = tcp.connect("127.0.0.1", ECHO)
-    assert Fiber.timeout(50, || tcp.read(conn, 10)) == None
+    assert Task.timeout(50, || tcp.read(conn, 10)) == None
     send(conn, "after")
     assert text(Tcp.read_exact(conn, 5)) == "after"
   }
@@ -334,7 +334,7 @@ fn defect_two_reads() {
   with SystemTcp {
     tcp <- Tcp
     conn = tcp.connect("127.0.0.1", ECHO)
-    Fiber.both(|| tcp.read(conn, 1), || tcp.read(conn, 1))
+    Task.both(|| tcp.read(conn, 1), || tcp.read(conn, 1))
   }
 }
 
@@ -353,6 +353,6 @@ fn defect_upgrade_while_reading() {
   with SystemTcp {
     tcp <- Tcp
     conn = tcp.connect("127.0.0.1", ECHO)
-    Fiber.both(|| tcp.read(conn, 1), || tcp.upgrade_tls(conn, "localhost", NoVerification))
+    Task.both(|| tcp.read(conn, 1), || tcp.upgrade_tls(conn, "localhost", NoVerification))
   }
 }
