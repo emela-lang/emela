@@ -1,0 +1,40 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0453]: `log` is an effect alias, not a value: only `log.op(...)` and `log.op` can be written
+    ╭─[ main.emel:21:8 ]
+    │
+ 21 │   keep(log)
+    │        ─┬─  
+    │         ╰─── 
+────╯
+   = help: for a fixed value, use a named item `with x = H`
+
+error[E0453]: `log` is an effect alias, not a value: only `log.op(...)` and `log.op` can be written
+    ╭─[ main.emel:22:3 ]
+    │
+ 22 │   log
+    │   ─┬─  
+    │    ╰─── 
+────╯
+   = help: for a fixed value, use a named item `with x = H`
+
+error[E0453]: handler member `Open` cannot be opened through effect alias `fs`
+    ╭─[ main.emel:27:12 ]
+    │
+ 27 │   with t = fs.Open("a") { t.read(1) }
+    │            ─┬  
+    │             ╰── 
+────╯
+   = help: open it through the effect: `x = Files.Open(...)`
+
+error[E0217]: expected effect, found handler `Plain`
+    ╭─[ main.emel:31:8 ]
+    │
+ 31 │   h <- Plain
+    │        ──┬──  
+    │          ╰──── 
+────╯
+
+4 errors

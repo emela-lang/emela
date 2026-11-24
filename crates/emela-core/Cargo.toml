@@ -4,6 +4,7 @@ description = "Core IR definition and lowering from the typed tree: derive expan
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 emela-resolve.workspace = true
@@ -14,3 +15,7 @@ rustc-hash.workspace = true
 [dev-dependencies]
 emela-syntax.workspace = true
 insta.workspace = true
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"

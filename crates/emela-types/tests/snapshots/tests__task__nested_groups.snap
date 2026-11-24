@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Task.{Task}\n\nerror Boom\nerror Bust\n\nfn boom() -> Int fails Boom { fail Boom }\n\nfn bust() -> Int fails Bust { fail Bust }\n\nfn nested() {\n  with outer = Task.Group {\n    outer.start(|| boom())\n    inner = with tasks = Task.Group {\n      tasks.start(|| {\n        tasks.start(|| bust())\n        ()\n      })\n      outer.start(|| boom())\n      1\n    }\n    inner\n  }\n}\n\"#)"
+---
+boom: fn() -> Int fails Boom
+bust: fn() -> Int fails Bust
+nested: fn() -> Int fails Boom | Bust uses { Async }
+  outer: use TaskGroup[Boom, {}]
+  tasks: use TaskGroup[Bust, tasks]
+  inner: Int

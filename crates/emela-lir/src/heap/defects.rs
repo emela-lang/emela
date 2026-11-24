@@ -179,37 +179,38 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
 /// Whether the concurrency operation may raise a defect in the current fiber.
 pub fn fiber_may_defect(op: FiberOp) -> bool {
     match op {
-        // A child's defect, an interrupted child, a raised cause, a scope's body, or an
-        // interruption delivered while waiting.
+        // A task's defect, a raised cause, a scope's body, or an interruption delivered while
+        // waiting.
         FiberOp::Scope { .. }
         | FiberOp::Join
-        | FiberOp::Await { .. }
-        | FiberOp::Interrupt
         | FiberOp::DeferredAwait
         | FiberOp::CauseRaise { .. }
-        // A scope, handle or Deferred used after its scope ended (spec 11.8).
+        // A group used after it closed (`[task.group]`).
         | FiberOp::Fork
-        | FiberOp::Deferred
-        | FiberOp::Complete
-        | FiberOp::Poll
-        // A Semaphore or Queue used after its scope ended, or made with a bad size; a wait
-        // that is interrupted or stopped by the end of the scope (spec 11.9, 11.10).
+        // A Semaphore or Queue made with a bad size, permits asked for with a bad number, or a
+        // wait that is interrupted (`[task.semaphore]`, `[task.queue]`).
         | FiberOp::Semaphore
         | FiberOp::Queue
         | FiberOp::Acquire
         | FiberOp::TryAcquire
-        | FiberOp::Available
         | FiberOp::Offer
         | FiberOp::Take
+        // `attempt` turns the function's defects into a `Failure`, but not an interruption, nor a
+        // defect while the fiber unwinds by one (spec 11.5).
+        | FiberOp::Attempt { .. } => true,
+        // A Deferred, Semaphore and Queue live as long as the with that made them, and the types
+        // keep them from leaving it, so using one cannot fail (`[task.deferred]`).
+        FiberOp::Deferred
+        | FiberOp::Complete
+        | FiberOp::Poll
+        | FiberOp::Available
         | FiberOp::TryOffer
         | FiberOp::QueuePoll
         | FiberOp::Size
         | FiberOp::Close
-        // `attempt` turns the function's defects into a `Failure`, but not an interruption, nor a
-        // defect while the fiber unwinds by one (spec 11.5).
-        | FiberOp::Attempt { .. } => true,
-        // Giving permits back after the scope ended does nothing (spec 11.9).
-        FiberOp::CauseKind { .. } | FiberOp::CauseToString | FiberOp::Release => false,
+        | FiberOp::CauseKind { .. }
+        | FiberOp::CauseToString
+        | FiberOp::Release => false,
     }
 }
 

@@ -1,0 +1,32 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Task.{Task, TaskGroup}\nimport Std.Deferred.{Deferred}\nimport Std.Cause.{Cause}\n\nerror NotFound(id: Int)\n\ntype User(name: String)\ntype Order(id: Int)\ntype Profile(user: User, orders: List[Order])\ntype Request(path: String)\n\neffect Users {\n  suspend fn find(id: Int) -> User fails NotFound\n}\n\neffect Log {\n  fn warn(msg: String) -> ()\n}\n\nfn fetch_user(id: Int) -> User fails NotFound uses { Users } {\n  (use Users).find(id)\n}\n\nfn fetch_orders(id: Int) -> List[Order] {\n  [Order(id:)]\n}\n\nfn audit(request: Request) -> () fails NotFound uses { Users } {\n  fetch_user(1)\n  ()\n}\n\nfn respond(request: Request) -> String {\n  request.path\n}\n\nfn profile() {\n  with tasks = Task.Group {\n    user = tasks.start(|| fetch_user(1))\n    orders = tasks.start(|| fetch_orders(1))\n    Profile(user: user.join(), orders: orders.join())\n  }\n}\n\nfn served(request: Request) {\n  log <- Log\n  with bg = Task.Background(on_failure: |cause| log.warn(Cause.to_string(cause))) {\n    bg.start(|| audit(request))\n    respond(request)\n  }\n}\n\nfn pairs() {\n  (user, orders) = Task.both(|| fetch_user(1), || fetch_orders(1))\n  users = Task.map([1, 2], |id| fetch_user(id))\n  firsts = Task.all([|| fetch_user(1), || fetch_user(2)])\n  fastest = Task.race([|| fetch_user(1), || fetch_user(2)])\n  (user, users)\n}\n\nfn signal() -> Int uses { Async } {\n  with ready = Deferred, tasks = Task.Group {\n    tasks.start(|| ready.complete(1))\n    n = ready.await()\n    peek = ready.poll()\n    n\n  }\n}\n\"#)"
+---
+fetch_user: fn(Int) -> User fails NotFound uses { Users }
+  id: Int
+fetch_orders: fn(Int) -> List[Order]
+  id: Int
+audit: fn(Request) -> () fails NotFound uses { Users }
+  request: Request
+respond: fn(Request) -> String
+  request: Request
+profile: fn() -> Profile fails NotFound uses { Async, Users }
+  tasks: use TaskGroup[NotFound, Users]
+  user: Task[User]
+  orders: Task[List[Order]]
+served: fn(Request) -> String uses { Async, Users, Log }
+  request: Request
+  cause: Cause[NotFound]
+  bg: use Spawn[NotFound, { Users, Log }]
+pairs: fn() -> (User, List[User]) fails NotFound uses { Async, Users }
+  user: User
+  orders: List[Order]
+  id: Int
+  users: List[User]
+  firsts: List[User]
+  fastest: User
+signal: fn() -> Int uses { Async }
+  ready: use Deferred[Int]
+  tasks: use TaskGroup[{}, ready]
+  n: Int
+  peek: Option[Int]

@@ -7,7 +7,7 @@ exit: 0
 14 [11, 12]
 10
 22
-alice! alice?
+alice! bob?
 bob
 7
 --- stderr

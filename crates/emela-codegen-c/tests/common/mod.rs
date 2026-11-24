@@ -49,38 +49,66 @@ pub fn to_c(src: &str) -> Result<COutput, Vec<CError>> {
     compile(&m, &Entry::Main)
 }
 
-/// The C compiler (`EMELA_CC` or `cc`), or `None` if it cannot be started.
-pub fn cc() -> Option<&'static str> {
-    static CC: OnceLock<Option<String>> = OnceLock::new();
+/// The C compiler (`EMELA_CC` or `cc`) and what it prints for `--version`, or `None` if it cannot
+/// be started.
+fn cc_and_version() -> Option<&'static (String, String)> {
+    static CC: OnceLock<Option<(String, String)>> = OnceLock::new();
     CC.get_or_init(|| {
         let cc = std::env::var("EMELA_CC")
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "cc".to_owned());
-        let ok = Command::new(&cc)
-            .arg("--version")
-            .output()
-            .is_ok_and(|o| o.status.success());
-        if !ok {
-            eprintln!("skipping: cannot start the C compiler `{cc}` (set EMELA_CC)");
+        match Command::new(&cc).arg("--version").output() {
+            Ok(o) if o.status.success() => {
+                Some((cc, String::from_utf8_lossy(&o.stdout).into_owned()))
+            }
+            _ => {
+                eprintln!("skipping: cannot start the C compiler `{cc}` (set EMELA_CC)");
+                None
+            }
         }
-        ok.then_some(cc)
     })
-    .as_deref()
+    .as_ref()
+}
+
+/// The C compiler (`EMELA_CC` or `cc`), or `None` if it cannot be started.
+pub fn cc() -> Option<&'static str> {
+    cc_and_version().map(|(cc, _)| cc.as_str())
+}
+
+/// A file in a cache that the test processes share, named by `stem`, a hash of the C compiler,
+/// its version and `key`, and `extension`. nextest runs each test in its own process, so a cache
+/// inside the process would build the same file once per test. `make` writes the file to
+/// the path it is given, and the file is then renamed into place: a process sees either no file
+/// or a whole one, and processes that build it at once each rename a whole file.
+fn cached(stem: &str, extension: &str, key: &[&str], make: impl FnOnce(&Path)) -> PathBuf {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let (cc, version) = cc_and_version().expect("checked by the caller");
+    let mut hasher = DefaultHasher::new();
+    (cc, version, key).hash(&mut hasher);
+    let dir = out_dir("cache");
+    let path = dir.join(format!("{stem}-{:016x}{extension}", hasher.finish()));
+    if !path.exists() {
+        let partial = dir.join(format!("{stem}-{}.partial{extension}", std::process::id()));
+        make(&partial);
+        std::fs::rename(&partial, &path).unwrap();
+    }
+    path
 }
 
 /// The sanitizer flags cc supports here: ASan and UBSan, or UBSan alone (ASan hangs on some
-/// macOS setups), or none.
+/// macOS setups), or none. The answer is kept in the shared cache ([`cached`]), so remove
+/// `codegen-c/cache` in `CARGO_TARGET_TMPDIR` after changing the sanitizer setup without changing
+/// cc.
 pub fn sanitizers() -> Option<&'static str> {
+    const CANDIDATES: [&str; 2] = ["-fsanitize=address,undefined", "-fsanitize=undefined"];
     static FLAGS: OnceLock<Option<&'static str>> = OnceLock::new();
     *FLAGS.get_or_init(|| {
         let cc = cc()?;
-        // Per process, as the shared objects are ([`shared_objects`]).
-        let dir = out_dir(&format!("sanitizer-probe-{}", std::process::id()));
-        std::fs::write(dir.join("p.c"), "int main(void) { return 0; }\n").unwrap();
-        ["-fsanitize=address,undefined", "-fsanitize=undefined"]
-            .into_iter()
-            .find(|flag| {
+        let answer = cached("sanitizers", ".txt", &CANDIDATES, |path| {
+            let dir = out_dir(&format!("sanitizer-probe-{}", std::process::id()));
+            std::fs::write(dir.join("p.c"), "int main(void) { return 0; }\n").unwrap();
+            let found = CANDIDATES.into_iter().find(|flag| {
                 let built = Command::new(cc)
                     .args([*flag, "-o", "p", "p.c"])
                     .current_dir(&dir)
@@ -89,7 +117,11 @@ pub fn sanitizers() -> Option<&'static str> {
                 built
                     && run_with_timeout(Command::new(dir.join("p")), Duration::from_secs(20))
                         .is_some_and(|o| o.status.success())
-            })
+            });
+            std::fs::write(path, found.unwrap_or_default()).unwrap();
+        });
+        let answer = std::fs::read_to_string(answer).unwrap();
+        CANDIDATES.into_iter().find(|flag| *flag == answer)
     })
 }
 
@@ -152,32 +184,40 @@ fn shared_objects(flags: &[&str]) -> (PathBuf, PathBuf) {
         return paths.clone();
     }
 
-    // The cache is per process, and nextest runs each test in its own process: a directory per
-    // process keeps one from linking an object another is still writing.
-    let dir = out_dir(&format!("shared-{}-{}", std::process::id(), key.join("-")));
+    // The objects are kept in the cache the processes share ([`cached`]), keyed by the sources,
+    // as nextest runs each test in its own process. The sources are written to a directory per
+    // process, so that no process reads a source another is still writing.
+    let dir = out_dir(&format!("shared-sources-{}", std::process::id()));
     std::fs::write(dir.join(RUNTIME_C_FILE), RUNTIME_C).unwrap();
     std::fs::write(dir.join(RUNTIME_H_FILE), RUNTIME_H).unwrap();
     std::fs::write(dir.join(EMELA_H_FILE), EMELA_H).unwrap();
     std::fs::write(dir.join("helper.c"), HELPER).unwrap();
     let cc = cc().expect("checked by the caller");
-    let compile_object = |source: &str, name: &str| {
-        let output = Command::new(cc)
-            .args(["-std=c11", "-fno-strict-aliasing", "-pthread", "-I.", "-c"])
-            .args(flags)
-            .args([source, "-o", name])
-            .current_dir(&dir)
-            .output()
-            .expect("cannot start cc");
-        assert!(
-            output.status.success(),
-            "cc failed to compile shared {source}:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        dir.join(name)
+    const BASE: [&str; 5] = ["-std=c11", "-fno-strict-aliasing", "-pthread", "-I.", "-c"];
+    let compile_object = |source: &str, stem: &str, contents: &str| {
+        let mut cache_key = vec![source, contents, RUNTIME_H, EMELA_H];
+        cache_key.extend(BASE);
+        cache_key.extend(flags);
+        cached(stem, ".o", &cache_key, |path| {
+            let output = Command::new(cc)
+                .args(BASE)
+                .args(flags)
+                .arg(source)
+                .arg("-o")
+                .arg(path)
+                .current_dir(&dir)
+                .output()
+                .expect("cannot start cc");
+            assert!(
+                output.status.success(),
+                "cc failed to compile shared {source}:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        })
     };
     let paths = (
-        compile_object(RUNTIME_C_FILE, "runtime.o"),
-        compile_object("helper.c", "helper.o"),
+        compile_object(RUNTIME_C_FILE, "runtime", RUNTIME_C),
+        compile_object("helper.c", "helper", HELPER),
     );
     objects.insert(key, paths.clone());
     paths

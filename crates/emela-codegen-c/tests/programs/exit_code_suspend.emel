@@ -1,18 +1,18 @@
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 import Std.Process.{ExitCode}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
 fn print(s: String) -> () uses {}
 
-# `[dyn.error]`: a main that suspends returns its `ExitCode` after every child of `Fiber.scope`
+# `[dyn.error]`: a main that suspends returns its `ExitCode` after every task of a group
 # has ended.
 fn main() -> ExitCode uses { Async } {
-  n = Fiber.scope(|| {
-    a = Fiber.fork(|| 40)
-    b = Fiber.fork(|| 2)
-    Fiber.join(a) + Fiber.join(b)
-  })
+  n = with tasks = Task.Group {
+    a = tasks.start(|| 40)
+    b = tasks.start(|| 2)
+    a.join() + b.join()
+  }
   print("joined #{n}")
   Process.exit_code(n)
 }

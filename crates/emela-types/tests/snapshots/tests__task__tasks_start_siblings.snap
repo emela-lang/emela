@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Task.{Task, TaskGroup}\nimport Std.Console.{Console, SystemConsole}\n\nerror Boom\n\nfn boom() -> Int fails Boom { fail Boom }\n\nfn main() {\n  with SystemConsole, tasks = Task.Group {\n    tasks.start(|| {\n      tasks.start(|| (use Console).print_line(\"x\"))\n      ()\n    })\n    ()\n  }\n}\n\nfn through_capability() -> () fails Boom uses { Async } {\n  with tasks = Task.Group {\n    tasks.start(|| {\n      tasks.start(|| boom())\n      ()\n    })\n    ()\n  }\n}\n\nfn spawn_tree(depth: Int) -> () uses { TaskGroup[Boom, {}] } {\n  if depth > 0 {\n    tasks <- TaskGroup\n    tasks.start(|| {\n      spawn_tree(depth - 1)\n      boom()\n    })\n    ()\n  } else {\n    ()\n  }\n}\n\nfn recursive() {\n  with tasks = Task.Group { spawn_tree(3) }\n}\n\"#)"
+---
+boom: fn() -> Int fails Boom
+main: fn() -> () uses { Async }
+  tasks: use TaskGroup[{}, { Console, tasks }]
+through_capability: fn() -> () fails Boom uses { Async }
+  tasks: use TaskGroup[Boom, tasks]
+spawn_tree: fn(Int) -> () uses { TaskGroup[Boom, {}] }
+  depth: Int
+recursive: fn() -> () fails Boom uses { Async }
+  tasks: use TaskGroup[Boom, {}]

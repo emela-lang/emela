@@ -41,8 +41,8 @@ fn long_expressions() {
       value,
     ),
   )
-  hugged = Fiber.scope(
-    |s| s.fork(
+  hugged = Exit.attempt(
+    |s| s.start(
       || fetch_user_profile_and_orders_for_the_current_session(
         1,
       ),
@@ -56,8 +56,8 @@ fn long_expressions() {
       )
     },
   )
-  hugged_block = Fiber.scope(|s| {
-    s.fork(
+  hugged_block = Exit.attempt(|s| {
+    s.start(
       || fetch_user_profile_and_orders_for_the_current_session(
         1,
       ),
