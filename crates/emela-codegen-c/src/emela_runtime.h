@@ -27,7 +27,10 @@
  *
  * Strings are UTF-8 with their length in slot 0 and the bytes (with a terminating NUL that is
  * not part of the string) from slot 1. Lists are cons cells (slot 0 the head, slot 1 the tail).
- * Arrays have their length in slot 0 and an element per slot from slot 1.
+ * Arrays have their length in slot 0 and an element per slot from slot 1; an element of an array
+ * of records or tuples held by value takes `value_size` bytes of the slots instead of one. Records
+ * and tuples themselves are held by value by the program, and boxed (a heap object whose slots are
+ * the bytes of the value) only where a reference is needed.
  * Closures are `{function pointer, captures...}`. Handlers are `{retired flag, operations...}`.
  *
  * Single-threaded (only the completions of `emela.h` may come from other threads, through a locked
@@ -91,6 +94,10 @@ typedef struct em_desc {
   em_ref (*show)(em_ref);
   /* Per slot, 1 if it holds a reference. */
   const uint8_t *refs;
+  /* For a record or tuple that the emitter holds by value (`em_a3` in `main.c`): the size in
+   * bytes of one value, a multiple of 8. It is the size of the box of the value and the size of
+   * one element of an array of it; 0 where the object is not such a value. */
+  uint32_t value_size;
   /* For EM_KIND_RUNTIME: releases what the object holds. */
   void (*fin)(em_ref);
 } em_desc;
@@ -210,6 +217,14 @@ em_ref em_box(em_word w);
 em_ref em_host_box(void *h);
 static inline void *em_host_get(em_ref o) { return o->slots[0].h; }
 
+/* The bytes of a box of a value the emitter holds by value (a record or tuple in an `em_word`):
+ * a box has the bytes of the value in its slots, so this is the value. */
+static inline void em_unbox_value(void *out, em_ref o) {
+  unsigned char *to = out;
+  const unsigned char *from = (const unsigned char *)o->slots;
+  for (uint32_t i = 0; i < o->hdr.desc->value_size; i++) to[i] = from[i];
+}
+
 /* ---- Integers (spec 16.1): wrapping, without undefined behavior ---- */
 
 static inline int32_t em_iadd(int32_t a, int32_t b) { return (int32_t)((uint32_t)a + (uint32_t)b); }
@@ -269,17 +284,21 @@ em_ref em_bytes_slice(em_ref b, int32_t from, int32_t to);
 em_ref em_bytes_concat(em_ref parts);
 /* The same object, owned once more: `encode_utf8`, and `decode_utf8` of bytes already checked. */
 em_ref em_bytes_same(em_ref b);
-/* Arrays (`[api.std.array]`). `ref` tells whether the elements are references, for the functions
- * that may make an array without reading one. Every function borrows its arguments except
+/* Arrays (`[api.std.array]`). `desc` is the descriptor of the array to make: its `refs[0]` says
+ * whether the elements are references, and its `value_size` is the size of one element where the
+ * elements are values (0: one `em_word`). Every function borrows its arguments except
  * `em_array_set`, which consumes the array: it writes in place when that was the last reference
  * (a count of 1), and copies otherwise. */
-em_ref em_array_from_list(em_ref xs, bool ref);
-/* A new array of `n` elements, uninitialized: what `$Array.map_range` fills. Its loop writes each
- * element before the next call; a defect from the mapped function stops the loop there, shortens
- * the array to the elements already written and releases it, so no unwritten slot is ever
- * released. An element type with no representation writes nothing, and such an array has no
- * reference elements to drop. */
-em_ref em_array_new(int64_t n, bool ref);
+extern const em_desc em_desc_array_val;
+extern const em_desc em_desc_array_ref;
+em_ref em_array_from_list(em_ref xs, const em_desc *desc);
+/* A new array of `n` elements, uninitialized: what `$Array.map_range` fills. `desc` is the
+ * descriptor of the array to make, as for `em_array_from_list`, so that an array of values gets
+ * the size of one element. Its loop writes each element before the next call; a defect from the
+ * mapped function stops the loop there, shortens the array to the elements already written and
+ * releases it, so no unwritten slot is ever released. An element type with no representation
+ * writes nothing, and such an array has no reference elements to drop. */
+em_ref em_array_new(int64_t n, const em_desc *desc);
 em_ref em_array_to_list(em_ref a);
 int32_t em_array_size(em_ref a);
 em_ref em_array_get(em_ref a, int32_t index);
@@ -291,7 +310,17 @@ em_word em_array_get_or(em_ref a, int32_t index, em_word d);
 em_word em_array_load_unchecked(em_ref a, int32_t index);
 em_ref em_array_set(em_ref a, int32_t index, em_word value);
 em_ref em_array_slice(em_ref a, int32_t from, int32_t to);
-em_ref em_array_concat(em_ref parts, bool ref);
+em_ref em_array_concat(em_ref parts, const em_desc *desc);
+/* The same for an array whose elements are records or tuples held by value (`em_a3` in
+ * `main.c`): the bytes of each element are stored inline. `elem` is the descriptor of one element,
+ * for the box that takes it out of the array (a box is an object whose slots are the bytes). */
+em_ref em_array_get_agg(em_ref a, int32_t index, const em_desc *elem);
+em_ref em_array_to_list_agg(em_ref a, const em_desc *elem);
+void em_array_get_or_agg(em_ref a, int32_t index, const void *d, void *out);
+void em_array_load_unchecked_agg(em_ref a, int32_t index, void *out);
+em_ref em_array_set_agg(em_ref a, int32_t index, const void *value);
+/* The box of a value held by value: slots that are the bytes of the value. */
+em_ref em_box_value(const void *value, const em_desc *desc);
 em_ref em_int_to_string(int32_t n);
 em_ref em_int_parse(em_ref s);
 em_ref em_int_checked_add(int32_t a, int32_t b);

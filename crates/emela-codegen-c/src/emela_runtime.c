@@ -694,18 +694,32 @@ em_ref em_bytes_same(em_ref b) {
 
 /* ---- Array (`[api.std.array]`) ----
  *
- * An EM_KIND_ARRAY object: slot 0 the length n, then the n elements. The program never sees an
- * array change: `em_array_set` writes in place only into an array whose count is 1, which its
- * caller has given up (the Heap IR moves the last reference into the call). */
+ * An EM_KIND_ARRAY object: slot 0 the length n, then the n elements, one after another in the
+ * slots. An element is one `em_word`, or, in an array of a record or tuple that the emitter holds
+ * by value (`em_a3` in `main.c`), the bytes of the value: `value_size` in the array's descriptor
+ * says which. A value has no references, so `refs[0]` is 0 for such an array.
+ *
+ * The program never sees an array change: `em_array_set` writes in place only into an array whose
+ * count is 1, which its caller has given up (the Heap IR moves the last reference into the
+ * call). */
 
-static const em_desc em_desc_array_val = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_none};
-static const em_desc em_desc_array_ref = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_one};
+const em_desc em_desc_array_val = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_none};
+const em_desc em_desc_array_ref = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_one};
 
 #define EM_ARRAY_LEN(a) ((a)->slots[0].l)
 #define EM_ARRAY_REFS(a) ((a)->hdr.desc->refs[0] != 0)
+#define EM_ARRAY_SIZE(a) ((size_t)(a)->hdr.desc->value_size)
+#define EM_ARRAY_STRIDE(a) (EM_ARRAY_SIZE(a) != 0 ? EM_ARRAY_SIZE(a) : sizeof(em_word))
 
-static em_ref em_array_alloc(int64_t n, bool ref) {
-  em_ref a = em_alloc(ref ? &em_desc_array_ref : &em_desc_array_val, (size_t)n + 1);
+/* The bytes of element `i`. */
+static void *em_array_at(em_ref a, int64_t i) {
+  return (char *)&a->slots[1] + (size_t)i * EM_ARRAY_STRIDE(a);
+}
+
+static em_ref em_array_alloc(int64_t n, const em_desc *desc) {
+  size_t stride = desc->value_size != 0 ? desc->value_size : sizeof(em_word);
+  /* A stride is a multiple of the slot size, so the count is exact. */
+  em_ref a = em_alloc(desc, 1 + (size_t)n * (stride / sizeof(em_word)));
   a->slots[0].l = n;
   return a;
 }
@@ -713,22 +727,36 @@ static em_ref em_array_alloc(int64_t n, bool ref) {
 /* A new array of the `n` elements from `from`, each reference owned once more. */
 static em_ref em_array_copy(em_ref a, int64_t from, int64_t n) {
   bool ref = EM_ARRAY_REFS(a);
-  em_ref out = em_array_alloc(n, ref);
-  if (n > 0) memcpy(&out->slots[1], &a->slots[1 + from], (size_t)n * sizeof(em_word));
+  em_ref out = em_array_alloc(n, a->hdr.desc);
+  if (n > 0) memcpy(em_array_at(out, 0), em_array_at(a, from), (size_t)n * EM_ARRAY_STRIDE(a));
   if (ref) {
-    for (int64_t i = 1; i <= n; i++) em_dup(out->slots[i].p);
+    for (int64_t i = 0; i < n; i++) em_dup(*(em_ref *)em_array_at(out, i));
   }
   return out;
 }
 
-em_ref em_array_from_list(em_ref xs, bool ref) {
+/* A box of a value that the emitter holds by value: an object whose slots are the bytes of the
+ * value, so that it can be passed where a reference is needed. */
+em_ref em_box_value(const void *value, const em_desc *desc) {
+  em_ref o = em_alloc(desc, desc->value_size / sizeof(em_word));
+  memcpy(o->slots, value, desc->value_size);
+  return o;
+}
+
+em_ref em_array_from_list(em_ref xs, const em_desc *desc) {
   int64_t n = 0;
   for (em_ref p = xs; p != NULL; p = p->slots[1].p) n++;
-  em_ref a = em_array_alloc(n, ref);
-  int64_t i = 1;
-  for (em_ref p = xs; p != NULL; p = p->slots[1].p) {
-    a->slots[i++] = p->slots[0];
-    if (ref) em_dup(p->slots[0].p);
+  bool ref = desc->refs[0] != 0;
+  size_t size = desc->value_size;
+  em_ref a = em_array_alloc(n, desc);
+  int64_t i = 0;
+  for (em_ref p = xs; p != NULL; p = p->slots[1].p, i++) {
+    if (size != 0) {
+      memcpy(em_array_at(a, i), p->slots[0].p->slots, size);
+    } else {
+      a->slots[1 + i] = p->slots[0];
+      if (ref) em_dup(p->slots[0].p);
+    }
   }
   return a;
 }
@@ -739,7 +767,7 @@ em_ref em_array_from_list(em_ref xs, bool ref) {
  * released. An element type with no representation writes nothing, and such an array has no
  * reference elements to drop (its descriptor's `refs[0]` is 0). No failure, suspension or
  * interruption point lies between the allocation and the last element, because `f` is pure. */
-em_ref em_array_new(int64_t n, bool ref) { return em_array_alloc(n, ref); }
+em_ref em_array_new(int64_t n, const em_desc *desc) { return em_array_alloc(n, desc); }
 
 em_ref em_array_to_list(em_ref a) {
   bool ref = EM_ARRAY_REFS(a);
@@ -813,18 +841,74 @@ em_ref em_array_slice(em_ref a, int32_t from, int32_t to) {
   return em_array_copy(a, f, f < t ? t - f : 0);
 }
 
-em_ref em_array_concat(em_ref parts, bool ref) {
+em_ref em_array_concat(em_ref parts, const em_desc *desc) {
   int64_t n = 0;
   for (em_ref p = parts; p != NULL; p = p->slots[1].p) n += EM_ARRAY_LEN(p->slots[0].p);
-  em_ref out = em_array_alloc(n, ref);
-  int64_t at = 1;
+  bool ref = desc->refs[0] != 0;
+  size_t size = desc->value_size;
+  em_ref out = em_array_alloc(n, desc);
+  int64_t at = 0;
   for (em_ref p = parts; p != NULL; p = p->slots[1].p) {
     em_ref part = p->slots[0].p;
-    for (int64_t i = 1; i <= EM_ARRAY_LEN(part); i++) {
-      if (ref) em_dup(part->slots[i].p);
-      out->slots[at++] = part->slots[i];
+    int64_t m = EM_ARRAY_LEN(part);
+    if (m > 0) memcpy(em_array_at(out, at), em_array_at(part, 0), (size_t)m * EM_ARRAY_STRIDE(part));
+    if (ref) {
+      for (int64_t i = 0; i < m; i++) em_dup(*(em_ref *)em_array_at(out, at + i));
     }
+    at += m;
   }
+  return out;
+}
+
+/* ---- Arrays of values held by value ---- */
+
+em_ref em_array_get_agg(em_ref a, int32_t index, const em_desc *elem) {
+  if (index < 0 || index >= EM_ARRAY_LEN(a)) return EM_NONE;
+  em_ref o = em_alloc(elem, elem->value_size / sizeof(em_word));
+  memcpy(o->slots, em_array_at(a, index), elem->value_size);
+  return em_some((em_word){.p = o}, true);
+}
+
+em_ref em_array_to_list_agg(em_ref a, const em_desc *elem) {
+  em_ref list = NULL;
+  for (int64_t i = EM_ARRAY_LEN(a); i >= 1; i--) {
+    em_ref o = em_box_value(em_array_at(a, i - 1), elem);
+    list = em_cons((em_word){.p = o}, true, list);
+  }
+  return list;
+}
+
+void em_array_get_or_agg(em_ref a, int32_t index, const void *d, void *out) {
+  if (index < 0 || index >= EM_ARRAY_LEN(a)) {
+    memcpy(out, d, EM_ARRAY_SIZE(a));
+    return;
+  }
+  memcpy(out, em_array_at(a, index), EM_ARRAY_SIZE(a));
+}
+
+void em_array_load_unchecked_agg(em_ref a, int32_t index, void *out) {
+  memcpy(out, em_array_at(a, index), EM_ARRAY_SIZE(a));
+}
+
+em_ref em_array_set_agg(em_ref a, int32_t index, const void *value) {
+  int64_t n = EM_ARRAY_LEN(a);
+  if (index < 0 || index >= n) {
+    char msg[96];
+    snprintf(msg, sizeof msg, "Array.set was given position %" PRId32 " in an array of size %" PRId64,
+             index, n);
+    em_drop(a);
+    em_raise_cstr(msg);
+    return NULL;
+  }
+  size_t size = EM_ARRAY_SIZE(a);
+  em_ref out;
+  if (a->hdr.u.h.rc == 1) {
+    out = a;
+  } else {
+    out = em_array_copy(a, 0, n);
+    em_drop(a);
+  }
+  memcpy(em_array_at(out, index), value, size);
   return out;
 }
 
@@ -1606,18 +1690,18 @@ static const uint8_t em_refs_cause[2] = {0, 1};
 /* An interruption (`$Interrupted`), pending as a defect: slot 0 the scope whose body it unwinds,
  * or NULL for the whole fiber. */
 static const em_desc em_desc_interrupted = {EM_KIND_FIELDS, 1, 0, -1, "interrupted", NULL,
-                                            em_refs_one, NULL};
+                                            em_refs_one, 0, NULL};
 /* A `Cause[E]`: slot 0 the kind (CauseKind's tag), slot 1 the error (Fail) or the defect
  * message (Die). */
 static const em_desc em_desc_cause = {EM_KIND_FIELDS, 2, 0, -1, "Cause", NULL, em_refs_cause,
-                                      NULL};
+                                      0, NULL};
 /* `Exit`: `Success(A)` is 0, `Failure(Cause[E])` is 1. */
 static const em_desc em_desc_success_val = {EM_KIND_FIELDS, 1, 0, -1, "Success", NULL,
-                                            em_refs_none, NULL};
+                                            em_refs_none, 0, NULL};
 static const em_desc em_desc_success_ref = {EM_KIND_FIELDS, 1, 0, -1, "Success", NULL,
-                                            em_refs_one, NULL};
+                                            em_refs_one, 0, NULL};
 static const em_desc em_desc_failure = {EM_KIND_FIELDS, 1, 1, -1, "Failure", NULL, em_refs_one,
-                                        NULL};
+                                        0, NULL};
 
 /* `CauseKind` (`Fail`, `Die`). How an interrupted fiber ended is kept as a third kind, which is
  * never a value of `CauseKind` (an interruption is not a cause, `[task.cause]`). */
@@ -2190,17 +2274,17 @@ static void em_qcell_fin(em_ref o);
 static void em_resume_fin(em_ref o);
 
 static const em_desc em_desc_fiber = {EM_KIND_RUNTIME, 1, 0, -1, "Fiber", NULL, em_refs_none,
-                                      em_fiber_fin};
+                                      0, em_fiber_fin};
 static const em_desc em_desc_scope = {EM_KIND_RUNTIME, 1, 0, -1, "Scope", NULL, em_refs_none,
-                                      em_scope_fin};
+                                      0, em_scope_fin};
 static const em_desc em_desc_deferred = {EM_KIND_RUNTIME, 1, 0, -1, "Deferred", NULL,
-                                         em_refs_none, em_deferred_fin};
+                                         em_refs_none, 0, em_deferred_fin};
 static const em_desc em_desc_semaphore = {EM_KIND_RUNTIME, 1, 0, -1, "Semaphore", NULL,
-                                          em_refs_none, em_semaphore_fin};
+                                          em_refs_none, 0, em_semaphore_fin};
 static const em_desc em_desc_qcell = {EM_KIND_RUNTIME, 1, 0, -1, "Queue", NULL, em_refs_none,
-                                      em_qcell_fin};
+                                      0, em_qcell_fin};
 static const em_desc em_desc_resume = {EM_KIND_RUNTIME, 2, 0, -1, "resume", NULL, em_refs_none,
-                                       em_resume_fin};
+                                       0, em_resume_fin};
 
 static em_fiber *em_fiber_new(em_root *r, em_scope *scope) {
   em_fiber *f = em_rt_alloc(sizeof(em_fiber));
@@ -3833,13 +3917,13 @@ static const uint8_t em_refs_scope_body[5] = {0, 0, 1, 1, 0};
 static const uint8_t em_refs_scope_close_ref[7] = {0, 0, 1, 1, 0, 0, 1};
 static const uint8_t em_refs_scope_close_val[7] = {0, 0, 1, 1, 0, 0, 0};
 static const em_desc em_desc_scope_body = {EM_KIND_FIELDS, 5, 0, -1, "Task.Group", NULL,
-                                           em_refs_scope_body, NULL};
+                                           em_refs_scope_body, 0, NULL};
 static const em_desc em_desc_scope_close_ref = {EM_KIND_FIELDS, 7, 0, -1, "Task.Group", NULL,
-                                                em_refs_scope_close_ref, NULL};
+                                                em_refs_scope_close_ref, 0, NULL};
 static const em_desc em_desc_scope_close_val = {EM_KIND_FIELDS, 7, 0, -1, "Task.Group", NULL,
-                                                em_refs_scope_close_val, NULL};
+                                                em_refs_scope_close_val, 0, NULL};
 static const em_desc em_desc_attempt = {EM_KIND_FIELDS, 4, 0, -1, "Exit.attempt", NULL,
-                                        em_refs_frame1, NULL};
+                                        em_refs_frame1, 0, NULL};
 
 static void em_scope_fin(em_ref o) {
   em_scope *s = em_scope_of(o);

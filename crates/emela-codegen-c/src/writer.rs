@@ -81,6 +81,11 @@ impl Writer {
         self.line(&format!("#include \"{file}\""));
     }
 
+    /// A line of C that the other methods do not cover (a `typedef`).
+    pub(crate) fn raw(&mut self, text: &str) {
+        self.line(text);
+    }
+
     /// `static SIG;`.
     pub(crate) fn static_proto(&mut self, sig: &str) {
         self.line(&format!("static {sig};"));
