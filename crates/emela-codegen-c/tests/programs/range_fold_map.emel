@@ -2,7 +2,7 @@
 # `List.map(List.range(lo, hi), f)` must give what the hand-written loops give, in the same call
 # order, with the same failures and effects. Tests run this on JS and C (with the leak check) and
 # on WASM.
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 import Std.State.{State}
 
 const MAX = 2147483647
@@ -49,7 +49,9 @@ fn failing_fold(from: Int, to: Int) -> Int fails Missing {
 }
 
 fn suspending_fold(from: Int, to: Int) -> Int {
-  Fiber.scope(|| List.fold(List.range(from, to), 0, |acc, x| Fiber.join(Fiber.fork(|| acc + x))))
+  with tasks = Task.Group {
+    List.fold(List.range(from, to), 0, |acc, x| tasks.start(|| acc + x).join())
+  }
 }
 
 fn effectful_fold(from: Int, to: Int) -> (Int, Int) {
@@ -92,7 +94,9 @@ fn failing_map(from: Int, to: Int) -> List[Int] fails Missing {
 }
 
 fn suspending_map(from: Int, to: Int) -> List[Int] {
-  Fiber.scope(|| List.map(List.range(from, to), |x| Fiber.join(Fiber.fork(|| x * 2))))
+  with tasks = Task.Group {
+    List.map(List.range(from, to), |x| tasks.start(|| x * 2).join())
+  }
 }
 
 fn main() {

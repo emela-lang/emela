@@ -16,7 +16,7 @@ static void emela_clock_wake(em_task *task, void *ctx) {
   em_complete_unit(task);
 }
 
-/* Completes after `ms` milliseconds (a negative `ms` is 0, spec 8.8). Interrupting the sleeping
+/* Completes after `ms` milliseconds (a negative `ms` is 0, `[effect.state]`). Interrupting the sleeping
  * fiber completes it at once, which removes the timer (JS: the AbortSignal clears the timeout). */
 void emela_clock_sleep(int32_t ms, em_task *task) {
   em_after(ms < 0 ? 0 : ms, task, emela_clock_wake, NULL);
@@ -24,7 +24,7 @@ void emela_clock_sleep(int32_t ms, em_task *task) {
 }
 
 /* The runtime's TestClock hook: completes when the run stalls and `at` is the earliest time
- * waited for (spec 8.8). */
+ * waited for (`[effect.state]`). */
 void em_when_stalled(int64_t at, em_task *task);
 
 void emela_clock_when_stalled(int64_t at, em_task *task) { em_when_stalled(at, task); }

@@ -1,0 +1,51 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+export suspend fn main(ev%0: evidence) -> () {
+  with {
+    let arg%1: fn(Std.Cause.Cause[{fails}]) -> () ev = fn(c%2: Std.Cause.Cause[{fails}], ev%3: evidence) -> () {
+      (use[Log](ev%3)).Log#info(fiber#cause_to_string(c%2))
+    }
+  } {
+    let on_failure%4: fn(Std.Cause.Cause[{fails}]) -> () ev = arg%1
+    fiber#scope[background](suspend fn(s%5: fiber_scope) -> () fails {
+      with {
+        let h%6: handler Std.Task.Spawn[_, _] = handler Background: Std.Task.Spawn[_, _] {
+          start: fn(g%7: fn(evidence) -> () fails suspends) -> () {
+            let _%8: any = fiber#fork(s%5, suspend fn() -> () {
+              let exit%9: Std.Exit.Exit[(), ()] = fiber#attempt[Std.Exit.Exit](suspend fn() -> () fails {
+                (g%7)(ev%0)!?
+              })!
+              match exit%9 {
+                Std.Exit.Exit.Failure(cause%10) -> (on_failure%4)(cause%10, ev%0)
+                _ -> ()
+              }
+            })
+            ()
+          }
+        }
+      } {
+        let _%11: () = {
+          let tasks%12: handler Std.Task.Spawn[_, _] = h%6
+          let f%13: fn() -> () fails ev = fn(ev%14: evidence) -> () {
+            (use[Log](ev%14)).Log#info("a")
+          }
+          tasks%12.Std.Task.Spawn[_, _]#start(fn(ev%15: evidence) -> () fails {
+            (f%13)(provide(ev%15; Std.Task.Spawn[_, _] = tasks%12))?
+          })
+        }
+        let _%16: () = {
+          let tasks%17: handler Std.Task.Spawn[_, _] = h%6
+          let f%18: fn() -> () fails ev = fn() -> () fails {
+            fail Oops.Oops
+          }
+          tasks%17.Std.Task.Spawn[_, _]#start(fn(ev%19: evidence) -> () fails {
+            (f%18)(provide(ev%19; Std.Task.Spawn[_, _] = tasks%17))?
+          })
+        }
+        ()
+      }
+    })!?
+  }
+}

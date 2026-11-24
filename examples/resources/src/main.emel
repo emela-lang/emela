@@ -19,13 +19,16 @@ handler EnvConfig: Config {
 
 handler MemoryStore(prefix: String): Store {
   init {
-    prefix = (use Config).prefix()
-    (use Console).print_line("open store #{prefix}")
+    config <- Config
+    console <- Console
+    prefix = config.prefix()
+    console.print_line("open store #{prefix}")
     MemoryStore(prefix:)
   }
 
   release {
-    (use Console).print_line("close store #{self.prefix}")
+    console <- Console
+    console.print_line("close store #{self.prefix}")
   }
 
   fn get(key) { "#{self.prefix}/#{key}" }
@@ -38,9 +41,10 @@ layer AppLive {
 
 fn main() {
   with SystemConsole, AppLive {
-    store = use Store
-    (use Console).print_line(store.get("alice"))
-    (use Console).print_line(store.get("bob"))
+    store <- Store
+    console <- Console
+    console.print_line(store.get("alice"))
+    console.print_line(store.get("bob"))
   }
 }
 
@@ -52,6 +56,7 @@ handler TestConfig: Config {
 @test
 fn reads_through_the_store() {
   with SystemConsole, AppLive, TestConfig {
-    assert (use Store).get("alice") == "test/alice"
+    store <- Store
+    assert store.get("alice") == "test/alice"
   }
 }
